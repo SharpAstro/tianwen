@@ -443,6 +443,13 @@ stray disconnect hurts most).
 - **`force: true` is for process shutdown only.** Note that GUI "Force Off" does **not** force past
   ownership: it means "skip the warm-up", which is what the user confirmed; consenting to a cold
   disconnect is not consenting to kill the night.
+- **Stopping the rig is ONE sequence, `RigShutdown`** (`TianWen.UI.Abstractions`), for a quit and for a
+  display that died: the runs first, each through its own ending (a session's and a flat run's `Finalise`,
+  polar's mount restore), and the cameras warmed and disconnected only once every run has ENDED
+  (`LiveSessionState.SessionEnded` / `FlatRunEnded` / `PolarRunEnded`, which each starter completes on
+  EVERY path its run can end by). A quit aborts the runs; `DisplayLost` (P0a, #743) lets a session and a
+  flat run finish on their own and answers their prompts unattended. **Never queue a camera warm-up
+  beside a run's cancel**: that is how `Finalise` and the quit once ramped one camera at the same time.
 - **Escalation is explicit:** stop the run (abort the session / cancel the flat run) and the lease frees.
   There is no override on the actuation path by design.
 - `GetDisconnectSafetyAsync` is a **hardware**-safety check (cooler on / mid-exposure) and returns `Safe`

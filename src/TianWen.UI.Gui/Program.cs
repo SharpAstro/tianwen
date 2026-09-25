@@ -200,6 +200,12 @@ using var cts = new CancellationTokenSource();
 using var backgroundCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
 var tracker = new BackgroundTaskTracker();
 var lastWindowTitle = "\U0001F52D TianWen";
+
+// Stopping the rig, one sequence for a quit and for a dead display (RigShutdown says why the order
+// matters), and the line of status it reports, written from the stop's thread and shown by the banner.
+var rigShutdown = new RigShutdown(guiRenderer.ViewContexts.Local.LiveSession, appState.DeviceHub, timeProvider, logger);
+string? shutdownProgress = null;
+var displayLost = false;
 var handlers = new GuiEventHandlers(sp, appState, plannerState, guiRenderer, cts, backgroundCts.Token, external, tracker)
 {
     GetClipboardText = GetClipboardText,
@@ -249,6 +255,7 @@ bus.Subscribe<OpenUrlSignal>(sig =>
 // ESC quit confirmation: first ESC shows message, second ESC within 3s actually quits
 long escConfirmTimestamp = 0;
 int _lastShutdownPendingCount = -1;
+string? _lastShutdownProgress = null;
 var signalHandler = handlers.SignalHandler;
 tracker.Run(() => signalHandler.LoadSessionConfigAsync(backgroundCts.Token), "Load session config");
 
@@ -340,6 +347,15 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
             $"Display recovered from a GPU stall on the {wasTab} view (sky-map FOV was {fovAtStall:F0} deg) - switched to a safe view and reset the zoom. Hardware and session control were unaffected.");
     },
 
+    // The renderer gave the device up (SdlVulkan.Renderer 7.48 declares a device that keeps refusing work
+    // dead, which is the Adreno's actual failure). The loop stops after this; what follows loop.Run then
+    // keeps the night alive without a window instead of ending it (P0a, #743).
+    OnGpuWedged = () =>
+    {
+        displayLost = true;
+        logger.LogCritical("The GPU was declared wedged: this window cannot draw again. Runs go on without it; closing the window stops the rig.");
+    },
+
     // One pointer callback: the loop synthesizes the InputEvents with the real release coordinates
     // on MouseUp (the previous hand-wired OnMouseUp reconstructed them from a cached position, 
     // without them the click-vs-drag detection in SkyMapTab compared (0, 0) to the real mouse-down
@@ -426,17 +442,23 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         {
             var shutdownNow = timeProvider.GetTimestamp();
             var shutdownChanged = false;
+            // What the rig's stop is doing now ("Finalising the session...", "Warming <camera>"), which says
+            // more than a task count and moves as the stop does.
+            var progressNow = Volatile.Read(ref shutdownProgress);
             if (!tracker.HasPending)
             {
                 appState.ShutdownComplete = true;
                 shutdownChanged = true;
             }
-            else if (tracker.PendingCount != _lastShutdownPendingCount)
+            else if (tracker.PendingCount != _lastShutdownPendingCount || !ReferenceEquals(progressNow, _lastShutdownProgress))
             {
                 _lastShutdownPendingCount = tracker.PendingCount;
-                appState.StatusMessage = _lastShutdownPendingCount == 1
-                    ? $"Shutting down\u2026 {tracker.PendingDescriptions.First()}"
-                    : $"Shutting down\u2026 ({_lastShutdownPendingCount} tasks)";
+                _lastShutdownProgress = progressNow;
+                appState.StatusMessage = progressNow is { } stopping
+                    ? $"Shutting down\u2026 {stopping}"
+                    : _lastShutdownPendingCount == 1
+                        ? $"Shutting down\u2026 {tracker.PendingDescriptions.First()}"
+                        : $"Shutting down\u2026 ({_lastShutdownPendingCount} tasks)";
                 shutdownChanged = true;
             }
 
@@ -578,7 +600,11 @@ void RequestQuit()
 
     if (liveState.IsRunning && !liveState.ShowAbortConfirm)
     {
-        // Session running: show abort confirmation (same as pressing Escape in Live Session tab)
+        // Session running: show abort confirmation (same as pressing Escape in Live Session tab), with the
+        // Local context ON SCREEN. The tab renders the Active context, so with a remote rig on screen the
+        // confirmation used to be set where no frame drew it: Enter did nothing, and Esc twice then aborted
+        // the local session with no confirmation at all.
+        guiRenderer.ViewContexts.Activate(guiRenderer.ViewContexts.Local);
         liveState.ShowAbortConfirm = true;
         appState.QuitRequested = true;
         appState.ActiveTab = GuiTab.LiveSession;
@@ -586,16 +612,11 @@ void RequestQuit()
         return;
     }
 
-    // No session running, or abort already confirmed; proceed with shutdown
-    if (liveState is { SessionCts: { } sessionCts2 })
-    {
-        sessionCts2.Cancel();
-    }
+    // No session running, or abort already confirmed; proceed with shutdown.
 
-    // Cancel non-session background tasks (planner init, weather fetch) AND the live planetary capture, which
-    // is bound to this token (its Start received backgroundCts.Token). The capture loop + the rolling-window
-    // stacker loops poll the token, so they unwind promptly -- releasing the camera before the disconnect
-    // tasks below run, with no imperative Stop() in the quit path.
+    // Cancel non-session background tasks (planner init, weather fetch, the mount-limit watcher) AND the live
+    // planetary capture, which is bound to this token (its Start received backgroundCts.Token). The capture
+    // loop + the rolling-window stacker loops poll the token, so they unwind promptly and release the camera.
     backgroundCts.Cancel();
 
     // Record how recently each watched rig answered, before its mirror goes away with the process.
@@ -604,61 +625,19 @@ void RequestQuit()
     tracker.Run(() => signalHandler.FlushRigLastSeenAsync(System.Threading.CancellationToken.None),
         "Record rig last-seen");
 
-    // Out-of-session safety: enumerate hub-connected cameras and queue disconnect tasks.
-    // Each task checks safety inside (async), then either disconnects cleanly or does a
-    // warm-up ramp. CancellationToken.None: thermal ramp must complete for camera safety.
-    var cameraCount = 0;
-    if (appState.DeviceHub is { } hubAtQuit)
-    {
-        foreach (var (uri, driver) in hubAtQuit.ConnectedDevices)
-        {
-            if (driver is not TianWen.Lib.Devices.ICameraDriver) continue;
+    // The rig: every run aborted through its own ending (the session's and a flat run's Finalise, polar's
+    // mount restore), and the cameras warmed and disconnected only once every run has ENDED. The cameras
+    // used to be queued at the same moment the session was cancelled, so its Finalise and this quit could
+    // ramp one camera at once; and a flat run or polar was never cancelled at all, which is how a quit
+    // during polar alignment hung for ever. ONE tracked task, submitted here on the render thread.
+    tracker.Run(() => rigShutdown.StopAsync(RigShutdownMode.Quit, progress: p => Volatile.Write(ref shutdownProgress, p)),
+        "Stopping the rig");
 
-            var capUri = uri;
-            var camName = hubAtQuit.TryGetDeviceFromUri(capUri, out var dev) && dev is not null
-                ? dev.DisplayName : capUri.Host;
-            cameraCount++;
-            tracker.Run(async () =>
-            {
-                try
-                {
-                    var safety = await EquipmentActions.GetDisconnectSafetyAsync(hubAtQuit, capUri, System.Threading.CancellationToken.None);
-                    if (safety == EquipmentActions.DisconnectSafety.Safe)
-                    {
-                        // force: the quit path aborts the local session first, but the abort is async and
-                        // may not have dropped its leases yet. Shutting down must not be blocked by a run
-                        // that is already on its way out.
-                        await hubAtQuit.DisconnectAsync(capUri, force: true, System.Threading.CancellationToken.None);
-                    }
-                    else
-                    {
-                        await EquipmentActions.WarmAndDisconnectAsync(hubAtQuit, capUri, timeProvider, logger, force: true, System.Threading.CancellationToken.None);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    logger.LogWarning(ex, "Shutdown disconnect failed for {Uri}", capUri);
-                }
-            }, $"Disconnecting {camName}");
-        }
-    }
-
-    if (tracker.HasPending)
-    {
-        // Keep loop alive to show Finalise / warm-up progress
-        appState.ShuttingDown = true;
-        appState.ShutdownComplete = false;
-        var shutdownMsg = cameraCount > 0
-            ? $"Disconnecting {cameraCount} camera{(cameraCount == 1 ? "" : "s")}\u2026"
-            : "Shutting down\u2026";
-        appState.AppendNotification(timeProvider.GetUtcNow(),
-            NotificationSeverity.Info, shutdownMsg);
-        appState.NeedsRedraw = true;
-    }
-    else
-    {
-        loop.Stop();
-    }
+    // Keep the loop alive to show the Finalise / warm-up progress; the loop stops once nothing is pending.
+    appState.ShuttingDown = true;
+    appState.ShutdownComplete = false;
+    appState.AppendNotification(timeProvider.GetUtcNow(), NotificationSeverity.Info, "Shutting down\u2026");
+    appState.NeedsRedraw = true;
 }
 
 // Set separately to allow loop.Stop() self-reference
@@ -680,6 +659,17 @@ loop.OnPostFrame = () =>
     {
         loop.Stop();
         return;
+    }
+
+    // A quit whose confirmation was DISMISSED while the session runs on is withdrawn. It used to stay
+    // requested, and the GUI then quit by itself when the session later ended. Enter (confirm) cancels the
+    // session through the signal the bus has just processed above, so a confirmation that is gone with
+    // the session NOT cancelled can only have been dismissed.
+    var localLive = guiRenderer.ViewContexts.Local.LiveSession;
+    if (appState.QuitRequested && !localLive.ShowAbortConfirm && localLive.IsRunning
+        && localLive.SessionCts is { IsCancellationRequested: false })
+    {
+        appState.QuitRequested = false;
     }
 
     // After abort confirmation, if quit was requested, proceed to shutdown
@@ -900,7 +890,106 @@ using var debugInspector = DebugInspector.Attach(loop, new DebugInspectorOptions
 });
 #endif
 
-loop.Run(cts.Token);
+Exception? loopFault = null;
+try
+{
+    loop.Run(cts.Token);
+}
+catch (Exception ex)
+{
+    // An exception out of a render, an input handler or a post-frame step is an app bug (the renderer
+    // resolves the frame and rethrows it on purpose). It must not end the night either: the window can
+    // no longer be trusted to draw, so it goes the way a dead GPU does. It used to crash the process
+    // here, with no drain and no Finalise.
+    loopFault = ex;
+    logger.LogCritical(ex, "The GUI's event loop failed: this window stops drawing, and runs go on without it.");
+}
+
+if (displayLost || loopFault is not null)
+{
+    RunWithoutDisplay(loopFault is null ? "Display lost" : "Display failed");
+}
+
+// P0a (#743): the window cannot draw any more, and the rig must not notice. The runs the old tail cut off
+// mid-ramp (it cancelled `cts`, which the session is linked to, then drained for at most 5 s) go on to
+// their own end instead, the window stays pumped so it can still be closed, and closing it means "stop the
+// rig": abort, Finalise in full, then the cameras. Only then does the ordinary teardown below run.
+void RunWithoutDisplay(string why)
+{
+    // What serves only the window, and the planetary capture (interactive, meaningless unseen). The runs
+    // are the RigShutdown's.
+    backgroundCts.Cancel();
+
+    using var stopRig = new CancellationTokenSource();
+    string? progress = null;
+    var tail = Task.Run(() => rigShutdown.StopAsync(RigShutdownMode.DisplayLost, stopRig.Token,
+        p => Volatile.Write(ref progress, p)));
+
+    var local = guiRenderer.ViewContexts.Local.LiveSession;
+    var nightGoesOn = local.IsRunning || local.FlatsCts is not null;
+    SetHeadlessTitle(nightGoesOn
+        ? $"{why}: the session continues (close this window to stop the rig)"
+        : $"{why}: stopping the rig");
+
+    // Nothing of the app runs now: no frame is drawn, and no input, signal, telemetry poll or chrome has a
+    // window to serve. The loop only keeps the window's events pumping, which SdlVulkan.Renderer 7.49 makes
+    // safe on a wedged window (it stays inert), so the window is still movable and closable.
+    loop.OnRender = null;
+    loop.OnPostFrame = null;
+    loop.OnKeyDown = null;
+    loop.OnPointerInput = null;
+    loop.OnTextInput = null;
+    loop.OnTextEditing = null;
+    loop.OnPinch = null;
+    loop.OnPinchEnd = null;
+    loop.OnResize = null;
+    loop.OnRenderDegraded = null;
+
+    string? shownProgress = null;
+    loop.CheckNeedsRedraw = () =>
+    {
+        // Once per loop iteration, on this thread: the loop stops itself when the stop has finished.
+        if (tail.IsCompleted)
+        {
+            loop.Stop();
+            return false;
+        }
+
+        if (Volatile.Read(ref progress) is { } now && !ReferenceEquals(now, shownProgress))
+        {
+            shownProgress = now;
+            SetHeadlessTitle($"{why}: {now}");
+        }
+        return false;
+    };
+
+    loop.OnQuit = () =>
+    {
+        if (!stopRig.IsCancellationRequested)
+        {
+            stopRig.Cancel();
+            SetHeadlessTitle($"{why}: stopping the rig (park, warm-up, covers)");
+        }
+        // Always intercepted: the window stays until the stop completes, since a warm-up must not be cut.
+        return true;
+    };
+
+    // No deadline: a session left to finish runs until its own end, dawn included.
+    loop.Run(CancellationToken.None);
+
+    if (tail.Exception is { } stopFault)
+    {
+        logger.LogError(stopFault.GetBaseException(), "Stopping the rig without a display failed.");
+    }
+}
+
+// Needs no GPU (SDL's own window title), so it works on a window that can no longer draw.
+void SetHeadlessTitle(string title)
+{
+    lastWindowTitle = title;
+    sdlWindow.SetTitle(title);
+    logger.LogWarning("{Title}", title);
+}
 
 // Final cleanup: drain should complete quickly since we already waited in the loop.
 // Use a timeout so force-quit (second X press) doesn't hang on warm-up tasks.

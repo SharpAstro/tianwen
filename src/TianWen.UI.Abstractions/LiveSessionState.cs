@@ -52,6 +52,81 @@ namespace TianWen.UI.Abstractions
         /// <summary>CTS for cancelling the running session (linked to app-level CTS).</summary>
         public CancellationTokenSource? SessionCts { get; set; }
 
+        /// <summary>
+        /// Completes once the session started last has ENDED, its <c>Finalise</c> (park, warm-up, covers)
+        /// included, however it ended, and is complete already while none has been started. What a
+        /// <see cref="RigShutdown"/> awaits before it touches a camera the session may still be warming:
+        /// <see cref="IsRunning"/> says the same thing only to a caller willing to poll it.
+        /// </summary>
+        public System.Threading.Tasks.Task SessionEnded { get; private set; } = System.Threading.Tasks.Task.CompletedTask;
+
+        /// <summary>
+        /// Completes once the flat run started last has ENDED (see <see cref="SessionEnded"/>).
+        /// </summary>
+        public System.Threading.Tasks.Task FlatRunEnded { get; private set; } = System.Threading.Tasks.Task.CompletedTask;
+
+        /// <summary>
+        /// Completes once the polar-alignment run started last has ENDED, its mount restore (reverse the
+        /// axis, park or leave in place) included (see <see cref="SessionEnded"/>).
+        /// </summary>
+        public System.Threading.Tasks.Task PolarRunEnded { get; private set; } = System.Threading.Tasks.Task.CompletedTask;
+
+        /// <summary>
+        /// Called by a run's starter, on the thread that starts it and before anything of the run can
+        /// fail: the returned source MUST then be completed on every path the run can end by, or a
+        /// shutdown waits for it for ever. Continuations run asynchronously, so completing it from inside
+        /// the run's own <c>finally</c> never runs a waiter inline there.
+        /// </summary>
+        internal System.Threading.Tasks.TaskCompletionSource BeginSession()
+        {
+            var ended = NewRunEnded();
+            SessionEnded = ended.Task;
+            return ended;
+        }
+
+        /// <inheritdoc cref="BeginSession"/>
+        internal System.Threading.Tasks.TaskCompletionSource BeginFlatRun()
+        {
+            var ended = NewRunEnded();
+            FlatRunEnded = ended.Task;
+            return ended;
+        }
+
+        /// <inheritdoc cref="BeginSession"/>
+        internal System.Threading.Tasks.TaskCompletionSource BeginPolarRun()
+        {
+            var ended = NewRunEnded();
+            PolarRunEnded = ended.Task;
+            return ended;
+        }
+
+        private static System.Threading.Tasks.TaskCompletionSource NewRunEnded()
+            => new System.Threading.Tasks.TaskCompletionSource(System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>
+        /// Cancels a run's source that the run itself may be disposing on its way out. The flat and polar
+        /// runs clear their field and THEN dispose the source, so a canceller on another thread can hold a
+        /// source that is gone by the time it cancels, and <see cref="CancellationTokenSource.Cancel()"/>
+        /// throws on a disposed one. A disposed source means that run has already ended, which is all the
+        /// cancel was for, so it is not an error.
+        /// </summary>
+        internal static void CancelRun(CancellationTokenSource? source)
+        {
+            if (source is null)
+            {
+                return;
+            }
+
+            try
+            {
+                source.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // The run ended and disposed its source between the caller's read and this cancel.
+            }
+        }
+
 
 
         // --- Cached from ISession (cheap volatile reads, polled each frame) ---
@@ -355,6 +430,14 @@ namespace TianWen.UI.Abstractions
         /// session flows (flats now; dark-frame cover-close later), not flats-specific.
         /// </summary>
         public TianWen.Lib.Sequencing.SessionPromptEventArgs? PendingPrompt { get; set; }
+
+        /// <summary>
+        /// True once nobody can SEE a prompt any more: the window's GPU died and the runs go on without it
+        /// (<see cref="RigShutdownMode.DisplayLost"/>). A run's prompt is then answered at once with its
+        /// <see cref="TianWen.Lib.Sequencing.SessionPromptEventArgs.DefaultIfUnanswerable"/>, the answer an
+        /// unattended caller gives, instead of waiting for an overlay no frame will ever draw.
+        /// </summary>
+        public bool AnswerPromptsUnattended { get; set; }
 
         /// <summary>
         /// OTA index currently targeted by keyboard shortcuts and mouse clicks in

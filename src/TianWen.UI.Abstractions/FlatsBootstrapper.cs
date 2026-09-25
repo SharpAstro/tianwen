@@ -47,6 +47,10 @@ namespace TianWen.UI.Abstractions
 
             var flatsCts = CancellationTokenSource.CreateLinkedTokenSource(parentToken);
 
+            // Completed on EVERY way out (see SessionBootstrapper): the early return and both catches
+            // through the outer finally, and the tracked run's own finally once the run has ended.
+            var ended = liveSessionState.BeginFlatRun();
+            var handedToRun = false;
             try
             {
                 liveSessionState.FlatsCts = flatsCts;
@@ -117,6 +121,13 @@ namespace TianWen.UI.Abstractions
                 // session's background thread; a reference assignment + NeedsRedraw is all that crosses over.
                 void OnPromptRequested(object? _, SessionPromptEventArgs e)
                 {
+                    // Nobody can see an overlay once the display is gone: answer as an unattended caller
+                    // would, rather than hold the run for a frame that will never be drawn.
+                    if (liveSessionState.AnswerPromptsUnattended)
+                    {
+                        e.Respond(e.DefaultIfUnanswerable);
+                        return;
+                    }
                     liveSessionState.PendingPrompt = e;
                     liveSessionState.NeedsRedraw = true;
                     appState.ActiveTab = GuiTab.LiveSession;
@@ -127,43 +138,53 @@ namespace TianWen.UI.Abstractions
                 appState.AppendNotification(timeProvider.GetUtcNow(), NotificationSeverity.Info, "Flat run started");
                 appState.NeedsRedraw = true;
 
+                handedToRun = true;
                 tracker.Run(async () =>
                 {
                     try
                     {
-                        await session.RunFlatsOnlyAsync(period, flatsCts.Token);
-                    }
-                    catch (Exception ex) when (ex is not OperationCanceledException)
-                    {
-                        logger.LogError(ex, "Flat run failed");
+                        try
+                        {
+                            await session.RunFlatsOnlyAsync(period, flatsCts.Token);
+                        }
+                        catch (Exception ex) when (ex is not OperationCanceledException)
+                        {
+                            logger.LogError(ex, "Flat run failed");
+                        }
+                        finally
+                        {
+                            session.PhaseChanged -= OnPhaseChanged;
+                            session.PromptRequested -= OnPromptRequested;
+                            // Clear any prompt left open by a cancel mid-wait (the session's WaitAsync already
+                            // resolved it to "decline"; this just drops the stale overlay).
+                            liveSessionState.PendingPrompt = null;
+
+                            var (msg, severity) = liveSessionState.Phase switch
+                            {
+                                SessionPhase.Complete => ("Flats complete", NotificationSeverity.Info),
+                                SessionPhase.Aborted => ("Flat run cancelled", NotificationSeverity.Warning),
+                                SessionPhase.Failed => (session.FailureReason is { } why ? $"Flats failed: {why}" : "Flats failed", NotificationSeverity.Error),
+                                _ => ("Flat run finished", NotificationSeverity.Info),
+                            };
+                            liveSessionState.FlatStatusMessage = msg;
+                            appState.AppendNotification(timeProvider.GetUtcNow(), severity, msg);
+
+                            // Detach the session so the tab returns to normal preview polling. Leaving Mode ==
+                            // Flats keeps the terminal status + Cancel(->Preview) visible until the user acts.
+                            liveSessionState.ActiveSession = null;
+                            liveSessionState.FlatsCts = null;
+                            try { await session.DisposeAsync(); }
+                            catch (Exception ex) { logger.LogWarning(ex, "Flat run: session dispose failed"); }
+                            flatsCts.Dispose();
+                            liveSessionState.NeedsRedraw = true;
+                            appState.NeedsRedraw = true;
+                        }
                     }
                     finally
                     {
-                        session.PhaseChanged -= OnPhaseChanged;
-                        session.PromptRequested -= OnPromptRequested;
-                        // Clear any prompt left open by a cancel mid-wait (the session's WaitAsync already
-                        // resolved it to "decline"; this just drops the stale overlay).
-                        liveSessionState.PendingPrompt = null;
-
-                        var (msg, severity) = liveSessionState.Phase switch
-                        {
-                            SessionPhase.Complete => ("Flats complete", NotificationSeverity.Info),
-                            SessionPhase.Aborted => ("Flat run cancelled", NotificationSeverity.Warning),
-                            SessionPhase.Failed => (session.FailureReason is { } why ? $"Flats failed: {why}" : "Flats failed", NotificationSeverity.Error),
-                            _ => ("Flat run finished", NotificationSeverity.Info),
-                        };
-                        liveSessionState.FlatStatusMessage = msg;
-                        appState.AppendNotification(timeProvider.GetUtcNow(), severity, msg);
-
-                        // Detach the session so the tab returns to normal preview polling. Leaving Mode ==
-                        // Flats keeps the terminal status + Cancel(->Preview) visible until the user acts.
-                        liveSessionState.ActiveSession = null;
-                        liveSessionState.FlatsCts = null;
-                        try { await session.DisposeAsync(); }
-                        catch (Exception ex) { logger.LogWarning(ex, "Flat run: session dispose failed"); }
-                        flatsCts.Dispose();
-                        liveSessionState.NeedsRedraw = true;
-                        appState.NeedsRedraw = true;
+                        // Last of all, so a shutdown waiting on it sees the run ENDED, its finalise and
+                        // the session's dispose included.
+                        ended.TrySetResult();
                     }
                 }, "Flat run");
             }
@@ -183,6 +204,13 @@ namespace TianWen.UI.Abstractions
                 liveSessionState.FlatsCts = null;
                 liveSessionState.ActiveSession = null;
                 flatsCts.Dispose();
+            }
+            finally
+            {
+                if (!handedToRun)
+                {
+                    ended.TrySetResult();
+                }
             }
         }
     }

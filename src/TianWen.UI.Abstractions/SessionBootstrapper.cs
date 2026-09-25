@@ -33,6 +33,11 @@ namespace TianWen.UI.Abstractions
             ILogger logger,
             CancellationToken parentToken)
         {
+            // Completed on EVERY way out: the early returns and both catches below (through the outer
+            // finally), and the tracked run's own finally, so a RigShutdown awaiting the session never
+            // waits on a start that failed, and never walks past a Finalise still warming the cameras.
+            var ended = liveSessionState.BeginSession();
+            var handedToRun = false;
             try
             {
                 // Switch to live session tab immediately so user sees progress
@@ -191,62 +196,72 @@ namespace TianWen.UI.Abstractions
                 // RunAsync includes Finalise: run as tracked background task so:
                 // 1. UI stays responsive (signal handler returns immediately)
                 // 2. DrainAsync at shutdown waits for Finalise to complete
+                handedToRun = true;
                 tracker.Run(async () =>
                 {
                     try
                     {
-                        await session.RunAsync(sessionCts.Token);
-                    }
-                    catch (Exception ex) when (ex is not OperationCanceledException)
-                    {
-                        logger.LogError(ex, "Session run failed");
+                        try
+                        {
+                            await session.RunAsync(sessionCts.Token);
+                        }
+                        catch (Exception ex) when (ex is not OperationCanceledException)
+                        {
+                            logger.LogError(ex, "Session run failed");
+                        }
+                        finally
+                        {
+                            session.PhaseChanged -= OnPhaseChanged;
+                            liveSessionState.IsRunning = false;
+                            liveSessionState.NeedsRedraw = true;
+
+                            // Mirror per-focuser backlash EWMAs back into the active profile's
+                            // focuser URIs so the next session bootstraps from last night's value.
+                            // The Session sidecar (BacklashHistory) keeps the same data with sample
+                            // count + timestamp; the URI mirror is so drivers can read it on connect
+                            // without going through the Session.
+                            try
+                            {
+                                if (appState.ActiveProfile is { } activeProfile)
+                                {
+                                    var updated = await EquipmentActions.SaveBacklashEstimatesIfChangedAsync(
+                                        session, activeProfile, external, CancellationToken.None);
+                                    if (!ReferenceEquals(updated, activeProfile))
+                                    {
+                                        appState.ActiveProfile = updated;
+                                    }
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                logger.LogWarning(ex, "Failed to mirror backlash estimates into profile at session end");
+                            }
+
+                            var (phaseMsg, phaseSeverity) = liveSessionState.Phase switch
+                            {
+                                SessionPhase.Complete => ("Session complete", NotificationSeverity.Info),
+                                SessionPhase.Aborted => ("Session aborted", NotificationSeverity.Warning),
+                                // Session.FailureReason carries the user-facing "which device / what to
+                                // check" text; without it fall back to the bare phase.
+                                SessionPhase.Failed => (session.FailureReason is { } why ? $"Session failed: {why}" : "Session failed", NotificationSeverity.Error),
+                                _ => (null, NotificationSeverity.Info)
+                            };
+                            if (phaseMsg is not null)
+                            {
+                                appState.AppendNotification(timeProvider.GetUtcNow(), phaseSeverity, phaseMsg);
+                            }
+                            else
+                            {
+                                appState.StatusMessage = null;
+                            }
+                            appState.NeedsRedraw = true;
+                        }
                     }
                     finally
                     {
-                        session.PhaseChanged -= OnPhaseChanged;
-                        liveSessionState.IsRunning = false;
-                        liveSessionState.NeedsRedraw = true;
-
-                        // Mirror per-focuser backlash EWMAs back into the active profile's
-                        // focuser URIs so the next session bootstraps from last night's value.
-                        // The Session sidecar (BacklashHistory) keeps the same data with sample
-                        // count + timestamp; the URI mirror is so drivers can read it on connect
-                        // without going through the Session.
-                        try
-                        {
-                            if (appState.ActiveProfile is { } activeProfile)
-                            {
-                                var updated = await EquipmentActions.SaveBacklashEstimatesIfChangedAsync(
-                                    session, activeProfile, external, CancellationToken.None);
-                                if (!ReferenceEquals(updated, activeProfile))
-                                {
-                                    appState.ActiveProfile = updated;
-                                }
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            logger.LogWarning(ex, "Failed to mirror backlash estimates into profile at session end");
-                        }
-
-                        var (phaseMsg, phaseSeverity) = liveSessionState.Phase switch
-                        {
-                            SessionPhase.Complete => ("Session complete", NotificationSeverity.Info),
-                            SessionPhase.Aborted => ("Session aborted", NotificationSeverity.Warning),
-                            // Session.FailureReason carries the user-facing "which device / what to
-                            // check" text; without it fall back to the bare phase.
-                            SessionPhase.Failed => (session.FailureReason is { } why ? $"Session failed: {why}" : "Session failed", NotificationSeverity.Error),
-                            _ => (null, NotificationSeverity.Info)
-                        };
-                        if (phaseMsg is not null)
-                        {
-                            appState.AppendNotification(timeProvider.GetUtcNow(), phaseSeverity, phaseMsg);
-                        }
-                        else
-                        {
-                            appState.StatusMessage = null;
-                        }
-                        appState.NeedsRedraw = true;
+                        // Last of all, so a shutdown waiting on it sees the run ENDED: Finalise, and the
+                        // bookkeeping above, included.
+                        ended.TrySetResult();
                     }
                 }, "Session run");
             }
@@ -262,6 +277,13 @@ namespace TianWen.UI.Abstractions
                 appState.AppendNotification(timeProvider.GetUtcNow(),
                     NotificationSeverity.Error, $"Session failed: {ex.Message}");
                 liveSessionState.IsRunning = false;
+            }
+            finally
+            {
+                if (!handedToRun)
+                {
+                    ended.TrySetResult();
+                }
             }
         }
     }
