@@ -27,7 +27,7 @@ namespace TianWen.Lib.Tests;
 [Collection("Imaging")]
 public class HistogramKernelParityTests
 {
-    public static TheoryData<string> Kinds() => ["mono-unit", "mono-adu", "colour-unit", "mosaic-00", "mosaic-11", "mosaic-10"];
+    public static TheoryData<string> Kinds() => ["mono-unit", "mono-adu", "mono-adu-integer", "colour-unit", "mosaic-00", "mosaic-11", "mosaic-10"];
 
     [Theory]
     [MemberData(nameof(Kinds))]
@@ -35,6 +35,7 @@ public class HistogramKernelParityTests
     {
         var image = Build(kind);
         var checkedCount = 0;
+        var fromBands = new List<bool>();
         foreach (var (channel, cfa) in Walks(image))
         {
             foreach (var stride in new[] { 1, 2, 3 })
@@ -69,6 +70,20 @@ public class HistogramKernelParityTests
                             first.AsSpan().SequenceEqual(bins).ShouldBeTrue($"first bins differ: {at}");
                             kernelSecondTotal.ShouldBe(secondTotal, at);
                             second.AsSpan().SequenceEqual(secondBins).ShouldBeTrue($"second bins differ: {at}");
+
+                            // The same in parallel bands, forced small so an image this size bands: the bins,
+                            // the counts and the sum, whichever way the sum was got.
+                            var bandFirst = new uint[threshold];
+                            var bandSecond = new uint[threshold];
+                            var banded = image.TraverseInBands(channel, ignoreBlack, stride, cfa, scale, threshold,
+                                bandFirst, pedestal, sumFirst: true, bandSecond, secondPedestal, minSamplesPerBand: 997);
+                            BitConverter.DoubleToInt64Bits(banded.Sum).ShouldBe(BitConverter.DoubleToInt64Bits(sum),
+                                $"banded sum differs (taken {(banded.SumFromBands ? "from the bands" : "in walk order")}): {at}");
+                            banded.Total.ShouldBe(total, at);
+                            bandFirst.AsSpan().SequenceEqual(bins).ShouldBeTrue($"banded first bins differ: {at}");
+                            banded.SecondTotal.ShouldBe(secondTotal, at);
+                            bandSecond.AsSpan().SequenceEqual(secondBins).ShouldBeTrue($"banded second bins differ: {at}");
+                            fromBands.Add(banded.SumFromBands);
                             checkedCount++;
                         }
                     }
@@ -76,6 +91,20 @@ public class HistogramKernelParityTests
             }
         }
         checkedCount.ShouldBeGreaterThan(0);
+
+        // Both ways of getting the sum are exercised: whole numbers always pass the bound, and tiny values
+        // beside a large total (every kind but the integer one carries them) fail it while they are counted.
+        if (Environment.ProcessorCount > 1)
+        {
+            if (kind == "mono-adu-integer")
+            {
+                fromBands.ShouldContain(true, "whole numbers far below 2^53 cannot round");
+            }
+            else if (kind == "mono-unit")
+            {
+                fromBands.ShouldContain(false, "a tiny value beside a large total must send the sum back to walk order");
+            }
+        }
     }
 
     [Fact]
@@ -110,6 +139,84 @@ public class HistogramKernelParityTests
             bins, pedestal: 0f, sumFirst: true, secondHistogram: default, secondPedestal: 0f);
 
         BitConverter.DoubleToInt64Bits(sum).ShouldBe(BitConverter.DoubleToInt64Bits(inOrder));
+
+        // In bands this sum cannot be proven order-free (the tie is a rounding), so it is taken in walk order.
+        var bandBins = new uint[threshold];
+        var banded = image.TraverseInBands(0, ignoreBlack: false, pixelStride: 1, cfa: null, scaleFactor: 1f, threshold,
+            bandBins, pedestal: 0f, sumFirst: true, secondHistogram: default, secondPedestal: 0f, minSamplesPerBand: 997);
+        if (Environment.ProcessorCount > 1)
+        {
+            banded.SumFromBands.ShouldBeFalse("2^-22 beside 2^31 is exactly the case the bound refuses");
+        }
+        BitConverter.DoubleToInt64Bits(banded.Sum).ShouldBe(BitConverter.DoubleToInt64Bits(inOrder));
+        bandBins.AsSpan().SequenceEqual(bins).ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// A frame whose statistics cannot be taken fails with the reason the one-walk-at-a-time code gave, not with
+    /// the wrapper the parallel walk would put round it. The viewer shows the message as the reason a file did
+    /// not open; wrapped, it read "One or more errors occurred", once per channel. The real case: a drizzle
+    /// weight sidecar whose samples all lie past the histogram (10P/Tempel, <c>_autocrop.rejection.fits</c>).
+    /// </summary>
+    [Fact]
+    public async Task AFrameWithNoStatisticsFailsWithTheReasonNotAWrapper()
+    {
+        const int width = 64;
+        const int height = 48;
+        var planes = new float[3][,];
+        for (var c = 0; c < 3; c++)
+        {
+            var plane = planes[c] = new float[height, width];
+            for (var y = 0; y < height; y++)
+            {
+                for (var x = 0; x < width; x++) { plane[y, x] = 33.3f; }
+            }
+        }
+        var meta = new ImageMeta("weights", DateTimeOffset.UnixEpoch, TimeSpan.Zero, FrameType.Light, "",
+            0f, 0f, -1, -1, Filter.None, 1, 1, float.NaN, SensorType.Color, 0, 0,
+            RowOrder.TopDown, float.NaN, float.NaN);
+
+        // Labelled [0, 1] while every sample is 33.3: nothing lands in a bin, so there is no MAD.
+        var expected = Should.Throw<InvalidOperationException>(
+            () => new Image(planes, BitDepth.Float32, 1f, 0f, 0f, meta).GetPedestralMedianAndMADScaledToUnit(0));
+
+        var collect = Should.Throw<InvalidOperationException>(
+            () => StretchSolver.CollectStats(new Image(planes, BitDepth.Float32, 1f, 0f, 0f, meta)));
+        collect.Message.ShouldBe(expected.Message);
+
+        var open = await Should.ThrowAsync<InvalidOperationException>(
+            () => AstroImageDocument.AdoptImageAsync(new Image(planes, BitDepth.Float32, 1f, 0f, 0f, meta), cancellationToken: TestContext.Current.CancellationToken));
+        open.Message.ShouldBe(expected.Message);
+    }
+
+    [Fact]
+    public void GetStatsBandsAFullSizeFrameAndStillMatchesTheTwoCalls()
+    {
+        // 2048 x 1100: 2.25 M samples, so GetStats walks two bands or more at its own default size, and whole
+        // numbers, so the bound holds and the mean comes from the bands.
+        const int width = 2048;
+        const int height = 1100;
+        var plane = new float[height, width];
+        var rng = new Random(31);
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                plane[y, x] = rng.Next(900, 4096);
+            }
+        }
+        var meta = new ImageMeta("bands", DateTimeOffset.UnixEpoch, TimeSpan.Zero, FrameType.Light, "",
+            0f, 0f, -1, -1, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0,
+            RowOrder.TopDown, float.NaN, float.NaN);
+        var image = new Image([plane], BitDepth.Int16, 4095f, 900f, 0f, meta);
+
+        var (histogram, stretch) = image.GetStats(0);
+
+        ShouldBeTheSame(histogram, image.Statistics(0), "full-size frame");
+        var (pedestal, median, mad) = image.GetPedestralMedianAndMADScaledToUnit(0);
+        Bits(stretch.Pedestal).ShouldBe(Bits(pedestal));
+        Bits(stretch.Median).ShouldBe(Bits(median));
+        Bits(stretch.Mad).ShouldBe(Bits(mad));
     }
 
     [Theory]
@@ -287,7 +394,7 @@ public class HistogramKernelParityTests
         // ones (129 samples from column 0, 128 from column 1).
         const int width = 257;
         const int height = 131;
-        var unit = kind != "mono-adu";
+        var unit = !kind.StartsWith("mono-adu", StringComparison.Ordinal);
         var channels = kind == "colour-unit" ? 3 : 1;
         var (sensor, bayerX, bayerY) = kind switch
         {
@@ -320,6 +427,10 @@ public class HistogramKernelParityTests
                     else if (roll < 0.045) { v = -0f; }
                     else if (roll < 0.10) { v = full * (float)rng.NextDouble(); }                // anywhere, both thresholds included
                     else { v = full * (0.02f + 0.004f * (float)rng.NextDouble()); }              // the sky
+                    if (kind == "mono-adu-integer" && !float.IsNaN(v))
+                    {
+                        v = MathF.Round(v);
+                    }
                     plane[y, x] = v;
                     if (!float.IsNaN(v) && v < min) { min = v; }
                 }

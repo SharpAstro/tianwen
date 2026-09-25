@@ -1,5 +1,4 @@
 using System;
-using System.Threading.Tasks;
 using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging;
@@ -481,7 +480,7 @@ public static class StretchSolver
         var count = mosaic ? CfaColours.Length : image.ChannelCount;
         var stretch = new ChannelStretchStats[count];
         var histograms = new ImageHistogram[count];
-        Parallel.For(0, count, i =>
+        ParallelFor.Run(count, i =>
         {
             var (histogram, stats) = mosaic
                 ? image.GetStats(0, pixelStride, CfaColours[i])

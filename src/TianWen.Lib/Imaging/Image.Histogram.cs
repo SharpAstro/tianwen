@@ -1,6 +1,7 @@
 using System;
 using System.Buffers;
 using System.Collections.Immutable;
+using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
@@ -139,6 +140,9 @@ public partial class Image
         Span<uint> histogram, float pedestal, bool sumFirst, Span<uint> secondHistogram, float secondPedestal)
     {
         var (_, width, height) = Shape;
+        // No first histogram is the walk that wants only the ordered sum (TraverseInBands, when it cannot
+        // prove its band sums exact): the samples are tested and summed in walk order and binned nowhere.
+        var binFirst = !histogram.IsEmpty;
         var dual = !secondHistogram.IsEmpty;
         var hist_total = 0L;
         var secondTotal = 0L;
@@ -179,8 +183,10 @@ public partial class Image
         //   50 ms  as it was
         //   36 ms  with this flat span
         //   32 ms  with the float-domain clamp below
-        //    8 ms  with parallel row bands -- NOT taken, see docs/todo/imaging.md; it reorders
-        //          the total_value summation that feeds Background()'s mode search.
+        //    8 ms  with parallel row bands -- not taken HERE: it reorders the total_value
+        //          summation that feeds Background()'s mode search. TraverseInBands takes it
+        //          for the document open (#490), and takes the sum from the bands only when it
+        //          proves no order could change it.
         //   18 ms  with four samples at a time (the Vector128 walk below), bit for bit; the
         //          probe's copy of the scalar loop read 29 ms in the same run (2026-09-25,
         //          win-arm64, #631).
@@ -225,36 +231,32 @@ public partial class Image
 
                         var first = value - vPedestal;
                         var firstIn = (Vector128.GreaterThanOrEqual(first, vLow) & Vector128.LessThan(first, vThreshold)).ExtractMostSignificantBits();
-                        if (firstIn == 0b1111)
+                        if (firstIn != 0)
                         {
-                            var bin = BinIndices(first, vMaxBin);
-                            histogram[bin.GetElement(0)]++;
-                            histogram[bin.GetElement(1)]++;
-                            histogram[bin.GetElement(2)]++;
-                            histogram[bin.GetElement(3)]++;
-                            hist_total += 4;
+                            if (binFirst)
+                            {
+                                BinLanes(histogram, first, firstIn, vMaxBin);
+                            }
+                            hist_total += BitOperations.PopCount(firstIn);
                             if (sumFirst)
                             {
                                 // Lane order IS walk order, so the ordered sum sees the samples in exactly
                                 // the sequence the scalar walk would.
-                                total_value += first.GetElement(0);
-                                total_value += first.GetElement(1);
-                                total_value += first.GetElement(2);
-                                total_value += first.GetElement(3);
-                            }
-                        }
-                        else if (firstIn != 0)
-                        {
-                            var bin = BinIndices(first, vMaxBin);
-                            for (var lane = 0; lane < 4; lane++)
-                            {
-                                if ((firstIn & (1u << lane)) != 0)
+                                if (firstIn == 0b1111)
                                 {
-                                    histogram[bin.GetElement(lane)]++;
-                                    hist_total++;
-                                    if (sumFirst)
+                                    total_value += first.GetElement(0);
+                                    total_value += first.GetElement(1);
+                                    total_value += first.GetElement(2);
+                                    total_value += first.GetElement(3);
+                                }
+                                else
+                                {
+                                    for (var lane = 0; lane < 4; lane++)
                                     {
-                                        total_value += first.GetElement(lane);
+                                        if ((firstIn & (1u << lane)) != 0)
+                                        {
+                                            total_value += first.GetElement(lane);
+                                        }
                                     }
                                 }
                             }
@@ -264,26 +266,10 @@ public partial class Image
                         {
                             var second = value - vSecondPedestal;
                             var secondIn = (Vector128.GreaterThanOrEqual(second, vLow) & Vector128.LessThan(second, vThreshold)).ExtractMostSignificantBits();
-                            if (secondIn == 0b1111)
+                            if (secondIn != 0)
                             {
-                                var bin = BinIndices(second, vMaxBin);
-                                secondHistogram[bin.GetElement(0)]++;
-                                secondHistogram[bin.GetElement(1)]++;
-                                secondHistogram[bin.GetElement(2)]++;
-                                secondHistogram[bin.GetElement(3)]++;
-                                secondTotal += 4;
-                            }
-                            else if (secondIn != 0)
-                            {
-                                var bin = BinIndices(second, vMaxBin);
-                                for (var lane = 0; lane < 4; lane++)
-                                {
-                                    if ((secondIn & (1u << lane)) != 0)
-                                    {
-                                        secondHistogram[bin.GetElement(lane)]++;
-                                        secondTotal++;
-                                    }
-                                }
+                                BinLanes(secondHistogram, second, secondIn, vMaxBin);
+                                secondTotal += BitOperations.PopCount(secondIn);
                             }
                         }
                     }
@@ -301,7 +287,10 @@ public partial class Image
                         // ignore black overlap areas and bright stars (if threshold percentage is below 100%)
                         if (valueMinusPedestral >= low && valueMinusPedestral < threshold)
                         {
-                            histogram[Bin(valueMinusPedestral, maxBinIndex, maxBinF)]++; // calculate histogram
+                            if (binFirst)
+                            {
+                                histogram[Bin(valueMinusPedestral, maxBinIndex, maxBinF)]++; // calculate histogram
+                            }
                             hist_total++;
                             if (sumFirst)
                             {
@@ -324,6 +313,282 @@ public partial class Image
         }
 
         return (total_value, hist_total, secondTotal);
+    }
+
+    // A band has to hold this many samples for another band to pay for its bins and its thread.
+    private const int DefaultMinSamplesPerBand = 1 << 20;
+
+    // Above every biased float exponent (0 to 255): no nonzero finite addend has been seen.
+    private const int NoExponent = 256;
+
+    /// <summary>
+    /// <see cref="Traverse"/> over parallel bands of rows, with the same results bit for bit. The bins and the
+    /// counts are integers, which no order changes. The running sum is taken from the bands only when no order
+    /// could have changed it; otherwise it is taken again in walk order.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>When no order can change a floating-point sum.</b>
+    /// <list type="number">
+    /// <item>Every addend is a float, so an integer multiple of its own ulp, and so of g, the smallest ulp among
+    /// them, a power of two.</item>
+    /// <item>Every partial sum, in any order and any grouping, is then an integer multiple of g, no larger in
+    /// magnitude than the sum of the magnitudes.</item>
+    /// <item>If that sum is below 2^53 g, every partial sum is exactly representable as a double. No addition
+    /// rounds, and every order gives the same double, the walk's included.</item>
+    /// </list>
+    /// The bands track the two numbers this needs, the smallest exponent and the sum of magnitudes. When the
+    /// bound holds, the band sums ARE the ordered sum. When it does not (a tiny value beside a large total, an
+    /// infinity), <see cref="Traverse"/> takes the sum again, in walk order and with no bins, which costs back
+    /// what the bands saved and nothing more.</para>
+    /// <para><b>#490 declined parallel bands</b> because a reordered sum is only almost certainly the same. This
+    /// one is certainly the same, or it is not reordered.</para>
+    /// <para><b>Used where a frame's statistics are taken on their own:</b> the document open
+    /// (<see cref="GetStats"/>, the luminance statistic). It is not used where the caller already runs frames
+    /// in parallel, as star detection inside a bake does.</para>
+    /// </remarks>
+    /// <param name="minSamplesPerBand">How many samples a band must hold for a second band to pay; a test sets it
+    /// low to band a small image.</param>
+    internal (double Sum, long Total, long SecondTotal, bool SumFromBands) TraverseInBands(
+        int channel, bool ignoreBlack, int pixelStride, CfaChannel? cfa, float scaleFactor, uint threshold,
+        Span<uint> histogram, float pedestal, bool sumFirst, Span<uint> secondHistogram, float secondPedestal,
+        int minSamplesPerBand = DefaultMinSamplesPerBand)
+    {
+        var (_, width, height) = Shape;
+        var stride = Math.Max(1, pixelStride);
+        Span<(int Row, int Col)> phaseStarts = stackalloc (int Row, int Col)[2];
+        var phaseCount = CfaPhaseStarts(cfa, phaseStarts);
+        var step = CfaStep(cfa, stride);
+        var walked = (long)phaseCount * ((height + step - 1) / step) * ((width + step - 1) / step);
+        var bandCount = (int)Math.Clamp(walked / Math.Max(1, minSamplesPerBand), 1, Math.Min(Environment.ProcessorCount, height));
+        if (bandCount < 2)
+        {
+            var (orderedSum, orderedTotal, orderedSecondTotal) = Traverse(channel, ignoreBlack, pixelStride, cfa, scaleFactor, threshold,
+                histogram, pedestal, sumFirst, secondHistogram, secondPedestal);
+            return (orderedSum, orderedTotal, orderedSecondTotal, SumFromBands: false);
+        }
+
+        var dual = !secondHistogram.IsEmpty;
+        var bins = (int)threshold;
+        var starts = phaseStarts[..phaseCount].ToArray();
+        var channelData = Planes[channel].Data;
+        var low = ignoreBlack ? 1f : float.NegativeInfinity;
+        var tallies = new BandTally[bandCount];
+        var firstBins = new uint[bandCount][];
+        var secondBins = new uint[bandCount][];
+        ParallelFor.Run(bandCount, band =>
+        {
+            var first = ArrayPool<uint>.Shared.Rent(bins);
+            Array.Clear(first, 0, bins);
+            firstBins[band] = first;
+            uint[] second = [];
+            if (dual)
+            {
+                second = ArrayPool<uint>.Shared.Rent(bins);
+                Array.Clear(second, 0, bins);
+            }
+            secondBins[band] = second;
+
+            var rowFrom = (int)((long)height * band / bandCount);
+            var rowTo = (int)((long)height * (band + 1) / bandCount);
+            tallies[band] = WalkBand(channelData, width, rowFrom, rowTo, starts, step, scaleFactor, threshold, low,
+                first.AsSpan(0, bins), pedestal, sumFirst, dual ? second.AsSpan(0, bins) : default, secondPedestal);
+        });
+
+        long total = 0, secondTotal = 0;
+        var bandSum = 0.0;
+        var magnitude = 0.0;
+        var minExponent = NoExponent;
+        var nonFinite = false;
+        for (var band = 0; band < bandCount; band++)
+        {
+            AddBins(histogram, firstBins[band].AsSpan(0, bins));
+            ArrayPool<uint>.Shared.Return(firstBins[band]);
+            if (dual)
+            {
+                AddBins(secondHistogram, secondBins[band].AsSpan(0, bins));
+                ArrayPool<uint>.Shared.Return(secondBins[band]);
+            }
+
+            var tally = tallies[band];
+            total += tally.Total;
+            secondTotal += tally.SecondTotal;
+            bandSum += tally.Sum;
+            magnitude += tally.Magnitude;
+            minExponent = Math.Min(minExponent, tally.MinExponent);
+            nonFinite |= tally.NonFinite;
+        }
+
+        if (!sumFirst)
+        {
+            return (0.0, total, secondTotal, SumFromBands: false);
+        }
+
+        // The bound, with the sum of magnitudes read generously: it was itself summed in doubles, so it can sit
+        // a relative 2^-22 or so below the true one, and 2^-20 more covers that. A biased exponent e makes an
+        // ulp of 2^(e - 150), so 2^53 g is 2^(e - 97). No nonzero addend at all means a sum of +0 either way.
+        var exact = !nonFinite
+            && (minExponent == NoExponent || magnitude * (1 + 1.0 / (1 << 20)) < Math.ScaleB(1.0, minExponent - 97));
+        if (exact)
+        {
+            return (bandSum, total, secondTotal, SumFromBands: true);
+        }
+
+        var (sum, _, _) = Traverse(channel, ignoreBlack, pixelStride, cfa, scaleFactor, threshold,
+            Span<uint>.Empty, pedestal, sumFirst: true, Span<uint>.Empty, 0f);
+        return (sum, total, secondTotal, SumFromBands: false);
+    }
+
+    // What one band of TraverseInBands found besides its bins.
+    private readonly record struct BandTally(long Total, long SecondTotal, double Sum, double Magnitude, int MinExponent, bool NonFinite);
+
+    // One band's rows of every phase, binned as Traverse bins them. The sum is taken lane by lane, in no
+    // particular order, beside what TraverseInBands needs to know whether that order could matter.
+    private static BandTally WalkBand(
+        float[,] channelData, int width, int rowFrom, int rowTo, (int Row, int Col)[] starts, int step,
+        float scaleFactor, uint threshold, float low,
+        Span<uint> histogram, float pedestal, bool sumFirst, Span<uint> secondHistogram, float secondPedestal)
+    {
+        var dual = !secondHistogram.IsEmpty;
+        long total = 0, secondTotal = 0;
+        var sum = 0.0;
+        var magnitude = 0.0;
+        var minExponent = NoExponent;
+        var nonFinite = false;
+        var maxBinIndex = (int)threshold - 1;
+        var maxBinF = (float)maxBinIndex;
+
+        var vectorised = Vector128.IsHardwareAccelerated
+            && (step == 1 || (step == 2 && (AdvSimd.Arm64.IsSupported || Sse.IsSupported)));
+        var columnsPerVector = 4 * step;
+        var vScale = Vector128.Create(scaleFactor);
+        var vPedestal = Vector128.Create(pedestal);
+        var vSecondPedestal = Vector128.Create(secondPedestal);
+        var vLow = Vector128.Create(low);
+        var vThreshold = Vector128.Create((float)threshold);
+        var vMaxBin = Vector128.Create(maxBinF);
+        var vSumLower = Vector128<double>.Zero;
+        var vSumUpper = Vector128<double>.Zero;
+        var vMagnitudeLower = Vector128<double>.Zero;
+        var vMagnitudeUpper = Vector128<double>.Zero;
+        var vExponentMask = Vector128.Create(0xFF);
+        var vOne = Vector128.Create(1);
+        var vNoExponent = Vector128.Create(NoExponent);
+        var vMinExponent = vNoExponent;
+        var vNonFinite = Vector128<int>.Zero;
+
+        var flat = MemoryMarshal.CreateReadOnlySpan(ref channelData[0, 0], channelData.Length);
+        foreach (var (rowStart, colStart) in starts)
+        {
+            // The phase's rows are rowStart, rowStart + step, ...: the first of them in this band.
+            var h = rowStart >= rowFrom ? rowStart : rowStart + (rowFrom - rowStart + step - 1) / step * step;
+            for (; h < rowTo; h += step)
+            {
+                var row = flat.Slice(h * width, width);
+                var w = colStart;
+                if (vectorised)
+                {
+                    ref var rowOrigin = ref MemoryMarshal.GetReference(row);
+                    for (; w + columnsPerVector <= width; w += columnsPerVector)
+                    {
+                        var raw = step == 1
+                            ? Vector128.LoadUnsafe(ref rowOrigin, (nuint)w)
+                            : EvenLanes(Vector128.LoadUnsafe(ref rowOrigin, (nuint)w), Vector128.LoadUnsafe(ref rowOrigin, (nuint)(w + 4)));
+                        var value = raw * vScale;
+
+                        var first = value - vPedestal;
+                        var inRange = Vector128.GreaterThanOrEqual(first, vLow) & Vector128.LessThan(first, vThreshold);
+                        var firstIn = inRange.ExtractMostSignificantBits();
+                        if (firstIn != 0)
+                        {
+                            BinLanes(histogram, first, firstIn, vMaxBin);
+                            total += BitOperations.PopCount(firstIn);
+                            if (sumFirst)
+                            {
+                                // A lane left out counts as +0, which moves neither sum nor bound.
+                                var counted = Vector128.ConditionalSelect(inRange, first, Vector128<float>.Zero);
+                                var lower = Vector128.WidenLower(counted);
+                                var upper = Vector128.WidenUpper(counted);
+                                vSumLower += lower;
+                                vSumUpper += upper;
+                                vMagnitudeLower += Vector128.Abs(lower);
+                                vMagnitudeUpper += Vector128.Abs(upper);
+
+                                // The biased exponent; a zero (either sign) constrains nothing, a subnormal has
+                                // the smallest normal's ulp, and 255 is an infinity (a NaN never gets this far).
+                                var exponent = Vector128.ShiftRightLogical(counted.AsInt32(), 23) & vExponentMask;
+                                var nonZero = ~Vector128.Equals(counted, Vector128<float>.Zero).AsInt32();
+                                vNonFinite |= nonZero & Vector128.Equals(exponent, vExponentMask);
+                                vMinExponent = Vector128.Min(vMinExponent,
+                                    Vector128.ConditionalSelect(nonZero, Vector128.Max(exponent, vOne), vNoExponent));
+                            }
+                        }
+
+                        if (dual)
+                        {
+                            var second = value - vSecondPedestal;
+                            var secondIn = (Vector128.GreaterThanOrEqual(second, vLow) & Vector128.LessThan(second, vThreshold)).ExtractMostSignificantBits();
+                            if (secondIn != 0)
+                            {
+                                BinLanes(secondHistogram, second, secondIn, vMaxBin);
+                                secondTotal += BitOperations.PopCount(secondIn);
+                            }
+                        }
+                    }
+                }
+
+                for (; w <= width - 1; w += step)
+                {
+                    var rawValue = row[w];
+                    if (!float.IsNaN(rawValue))
+                    {
+                        var value = rawValue * scaleFactor;
+                        var first = value - pedestal;
+                        if (first >= low && first < threshold)
+                        {
+                            histogram[Bin(first, maxBinIndex, maxBinF)]++;
+                            total++;
+                            if (sumFirst)
+                            {
+                                sum += first;
+                                magnitude += Math.Abs((double)first);
+                                if (first != 0f)
+                                {
+                                    var exponent = (BitConverter.SingleToInt32Bits(first) >>> 23) & 0xFF;
+                                    if (exponent == 0xFF)
+                                    {
+                                        nonFinite = true;
+                                    }
+                                    else
+                                    {
+                                        minExponent = Math.Min(minExponent, Math.Max(exponent, 1));
+                                    }
+                                }
+                            }
+                        }
+
+                        if (dual)
+                        {
+                            var second = value - secondPedestal;
+                            if (second >= low && second < threshold)
+                            {
+                                secondHistogram[Bin(second, maxBinIndex, maxBinF)]++;
+                                secondTotal++;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        sum += vSumLower.GetElement(0) + vSumLower.GetElement(1) + vSumUpper.GetElement(0) + vSumUpper.GetElement(1);
+        magnitude += vMagnitudeLower.GetElement(0) + vMagnitudeLower.GetElement(1) + vMagnitudeUpper.GetElement(0) + vMagnitudeUpper.GetElement(1);
+        for (var lane = 0; lane < 4; lane++)
+        {
+            minExponent = Math.Min(minExponent, vMinExponent.GetElement(lane));
+            nonFinite |= vNonFinite.GetElement(lane) != 0;
+        }
+
+        return new BandTally(total, secondTotal, sum, magnitude, minExponent, nonFinite);
     }
 
     // The bin a sample lands in.
@@ -355,6 +620,50 @@ public partial class Image
         => AdvSimd.Arm64.IsSupported
             ? AdvSimd.Arm64.UnzipEven(lower, upper)
             : Sse.Shuffle(lower, upper, 0b10_00_10_00);
+
+    // The increments for the lanes `lanes` selects: a histogram is a scatter, so these stay scalar. The one
+    // place both walks bin a vector, so Traverse and WalkBand cannot bin differently.
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void BinLanes(Span<uint> histogram, Vector128<float> values, uint lanes, Vector128<float> maxBin)
+    {
+        var bin = BinIndices(values, maxBin);
+        if (lanes == 0b1111)
+        {
+            histogram[bin.GetElement(0)]++;
+            histogram[bin.GetElement(1)]++;
+            histogram[bin.GetElement(2)]++;
+            histogram[bin.GetElement(3)]++;
+            return;
+        }
+
+        for (var lane = 0; lane < 4; lane++)
+        {
+            if ((lanes & (1u << lane)) != 0)
+            {
+                histogram[bin.GetElement(lane)]++;
+            }
+        }
+    }
+
+    // A band's bins into the histogram's.
+    private static void AddBins(Span<uint> into, ReadOnlySpan<uint> from)
+    {
+        var i = 0;
+        if (Vector128.IsHardwareAccelerated)
+        {
+            ref var target = ref MemoryMarshal.GetReference(into);
+            ref var source = ref MemoryMarshal.GetReference(from);
+            for (; i + 4 <= into.Length; i += 4)
+            {
+                (Vector128.LoadUnsafe(ref target, (nuint)i) + Vector128.LoadUnsafe(ref source, (nuint)i)).StoreUnsafe(ref target, (nuint)i);
+            }
+        }
+
+        for (; i < into.Length; i++)
+        {
+            into[i] += from[i];
+        }
+    }
 
     // The median and the MAD of a filled histogram, in bin units.
     private static (float Median, float? Mad) MedianAndMad(ReadOnlySpan<uint> histogram, long hist_total, uint threshold)
@@ -466,6 +775,11 @@ public partial class Image
         => Histogram(channel, thresholdPct: 100, ignoreBlack: false, calcStats: true, removePedestral, pixelStride, cfa);
 
     public (float Pedestral, float Median, float MAD) GetPedestralMedianAndMADScaledToUnit(int channel, int pixelStride = 1, CfaChannel? cfa = null)
+        => PedestralMedianAndMadScaledToUnit(channel, pixelStride, cfa, inBands: false);
+
+    // inBands walks the samples in parallel row bands (TraverseInBands), which is free of any proof here: no
+    // running sum is kept, and a count is an integer. The luminance statistic of a document open asks for it.
+    private (float Pedestral, float Median, float MAD) PedestralMedianAndMadScaledToUnit(int channel, int pixelStride, CfaChannel? cfa, bool inBands)
     {
         // Statistics(channel, removePedestral: true) over RENTED bins: only the median and the MAD leave, so
         // the histogram is scratch. It used to be a new array per call, 256 KB for a unit-scaled float image,
@@ -477,8 +791,11 @@ public partial class Image
             var bins = rented.AsSpan(0, (int)threshold);
             bins.Clear();
             // No running sum: the mean it would feed never leaves this method.
-            var (_, total, _) = Traverse(channel, ignoreBlack: false, pixelStride, cfa, scaleFactor, threshold,
-                bins, MinValue * scaleFactor, sumFirst: false, secondHistogram: default, secondPedestal: 0f);
+            var total = inBands
+                ? TraverseInBands(channel, ignoreBlack: false, pixelStride, cfa, scaleFactor, threshold,
+                    bins, MinValue * scaleFactor, sumFirst: false, secondHistogram: default, secondPedestal: 0f).Total
+                : Traverse(channel, ignoreBlack: false, pixelStride, cfa, scaleFactor, threshold,
+                    bins, MinValue * scaleFactor, sumFirst: false, secondHistogram: default, secondPedestal: 0f).Total;
             var (median, mad) = MedianAndMad(bins, total, threshold);
             return StretchStatsScaledToUnit(median, mad, rescaledMaxValue);
         }
@@ -494,10 +811,14 @@ public partial class Image
     /// price of one of them.
     /// </summary>
     /// <remarks>
-    /// They are two histograms, not one: the stretch statistics are taken with the pedestal REMOVED (the
+    /// <para>They are two histograms, not one: the stretch statistics are taken with the pedestal REMOVED (the
     /// shader subtracts it before the curve, so the median that positions the curve must be in that same
     /// space), while a display draws the frame's own levels. What they share is the read of the samples, which
-    /// a document open used to make twice for every channel, or every colour of a mosaic.
+    /// a document open used to make twice for every channel, or every colour of a mosaic.</para>
+    /// <para><b>The walk runs in parallel row bands</b> (<see cref="TraverseInBands"/>), whose mean is the ordered
+    /// one because it is taken from the bands only when no order could change it. This is the document open's
+    /// call, one frame at a time; <see cref="Statistics"/> stays a single walk for callers that already run
+    /// frames in parallel.</para>
     /// </remarks>
     public (ImageHistogram Histogram, ChannelStretchStats Stretch) GetStats(int channel, int pixelStride = 1, CfaChannel? cfa = null)
     {
@@ -509,7 +830,7 @@ public partial class Image
         {
             var stretchBins = rented.AsSpan(0, (int)threshold);
             stretchBins.Clear();
-            var (total_value, hist_total, stretchTotal) = Traverse(channel, ignoreBlack: false, pixelStride, cfa, scaleFactor, threshold,
+            var (total_value, hist_total, stretchTotal, _) = TraverseInBands(channel, ignoreBlack: false, pixelStride, cfa, scaleFactor, threshold,
                 histogram, pedestal: 0f, sumFirst: true, stretchBins, secondPedestal: MinValue * scaleFactor);
 
             // Statistics(channel), field for field: the count behind the mean started at 1.
