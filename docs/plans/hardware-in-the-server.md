@@ -336,7 +336,10 @@ Then the correctness items:
 8. **Native v1 in-session actuation skips the lease.** The mount and OTA endpoints call `session.Setup`
    drivers directly, without `DeviceOwnershipGate`: `/mount/slew`, `/park`, `/unpark`, `/tracking`,
    `/ota/{i}/focuser/move`, `/focuser/stop`, `/filterwheel/change`, and every actuation route of the
-   ninaAPI shim. Only the Alpaca plane asks the gate.
+   ninaAPI shim. Only the Alpaca plane asks the gate. **FIXED**: all 22 routes (7 native, 15 ninaAPI)
+   ask `ActuationGate` as soon as they have the device, before any capability check or driver access,
+   and refuse a device a run is driving with 409 naming the run. `NodeActuationGateTests` sends every
+   route against a leased rig of fake devices; before the fix each fell through to its driver check.
 9. **GUI: the abort confirmation cancels the LOCAL session while a remote rig is on screen.** The Live
    Session tab sets `ShowAbortConfirm` on the Active context, but `ConfirmAbortSessionSignal`'s handler
    cancels `LocalLiveSession.SessionCts`. The prompt reply handler has the same shape. **The review found
@@ -428,6 +431,10 @@ Found by the review (2026-09-25), all confirmed in the code:
 18. **The ninaAPI shim and the profile endpoints skip their own gates.** `GET /v2/api/profile/switch`
     switches the active profile ungated (the native `PUT /session/profile` asks `ProfileSwitchGate`),
     and `DELETE /profiles/{id}` deletes a profile without asking whether it is active or running.
+    **FIXED**: the ninaAPI switch asks `ProfileSwitchGate`, and a delete refuses the node's active
+    profile and, while a run is going, any profile. The node does not record which profile a run was
+    started from, so it cannot tell the one in use from the rest; refusing all of them for the length
+    of a run is the safe answer.
 
 ## P0c: bugs in the hosts that the split would carry over (#788; review, 2026-09-25)
 

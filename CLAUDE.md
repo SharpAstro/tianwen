@@ -1294,7 +1294,9 @@ full native-AOT rules, and the reasoning behind each rule below:
 5. **The Alpaca plane is a DEVICE plane and cannot become the session plane.** Ownership there is the
    hub lease, not an Alpaca policy: actuation and `Connected=false` answer `0x40B`, reads and
    `Connected=true` always pass; never make the plane read-only during a session. Device numbers come
-   from the **ACTIVE PROFILE, in profile order**, never from discovery.
+   from the **ACTIVE PROFILE, in profile order**, never from discovery. **The native and ninaAPI
+   actuation routes ask the same lease (`ActuationGate`, 409 naming the run) before touching a driver**,
+   and a new actuation route owes the same.
 6. **AOT is verified by `dotnet publish -r <rid>`, not `dotnet build`.** RDG stays enabled in the
    **`TianWen.Hosting` library**, both JSON contexts stay registered via `ConfigureHttpJsonOptions`,
    and **never reintroduce a `ResponseEnvelope<object>` or an anonymous-type payload**.
