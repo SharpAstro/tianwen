@@ -116,7 +116,7 @@ internal partial record Session
             var mount = Setup.Mount;
             _currentActivity = "Connecting mount\u2026";
             _logger.LogDebug("Flats: connecting mount {Mount}", mount);
-            await mount.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
+            await mount.ConnectAsync(DeviceHub, cancellationToken).ConfigureAwait(false);
             await mount.Driver.SetUTCDateAsync(_timeProvider.GetUtcNow().UtcDateTime, cancellationToken).ConfigureAwait(false);
 
             if (!double.IsNaN(siteLatitude) && !double.IsNaN(siteLongitude))

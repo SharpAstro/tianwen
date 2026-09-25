@@ -74,6 +74,36 @@ internal class DeviceHub(IServiceProvider serviceProvider, ILogger<DeviceHub> lo
         return driver;
     }
 
+    public async ValueTask<IDeviceDriver> AdoptAsync(DeviceBase device, IDeviceDriver driver, CancellationToken cancellationToken = default)
+    {
+        var key = device.DeviceUri.DeviceKey;
+
+        _connected.TryGetValue(key, out var existing);
+        if (existing.Driver is { Connected: true } held)
+        {
+            return held;
+        }
+
+        if (!driver.Connected)
+        {
+            await driver.ConnectAsync(cancellationToken);
+        }
+
+        _connected[key] = (device, driver);
+
+        // A driver the entry held before went down on its own (a run's Finalise disconnects the mount it
+        // drove). Nothing reaches it through the hub any more, so it is released here rather than leaked.
+        if (existing.Driver is { } stale && !ReferenceEquals(stale, driver))
+        {
+            await stale.DisposeAsync();
+        }
+
+        logger.LogInformation("DeviceHub: adopted {DeviceType} {DisplayName}", device.DeviceType, device.DisplayName);
+        DeviceStateChanged?.Invoke(this, new DeviceConnectedEventArgs(connected: true));
+
+        return driver;
+    }
+
     public async ValueTask DisconnectAsync(Uri deviceUri, bool force = false, CancellationToken cancellationToken = default)
     {
         var key = deviceUri.DeviceKey;
@@ -121,7 +151,7 @@ internal class DeviceHub(IServiceProvider serviceProvider, ILogger<DeviceHub> lo
     }
 
     public IReadOnlyList<(Uri DeviceUri, IDeviceDriver Driver)> ConnectedDevices =>
-        _connected.Values.Select(e => (e.Device.DeviceUri, e.Driver)).ToList();
+        _connected.Values.Where(static e => e.Driver.Connected).Select(static e => (e.Device.DeviceUri, e.Driver)).ToList();
 
     public bool IsConnected(Uri deviceUri) =>
         _connected.TryGetValue(deviceUri.DeviceKey, out var entry) && entry.Driver.Connected;

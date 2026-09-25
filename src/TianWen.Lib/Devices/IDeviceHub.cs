@@ -31,6 +31,20 @@ public interface IDeviceHub : IAsyncDisposable
     ValueTask<IDeviceDriver> ConnectAsync(DeviceBase device, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Connects <paramref name="driver"/>, an instance its caller built for <paramref name="device"/>, and keeps
+    /// it as the hub's driver for the device; returns it. When the hub already holds a CONNECTED driver for the
+    /// device it returns that one instead and leaves <paramref name="driver"/> alone, still the caller's.
+    /// <para>
+    /// How a run's drivers come to live in the hub (P0b item 11 of docs/plans/hardware-in-the-server.md,
+    /// #752). A session builds its setup before anything connects, so its wrappers hold drivers of their own;
+    /// handing the hub THOSE instances, rather than having it build second ones, leaves one driver per device
+    /// for the device plane, the limit watcher and <c>/devices</c> alike, with anything its caller configured
+    /// on it intact. A failed connect leaves the driver the caller's, undisposed.
+    /// </para>
+    /// </summary>
+    ValueTask<IDeviceDriver> AdoptAsync(DeviceBase device, IDeviceDriver driver, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Disconnects and disposes the driver for the given device URI,
     /// removing it from the hub.
     /// <para>
@@ -50,7 +64,10 @@ public interface IDeviceHub : IAsyncDisposable
     bool TryGetConnectedDriver<T>(Uri deviceUri, [NotNullWhen(true)] out T? driver) where T : class, IDeviceDriver;
 
     /// <summary>
-    /// Returns a snapshot of all currently connected devices and their drivers.
+    /// Returns a snapshot of all currently connected devices and their drivers. A device whose driver went
+    /// down outside the hub is not in it, although the hub keeps the entry until something connects that
+    /// device again: every run ends that way, since <c>Finalise</c> disconnects the mount and the guider
+    /// through the drivers the hub holds.
     /// </summary>
     IReadOnlyList<(Uri DeviceUri, IDeviceDriver Driver)> ConnectedDevices { get; }
 

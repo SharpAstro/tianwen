@@ -234,6 +234,9 @@ host connects through the hub. **It is the DEFAULT as of 2026-08-31.** Cost is i
 functional suite went 2m49 to 3m01 and the unit suite did not move, even though every session test now
 resolves the mount, refreshes a SOFA transform per exposure and projects through the true-pointing
 seam. `ResolveCoupledMount` caches, and the transform is built once with only its clock refreshed.
+Since P0b item 11 of `hardware-in-the-server.md` (#752) a session's initialisation adopts its mount
+into the hub itself, so keeping the mount out of the hub no longer keeps a camera uncoupled: the opt-out
+is `FakeCameraDriver.CouplesToMount`, on each camera's own driver, which the helper sets.
 
 **One test opts out, and it is a real hang rather than a preference:**
 `GivenSkywatcherWithLimitsWhenTargetCrossesMeridianThenItFlipsAndTheLimitStaysClear` stalls coupled --

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
 using System;
 using System.Threading;
@@ -207,6 +208,51 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         ctx.Camera.Longitude.ShouldNotBeNull();
 
         output.WriteLine($"Camera: telescope={ctx.Camera.Telescope}, FL={ctx.Camera.FocalLength}, lat={ctx.Camera.Latitude}, lon={ctx.Camera.Longitude}");
+    }
+
+    /// <summary>
+    /// A run's devices connect THROUGH the hub, so a node holds one driver per device (P0b item 11 of
+    /// docs/plans/hardware-in-the-server.md, #752). The session connected drivers of its own unless the hub
+    /// already held them connected, so on a server, where nothing pre-connects, the session and the hub were
+    /// two driver worlds: /devices said the session's devices were disconnected, the Alpaca plane could not see
+    /// them, and an Alpaca Connected=true opened a second driver on a device the session was driving.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task GivenNothingPreConnectedWhenInitialisationThenTheHubHoldsTheSessionsOwnDrivers()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        // Uncoupled, so the helper puts nothing in the hub: the server's shape, where nothing pre-connects.
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, coupleCameraToMount: false, cancellationToken: ct);
+        var hub = ctx.Session.ServiceProvider.GetRequiredService<IDeviceHub>();
+
+        var initTask = ctx.Track(Task.Run(async () => await ctx.Session.InitialisationAsync(ctx.Token), ctx.Token));
+        while (!initTask.IsCompleted && !ct.IsCancellationRequested)
+        {
+            await ctx.TimeProvider.SleepAsync(TimeSpan.FromSeconds(1), ct);
+            await Task.Delay(10, ct);
+        }
+        (await initTask).ShouldBeTrue("initialisation should succeed");
+
+        var setup = ctx.Session.Setup;
+        var telescope = setup.Telescopes[0];
+        HeldByTheHub(hub, setup.Mount.Device, setup.Mount.Driver);
+        HeldByTheHub(hub, setup.Guider.Device, setup.Guider.Driver);
+        HeldByTheHub(hub, telescope.Camera.Device, telescope.Camera.Driver);
+        HeldByTheHub(hub, telescope.Focuser.ShouldNotBeNull().Device, telescope.Focuser.Driver);
+
+        // What an Alpaca Connected=true does: it asks the hub, which answers with the session's own driver.
+        (await hub.ConnectAsync(telescope.Camera.Device, ct)).ShouldBeSameAs(telescope.Camera.Driver);
+
+        // And the helper's "uncoupled" still holds with the mount in the hub now: the opt-out sits on each
+        // camera's own driver, the instance the hub adopted, which is what the loop tests that opt out rely on.
+        ((FakeCameraDriver)telescope.Camera.Driver).ResolveCoupledMount().ShouldBeNull();
+        ((FakeCameraDriver)setup.GuiderSetup.Camera.ShouldNotBeNull().Driver).ResolveCoupledMount().ShouldBeNull();
+    }
+
+    private static void HeldByTheHub(IDeviceHub hub, DeviceBase device, IDeviceDriver driver)
+    {
+        hub.TryGetConnectedDriver<IDeviceDriver>(device.DeviceUri, out var held).ShouldBeTrue($"{device.DisplayName} is in the hub");
+        held.ShouldBeSameAs(driver, $"the hub holds the session's own {device.DisplayName} driver, not a second one");
     }
 
     // --- Finalise ---
