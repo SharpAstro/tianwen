@@ -1822,6 +1822,21 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     }
 
     /// <summary>
+    /// A frame's end runs on the exposure timer and resolves the coupled mount from the service provider, so a
+    /// frame still exposing when the hub lets this camera go must not end afterwards, when that provider may be
+    /// gone. Awaiting the timer's disposal also waits out an end already running, which <c>Dispose</c> does not.
+    /// </summary>
+    protected override async ValueTask DisposeAsyncCore()
+    {
+        await base.DisposeAsyncCore();
+
+        if (Interlocked.Exchange(ref _exposureTimer, null) is { } timer)
+        {
+            await timer.DisposeAsync();
+        }
+    }
+
+    /// <summary>
     /// Sensor preset for a fake camera. Each fake device ID maps to a real sensor model.
     /// </summary>
     internal readonly record struct SensorPreset(

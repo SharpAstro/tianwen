@@ -29,12 +29,19 @@ namespace TianWen.UI.Abstractions
         /// Result of <see cref="BuildCaptureSource"/>: either a constructed
         /// <see cref="ICaptureSource"/> (plus the guider that must be stopped before the
         /// run, if the guider path was chosen), or a user-facing <paramref name="Error"/>
-        /// explaining which device is missing.
+        /// explaining which device is missing. <paramref name="Drives"/> is what the source commands (the guider
+        /// and its camera, or the OTA's camera), which a run claims with the mount; the focuser and the filter
+        /// wheel are only read, for the frames' cards, and reads are never claimed.
         /// </summary>
         internal readonly record struct CaptureSourceResult(
             ICaptureSource? Source,
             IGuider? ActiveGuider,
-            string? Error);
+            string? Error,
+            Uri[] Drives)
+        {
+            /// <summary>A refusal: no source, nothing driven.</summary>
+            internal static CaptureSourceResult Refused(string error) => new CaptureSourceResult(null, null, error, []);
+        }
 
         /// <summary>
         /// Builds the polar-alignment capture source from the profile + connected devices.
@@ -60,17 +67,17 @@ namespace TianWen.UI.Abstractions
             {
                 if (!hub.TryGetConnectedDriver<IGuider>(profileData.Guider, out var guider) || guider is null)
                 {
-                    return new CaptureSourceResult(null, null, "Guider not connected, connect a guider or untoggle Use Guider");
+                    return CaptureSourceResult.Refused("Guider not connected, connect a guider or untoggle Use Guider");
                 }
                 if (profileData.GuiderCamera is not { } guideCamUri
                     || !hub.TryGetConnectedDriver<ICameraDriver>(guideCamUri, out var guideCam)
                     || guideCam is null)
                 {
-                    return new CaptureSourceResult(null, null, "Guider camera not connected, cannot determine pixel scale");
+                    return CaptureSourceResult.Refused("Guider camera not connected, cannot determine pixel scale");
                 }
                 if (profileData.GuiderFocalLength is not { } guiderFlMm || guiderFlMm <= 0)
                 {
-                    return new CaptureSourceResult(null, null, "Guider focal length not set in profile, required for plate scale");
+                    return CaptureSourceResult.Refused("Guider focal length not set in profile, required for plate scale");
                 }
 
                 // Aperture isn't strictly recorded for guide scopes; assume f/4 if absent
@@ -93,7 +100,7 @@ namespace TianWen.UI.Abstractions
                     external,
                     logger,
                     searchOriginAsync: guiderSearchOrigin);
-                return new CaptureSourceResult(guiderSource, guider, null);
+                return new CaptureSourceResult(guiderSource, guider, null, [profileData.Guider, guideCamUri]);
             }
 
             var otaIndex = sig.OtaIndex >= 0 && sig.OtaIndex < profileData.OTAs.Length
@@ -102,7 +109,7 @@ namespace TianWen.UI.Abstractions
             var ota = profileData.OTAs[otaIndex];
             if (!hub.TryGetConnectedDriver<ICameraDriver>(ota.Camera, out var camera) || camera is null)
             {
-                return new CaptureSourceResult(null, null, $"OTA #{otaIndex + 1} camera not connected");
+                return CaptureSourceResult.Refused($"OTA #{otaIndex + 1} camera not connected");
             }
 
             // Resolve focuser / filter wheel; the capture source's per-frame
@@ -174,7 +181,7 @@ namespace TianWen.UI.Abstractions
                     liveSessionState.PreviewPlateSolveResult = result;
                     liveSessionState.NeedsRedraw = true;
                 });
-            return new CaptureSourceResult(mainSource, null, null);
+            return new CaptureSourceResult(mainSource, null, null, [ota.Camera]);
         }
 
         /// <summary>

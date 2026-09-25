@@ -71,10 +71,24 @@ namespace TianWen.Lib.Devices
         /// <exception cref="DeviceLeasedException">One of the devices is already owned; nothing is left
         /// claimed.</exception>
         public static DeviceLeaseSet Acquire(IDeviceHub? hub, IEnumerable<Uri> deviceUris, string ownerLabel)
+            => TryAcquire(hub, deviceUris, ownerLabel, out var claim, out var refusal)
+                ? claim
+                : throw new DeviceLeasedException(refusal.Owner ?? default);
+
+        /// <summary>
+        /// <see cref="Acquire"/>, answering a conflict instead of throwing it: a run refused its devices is an
+        /// ordinary outcome for the host that starts it (polar alignment or a planetary capture while a flat
+        /// run holds the camera), and <paramref name="refusal"/> says so in the gate's own words
+        /// (<see cref="DeviceOwnershipVerdict.Describe"/>). Nothing is left claimed on a refusal.
+        /// </summary>
+        public static bool TryAcquire(IDeviceHub? hub, IEnumerable<Uri> deviceUris, string ownerLabel,
+            [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out DeviceLeaseSet? claim, out DeviceOwnershipVerdict refusal)
         {
+            refusal = new DeviceOwnershipVerdict(null, DeviceAction.Actuate);
             if (hub is null)
             {
-                return Empty;
+                claim = Empty;
+                return true;
             }
 
             var held = new List<IDisposable>();
@@ -95,10 +109,13 @@ namespace TianWen.Lib.Devices
                 }
 
                 hub.TryGetLease(uri, out var conflicting);
-                throw new DeviceLeasedException(conflicting);
+                refusal = new DeviceOwnershipVerdict(conflicting, DeviceAction.Actuate);
+                claim = null;
+                return false;
             }
 
-            return new DeviceLeaseSet(held);
+            claim = new DeviceLeaseSet(held);
+            return true;
         }
 
         /// <summary>Releases every claim. Idempotent, so a run may drop ownership early (its finaliser is

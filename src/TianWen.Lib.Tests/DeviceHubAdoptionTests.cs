@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
 using Xunit;
 
@@ -145,5 +146,28 @@ public class DeviceHubAdoptionTests(ITestOutputHelper output)
 
         ((FakeCameraDriver)coupled.Driver).ResolveCoupledMount().ShouldBeSameAs(mount.Driver, "premise: a mount in the hub couples a fake camera");
         ((FakeCameraDriver)uncoupled.Driver).ResolveCoupledMount().ShouldBeNull();
+    }
+
+    /// <summary>
+    /// A fake camera ends its exposure on a timer, and the end resolves the coupled mount from the service
+    /// provider. Disposing the camera only disconnected it, so a frame still exposing when the hub let the
+    /// camera go ended afterwards into a provider that was gone: on the real clock that throws on a pool
+    /// thread and takes the test host down (the unit suite died this way behind a cancelled polar run).
+    /// Under the fake clock the same end runs inside <c>Advance</c>, which is what makes it assertable.
+    /// </summary>
+    [Fact]
+    public async Task AFrameStillExposingWhenTheHubLetsItsCameraGoNeverEndsAfterIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = new FakeExternal(output);
+        var services = (ServiceProvider)external.BuildServiceProvider();
+        var hub = services.GetRequiredService<IDeviceHub>();
+        var camera = (ICameraDriver)await hub.ConnectAsync(new FakeDevice(DeviceType.Camera, 1), ct);
+        await camera.StartExposureAsync(TimeSpan.FromSeconds(5), FrameType.Light, ct);
+
+        // The hub goes with its provider and disposes every driver it holds.
+        await services.DisposeAsync();
+
+        Should.NotThrow(() => external.TimeProvider.Advance(TimeSpan.FromSeconds(10)), "the exposure ended after its camera was disposed");
     }
 }

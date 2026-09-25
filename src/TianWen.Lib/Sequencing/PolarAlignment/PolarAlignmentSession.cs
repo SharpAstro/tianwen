@@ -42,6 +42,10 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         private readonly PolarAlignmentConfiguration _config;
         private readonly Hemisphere _hemisphere;
 
+        // The run's claim (P0c item 2 of docs/plans/hardware-in-the-server.md): without it nothing stopped a
+        // jog or a second run from moving the mount this run is rotating.
+        private readonly DeviceLeaseSet _claim;
+
         // Phase A artifacts kept for Phase B + reverse-restore.
         private Vec3 _v1;
         private double _lockedExposureSeconds;
@@ -95,6 +99,10 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                 v.Z);
         }
 
+        /// <param name="claim">The claim on what the run drives (the mount and the capture devices), taken by the
+        /// host that starts it (<see cref="DeviceLeaseSet.TryAcquire"/>, owner "polar alignment") so a start is
+        /// refused while another run holds them. The session owns it from here and releases it only once the
+        /// mount has been restored, since the restore moves the mount too. Null for a host with no hub.</param>
         public PolarAlignmentSession(
             IExternal external,
             IMountDriver mount,
@@ -103,7 +111,8 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             ITimeProvider timeProvider,
             ILogger logger,
             PolarAlignmentSite site,
-            PolarAlignmentConfiguration config)
+            PolarAlignmentConfiguration config,
+            DeviceLeaseSet? claim = null)
         {
             _external = external;
             _mount = mount;
@@ -113,6 +122,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             _logger = logger;
             _site = site;
             _config = config;
+            _claim = claim ?? DeviceLeaseSet.Empty;
             _hemisphere = site.LatitudeDeg >= 0 ? Hemisphere.North : Hemisphere.South;
         }
 
@@ -719,6 +729,19 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         }
 
         public async ValueTask DisposeAsync()
+        {
+            try
+            {
+                await RestoreMountAsync();
+            }
+            finally
+            {
+                // Last: the restore moves the mount, so the claim holds until it has finished.
+                _claim.Dispose();
+            }
+        }
+
+        private async ValueTask RestoreMountAsync()
         {
             // Reverse-axis the original Phase A rotation if requested. We use the
             // recorded (rate, duration) from SolveAsync rather than a goto, because

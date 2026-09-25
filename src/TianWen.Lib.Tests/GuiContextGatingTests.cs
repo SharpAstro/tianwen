@@ -33,47 +33,47 @@ public class GuiContextGatingTests(ITestOutputHelper output)
     [Fact(Timeout = 30_000)]
     public async Task APlanetaryStartWithARemoteRigOnScreenLeavesTheLocalCameraAlone()
     {
-        await using var h = await Harness.StartAsync(output, TestContext.Current.CancellationToken);
+        await using var h = await GuiSignalHarness.StartAsync(output, TestContext.Current.CancellationToken, remoteOnScreen: true);
 
         h.Post(new StartVideoCaptureSignal(OtaIndex: 0));
 
         h.PlanetaryCapture.IsCapturing.ShouldBeFalse("the local camera started streaming");
         h.Contexts.Local.LiveSession.Mode.ShouldNotBe(LiveSessionMode.Planetary);
-        h.ShouldHaveRefused();
+        h.ShouldHaveRefused(Refusal);
     }
 
     [Fact(Timeout = 30_000)]
     public async Task AMountNudgeWithARemoteRigOnScreenDoesNotPulseTheLocalMount()
     {
-        await using var h = await Harness.StartAsync(output, TestContext.Current.CancellationToken);
+        await using var h = await GuiSignalHarness.StartAsync(output, TestContext.Current.CancellationToken, remoteOnScreen: true);
 
         h.Post(new JogMountSignal(GuideDirection.North, Arcsec: 10));
 
         h.ShouldHaveStartedNothing("a pulse on the local mount");
-        h.ShouldHaveRefused();
+        h.ShouldHaveRefused(Refusal);
     }
 
     [Fact(Timeout = 30_000)]
     public async Task AGotoWithARemoteRigOnScreenDoesNotSlewTheLocalMount()
     {
-        await using var h = await Harness.StartAsync(output, TestContext.Current.CancellationToken);
+        await using var h = await GuiSignalHarness.StartAsync(output, TestContext.Current.CancellationToken, remoteOnScreen: true);
 
         h.Post(new SkyMapSlewToObjectSignal("M 42", 5.588, -5.39, Index: null, ObjectType.Unknown));
 
         h.ShouldHaveStartedNothing("a slew of the local mount");
-        h.ShouldHaveRefused();
+        h.ShouldHaveRefused(Refusal);
     }
 
     [Fact(Timeout = 30_000)]
     public async Task ASolveAndSyncWithARemoteRigOnScreenDoesNotTouchTheLocalRig()
     {
-        await using var h = await Harness.StartAsync(output, TestContext.Current.CancellationToken);
+        await using var h = await GuiSignalHarness.StartAsync(output, TestContext.Current.CancellationToken, remoteOnScreen: true);
 
         h.Post(new SkyMapSolveSyncSignal());
 
         h.SkyMap.SolveSyncInProgress.ShouldBeFalse("a solve on the local camera, to sync the local mount");
         h.ShouldHaveStartedNothing("a solve on the local camera, to sync the local mount");
-        h.ShouldHaveRefused();
+        h.ShouldHaveRefused(Refusal);
     }
 
     /// <summary>
@@ -83,12 +83,12 @@ public class GuiContextGatingTests(ITestOutputHelper output)
     [Fact(Timeout = 30_000)]
     public async Task AFocuserJogWithARemoteRigOnScreenDoesNotMoveTheLocalFocuser()
     {
-        await using var h = await Harness.StartAsync(output, TestContext.Current.CancellationToken);
+        await using var h = await GuiSignalHarness.StartAsync(output, TestContext.Current.CancellationToken, remoteOnScreen: true);
 
         h.Post(new JogFocuserSignal(OtaIndex: 0, Steps: 10));
 
         h.ShouldHaveStartedNothing("a move of the local focuser");
-        h.ShouldHaveRefused();
+        h.ShouldHaveRefused(Refusal);
     }
 
     /// <summary>
@@ -98,113 +98,11 @@ public class GuiContextGatingTests(ITestOutputHelper output)
     [Fact(Timeout = 30_000)]
     public async Task AGotoWithTheLocalRigOnScreenSlewsIt()
     {
-        await using var h = await Harness.StartAsync(output, TestContext.Current.CancellationToken, remoteOnScreen: false);
+        await using var h = await GuiSignalHarness.StartAsync(output, TestContext.Current.CancellationToken);
 
         h.Post(new SkyMapSlewToObjectSignal("M 42", 5.588, -5.39, Index: null, ObjectType.Unknown));
 
         h.Tracker.PendingCount.ShouldBeGreaterThan(h.PendingBefore, "the local mount's slew was handed to the tracker");
         h.AppState.Notifications.ShouldNotContain(n => n.Message.Contains(Refusal));
-    }
-
-    /// <summary>
-    /// The GUI's signal handler over a local rig of fake devices, connected in the hub and assigned to the active
-    /// profile, with a remote rig's context on screen. A real clock, since a planetary start spins up capture loops
-    /// that an auto-advancing fake clock would turn into busy loops.
-    /// </summary>
-    private sealed class Harness : IAsyncDisposable
-    {
-        private readonly ServiceProvider _services;
-        private readonly CancellationTokenSource _cts;
-
-        private Harness(ServiceProvider services, CancellationTokenSource cts, GuiAppState appState, ViewContexts contexts,
-            SkyMapState skyMap, SignalBus bus, BackgroundTaskTracker tracker, PlanetaryCaptureController planetaryCapture)
-        {
-            _services = services;
-            _cts = cts;
-            AppState = appState;
-            Contexts = contexts;
-            SkyMap = skyMap;
-            Bus = bus;
-            Tracker = tracker;
-            PlanetaryCapture = planetaryCapture;
-            PendingBefore = tracker.PendingCount;
-        }
-
-        public GuiAppState AppState { get; }
-        public ViewContexts Contexts { get; }
-        public SkyMapState SkyMap { get; }
-        public SignalBus Bus { get; }
-        public BackgroundTaskTracker Tracker { get; }
-        public PlanetaryCaptureController PlanetaryCapture { get; }
-
-        /// <summary>What the tracker held before the test posted anything: the handler's own start-up work.</summary>
-        public int PendingBefore { get; }
-
-        public static async Task<Harness> StartAsync(ITestOutputHelper output, CancellationToken ct, bool remoteOnScreen = true)
-        {
-            var external = new FakeExternal(output);
-            var services = new ServiceCollection()
-                .AddSingleton<IExternal>(external)
-                .AddSingleton<ITimeProvider>(new SystemTimeProvider())
-                .AddSingleton<IDeviceHub, DeviceHub>()
-                .AddLogging()
-                .AddSingleton<ViewerState>()
-                .AddSingleton<PlanetaryCaptureController>()
-                // Handed to the planner's and the sky map's search boxes as the handler wires them; no test
-                // here searches anything.
-                .AddSingleton(Substitute.For<ICelestialObjectDB>())
-                .BuildServiceProvider();
-
-            var hub = services.GetRequiredService<IDeviceHub>();
-            var mount = new FakeDevice(DeviceType.Mount, 1);
-            var camera = new FakeDevice(DeviceType.Camera, 1);
-            var focuser = new FakeDevice(DeviceType.Focuser, 1);
-            await hub.ConnectAsync(mount, ct);
-            await hub.ConnectAsync(camera, ct);
-            await hub.ConnectAsync(focuser, ct);
-            var profile = new Profile(Guid.NewGuid(), "This computer's rig", new ProfileData(
-                Mount: mount.DeviceUri,
-                Guider: new FakeDevice(DeviceType.Guider, 1).DeviceUri,
-                OTAs: [new OTAData("Scope", 500, camera.DeviceUri, null, focuser.DeviceUri, null, null, null)]));
-
-            var appState = new GuiAppState { ActiveProfile = profile, DeviceHub = hub };
-            var contexts = new ViewContexts();
-            if (remoteOnScreen)
-            {
-                contexts.Activate(contexts.GetOrAddRemote("observatory-node", "Observatory"));
-            }
-
-            var skyMap = new SkyMapState();
-            var bus = new SignalBus();
-            var tracker = new BackgroundTaskTracker();
-            var cts = new CancellationTokenSource();
-            _ = new AppSignalHandler(services, appState, new PlannerState(), new SessionTabState(), new EquipmentTabState(),
-                contexts, skyMap, bus, tracker, cts, cts.Token, external);
-
-            return new Harness(services, cts, appState, contexts, skyMap, bus, tracker,
-                services.GetRequiredService<PlanetaryCaptureController>());
-        }
-
-        public void Post<T>(T signal) where T : notnull
-        {
-            Bus.Post(signal);
-            Bus.ProcessPending();
-        }
-
-        public void ShouldHaveStartedNothing(string what)
-            => Tracker.PendingCount.ShouldBe(PendingBefore, $"{what} was started");
-
-        public void ShouldHaveRefused()
-            => AppState.Notifications.ShouldContain(n => n.Severity == NotificationSeverity.Warning && n.Message.Contains(Refusal),
-                "the user is told why nothing happened");
-
-        public async ValueTask DisposeAsync()
-        {
-            await _cts.CancelAsync();
-            await PlanetaryCapture.DisposeAsync();
-            await Tracker.DrainAsync();
-            await _services.DisposeAsync();
-            _cts.Dispose();
-        }
     }
 }

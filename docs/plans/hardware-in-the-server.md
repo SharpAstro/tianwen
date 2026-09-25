@@ -481,7 +481,12 @@ first; none needs a decision.
    `AppSignalHandler` assumes otherwise. Two smaller holes: the preview Capture button stays live
    during a flat run, and `WarmAndDisconnectAsync` ramps a LEASED camera's cooler before the disconnect
    is refused. Both run kinds claim their devices through `DeviceLeaseSet`, at the Lib level, so the
-   server's P5 inherits the claim instead of re-inventing it.
+   server's P5 inherits the claim instead of re-inventing it. **FIXED**: the start handlers claim through
+   `DeviceLeaseSet.TryAcquire` (new, a refusal is a verdict) and each run owns its claim:
+   `PolarAlignmentSession` (the mount plus what its capture source drives, released after the mount
+   restore) and `PlanetaryCaptureController` (the camera only, since its own nudges drive the mount through
+   the gate, released when its loop ends). The preview capture asks the camera's claim, and both warm-ups
+   refuse a claimed camera before the ramp unless forced. `RunClaimTests` failed first on all six claims.
 3. **The AppData write is atomic within a process, not across two.** `IExternal.AtomicWriteAsync`
    writes a FIXED `<file>.tmp` with `FileShare.None` and then `File.Move(overwrite)`: two processes
    writing one file collide on the temp name, and on Windows the move fails while another process holds

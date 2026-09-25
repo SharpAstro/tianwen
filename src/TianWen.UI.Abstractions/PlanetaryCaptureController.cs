@@ -227,13 +227,17 @@ public sealed class PlanetaryCaptureController(
     /// current sub-frame config (set the camera's <c>NumX</c>/<c>NumY</c> before calling). No-ops if a
     /// capture is already running. <paramref name="appToken"/> ties the capture to the app lifetime.
     /// </summary>
-    public void Start(ICameraDriver camera, VideoCaptureOptions options, CancellationToken appToken)
+    /// <param name="claim">The claim on the camera (owner "planetary capture"), taken by the host so a capture is
+    /// refused while another run holds it (P0c item 2 of docs/plans/hardware-in-the-server.md). Owned from here:
+    /// released when the capture ends, or at once when one is already running.</param>
+    public void Start(ICameraDriver camera, VideoCaptureOptions options, CancellationToken appToken, DeviceLeaseSet? claim = null)
     {
         ArgumentNullException.ThrowIfNull(camera);
 
         if (Interlocked.CompareExchange(ref _captureActive, 1, 0) != 0)
         {
             logger.LogInformation("Planetary capture already running; ignoring Start.");
+            claim?.Dispose();
             return;
         }
 
@@ -277,14 +281,14 @@ public sealed class PlanetaryCaptureController(
 
         _cts = CancellationTokenSource.CreateLinkedTokenSource(appToken);
         var token = _cts.Token;
-        _captureTask = Task.Run(() => CaptureLoopAsync(camera, capture, token));
+        _captureTask = Task.Run(() => CaptureLoopAsync(camera, capture, claim, token));
 
         logger.LogInformation(
             "Planetary capture started: exposure {Exposure}ms, native={Native} (stream sized from the first frame).",
             capture.Exposure.TotalMilliseconds, camera is IVideoCameraDriver { CanVideoCapture: true });
     }
 
-    private async Task CaptureLoopAsync(ICameraDriver camera, VideoCaptureOptions options, CancellationToken token)
+    private async Task CaptureLoopAsync(ICameraDriver camera, VideoCaptureOptions options, DeviceLeaseSet? claim, CancellationToken token)
     {
         LiveCameraFrameStream? stream = null;
         try
@@ -375,6 +379,8 @@ public sealed class PlanetaryCaptureController(
         }
         finally
         {
+            // The camera is free again once the loop is done with it.
+            claim?.Dispose();
             Interlocked.Exchange(ref _captureActive, 0);
 
             // Release anyone waiting on a frame that will now never arrive. Completed in place WITHOUT

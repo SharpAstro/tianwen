@@ -117,6 +117,9 @@ namespace TianWen.UI.Abstractions
                 if (appState.DeviceHub is not { } hub) return;
 
                 var ota = previewData.OTAs[sig.OtaIndex];
+                // Ownership, not only the session flag above: IsRunning is false during a flat run, so a preview
+                // exposed on the camera a flat run was metering, and on one planetary or polar was driving.
+                if (!EnsureDeviceControllable(ota.Camera)) return;
                 if (!TryGetConnected<ICameraDriver>(hub, ota.Camera, "Camera", out var camera)) return;
 
                 // Resolve the OTA's other devices for per-capture FITS denorm. Mount is
@@ -269,34 +272,55 @@ namespace TianWen.UI.Abstractions
                 if (appState.DeviceHub is not { } hub) return;
 
                 var ota = otas[sig.OtaIndex];
-                // Ownership, not IsRunning: streaming video off a camera that a flat run is metering on
-                // would fight it frame for frame.
-                if (!EnsureDeviceControllable(ota.Camera)) return;
                 if (!TryGetConnected<ICameraDriver>(hub, ota.Camera, "Camera", out var camera, "Connect a camera to start a planetary capture")) return;
 
-                var (roiW, roiH) = PlanetaryCaptureActions.ConfigureRoi(camera, sig.RoiWidth, sig.RoiHeight);
-
-                // Wire the coupled mount + OTA pixel scale for the COM recenter loop's coarse mount-jog
-                // fallback (Phase C). No-op when no mount is connected or the scale is unknown (NaN) -- the
-                // recenter loop then stays ROI-only.
-                IMountDriver? recenterMount = null;
-                if (appState.ActiveProfile?.Data is { } capturePdata
-                    && capturePdata.Mount is { Scheme: not "none" } mountUri
-                    && hub.TryGetConnectedDriver<IMountDriver>(mountUri, out var rcMount) && rcMount is not null)
+                // Claimed for the length of the capture, before the ROI touches the camera: streaming video off a
+                // camera a flat run is metering would fight it frame for frame, and nothing stopped a preview or
+                // another run from reconfiguring the camera this capture streams (P0c item 2). Only the camera:
+                // the capture's own nudges drive the mount through the gate, and would refuse themselves.
+                if (!DeviceLeaseSet.TryAcquire(hub, [ota.Camera], "planetary capture", out var claim, out var refusal))
                 {
-                    recenterMount = rcMount;
+                    Notify(NotificationSeverity.Warning, refusal.Describe());
+                    return;
                 }
-                planetaryCapture.AttachMount(
-                    recenterMount, CoordinateUtils.PixelScaleArcsec(camera.PixelSizeX, ota.FocalLength));
 
-                // Bind the capture's lifetime to the app shutdown token: quitting cancels it (its loops poll
-                // the token), so the camera is released without an imperative Stop() in the quit path.
-                planetaryCapture.Start(camera,
-                    new VideoCaptureOptions(TimeSpan.FromMilliseconds(sig.ExposureMs), sig.Gain), shutdownToken);
-                // Planetary capture is now a Live Session mode (not a standalone tab): show it there.
-                liveSessionState.Mode = LiveSessionMode.Planetary;
-                appState.ActiveTab = GuiTab.LiveSession;
-                Notify(NotificationSeverity.Info, $"Planetary capture started ({roiW}x{roiH}, {sig.ExposureMs:F0} ms)");
+                var started = false;
+                try
+                {
+                    var (roiW, roiH) = PlanetaryCaptureActions.ConfigureRoi(camera, sig.RoiWidth, sig.RoiHeight);
+
+                    // Wire the coupled mount + OTA pixel scale for the COM recenter loop's coarse mount-jog
+                    // fallback (Phase C). No-op when no mount is connected or the scale is unknown (NaN) -- the
+                    // recenter loop then stays ROI-only.
+                    IMountDriver? recenterMount = null;
+                    if (appState.ActiveProfile?.Data is { } capturePdata
+                        && capturePdata.Mount is { Scheme: not "none" } mountUri
+                        && hub.TryGetConnectedDriver<IMountDriver>(mountUri, out var rcMount) && rcMount is not null)
+                    {
+                        recenterMount = rcMount;
+                    }
+                    planetaryCapture.AttachMount(
+                        recenterMount, CoordinateUtils.PixelScaleArcsec(camera.PixelSizeX, ota.FocalLength));
+
+                    // Bind the capture's lifetime to the app shutdown token: quitting cancels it (its loops poll
+                    // the token), so the camera is released without an imperative Stop() in the quit path.
+                    planetaryCapture.Start(camera,
+                        new VideoCaptureOptions(TimeSpan.FromMilliseconds(sig.ExposureMs), sig.Gain), shutdownToken, claim);
+                    started = true;
+
+                    // Planetary capture is now a Live Session mode (not a standalone tab): show it there.
+                    liveSessionState.Mode = LiveSessionMode.Planetary;
+                    appState.ActiveTab = GuiTab.LiveSession;
+                    Notify(NotificationSeverity.Info, $"Planetary capture started ({roiW}x{roiH}, {sig.ExposureMs:F0} ms)");
+                }
+                finally
+                {
+                    // Start owns the claim; a throw before it (the ROI, the mount wiring) must not strand it.
+                    if (!started)
+                    {
+                        claim.Dispose();
+                    }
+                }
             });
 
             bus.Subscribe<StopVideoCaptureSignal>(_ =>
