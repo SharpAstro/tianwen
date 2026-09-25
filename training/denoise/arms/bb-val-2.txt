@@ -1,0 +1,4 @@
+# Probe BB step 2's gate val: arms/e2-val-2.txt re-read on 2026-09-25-full ids (Triangulum's folder is its
+# own now, not Pleiades').
+ZWO-ASI533MC-Pro/Optolong-L-Quad-Enhance/HIP-80609/2026-04-21|ZWO ASI533MC Pro|HIP 80609|Optolong L-Quad Enhance
+SVBONY-SV605CC/Optolong-L-Quad-Enhance/Triangulum-Galaxy/2025-10-28|SVBONY SV605CC|Triangulum Galaxy|Optolong L-Quad Enhance
