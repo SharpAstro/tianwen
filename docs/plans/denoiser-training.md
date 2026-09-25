@@ -52,7 +52,9 @@ trainings and the shared tooling), [deconvolver-training.md](deconvolver-trainin
    L-Quad Enhance, zero broadband. **Corrected 2026-09-25 (Probe BB, run log):** E9's WIDE pool, and so
    the shipped `e2_wide_s2`, already held eight broadband sessions, the 2024 Vela SNR mosaic on IDAS
    LPS-D3; `2026-09-25-full` holds 53 broadband colour sessions. The shipped model removes as much
-   noise on broadband fields as on narrowband ones and pays more for it on extended structure only.
+   noise on broadband fields as on narrowband ones and spends the same on stars. The extended-structure
+   cost it seemed to pay there was blended stars, and those fields hold almost no nebulosity the split
+   can see (run log, "what went wrong in Probe BB and E10").
 3. **There is no size recipe, and the variance exceeds every effect chased since v17.** Three disjoint
    eight-session draws scored 0.825 / 0.726 / 0.739 on the same observer; one arm's three seeds
    spanned 0.122 on the operator probe against a 0.084 group gap. Any claim below needs several seeds
@@ -210,9 +212,10 @@ near-nothing in the others; a broadband frame has all three. The pool has never 
 broadband session, so nothing measured so far says how v19d behaves on one.
 *Status 2026-09-25:* step 1 ran as Probe BB (run log) on `2026-09-25-full`, whose QHY294C SMC
 2026-08-01 is the SV545 folder's SMC night (the frames say `INSTRUME = QHY294PROC`), plus three more
-broadband fields. Removal transfers; the E2 recipe's economy on extended structure does not. The
+broadband fields. Removal and the star trade transfer; the structure half cannot be read on those
+fields, whose apparent extended gap was blended stars (run log, "what went wrong in Probe BB and E10"). The
 premise above was also wrong for E9: WIDE's Vela mosaic is broadband. Step 2 is `run-bb-arm.ps1`
-(E10), a broadband arm against its own control, not arm B; **KILLED 2026-09-26**: ten ASI533MC broadband sessions made a gentler model and no cheaper one on broadband structure.
+(E10), a broadband arm against its own control, not arm B; **KILLED 2026-09-26**, then found to rest on a metric artifact (run log, "what went wrong in Probe BB and E10"): its primary is unreadable, and its one standing finding, less range, is the step budget E11 tests.
 *Data:* `C:\temp\astro\2026-08 SV545` (a working copy of the D: archive, two nights, SV545 camera,
 `FILTER='IDAS LPS-D3'` on all 780 frames, 729 lights: 135 comet, 354 Lobster Nebula, 240 SMC; FLAT 51,
 BIAS 200, DARK 60 at 60 s / -5 C / gain 1600 / offset 20, DARKFLAT 60). The comet night is a moving
@@ -449,7 +452,8 @@ Settled by the campaign; restated so no run re-derives them.
 
 | **E9** | The WIDE arm (H9, the pool covers the deployed conditioning plane). `run-wide.ps1`: E2's eight sessions plus nine low-plane ones that are not eval nights (`arms/wide-train-17.txt`; Pleiades and eight 2024 Vela SNR panels, eight of the nine one mosaic on one rig, stated as the confound it is), 45 cells each, the E2 recipe byte for byte, val and export seed unchanged so the eight shared sessions carry the same cells and drawn depths as `warped`. `tianwen dataset degrade` gained a repeatable `--session` filter for it (nineteen sessions in 54 minutes against two and a half hours for the whole bake). **RUN and WON 2026-09-05** (run log, "the conditioning range over the whole pool"): 13.7 / 16.2 / 17.0 percent of the noise removed at full strength on the two low-plane eval4 fields, clear of all NINE warped seeds (2.8 to 11.3), inside warped's spread on the faint-structure columns, and the per-field collapse on HIP-85088 gone (6.9 and 7.6 percent become 18.0 to 26.8). Two of three seeds fail the gate's 0.82x noise criterion, which was calibrated on models trained off the low end of the plane. | 3 x 11 min | H9 |
 
-| **E10** | Probe BB (H4 step 1 and 2 on `2026-09-25-full`). **Step 1 DONE 2026-09-25** (run log, "Probe BB"): `run-bb-probe.ps1` + `run-bb-perfield.ps1`, no training; the shipped model removes 18 to 34 percent on the four broadband fields of `arms/bb-eval-4.txt` and spends 1.5 to 3.9 percent of extended amplitude at 4 percent removed where eval4b's four fields spend 0.1 to 1.0, field for field. **Step 2** `run-bb-arm.ps1`: `arms/bb-ctl-14.txt` (WIDE minus this bake's test sessions) against it plus `arms/bb-add-10.txt` (ten ASI533MC broadband sessions inside WIDE's plane range), one export, seeds sized from the measured spread, final weights. **Step 2 KILLED 2026-09-26** (run log): six seeds each, the arm's broadband extended cost is +0.43 [-0.48, +1.35] against the control, and it removes about half the noise the control does. The next question is the metric on dense broadband fields, not another arm. | 2 h export, 11.5 min per seed per arm | H4 |
+| **E10** | Probe BB (H4 step 1 and 2 on `2026-09-25-full`). **Step 1 DONE 2026-09-25** (run log, "Probe BB"): `run-bb-probe.ps1` + `run-bb-perfield.ps1`, no training; the shipped model removes 18 to 34 percent on the four broadband fields of `arms/bb-eval-4.txt` and spends 1.5 to 3.9 percent of extended amplitude at 4 percent removed where eval4b's four fields spend 0.1 to 1.0, field for field. **Step 2** `run-bb-arm.ps1`: `arms/bb-ctl-14.txt` (WIDE minus this bake's test sessions) against it plus `arms/bb-add-10.txt` (ten ASI533MC broadband sessions inside WIDE's plane range), one export, seeds sized from the measured spread, final weights. **Step 2 KILLED 2026-09-26** (run log): six seeds each, the arm's broadband extended cost is +0.43 [-0.48, +1.35] against the control, and it removes about half the noise the control does. Then found to rest on blended stars and a failed Carina catalogue match (run log, "what went wrong in Probe BB and E10"). | 2 h export, 11.5 min per seed per arm | H4 |
+| **E11** | The step budget (run log, "what went wrong in Probe BB and E10"). `run-steps.ps1`: the E10 control cache and recipe at 16000 steps instead of 4000 (the cosine then spans the whole run), four seeds, final weights, scored with the fixed split beside the six 4000-step controls. Primary R, full-strength removal over all eight fields (24.67 at 4000, seed sd 3.67): predicted gain >= 8; killed if the interval's upper bound is under 5. | 4 x ~50 min | steps |
 
 Every arm: pre-register predictions in the run script header; three seeds; one prepared cache per
 arm, never edited between runs; launch multi-hour jobs detached (`Start-Process`), never through the
@@ -1631,6 +1635,8 @@ and `C:/temp/tianwen-scratch/n2n-x2r/` (the reversed arm).
 
 ### 2026-09-25: Probe BB, the shipped model on broadband fields, and what the pool already held
 
+*Corrected 2026-09-26 ("what went wrong in Probe BB and E10"): the extended gap below is blended stars on the SMC fields and a failed catalogue match on Carina.*
+
 `2026-09-25-full` is the first bake with broadband colour sessions in number (53 of 121: IDAS LPS-D3,
 UV/IR cut, Baader Semi-APO, two unidentified broadband filters). Probe BB asked, with no training,
 whether the shipped `e2_wide_s2` denoises them or whether broadband is the pool's gap
@@ -1705,6 +1711,8 @@ Artefacts: `C:/temp/e2/bb-condpool.txt`, `bb-starsplit-n2n-bb-eval4.txt`,
 
 ### 2026-09-26: Probe BB step 2, the broadband arm, KILLED
 
+*Read the next entry first: this primary rests on a column that was blended stars on these fields.*
+
 `run-bb-arm.ps1` ran as pre-registered: one export of `2026-09-25-full`, the control
 (`arms/bb-ctl-14.txt`) and the arm (the control plus `arms/bb-add-10.txt`), six seeds each,
 interleaved, scored at final weights on the four broadband and four eval4b fields per field. It took
@@ -1758,3 +1766,63 @@ trained against a shape re-measured on them (`reference_injected_noise_shape_cal
 Artefacts: `D:/Astro-Dataset/degraded/bb-arm`, `C:/temp/tianwen-scratch/n2n-bb-{ctl,arm}/`
 (`bb_{ctl,arm}_s{0..5}.pt`, `_final.pt` where the gate passed, `_bestprobe.pt` where it did not),
 `C:/temp/e2/bb-arm.log`, `C:/temp/e2/bb-arm-score-*.txt`, `C:/temp/e2/scripts-bb-arm/`.
+
+### 2026-09-26: what went wrong in Probe BB and E10, and E11
+
+Both reads above rest on a column that, on these broadband fields, was not measuring nebulosity. Four
+mistakes, the costliest first.
+
+**1. The arm was built to close a gap the metric made.** `n2n_starsplit.py --audit-extended` (added for
+this) asks how often each population sits within 2.5 px of a catalogued star (BP under the session's
+match cap + 1), against random positions in the same cells:
+
+| field | extended peaks beside a catalogued star | chance | reading |
+|---|---|---|---|
+| bb: QHY294C SMC 2026 | 87 percent (53 with two or more) | 31 | blended stars |
+| bb: Uranus-C SMC 2023 | 84 (48) | 24 | blended stars |
+| bb: Uranus-C Lagoon | 71 (40) | 59 | mostly structure |
+| bb: ASI585MC Carina 24 mm | 3.9; 3.8 percent of ALL peaks match, under the 5.3 floor | 9.2 | no catalogue match at all |
+| e4b: the four narrowband fields | 19 to 35 | 31 to 41 | structure, at or below chance |
+
+So the probe compared nebulosity on the narrowband side with blended stars on the broadband side, and a
+denoiser that spends on a blend what it spends on a star is right to. Carina's match failed because its
+master was solved by ASTAP and carries a TAN-only WCS over a 25 x 15 degree lens field (#399 is taking
+SIP terms from the solver's output), so catalogue positions drift off the stars away from the centre.
+**The probe printed the warning that should have stopped this** ("a confirmed fraction near a session's
+floor is luck, not stars") beside Carina's 3.8 against 5.3, and Carina carried the largest weight in M;
+and three of four fields read an extended cost equal to their star cost. The step-2 header named the
+metric as the kill's "next suspect", which put the check after the arm instead of before it.
+
+The split is fixed (commit "fix(training): starsplit drops a plate its catalogue cannot match, and never
+calls a blend extended"; `--legacy-split` reproduces every older table exactly): a plate whose confirmed
+fraction does not clear twice its floor leaves the split as an unsolved one does, and a broad unmatched
+peak beside a catalogued star is a blend, filed as compact. On bb-eval-4 that leaves **37 / 94 / 84
+extended peaks** on the SMC 2026, Lagoon and SMC 2023 fields where there were 294 / 327 / 526, and
+Carina out: these four broadband fields hold almost no nebulosity the metric can see, so **no structure
+claim can be made on them either way**. eval4b keeps 458 to 953 per field.
+
+**2. Nothing was trained to convergence, and the arm got 1.7x the data in the same budget.** The trainer
+anneals a cosine to zero at `--steps`, so every curve flattens at step 4000 by construction. Val noise
+was still falling when it did: E10's controls 0.01 to 0.02 in their last 1000 steps, the shipped WIDE
+run's s0 and s1 0.87 / 0.89 at 3000 against 0.86 / 0.88 at 4000, and the three WIDE seeds ended 0.75 /
+0.86 / 0.88, a seed spread no recipe difference here has matched. The one step study on record
+(`ai-denoise-deconv.md`, "s1600 / s2400") ran shorter, never longer, and found that steps buy RANGE
+while the trade at matched noise stays put. E10's arm lost exactly range.
+
+**3. The injected shape did not match the bake** (0.444 against 0.26; the E10 entry). Shared by both
+arms, and E2 found shape wins nothing on the old bake, so it cannot explain the difference; it does
+mean every model trained on `2026-09-25-full` learned noise more correlated than its masters carry.
+
+**4. The effect size was stated at 10 percent removed while the read fell to 4** (the E10 entry).
+
+**What survives.** Probe BB step 1 PASSES on what can be measured: the shipped model removes as much
+noise on the broadband fields as on eval4b and spends the same on stars and compact detail. The
+structure half is untestable on these fields, so H4 cannot be killed or confirmed on structure until a
+broadband eval field holds real nebulosity at a scale the split can see. E10's primary is unreadable
+under the fixed split; its range finding stands and is what item 2 predicts, which E11 tests.
+
+**E11** (`run-steps.ps1`, pre-registered before any checkpoint): the E10 control cache and recipe at
+16000 steps instead of 4000, four seeds, final weights, scored with the fixed split beside the six
+4000-step controls. Primary: R, full-strength removal averaged over all eight fields (24.67 at 4000
+steps, seed sd 3.67); prediction G >= +8 with stars and compact at matched removal no worse and a
+smaller seed spread; kill if the interval's upper bound is under +5.
