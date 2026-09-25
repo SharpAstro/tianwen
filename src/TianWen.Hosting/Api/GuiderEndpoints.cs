@@ -15,13 +15,13 @@ internal static class GuiderEndpoints
         {
             if (hosted.CurrentSession is not { } session)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("No active session", 404),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
             var dto = GuiderStateDto.FromSession(session);
-            return Results.Json(
+            return EnvelopeResults.Json(
                 ResponseEnvelope<GuiderStateDto>.Ok(dto),
                 HostingJsonContext.Default.ResponseEnvelopeGuiderStateDto);
         });

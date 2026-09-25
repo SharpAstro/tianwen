@@ -502,8 +502,9 @@ namespace TianWen.RemoteClient
                     return NodeResult<T>.Fail($"{(int)response.StatusCode} {response.ReasonPhrase} (empty body)", (int)response.StatusCode);
                 }
 
-                // The envelope is authoritative over the HTTP status: the endpoints return 200 with
-                // Success=false and their own StatusCode inside for application-level failures.
+                // The envelope is authoritative over the HTTP status. A node answers the envelope's own
+                // status as the HTTP status too (since P0b item 6, #752), so the two agree, but the message
+                // is only in the envelope, and a node older than that answers 200 with Success=false.
                 return envelope is { Success: true, Response: { } value }
                     ? NodeResult<T>.Ok(value)
                     : NodeResult<T>.Fail(

@@ -23,7 +23,7 @@ internal static class DeviceEndpoints
                 .Select(d => $"{d.DeviceType}: {d.DisplayName} ({d.DeviceId})")
                 .ToArray();
 
-            return Results.Json(
+            return EnvelopeResults.Json(
                 ResponseEnvelope<string[]>.Ok(devices),
                 HostingJsonContext.Default.ResponseEnvelopeStringArray);
         });
@@ -38,7 +38,7 @@ internal static class DeviceEndpoints
                 .Select(d => DeviceDto.FromDevice(d, hub.IsConnected(d.DeviceUri)))
                 .ToArray();
 
-            return Results.Json(
+            return EnvelopeResults.Json(
                 ResponseEnvelope<DeviceDto[]>.Ok(devices),
                 HostingJsonContext.Default.ResponseEnvelopeDeviceDtoArray);
         });
@@ -54,7 +54,7 @@ internal static class DeviceEndpoints
                 .Select(d => $"{d.DeviceType}: {d.DisplayName} ({d.DeviceId})")
                 .ToArray();
 
-            return Results.Json(
+            return EnvelopeResults.Json(
                 ResponseEnvelope<string[]>.Ok(devices),
                 HostingJsonContext.Default.ResponseEnvelopeStringArray);
         });

@@ -40,7 +40,7 @@ namespace TianWen.Hosting.Api
             {
                 if (hosted.CurrentSession is not { } session)
                 {
-                    return Results.Json(
+                    return EnvelopeResults.Json(
                         ResponseEnvelope<string>.Fail("No active session", 404),
                         HostingJsonContext.Default.ResponseEnvelopeString);
                 }
@@ -48,7 +48,7 @@ namespace TianWen.Hosting.Api
                 var images = session.LastCapturedImages;
                 if (otaIndex < 0 || otaIndex >= images.Length)
                 {
-                    return Results.Json(
+                    return EnvelopeResults.Json(
                         ResponseEnvelope<string>.Fail($"OTA index {otaIndex} out of range (0..{images.Length - 1})"),
                         HostingJsonContext.Default.ResponseEnvelopeString);
                 }
@@ -57,7 +57,7 @@ namespace TianWen.Hosting.Api
                 {
                     // Distinguished from a bad index: the OTA exists but has not delivered a frame yet
                     // (before the first exposure completes, or after a warm-up that released it).
-                    return Results.Json(
+                    return EnvelopeResults.Json(
                         ResponseEnvelope<string>.Fail($"OTA {otaIndex} has not captured a frame yet", 404),
                         HostingJsonContext.Default.ResponseEnvelopeString);
                 }
@@ -89,7 +89,7 @@ namespace TianWen.Hosting.Api
             {
                 if (hosted.CurrentSession is not { } session)
                 {
-                    return Results.Json(
+                    return EnvelopeResults.Json(
                         ResponseEnvelope<string>.Fail("No active session", 404),
                         HostingJsonContext.Default.ResponseEnvelopeString);
                 }
@@ -102,7 +102,7 @@ namespace TianWen.Hosting.Api
 
                 if (jpeg is null)
                 {
-                    return Results.Json(
+                    return EnvelopeResults.Json(
                         ResponseEnvelope<string>.Fail(failure ?? GuidePreview.NoFrameFailure, 404),
                         HostingJsonContext.Default.ResponseEnvelopeString);
                 }

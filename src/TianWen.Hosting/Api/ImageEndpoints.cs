@@ -27,21 +27,21 @@ internal static class ImageEndpoints
             // its Enhance button when no pipeline is wired (renderer EnhanceAvailable).
             if (!enhancer.IsAvailable)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("AI enhance is not available on this server (no enhancement pipeline registered)", 503),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
             if (string.IsNullOrWhiteSpace(request.InputPath))
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("InputPath is required"),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
             if (!File.Exists(request.InputPath))
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail($"Input not found: {request.InputPath}", 404),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
@@ -51,7 +51,7 @@ internal static class ImageEndpoints
                     request.Backend, request.DeblurSharpen, request.DenoiseStrength, request.DenoiseIterations,
                     out var options, out var error))
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail(error),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
@@ -60,12 +60,12 @@ internal static class ImageEndpoints
             // outlives this POST returning and is cancelled only on server shutdown.
             if (!enhancer.TryStart(request, options, lifetime.ApplicationStopping))
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("An enhance is already running", 409),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
-            return Results.Json(
+            return EnvelopeResults.Json(
                 ResponseEnvelope<string>.Ok("Enhance started"),
                 HostingJsonContext.Default.ResponseEnvelopeString);
         });
@@ -73,7 +73,7 @@ internal static class ImageEndpoints
         // GET /api/v1/image/enhance/status -- poll the current/last enhance job (concrete
         // EnhanceStatusDto, not ResponseEnvelope<object>, so the source-gen context resolves it under AOT).
         group.MapGet("/enhance/status", (HostedImageEnhancer enhancer) =>
-            Results.Json(
+            EnvelopeResults.Json(
                 ResponseEnvelope<EnhanceStatusDto>.Ok(enhancer.Status),
                 HostingJsonContext.Default.ResponseEnvelopeEnhanceStatusDto));
 
