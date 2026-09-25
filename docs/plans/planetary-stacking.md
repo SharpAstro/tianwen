@@ -401,7 +401,9 @@ hot path is align-bound (~85-89%), so `GlobalAligner` caches the reference tile'
 fine/mid boost + coarse-band suppression to flatten the gradient). BenchmarkDotNet benches + a
 `profile planetary` per-stage breakdown live in `TianWen.UI.Benchmarks`.
 
-Not yet done: the independent "EAA free-run" stack mode, and Phases 10-13.
+Not yet done: Phases 10-11 (de-rotation, #815), Phase 12's native video (#813) and Phase 13 (GPU, #816), plus an
+AUTO parameter mode (#817, below). The "EAA free-run" mode listed here until 2026-09-25 shipped as follow-latest in
+live-planetary-capture Phase A (`LiveStackPreviewSource.RequestFollowLatest`).
 
 | Phase | Scope | Depends on | Risk | Status |
 |---|---|---|:--:|:--:|
@@ -413,11 +415,11 @@ Not yet done: the independent "EAA free-run" stack mode, and Phases 10-13.
 | 6 | **Planetary integrator**: per-AP quality-weighted best-of stack + tile blend + optional drizzle; **end-to-end milestone** | 4,5 | High | DONE |
 | 7 | **`WaveletSharpen`** (a-trous, per-scale gain/denoise) | 6 | Medium | DONE |
 | 8 | **CLI**: `tianwen planetary-stack` (or `tianwen stack --planetary`) orchestrator | 6,7 | Low | DONE |
-| 9 | **Live**: `RollingWindowStacker` (5-min window) + `LiveStackPreviewSource` push-stream wired into the previewer (GUI + tianwen-fits) | 4,6 | Medium | DONE (follow-the-playhead, global align, adjustable wavelet sliders, perf-tuned; EAA-free-run deferred) |
-| 10 | **De-rotation 6a** (within-capture): Meeus per-planet CM + disk geometry + spheroid reproject; derotate-to-midpoint before stack | 6 | High |
-| 11 | **De-rotation 6b** (multi-stack / RGB temporal): derotate finished stacks to a common epoch + combine | 10 | High |
-| 12 | **Live camera stream** (`LiveCameraFrameStream`) feeding the same windowed stacker (true EAA) | 9 | Medium | DONE on fake (A+B+C, 2026-06-28): `IVideoCameraDriver` contract, `LiveCameraFrameStream` push-stream, `PlanetaryCaptureController` w/ rapid-exposure fallback, fake colour video (drifting Jupiter + realistic noise), Live Session 🪐 planetary mode w/ shared viewer + capture/ROI/focuser panel, and the **COM recenter loop** (ROI auto + opt-in coarse mount jog + manual N/S/E/W nudge). See [live-planetary-capture.md](live-planetary-capture.md). Remaining (hardware, behind the same contract): D native ZWO/QHY raw video (DAL+SDK release), E Canon Live View |
-| 13 | **GPU compute acceleration**: headless compute capability in `SdlVulkan.Renderer` (storage buffers, no swapchain) + GPU impls of FFT/quality/NCC/warp/drizzle-scatter/integrate/wavelet, capability-probed; CPU mirror stays source of truth + fallback; software-Vulkan CI shader-exercise | 6,7 | Medium |
+| 9 | **Live**: `RollingWindowStacker` (5-min window) + `LiveStackPreviewSource` push-stream wired into the previewer (GUI + tianwen-fits) | 4,6 | Medium | DONE (follow-the-playhead, global align, adjustable wavelet sliders, perf-tuned; the EAA free-run shipped as follow-latest in live-planetary-capture Phase A, `LiveStackPreviewSource.RequestFollowLatest`) |
+| 10 | **De-rotation 6a** (within-capture): Meeus per-planet CM + disk geometry + spheroid reproject; derotate-to-midpoint before stack | 6 | High | NOT STARTED (#815) |
+| 11 | **De-rotation 6b** (multi-stack / RGB temporal): derotate finished stacks to a common epoch + combine | 10 | High | NOT STARTED (#815) |
+| 12 | **Live camera stream** (`LiveCameraFrameStream`) feeding the same windowed stacker (true EAA) | 9 | Medium | DONE on fake (A+B+C, 2026-06-28): `IVideoCameraDriver` contract, `LiveCameraFrameStream` push-stream, `PlanetaryCaptureController` w/ rapid-exposure fallback, fake colour video (drifting Jupiter + realistic noise), Live Session 🪐 planetary mode w/ shared viewer + capture/ROI/focuser panel, and the **COM recenter loop** (ROI auto + opt-in coarse mount jog + manual N/S/E/W nudge). See [live-planetary-capture.md](live-planetary-capture.md). Remaining (hardware, behind the same contract): D native video for the DAL cameras (#813; nothing records the stream to disk either, #814). E Canon Live View DONE (2026-07-16; zoom and pan 2026-08-03) |
+| 13 | **GPU compute acceleration**: headless compute capability in `SdlVulkan.Renderer` (storage buffers, no swapchain) + GPU impls of FFT/quality/NCC/warp/drizzle-scatter/integrate/wavelet, capability-probed; CPU mirror stays source of truth + fallback; software-Vulkan CI shader-exercise | 6,7 | Medium | NOT STARTED (#816) |
 
 ## Resolved design decisions (2026-06-23)
 
@@ -457,6 +459,33 @@ each where one existed):
   Luminance-proxy is far cheaper and keeps the four planes co-registered; likely the answer.
 - **Feature detector**: reuse a thresholded local-contrast / Harris-style corner response, or a
   simpler "top-N highest-gradient cells"? The latter is cheaper and probably enough for AP seeding.
+
+## An AUTO parameter mode
+
+**Tracked by #817.** This is the user's standing wish for a SharpCap-style AUTO mode. It derives the keep fraction,
+the alignment-point count and the wavelet gains from the capture itself (frame count, seeing, SNR), instead of
+asking for them. It had lived only in session memory since the 2026-06 parameter study, and moved here on
+2026-09-25.
+
+The study ran on the real 30k-frame Bayer Jupiter SER. What it measured decides where such a mode spends its effort:
+
+1. **The keep fraction is minor.** 5, 10 and 25 % look the same, and going lower only adds noise; about 10 % is
+   the sweet spot. The gradient metric rises with noise, so judge by eye.
+2. **The AP count barely matters.** From 64 to 400 points, linear sharpness gains only 2 %. What dominates is
+   half-resolution split-CFA tracking and the bilinear warp, not AP density.
+3. **Wavelet sharpening is the lever:**
+   - six layers (the Registax convention) beat five;
+   - strong gains roughly triple the disk's gradient energy and visibly recover the belts;
+   - a fine-scale soft-threshold denoise tames the grain those gains raise at the limb.
+
+   All of this is baked into `WaveletSharpenOptions.PlanetaryDefault`.
+4. **The structural ceiling is the bilinear resampling in the mesh warp.** So Bayer drizzle, since shipped, is the
+   route toward the AutoStakkert reference, not more alignment points.
+
+So an AUTO mode should:
+- derive the wavelet gains, and the resampling or drizzle choice;
+- keep the keep fraction near 10 % and the AP count at its default;
+- be verified by eye or against a known truth, never by a Laplacian score, which rises with noise.
 
 ## Cross-links
 

@@ -84,7 +84,10 @@ that the lease is given back, so the owner's release still recycles the buffer.
 | Fake video renderers (`JupiterTextureRenderer`, `SyntheticPlanetRenderer`) | 11 planes per colour frame, no `ChannelBuffer` | **FIXED**: the renderers' working planes are rented from `Array2DPool` (cleared where the sky is what stays 0), the blur runs in place with one scratch plane (`GaussianBlurInto`: the horizontal pass has read all of the source before the vertical pass writes), the mosaic is written straight into the output and noised in place, and `FakeCameraDriver` renders each video frame into a `PlaneRecycler` plane its release hands back. Pinned bit-identical to a render into fresh arrays with NaN in the output and in the pool, for all three renderers. Measured, a 320 x 240 colour render into its output: 3,073,040 bytes to 304; a released stream renders every frame into one plane |
 | Small but per frame | a `TaskCompletionSource` per frame (KEPT: the capture loop's frame signal is re-armed per frame so a waiter gets a task of its own, about 100 bytes, and pooling it would hand an old waiter the next frame's completion); `RollingWindowStacker._scoreCache` gains an entry per frame and is never trimmed (FIXED: it keeps the window and one window before it, 60 frames seen through an 8-frame window hold 16 entries, not 60); Hann `double[T]` x 2 and an FFT column per aligner call (FIXED with the aligner row above) | fields, a bounded cache |
 
-**A memory-mapped SER as the frame ring (the user's suggestion, 2026-09-24).** A SER file is a fixed-size
+### A memory-mapped SER as the frame ring
+
+**Tracked by #814**, carved out of #365. It is also what makes live capture RECORD: today nothing writes the stream
+to disk, and `SerWriter` is used only by test fixtures. The user's suggestion, 2026-09-24. A SER file is a fixed-size
 frame store: a 178-byte header, raw little-endian 8- or 16-bit frames, a timestamp trailer.
 - **What it would replace.** The capture loop writes each frame ONCE, in its native format (Bayer
   mosaic, uint16). The stacker and, after the hardware split, the GUI read frames from the same mapped

@@ -56,9 +56,9 @@ seam, a controller + tab on top, and a recenter controller.
 | Phase | Scope | SDK/DAL release? | Status |
 |---|---|:--:|:--:|
 | A | `IVideoCameraDriver` + `LiveCameraFrameStream` + engine gaps (non-owning stream, follow-latest, empty-stream guard) | no | DONE 2026-06-24 |
-| B | rapid-exposure fallback + Fake video (`SyntheticPlanetRenderer`) + `PlanetaryCaptureController` + 🪐 tab + signals | no | backend DONE; GUI tab remaining |
+| B | rapid-exposure fallback + Fake video (`SyntheticPlanetRenderer`) + `PlanetaryCaptureController` + 🪐 tab + signals | no | **DONE**. The GUI shipped as the Live Session **Planetary mode** (`LiveSessionMode.Planetary`), not a tab, as decided on 2026-06-24 (below); this row said "GUI tab remaining" until 2026-09-25 |
 | C | `PlanetaryRecenterController` (ROI auto + mount opt-in) + `JogMountSignal` + manual nudge | no | DONE 2026-06-28 |
-| D | native ZWO + QHY raw video (DAL `ICMOSNativeInterface` + ring buffer + ROI-jog bypass) | **yes (DAL -> 2 SDKs -> TianWen)** | TODO -- detailed plan: [planetary-native-video.md](planetary-native-video.md) |
+| D | native ZWO + QHY raw video (DAL `ICMOSNativeInterface` + ring buffer + ROI-jog bypass) | **yes (DAL -> 2 SDKs -> TianWen)** | TODO (#813; Player One and ToupTek are DAL cameras now too) -- detailed plan: [planetary-native-video.md](planetary-native-video.md) |
 | E | Canon Live View `IVideoCameraDriver` (JPEG) via FC.SDK | core: no / zoom-pan: yes | **core DONE 2026-07-16** (full-frame stream, `CanJogRoi=false`); **EVF zoom + pan DONE 2026-08-03** on FC.SDK 3.0.751 ("feat(canon): the magnified EVF crop is the planetary ROI, and it pans"; E.3 in the detail doc, where this row had said deferred). Detail: [planetary-native-video.md](planetary-native-video.md) |
 
 > **Phases D + E are fleshed out in [`planetary-native-video.md`](planetary-native-video.md)** (the two
@@ -381,7 +381,12 @@ free rect within hardware constraints, not a fixed list:
   origin stays driver-centred until the **Phase C** recenter loop pans it -- pan here positions the PiP/overlay
   SELECTION). `CurrentImageRect` was added to `ImageRendererBase` for the overlay.
 
-**Image-based Jupiter simulation (started 2026-06-25).** The fake's procedural disk is replaced by a REAL
+### Image-based Jupiter simulation (started 2026-06-25)
+
+P2 to P4 are **tracked by #818**. Pointed at a star, with a coma term added, the same PSF chain is the test rig for
+[camera-collimation.md](camera-collimation.md) and for the video autofocus in [focus-tolerance.md](focus-tolerance.md).
+
+The fake's procedural disk is replaced by a REAL
 Jupiter image (NASA/ESA Hubble OPAL 2024, public domain) put through the optical chain, so the fake is a
 physically-faithful lucky-imaging test rig. Phased:
 - **P1 DONE + tested:** `JupiterTextureRenderer` loads the embedded `jupiter.rgb.gz` (cropped disk, gzipped

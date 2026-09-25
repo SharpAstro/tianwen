@@ -43,6 +43,12 @@ Both native drivers mirror its shape exactly:
 
 # Phase D -- native ZWO + QHY raw video
 
+**Tracked by #813; not started.** Player One and ToupTek have joined the DAL since this was written, so the one
+`DALCameraDriver` loop now covers four vendors. Until it lands, every DAL camera is single-frame. Four plans wait on
+it: live capture on real hardware, [video-guiding.md](video-guiding.md) (step 0),
+[camera-collimation.md](camera-collimation.md) (C3), and the video autofocus in
+[focus-tolerance.md](focus-tolerance.md) (F6).
+
 ## D.0 Where the code goes (and why it covers both vendors from one place)
 
 ```
@@ -460,8 +466,8 @@ proven end to end.
 | Phase | Scope | SDK/DAL release? | Risk |
 |---|---|:--:|:--:|
 | E core (**DONE**) | `CanonCameraDriver : IVideoCameraDriver` full-frame Live View (JPEG); `CanJogRoi=false` | no | Low |
-| E zoom-pan (deferred) | 5x/10x EVF zoom + `Evf_ZoomPosition` ROI jog + `Evf_ZoomRect` `VideoRoi` | yes (FC.SDK 1.5 point/rect accessor -> TianWen) | Medium |
-| D | `ICMOSNativeInterface` video verbs + ZWO/QHY native + `DALCameraDriver : IVideoCameraDriver` | yes (DAL -> 2 SDKs -> TianWen) | High |
+| E zoom-pan (**DONE 2026-08-03**, on FC.SDK 3.0.751; see E.3) | 5x/10x EVF zoom + `Evf_ZoomPosition` ROI jog + `Evf_ZoomRect` `VideoRoi` | yes (FC.SDK 1.5 point/rect accessor -> TianWen) | Medium |
+| D (#813) | `ICMOSNativeInterface` video verbs + ZWO/QHY native + `DALCameraDriver : IVideoCameraDriver` | yes (DAL -> 2 SDKs -> TianWen) | High |
 
 # Docs to ship with the feature
 
