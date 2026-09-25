@@ -1,9 +1,9 @@
 # Hardware in the server: the GUI drives every device through a local `tianwen-server`
 
 **Status: PLANNED (2026-09-24, raised by the user); reviewed against `main` 2026-09-25, every decision
-made; nothing started.** Issue #751. P0 is urgent on its own: it closes a regression now on `main`
-(P0a, #743), server lifecycle and wire bugs that already hurt remote rigs (P0b, #752), and bugs in the
-hosts that the split would carry over (P0c, #788). **It ships as 10.0**, a major (P9): closing a window no
+made; P0a DONE (2026-09-25, #743), the rest not started.** Issue #751. P0 is urgent on its own: it
+closed a regression on `main` (P0a, #743), and it closes server lifecycle and wire bugs that already
+hurt remote rigs (P0b, #752) and bugs in the hosts that the split would carry over (P0c, #788). **It ships as 10.0**, a major (P9): closing a window no
 longer stops the rig, and every host needs `tianwen-server` beside it.
 
 **The goal.** Exactly one process per machine owns hardware: `tianwen-server`. The desktop GUI, the TUI
@@ -122,9 +122,10 @@ not outlive the window. It never refuses to run. If `tianwen-server` is missing 
 broken install, a dev build of one project), the rig tabs say so and name the path it looked in, and
 the planner, the sky map and the viewer keep working.
 
-## P0a: a dead GPU must not end the night (regression on `main`)
+## P0a: a dead GPU must not end the night (DONE 2026-09-25, #743; see "What shipped" at the end)
 
-**What happens today, read from the code and not yet reproduced live.** SdlVulkan.Renderer 7.48
+**What happened before the fix, read from the code** (the fix was checked live; the old failure was
+never run). SdlVulkan.Renderer 7.48
 (SharpAstro/SdlVulkan.Renderer#111) declares a device that keeps refusing submits dead and stops the
 event loop (event 117). That is the Adreno's actual failure mode, rejected submits. The GUI sets no
 `OnGpuWedged`, so `loop.Run` just returns, and then `Program.cs`:
@@ -204,6 +205,57 @@ its own**, fixed in the same change because the headless tail calls into it:
   renders the remote one: the confirmation is invisible, Enter does nothing, and Esc twice aborts the
   local session unconfirmed. (This is P0b item 9's reachable half; its described half is not reachable
   today, see there.)
+
+**What shipped (2026-09-25, #743).**
+- **`RigShutdown`** (`TianWen.UI.Abstractions`) is the one stop sequence, for a quit and for a lost
+  display:
+  - polar alignment is cancelled either way;
+  - a quit aborts the session and a flat run;
+  - a lost display lets them finish, with prompts answered unattended, until the caller's stop request
+    (closing the headless window) turns that into an abort;
+  - each run ends through its own ending, awaited through `LiveSessionState`'s `SessionEnded`,
+    `FlatRunEnded` and `PolarRunEnded`;
+  - only then are the cameras warmed or disconnected, once per process however many stops overlap.
+- **`Program.cs` sends a wedge (`OnGpuWedged`) and a fault out of the loop down the same headless
+  tail.** A fault out of the loop is an exception from a render or an input handler, which used to crash
+  the process with no drain. On that tail:
+  - the window stays pumped and closable;
+  - its title is the stop's progress, and says what closing does while a run goes on;
+  - closing it stops the rig.
+- **The four quit-path bugs above are fixed in the same change.**
+- **The live check found a fifth**, and it is what turned the first run into "Display failed". The Live
+  Session and guider previews read a frame the session or the guider had already released, and threw
+  on the render thread. They lease it now (`LiveFramePreviewSource.AcceptFrame`), and the doc of
+  `Image.TryLease` no longer claims the render thread gets away with a bare reference.
+
+Checked live twice, on a fake rig on the desktop (2026-09-25, `TIANWEN_NOW` at 21:30 in Melbourne):
+1. **Display failed.** The preview's recycled-frame exception left the loop while the session was
+   focusing.
+   - The session went on without a display through guider calibration into Observing, slewing and
+     solving.
+   - Closing the window aborted it into `Finalise`, which warmed the camera from -9 to 20 °C and parked.
+   - The process exited about eight minutes after the close.
+2. **Display lost.** `gpuFault reject`, with no count, was injected during cooling. The renderer
+   declared the GPU wedged 9 s later, and the GUI went headless.
+   - With no display, the session went on through rough focus, autofocus, guider calibration, a plate
+     solve and centering into Observing.
+   - It exposed, fetched and wrote a 320 s frame #1, then started #2.
+   - Closing the window 16 minutes after the wedge aborted the session within 17 ms.
+   - `Finalise` stopped guiding and tracking, warmed the camera to 20 °C, then disconnected the guider
+     and parked and disconnected the mount. "Shutdown complete" came 8 min 16 s after the close, and
+     the process exited 2 s later.
+
+Neither run let a session end at its own time, which takes a whole night.
+`RigShutdownTests.WithTheDisplayLostTheSessionFinishesOnItsOwnAndItsPromptIsAnsweredUnattended` covers
+that path, and the prompt.
+
+Pinned by:
+- `RigShutdownTests`: the order, both modes, the close, two stops at once, and the title's progress;
+- `LiveFramePreviewSourceTests`: the lease.
+
+The run also found that the inspector's signal directory read a parameter named `RA` from the key `rA`,
+so a pin posted with `ra` went out at RA 0 and answered "queued". DIR.Lib 11.5 matches keys in any case
+and refuses one that binds nothing (SharpAstro/DIR.Lib#101).
 
 ## P0b: server lifecycle and wire bugs (independent; they hurt remote rigs today)
 
@@ -899,7 +951,7 @@ and 10.0 ships it (P9).
 
 | Phase | Scope | Proves it |
 |---|---|---|
-| **P0a** (#743) | A dead GPU keeps the night alive (above), with the quit path's own bugs: flat and polar runs cancelled, polar's hang, `QuitRequested` cleared, the invisible confirmation. Needs SdlVulkan.Renderer 7.49 (SharpAstro/SdlVulkan.Renderer#112) | live `gpu_fault reject` over a fake session: the session ends at its own time, `Finalise` runs, the window stays closable throughout |
+| **P0a** (#743), **DONE 2026-09-25** | A dead GPU keeps the night alive (above), with the quit path's own bugs: flat and polar runs cancelled, polar's hang, `QuitRequested` cleared, the invisible confirmation. Needs SdlVulkan.Renderer 7.49 (SharpAstro/SdlVulkan.Renderer#112) | live `gpu_fault reject` over a fake session: the session ends at its own time, `Finalise` runs, the window stays closable throughout |
 | **P0b** (#752) | Server lifecycle and wire bugs 1-18, the GUI context-gating bug 9 among them | a test per item that fails first; a server test that aborts a session and sees park and warm-up; a session started over HTTP with no body runs on the declared defaults and never syncs the site to 0°, 0° |
 | **P0c** (#788) | Host bugs the split would carry over: the TUI's quit, leases for polar and planetary, the cross-process AppData write, the Linux output folder | a test per item that fails first; two processes each writing one profile a thousand times beside a reader, with no loss and no exception |
 | **P1** | Local node transport and lifetime: `--socket` and `--node-socket`; the lock, taken by every server; `GET /api/v1/node` and the wire version; the localhost probe for another account's node; spawn with breakaway or `setsid`, stdio and working directory; the keeper; stay-until-logoff; the version handshake; the clock hand-off; the persistent LAN share and its logon start; pinned serial ports from the persisted active profile; the job model; a client presence heartbeat for prompts; the crash journal and stale-socket clean-up; `TianWenNodeClient` and the event stream over the socket; `tianwen-server` and `tianwen-ascomhost` built and published INTO the GUI's and the CLI's own output directories (a build-only reference), so "spawned from the client's own directory" holds in a checkout as well as in a release | functional tests spawn a real server on a temp socket with fakes, kill it mid-run, and see the keeper start the next one, which reconnects from the journal; AOT `publish` for the six release RIDs (win-x64 on this desktop, the rest in CI), then run it |
