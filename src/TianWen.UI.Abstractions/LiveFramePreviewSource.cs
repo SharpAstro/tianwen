@@ -189,10 +189,37 @@ namespace TianWen.UI.Abstractions
         /// Accepts a new live frame: normalises each channel to <c>[0, 1]</c> into the owned buffers and (unless
         /// frozen) refreshes the subsampled stretch stats. Call on the render thread the consumer feeds from.
         /// </summary>
+        /// <remarks>
+        /// <b>Frame ownership: a BORROW.</b> The frame is its publisher's (a session's
+        /// <c>LastCapturedImages</c> slot, a guider's <c>LastGuideFrame</c>), and the publisher releases it
+        /// when IT is done, from its own thread: an autofocus rung straight after star detection, a guide
+        /// frame as its successor lands. So the frame is leased for the copy and given back the moment the
+        /// copy exists, and one released before the lease is skipped, leaving the exposure already shown.
+        /// The copy is the whole reason no reference is kept: the owner's release still recycles the frame.
+        /// Reading through the bare reference threw on the render thread in the live check of 2026-09-25
+        /// and took the display down mid-autofocus.
+        /// </remarks>
         /// <param name="image">The raw camera frame (mono, raw RGGB mosaic, or pre-debayered multi-channel).</param>
         /// <param name="freezeStats">When true, reuse the cached stats instead of rescanning -- except on the
         /// freeze-off -> on edge (a one-shot recompute) and on a geometry change (forced recompute).</param>
-        public void AcceptFrame(Image image, bool freezeStats)
+        /// <returns><see langword="true"/> when the frame was copied in; <see langword="false"/> when its owner
+        /// had already given it back, which leaves everything here as it was.</returns>
+        public bool AcceptFrame(Image image, bool freezeStats)
+        {
+            if (!image.TryLease(out var lease))
+            {
+                return false;
+            }
+
+            using (lease)
+            {
+                CopyIn(lease.Image, freezeStats);
+            }
+
+            return true;
+        }
+
+        private void CopyIn(Image image, bool freezeStats)
         {
             var w = image.Width;
             var h = image.Height;

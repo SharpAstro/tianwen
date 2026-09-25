@@ -107,12 +107,14 @@ namespace TianWen.UI.Abstractions
 
             // Feed a new guide frame to the shared viewer if changed. State sync, done BEFORE the
             // tree is built so the camera pane knows whether it has an image to show.
+            // The frame is the guider's and is released once its successor lands, so AcceptFrame leases
+            // it and refuses one already given back; only a frame actually copied in counts as shown.
             if (GuideCameraViewer is not null && State.LastGuideFrame is { } frame
-                && !ReferenceEquals(frame, _displayedGuideFrame))
+                && !ReferenceEquals(frame, _displayedGuideFrame)
+                && _guideSource.AcceptFrame(frame, freezeStats: false))
             {
                 _displayedGuideFrame = frame;
                 _guideFrameCount++;
-                _guideSource.AcceptFrame(frame, freezeStats: false);
                 _guideState.NeedsTextureUpdate = true;
             }
 

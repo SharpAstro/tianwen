@@ -54,6 +54,64 @@ namespace TianWen.Lib.Tests
             return new Image([ch], BitDepth.Float32, maxValue: Max, minValue: 0f, pedestal: 0f, imageMeta: meta);
         }
 
+        // A frame as a session or a guider publishes one: its plane is a buffer the camera recycles, and
+        // the frame stays its OWNER's, released whenever the owner is done with it, from its own thread.
+        private static (Image Frame, int[] Recycled) CameraFrame(int w, int h, float level)
+        {
+            var plane = new float[h, w];
+            for (var y = 0; y < h; y++)
+            {
+                for (var x = 0; x < w; x++)
+                {
+                    plane[y, x] = level;
+                }
+            }
+
+            var recycled = new int[1];
+            var buffer = new ChannelBuffer(plane, onRelease: _ => recycled[0]++);
+            var frame = new Image([new Channel(plane, Filter.Luminance, 0f, Max, 0) { Buffer = buffer }],
+                BitDepth.Float32, pedestal: 0f, new ImageMeta());
+            return (frame, recycled);
+        }
+
+        /// <summary>
+        /// The live check of 2026-09-25: the GUI's Live Session preview read the session's published
+        /// frame through a bare reference, and the session releases that frame when IT is done (an
+        /// autofocus rung, straight after star detection), so <c>AcceptFrame</c> threw
+        /// <see cref="ObjectDisposedException"/> on the render thread mid-autofocus and took the display
+        /// down. Drawing on the render thread in the frame the reference was read protects nothing
+        /// against a release from another thread; only a lease does.
+        /// </summary>
+        [Fact]
+        public void AFrameItsOwnerAlreadyGaveBackIsSkipped_AndThePreviewKeepsTheLastOne()
+        {
+            var src = new LiveFramePreviewSource();
+            var (shown, _) = CameraFrame(4, 4, 200f);
+            src.AcceptFrame(shown, freezeStats: false).ShouldBeTrue();
+
+            var (released, _) = CameraFrame(8, 8, 800f);
+            released.Release();
+
+            src.AcceptFrame(released, freezeStats: false).ShouldBeFalse("a frame already given back has no pixels left to copy");
+
+            src.Width.ShouldBe(4, "the preview still shows the frame it had");
+            src.GetChannelData(0)[0].ShouldBe(0.2f, 1e-6f);
+            src.FrameCount.ShouldBe(1, "a frame with no pixels left to read is not an exposure shown");
+        }
+
+        [Fact]
+        public void APreviewGivesItsLeaseBack_SoTheFrameStillRecycles()
+        {
+            var src = new LiveFramePreviewSource();
+            var (frame, recycled) = CameraFrame(4, 4, 200f);
+
+            src.AcceptFrame(frame, freezeStats: false).ShouldBeTrue();
+            recycled[0].ShouldBe(0, "the owner still holds the frame");
+
+            frame.Release();
+            recycled[0].ShouldBe(1, "the preview copied the pixels and kept no reference, so the camera gets its buffer back");
+        }
+
         [Fact]
         public void Accept_mono_frame_normalizes_channel_to_unit_and_reports_geometry()
         {
