@@ -36,6 +36,11 @@ from gaia_starmask import MATCH_PX
 AUTO_MAG_MAX = 21.0
 AUTO_FLOOR_MAX = 0.05
 
+# The two rules the 2026-09-26 audit (--audit-extended) added; main() says why beside them.
+FLOOR_MARGIN = 2.0     # a session's confirmed fraction must clear this times its coincidence floor
+BLEND_PX = 2.5         # a broad unmatched peak this close to a catalogued star is a blend
+BLEND_DEEPER = 1.0     # "catalogued" reaches this many magnitudes past the session's match cap
+
 
 def audit_extended(idx, session_of, mask, cap_of, confirmed, compact, extended, crop_shape,
                    radius=2.5, deeper=1.0, randoms=200):
@@ -100,6 +105,8 @@ def main():
                     help='score no model; instead report, per session, how often each population sits beside a '
                          'catalogued star, against random positions in the same cells (is "extended" nebulosity, '
                          'or blended stars?)')
+    ap.add_argument('--legacy-split', action='store_true',
+                    help='the split before 2026-09-26 (no floor rule, no blend rule), to reproduce an older table')
     a = ap.parse_args()
     if not a.models and not a.audit_extended:
         ap.error('--models is required unless --audit-extended')
@@ -182,28 +189,68 @@ def main():
         p = per_session.setdefault(sid, dict(cells=0, peaks=0, conf=0, floor=0.0, ext=0, comp=0))
         p['cells'] += 1; p['peaks'] += len(ys); p['conf'] += int(hit.sum()); p['floor'] += floor
 
-    # Second pass: the extended cut needs each session's whole confirmed population.
+    # Second pass: the extended cut needs each session's whole confirmed population. Two rules added
+    # 2026-09-26 by the --audit-extended audit, both off under --legacy-split so an older table can be
+    # reproduced:
+    #  - a session whose confirmed fraction does not clear FLOOR_MARGIN times its coincidence floor has
+    #    no usable catalogue match (the 24 mm Carina: 3.8 percent against a 5.3 floor, a TAN-only WCS
+    #    over a 25 x 15 degree lens field), so it leaves the split as an unsolved one does, while its
+    #    noise removal still counts;
+    #  - a broad unmatched peak with a catalogued star (BP brighter than the cap + BLEND_DEEPER) within
+    #    BLEND_PX is a blend the 1 px match missed, and goes to compact, never to extended (on the two
+    #    SMC fields 84 and 87 percent of the extended peaks sat beside one, against 24 and 31 by chance).
+    dropped = set()
+    if not a.legacy_split:
+        for sid, p in per_session.items():
+            if p['conf'] / max(p['peaks'], 1) < FLOOR_MARGIN * p['floor'] / max(p['cells'], 1):
+                dropped.add(sid)
     cut_of = {sid: (np.percentile(b, 95) if len(b) >= 50 else np.nan) for sid, b in ring_band.items()}
-    pooled_cut = np.percentile(sum(ring_band.values(), []), 95)
+    live = [b for sid, b in ring_band.items() if sid not in dropped]
+    pooled_cut = np.percentile(sum(live, []), 95) if sum(len(b) for b in live) else np.nan
+    empty = (np.zeros(0, int), np.zeros(0, int), np.zeros(0))
     for t, i in enumerate(idx):
+        sid = session_of[i]
+        p = per_session[sid]
         ys, xs, snr, rr = compact[t]
-        cut = cut_of[session_of[i]]
+        cut = cut_of[sid]
         cut = pooled_cut if np.isnan(cut) else cut
         ext = rr > cut
+        if not a.legacy_split and ext.any():
+            g = mask[i]
+            g = g[g[:, 2] < cap_of[sid] + BLEND_DEEPER]
+            if len(g):
+                d = np.hypot(ys[:, None] - g[None, :, 0], xs[:, None] - g[None, :, 1]).min(axis=1)
+                blend = ext & (d <= BLEND_PX)
+                p['blend'] = p.get('blend', 0) + int(blend.sum())
+                ext = ext & ~blend
+        p['ext'] += int(ext.sum()); p['comp'] += int((~ext).sum())
+        if sid in dropped:
+            confirmed[t] = compact[t] = empty
+            extended.append(empty)
+            continue
         compact[t] = (ys[~ext], xs[~ext], snr[~ext])
         extended.append((ys[ext], xs[ext], snr[ext]))
         n_comp += int((~ext).sum()); n_ext += int(ext.sum())
-        p = per_session[session_of[i]]
-        p['ext'] += int(ext.sum()); p['comp'] += int((~ext).sum())
+    n_conf -= sum(per_session[sid]['conf'] for sid in dropped)
 
     total = n_conf + n_comp + n_ext
     print(f"{'session':44s} {'cells':>5} {'peaks':>6} {'BP cap':>6} {'floor':>6} {'stars':>7} {'compact':>8} {'extended':>9} {'of ext.':>8}")
     for sid, p in per_session.items():
+        share = '   (out)' if sid in dropped else f"{100*p['ext']/max(n_ext,1):7.1f}%"
         print(f"{sid.split('|')[0][-44:]:44s} {p['cells']:5d} {p['peaks']:6d} {cap_of[sid]:6g} {100*p['floor']/p['cells']:5.1f}% "
               f"{100*p['conf']/max(p['peaks'],1):6.1f}% {100*p['comp']/max(p['peaks'],1):7.1f}% "
-              f"{100*p['ext']/max(p['peaks'],1):8.1f}% {100*p['ext']/max(n_ext,1):7.1f}%")
-    print(f'{total} peaks over the covered cells: {n_conf} Gaia-confirmed stars ({100*n_conf/total:.1f}%), '
-          f'{n_comp} compact unmatched ({100*n_comp/total:.1f}%), {n_ext} extended ({100*n_ext/total:.1f}%)')
+              f"{100*p['ext']/max(p['peaks'],1):8.1f}% {share}")
+    for sid in dropped:
+        p = per_session[sid]
+        print(f"DROPPED from the split: {sid.split('|')[0][-44:]}: confirmed {100*p['conf']/max(p['peaks'],1):.1f}% does not "
+              f"clear {FLOOR_MARGIN:g}x its {100*p['floor']/p['cells']:.1f}% floor, so no catalogue match is usable there; its noise "
+              f"removal still counts")
+    n_blend = sum(p.get('blend', 0) for sid, p in per_session.items() if sid not in dropped)
+    if n_blend:
+        print(f'{n_blend} broad unmatched peaks sat within {BLEND_PX:g} px of a catalogued star (BP < cap + {BLEND_DEEPER:g}) and '
+              f'went to compact as blends, never extended')
+    print(f'{total} peaks over the covered cells: {n_conf} Gaia-confirmed stars ({100*n_conf/max(total,1):.1f}%), '
+          f'{n_comp} compact unmatched ({100*n_comp/max(total,1):.1f}%), {n_ext} extended ({100*n_ext/max(total,1):.1f}%)')
     print(f'pooled coincidence floor: {100*np.mean(chance):.1f}% -- a confirmed fraction near a session\'s '
           f'floor is luck, not stars; "of ext." says which fields the extended column is made of.\n'
           f'Compact unmatched peaks are star-shaped: uncatalogued or blended stars, or knots; only the '
