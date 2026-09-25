@@ -135,13 +135,55 @@ missing:
 
 Keep today's constants for a rig with no history.
 
-### F3: the tolerance, stated as one
+### F3: the tolerance is quantized, and it is a share of an error budget
 
-`FocusDriftThreshold` already is a tolerance: 1.07 means 7 %. Show it as one, for example
-"focus tolerance 7 %: ±N steps tonight".
+`FocusDriftThreshold` already is a tolerance: 1.07 means 7 %. As a fixed number, though, it is both too fine and
+too optimistic (user, 2026-09-25).
 
-The √τ law sets the price of tightening it. Halving the tolerance shrinks the zone by only √2, so refocusing becomes
-about 1.4 times as frequent, not twice.
+**Too fine.** The zone grows only as √τ.
+- 7, 8 and 9 % differ by about 14 % in width. On the #579 rig (b ≈ 18 steps, inferred above), the half-widths are
+  6.9, 7.3 and 7.8 steps: less than one step apart, and inside both the backlash residual and the AutoFocus's own
+  precision.
+- In HFD terms, on a 2.45 px star, they are 0.17, 0.20 and 0.22 px. That is below the frame-to-frame scatter.
+- The focuser quantizes the tolerance. Sitting n steps from best focus costs `t(n) = √(1 + (n/b)²) − 1`. With
+  b = 18, 6, 7 and 8 steps cost 5.4, 7.3 and 9.4 %.
+- A tolerance means something only in whole steps.
+
+**Too optimistic.** The 7 % was calibrated on a single rig (#579: the ASI533MC Pro at 130 mm, about 6 arcsec per
+pixel). There the pixel and the small aperture dominate the star, so seeing changes are diluted. On a well-sampled
+rig, the star IS seeing and guiding, and those move by more than 7 % for reasons focus cannot fix:
+- Seeing grows as airmass^0.6. A target sinking from 60° to 40° altitude grows by about 20 % from seeing alone.
+- A windy spell or a periodic-error peak widens every star in a sub.
+- Tilt and field curvature shift the field median with whichever stars happen to be detected.
+
+A trend over 30 frames reads a slow change in seeing exactly as it reads a slow focus drift. So it refocuses into
+seeing that refocusing cannot improve. On a rising target, the reverse happens: improving seeing hides a real drift,
+which is the confound #579 found.
+
+**So the trigger is derived, not set:**
+1. Take the baseline from science frames (F0). The tolerance is then a share of the whole long-exposure star,
+   guiding included.
+2. Take out what focus cannot change before taking the ratio:
+   - Fit the HFD trend against airmass^0.6 and temperature (#579's physical driver), not against time alone.
+   - Remove guiding in quadrature, using each sub's own `GUIDERMS`. This needs the synthetic guide samples gone
+     first ([video-guiding.md](video-guiding.md), section 7).
+3. Fire only when the growth attributable to focus exceeds the tolerance by two standard errors of that fit.
+4. Never fire below the resolvable floor. Convert each of these to a tolerance through `t(n)`, and take the largest:
+   - one step;
+   - the backlash residual;
+   - the AutoFocus's own σ_p, from the fit's residuals (F1).
+5. Show what the rig can hold tonight beside what was asked, for example "asked 7 %, resolvable 11 % tonight".
+   GoldAstro's 10-15 % is a more honest default than 7 % for most rigs, and a derived floor makes the default matter
+   less.
+6. A candidate discriminator, to validate on saved AutoFocus rungs: FWHM over HFD. Both are already measured per
+   star.
+   - Our HFD is twice the flux-weighted mean radius (`Image.StarDetection.cs`).
+   - On that definition, a pure defocus disk has FWHM/HFD = 1.5, and a Gaussian 0.94. A Moffat's wings pull it
+     lower.
+   - Growing seeing leaves the ratio where the night's profile puts it. Defocus flattens the core and raises it.
+
+The √τ law also sets the price of tightening the tolerance. Halving it shrinks the zone by only √2, so refocusing
+becomes about 1.4 times as frequent, not twice.
 
 ### F4: judge the focuser in units of `b`
 
@@ -157,12 +199,15 @@ about 1.4 times as frequent, not twice.
 
 ### F5: sanity-check the profile's optics (microns, display only)
 
-A geometric defocus of Δ µm has a half-flux diameter on the sensor of `Δ · √((1 + ε²)/2) / N` µm. Here ε is the
-central obstruction's diameter ratio; with no obstruction the factor is √½.
+A geometric defocus of Δ µm spreads a star over an annulus of outer diameter `Δ/N` µm on the sensor. Here ε is the
+central obstruction's diameter ratio; with no obstruction it is a disk.
+
+Our HFD is twice the flux-weighted mean radius (F3), not the true half-flux diameter. On that definition, the
+annulus measures `HFD = (2/3) · (Δ/N) · (1 + ε + ε²)/(1 + ε)` µm, which is `2Δ/(3N)` with no obstruction.
 
 So with a configured `IFocuserDriver.StepSize`, the predicted slope is
-`s = StepSize · √((1 + ε²)/2) / (N · pixel)` px per step. A measured `s` far from that names a wrong focal length,
-aperture or step size in the profile.
+`s = (2/3) · StepSize · (1 + ε + ε²) / ((1 + ε) · N · pixel)` px per step. A measured `s` far from that names a
+wrong focal length, aperture or step size in the profile.
 - `OTAData` has the focal length, aperture and pixel size. It has no obstruction.
 - On an SCT focused by its primary, a step moves the focal plane by a large multiple of the mirror's own travel.
   That is one more reason to keep microns out of every decision.
@@ -194,3 +239,5 @@ and removed by hand, which an unattended night cannot do.
 - **Work in steps.** The zone comes from the fit. Microns are for display and for the F5 sanity check.
 - **A 2 s AutoFocus star and a long-exposure star are not the same measurement** (F0).
 - **The zone moves with the seeing.** A constant threshold, in steps or in °C, is right on one night only.
+- **A tolerance is quantized by the focuser and blurred by the night.** 7, 8 and 9 % can be the same step (F3).
+  Never tune it finer than one step's `t(n)`, and never below what the night's scatter lets the trend resolve.
