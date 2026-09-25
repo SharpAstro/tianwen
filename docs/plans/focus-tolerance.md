@@ -1,6 +1,6 @@
 # Focus Tolerance: the New Critical Focus Zone, Measured by the V-Curve We Already Fit
 
-**Status: NOT STARTED.** Written 2026-09-25, raised by the user from GoldAstro's
+**Status: NOT STARTED; tracked by #822, with F0 (a bug) tracked by #820.** Written 2026-09-25, raised by the user from GoldAstro's
 [New Critical Focus Zone](https://goldastro.com/goldfocus/ncfz.php) and the technical pages it links: the
 traditional CFZ, the focus and collimation calculator, focus techniques, resolution, signal and noise. They are
 saved with Markdown extracts under `OneDrive\Dokumente\Astro-Info\GoldAstro`. The site answers 406 to a
@@ -86,6 +86,8 @@ exposures on the arms, and distrust a run whose arms never climbed.
 ## Phases
 
 ### F0: drift detection is off after every AutoFocus (a bug, found while mapping this)
+
+Tracked by #820.
 
 `AutoFocusAsync` stores its verification frame as the observation's drift baseline, taken at the AutoFocus exposure
 of 2 s (`Session.Focus.cs`: `autoFocusExposure`, then `FrameMetrics.FromStarList(verifyStars, autoFocusExposure, ...)`).

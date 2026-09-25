@@ -87,10 +87,10 @@ mode, manual WB) lights up in the GUI viewer tab too.
 
 ## Follow-ups (out of scope here)
 
-- **Live astro-camera video preview**: a live capture stream is just another `IPreviewSource` (current
+- **DONE**, as `LiveStackPreviewSource` (planetary-stacking Phase 9, fed by live-planetary-capture): **Live astro-camera video preview**: a live capture stream is just another `IPreviewSource` (current
   frame pushed by the camera, not seeked); focus loops / planetary-capture monitoring. The interface is
   kept seek-agnostic to allow this later.
-- `SerFrameSource : IFrameSource` for the stacking pipeline (closes the `stacking.md` SER deferral).
+- `SerFrameSource : IFrameSource` for the stacking pipeline (closes the `stacking.md` SER deferral). Tracked by #819.
 - SER export/writer UI; CYGM Bayer families (TianWen models only RGGB) fall back to mono.
 - **SER.Lib release dependency**: the Phase-3.5 lazy-trailer change shipped in `SER.Lib` (PR #1, merged +
   published). TianWen pins `SER.Lib` as floating `1.0.*` in `Directory.Packages.props`, so a restore

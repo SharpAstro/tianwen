@@ -37,7 +37,7 @@ otherwise. Don't repeat that here.
 |---|---|---|
 | Built-in guider + PHD2, dithering, calibration, ST-4/camera pulse routing | DONE | CLAUDE.md guiding sections |
 | Neural guide model refinements (pretrained model, wider/deeper MLP, real-time telemetry) | PARTIAL / ongoing | [docs/todo/guider.md](../todo/guider.md) |
-| MetaGuide support (NINA has native MetaMonitor integration; TianWen has neither an external-guider listener nor the video/lucky-guiding technique itself) | NOT STARTED | [video-guiding.md](video-guiding.md) -- covers both halves: supporting MetaGuide as an external guider (UDP telemetry listener, PHD2-shaped `IGuider` may not fit) and adopting its hot-spot/rolling-average technique internally |
+| MetaGuide support (NINA has native MetaMonitor integration; TianWen has neither an external-guider listener nor the video/lucky-guiding technique itself) | NOT STARTED (#362; video capture first, #813) | [video-guiding.md](video-guiding.md) -- covers both halves: supporting MetaGuide as an external guider (UDP telemetry listener, PHD2-shaped `IGuider` may not fit) and adopting its hot-spot/rolling-average technique internally |
 
 ## Plate solving & polar alignment
 
@@ -78,7 +78,7 @@ otherwise. Don't repeat that here.
 |---|---|---|
 | Deep-sky stacking pipeline | DONE, exceeds NINA's scope | CLAUDE.md "Deep-Sky Stacking + Enhance Pipeline" |
 | AI enhancement (SAS Pro AI4 / RC-Astro / in-house N2N) | DONE | [rc-astro-enhancers.md](rc-astro-enhancers.md), [ai-denoise-deconv.md](ai-denoise-deconv.md) |
-| Planetary lucky-imaging stack | DONE except native ZWO/QHY live-video capture | [planetary-stacking.md](planetary-stacking.md) -- Phase D (`DALCameraDriver` native video) not implemented |
+| Planetary lucky-imaging stack | DONE except native ZWO/QHY live-video capture (#813) and recording to SER (#814) | [planetary-stacking.md](planetary-stacking.md) -- Phase D (`DALCameraDriver` native video) not implemented |
 
 ## Deliberately NOT replicated (philosophy difference, not a gap)
 

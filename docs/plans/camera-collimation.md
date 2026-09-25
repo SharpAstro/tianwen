@@ -1,6 +1,6 @@
 # Camera Collimation: Measured Live, from the Camera That Images
 
-**Status: NOT STARTED.** Written 2026-09-25, raised by the user ("real-time collimation, camera based") alongside
+**Status: NOT STARTED; tracked by #823.** Written 2026-09-25, raised by the user ("real-time collimation, camera based") alongside
 [focus-tolerance.md](focus-tolerance.md) and the speckle-imaging revision of [video-guiding.md](video-guiding.md).
 
 **Sources** (saved under `OneDrive\Dokumente\Astro-Info`):

@@ -251,6 +251,8 @@ Two things would consume it:
 
 ### 7. Telemetry per correction, not per poll
 
+Tracked by #821.
+
 `Session.GuideSamples` is filled by polling `GetStatsAsync` once per imaging tick. The tick is
 `clamp(GCD(exposures) / 6, 1, 5)` seconds, and each sample is stamped at the time of the poll. When a driver has no
 last error, the loop appends `RMS · random(-1, 1)` instead (`Session.Imaging.cs`, "fall back to synthetic"), and
@@ -264,7 +266,7 @@ The synthetic fallback must go: null is not zero, which is the rule `GUIDERMS` i
 A new video-guiding mode, most likely a new capture path inside (or alongside)
 `BuiltInGuiderDriver` rather than forced through `IGuider`'s PHD2-shaped contract as-is:
 
-0. **Capture.** Give the DAL cameras native video (Phase D of
+0. **Capture (#813).** Give the DAL cameras native video (Phase D of
    [planetary-native-video.md](planetary-native-video.md)), with ROI, per-frame timestamps and
    `VideoCaptureOptions.HighSpeedMode`. No video path reads that flag today; the DAL's single-shot path has its own
    `FastReadout`. Or, as a first cut, move the short-exposure loop into
