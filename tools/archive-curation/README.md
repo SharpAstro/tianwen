@@ -21,7 +21,8 @@ Release CLI at its build path (the `TIANWEN` constant), so build `src/TianWen.Cl
 
 | script | what it answers |
 |---|---|
-| `astro-digest-store.py` | maintains `D:/Astro-Reports/digests.jsonl`, the content ledger every other Step 0 script reads (refresh it first; incremental is minutes, cold is hours) |
+| `astro-digest-store.py` | maintains `D:/Astro-Reports/digests.jsonl`, the content ledger every other Step 0 script reads (refresh it first; incremental is minutes, cold is hours, and a retag makes it re-read every retagged frame). After a full walk it TOMBSTONES a recorded path that is really gone, names one that is on disk but was not reached, and refuses a root that does not exist |
+| `digest_ledger.py` | the one way to READ that ledger: each path's latest record, tombstoned paths left out. A reader that keeps every record calls a withdrawn or deleted file filed (1,300 raw names on 2026-09-25), so every script here imports it rather than parsing the file itself |
 | `validate_archive.py` | a per-frame verdict ledger (`C:/temp/e2/archive-ledger.csv`): does Organized hold everything salvageable from Astro-Pics. Written after three surveys gave three answers; each failure mode is a named case in the docstring |
 | `gap_from_ledger.py` | what is not yet filed, by CONTENT digest off the ledger (a disk walk missed `D:/Astro-Pics/Unsorted` and undercounted ninefold) |
 | `whats_missing.py <dir>...` | for one Astro-Pics session, which frames are missing, broken down by kind |

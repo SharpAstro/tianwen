@@ -28,6 +28,11 @@ THREE THINGS THIS GETS RIGHT, each of which cost something to learn:
    header or a dataless FITS) are both logged to stderr as they happen and listed under the final
    summary with the reason, so a bad file is chased directly instead of reverse-engineered from a
    bare count.
+5. A path that is GONE says so. After a full walk (no --limit), every recorded path under a walked
+   root that the walk did not reach is checked on disk: an absent one gets a tombstone record
+   ({"path", "gone": true, "checked_utc"}), and one still there is reported as MISSED and left
+   alone. Read the store through digest_ledger.py, which drops tombstoned paths; a reader that
+   keeps every record calls a withdrawn or deleted file filed.
 
 Usage:
   python tools/archive-curation/astro-digest-store.py --root "D:/Astro-Pics" --root "C:/temp/astro" --out "D:/Astro-Reports"
@@ -42,6 +47,9 @@ import json
 import os
 import sys
 import time
+from datetime import datetime, timezone
+
+import digest_ledger
 
 try:
     import xxhash
@@ -126,24 +134,23 @@ def digest_file(path, chunk=1 << 20):
 
 
 def load_store(path):
-    """(by_path, by_inode). Append-only, so later records for a path win."""
-    by_path, by_inode = {}, {}
+    """(by_path, by_inode, gone). Append-only, so later records for a path win, and a tombstone
+    takes its path out of by_path: a file that comes back is then read again, never trusted to a
+    record from before it went."""
+    by_path, by_inode, gone = {}, {}, set()
     if not os.path.exists(path):
-        return by_path, by_inode
-    with open(path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                r = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if "path" in r and r.get("digest"):
-                by_path[os.path.normcase(r["path"])] = r
-                if r.get("ino"):
-                    by_inode[(r.get("dev"), r["ino"])] = r["digest"]
-    return by_path, by_inode
+        return by_path, by_inode, gone
+    for r in digest_ledger.records(path):
+        key = os.path.normcase(r["path"])
+        if r.get("gone"):
+            by_path.pop(key, None)
+            gone.add(key)
+        elif r.get("digest"):
+            by_path[key] = r
+            gone.discard(key)
+            if r.get("ino"):
+                by_inode[(r.get("dev"), r["ino"])] = r["digest"]
+    return by_path, by_inode, gone
 
 
 def main():
@@ -153,12 +160,19 @@ def main():
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--fits-only", action="store_true")
     args = ap.parse_args()
+    # os.walk over a root that is not there yields nothing and says nothing, and after it every
+    # record under that root would read as gone. An unmounted or renamed drive must stop the run.
+    for root in args.root:
+        if not os.path.isdir(root):
+            print(f"root does not exist or is not a folder: {root}", file=sys.stderr)
+            return 2
 
     out_dir = args.out
     os.makedirs(out_dir, exist_ok=True)
     store_path = os.path.join(out_dir, "digests.jsonl")
-    by_path, by_inode = load_store(store_path)
-    print(f"[store] {len(by_path):,} existing records, {len(by_inode):,} known inodes", flush=True)
+    by_path, by_inode, tombstoned = load_store(store_path)
+    print(f"[store] {len(by_path):,} existing records, {len(by_inode):,} known inodes, "
+          f"{len(tombstoned):,} paths recorded as gone", flush=True)
 
     wanted = set(FITS_EXTS) if args.fits_only else (FITS_EXTS | OTHER_EXTS)
     files = []
@@ -176,6 +190,7 @@ def main():
     hashed = reused_path = reused_inode = failed = 0
     bytes_read = 0
     failures = []  # (path, reason) for every file counted as failed, so a bad file names itself
+    gone, missed = [], []  # recorded paths the walk did not reach: absent, or still on disk
     t0 = time.time()
     last = t0
 
@@ -246,6 +261,34 @@ def main():
                       f"{rate:.0f} MB/s)  hardlink-reuse {reused_inode:,}  cached {reused_path:,}",
                       flush=True)
 
+        # A walk says what exists, never what went, so a recorded path under a walked root that the
+        # walk did not reach is asked about directly. Only a clean "not found" is recorded as gone:
+        # a folder the walk could not list answers every lstat with a permission error, and
+        # os.path.lexists reads that as absent. Anything else was MISSED, which is the 2026-09-20
+        # failure (the tree changed under a walk and 820 files were skipped without an error): it
+        # is named, and nothing is written for it, since a tombstone on a file that is there hides
+        # it from every reader.
+        if not args.limit:
+            walked = {os.path.normcase(p) for p in files}
+            roots = tuple(os.path.normcase(os.path.join(r, "")) for r in args.root)
+            for key, rec in by_path.items():
+                if key in walked or not key.startswith(roots) or os.path.splitext(key)[1] not in wanted:
+                    continue
+                try:
+                    os.lstat(rec["path"])
+                except FileNotFoundError:
+                    gone.append(rec["path"])
+                    continue
+                except OSError:
+                    pass
+                missed.append(rec["path"])
+            stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            for p in gone:
+                out.write(json.dumps({"path": p, "gone": True, "checked_utc": stamp}) + "\n")
+            for p in missed:
+                print(f"[missed] on disk or unreadable, and not reached by the walk: {p}",
+                      file=sys.stderr, flush=True)
+
     el = time.time() - t0
     print(f"\n[done] {len(files):,} considered in {el/60:.1f} min")
     print(f"  hashed fresh        {hashed:,}  ({bytes_read/G:.2f} GB read)")
@@ -254,6 +297,13 @@ def main():
     print(f"  failed / skipped    {failed:,}")
     for fp, reason in failures:
         print(f"      - {fp}  ({reason})")
+    if args.limit:
+        print("  gone                not checked (a --limit run does not walk the whole tree)")
+    else:
+        print(f"  gone since recorded {len(gone):,}  (tombstoned; {len(tombstoned):,} already were)")
+        print(f"  missed by the walk  {len(missed):,}"
+              + ("  <-- never reached: check the folder can be listed, and re-run once nothing is "
+                 "changing the tree" if missed else ""))
     print(f"  store: {store_path}")
     return 0
 

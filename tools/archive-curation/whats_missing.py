@@ -4,7 +4,6 @@
 calibration is not needs a different fix from one that was never touched. This says which.
 """
 import glob
-import json
 import sys
 import collections
 import warnings
@@ -12,20 +11,15 @@ import warnings
 warnings.filterwarnings("ignore")
 from astropy.io import fits  # noqa: E402
 
-LEDGER = "D:/Astro-Reports/digests.jsonl"
+import digest_ledger  # noqa: E402
+
 ORG = "d:/astro-organized"
 
 org = set()
-path_of = {}
-for line in open(LEDGER, encoding="utf-8"):
-    try:
-        r = json.loads(line)
-    except Exception:
-        continue
-    q = r["path"].replace("\\", "/")
+path_of = digest_ledger.load()
+for q, r in path_of.items():
     if q.lower().startswith(ORG) and r.get("digest"):
         org.add(r["digest"])
-    path_of[q] = r
 
 for D in sys.argv[1:]:
     fs = sorted(glob.glob(D + "/**/*.fit*", recursive=True))

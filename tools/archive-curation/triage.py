@@ -5,7 +5,6 @@ characterised body with a filter hint and its own calibration is an afternoon; o
 body with no bias is parked. This reads a handful of headers per session and sorts them that way.
 """
 import glob
-import json
 import os
 import collections
 import warnings
@@ -13,16 +12,11 @@ import warnings
 warnings.filterwarnings("ignore")
 from astropy.io import fits  # noqa: E402
 
-LEDGER = "D:/Astro-Reports/digests.jsonl"
+import digest_ledger  # noqa: E402
+
 ORG = "d:/astro-organized"
 
-recs = {}
-for line in open(LEDGER, encoding="utf-8"):
-    try:
-        r = json.loads(line)
-    except Exception:
-        continue
-    recs[r["path"].replace("\\", "/")] = r
+recs = digest_ledger.load()
 
 
 def isfits(q):
