@@ -9,8 +9,14 @@ Part B: every session of the 2026-09-full bake, the plane on up to 60 master til
 tiles, with membership flags (E2 training / eval4b / eval4 / v19d's d8 training), sorted by the
 master's median plane. The deployed input is the MASTER; the evals score on half_a (1.41x the noise).
 
-Usage: python condpool.py  (from training/denoise, or with it on PYTHONPATH)
+Part B against another bake (2026-09-25, for the broadband question) takes `--bake`, and adds three
+columns: `bb` (a broadband filter folder), `test` (in the bake's own test-sessions.txt) and `wide` (in
+the E9 WIDE pool, arms/wide-train-17.txt). Membership is matched on the session's FOLDER (the id before
+its first `|`), because the id's trailing fields changed between bakes while the folder did not.
+
+Usage: python condpool.py [--bake <bake>] [--parts ab|b]  (from training/denoise)
 """
+import argparse
 import json
 import os
 import sys
@@ -22,6 +28,10 @@ import n2n_smoke as S
 SCRATCH = 'C:/temp/tianwen-scratch/'
 BAKE = 'D:/Astro-Dataset/2026-09-full'
 PER_SESSION = 60
+# Filter folders that pass a broad band. Everything else in the colour pool is a dual- or tri-line filter.
+BROADBAND = {'IDAS-LPS-D3', 'UV-IR-Cut', 'Unidentified-Broadband', 'Baader-Semi-APO',
+             'Unidentified-Broadband-BlueCut'}
+HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 def plane(t):
@@ -34,7 +44,21 @@ def read_tile(path):
     return raw.reshape(3, 256, 256).astype(np.float32)
 
 
+def folder(sid):
+    return sid.split('|')[0]
+
+
+def list_folders(path):
+    """The session folders named in a one-id-per-line list (a test-sessions.txt or an arms file)."""
+    if not os.path.exists(path):
+        return set()
+    with open(path, encoding='utf-8') as fh:
+        return {folder(line.split('\t')[0].strip()) for line in fh if line.strip() and not line.startswith('#')}
+
+
 def keys_of(cache, split):
+    if not os.path.exists(SCRATCH + cache):
+        return set()
     mm, meta = S.open_cache(SCRATCH + cache)
     tc = meta['cells']; tr = meta['train_cells']
     rng = range(0, tr) if split == 'train' else range(tr, tc)
@@ -64,39 +88,51 @@ def part_a():
     print()
 
 
-def part_b():
+def part_b(bake):
+    # Every membership is by session FOLDER, so a cache built from an older bake still flags its sessions.
     flags = {
-        'E2': keys_of('n2n-e2-warped', 'train'),
-        'e4b': keys_of('n2n-e2-eval4b', 'val'),
-        'e4': keys_of('n2n-eval4', 'val'),
-        'd8': keys_of('n2n-d8', 'train'),
+        'E2': {folder(k) for k in keys_of('n2n-e2-warped', 'train')},
+        'e4b': {folder(k) for k in keys_of('n2n-e2-eval4b', 'val')},
+        'e4': {folder(k) for k in keys_of('n2n-eval4', 'val')},
+        'd8': {folder(k) for k in keys_of('n2n-d8', 'train')},
+        'wide': list_folders(os.path.join(HERE, 'arms', 'wide-train-17.txt')),
+        'test': list_folders(os.path.join(bake, 'test-sessions.txt')),
     }
     cells = defaultdict(lambda: {'master': [], 'half': []})
-    with open(os.path.join(BAKE, 'tiles-manifest.jsonl'), encoding='utf-8') as fh:
+    with open(os.path.join(bake, 'tiles-manifest.jsonl'), encoding='utf-8') as fh:
         for line in fh:
             if not line.strip():
                 continue
             d = json.loads(line)
             if d.get('Channels', 3) != 3:
                 continue                      # mono stays out of every arm; its tiles are 1 x 256 x 256
+            if '|flip=' in d['SessionId']:
+                continue                      # a pier-side view of a session already counted whole
             if d['Frame'] == 'master':
                 cells[d['SessionId']]['master'].append(d['Tile'])
             elif d['Frame'] == 'halfmaster_a':
                 cells[d['SessionId']]['half'].append(d['Tile'])
     rows = []
     for sid, e in cells.items():
+        if not e['master']:
+            continue
         ms = sorted(e['master'])[:PER_SESSION]
         hs = sorted(e['half'])[:PER_SESSION]
-        pm = np.array([plane(read_tile(os.path.join(BAKE, t))) for t in ms])
-        ph = np.array([plane(read_tile(os.path.join(BAKE, t))) for t in hs]) if hs else np.array([np.nan])
-        fl = ''.join(k if sid in v else '-' * len(k) for k, v in flags.items())
-        rows.append((float(np.median(pm)), sid, len(pm), pm, ph, fl))
+        pm = np.array([plane(read_tile(os.path.join(bake, t))) for t in ms])
+        ph = np.array([plane(read_tile(os.path.join(bake, t))) for t in hs]) if hs else np.array([np.nan])
+        f = folder(sid)
+        bb = f.split('/')[1] in BROADBAND if f.count('/') >= 1 else False
+        fl = ''.join(k if f in v else '-' * len(k) for k, v in flags.items()) + (' bb' if bb else ' --')
+        rows.append((float(np.median(pm)), sid, len(pm), pm, ph, fl, bb, f in flags['test'], f in flags['wide'],
+                     len(hs) > 0))
     rows.sort()
-    unmatched = {k: len(v - set(cells)) for k, v in flags.items()}
-    print(f'B. {BAKE}: {len(rows)} sessions, up to {PER_SESSION} master and half_a tiles each')
-    print(f'   cache keys not found among the bake sessions (a key format mismatch, not a missing session): {unmatched}')
-    print(f"   {'session':34s} {'n':>3} {'master p5/med/p95':>22} {'half_a med':>10}  flags (E2 train / eval4b / eval4 / d8 train)")
-    for med, sid, n, pm, ph, fl in rows:
+    found = {folder(r[1]) for r in rows}
+    unmatched = {k: len(v - found) for k, v in flags.items()}
+    print(f'B. {bake}: {len(rows)} colour sessions, up to {PER_SESSION} master and half_a tiles each')
+    print(f'   flagged folders not found in this bake: {unmatched}')
+    print(f"   {'session':34s} {'n':>3} {'master p5/med/p95':>22} {'half_a med':>10}  "
+          f"flags (E2 / eval4b / eval4 / d8 / wide / test) bb")
+    for med, sid, n, pm, ph, fl, *_ in rows:
         print(f"   {short(sid):34s} {n:3d} {np.percentile(pm,5):6.2f} {med:6.2f} {np.percentile(pm,95):6.2f}   "
               f"{np.nanmedian(ph):8.2f}    {fl}")
     meds = np.array([r[0] for r in rows])
@@ -107,7 +143,31 @@ def part_b():
     print(f'   sessions whose master median sits under the E2 injected floor ({e2_floor}): '
           f'{int((meds < e2_floor).sum())} of {len(meds)}')
 
+    # The broadband question: where do the broadband sessions sit against the pool the shipped model
+    # (e2_wide_s2) was trained on?
+    wide = np.array([r[0] for r in rows if r[8]])
+    bbrows = [r for r in rows if r[6]]
+    print()
+    if len(wide):
+        lo, hi = wide.min(), wide.max()
+        print(f'   E9 WIDE pool (the shipped model\'s): {len(wide)} sessions found, master median plane {lo:.2f} to {hi:.2f}')
+        out = [r for r in bbrows if not lo <= r[0] <= hi]
+        print(f'   broadband sessions: {len(bbrows)} ({sum(r[7] for r in bbrows)} held out for test, '
+              f'{sum(r[7] and r[9] for r in bbrows)} of those with half-masters, so scorable); '
+              f'outside the WIDE range: {len(out)}')
+        for r in out:
+            print(f'      {r[0]:6.2f}  {"test " if r[7] else "train"}  {short(r[1])}')
+    bb = np.array([r[0] for r in bbrows])
+    if len(bb):
+        print(f'   broadband master median plane: min {bb.min():.2f}, median {np.median(bb):.2f}, max {bb.max():.2f}')
+
 
 if __name__ == '__main__':
-    part_a()
-    part_b()
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--bake', default=BAKE)
+    ap.add_argument('--parts', default='ab', help='a, b or ab')
+    args = ap.parse_args()
+    if 'a' in args.parts:
+        part_a()
+    if 'b' in args.parts:
+        part_b(args.bake)
