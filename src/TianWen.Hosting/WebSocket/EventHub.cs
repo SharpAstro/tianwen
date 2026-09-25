@@ -62,7 +62,13 @@ internal sealed class EventHub
     /// prompt route, so it is nobody to wait for; it used to count, and held every prompt indefinitely (P0b
     /// item 13 of docs/plans/hardware-in-the-server.md, #752).
     /// </summary>
-    public int PromptObserverCount
+    public int PromptObserverCount => NativeClientCount;
+
+    /// <summary>
+    /// The TianWen clients attached (<c>GET /api/v1/node</c>'s <c>ClientsAttached</c>): every socket but the
+    /// ninaAPI ones, which are other applications watching.
+    /// </summary>
+    public int NativeClientCount
     {
         get
         {

@@ -160,6 +160,17 @@ namespace TianWen.RemoteClient
             $"No answer within {budget.TotalSeconds:0.#}s";
 
         // ---------------------------------------------------------------------------------
+        // Node
+        // ---------------------------------------------------------------------------------
+
+        /// <summary>
+        /// <c>GET /node</c>: which node this is and the wire it speaks. On the state poll's budget, since it is what
+        /// a client asks first to learn whether the node answers at all.
+        /// </summary>
+        public Task<NodeResult<NodeInfoDto>> GetNodeAsync(CancellationToken cancellationToken) =>
+            GetAsync("api/v1/node", HostingJsonContext.Default.ResponseEnvelopeNodeInfoDto, _timeouts.StatePoll, cancellationToken);
+
+        // ---------------------------------------------------------------------------------
         // Session
         // ---------------------------------------------------------------------------------
 

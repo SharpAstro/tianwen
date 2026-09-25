@@ -47,6 +47,7 @@ namespace TianWen.Hosting.Dto;
 [JsonSerializable(typeof(ResponseEnvelope<EnhanceStatusDto>))]
 [JsonSerializable(typeof(ResponseEnvelope<JobDto>))]
 [JsonSerializable(typeof(ResponseEnvelope<JobDto[]>))]
+[JsonSerializable(typeof(ResponseEnvelope<NodeInfoDto>))]
 [JsonSerializable(typeof(Dictionary<string, object?>))]
 // The RUNTIME types of the values in an event payload (a Dictionary<string, object?>). The source generator
 // emits metadata only for types a registered root mentions, and an object value of any other type fails at

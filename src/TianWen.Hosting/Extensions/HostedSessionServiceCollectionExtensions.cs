@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using TianWen.Hosting.Api;
 using TianWen.Hosting.Api.Alpaca;
@@ -45,6 +46,11 @@ public static class HostedSessionServiceCollectionExtensions
         services.AddSingleton<NodeJobs>();
         services.AddHostedService<EventBroadcaster>();
 
+        // Which node this is (GET /api/v1/node), and where it listens. A host that listens registers its own
+        // NodeListening; one that registers none is described as listening nowhere.
+        services.AddSingleton(sp => NodeIdentity.Load(sp.GetRequiredService<IExternal>()));
+        services.TryAddSingleton(new NodeListening(SocketPath: null, LanPort: null));
+
         // The host starts and stops the node's runs. It never used to: registered only as IHostedSession,
         // StartAsync (device discovery) never ran and StopAsync never stopped a run, so a SIGTERM abandoned
         // a session mid-night with its drivers unparked and uncooled. Registered LAST, because hosted
@@ -83,6 +89,7 @@ public static class HostedSessionServiceCollectionExtensions
     public static WebApplication MapHostingApi(this WebApplication app)
     {
         // Native TianWen multi-OTA API (v1)
+        app.MapNodeApi();
         app.MapProfileApi();
         app.MapSessionApi();
         app.MapOtaApi();

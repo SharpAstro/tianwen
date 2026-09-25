@@ -17,6 +17,7 @@ using TianWen.Hosting.Extensions;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Extensions;
 using TianWen.Lib.Sequencing;
+using TianWen.RemoteClient;
 using Xunit;
 
 namespace TianWen.Lib.Tests.Functional;
@@ -30,27 +31,52 @@ internal sealed class NodeHarness : IAsyncDisposable
 {
     public static readonly Guid ProfileId = new Guid("5a1ec7ed-0b0e-4e5d-9a5e-000000000001");
 
-    private NodeHarness(WebApplication app, HttpClient client, ControlledSessionFactory factory)
+    private NodeHarness(WebApplication app, NodeTransport transport, ControlledSessionFactory factory, IExternal external, NodeLock? held)
     {
         App = app;
-        Client = client;
+        Transport = transport;
+        Client = transport.CreateHttpClient();
         Factory = factory;
+        External = external;
+        _held = held;
     }
+
+    private readonly NodeLock? _held;
 
     public WebApplication App { get; }
 
+    /// <summary>How a client reaches this node: its own socket when started on one, else loopback TCP.</summary>
+    public NodeTransport Transport { get; }
+
     public HttpClient Client { get; }
+
+    public IExternal External { get; }
 
     public ControlledSessionFactory Factory { get; }
 
     public IHostedSession Node => App.Services.GetRequiredService<IHostedSession>();
 
     /// <param name="configure">Registers services last, over the node's own (a discovery a test controls).</param>
+    /// <param name="socketPath">Listens on this socket, and on nothing else, as the machine's node does: taking its
+    /// lock first, as every node must. Null listens on loopback TCP.</param>
     public static async Task<NodeHarness> StartAsync(ITestOutputHelper outputHelper, CancellationToken cancellationToken,
-        Action<IServiceCollection>? configure = null)
+        Action<IServiceCollection>? configure = null, string? socketPath = null)
     {
         var builder = WebApplication.CreateBuilder();
-        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        NodeLock? held = null;
+        if (socketPath is null)
+        {
+            builder.WebHost.UseUrls("http://127.0.0.1:0");
+        }
+        else if (NodeLock.TryAcquire(socketPath, out held, out var refusal))
+        {
+            builder.WebHost.ConfigureKestrel(kestrel => kestrel.ListenOnNodeSocket(held));
+            builder.Services.AddSingleton(new NodeListening(socketPath, LanPort: null));
+        }
+        else
+        {
+            throw new InvalidOperationException($"The test node could not take the lock on {socketPath}", refusal);
+        }
         builder.Logging.ClearProviders();
 
         var external = new FakeExternal(outputHelper, Directory.CreateTempSubdirectory("tw_" + Guid.NewGuid().ToString("D")));
@@ -73,9 +99,22 @@ internal sealed class NodeHarness : IAsyncDisposable
         var app = builder.Build();
         app.UseWebSockets();
         app.MapHostingApi();
-        await app.StartAsync(cancellationToken);
+        if (held is not null)
+        {
+            app.RestrictNodeSocketToItsOwner(held);
+        }
+        try
+        {
+            await app.StartAsync(cancellationToken);
+        }
+        catch
+        {
+            held?.Dispose();
+            throw;
+        }
 
-        return new NodeHarness(app, new HttpClient { BaseAddress = new Uri(app.Urls.First()) }, factory);
+        var transport = held is not null ? NodeTransport.OverSocket(held.SocketPath) : NodeTransport.OverTcp(new Uri(app.Urls.First()));
+        return new NodeHarness(app, transport, factory, external, held);
     }
 
     /// <summary>Starts a session over HTTP and waits until its run has begun.</summary>
@@ -118,6 +157,7 @@ internal sealed class NodeHarness : IAsyncDisposable
         Client.Dispose();
         await App.StopAsync();
         await App.DisposeAsync();
+        _held?.Dispose();
     }
 }
 

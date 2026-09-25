@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Net.Http;
 using System.Net.WebSockets;
 using System.Text.Json;
 using System.Threading;
@@ -37,6 +38,9 @@ namespace TianWen.RemoteClient
         private readonly ITimeProvider _timeProvider;
         private readonly ILogger _logger;
         private readonly Func<ClientWebSocket> _socketFactory;
+        // The connection the socket's upgrade request goes over: the node's Unix socket for the local node, null
+        // (the default TCP connection) for a remote rig. Owned: disposed with the stream.
+        private readonly HttpMessageInvoker? _invoker;
 
         private CancellationTokenSource? _cts;
         private Task? _pump;
@@ -46,16 +50,20 @@ namespace TianWen.RemoteClient
         /// <param name="nodeBaseAddress">The node's HTTP root; the <c>ws(s)</c> event URI is derived from it.</param>
         /// <param name="socketFactory">Injectable so tests can substitute a fake socket. Defaults to a real
         /// <see cref="ClientWebSocket"/> per connection attempt (they are single-use once closed).</param>
+        /// <param name="invoker">What carries the upgrade request, when it is not a TCP connection to
+        /// <paramref name="nodeBaseAddress"/>: the local node's socket (<see cref="NodeTransport"/>). The stream owns it.</param>
         public TianWenEventStream(
             Uri nodeBaseAddress,
             ITimeProvider timeProvider,
             ILogger logger,
-            Func<ClientWebSocket>? socketFactory = null)
+            Func<ClientWebSocket>? socketFactory = null,
+            HttpMessageInvoker? invoker = null)
         {
             _endpoint = BuildEventUri(nodeBaseAddress);
             _timeProvider = timeProvider;
             _logger = logger;
             _socketFactory = socketFactory ?? (static () => new ClientWebSocket());
+            _invoker = invoker;
         }
 
         /// <summary>Raised on the receive loop's thread for every decoded push event.</summary>
@@ -107,6 +115,7 @@ namespace TianWen.RemoteClient
 
             _cts?.Dispose();
             _cts = null;
+            _invoker?.Dispose();
         }
 
         /// <summary>
@@ -172,7 +181,7 @@ namespace TianWen.RemoteClient
         private async Task ConnectAndReceiveAsync(CancellationToken cancellationToken)
         {
             using var socket = _socketFactory();
-            await socket.ConnectAsync(_endpoint, cancellationToken).ConfigureAwait(false);
+            await socket.ConnectAsync(_endpoint, _invoker, cancellationToken).ConfigureAwait(false);
             SetConnected(true);
             _logger.LogDebug("Event stream connected to {Endpoint}", _endpoint);
 
