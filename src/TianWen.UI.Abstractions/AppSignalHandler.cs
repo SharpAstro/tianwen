@@ -1041,9 +1041,10 @@ namespace TianWen.UI.Abstractions
         /// handler here acts locally, so starting one from a remote view would silently run a local
         /// session behind a remote overlay -- the failure the local/active split exists to prevent.
         /// Applied to the three run-starting handlers (session, flats, polar alignment); starting a run
-        /// ON a rig routes through its API instead (docs/plans/remote-profile.md P4), and per-action
-        /// guards for the device handlers land with the remote Equipment/Preview surfaces (P5), which is
-        /// where those actions become meaningful remotely.
+        /// ON a rig routes through its API instead (docs/plans/remote-profile.md P4). Also applied to every
+        /// device action a remote view reaches (P0b item 9 of docs/plans/hardware-in-the-server.md, #752):
+        /// planetary Start, the mount nudges, Goto, Solve and Sync, and the focuser's jog and goto, each of
+        /// which drove THIS computer's rig from a remote rig's panel. P6 routes each to its context's node.
         /// </summary>
         private bool EnsureLocalContext(string what)
         {
@@ -1086,6 +1087,8 @@ namespace TianWen.UI.Abstractions
         private bool TryResolveIdleOtaFocuser(int otaIndex, [NotNullWhen(true)] out IFocuserDriver? focuser)
         {
             focuser = null;
+            // The planetary panel's jog, beside its mount nudges, reaches here from a remote view too.
+            if (!EnsureLocalContext("A focuser move")) return false;
             if (_appState.ActiveProfile?.Data is not { OTAs: var otas } || otaIndex >= otas.Length) return false;
             if (_appState.DeviceHub is not { } hub) return false;
             if (otas[otaIndex].Focuser is not { } focUri) return false;

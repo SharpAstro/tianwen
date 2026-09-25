@@ -171,6 +171,8 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<SkyMapSlewToObjectSignal>(sig =>
             {
+                // Every object panel's Goto lands here, and it slews THIS computer's mount.
+                if (!EnsureLocalContext("A goto")) return;
                 if (appState.ActiveProfile is not { Data: { } pdata } profile
                     || pdata.Mount is not { Scheme: not "none" } mountUri)
                 {
@@ -330,6 +332,8 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<SkyMapSolveSyncSignal>(sig =>
             {
+                // Its reticle is the Active mount's, while the solve and the sync are THIS computer's.
+                if (!EnsureLocalContext("Solve and sync")) return;
                 // Re-entrancy guard: ignore a second click while a solve is already in
                 // flight (the button also shows "Solving ..." and drops its handler, but
                 // a queued signal could still arrive). UI-thread-only read here.

@@ -263,6 +263,8 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<StartVideoCaptureSignal>(sig =>
             {
+                // The remote mode pill offers Planetary too, and this streams THIS computer's camera.
+                if (!EnsureLocalContext("A planetary capture")) return;
                 if (appState.ActiveProfile?.Data is not { OTAs: var otas } || sig.OtaIndex >= otas.Length) return;
                 if (appState.DeviceHub is not { } hub) return;
 
@@ -308,6 +310,7 @@ namespace TianWen.UI.Abstractions
             // tracker. Gated on no running session + a pulse-guide-capable mount.
             bus.Subscribe<JogMountSignal>(sig =>
             {
+                if (!EnsureLocalContext("A mount nudge")) return;
                 if (appState.ActiveProfile?.Data is not { } pdata) return;
                 if (pdata.Mount is not { Scheme: not "none" } mountUri) return;
                 if (appState.DeviceHub is not { } hub) return;
