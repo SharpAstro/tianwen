@@ -33,7 +33,39 @@ It used to send to every client in turn on the broadcasting thread, so one stall
 other client and every later broadcast, without bound (P0b item 7 of
 [../plans/hardware-in-the-server.md](../plans/hardware-in-the-server.md), #752).
 
-Run: `dotnet run --project TianWen.Server` or `tianwen-server [--port 1888]`.
+Run: `dotnet run --project TianWen.Server` or `tianwen-server [--port 1888] [--socket <path>] [--local-only]`.
+
+## Where the node listens, and which node it is
+
+**Every node listens on its socket, however it was started**: a Unix domain socket under the per-user AppData
+root (`NodeSocket.DefaultPath`, `node.sock`; `--socket` names another), which Windows 10 1803+, Linux and macOS
+all serve. A node run by hand is therefore the machine's node, and a client finds it there rather than starting
+a second one onto the same hardware (P1 of [../plans/hardware-in-the-server.md](../plans/hardware-in-the-server.md),
+#917). It also listens on TCP `--port` (1888) and announces itself on the LAN, unless `--local-only`.
+
+- **One node per socket: `node.lock` beside it is the gate** (`NodeLock`), opened with no sharing (an exclusive
+  open on Windows, `flock` on Unix) and held for the node's life, so the OS drops it however the node dies. A
+  second node exits at once (`NodeExitCodes.AlreadyRunning`) naming the running one, which it ASKS over the
+  socket, since a held lock cannot be read on Unix. The lock file is never deleted: deleting it races the next
+  holder into a second lock under the same name.
+- **Only the lock's holder clears a stale socket** (`NodeLock.ClearStaleSocket`, which `ListenOnNodeSocket` takes
+  the lock to call), never probe-then-delete, under which two starting nodes both delete and the loser unlinks
+  the winner's live socket. A node that stops removes nothing itself: the runtime deletes a socket file when the
+  socket that bound it is disposed, so only a crash leaves one.
+- **The socket is the access control**: owner-only on Unix (`RestrictNodeSocketToItsOwner`, since connecting
+  takes write permission and the umask would decide it), the AppData folder's ACL on Windows. Nothing else
+  authenticates a client on it.
+- **A path is refused, never truncated**: `sun_path` holds 107 bytes on Linux and Windows and 103 on macOS
+  (`NodeSocket.TryValidate`, in bytes, so an accented user name costs two per letter).
+- **`GET /api/v1/node`** (`NodeInfoDto`) answers the node's stable id (the one the LAN announcement carries,
+  `NodeIdentity`, minted once into `lan-node-id.txt`), its build, its wire version (`NodeWire.Version`, the only
+  compatibility check), its pid, whether it is shared, and how many TianWen clients are attached. A client asks
+  it first.
+- **A client reaches it through `NodeTransport`**: `OverSocket` for the local node, `OverTcp` for a remote rig,
+  the same `TianWenNodeClient` and `TianWenEventStream` above either. `--node-socket` / `TIANWEN_NODE_SOCKET`
+  (`NodeSocket.TryGetNamed`) point a client at a node and forbid it to start one.
+
+Pinned by `NodeSocketTests` and `NodeAddressTests`.
 
 ## Six invariants on the session plane
 

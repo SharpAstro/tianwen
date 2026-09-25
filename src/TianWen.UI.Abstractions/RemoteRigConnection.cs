@@ -94,13 +94,14 @@ namespace TianWen.UI.Abstractions
                 return null;
             }
 
-            // Backstop only -- the per-request budgets in NodeTimeouts are what actually bite. Explicit
-            // rather than the 100 s default, which is far too long to notice a rig has gone: a rig that
-            // is switched off does not refuse the connection (that fails instantly), it black-holes the
-            // packets, so the wait is the full timeout.
-            var http = new HttpClient { BaseAddress = address, Timeout = NodeTimeouts.ClientBackstop };
+            // The HTTP client's timeout is the backstop only (NodeTransport): the per-request budgets in
+            // NodeTimeouts are what actually bite. Explicit rather than the 100 s default, which is far too long to
+            // notice a rig has gone: a rig that is switched off does not refuse the connection (that fails
+            // instantly), it black-holes the packets, so the wait is the full timeout.
+            var transport = NodeTransport.OverTcp(address);
+            var http = transport.CreateHttpClient();
             var client = new TianWenNodeClient(http);
-            var events = new TianWenEventStream(address, timeProvider, logger);
+            var events = transport.CreateEventStream(timeProvider, logger);
             var mirror = new RemoteSessionMirror(client, events, timeProvider, logger);
 
             var context = contexts.GetOrAddRemote(binding.NodeId, binding.Alias);

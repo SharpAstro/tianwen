@@ -1188,6 +1188,10 @@ full native-AOT rules, and the reasoning behind each rule below:
    rule, for the same reason), `GET /jobs/{id}` is authoritative, `DELETE /jobs/{id}` cancels, and
    `JOB-PROGRESS` is the hint. `/devices/discover` ran inline on the request's token, so a client's 10 s
    budget cut a serial sweep off mid-probe (P0b item 17). One of a kind at a time; a second start joins it.
+10. **The machine's node is found on its SOCKET, and one lock admits it** (`NodeSocket`, `NodeLock`): every node
+   takes `node.lock` however it was started, only the lock's holder clears a stale socket (never probe-then-delete),
+   and the lock file is never deleted. A client reaches a node through `NodeTransport` (`OverSocket` / `OverTcp`)
+   and asks `GET /api/v1/node` first; compatibility is `NodeWire.Version`, never the build (P1, #917).
 
 ### Remote Rigs (mirror another node's session "as if local")
 

@@ -39,6 +39,15 @@
     <PackageReference Include="SharpAstro.Color.Icc" />
   </ItemGroup>
 
+  <!-- LAN.Lib: the node's stable id (LanIdentity, the same file its LAN announcement reads) and the announcement
+       itself, "tianwen-server" (docs/plans/remote-profile.md Part 2 item 7). -->
+  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <ProjectReference Include="..\..\..\LAN.Lib\src\LAN.Lib\LAN.Lib.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
+    <PackageReference Include="LAN.Lib" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\TianWen.Lib\TianWen.Lib.csproj" />
     <!-- The native-v1 DTOs + ResponseEnvelope + HostingJsonContext moved out to be shared with

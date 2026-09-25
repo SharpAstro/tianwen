@@ -5,6 +5,9 @@
 // They stay internal and see the DAL device abstraction through here, rather than that
 // abstraction being promoted to public API for a packaging split.
 [assembly: InternalsVisibleTo("TianWen.Devices.Native")]
+// The node's socket lives under the per-user AppData root (SharedStaticData.CommonDataRoot), and its ONE
+// path helper sits in the contracts the node and every client share, so the root has one definition.
+[assembly: InternalsVisibleTo("TianWen.Hosting.Contracts")]
 [assembly: InternalsVisibleTo("TianWen.Lib.Tests")]
 [assembly: InternalsVisibleTo("TianWen.Lib.Tests.Functional")]
 [assembly: InternalsVisibleTo("TianWen.Lib.Tests.Simulators")]
