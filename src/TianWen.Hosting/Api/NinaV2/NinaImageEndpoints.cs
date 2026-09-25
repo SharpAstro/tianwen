@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using System.Threading;
 using Microsoft.AspNetCore.Builder;
@@ -48,25 +49,25 @@ internal static class NinaImageEndpoints
                 return Results.NotFound();
             }
 
-            // Find the first non-null last captured image
-            var lastImages = session.LastCapturedImages;
-            var image = lastImages.FirstOrDefault(img => img is not null);
-
-            if (image is null)
+            // The first OTA with a frame, rendered by the native-v1 preview's own path (see
+            // CapturedImagePreview): the frame is the session's, so it is leased for the encode, and it goes
+            // through the shared stretch. This endpoint used to read the slot bare, and before that divided
+            // each sample by MaxValue and called it an auto-stretch, rendering a linear sub near-black.
+            var otaIndex = Array.FindIndex(session.LastCapturedImages, img => img is not null);
+            if (otaIndex < 0)
             {
                 return Results.NotFound();
             }
 
-            // Shares the native-v1 preview encoder (see PreviewEncoder): this endpoint used to divide
-            // each sample by MaxValue and call it an auto-stretch, which renders a linear sub as a
-            // near-black frame. Both surfaces now produce the same rendering as the local viewer.
-            var jpegBytes = await PreviewEncoder.EncodeJpegAsync(
-                image,
+            var render = await CapturedImagePreview.RenderAsync(
+                session,
+                otaIndex,
                 quality ?? PreviewEncoder.DefaultQuality,
                 scale ?? 1.0,
+                ifNoneMatch: null,
                 ct);
 
-            return Results.Bytes(jpegBytes, "image/jpeg");
+            return render.Jpeg is { } jpegBytes ? Results.Bytes(jpegBytes, "image/jpeg") : Results.NotFound();
         });
 
         return group;

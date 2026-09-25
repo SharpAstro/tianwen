@@ -284,38 +284,19 @@ internal partial record Session
 
     /// <summary>
     /// Publishes a captured metering / flat frame to the observable preview slot
-    /// (<see cref="LastCapturedImages"/>) the GUI live preview reads via <c>PollSession</c>. Ownership
-    /// transfers to the slot: the previously-published frame for this OTA is released so its
-    /// <c>ChannelBuffer</c> ref drops (mirrors the polar-align <c>onFrameCaptured</c> hand-off). Flat
-    /// exposures are seconds apart, so at most one frame per OTA is ever in flight -- the camera's recycle
-    /// pool is never starved. Frames are released again in <see cref="FinaliseFlatsAsync"/>. An
-    /// out-of-range OTA index releases the frame immediately (no slot to own it).
+    /// (<see cref="LastCapturedImages"/>) the GUI live preview reads via <c>PollSession</c>, and CONSUMES
+    /// it: a flat is written before it is published and a metering frame is measured before, so the caller
+    /// is done with it and its hold ends here, while the slot's own lease keeps it on show until the next
+    /// frame replaces it (<see cref="PublishCapturedImage"/>). Flat exposures are seconds apart, so the
+    /// camera's recycle pool is never starved. An out-of-range OTA index has no slot, so the frame just goes
+    /// back to its camera.
     /// </summary>
     private void PublishFlatPreview(int otaIndex, Image image)
     {
-        var slots = _lastCapturedImages;
-        if (otaIndex < 0 || otaIndex >= slots.Length)
-        {
-            image.Release();
-            return;
-        }
-
-        var previous = slots[otaIndex];
-        slots[otaIndex] = image;
-
-        // This reference check is NOT the convention-5 idiom and must not be read as one, which is
-        // why it survived P1 while the thirteen transform guards did not (docs/plans/frame-lifecycle.md).
-        // Those asked "did a transform copy, so may I release my input?" -- a question about a
-        // RETURN VALUE, answerable from the branch the code had just taken. This asks "did the
-        // producer hand me the frame that is already in the slot?" -- a question about the PRODUCER,
-        // and the answer is no by construction, because every capture is a fresh GetImageAsync
-        // result. It stays because the cost of being wrong is asymmetric: releasing `previous` when
-        // it IS `image` drops the ref the slot now holds and recycles a frame the GUI is drawing,
-        // and one comparison is cheap insurance against a future caller that republishes.
-        if (!ReferenceEquals(previous, image))
-        {
-            previous?.Release();
-        }
+        // The slot's lease is its own, so republishing the frame already on show is safe: it holds a
+        // fresh lease before the old one is released. That used to need a reference check here.
+        PublishCapturedImage(otaIndex, image);
+        image.Release();
     }
 
     /// <summary>Robust flat level as a fraction of the sensor ceiling (whole-frame median ADU / max ADU).</summary>

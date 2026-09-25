@@ -28,10 +28,11 @@ namespace TianWen.Hosting.Api
         /// </summary>
         internal const string NoFrameFailure = "Guider has not produced a frame yet";
 
-        internal static async Task<(byte[]? Jpeg, int FrameNumber, string? Failure)> RenderAsync(
+        internal static async Task<PreviewRender> RenderAsync(
             ISessionTelemetry telemetry,
             int quality,
             double scale,
+            int? ifNoneMatch,
             CancellationToken cancellationToken)
         {
             // Read the number BEFORE the frame. The token then names a frame no newer than the pixels
@@ -39,9 +40,17 @@ namespace TianWen.Hosting.Api
             // it has not seen. The reverse order can skew the other way, which is the harmful direction.
             var frameNumber = telemetry.LastGuideFrameNumber;
 
+            // The client already has this frame: answer before touching it. At guiding cadence every
+            // remote client polls this, and it used to encode a full frame per poll only for the client to
+            // compare the token and drop the body.
+            if (PreviewRender.ClientHas(frameNumber, ifNoneMatch))
+            {
+                return PreviewRender.Unchanged(frameNumber);
+            }
+
             if (telemetry.LastGuideFrame is not { } published)
             {
-                return (null, frameNumber, NoFrameFailure);
+                return PreviewRender.Missing(NoFrameFailure);
             }
 
             // The guide loop swaps its published pointer before releasing the superseded frame, but
@@ -50,13 +59,13 @@ namespace TianWen.Hosting.Api
             // Losing the lease race is normal at guiding cadence and simply means "not right now".
             if (!published.TryLease(out var lease))
             {
-                return (null, frameNumber, NoFrameFailure);
+                return PreviewRender.Missing(NoFrameFailure);
             }
 
             using (lease)
             {
                 var jpeg = await PreviewEncoder.EncodeJpegAsync(lease.Image, quality, scale, cancellationToken);
-                return (jpeg, frameNumber, null);
+                return PreviewRender.Encoded(jpeg, frameNumber);
             }
         }
     }

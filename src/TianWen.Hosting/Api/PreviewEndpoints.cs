@@ -1,3 +1,4 @@
+using System;
 using System.Globalization;
 using System.Threading;
 using Microsoft.AspNetCore.Builder;
@@ -15,12 +16,14 @@ namespace TianWen.Hosting.Api
     /// operator needs to see which OTA is misbehaving.
     /// </para>
     /// <para>
-    /// <b>The <c>X-Frame-Number</c> response header is the change token.</b> Re-encoding a full-frame
-    /// preview is not free, so a polling client compares this against what it last drew and skips the
-    /// fetch when the camera has not delivered a new frame. It is the same counter the camera state
-    /// reports, so a client can also decide to fetch straight from a <c>/session/state</c> poll it was
-    /// making anyway. Binary WebSocket push is a later refinement; at 1-2 fps over a LAN this poll is
-    /// cheap enough not to need one.
+    /// <b>The change token is a conditional GET.</b> Every picture carries its frame's token as
+    /// <c>X-Frame-Number</c> and as an <c>ETag</c>, and a request whose <c>If-None-Match</c> names the
+    /// current one is answered 304 with no body, before the frame is leased or encoded: re-encoding a
+    /// full-frame preview is not free, and it used to happen on every poll, with the client comparing the
+    /// token only once the encode was done. The token is the frame's own
+    /// (<see cref="Lib.Sequencing.ISessionTelemetry.LastCapturedImageNumber"/>, the guider's
+    /// <c>LastGuideFrameNumber</c>), which a client compares for difference, not order. Binary WebSocket
+    /// push is a later refinement; at 1-2 fps over a LAN this poll is cheap enough not to need one.
     /// </para>
     /// </summary>
     internal static class PreviewEndpoints
@@ -40,46 +43,25 @@ namespace TianWen.Hosting.Api
             {
                 if (hosted.CurrentSession is not { } session)
                 {
-                    return EnvelopeResults.Json(
-                        ResponseEnvelope<string>.Fail("No active session", 404),
-                        HostingJsonContext.Default.ResponseEnvelopeString);
+                    return NoSession();
                 }
 
-                var images = session.LastCapturedImages;
-                if (otaIndex < 0 || otaIndex >= images.Length)
-                {
-                    return EnvelopeResults.Json(
-                        ResponseEnvelope<string>.Fail($"OTA index {otaIndex} out of range (0..{images.Length - 1})"),
-                        HostingJsonContext.Default.ResponseEnvelopeString);
-                }
-
-                if (images[otaIndex] is not { } image)
-                {
-                    // Distinguished from a bad index: the OTA exists but has not delivered a frame yet
-                    // (before the first exposure completes, or after a warm-up that released it).
-                    return EnvelopeResults.Json(
-                        ResponseEnvelope<string>.Fail($"OTA {otaIndex} has not captured a frame yet", 404),
-                        HostingJsonContext.Default.ResponseEnvelopeString);
-                }
-
-                var states = session.CameraStates;
-                var frameNumber = otaIndex < states.Length ? states[otaIndex].FrameNumber : 0;
-
-                var jpeg = await PreviewEncoder.EncodeJpegAsync(
-                    image,
+                var render = await CapturedImagePreview.RenderAsync(
+                    session,
+                    otaIndex,
                     quality ?? PreviewEncoder.DefaultQuality,
                     scale ?? 1.0,
+                    IfNoneMatch(context),
                     ct);
 
-                context.Response.Headers["X-Frame-Number"] = frameNumber.ToString(CultureInfo.InvariantCulture);
-                return Results.Bytes(jpeg, "image/jpeg");
+                return Answer(context, render);
             });
 
             // GET /api/v1/preview/guider?quality=&scale=
             // Not an OTA index: one guider serves the whole rig, its frames arrive at guiding cadence
             // rather than per sub, and a remote guider view needs it precisely while the science cameras
             // are mid-exposure with nothing new to show. The int route constraint above keeps the two
-            // apart. Same X-Frame-Number contract, so the same polling logic applies.
+            // apart. Same token contract, so the same polling logic applies.
             group.MapGet("/guider", async (
                 int? quality,
                 double? scale,
@@ -89,29 +71,61 @@ namespace TianWen.Hosting.Api
             {
                 if (hosted.CurrentSession is not { } session)
                 {
-                    return EnvelopeResults.Json(
-                        ResponseEnvelope<string>.Fail("No active session", 404),
-                        HostingJsonContext.Default.ResponseEnvelopeString);
+                    return NoSession();
                 }
 
-                var (jpeg, frameNumber, failure) = await GuidePreview.RenderAsync(
+                var render = await GuidePreview.RenderAsync(
                     session,
                     quality ?? PreviewEncoder.DefaultQuality,
                     scale ?? 1.0,
+                    IfNoneMatch(context),
                     ct);
 
-                if (jpeg is null)
-                {
-                    return EnvelopeResults.Json(
-                        ResponseEnvelope<string>.Fail(failure ?? GuidePreview.NoFrameFailure, 404),
-                        HostingJsonContext.Default.ResponseEnvelopeString);
-                }
-
-                context.Response.Headers["X-Frame-Number"] = frameNumber.ToString(CultureInfo.InvariantCulture);
-                return Results.Bytes(jpeg, "image/jpeg");
+                return Answer(context, render);
             });
 
             return group;
+        }
+
+        private static IResult NoSession() => EnvelopeResults.Json(
+            ResponseEnvelope<string>.Fail("No active session", 404),
+            HostingJsonContext.Default.ResponseEnvelopeString);
+
+        private static IResult Answer(HttpContext context, PreviewRender render)
+        {
+            if (render.Failure is { } failure)
+            {
+                return EnvelopeResults.Json(
+                    ResponseEnvelope<string>.Fail(failure, render.StatusCode),
+                    HostingJsonContext.Default.ResponseEnvelopeString);
+            }
+
+            // The token rides on the picture AND on the 304, so a client that sent none learns it and one
+            // that sent the current one keeps it. no-cache makes an HTTP cache ask every time rather than
+            // serve a stored picture, which for a live frame is always the question worth asking.
+            var token = render.FrameNumber.ToString(CultureInfo.InvariantCulture);
+            var headers = context.Response.Headers;
+            headers[PreviewHeaders.FrameNumber] = token;
+            headers.ETag = $"\"{token}\"";
+            headers.CacheControl = "no-cache";
+
+            return render.Jpeg is { } jpeg
+                ? Results.Bytes(jpeg, "image/jpeg")
+                : Results.StatusCode(StatusCodes.Status304NotModified);
+        }
+
+        /// <summary>
+        /// The one token a client names in <c>If-None-Match</c>, or <see langword="null"/>. A list or a
+        /// wildcard is not something this API's clients send, so it simply gets the picture; the weak form is
+        /// accepted, since If-None-Match compares weakly.
+        /// </summary>
+        private static int? IfNoneMatch(HttpContext context)
+        {
+            var tags = context.Request.GetTypedHeaders().IfNoneMatch;
+            return tags.Count == 1
+                && int.TryParse(tags[0].Tag.AsSpan().Trim('"'), NumberStyles.None, CultureInfo.InvariantCulture, out var number)
+                ? number
+                : null;
         }
     }
 }

@@ -312,7 +312,7 @@ internal partial record Session
         }
         if (_lastCapturedImages.Length != scopes)
         {
-            _lastCapturedImages = new Image?[scopes];
+            EnsureCapturedImageSlots();
             _viewerChannels = new Imaging.Channel[]?[scopes];
         }
         if (_lastFrameMetrics.Length != scopes)
@@ -673,7 +673,10 @@ internal partial record Session
                             FrameMetrics metrics = default;
                             if (i < _lastCapturedImages.Length)
                             {
-                                _lastCapturedImages[i] = image;
+                                // On show until the next frame replaces it. The slot holds its own lease,
+                                // so the write queue's release after the FITS write ends only the session's
+                                // hold, not what a preview can read.
+                                PublishCapturedImage(i, image);
 
                                 var stars = await image.FindStarsAsync(image.ReferenceStarChannel, snrMin: 10, maxStars: 1000, cancellationToken: cancellationToken);
                                 var currentGain = await camDriver.GetGainAsync(cancellationToken);

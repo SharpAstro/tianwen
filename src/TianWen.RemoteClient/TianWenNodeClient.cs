@@ -5,6 +5,7 @@ using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization.Metadata;
 using System.Threading;
@@ -283,9 +284,10 @@ namespace TianWen.RemoteClient
         /// <para>
         /// <b>Not an envelope endpoint</b>: it answers raw image bytes, so it bypasses
         /// <see cref="SendAsync"/> entirely. The response carries <c>X-Frame-Number</c>; pass the last one
-        /// you saw as <paramref name="ifNotFrameNumber"/> and the fetch is skipped when nothing new has
-        /// landed (<see cref="PreviewResult.Unchanged"/>). A preview poll that re-downloaded an unchanged
-        /// full-resolution frame twice a second would dominate the link for no benefit.
+        /// you saw as <paramref name="ifNotFrameNumber"/> and the node answers 304 without encoding anything
+        /// when nothing new has landed (<see cref="PreviewResult.Unchanged"/>). A preview poll that
+        /// re-downloaded an unchanged full-resolution frame twice a second would dominate the link for no
+        /// benefit, and one the node re-encoded twice a second would load the rig for none.
         /// </para>
         /// </summary>
         public Task<PreviewResult> GetPreviewAsync(
@@ -316,6 +318,15 @@ namespace TianWen.RemoteClient
             var path = $"api/v1/preview/{segment}{(query.Count > 0 ? "?" + string.Join("&", query) : "")}";
 
             using var request = new HttpRequestMessage(HttpMethod.Get, path);
+            if (ifNotFrameNumber is { } held)
+            {
+                // A conditional GET: the node answers 304 before leasing or encoding when this is still its
+                // current frame (PreviewHeaders). A node older than that ignores it and sends the picture,
+                // which the header comparison below still catches.
+                request.Headers.IfNoneMatch.Add(
+                    new EntityTagHeaderValue($"\"{held.ToString(CultureInfo.InvariantCulture)}\""));
+            }
+
             using var budgeted = WithBudget(_timeouts.Preview, cancellationToken);
 
             HttpResponseMessage response;
@@ -336,6 +347,12 @@ namespace TianWen.RemoteClient
 
             using (response)
             {
+                // Before the success test: 304 is outside 2xx, and it is the answer this request hopes for.
+                if (response.StatusCode is HttpStatusCode.NotModified)
+                {
+                    return PreviewResult.Unchanged;
+                }
+
                 if (!response.IsSuccessStatusCode)
                 {
                     // 404 is the ordinary "no frame captured yet" answer, not a fault to report.
@@ -378,7 +395,7 @@ namespace TianWen.RemoteClient
                 : null;
 
         /// <summary>Change token the preview endpoint stamps on every response.</summary>
-        public const string PreviewFrameNumberHeader = "X-Frame-Number";
+        public const string PreviewFrameNumberHeader = PreviewHeaders.FrameNumber;
 
         // ---------------------------------------------------------------------------------
         // Profiles

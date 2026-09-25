@@ -13,58 +13,11 @@ namespace TianWen.Lib.Tests
     /// Pins <c>GET /api/v1/preview/guider</c>'s render step. The route itself is one line; what needs a
     /// test is the borrow, because the guide loop releases the previous frame on every exposure and the
     /// failure it produces is silent: a JPEG encoded from a buffer the camera has already reused decodes
-    /// perfectly and simply shows the wrong frame.
+    /// perfectly and simply shows the wrong frame. And the token check, which must come before the frame is
+    /// touched at all, or every poll pays for an encode the client throws away.
     /// </summary>
     public class GuidePreviewTests
     {
-        /// <summary>
-        /// A mono guide frame carrying a recycled camera buffer, so the tests can watch the refcount
-        /// rather than infer ownership. Shaped like a real guide frame: mostly background with a star,
-        /// which is also what keeps the stretch's median/MAD scan out of its degenerate case.
-        /// </summary>
-        private static Image BufferedGuideFrame(out ChannelBuffer buffer, int width = 48, int height = 32,
-            bool clobberOnRecycle = false)
-        {
-            var data = new float[height, width];
-            for (var y = 0; y < height; y++)
-            {
-                for (var x = 0; x < width; x++)
-                {
-                    data[y, x] = 0.02f + (x * 7 + y * 13) % 17 * 0.0005f;
-                }
-            }
-
-            data[height / 2, width / 2] = 0.9f;
-            data[height / 2, width / 2 + 1] = 0.55f;
-            data[height / 2 + 1, width / 2] = 0.55f;
-
-            // Recycling is not a bookkeeping event: the camera writes the NEXT frame into this very array.
-            // Modelling that as a clobber is what gives the across-the-encode test teeth, since the raw
-            // float[,] stays readable after a release and a stale read would otherwise look like a pass.
-            var owned = new ChannelBuffer(
-                data,
-                onRelease: recycled =>
-                {
-                    if (clobberOnRecycle)
-                    {
-                        for (var y = 0; y < recycled.GetLength(0); y++)
-                        {
-                            for (var x = 0; x < recycled.GetLength(1); x++)
-                            {
-                                recycled[y, x] = 0.5f;
-                            }
-                        }
-                    }
-                });
-            buffer = owned;
-
-            return new Image(
-                [new Channel(data, default, 0f, 0.9f, 0) { Buffer = owned }],
-                BitDepth.Float32,
-                pedestal: 0f,
-                new ImageMeta { SensorType = SensorType.Monochrome });
-        }
-
         private static ISessionTelemetry TelemetryWith(Image? frame, int frameNumber)
         {
             var telemetry = Substitute.For<ISessionTelemetry>();
@@ -73,20 +26,21 @@ namespace TianWen.Lib.Tests
             return telemetry;
         }
 
+        private static Task<PreviewRender> RenderAsync(ISessionTelemetry telemetry, double scale = 1.0, int? ifNoneMatch = null)
+            => GuidePreview.RenderAsync(telemetry, PreviewEncoder.DefaultQuality, scale, ifNoneMatch, TestContext.Current.CancellationToken);
+
         [Fact]
         public async Task RenderAsync_WithALiveFrame_EncodesItAndReportsTheFrameNumber()
         {
-            var frame = BufferedGuideFrame(out _);
+            var frame = TestFrames.BufferedMono(out _);
 
-            var (jpeg, frameNumber, failure) = await GuidePreview.RenderAsync(
-                TelemetryWith(frame, 4711), PreviewEncoder.DefaultQuality, 1.0, TestContext.Current.CancellationToken);
+            var render = await RenderAsync(TelemetryWith(frame, 4711));
 
-            failure.ShouldBeNull();
-            jpeg.ShouldNotBeNull();
-            frameNumber.ShouldBe(4711);
+            render.Failure.ShouldBeNull();
+            render.FrameNumber.ShouldBe(4711);
 
             // Decode rather than assert a byte count: the point of the endpoint is a viewable picture.
-            Image.TryDecodeRaster(jpeg, out var decoded).ShouldBeTrue();
+            Image.TryDecodeRaster(render.Jpeg.ShouldNotBeNull(), out var decoded).ShouldBeTrue();
             decoded.ShouldNotBeNull();
             decoded.Width.ShouldBe(48);
             decoded.Height.ShouldBe(32);
@@ -95,11 +49,10 @@ namespace TianWen.Lib.Tests
         [Fact]
         public async Task RenderAsync_GivesTheBorrowBack_SoTheGuiderCanStillRecycleTheBuffer()
         {
-            var frame = BufferedGuideFrame(out var buffer);
+            var frame = TestFrames.BufferedMono(out var buffer);
             buffer.RefCount.ShouldBe(1); // the frame itself
 
-            await GuidePreview.RenderAsync(
-                TelemetryWith(frame, 1), PreviewEncoder.DefaultQuality, 1.0, TestContext.Current.CancellationToken);
+            await RenderAsync(TelemetryWith(frame, 1));
 
             // Leaking the lease would pin a guide-camera buffer for the rest of the night, one per poll,
             // and starve the recycle loop it came from.
@@ -110,20 +63,17 @@ namespace TianWen.Lib.Tests
         [Fact]
         public async Task RenderAsync_HoldsTheFrameAcrossTheEncode_EvenIfTheGuiderPublishesTheNextOne()
         {
-            var frame = BufferedGuideFrame(out var buffer, clobberOnRecycle: true);
-            var telemetry = TelemetryWith(frame, 7);
+            var frame = TestFrames.BufferedMono(out var buffer, clobberOnRecycle: true);
 
             // The guide loop's swap, mid-request: it releases the frame it published and moves on. The
             // encode must still complete against pixels nobody has reclaimed.
-            var render = GuidePreview.RenderAsync(
-                telemetry, PreviewEncoder.DefaultQuality, 1.0, TestContext.Current.CancellationToken);
+            var rendering = RenderAsync(TelemetryWith(frame, 7));
             frame.Release();
 
-            var (jpeg, _, failure) = await render;
+            var render = await rendering;
 
-            failure.ShouldBeNull();
-            jpeg.ShouldNotBeNull();
-            Image.TryDecodeRaster(jpeg, out var decoded).ShouldBeTrue();
+            render.Failure.ShouldBeNull();
+            Image.TryDecodeRaster(render.Jpeg.ShouldNotBeNull(), out var decoded).ShouldBeTrue();
             decoded.ShouldNotBeNull();
 
             // The star must still be there. Recycling flattens the array to one value, so a preview
@@ -148,44 +98,68 @@ namespace TianWen.Lib.Tests
         [Fact]
         public async Task RenderAsync_WithNoFrame_ReportsAMissRatherThanFailing()
         {
-            var (jpeg, frameNumber, failure) = await GuidePreview.RenderAsync(
-                TelemetryWith(null, 0), PreviewEncoder.DefaultQuality, 1.0, TestContext.Current.CancellationToken);
+            var render = await RenderAsync(TelemetryWith(null, 0));
 
-            jpeg.ShouldBeNull();
-            frameNumber.ShouldBe(0);
-            failure.ShouldBe(GuidePreview.NoFrameFailure);
+            render.Jpeg.ShouldBeNull();
+            render.IsUnchanged.ShouldBeFalse();
+            render.Failure.ShouldBe(GuidePreview.NoFrameFailure);
+            render.StatusCode.ShouldBe(404);
         }
 
         [Fact]
         public async Task RenderAsync_WhenTheFrameIsAlreadyGone_ReportsAMissInsteadOfEncodingRecycledPixels()
         {
-            var frame = BufferedGuideFrame(out var buffer);
+            var frame = TestFrames.BufferedMono(out var buffer);
 
             // The guider published this frame and has since moved on: its buffer is back with the camera.
             frame.Release();
             buffer.IsReleased.ShouldBeTrue();
 
-            var (jpeg, _, failure) = await GuidePreview.RenderAsync(
-                TelemetryWith(frame, 9), PreviewEncoder.DefaultQuality, 1.0, TestContext.Current.CancellationToken);
+            var render = await RenderAsync(TelemetryWith(frame, 9));
 
-            jpeg.ShouldBeNull();
-            failure.ShouldBe(GuidePreview.NoFrameFailure);
+            render.Jpeg.ShouldBeNull();
+            render.Failure.ShouldBe(GuidePreview.NoFrameFailure);
         }
 
         [Fact]
         public async Task RenderAsync_ScalesTheOutput_SoAPhoneCanPollASmallerPicture()
         {
-            var frame = BufferedGuideFrame(out _, width: 64, height: 64);
+            var frame = TestFrames.BufferedMono(out _, width: 64, height: 64);
 
-            var (jpeg, _, failure) = await GuidePreview.RenderAsync(
-                TelemetryWith(frame, 1), PreviewEncoder.DefaultQuality, 0.5, TestContext.Current.CancellationToken);
+            var render = await RenderAsync(TelemetryWith(frame, 1), scale: 0.5);
 
-            failure.ShouldBeNull();
-            jpeg.ShouldNotBeNull();
-            Image.TryDecodeRaster(jpeg, out var decoded).ShouldBeTrue();
+            render.Failure.ShouldBeNull();
+            Image.TryDecodeRaster(render.Jpeg.ShouldNotBeNull(), out var decoded).ShouldBeTrue();
             decoded.ShouldNotBeNull();
             decoded.Width.ShouldBe(32);
             decoded.Height.ShouldBe(32);
+        }
+
+        [Fact]
+        public async Task RenderAsync_WhenTheClientHasTheFrame_AnswersUnchangedWithoutTouchingIt()
+        {
+            var frame = TestFrames.BufferedMono(out _);
+            var telemetry = TelemetryWith(frame, 12);
+
+            var render = await RenderAsync(telemetry, ifNoneMatch: 12);
+
+            render.IsUnchanged.ShouldBeTrue();
+            render.FrameNumber.ShouldBe(12, "a 304 still names the frame, so the client keeps its token");
+            render.Jpeg.ShouldBeNull();
+
+            // Never reading the frame is what proves nothing was leased or encoded: the render used to encode
+            // first and leave the comparison to the client.
+            _ = telemetry.DidNotReceive().LastGuideFrame;
+        }
+
+        [Fact]
+        public async Task RenderAsync_WhenTheClientHasAnOlderFrame_EncodesTheCurrentOne()
+        {
+            var render = await RenderAsync(TelemetryWith(TestFrames.BufferedMono(out _), 13), ifNoneMatch: 12);
+
+            render.IsUnchanged.ShouldBeFalse();
+            render.Jpeg.ShouldNotBeNull();
+            render.FrameNumber.ShouldBe(13);
         }
     }
 }

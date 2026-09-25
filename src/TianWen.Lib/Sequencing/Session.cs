@@ -152,9 +152,6 @@ internal partial record Session(
     public string? LastFramePath => _lastFramePath;
     private volatile string? _lastFramePath;
 
-    public Image?[] LastCapturedImages => _lastCapturedImages;
-    private volatile Image?[] _lastCapturedImages = [];
-
     // Persistent viewer channels: allocated once per telescope, reused across frames.
     // Debayer writes directly into these. The viewer reads them for GPU upload.
     private Channel[]?[] _viewerChannels = [];
@@ -672,7 +669,8 @@ internal partial record Session(
     private void AllocateObservableState()
     {
         _cameraStates = new CameraExposureState[Setup.Telescopes.Length];
-        _lastCapturedImages = new Image?[Setup.Telescopes.Length];
+        ReleaseCapturedImages();
+        EnsureCapturedImageSlots();
         _viewerChannels = new Imaging.Channel[]?[Setup.Telescopes.Length];
         _lastFrameMetrics = new FrameMetrics[Setup.Telescopes.Length];
         _frameMetricsHistory = CreateFrameMetricsHistory(Setup.Telescopes.Length);
@@ -837,6 +835,9 @@ internal partial record Session(
 
     public async ValueTask DisposeAsync()
     {
+        // Normally empty already (a run's finaliser empties them); this covers a session that never ran one.
+        ReleaseCapturedImages();
+
         await Setup.DisposeAsync();
 
         GC.SuppressFinalize(this);

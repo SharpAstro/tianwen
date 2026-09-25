@@ -168,12 +168,7 @@ internal partial record Session
 
         // Release any frames still held in the GUI preview slots (published by PublishFlatPreview) so their
         // ChannelBuffer refs drop back to the camera pool before we disconnect the cameras below.
-        var previewSlots = _lastCapturedImages;
-        for (var i = 0; i < previewSlots.Length; i++)
-        {
-            previewSlots[i]?.Release();
-            previewSlots[i] = null;
-        }
+        ReleaseCapturedImages();
 
         _currentActivity = "Aborting exposures\u2026";
         for (var i = 0; i < Setup.Telescopes.Length; i++)

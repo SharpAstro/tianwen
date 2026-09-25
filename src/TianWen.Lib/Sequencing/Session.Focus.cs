@@ -236,12 +236,6 @@ internal partial record Session
 
         var count = Setup.Telescopes.Length;
 
-        // Ensure _lastCapturedImages is sized (normally done by InitialisationAsync)
-        if (_lastCapturedImages.Length < count)
-        {
-            _lastCapturedImages = new Image?[count];
-        }
-
         // Move filter wheels to the focus filter before rough focus
         for (var i = 0; i < count; i++)
         {
@@ -292,9 +286,20 @@ internal partial record Session
 
                 if (await camDriver.GetImageAsync(cancellationToken) is { Width: > 0, Height: > 0 } image)
                 {
-                    _lastCapturedImages[i] = image;
+                    PublishCapturedImage(i, image);
 
-                    var stars = await image.FindStarsAsync(image.ReferenceStarChannel, snrMin: 15, cancellationToken: cancellationToken);
+                    // The star count is all rough focus reads from the frame, so its own hold ends there;
+                    // the slot keeps the frame on show. This loop used to publish its frames and never
+                    // release them, so not one rough-focus frame went back to its camera.
+                    StarList stars;
+                    try
+                    {
+                        stars = await image.FindStarsAsync(image.ReferenceStarChannel, snrMin: 15, cancellationToken: cancellationToken);
+                    }
+                    finally
+                    {
+                        image.Release();
+                    }
 
                     _currentActivity = $"Stars: {stars.Count}/15 (exposure {expTimesSec[i]}s)";
                     _logger.LogInformation("RoughFocus: telescope #{TelescopeNumber} exposure {ExpTime}s focPos={FocusPosition} → {StarCount} stars detected (need ≥15)",
@@ -627,11 +632,9 @@ internal partial record Session
                 {
                     _cameraStates[telescopeIndex] = _cameraStates[telescopeIndex] with { State = Devices.CameraState.Download };
                 }
-                // Push raw image to mini viewer (GPU handles debayer)
-                if (telescopeIndex < _lastCapturedImages.Length)
-                {
-                    _lastCapturedImages[telescopeIndex] = image;
-                }
+                // Push raw image to mini viewer (GPU handles debayer). The slot holds its own lease, so
+                // the release once the stars are counted below does not take the rung off the screen.
+                PublishCapturedImage(telescopeIndex, image);
 
                 // Star detection on the raw image
                 var stars = await image.FindStarsAsync(image.ReferenceStarChannel, snrMin: 10, cancellationToken: cancellationToken);
@@ -680,11 +683,7 @@ internal partial record Session
         }
 
         // Return last captured viewer image and reclaim V-curve intermediates
-        if (telescopeIndex < _lastCapturedImages.Length)
-        {
-
-            _lastCapturedImages[telescopeIndex] = null;
-        }
+        ClearCapturedImage(telescopeIndex);
         GC.Collect(2, GCCollectionMode.Aggressive, blocking: true);
         GC.WaitForPendingFinalizers();
         _logger.LogInformation(
