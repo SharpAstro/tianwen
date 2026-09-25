@@ -102,6 +102,52 @@ public class RigShutdownTests(ITestOutputHelper output)
         disconnects.ShouldHaveSingleItem().ShouldBe((CameraUri, RunStillGoing: false));
     }
 
+    /// <summary>
+    /// The headless window's title is the latest progress, and says that closing stops the rig only while
+    /// a run goes on. A "goes on" reported but not yet shown when the window was closed used to overwrite
+    /// "stopping" as soon as the loop got round to it, so the stop now reports itself before
+    /// <see cref="CancellationTokenSource.Cancel()"/> returns, on the thread that asked.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task AStopRequestedWhileTheSessionGoesOnIsTheLatestProgressBeforeCancelReturns()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var local = new LiveSessionState();
+        var (hub, _) = HubWithOneIdleCamera(local);
+        var finalise = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        StartFakeSession(local, endsOnItsOwn: NeverEnds(), finalise.Task);
+        using var stopRig = new CancellationTokenSource();
+        string? latest = null;
+
+        var stop = new RigShutdown(local, hub, Substitute.For<ITimeProvider>(), FakeExternal.CreateLogger(output))
+            .StopAsync(RigShutdownMode.DisplayLost, stopRig.Token, p => Volatile.Write(ref latest, p));
+
+        Volatile.Read(ref latest).ShouldBe(RigShutdown.SessionGoesOn);
+        stopRig.Cancel(); // what the headless window's OnQuit does, on the loop thread
+        Volatile.Read(ref latest).ShouldBe(RigShutdown.StoppingTheRig);
+
+        finalise.SetResult();
+        await stop.WaitAsync(ct);
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task AStopRequestedBeforeTheWaitNeverReportsThatTheSessionGoesOn()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var local = new LiveSessionState();
+        var (hub, _) = HubWithOneIdleCamera(local);
+        StartFakeSession(local, endsOnItsOwn: NeverEnds(), Task.CompletedTask);
+        using var stopRig = new CancellationTokenSource();
+        stopRig.Cancel();
+        var reported = new ConcurrentQueue<string>();
+
+        await new RigShutdown(local, hub, Substitute.For<ITimeProvider>(), FakeExternal.CreateLogger(output))
+            .StopAsync(RigShutdownMode.DisplayLost, stopRig.Token, reported.Enqueue).WaitAsync(ct);
+
+        reported.ShouldNotContain(RigShutdown.SessionGoesOn);
+        reported.ShouldContain(RigShutdown.StoppingTheRig);
+    }
+
     [Fact(Timeout = 30_000)]
     public async Task TwoStopsAtOnceStopEachCameraOnce()
     {

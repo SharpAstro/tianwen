@@ -76,8 +76,13 @@ public sealed class RigShutdown(LiveSessionState local, IDeviceHub? hub, ITimePr
         }
 
         // Runs synchronously when the request is already made, so a stop asked for before this point is
-        // never lost.
-        using (stopRig.Register(AbortNight))
+        // never lost. It reports the stop itself, on the thread that asks for it, so a caller showing the
+        // latest progress can never show "goes on" after the stop was requested.
+        using (stopRig.Register(() =>
+        {
+            AbortNight();
+            progress?.Invoke(StoppingTheRig);
+        }))
         {
             if (!local.PolarRunEnded.IsCompleted)
             {
@@ -87,21 +92,32 @@ public sealed class RigShutdown(LiveSessionState local, IDeviceHub? hub, ITimePr
 
             if (!local.FlatRunEnded.IsCompleted)
             {
-                progress?.Invoke(mode is RigShutdownMode.Quit ? "Finishing the flat run" : "The flat run goes on without a display");
+                progress?.Invoke(Aborting(mode, stopRig) ? "Finishing the flat run" : FlatRunGoesOn);
                 await local.FlatRunEnded;
             }
 
             if (!local.SessionEnded.IsCompleted)
             {
-                progress?.Invoke(mode is RigShutdownMode.Quit
-                    ? "Finalising the session: park, warm-up, covers"
-                    : "The session goes on without a display");
+                progress?.Invoke(Aborting(mode, stopRig) ? "Finalising the session: park, warm-up, covers" : SessionGoesOn);
                 await local.SessionEnded;
             }
         }
 
         await StopCamerasOnceAsync(progress);
     }
+
+    /// <summary>The progress while a session is left to finish with no display.</summary>
+    public const string SessionGoesOn = "The session goes on";
+
+    /// <summary>The progress while a flat run is left to finish with no display.</summary>
+    public const string FlatRunGoesOn = "The flat run goes on";
+
+    /// <summary>The progress the moment the caller's stop request turns the runs left to finish into an abort.</summary>
+    public const string StoppingTheRig = "Stopping the rig: park, warm-up, covers";
+
+    // Whether the runs still going are being aborted: always on a quit, and once asked on a display loss.
+    private static bool Aborting(RigShutdownMode mode, CancellationToken stopRig)
+        => mode is RigShutdownMode.Quit || stopRig.IsCancellationRequested;
 
     // The session and a flat run, aborted: each still ends through its own Finalise, which is what the
     // wait above then waits for.
