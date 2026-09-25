@@ -37,10 +37,52 @@ AUTO_MAG_MAX = 21.0
 AUTO_FLOOR_MAX = 0.05
 
 
+def audit_extended(idx, session_of, mask, cap_of, confirmed, compact, extended, crop_shape,
+                   radius=2.5, deeper=1.0, randoms=200):
+    """Is the EXTENDED column nebulosity, or stars the 1 px match missed? For each population, the
+    fraction of peaks with a catalogued star (BP brighter than the session's cap + `deeper`) within
+    `radius` px, and the fraction with two or more (a blend of catalogued stars), against the same two
+    fractions at uniform random positions in the same cells, which is the chance rate that density
+    alone produces. A population near its chance rate is not made of catalogued stars; one far above it
+    is, whatever its shape says. Added 2026-09-26, when three of the four broadband fields read an
+    extended cost equal to their star cost."""
+    rng = np.random.default_rng(0)
+    h, w = crop_shape
+    rows = {}
+    for t, i in enumerate(idx):
+        sid = session_of[i]
+        g = mask[i]
+        g = g[g[:, 2] < cap_of[sid] + deeper]
+        ry = rng.uniform(2, h - 2, randoms); rx = rng.uniform(2, w - 2, randoms)
+        pops = {'stars': confirmed[t][:2], 'compact': compact[t][:2], 'extended': extended[t][:2],
+                'random': (ry, rx)}
+        r = rows.setdefault(sid, {k: [0, 0, 0] for k in pops})
+        for k, (ys, xs) in pops.items():
+            if len(ys) == 0:
+                continue
+            if len(g):
+                d = np.hypot(ys[:, None] - g[None, :, 0], xs[:, None] - g[None, :, 1])
+                near = (d <= radius).sum(axis=1)
+            else:
+                near = np.zeros(len(ys), int)
+            r[k][0] += len(ys); r[k][1] += int((near >= 1).sum()); r[k][2] += int((near >= 2).sum())
+    print(f'AUDIT: a catalogued star (BP < cap + {deeper:g}) within {radius:g} px; "2+" is two or more of them.')
+    print(f"{'session':44s} {'':>4} " + ' '.join(f'{k:>19s}' for k in ('stars', 'compact', 'extended', 'random')))
+    print(f"{'':44s} {'cap':>4} " + ' '.join(f'{"n  >=1  2+":>19s}' for _ in range(4)))
+    for sid, r in rows.items():
+        cells = []
+        for k in ('stars', 'compact', 'extended', 'random'):
+            n, one, two = r[k]
+            cells.append(f'{n:6d} {100*one/max(n,1):5.1f}% {100*two/max(n,1):5.1f}%')
+        print(f"{sid.split('|')[0][-44:]:44s} {cap_of[sid]:4g} " + ' '.join(f'{c:>19s}' for c in cells))
+    print('Read EXTENDED against RANDOM on the same row: at the random rate the population is not catalogued '
+          'stars; near the STARS column it is, and a structure claim resting on it is a claim about stars.')
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--cache', required=True)
-    ap.add_argument('--models', nargs='+', required=True, help='slug=checkpoint.pt')
+    ap.add_argument('--models', nargs='+', default=None, help='slug=checkpoint.pt (required unless --audit-extended)')
     ap.add_argument('--blend', default='0.2,0.4,0.7,1.0')
     ap.add_argument('--match', default='4,10', help='noise-removal percentages to compare AT')
     ap.add_argument('--mag-max', default='auto',
@@ -54,7 +96,13 @@ def main():
                          '2025-05-02 is a member of every arm X pair): state the exclusion, then apply it.')
     ap.add_argument('--per-session', action='store_true',
                     help='under each model, the noise removed at full strength per session')
+    ap.add_argument('--audit-extended', action='store_true',
+                    help='score no model; instead report, per session, how often each population sits beside a '
+                         'catalogued star, against random positions in the same cells (is "extended" nebulosity, '
+                         'or blended stars?)')
     a = ap.parse_args()
+    if not a.models and not a.audit_extended:
+        ap.error('--models is required unless --audit-extended')
 
     dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     mm, meta = S.open_cache(a.cache)
@@ -160,6 +208,10 @@ def main():
           f'floor is luck, not stars; "of ext." says which fields the extended column is made of.\n'
           f'Compact unmatched peaks are star-shaped: uncatalogued or blended stars, or knots; only the '
           f'EXTENDED column is nebulosity, and only it supports a structure claim.\n')
+
+    if a.audit_extended:
+        audit_extended(idx, session_of, mask, cap_of, confirmed, compact, extended, lm.shape[1:])
+        return
 
     raw = S.crop(half_a)
     pops = {'Gaia stars': confirmed, 'compact unmatched': compact, 'extended': extended}
