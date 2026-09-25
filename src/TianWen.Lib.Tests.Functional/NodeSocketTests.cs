@@ -141,6 +141,45 @@ public class NodeSocketTests(ITestOutputHelper outputHelper)
     }
 
     [Fact(Timeout = 30_000)]
+    public async Task ANodeStopsWhenAskedOverItsSocket()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var node = await NodeHarness.StartAsync(outputHelper, ct, socketPath: NewSocketPath());
+        var stopping = node.App.Lifetime.ApplicationStopping;
+
+        (await NodeHarness.EnvelopeStatusAsync(node.Client.PostAsync("api/v1/node/shutdown", null, ct), ct)).ShouldBe(202);
+
+        await Task.Delay(Timeout.InfiniteTimeSpan, stopping).ContinueWith(static _ => { }, TaskScheduler.Default).WaitAsync(TimeSpan.FromSeconds(10), ct);
+        stopping.IsCancellationRequested.ShouldBeTrue();
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task ANodeReachedOverTcpCannotBeStopped()
+    {
+        // Only a client on this machine's socket may stop the machine's node.
+        var ct = TestContext.Current.CancellationToken;
+        await using var node = await NodeHarness.StartAsync(outputHelper, ct);
+
+        (await NodeHarness.EnvelopeStatusAsync(node.Client.PostAsync("api/v1/node/shutdown", null, ct), ct)).ShouldBe(403);
+
+        node.App.Lifetime.ApplicationStopping.IsCancellationRequested.ShouldBeFalse();
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task ANodeSaysWhenItHoldsHardware()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var node = await NodeHarness.StartAsync(outputHelper, ct, socketPath: NewSocketPath());
+        var client = new TianWenNodeClient(node.Client);
+        (await client.GetNodeAsync(ct)).Value.ShouldNotBeNull().HoldsHardware.ShouldBeFalse("an idle node holds nothing");
+
+        node.Factory.Initialised.SetResult();
+        await node.StartSessionAsync(ct);
+
+        (await client.GetNodeAsync(ct)).Value.ShouldNotBeNull().HoldsHardware.ShouldBeTrue("a run is going on");
+    }
+
+    [Fact(Timeout = 30_000)]
     [UnsupportedOSPlatform("windows")]
     public async Task OnUnixTheSocketIsItsOwnersAlone()
     {

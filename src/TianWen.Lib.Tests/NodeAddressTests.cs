@@ -47,7 +47,7 @@ public class NodeAddressTests(ITestOutputHelper outputHelper)
     {
         NodeSocket.TryValidate(NodeSocket.DefaultPath, out var error).ShouldBeTrue(error);
         Path.GetFileName(NodeSocket.DefaultPath).ShouldBe(NodeSocket.DefaultFileName);
-        Path.GetDirectoryName(NodeSocket.DefaultPath).ShouldBe(SharedStaticData.CommonDataRoot.FullName);
+        Path.GetDirectoryName(NodeSocket.DefaultPath).ShouldBe(TianWenDataRoot.Directory.FullName);
     }
 
     [Fact]
@@ -158,6 +158,32 @@ public class NodeAddressTests(ITestOutputHelper outputHelper)
         NodeArguments.TryParse(["--socket", PathOfBytes(NodeSocket.MaxPathBytes + 1)], out _, out var error).ShouldBeFalse();
 
         error.ShouldNotBeNull().ShouldContain("longer than");
+    }
+
+    [Fact]
+    public void AKeeperStartsItsNodeWithWhatItWasToldLessKeeperAndAsSpawned()
+    {
+        var socket = Path.Combine(Path.GetTempPath(), "kept.sock");
+        NodeArguments.TryParse(["--keeper", "--socket", socket, "--port", "1999", "--local-only", "--fake-devices"], out var keeper, out var error)
+            .ShouldBeTrue(error);
+        keeper.Keeper.ShouldBeTrue();
+
+        NodeArguments.TryParse([.. keeper.ForTheNode()], out var node, out error).ShouldBeTrue(error);
+
+        node.ShouldBe(keeper with { Keeper = false, Spawned = true });
+    }
+
+    [Fact]
+    public void ADataRootNamedByTheEnvironmentIsUsedAndMadeAndNoneNamedIsTheUsers()
+    {
+        var named = Path.Combine(Path.GetTempPath(), "twroot-" + Guid.NewGuid().ToString("N")[..8], "data");
+
+        var root = SharedStaticData.ResolveCommonDataRoot(named);
+
+        root.FullName.ShouldBe(Path.GetFullPath(named));
+        root.Exists.ShouldBeTrue();
+        SharedStaticData.ResolveCommonDataRoot(" ").FullName
+            .ShouldBe(Environment.SpecialFolder.LocalApplicationData.CreateAppSubFolder(SharedStaticData.AppName).FullName);
     }
 
     /// <summary>A full path of exactly <paramref name="bytes"/> UTF-8 bytes.</summary>

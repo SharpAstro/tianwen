@@ -29,4 +29,10 @@ public static class NodeExitCodes
 
     /// <summary>Another node holds the lock on the socket, so this one never started.</summary>
     public const int AlreadyRunning = 3;
+
+    /// <summary>A keeper's node crashed twice within a few minutes, so the keeper left it down.</summary>
+    public const int CrashLoop = 4;
+
+    /// <summary>A keeper could not start its node at all (the executable is missing or cannot run).</summary>
+    public const int CouldNotStart = 5;
 }
