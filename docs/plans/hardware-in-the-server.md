@@ -571,7 +571,7 @@ the GUI stops when the GUI does; one that runs in the server finishes.
 | Device ownership (the GUI's gates read its OWN hub) | the lease table crosses: who holds each device, for which run | new. Removing the hub silently OPENS both gates (`DeviceOwnershipGate(null)` allows everything, `ProfileSwitchGate(null, ...)` sees no devices), so the GUI's gates are re-sourced from this before the cut |
 | Session start / abort / prompts / flats | exists (`/session/*`) but cannot carry a night yet (P0b 1-4 and 10-14); the WHOLE `SessionConfiguration` crosses (P0b 10, P5b); prompts go to every client and the first answer wins | P0b, then P5b |
 | Notifications (the GUI's feed, the Home card's last note) | a `NOTIFICATION` push merged into the client's feed, plus the node's own ring on connect | exists server-side; nothing in the GUI consumes it (P5b) |
-| Full-resolution frames: preview, subs, guide frames, polar refine | linear frames, P4; a saved sub is its FITS file, mapped locally through the reader of #755 | new |
+| Full-resolution frames: preview, subs, guide frames, polar refine | linear frames, P4; a saved sub is its FITS file, read locally through `FitsReader` (#755, shipped) | new |
 | Polar alignment, planetary capture with its rolling stack, a dark library | server run kinds, P5 | new |
 | Mount limit verdict (the GUI reads `MountLimitWatcher.VerdictFor` every frame) | session-less telemetry field | new |
 | Device commands from a terminal ("the CLI makes it possible to warm up a camera from the command line", user, 2026-09-25) | the same device-plane jobs the Equipment tab uses, behind `tianwen device connect\|disconnect\|warm\|park\|status` and the existing `darks`, `flats` and `profile` verbs | new client code only, once P2 exists |
@@ -674,15 +674,17 @@ profile, plate solve and snapshot save all assume linear floats in memory, and a
     and the local GUI share one code path above the carrier.
   - **A frame the server SAVES needs no slot: the file is the shared memory** (user, 2026-09-24).
     - Right after the server writes a sub, its bytes are in the OS page cache, which every process
-      shares. The announcement then names the file, and a local client maps it.
+      shares. The announcement then names the file, and a local client reads it from there.
     - That memory is reclaimable, where a pagefile-backed slot is commit. It holds the sensor's own
       16 bits, half a float slot, and the server's copy into a slot disappears, since the FITS write it
       does anyway takes its place.
-    - Measured on a 26 MP 16-bit sub (hot cache): a mapped read that widens straight into a recycled
-      `float[,]` took 22.6 ms and allocated nothing, against 44 ms and 158.7 MB for today's
-      `TryReadFitsFile`. It belongs in FITS.Lib as the reading counterpart of `FitsWriter`:
-      [frame-path-allocations.md](frame-path-allocations.md) P5, #755 (in progress on the laptop,
-      2026-09-25). 10.0's saved frame is read through it whether or not P4b ships.
+    - **The reader SHIPPED (#755, FITS.Lib 6.2's `FitsReader`, "perf(fits): a plain FITS file is read
+      straight into its planes, through FitsReader"), as positional reads rather than the memory
+      mapping first proposed, which measured slower than the old reader from disk.** 2 MB positional
+      reads, each band decoded straight into the float plane: a 26 MP 16-bit sub, pooled, went from
+      39.5 ms and 54.3 MB to 10.5 ms and 56 KB from the page cache (75 to 62 ms from disk; win-arm64,
+      Release). So 10.0's saved frame is read through `Image.TryReadFitsFile` as it stands, and
+      "the file is the shared memory" holds without a mapping.
     - Slots therefore remain only for frames that are never saved: previews, polar refinement, guide
       frames and the planetary live frame. For planetary, a memory-mapped SER may be the ring itself
       (the same plan, P2).
@@ -810,7 +812,7 @@ profile, plate solve and snapshot save all assume linear floats in memory, and a
 - **A saved frame is its FITS file, for a remote client as much as a local one, and where the
   original lives is a NODE policy** (user, 2026-09-24: "usually a mini pc will have plenty of storage
   and its always good to have the original at hand in case something goes wrong"). **Only the local
-  half ships in 10.0** (decision 11): the GUI maps the file its node wrote, and the node keeps every
+  half ships in 10.0** (decision 11): the GUI reads the file its node wrote, and the node keeps every
   original. The remote fetch, `FreeWhenCopied`, the client's copy policies and the pre-night space check
   follow in a 10.x minor, since each only adds.
   - **The node that runs the session writes the original, once, on its own disk, and keeps it.** That
@@ -820,7 +822,7 @@ profile, plate solve and snapshot save all assume linear floats in memory, and a
   - **A client re-hydrates a saved frame from that file and from nothing else.** A local client maps
     it (above). A remote client fetches the same bytes through a new `GET /frames/{id}/fits`, which
     resumes by `Range` and carries the digest the node took as it wrote, then reads its copy through
-    the same mapped reader. So a remote frame arrives bit-identical to the original, headers included,
+    the same reader. So a remote frame arrives bit-identical to the original, headers included,
     which the float wire format does not promise, and the float format is left to frames that are
     never saved (previews, polar refinement, guide frames, the planetary live frame). It also disposes
     of decision 6's objection for saved frames: the client reads a file it holds, so nothing seeks a
@@ -839,7 +841,7 @@ profile, plate solve and snapshot save all assume linear floats in memory, and a
     times frame size, less the retention floor) and warns at the start, rather than filling the disk
     part-way through.
   - **The local node has nothing to choose**: the file is on this machine already, in the output
-    folder, and the GUI maps it.
+    folder, and the GUI reads it.
   - **What the copies buy.** The node's original survives a client crash, a link dropped part-way
     through a transfer (the fetch resumes) and a failed client disk. A mirror survives the node's own
     disk failing. The defaults are decision 9.
@@ -903,7 +905,7 @@ and 10.0 ships it (P9).
 | **P1** | Local node transport and lifetime: `--socket` and `--node-socket`; the lock, taken by every server; `GET /api/v1/node` and the wire version; the localhost probe for another account's node; spawn with breakaway or `setsid`, stdio and working directory; the keeper; stay-until-logoff; the version handshake; the clock hand-off; the persistent LAN share and its logon start; pinned serial ports from the persisted active profile; the job model; a client presence heartbeat for prompts; the crash journal and stale-socket clean-up; `TianWenNodeClient` and the event stream over the socket; `tianwen-server` and `tianwen-ascomhost` built and published INTO the GUI's and the CLI's own output directories (a build-only reference), so "spawned from the client's own directory" holds in a checkout as well as in a release | functional tests spawn a real server on a temp socket with fakes, kill it mid-run, and see the keeper start the next one, which reconnects from the journal; AOT `publish` for the six release RIDs (win-x64 on this desktop, the rest in CI), then run it |
 | **P2** | Session-less device plane: connect / disconnect / warm-and-disconnect as jobs, cooling and camera settings, focuser, filter, mount actions, leased move-axis, snapshot plus `DEVICE-STATE`, the lease table on the wire, mount-limit verdict, `DeviceOwnershipGate` on every actuation; ONE driver per device in the node (P0b 11) | the server functional suite drives the Equipment flows the GUI runs today, end to end, against fakes |
 | **P3** | Profiles and discovery on the server: the discovery job, whole-profile edits (socket only), `PROFILE-CHANGED`, site reconcile, sensor capture, the backlash mirror, credential store; the server as the one profile writer; the active profile as persisted node state | reconcile and edit parity tests against today's `EquipmentActions` results |
-| **P4** | Linear frames: the binary format, `FRAME-AVAILABLE`, guide frames, compression negotiated over TCP only; a network-backed `LiveFramePreviewSource`; a saved frame read as its FITS file through #755 | a round-trip test that is pixel-exact against the camera's own buffer; a measured 26 MP transfer over the socket on this desktop |
+| **P4** | Linear frames: the binary format, `FRAME-AVAILABLE`, guide frames, compression negotiated over TCP only; a network-backed `LiveFramePreviewSource`; a saved frame read as its FITS file through `FitsReader` (#755, shipped 2026-09-25) | a round-trip test that is pixel-exact against the camera's own buffer; a measured 26 MP transfer over the socket on this desktop |
 | **P4b** | DEFERRED past 10.0 (decision 11): the shared-memory carrier (two slots per source, a seqlock per slot, the server writer as a `ChannelBuffer` borrower and the client reader as a driver-shaped recycling source, Windows sections with a per-user DACL, `shm_open` on Linux and macOS), behind a measurement that asks for it | the same pixel-exact test through the slot; a client killed mid-read leaves the server writing; a measured cross-process 26 MP frame on each OS |
 | **P4r** | DEFERRED to a 10.x minor (decision 11): the remote half of "a saved frame is its FITS file": `GET /frames/{id}/fits` with `Range` and the write-time digest, `FreeWhenCopied`, the client's copy policies, the pre-night space check | a remote fetch byte-identical to the node's file, resumed after a dropped connection; a `FreeWhenCopied` node that never deletes a frame with no verified copy |
 | **P5** | Run kinds: polar alignment, planetary capture with the rolling stack and recentering, preview / snapshot / solve and sync, a dark library (the CLI's `darks`). Each states what it does when its LAST client detaches: a session and a flat run go on; polar and a planetary live view stop after a grace long enough for a respawned window (P7) to re-attach; a planetary recording to disk finishes its duration. (P0a stops polar and planetary on a dead GPU for the same reason: interactive, meaningless unseen.) | each mode over a fake rig through the socket, with a client killed mid-run: the session goes on, polar stops cleanly after the grace, and a client back within the grace keeps it |
