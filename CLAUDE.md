@@ -1373,9 +1373,12 @@ vocabulary (own/borrow/consume), the four conventions and the DEBUG leak leg:
   this?" from a `ReferenceEquals` -- the answer is always in hand one branch earlier, else make the
   producer CONSUME its input.
 - Never hold an `Image` from `GetImageAsync` longer than needed; it pins the camera buffer.
-- **A preview of a frame someone else owns goes through `AstroImageDocument.FromLiveFrameAsync`**
-  (lease, copy, adopt the copy), **never `AdoptImageAsync`**, which consumes its input: the TUI once
-  rescaled the session's own sub to [0, 1] in place while it waited for its FITS write.
+- **A preview of a frame someone else owns LEASES it for the copy**: `AstroImageDocument.FromLiveFrameAsync`
+  (the TUI; lease, copy, adopt the copy) or `LiveFramePreviewSource.AcceptFrame` (the GUI's live and guider
+  panes; lease, normalise into its own planes). **Never `AdoptImageAsync`**, which consumes its input: the
+  TUI once rescaled the session's own sub to [0, 1] in place while it waited for its FITS write. **And never
+  a bare read, on the render thread either**: the owner releases from ITS thread, and the GUI's unleased
+  read threw mid-autofocus in the P0a live check. A frame released before the lease is skipped, not shown.
 - **A demosaic the viewer OFFERS must have its own branch in `image.frag`**, or a Save's CPU debayer
   silently writes a different picture from the one on screen. `DebayerAlgorithm.Auto` resolves via
   `ResolveAuto` before `GpuDebayerMode`, which THROWS on an unresolved Auto rather than falling
