@@ -47,8 +47,12 @@ silently collapse.
   neutralises the background -- that is what the mode is FOR, not a bug.
 
 `ViewerActions.DefaultStretchMode` (= `StretchLinkModes[0]`) is the single source for every VIEWER
-default and is `StretchMode.Auto`; `MasterPreviewRenderer` and `PreviewEncoder` still render **Linked
-explicitly** (a baked master carries its calibration, so there is nothing to resolve per frame).
+default and is `StretchMode.Auto`, and every renderer resolves it before building uniforms, headless
+included: `MasterPreviewRenderer` from the same four inputs as the viewer, while the node's
+`PreviewEncoder` and the live pane's `LiveFramePreviewSource` resolve from channel count alone, since a
+live frame carries no calibration (colour Unlinked, mono Linked). Both headless renderers used to render
+Linked explicitly; the master's literal clipped red on narrowband cards, and the encoder's kept a raw
+colour sky's imbalance as a cast (P0b item 15 of `docs/plans/hardware-in-the-server.md`).
 
 ### The bug this replaced
 

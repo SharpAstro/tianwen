@@ -311,11 +311,15 @@ Then the correctness items:
    reads true. So FrameWritten, PlateSolve and GUIDE-STEP never reach a remote mirror, and the mirror's
    event-sourced `PlateSolveHistory` stays empty. No test sends a real server event through the real
    client: add that test first, see it fail, then fix. (Even decoded, the mirror handles only two of the
-   seven events the node sends; that is P5b.)
+   seven events the node sends; that is P5b.) **FIXED**: the stream decodes the envelope, a message it
+   cannot decode warns once per connection, and `NodeEventStreamTests` sends a real session event through
+   the real node to the real client, which failed first.
 6. **A "no frame yet" preview is HTTP 200 with a JSON body**, and the client checks only the status, so
    it decodes JSON as a JPEG, and logs the failure on every poll. The same for no session, a bad OTA
    index and the guider preview: `Results.Json(ResponseEnvelope.Fail(..., 404))` with no `statusCode:`
-   answers 200.
+   answers 200. **FIXED**: every native v1 answer goes out under its envelope's own status
+   (`EnvelopeResults.Json`, all 90 of them); the ninaAPI shim keeps HTTP 200, since Touch N Stars reads it,
+   and the Alpaca plane keeps ASCOM's convention.
 7. **`EventHub` sends to one socket from several broadcasts at once** (PARTIAL). The runtime's
    `ManagedWebSocket` serialises whole-message sends, so frames do not interleave; the real faults are
    that ordering is not guaranteed and nothing times a send out, so one stalled client blocks every
@@ -376,13 +380,29 @@ Found by the review (2026-09-25), all confirmed in the code:
     for the run and may have switched the panel on before walking back inside, and flats have a
     backstop, since metering fails when the panel is off. The review cited that doc and missed its
     exception.
-15. **The preview encoder breaks two rules.** It renders with a literal `StretchMode.Linked` (CLAUDE.md:
-    every renderer resolves through `Auto`, headless included), and the per-OTA preview reads the
-    session's `LastCapturedImages` WITHOUT a lease (the guider preview leases). It also encodes the
-    whole frame before comparing the change token, so every 500 ms poll costs a full encode per OTA.
+15. **The preview encoder breaks two rules** (FIXED, with two findings this list did not have). It
+    rendered with a literal `StretchMode.Linked` (CLAUDE.md: every renderer resolves through `Auto`,
+    headless included), and the per-OTA preview read the session's `LastCapturedImages` WITHOUT a lease
+    (the guider preview leases). It also encoded the whole frame before comparing the change token, so
+    every 500 ms poll cost a full encode per OTA.
+    - **A lease alone would have blanked the preview.** The imaging loop released a frame once its FITS
+      write was done (autofocus once it had counted the stars) and left the slot pointing at the
+      released frame for the rest of the exposure, so a lease succeeded only in the second or so after a
+      frame landed; and rough focus never released its frames at all. Every publisher now goes through
+      `Session.PublishCapturedImage`: the slot takes a lease of its own and releases the frame it
+      replaces, so a frame stays readable until the next one lands. The price is one camera array per
+      OTA (the memory table under "What crosses the socket").
+    - **The token named the wrong frame.** `X-Frame-Number` was `CameraExposureState.FrameNumber`, which
+      advances as an exposure STARTS and restarts at every target: the preview served the previous frame
+      under the new number, then skipped the new frame when it landed, and so ran a whole sub behind. The
+      token is now the slot's own (`ISessionTelemetry.LastCapturedImageNumber`), and it is a conditional
+      GET: `If-None-Match` naming the current frame is answered 304 before anything is leased or encoded.
 16. **`SCOUT-COMPLETED` never serialises**: `StarCountsPerOTA` is an `int[]` and no `int[]` is reachable
     from `HostingJsonContext`, so the event is dropped where `EventBroadcaster` swallows the failure.
-    Add a test that serialises every event type the broadcaster sends.
+    Add a test that serialises every event type the broadcaster sends. **FIXED**, and wider than stated:
+    five of the ten events never serialised on the ninaAPI socket either. Both contexts now register the
+    value types a payload holds, every event is built in one place (`BroadcastEvents`), and
+    `BroadcastEventSerializationTests` sends each through both contexts.
 17. **`/devices/discover` runs a full discovery inline on the request token** and returns only display
     strings. The client's 10 s control budget cuts it off mid-probe, and a dropped request cancels a
     serial probe half-way. It becomes a job (P1's long-operation model).
@@ -772,9 +792,11 @@ profile, plate solve and snapshot save all assume linear floats in memory, and a
       `Array2DPool` stays scratch only, as it is today.
   - **Memory and copies, one 26 MP mono frame from a 16-bit sensor, camera to screen** (decimal MB;
     traced through `DALCameraDriver`, `Session.Imaging`, `Image.Fits`, `Image.StarDetection`,
-    `LiveFramePreviewSource.AcceptFrame` and `VkFitsImagePipeline`, 2026-09-24). The session releases
-    each frame right after its FITS write, and `LastCapturedImages` keeps the RECYCLED `Image`, not
-    its buffer, so one camera array is in use at a time, not two.
+    `LiveFramePreviewSource.AcceptFrame` and `VkFitsImagePipeline`, 2026-09-24). The session's preview
+    slot holds the frame on show until the next one replaces it (P0b item 15), so a camera has TWO arrays
+    in use, the one on show and the next download. The slot's lease is a longer hold, not a copy. When
+    this table was first drawn the slot kept only the released `Image`, one array was in use, and
+    the frame-on-show row below did not exist.
 
     **Buffers that hold the frame** (resident, reused frame to frame):
 
@@ -782,18 +804,24 @@ profile, plate solve and snapshot save all assume linear floats in memory, and a
     |---|---|---|---|---|---|
     | SDK native buffer (uint16) | 52 | 52 | | 52 | |
     | camera `float[,]` (`ChannelBuffer`) | 104 | 104 | | 104 | |
+    | camera `float[,]`, the frame on show (P0b item 15) | 104 | 104 | | 104 | |
     | shared-memory slots | | 208 (two, float) | mapped | 52 (one, uint16) | mapped |
     | reader `float[,]` | | | 104 | | none: normalised straight into the viewer |
     | viewer's normalised copy (`AcceptFrame`) | 104 | | 104 | | 104 |
     | Vulkan staging buffer | 104 | | 104 | | 52 (16-bit) |
     | GPU texture | 104 (`R32Sfloat`) | | 104 | | 52 (`R16Unorm`) |
-    | **total** | **468** | **364** | **416** | **208** | **208** |
+    | **total** | **572** | **468** | **416** | **312** | **208** |
     | **copies of the frame** | **5** | **3** | **4** | **3** | **3** |
 
-    Planned as first drawn is 780 MB and 7 copies, against today's 468 and 5: the slots and the reader's
-    array are the price of the rig outliving the window. **Reduced is 416 MB and 6 copies, LESS memory
+    Planned as first drawn is 884 MB and 7 copies, against today's 572 and 5: the slots and the reader's
+    array are the price of the rig outliving the window. **Reduced is 520 MB and 6 copies, LESS memory
     than today's single process.** The texture is device memory, and on the Adreno laptop, as on any
     integrated GPU, device memory IS system RAM.
+
+    **The frame on show is P1's to decide.** It is what lets a preview, or a client attaching mid-sub,
+    read the last frame at any moment (P0b item 15). Once the server holds its own copy of a frame to
+    show (a slot, or the saved file), the preview can encode from that copy, and the camera can have its
+    array back after the write as it did before item 15. That takes 104 MB off both server columns.
 
     **Garbage per sub** (in the one process, as the sweep found it; all three frame-sized items are gone
     since #349, which is what lets the split start without them):

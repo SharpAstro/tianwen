@@ -1281,9 +1281,13 @@ full native-AOT rules, and the reasoning behind each rule below:
 3. **Numeric enums on the wire** (no `JsonStringEnumConverter` on `HostingJsonContext`): a `required`
    enum on a request DTO is hostile to hand-written callers, default it.
 4. **Previews go through the shared stretch, never a private one.** `PreviewEncoder` runs
-   `StretchSolver` + `Image.RenderStretchedRgba`, the same pipeline as the GPU viewer and the TUI. The
-   shim once divided by `Image.MaxValue` and called it an auto-stretch, which renders a linear sub
-   near-black. It also only ever READS the session frame; `LastCapturedImages` pins a recycled buffer.
+   `StretchSolver` + `Image.RenderStretchedRgba`, the same pipeline as the GPU viewer and the TUI, and
+   resolves `Auto` as the live pane does. The shim once divided by `Image.MaxValue` and called it an
+   auto-stretch, which renders a linear sub near-black. **A preview LEASES the frame and answers
+   `If-None-Match` with a 304 before touching it**, and its token is the slot's own
+   `LastCapturedImageNumber`, never the camera's `FrameNumber`, which names the exposure in progress (a
+   sub behind). A session's preview slot holds a lease of its own until the next frame replaces it
+   (`Session.PublishCapturedImage`), which costs one camera array per OTA.
 5. **The Alpaca plane is a DEVICE plane and cannot become the session plane.** Ownership there is the
    hub lease, not an Alpaca policy: actuation and `Connected=false` answer `0x40B`, reads and
    `Connected=true` always pass; never make the plane read-only during a session. Device numbers come
