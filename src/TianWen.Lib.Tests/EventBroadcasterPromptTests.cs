@@ -30,7 +30,7 @@ namespace TianWen.Lib.Tests
         private static (EventBroadcaster Broadcaster, HostedSession Host, EventHub Hub) Build()
         {
             var host = new HostedSession(Substitute.For<ISessionFactory>(), Substitute.For<IDeviceHub>(), Substitute.For<ITimeProvider>(), Microsoft.Extensions.Logging.Abstractions.NullLogger<HostedSession>.Instance);
-            var hub = new EventHub();
+            var hub = new EventHub(NullLogger<EventHub>.Instance);
             var enhancer = new HostedImageEnhancer(pipeline: null, NullLogger<HostedImageEnhancer>.Instance);
             var broadcaster = new EventBroadcaster(
                 host, enhancer, hub,
@@ -51,6 +51,16 @@ namespace TianWen.Lib.Tests
             return (prompt, completion.Task);
         }
 
+        /// <summary>A prompt whose raiser can withdraw it, as the session does when its run is cancelled.</summary>
+        private static (SessionPromptEventArgs Prompt, TaskCompletionSource<bool> Completion) MakeWithdrawablePrompt()
+        {
+            var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var prompt = new SessionPromptEventArgs(
+                "Manual flat panel", "Switch on the flat panel for OTA 1, then Continue.",
+                "Continue", "Cancel", completion, requiresPhysicalPresence: true, defaultIfUnanswerable: false);
+            return (prompt, completion);
+        }
+
         /// <summary>
         /// A stand-in observer socket.
         /// <para>
@@ -59,8 +69,7 @@ namespace TianWen.Lib.Tests
         /// notification). A bare <c>new ClientWebSocket()</c> sits in state <c>None</c>, so it gets pruned
         /// mid-test and the client count silently drops to zero -- which then makes the liveness check fire
         /// and answer the prompt. That pruning is correct product behaviour (a dead socket is not an
-        /// observer), and because the broadcast is fire-and-forget it lands non-deterministically, so an
-        /// unopened socket makes these tests flaky rather than merely wrong.
+        /// observer), and the broadcast does it at once, so an unopened socket makes these tests wrong.
         /// </para>
         /// </summary>
         private static WebSocket FakeClient()
@@ -212,6 +221,82 @@ namespace TianWen.Lib.Tests
             answer.IsCompletedSuccessfully.ShouldBeTrue();
             (await answer).ShouldBeTrue("the human's answer must not be overwritten by the fallback");
             host.PendingPrompt.ShouldBeNull();
+        }
+
+        // --- Who counts as an observer, and a prompt nobody waits on any more (P0b item 13, #752) -----
+
+        [Fact]
+        public async Task ANinaSocketAloneIsNobodyToHoldAPromptFor()
+        {
+            // Touch N Stars on /v2/socket has no prompt route: holding the run for it would hold it for
+            // ever. It used to count, since liveness was "a socket registered".
+            var (broadcaster, host, hub) = Build();
+            hub.AddClient(FakeClient(), ninaV2: true);
+            var (prompt, answer) = MakePrompt(defaultIfUnanswerable: false);
+
+            broadcaster.OnPromptRequested(this, prompt);
+
+            answer.IsCompletedSuccessfully.ShouldBeTrue();
+            (await answer).ShouldBeFalse();
+            host.PendingPrompt.ShouldBeNull();
+        }
+
+        [Fact]
+        public async Task APromptLeftWithOnlyANinaSocketIsResolved()
+        {
+            var (broadcaster, host, hub) = Build();
+            var native = hub.AddClient(FakeClient());
+            hub.AddClient(FakeClient(), ninaV2: true);
+            var (prompt, answer) = MakePrompt(defaultIfUnanswerable: false);
+
+            broadcaster.OnPromptRequested(this, prompt);
+            answer.IsCompleted.ShouldBeFalse("a native client can answer it");
+
+            hub.RemoveClient(native);
+            broadcaster.ResolveOrphanedPrompt();
+
+            answer.IsCompletedSuccessfully.ShouldBeTrue();
+            (await answer).ShouldBeFalse();
+            host.PendingPrompt.ShouldBeNull();
+        }
+
+        [Fact]
+        public async Task APromptTheSessionWithdrewIsNoLongerOffered()
+        {
+            // The run was cancelled while the prompt waited: the session no longer waits on it, so a client
+            // polling /session/state must not be offered it. It used to stay there until the next prompt.
+            var (broadcaster, host, hub) = Build();
+            hub.AddClient(FakeClient());
+            var (prompt, completion) = MakeWithdrawablePrompt();
+
+            broadcaster.OnPromptRequested(this, prompt);
+            host.PendingPrompt.ShouldBeSameAs(prompt);
+
+            completion.TrySetCanceled();
+            await prompt.Settled.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+            for (var i = 0; i < 100 && host.PendingPrompt is not null; i++)
+            {
+                await Task.Delay(10, TestContext.Current.CancellationToken);
+            }
+            host.PendingPrompt.ShouldBeNull();
+        }
+
+        [Fact]
+        public async Task AnEarlierPromptSettlingLeavesALaterOneOnOffer()
+        {
+            var (broadcaster, host, hub) = Build();
+            hub.AddClient(FakeClient());
+            var (first, firstCompletion) = MakeWithdrawablePrompt();
+            var (second, _) = MakeWithdrawablePrompt();
+
+            broadcaster.OnPromptRequested(this, first);
+            broadcaster.OnPromptRequested(this, second);
+            firstCompletion.TrySetCanceled();
+            await first.Settled.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            await Task.Delay(50, TestContext.Current.CancellationToken);
+
+            host.PendingPrompt.ShouldBeSameAs(second);
         }
 
         [Fact]

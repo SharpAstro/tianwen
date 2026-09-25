@@ -33,7 +33,11 @@ internal sealed class EventBroadcaster(
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(1);
 
+    // Written by Attach, on the thread that starts a run; read by the poll loop.
     private ISession? _subscribedSession;
+
+    // The session the guide-step watermark belongs to. Poll-loop only, like the watermark itself.
+    private ISession? _watermarkFor;
 
     /// <summary>
     /// Timestamp of the newest guide sample already pushed, so the poll below emits only new ones.
@@ -41,6 +45,36 @@ internal sealed class EventBroadcaster(
     /// diff them without holding a reference to the previous snapshot.
     /// </summary>
     private DateTimeOffset _lastGuideStepPushed = DateTimeOffset.MinValue;
+
+    /// <summary>
+    /// Attaches to every run the node starts, before its body runs (<see cref="HostedSession.RunStarting"/>).
+    /// Subscribed here rather than in <see cref="ExecuteAsync"/> because the host starts this service before
+    /// it serves a request, so no start can slip in ahead of it.
+    /// </summary>
+    public override Task StartAsync(CancellationToken cancellationToken)
+    {
+        hostedSession.RunStarting += Attach;
+        return base.StartAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Subscribes to <paramref name="session"/>'s events, and lets go of the previous run's. Called as the node
+    /// starts a run, so the run's first events, its first prompt among them, reach the clients.
+    /// </summary>
+    internal void Attach(ISession session)
+    {
+        if (Interlocked.Exchange(ref _subscribedSession, session) is { } previous)
+        {
+            if (ReferenceEquals(previous, session))
+            {
+                return;
+            }
+            UnsubscribeFromSession(previous);
+        }
+
+        SubscribeToSession(session);
+        logger.LogInformation("EventBroadcaster subscribed to session");
+    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -53,32 +87,19 @@ internal sealed class EventBroadcaster(
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            var session = hostedSession.CurrentSession;
-
-            // Subscribe to new session events
-            if (session is not null && !ReferenceEquals(session, _subscribedSession))
+            // Attach subscribed it as its run started; the poll only reads what the session has no event for.
+            if (Volatile.Read(ref _subscribedSession) is { } session)
             {
-                if (_subscribedSession is not null)
+                if (!ReferenceEquals(session, _watermarkFor))
                 {
-                    UnsubscribeFromSession(_subscribedSession);
+                    // Start the watermark at whatever the ring already holds rather than at MinValue, so
+                    // attaching does not re-broadcast the existing ~5 minute window one event at a time.
+                    // Backfill is the snapshot's job (the state DTO carries the ring); the broadcast exists
+                    // only to announce what is new -- the same division as the exposure log.
+                    _watermarkFor = session;
+                    _lastGuideStepPushed = NewestGuideSampleTime(session);
                 }
-                SubscribeToSession(session);
-                _subscribedSession = session;
-                // Start the watermark at whatever the ring already holds rather than at MinValue, so
-                // attaching does not re-broadcast the existing ~5 minute window one event at a time.
-                // Backfill is the snapshot's job (the state DTO carries the ring); the broadcast exists
-                // only to announce what is new -- the same division as the exposure log.
-                _lastGuideStepPushed = NewestGuideSampleTime(session);
-                logger.LogInformation("EventBroadcaster subscribed to session");
-            }
-            else if (session is null && _subscribedSession is not null)
-            {
-                UnsubscribeFromSession(_subscribedSession);
-                _subscribedSession = null;
-            }
 
-            if (session is not null)
-            {
                 PushNewGuideSteps(session);
                 NotifyLimitTransition(session);
             }
@@ -101,10 +122,11 @@ internal sealed class EventBroadcaster(
 
         imageEnhancer.Progressed -= OnEnhanceProgress;
         imageEnhancer.Completed -= OnEnhanceCompleted;
+        hostedSession.RunStarting -= Attach;
 
-        if (_subscribedSession is not null)
+        if (Interlocked.Exchange(ref _subscribedSession, null) is { } last)
         {
-            UnsubscribeFromSession(_subscribedSession);
+            UnsubscribeFromSession(last);
         }
     }
 
@@ -148,7 +170,7 @@ internal sealed class EventBroadcaster(
                 newest = sample.Timestamp;
             }
 
-            _ = BroadcastSafeAsync(BroadcastEvents.GuideStep(sample));
+            BroadcastSafe(BroadcastEvents.GuideStep(sample));
         }
 
         _lastGuideStepPushed = newest;
@@ -156,7 +178,7 @@ internal sealed class EventBroadcaster(
 
     private void OnEnhanceProgress(object? sender, EnhanceProgress e)
     {
-        _ = BroadcastSafeAsync(BroadcastEvents.EnhanceProgress(e));
+        BroadcastSafe(BroadcastEvents.EnhanceProgress(e));
     }
 
     private void OnEnhanceCompleted(object? sender, EnhanceJobCompletedEventArgs e)
@@ -166,7 +188,7 @@ internal sealed class EventBroadcaster(
             Notify("Warning", $"Image enhance failed: {e.Error ?? "unknown error"}");
         }
 
-        _ = BroadcastSafeAsync(BroadcastEvents.EnhanceCompleted(e));
+        BroadcastSafe(BroadcastEvents.EnhanceCompleted(e));
     }
 
     private void SubscribeToSession(ISession session)
@@ -202,13 +224,13 @@ internal sealed class EventBroadcaster(
             Notify("Info", $"{e.OldPhase} -> {e.NewPhase}");
         }
 
-        _ = BroadcastSafeAsync(BroadcastEvents.PhaseChanged(e));
+        BroadcastSafe(BroadcastEvents.PhaseChanged(e));
     }
 
     private void OnFrameWritten(object? sender, FrameWrittenEventArgs e)
     {
         var entry = e.Entry;
-        _ = BroadcastSafeAsync(BroadcastEvents.FrameWritten(entry));
+        BroadcastSafe(BroadcastEvents.FrameWritten(entry));
     }
 
     private void OnPlateSolveCompleted(object? sender, PlateSolveCompletedEventArgs e)
@@ -219,7 +241,7 @@ internal sealed class EventBroadcaster(
             Notify("Warning", $"Plate solve failed ({record.Context}) on {record.OtaName}: {record.DetectedStars} stars detected");
         }
 
-        _ = BroadcastSafeAsync(BroadcastEvents.PlateSolveCompleted(record));
+        BroadcastSafe(BroadcastEvents.PlateSolveCompleted(record));
     }
 
     private void OnScoutCompleted(object? sender, ScoutCompletedEventArgs e)
@@ -229,7 +251,7 @@ internal sealed class EventBroadcaster(
             Notify("Warning", $"Scout on {e.Target.Name}: {e.Classification} -> {e.Outcome}");
         }
 
-        _ = BroadcastSafeAsync(BroadcastEvents.ScoutCompleted(e));
+        BroadcastSafe(BroadcastEvents.ScoutCompleted(e));
     }
 
     private void OnGuiderStateChanged(object? sender, GuiderStateChangedEventArgs e)
@@ -239,7 +261,7 @@ internal sealed class EventBroadcaster(
         var severity = string.Equals(e.NewState, "Guiding", StringComparison.OrdinalIgnoreCase) ? "Info" : "Warning";
         Notify(severity, $"Guider: {e.OldState ?? "none"} -> {e.NewState ?? "none"}");
 
-        _ = BroadcastSafeAsync(BroadcastEvents.GuiderStateChanged(e));
+        BroadcastSafe(BroadcastEvents.GuiderStateChanged(e));
     }
 
     /// <summary>
@@ -268,7 +290,8 @@ internal sealed class EventBroadcaster(
     /// </summary>
     internal void OnPromptRequested(object? sender, SessionPromptEventArgs e)
     {
-        if (eventHub.ClientCount == 0)
+        // Only a client that can answer counts: a ninaAPI v2 socket has no prompt route (EventHub.PromptObserverCount).
+        if (eventHub.PromptObserverCount == 0)
         {
             AnswerUnattended(e, "no observer attached");
             return;
@@ -282,7 +305,7 @@ internal sealed class EventBroadcaster(
             ? $"{e.Title} (needs someone at the rig): {e.Message}"
             : $"{e.Title}: {e.Message}");
 
-        _ = BroadcastSafeAsync(BroadcastEvents.PromptRequested(e));
+        BroadcastSafe(BroadcastEvents.PromptRequested(e));
     }
 
     /// <summary>
@@ -308,7 +331,7 @@ internal sealed class EventBroadcaster(
     /// </summary>
     internal void ResolveOrphanedPrompt()
     {
-        if (eventHub.ClientCount > 0 || hostedSession.PendingPrompt is not { } prompt)
+        if (eventHub.PromptObserverCount > 0 || hostedSession.PendingPrompt is not { } prompt)
         {
             return;
         }
@@ -360,17 +383,18 @@ internal sealed class EventBroadcaster(
 
         hostedSession.AddNotification(dto);
 
-        _ = BroadcastSafeAsync(BroadcastEvents.Notification(dto));
+        BroadcastSafe(BroadcastEvents.Notification(dto));
     }
 
-    private async Task BroadcastSafeAsync(WebSocketEventDto eventDto)
+    /// <summary>
+    /// Queues an event for every connected client. It returns at once: each client has its own sender
+    /// (<see cref="EventHub"/>), so a broadcast raised on a session's thread never waits for a socket.
+    /// </summary>
+    private void BroadcastSafe(WebSocketEventDto eventDto)
     {
         try
         {
-            if (eventHub.ClientCount > 0)
-            {
-                await eventHub.BroadcastAsync(eventDto);
-            }
+            eventHub.Broadcast(eventDto);
         }
         catch (Exception ex)
         {

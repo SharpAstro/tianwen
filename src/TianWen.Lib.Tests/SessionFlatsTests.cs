@@ -379,6 +379,48 @@ public class SessionFlatsTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 60_000)]
+    public async Task TakeFlatsAsync_ManualCover_RunCancelledWhileThePromptIsOpen_WithdrawsIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var config = SessionTestHelper.DefaultConfiguration with
+        {
+            FlatSource = FlatIlluminationSource.Calibrator,
+            FlatAduTolerance = 1.0,
+            FlatsPerFilter = 2,
+            FlatMaxBrackets = 2,
+            FlatInitialExposure = TimeSpan.FromSeconds(1),
+        };
+
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(
+            output, configuration: config, withManualCover: true, withFilterWheel: true, cancellationToken: ct);
+        ctx.External.MaxFitsWrites = 100;
+
+        // Whoever offers a prompt (a node's /session/state, a mirror, a prompt bar) drops it once it settles. A
+        // run cancelled while its prompt waited used to leave the prompt open for good, so a client could still
+        // answer a question nothing was asking (P0b item 13 of docs/plans/hardware-in-the-server.md, #752).
+        using var run = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        SessionPromptEventArgs? raised = null;
+        ctx.Session.PromptRequested += (_, e) =>
+        {
+            raised = e;
+            run.Cancel(); // the run is aborted while the prompt is open, and nobody answers
+        };
+
+        try
+        {
+            await ctx.Session.TakeFlatsAsync(run.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // A cancelled run may end here or further on; either way the prompt must not stay open.
+        }
+
+        var prompt = raised.ShouldNotBeNull();
+        await prompt.Settled.WaitAsync(TimeSpan.FromSeconds(5), ct);
+    }
+
+    [Fact(Timeout = 60_000)]
     public async Task TakeFlatsAsync_ManualCover_PromptCancel_SkipsOtaWithoutWritingFlats()
     {
         var ct = TestContext.Current.CancellationToken;

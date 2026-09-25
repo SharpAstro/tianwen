@@ -108,55 +108,7 @@ public static class HostedSessionServiceCollectionExtensions
 
     private static void MapWebSocketEndpoint(this IEndpointRouteBuilder routes)
     {
-        routes.Map("/api/v1/events", async (HttpContext context, EventHub hub) =>
-        {
-            if (!context.WebSockets.IsWebSocketRequest)
-            {
-                context.Response.StatusCode = 400;
-                await context.Response.WriteAsync("WebSocket connections only");
-                return;
-            }
-
-            var ws = await context.WebSockets.AcceptWebSocketAsync();
-            var clientId = hub.AddClient(ws);
-
-            try
-            {
-                // Keep connection alive by reading (client may send pings or close)
-                var buffer = new byte[256];
-                while (ws.State is WebSocketState.Open)
-                {
-                    var result = await ws.ReceiveAsync(buffer, context.RequestAborted);
-                    if (result.MessageType is WebSocketMessageType.Close)
-                    {
-                        break;
-                    }
-                }
-            }
-            catch (WebSocketException)
-            {
-                // Client disconnected
-            }
-            catch (OperationCanceledException)
-            {
-                // Server shutting down
-            }
-            finally
-            {
-                hub.RemoveClient(clientId);
-                if (ws.State is WebSocketState.Open or WebSocketState.CloseReceived)
-                {
-                    try
-                    {
-                        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Server closing", CancellationToken.None);
-                    }
-                    catch
-                    {
-                        // Best effort close
-                    }
-                }
-            }
-        });
+        routes.Map("/api/v1/events", (HttpContext context, EventHub hub) => ServeEventSocketAsync(context, hub, ninaV2: false));
     }
 
     /// <summary>
@@ -166,54 +118,62 @@ public static class HostedSessionServiceCollectionExtensions
     /// </summary>
     private static void MapNinaWebSocketEndpoint(this IEndpointRouteBuilder routes)
     {
-        routes.Map("/v2/socket", async (HttpContext context, EventHub hub) =>
+        // TNS may send { action: "subscribe", eventType: "..." }; every event is broadcast regardless.
+        routes.Map("/v2/socket", (HttpContext context, EventHub hub) => ServeEventSocketAsync(context, hub, ninaV2: true));
+    }
+
+    /// <summary>
+    /// One client's connection, for both sockets: registered with the hub, whose sender for it does all the
+    /// writing, while this reads until the client closes or its socket is aborted (a client the hub dropped
+    /// for falling behind, or for a send that timed out).
+    /// </summary>
+    private static async Task ServeEventSocketAsync(HttpContext context, EventHub hub, bool ninaV2)
+    {
+        if (!context.WebSockets.IsWebSocketRequest)
         {
-            if (!context.WebSockets.IsWebSocketRequest)
-            {
-                context.Response.StatusCode = 400;
-                await context.Response.WriteAsync("WebSocket connections only");
-                return;
-            }
+            context.Response.StatusCode = 400;
+            await context.Response.WriteAsync("WebSocket connections only");
+            return;
+        }
 
-            var ws = await context.WebSockets.AcceptWebSocketAsync();
-            var clientId = hub.AddClient(ws, ninaV2: true);
+        var ws = await context.WebSockets.AcceptWebSocketAsync();
+        var clientId = hub.AddClient(ws, ninaV2);
 
-            try
+        try
+        {
+            // Keep the connection alive by reading: the client may send pings, or close.
+            var buffer = new byte[256];
+            while (ws.State is WebSocketState.Open)
             {
-                var buffer = new byte[256];
-                while (ws.State is WebSocketState.Open)
+                var result = await ws.ReceiveAsync(buffer, context.RequestAborted);
+                if (result.MessageType is WebSocketMessageType.Close)
                 {
-                    var result = await ws.ReceiveAsync(buffer, context.RequestAborted);
-                    if (result.MessageType is WebSocketMessageType.Close)
-                    {
-                        break;
-                    }
-                    // TNS may send { action: "subscribe", eventType: "..." }; we broadcast all events regardless
+                    break;
                 }
             }
-            catch (WebSocketException)
+        }
+        catch (WebSocketException)
+        {
+            // Client disconnected, or the hub aborted the socket.
+        }
+        catch (OperationCanceledException)
+        {
+            // Server shutting down
+        }
+        finally
+        {
+            hub.RemoveClient(clientId);
+            if (ws.State is WebSocketState.Open or WebSocketState.CloseReceived)
             {
-                // Client disconnected
-            }
-            catch (OperationCanceledException)
-            {
-                // Server shutting down
-            }
-            finally
-            {
-                hub.RemoveClient(clientId);
-                if (ws.State is WebSocketState.Open or WebSocketState.CloseReceived)
+                try
                 {
-                    try
-                    {
-                        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Server closing", CancellationToken.None);
-                    }
-                    catch
-                    {
-                        // Best effort close
-                    }
+                    await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Server closing", CancellationToken.None);
+                }
+                catch
+                {
+                    // Best effort close
                 }
             }
-        });
+        }
     }
 }

@@ -330,7 +330,10 @@ internal partial record Session(
         }
         catch (OperationCanceledException)
         {
-            // Cancelled while the prompt was open: treat as "do not proceed".
+            // Cancelled while the prompt was open: treat as "do not proceed", and WITHDRAW it, so whoever is
+            // offering it (a node's /session/state, a mirror, a prompt bar) stops asking a question this run
+            // no longer waits on (SessionPromptEventArgs.Settled). A late answer then changes nothing.
+            completion.TrySetCanceled(cancellationToken);
             return false;
         }
     }

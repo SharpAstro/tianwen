@@ -54,7 +54,10 @@ internal sealed class NodeHarness : IAsyncDisposable
         var external = new FakeExternal(outputHelper, Directory.CreateTempSubdirectory("tw_" + Guid.NewGuid().ToString("D")));
         var factory = new ControlledSessionFactory();
         builder.Services.AddSingleton<IExternal>(external);
-        builder.Services.AddSingleton<ITimeProvider>(external.TimeProvider);
+        // A REAL clock: the node's background loops (the broadcaster's 1 s poll, the limit watcher) must wait
+        // as they do in production. The fake clock's auto-advancing SleepAsync made them spin, which hid the
+        // second a run's broadcaster used to miss (P0b item 13): attaching from a spinning poll is instant.
+        builder.Services.AddSingleton<ITimeProvider>(new SystemTimeProvider());
         builder.Services.AddAstrometry();
         builder.Services.AddFake();
         builder.Services.AddDevices();
@@ -123,6 +126,9 @@ internal sealed class ControlledSessionFactory : ISessionFactory
 
     public ConcurrentQueue<ControlledSession> Created { get; } = new ConcurrentQueue<ControlledSession>();
 
+    /// <summary>Applied to each session as it is created, before the node runs it.</summary>
+    public Action<ControlledSession>? OnCreated { get; set; }
+
     private int _initializeCalls;
 
     public ValueTask InitializeAsync(CancellationToken cancellationToken = default)
@@ -134,6 +140,7 @@ internal sealed class ControlledSessionFactory : ISessionFactory
     public ISession Create(Guid profileId, in SessionConfiguration configuration, ReadOnlySpan<ScheduledObservation> observations)
     {
         var session = new ControlledSession(configuration);
+        OnCreated?.Invoke(session);
         Created.Enqueue(session);
         return session.Session;
     }
@@ -175,8 +182,12 @@ internal sealed class ControlledSession
     public int Disposals => Volatile.Read(ref _disposals);
     public int DisposedWhileRunning => Volatile.Read(ref _disposedWhileRunning);
 
+    /// <summary>Run as the node releases the run's body, before anything else it does: a run's first act.</summary>
+    public Action? AtRunStart { get; set; }
+
     private async Task RunAsync(CancellationToken cancellationToken)
     {
+        AtRunStart?.Invoke();
         RunToken = cancellationToken;
         Volatile.Write(ref _running, 1);
         using var registration = cancellationToken.Register(() => Cancelled.TrySetResult());
