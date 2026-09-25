@@ -21,9 +21,10 @@ public sealed record VideoCaptureOptions(TimeSpan Exposure, short? Gain = null, 
 
 /// <summary>
 /// A camera that can stream frames continuously in <b>video mode</b>, for live planetary lucky-imaging.
-/// This is the single, vendor-neutral capture contract: ZWO + QHY implement it over their native video
-/// APIs (through the shared <c>DALCameraDriver</c>), Canon over FC.SDK Live View, and any other
-/// <see cref="ICameraDriver"/> via the universal <c>RapidExposureVideoAdapter</c> (a short-exposure loop).
+/// This is the single, vendor-neutral capture contract. Canon implements it over FC.SDK Live View, and the
+/// fake camera for tests. Native ZWO and QHY video through the shared <c>DALCameraDriver</c> is planned
+/// (docs/plans/planetary-native-video.md, Phase D) but not built, so every DAL camera is single-frame today;
+/// <c>PlanetaryCaptureController</c> streams a camera without this interface through its own short-exposure loop.
 /// The planetary live-stack pipeline (<c>LiveCameraFrameStream</c> -> <c>RollingWindowStacker</c> ->
 /// the preview) consumes only this interface, blind to vendor.
 /// <para>
