@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
 using System.Threading;
 using System.Threading.Tasks;
 using static TianWen.Lib.Stat.StatisticsHelper;
@@ -50,48 +51,166 @@ public partial class Image
             var lumaChannel = Array2DPool<float>.Rent(height, width);
             try
             {
-                var lumaMin = float.MaxValue;
-
-                // Residency resolved ONCE, and every plane read as a flat span: this loop went through the
-                // Planes accessor three times per pixel, which is the per-sample residency check Image.cs
-                // documents at +8.7 to +20.3 percent on the resample loops, on top of a [y, x] index each.
-                var n = lumaChannel.Length;
-                if (n > 0)
-                {
-                    var r = GetChannelSpan(0);
-                    var g = GetChannelSpan(1);
-                    var b = GetChannelSpan(2);
-                    var luma = MemoryMarshal.CreateSpan(ref lumaChannel[0, 0], n);
-                    for (var i = 0; i < n; i++)
-                    {
-                        var rv = r[i];
-                        var gv = g[i];
-                        var bv = b[i];
-                        if (float.IsNaN(rv) || float.IsNaN(gv) || float.IsNaN(bv))
-                        {
-                            luma[i] = float.NaN;
-                        }
-                        else
-                        {
-                            if (needsNorm) { rv *= normFactor; gv *= normFactor; bv *= normFactor; }
-                            var l = LumaWeighting.Rec709.ToLuma(rv, gv, bv);
-                            luma[i] = l;
-                            if (l < lumaMin) lumaMin = l;
-                        }
-                    }
-                }
-
+                var lumaMin = lumaChannel.Length > 0 ? BuildLumaPlane(lumaChannel, needsNorm, normFactor) : float.MaxValue;
                 if (lumaMin == float.MaxValue) lumaMin = 0f;
 
                 var lumaImage = new Image([lumaChannel], BitDepth.Float32, 1.0f, lumaMin, 0f,
                     imageMeta with { SensorType = SensorType.Monochrome });
-                return lumaImage.GetPedestralMedianAndMADScaledToUnit(0);
+                // Its bins in parallel row bands: this is a document open's statistic, and with no running
+                // sum kept, a band's counts are all there is to merge.
+                return lumaImage.PedestralMedianAndMadScaledToUnit(0, pixelStride: 1, cfa: null, inBands: true);
             }
             finally
             {
                 Array2DPool<float>.Return(lumaChannel);
             }
         }, cancellationToken);
+    }
+
+    // A chunk has to hold this many pixels for another chunk to pay for its thread.
+    private const int MinPixelsPerLumaChunk = 1 << 20;
+
+    /// <summary>
+    /// The Rec. 709 luminance of every pixel into <paramref name="luma"/> (NaN where any channel is NaN), and
+    /// the minimum of the rest: bit for bit what the one-pixel-at-a-time loop this replaced wrote and returned.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Four pixels at a time, in parallel chunks.</b> A pixel's luminance depends on that pixel alone,
+    /// and each lane computes it with <c>LumaWeighting.Rec709.ToLuma</c>'s own expression and order, so the plane
+    /// is the loop's.</para>
+    /// <para><b>The minimum is order-free but for one thing: the sign of a zero.</b> The loop kept the first of
+    /// equal values (<c>l &lt; min</c>), and -0 equals +0. So the chunks find the minimum, and a zero minimum is
+    /// then the FIRST zero in walk order: with no negative value anywhere, that is the one the loop settled on
+    /// and never replaced. The minimum becomes the luminance image's pedestal, so its sign reaches the
+    /// statistic.</para>
+    /// <para>Internal for its test, which holds the plane and the minimum to the scalar loop.</para>
+    /// </remarks>
+    internal float BuildLumaPlane(float[,] luma, bool needsNorm, float normFactor, int minPixelsPerChunk = MinPixelsPerLumaChunk)
+    {
+        var n = luma.Length;
+        // Residency resolved ONCE, and every plane read as a flat span: this loop went through the
+        // Planes accessor three times per pixel, which is the per-sample residency check Image.cs
+        // documents at +8.7 to +20.3 percent on the resample loops, on top of a [y, x] index each.
+        var r = GetChannelArray(0);
+        var g = GetChannelArray(1);
+        var b = GetChannelArray(2);
+        var chunks = Math.Clamp(n / Math.Max(1, minPixelsPerChunk), 1, Environment.ProcessorCount);
+
+        float min;
+        if (chunks == 1)
+        {
+            min = LumaRange(r, g, b, luma, 0, n, needsNorm, normFactor);
+        }
+        else
+        {
+            var chunkMins = new float[chunks];
+            ParallelFor.Run(chunks, chunk =>
+            {
+                var start = (int)((long)n * chunk / chunks);
+                var end = (int)((long)n * (chunk + 1) / chunks);
+                chunkMins[chunk] = LumaRange(r, g, b, luma, start, end, needsNorm, normFactor);
+            });
+
+            min = float.MaxValue;
+            foreach (var chunkMin in chunkMins)
+            {
+                if (chunkMin < min)
+                {
+                    min = chunkMin;
+                }
+            }
+        }
+
+        if (min == 0f)
+        {
+            var plane = MemoryMarshal.CreateReadOnlySpan(ref luma[0, 0], n);
+            for (var i = 0; i < n; i++)
+            {
+                if (plane[i] == 0f)
+                {
+                    return plane[i];
+                }
+            }
+        }
+
+        return min;
+    }
+
+    // Pixels [start, end) of the luminance plane, and their minimum by the loop's rule within the range.
+    private static float LumaRange(float[,] rPlane, float[,] gPlane, float[,] bPlane, float[,] lumaPlane, int start, int end, bool needsNorm, float normFactor)
+    {
+        var n = lumaPlane.Length;
+        var r = MemoryMarshal.CreateReadOnlySpan(ref rPlane[0, 0], n);
+        var g = MemoryMarshal.CreateReadOnlySpan(ref gPlane[0, 0], n);
+        var b = MemoryMarshal.CreateReadOnlySpan(ref bPlane[0, 0], n);
+        var luma = MemoryMarshal.CreateSpan(ref lumaPlane[0, 0], n);
+        var (wR, wG, wB) = LumaWeighting.Rec709.Weights;
+        var min = float.MaxValue;
+        var i = start;
+
+        if (Vector128.IsHardwareAccelerated)
+        {
+            var vWR = Vector128.Create(wR);
+            var vWG = Vector128.Create(wG);
+            var vWB = Vector128.Create(wB);
+            var vNorm = Vector128.Create(normFactor);
+            var vNaN = Vector128.Create(float.NaN);
+            var vMin = Vector128.Create(float.MaxValue);
+            ref var rOrigin = ref MemoryMarshal.GetReference(r);
+            ref var gOrigin = ref MemoryMarshal.GetReference(g);
+            ref var bOrigin = ref MemoryMarshal.GetReference(b);
+            ref var lumaOrigin = ref MemoryMarshal.GetReference(luma);
+            for (; i + 4 <= end; i += 4)
+            {
+                var rv = Vector128.LoadUnsafe(ref rOrigin, (nuint)i);
+                var gv = Vector128.LoadUnsafe(ref gOrigin, (nuint)i);
+                var bv = Vector128.LoadUnsafe(ref bOrigin, (nuint)i);
+                // Tested before the normalisation, as the loop tested the channels as read.
+                var ordered = Vector128.Equals(rv, rv) & Vector128.Equals(gv, gv) & Vector128.Equals(bv, bv);
+                if (needsNorm)
+                {
+                    rv *= vNorm;
+                    gv *= vNorm;
+                    bv *= vNorm;
+                }
+
+                // ToLuma's expression and order: wR * r + wG * g, then + wB * b.
+                var l = vWR * rv + vWG * gv + vWB * bv;
+                var lane = Vector128.ConditionalSelect(ordered, l, vNaN);
+                lane.StoreUnsafe(ref lumaOrigin, (nuint)i);
+                // The loop's rule per lane: a NaN never compares less, and an equal value never replaces.
+                vMin = Vector128.ConditionalSelect(Vector128.LessThan(lane, vMin), lane, vMin);
+            }
+
+            for (var k = 0; k < 4; k++)
+            {
+                var laneMin = vMin.GetElement(k);
+                if (laneMin < min)
+                {
+                    min = laneMin;
+                }
+            }
+        }
+
+        for (; i < end; i++)
+        {
+            var rv = r[i];
+            var gv = g[i];
+            var bv = b[i];
+            if (float.IsNaN(rv) || float.IsNaN(gv) || float.IsNaN(bv))
+            {
+                luma[i] = float.NaN;
+            }
+            else
+            {
+                if (needsNorm) { rv *= normFactor; gv *= normFactor; bv *= normFactor; }
+                var l = LumaWeighting.Rec709.ToLuma(rv, gv, bv);
+                luma[i] = l;
+                if (l < min) min = l;
+            }
+        }
+
+        return min;
     }
 
     /// <summary>

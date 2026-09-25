@@ -431,12 +431,64 @@ floating-point part of the walk, so its lanes must be added in walk order.
 - `TheRunningSumIsTakenInWalkOrder` builds the tie on purpose: a sum of exactly 2^31, then 2^-22 and 2^-21.
   It is the only test that fails with the lanes swapped.
 
-**Left, and why.**
+**Left, and why** (both taken in the next section).
 - **The mono walk is bounded by its ordered sum:** 23 ms of its 37 on its own. What remains there is the
   #490 question, which this does not change, because parallel bands reorder the sum.
 - **A colour image's luminance statistic** is about 30 ms of a master's 48. It builds a Rec. 709 plane
   first, and that loop is the next candidate for four lanes at a time. The care it needs: its running
   minimum must keep the sign of a zero exactly as the scalar loop does.
+
+### 2026-09-25, later: the ordered sum in parallel bands, when it is provably order-free (#490)
+
+**The proof.** A walk's addends are floats. Each is an integer multiple of its own ulp, so all of them are
+multiples of g, the smallest ulp among them.
+- Every partial sum, in any order and grouping, is then a multiple of g, no larger than the sum of the
+  magnitudes.
+- Below 2^53 g, every one of those partial sums is exactly a double. No addition rounds, and every order,
+  the walk's included, gives the same double.
+
+`Image.TraverseInBands` walks row bands in parallel and tracks the two numbers the bound needs, the smallest
+exponent and the total magnitude. It takes the sum from the bands only when the bound holds, and otherwise
+takes it again in walk order.
+
+**The evidence #490 asked for** (`ExactSumBoundProbe`, every statistics walk of a document open, as the viewer
+opens the file): 541 real FITS files and 2,142 walks from the 10P/Tempel set and three APP composites.
+- 2,138 walks (99.8 percent) proved exact. That covers every light, bias, dark, dark-flat and flat frame,
+  every master and the composites.
+- The four that took walk order were drizzle weight sidecars: values from 0.5 up to a total of 2.8e9,
+  2^0.4 to 2^2.4 past the bound.
+- **The bound is not decoration.** With it switched off, the band sum differed from the walk-order sum in
+  the first walk of every test image carrying tiny values. A reordered sum really does change the double
+  on such data, which is what #490 was right to refuse.
+
+**The luminance plane** (`Image.BuildLumaPlane`) is built four pixels a lane, in parallel chunks.
+- A pixel's luminance is its own business, so the plane is the loop's, bit for bit.
+- The minimum is order-free except for the sign of a zero, because the loop kept the first of equal values.
+  So a zero minimum is taken as the first zero in walk order. Without that step, a zero at index 20000
+  won the lane reduction over one at index 5.
+- The plane's bins are walked in bands: they keep no sum, so they need no bound.
+
+| | before #631 | after #631 | now |
+|---|---|---|---|
+| whole open (`OpenAsync`, hot), mono sub | 204.7 ms | 93.0 ms | **58.1 ms** |
+| whole open, OSC sub | 323.0 ms | 90.9 ms | **71.0 ms** |
+| whole open, float master | 239.6 ms | 90.2 ms | **70.0 ms** |
+| adopt step, mono / OSC / master | 174 / 317 / 209 ms | 46.5 / 47.3 / 48.0 ms | **19.7 / 27.9 / 18.7 ms** |
+
+Per stage:
+- **The mono sub's fused walk:** 38 to 8.7 ms.
+- **The master's luminance statistic:** 30 to 4.2 ms.
+- **`StatsPathBenchmarks`, "document open stats", 3008 x 3008 x 3:** 44.8 ms for the two collectors, 12.3
+  after #631, 6.6 now.
+
+**What is left of an adopt step** is mostly the rescale to [0, 1], about 6 to 8 ms on a 16-bit sub. It is
+already vectorised (`TensorPrimitives.Multiply`), so only parallel chunks would move it, and it is a shared
+in-place mutator the stacking path uses too.
+
+**Found doing it.** A drizzle `_autocrop.rejection.fits` written on 2026-08-25 does not open in the viewer.
+Its header says `DATAMAX = 1` and "rejection-fraction map [0, 1]" over samples that are weights (33 and 67),
+so every sample lies past the histogram and there is no MAD. This is not new. What #631 had made worse was
+the message, "One or more errors occurred", which `ParallelFor.Run` has put back to the reason.
 
 ### The two things that will actually bite
 
