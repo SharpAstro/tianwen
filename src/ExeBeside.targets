@@ -1,0 +1,114 @@
+<Project>
+
+  <!--
+    Programs that ship BESIDE this one (P1 of docs/plans/hardware-in-the-server.md, #917). A client starts
+    tianwen-server from its own directory and never from PATH, so it always gets its own build, and a node looks
+    for tianwen-ascomhost beside itself. This makes both hold in a checkout as much as in a release.
+
+    A project lists each such program, then imports this file:
+
+      <ItemGroup>
+        <ExeBesideThis Include="..\TianWen.Server\TianWen.Server.csproj" />
+      </ItemGroup>
+      <Import Project="..\ExeBeside.targets" />
+
+    Build (with no runtime, as a checkout builds): each is a build-only reference, and its whole output is copied
+    beside this project's.
+    Publish (with a runtime): each is restored and published for the same runtime, then copied beside this
+    project's publish output. A publish restores only the project it publishes for its runtime, so the program
+    is restored here first.
+
+    The two outputs share most of their files (TianWen.Lib, the drivers, the packages), and a file both need must
+    be the SAME file, or one of the two programs runs against the other's version of it. So a file this project
+    writes itself (what the build lists in FileWrites, what a publish lists in ResolvedFileToPublish) is never
+    overwritten, and one that differs from the program's fails the build, naming it. Every other file is the
+    program's, and is copied over whatever an earlier build left there.
+  -->
+
+  <ItemGroup>
+    <ProjectReference Include="@(ExeBesideThis)"
+                      ReferenceOutputAssembly="false"
+                      Private="false"
+                      SkipGetTargetFrameworkProperties="true" />
+  </ItemGroup>
+
+  <!-- A build for a runtime is the first half of a publish, and is self-contained: it carries each program's own copy
+       of the runtime and the ASP.NET framework, which are not the same files, and it is not what ships. The publish
+       below copies the published programs instead. -->
+  <Target Name="CopyExesBesideThis" AfterTargets="Build" Condition="'@(ExeBesideThis)' != '' AND '$(RuntimeIdentifier)' == ''">
+    <PropertyGroup>
+      <_ExeBesideOwnList>$([System.IO.Path]::GetFullPath('$(IntermediateOutputPath)'))beside-own.list</_ExeBesideOwnList>
+    </PropertyGroup>
+    <!-- What this project writes to its own output, the copy-local references and content included: FileWrites lists
+         each of them on every build, whether it was copied this time or left up to date. -->
+    <WriteLinesToFile File="$(_ExeBesideOwnList)" Lines="@(FileWrites->'%(FullPath)')" Overwrite="true" WriteOnlyWhenDifferent="true" />
+
+    <MSBuild Projects="@(ExeBesideThis)" Targets="GetTargetPath" Properties="Configuration=$(Configuration)">
+      <Output TaskParameter="TargetOutputs" ItemName="_ExeBesideBuilt" />
+    </MSBuild>
+    <MSBuild Projects="$(MSBuildProjectFullPath)"
+             Targets="_CopyExeBeside"
+             Properties="_ExeBesideFrom=%(_ExeBesideBuilt.RootDir)%(_ExeBesideBuilt.Directory);_ExeBesideTo=$([System.IO.Path]::GetFullPath('$(OutDir)'));_ExeBesideOwnList=$(_ExeBesideOwnList)" />
+  </Target>
+
+  <Target Name="PublishExesBesideThis" AfterTargets="Publish" Condition="'@(ExeBesideThis)' != '' AND '$(RuntimeIdentifier)' != ''">
+    <PropertyGroup>
+      <_ExeBesideStaging>$([System.IO.Path]::GetFullPath('$(IntermediateOutputPath)'))beside-publish\</_ExeBesideStaging>
+      <_ExeBesidePublishDir>$([System.IO.Path]::GetFullPath('$(PublishDir)'))</_ExeBesidePublishDir>
+      <_ExeBesideOwnList>$(_ExeBesideStaging)own.list</_ExeBesideOwnList>
+    </PropertyGroup>
+    <!-- What this project publishes. -->
+    <WriteLinesToFile File="$(_ExeBesideOwnList)" Lines="@(ResolvedFileToPublish->'$(_ExeBesidePublishDir)%(RelativePath)')" Overwrite="true" />
+
+    <!-- A separate evaluation for the restore (the unique property forces one), as NuGet requires. -->
+    <MSBuild Projects="@(ExeBesideThis)"
+             Targets="Restore"
+             Properties="RuntimeIdentifier=$(RuntimeIdentifier);Configuration=$(Configuration);_ExeBesideRestore=$([System.Guid]::NewGuid())" />
+    <MSBuild Projects="@(ExeBesideThis)"
+             Targets="Publish"
+             Properties="RuntimeIdentifier=$(RuntimeIdentifier);Configuration=$(Configuration);PublishDir=$(_ExeBesideStaging)%(ExeBesideThis.Filename)\" />
+
+    <MSBuild Projects="$(MSBuildProjectFullPath)"
+             Targets="_CopyExeBeside"
+             Properties="_ExeBesideFrom=$(_ExeBesideStaging)%(ExeBesideThis.Filename)\;_ExeBesideTo=$(_ExeBesidePublishDir);_ExeBesideOwnList=$(_ExeBesideOwnList)" />
+  </Target>
+
+  <!-- One program's output ($(_ExeBesideFrom)) into this project's ($(_ExeBesideTo)), where the files this project writes
+       itself are listed in $(_ExeBesideOwnList). Called through the MSBuild task, so each call is its own evaluation with
+       its own properties. Order-free and idempotent: this project's own files are only ever compared, never written,
+       and everything else is the program's, copied over whatever an earlier build left. -->
+  <Target Name="_CopyExeBeside">
+    <ReadLinesFromFile File="$(_ExeBesideOwnList)">
+      <Output TaskParameter="Lines" ItemName="_ExeBesideOwnFile" />
+    </ReadLinesFromFile>
+
+    <ItemGroup>
+      <!-- A Release output folder also holds each runtime's publish tree, which is not the program's build. -->
+      <_ExeBesideFile Include="$(_ExeBesideFrom)**\*"
+                      Exclude="$(_ExeBesideFrom)win-*\**;$(_ExeBesideFrom)linux-*\**;$(_ExeBesideFrom)osx-*\**" />
+      <_ExeBesideFile>
+        <Source>%(FullPath)</Source>
+      </_ExeBesideFile>
+      <!-- Keyed by where each file goes. -->
+      <_ExeBesideDest Include="@(_ExeBesideFile->'$(_ExeBesideTo)%(RecursiveDir)%(Filename)%(Extension)')" />
+
+      <_ExeBesideTheirs Include="@(_ExeBesideDest)" Exclude="@(_ExeBesideOwnFile)" />
+      <_ExeBesideShared Include="@(_ExeBesideDest)" Exclude="@(_ExeBesideTheirs)" />
+    </ItemGroup>
+
+    <GetFileHash Files="@(_ExeBesideShared)" MetadataName="OwnHash">
+      <Output TaskParameter="Items" ItemName="_ExeBesideOwnHashed" />
+    </GetFileHash>
+    <ItemGroup>
+      <_ExeBesideAtSource Include="@(_ExeBesideOwnHashed->'%(Source)')" />
+    </ItemGroup>
+    <GetFileHash Files="@(_ExeBesideAtSource)" MetadataName="ProgramHash">
+      <Output TaskParameter="Items" ItemName="_ExeBesideHashed" />
+    </GetFileHash>
+    <Error Condition="'%(_ExeBesideHashed.OwnHash)' != '%(_ExeBesideHashed.ProgramHash)'"
+           Text="%(_ExeBesideHashed.Identity) differs from the copy this project writes to $(_ExeBesideTo) itself, and both programs need it: the two outputs must carry one version of every file they share (src/ExeBeside.targets)." />
+
+    <Copy SourceFiles="@(_ExeBesideTheirs->'%(Source)')" DestinationFiles="@(_ExeBesideTheirs)" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

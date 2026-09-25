@@ -40,4 +40,11 @@
     <ProjectReference Include="..\TianWen.UI.Abstractions\TianWen.UI.Abstractions.csproj" />
   </ItemGroup>
 
+  <!-- The machine's node, which this program starts from its OWN directory, never from PATH, so it always
+       gets its own build (docs/plans/hardware-in-the-server.md, P1). It brings tianwen-ascomhost with it. -->
+  <ItemGroup>
+    <ExeBesideThis Include="..\TianWen.Server\TianWen.Server.csproj" />
+  </ItemGroup>
+  <Import Project="..\ExeBeside.targets" />
+
 </Project>

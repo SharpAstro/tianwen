@@ -59,8 +59,9 @@ internal static class DispatchTransportFactory
     }
 
     /// <summary>
-    /// Resolves the helper exe: explicit <c>TIANWEN_ASCOMHOST</c> override, then beside the running app
-    /// (production layout), then the sibling build output (dev/test layout).
+    /// Resolves the helper exe: the explicit <c>TIANWEN_ASCOMHOST</c> override, then beside the running program. A
+    /// checkout's build puts it there as a release does (<c>src/ExeBeside.targets</c>: the node carries it, and every
+    /// client and test that runs ASCOM carries the node or the helper), so there is one place to look.
     /// </summary>
     internal static bool TryLocateHelper(out string exePath)
     {
@@ -76,26 +77,6 @@ internal static class DispatchTransportFactory
         {
             exePath = beside;
             return true;
-        }
-
-        // Dev/test: walk up to the solution root and into TianWen.AscomHost's build output for the same
-        // configuration as the running assembly.
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "TianWen.slnx")))
-        {
-            dir = dir.Parent;
-        }
-        if (dir is not null)
-        {
-            var config = AppContext.BaseDirectory.Contains($"{Path.DirectorySeparatorChar}Release{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)
-                ? "Release"
-                : "Debug";
-            var devPath = Path.Combine(dir.FullName, "TianWen.AscomHost", "bin", config, "net10.0-windows", HelperExeName);
-            if (File.Exists(devPath))
-            {
-                exePath = devPath;
-                return true;
-            }
         }
 
         exePath = string.Empty;

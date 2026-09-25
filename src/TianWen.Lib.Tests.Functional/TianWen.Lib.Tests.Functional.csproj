@@ -42,4 +42,11 @@
     <ProjectReference Include="..\TianWen.Lib.Tests\TianWen.Lib.Tests.csproj" />
   </ItemGroup>
 
+  <!-- The real tianwen-server beside the tests, where a client looks for it: the spawn tests start it as the
+       GUI would (docs/plans/hardware-in-the-server.md, P1). -->
+  <ItemGroup>
+    <ExeBesideThis Include="..\TianWen.Server\TianWen.Server.csproj" />
+  </ItemGroup>
+  <Import Project="..\ExeBeside.targets" />
+
 </Project>
