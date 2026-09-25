@@ -3,6 +3,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,6 +15,9 @@ internal class ProfileIterator(IExternal external, ILogger<ProfileIterator> logg
 {
     private ConcurrentBag<Profile> _profiles = [];
 
+    // The files the last discovery listed, so a listing that lacks one looks again (Profile.ListExistingProfilesAsync).
+    private IReadOnlyCollection<string>? _lastListed;
+
     public ValueTask<bool> CheckSupportAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(true);
 
     public IEnumerable<DeviceType> RegisteredDeviceTypes => [DeviceType.Profile];
@@ -22,7 +26,10 @@ internal class ProfileIterator(IExternal external, ILogger<ProfileIterator> logg
     {
         var bag = new ConcurrentBag<Profile>();
 
-        await Parallel.ForEachAsync(Profile.ListExistingProfiles(external.ProfileFolder), cancellationToken, async (info, cancellationToken) =>
+        var listed = await Profile.ListExistingProfilesAsync(external.ProfileFolder, Volatile.Read(ref _lastListed), cancellationToken);
+        Volatile.Write(ref _lastListed, [.. listed.Select(static profile => profile.file.FullName)]);
+
+        await Parallel.ForEachAsync(listed, cancellationToken, async (info, cancellationToken) =>
         {
             var profileId = info.profileId;
             var file = info.file;
@@ -53,6 +60,10 @@ internal class ProfileIterator(IExternal external, ILogger<ProfileIterator> logg
                 {
                     logger.LogWarning("Skipping invalid profile {ProfileId} in file {File}", profileId, file);
                 }
+            }
+            catch (FileNotFoundException)
+            {
+                // Deleted since it was listed; the next discovery does not list it.
             }
             catch (Exception ex)
             {

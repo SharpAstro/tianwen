@@ -4,7 +4,6 @@ using System.Linq;
 using System.Threading;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
 using TianWen.Lib.Devices;
 using TianWen.Lib.IO;
@@ -34,23 +33,24 @@ public class SharedAppDataFileTests(ITestOutputHelper output)
 
         // The server's limit watcher lists every profile every 5 s; the planner, session and weather records
         // are read through the JSON helper.
-        var iterator = new ProfileIterator(external, NullLogger<ProfileIterator>.Instance);
+        var log = new RecordingLogger<ProfileIterator>();
+        var iterator = new ProfileIterator(external, log);
         using var writing = new CancellationTokenSource();
         var reads = 0;
-        var missed = 0;
+        var missed = new System.Collections.Generic.List<string>();
         var readers = Task.Run(async () =>
         {
             while (!writing.IsCancellationRequested)
             {
                 await iterator.DiscoverAsync(ct);
-                if (iterator.RegisteredDevices(DeviceType.Profile).Count() != 1)
+                if (iterator.RegisteredDevices(DeviceType.Profile).Count() is var listed && listed != 1)
                 {
-                    missed++;
+                    missed.Add($"read {reads}: the profile iterator found {listed}; logged [{log.Drain()}]");
                 }
 
-                if (await shared.TryReadJsonAsync(path, Profile.ProfileJsonSerializerContextIndented.ProfileDto, ct: ct) is null)
+                if (await shared.TryReadJsonAsync(path, Profile.ProfileJsonSerializerContextIndented.ProfileDto, log, ct) is null)
                 {
-                    missed++;
+                    missed.Add($"read {reads}: the JSON read found nothing; logged [{log.Drain()}]");
                 }
 
                 reads++;
@@ -71,10 +71,10 @@ public class SharedAppDataFileTests(ITestOutputHelper output)
 
         output.WriteLine($"{reads} reads beside {2 * WritesPerWriter} writes");
         reads.ShouldBeGreaterThan(0, "premise: the readers ran beside the writers");
-        missed.ShouldBe(0, "a reader found the profile gone or unreadable while it was being replaced");
+        missed.ShouldBeEmpty("a reader found the profile gone or unreadable while it was being replaced");
         var last = await shared.TryReadJsonAsync(path, Profile.ProfileJsonSerializerContextIndented.ProfileDto, ct: ct);
         last.ShouldNotBeNull().Name.ShouldBeOneOf($"a {WritesPerWriter}", $"b {WritesPerWriter}");
-        Directory.GetFiles(external.ProfileFolder.FullName).ShouldHaveSingleItem("a write left its staging file behind");
+        Directory.GetFiles(external.ProfileFolder.FullName, "*.tmp").ShouldBeEmpty("a write left its staging file behind");
 
         Profile Version(string writer, int n) => new Profile(profileId, $"{writer} {n}", ProfileData.Empty);
 
@@ -111,6 +111,30 @@ public class SharedAppDataFileTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// Another program (a scanner, a backup, an older TianWen) may hold the file WITHOUT delete sharing, and even
+    /// the POSIX rename is refused while it does. The write waits that out for a bounded time instead of failing.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task AWriteWaitsOutAHandleThatDoesNotShareDelete()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Unix has no mandatory file sharing, so nothing refuses the rename");
+        var ct = TestContext.Current.CancellationToken;
+        var path = Path.Combine(Directory.CreateTempSubdirectory("shared-appdata-").FullName, "record.json");
+        await SharedFile.WriteAsync(path, (stream, token) => stream.WriteAsync("old"u8.ToArray(), token).AsTask(), ct);
+
+        Task write;
+        using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            write = SharedFile.WriteAsync(path, (stream, token) => stream.WriteAsync("new"u8.ToArray(), token).AsTask(), ct);
+            await Task.Delay(50, ct);
+            write.IsCompleted.ShouldBeFalse("premise: the replace is refused while the handle is open");
+        }
+
+        await write;
+        (await File.ReadAllTextAsync(path, ct)).ShouldBe("new");
+    }
+
+    /// <summary>
     /// A file every writer ADDS to, as the comet apparition cache is: each writer reads what is there, adds
     /// its own and writes the whole back, so without the file's lock across all three a write lands between
     /// another writer's read and write and one of them loses what it added.
@@ -140,6 +164,30 @@ public class SharedAppDataFileTests(ITestOutputHelper output)
             }
         }
     }
+}
+
+/// <summary>Keeps what a reader logged, so a miss says why it missed.</summary>
+internal sealed class RecordingLogger<T> : Microsoft.Extensions.Logging.ILogger<T>
+{
+    private readonly System.Collections.Concurrent.ConcurrentQueue<string> _entries = new System.Collections.Concurrent.ConcurrentQueue<string>();
+
+    public string Drain()
+    {
+        var drained = new System.Collections.Generic.List<string>();
+        while (_entries.TryDequeue(out var entry))
+        {
+            drained.Add(entry);
+        }
+        return string.Join(" | ", drained);
+    }
+
+    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+    public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+
+    public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state,
+        Exception? exception, Func<TState, Exception?, string> formatter)
+        => _entries.Enqueue($"{logLevel}: {formatter(state, exception)} ({exception?.GetType().Name}: {exception?.Message})");
 }
 
 [JsonSerializable(typeof(string[]))]

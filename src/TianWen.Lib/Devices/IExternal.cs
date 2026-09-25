@@ -61,15 +61,10 @@ public interface IExternal
     /// </summary>
     public async Task<T?> TryReadJsonAsync<T>(string filePath, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> jsonTypeInfo, ILogger? logger = null, CancellationToken ct = default) where T : class
     {
-        if (!File.Exists(filePath))
-        {
-            return null;
-        }
-
         try
         {
-            await using var stream = await SharedFile.OpenReadAsync(filePath, ct);
-            return await System.Text.Json.JsonSerializer.DeserializeAsync(stream, jsonTypeInfo, ct);
+            await using var stream = await SharedFile.TryOpenReadAsync(filePath, ct);
+            return stream is null ? null : await System.Text.Json.JsonSerializer.DeserializeAsync(stream, jsonTypeInfo, ct);
         }
         catch (Exception ex)
         {
@@ -84,12 +79,8 @@ public interface IExternal
     /// process writes in between. For a file every writer ADDS to; a document one writer owns whole is an
     /// <see cref="AtomicWriteJsonAsync"/>.
     /// </summary>
-    public async Task UpdateJsonAsync<T>(string filePath, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> jsonTypeInfo, Func<T?, T> update, ILogger? logger = null, CancellationToken ct = default) where T : class
-    {
-        using var fileLock = await SharedFile.LockAsync(filePath, ct);
-        var current = await TryReadJsonAsync(filePath, jsonTypeInfo, logger, ct);
-        await AtomicWriteJsonAsync(filePath, update(current), jsonTypeInfo, ct);
-    }
+    public Task UpdateJsonAsync<T>(string filePath, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> jsonTypeInfo, Func<T?, T> update, ILogger? logger = null, CancellationToken ct = default) where T : class
+        => SharedFile.UpdateJsonAsync(filePath, jsonTypeInfo, update, logger, ct);
 
     /// <summary>
     /// Creates or returns a sub folder under the <see cref="AppDataFolder"/>.
