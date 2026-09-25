@@ -1291,6 +1291,13 @@ full native-AOT rules, and the reasoning behind each rule below:
 6. **AOT is verified by `dotnet publish -r <rid>`, not `dotnet build`.** RDG stays enabled in the
    **`TianWen.Hosting` library**, both JSON contexts stay registered via `ConfigureHttpJsonOptions`,
    and **never reintroduce a `ResponseEnvelope<object>` or an anonymous-type payload**.
+7. **A run is the NODE's, never a request's.** Every start goes through `IHostedSession.TryStartAsync`
+   (the node's token, a compare-and-swapped run record) and only `TryAbort` cancels it: Kestrel reuses a
+   connection's cancellation source, so a request token let a later abandoned request on the same
+   connection cancel the night. An abort ends the run through its `Finalise`, never disposing it
+   underneath; a finished run never blocks the next; the host stopping aborts, awaits `Finalise`, then
+   warms the hub's cameras inside `HostedSession.ShutdownBudget` (and systemd's `TimeoutStopSec` must allow
+   as long). Pinned by `NodeRunLifecycleTests`.
 
 ### Remote Rigs (mirror another node's session "as if local")
 

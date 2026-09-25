@@ -29,7 +29,7 @@ namespace TianWen.Lib.Tests
     {
         private static (EventBroadcaster Broadcaster, HostedSession Host, EventHub Hub) Build()
         {
-            var host = new HostedSession(Substitute.For<ISessionFactory>());
+            var host = new HostedSession(Substitute.For<ISessionFactory>(), Substitute.For<IDeviceHub>(), Substitute.For<ITimeProvider>(), Microsoft.Extensions.Logging.Abstractions.NullLogger<HostedSession>.Instance);
             var hub = new EventHub();
             var enhancer = new HostedImageEnhancer(pipeline: null, NullLogger<HostedImageEnhancer>.Instance);
             var broadcaster = new EventBroadcaster(

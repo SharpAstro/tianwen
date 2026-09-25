@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using TianWen.Hosting.Api;
 using TianWen.Hosting.Api.Alpaca;
 using TianWen.Hosting.Api.NinaV2;
@@ -41,6 +42,17 @@ public static class HostedSessionServiceCollectionExtensions
             sp.GetService<TianWen.Lib.Imaging.Enhancement.SharpenPipeline>(),
             sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<HostedImageEnhancer>>()));
         services.AddHostedService<EventBroadcaster>();
+
+        // The host starts and stops the node's runs. It never used to: registered only as IHostedSession,
+        // StartAsync (device discovery) never ran and StopAsync never stopped a run, so a SIGTERM abandoned
+        // a session mid-night with its drivers unparked and uncooled. Registered LAST, because hosted
+        // services stop in reverse order: the run ends through its Finalise before the others go.
+        services.AddHostedService(sp => sp.GetRequiredService<HostedSession>());
+
+        // Long enough for the stop above: a session's Finalise (warm-up, park, covers), then the hub's own
+        // cameras warmed. The default is 30 s, which cut every warm-up off. A service manager's own stop
+        // timeout must allow as long (systemd TimeoutStopSec).
+        services.Configure<HostOptions>(options => options.ShutdownTimeout = HostedSession.ShutdownBudget);
 
         // Register the source-gen JSON contexts with the HTTP JSON options so minimal-API
         // request-body binding (the POST/PUT endpoints that take a complex body --
