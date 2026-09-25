@@ -46,6 +46,18 @@ namespace TianWen.Hosting.Dto;
 [JsonSerializable(typeof(EnhanceStatusDto))]
 [JsonSerializable(typeof(ResponseEnvelope<EnhanceStatusDto>))]
 [JsonSerializable(typeof(Dictionary<string, object?>))]
+// The RUNTIME types of the values in an event payload (a Dictionary<string, object?>). The source generator
+// emits metadata only for types a registered root mentions, and an object value of any other type fails at
+// SEND time: SCOUT-COMPLETED's int[] never went out on either socket, and the ninaAPI socket could not send
+// GUIDE-STEP, FRAME-WRITTEN or NOTIFICATION at all (P0b item 16, #752). BroadcastEventSerializationTests
+// sends every event through both contexts.
+[JsonSerializable(typeof(string))]
+[JsonSerializable(typeof(bool))]
+[JsonSerializable(typeof(int))]
+[JsonSerializable(typeof(float))]
+[JsonSerializable(typeof(double))]
+[JsonSerializable(typeof(DateTimeOffset))]
+[JsonSerializable(typeof(int[]))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
