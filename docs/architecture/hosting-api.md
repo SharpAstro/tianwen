@@ -95,6 +95,27 @@ Run: `dotnet run --project TianWen.Server` or `tianwen-server [--port 1888]`.
    (the client's own `JsonContent` is chunked, with no Content-Length, and used to be ignored), and a
    malformed body is a 400, never a run on defaults. A start that names no site takes the profile's when
    `SiteTieBreaker` is `Profile`, else the mount keeps its own (#798 is the case that misses).
+6. **A run's drivers are the hub's** (P0b item 11, #752). A session connects each device THROUGH the
+   hub (`ControllableDeviceBase.ConnectAsync(hub)`, which calls `IDeviceHub.AdoptAsync`): the hub takes
+   the driver the wrapper built, with whatever its caller configured on it, or, when it already holds
+   that device connected, the wrapper switches to the hub's instance. It used to connect a driver of its
+   own unless the hub held one, so on a server, where nothing pre-connects, the run and the hub were two
+   driver worlds: `/devices` called the run's devices disconnected, the Alpaca plane could not see them,
+   its `Connected=true` opened a second driver on a device the run was driving, and the shutdown warm-up
+   missed the run's cameras. So:
+   - **A node holds one driver per device**, whoever connected it, and every later phase of the plan
+     assumes it. Not yet under two connects of one device at once, nor after a driver drops (#806).
+   - **A run no longer disconnects what it adopted when it is disposed.** `Finalise` still stops,
+     parks and disconnects the mount and the guider through their drivers. The cameras, focusers,
+     wheels and covers stay connected in the hub, which is where the shutdown warm-up finds them.
+   - **`IDeviceHub.ConnectedDevices` lists only a driver that is up.** Every run now leaves the mount and
+     the guider as entries whose driver is down, and a listing that kept them had the profile-switch
+     gate name a parked mount as connected and the limit watcher evaluate it every tick.
+   - **Read `Driver` after a connect, never before**: the connect can switch it (the flat run's cover
+     and the built-in guider's pier-side oracle both had to move).
+
+   Pinned by `DeviceHubAdoptionTests` and by
+   `SessionLifecycleTests.GivenNothingPreConnectedWhenInitialisationThenTheHubHoldsTheSessionsOwnDrivers`.
 
 ## Previews go through the shared stretch, never a private one
 

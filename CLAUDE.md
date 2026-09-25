@@ -428,6 +428,11 @@ claimed device. `IDeviceHub.TryAcquireLease` / `DeviceLeaseSet.Acquire` (all-or-
 whole run, released in the `finally` so a claim survives `Finalise` (parking + warming is exactly when a
 stray disconnect hurts most).
 
+- **A run's drivers ARE the hub's, so a node holds ONE driver per device.** A session connects each
+  device through the hub (`ControllableDeviceBase.ConnectAsync(hub)`, which calls `IDeviceHub.AdoptAsync`),
+  and **reads `Driver` only after that connect**, which can switch it to the hub's instance. Every run
+  leaves the mount and guider as entries whose driver is down, which is why `ConnectedDevices` lists only
+  drivers that are up. `docs/architecture/hosting-api.md`, invariant 6.
 - **Reads are never leased.** Telemetry, status and previews stay free for every observer; watching a
   rig must cost it nothing. A lease only refuses *taking the driver away* and *commanding it*.
 - **Never guard hardware access on a UI flag.** The guards used to be five ad-hoc

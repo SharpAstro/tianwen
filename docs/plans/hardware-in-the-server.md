@@ -269,7 +269,8 @@ the session keeps on show, under the slot's own token as a conditional GET (`hos
 section). Items 7 and 13 are fixed by #801: a broadcast only queues, each client with its own bounded
 sender, and a prompt is held only for a client that can answer it, and only until it settles. Item 14 is
 withdrawn (below). Items 8 and 18 are fixed by #803: a client cannot command hardware a run is driving,
-nor switch or delete the profile out from under it. The rest (9, 11 and 17) are open, one PR per concern.
+nor switch or delete the profile out from under it. Item 11 is fixed: a run's drivers are the hub's, so a
+node holds one driver per device. The rest (9 and 17) are open, one PR per concern.
 
 Each item below is confirmed in the code, except where it says otherwise; the review of 2026-09-25
 re-checked all nine and found nine more (10 to 18). The first four, and 10 and 11, decide whether a
@@ -377,6 +378,18 @@ Found by the review (2026-09-25), all confirmed in the code:
     Alpaca plane cannot see them, and an Alpaca `connected=true` opens a SECOND driver on a device the
     session is driving; the limit watcher loses a mount once its run ends. The fix: the session connects
     through the hub and borrows, so a node holds one driver per device. Every later phase assumes it.
+    **FIXED** (`hosting-api.md`, the sixth session-plane invariant):
+    - A wrapper connects through the hub (`ControllableDeviceBase.ConnectAsync(hub)`), which ADOPTS the
+      driver it built (`IDeviceHub.AdoptAsync`), so whatever its caller configured on that instance
+      survives, or switches the wrapper to the hub's own when the hub already holds one connected.
+    - Two things it exposed are fixed with it. `ConnectedDevices` listed drivers that had gone down, and
+      every run now leaves two (`Finalise` disconnects the mount and the guider), so the profile-switch
+      gate named a parked mount as connected. And a fake camera's coupling was keyed on the hub holding a
+      mount, which initialisation now always arranges, so `coupleCameraToMount: false` is a flag on the
+      camera's own driver (`FakeCameraDriver.CouplesToMount`).
+    - The mount's site on connect, for every host, is the next step on top of this (#798).
+    - What it leaves, both older than it: two connects of one device at once can still leave two
+      drivers, and a driver that dropped is replaced rather than reconnected (#806, with P2's jobs).
 12. **A finished session is never cleared**, so the next `/session/start` answers 409 until an
     `/abort`, which disconnects the rig (item 3). And the start is check-then-set (an
     `Interlocked.Exchange`, not a compare-and-swap), so two starts can race.

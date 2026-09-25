@@ -161,10 +161,10 @@ internal static class SessionTestHelper
         {
             // Putting the mount in the hub is what couples the cameras to it: FakeCameraDriver finds
             // the mount it renders against by looking there, and ControllableDeviceBase then BORROWS
-            // that driver rather than building a second one. This is the production shape -- every
-            // real host connects through the hub -- but it turns on the whole coupling at once (the
-            // guide camera's drift, the main camera's hidden polar misalignment, the pier side), so
-            // it stays opt-in rather than silently changing what every session test images.
+            // that driver rather than building a second one. This is the production shape (a
+            // session's initialisation adopts its mount into the hub itself), so it is done up front
+            // for the tests that drive a loop without initialising. It turns on the whole coupling at
+            // once: the guide camera's drift, the main camera's hidden polar misalignment, the pier side.
             await sp.GetRequiredService<IDeviceHub>().ConnectAsync(mountDevice, cancellationToken);
         }
         var mount = new Mount(mountDevice, sp);
@@ -185,6 +185,11 @@ internal static class SessionTestHelper
         var guiderCamDriver = (FakeCameraDriver)guiderCam.Driver;
         guiderCamDriver.NumX = 512;
         guiderCamDriver.NumY = 512;
+        // Keeping the mount out of the hub cannot keep coupling off, since initialisation adopts it into
+        // the hub all the same, so the opt-out goes on each camera's own driver: the instance the hub
+        // adopts with it.
+        cameraDriver.CouplesToMount = coupleCameraToMount;
+        guiderCamDriver.CouplesToMount = coupleCameraToMount;
         await ((FakeGuider)guider.Driver).ConnectEquipmentAsync(cancellationToken);
 
         // Link mount + guide camera into the fake guider

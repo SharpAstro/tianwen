@@ -74,7 +74,14 @@ internal partial record Session
     /// <exception cref="DeviceLeasedException">Another run already owns one of these devices; nothing is
     /// left claimed.</exception>
     private DeviceLeaseSet AcquireEquipment(string ownerLabel)
-        => DeviceLeaseSet.Acquire(ServiceProvider.GetService<IDeviceHub>(), Setup.DeviceUris(), ownerLabel);
+        => DeviceLeaseSet.Acquire(DeviceHub, Setup.DeviceUris(), ownerLabel);
+
+    /// <summary>
+    /// The hub this run's devices connect through (<see cref="ControllableDeviceBase{TDriver}.ConnectAsync"/>),
+    /// so the node holds one driver per device; null in a host that composes none (several unit-test hosts),
+    /// which then connects each wrapper's own driver as before.
+    /// </summary>
+    private IDeviceHub? DeviceHub => ServiceProvider.GetService<IDeviceHub>();
 
     /// <summary>
     /// <see cref="AcquireEquipment"/> with the run-entry failure protocol both callers were repeating:
@@ -274,19 +281,9 @@ internal partial record Session
         var mount = Setup.Mount;
         var guider = Setup.Guider;
 
-        // From here the session is the authority on which side of the pier the tube is on, so the
-        // built-in guider asks IT rather than the mount. On a mount that only computes its pointing
-        // state the driver's report turns over as the POINTING crosses the meridian, and a guider
-        // believing that reverses its calibration for a flip that never happened -- inverting the
-        // very sense that keeps the loop converging. See Session.GetSideOfPierAsync.
-        if (guider.Driver is Devices.Guider.BuiltInGuiderDriver builtIn)
-        {
-            builtIn.PointingStateOracle = GetSideOfPierAsync;
-        }
-
         _currentActivity = "Connecting mount\u2026";
         _logger.LogDebug("Init: connecting mount {Mount}", mount);
-        await ConnectOrFailAsync(mount.Driver, $"mount '{mount.Device.DisplayName}'", null, cancellationToken).ConfigureAwait(false);
+        await ConnectOrFailAsync(mount, $"mount '{mount.Device.DisplayName}'", null, cancellationToken).ConfigureAwait(false);
 
         // Diagnostic snapshot: site + believed pointing right after the (borrowed, already-connected)
         // mount is reused. If site is NaN here the manual connect never pushed it; if RA/Dec are
@@ -301,7 +298,18 @@ internal partial record Session
 
         _currentActivity = "Connecting guider\u2026";
         _logger.LogDebug("Init: connecting guider {Guider}", guider);
-        await ConnectOrFailAsync(guider.Driver, $"guider '{guider.Device.DisplayName}'", null, cancellationToken).ConfigureAwait(false);
+        await ConnectOrFailAsync(guider, $"guider '{guider.Device.DisplayName}'", null, cancellationToken).ConfigureAwait(false);
+
+        // Set after the connect, which can switch the wrapper to a driver the hub already held. From here
+        // the session is the authority on which side of the pier the tube is on, so the built-in guider
+        // asks IT rather than the mount. On a mount that only computes its pointing state the driver's
+        // report turns over as the POINTING crosses the meridian, and a guider believing that reverses its
+        // calibration for a flip that never happened -- inverting the very sense that keeps the loop
+        // converging. See Session.GetSideOfPierAsync.
+        if (guider.Driver is Devices.Guider.BuiltInGuiderDriver builtIn)
+        {
+            builtIn.PointingStateOracle = GetSideOfPierAsync;
+        }
 
         _logger.LogDebug("Init: checking park state");
         if (await mount.Driver.AtParkAsync(cancellationToken)
@@ -375,7 +383,7 @@ internal partial record Session
         {
             _currentActivity = "Connecting guider camera\u2026";
             _logger.LogDebug("Init: connecting guider camera {GuiderCam}", guiderCam);
-            await ConnectOrFailAsync(guiderCam.Driver, $"guide camera '{guiderCam.Device.DisplayName}'", null, cancellationToken).ConfigureAwait(false);
+            await ConnectOrFailAsync(guiderCam, $"guide camera '{guiderCam.Device.DisplayName}'", null, cancellationToken).ConfigureAwait(false);
 
             // Guide scope focal length: explicit profile setting wins (covers OAG-before-reducer
             // and dedicated guide scopes), then OAG parent OTA as fallback
@@ -395,7 +403,7 @@ internal partial record Session
         if (Setup.GuiderSetup.Focuser is { } guiderFocuser)
         {
             _logger.LogDebug("Init: connecting guider focuser {GuiderFocuser}", guiderFocuser);
-            await guiderFocuser.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
+            await guiderFocuser.ConnectAsync(DeviceHub, cancellationToken).ConfigureAwait(false);
         }
 
         _currentActivity = "Connecting guider equipment\u2026";
@@ -427,11 +435,13 @@ internal partial record Session
     /// connect makes the night pointless (e.g. a flip-flat we cannot open leaves the OTA blind), so fail
     /// now rather than discover it at dawn. Contrast the END-of-session flat block, which is best-effort.
     /// </summary>
-    private static async ValueTask ConnectOrFailAsync(IDeviceDriver driver, string deviceDescription, string? extraHint, CancellationToken cancellationToken)
+    private async ValueTask ConnectOrFailAsync<TDriver>(ControllableDeviceBase<TDriver> device, string deviceDescription, string? extraHint, CancellationToken cancellationToken)
+        where TDriver : class, IDeviceDriver
     {
         try
         {
-            await driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
+            // Through the hub, so the node holds this run's driver and every surface sees the one instance.
+            await device.ConnectAsync(DeviceHub, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -446,18 +456,18 @@ internal partial record Session
         var camera = telescope.Camera;
         _currentActivity = $"Connecting {telescope.Name}…";
         _logger.LogDebug("Init: connecting OTA #{OtaIndex} camera {Camera}", index, camera);
-        await ConnectOrFailAsync(camera.Driver, $"camera '{camera.Device.DisplayName}' on telescope '{telescope.Name}'", null, cancellationToken).ConfigureAwait(false);
+        await ConnectOrFailAsync(camera, $"camera '{camera.Device.DisplayName}' on telescope '{telescope.Name}'", null, cancellationToken).ConfigureAwait(false);
 
         if (telescope.Focuser is { } focuser)
         {
             _logger.LogDebug("Init: connecting OTA #{OtaIndex} focuser {Focuser}", index, focuser);
-            await ConnectOrFailAsync(focuser.Driver, $"focuser '{focuser.Device.DisplayName}' on telescope '{telescope.Name}'", null, cancellationToken).ConfigureAwait(false);
+            await ConnectOrFailAsync(focuser, $"focuser '{focuser.Device.DisplayName}' on telescope '{telescope.Name}'", null, cancellationToken).ConfigureAwait(false);
         }
 
         if (telescope.FilterWheel is { } filterWheel)
         {
             _logger.LogDebug("Init: connecting OTA #{OtaIndex} filter wheel {FilterWheel}", index, filterWheel);
-            await ConnectOrFailAsync(filterWheel.Driver, $"filter wheel '{filterWheel.Device.DisplayName}' on telescope '{telescope.Name}'", null, cancellationToken).ConfigureAwait(false);
+            await ConnectOrFailAsync(filterWheel, $"filter wheel '{filterWheel.Device.DisplayName}' on telescope '{telescope.Name}'", null, cancellationToken).ConfigureAwait(false);
         }
 
         if (telescope.Cover is { } cover)
@@ -465,7 +475,7 @@ internal partial record Session
             _logger.LogDebug("Init: connecting OTA #{OtaIndex} cover {Cover}", index, cover);
             // Fail-fast: the scope typically sits with a flip-flat CLOSED -- if we cannot talk to it we
             // cannot open it, and a night behind a closed cover is worthless.
-            await ConnectOrFailAsync(cover.Driver, $"cover/flat panel '{cover.Device.DisplayName}' on telescope '{telescope.Name}'",
+            await ConnectOrFailAsync(cover, $"cover/flat panel '{cover.Device.DisplayName}' on telescope '{telescope.Name}'",
                 "The session was stopped because the telescope may still be covered.", cancellationToken).ConfigureAwait(false);
         }
 

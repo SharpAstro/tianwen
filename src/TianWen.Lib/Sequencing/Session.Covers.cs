@@ -33,7 +33,7 @@ internal partial record Session
                 // A cover that fails to connect (dead/unplugged panel, port busy) must not abort the whole
                 // sweep -- leave it not-reached (overall result false) so the healthy OTAs still move and
                 // per-OTA consumers (e.g. the flats loop) can skip just this one.
-                if (!await CatchAsync(cover.Driver.ConnectAsync, cancellationToken).ConfigureAwait(false))
+                if (!await CatchAsync(ct => cover.ConnectAsync(DeviceHub, ct), cancellationToken).ConfigureAwait(false))
                 {
                     _logger.LogWarning("Could not connect cover of telescope {TelescopeNumber}; skipping its cover state change.", i + 1);
                     continue;

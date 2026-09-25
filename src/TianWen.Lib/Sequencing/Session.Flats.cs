@@ -65,7 +65,7 @@ internal partial record Session
             var telescope = Setup.Telescopes[i];
             var camDriver = telescope.Camera.Driver;
 
-            if (telescope.Cover?.Driver is not { } coverDriver)
+            if (telescope.Cover is not { } cover)
             {
                 _logger.LogWarning("Telescope #{TelescopeNumber} '{Name}': no cover/calibrator device; skipping flats (assign a cover/calibrator or a Manual Light Panel to the OTA, or use FlatSource=TwilightSky for sky-flats).",
                     i + 1, telescope.Name);
@@ -75,11 +75,14 @@ internal partial record Session
             // A failing cover connect (port unplugged/busy, identity mismatch) must skip this OTA like the
             // sibling precondition checks -- not abort the whole flat run (and, from RunAsync, fail a night
             // whose observation loop already completed).
-            if (!await CatchAsync(coverDriver.ConnectAsync, cancellationToken).ConfigureAwait(false))
+            if (!await CatchAsync(ct => cover.ConnectAsync(DeviceHub, ct), cancellationToken).ConfigureAwait(false))
             {
                 _logger.LogWarning("Telescope #{TelescopeNumber} '{Name}': could not connect cover/calibrator; skipping flats for this OTA.", i + 1, telescope.Name);
                 continue;
             }
+
+            // Read after the connect, which can switch the wrapper to a driver the hub already held.
+            var coverDriver = cover.Driver;
 
             if (await coverDriver.GetCalibratorStateAsync(cancellationToken) is CalibratorStatus.NotPresent)
             {

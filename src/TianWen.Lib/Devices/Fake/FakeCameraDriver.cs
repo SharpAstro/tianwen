@@ -160,6 +160,15 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     // coupled at all, the legacy self-contained ST-4 shift for standalone tests.
     // Cached pointing is read in the (async) StartExposureAsync and consumed by
     // the (sync) render path; both are guarded by _lock.
+
+    /// <summary>
+    /// Whether this camera renders against the mount the hub holds. On by default, the production shape.
+    /// A test that wants the self-contained drift turns it off HERE, on the camera's own driver: hub
+    /// presence cannot be the switch, because a session's initialisation adopts its mount into the hub
+    /// (<c>ControllableDeviceBase.ConnectAsync</c>), and this instance is the one the hub adopts with it.
+    /// </summary>
+    public bool CouplesToMount { get; set; } = true;
+
     private IMountDriver? _coupledMount;
     private Transform? _coupledMountTransform; // reused SOFA transform for native -> J2000 (built once, time refreshed per exposure)
     private bool _mountRefCaptured;     // reference (zero-drift) pointing captured?
@@ -1341,14 +1350,6 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     }
 
     /// <summary>
-    /// Lazily finds the connected mount in the device hub (single-mount invariant),
-    /// caching it once found. Returns <c>null</c> when no hub is registered (unit
-    /// tests) or no mount is connected yet -- the guide star then uses only the
-    /// self-contained PE+ST-4 drift. Resolved from the retained
-    /// <see cref="FakeDeviceDriverBase.ServiceProvider"/> so nothing in the session /
-    /// shared layer needs to know this fake-only coupling exists.
-    /// </summary>
-    /// <summary>
     /// The mount pointing the SENSOR sees, in J2000: the fake true-pointing seam
     /// (hidden polar misalignment / post-sync drift) when the coupled mount models
     /// one, else the public believed read - on real mounts the two coincide by
@@ -1360,8 +1361,21 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
             ? trueSource.GetTruePointingJ2000Async(transform, updateTime: true, cancellationToken)
             : mount.GetRaDecJ2000Async(transform, updateTime: true, cancellationToken);
 
-    private IMountDriver? ResolveCoupledMount()
+    /// <summary>
+    /// Lazily finds the connected mount in the device hub (single-mount invariant),
+    /// caching it once found. Returns <c>null</c> when no hub is registered (unit
+    /// tests) or no mount is connected yet -- the guide star then uses only the
+    /// self-contained PE+ST-4 drift. Resolved from the retained
+    /// <see cref="FakeDeviceDriverBase.ServiceProvider"/> so nothing in the session /
+    /// shared layer needs to know this fake-only coupling exists.
+    /// </summary>
+    internal IMountDriver? ResolveCoupledMount()
     {
+        if (!CouplesToMount)
+        {
+            return null;
+        }
+
         if (_coupledMount is { Connected: true })
         {
             return _coupledMount;
