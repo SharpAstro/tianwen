@@ -1,7 +1,7 @@
 # Hardware in the server: the GUI drives every device through a local `tianwen-server`
 
 **Status: PLANNED (2026-09-24, raised by the user); reviewed against `main` 2026-09-25, every decision
-made; P0a DONE (2026-09-25, #743), the rest not started.** Issue #751. P0 is urgent on its own: it
+made; P0 DONE (2026-09-26: P0a #743, P0b #752, P0c #788), P1 onward not started.** Issue #751. P0 is urgent on its own: it
 closed a regression on `main` (P0a, #743), and it closes server lifecycle and wire bugs that already
 hurt remote rigs (P0b, #752) and bugs in the hosts that the split would carry over (P0c, #788). **It ships as 10.0**, a major (P9): closing a window no
 longer stops the rig, and every host needs `tianwen-server` beside it.
