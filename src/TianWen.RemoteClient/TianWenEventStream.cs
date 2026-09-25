@@ -40,6 +40,8 @@ namespace TianWen.RemoteClient
 
         private CancellationTokenSource? _cts;
         private Task? _pump;
+        // 1 once this connection has warned about an undecodable frame; reset on every connect.
+        private int _warnedUnparseable;
 
         /// <param name="nodeBaseAddress">The node's HTTP root; the <c>ws(s)</c> event URI is derived from it.</param>
         /// <param name="socketFactory">Injectable so tests can substitute a fake socket. Defaults to a real
@@ -204,15 +206,28 @@ namespace TianWen.RemoteClient
 
         private void Dispatch(ReadOnlySpan<byte> utf8Json)
         {
+            // The node sends every event inside a ResponseEnvelope, the same envelope as its HTTP answers (the
+            // ninaAPI socket shares it, PascalCase, for Touch N Stars). This used to decode a bare
+            // WebSocketEventDto, so every frame failed to parse and was dropped while the stream reported
+            // itself connected (P0b item 5, #752).
             WebSocketEventDto? dto;
             try
             {
-                dto = JsonSerializer.Deserialize(utf8Json, HostingJsonContext.Default.WebSocketEventDto);
+                dto = JsonSerializer.Deserialize(utf8Json, HostingJsonContext.Default.ResponseEnvelopeWebSocketEventDto)?.Response;
             }
             catch (JsonException ex)
             {
-                // A malformed frame must not tear down a working stream: skip it and keep receiving.
-                _logger.LogDebug(ex, "Discarding unparseable event frame from {Endpoint}", _endpoint);
+                // A malformed frame must not tear down a working stream: skip it and keep receiving. But say so
+                // out loud, once per connection: a stream that parses nothing is a contract break between node
+                // and client, and at Debug level it read as a quiet rig for as long as it lasted.
+                if (Interlocked.Exchange(ref _warnedUnparseable, 1) == 0)
+                {
+                    _logger.LogWarning(ex, "Discarding unparseable event frames from {Endpoint}: the node and this client disagree on the event format", _endpoint);
+                }
+                else
+                {
+                    _logger.LogDebug(ex, "Discarding unparseable event frame from {Endpoint}", _endpoint);
+                }
                 return;
             }
 
@@ -229,6 +244,10 @@ namespace TianWen.RemoteClient
                 return;
             }
             IsConnected = connected;
+            if (connected)
+            {
+                Volatile.Write(ref _warnedUnparseable, 0);
+            }
             ConnectedChanged?.Invoke(this, connected);
         }
     }
