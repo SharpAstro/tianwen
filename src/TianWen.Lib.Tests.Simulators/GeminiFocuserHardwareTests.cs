@@ -46,7 +46,7 @@ public class GeminiFocuserHardwareTests(ITestOutputHelper testOutputHelper)
         await using var sp = new ServiceCollection()
             .AddExternal()
             .AddAstrometry() // External's ctor resolves ICelestialObjectDB; the Gemini driver never touches it.
-            .AddLogging(b => b.AddProvider(new XUnitLoggerProvider(testOutputHelper, false)))
+            .AddLogging(b => b.AddProvider(new XUnitLoggerProvider(testOutputHelper, false)).SetMinimumLevel(LogLevel.Trace))
             .BuildServiceProvider();
 
         var timeProvider = sp.GetRequiredService<ITimeProvider>();
@@ -85,6 +85,7 @@ public class GeminiFocuserHardwareTests(ITestOutputHelper testOutputHelper)
             await MoveAndSettleAsync(focuser, start, timeProvider, ct);
             var restored = await focuser.GetPositionAsync(ct);
             testOutputHelper.WriteLine($"restored -> target {start}, landed {restored}");
+            restored.ShouldBe(start, "the return move must land where the test started, and the position must be readable");
 
             await focuser.DisconnectAsync(ct);
             focuser.Connected.ShouldBeFalse();
