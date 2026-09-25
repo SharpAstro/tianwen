@@ -241,7 +241,7 @@ internal sealed class StackSubCommand(
         };
         var enhanceOpt = new Option<bool>("--enhance")
         {
-            Description = "Run the canonical AI sharpen pipeline (gradient correction + remove stars + sharpen stars + deconvolve + denoise + recombine) against each master after integration. Writes master_*_sharpened.fits and (when autocrop is active) master_*_sharpened_autocrop.fits alongside the raw masters; the linear masters are never overwritten. Requires the ONNX models materialised via tools/tianwen-ai-models-fetch.ps1.",
+            Description = "Run the canonical AI sharpen pipeline (gradient correction + remove stars + sharpen stars + deconvolve + denoise + recombine) against each master after integration. Writes master_*_sharpened.fits and (when autocrop is active) master_*_sharpened_autocrop.fits alongside the raw masters; the linear masters are never overwritten. Each step needs an installed backend (RC-Astro, or model weights the resolver finds); one that has none fails naming the paths it searched.",
         };
         var enhanceBlendOpt = new Option<float>("--enhance-blend")
         {

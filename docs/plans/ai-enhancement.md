@@ -39,7 +39,12 @@ to .NET 10 with `Microsoft.ML.OnnxRuntime`.
   upstream re-export at INT8 or our own ORT QNN compile pass; separate workstream.
 - **Runtime self-bootstrap of model files**. v1 uses the dev-only fetch script
   `tools/tianwen-ai-models-fetch.ps1`. Deploy story (in-app first-launch download
-  with progress UI + CLI sub-command) is a follow-up plan.
+  with progress UI + CLI sub-command) is a follow-up plan, **for TianWen's own
+  models only** (#516, #825): SETI Astro's AI4 weights have carried a licence since
+  2026-09-24 that allows use only within SASpro without the author's written
+  consent, so the product never fetches them or tells a user to (decided
+  2026-09-25; the script stays, as a developer tool). They are read where SASpro
+  put them.
 
 ## Architecture
 

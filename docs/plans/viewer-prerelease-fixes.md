@@ -267,6 +267,9 @@ neither is reachable today.
   which backend it would use (RC-Astro vs SAS vs none), which RC products are licensed, and which
   SAS model files are missing -- plus an affordance to fetch the missing ones, because
   `tools/tianwen-ai-models-fetch.ps1` is a repo script and a Store install has no access to it.
+  **Narrowed 2026-09-25 (#618):** the affordance may fetch TianWen's OWN models only. SETI Astro's
+  weights carry a licence since 2026-09-24 that allows use only within SASpro without the author's
+  consent, so the panel reports a missing SAS file and where it looked, and offers no download.
 
 **The trap:** the RC-vs-SAS choice and its blocking license probe are *deliberately* deferred to the
 first `EnhanceAsync`, so that composing the service collection spawns no `rc-astro` process. A
