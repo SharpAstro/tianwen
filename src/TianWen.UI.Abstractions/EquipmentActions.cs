@@ -314,12 +314,11 @@ public static class EquipmentActions
         string? WinnerSource);
 
     /// <summary>
-    /// Reconcile site coordinates between the connected mount hardware and the
-    /// stored profile. The tie-breaker (<see cref="ProfileData.SiteTieBreaker"/>)
-    /// only matters when both sides report a value and they differ:
-    /// the winner's site is written to the loser (profile → persisted,
-    /// mount → pushed via SetSite*Async). When only one side has a value the
-    /// other side is populated unconditionally.
+    /// Reconciles the connected mount's site with the stored profile's when the mount connects, by the rule
+    /// every host applies (<see cref="MountSiteExtensions"/>, where it moved for #798 so a run on the server
+    /// applies it too): when only one side has a site the other takes it, and when both do and differ,
+    /// <see cref="ProfileData.SiteTieBreaker"/> picks the side the other takes it from. The mount-side half is
+    /// applied there; the profile-side half is applied here, since this GUI is the profile's writer.
     /// </summary>
     public static async ValueTask<SiteReconcileResult> ReconcileSiteOnMountConnectAsync(
         ProfileData data,
@@ -327,76 +326,19 @@ public static class EquipmentActions
         ILogger? logger,
         CancellationToken cancellationToken)
     {
-        // Mount returns NaN (Skywatcher/iOptron default) when site has never been
-        // pushed and the mount doesn't report one. ASCOM drivers typically return 0.
-        var mountLatRaw = await mount.GetSiteLatitudeAsync(cancellationToken);
-        var mountLonRaw = await mount.GetSiteLongitudeAsync(cancellationToken);
-        var mountElevRaw = await mount.GetSiteElevationAsync(cancellationToken);
-        var mountHas = !double.IsNaN(mountLatRaw) && !double.IsNaN(mountLonRaw)
-                       && !(mountLatRaw == 0 && mountLonRaw == 0);
-        var profileHas = data.SiteLatitude is not null && data.SiteLongitude is not null;
+        var decision = await mount.ReconcileSiteAsync(data.Site, data.SiteTieBreaker, logger, cancellationToken);
 
-        if (!mountHas && !profileHas)
+        var updated = decision.AdoptIntoProfile && decision.Site is { } adopted
+            ? data with { SiteLatitude = adopted.Latitude, SiteLongitude = adopted.Longitude, SiteElevation = adopted.Elevation }
+            : data;
+        var winnerSource = decision.Source switch
         {
-            return new SiteReconcileResult(data, false, false, null);
-        }
+            SiteSource.Mount => "mount",
+            SiteSource.Profile => "profile",
+            _ => null
+        };
 
-        if (mountHas && !profileHas)
-        {
-            logger?.LogInformation("Site reconcile: mount reports {Lat}/{Lon} (profile empty), adopting into profile.",
-                mountLatRaw, mountLonRaw);
-            double? elev = double.IsNaN(mountElevRaw) ? null : mountElevRaw;
-            var updated = data with { SiteLatitude = mountLatRaw, SiteLongitude = mountLonRaw, SiteElevation = elev };
-            return new SiteReconcileResult(updated, ProfileChanged: true, MountPushed: false, WinnerSource: "mount");
-        }
-
-        // Bound rather than read back off profileHas: the bool cannot carry the two values it was
-        // computed from, which is what the pushes below had to assert.
-        if (!mountHas && data.SiteLatitude is { } pushLat && data.SiteLongitude is { } pushLon)
-        {
-            logger?.LogInformation("Site reconcile: profile has {Lat}/{Lon} (mount empty), pushing to mount.",
-                pushLat, pushLon);
-            await mount.SetSiteLatitudeAsync(pushLat, cancellationToken);
-            await mount.SetSiteLongitudeAsync(pushLon, cancellationToken);
-            if (data.SiteElevation is { } elevation)
-            {
-                await mount.SetSiteElevationAsync(elevation, cancellationToken);
-            }
-            return new SiteReconcileResult(data, ProfileChanged: false, MountPushed: true, WinnerSource: "profile");
-        }
-
-        // Both sides have a site. Apply the tie-breaker.
-        var winner = data.SiteTieBreaker;
-        if (winner == SiteTieBreaker.Mount)
-        {
-            double? mountElev = double.IsNaN(mountElevRaw) ? null : mountElevRaw;
-            if (data.SiteLatitude != mountLatRaw || data.SiteLongitude != mountLonRaw || data.SiteElevation != mountElev)
-            {
-                logger?.LogInformation("Site reconcile (tie=Mount): mount {MLat}/{MLon} replaces profile {PLat}/{PLon}.",
-                    mountLatRaw, mountLonRaw, data.SiteLatitude, data.SiteLongitude);
-                var updated = data with { SiteLatitude = mountLatRaw, SiteLongitude = mountLonRaw, SiteElevation = mountElev };
-                return new SiteReconcileResult(updated, ProfileChanged: true, MountPushed: false, WinnerSource: "mount");
-            }
-            return new SiteReconcileResult(data, false, false, WinnerSource: "mount");
-        }
-        else
-        {
-            if (data.SiteLatitude is { } tieLat && data.SiteLongitude is { } tieLon
-                && (tieLat != mountLatRaw || tieLon != mountLonRaw
-                    || (data.SiteElevation is { } pe && !double.IsNaN(mountElevRaw) && pe != mountElevRaw)))
-            {
-                logger?.LogInformation("Site reconcile (tie=Profile): profile {PLat}/{PLon} pushed to mount (was {MLat}/{MLon}).",
-                    tieLat, tieLon, mountLatRaw, mountLonRaw);
-                await mount.SetSiteLatitudeAsync(tieLat, cancellationToken);
-                await mount.SetSiteLongitudeAsync(tieLon, cancellationToken);
-                if (data.SiteElevation is { } elevation)
-                {
-                    await mount.SetSiteElevationAsync(elevation, cancellationToken);
-                }
-                return new SiteReconcileResult(data, ProfileChanged: false, MountPushed: true, WinnerSource: "profile");
-            }
-            return new SiteReconcileResult(data, false, false, WinnerSource: "profile");
-        }
+        return new SiteReconcileResult(updated, decision.AdoptIntoProfile, decision.PushToMount, winnerSource);
     }
 
     /// <summary>

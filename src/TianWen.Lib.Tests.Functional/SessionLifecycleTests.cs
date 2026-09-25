@@ -225,13 +225,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         await using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, coupleCameraToMount: false, cancellationToken: ct);
         var hub = ctx.Session.ServiceProvider.GetRequiredService<IDeviceHub>();
 
-        var initTask = ctx.Track(Task.Run(async () => await ctx.Session.InitialisationAsync(ctx.Token), ctx.Token));
-        while (!initTask.IsCompleted && !ct.IsCancellationRequested)
-        {
-            await ctx.TimeProvider.SleepAsync(TimeSpan.FromSeconds(1), ct);
-            await Task.Delay(10, ct);
-        }
-        (await initTask).ShouldBeTrue("initialisation should succeed");
+        await InitialiseAsync(ctx, ct);
 
         var setup = ctx.Session.Setup;
         var telescope = setup.Telescopes[0];
@@ -253,6 +247,131 @@ public class SessionLifecycleTests(ITestOutputHelper output)
     {
         hub.TryGetConnectedDriver<IDeviceDriver>(device.DeviceUri, out var held).ShouldBeTrue($"{device.DisplayName} is in the hub");
         held.ShouldBeSameAs(driver, $"the hub holds the session's own {device.DisplayName} driver, not a second one");
+    }
+
+    // --- Which site a run is on (#798) ---
+
+    // The fake mount is in Vienna until something gives it another site, and the profile's is Melbourne, so
+    // the two can never be mistaken for each other.
+    private static readonly SiteCoordinates Vienna = new(48.2, 16.3, 200);
+    private static readonly SiteCoordinates Melbourne = new(-37.8136, 144.9631, 31);
+
+    /// <summary>
+    /// A run whose request names no site still evaluates its HORIZON limit, on the site its mount is on. The
+    /// limit poll computed the altitude from the configured site alone, so with none the altitude was NaN,
+    /// which <c>MountLimits.Evaluate</c> reads as "skip the horizon test". Since #799 that is every server run
+    /// started without a site under the mount-wins default: the meridian limit working, the horizon limit off.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task GivenNoConfiguredSiteWhenInitialisedThenTheHorizonLimitIsEvaluatedOnTheMountsSite()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        // The meridian limit out of the way: 5 h past the meridian would trip it too, and it wins a tie.
+        var limits = new MountLimitConfiguration(Enabled: true, MeridianWarnMinutes: 600);
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, mountLimits: limits, cancellationToken: ct);
+        double.IsNaN(ctx.Session.Configuration.SiteLatitude).ShouldBeTrue("premise: the request names no site");
+
+        await InitialiseAsync(ctx, ct);
+
+        // Low in the west, placed by SYNC: 5 h past the meridian at dec -10 is 2.3 deg up from Vienna, under
+        // the 10 deg floor, and descending, which is when the horizon test applies.
+        await ctx.Mount.SetTrackingAsync(true, ct);
+        var lst = await ctx.Mount.GetSiderealTimeAsync(ct);
+        await ctx.Mount.SyncRaDecAsync(((lst - 5.0) % 24.0 + 24.0) % 24.0, -10.0, ct);
+        await ctx.Session.PollDeviceStatesAsync(ct);
+
+        ctx.Session.MountState.Altitude.ShouldBe(2.3, 1.0, "the altitude on the mount's site");
+        ctx.Session.MountLimitVerdict.Kind.ShouldBe(MountLimitKind.Horizon, ctx.Session.MountLimitVerdict.Describe());
+    }
+
+    /// <summary>
+    /// A run whose request names no site gives a mount with no site of its own the profile's, whatever the
+    /// tie-breaker says: the rule the GUI applied when a mount connected, which a run on the server never did.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task GivenNoConfiguredSiteAndAMountWithNoneWhenInitialisedThenTheMountTakesTheProfilesSite()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, profileSite: Melbourne, cancellationToken: ct);
+        // What a mount never given a site reports (SkyWatcher, iOptron).
+        await ctx.Mount.SetSiteLatitudeAsync(double.NaN, ct);
+        await ctx.Mount.SetSiteLongitudeAsync(double.NaN, ct);
+
+        await InitialiseAsync(ctx, ct);
+
+        (await ctx.Mount.GetSiteAsync(ct)).ShouldBe(Melbourne);
+    }
+
+    /// <summary>The same with the profile as the site's authority: the mount's own site gives way to it.</summary>
+    [Fact(Timeout = 120_000)]
+    public async Task GivenNoConfiguredSiteAndTheProfileAsTheAuthorityWhenInitialisedThenTheMountTakesTheProfilesSite()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight,
+            profileSite: Melbourne, siteTieBreaker: SiteTieBreaker.Profile, cancellationToken: ct);
+        (await ctx.Mount.GetSiteAsync(ct)).ShouldBe(Vienna, "premise: the mount has a site of its own");
+
+        await InitialiseAsync(ctx, ct);
+
+        (await ctx.Mount.GetSiteAsync(ct)).ShouldBe(Melbourne);
+    }
+
+    /// <summary>Under the mount-wins default, a mount with a site of its own keeps it.</summary>
+    [Fact(Timeout = 120_000)]
+    public async Task GivenNoConfiguredSiteAndTheMountAsTheAuthorityWhenInitialisedThenTheMountKeepsItsOwnSite()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, profileSite: Melbourne, cancellationToken: ct);
+
+        await InitialiseAsync(ctx, ct);
+
+        (await ctx.Mount.GetSiteAsync(ct)).ShouldBe(Vienna);
+    }
+
+    /// <summary>A site the request names is the run's, over the profile's and the mount's alike.</summary>
+    [Fact(Timeout = 120_000)]
+    public async Task GivenAConfiguredSiteWhenInitialisedThenTheMountTakesItWhateverTheProfileSays()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var configuration = SessionTestHelper.DefaultConfiguration with { SiteLatitude = 51.4779, SiteLongitude = -0.0015 };
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, configuration: configuration, now: WinterNight,
+            profileSite: Melbourne, siteTieBreaker: SiteTieBreaker.Profile, cancellationToken: ct);
+
+        await InitialiseAsync(ctx, ct);
+
+        var site = (await ctx.Mount.GetSiteAsync(ct)).ShouldNotBeNull();
+        (site.Latitude, site.Longitude).ShouldBe((51.4779, -0.0015));
+    }
+
+    /// <summary>
+    /// With no site anywhere a run cannot plan its night, and says what to do about it. It used to fail deep in
+    /// SOFA with "Site longitude has not been set", from a transform built on the mount's NaN site.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task GivenNoSiteAnywhereWhenPlanningTheNightThenTheRunFailsSayingToSetOne()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
+        await ctx.Mount.SetSiteLatitudeAsync(double.NaN, ct);
+        await ctx.Mount.SetSiteLongitudeAsync(double.NaN, ct);
+
+        await InitialiseAsync(ctx, ct);
+        ctx.Session.Site.ShouldBeNull("premise: the request, the mount and the profile name none");
+
+        var failure = await Should.ThrowAsync<SessionFailedException>(ctx.Session.SessionEndTimeAsync(WinterNight.UtcDateTime, ct).AsTask());
+        failure.Message.ShouldContain("Set the site");
+    }
+
+    private static async Task InitialiseAsync(SessionTestContext ctx, CancellationToken ct)
+    {
+        var initTask = ctx.Track(Task.Run(async () => await ctx.Session.InitialisationAsync(ctx.Token), ctx.Token));
+        while (!initTask.IsCompleted && !ct.IsCancellationRequested)
+        {
+            await ctx.TimeProvider.SleepAsync(TimeSpan.FromSeconds(1), ct);
+            await Task.Delay(10, ct);
+        }
+
+        (await initTask).ShouldBeTrue("initialisation should succeed");
     }
 
     // --- Finalise ---

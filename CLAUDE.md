@@ -828,6 +828,11 @@ verification and the wider GSServer sweep are in
   on a STOPPED SkyWatcher axis runs constant-speed (`_raPulseOnStoppedAxis` masks it).
 - **Two test traps:** `default(PointingState)` is `Normal`, which is SILENT for the meridian test, so
   an unconfigured mock passes with enforcement deleted; a test must place the mount by SYNC, not slew.
+- **A run's site is `Session.Site`, settled at initialisation, never the configured site alone** (#798):
+  the request's, else the mount's reconciled with the profile's (`MountSiteExtensions`, one rule for
+  every host). The poll read the configured site, NaN for a request naming none, and a NaN altitude
+  switches the HORIZON test off: every such server run went without one. `SessionTestHelper`'s default
+  configuration names no site, so no session test had evaluated it.
 - **The verdict is telemetry** all the way to the Home card's Flip column, on CLASS transitions only.
 
 **`MountLimitWatcher` (`Sequencing/`) is the enforcement half with no session running**: host-agnostic,

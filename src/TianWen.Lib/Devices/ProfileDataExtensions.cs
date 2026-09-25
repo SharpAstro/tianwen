@@ -11,6 +11,9 @@ public static class ProfileDataExtensions
 {
     extension(ProfileData profile)
     {
+        /// <summary>The site the profile stores, or null when it stores none.</summary>
+        public SiteCoordinates? Site => SiteCoordinates.From(profile.SiteLatitude, profile.SiteLongitude, profile.SiteElevation);
+
         /// <summary>
         /// True if any URI slot in the profile references a fake device. Used at
         /// startup to opt the first device discovery into <c>IncludeFake: true</c> so

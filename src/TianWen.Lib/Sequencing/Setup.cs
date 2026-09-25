@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Threading.Tasks;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Sequencing;
 
@@ -35,7 +36,17 @@ public record Setup(
     /// record that already answers "what hardware am I driving" -- rather than on the per-run
     /// <see cref="SessionConfiguration"/>.
     /// </remarks>
-    MountLimitConfiguration? MountLimits = null
+    MountLimitConfiguration? MountLimits = null,
+
+    /// <summary>
+    /// The profile's site, projected by <c>SessionFactory</c> like <see cref="MountLimits"/>; null when the
+    /// profile stores none. A run whose request names no site reconciles its mount with this at
+    /// initialisation, under <see cref="SiteTieBreaker"/> (#798).
+    /// </summary>
+    SiteCoordinates? ProfileSite = null,
+
+    /// <summary>Which side wins when the mount and <see cref="ProfileSite"/> both have a site and differ.</summary>
+    SiteTieBreaker SiteTieBreaker = SiteTieBreaker.Mount
 ) : IAsyncDisposable
 {
     /// <summary>

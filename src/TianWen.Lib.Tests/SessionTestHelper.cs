@@ -72,6 +72,8 @@ internal static class SessionTestHelper
         IPlateSolver? plateSolverOverride = null,
         bool coupleCameraToMount = true,
         bool withCatalogStarField = false,
+        SiteCoordinates? profileSite = null,
+        SiteTieBreaker siteTieBreaker = SiteTieBreaker.Mount,
         CancellationToken cancellationToken = default)
     {
         var timeProvider = new FakeTimeProviderWrapper(now ?? new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
@@ -202,7 +204,8 @@ internal static class SessionTestHelper
         var weather = new Weather(weatherDevice, sp);
         await weather.Driver.ConnectAsync(cancellationToken);
 
-        var setup = new Setup(mount, guider, new GuiderSetup(guiderCam, FocalLength: 130), [ota], weather, mountLimits);
+        // The profile's site rides on the Setup exactly as SessionFactory projects it.
+        var setup = new Setup(mount, guider, new GuiderSetup(guiderCam, FocalLength: 130), [ota], weather, mountLimits, profileSite, siteTieBreaker);
         // FakePlateSolver reports the target coordinates and nothing else -- no CD matrix, so no
         // orientation. A test that needs the solve to describe how the field LIES supplies its own.
         var plateSolver = plateSolverOverride ?? new FakePlateSolver();

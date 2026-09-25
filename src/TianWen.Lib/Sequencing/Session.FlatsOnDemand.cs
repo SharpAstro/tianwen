@@ -106,11 +106,6 @@ internal partial record Session
     /// </summary>
     private async ValueTask<bool> ConnectForFlatsAsync(bool needMount, CancellationToken cancellationToken)
     {
-        // Configured site drives the mount sync + per-camera denorm stamp; fall back to the mount's own site
-        // when unset (the sky-flat solar-altitude gate + zenith slew also fall back to the mount).
-        var siteLatitude = Configuration.SiteLatitude;
-        var siteLongitude = Configuration.SiteLongitude;
-
         if (needMount)
         {
             var mount = Setup.Mount;
@@ -119,16 +114,9 @@ internal partial record Session
             await mount.ConnectAsync(DeviceHub, cancellationToken).ConfigureAwait(false);
             await mount.Driver.SetUTCDateAsync(_timeProvider.GetUtcNow().UtcDateTime, cancellationToken).ConfigureAwait(false);
 
-            if (!double.IsNaN(siteLatitude) && !double.IsNaN(siteLongitude))
-            {
-                await mount.Driver.SetSiteLatitudeAsync(siteLatitude, cancellationToken).ConfigureAwait(false);
-                await mount.Driver.SetSiteLongitudeAsync(siteLongitude, cancellationToken).ConfigureAwait(false);
-            }
-            else
-            {
-                siteLatitude = await _logger.CatchAsync(mount.Driver.GetSiteLatitudeAsync, cancellationToken, double.NaN).ConfigureAwait(false);
-                siteLongitude = await _logger.CatchAsync(mount.Driver.GetSiteLongitudeAsync, cancellationToken, double.NaN).ConfigureAwait(false);
-            }
+            // The run's one site, settled as initialisation settles it. Best-effort, like the rest of a flat
+            // run: without one, the sky-flat gate proceeds without its solar check.
+            await CatchAsync(ct => SettleSiteAsync(mount.Driver, ct), cancellationToken).ConfigureAwait(false);
 
             if (await mount.Driver.AtParkAsync(cancellationToken).ConfigureAwait(false)
                 && (!mount.Driver.CanUnpark || !await CatchAsync(mount.Driver.UnparkAsync, cancellationToken).ConfigureAwait(false)))
@@ -138,6 +126,9 @@ internal partial record Session
             }
         }
 
+        // The run's site for the per-camera denorm stamp: the settled one, or without a mount the requested one.
+        var siteLatitude = Site?.Latitude ?? double.NaN;
+        var siteLongitude = Site?.Longitude ?? double.NaN;
         for (var i = 0; i < Setup.Telescopes.Length; i++)
         {
             await ConnectTelescopeAsync(Setup.Telescopes[i], i, siteLatitude, siteLongitude, cancellationToken).ConfigureAwait(false);

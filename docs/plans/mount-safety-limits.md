@@ -313,6 +313,17 @@ Lat has no dependence on longitude or the clock (LST is only needed to go from R
 watcher already reads HA straight off the mount), so the watcher needs no `ITimeProvider` read on this
 path at all -- only for its own poll-interval sleep.
 
+**A session's altitude is on the run's one site, `Session.Site`** (2026-09-25, #798). A run settles it at
+initialisation: the site its request names, else the mount's own reconciled with the profile's
+(`MountSiteExtensions`, the rule every host applies). The poll used to take its latitude from the
+CONFIGURED site alone, which is NaN whenever the request names none, and a NaN altitude switches the
+horizon test off (`Evaluate` documents it so). That is every server run started without a site under the
+mount-wins default, so those ran all night with the meridian limit and no horizon limit, silently. The
+test harness hid it: `SessionTestHelper`'s default configuration names no site, so no session test had
+ever evaluated the horizon test (`MountLimitsTests` pins the decider directly).
+`SessionLifecycleTests.GivenNoConfiguredSiteWhenInitialisedThenTheHorizonLimitIsEvaluatedOnTheMountsSite`
+now does, and fails with the poll back on the configured site.
+
 **The per-entry latch is keyed on mount URI** (`ConcurrentDictionary<Uri, byte>`, the per-key
 in-flight-set shape from CLAUDE.md's background-task-state table), not a single field like `Session`
 uses for its one rig: the hub can have more than one mount connected across profiles, and each needs

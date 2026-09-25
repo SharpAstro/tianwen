@@ -31,32 +31,16 @@ internal class SessionFactory(
         await deviceDiscovery.DiscoverAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <remarks>
+    /// The site is not settled here, since the factory never sees the mount's. A request that names none is
+    /// reconciled with the profile's site, which rides on the <see cref="Setup"/>, once the run connects its
+    /// mount (<c>Session.SettleSiteAsync</c>, #798). The profile-wins case used to be settled here, into the
+    /// configuration, which could never see the mount-wins case of a mount with no site at all.
+    /// </remarks>
     public ISession Create(Guid profileId, in SessionConfiguration configuration, ReadOnlySpan<ScheduledObservation> observations)
     {
-        var (setup, profileData) = CreateSetup(profileId);
-
-        return new Session(setup, WithProfileSite(configuration, profileData), plateSolverFactory, external, serviceProvider, new ScheduledObservationTree(observations));
+        return new Session(CreateSetup(profileId), configuration, plateSolverFactory, external, serviceProvider, new ScheduledObservationTree(observations));
     }
-
-    /// <summary>
-    /// A configuration that names no site takes the profile's when the profile is the site's authority
-    /// (<see cref="SiteTieBreaker.Profile"/>), and the session then syncs it to the mount. Otherwise the site
-    /// stays unset and the mount keeps its own, which is what the tie-breaker's default (the mount wins) asks.
-    /// </summary>
-    /// <remarks>
-    /// Before P0b item 10 (#752) an API session named no site only by accident: its zero-filled configuration
-    /// named 0, 0, and the session synced the mount to it. What this does NOT cover is a mount with no site
-    /// of its own under the mount-wins default, which the GUI's reconcile on mount connect fills from the
-    /// profile; that reconcile is a device-model rule still living in the GUI (#798).
-    /// </remarks>
-    internal static SessionConfiguration WithProfileSite(in SessionConfiguration configuration, in ProfileData profile)
-        => double.IsNaN(configuration.SiteLatitude) && double.IsNaN(configuration.SiteLongitude)
-            && profile.SiteTieBreaker is SiteTieBreaker.Profile
-            && profile.SiteLatitude is { } latitude && profile.SiteLongitude is { } longitude
-            ? configuration with { SiteLatitude = latitude, SiteLongitude = longitude }
-            : configuration;
-
-
 
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope",
         Justification = "The wrappers are IAsyncDisposable-only and this factory is synchronous, so disposing on "
@@ -64,7 +48,7 @@ internal class SessionFactory(
             + "holds no resource until its driver connects (see ControllableDeviceBase.DisposeAsync), a fresh "
             + "driver has not connected yet, and a borrowed driver stays the hub's, deliberately. Ownership "
             + "transfers to the returned Setup, which Session disposes.")]
-    private (Setup Setup, ProfileData ProfileData) CreateSetup(Guid profileId)
+    private Setup CreateSetup(Guid profileId)
     {
         var profileDeviceId = Profile.DeviceIdFromUUID(profileId);
         if (deviceDiscovery.RegisteredDevices(DeviceType.Profile).FirstOrDefault(p => p.DeviceId == profileDeviceId) is not Profile profile)
@@ -117,7 +101,7 @@ internal class SessionFactory(
 
         var weather = profileData.Weather is { } weatherUri ? new Weather(DeviceFromUri(weatherUri), serviceProvider) : null;
 
-        var setup = new Setup(mount, guider, guiderSetup, [.. otas], weather, profileData.MountLimits);
+        var setup = new Setup(mount, guider, guiderSetup, [.. otas], weather, profileData.MountLimits, profileData.Site, profileData.SiteTieBreaker);
 
         // Diagnostic: did the session reuse already-connected hub driver instances, or create fresh
         // ones? A fresh instance re-runs DoConnectDeviceAsync at InitialisationAsync, which for the fake
@@ -142,7 +126,7 @@ internal class SessionFactory(
             if (o.FilterWheel is { } fw) LogBorrow($"ota{i}.filterWheel", fw.Device, fw.Borrowed);
         }
 
-        return (setup, profileData);
+        return setup;
 
         DeviceBase DeviceFromUri(Uri deviceUri, int? otaIdx = null)
         {

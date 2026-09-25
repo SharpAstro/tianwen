@@ -263,14 +263,17 @@ and refuses one that binds nothing (SharpAstro/DIR.Lib#101).
 is the node's, an abort ends it through its `Finalise`, and the host starts and stops the node in the
 safe order (see `docs/architecture/hosting-api.md`, the fourth session-plane invariant). Item 10 is
 fixed by #799: an API session runs on the declared defaults, and the whole configuration crosses the wire
-(the fifth invariant; the site case it leaves is #798). Items 5, 6, 15 and 16 are fixed by #800: a
-mirror hears the node's events, an error answers its own HTTP status, and the live preview leases a frame
-the session keeps on show, under the slot's own token as a conditional GET (`hosting-api.md`, the preview
-section). Items 7 and 13 are fixed by #801: a broadcast only queues, each client with its own bounded
-sender, and a prompt is held only for a client that can answer it, and only until it settles. Item 14 is
-withdrawn (below). Items 8 and 18 are fixed by #803: a client cannot command hardware a run is driving,
-nor switch or delete the profile out from under it. Item 11 is fixed by #807: a run's drivers are the
-hub's, so a node holds one driver per device. The rest (9 and 17) are open, one PR per concern.
+(the fifth invariant). The site case it left is fixed too (#798): a run settles its one site once its
+mount connects, by the reconcile the GUI applied on connect, now in Lib, and the limit poll uses it, where
+the configured site alone had left the horizon limit off for a run whose request named no site. Items 5,
+6, 15 and 16 are fixed by #800: a mirror hears the node's events, an error answers its own HTTP status,
+and the live preview leases a frame the session keeps on show, under the slot's own token as a
+conditional GET (`hosting-api.md`, the preview section). Items 7 and 13 are fixed by #801: a broadcast
+only queues, each client with its own bounded sender, and a prompt is held only for a client that can
+answer it, and only until it settles. Item 14 is withdrawn (below). Items 8 and 18 are fixed by #803: a
+client cannot command hardware a run is driving, nor switch or delete the profile out from under it.
+Item 11 is fixed by #807: a run's drivers are the hub's, so a node holds one driver per device. The rest
+(9 and 17) are open, one PR per concern.
 
 Each item below is confirmed in the code, except where it says otherwise; the review of 2026-09-25
 re-checked all nine and found nine more (10 to 18). The first four, and 10 and 11, decide whether a
@@ -387,7 +390,7 @@ Found by the review (2026-09-25), all confirmed in the code:
       gate named a parked mount as connected. And a fake camera's coupling was keyed on the hub holding a
       mount, which initialisation now always arranges, so `coupleCameraToMount: false` is a flag on the
       camera's own driver (`FakeCameraDriver.CouplesToMount`).
-    - The mount's site on connect, for every host, is the next step on top of this (#798).
+    - The mount's site on connect, for every host, followed on top of this (#798).
     - What it leaves, both older than it: two connects of one device at once can still leave two
       drivers, and a driver that dropped is replaced rather than reconnected (#806, with P2's jobs).
 12. **A finished session is never cleared**, so the next `/session/start` answers 409 until an
