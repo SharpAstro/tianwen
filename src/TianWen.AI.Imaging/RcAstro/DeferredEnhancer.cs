@@ -162,7 +162,7 @@ namespace TianWen.AI.Imaging.RcAstro
 
             logger?.LogWarning(
                 "Auto denoise: the SAS AI4 weights ({SasModel}) are not installed; serving this OSC input with the in-house N2N model ({N2nModel}) instead. " +
-                "Run tools/tianwen-ai-models-fetch.ps1 to install the AI4 bundle, or select a backend explicitly with --ai-backend.",
+                "Select a backend explicitly with --ai-backend to choose otherwise.",
                 sasModel, N2nDenoiser.ModelFileName);
             return inHouse;
         }

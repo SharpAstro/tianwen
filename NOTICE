@@ -104,19 +104,26 @@ directly from its author:
   RC-Astro BlurXTerminator / NoiseXTerminator / StarXTerminator  https://www.rc-astro.com
   SETI Astro Suite ONNX models               https://www.setiastro.com
 
-**Driving these programs to process images is ordinary licensed use and is not
-restricted here.** RC-Astro runs as a separate process (`rc-astro --json`) against
-the user's own licence, and SETI Astro's ONNX models are fetched by the user with
-`tools/tianwen-ai-models-fetch.ps1`. TianWen distributes **no third-party model
-weights** and no vendor binaries of its own; it locates what the user installed.
+**TianWen's own licence does not restrict driving these programs; each vendor's
+terms govern its own software.** RC-Astro runs as a separate process
+(`rc-astro --json`) against the user's own licence. SETI Astro's ONNX weights
+differ in two ways: they are loaded in process rather than run as a program, and
+since 2026-09-24 they carry their own licence (`COSMIC_CLARITY_LICENSE.txt`, on
+the release that hosts them), which permits use only within SASpro, for personal
+non-commercial processing, unless the author consents in writing. TianWen never
+fetches them and nothing in it tells a user to: it reads them only where SASpro
+or the user put them, and `tools/tianwen-ai-models-fetch.ps1` is a developer
+tool. TianWen distributes **no third-party model weights** and no vendor
+binaries of its own; it locates what the user installed.
 Nothing in this section forms part of TianWen's Corresponding Source, because none
 of it is part of TianWen.
 
-The one restriction is narrow and applies only to building our own models:
+Building our own models meets a narrower restriction as well:
 RC-Astro's licence forbids using its outputs to create, train, validate or
 benchmark a competing model, naming paired input/output datasets explicitly. So
 TianWen's own model work (docs/plans/ai-denoise-deconv.md) uses no RC-Astro or
-SETI Astro output anywhere in its training, validation or metric path, and SETI
-Astro is excluded on the same assumption pending verification of its terms. That
-prohibition is contractual rather than a matter of copyright, so TianWen's own
-licence has no bearing on it either way.
+SETI Astro output anywhere in its training, validation or metric path. SETI
+Astro's licence, published since, forbids distilling its models or deriving new
+ones from them, so that exclusion now holds on its own terms. Both prohibitions are
+contractual rather than a matter of copyright, so TianWen's own
+licence has no bearing on them either way.
