@@ -505,3 +505,241 @@ it. **Never widen a consumer's filter to admit `Focus` or `Scout`.**
 Deliberately NOT covered, so the switch can never fill a disk: condition-recovery test exposures
 (unbounded while cloud lasts), the rough-focus sweep, plate-solve frames and flat-metering frames.
 Each is one `WriteIntermediateFrameToFitsFileAsync` call away if it earns its keep.
+
+## The rules in full (moved from CLAUDE.md, 2026-09-25)
+
+CLAUDE.md keeps one line per rule; this is the full text, with the measurements behind each rule.
+
+`StackingPipeline.RunAsync` (CLI `tianwen stack`): scan DataRoot -> build bias/dark/flat masters -> per
+light group register (star-quad match) -> integrate (strategy auto-picked: Bayer drizzle on RGGB with
+>= `DrizzleOptions.MinFrameCount`, else AHD + sigma-clip rejection) -> `MasterPostProcessor.WriteMasterAsync`
+(plate-solve, SPCC WB, FITS + autocrop + optional enhance + previews). Sibling of, but **completely
+separate from**, the Planetary stacker below. **Full flowcharts, the render model, the two opt-in
+display stages and the parity notes: `docs/architecture/stacking-render-pipeline.md`.**
+
+**Output contract is by data type -- do not regress it:** **Linear (canonical)** is FITS, full-frame
+`master_<slug>.fits` AND cropped `_autocrop.fits` (`--output-format exr` mirrors both; full-frame linear
+pixels live only here). **Display / stretched** (the PNG quick-look, `--split-plates` TIFFs) is ALWAYS
+autocropped: `MasterPostProcessor`, NOT the CLI, renders ONLY the autocrop, so WB / bg-neut can never
+be poisoned by partial-coverage / NaN-ring edges.
+
+**A written master is in [0, 1] and its labels are true.** Normalisation puts every channel's sky at 0.5
+and stars tens of times above it (61.7 on a real master), so **every strategy's master goes through
+`IntegratedMaster.Labelled(master, normalised)`** (observed peak as `MaxValue`, NO `SensorFullScaleAdu`: a
+light's `SATURATE` would otherwise win `UnitScaleDivisor` and black the master out; and, when the STRATEGY
+says its frames were normalised, pedestal and black point zero, never the first frame's) and
+`MasterPostProcessor` scales it with **`ScaleFloatValuesToUnitCeiling`**, into NEW planes, never in place
+(the comet composite is built from the integration afterwards). **Not `ScaleFloatValuesToUnit`**: that
+asks whether samples are ADU and leaves any peak up to 2.0 alone, so a layer peaking at 1.5 was written
+unscaled. **`MinValue` is the black point, not a range statistic** (the display takes its pedestal from
+it, and a real drizzle master's darkest pixel is 69 percent of its sky), so it stays the strategy's zero;
+the composite takes its layer's via `IntegratedMaster.Composite`. A new strategy that skips the labeller
+writes `DATAMAX = 1` over pixels up to 62 again, which the viewer clips flat.
+`docs/architecture/stacking-render-pipeline.md` section 2.
+
+**Comet / moving-target integration (`stack --comet [designation]`)** registers on the BODY (comet
+sharp, stars trail); the rate derives from the frames (`OBJECT` + site + exposure epochs -> topocentric
+JPL Horizons track fitted through the reference WCS), `--comet-rate dx,dy` is the offline override.
+**Read `docs/plans/comet-integration.md` before touching this** -- it carries the design, every
+measurement, and thirteen traps that break the model SILENTLY. Four that reach beyond the feature:
+
+- **Registration is the ONE place the pipeline plate-solves anything but the finished master** -- the
+  rate is needed *while* integrating.
+- **The star layer SUBTRACTS the body; it does not exclude or reject it,** and the model MUST come from
+  star-removed plates. Kappa-sigma cannot substitute (the body inflates the very sigma meant to catch
+  it), and a model differenced from stars-still-in plates smears every star into a dark streak.
+- **A NaN in a rejection sample column disabled rejection everywhere, in every rejector** (NaN
+  comparisons are all false), so canvas edges had never been rejected -- fixed via
+  `PixelRejection.MarkAbsent`; not comet-specific.
+- **Judge these layers at 1:1, never by a band median** (use p0.5/min for streaks, and never compare
+  differently-integrated layers against each other).
+
+**A WHOLE-FRAME STATISTIC OVER A CFA MOSAIC DESCRIBES NONE OF ITS FOUR POPULATIONS**, and the four
+need not share a level even in the dark: a non-neutral in-camera white balance is a digital gain on
+the raw stream, so it scales the PEDESTAL, and on the eta Carinae ASI294MC the photosite colours sit
+at R 540, G 520, G 520, B 621 ADU in a 10 s dark and 536/512/512/616 in a 32 us bias. Three places
+know this and each learned it the hard way -- `Normalizer.ApplyCfaInPlace` (a whole-frame scalar left
+a column stripe), `ClassicalBackgroundExtractor` (one plane removed the AVERAGE gradient and left
+each colour's own), and now `BadPixelDetection`, whose sampling stride was EVEN, which on a mosaic
+lands on (even, even) everywhere: the noise scale was one colour's, the sigma-8 threshold landed
+below blue's floor, 100% of blue was flagged hot and the master was written with an all-NaN blue
+plane while the session reported success. **Split by photosite before any median, MAD, sigma or
+gain**, keep a subsample stride ODD so an UNDECLARED mosaic cannot phase-lock, and remember the
+guard: a threshold flagging more than `BadPixelDetection.DefaultMaxMaskedFraction` is a degenerate
+estimate, not a defect set, so it masks nothing. `IntegratedMaster.Labelled` is the backstop for
+every strategy -- a master with a channel holding no finite pixel throws rather than being written.
+
+**A master's per-pixel sidecars are QUANTISED then gzipped, and the defect mask is one of them.**
+One rule, `IntegrationFitsWriter.MapStorage`, for coverage, rejection and bad pixels alike: whole
+numbers that fit keep unit steps (a coverage COUNT stays that count, 8-bit to 255 frames), anything
+else spreads its own observed range over 16 bits through `BSCALE`, and the file is written `.fits.gz`.
+**The order is the whole point** -- a real 3072x3060x3 float32 coverage map is 112.8 MB and gzips to
+94.7 MB (1.2x) because mantissa bits are noise, while quantised first it is 1.71 MB (66x). Write
+through `WriteCoverageMap` / `WriteRejectionMap` / `WriteBadPixelMap`, address a sidecar by its
+LOGICAL path and resolve it with `ExistingSidecarPath` (older stores hold the uncompressed form), and
+ask `IsMapSidecarPath` before treating a `.fits` in a master folder as a master. The bad pixel map is
+APP's format (`BITPIX = 8`, 127 linear / 255 hot / 0 cold) so their maps and ours are interchangeable,
+and it is on the SENSOR's geometry, never the master's canvas.
+
+**Drizzle rejects per DEPOSITED SAMPLE, at the stack's own thresholds, and coverage is not a
+substitute** (#93). Coverage says whether any frame reached a cell; a satellite trail has full
+coverage. Both drizzle strategies used to ignore `job.Options.Rejector`, so every trail and airplane
+in a drizzled session reached the master (the gallery's Omega Cen card). `DrizzleClip` now runs two
+passes (moments, then a clipped deposit) and judges each sample against the OTHER samples in its
+cell: **leave-one-out is not optional**, since an outlier inflates the spread it is judged by and its
+naive z can never pass (n - 1) / sqrt(n), about 4.6 for a red cell of a 91-frame session, under the
+high sigma of 5. **A sample may also deviate by the cell's local SLOPE** (`DrizzleClip.SlopeScale`,
+2, astrodrizzle's `driz_cr_scale` term): a drizzle deposits a photosite as it is, so near a star a
+deposit varies with WHERE the star fell inside it, and without the allowance the clip took a median
+0.75% of every faint star's flux on that master (0.05% with it, the trails removed just the same).
+The tile strategy's strip moments carry a one-row halo so the slope reads the same neighbours as on
+the full canvas. A rejecting drizzle streams `RawBayerFrames` twice, so a producer must be
+re-enumerable. It does NOT replace the dark gate: a hot photosite that tracking lands in the same
+cell every frame is the rest of that cell, not an outlier. Pinned by `DrizzleOutlierRejectionTests`.
+**Its cost is paid in parallel and once per stream, and both are BIT-IDENTICAL to the serial code**
+(2026-09-24; the bake had doubled on drizzled sessions, all of it in the single-threaded deposit
+kernels). A deposit is split across canvas strips (`DrizzleKernel.ForEachStrip`): each strip writes
+only its rows and still visits its photosites in row-major order, so every cell sums in the same
+order, and its source halo is sized from the transform's smallest singular value (a fixed halo
+drops contributions on a flipped or scaled frame). `DrizzleStrategy.RunSubsetsAsync` builds several
+integrations from one stream, **each with its own rejector** (`BuildRejector` follows the frame
+count), so the bake's master, halves and pier sides cost two passes over the raw lights, not two
+each. Pinned bit for bit by `DrizzleParallelBitIdentityTests`, which fail with the halo removed.
+
+**Provenance skip (never re-ingest our own outputs).** The scan drops any TianWen-produced FITS
+(`STACK_N > 0` OR a TianWen `SWCREATE`, gated by `--include-integrations`). Markers, the ghost-master
+failure mode and the `ScanSummary` reporting: the architecture doc above.
+
+**Calibration is grouped by temperature RUN, never by the degree, and a session is matched on its
+lights' MEDIAN temperature.** `MasterGroupKey.FromFrame` rounds one frame's `CCD-TEMP`; group
+calibration by `CalibrationEpochs.SetGroupKey` (a flat's exposure to three significant figures, since a
+flat wizard jitters it) and split with `CalibrationEpochs.SplitSets` (epochs, then `TemperatureClusters`
+runs at a measured 1.5 C), and key a session with `CalibrationResolver.SessionKey`, in the resolver,
+the coverage report and `tianwen stack` alike. By the degree, an uncooled run became one group per degree and 18 of
+145 sessions got masters of 2 to 7 frames; by `Lights[0]`, one unsettled first frame chose the dark.
+Flats rank filter, proof tier, then DAYS from the lights; temperature only breaks ties (a cold flat set
+had taken 18 sessions from their own). `docs/known-limitations.md`, 2026-09-24.
+
+**The archive scan is ONE function, `SessionDiscovery.ScanAsync`, and it never excludes before
+reading.** The build, its discovery listing and the coverage report all call it (three loops used to,
+and a bake scanned the archive twice), and the CLI hands its scan to the build. An unchanged file's
+header comes from the root's `FitsHeaderIndex` (raw header BYTES under `<scratch-root>/_header-index`,
+keyed on path, size and write time, replayed through the same parse and stored only when the replay
+matches), which took a cold 26-minute scan of the USB disk to seconds. The same frames feed calibration
+grouping, and a calibration frame under an `ExcludePathSegments` folder still calibrates, so a scan that
+skipped excluded folders would silently change a session's calibration. **A resume fingerprints the
+calibration a session CHOSE** (`CalibrationResolver.Choose`, the metadata-only half `ResolveAsync`
+builds from), never the whole library, so deleting one camera's frames leaves every other camera's
+sessions valid. A store fingerprinted the old (whole-library) way is RECOGNISED and re-recorded, never
+rebuilt for its format (`DatasetSessionLedger.LegacyCalibrationLibraryDigest`, deletable once no such
+store remains), and **`--rebuild-session <wildcard>` rebuilds named sessions** whose inputs did not
+move, for a fix that reaches only some of them (a solver that now places a field it refused).
+
+**A master is the mean of its warped frames, star by star, to 0.3 percent, so its width is its subs'
+plus the warp kernel's plus any misregistration, and NOTHING in the combine.** Three things measured
+on one warm night (2026-09-07) bite anyone reading a master's sharpness: a detection fixed to the
+sensor (a residual warm pixel) pairs with its own copy in `RegistrationRefiner` and a least-squares
+refiner averages it in, which HALVED every shift under 5 px until the unmoved rule (`UnmovedTolerancePx`;
+the log's `N unmoved dropped` is a calibration diagnostic); the detector's mono fold turned one warm
+photosite into a 2 by 2 blob that passed the size floor, so half a star list was warm pixels and every
+median over it read their width (the guard is the peak photosite's share of the 3 by 3 flux,
+`Image.SinglePhotositeFractionMax`); and bilinear resampling costs phase times one minus phase of a
+pixel's variance per axis, about a pixel of FWHM in quadrature at 2 px seeing (Lanczos-3 costs none
+measurable, and **`Lanczos3Clamped` is the DEFAULT since 7.1**, decided 2026-09-12, for `stack` and
+the dataset bake alike; every master built before it is bilinear). **The clamp is not optional on
+OSC data: a debayered plane samples a 2 px star on a 2 px pitch, so per plane it is a spike and the
+plain kernel digs a ring of 13 percent of the peak two pixels out on every fractional-phase sub**
+(the synthetic RGGB fixture; a mono 2 px star rings 0.04 percent), deep enough to push the SAS
+auto-detect's min-anchored gate statistic over 0.125 and hand a LINEAR sub to the net unstretched.
+PixInsight's rule at a MEASURED threshold of 0.7, not its 0.3, which lifts every smooth star's skirt
+by 0.73 px of second-moment FWHM in quadrature; the sweep is on `Image.LanczosClampingThreshold`
+and the pin is `WarpInterpolationTests`. Integer-phase frames (the reference, any frame whose shift is near-integer)
+are the free control for the kernel's cost. The star profile fit (`PsfProfileFit`) fits the CORE and
+reports the wing: a fit over the far wing refused every sharp input. Measurements:
+[docs/plans/deconvolver-training.md](docs/plans/deconvolver-training.md) (E2.10a "the third finding
+placed", R1, E1g-2).
+
+**A CAPTURED frame that is not a light says so in `IMAGETYP`, and never relies on the skip above.**
+`SessionConfiguration.SaveIntermediates` (default OFF; `Session.IO.cs`'s
+`WriteIntermediateFrameToFitsFileAsync` the one write path) keeps every AF V-curve rung plus the
+verification exposure (`FrameType.Focus`, one folder per run) and the FOV-obstruction probe and
+nudge-test frames (`FrameType.Scout`, kept whatever the star count) under
+`<output>/Intermediates/<date>/<filter>/<frame type>/[group/]`. **Each kind gets its OWN frame type,
+never one `Intermediate`** (path is cosmetic, headers are truth); exclusion from stacking is by frame
+type, NOT the provenance heuristic or the folder, and **never widen a consumer's filter to admit `Focus`
+or `Scout`** (a scout is in focus and points where the lights point). Deliberately NOT covered, so the
+switch can never fill a disk: condition-recovery exposures, the rough-focus sweep, plate-solve and
+flat-metering frames. `docs/architecture/stacking-render-pipeline.md` § 10; the AF ladder's use:
+`docs/plans/ai-denoise-deconv.md` 2.1b.
+
+**`--enhance`** runs `SharpenPipeline` on the master ONCE, writing `_sharpened.fits` (never
+overwriting the linear masters); deblurrer-aware (RC-Astro present -> BlurX-first PixInsight-OSC
+flow, no stellar-sharpen; none -> SAS-shaped remove/sharpen/deconvolve). `--split-plates` is the
+SAME AI pass exporting the kept stars/starless plates as edit-ready TIFFs -- NO second enhance run.
+
+**Render model: WB once, per-plate self-stretch (the PixInsight OSC order).** ONE SPCC white balance
+on the enhanced master; each plate then computes its OWN background-neutralisation + MTF from its own
+pixels -- grafting the master's bg-neut onto a plate double-corrects it into a colour cast (the
+original `--split-plates` regression). **Three colour defects fixed on the SWAN/10P sets, measured in
+`docs/plans/comet-integration.md` (colour section):** SPCC's clip test reads the frame's OBSERVED peak
+from the pixels, never `MaxValue` (a rewrapped `MaxValue = 1.0` is a display convention; 10P dropped
+545 of 545 stars); SPCC's matcher claims each catalogue star ONCE, brightest detection first (a deep
+master out-detects Tycho-2); the stacking normaliser anchors every frame on its PEDESTAL
+(`Image.Pedestal`), never a pixel statistic (a per-channel MINIMUM let one hot pixel swing a frame's
+gain x3.7; absolute normalised levels quoted before 2026-08-27 are in the old units).
+
+**SPCC is BROADBAND-ONLY; a narrowband master has no colour path at all.** Do not extend it by
+swapping a narrow passband over the existing Pickles SEDs (a spectral type average cannot tell Ha
+absorption from emission over 3 nm). **Narrowband SPCC is BLOCKED on data, not maths** (per-star Gaia
+DR3 `xp_sampled` spectra, ADR-3). **Naive HOO is rank-deficient** (`G = B = OIII` renders uniformly
+teal by construction). Algorithms + thirteen ADRs: `docs/plans/narrowband-colour.md`.
+
+**"Broadband-only" is a statement about the MODEL, not a gate, and nothing refuses to run SPCC on a
+narrowband master.** It fits, it returns a triple, and the triple is shown, because the user asked for
+it and the manual sliders sit on top of it. The gate is downstream and is about the STRETCH: the fit
+is not asserted as colour (see `ResolveAuto` under the stretch pipeline). Reading the sentence above
+as "it will not happen" is how a 3 nm master came to render with blue up 86 percent in every headless
+output for as long as that path existed.
+
+**The filter-curve matcher must never answer with a brand, nor a MORE SPECIFIC product.**
+`FilterCurveDatabase` matches by token overlap over 183 curves; three gates -- a two-token
+(BRAND+CHANNEL) key must be covered in FULL, an unmatched token absent from every other filter name
+refuses the match (by document frequency, not a stop-list), and a two-sided token difference refuses
+it (a ONE-sided difference still resolves, e.g. `Baader R CCD 31mm`). Re-run
+`ReportKnownLightPollutionFilters` after every added curve. Seven standalone light-pollution curves
+are ours, digitised via `tools/digitize-filter-curve/` (the **`digitize-filter`** skill); the
+`L-eNhance` tri-line (Hb 486.1) trap, gate table and coverage: `docs/known-limitations.md`.
+
+**A QE curve keys on the DIE; the crop fallback's geometry keys on the CAMERA.** Opposite answers to
+what looks like one question, and both are right: silicon sets quantum efficiency, so an IMX585 is an
+IMX585 in a ZWO or a Player One body, while ACTIVE AREA differs between them (ASI585MC Pro 3840x2160
+against Uranus-C 3856x2180), which is why `SensorGeometry` is keyed the other way. A camera whose
+product number does not contain its die (ASI2600, QHY268, anything Player One) reaches its curve only
+through `_cameraToSensorAliases`; the digit heuristic finds the rest. **A wrong alias is worse than a
+missing one** -- missing falls back, wrong applies a confidently incorrect QE to a colour
+calibration -- so a token that is a substring of another word is qualified (`aresc`, not `ares`,
+which lives inside "Antares"), an ambiguous product line gets no alias at all (Player One Apollo is
+IMX428 OR IMX432), and **a vendor's marketing name is read off the vendor, never recalled**: Artemis
+is the IMX492, not the IMX533 its stablemates Ares and Saturn use.
+
+**Zero-pedestal render (do not regress).** Shadows derive from the pedestal-SUBTRACTED median -- a
+no-op on raw masters, but an enhanced (GraXpert-flattened) master needs
+`MasterPreviewRenderer.WithZeroPedestal` or subtracting the floor explodes or blacks out a drizzle
+frame.
+
+**Unified display render** (`MasterPreviewRenderer` + `StretchSolver`, CPU-only, in `TianWen.Lib`) is
+driven in-pipeline by `MasterPostProcessor`. **The CLI renders nothing** -- it only sets
+`RenderPreviewPng`, writes EXR, and prints the SPCC summary; the viewer forwards to the same
+`StretchSolver`. **Two opt-in DISPLAY stages** (`--saturation`/`--contrast-boost` via `Image.MaskedBoost`,
+and `--output-format uhdr`) touch **only the display raster**, never the linear masters or split-plate
+TIFFs; **never apply the mask primitives to a LINEAR master** (the luminance mask degenerates to ~0).
+**Stellar-sharpen is opt-in** (default OFF) and **hard-skipped when a deblurrer is live** (BlurX already
+tightens stars; the SAS sharpener turns tight cores into square white blocks):
+`docs/plans/rc-astro-enhancers.md`.
+
+**CLI flags + viewer Enhance action.** `--ai-backend auto|rc|sas|n2n` + tuning flags parse through the
+shared **`EnhanceOptions.TryParse`** (also used by the server endpoint) into an immutable
+`EnhanceOptions` -- no mutable settings singleton, so parallel enhances cannot tear. `tianwen-fits`'s
+Enhance action runs off the render thread via `ViewerController._enhanceTask`; the GUI has no
+document-viewer tab yet. **Server enhance endpoint:** `POST /api/v1/image/enhance` + `GET .../status`,
+single-flight, tied to `ApplicationStopping` not the request: `docs/architecture/hosting-api.md`.

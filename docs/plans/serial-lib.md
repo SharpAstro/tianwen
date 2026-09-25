@@ -1,6 +1,7 @@
 # Serial.Lib: a serial-I/O sibling repo that does one job well (plan)
 
-**Status: NOT STARTED (design captured).** Motivated by the Gemini FlatPanel Lite hardware bring-up
+**Status: NOT STARTED (design captured); tracked by #407.** The 2026-09 bench findings it must cover are in
+"What the 2026-09 bench sessions added" (#780, #781, #783, #784, #809, #810). Motivated by the Gemini FlatPanel Lite hardware bring-up
 (branch `fix/gemini-flat-panel`), which proved that .NET's `System.IO.Ports.SerialPort` is not
 trustworthy for our use. Serial is load-bearing for an astro app (mounts, focusers, filter wheels,
 cover/calibrators, flat panels; OnStep, LX200/Meade, Skywatcher, iOptron, QHYCFW/QFOC, Gemini), so
@@ -76,6 +77,26 @@ Behaviour contract (the whole point):
   never corrupts the next read.
 - No spurious `ERROR_OPERATION_ABORTED`; reads stay frame-aligned across many exchanges.
 - `AssertControlLinesOnOpen` sets DTR+RTS before open (CH34x reset release).
+
+## What the 2026-09 bench sessions added (the lib's contract must cover these)
+
+The Gemini Focuser Pro bench sessions of 2026-09-25 (#654 and its follow-ups) found five more serial facts,
+beyond the async-read unreliability that started this plan. Each is either a **transport** fact, which
+belongs in `Serial.Lib`, or a **device** fact, which stays in the driver and needs the lib to expose
+something:
+
+| Finding | Issue | Transport or device | What `Serial.Lib` owes |
+|---|---|---|---|
+| A connected read that gets no reply, times out, or gets an unparseable reply returned a neutral value ("not moving", `int.MinValue`) instead of failing. The Gemini focuser's reads are fixed in PR #811 ("a Gemini focuser read with no reply throws instead of reading \"not moving\""); the rule for every native serial driver is #810 | #810, #781 (fixed) | Both | A timed-out read is an `IOException` (a transient one, for the resilience layer), never a default or an empty string. Drivers then only choose how to PARSE. |
+| Every port open resets a CH340 board, with or without DTR, and the myFocuserPro2 firmware saves a changed position to EEPROM 30 s late. A reopen within 30 s of a move reports the OLD position, and nothing errors. | #780 | Device (the reset is the board's), with transport consequences | Expose whether an open toggled the control lines, and make the open itself observable (a timestamp), so the driver can apply its save window. Never reopen silently inside the lib (no hidden retry-by-reopen). |
+| A USB serial device's port name follows the USB **socket** on Windows (COM3 stays COM3 for the socket), so swapping two units swaps their identities. | #783 | Transport | Enumerate ports WITH their stable hardware identity: USB instance path, VID/PID and iSerial where the chip has one (a CH340 has none). Then identity can key on the device where possible, and on the socket knowingly where not. |
+| On Linux the names are enumeration order (`/dev/ttyUSBn`), which is not even stable per socket. | #784 | Transport | Enumerate `/dev/serial/by-path` and `/dev/serial/by-id` alongside the `tty` names, and prefer them as identity. |
+| What reads do while the cable is out mid-move, and whether the driver comes back, is still a bench question. | #809 (bench) | Transport | Surface device REMOVAL as its own exception type, distinct from a timeout, so a driver can mark the position uncertain rather than retry into a vanished port. |
+
+Also owed by the lib, and already known before the bench sessions:
+- the abandoned-write guard: a Bluetooth SPP port accepts an open and never completes a write
+  (`ISerialConnection.HasAbandonedIo`; see CLAUDE.md's device-management notes);
+- per-command round-trip timing (#409).
 
 ## Implementation phasing
 
