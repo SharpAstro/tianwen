@@ -65,6 +65,29 @@ public class HostingApiTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         }
     }
 
+    /// <summary>
+    /// A native v1 error answers with the status its envelope carries (P0b item 6, #752). It was HTTP 200
+    /// whatever the envelope said, so a client reading the status alone (the preview client, which then
+    /// decodes a body as a JPEG) took a JSON "no frame yet" for a picture on every poll.
+    /// </summary>
+    [Theory(Timeout = 10_000)]
+    [InlineData("GET", "/api/v1/session/state", 404)]
+    [InlineData("GET", "/api/v1/preview/0", 404)]
+    [InlineData("GET", "/api/v1/preview/guider", 404)]
+    [InlineData("GET", "/api/v1/mount/info", 404)]
+    [InlineData("POST", "/api/v1/session/abort", 404)]
+    [InlineData("POST", "/api/v1/session/start?profileId=not-a-guid", 400)]
+    public async Task AnErrorEnvelopesStatusIsTheResponsesStatus(string method, string path, int expected)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var request = new HttpRequestMessage(new HttpMethod(method), path);
+        using var response = await _client.SendAsync(request, ct);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+
+        doc.RootElement.GetProperty("statusCode").GetInt32().ShouldBe(expected);
+        ((int)response.StatusCode).ShouldBe(expected, "the response's own status is what a status-only client reads");
+    }
+
     [Fact(Timeout = 10_000)]
     public async Task SessionState_WithNoSession_ReturnsNotFound()
     {

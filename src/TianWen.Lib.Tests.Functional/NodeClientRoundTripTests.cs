@@ -183,6 +183,26 @@ public class NodeClientRoundTripTests(ITestOutputHelper outputHelper) : IAsyncLi
         result.Error.ShouldNotBeNull().ShouldContain("No active session");
     }
 
+    [Theory(Timeout = 15_000)]
+    [InlineData("0")]
+    [InlineData("guider")]
+    public async Task ANodeWithNoFrameAnswersNoPreviewRatherThanAPicture(string which)
+    {
+        // The preview is not an envelope endpoint, so the client reads the HTTP status and nothing else
+        // before taking the body for a JPEG. The node used to answer "no frame yet" as an envelope under
+        // HTTP 200, and the mirror decoded that JSON as a picture on every poll, logging only that it
+        // did not decode (P0b item 6, #752).
+        var ct = TestContext.Current.CancellationToken;
+
+        var result = which is "guider"
+            ? await _client.GetGuidePreviewAsync(quality: null, scale: null, ifNotFrameNumber: null, ct)
+            : await _client.GetPreviewAsync(otaIndex: 0, quality: null, scale: null, ifNotFrameNumber: null, ct);
+
+        result.HasImage.ShouldBeFalse("the body is the node's JSON refusal, not a frame");
+        result.Error.ShouldBeNull("no frame yet is the ordinary answer, not a fault");
+        result.IsUnchanged.ShouldBeFalse();
+    }
+
     [Fact(Timeout = 15_000)]
     public async Task StartingWithAnUnknownProfileSurfacesTheNodesOwnMessage()
     {

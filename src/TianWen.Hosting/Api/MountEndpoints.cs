@@ -17,13 +17,13 @@ internal static class MountEndpoints
         {
             if (hosted.CurrentSession is not { } session)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("No active session", 404),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
             var dto = MountStateDto.FromState(session.MountState);
-            return Results.Json(
+            return EnvelopeResults.Json(
                 ResponseEnvelope<MountStateDto>.Ok(dto),
                 HostingJsonContext.Default.ResponseEnvelopeMountStateDto);
         });
@@ -32,7 +32,7 @@ internal static class MountEndpoints
         {
             if (hosted.CurrentSession is not { } session)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("No active session", 404),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
@@ -40,13 +40,13 @@ internal static class MountEndpoints
             var mount = session.Setup.Mount.Driver;
             if (!mount.Connected)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("Mount is not connected"),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
             await mount.BeginSlewRaDecAsync(ra, dec, ct);
-            return Results.Json(
+            return EnvelopeResults.Json(
                 ResponseEnvelope<string>.Ok($"Slewing to RA={ra:F4}h Dec={dec:F4}°"),
                 HostingJsonContext.Default.ResponseEnvelopeString);
         });
@@ -55,7 +55,7 @@ internal static class MountEndpoints
         {
             if (hosted.CurrentSession is not { } session)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("No active session", 404),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
@@ -63,13 +63,13 @@ internal static class MountEndpoints
             var mount = session.Setup.Mount.Driver;
             if (!mount.Connected || !mount.CanPark)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("Mount is not connected or cannot park"),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
             await mount.ParkAsync(ct);
-            return Results.Json(
+            return EnvelopeResults.Json(
                 ResponseEnvelope<string>.Ok("Parking"),
                 HostingJsonContext.Default.ResponseEnvelopeString);
         });
@@ -78,7 +78,7 @@ internal static class MountEndpoints
         {
             if (hosted.CurrentSession is not { } session)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("No active session", 404),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
@@ -86,13 +86,13 @@ internal static class MountEndpoints
             var mount = session.Setup.Mount.Driver;
             if (!mount.Connected || !mount.CanUnpark)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("Mount is not connected or cannot unpark"),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
             await mount.UnparkAsync(ct);
-            return Results.Json(
+            return EnvelopeResults.Json(
                 ResponseEnvelope<string>.Ok("Unparked"),
                 HostingJsonContext.Default.ResponseEnvelopeString);
         });
@@ -101,7 +101,7 @@ internal static class MountEndpoints
         {
             if (hosted.CurrentSession is not { } session)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("No active session", 404),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
@@ -109,13 +109,13 @@ internal static class MountEndpoints
             var mount = session.Setup.Mount.Driver;
             if (!mount.Connected || !mount.CanSetTracking)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("Mount is not connected or cannot set tracking"),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
             await mount.SetTrackingAsync(on, ct);
-            return Results.Json(
+            return EnvelopeResults.Json(
                 ResponseEnvelope<string>.Ok(on ? "Tracking enabled" : "Tracking disabled"),
                 HostingJsonContext.Default.ResponseEnvelopeString);
         });

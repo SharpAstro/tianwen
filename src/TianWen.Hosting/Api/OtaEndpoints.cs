@@ -22,7 +22,7 @@ internal static class OtaEndpoints
         {
             if (hosted.CurrentSession is not { } session)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("No active session", 404),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
@@ -33,7 +33,7 @@ internal static class OtaEndpoints
                 otas[i] = OtaInfoDto.FromOta(i, session.Setup.Telescopes[i]);
             }
 
-            return Results.Json(
+            return EnvelopeResults.Json(
                 ResponseEnvelope<OtaInfoDto[]>.Ok(otas),
                 HostingJsonContext.Default.ResponseEnvelopeOtaInfoDtoArray);
         });
@@ -43,14 +43,14 @@ internal static class OtaEndpoints
         {
             if (hosted.CurrentSession is not { } session)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("No active session", 404),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
             if (!TryGetOta(session, index, out _))
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail($"OTA index {index} out of range (0..{session.Setup.Telescopes.Length - 1})"),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
@@ -59,7 +59,7 @@ internal static class OtaEndpoints
             var displays = session.TelescopeDisplays;
             var display = !displays.IsDefaultOrEmpty && index < displays.Length ? displays[index] : default;
             var dto = OtaCameraStateDto.FromState(index, session.CameraStates[index], metrics, display);
-            return Results.Json(
+            return EnvelopeResults.Json(
                 ResponseEnvelope<OtaCameraStateDto>.Ok(dto),
                 HostingJsonContext.Default.ResponseEnvelopeOtaCameraStateDto);
         });
@@ -69,27 +69,27 @@ internal static class OtaEndpoints
         {
             if (hosted.CurrentSession is not { } session)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("No active session", 404),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
             if (!TryGetOta(session, index, out var ota))
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail($"OTA index {index} out of range"),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
             if (ota.Focuser?.Driver is not { Connected: true } focuser)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail($"OTA {index} has no connected focuser"),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
             await focuser.BeginMoveAsync(position, ct);
-            return Results.Json(
+            return EnvelopeResults.Json(
                 ResponseEnvelope<string>.Ok($"Moving focuser to position {position}"),
                 HostingJsonContext.Default.ResponseEnvelopeString);
         });
@@ -99,20 +99,20 @@ internal static class OtaEndpoints
         {
             if (hosted.CurrentSession is not { } session)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("No active session", 404),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
             if (!TryGetOta(session, index, out var ota) || ota.Focuser?.Driver is not { Connected: true } focuser)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail($"OTA {index} has no connected focuser"),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
             await focuser.BeginHaltAsync(ct);
-            return Results.Json(
+            return EnvelopeResults.Json(
                 ResponseEnvelope<string>.Ok("Focuser halted"),
                 HostingJsonContext.Default.ResponseEnvelopeString);
         });
@@ -122,20 +122,20 @@ internal static class OtaEndpoints
         {
             if (hosted.CurrentSession is not { } session)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("No active session", 404),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
             if (!TryGetOta(session, index, out var ota) || ota.FilterWheel?.Driver is not { Connected: true } fw)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail($"OTA {index} has no connected filter wheel"),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
             await fw.BeginMoveAsync(position, ct);
-            return Results.Json(
+            return EnvelopeResults.Json(
                 ResponseEnvelope<string>.Ok($"Changing filter to position {position}"),
                 HostingJsonContext.Default.ResponseEnvelopeString);
         });

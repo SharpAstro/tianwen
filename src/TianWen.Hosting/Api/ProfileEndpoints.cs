@@ -25,7 +25,7 @@ internal static class ProfileEndpoints
                 .Select(p => new ProfileSummaryDto { ProfileId = p.ProfileId, Name = p.DisplayName })
                 .ToArray();
 
-            return Results.Json(
+            return EnvelopeResults.Json(
                 ResponseEnvelope<ProfileSummaryDto[]>.Ok(profiles),
                 HostingJsonContext.Default.ResponseEnvelopeProfileSummaryDtoArray);
         });
@@ -39,12 +39,12 @@ internal static class ProfileEndpoints
 
             if (profile is null)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.NotFound($"Profile {id} not found"),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
-            return Results.Json(
+            return EnvelopeResults.Json(
                 ResponseEnvelope<ProfileDetailDto>.Ok(ProfileDetailDto.FromProfile(profile)),
                 HostingJsonContext.Default.ResponseEnvelopeProfileDetailDto);
         });
@@ -54,7 +54,7 @@ internal static class ProfileEndpoints
         {
             if (string.IsNullOrWhiteSpace(request.Name))
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("Profile name is required"),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
@@ -65,7 +65,7 @@ internal static class ProfileEndpoints
             // Refresh device registry so the new profile is discoverable
             await deviceDiscovery.DiscoverOnlyDeviceType(DeviceType.Profile, ct);
 
-            return Results.Json(
+            return EnvelopeResults.Json(
                 ResponseEnvelope<ProfileDetailDto>.Ok(ProfileDetailDto.FromProfile(profile)),
                 HostingJsonContext.Default.ResponseEnvelopeProfileDetailDto);
         });
@@ -79,7 +79,7 @@ internal static class ProfileEndpoints
 
             if (profile is null)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.NotFound($"Profile {id} not found"),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
@@ -89,7 +89,7 @@ internal static class ProfileEndpoints
             // Refresh device registry
             await deviceDiscovery.DiscoverOnlyDeviceType(DeviceType.Profile, ct);
 
-            return Results.Json(
+            return EnvelopeResults.Json(
                 ResponseEnvelope<string>.Ok($"Profile {id} deleted"),
                 HostingJsonContext.Default.ResponseEnvelopeString);
         });

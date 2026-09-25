@@ -27,7 +27,7 @@ internal static class SessionEndpoints
         {
             if (hosted.CurrentSession is not { } session)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("No active session", 404),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
@@ -39,7 +39,7 @@ internal static class SessionEndpoints
                 session,
                 ToPromptDto(hosted.PendingPrompt),
                 notifications.IsDefaultOrEmpty ? null : notifications[^1]);
-            return Results.Json(
+            return EnvelopeResults.Json(
                 ResponseEnvelope<SessionStateDto>.Ok(dto),
                 HostingJsonContext.Default.ResponseEnvelopeSessionStateDto);
         });
@@ -54,7 +54,7 @@ internal static class SessionEndpoints
         {
             if (hosted.IsRunning)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("A session is already running", 409),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
@@ -66,7 +66,7 @@ internal static class SessionEndpoints
             {
                 if (!Guid.TryParse(profileIdStr, out var parsed))
                 {
-                    return Results.Json(
+                    return EnvelopeResults.Json(
                         ResponseEnvelope<string>.Fail($"Invalid profile ID '{profileIdStr}'"),
                         HostingJsonContext.Default.ResponseEnvelopeString);
                 }
@@ -76,7 +76,7 @@ internal static class SessionEndpoints
 
             if (profileId is null)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("No profile ID specified. Set via ?profileId= or /api/v1/session/profile"),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
@@ -95,7 +95,7 @@ internal static class SessionEndpoints
                 }
                 catch (Exception ex) when (ex is JsonException or InvalidOperationException)
                 {
-                    return Results.Json(
+                    return EnvelopeResults.Json(
                         ResponseEnvelope<string>.Fail($"Malformed session configuration: {ex.Message}", 400),
                         HostingJsonContext.Default.ResponseEnvelopeString);
                 }
@@ -148,7 +148,7 @@ internal static class SessionEndpoints
             }
             catch (ArgumentException ex)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail(ex.Message, 404),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
@@ -167,13 +167,13 @@ internal static class SessionEndpoints
                 {
                     hosted.AddTarget(target);
                 }
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("A session is already running", 409),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
             hosted.SetActiveProfile(profileId.Value);
-            return Results.Json(
+            return EnvelopeResults.Json(
                 ResponseEnvelope<string>.Ok("Session started"),
                 HostingJsonContext.Default.ResponseEnvelopeString);
         });
@@ -189,7 +189,7 @@ internal static class SessionEndpoints
         {
             if (hosted.IsRunning)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("A session is already running", 409),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
@@ -205,7 +205,7 @@ internal static class SessionEndpoints
                 }
                 catch (Exception ex) when (ex is JsonException or InvalidOperationException)
                 {
-                    return Results.Json(
+                    return EnvelopeResults.Json(
                         ResponseEnvelope<string>.Fail($"Malformed flats request body: {ex.Message}"),
                         HostingJsonContext.Default.ResponseEnvelopeString);
                 }
@@ -213,13 +213,13 @@ internal static class SessionEndpoints
 
             if (!FlatRunParsing.TryParseSource(request?.Source, out var source) && request?.Source is not null)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail($"Invalid source '{request.Source}'. Use 'calibrator' or 'sky' (a manual panel is a Manual Light Panel device on the OTA's cover slot, captured via 'calibrator')."),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
             if (!FlatRunParsing.TryParsePeriod(request?.Period, out var period) && request?.Period is not null)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail($"Invalid period '{request.Period}'. Use 'dawn' or 'dusk'."),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
@@ -231,7 +231,7 @@ internal static class SessionEndpoints
             {
                 if (!Guid.TryParse(profileIdStr, out var parsed))
                 {
-                    return Results.Json(
+                    return EnvelopeResults.Json(
                         ResponseEnvelope<string>.Fail($"Invalid profile ID '{profileIdStr}'"),
                         HostingJsonContext.Default.ResponseEnvelopeString);
                 }
@@ -241,7 +241,7 @@ internal static class SessionEndpoints
 
             if (profileId is null)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("No profile ID specified. Set via ?profileId= or /api/v1/session/profile"),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
@@ -279,7 +279,7 @@ internal static class SessionEndpoints
             }
             catch (ArgumentException ex)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail(ex.Message, 404),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
@@ -289,13 +289,13 @@ internal static class SessionEndpoints
             if (!await hosted.TryStartAsync(session, (run, runToken) => run.RunFlatsOnlyAsync(period, runToken)))
             {
                 await session.DisposeAsync();
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("A session is already running", 409),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
             hosted.SetActiveProfile(profileId.Value);
-            return Results.Json(
+            return EnvelopeResults.Json(
                 ResponseEnvelope<string>.Ok("Flats started"),
                 HostingJsonContext.Default.ResponseEnvelopeString);
         });
@@ -307,12 +307,12 @@ internal static class SessionEndpoints
             // run that carried on, so Finalise never ran properly.
             if (hosted.TryAbort() is null)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("No active session", 404),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
-            return Results.Json(
+            return EnvelopeResults.Json(
                 ResponseEnvelope<string>.Ok("Abort requested"),
                 HostingJsonContext.Default.ResponseEnvelopeString);
         });
@@ -324,7 +324,7 @@ internal static class SessionEndpoints
         // can resolve the payload statically -- a polymorphic object payload throws under AOT.
         group.MapGet("/targets", (IHostedSession hosted) =>
         {
-            return Results.Json(
+            return EnvelopeResults.Json(
                 ResponseEnvelope<PendingTarget[]>.Ok([.. hosted.PendingTargets]),
                 HostingJsonContext.Default.ResponseEnvelopePendingTargetArray);
         });
@@ -334,13 +334,13 @@ internal static class SessionEndpoints
         {
             if (string.IsNullOrWhiteSpace(target.Name))
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("Target name is required"),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
             hosted.AddTarget(target);
-            return Results.Json(
+            return EnvelopeResults.Json(
                 ResponseEnvelope<string>.Ok($"Target '{target.Name}' added ({hosted.PendingTargets.Count} pending)"),
                 HostingJsonContext.Default.ResponseEnvelopeString);
         });
@@ -349,7 +349,7 @@ internal static class SessionEndpoints
         group.MapDelete("/targets", (IHostedSession hosted) =>
         {
             hosted.ClearTargets();
-            return Results.Json(
+            return EnvelopeResults.Json(
                 ResponseEnvelope<string>.Ok("Pending targets cleared"),
                 HostingJsonContext.Default.ResponseEnvelopeString);
         });
@@ -363,7 +363,7 @@ internal static class SessionEndpoints
         {
             if (hosted.IsRunning)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("A session is already running", 409),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
@@ -376,14 +376,14 @@ internal static class SessionEndpoints
             }
             catch
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("Malformed schedule body"),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
             if (dtos is null)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("Schedule body is required"),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
@@ -395,7 +395,7 @@ internal static class SessionEndpoints
             }
 
             hosted.SetSchedule(schedule.MoveToImmutable());
-            return Results.Json(
+            return EnvelopeResults.Json(
                 ResponseEnvelope<string>.Ok($"Schedule set ({dtos.Length} observation(s))"),
                 HostingJsonContext.Default.ResponseEnvelopeString);
         });
@@ -404,7 +404,7 @@ internal static class SessionEndpoints
         group.MapDelete("/schedule", (IHostedSession hosted) =>
         {
             hosted.SetSchedule([]);
-            return Results.Json(
+            return EnvelopeResults.Json(
                 ResponseEnvelope<string>.Ok("Pending schedule cleared"),
                 HostingJsonContext.Default.ResponseEnvelopeString);
         });
@@ -418,12 +418,12 @@ internal static class SessionEndpoints
         {
             if (!hosted.TryRespondToPrompt(proceed))
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("No prompt is awaiting a response", 404),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
-            return Results.Json(
+            return EnvelopeResults.Json(
                 ResponseEnvelope<string>.Ok(proceed ? "Prompt accepted" : "Prompt declined"),
                 HostingJsonContext.Default.ResponseEnvelopeString);
         });
@@ -433,7 +433,7 @@ internal static class SessionEndpoints
         // GET /api/v1/session/notifications: the node's notification ring, oldest first.
         group.MapGet("/notifications", (IHostedSession hosted) =>
         {
-            return Results.Json(
+            return EnvelopeResults.Json(
                 ResponseEnvelope<NotificationDto[]>.Ok([.. hosted.Notifications]),
                 HostingJsonContext.Default.ResponseEnvelopeNotificationDtoArray);
         });
@@ -449,7 +449,7 @@ internal static class SessionEndpoints
         {
             if (hosted.ActiveProfileId is not { } activeId)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<ProfileSummaryDto>.NotFound("No active profile is set"),
                     HostingJsonContext.Default.ResponseEnvelopeProfileSummaryDto);
             }
@@ -461,10 +461,10 @@ internal static class SessionEndpoints
             // Set but no longer present: report it as missing rather than inventing a name, so a client
             // shows "profile unknown" instead of a label for a profile that has been deleted.
             return profile is null
-                ? Results.Json(
+                ? EnvelopeResults.Json(
                     ResponseEnvelope<ProfileSummaryDto>.NotFound($"Active profile {activeId} no longer exists"),
                     HostingJsonContext.Default.ResponseEnvelopeProfileSummaryDto)
-                : Results.Json(
+                : EnvelopeResults.Json(
                     ResponseEnvelope<ProfileSummaryDto>.Ok(
                         new ProfileSummaryDto { ProfileId = profile.ProfileId, Name = profile.DisplayName }),
                     HostingJsonContext.Default.ResponseEnvelopeProfileSummaryDto);
@@ -479,13 +479,13 @@ internal static class SessionEndpoints
             var verdict = ProfileSwitchGate.Evaluate(hub, hosted.IsRunning);
             if (!verdict.Allowed)
             {
-                return Results.Json(
+                return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail(verdict.Describe(), 409),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
             hosted.SetActiveProfile(request.ProfileId);
-            return Results.Json(
+            return EnvelopeResults.Json(
                 ResponseEnvelope<string>.Ok($"Active profile set to {request.ProfileId}"),
                 HostingJsonContext.Default.ResponseEnvelopeString);
         });
