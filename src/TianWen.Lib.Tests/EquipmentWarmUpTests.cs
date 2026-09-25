@@ -12,7 +12,7 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// The out-of-session warm-up ramp (<see cref="EquipmentActions.WarmAndDisconnectAsync"/>) waits on the
+/// The out-of-session warm-up ramp (<c>IDeviceHub.WarmAndDisconnectAsync</c>) waits on the
 /// injected <see cref="ITimeProvider"/>, never on the wall clock. It used to call <c>Task.Delay</c>, so
 /// under a fake clock every 2 degree step cost a real 30 s and the ramp could not be tested at all, and
 /// on the real clock it ignored the <c>TIANWEN_NOW</c> anchor every other wait honours.
@@ -44,7 +44,7 @@ public class EquipmentWarmUpTests(ITestOutputHelper output)
         clock.SleepAsync(Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
             .Returns(call => { sleeps.Add(call.ArgAt<TimeSpan>(0)); return ValueTask.CompletedTask; });
 
-        await EquipmentActions.WarmAndDisconnectAsync(hub, CameraUri, clock, FakeExternal.CreateLogger(output),
+        await hub.WarmAndDisconnectAsync(CameraUri, clock, FakeExternal.CreateLogger(output),
             force: false, TestContext.Current.CancellationToken);
 
         // -10 to within 1 degree of a 0 degree heat sink in 2 degree steps: -8, -6, -4, -2, 0 is five steps,

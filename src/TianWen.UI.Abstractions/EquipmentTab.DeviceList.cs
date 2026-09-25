@@ -318,13 +318,13 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private void RenderDisconnectConfirmStrip(
             Uri deviceUri, float x, float y, float w, float h,
-            EquipmentActions.DisconnectSafety safety)
+            DisconnectSafety safety)
         {
             var safetyLabel = safety switch
             {
-                EquipmentActions.DisconnectSafety.CoolerOn   => "Warm up & Off",
-                EquipmentActions.DisconnectSafety.Busy       => "Wait & Off",
-                EquipmentActions.DisconnectSafety.BusyAndCool=> "Wait + Warm up",
+                DisconnectSafety.CoolerOn   => "Warm up & Off",
+                DisconnectSafety.Busy       => "Wait & Off",
+                DisconnectSafety.BusyAndCool=> "Wait + Warm up",
                 _                                            => "Warm up & Off"
             };
 

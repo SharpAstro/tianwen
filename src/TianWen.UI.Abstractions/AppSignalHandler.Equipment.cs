@@ -713,8 +713,8 @@ namespace TianWen.UI.Abstractions
                 // Pre-flight safety check. If the device is a cooled/busy camera, don't
                 // disconnect: set the per-row confirmation state so the UI shows the
                 // [Warm & Off] [Force Off] [Cancel] strip instead of executing.
-                var safety = await EquipmentActions.GetDisconnectSafetyAsync(hub, sig.DeviceUri, cts.Token);
-                if (safety != EquipmentActions.DisconnectSafety.Safe)
+                var safety = await hub.GetDisconnectSafetyAsync(sig.DeviceUri, cts.Token);
+                if (safety != DisconnectSafety.Safe)
                 {
                     eqState.PendingDisconnectConfirm = sig.DeviceUri;
                     eqState.PendingDisconnectSafety = safety;
@@ -809,7 +809,7 @@ namespace TianWen.UI.Abstractions
 
                 try
                 {
-                    await RunDeviceOpOffRenderThreadAsync(() => EquipmentActions.WarmAndDisconnectAsync(hub, sig.DeviceUri, _timeProvider, _logger, force: false, cts.Token).AsTask(), cts.Token);
+                    await RunDeviceOpOffRenderThreadAsync(() => hub.WarmAndDisconnectAsync(sig.DeviceUri, _timeProvider, _logger, force: false, cts.Token).AsTask(), cts.Token);
                     Notify(NotificationSeverity.Info, "Camera warmed and disconnected");
                 }
                 catch (OperationCanceledException)
@@ -853,7 +853,7 @@ namespace TianWen.UI.Abstractions
 
                 try
                 {
-                    await EquipmentActions.WarmAndCoolerOffAsync(hub, sig.DeviceUri, _timeProvider, _logger, cts.Token);
+                    await hub.WarmAndCoolerOffAsync(sig.DeviceUri, _timeProvider, _logger, cts.Token);
                     Notify(NotificationSeverity.Info, "Camera warmed; cooler off");
                 }
                 catch (OperationCanceledException)

@@ -489,12 +489,12 @@ internal sealed class TuiEquipmentTab(
     /// Short human-readable reason for why a disconnect was held back by the safety
     /// pre-check. Drives the warning in the status-bar confirm strip.
     /// </summary>
-    private static string PendingDisconnectPrompt(EquipmentActions.DisconnectSafety safety) => safety switch
+    private static string PendingDisconnectPrompt(DisconnectSafety safety) => safety switch
     {
-        EquipmentActions.DisconnectSafety.CoolerOn => "Camera is cooled.",
-        EquipmentActions.DisconnectSafety.Busy => "Camera is busy.",
-        EquipmentActions.DisconnectSafety.BusyAndCool => "Camera is busy and cooled.",
-        EquipmentActions.DisconnectSafety.Unknown => "Camera state unknown.",
+        DisconnectSafety.CoolerOn => "Camera is cooled.",
+        DisconnectSafety.Busy => "Camera is busy.",
+        DisconnectSafety.BusyAndCool => "Camera is busy and cooled.",
+        DisconnectSafety.Unknown => "Camera state unknown.",
         _ => "Safe to disconnect.",
     };
 

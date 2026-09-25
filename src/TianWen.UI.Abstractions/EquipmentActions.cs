@@ -692,187 +692,6 @@ public static class EquipmentActions
         return null;
     }
 
-    /// <summary>
-    /// Safety classification for an out-of-session disconnect of a connected device.
-    /// Cameras are the primary concern: cold disconnect risks thermal shock; busy
-    /// disconnect interrupts an exposure.
-    /// </summary>
-    public enum DisconnectSafety
-    {
-        /// <summary>Safe to disconnect immediately (not a camera, or cooler off and idle).</summary>
-        Safe,
-        /// <summary>Camera cooler is on: needs warm-up ramp before disconnect.</summary>
-        CoolerOn,
-        /// <summary>Camera is mid-exposure / downloading: should finish before disconnect.</summary>
-        Busy,
-        /// <summary>Both cooler on and camera busy.</summary>
-        BusyAndCool,
-        /// <summary>State could not be read (driver error); caller should treat as unsafe.</summary>
-        Unknown
-    }
-
-    /// <summary>
-    /// Out-of-session warm-up + disconnect for a single camera. Ramps the setpoint
-    /// toward the heat-sink (or +25°C fallback) in 2°C steps every 30s, then turns
-    /// the cooler off and disconnects. Non-camera devices disconnect directly.
-    /// Mirrors the spirit of <c>Session.Cooling.CoolCamerasToAmbientAsync</c> but
-    /// without the multi-camera orchestration / telemetry collection.
-    /// </summary>
-    /// <param name="force">Disconnect even if a run owns the camera. Reserved for the shutdown path --
-    /// see <see cref="IDeviceHub.DisconnectAsync"/>.</param>
-    public static ValueTask WarmAndDisconnectAsync(
-        IDeviceHub hub, Uri deviceUri,
-        ITimeProvider timeProvider,
-        Microsoft.Extensions.Logging.ILogger logger,
-        bool force,
-        System.Threading.CancellationToken cancellationToken)
-        => WarmCameraAsync(hub, deviceUri, timeProvider, logger, disconnectAfter: true, force, cancellationToken);
-
-    /// <summary>
-    /// Warm-up ramp + cooler-off without disconnecting (camera stays available for
-    /// re-cooling). Same condensation-mitigation rationale as
-    /// <see cref="WarmAndDisconnectAsync"/>.
-    /// </summary>
-    public static ValueTask WarmAndCoolerOffAsync(
-        IDeviceHub hub, Uri deviceUri,
-        ITimeProvider timeProvider,
-        Microsoft.Extensions.Logging.ILogger logger,
-        System.Threading.CancellationToken cancellationToken)
-        => WarmCameraAsync(hub, deviceUri, timeProvider, logger, disconnectAfter: false, force: false, cancellationToken);
-
-    /// <summary>
-    /// Shared warm-up ramp implementation. Steps the setpoint toward the heat-sink (or
-    /// +25°C fallback) in 2°C / 30s increments capped at 15 min, then turns the cooler
-    /// off and (optionally) disconnects.
-    /// </summary>
-    private static async ValueTask WarmCameraAsync(
-        IDeviceHub hub, Uri deviceUri,
-        ITimeProvider timeProvider,
-        Microsoft.Extensions.Logging.ILogger logger,
-        bool disconnectAfter,
-        bool force,
-        System.Threading.CancellationToken cancellationToken)
-    {
-        if (!hub.TryGetConnectedDriver<TianWen.Lib.Devices.ICameraDriver>(deviceUri, out var camera))
-        {
-            if (disconnectAfter) await hub.DisconnectAsync(deviceUri, force, cancellationToken);
-            return;
-        }
-
-        // Skip the ramp entirely when the cooler was never on -- the whole
-        // point of the ramp is condensation-mitigation as the sensor returns
-        // to ambient, and a never-cooled camera has nothing to mitigate. The
-        // previous implementation walked the full 30-step / 30s loop with a
-        // 25C heat-sink fallback whenever GetHeatsinkTemperature was
-        // unsupported, producing ~2.5 minutes of "Warming cameras..." per
-        // camera against fakes / drivers without thermal telemetry.
-        if (camera.CanGetCoolerOn)
-        {
-            bool coolerOn;
-            try { coolerOn = await camera.GetCoolerOnAsync(cancellationToken); }
-            catch (Exception ex)
-            {
-                // If we can't read the cooler state, fall through to the ramp
-                // -- safer to over-wait than to thermal-shock a real sensor.
-                logger.LogWarning(ex, "GetCoolerOnAsync failed for {Uri}; running warm-up ramp defensively", deviceUri);
-                coolerOn = true;
-            }
-            if (!coolerOn)
-            {
-                logger.LogInformation("Camera cooler is off for {Uri}; skipping warm-up ramp", deviceUri);
-                if (disconnectAfter) await hub.DisconnectAsync(deviceUri, force, cancellationToken);
-                return;
-            }
-        }
-
-        // Determine target temperature: heat-sink if available, else +25°C.
-        double target = 25.0;
-        if (camera.CanGetHeatsinkTemperature)
-        {
-            try { target = await camera.GetHeatSinkTemperatureAsync(cancellationToken); }
-            catch (Exception ex) { logger.LogWarning(ex, "GetHeatSinkTemperatureAsync failed for {Uri}", deviceUri); }
-        }
-
-        var stepInterval = TimeSpan.FromSeconds(30);
-        var stepSize = 2.0;
-        var stallThreshold = 1.0;
-        var maxSteps = 30;
-
-        for (var i = 0; i < maxSteps && !cancellationToken.IsCancellationRequested; i++)
-        {
-            double current;
-            try { current = await camera.GetCCDTemperatureAsync(cancellationToken); }
-            catch { break; }
-
-            if (current >= target - stallThreshold) break;
-
-            var nextSetpoint = Math.Min(current + stepSize, target);
-            try { await camera.SetSetCCDTemperatureAsync(nextSetpoint, cancellationToken); }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "SetSetCCDTemperatureAsync failed mid-ramp for {Uri}", deviceUri);
-                break;
-            }
-
-            await timeProvider.SleepAsync(stepInterval, cancellationToken);
-        }
-
-        try { await camera.SetCoolerOnAsync(false, cancellationToken); }
-        catch (Exception ex) { logger.LogWarning(ex, "SetCoolerOnAsync(false) failed for {Uri}", deviceUri); }
-
-        await timeProvider.SleepAsync(TimeSpan.FromSeconds(2), cancellationToken);
-
-        if (disconnectAfter)
-        {
-            await hub.DisconnectAsync(deviceUri, force, cancellationToken);
-        }
-    }
-
-    /// <summary>
-    /// Reads camera state and cooler status to determine whether the device can be
-    /// safely disconnected without warm-up or interrupting work in flight.
-    /// Returns <see cref="DisconnectSafety.Safe"/> for non-camera devices.
-    /// </summary>
-    public static async ValueTask<DisconnectSafety> GetDisconnectSafetyAsync(
-        IDeviceHub hub, Uri deviceUri, System.Threading.CancellationToken cancellationToken = default)
-    {
-        if (!hub.TryGetConnectedDriver<TianWen.Lib.Devices.ICameraDriver>(deviceUri, out var camera))
-        {
-            return DisconnectSafety.Safe;
-        }
-
-        bool busy = false, cool = false;
-        try
-        {
-            var state = await camera.GetCameraStateAsync(cancellationToken);
-            busy = state is not (TianWen.Lib.Devices.CameraState.Idle or TianWen.Lib.Devices.CameraState.NotConnected);
-        }
-        catch
-        {
-            return DisconnectSafety.Unknown;
-        }
-
-        try
-        {
-            if (camera.CanGetCoolerOn)
-            {
-                cool = await camera.GetCoolerOnAsync(cancellationToken);
-            }
-        }
-        catch
-        {
-            return DisconnectSafety.Unknown;
-        }
-
-        return (busy, cool) switch
-        {
-            (false, false) => DisconnectSafety.Safe,
-            (false, true)  => DisconnectSafety.CoolerOn,
-            (true, false)  => DisconnectSafety.Busy,
-            (true, true)   => DisconnectSafety.BusyAndCool
-        };
-    }
-
     /// <summary>Result of <see cref="AutoDisconnectOrphanAsync"/>.</summary>
     public enum OrphanDisconnectOutcome
     {
@@ -902,7 +721,7 @@ public static class EquipmentActions
             return (OrphanDisconnectOutcome.NotApplicable, DisconnectSafety.Safe);
         }
 
-        var safety = await GetDisconnectSafetyAsync(hub, prevSlotUri, cancellationToken);
+        var safety = await hub.GetDisconnectSafetyAsync(prevSlotUri, cancellationToken);
         if (safety != DisconnectSafety.Safe)
         {
             return (OrphanDisconnectOutcome.LeftConnected, safety);
@@ -922,7 +741,7 @@ public static class EquipmentActions
 
     /// <summary>
     /// Sets the cooler setpoint and switches the cooler on (when supported). The
-    /// immediate counterpart to the ramped <see cref="WarmAndCoolerOffAsync"/>.
+    /// immediate counterpart to the ramped <c>IDeviceHub.WarmAndCoolerOffAsync</c>.
     /// Extracted from SetCoolerSetpointSignal so the handler routes only.
     /// </summary>
     public static async ValueTask SetCoolerSetpointAsync(ICameraDriver camera, double setpointC, CancellationToken cancellationToken)
@@ -936,7 +755,7 @@ public static class EquipmentActions
 
     /// <summary>
     /// Switches the cooler off immediately, no warm-up ramp (see
-    /// <see cref="WarmAndCoolerOffAsync"/> for the condensation-safe ramped path).
+    /// <c>IDeviceHub.WarmAndCoolerOffAsync</c> for the condensation-safe ramped path).
     /// Extracted from SetCoolerOffSignal so the handler routes only.
     /// </summary>
     public static async ValueTask SetCoolerOffAsync(ICameraDriver camera, CancellationToken cancellationToken)
