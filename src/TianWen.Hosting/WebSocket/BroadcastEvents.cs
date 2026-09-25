@@ -65,6 +65,20 @@ internal static class BroadcastEvents
         }
     };
 
+    /// <summary>A job started, moved on or ended. The latency hint: <c>GET /api/v1/jobs/{id}</c> is authoritative.</summary>
+    public static WebSocketEventDto JobProgress(JobDto job) => new WebSocketEventDto
+    {
+        Event = "JOB-PROGRESS",
+        Data = new Dictionary<string, object?>
+        {
+            ["Id"] = job.Id,
+            ["Kind"] = job.Kind,
+            ["State"] = job.State.ToString(),
+            ["Step"] = job.Step,
+            ["Error"] = job.Error
+        }
+    };
+
     public static WebSocketEventDto PhaseChanged(SessionPhaseChangedEventArgs e) => new WebSocketEventDto
     {
         Event = "SESSION-PHASE-CHANGED",

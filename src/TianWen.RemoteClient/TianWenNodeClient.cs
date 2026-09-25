@@ -280,6 +280,32 @@ namespace TianWen.RemoteClient
             GetAsync("api/v1/devices/structured", HostingJsonContext.Default.ResponseEnvelopeDeviceDtoArray, _timeouts.Control, cancellationToken);
 
         /// <summary>
+        /// <c>POST /devices/discover</c> -- starts a discovery on the node, or joins the one running, and answers
+        /// at once with its job (202). Follow it with <see cref="GetJobAsync"/> or the <c>JOB-PROGRESS</c> push,
+        /// then read what it found with <see cref="GetDevicesAsync"/>. It runs on the node's token, so this
+        /// call's budget ending, or this client going away, leaves it running.
+        /// </summary>
+        public Task<NodeResult<JobDto>> StartDiscoveryAsync(CancellationToken cancellationToken) =>
+            PostAsync("api/v1/devices/discover", content: null, HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
+
+        // ---------------------------------------------------------------------------------
+        // Jobs: the node's slow operations
+        // ---------------------------------------------------------------------------------
+
+        /// <summary><c>GET /jobs/{id}</c> -- how a job stands. Authoritative; the push is only a hint.</summary>
+        public Task<NodeResult<JobDto>> GetJobAsync(string id, CancellationToken cancellationToken) =>
+            GetAsync($"api/v1/jobs/{Uri.EscapeDataString(id)}", HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
+
+        /// <summary><c>GET /jobs</c> -- every job the node knows about, running and recently ended, newest first.</summary>
+        public Task<NodeResult<JobDto[]>> GetJobsAsync(CancellationToken cancellationToken) =>
+            GetAsync("api/v1/jobs", HostingJsonContext.Default.ResponseEnvelopeJobDtoArray, _timeouts.Control, cancellationToken);
+
+        /// <summary><c>DELETE /jobs/{id}</c> -- asks a job to stop; it ends Cancelled once its work notices.</summary>
+        public Task<NodeResult<JobDto>> CancelJobAsync(string id, CancellationToken cancellationToken) =>
+            SendAsync(HttpMethod.Delete, $"api/v1/jobs/{Uri.EscapeDataString(id)}", content: null, HostingJsonContext.Default.ResponseEnvelopeJobDto,
+                _timeouts.Control, cancellationToken);
+
+        /// <summary>
         /// <c>GET /preview/{otaIndex}</c> -- the latest frame as JPEG.
         /// <para>
         /// <b>Not an envelope endpoint</b>: it answers raw image bytes, so it bypasses

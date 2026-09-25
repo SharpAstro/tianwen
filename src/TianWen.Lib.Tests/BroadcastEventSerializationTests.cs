@@ -40,6 +40,7 @@ public class BroadcastEventSerializationTests
         [BroadcastEvents.PromptRequested(new SessionPromptEventArgs("Panel", "Switch the panel on", "Continue", "Cancel",
             new TaskCompletionSource<bool>(), defaultIfUnanswerable: false, raisedUtc: Now))],
         [BroadcastEvents.Notification(new NotificationDto { Severity = "Info", Message = "Cooling -> RoughFocus", TimestampUtc = Now })],
+        [BroadcastEvents.JobProgress(new JobDto { Id = "7f3c", Kind = "discover", State = JobState.Failed, Step = "Discovering devices", Error = "the serial sweep failed", StartedUtc = Now, EndedUtc = Now })],
     ];
 
     [Theory]

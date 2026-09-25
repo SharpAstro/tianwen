@@ -1341,6 +1341,11 @@ full native-AOT rules, and the reasoning behind each rule below:
    declares a parameterless constructor, and before one was added every API session synced the mount's
    site to 0, 0. `SessionConfigApiDto` carries every field: **a field added to the configuration is added
    there and to `SessionConfigApiDtoTests`'s round trip**, or it silently cannot cross the wire.
+9. **A slow operation is a JOB, never an inline request.** Its endpoint starts it through
+   `NodeJobs.StartOrJoin` and answers 202 with a `JobDto`; the node runs it on its own token (invariant 7's
+   rule, for the same reason), `GET /jobs/{id}` is authoritative, `DELETE /jobs/{id}` cancels, and
+   `JOB-PROGRESS` is the hint. `/devices/discover` ran inline on the request's token, so a client's 10 s
+   budget cut a serial sweep off mid-probe (P0b item 17). One of a kind at a time; a second start joins it.
 
 ### Remote Rigs (mirror another node's session "as if local")
 
