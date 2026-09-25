@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging;
@@ -461,4 +462,36 @@ public static class StretchSolver
         }
         return histograms;
     }
+
+    /// <summary>
+    /// <see cref="CollectPerChannelStats"/> and <see cref="CollectChannelHistograms"/> at once, entry for
+    /// entry and bit for bit, from ONE walk per channel (<see cref="Image.GetStats"/>) where the two took two.
+    /// Same channel rule: three entries for a Bayer mosaic, one per plane otherwise.
+    /// </summary>
+    /// <remarks>
+    /// <para>What a document open wants, since it takes both. The two collectors stay for the callers that
+    /// want one of them.</para>
+    /// <para>The channels are walked in PARALLEL, which changes no bit: each has its own bins and its own
+    /// running sum, so nothing one computes depends on when another ran, and the order within a channel,
+    /// which the ordered sum does depend on, is the walk's own.</para>
+    /// </remarks>
+    public static (ChannelStretchStats[] Stretch, ImageHistogram[] Histograms) CollectStats(Image image, int pixelStride = 1)
+    {
+        var mosaic = image.IsCfaMosaic;
+        var count = mosaic ? CfaColours.Length : image.ChannelCount;
+        var stretch = new ChannelStretchStats[count];
+        var histograms = new ImageHistogram[count];
+        Parallel.For(0, count, i =>
+        {
+            var (histogram, stats) = mosaic
+                ? image.GetStats(0, pixelStride, CfaColours[i])
+                : image.GetStats(i, pixelStride);
+            histograms[i] = histogram;
+            stretch[i] = stats;
+        });
+        return (stretch, histograms);
+    }
+
+    // The order CollectPerChannelStats and CollectChannelHistograms give a mosaic's three entries in.
+    private static readonly CfaChannel[] CfaColours = [CfaChannel.Red, CfaChannel.Green, CfaChannel.Blue];
 }

@@ -439,20 +439,17 @@ public sealed class AstroImageDocument : IPreviewSource
         string filePath,
         Image image,
         DebayerAlgorithm debayerAlgorithm,
-        ChannelStretchStats[] perChannelStats,
-        ChannelStretchStats? lumaStats,
-        float[] perChannelBackground,
-        float lumaBackground,
+        OpenStatistics statistics,
         WCS? wcs,
         bool isPreStretched)
     {
         _filePath = filePath;
         UnstretchedImage = image;
         DebayerAlgorithm = debayerAlgorithm;
-        PerChannelStats = perChannelStats;
-        LumaStats = lumaStats;
-        _perChannelBackground = perChannelBackground;
-        _lumaBackground = lumaBackground;
+        PerChannelStats = statistics.PerChannelStats;
+        LumaStats = statistics.LumaStats;
+        _perChannelBackground = statistics.PerChannelBg;
+        _lumaBackground = statistics.LumaBg;
         Wcs = wcs;
         IsPreStretched = isPreStretched;
 
@@ -460,11 +457,10 @@ public sealed class AstroImageDocument : IPreviewSource
         // the statistics table and the histogram overlay show R, G and B as they would for a debayered
         // frame. The channel rule lives in StretchSolver beside the stretch statistics' own collector,
         // so a document and the live preview cannot drift into disagreeing about what a channel is.
-        ChannelStatistics = StretchSolver.CollectChannelHistograms(image);
-        if (image.IsCfaMosaic)
-        {
-            MosaicHistogram = image.Statistics(0);
-        }
+        // Taken in the same walk as the stretch statistics (ComputeStretchStatsAsync), where this used to
+        // walk every channel again for them.
+        ChannelStatistics = statistics.ChannelStatistics;
+        MosaicHistogram = statistics.MosaicHistogram;
 
         // Measured here for two reasons: the planes are still resident, so it costs a read rather than a
         // rebuild, and it must not happen on the render thread. An ordinary frame exits at the first
@@ -572,18 +568,15 @@ public sealed class AstroImageDocument : IPreviewSource
         // nothing else, no flood and no write, which is the overwhelming majority of what is opened.
         var interiorHolesFilled = viewImage.FillInteriorHolesInPlace();
 
-        var (perChannelStats, lumaStats, perChannelBg, lumaBg) = await ComputeStretchStatsAsync(viewImage, cancellationToken);
+        var statistics = await ComputeStretchStatsAsync(viewImage, cancellationToken);
 
         return new AstroImageDocument(
             filePath,
             viewImage,
             actualAlgorithm,
-            perChannelStats,
-            lumaStats,
-            perChannelBg,
-            lumaBg,
+            statistics,
             wcs,
-            DetectPreStretched(viewImage, perChannelStats))
+            DetectPreStretched(viewImage, statistics.PerChannelStats))
         {
             SourceCrop = sourceCrop,
             InteriorHolesFilled = interiorHolesFilled,
@@ -640,30 +633,9 @@ public sealed class AstroImageDocument : IPreviewSource
 
         var isPreStretched = Image.DetectPreStretched(image);
 
-        // Image is already normalized to [0,1] by TryReadImageFile
-        var channelCount = image.ChannelCount;
-        // Three entries for a Bayer mosaic (R, G, B over their own photosites), whatever channelCount is.
-        var perChannelStats = StretchSolver.CollectPerChannelStats(image, channelCount);
-
-        ChannelStretchStats? lumaStats = null;
-        if (image.IsCfaMosaic)
-        {
-            // The whole mosaic, every photosite with equal weight: a luminance in all but the weighting.
-            // GetLumaStretchStatsAsync now takes exactly this stat for a mosaic rather than materialising
-            // a full debayer to reach the Rec. 709 path, so the two agree; kept inline because the
-            // document already holds the image and wants no second call.
-            var (lumaPed, lumaMed, lumaMad) = image.GetPedestralMedianAndMADScaledToUnit(0);
-            lumaStats = new ChannelStretchStats(lumaPed, lumaMed, lumaMad);
-        }
-        else if (channelCount >= 3)
-        {
-            var (lumaPed, lumaMed, lumaMad) = await image.GetLumaStretchStatsAsync(cancellationToken);
-            lumaStats = new ChannelStretchStats(lumaPed, lumaMed, lumaMad);
-        }
-
-        Span<float> pedestals = stackalloc float[perChannelStats.Length];
-        for (var c = 0; c < perChannelStats.Length; c++) { pedestals[c] = perChannelStats[c].Pedestal; }
-        var (perChannelBg, lumaBg) = image.ScanBackgroundRegion(pedestals);
+        // Image is already normalized to [0,1] by TryReadImageFile. Its statistics are taken exactly as a
+        // FITS document's are: this method used to spell the same steps out a second time.
+        var statistics = await ComputeStretchStatsAsync(image, cancellationToken);
 
         // Try companion ASTAP .ini file for WCS
         WCS? wcs = null;
@@ -673,7 +645,7 @@ public sealed class AstroImageDocument : IPreviewSource
             wcs = astapWcs;
         }
 
-        return new AstroImageDocument(filePath, image, DebayerAlgorithm.None, perChannelStats, lumaStats, perChannelBg, lumaBg, wcs, isPreStretched);
+        return new AstroImageDocument(filePath, image, DebayerAlgorithm.None, statistics, wcs, isPreStretched);
     }
 
     /// <summary>
@@ -704,7 +676,19 @@ public sealed class AstroImageDocument : IPreviewSource
         => image.BitDepth.CarriesDisplayDataOnly
             || (perChannelStats.Length > 0 && perChannelStats[0].Median > 0.2f);
 
-    private static async Task<(ChannelStretchStats[] PerChannelStats, ChannelStretchStats? LumaStats, float[] PerChannelBg, float LumaBg)> ComputeStretchStatsAsync(
+    /// <summary>
+    /// Everything a document takes from its pixels at open, taken once: the stretch statistics, the
+    /// histograms a display draws, and the sky background the neutralisation levels.
+    /// </summary>
+    private readonly record struct OpenStatistics(
+        ChannelStretchStats[] PerChannelStats,
+        ChannelStretchStats? LumaStats,
+        float[] PerChannelBg,
+        float LumaBg,
+        ImageHistogram[] ChannelStatistics,
+        ImageHistogram? MosaicHistogram);
+
+    private static async Task<OpenStatistics> ComputeStretchStatsAsync(
         Image processedRawImage, CancellationToken cancellationToken)
     {
         var isRawBayer = processedRawImage.ImageMeta.SensorType is SensorType.RGGB
@@ -716,7 +700,9 @@ public sealed class AstroImageDocument : IPreviewSource
         }
 
         var channelCount = processedRawImage.ChannelCount;
-        var perChannelStats = StretchSolver.CollectPerChannelStats(processedRawImage, channelCount);
+        // One walk per channel for its stretch statistics AND the histogram a display draws, the channels
+        // in parallel (#631). The histograms used to be a second walk of every channel, in the constructor.
+        var (perChannelStats, channelStatistics) = StretchSolver.CollectStats(processedRawImage);
 
         ChannelStretchStats? lumaStats = null;
         if (channelCount >= 3)
@@ -729,7 +715,7 @@ public sealed class AstroImageDocument : IPreviewSource
         for (var c = 0; c < channelCount; c++) { pedestals[c] = perChannelStats[c].Pedestal; }
         var (perChannelBg, lumaBg) = processedRawImage.ScanBackgroundRegion(pedestals);
 
-        return (perChannelStats, lumaStats, perChannelBg, lumaBg);
+        return new OpenStatistics(perChannelStats, lumaStats, perChannelBg, lumaBg, channelStatistics, MosaicHistogram: null);
     }
 
     /// <summary>
@@ -745,17 +731,21 @@ public sealed class AstroImageDocument : IPreviewSource
     /// solved identical uniforms on every OSC sub, and background neutralisation had nothing to level.
     /// The sub-3% per-channel white balance was the only thing telling the three apart.
     /// </remarks>
-    private static Task<(ChannelStretchStats[] PerChannelStats, ChannelStretchStats? LumaStats, float[] PerChannelBg, float LumaBg)> ComputeBayerStretchStatsAsync(
+    private static async Task<OpenStatistics> ComputeBayerStretchStatsAsync(
         Image rawImage, CancellationToken cancellationToken)
     {
-        var perChannelStats = StretchSolver.CollectPerChannelStats(rawImage, 3);
-
-        // Every photosite with equal weight: a luminance in all but the weighting.
-        var (ped, med, mad) = rawImage.GetPedestralMedianAndMADScaledToUnit(0);
-        var lumaStats = new ChannelStretchStats(ped, med, mad);
+        // The three colours (one walk each, stretch statistics and histogram together) and the whole mosaic,
+        // all at once. The whole mosaic is every photosite with equal weight: a luminance in all but the
+        // weighting, and, from the same walk, the histogram a display draws for the mosaic itself, which the
+        // constructor used to walk the mosaic again for.
+        var coloursTask = Task.Run(() => StretchSolver.CollectStats(rawImage), cancellationToken);
+        var wholeTask = Task.Run(() => rawImage.GetStats(0), cancellationToken);
+        await Task.WhenAll(coloursTask, wholeTask);
+        var colours = await coloursTask;
+        var (mosaicHistogram, lumaStats) = await wholeTask;
 
         Span<float> pedestals = stackalloc float[1];
-        pedestals[0] = ped;
+        pedestals[0] = lumaStats.Pedestal;
         var (perChannelBg, lumaBg) = rawImage.ScanBackgroundRegion(pedestals);
         // ScanBackgroundRegion already demosaics 1-channel RGGB into proper
         // per-channel (R, G, B) medians for Bayer images. Use them directly --
@@ -766,7 +756,7 @@ public sealed class AstroImageDocument : IPreviewSource
             ? new[] { perChannelBg[0], perChannelBg[1], perChannelBg[2] }
             : new[] { perChannelBg[0], perChannelBg[0], perChannelBg[0] };
 
-        return Task.FromResult((perChannelStats, (ChannelStretchStats?)lumaStats, bg3, lumaBg));
+        return new OpenStatistics(colours.Stretch, lumaStats, bg3, lumaBg, colours.Histograms, mosaicHistogram);
     }
 
     /// <summary>
