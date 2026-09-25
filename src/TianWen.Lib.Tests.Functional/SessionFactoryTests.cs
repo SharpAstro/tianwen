@@ -659,6 +659,31 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         session.Observations[0].SubExposure.ShouldBe(TimeSpan.FromSeconds(60));
     }
 
+    /// <summary>
+    /// The profile's site and its tie-breaker reach the run, which reconciles its mount with them at
+    /// initialisation when the request names no site (#798). The request's configuration passes through
+    /// untouched: the factory cannot settle a site, since it never sees the mount's.
+    /// </summary>
+    [Fact]
+    public void TheProfilesSiteAndItsTieBreakerRideOnTheSetup()
+    {
+        var profileData = new ProfileData(
+            Mount: CreateMountDevice().DeviceUri,
+            Guider: CreateGuiderDevice().DeviceUri,
+            OTAs: [new OTAData("Test Scope", 1000, CreateCameraDevice().DeviceUri, null, null, null, null, null)],
+            SiteLatitude: -37.8136,
+            SiteLongitude: 144.9631,
+            SiteElevation: 31,
+            SiteTieBreaker: SiteTieBreaker.Profile);
+        var (factory, _) = CreateFactory(profileData);
+
+        var session = factory.Create(TestProfileId, new SessionConfiguration(), [CreateDefaultObservation()]);
+
+        session.Setup.ProfileSite.ShouldBe(new SiteCoordinates(-37.8136, 144.9631, 31));
+        session.Setup.SiteTieBreaker.ShouldBe(SiteTieBreaker.Profile);
+        double.IsNaN(((Session)session).Configuration.SiteLatitude).ShouldBeTrue("the factory leaves the site to initialisation");
+    }
+
     private static ScheduledObservation CreateDefaultObservation() => new ScheduledObservation(
         new Target(6.75, 16.7, "M42", null),
         DateTimeOffset.UtcNow,

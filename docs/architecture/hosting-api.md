@@ -93,8 +93,13 @@ Run: `dotnet run --project TianWen.Server` or `tianwen-server [--port 1888]`.
    `SessionConfigApiDtoTests` round-trips one with every field away from its default, so **a field added
    to the configuration is added to the DTO and to that test**. The body is read whatever its framing
    (the client's own `JsonContent` is chunked, with no Content-Length, and used to be ignored), and a
-   malformed body is a 400, never a run on defaults. A start that names no site takes the profile's when
-   `SiteTieBreaker` is `Profile`, else the mount keeps its own (#798 is the case that misses).
+   malformed body is a 400, never a run on defaults. **A run's site is settled once its mount connects**
+   (`Session.Site`, #798): the site the request names, else the mount's own reconciled with the profile's
+   under `SiteTieBreaker` (`MountSiteExtensions`, the rule the GUI applies on connect, now in Lib for
+   every host). So a mount with no site takes the profile's, where the factory used to settle only the
+   profile-wins case, into the configuration, and never saw a mount that had none. Every reader of a
+   run's site asks `Session.Site`: the limit poll computed its altitude from the configured site alone,
+   so a run whose request named no site had its horizon limit off all night.
 6. **A run's drivers are the hub's** (P0b item 11, #752). A session connects each device THROUGH the
    hub (`ControllableDeviceBase.ConnectAsync(hub)`, which calls `IDeviceHub.AdoptAsync`): the hub takes
    the driver the wrapper built, with whatever its caller configured on it, or, when it already holds

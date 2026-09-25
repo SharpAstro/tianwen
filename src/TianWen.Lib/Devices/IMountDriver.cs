@@ -479,24 +479,35 @@ public interface IMountDriver : IDeviceDriver
     /// Initialises a <see cref="Transform"/> applying the resolved <paramref name="conditions"/>
     /// (live weather / standard atmosphere) for refraction. See <see cref="SiteConditions.ApplyTo"/>.
     /// </summary>
-    /// <returns>Initialized transform or null if not connected/date time could not be established.</returns>
+    /// <returns>Initialized transform, or null if the mount is not connected, or its date and time or its site
+    /// could not be established.</returns>
     async ValueTask<Transform?> TryGetTransformAsync(SiteConditions conditions, CancellationToken cancellationToken)
     {
-        if (Connected && await TryGetUTCDateFromMountAsync(cancellationToken) is { } utc)
+        if (!Connected || await TryGetUTCDateFromMountAsync(cancellationToken) is not { } utc)
         {
-            var transform = new Transform(TimeProvider)
-            {
-                SiteElevation = await GetSiteElevationAsync(cancellationToken) is var elev && !double.IsNaN(elev) ? elev : 0,
-                SiteLatitude = await GetSiteLatitudeAsync(cancellationToken),
-                SiteLongitude = await GetSiteLongitudeAsync(cancellationToken),
-                DateTime = utc,
-                Refraction = true // TODO assumes that driver does not support/do refraction
-            };
-            conditions.ApplyTo(transform);
-            return transform;
+            return null;
         }
 
-        return null;
+        // No site, no transform. One built on a NaN site throws the first time anything asks it for sidereal
+        // time, which is later and further from the cause: a mount never given a site, part-way through being
+        // given one (#798).
+        var latitude = await GetSiteLatitudeAsync(cancellationToken);
+        var longitude = await GetSiteLongitudeAsync(cancellationToken);
+        if (double.IsNaN(latitude) || double.IsNaN(longitude))
+        {
+            return null;
+        }
+
+        var transform = new Transform(TimeProvider)
+        {
+            SiteElevation = await GetSiteElevationAsync(cancellationToken) is var elev && !double.IsNaN(elev) ? elev : 0,
+            SiteLatitude = latitude,
+            SiteLongitude = longitude,
+            DateTime = utc,
+            Refraction = true // TODO assumes that driver does not support/do refraction
+        };
+        conditions.ApplyTo(transform);
+        return transform;
     }
 
     /// <summary>

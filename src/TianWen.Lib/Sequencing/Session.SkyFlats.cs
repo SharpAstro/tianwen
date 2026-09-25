@@ -227,21 +227,15 @@ internal partial record Session
     /// Coarse solar-altitude gate for a sky-flat run. Returns <c>true</c> when the twilight window has clearly
     /// already passed in the terminal ramp direction (dawn: sun risen above the bright edge; dusk: sun sunk
     /// below the dark edge) so the run should be skipped rather than wait out the whole deadline. When the sun
-    /// altitude cannot be computed (site unknown, ephemeris failure) it returns <c>false</c> (proceed).
+    /// altitude cannot be computed (site unknown, ephemeris failure) it returns <c>false</c> (proceed). The site
+    /// is the run's one (<see cref="Site"/>), settled with the mount when it connected; with none settled, when
+    /// the routine is entered on its own, the mount's own.
     /// </summary>
     private async ValueTask<bool> IsSkyFlatWindowPastAsync(TwilightPeriod period, double brightDeg, double darkDeg, CancellationToken cancellationToken)
     {
-        var mount = Setup.Mount.Driver;
-        var latitude = Configuration.SiteLatitude;
-        var longitude = Configuration.SiteLongitude;
-        if (double.IsNaN(latitude) || double.IsNaN(longitude))
-        {
-            latitude = await mount.GetSiteLatitudeAsync(cancellationToken).ConfigureAwait(false);
-            longitude = await mount.GetSiteLongitudeAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        if (double.IsNaN(latitude) || double.IsNaN(longitude)
-            || !VSOP87a.Reduce(CatalogIndex.Sol, _timeProvider.GetUtcNow(), latitude, longitude, out _, out _, out _, out var sunAltDeg, out _))
+        var site = Site ?? await Setup.Mount.Driver.GetSiteAsync(cancellationToken).ConfigureAwait(false);
+        if (site is null
+            || !VSOP87a.Reduce(CatalogIndex.Sol, _timeProvider.GetUtcNow(), site.Latitude, site.Longitude, out _, out _, out _, out var sunAltDeg, out _))
         {
             _logger.LogWarning("Could not compute solar altitude for the sky-flat window gate; proceeding without it.");
             return false;

@@ -84,6 +84,48 @@ internal partial record Session
     private IDeviceHub? DeviceHub => ServiceProvider.GetService<IDeviceHub>();
 
     /// <summary>
+    /// The one site this run is on: settled once its mount is connected (<see cref="SettleSiteAsync"/>), and
+    /// until then the site the request named, if any. The limit poll's altitude, the sky-flat window and the
+    /// frames' site cards all read it, so nothing in a run computes on a second site.
+    /// </summary>
+    internal SiteCoordinates? Site => _settledSite ?? SiteCoordinates.From(Configuration.SiteLatitude, Configuration.SiteLongitude, null);
+
+    private volatile SiteCoordinates? _settledSite;
+
+    /// <summary>
+    /// Settles <see cref="Site"/> and gives the mount that site. A site the request names is the run's,
+    /// whoever else has one. Otherwise the mount's own is reconciled with the profile's under the profile's
+    /// tie-breaker, the rule the GUI applies when a mount connects: a mount with no site takes the profile's,
+    /// and where both have one the tie-breaker decides. Only the mount-side half is applied here; the
+    /// profile's is its writer's (#798).
+    /// </summary>
+    /// <returns>Whether the mount was given a site.</returns>
+    /// <remarks>
+    /// The limit poll used to take its altitude from the configured site alone, so a run whose request named
+    /// no site computed a NaN altitude all night, which <see cref="MountLimits.Evaluate"/> reads as "skip the
+    /// horizon test": since #799 that was every such run on a server under the mount-wins default.
+    /// </remarks>
+    private async ValueTask<bool> SettleSiteAsync(IMountDriver mount, CancellationToken cancellationToken)
+    {
+        if (SiteCoordinates.From(Configuration.SiteLatitude, Configuration.SiteLongitude, null) is { } asked)
+        {
+            await mount.SetSiteAsync(asked, cancellationToken).ConfigureAwait(false);
+            _settledSite = asked;
+            _logger.LogInformation("Mount site synced to the requested lat={Latitude:F4}, lon={Longitude:F4}", asked.Latitude, asked.Longitude);
+            return true;
+        }
+
+        var decision = await mount.ReconcileSiteAsync(Setup.ProfileSite, Setup.SiteTieBreaker, _logger, cancellationToken).ConfigureAwait(false);
+        _settledSite = decision.Site;
+        if (decision.Site is null)
+        {
+            _logger.LogWarning("No site: the request, the mount and the profile name none, so nothing that needs one can be computed, the horizon limit included.");
+        }
+
+        return decision.PushToMount;
+    }
+
+    /// <summary>
     /// <see cref="AcquireEquipment"/> with the run-entry failure protocol both callers were repeating:
     /// a conflict is a plain failure (log + <see cref="FailureReason"/> + <see cref="SessionPhase.Failed"/>),
     /// reported as <see langword="null"/> so the caller's <c>using var</c> takes the lease set straight
@@ -322,14 +364,10 @@ internal partial record Session
         // try set the time to our time if supported
         await mount.Driver.SetUTCDateAsync(_timeProvider.GetUtcNow().UtcDateTime, cancellationToken);
 
-        // Sync site coordinates from session configuration to mount
+        // The one site this run is on, which the mount is given when it has another.
         _logger.LogDebug("Init: site config lat={Latitude}, lon={Longitude}", Configuration.SiteLatitude, Configuration.SiteLongitude);
-        if (!double.IsNaN(Configuration.SiteLatitude) && !double.IsNaN(Configuration.SiteLongitude))
+        if (await SettleSiteAsync(mount.Driver, cancellationToken).ConfigureAwait(false))
         {
-            await mount.Driver.SetSiteLatitudeAsync(Configuration.SiteLatitude, cancellationToken);
-            await mount.Driver.SetSiteLongitudeAsync(Configuration.SiteLongitude, cancellationToken);
-            _logger.LogInformation("Mount site synced to lat={Latitude:F4}, lon={Longitude:F4}", Configuration.SiteLatitude, Configuration.SiteLongitude);
-
             // Diagnostic snapshot: did setting the site (which re-runs MaybeSyncToPoleAfterSiteSet on
             // the SkyWatcher) shift/zero the believed pointing? Compare RA/Dec to the post-connect line.
             _logger.LogDebug(
@@ -339,14 +377,10 @@ internal partial record Session
                 await _logger.CatchAsync(mount.Driver.GetRightAscensionAsync, cancellationToken, double.NaN),
                 await _logger.CatchAsync(mount.Driver.GetDeclinationAsync, cancellationToken, double.NaN));
         }
-        else
-        {
-            _logger.LogWarning("Init: site coordinates not set (NaN), mount will use defaults");
-        }
 
-        // Site coordinates for the per-camera denorm stamp (read once; fixed for the session).
-        var siteLatitude = await mount.Driver.GetSiteLatitudeAsync(cancellationToken);
-        var siteLongitude = await mount.Driver.GetSiteLongitudeAsync(cancellationToken);
+        // The run's site for the per-camera denorm stamp (fixed for the session).
+        var siteLatitude = Site?.Latitude ?? double.NaN;
+        var siteLongitude = Site?.Longitude ?? double.NaN;
         for (var i = 0; i < Setup.Telescopes.Length; i++)
         {
             await ConnectTelescopeAsync(Setup.Telescopes[i], i, siteLatitude, siteLongitude, cancellationToken).ConfigureAwait(false);

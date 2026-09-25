@@ -503,8 +503,9 @@ internal partial record Session(
                 IsTracking: isTracking,
                 RaJ2000: raJ2000,
                 DecJ2000: decJ2000,
-                Altitude: SiteContext.Create(Configuration.SiteLatitude, Configuration.SiteLongitude, _timeProvider)
-                    .AltitudeDegrees(hourAngle, dec),
+                // On the run's one site. The configured site alone left a run that named none at NaN all
+                // night, which switches the horizon test off (#798).
+                Altitude: SiteContext.AltitudeDegrees(Site?.Latitude ?? double.NaN, hourAngle, dec),
                 PrimaryAxisAngleDeg: primaryAxisAngleDeg);
 
             // Accept the reported pier side ONLY on the edge where a slew has just finished. A goto is
