@@ -107,18 +107,11 @@ namespace TianWen.UI.Abstractions
         /// <summary>Whether the display needs a redraw.</summary>
         public bool NeedsRedraw { get; set; }
 
-        /// <summary>Sensible defaults for all required SessionConfiguration fields.</summary>
-        public static SessionConfiguration DefaultConfiguration { get; } = new SessionConfiguration(
-            SetpointCCDTemperature: new SetpointTemp(-10, SetpointTempKind.Normal),
-            CooldownRampInterval: TimeSpan.FromMinutes(5),
-            WarmupRampInterval: TimeSpan.FromMinutes(5),
-            MinHeightAboveHorizon: 20,
-            DitherPixel: 5.0,
-            SettlePixel: 1.0,
-            DitherEveryNthFrame: 3,
-            SettleTime: TimeSpan.FromSeconds(10),
-            GuidingTries: 3
-        );
+        /// <summary>
+        /// The declared defaults, the same ones every host starts from (the parameterless constructor), so
+        /// the GUI and a session started over the API cannot disagree about them.
+        /// </summary>
+        public static SessionConfiguration DefaultConfiguration { get; } = new SessionConfiguration();
 
         /// <summary>
         /// Returns true if the profile has changed since the last initialization

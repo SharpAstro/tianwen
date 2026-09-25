@@ -35,6 +35,7 @@ namespace TianWen.Lib.Tests.Functional;
 [Collection("Hosting")]
 #pragma warning disable CS8774 // MemberNotNull on InitializeAsync; xUnit guarantees init before tests
 #pragma warning disable CS8602 // Dereference of possibly null; same reason
+#pragma warning disable CS8604 // Possibly null argument; same reason
 public class NodeRunLifecycleTests(ITestOutputHelper outputHelper) : IAsyncLifetime
 {
     private static readonly Guid ProfileId = new Guid("5a1ec7ed-0b0e-4e5d-9a5e-000000000001");
@@ -268,6 +269,54 @@ public class NodeRunLifecycleTests(ITestOutputHelper outputHelper) : IAsyncLifet
         options.ShutdownTimeout.ShouldBeGreaterThanOrEqualTo(TimeSpan.FromMinutes(15), "the default 30 s cut every warm-up off");
     }
 
+    // --- What a start runs on (P0b item 10) -------------------------------------------------------
+
+    [Fact(Timeout = 30_000)]
+    public async Task AStartWithNoBodyRunsOnTheDeclaredDefaults()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        _factory.Initialised.SetResult();
+
+        var session = await StartAsync(ct);
+
+        // Declared values, never compared with new SessionConfiguration(), which on the old code WAS the zeros.
+        double.IsNaN(session.Configuration.SiteLatitude).ShouldBeTrue("the zero-filled configuration synced the mount's site to 0, 0");
+        session.Configuration.AutoFocusStepCount.ShouldBe(9);
+        session.Configuration.WarmCamerasOnSessionEnd.ShouldBeTrue();
+        session.Configuration.GuidingTries.ShouldBe(3);
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task TheClientsOwnConfigurationReachesTheRun()
+    {
+        // JsonContent goes chunked, with no Content-Length, and a body read only when Content-Length > 0
+        // was never read: the client's configuration fell on the floor and the run used the zeros.
+        var ct = TestContext.Current.CancellationToken;
+        _factory.Initialised.SetResult();
+        var asked = new SessionConfiguration() with { AutoFocusStepCount = 7, SiteLatitude = -37.8136, SiteLongitude = 144.9631 };
+        var client = new TianWen.RemoteClient.TianWenNodeClient(_client);
+
+        var result = await client.StartSessionAsync(ProfileId, TianWen.Hosting.Dto.SessionConfigApiDto.FromConfiguration(asked), ct);
+
+        result.IsSuccess.ShouldBeTrue(result.Error);
+        var session = _factory.Created.Single();
+        await session.Started.Task.WaitAsync(ct);
+        session.Configuration.ShouldBe(asked);
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task AMalformedConfigurationIsRefusedNotRunOnDefaults()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        _factory.Initialised.SetResult();
+        using var body = new StringContent("{ not json", System.Text.Encoding.UTF8, "application/json");
+
+        var status = await EnvelopeStatusAsync(_client.PostAsync($"/api/v1/session/start?profileId={ProfileId}", body, ct), ct);
+
+        status.ShouldBe(400);
+        _factory.Created.ShouldBeEmpty("a caller's mistake is answered, never run on defaults it did not ask for");
+    }
+
     private sealed class ControlledSessionFactory : ISessionFactory
     {
         public TaskCompletionSource Initialised { get; } = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -286,7 +335,7 @@ public class NodeRunLifecycleTests(ITestOutputHelper outputHelper) : IAsyncLifet
 
         public ISession Create(Guid profileId, in SessionConfiguration configuration, ReadOnlySpan<ScheduledObservation> observations)
         {
-            var session = new ControlledSession();
+            var session = new ControlledSession(configuration);
             Created.Enqueue(session);
             return session.Session;
         }
@@ -299,8 +348,9 @@ public class NodeRunLifecycleTests(ITestOutputHelper outputHelper) : IAsyncLifet
         private int _disposals;
         private int _disposedWhileRunning;
 
-        public ControlledSession()
+        public ControlledSession(SessionConfiguration configuration)
         {
+            Configuration = configuration;
             Session = Substitute.For<ISession>();
             Session.RunAsync(Arg.Any<CancellationToken>()).Returns(call => RunAsync(call.Arg<CancellationToken>()));
             Session.RunFlatsOnlyAsync(Arg.Any<TwilightPeriod>(), Arg.Any<CancellationToken>())
@@ -317,6 +367,7 @@ public class NodeRunLifecycleTests(ITestOutputHelper outputHelper) : IAsyncLifet
         }
 
         public ISession Session { get; }
+        public SessionConfiguration Configuration { get; }
         public CancellationToken RunToken { get; private set; }
         public TaskCompletionSource Started { get; } = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource Cancelled { get; } = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

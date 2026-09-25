@@ -1,10 +1,12 @@
 ﻿using System;
 using System.Collections.Immutable;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using TianWen.Lib.Devices;
@@ -79,21 +81,27 @@ internal static class SessionEndpoints
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
-            // Try to read optional config from body
-            SessionConfiguration config = new SessionConfiguration();
-            if (httpContext.Request.ContentLength > 0)
+            // The configuration: the body's fields over the declared defaults. The body is read whatever its
+            // framing, since the client's own JsonContent goes chunked with no Content-Length and used to be
+            // ignored; and a body that does not parse is the caller's mistake, answered as one, never a run on
+            // the defaults the caller did not ask for.
+            var config = new SessionConfiguration();
+            if (HasBody(httpContext))
             {
+                SessionConfigApiDto? configDto;
                 try
                 {
-                    var configDto = await httpContext.Request.ReadFromJsonAsync(HostingJsonContext.Default.SessionConfigApiDto, ct);
-                    if (configDto is not null)
-                    {
-                        config = configDto.ToConfiguration();
-                    }
+                    configDto = await httpContext.Request.ReadFromJsonAsync(HostingJsonContext.Default.SessionConfigApiDto, ct);
                 }
-                catch
+                catch (Exception ex) when (ex is JsonException or InvalidOperationException)
                 {
-                    // Body parsing failed: use defaults
+                    return Results.Json(
+                        ResponseEnvelope<string>.Fail($"Malformed session configuration: {ex.Message}", 400),
+                        HostingJsonContext.Default.ResponseEnvelopeString);
+                }
+                if (configDto is not null)
+                {
+                    config = configDto.ToConfiguration();
                 }
             }
 
@@ -189,16 +197,16 @@ internal static class SessionEndpoints
             // Optional body: source / period / flat knobs. Absent body = calibrator defaults. Validate the
             // request shape before the profile lookup so a bad source/period surfaces regardless of profile.
             FlatsRequestDto? request = null;
-            if (httpContext.Request.ContentLength > 0)
+            if (HasBody(httpContext))
             {
                 try
                 {
                     request = await httpContext.Request.ReadFromJsonAsync(HostingJsonContext.Default.FlatsRequestDto, ct);
                 }
-                catch
+                catch (Exception ex) when (ex is JsonException or InvalidOperationException)
                 {
                     return Results.Json(
-                        ResponseEnvelope<string>.Fail("Malformed flats request body"),
+                        ResponseEnvelope<string>.Fail($"Malformed flats request body: {ex.Message}"),
                         HostingJsonContext.Default.ResponseEnvelopeString);
                 }
             }
@@ -241,8 +249,10 @@ internal static class SessionEndpoints
             // The first run after a launch waits for the node's discovery, on the request's token.
             await hosted.WhenInitialisedAsync(ct);
 
-            // Site is left at NaN so RunFlatsOnlyAsync falls back to the mount's own configured site
-            // (the headless rig's mount carries its site); only the flat knobs are overlaid onto defaults.
+            // The declared defaults with the flat knobs overlaid. The site is left unset: the factory takes the
+            // profile's when the profile is the site's authority, and otherwise RunFlatsOnlyAsync falls back to
+            // the mount's own (the headless rig's mount carries its site). It was 0, 0 until the defaults
+            // stopped being zeros.
             var defaults = new SessionConfiguration();
             var config = defaults with
             {
@@ -482,6 +492,13 @@ internal static class SessionEndpoints
 
         return group;
     }
+
+    /// <summary>
+    /// Whether the request carries a body: a Content-Length above zero or a chunked one. Keying on
+    /// Content-Length alone skipped every chunked body, which is what <c>JsonContent</c> sends.
+    /// </summary>
+    private static bool HasBody(HttpContext httpContext)
+        => httpContext.Features.Get<IHttpRequestBodyDetectionFeature>() is { CanHaveBody: true };
 
     /// <summary>
     /// Projects the host's live prompt onto its wire shape. Separate from
