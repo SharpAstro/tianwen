@@ -46,6 +46,8 @@ Snapshot taken 2026-08-29 against the codebase at `ca107495`. No prior document 
 
 ## Highest-leverage additions, ranked
 
+Tracked by #831.
+
 1. **A `Quantity`/`Unit` type.** The most foundational gap -- WCS, coordinates and time would all
    become safer and more Astropy-like sitting on top of one, and every raw-`double`-plus-naming-
    convention call site is a latent unit-mismatch bug. Design sketch below.

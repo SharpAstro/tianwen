@@ -252,7 +252,7 @@ finalization on the normal release path so only genuine leaks ever reach the que
 | P0 | **DONE 2026-08-23.** | -- |
 | P1 | **DONE 2026-08-23.** The measurement refuted always-copy and the answer turned out to be neither candidate. | -- |
 | P2 | **DONE 2026-08-23**, reshaped as planned: explicit tracking, no finalizer. | -- |
-| P3 | **PARTIAL 2026-08-23.** Gap 4 closed, master building pooled, audit done. The rest needs a `FrameCache` ownership model. | A `FrameCache` redesign (its weak tier cannot hold pooled frames), plus releases at the `LoadFullAsync` consumers. |
+| P3 | **PARTIAL 2026-08-23** (#853). Gap 4 closed, master building pooled, audit done. The rest needs a `FrameCache` ownership model. | A `FrameCache` redesign (its weak tier cannot hold pooled frames), plus releases at the `LoadFullAsync` consumers. |
 | P4 | **DONE 2026-08-23.** | -- |
 
 **So: yes to starting, no to starting at P1.** P0 and P2 are independent and low-risk, and between them
@@ -435,6 +435,8 @@ those strategies to release first. The prediction is no longer an ownership guar
 pooling decision, which is a different and legitimate question.
 
 ## What P3 shipped, and the audit that changed its second half (2026-08-23)
+
+Tracked by #853.
 
 **Gap 4 is closed.** `Array2DPool<T>.Enabled` is a `volatile` field behind the property instead of a
 plain auto-property, matching the `Volatile.Read` every counter beside it already used. A

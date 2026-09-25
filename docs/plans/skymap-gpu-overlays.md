@@ -34,6 +34,8 @@ never touch RA/Dec coordinates.
 
 ## Phase 2: Planet dots -> already GPU
 
+Tracked by #891.
+
 `FillCircle` delegates to `VkRenderer.FillEllipse` (EllipsePipeline GPU shader).
 Already GPU-rendered. The CPU cost is just VSOP87a position computation + 9 method calls.
 
@@ -84,6 +86,8 @@ grid labels rendered in ~1 draw call total instead of ~100+ individual
 DrawText calls.
 
 ## Phase 4: Kill the CPU RA/Dec grid scan (meridian lag fix)
+
+Tracked by #892.
 
 **Problem.** Overlay markers already render GPU-side (`VkOverlayShapes`), but
 `OverlayEngine.ComputeSkyMapOverlays` scans the RA/Dec grid cell-by-cell on

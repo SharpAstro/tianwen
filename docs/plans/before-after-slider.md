@@ -180,6 +180,8 @@ precisely the peak that matters.
 
 ## Phasing
 
+Tracked by #833.
+
 | Phase | What | Status |
 |-------|------|--------|
 | P0 | **DONE. Split-draw mechanism.** `VkFitsImagePipeline.RecordSplitImageDraw(...)`: grow the descriptor pool, allocate a second UBO set + a second sampler set, set/restore scissor around two draws. `ViewerState.SplitFraction` (0-1, `null` = off). | DONE |

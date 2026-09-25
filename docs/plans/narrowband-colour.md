@@ -152,6 +152,8 @@ SHO from an OSC.
 
 ## Status: NOT STARTED (research ongoing 2026-08-02 through 2026-08-28; nothing built yet)
 
+Tracked by #874, #875, #876.
+
 **P1 scope, for a reader arriving from [pixinsight-parity.md](pixinsight-parity.md):** Phases 1+2
 only -- robust plane normalization + the named-preset palette mixer (ADR-1's own decision). No new
 data dependency, ~1 day of core effort per the comparison table below, and it fixes the actual
@@ -1417,6 +1419,8 @@ values.
   does not bar them.
 
 ## Deferred
+
+Tracked by #875.
 
 - ~~AstroColorMixer's actual model~~ and ~~`VeraLux_Curves.py` (not read)~~: **both closed 2026-08-02.**
   Curves was read and turned out to be the same role with visible maths, so it supersedes the

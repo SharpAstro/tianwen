@@ -54,6 +54,8 @@ rgb           = bv_to_rgb(weighted_mean_bv) * normalise(sqrt(visible))
 
 ### 🟡 Phase 3: Bake from Real Data (CURRENT)
 
+Tracked by #893.
+
 Replace the analytical placeholder with a two-step physically-motivated bake:
 
 - [x] **Tool rewrite**: `tools/generate_milkyway.cs` (.NET 10 file-based app,
@@ -74,6 +76,8 @@ Replace the analytical placeholder with a two-step physically-motivated bake:
 - [ ] Bake + commit the real-data `milkyway.bgra.lz` once Phase 4 ships.
 
 ### 🔴 Phase 4: Planck Dust Extinction HEALPix Reader
+
+Tracked by #893.
 
 Needed to produce the `--dust-opacity` input for `generate_milkyway.cs`. Two
 options:
@@ -106,6 +110,8 @@ extinction warnings for deep-sky targets). The file is roughly
 build-time input is fine, or we cache it in AppData on first run.
 
 ### 🔴 Phase 5: Brightness + Atmosphere Integration
+
+Tracked by #894.
 
 Already largely present in Phase 1 (sun altitude fade), but can be extended:
 

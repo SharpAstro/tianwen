@@ -57,6 +57,8 @@ brightness are functions of time, computed locally from cached orbital elements.
 
 ## Deferred (Phase 4 / later)
 
+Tracked by #836, #838.
+
 - **Per-object Horizons ephemeris** for a *pinned* comet over the plan window (sub-arcsec vs the
   arcminute two-body approximation); mainly buys accurate **non-sidereal tracking rates**
   (`IMountDriver.SetRightAscensionRateAsync` / `SetDeclinationRateAsync` exist but nothing calls them

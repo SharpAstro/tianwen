@@ -95,6 +95,8 @@ in `Image.Arithmetic.cs` (probably need to add them).
 
 ### 1.3 SCNR Green AverageNeutral with `preserveLightness=true` (have it, missing one flag)
 
+Tracked by #826.
+
 ```javascript
 P = new SCNR;
 P.amount = 1.00;
@@ -116,6 +118,8 @@ by `(L_before / L_after)` per pixel. ~30 LOC addition to
 
 ### 1.4 Composite: `StarStretch` workflow command
 
+Tracked by #826.
+
 Once 1.2 + 1.3 land, the Frank-parity flow is a tiny orchestration:
 
 ```csharp
@@ -133,6 +137,8 @@ no AI dep. CLI surface: a `tianwen image starstretch <input> [options]`
 verb -- or just exposed via `SharpenRequest`.
 
 ## 2. Per-plate stretch ("B")
+
+Tracked by #827.
 
 Today the orchestrator returns `Starless`, `StarsOnly`, `SharpenedStars`,
 `DeconvolvedStarless` as separate `Image` instances (all in linear units)

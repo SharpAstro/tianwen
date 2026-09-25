@@ -116,6 +116,8 @@ monitoring are separate, already-built capabilities that can layer on afterward 
 
 ## Phasing (revised)
 
+Tracked by #829.
+
 1. **P0: atlas-only shell**: `TianWen.UI.Android` boots straight into `SkyMapTab` (from
    `TianWen.UI.Shared`) via SdlVkR's `SDLActivity` -- no planner, no session, no device layer. Touch
    pan/pinch/tap-to-select works (already SDL-finger-event-driven, per `android-host.md`'s original

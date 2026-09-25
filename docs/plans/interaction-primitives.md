@@ -126,6 +126,8 @@ public sealed class PanZoomController
 
 ## Phases
 
+Tracked by #867.
+
 | Phase | Repo / release | Content |
 |-------|----------------|---------|
 | P1 | DIR.Lib 6.15 | **✅ DONE (2026-07-21).** `TapOrDragGesture` + `ListScrollController` + `PanZoomController` + headless unit tests (accumulate/clamp/snap, slop arm->tap vs arm->drag + suppression, EnsureVisible+margin, thumb grip math -- unify with Console.Lib `ScrollableList`'s structurally-identical formula, bottom-anchor mode, clip-only degenerate mode, axis parameter). API frozen only after every inventory row maps onto it on paper. 36 new tests green; full DIR.Lib suite 507/0. See "P1 shipped" below. |

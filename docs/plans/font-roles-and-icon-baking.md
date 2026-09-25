@@ -48,6 +48,8 @@ ahead of them a caret is drawn from a multi-megabyte CJK font.
 
 ## Phases
 
+Tracked by #850.
+
 | Phase | Work | Repo | Notes |
 |---|---|---|---|
 | **F1** | **PARTLY DONE** (DIR.Lib 8.7). `FontResolver.ResolveEmojiFont(extra)` shipped with per-OS tables; `""` on miss, matching `ResolveSystemFont`. `ResolveSymbolFont(extra)` is NOT done | DIR.Lib | Windows `seguiemj` / macOS Apple Color Emoji / Linux Noto Color Emoji all landed. The SYMBOL face (`seguisym`, Apple Symbols, DejaVu) is still outstanding, and is what would cover the non-emoji pictographs an emoji font lacks. Bundled assets arrive via `extra`, so DIR.Lib needs no knowledge of a caller's layout |
@@ -62,6 +64,8 @@ F1-F3 and B1-B3 are independent. **Nothing else is blocked on either**: the tool
 without them, using the interim resolver plus a geometric fallback.
 
 ### Where the bake actually landed, and why not here
+
+Tracked by #851.
 
 B1 was planned as `tools/BakeIcons` in this repo, mirroring `tools/BakeShaders`. It shipped in **DIR.Lib**
 instead, split in two, and the split is the part worth keeping straight:

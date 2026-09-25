@@ -23,6 +23,8 @@ and a `SegmentationImage`; this plan adds their shapes as pure image-plus-number
 
 ## Phases
 
+Tracked by #898.
+
 | Phase | What | Status |
 |---|---|---|
 | P0 | This plan; the gap rows in the astropy-parity index; a summary row | DONE 2026-09-14 |

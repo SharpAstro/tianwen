@@ -520,6 +520,8 @@ the FOV bucketing right beside it bought nothing. Take the step from the **bucke
 
 ## Deferred
 
+Tracked by #906.
+
 - Full Tycho-2 catalog in the browser. The render pipeline is **ready**; the instanced
   `DrawInstanced` path renders 2.5M stars fine (WebGL2; the desktop Vulkan proves the scale), so
   this is a data + payload change, not a code change. But it's a **data-delivery problem, not a
@@ -537,6 +539,8 @@ the FOV bucketing right beside it bought nothing. Take the step from the **bucke
 - IndexedDB-backed profile storage (v1 uses manual site entry + localStorage pins).
 
 ## Open items
+
+Tracked by #907.
 
 - Confirm CORS on the JPL SBDB comet endpoint from a github.io origin (else comets degrade to
   "no repository" - the planner/atlas both handle a null `ICometRepository`).

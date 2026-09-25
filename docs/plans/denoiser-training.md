@@ -475,6 +475,8 @@ and the decision to promote is the user's. Record it as such rather than as a pe
 
 ## 7. Phasing
 
+Tracked by #846, #847.
+
 | Phase | Deliverable | Exit |
 |---|---|---|
 | D0 | **DONE 2026-09-02.** Trainer in the repo with a requirements pin and no machine paths; both shipped v19d seed-2 checkpoints reproduce bit for bit, judged tensor for tensor | E0 passed |
@@ -550,6 +552,8 @@ this at a single sub it is out of range on the high side, exactly as v19d was on
 measurement would settle it and none has been taken.
 
 ## 8. Open questions
+
+Tracked by #847.
 
 - **ANSWERED 2026-09-06, and not the way it was asked. "N of 3 seeds failed the gate" is not a fact
   about an arm.** The question above proposed re-deriving 0.82x per plane bucket, on the theory that

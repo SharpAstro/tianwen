@@ -369,6 +369,8 @@ the live path; v1 single-filter only.
 
 ### K. Bayer pre-debayer stacking (deferred, but reserve the seam)
 
+Tracked by #901.
+
 When stacking raw CFA Bayer frames, current plan: **debayer first** (existing
 `Image.DebayerAsync` path), then stack on 3-channel images. Matches SetiAstro's
 default and avoids per-Bayer-quadrant arithmetic complexity.
@@ -578,6 +580,8 @@ thread; consumer (UI render) reads `MeanSnapshot`. Snapshot rebuilds on
 UI state = `ImmutableArray<T>` atomic replace" pattern (per CLAUDE.md).
 
 ### Phase 15: Session integration, per-target live preview
+
+Tracked by #899.
 
 This is the **user-facing live stacking story**. Replaces the original
 plan's "GUI stacking tab" entirely; the existing `LiveSessionTab` in
@@ -979,6 +983,8 @@ FITS.Lib has no sub-rectangle API, so a 256² read still allocates the full 36 M
 plane. PartialFitsReader's tile read is what TilePipelined actually drives.
 
 ### Open follow-ups (Phase 8.x)
+
+Tracked by #900.
 
 - **Producer double-work elimination** -- on the 2026-05-17 SoL 60s run,
   predicted 772 s for Float16Staged-with-spill but actual was 1497 s (1.94x

@@ -438,6 +438,8 @@ front of the pipeline role.
 
 ## Phasing
 
+Tracked by #832.
+
 | Phase | Scope | Notes |
 |-------|-------|-------|
 | 1 | **DONE 2026-09-02.** `IBackgroundExtractor` + the stiff polynomial stage of `ClassicalBackgroundExtractor`: robust 2/4-sigma iteration to automatic convergence, structure protection, normalised coordinates, degree 0 to 6, block-mean working grid, per-plane level preservation, CFA mosaics per photosite colour, exclusion polygons, divide mode. Headless API + 30 synthetic tests. | The default for the unattended pipeline role; see "Implementation". |

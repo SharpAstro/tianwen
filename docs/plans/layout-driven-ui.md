@@ -172,6 +172,8 @@ to w=0), caught via the live `describe_layout` tree.
 
 ## Remaining direct-draw inventory (audit 2026-07-21)
 
+Tracked by #868.
+
 Per-file grep of `FillRect` / `DrawText` / line-circle / `RenderButton` across the tab + viewer files,
 sorted into the three buckets. Buckets 1-2 are **by design** (see the taxonomy above); bucket 3 is the
 actual remaining convertible work.

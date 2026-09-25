@@ -72,6 +72,8 @@ offers one is unverified.
 
 ### P2: calibrate it against our own nights
 
+Tracked by #887.
+
 The heuristic is somebody's guess with round numbers. We can do better than copying it, because we hold
 the ground truth it is guessing at:
 
@@ -83,6 +85,8 @@ the ground truth it is guessing at:
    nights. Report the correlation honestly; if it is weak, say so in the planner label.
 
 ### P3 (optional): 7Timer as a second source
+
+Tracked by #888.
 
 Desktop only, as a weather source whose seeing class overrides the P1 heuristic when present, the way
 astrophoto.app layers it. The browser would need a bake or a proxy (no CORS), so it is out of scope

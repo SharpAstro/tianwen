@@ -183,6 +183,8 @@ once instead of inlining in every device class.
 
 ### OnStep cold-start
 
+Tracked by #890.
+
 OnStep ESP32 controllers can take ~1–2s to respond on first connect after a
 cold boot. Currently each source budgets 250ms and gives up. With centralization:
 
@@ -257,6 +259,8 @@ discovery loop.
 
 ### Phase 2: Logger scopes everywhere (independent quick win)
 
+Tracked by #889.
+
 - [ ] In each existing source's per-port probe loop, add
       `using var scope = logger.BeginScope(new { port, baud, source = "OnStep" })`
       around the open/probe/close block. This *immediately* fixes the "logs
@@ -328,6 +332,8 @@ Each migration was one commit:
       as the default when a URI's query has no explicit `?baud=`. Not dead.
 
 ## Risks & open questions
+
+Tracked by #890.
 
 - **`SerialPort` baud-rate change while open is unreliable** on some Windows
   drivers (FTDI vs CH340 vs CDC-ACM). Plan assumes close-then-reopen between

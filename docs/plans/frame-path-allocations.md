@@ -114,6 +114,8 @@ frame store: a 178-byte header, raw little-endian 8- or 16-bit frames, a timesta
 
 ## P4: polar alignment (about 1 Hz, 26 MP) and the remaining per-sub paths
 
+The FC.SDK.Raw decode buffers and the EVF decoder buffers left over here are tracked by #854.
+
 | Finding | Size and rate | Fix |
 |---|---|---|
 | Polar refine `Downsample` per frame (`IncrementalSolver.RefineAsync`, `Image.Transform`): a new float[h/f, w/f] per channel below 1.5"/px; full-solve iterations downsample twice more | 26 MB/s at f = 2 (61 MB/s on an IMX455) | **FIXED**: `Image.DownsampleRented` bins into planes from `Array2DPool` behind a `RentedImage` that returns them once (a class, so a copy cannot return them twice), and `IncrementalSolver` (seed and every refine) and `CatalogPlateSolver` return them as soon as the detection has read them; `Downsample` and the rented form share one loop, pinned bit-identical (a NaN block and the binned metadata included) after the pool was handed junk planes. Measured at 1024 x 768, factor 2: 787,184 bytes to 744. The incremental path had no active test (its seven target the retired centroid matcher, and at 1.55"/px would never bin); one now seeds and refines a 2x-binned frame to the seed's own solution. The seed's `SortedStarList` is now disposed when its quad build is cancelled |
@@ -213,4 +215,4 @@ range. `FramePathAllocationTests.APooledSixteenBitFitsReadAllocatesNoFrameSizedA
   collection gone, the trim runs only on natural gen2s.
 - **FITS.Lib's `Header.Simple` stamps the time of writing into the `SIMPLE` card's comment**, so no two
   writes of the same image are the same file. Harmless, but it defeats byte comparison and dedup; a
-  deterministic comment would restore both.
+  deterministic comment would restore both. Tracked by #855.
