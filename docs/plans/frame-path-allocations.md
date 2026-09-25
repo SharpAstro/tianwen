@@ -4,7 +4,7 @@
 DONE (2026-09-24, #365): what is left is the SER frame ring (P2), the sibling libraries' own buffers, and
 three rows kept on purpose; P5 DONE (2026-09-25, #755, with FITS.Lib 6.2).**
 Raised by the user on 2026-09-24: "if we have allocations that are useless already right now, we should
-remove them prior to this server change" (the hardware-in-the-server plan, not yet on `main`). A
+remove them prior to this server change" ([hardware-in-the-server](hardware-in-the-server.md), #751). A
 read-only sweep of every capture path the same day found the items below; each carries the file, the
 size, the rate and the cheapest fix it named. Rates assume a 26 MP main-camera sub every 60 to 300 s, a
 2 MP guide frame every 1 to 2 s and a 640 x 480 planetary ROI at 60 to 200 fps. Line numbers drift;
