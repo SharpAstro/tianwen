@@ -23,6 +23,12 @@ does it** (`Closes #n`), so it cannot drift from the code, which is the whole re
 same task used to be kept in `TODO.md`, an area file, a plan and a tracking issue, and a PR landing
 updated at most one of them. **Never write a new open `- [ ]` into `TODO.md` or `docs/todo/`**; open an
 issue (`gh issue create --label area:...`). A plan keeps the design and the *why*, and names its issue.
+**The link runs both ways, down to the paragraph** (user, 2026-09-25):
+- An issue for a planned feature links the plan's SECTION: a heading anchor on `main`, such as
+  `docs/plans/planetary-stacking.md#e-de-rotation-winjupos-style`.
+- The plan names the issue at that section.
+- A bold-lead paragraph cannot be linked, so give it a heading first.
+- A plan's open item with no issue is untracked work, whatever its status table says.
 
 Canonical project state otherwise lives in these markdown files; read the relevant ones before starting
 non-trivial work:
