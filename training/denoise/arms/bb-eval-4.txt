@@ -1,0 +1,8 @@
+# Broadband eval (2026-09-25, run-bb.ps1): the broadband sessions of 2026-09-25-full's own test split that
+# have half-masters, so a model can be scored on half_a against the independent half_b. Seven more broadband
+# test sessions have none by design (a drizzled session needs 120 subs for halves, SessionRegistrar), so this
+# is 4 fields on 3 rigs. Held out of every training arm by the bake's stable hash bucket.
+QHYCCD-QHY294C/IDAS-LPS-D3/Small-Magellanic-Cloud/2026-08-01|QHY294PROC|Small Magellanic Cloud
+Uranus-C-IMX585/Baader-Semi-APO/Lagoon-and-Trifid/2023-08-03|Uranus-C (IMX585)|M 8 + M 20
+Uranus-C-IMX585/Baader-Semi-APO/Small-Magellanic-Cloud/2023-07-29|Uranus-C (IMX585)|SMC 180mm U-C 2min
+ZWO-ASI585MC-Pro/Unidentified-Broadband/Carina-Wide/2025-03-19|ZWO ASI585MC Pro|24mm ASI585 30s 13o 252g 65r 65b

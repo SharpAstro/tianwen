@@ -51,7 +51,12 @@ TILE = 256
 BORDER = 16                      # n2n_metrics.crop drops this many pixels per edge
 CROP = TILE - 2 * BORDER
 
-BAKES = [r'D:/Astro-Dataset/2025-2026-organized', r'D:/Astro-Dataset/2025-2026-darkscaled']
+# Where a session's master is looked up, first match wins. TIANWEN_BAKES (os.pathsep-separated) goes IN
+# FRONT, for a cache prepared from another bake: its cells' pixel coordinates belong to THAT bake's master,
+# so pair it with its own TIANWEN_SOLVED_MASTERS, or a session present in both bakes reuses a WCS solved
+# on the other one's master.
+BAKES = [b for b in os.environ.get('TIANWEN_BAKES', '').split(os.pathsep) if b] + \
+        [r'D:/Astro-Dataset/2025-2026-organized', r'D:/Astro-Dataset/2025-2026-darkscaled']
 SOLVED_DIR = os.environ.get('TIANWEN_SOLVED_MASTERS', r'C:/temp/e2/gaia/solved')
 CLI = os.environ.get('TIANWEN_CLI',
                      r'C:/Users/SebastianGodelet/source/repos/sharpastro/tianwen/src/TianWen.Cli/bin/Debug/net10.0/tianwen.exe')

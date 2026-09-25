@@ -1,0 +1,4 @@
+# Token train half for the bb-eval-4 cache (the eval scores only the val half): two narrowband sessions
+# outside the test split, 5 cells each.
+SVBONY-SV605CC/Optolong-L-Quad-Enhance/Pleiades/2025-10-28|SVBONY SV605CC|Pleiades|Optolong L-Quad Enhance
+SVBONY-SV605CC/Optolong-L-Quad-Enhance/Skull-and-Crossbones-Nebula/2026-02-14|SVBONY SV605CC|Skull and Crossbones Nebula|Optolong L-Quad Enhance
