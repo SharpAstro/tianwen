@@ -15,9 +15,10 @@ model this deliberately is *not* yet).
   plane.
 - **ninaAPI v2 shim** (`/v2/api/`): single-OTA (maps to OTA[0]), PascalCase JSON, GET for everything.
 
-`IHostedSession` holds `ISession?`, `ActiveProfileId`, `PendingTargets` (pre-session queue, drained
-into `ScheduledObservation[]` at `/session/start`), `PendingSchedule`, the outstanding
-`PendingPrompt`, and a `Notifications` ring. `EventBroadcaster` (`BackgroundService`) subscribes to
+`IHostedSession` holds the node's run (the one going on, or the last one to end, until the next start
+replaces it), `ActiveProfileId`, `PendingTargets` (pre-session queue, drained into
+`ScheduledObservation[]` at `/session/start`), `PendingSchedule`, the outstanding `PendingPrompt`, and
+a `Notifications` ring. `EventBroadcaster` (`BackgroundService`) subscribes to
 `PhaseChanged` / `FrameWritten` / `PlateSolveCompleted` / `ScoutCompleted` / `GuiderStateChanged` /
 `PromptRequested` and pushes through the dual pool of `EventHub`; it is also the node's
 **notification recorder** (it already watches every session event, so it writes what it broadcasts
@@ -25,7 +26,7 @@ into the ring).
 
 Run: `dotnet run --project TianWen.Server` or `tianwen-server [--port 1888]`.
 
-## Three invariants on the session plane
+## Four invariants on the session plane
 
 1. **A pushed schedule beats the target queue.** `POST /session/schedule` takes
    `ScheduledObservationDto[]` and preserves per-filter plans, the planner's altitude-optimised
@@ -45,6 +46,29 @@ Run: `dotnet run --project TianWen.Server` or `tianwen-server [--port 1888]`.
    `HostingJsonContext`, so every enum crosses as its ordinal. A request DTO with a `required` enum
    is therefore hostile to hand-written callers -- default it (as `ScheduledObservationDto.Priority`
    does) rather than forcing a caller to guess the number.
+4. **A run is the NODE's, never a request's** (P0b of
+   [../plans/hardware-in-the-server.md](../plans/hardware-in-the-server.md), #752). Every start
+   (`/session/start`, `/session/flats`, the shim's `sequence/start`) goes through
+   `IHostedSession.TryStartAsync`, which runs it on a token the node owns; `TryAbort` is the only thing
+   that cancels it, and the host stopping calls that. **Never pass a request's token to a run**:
+   Kestrel reuses a connection's cancellation source for its next request, so a later request on the
+   same connection that its client abandoned (what a GUI restarting does) cancelled the night, and a
+   token already cancelled made `Task.Run` skip the run while its session stayed published. The rest:
+   - **The run record is replaced whole, by compare-and-swap**, so two starts cannot both win, and a
+     run that has ENDED stays readable (`/state` shows how it ended) but never blocks the next start,
+     which disposes it before the new run touches the rig.
+   - **An abort cancels and lets the run end through its own `Finalise`**; the session is never
+     disposed underneath it (the old abort disconnected the drivers at once while the run carried on).
+   - **The host starts and stops `HostedSession`** (it was never registered as a hosted service, so
+     discovery never ran and a SIGTERM abandoned the rig). Discovery starts in the BACKGROUND, so the
+     server listens at once, and a start awaits it on the request's token, before draining anything.
+     Stopping aborts the run, awaits its `Finalise`, then warms and disconnects the hub's cameras
+     (`IDeviceHub.StopConnectedCamerasAsync`, the same tail the GUI's quit runs), inside
+     `HostedSession.ShutdownBudget` (30 min, set as `HostOptions.ShutdownTimeout`; the default 30 s cut
+     every warm-up off). **A service manager's own stop timeout must allow as long**: systemd
+     `TimeoutStopSec=35min`, or it kills the process mid-ramp.
+
+   Pinned by `NodeRunLifecycleTests`, all nine seen failing against the old code.
 
 ## Previews go through the shared stretch, never a private one
 

@@ -50,7 +50,7 @@ internal static class SessionEndpoints
         /// </summary>
         group.MapPost("/start", async (HttpContext httpContext, IHostedSession hosted, ISessionFactory factory, ITimeProvider timeProvider, CancellationToken ct) =>
         {
-            if (hosted.CurrentSession is not null)
+            if (hosted.IsRunning)
             {
                 return Results.Json(
                     ResponseEnvelope<string>.Fail("A session is already running", 409),
@@ -97,12 +97,18 @@ internal static class SessionEndpoints
                 }
             }
 
+            // Profiles and devices are discovered as the node starts, in the background, so the first start
+            // after a launch waits for them here, on the REQUEST's token: the waiting is the caller's. Before
+            // the drain, so a client that gives up waiting takes nothing it queued with it.
+            await hosted.WhenInitialisedAsync(ct);
+
             // A pushed schedule wins over the pending-target queue, because it is strictly richer: it
             // carries the planner's altitude-optimised Start per target, a per-filter exposure plan, and
             // AcrossMeridian, none of which PendingTarget can express. Falling back to the queue keeps
             // every existing caller (and the ninaAPI shim) working unchanged.
             var hs = hosted as HostedSession;
             var pushedSchedule = hs?.DrainSchedule() ?? [];
+            PendingTarget[] pendingTargets = [];
             ScheduledObservation[] observations;
             if (!pushedSchedule.IsDefaultOrEmpty)
             {
@@ -110,7 +116,7 @@ internal static class SessionEndpoints
             }
             else
             {
-                var pendingTargets = hs?.DrainTargets() ?? [];
+                pendingTargets = hs?.DrainTargets() ?? [];
                 // Start = now for every target: a bare PendingTarget carries no slot time, so the loop
                 // runs them back-to-back in list order (see WaitForScheduledStartAsync's same-Start
                 // short-circuit). This is exactly the fidelity loss POST /schedule exists to avoid.
@@ -139,25 +145,26 @@ internal static class SessionEndpoints
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
-            if (hs is not null)
+            // The run is the NODE's, on the node's token, never this request's: a client dropping its
+            // connection, or a GUI restarting, must not cancel a night. Caller polls /state for progress.
+            if (!await hosted.TryStartAsync(session, static (run, runToken) => run.RunAsync(runToken)))
             {
-                hs.SetSession(session);
-                hs.SetActiveProfile(profileId.Value);
+                await session.DisposeAsync();
+                // Lost a race with another start: what this one drained goes back for the next.
+                if (!pushedSchedule.IsDefaultOrEmpty)
+                {
+                    hosted.SetSchedule(pushedSchedule);
+                }
+                foreach (var target in pendingTargets)
+                {
+                    hosted.AddTarget(target);
+                }
+                return Results.Json(
+                    ResponseEnvelope<string>.Fail("A session is already running", 409),
+                    HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
-            // Run in background: caller polls /state for progress
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await session.RunAsync(ct);
-                }
-                catch (OperationCanceledException)
-                {
-                    // Expected on abort
-                }
-            }, ct);
-
+            hosted.SetActiveProfile(profileId.Value);
             return Results.Json(
                 ResponseEnvelope<string>.Ok("Session started"),
                 HostingJsonContext.Default.ResponseEnvelopeString);
@@ -172,7 +179,7 @@ internal static class SessionEndpoints
         /// </summary>
         group.MapPost("/flats", async (HttpContext httpContext, IHostedSession hosted, ISessionFactory factory, CancellationToken ct) =>
         {
-            if (hosted.CurrentSession is not null)
+            if (hosted.IsRunning)
             {
                 return Results.Json(
                     ResponseEnvelope<string>.Fail("A session is already running", 409),
@@ -231,6 +238,9 @@ internal static class SessionEndpoints
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
+            // The first run after a launch waits for the node's discovery, on the request's token.
+            await hosted.WhenInitialisedAsync(ct);
+
             // Site is left at NaN so RunFlatsOnlyAsync falls back to the mount's own configured site
             // (the headless rig's mount carries its site); only the flat knobs are overlaid onto defaults.
             var defaults = new SessionConfiguration();
@@ -264,27 +274,17 @@ internal static class SessionEndpoints
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
-            if (hosted is HostedSession hostedSession)
+            // The run is the node's, on the node's token (see /start). Caller polls /state for progress
+            // (phase Flats -> Complete/Failed); the finished run stays readable until the next start.
+            if (!await hosted.TryStartAsync(session, (run, runToken) => run.RunFlatsOnlyAsync(period, runToken)))
             {
-                hostedSession.SetSession(session);
-                hostedSession.SetActiveProfile(profileId.Value);
+                await session.DisposeAsync();
+                return Results.Json(
+                    ResponseEnvelope<string>.Fail("A session is already running", 409),
+                    HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
-            // Run in background: caller polls /state for progress (phase Flats -> Complete/Failed). The
-            // session stays set on completion (mirrors /start) so the terminal phase is observable; POST
-            // /abort disposes + clears it before the next run.
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await session.RunFlatsOnlyAsync(period, ct);
-                }
-                catch (OperationCanceledException)
-                {
-                    // Expected on abort.
-                }
-            }, ct);
-
+            hosted.SetActiveProfile(profileId.Value);
             return Results.Json(
                 ResponseEnvelope<string>.Ok("Flats started"),
                 HostingJsonContext.Default.ResponseEnvelopeString);
@@ -292,17 +292,14 @@ internal static class SessionEndpoints
 
         group.MapPost("/abort", (IHostedSession hosted) =>
         {
-            if (hosted.CurrentSession is null)
+            // Cancels the run, which ends through its own Finalise (park, warm-up, covers) while /state
+            // shows it doing so. It used to dispose the session at once, disconnecting its drivers under a
+            // run that carried on, so Finalise never ran properly.
+            if (hosted.TryAbort() is null)
             {
                 return Results.Json(
                     ResponseEnvelope<string>.Fail("No active session", 404),
                     HostingJsonContext.Default.ResponseEnvelopeString);
-            }
-
-            if (hosted is HostedSession hs)
-            {
-                // StopAsync will cancel the CTS and dispose the session
-                _ = Task.Run(async () => await hs.StopAsync(CancellationToken.None));
             }
 
             return Results.Json(
@@ -354,7 +351,7 @@ internal static class SessionEndpoints
         // ScheduledObservationDto for why PendingTarget cannot).
         group.MapPost("/schedule", async (HttpContext httpContext, IHostedSession hosted, CancellationToken ct) =>
         {
-            if (hosted.CurrentSession is not null)
+            if (hosted.IsRunning)
             {
                 return Results.Json(
                     ResponseEnvelope<string>.Fail("A session is already running", 409),
@@ -469,7 +466,7 @@ internal static class SessionEndpoints
             // Same single-profile-context invariant the GUI/TUI enforce (see ProfileSwitchGate): a
             // running session or connected hardware belongs to the CURRENT profile, so re-pointing the
             // active profile underneath it would strand those drivers.
-            var verdict = ProfileSwitchGate.Evaluate(hub, hosted.CurrentSession is not null);
+            var verdict = ProfileSwitchGate.Evaluate(hub, hosted.IsRunning);
             if (!verdict.Allowed)
             {
                 return Results.Json(

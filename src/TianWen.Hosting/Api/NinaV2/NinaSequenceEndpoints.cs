@@ -55,9 +55,9 @@ internal static class NinaSequenceEndpoints
         });
 
         // GET /v2/api/sequence/start: start session using active profile + pending targets
-        group.MapGet("/start", (IHostedSession hosted, ISessionFactory factory, ILogger<HostedSession> logger, ITimeProvider timeProvider, CancellationToken ct) =>
+        group.MapGet("/start", async (IHostedSession hosted, ISessionFactory factory, ILogger<HostedSession> logger, ITimeProvider timeProvider, CancellationToken ct) =>
         {
-            if (hosted.CurrentSession is not null)
+            if (hosted.IsRunning)
             {
                 return Results.Json(
                     ResponseEnvelope<string>.Fail("A session is already running", 409),
@@ -70,6 +70,10 @@ internal static class NinaSequenceEndpoints
                     ResponseEnvelope<string>.Fail("No active profile. Use /v2/api/profile/switch first."),
                     NinaApiJsonContext.Default.ResponseEnvelopeString);
             }
+
+            // The first run after a launch waits for the node's discovery, on the request's token, and
+            // before the drain, so a caller that gives up takes nothing it queued with it.
+            await hosted.WhenInitialisedAsync(ct);
 
             // Drain pending targets
             var pendingTargets = hosted is HostedSession hs2 ? hs2.DrainTargets() : [];
@@ -97,17 +101,19 @@ internal static class NinaSequenceEndpoints
                     NinaApiJsonContext.Default.ResponseEnvelopeString);
             }
 
-            if (hosted is HostedSession hs)
+            // The run is the node's, on the node's token, never this request's (see the native /start).
+            if (!await hosted.TryStartAsync(session, static (run, runToken) => run.RunAsync(runToken)))
             {
-                hs.SetSession(session);
+                await session.DisposeAsync();
+                foreach (var target in pendingTargets)
+                {
+                    hosted.AddTarget(target);
+                }
+                return Results.Json(
+                    ResponseEnvelope<string>.Fail("A session is already running", 409),
+                    NinaApiJsonContext.Default.ResponseEnvelopeString);
             }
-
-            _ = Task.Run(async () =>
-            {
-                try { await session.RunAsync(ct); }
-                catch (OperationCanceledException) { logger.LogInformation("ninaAPI: session run cancelled"); }
-                catch (Exception ex) { logger.LogError(ex, "ninaAPI: session run faulted"); }
-            }, ct);
+            logger.LogInformation("ninaAPI: sequence started");
 
             return Results.Json(
                 ResponseEnvelope<string>.Ok("Sequence started"),
@@ -117,16 +123,12 @@ internal static class NinaSequenceEndpoints
         // GET /v2/api/sequence/stop: stop session
         group.MapGet("/stop", (IHostedSession hosted) =>
         {
-            if (hosted.CurrentSession is null)
+            // Cancels the run into its own Finalise, never disposing it underneath (see the native /abort).
+            if (hosted.TryAbort() is null)
             {
                 return Results.Json(
                     ResponseEnvelope<string>.Fail("No sequence running", 404),
                     NinaApiJsonContext.Default.ResponseEnvelopeString);
-            }
-
-            if (hosted is HostedSession hs)
-            {
-                _ = Task.Run(async () => await hs.StopAsync(CancellationToken.None));
             }
 
             return Results.Json(
