@@ -59,7 +59,7 @@
     <PackageVersion Include="Pastel" Version="8.0.0" />
     <PackageVersion Include="System.CommandLine" Version="2.0.12" />
 
-    <PackageVersion Include="DIR.Lib" Version="11.4.*" />
+    <PackageVersion Include="DIR.Lib" Version="11.5.*" />
 
     <PackageVersion Include="SharpAstro.Tiff" Version="$(SharpAstroCodecsVersion)" />
     <PackageVersion Include="SharpAstro.Exif" Version="$(SharpAstroCodecsVersion)" />
