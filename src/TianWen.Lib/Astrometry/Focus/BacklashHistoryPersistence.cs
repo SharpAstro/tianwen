@@ -65,15 +65,10 @@ public static class BacklashHistoryPersistence
         CancellationToken cancellationToken)
     {
         var path = PathFor(external.ProfileFolder, focuserDeviceId);
-        if (!File.Exists(path))
-        {
-            return null;
-        }
-
         try
         {
-            await using var stream = await SharedFile.OpenReadAsync(path, cancellationToken);
-            return await JsonSerializer.DeserializeAsync(stream, IndentedContext.BacklashEstimateRecord, cancellationToken);
+            await using var stream = await SharedFile.TryOpenReadAsync(path, cancellationToken);
+            return stream is null ? null : await JsonSerializer.DeserializeAsync(stream, IndentedContext.BacklashEstimateRecord, cancellationToken);
         }
         catch (JsonException)
         {

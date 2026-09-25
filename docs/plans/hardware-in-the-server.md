@@ -506,11 +506,24 @@ first; none needs a decision.
    (`SetFileInformationByHandle`, `FileRenameInfoEx`, Windows 10 1709 and later, falling back to
    `File.Move` where the file system has none): the name moves at once and a reader holding the old file
    keeps reading it, as on Unix. A file every host adds to goes through `IExternal.UpdateJsonAsync`, which
-   holds the file's lock (`<file>.lock`) across the read, the merge and the write, and the apparition cache
-   merges there, newest fetch winning per comet. The credential store's temp name is its own too.
-   `SharedAppDataFileTests` failed first (two writers of one profile collided on the temp name) and
-   `CometRepositoryTests` too (a host's write dropped another's upgrade). Each part of the fix is
-   pinned: taking any one out turns a test red.
+   holds its directory's lock (`.lock`) across the read, the merge and the write, and the apparition cache
+   merges there, newest fetch winning per comet; a lock waiter polls every few milliseconds for up to
+   30 s rather than backing off, since a holder that updates again takes the lock straight back (a
+   backed-off waiter starved and gave up, measured). **A replace on NTFS leaves the name absent for a
+   moment**, with either rename (0.1 to 0.3 ms at rest, about one query in 25,000 beside two writers, and
+   longer under load), so a single `File.Exists` or listing can call a file that exists gone, and a planner
+   that loaded "no pins" would save that back. A reader believes absence only after looks spread over about
+   130 ms (`SharedFile.TryOpenReadAsync`, and `ListAsync` for a file the last listing had; Windows only, a
+   Unix rename being atomic). One look 5 ms later still missed once in 60 runs. **A lock between every
+   reader and writer would make that exact, and measured, it wedges**: the real-time scanner holds a freshly
+   replaced file in kernel mode (the System process, which a share check does not see), and with each
+   replace taking the lock that hold stopped clearing, so every rename onto the file was refused for
+   minutes. That happened in half the runs with readers locking too, and in 2 of 30 with only writers
+   locking, against none in about 150 runs without the lock. The credential store's temp name is its own
+   too. `SharedAppDataFileTests` failed first (two writers of one profile collided on the temp name) and
+   `CometRepositoryTests` too (a host's write dropped another's upgrade). Every deterministic part of the
+   fix is pinned: taking out the unique name, the reader's delete sharing, the POSIX rename, the retry,
+   the lock or the merge turns a test red.
 4. **On Linux, where lights land depends on the working directory.** `ImageOutputFolder` calls
    `GetFolderPath(MyPictures)` without the create option, so on a box with no `~/Pictures` it resolves
    to a relative `TianWen` folder, and a spawned server's working directory would decide where a

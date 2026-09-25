@@ -2017,7 +2017,11 @@ TianWen/
 is written with `IExternal.AtomicWriteJsonAsync` and read with `TryReadJsonAsync`, or `SharedFile` (`TianWen.Lib/IO`)
 underneath both, never a bare `FileStream`. A write stages under a name of its own and replaces the file with the
 POSIX-semantics rename on Windows, because `File.Move` refuses to replace a file any reader holds open, delete sharing
-or not; a read shares read, write and delete, without which even that rename is refused. **A file every host ADDS to**
-(the comet apparition cache) goes through `UpdateJsonAsync`, which holds `<file>.lock` across the read, the merge
-and the write; a whole-file write there drops what another host added. P0c item 3 of
-`docs/plans/hardware-in-the-server.md`; pinned by `SharedAppDataFileTests`.
+or not; a read shares read, write and delete, without which even that rename is refused; and **a reader believes a
+file is gone only after looking again** (`SharedFile.TryOpenReadAsync` / `ListAsync`), because an NTFS replace, either
+rename, hides the name for a moment and a planner that read "no pins" would save that back. **Do not replace those
+looks with a reader/writer lock**: measured, the real-time scanner then holds a replaced file in kernel mode and every
+rename onto it is refused for minutes. **A file every host ADDS to** (the comet apparition cache) goes through
+`UpdateJsonAsync`, which holds its directory's `.lock` across the read, the merge and the write; a whole-file write
+there drops what another host added. P0c item 3 of `docs/plans/hardware-in-the-server.md`; pinned by
+`SharedAppDataFileTests`.

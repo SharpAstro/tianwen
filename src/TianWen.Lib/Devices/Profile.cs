@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.IO;
 using static TianWen.Lib.Base64UrlSafe;
 
 namespace TianWen.Lib.Devices;
@@ -43,15 +44,24 @@ public record class Profile(Uri DeviceUri) : DeviceBase(DeviceUri)
 
     const string ProfileExt = ".json";
 
-    public static IEnumerable<(Guid profileId, FileInfo file)> ListExistingProfiles(DirectoryInfo profileFolder)
+    /// <summary>
+    /// Every profile file in <paramref name="profileFolder"/>, listed through <see cref="SharedFile.ListAsync"/>, since
+    /// another process may be replacing one of them as it is listed.
+    /// </summary>
+    /// <param name="expected">The files the previous listing had (null for a first listing): one this listing
+    /// lacks is looked for again rather than taken as deleted.</param>
+    public static async Task<IReadOnlyList<(Guid profileId, FileInfo file)>> ListExistingProfilesAsync(DirectoryInfo profileFolder,
+        IReadOnlyCollection<string>? expected, CancellationToken cancellationToken)
     {
-        foreach (var file in profileFolder.EnumerateFiles("*" + ProfileExt))
+        var profiles = new List<(Guid, FileInfo)>();
+        foreach (var file in await SharedFile.ListAsync(profileFolder, ProfileExt, expected, cancellationToken))
         {
             if (Guid.TryParse(Path.GetFileNameWithoutExtension(file.Name), out Guid profileId) && profileId != Guid.Empty)
             {
-                yield return (profileId, file);
+                profiles.Add((profileId, file));
             }
         }
+        return profiles;
     }
 
     public Guid ProfileId => Guid.Parse(DeviceId);
