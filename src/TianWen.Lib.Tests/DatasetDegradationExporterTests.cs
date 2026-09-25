@@ -727,6 +727,48 @@ namespace TianWen.Lib.Tests
             whiteShape.ShouldContain(m => m.Label == "real sub pairs" && m.Pairs > 0);
         }
 
+        /// <summary>
+        /// A pool of many sensors and stacking paths is not one noise shape, so an export can span a range
+        /// (--warp-sigma to --warp-sigma-max, and --white-fraction of white draws). Two claims, both pinned:
+        /// each draw's row says which shape IT got, and the range changes the shape and nothing else, since
+        /// it draws from a stream of its own: the same seed at a fixed shape lands every draw on the same
+        /// cell at the same depth.
+        /// </summary>
+        [Fact]
+        public async Task AShapeRangeVariesEachDrawAndChangesNothingElse()
+        {
+            var bake = BuildBake();
+            var fixedDir = Path.Combine(_root, "shape-fixed");
+            var rangeDir = Path.Combine(_root, "shape-range");
+            var fixedOptions = new DatasetDegradationExporter.Options(bake, fixedDir, Draws: 8, CellsPerSession: 0, Seed: 33,
+                Shape: DatasetDegradationExporter.NoiseShape.Warped, WarpResampleSigma: 0.2);
+
+            await DatasetDegradationExporter.RunAsync(fixedOptions, logger: null, TestContext.Current.CancellationToken);
+            await DatasetDegradationExporter.RunAsync(
+                fixedOptions with { OutDir = rangeDir, WarpResampleSigmaMax = 1.0, WhiteFraction = 0.4 },
+                logger: null,
+                TestContext.Current.CancellationToken);
+
+            var fixedRows = ReadDegradationRows(fixedDir);
+            var rangeRows = ReadDegradationRows(rangeDir);
+
+            fixedRows.ShouldAllBe(r => r.Shape == "Warped" && r.WarpSigma == 0.2, "a fixed export records its one shape on every row");
+            rangeRows.ShouldContain(r => r.Shape == "White");
+            rangeRows.ShouldContain(r => r.Shape == "Warped");
+            rangeRows.Where(r => r.Shape == "White").ShouldAllBe(r => r.WarpSigma == null, "a white draw carries no smoothing");
+            var sigmas = rangeRows.Where(r => r.Shape == "Warped").Select(r => r.WarpSigma!.Value).ToArray();
+            sigmas.ShouldAllBe(s => s >= 0.2 && s <= 1.0);
+            sigmas.Distinct().Count().ShouldBeGreaterThan(1, "the range must actually vary the smoothing from draw to draw");
+
+            var byKey = fixedRows.ToDictionary(r => (r.SessionId, r.CellX, r.CellY, r.Draw));
+            rangeRows.Length.ShouldBe(fixedRows.Length);
+            foreach (var r in rangeRows)
+            {
+                var f = byKey[(r.SessionId, r.CellX, r.CellY, r.Draw)];
+                r.DepthScale.ShouldBe(f.DepthScale, $"draw {r.Draw} of cell ({r.CellX}, {r.CellY}) must sit at the same depth under both exports");
+            }
+        }
+
         private static ImmutableArray<DatasetDegradationExporter.DegradationRow> ReadDegradationRows(string outDir)
         {
             var path = Path.Combine(outDir, DatasetDegradationExporter.DegradationManifestFileName);
