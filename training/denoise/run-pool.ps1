@@ -97,7 +97,11 @@ try {
         Set-Status "export $($stage.Name)"
         $sessionArgs = @()
         foreach ($sid in (Read-List $stage.List)) { $sessionArgs += '--session'; $sessionArgs += $sid }
-        $measure = if ($stage.Name -eq 'pool') { @('--measure-shape') } else { @() }
+        # Built by appending, never as `if (...) { @('x') }`: an if-expression unrolls a one-element array to
+        # a bare string, and splatting a string hands the CLI one argument PER CHARACTER (how the first run of
+        # this stage died, 2026-09-26 08:26, with "Unrecognized command or argument '-'").
+        $measure = @()
+        if ($stage.Name -eq 'pool') { $measure += '--measure-shape' }
         "export $($stage.Name) -> $Export ($($sessionArgs.Count / 2) sessions, $($stage.Cells) cells)" | Tee-Object -FilePath $log -Append
         "running" | Out-File $stageStatus -Encoding utf8
         & dotnet $Tianwen dataset degrade --bake $Bake --out $Export @shapeArgs --cells $stage.Cells @measure @sessionArgs `
