@@ -184,9 +184,11 @@ Written down once here because each item cost a wrong conclusion in the first ca
 - **Zero train/inference skew is a measurement, not a statement**: verify the domain the runner hands
   the graph against the domain the tiles are in (the denoiser's fact 0 is what happens otherwise).
 - **Post a labelled comparison image** when an experiment concludes.
-- **Third-party model outputs never enter the loop**: RC-Astro by EULA section 10, SAS AI4 by
-  default until its licence is verified, GraXpert by licence (CC-BY-NC-SA weights). Comparisons
-  against them are human side-by-sides outside the automated loop, at the user's discretion.
+- **Third-party model outputs never enter the loop**: RC-Astro by EULA section 10, SAS AI4 by its
+  own licence (published 2026-09-24: no distillation, no derivative models, no use outside SASpro;
+  TianWen dropped the tier on 2026-09-26, section 8), GraXpert by licence (CC-BY-NC-SA weights).
+  Comparisons against them are human side-by-sides outside the automated loop, at the user's
+  discretion.
 - **Never write to `D:\Astro-Pics`.** `C:\temp\astro` is a working copy.
 
 ## 6. What is NOT planned, and why
@@ -211,3 +213,56 @@ Tracked by #871.
 - `N2nLinearRunner`, `N2nDenoiser`, `ship/README.md`, run-log 1o: the four "trained on linear" claims
   to correct once E0.5 confirms the fix.
 - `docs/todo/hardware-validation.md`: three nights with `SaveIntermediates` on, on both main rigs.
+
+## 8. What SAS Pro's source teaches about USING a model (read 2026-09-26)
+
+TianWen dropped the SAS AI4 tier (2026-09-26, the user's call, after SETI Astro's model licence of
+2026-09-24). Its Python source is GPL-3.0, so HOW it drives its models is ours to learn from; the
+weights are not, and nothing below comes from a model file. Read from a clone at
+`source/repos/other/setiastrosuitepro` (paths below are under `src/setiastro/saspro/`); three of the
+claims were checked line by line. **The repo holds no training or dataset code at all**, so nothing
+here says how their models were trained, only how they are fed.
+
+**What their models consume.**
+- The denoisers take ONE image input and no conditioning (`cosmicclarity_engines/denoise_engine.py`
+  158-177). Our N2N's per-tile sigma plane already goes further.
+- The one conditioned model, the non-stellar deconvolver, gets a PSF radius **measured per tile on the
+  model's own input plane** (SEP sources, sigma = sqrt(ab), clipped to [1, 8] px, log2-encoded;
+  `sharpen_engine.py` 266-286 and 1590-1601), and its "strength" slider is that same input declared
+  by hand when auto is off (1599-1600). AI4 replaced AI3.5's four fixed-radius models (1, 2, 4, 8 px)
+  with this one (`resources.py` 566-580): continuous conditioning over a family of models.
+- That model is fed a SINGLE plane (luminance, or one channel at a time) expanded to three identical
+  channels (`sharpen_engine.py` 1042, 1462-1473), never distinct R, G, B.
+- Colour denoising by default runs luminance through the MONO model and keeps only the chroma of the
+  colour model, with its own strength (`denoise_engine.py` 1413-1467); star removal scales the colour
+  result to the mono result's luminance (`darkstar_engine.py` 418-429).
+- "Walking noise" (drift streaks from an unguided, undithered run) is a separate set of weights with
+  no recipe in the code (`cosmicclarity.py` 714-719).
+
+**What that changes for our own models.**
+1. **One estimator per conditioning input, in the domain the model sees, per tile, for labels and
+   inference alike.** Our deconvolver labels with the inference estimator already
+   (`HfdPsfEstimator`); make its per-tile path the default (deconvolver-training.md D1) once measured.
+2. **A model judged outside its intended usage has not been judged.** Our wrapper fed SAS's deconvolver
+   RGB and a whole-image linear-domain PSF, where SAS feeds it one expanded plane and a per-tile
+   estimate of that plane; so D1's "the conditioning input is inert" describes our usage, not
+   PSF conditioning. Our own models' runtime must hand the graph exactly what training did (the
+   denoiser's fact 0 is the other instance).
+3. **Strength stays a blend**, never a false value handed to a conditioning input; N2N's own
+   measurements already show a false value makes a model invent structure.
+4. **Luminance-first colour is an A/B worth running** for the OSC denoiser and the deconvolver: detail
+   through the model on luminance, chroma with its own strength.
+5. **Walking noise is a DATA problem**: a drift-streak degradation in `tianwen dataset degrade`,
+   mixed into the pool or as a variant, is how our denoiser learns it.
+6. **Continuous conditioning, broadcast as a plane**, beats a family of models; candidates are a
+   field-position plane (frame coordinates, for PSFs that vary across the field) for the deconvolver
+   and a level plane for a future star reducer.
+7. **The star remover** (star-remover-training.md): the third-party architectures in their tree
+   (SyQon) separate a positive subtractive star layer from a gated inpaint branch, inpaint leftover
+   holes with the hole mask as an input, and write the stars-only plate as the "unscreen"
+   (orig - starless) / (1 - starless).
+8. **A correct-only (aberration) model before deconvolution** is a separate model in SAS (the AI4
+   Correct weights, fed real RGB); our injection family would need coma and astigmatism for it
+   (camera-collimation.md's harmonics are the measurable version).
+9. **Runtime guards worth having**: re-run a non-finite tile in fp32 and fall back to its input, cap
+   the tile size on DirectML to stay under the TDR watchdog.
