@@ -455,6 +455,10 @@ stray disconnect hurts most).
   EVERY path its run can end by). A quit aborts the runs; `DisplayLost` (P0a, #743) lets a session and a
   flat run finish on their own and answers their prompts unattended. **Never queue a camera warm-up
   beside a run's cancel**: that is how `Finalise` and the quit once ramped one camera at the same time.
+  **Quitting is ONE rule too, `AppQuit`, for the GUI and the TUI**: ask first while this computer's
+  session runs, cancel the host's OWN background work (planner, limit watcher, planetary; a separate
+  token from the loop's), then `RigShutdown`, with the loop kept going to show it and a second quit
+  refused. The TUI had none and hung on Q, draining a tracker whose limit watcher nothing cancelled (P0c).
 - **Escalation is explicit:** stop the run (abort the session / cancel the flat run) and the lease frees.
   There is no override on the actuation path by design.
 - `GetDisconnectSafetyAsync` is a **hardware**-safety check (cooler on / mid-exposure) and returns `Safe`

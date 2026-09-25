@@ -470,7 +470,11 @@ first; none needs a decision.
    swallowed (`TreatControlCAsInput` is reset only at the very end); a running session is awaited, not
    aborted; and were the drain ever to return, disposing the host would force-disconnect every device
    cold. The TUI gets the GUI's quit rule (cancel, warm, disconnect, bounded), which P6 then replaces
-   with the quit dialog for both.
+   with the quit dialog for both. **FIXED**: the rule is one class both hosts drive, `AppQuit`
+   (UI.Abstractions), moved out of the GUI's `Program.cs`. The TUI runs its background work on a token of
+   its own, the loop shows the rig stopping, and a second quit is refused rather than frozen out. Seen
+   live before the fix (the TUI still running minutes after Q, its screen gone) and after (it exits at
+   once; the GUI's Esc-twice quit, on the same class, too); `AppQuitTests` pins the rule.
 2. **Polar alignment and planetary capture take no device lease.** Only `Session.RunAsync` and
    `RunFlatsOnlyAsync` acquire one, and the gate is lease-only, so nothing stops a jog or a second run
    from moving a mount polar is rotating, or reconfiguring a camera planetary is streaming, although

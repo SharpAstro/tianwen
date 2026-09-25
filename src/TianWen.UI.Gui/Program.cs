@@ -201,10 +201,8 @@ using var backgroundCts = CancellationTokenSource.CreateLinkedTokenSource(cts.To
 var tracker = new BackgroundTaskTracker();
 var lastWindowTitle = "\U0001F52D TianWen";
 
-// Stopping the rig, one sequence for a quit and for a dead display (RigShutdown says why the order
-// matters), and the line of status it reports, written from the stop's thread and shown by the banner.
+// Stopping the rig, one sequence for a quit and for a dead display (RigShutdown says why the order matters).
 var rigShutdown = new RigShutdown(guiRenderer.ViewContexts.Local.LiveSession, appState.DeviceHub, timeProvider, logger);
-string? shutdownProgress = null;
 var displayLost = false;
 var handlers = new GuiEventHandlers(sp, appState, plannerState, guiRenderer, cts, backgroundCts.Token, external, tracker)
 {
@@ -257,6 +255,12 @@ long escConfirmTimestamp = 0;
 int _lastShutdownPendingCount = -1;
 string? _lastShutdownProgress = null;
 var signalHandler = handlers.SignalHandler;
+
+// Quitting, the one rule the TUI shares (AppQuit): ask first while this computer's session runs, then cancel
+// the background work, stop the rig through its runs' own endings and warm the cameras, while the loop shows
+// the progress. Recording how recently each watched rig answered goes first, before its mirror goes away.
+var appQuit = new AppQuit(appState, guiRenderer.ViewContexts, rigShutdown, tracker, backgroundCts, timeProvider,
+    () => signalHandler.FlushRigLastSeenAsync(System.Threading.CancellationToken.None));
 tracker.Run(() => signalHandler.LoadSessionConfigAsync(backgroundCts.Token), "Load session config");
 
 // P3 of docs/plans/mount-safety-limits.md, the GUI half: a profile's mount safety limits apply to a MANUAL
@@ -444,7 +448,7 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
             var shutdownChanged = false;
             // What the rig's stop is doing now ("Finalising the session...", "Warming <camera>"), which says
             // more than a task count and moves as the stop does.
-            var progressNow = Volatile.Read(ref shutdownProgress);
+            var progressNow = appQuit.Progress;
             if (!tracker.HasPending)
             {
                 appState.ShutdownComplete = true;
@@ -570,75 +574,8 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
 
 };
 
-// Request quit: shows abort confirmation if session is running, otherwise shuts down
-void RequestQuit()
-{
-    if (appState.ShuttingDown)
-    {
-        // Already shutting down: refuse to quit while warm-up is in progress.
-        // Same pattern as SessionPhase.Finalising: cameras must complete their
-        // thermal ramp for sensor safety.
-        appState.AppendNotification(timeProvider.GetUtcNow(),
-            NotificationSeverity.Warning, "Warming cameras\u2026 please wait");
-        appState.NeedsRedraw = true;
-        return;
-    }
-
-    // Quitting is about THIS process: it must abort the local session (and wait out its camera
-    // warm-up) regardless of which context is on screen. A session on a rig keeps running -- closing
-    // the client that was watching it is not a reason to stop the rig.
-    var liveState = guiRenderer.ViewContexts.Local.LiveSession;
-
-    // During Finalising, can't do anything, just wait (warmup must complete)
-    if (liveState.Phase is SessionPhase.Finalising)
-    {
-        appState.AppendNotification(timeProvider.GetUtcNow(),
-            NotificationSeverity.Warning, "Warming cameras\u2026 please wait");
-        appState.NeedsRedraw = true;
-        return;
-    }
-
-    if (liveState.IsRunning && !liveState.ShowAbortConfirm)
-    {
-        // Session running: show abort confirmation (same as pressing Escape in Live Session tab), with the
-        // Local context ON SCREEN. The tab renders the Active context, so with a remote rig on screen the
-        // confirmation used to be set where no frame drew it: Enter did nothing, and Esc twice then aborted
-        // the local session with no confirmation at all.
-        guiRenderer.ViewContexts.Activate(guiRenderer.ViewContexts.Local);
-        liveState.ShowAbortConfirm = true;
-        appState.QuitRequested = true;
-        appState.ActiveTab = GuiTab.LiveSession;
-        appState.NeedsRedraw = true;
-        return;
-    }
-
-    // No session running, or abort already confirmed; proceed with shutdown.
-
-    // Cancel non-session background tasks (planner init, weather fetch, the mount-limit watcher) AND the live
-    // planetary capture, which is bound to this token (its Start received backgroundCts.Token). The capture
-    // loop + the rolling-window stacker loops poll the token, so they unwind promptly and release the camera.
-    backgroundCts.Cancel();
-
-    // Record how recently each watched rig answered, before its mirror goes away with the process.
-    // CancellationToken.None deliberately: backgroundCts is already cancelled above, and this is a
-    // sub-millisecond JSON write per rig, not something worth racing the shutdown for.
-    tracker.Run(() => signalHandler.FlushRigLastSeenAsync(System.Threading.CancellationToken.None),
-        "Record rig last-seen");
-
-    // The rig: every run aborted through its own ending (the session's and a flat run's Finalise, polar's
-    // mount restore), and the cameras warmed and disconnected only once every run has ENDED. The cameras
-    // used to be queued at the same moment the session was cancelled, so its Finalise and this quit could
-    // ramp one camera at once; and a flat run or polar was never cancelled at all, which is how a quit
-    // during polar alignment hung for ever. ONE tracked task, submitted here on the render thread.
-    tracker.Run(() => rigShutdown.StopAsync(RigShutdownMode.Quit, progress: p => Volatile.Write(ref shutdownProgress, p)),
-        "Stopping the rig");
-
-    // Keep the loop alive to show the Finalise / warm-up progress; the loop stops once nothing is pending.
-    appState.ShuttingDown = true;
-    appState.ShutdownComplete = false;
-    appState.AppendNotification(timeProvider.GetUtcNow(), NotificationSeverity.Info, "Shutting down\u2026");
-    appState.NeedsRedraw = true;
-}
+// A quit (the window's close button, Esc twice): the shared rule, AppQuit.
+void RequestQuit() => appQuit.Request();
 
 // Set separately to allow loop.Stop() self-reference
 loop.OnPostFrame = () =>
@@ -661,23 +598,9 @@ loop.OnPostFrame = () =>
         return;
     }
 
-    // A quit whose confirmation was DISMISSED while the session runs on is withdrawn. It used to stay
-    // requested, and the GUI then quit by itself when the session later ended. Enter (confirm) cancels the
-    // session through the signal the bus has just processed above, so a confirmation that is gone with
-    // the session NOT cancelled can only have been dismissed.
-    var localLive = guiRenderer.ViewContexts.Local.LiveSession;
-    if (appState.QuitRequested && !localLive.ShowAbortConfirm && localLive.IsRunning
-        && localLive.SessionCts is { IsCancellationRequested: false })
-    {
-        appState.QuitRequested = false;
-    }
-
-    // After abort confirmation, if quit was requested, proceed to shutdown
-    if (appState.QuitRequested && !guiRenderer.ViewContexts.Local.LiveSession.IsRunning && !appState.ShuttingDown)
-    {
-        appState.QuitRequested = false;
-        RequestQuit();
-    }
+    // After the signals above: a dismissed confirmation withdraws the quit, a confirmed one goes on to stop
+    // the rig once the session has ended (AppQuit.Tick).
+    appQuit.Tick();
 
     if (!appState.ShuttingDown && !signalSetRedraw)
     {
