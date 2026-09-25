@@ -393,6 +393,12 @@ Each subclass reads query keys (`?key=value`) defined in `DeviceQueryKey`. See c
 for supported keys. Full driver hierarchy (ASCOM / Alpaca / ZWO / QHY / native-serial subgraphs):
 `docs/architecture/device-architecture.md`.
 
+**Every native serial protocol has ONE architecture document** (LX200, OnStep, Skywatcher, SGP and
+both Gemini devices, indexed under "Native serial protocols" in that file), and a new native driver
+ships with its document in its first commit: OnStep went without one for five months and its wire
+notes survived only in a commit message. Each maps every driver member to the wire, including what
+it does when the device is connected and does not answer, which must be a transient THROW (#810).
+
 **A vendor's native binaries reach an app through the REFERENCE GRAPH, and nothing downstream can
 filter them out.** The ZWO and QHYCCD drivers therefore live in `TianWen.Devices.Native`, not in
 `TianWen.Lib`: an SDK project marks its natives `CopyToOutputDirectory` deliberately (a
