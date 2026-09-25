@@ -406,19 +406,38 @@ internal sealed class CometRepository : ICometRepository
         }
     }
 
+    // Every host keeps this cache (the GUI, the CLI, the server, the viewer, MCP), so the write MERGES with the
+    // file under its lock rather than replacing it with this host's set: a host that read the file before another
+    // one upgraded a comet would otherwise drop that upgrade (P0c item 3 of docs/plans/hardware-in-the-server.md).
+    // Per comet, the newer fetch wins.
     private Task PersistApparitionsAsync(CancellationToken cancellationToken)
     {
         var snapshot = _apparitions;
-        var entries = new ApparitionEntry[snapshot.Count];
-        var i = 0;
-        foreach (var (_, entry) in snapshot)
-        {
-            entries[i++] = entry;
-        }
 
         return _logger.CatchAsync(
-            ct => _external.AtomicWriteJsonAsync(ApparitionCachePath, new ApparitionCacheFile(entries), SbdbJsonContext.Default.ApparitionCacheFile, ct),
+            ct => _external.UpdateJsonAsync(ApparitionCachePath, SbdbJsonContext.Default.ApparitionCacheFile, onDisk => Merged(onDisk, snapshot), _logger, ct),
             cancellationToken);
+
+        static ApparitionCacheFile Merged(ApparitionCacheFile? onDisk, ImmutableDictionary<CatalogIndex, ApparitionEntry> ours)
+        {
+            var merged = ours.ToBuilder();
+            foreach (var entry in onDisk?.Entries ?? [])
+            {
+                if (entry.Elements.CatalogIndex is { } index
+                    && (!merged.TryGetValue(index, out var mine) || entry.FetchedUtc > mine.FetchedUtc))
+                {
+                    merged[index] = entry;
+                }
+            }
+
+            var entries = new ApparitionEntry[merged.Count];
+            var i = 0;
+            foreach (var (_, entry) in merged)
+            {
+                entries[i++] = entry;
+            }
+            return new ApparitionCacheFile(entries);
+        }
     }
 
     private void Publish(IReadOnlyList<CometElements> comets)

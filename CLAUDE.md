@@ -2012,3 +2012,12 @@ TianWen/
 ├── Secrets/            # Non-Windows only: 0600 file per device secret (Windows uses Credential Manager)
 └── lan-node-id.txt     # tianwen-server's stable LAN NodeId, the key remote-rig bindings persist against
 ```
+
+**Every file here has more than one PROCESS on it** (the GUI, the TUI, the CLI, the server, the viewer, MCP), so it
+is written with `IExternal.AtomicWriteJsonAsync` and read with `TryReadJsonAsync`, or `SharedFile` (`TianWen.Lib/IO`)
+underneath both, never a bare `FileStream`. A write stages under a name of its own and replaces the file with the
+POSIX-semantics rename on Windows, because `File.Move` refuses to replace a file any reader holds open, delete sharing
+or not; a read shares read, write and delete, without which even that rename is refused. **A file every host ADDS to**
+(the comet apparition cache) goes through `UpdateJsonAsync`, which holds `<file>.lock` across the read, the merge
+and the write; a whole-file write there drops what another host added. P0c item 3 of
+`docs/plans/hardware-in-the-server.md`; pinned by `SharedAppDataFileTests`.

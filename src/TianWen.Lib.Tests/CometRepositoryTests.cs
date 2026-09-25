@@ -2,6 +2,7 @@
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -9,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.Comets;
+using TianWen.Lib.Devices;
 using Shouldly;
 using Xunit;
 
@@ -550,5 +552,74 @@ public class CometRepositoryTests(ITestOutputHelper output)
         // The bulk elements stay in use throughout.
         repo.TryGet(index, out var elements).ShouldBeTrue();
         elements.PerihelionJdTt.ShouldBe(2457340.741, tolerance: 0.001);
+    }
+
+    /// <summary>Refines whichever comet it is asked about, after an optional gate, so two hosts can each
+    /// upgrade a different comet and the order of their writes is the test's to choose.</summary>
+    private sealed class RefiningHorizons(Task? gate = null) : IHorizonsCometSource
+    {
+        public int FetchCount;
+
+        public async Task<CometElements?> TryFetchCurrentApparitionAsync(CometElements baseElements, DateTimeOffset at, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref FetchCount);
+            if (gate is not null)
+            {
+                await gate;
+            }
+            return baseElements with { PerihelionJdTt = 2461254.615, EpochJdTt = 2461258.5 };
+        }
+    }
+
+    /// <summary>
+    /// Every host keeps the apparition cache (the GUI, the CLI, the server, the viewer, MCP), and each wrote its
+    /// whole in-memory set over the file, so a host that had read the file before another one upgraded a comet
+    /// dropped that upgrade with its next write (P0c item 3 of docs/plans/hardware-in-the-server.md, #788).
+    /// </summary>
+    [Fact]
+    public async Task TwoHostsUpgradingDifferentCometsBothKeepTheirUpgradeOnDisk()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = CreateExternal(new FakeTimeProviderWrapper(new DateTimeOffset(2026, 8, 6, 0, 0, 0, TimeSpan.Zero)));
+        Parse("2P", out var d2P);
+        var tempel = StaleComet();
+        var encke = StaleComet() with { Designation = d2P, CommonName = "Encke" };
+        var tempelIndex = tempel.CatalogIndex.ShouldNotBeNull();
+        var enckeIndex = encke.CatalogIndex.ShouldNotBeNull();
+        var sbdb = new FakeSbdbCometSource([tempel, encke]);
+
+        var release = new TaskCompletionSource();
+        var serverHorizons = new RefiningHorizons(release.Task);
+        var server = NewRepository(external, sbdb, serverHorizons);
+        var gui = NewRepository(external, sbdb, new RefiningHorizons());
+        await server.EnsureLoadedAsync(ct);
+        await gui.EnsureLoadedAsync(ct);
+
+        // The server reads the (empty) cache and holds its fetch; the GUI then upgrades another comet and writes.
+        server.RequestCurrentApparition(enckeIndex);
+        (await WaitForAsync(() => Volatile.Read(ref serverHorizons.FetchCount) == 1)).ShouldBeTrue("premise: the server read the cache first");
+        gui.RequestCurrentApparition(tempelIndex);
+        (await OnDiskAsync(tempelIndex)).ShouldBeTrue("premise: the GUI wrote its upgrade");
+
+        release.SetResult();
+
+        (await OnDiskAsync(enckeIndex)).ShouldBeTrue("the server wrote its upgrade");
+        (await OnDiskAsync(tempelIndex)).ShouldBeTrue("the server's write dropped the upgrade the GUI had written");
+
+        async Task<bool> OnDiskAsync(CatalogIndex index)
+        {
+            IExternal shared = external;
+            var path = Path.Combine(external.AppDataFolder.FullName, "SmallBodies", "apparitions.json");
+            for (var i = 0; i < 200; i++)
+            {
+                if (await shared.TryReadJsonAsync(path, SbdbJsonContext.Default.ApparitionCacheFile, ct: ct) is { } file
+                    && file.Entries.Any(e => e.Elements.CatalogIndex == index))
+                {
+                    return true;
+                }
+                await Task.Delay(10, ct);
+            }
+            return false;
+        }
     }
 }

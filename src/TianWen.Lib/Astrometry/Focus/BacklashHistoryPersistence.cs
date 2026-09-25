@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
+using TianWen.Lib.IO;
 
 namespace TianWen.Lib.Astrometry.Focus;
 
@@ -71,7 +72,7 @@ public static class BacklashHistoryPersistence
 
         try
         {
-            await using var stream = File.OpenRead(path);
+            await using var stream = await SharedFile.OpenReadAsync(path, cancellationToken);
             return await JsonSerializer.DeserializeAsync(stream, IndentedContext.BacklashEstimateRecord, cancellationToken);
         }
         catch (JsonException)
