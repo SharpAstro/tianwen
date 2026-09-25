@@ -2,6 +2,8 @@
 using System.Collections.Generic;
 using TianWen.Lib.Geometry;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
 
 namespace TianWen.Lib.Imaging;
 
@@ -79,6 +81,54 @@ public partial class Image
                 covered[x] = !absent[y, x];
             }
         });
+    }
+
+    /// <summary>
+    /// Whether any sample of any channel is NaN, stopping at the first one: the question the hole fill asks
+    /// before anything else, since a frame with no NaN has no hole.
+    /// </summary>
+    /// <remarks>
+    /// Sixteen samples per step, as four <see cref="Vector128{T}"/> each compared with itself: a NaN is the
+    /// one value not equal to itself. <see cref="ScanAbsence"/> knows the same thing only after it has
+    /// classified every pixel of every channel and allocated its bitmaps, which is what an ordinary frame,
+    /// having no NaN, used to pay at every document open for this answer. Internal for its test, which puts
+    /// a single NaN at every position, the scalar tail included.
+    /// </remarks>
+    internal bool AnyNaN()
+    {
+        for (var c = 0; c < ChannelCount; c++)
+        {
+            var samples = GetChannelSpan(c);
+            var i = 0;
+            if (Vector128.IsHardwareAccelerated)
+            {
+                ref var origin = ref MemoryMarshal.GetReference(samples);
+                for (; i + 16 <= samples.Length; i += 16)
+                {
+                    var a = Vector128.LoadUnsafe(ref origin, (nuint)i);
+                    var b = Vector128.LoadUnsafe(ref origin, (nuint)(i + 4));
+                    var d = Vector128.LoadUnsafe(ref origin, (nuint)(i + 8));
+                    var e = Vector128.LoadUnsafe(ref origin, (nuint)(i + 12));
+                    var ordered = Vector128.Equals(a, a) & Vector128.Equals(b, b) & Vector128.Equals(d, d) & Vector128.Equals(e, e);
+                    // Compared as integers: an all-ones float lane is itself a NaN, so a float comparison
+                    // against all-ones would never match.
+                    if (!Vector128.EqualsAll(ordered.AsInt32(), Vector128<int>.AllBitsSet))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            for (; i < samples.Length; i++)
+            {
+                if (float.IsNaN(samples[i]))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -446,10 +496,9 @@ public partial class Image
     /// documents that it does NOT mutate the master it is handed, and the master it renders is often
     /// the very object the FITS writer is about to write. So it needs the answer without the
     /// mutation, and what it must not do is grow a second fill of its own.</para>
-    /// <para><b>A frame with no hole pays one classify pass and no copy</b>, which is the common case:
-    /// <see cref="ScanAbsence"/> gives up as soon as it has seen no NaN, before the flood. A frame
-    /// that HAS holes pays that pass twice, once here and once inside the fill, and that is accepted
-    /// rather than plumbed around -- it is a display render, not the stacking hot path.</para>
+    /// <para><b>A frame with no NaN pays one read of its planes and no copy</b>, which is the common case:
+    /// <see cref="AnyNaN"/> answers before anything is classified. A frame that HAS a NaN goes to the fill,
+    /// whose classify pass then runs once; it used to run here as well, only to learn there was a NaN.</para>
     /// <para>What it was for: a Great Orion Nebula master carries 1,853 NaN in a 64 x 68 box at the
     /// Trapezium, where the core saturates in the subs and rejection took every sample. Rendered
     /// unfilled they reach the PNG as a blue-and-yellow speck sitting on the brightest part of the
@@ -457,7 +506,7 @@ public partial class Image
     /// </remarks>
     public Image WithInteriorHolesFilled(int maxPasses = 32)
     {
-        if (Width <= 0 || Height <= 0 || ChannelCount <= 0 || !ScanAbsence(trackNaN: true).AnyNaN)
+        if (Width <= 0 || Height <= 0 || ChannelCount <= 0 || !AnyNaN())
         {
             return this;
         }
@@ -477,6 +526,13 @@ public partial class Image
         var height = Height;
         var channels = ChannelCount;
         if (width <= 0 || height <= 0 || channels <= 0)
+        {
+            return 0;
+        }
+
+        // A frame with no NaN has no hole, and that is most of what is opened: say so from one vectorised
+        // read of the planes, before the classify pass below reads, classifies and allocates to say the same.
+        if (!AnyNaN())
         {
             return 0;
         }
