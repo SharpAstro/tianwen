@@ -30,8 +30,9 @@ internal sealed class External(
     /// application. The directory is created if it does not already exist.</remarks>
     public DirectoryInfo AppDataFolder => SharedStaticData.CommonDataRoot;
 
-    public DirectoryInfo ImageOutputFolder { get; } = Directory.CreateDirectory(
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), SharedStaticData.AppName));
+    public DirectoryInfo ImageOutputFolder { get; } = Directory.CreateDirectory(SpecialFolderHelper.ResolveAppSubFolder(
+        Environment.GetFolderPath, Environment.SpecialFolder.MyPictures, SharedStaticData.AppName,
+        fallback: Path.Combine(SharedStaticData.CommonDataRoot.FullName, "Images")));
 
     /// <summary>
     /// Profiles are shared between every consumer of this library, for ease of use
