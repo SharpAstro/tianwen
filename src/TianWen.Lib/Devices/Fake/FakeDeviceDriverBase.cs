@@ -87,5 +87,16 @@ internal abstract class FakeDeviceDriverBase(FakeDevice fakeDevice, IServiceProv
     /// <summary>Called after the device transitions to connected. Override to initialize state.</summary>
     protected virtual void OnConnected() { }
 
-    public async ValueTask DisposeAsync() => await DisconnectAsync();
+    /// <summary>
+    /// The asynchronous half of disposal, the twin of <see cref="DeviceDriverBase{TDevice, TDeviceInfo}"/>'s:
+    /// disconnects, and an override also releases what has to be AWAITED, such as a timer whose callback may be
+    /// running. It is the path the hub takes when it lets a driver go.
+    /// </summary>
+    protected virtual ValueTask DisposeAsyncCore() => DisconnectAsync();
+
+    public async ValueTask DisposeAsync()
+    {
+        await DisposeAsyncCore();
+        GC.SuppressFinalize(this);
+    }
 }

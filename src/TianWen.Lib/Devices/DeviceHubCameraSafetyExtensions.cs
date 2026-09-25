@@ -164,6 +164,14 @@ public static class DeviceHubCameraSafetyExtensions
     private static async ValueTask WarmCameraAsync(
         IDeviceHub hub, Uri deviceUri, ITimeProvider timeProvider, ILogger logger, bool disconnectAfter, bool force, CancellationToken cancellationToken)
     {
+        // A camera a run holds is the run's to warm (its Finalise does). Refused BEFORE the ramp: the ramp used
+        // to run first, and only the disconnect at its end was refused, so a run's cooled camera warmed under it
+        // (P0c item 2 of docs/plans/hardware-in-the-server.md). The shutdown path forces past, and nothing else.
+        if (!force && hub.TryGetLease(deviceUri, out var lease))
+        {
+            throw new DeviceLeasedException(lease);
+        }
+
         if (!hub.TryGetConnectedDriver<ICameraDriver>(deviceUri, out var camera))
         {
             if (disconnectAfter) await hub.DisconnectAsync(deviceUri, force, cancellationToken);

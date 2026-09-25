@@ -438,7 +438,10 @@ claimed device. `IDeviceHub.TryAcquireLease` / `DeviceLeaseSet.Acquire` (all-or-
 `DeviceOwnershipGate.Evaluate` (the one shared verdict + `Describe()` message, mirroring
 `ProfileSwitchGate`). `Session.RunAsync` and `RunFlatsOnlyAsync` claim `Setup.DeviceUris()` for the
 whole run, released in the `finally` so a claim survives `Finalise` (parking + warming is exactly when a
-stray disconnect hurts most).
+stray disconnect hurts most). **Polar alignment claims the mount and its capture devices, and a
+planetary capture its camera** (P0c item 2): the host takes the claim with `DeviceLeaseSet.TryAcquire`
+(a refused start is an answer, not an exception) and the run OWNS it from there, the polar session
+releasing it only after restoring the mount. Every new kind of run owes the same.
 
 - **A run's drivers ARE the hub's, so a node holds ONE driver per device.** A session connects each
   device through the hub (`ControllableDeviceBase.ConnectAsync(hub)`, which calls `IDeviceHub.AdoptAsync`),

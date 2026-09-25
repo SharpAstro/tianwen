@@ -97,6 +97,16 @@ namespace TianWen.UI.Abstractions
                 }
                 var activeGuider = built.ActiveGuider;
 
+                // Claimed before anything is set up, so a start is refused while another run holds the mount or
+                // the camera (P0c item 2 of docs/plans/hardware-in-the-server.md): without it nothing stopped a
+                // jog or a second run from moving the mount polar was rotating. The session owns the claim and
+                // releases it once the mount is restored.
+                if (!DeviceLeaseSet.TryAcquire(hub, [profileData.Mount, .. built.Drives], "polar alignment", out var claim, out var refusal))
+                {
+                    Notify(NotificationSeverity.Warning, refusal.Describe());
+                    return;
+                }
+
                 var site = PolarAlignmentActions.BuildSite(profileData, hub, lat, lon);
 
                 // Setup-panel path supplies the full configuration. Toolbar /
@@ -123,7 +133,7 @@ namespace TianWen.UI.Abstractions
                     {
                         var session = new PolarAlignmentSession(
                             external, mount, source, solverFactory,
-                            _timeProvider, logger, site, config);
+                            _timeProvider, logger, site, config, claim);
                         try
                         {
                             // If the guider was looping/calibrating/guiding from a prior session,
@@ -177,6 +187,10 @@ namespace TianWen.UI.Abstractions
                     }
                     finally
                     {
+                        // The session released it after restoring the mount; this is for a session that never
+                        // got as far as being constructed. Before `ended`, so a shutdown waiting on it finds the
+                        // devices free.
+                        claim.Dispose();
                         ended.TrySetResult();
                     }
                 }, "PolarAlignment");
