@@ -259,6 +259,11 @@ and refuses one that binds nothing (SharpAstro/DIR.Lib#101).
 
 ## P0b: server lifecycle and wire bugs (independent; they hurt remote rigs today)
 
+**Progress (2026-09-25).** Items 1, 2, 3, 4 and 12 are fixed by the lifecycle PR (#797): a run
+is the node's, an abort ends it through its `Finalise`, and the host starts and stops the node in the
+safe order (see `docs/architecture/hosting-api.md`, the fourth session-plane invariant). Item 14 is
+withdrawn (below). The rest are open, one PR per concern.
+
 Each item below is confirmed in the code, except where it says otherwise; the review of 2026-09-25
 re-checked all nine and found nine more (10 to 18). The first four, and 10 and 11, decide whether a
 server can be trusted with a night at all:
@@ -362,9 +367,13 @@ Found by the review (2026-09-25), all confirmed in the code:
     prompt indefinitely. A prompt the session cancelled is never cleared from `_pendingPrompt`. And
     `EventBroadcaster` attaches to a new session by 1 s polling, so events of a run's first second are
     lost and a prompt raised then gets the unattended answer while a client is watching.
-14. **`/session/flats` hard-sets `UnattendedPromptResponse = Proceed`**, against the rule that an
-    unanswered prompt is DECLINED because proceeding asserts a physical act nobody performed
-    (`flat-frame-automation.md`). A prompt is answered by a client or declined.
+14. **WITHDRAWN (2026-09-25): not a bug.** This item called `/session/flats`'s hard-set
+    `UnattendedPromptResponse = Proceed` a breach of "an unanswered prompt is declined". That rule is
+    the SCHEDULED run's. An operator-invoked flat run opts into Proceed on purpose, as
+    `flat-frame-automation.md` (the prompt channel) and the enum's own documentation say. A human asked
+    for the run and may have switched the panel on before walking back inside, and flats have a
+    backstop, since metering fails when the panel is off. The review cited that doc and missed its
+    exception.
 15. **The preview encoder breaks two rules.** It renders with a literal `StretchMode.Linked` (CLAUDE.md:
     every renderer resolves through `Auto`, headless included), and the per-OTA preview reads the
     session's `LastCapturedImages` WITHOUT a lease (the guider preview leases). It also encodes the
