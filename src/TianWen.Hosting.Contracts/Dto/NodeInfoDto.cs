@@ -1,3 +1,5 @@
+using System;
+
 namespace TianWen.Hosting.Dto;
 
 /// <summary>
@@ -33,4 +35,10 @@ public sealed class NodeInfoDto
     /// to replace it (an older node still running a night after an update is left alone), and never stops by itself.
     /// </summary>
     public bool HoldsHardware { get; init; }
+
+    /// <summary>
+    /// The node's clock now. A node a client started runs on the client's clock (a simulated <c>TIANWEN_NOW</c>
+    /// included), and this is how the client can tell.
+    /// </summary>
+    public DateTimeOffset NowUtc { get; init; }
 }

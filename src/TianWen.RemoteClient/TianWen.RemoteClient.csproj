@@ -9,6 +9,8 @@
          goes through the source-generated HostingJsonContext in TianWen.Hosting.Contracts; there is
          no reflection-based serialization anywhere in this assembly. -->
     <IsAotCompatible>true</IsAotCompatible>
+    <!-- LibraryImport (DetachedProcess: CreateProcessW, to start the node's keeper broken away from the client's job). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>

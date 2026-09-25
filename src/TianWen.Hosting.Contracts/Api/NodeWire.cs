@@ -13,6 +13,9 @@ namespace TianWen.Hosting.Api;
 public static class NodeWire
 {
     public const int Version = 1;
+
+    /// <summary>The TCP port a node listens on for the LAN: a node run by hand, or one whose rig is shared.</summary>
+    public const int LanPort = 1888;
 }
 
 /// <summary>

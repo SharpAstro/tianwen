@@ -43,6 +43,25 @@ public class StartupTimeOverrideTests
         simulatedNow.DateTime.ShouldBe(new DateTime(2026, 6, 21, 22, 0, 0));
         offset.ShouldBe(simulatedNow - RealNow);
     }
+
+    [Fact]
+    public void AnInheritedOffsetWinsOverTheSimulatedInstantAChildAlsoInherits()
+    {
+        // A node started by a client on a simulated night inherits TIANWEN_NOW too, and would anchor it at its own,
+        // later, start: the client's frozen offset is what keeps the two on one clock (P1 of
+        // docs/plans/hardware-in-the-server.md, #917).
+        var frozen = StartupTimeOverride.Freeze("3.00:00:00", "2026-06-21T22:00:00+10:00", RealNow);
+
+        frozen.ShouldNotBeNull().Offset.ShouldBe(TimeSpan.FromDays(3));
+        frozen.Value.SimulatedNow.ShouldBe(RealNow + TimeSpan.FromDays(3));
+    }
+
+    [Fact]
+    public void AnUnreadableOffsetFallsBackToTheSimulatedInstantAndNeitherIsTheRealClock()
+    {
+        StartupTimeOverride.Freeze("soon", "2026-06-21T22:00:00+10:00", RealNow).ShouldNotBeNull().Offset.ShouldBe(TimeSpan.FromHours(14));
+        StartupTimeOverride.Freeze(null, null, RealNow).ShouldBeNull();
+    }
 }
 
 public class OffsetTimeProviderTests
