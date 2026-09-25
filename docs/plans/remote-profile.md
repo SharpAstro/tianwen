@@ -277,7 +277,10 @@ constraint):
 1. **Preview frames** -- `GET /api/v1/preview/{otaIndex}?quality=&scale=` modelled on the nina
    `prepared-image` (StbImageWriteSharp JPEG of `ISession.LastCapturedImages`) but per-OTA and
    with a frame counter header (`X-Frame-Number` from the camera state) so the client fetches
-   only on change. Binary WS push is a later refinement; 1-2 fps poll is fine on LAN.
+   only on change. Binary WS push is a later refinement; 1-2 fps poll is fine on LAN. (The camera
+   state's counter names the exposure in progress, a sub ahead of the frame shown, so the token moved to
+   the preview slot's own number and became a conditional GET: P0b item 15 of
+   [hardware-in-the-server](hardware-in-the-server.md).)
 2. **Prompt bridging** -- broadcast `PROMPT-REQUESTED` (message, otaName) from
    `ISession.PromptRequested` in `EventBroadcaster`, plus `POST /session/prompt/respond
    {proceed}` calling `SessionPromptEventArgs.Respond`. Without this a remote GUI can never

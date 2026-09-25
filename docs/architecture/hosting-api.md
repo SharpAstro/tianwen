@@ -84,12 +84,26 @@ Run: `dotnet run --project TianWen.Server` or `tianwen-server [--port 1888]`.
 ## Previews go through the shared stretch, never a private one
 
 `PreviewEncoder` (`Api/`) is the one JPEG preview encoder, used by `GET
-/api/v1/preview/{otaIndex}` (per-OTA, with an `X-Frame-Number` change token) *and* the nina
-`prepared-image`. It runs `StretchSolver` + `Image.RenderStretchedRgba` -- the same pipeline as the
-GPU viewer and the CPU/TUI renderer. The shim previously divided by `Image.MaxValue` and called it an
-auto-stretch, which renders a linear sub near-black; do not reintroduce a private normalisation here.
-It also only ever *reads* the session's frame (`DebayerAsync(normalizeToUnit: false)`), because
-`LastCapturedImages` pins a recycled camera buffer.
+/api/v1/preview/{otaIndex}` (per-OTA), `GET /api/v1/preview/guider` *and* the nina `prepared-image`. It
+runs `StretchSolver` + `Image.RenderStretchedRgba` -- the same pipeline as the GPU viewer and the CPU/TUI
+renderer -- and resolves `StretchMode.Auto` exactly as the live pane resolves a live frame (no
+calibration, so colour renders Unlinked and mono Linked; it was a literal Linked). The shim previously
+divided by `Image.MaxValue` and called it an auto-stretch, which renders a linear sub near-black; do not
+reintroduce a private normalisation here.
+
+**The frame is its publisher's, so a preview LEASES it for the encode** (`CapturedImagePreview`,
+`GuidePreview`) and only ever *reads* it (`normalizeToUnit: false`). A session's preview slot holds a
+lease of its own (`Session.PublishCapturedImage`), so its frame stays readable until the next one
+replaces it: a refused lease means "replaced mid-read", and the next poll finds its successor. The
+per-OTA preview read the slot bare, and a bare lease would not have been enough, since the imaging loop
+used to leave a released frame in the slot for the rest of each exposure (P0b item 15, #752).
+
+**The change token is a conditional GET.** A picture carries its frame's token as `X-Frame-Number` and
+as an `ETag` (`PreviewHeaders`, in Contracts), and a request whose `If-None-Match` names the current one
+is answered 304, before the frame is leased or encoded; `TianWenNodeClient` sends it and reads the 304 as
+`Unchanged`. The token is the frame's own, `ISessionTelemetry.LastCapturedImageNumber` (the guider's
+`LastGuideFrameNumber`), never `CameraExposureState.FrameNumber`: that one advances as an exposure
+STARTS, so the preview served the previous frame under the new number and ran a whole sub behind.
 
 ## The ASCOM Alpaca device plane
 
