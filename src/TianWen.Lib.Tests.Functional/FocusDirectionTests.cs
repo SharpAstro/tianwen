@@ -45,7 +45,7 @@ public class FocusDirectionTests(ITestOutputHelper output)
 
         // when: move to 800 (negative direction, against preferred)
         await BacklashCompensation.MoveWithCompensationAsync(
-            focuser, 800, 1000, backlashStepsIn: 20, backlashStepsOut: 20, focusDir, timeProvider, ct);
+            focuser, FocuserMotion.Direct(focuser),800, 1000, backlashStepsIn: 20, backlashStepsOut: 20, focusDir, timeProvider, ct);
 
         // then: should end at 800, having overshot past it and returned from the positive side
         var finalPos = await focuser.GetPositionAsync(ct);
@@ -72,7 +72,7 @@ public class FocusDirectionTests(ITestOutputHelper output)
 
         // when: move to 1000 (positive direction, same as preferred)
         await BacklashCompensation.MoveWithCompensationAsync(
-            focuser, 1000, 800, backlashStepsIn: 20, backlashStepsOut: 20, focusDir, timeProvider, ct);
+            focuser, FocuserMotion.Direct(focuser),1000, 800, backlashStepsIn: 20, backlashStepsOut: 20, focusDir, timeProvider, ct);
 
         // then: direct move, no overshoot
         var finalPos = await focuser.GetPositionAsync(ct);
@@ -97,7 +97,7 @@ public class FocusDirectionTests(ITestOutputHelper output)
 
         // when: move to 1000 (positive, against preferred)
         await BacklashCompensation.MoveWithCompensationAsync(
-            focuser, 1000, 800, backlashStepsIn: 20, backlashStepsOut: 20, focusDir, timeProvider, ct);
+            focuser, FocuserMotion.Direct(focuser),1000, 800, backlashStepsIn: 20, backlashStepsOut: 20, focusDir, timeProvider, ct);
 
         // then: should overshoot past 1000 then approach from above (negative direction)
         var finalPos = await focuser.GetPositionAsync(ct);
@@ -121,7 +121,7 @@ public class FocusDirectionTests(ITestOutputHelper output)
 
         // when: move to 800 (negative, same as preferred)
         await BacklashCompensation.MoveWithCompensationAsync(
-            focuser, 800, 1000, backlashStepsIn: 20, backlashStepsOut: 20, focusDir, timeProvider, ct);
+            focuser, FocuserMotion.Direct(focuser),800, 1000, backlashStepsIn: 20, backlashStepsOut: 20, focusDir, timeProvider, ct);
 
         // then: direct move, no overshoot
         var finalPos = await focuser.GetPositionAsync(ct);
@@ -146,7 +146,7 @@ public class FocusDirectionTests(ITestOutputHelper output)
 
         // when: move to 1000 (positive, against preferred)
         await BacklashCompensation.MoveWithCompensationAsync(
-            focuser, 1000, 800, backlashStepsIn: 20, backlashStepsOut: 20, focusDir, timeProvider, ct);
+            focuser, FocuserMotion.Direct(focuser),1000, 800, backlashStepsIn: 20, backlashStepsOut: 20, focusDir, timeProvider, ct);
 
         // then: overshoot and approach from preferred (negative) side
         var finalPos = await focuser.GetPositionAsync(ct);
@@ -170,7 +170,7 @@ public class FocusDirectionTests(ITestOutputHelper output)
 
         // when: move against preferred with zero backlash
         await BacklashCompensation.MoveWithCompensationAsync(
-            focuser, 800, 1000, backlashStepsIn: 0, backlashStepsOut: 0, focusDir, timeProvider, ct);
+            focuser, FocuserMotion.Direct(focuser),800, 1000, backlashStepsIn: 0, backlashStepsOut: 0, focusDir, timeProvider, ct);
 
         // then: direct move (backlash = 0 means overshoot by 0 = no overshoot)
         var finalPos = await focuser.GetPositionAsync(ct);
@@ -194,7 +194,7 @@ public class FocusDirectionTests(ITestOutputHelper output)
 
         // when: move to 5, backlash=20 would try to overshoot to -15
         await BacklashCompensation.MoveWithCompensationAsync(
-            focuser, 5, 50, backlashStepsIn: 20, backlashStepsOut: 20, focusDir, timeProvider, ct);
+            focuser, FocuserMotion.Direct(focuser),5, 50, backlashStepsIn: 20, backlashStepsOut: 20, focusDir, timeProvider, ct);
 
         // then: should still reach target (overshoot clamped to 0)
         var finalPos = await focuser.GetPositionAsync(ct);

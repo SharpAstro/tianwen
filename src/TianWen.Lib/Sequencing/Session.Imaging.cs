@@ -1226,7 +1226,7 @@ internal partial record Session
 
                 var (filterBacklashIn, filterBacklashOut) = GetEffectiveBacklash(focuserDriver);
                 await BacklashCompensation.MoveWithCompensationAsync(
-                    focuserDriver, targetFocusPos, currentFocusPos,
+                    focuserDriver, ResilientMotion(focuserDriver), targetFocusPos, currentFocusPos,
                     filterBacklashIn, filterBacklashOut,
                     telescope.FocusDirection, _timeProvider, cancellationToken);
             }

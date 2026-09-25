@@ -96,8 +96,8 @@ Position, is-moving, temperature and temp-comp state are polled live thereafter.
 | `IFocuserDriver` member | Wire behaviour |
 |-------------------------|----------------|
 | `Absolute` | always `true` |
-| `GetPositionAsync` | `:00#` (→ `int.MinValue` when unavailable) |
-| `GetIsMovingAsync` | `:01#` |
+| `GetPositionAsync` | `:00#`; `int.MinValue` when NOT connected, and an `IOException` when connected with no valid reply |
+| `GetIsMovingAsync` | `:01#`; `false` when NOT connected, and an `IOException` when connected with no valid reply, never `false`: "no answer" is not "not moving" (#781) |
 | `GetTemperatureAsync` | `:06#`, only when `:25#` found a probe at connect; `NaN` otherwise and when unavailable, never the placeholder |
 | `MaxStep` / `MaxIncrement` | `:08#` (cached at connect) |
 | `StepSize` / `CanGetStepSize` | `:33#` (cached at connect) |

@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System;
+using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -53,15 +54,20 @@ internal sealed class GeminiFocuserDriver(GeminiFocuserDevice device, IServicePr
 
     public int BacklashStepsOut => -1;
 
+    // Not connected reads as no position and not moving, as on every driver. Connected with no valid reply is
+    // a FAULT and throws IOException, which the session's resilience layer retries and counts: the sentinel it
+    // used to return was taken as a value, so a move-wait read "not moving" and stopped polling while the
+    // focuser travelled on (#781).
     public async ValueTask<int> GetPositionAsync(CancellationToken cancellationToken = default)
-        => _conn is { IsOpen: true } conn && await GeminiFocuserProtocol.GetPositionAsync(conn, cancellationToken).ConfigureAwait(false) is { } pos
-            ? pos
-            : int.MinValue;
+        => _conn is not { IsOpen: true } conn
+            ? int.MinValue
+            : await GeminiFocuserProtocol.GetPositionAsync(conn, cancellationToken).ConfigureAwait(false) ?? throw NoValidReply(":00#");
 
-    public ValueTask<bool> GetIsMovingAsync(CancellationToken cancellationToken = default)
+    public async ValueTask<bool> GetIsMovingAsync(CancellationToken cancellationToken = default)
         => _conn is { IsOpen: true } conn
-            ? GeminiFocuserProtocol.GetIsMovingAsync(conn, cancellationToken)
-            : ValueTask.FromResult(false);
+            && (await GeminiFocuserProtocol.GetIsMovingAsync(conn, cancellationToken).ConfigureAwait(false) ?? throw NoValidReply(":01#"));
+
+    private IOException NoValidReply(string command) => new($"{device.DisplayName}: no valid reply to {command}");
 
     // No probe reads as NaN. The firmware looks for its DS18B20 once, at boot, and with none found ':06#'
     // still answers, with a placeholder a reader cannot tell from a room temperature: 20.00 C on stock

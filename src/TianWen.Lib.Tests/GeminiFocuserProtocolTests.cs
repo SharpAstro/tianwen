@@ -57,10 +57,17 @@ public class GeminiFocuserProtocolTests
     public async Task IsMoving_reflects_controller_state()
     {
         var conn = new FakeGeminiFocuserSerialDevice { Moving = false };
-        (await GeminiFocuserProtocol.GetIsMovingAsync(conn, Ct)).ShouldBeFalse();
+        (await GeminiFocuserProtocol.GetIsMovingAsync(conn, Ct)).ShouldBe(false);
 
         conn.Moving = true;
-        (await GeminiFocuserProtocol.GetIsMovingAsync(conn, Ct)).ShouldBeTrue();
+        (await GeminiFocuserProtocol.GetIsMovingAsync(conn, Ct)).ShouldBe(true);
+    }
+
+    [Fact]
+    public async Task IsMoving_with_no_reply_is_null_not_false()
+    {
+        var conn = new FakeGeminiFocuserSerialDevice { Moving = true, Dead = true };
+        (await GeminiFocuserProtocol.GetIsMovingAsync(conn, Ct)).ShouldBeNull();
     }
 
     [Fact]

@@ -39,6 +39,9 @@ internal sealed class FakeGeminiFocuserSerialDevice(
     /// <summary>Models a dead USB bridge: <see cref="IsOpen"/> stays true but no reply is ever enqueued.</summary>
     public bool Dead { get; set; }
 
+    /// <summary>Models a transient glitch: the next this-many replies are lost, then the controller answers again.</summary>
+    public int DropReplies { get; set; }
+
     public bool IsOpen { get; private set; } = true;
     public Encoding Encoding => Encoding.ASCII;
     public bool TryClose() { IsOpen = false; return true; }
@@ -126,6 +129,12 @@ internal sealed class FakeGeminiFocuserSerialDevice(
 
     private void Enqueue(string framed)
     {
+        if (DropReplies > 0)
+        {
+            DropReplies--;
+            return;
+        }
+
         foreach (var ch in framed)
         {
             _readBuffer.Enqueue((byte)ch);

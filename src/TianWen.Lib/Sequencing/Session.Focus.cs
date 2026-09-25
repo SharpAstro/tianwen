@@ -44,6 +44,14 @@ internal partial record Session
     }
 
     /// <summary>
+    /// The moves and is-moving polls of a <see cref="BacklashCompensation"/> move, through the resilience
+    /// layer like every other hot-path driver call (#781): an absolute move may be re-issued, a read retried.
+    /// </summary>
+    private FocuserMotion ResilientMotion(IFocuserDriver focuser) => new(
+        (position, ct) => ResilientInvokeAsync(focuser, c => focuser.BeginMoveAsync(position, c), ResilientCallOptions.AbsoluteMove, ct),
+        ct => ResilientInvokeAsync(focuser, focuser.GetIsMovingAsync, ResilientCallOptions.IdempotentRead, ct));
+
+    /// <summary>
     /// Loads the persisted backlash EWMA for <paramref name="focuser"/> from the sidecar
     /// JSON if we haven't already this session. Idempotent and cheap on the hot path; 
     /// guarded by <see cref="_focuserBacklashLoaded"/>.
@@ -561,7 +569,7 @@ internal partial record Session
         var focusDir = telescope.FocusDirection;
         var (backlashIn, backlashOut) = GetEffectiveBacklash(focuser);
         await BacklashCompensation.MoveWithCompensationAsync(
-            focuser, startPos, currentPos, backlashIn, backlashOut, focusDir, _timeProvider, cancellationToken);
+            focuser, ResilientMotion(focuser), startPos, currentPos, backlashIn, backlashOut, focusDir, _timeProvider, cancellationToken);
 
         // Scan from start to end (always moving outward, no backlash needed)
         for (var i = 0; i < stepCount && !cancellationToken.IsCancellationRequested; i++)
@@ -715,7 +723,7 @@ internal partial record Session
             var (effBacklashIn, effBacklashOut) = GetEffectiveBacklash(focuser);
             var overshootUsed = ComputeOvershootForMove(currentPosNow, bestPos, effBacklashIn, effBacklashOut, focusDir);
             await BacklashCompensation.MoveWithCompensationAsync(
-                focuser, bestPos, currentPosNow, effBacklashIn, effBacklashOut, focusDir, _timeProvider, cancellationToken);
+                focuser, ResilientMotion(focuser), bestPos, currentPosNow, effBacklashIn, effBacklashOut, focusDir, _timeProvider, cancellationToken);
 
             // Take a verification exposure at best focus to get baseline HFD
             camera.FocusPosition = bestPos;
