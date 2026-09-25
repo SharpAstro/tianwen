@@ -263,7 +263,7 @@ and refuses one that binds nothing (SharpAstro/DIR.Lib#101).
 is the node's, an abort ends it through its `Finalise`, and the host starts and stops the node in the
 safe order (see `docs/architecture/hosting-api.md`, the fourth session-plane invariant). Item 10 is
 fixed by #799: an API session runs on the declared defaults, and the whole configuration crosses the wire
-(the fifth invariant). The site case it left is fixed too (#798): a run settles its one site once its
+(the fifth invariant). The site case it left is fixed by #808 (#798): a run settles its one site once its
 mount connects, by the reconcile the GUI applied on connect, now in Lib, and the limit poll uses it, where
 the configured site alone had left the horizon limit off for a run whose request named no site. Items 5,
 6, 15 and 16 are fixed by #800: a mirror hears the node's events, an error answers its own HTTP status,
