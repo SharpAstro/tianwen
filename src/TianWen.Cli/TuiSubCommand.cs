@@ -115,23 +115,34 @@ internal class TuiSubCommand(
         // TUI has no sky map tab: pass a standalone state so the shared handler still wires.
         var skyMapState = new SkyMapState();
 
+        // The TUI's own background work, apart from the app's lifetime as the GUI keeps it: the planner, the
+        // session-config load, the mount-limit watcher and the planetary capture. A quit cancels it and the
+        // loop goes on to show the rig stopping, so it cannot be the token the loop runs on.
+        using var backgroundCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
+
         // Wire shared business logic
-        // shutdownToken == cts.Token: the TUI has no separate background-CTS, so the app token doubles as
-        // the planetary-capture shutdown signal (cancelled when the TUI exits).
-        var signalHandler = new AppSignalHandler(sp, appState, plannerState, sessionState, eqState, contexts, skyMapState, bus, tracker, cts, cts.Token, external);
+        var signalHandler = new AppSignalHandler(sp, appState, plannerState, sessionState, eqState, contexts, skyMapState, bus, tracker, cts, backgroundCts.Token, external);
         signalHandler.OnPlannerEnsureVisible = index =>
         {
             plannerState.SelectedTargetIndex = index;
             plannerState.NeedsRedraw = true;
         };
 
+        // Quitting is the GUI's rule (AppQuit): ask first while this computer's session runs, then cancel the
+        // background work above, stop the rig through its runs' own endings and warm the cameras, while the
+        // loop shows the progress. Q used to drain a tracker nothing had cancelled, and hung for ever on the
+        // mount-limit watcher.
+        var rigShutdown = new RigShutdown(contexts.Local.LiveSession, registry, consoleHost.TimeProvider, logger);
+        var appQuit = new AppQuit(appState, contexts, rigShutdown, tracker, backgroundCts, consoleHost.TimeProvider,
+            () => signalHandler.FlushRigLastSeenAsync(CancellationToken.None));
+
         // Load saved session configuration for the active profile
-        tracker.Run(() => signalHandler.LoadSessionConfigAsync(cts.Token), "Load session config");
+        tracker.Run(() => signalHandler.LoadSessionConfigAsync(backgroundCts.Token), "Load session config");
 
         // P3 of docs/plans/mount-safety-limits.md for this host too: a profile's mount safety limits apply to
         // a manual slew with no session running, and only a session enforces them on the mount it leases.
         // Same loop the server and the GUI drive; quitting cancels it, and it skips any mount a run owns.
-        tracker.Run(() => sp.GetRequiredService<MountLimitWatcher>().RunAsync(cts.Token), "Mount limit watcher");
+        tracker.Run(() => sp.GetRequiredService<MountLimitWatcher>().RunAsync(backgroundCts.Token), "Mount limit watcher");
 
         // Resolve location from profile
         var transform = Plan.LocationResolver.ResolveFromProfile(consoleHost, profile, consoleHost.TimeProvider);
@@ -169,7 +180,7 @@ internal class TuiSubCommand(
         // Kick off planner computation in background
         if (transform is not null)
         {
-            tracker.Run(() => signalHandler.InitializePlannerAsync(transform, cts.Token), "Compute tonight's best targets");
+            tracker.Run(() => signalHandler.InitializePlannerAsync(transform, backgroundCts.Token), "Compute tonight's best targets");
         }
 
         // Prevent Ctrl+C from killing the process: it arrives as a regular key event instead
@@ -215,10 +226,20 @@ internal class TuiSubCommand(
         while (!cts.Token.IsCancellationRequested)
         {
             // Drain all pending input before rendering
-            var quit = false;
             while (terminal.HasInput())
             {
                 var rawEvt = terminal.TryReadInput();
+
+                // While the rig stops, the only input is another quit, which is refused: a warm-up must not
+                // be cut, and the loop runs on to show it.
+                if (appState.ShuttingDown)
+                {
+                    if (IsQuitKey(rawEvt.ToInputEvent))
+                    {
+                        appQuit.Request();
+                    }
+                    continue;
+                }
 
 #if SIBLING_DEBUG_INSPECTORS
                 // The event trace the inspector's `inputLog` reports, written BEFORE dispatch so an event
@@ -256,21 +277,11 @@ internal class TuiSubCommand(
 
                 // Quit at top level (only if the tab didn't consume it). Deliberately NARROW: an unmodified
                 // Q, or Ctrl+C. Escape used to quit too, and with any modifier -- but Escape is a reflex key
-                // that every tab uses to mean "cancel this", and exiting takes no care of the hardware, so a
-                // stray press could drop a cooled camera with no thermal ramp. Ctrl+Q / Shift+Q are likewise
-                // no longer exits.
-                if (!tabConsumed && rawEvt.ToInputEvent is
-                    InputEvent.KeyDown(InputKey.Q, InputModifier.None) or
-                    InputEvent.KeyDown(InputKey.C, InputModifier.Ctrl))
+                // that every tab uses to mean "cancel this", so a stray press would start stopping the rig.
+                if (!tabConsumed && IsQuitKey(rawEvt.ToInputEvent))
                 {
-                    quit = true;
-                    break;
+                    appQuit.Request();
                 }
-            }
-
-            if (quit)
-            {
-                break;
             }
 
             // Check if a signal handler changed the active tab (e.g. StartSessionSignal → LiveSession)
@@ -328,6 +339,19 @@ internal class TuiSubCommand(
             bus.ProcessPending(tracker);
             signalHandler.CheckRecompute();
             tracker.ProcessCompletions(logger);
+
+            // A confirmed abort goes on to stop the rig once the session has ended; a dismissed one withdraws.
+            appQuit.Tick();
+            if (appQuit.IsComplete)
+            {
+                break;
+            }
+
+            if (appState.ShuttingDown && appQuit.Progress is { } stopping && appState.StatusMessage != $"Shutting down\u2026 {stopping}")
+            {
+                appState.StatusMessage = $"Shutting down\u2026 {stopping}";
+                appState.NeedsRedraw = true;
+            }
 
             // Resize
             if (chromePanel.Recompute())
@@ -439,6 +463,10 @@ internal class TuiSubCommand(
 
         await tracker.DrainAsync();
     }
+
+    /// <summary>An unmodified Q, or Ctrl+C, which <see cref="Console.TreatControlCAsInput"/> turns into a key.</summary>
+    private static bool IsQuitKey(InputEvent? evt)
+        => evt is InputEvent.KeyDown(InputKey.Q, InputModifier.None) or InputEvent.KeyDown(InputKey.C, InputModifier.Ctrl);
 
 #if SIBLING_DEBUG_INSPECTORS
     /// <summary>
