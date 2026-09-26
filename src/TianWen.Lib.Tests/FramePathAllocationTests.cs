@@ -270,10 +270,15 @@ public class FramePathAllocationTests
             await PreviewEncoder.EncodeJpegAsync(image, PreviewEncoder.DefaultQuality, scale: 0.5, ct);
         }
 
-        // The FEWEST bytes of several calls. ArrayPool keeps a returned buffer in the returning thread's
-        // own slot first, so one call whose Task.Run landed on another thread can miss the RGBA raster's
-        // rent (a 1 MB array here) and read as garbage it is not. A cost every frame pays shows in every
-        // call, so the minimum still carries it.
+        // The planes are the POOL's, so a plane allocated rather than rented is a miss there, whatever else the
+        // call allocates: that is the claim, counted directly. The bytes (the FEWEST of several calls) bound a
+        // debayer that bypassed the pool altogether, at a whole frame of planes, and no tighter: ArrayPool keeps a
+        // returned buffer in the returning thread's own slot first, so a call whose Task.Run lands on a thread
+        // without it rents the RGBA raster afresh (a 1 MB array here), and on a thread pool a long run has grown
+        // that can be every call. Measured 2026-09-27: 197,744 bytes on a quiet 16-thread pool and 1,381,040 on a
+        // 129-thread one, no plane missed either time. The old bound, half a frame of planes, failed the full suite
+        // on the second while this test passed alone.
+        var misses = Array2DPool<float>.MissCount;
         var allocated = long.MaxValue;
         for (var i = 0; i < 5; i++)
         {
@@ -282,11 +287,13 @@ public class FramePathAllocationTests
             allocated = Math.Min(allocated, GC.GetTotalAllocatedBytes(precise: true) - before);
             jpeg.Length.ShouldBeGreaterThan(0);
         }
+        var missed = Array2DPool<float>.MissCount - misses;
 
         var planes = 3L * width * height * sizeof(float);
-        TestContext.Current.TestOutputHelper?.WriteLine($"{width}x{height} mosaic preview at 0.5: {allocated:N0} bytes, against {planes:N0} of planes");
-        allocated.ShouldBeLessThan(planes / 2,
-            $"the debayer's planes are rented, not allocated: {allocated:N0} bytes against {planes:N0} of planes");
+        TestContext.Current.TestOutputHelper?.WriteLine(
+            $"{width}x{height} mosaic preview at 0.5: {allocated:N0} bytes, against {planes:N0} of planes; {missed} plane rents missed");
+        missed.ShouldBe(0, "the debayer's planes are rented, not allocated");
+        allocated.ShouldBeLessThan(planes, $"no frame of planes is allocated behind the pool: {allocated:N0} bytes against {planes:N0}");
     }
 
     /// <summary>
