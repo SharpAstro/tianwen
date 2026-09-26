@@ -95,11 +95,12 @@ public class NeuralGuideModelPersistenceTests : IDisposable
     }
 
     [Fact]
-    public async Task GivenWrongArchitectureFileWhenLoadThenReturnsNull()
+    public async Task GivenOlderFormatVersionFileWhenLoadThenReturnsNullAndDeletesIt()
     {
         var ct = TestContext.Current.CancellationToken;
 
-        // Craft a file with correct magic/version but wrong InputSize
+        // Craft a file with correct magic but an OLDER format version (and another InputSize): a model
+        // trained under a superseded calibration, stale for every build, so it is discarded.
         var dir = _tempDir.CreateSubdirectory("NeuralGuider");
         var filePath = Path.Combine(dir.FullName, "00000000.ngm");
 
@@ -114,7 +115,7 @@ public class NeuralGuideModelPersistenceTests : IDisposable
         var buffer = new byte[totalSize];
         var span = buffer.AsSpan();
         BinaryPrimitives.WriteUInt16LittleEndian(span, 0x4E47); // magic
-        BinaryPrimitives.WriteUInt16LittleEndian(span[2..], 0x0002); // current version, so the dimension check (not the version gate) is what rejects
+        BinaryPrimitives.WriteUInt16LittleEndian(span[2..], 0x0002); // older than the current 0x0003
         BinaryPrimitives.WriteInt32LittleEndian(span[4..], wrongInputSize); // wrong!
         BinaryPrimitives.WriteInt32LittleEndian(span[8..], 32); // Hidden1Size
         BinaryPrimitives.WriteInt32LittleEndian(span[12..], 16); // Hidden2Size
@@ -124,8 +125,111 @@ public class NeuralGuideModelPersistenceTests : IDisposable
 
         var model = new NeuralGuideModel();
         var result = await NeuralGuideModelPersistence.TryLoadAsync(model, _tempDir, ct);
-        result.ShouldBeNull("wrong architecture should be rejected");
+        result.ShouldBeNull("an older format version should be rejected");
         File.Exists(filePath).ShouldBeFalse("a rejected stale model must be deleted, not left to be re-read on the next load");
+    }
+
+    [Fact]
+    public async Task GivenTruncatedNewestFileBesideValidOlderOneWhenLoadThenReturnsTheOlderModel()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var saved = new NeuralGuideModel();
+        saved.InitializeRandom(seed: 7);
+        var cal = MakeCalibration();
+        await NeuralGuideModelPersistence.SaveAsync(saved, cal, _tempDir, ct);
+
+        var ngDir = new DirectoryInfo(Path.Combine(_tempDir.FullName, "NeuralGuider"));
+        var valid = ngDir.GetFiles("*.ngm").ShouldHaveSingleItem();
+        valid.LastWriteTimeUtc = DateTime.UtcNow.AddMinutes(-10);
+
+        // What a crash mid-write used to leave: the first part of a model, under a name of its own, and NEWEST.
+        var bytes = await File.ReadAllBytesAsync(valid.FullName, ct);
+        var truncatedPath = Path.Combine(ngDir.FullName, "FFFFFFFF.ngm");
+        await File.WriteAllBytesAsync(truncatedPath, bytes.AsSpan(0, bytes.Length / 2).ToArray(), ct);
+        File.SetLastWriteTimeUtc(truncatedPath, DateTime.UtcNow);
+
+        var loaded = new NeuralGuideModel();
+        var loadedCal = await NeuralGuideModelPersistence.TryLoadAsync(loaded, _tempDir, ct);
+
+        loadedCal.ShouldNotBeNull("a truncated newest file must not hide the valid older model");
+        loadedCal.Value.CameraAngleRad.ShouldBe(cal.CameraAngleRad, 1e-10);
+
+        Span<float> input = stackalloc float[NeuralGuideModel.InputSize];
+        input[0] = 0.5f;
+        var outLoaded = loaded.Forward(input).ToArray();
+        var outSaved = saved.Forward(input).ToArray();
+        outLoaded[0].ShouldBe(outSaved[0], 1e-6f);
+        outLoaded[1].ShouldBe(outSaved[1], 1e-6f);
+
+        File.Exists(truncatedPath).ShouldBeFalse("a truncated file is useless to every binary and is discarded");
+        File.Exists(valid.FullName).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task GivenOtherArchitectureNewestFileWhenLoadThenKeepsItAndLoadsTheOlderModel()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var saved = new NeuralGuideModel();
+        saved.InitializeRandom(seed: 11);
+        await NeuralGuideModelPersistence.SaveAsync(saved, MakeCalibration(), _tempDir, ct);
+
+        var ngDir = new DirectoryInfo(Path.Combine(_tempDir.FullName, "NeuralGuider"));
+        var valid = ngDir.GetFiles("*.ngm").ShouldHaveSingleItem();
+        valid.LastWriteTimeUtc = DateTime.UtcNow.AddMinutes(-10);
+
+        var foreignPath = Path.Combine(ngDir.FullName, "EEEEEEEE.ngm");
+        await File.WriteAllBytesAsync(foreignPath, OtherArchitectureFile(), ct);
+        File.SetLastWriteTimeUtc(foreignPath, DateTime.UtcNow);
+
+        var loaded = new NeuralGuideModel();
+        var loadedCal = await NeuralGuideModelPersistence.TryLoadAsync(loaded, _tempDir, ct);
+
+        loadedCal.ShouldNotBeNull();
+        File.Exists(foreignPath).ShouldBeTrue("another architecture's model belongs to another build and is left alone");
+    }
+
+    [Fact]
+    public async Task GivenSaveWhenAnotherArchitectureFileExistsThenItSurvivesTheCleanup()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var ngDir = _tempDir.CreateSubdirectory("NeuralGuider");
+        var foreignPath = Path.Combine(ngDir.FullName, "EEEEEEEE.ngm");
+        await File.WriteAllBytesAsync(foreignPath, OtherArchitectureFile(), ct);
+
+        var model = new NeuralGuideModel();
+        model.InitializeRandom(seed: 3);
+        await NeuralGuideModelPersistence.SaveAsync(model, MakeCalibration(), _tempDir, ct);
+
+        File.Exists(foreignPath).ShouldBeTrue();
+        ngDir.GetFiles("*.ngm").Length.ShouldBe(2);
+        ngDir.GetFiles("*.tmp").ShouldBeEmpty("the atomic write leaves no staging file behind");
+    }
+
+    [Fact]
+    public void GivenTheSameCalibrationThenTheFileNameIsStableAcrossProcesses()
+    {
+        // HashCode.Combine is seeded per process, so a name built from it could not be pinned here at all.
+        NeuralGuideModelPersistence.GetFileName(MakeCalibration()).ShouldBe(NeuralGuideModelPersistence.GetFileName(MakeCalibration()));
+        NeuralGuideModelPersistence.GetFileName(MakeCalibration()).ShouldBe("7B71A07C.ngm");
+    }
+
+    /// <summary>A well-formed file at the CURRENT format version from a model with a different InputSize.</summary>
+    private static byte[] OtherArchitectureFile()
+    {
+        const int otherInputSize = 10;
+        const int otherTotalParams = (otherInputSize * 32 + 32) + (32 * 16 + 16) + (16 * 2 + 2);
+        var buffer = new byte[20 + 56 + otherTotalParams * sizeof(float)];
+        var span = buffer.AsSpan();
+        BinaryPrimitives.WriteUInt16LittleEndian(span, 0x4E47);
+        BinaryPrimitives.WriteUInt16LittleEndian(span[2..], 0x0003);
+        BinaryPrimitives.WriteInt32LittleEndian(span[4..], otherInputSize);
+        BinaryPrimitives.WriteInt32LittleEndian(span[8..], 32);
+        BinaryPrimitives.WriteInt32LittleEndian(span[12..], 16);
+        BinaryPrimitives.WriteInt32LittleEndian(span[16..], 2);
+        return buffer;
     }
 
     [Fact]

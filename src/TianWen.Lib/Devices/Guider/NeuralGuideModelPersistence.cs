@@ -1,8 +1,10 @@
 using System;
 using System.Buffers.Binary;
 using System.IO;
+using System.IO.Hashing;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.IO;
 
 namespace TianWen.Lib.Devices.Guider;
 
@@ -13,7 +15,7 @@ namespace TianWen.Lib.Devices.Guider;
 /// <remarks>
 /// File format (little-endian):
 ///   [0..1]   Magic: 0x4E47 ('NG')
-///   [2..3]   Version: 0x0002
+///   [2..3]   Version: 0x0003
 ///   [4..7]   InputSize (int32)
 ///   [8..11]  Hidden1Size (int32)
 ///   [12..15] Hidden2Size (int32)
@@ -22,8 +24,12 @@ namespace TianWen.Lib.Devices.Guider;
 ///   [76..]   Model weights: TotalParams floats
 ///   Total: 20 + 56 + TotalParams*4 bytes
 ///
-/// TryLoadAsync gates compatibility two ways and DELETES any file that fails either, so a
-/// stale cache can never be re-read or reused on a later load:
+/// A save is atomic (staged under a name of its own and renamed over the target), and TryLoadAsync
+/// walks the files newest first and takes the first that passes every gate, so a file a crash cut
+/// short never hides an older valid one (#786). A file useless to every build (truncated, bad magic,
+/// an older format version) is DELETED so it is not re-read; a file from another architecture or a
+/// newer format version is LEFT, since another build of TianWen sharing the profile can still load it.
+/// The gates:
 ///   * Architecture dimensions -- the four size ints must equal the current model constants.
 ///     (The InputSize 22 -> 26 bump that added the encoder-phase features is caught here:
 ///     a 1,298-param file no longer matches the current 1,426-param model.)
@@ -36,7 +42,9 @@ namespace TianWen.Lib.Devices.Guider;
 ///   * v2 -> v3 adds the measured Dec-axis angle (DecAngleRad) so calibration carries the Dec
 ///     sense / non-orthogonality from the measurement instead of assuming RA + 90deg. The Dec
 ///     sense changed for flipped-sensor configs (southern hemisphere), so v2 models are discarded.
-/// When a file is rejected the model is left untouched and re-initialised with fresh weights.
+///   * Length -- checked LAST, once the header says the file is this build's, because another
+///     architecture's file has another length by construction and is not a truncated one.
+/// When no file passes, the model is left untouched and re-initialised with fresh weights.
 /// </remarks>
 internal static class NeuralGuideModelPersistence
 {
@@ -51,6 +59,16 @@ internal static class NeuralGuideModelPersistence
     private const int TotalFileSize = HeaderSize + CalibrationSize + WeightsSize;
 
     private const string SubDirectory = "NeuralGuider";
+
+    private enum FileVerdict
+    {
+        /// <summary>This build's model, whole.</summary>
+        Usable,
+        /// <summary>Useless to every build: truncated, not a model, or a superseded format.</summary>
+        Discard,
+        /// <summary>Another architecture or a newer format: another build's model, not this one's to delete.</summary>
+        OtherBuild
+    }
 
     /// <summary>
     /// Saves the model weights and calibration to disk.
@@ -75,7 +93,7 @@ internal static class NeuralGuideModelPersistence
         BinaryPrimitives.WriteInt32LittleEndian(span[12..], NeuralGuideModel.Hidden2Size);
         BinaryPrimitives.WriteInt32LittleEndian(span[16..], NeuralGuideModel.OutputSize);
 
-        // Calibration (6 doubles)
+        // Calibration (7 doubles)
         var calSpan = span[HeaderSize..];
         BinaryPrimitives.WriteDoubleLittleEndian(calSpan, calibration.CameraAngleRad);
         BinaryPrimitives.WriteDoubleLittleEndian(calSpan[8..], calibration.RaRatePixPerSec);
@@ -93,12 +111,15 @@ internal static class NeuralGuideModelPersistence
             BinaryPrimitives.WriteSingleLittleEndian(weightSpan[(i * sizeof(float))..], weights[i]);
         }
 
-        await File.WriteAllBytesAsync(filePath, buffer, cancellationToken);
+        // Staged and renamed over the target: a crash or power loss mid-write leaves the previous
+        // model, never the first part of this one (#786).
+        await SharedFile.WriteAsync(filePath, (stream, ct) => stream.WriteAsync(buffer, ct).AsTask(), cancellationToken);
 
-        // Clean up old weight files: keep only the one just written
+        // Clean up superseded weight files: keep the one just written, and any another build can still use.
         foreach (var oldFile in dir.GetFiles("*.ngm"))
         {
-            if (!string.Equals(oldFile.FullName, filePath, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(oldFile.FullName, filePath, StringComparison.OrdinalIgnoreCase)
+                && await ClassifyAsync(oldFile, cancellationToken) is not FileVerdict.OtherBuild)
             {
                 try { oldFile.Delete(); } catch { /* ignore cleanup failures */ }
             }
@@ -106,10 +127,10 @@ internal static class NeuralGuideModelPersistence
     }
 
     /// <summary>
-    /// Attempts to load saved model weights and calibration from disk.
-    /// Validates architecture dimensions match current model constants.
+    /// Attempts to load saved model weights and calibration from disk, trying the files newest first
+    /// and taking the first that passes every compatibility gate.
     /// </summary>
-    /// <returns>The loaded calibration result, or null if no saved state was found or the file was invalid.</returns>
+    /// <returns>The loaded calibration result, or null if no usable saved state was found.</returns>
     public static async ValueTask<GuiderCalibrationResult?> TryLoadAsync(
         NeuralGuideModel model,
         DirectoryInfo profileFolder,
@@ -121,64 +142,103 @@ internal static class NeuralGuideModelPersistence
             return null;
         }
 
-        // Find the most recently written file
-        FileInfo? newest = null;
-        foreach (var file in dir.GetFiles("*.ngm"))
+        var files = dir.GetFiles("*.ngm");
+        Array.Sort(files, static (a, b) => b.LastWriteTimeUtc.CompareTo(a.LastWriteTimeUtc));
+
+        foreach (var file in files)
         {
-            if (newest is null || file.LastWriteTimeUtc > newest.LastWriteTimeUtc)
+            byte[] buffer;
+            try
             {
-                newest = file;
+                await using var stream = await SharedFile.TryOpenReadAsync(file.FullName, cancellationToken);
+                if (stream is null)
+                {
+                    continue;
+                }
+                buffer = new byte[stream.Length];
+                await stream.ReadExactlyAsync(buffer, cancellationToken);
+            }
+            catch (IOException)
+            {
+                // Unreadable right now: try the next one, and leave this one rather than guess.
+                continue;
+            }
+
+            switch (Classify(buffer, buffer.Length))
+            {
+                case FileVerdict.Usable:
+                    var calibration = ReadCalibration(buffer);
+                    model.LoadParameters(ReadWeights(buffer));
+                    return calibration;
+
+                case FileVerdict.Discard:
+                    // Delete it so it is not re-read on the next load, then go on to the next newest,
+                    // which a failed write left intact.
+                    try { file.Delete(); } catch { /* ignore cleanup failures */ }
+                    break;
+
+                case FileVerdict.OtherBuild:
+                    break;
             }
         }
 
-        if (newest is null)
+        return null;
+    }
+
+    /// <summary>
+    /// Judges a file from its header and total length. The version and architecture are read before
+    /// the length, since another build's file has another length by construction and must not be
+    /// taken for a truncated one.
+    /// </summary>
+    private static FileVerdict Classify(ReadOnlySpan<byte> header, long length)
+    {
+        if (header.Length < HeaderSize || BinaryPrimitives.ReadUInt16LittleEndian(header) != Magic)
         {
-            return null;
+            return FileVerdict.Discard;
         }
 
-        // A file that fails any compatibility gate below is a stale cache this binary cannot
-        // use (wrong size, bad magic, older format version, or an older architecture). Delete
-        // it so it is not re-read on the next load -- the caller then trains a fresh model.
-        void DiscardIncompatible()
+        var version = BinaryPrimitives.ReadUInt16LittleEndian(header[2..]);
+        if (version < Version)
         {
-            try { newest.Delete(); } catch { /* ignore cleanup failures */ }
+            return FileVerdict.Discard;
         }
 
-        var buffer = await File.ReadAllBytesAsync(newest.FullName, cancellationToken);
-        if (buffer.Length != TotalFileSize)
+        if (version > Version
+            || BinaryPrimitives.ReadInt32LittleEndian(header[4..]) != NeuralGuideModel.InputSize
+            || BinaryPrimitives.ReadInt32LittleEndian(header[8..]) != NeuralGuideModel.Hidden1Size
+            || BinaryPrimitives.ReadInt32LittleEndian(header[12..]) != NeuralGuideModel.Hidden2Size
+            || BinaryPrimitives.ReadInt32LittleEndian(header[16..]) != NeuralGuideModel.OutputSize)
         {
-            DiscardIncompatible();
-            return null;
+            return FileVerdict.OtherBuild;
         }
 
-        var span = buffer.AsSpan();
+        return length == TotalFileSize ? FileVerdict.Usable : FileVerdict.Discard;
+    }
 
-        // Validate header
-        var magic = BinaryPrimitives.ReadUInt16LittleEndian(span);
-        var version = BinaryPrimitives.ReadUInt16LittleEndian(span[2..]);
-        if (magic != Magic || version != Version)
+    private static async ValueTask<FileVerdict> ClassifyAsync(FileInfo file, CancellationToken cancellationToken)
+    {
+        try
         {
-            DiscardIncompatible();
-            return null;
-        }
+            await using var stream = await SharedFile.TryOpenReadAsync(file.FullName, cancellationToken);
+            if (stream is null)
+            {
+                return FileVerdict.OtherBuild; // gone already, nothing to delete
+            }
 
-        // Validate architecture dimensions
-        var inputSize = BinaryPrimitives.ReadInt32LittleEndian(span[4..]);
-        var hidden1Size = BinaryPrimitives.ReadInt32LittleEndian(span[8..]);
-        var hidden2Size = BinaryPrimitives.ReadInt32LittleEndian(span[12..]);
-        var outputSize = BinaryPrimitives.ReadInt32LittleEndian(span[16..]);
-        if (inputSize != NeuralGuideModel.InputSize
-            || hidden1Size != NeuralGuideModel.Hidden1Size
-            || hidden2Size != NeuralGuideModel.Hidden2Size
-            || outputSize != NeuralGuideModel.OutputSize)
+            var header = new byte[HeaderSize];
+            var read = await stream.ReadAtLeastAsync(header, HeaderSize, throwOnEndOfStream: false, cancellationToken);
+            return Classify(header.AsSpan(0, read), stream.Length);
+        }
+        catch (IOException)
         {
-            DiscardIncompatible();
-            return null;
+            return FileVerdict.OtherBuild; // unreadable right now: leave it rather than guess
         }
+    }
 
-        // Read calibration
+    private static GuiderCalibrationResult ReadCalibration(ReadOnlySpan<byte> span)
+    {
         var calSpan = span[HeaderSize..];
-        var calibration = new GuiderCalibrationResult(
+        return new GuiderCalibrationResult(
             CameraAngleRad: BinaryPrimitives.ReadDoubleLittleEndian(calSpan),
             DecAngleRad: BinaryPrimitives.ReadDoubleLittleEndian(calSpan[48..]),
             RaRatePixPerSec: BinaryPrimitives.ReadDoubleLittleEndian(calSpan[8..]),
@@ -186,29 +246,31 @@ internal static class NeuralGuideModelPersistence
             RaDisplacementPx: BinaryPrimitives.ReadDoubleLittleEndian(calSpan[24..]),
             DecDisplacementPx: BinaryPrimitives.ReadDoubleLittleEndian(calSpan[32..]),
             TotalCalibrationTimeSec: BinaryPrimitives.ReadDoubleLittleEndian(calSpan[40..]));
+    }
 
-        // Read weights
+    private static float[] ReadWeights(ReadOnlySpan<byte> span)
+    {
         var weightSpan = span[(HeaderSize + CalibrationSize)..];
         var weights = new float[NeuralGuideModel.TotalParams];
         for (var i = 0; i < weights.Length; i++)
         {
             weights[i] = BinaryPrimitives.ReadSingleLittleEndian(weightSpan[(i * sizeof(float))..]);
         }
-
-        model.LoadParameters(weights);
-        return calibration;
+        return weights;
     }
 
     /// <summary>
-    /// Generates a file name based on the calibration's key properties.
-    /// Uses camera angle and guide rates rounded to 2 decimals.
+    /// Generates a file name from the calibration's key properties (camera angle and guide rates
+    /// rounded to 2 decimals), hashed with XxHash32 so the same calibration gets the same name in
+    /// every process (<see cref="HashCode"/> is seeded per process). The name is not a lookup key --
+    /// the loader reads by write time -- but a stable one means a re-save replaces its own file.
     /// </summary>
-    private static string GetFileName(GuiderCalibrationResult calibration)
+    internal static string GetFileName(GuiderCalibrationResult calibration)
     {
-        var hash = HashCode.Combine(
-            Math.Round(calibration.CameraAngleRad, 2),
-            Math.Round(calibration.RaRatePixPerSec, 2),
-            Math.Round(calibration.DecRatePixPerSec, 2));
-        return $"{hash:X8}.ngm";
+        Span<byte> key = stackalloc byte[3 * sizeof(double)];
+        BinaryPrimitives.WriteDoubleLittleEndian(key, Math.Round(calibration.CameraAngleRad, 2));
+        BinaryPrimitives.WriteDoubleLittleEndian(key[8..], Math.Round(calibration.RaRatePixPerSec, 2));
+        BinaryPrimitives.WriteDoubleLittleEndian(key[16..], Math.Round(calibration.DecRatePixPerSec, 2));
+        return $"{XxHash32.HashToUInt32(key):X8}.ngm";
     }
 }
