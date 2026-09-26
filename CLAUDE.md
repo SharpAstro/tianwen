@@ -1126,6 +1126,12 @@ collection spawns no `rc-astro` process. Design and every measurement: `docs/pla
   `docs/plans/model-training-roadmap.md` § 8); a model file is never opened or derived from. Star
   removal, deblur and starless deconvolution are RC-only until TianWen's own models ship into the
   roles, which stay as the extension points.
+- **The NAFNet pre-stretch measures COVERED pixels only.** `ChunkedNafnetRunner.ApplyInputStretch`
+  leaves the canvas ring (`Image.AbsentPixels`, the crop's own absence scan) out of the linearity
+  auto-detect and the stretch's floor and median (`Image.MinAndShiftedMedian`, one measurement for
+  both), and the runners put the ring back exactly (`CopyAbsent`). A ring's zero was every channel's
+  floor: 9 of 190 masters read as already stretched and 108 were stretched from the wrong floor
+  (`docs/known-limitations.md`). An interior zero is a measurement and still counts.
 - **In-house N2N denoiser** (`N2nDenoiser`, OSC-only, declines mono): the default local
   `IDenoiseEnhancer` (`AddTianWenAi()`) and the fallback behind NoiseXTerminator. Weights ship
   in-repo (`src/TianWen.AI.Imaging/models/`) as an LFS object; **any new LFS file type the apps ship

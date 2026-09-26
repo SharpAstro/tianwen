@@ -319,64 +319,117 @@ public partial class Image
     /// <param name="balances">Out: per-channel midtones balance β used in the MTF.</param>
     public Image MtfStretch(double targetMedian, out float[] origMin, out double[] balances)
     {
-        var (channels, width, height) = Shape;
-        var pixelCount = width * height;
-        origMin = new float[channels];
-        balances = new double[channels];
-        var newData = CreateChannelData(channels, height, width);
+        (origMin, balances) = MtfStretchParameters(targetMedian);
+        return MtfStretchWith(origMin, balances);
+    }
 
-        using var scratch = ArrayPoolHelper.Rent<float>(pixelCount);
+    /// <summary>
+    /// The per-channel parameters <see cref="MtfStretch"/> measures, without applying them: each
+    /// channel's minimum, and the midtones balance that maps its median above that minimum to
+    /// <paramref name="targetMedian"/>. <see cref="MtfStretchWith"/> applies them, and the two together
+    /// ARE <see cref="MtfStretch"/>, bit for bit.
+    /// </summary>
+    /// <remarks>
+    /// <para><paramref name="exclude"/> keeps pixels out of the MEASUREMENT only (the transform still maps
+    /// every pixel): how a caller keeps the canvas ring (<see cref="AbsentPixels"/>) from becoming every
+    /// channel's floor. See <see cref="MinAndShiftedMedian"/>.</para>
+    /// <para>When a channel is all NaN (or all excluded), or its shifted median is 0 (a flat plane), the
+    /// balance is undefined, and 0.5 is used: the MTF is then the identity in [0, 1], so the stretch is a
+    /// no-op on that channel and the unstretch (1 - β = 0.5) stays one too.</para>
+    /// </remarks>
+    public (float[] OrigMin, double[] Balances) MtfStretchParameters(double targetMedian, BitMatrix? exclude = null)
+    {
+        var channels = ChannelCount;
+        var origMin = new float[channels];
+        var balances = new double[channels];
         for (var c = 0; c < channels; c++)
         {
-            var src = GetChannelSpan(c);
-            var dst = MemoryMarshal.CreateSpan(ref newData[c][0, 0], pixelCount);
+            var (min, median) = MinAndShiftedMedian(c, exclude);
+            origMin[c] = min;
+            balances[c] = median > 0f ? MidtonesBalanceFor(median, targetMedian) : 0.5;
+        }
 
-            // Pass 1: find min (skip NaN).
-            var min = float.PositiveInfinity;
+        return (origMin, balances);
+    }
+
+    /// <summary>
+    /// One channel's minimum and its median above that minimum, NaN skipped: the two numbers the NAFNet
+    /// pre-stretch reads, both its linearity test and the stretch itself, so the two cannot disagree
+    /// about what the frame's floor is.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>A pixel set in <paramref name="exclude"/> is not measured.</b> The reason it exists is the
+    /// canvas ring: counted, a ring's exact zero is the minimum, so a frame's whole sky becomes "median
+    /// above the floor", which read 0.20 to 0.26 on three real masters whose ringless neighbours read
+    /// 0.06 (see <see cref="AbsentPixels"/>). Only what the caller names is skipped; an interior zero is
+    /// a measurement and still counts.</para>
+    /// <para>An all-NaN or all-excluded channel answers a minimum of 0 and a median of 0, the values the
+    /// stretch has always fallen back to.</para>
+    /// </remarks>
+    /// <param name="channel">The channel to measure.</param>
+    /// <param name="exclude">Pixels to leave out, <c>[row, column]</c> over this image's own geometry.</param>
+    public (float Min, float ShiftedMedian) MinAndShiftedMedian(int channel, BitMatrix? exclude = null)
+    {
+        var (_, width, height) = Shape;
+        if (exclude is { } shape && (shape.Rows != height || shape.Columns != width))
+        {
+            throw new ArgumentException(
+                $"exclude is {shape.Columns}x{shape.Rows} and the image {width}x{height}", nameof(exclude));
+        }
+
+        var src = GetChannelSpan(channel);
+        var pixelCount = width * height;
+
+        var min = float.PositiveInfinity;
+        if (exclude is { } skip)
+        {
+            for (var y = 0; y < height; y++)
+            {
+                var words = skip.RowWords(y);
+                var row = src.Slice(y * width, width);
+                for (var x = 0; x < width; x++)
+                {
+                    var v = row[x];
+                    if (!float.IsNaN(v) && v < min && (words[x >> 6] & (1ul << (x & 63))) == 0) min = v;
+                }
+            }
+        }
+        else
+        {
             for (var i = 0; i < pixelCount; i++)
             {
                 var v = src[i];
                 if (!float.IsNaN(v) && v < min) min = v;
             }
-            if (float.IsPositiveInfinity(min)) min = 0f;
-            origMin[c] = min;
+        }
+        if (float.IsPositiveInfinity(min)) min = 0f;
 
-            // Pass 2: collect non-NaN (src - min) into scratch, then median.
-            var count = 0;
-            for (var i = 0; i < pixelCount; i++)
+        using var scratch = ArrayPoolHelper.Rent<float>(pixelCount);
+        var shifted = scratch.AsSpan();
+        var count = 0;
+        if (exclude is { } skipped)
+        {
+            for (var y = 0; y < height; y++)
             {
-                var v = src[i];
-                if (!float.IsNaN(v)) scratch[count++] = v - min;
-            }
-            var med = count > 0 ? MedianFast(scratch.AsSpan(0, count)) : 0f;
-
-            // Derive β. When the channel is all NaN or the shifted median is 0
-            // (flat plane), β is undefined; fall back to 0.5 which makes MTF
-            // the identity in [0, 1], so the stretch becomes a no-op on this
-            // channel (and Unstretch with 1 - β = 0.5 stays identity too).
-            var beta = med > 0f
-                ? MidtonesBalanceFor(med, targetMedian)
-                : 0.5;
-            balances[c] = beta;
-
-            // Pass 3: subtract min + MTF(β, x), NaN-preserving.
-            for (var i = 0; i < pixelCount; i++)
-            {
-                var v = src[i];
-                if (float.IsNaN(v))
+                var words = skipped.RowWords(y);
+                var row = src.Slice(y * width, width);
+                for (var x = 0; x < width; x++)
                 {
-                    dst[i] = float.NaN;
-                }
-                else
-                {
-                    var shifted = v - min;
-                    if (shifted < 0f) shifted = 0f;  // float wobble guard
-                    dst[i] = (float)MidtonesTransferFunction(beta, shifted);
+                    var v = row[x];
+                    if (!float.IsNaN(v) && (words[x >> 6] & (1ul << (x & 63))) == 0) shifted[count++] = v - min;
                 }
             }
         }
+        else
+        {
+            for (var i = 0; i < pixelCount; i++)
+            {
+                var v = src[i];
+                if (!float.IsNaN(v)) shifted[count++] = v - min;
+            }
+        }
 
-        return new Image(newData, BitDepth.Float32, 1.0f, 0f, 0f, imageMeta);
+        return (min, count > 0 ? MedianFast(shifted[..count]) : 0f);
     }
 
     /// <summary>

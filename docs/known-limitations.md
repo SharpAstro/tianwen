@@ -83,7 +83,26 @@ the baked `tyc2.bin.lz`, not of any lookup, and both had been invisible because
 
 ## Imaging / stretch pipeline
 
-### The AI runner's linear/stretched auto-detect misreads a bright-sky master, on about 2.5 percent of this archive
+### The AI runner's linear/stretched auto-detect read the canvas ring as sky (FIXED 2026-09-26); an interior zero still sets its floor
+
+**Fixed for the ring, which was the whole of what this archive showed.** `ChunkedNafnetRunner.ApplyInputStretch`
+now leaves the canvas ring (`Image.AbsentPixels`, the crop's own absence scan: unusable and connected to
+the border) out of both the auto-detect and the stretch's minimum and median, through ONE measurement
+(`Image.MinAndShiftedMedian`), and both runners put the ring back to its exact zero after inference
+(stretched from a floor above zero it clamps to 0, and 0 unstretches to that floor, so it cannot survive
+the round trip alone). Masked rather than cropped, because the same runner serves the full-frame `stack
+--enhance` master, whose output keeps its canvas; the exporters, which measure the whole master before
+cutting cells, get it for free. Over the 190 retained masters of `2026-09-25-full` (2026-09-26) every
+one carries a ring (0.06 to 15.5 percent of the canvas, median 0.45); the floor moves on 108 (77 had a
+floor of exactly 0; on the rest a pixel NaN in another channel counted in channel 0), and 9 verdicts
+flip, all to linear: three E13 pool sessions (dropped from E13 before the fix), three ASI294MM luminance
+masters, and the three Carina-Wide 2025-03-19 masters, an EVAL field whose eval tiles were therefore
+exported unstretched while every other field's were stretched. Pinned by `NafnetInputStretchRingTests`
+and, end to end through the shipped model, `N2nDenoiserTests.ACanvasRingIsLeftOutOfTheStretchAndComesBackExactlyZero`.
+
+**What remains: an INTERIOR exact zero (a clipped pixel) is a measurement and still sets the floor**, so
+a bright-sky frame with one still reads as stretched. The percentile alternative named below would
+cover it and is not taken; no archive master has been seen to need it. The history follows.
 
 `ChunkedNafnetRunner.NeedsStretch` is SAS Pro's heuristic: unit-scale the frame, take
 `median(value - min)`, and call anything at or above `AiNafnetInputs.StretchAutoDetectMedianThreshold`

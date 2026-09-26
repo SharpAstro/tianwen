@@ -94,8 +94,10 @@ public static class ChunkedNafnetRunner
         //    the MTF curve is nonlinearly steep near saturation, and a
         //    redundant round-trip there amplifies per-channel noise around
         //    bright stars (the artefact reported on the first
-        //    Skull-and-Crossbones run).
-        var (stretched, stretchApplied, origMin, balances) = ApplyInputStretch(input);
+        //    Skull-and-Crossbones run). The canvas ring is measured once, here:
+        //    the stretch leaves it out of its statistics and step 8 puts it back.
+        var absent = input.AbsentPixels();
+        var (stretched, stretchApplied, origMin, balances) = ApplyInputStretch(input, absent);
         var stretchMs = phaseSw.ElapsedMilliseconds; phaseSw.Restart();
         ct.ThrowIfCancellationRequested();
 
@@ -276,6 +278,23 @@ public static class ChunkedNafnetRunner
             output = inferenceResult;
             unstretchMs = 0;
         }
+
+        // 8. The canvas ring comes back exactly as it went in. A pixel no frame reached is not the
+        //    model's to change, and it cannot survive the round trip on its own: stretched from a floor
+        //    above zero it clamps to 0, and 0 unstretches to that floor, not to the zero it was.
+        if (absent is { } ring)
+        {
+            var ringed = new float[sourceChannels][,];
+            for (var c = 0; c < sourceChannels; c++)
+            {
+                var plane = new float[srcH, srcW];
+                var dst = MemoryMarshal.CreateSpan(ref plane[0, 0], srcW * srcH);
+                output.GetChannelSpan(c).CopyTo(dst);
+                CopyAbsent(input.GetChannelSpan(c), dst, srcW, ring);
+                ringed[c] = plane;
+            }
+            output = new Image(ringed, BitDepth.Float32, output.MaxValue, output.MinValue, output.Pedestal, input.ImageMeta);
+        }
         var totalMs = totalSw.ElapsedMilliseconds;
 
         return new ChunkedNafnetResult(
@@ -293,50 +312,63 @@ public static class ChunkedNafnetRunner
     /// preprocessing to inference (zero train/inference skew, plan §2.4); the single source of
     /// truth for "how a linear frame becomes a NAFNet input".
     /// </summary>
+    /// <remarks>
+    /// <b>Only COVERED pixels are measured.</b> The canvas ring (<see cref="Image.AbsentPixels"/>) is
+    /// left out of the linearity test and of the stretch's minimum and median, and still mapped by the
+    /// transform. Counted, its exact zero was every channel's floor: three E13 masters with a bright
+    /// sky read 0.20 to 0.26 against the 0.125 threshold, were refused by the exporter and would have
+    /// been handed to a net unstretched, and a ringed master that passed was stretched from 0 rather
+    /// than from its own darkest sky. A frame with no ring is unaffected, bit for bit.
+    /// </remarks>
     internal static (Image Stretched, bool Applied, float[]? OrigMin, double[]? Balances) ApplyInputStretch(Image input)
+        => ApplyInputStretch(input, input.AbsentPixels());
+
+    /// <summary>
+    /// <see cref="ApplyInputStretch(Image)"/> for a caller that has already measured the canvas ring,
+    /// because it must also put the ring back after inference (<see cref="CopyAbsent"/>).
+    /// </summary>
+    internal static (Image Stretched, bool Applied, float[]? OrigMin, double[]? Balances) ApplyInputStretch(Image input, BitMatrix? absent)
     {
-        if (!NeedsStretch(input))
+        if (!NeedsStretch(input, absent))
         {
             // Already in (or near) the NAFNet training distribution; feed it verbatim and skip
             // the inverse round-trip. Critical for pre-stretched inputs (GHS/ABE), where the MTF
             // nonlinearity near saturation amplifies per-channel noise around bright stars.
             return (input, false, null, null);
         }
-        var stretched = input.MtfStretch(AiNafnetInputs.TargetMedian, out var origMin, out var balances);
-        return (stretched, true, origMin, balances);
+        var (origMin, balances) = input.MtfStretchParameters(AiNafnetInputs.TargetMedian, absent);
+        return (input.MtfStretchWith(origMin, balances), true, origMin, balances);
+    }
+
+    /// <summary>
+    /// Copies the pixels set in <paramref name="absent"/> from <paramref name="from"/> to
+    /// <paramref name="to"/>, one channel's planes of width <paramref name="width"/>: how a runner
+    /// hands the canvas ring back exactly as it received it. Walks the set bits, so its cost follows
+    /// the ring rather than the frame.
+    /// </summary>
+    internal static void CopyAbsent(ReadOnlySpan<float> from, Span<float> to, int width, BitMatrix absent)
+    {
+        for (var y = 0; y < absent.Rows; y++)
+        {
+            var rowStart = y * width;
+            for (var x = absent.NextSetBit(y, 0); x >= 0; x = absent.NextSetBit(y, x + 1))
+            {
+                to[rowStart + x] = from[rowStart + x];
+            }
+        }
     }
 
     /// <summary>
     /// SAS Pro auto-detect: an input with median(channel0 - min) below
     /// <see cref="AiNafnetInputs.StretchAutoDetectMedianThreshold"/> is
     /// "linear-ish" and needs MtfStretch; anything above is presumed
-    /// already-stretched and the round-trip is skipped.
+    /// already-stretched and the round-trip is skipped. Measured over covered
+    /// pixels only (<paramref name="absent"/> is the canvas ring), through the
+    /// same <see cref="Image.MinAndShiftedMedian"/> the stretch reads, and an
+    /// all-NaN or empty channel still answers "stretch".
     /// </summary>
-    private static bool NeedsStretch(Image input)
-    {
-        var ch0 = input.GetChannelSpan(0);
-        if (ch0.Length == 0) return true;
-
-        var min = float.PositiveInfinity;
-        for (var i = 0; i < ch0.Length; i++)
-        {
-            var v = ch0[i];
-            if (!float.IsNaN(v) && v < min) min = v;
-        }
-        if (float.IsPositiveInfinity(min)) return true; // all NaN -> default to stretch
-
-        using var scratch = ArrayPoolHelper.Rent<float>(ch0.Length);
-        var scratchSpan = scratch.AsSpan();
-        var count = 0;
-        for (var i = 0; i < ch0.Length; i++)
-        {
-            var v = ch0[i];
-            if (!float.IsNaN(v)) scratchSpan[count++] = v - min;
-        }
-        if (count == 0) return true;
-        var median = StatisticsHelper.MedianFast(scratchSpan[..count]);
-        return median < AiNafnetInputs.StretchAutoDetectMedianThreshold;
-    }
+    private static bool NeedsStretch(Image input, BitMatrix? absent)
+        => input.MinAndShiftedMedian(0, absent).ShiftedMedian < AiNafnetInputs.StretchAutoDetectMedianThreshold;
 
     private static void ValidateChannels(int sourceChannels, int modelChannels)
     {
