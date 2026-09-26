@@ -342,6 +342,35 @@ namespace TianWen.RemoteClient
                 HostingJsonContext.Default.DeviceRequestDto, HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
 
         /// <summary>
+        /// <c>POST /devices/camera/cool</c> -- cools the camera to <paramref name="setpointC"/> through the session's own
+        /// ramp, as a job in the node (P2 part 3, #929). <paramref name="rampMinutes"/> null takes a session's default.
+        /// </summary>
+        public Task<NodeResult<JobDto>> CoolCameraAsync(Uri deviceUri, double setpointC, double? rampMinutes, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/devices/camera/cool", new CoolRequestDto { DeviceUri = deviceUri.ToString(), SetpointC = setpointC, RampMinutes = rampMinutes },
+                HostingJsonContext.Default.CoolRequestDto, HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
+
+        /// <summary><c>POST /devices/camera/warm</c> -- warms the camera and turns its cooler off, as a job, leaving it connected.</summary>
+        public Task<NodeResult<JobDto>> WarmCameraAsync(Uri deviceUri, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/devices/camera/warm", new DeviceRequestDto { DeviceUri = deviceUri.ToString() },
+                HostingJsonContext.Default.DeviceRequestDto, HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
+
+        /// <summary>
+        /// <c>POST /devices/camera/cooler-off</c> -- switches the cooler off at once, with no warm-up. Refused (409) while a
+        /// run holds the camera or a job is working on it.
+        /// </summary>
+        public Task<NodeResult<string>> CameraCoolerOffAsync(Uri deviceUri, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/devices/camera/cooler-off", new DeviceRequestDto { DeviceUri = deviceUri.ToString() },
+                HostingJsonContext.Default.DeviceRequestDto, HostingJsonContext.Default.ResponseEnvelopeString, _timeouts.Control, cancellationToken);
+
+        /// <summary>
+        /// <c>POST /devices/camera/settings</c> -- changes the gain, offset, binning and frame the request names, and answers
+        /// what the camera reads back. A value the camera does not take is refused (400) before anything changes.
+        /// </summary>
+        public Task<NodeResult<CameraSettingsDto>> SetCameraSettingsAsync(CameraSettingsRequestDto request, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/devices/camera/settings", request,
+                HostingJsonContext.Default.CameraSettingsRequestDto, HostingJsonContext.Default.ResponseEnvelopeCameraSettingsDto, _timeouts.Control, cancellationToken);
+
+        /// <summary>
         /// <c>POST /devices/discover</c> -- starts a discovery on the node, or joins the one running, and answers
         /// at once with its job (202). Follow it with <see cref="GetJobAsync"/> or the <c>JOB-PROGRESS</c> push,
         /// then read what it found with <see cref="GetDevicesAsync"/>. It runs on the node's token, so this

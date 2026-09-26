@@ -122,6 +122,24 @@ public static class DeviceHubCameraSafetyExtensions
         }
 
         /// <summary>
+        /// Switches the camera's cooler off at once, with no warm-up, and records that as its intent, so a node that
+        /// crashes afterwards does not re-cool a camera someone switched off. The immediate counterpart to
+        /// <see cref="WarmAndCoolerOffAsync"/>, which ramps first for a sensor that is cold.
+        /// </summary>
+        /// <returns>False when the camera is not connected or cannot switch its cooler.</returns>
+        public async ValueTask<bool> CoolerOffAsync(Uri cameraUri, CancellationToken cancellationToken)
+        {
+            if (!hub.TryGetConnectedDriver<ICameraDriver>(cameraUri, out var camera) || !camera.CanSetCoolerOn)
+            {
+                return false;
+            }
+
+            await camera.SetCoolerOnAsync(false, cancellationToken);
+            hub.SetCoolerIntent(cameraUri, CoolerIntent.Off);
+            return true;
+        }
+
+        /// <summary>
         /// Records, as the camera's <see cref="CoolerIntent"/>, what an IMMEDIATE command left its cooler doing:
         /// cooling to its setpoint, or off. For a surface that commands the cooler directly, a device plane or a
         /// compatibility shim, rather than through a ramp, whose TARGET is the intent instead. A camera that cannot

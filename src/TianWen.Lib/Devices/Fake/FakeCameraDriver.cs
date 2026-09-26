@@ -447,9 +447,11 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
 
         set
         {
-            if (value < 0 || value >= PixelSizeX)
+            // Inside the BINNED sensor, as DAL's setter rules. It compared against PixelSizeX, the pixel pitch in
+            // microns, so every origin past a few pixels threw.
+            if (value < 0 || value * BinX >= CameraXSize)
             {
-                throw new ArgumentException($"Must be between 0 and {CameraXSize}", nameof(value));
+                throw new ArgumentOutOfRangeException(nameof(value), value, "StartX must be between 0 and Camera size (binned)");
             }
 
             lock (_lock)
@@ -471,9 +473,9 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
 
         set
         {
-            if (value < 0 || value >= PixelSizeY)
+            if (value < 0 || value * BinY >= CameraYSize)
             {
-                throw new ArgumentException($"Must be between 0 and {CameraXSize}", nameof(value));
+                throw new ArgumentOutOfRangeException(nameof(value), value, "StartY must be between 0 and Camera size (binned)");
             }
 
             lock (_lock)
@@ -501,7 +503,9 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
             {
                 throw new InvalidOperationException("Camera is not connected");
             }
-            else if (value >= 1 && value * BinX < CameraXSize)
+            // <=, not <, as DAL's: the full binned frame is value * BinX == the sensor width, which the strict test
+            // rejected, so no caller could ask the fake for its whole sensor.
+            else if (value >= 1 && value * BinX <= CameraXSize)
             {
                 _cameraSettings = _cameraSettings with { Width = value };
             }
@@ -530,7 +534,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
             {
                 throw new InvalidOperationException("Camera is not connected");
             }
-            else if (value >= 1 && value * BinY < CameraYSize)
+            else if (value >= 1 && value * BinY <= CameraYSize)
             {
                 _cameraSettings = _cameraSettings with { Height = value };
             }

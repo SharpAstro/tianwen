@@ -374,6 +374,30 @@ does on connect: both are profile writes, which move to the node in P3. `TianWen
 `GetDisconnectSafetyAsync`, `DisconnectDeviceAsync` and `WarmAndDisconnectDeviceAsync`. Pinned by
 `DeviceOperationTests` (a real node) and `NodeJobsPerDeviceTests`.
 
+### A camera's cooling and settings
+
+P2 part 3 (#929), on the same `DeviceOperations`, every route refusing a camera a run holds (the `Actuate` gate) and
+a device that is not a camera:
+
+- **`POST /api/v1/devices/camera/cool`** (`CoolRequestDto`): a JOB through the session's own ramp
+  (`CameraCoolingRamp`, via `IDeviceHub.CoolToSetpointAsync`), never a jump, on the session's default ramp time
+  unless the request names one. It records the whole-degree TARGET as the camera's cooler intent, which the crash
+  journal keeps. The GUI's setpoint today is an immediate command that records nothing; P6 moves it here.
+- **`POST /api/v1/devices/camera/warm`**: the hub's warm-up ramp and cooler off as a job, the camera left connected.
+- **`POST /api/v1/devices/camera/cooler-off`**: at once, no warm-up (`IDeviceHub.CoolerOffAsync`, which the GUI's
+  cooler off now goes through too), recording the intent as off so a node after a crash does not re-cool it.
+- **`POST /api/v1/devices/camera/settings`** (`CameraSettingsRequestDto`): gain, offset, binning and frame, each
+  only when named, answered with what the camera reads back (`CameraSettingsDto`). **Every value is checked before
+  any is applied**, so a bad one changes nothing. The frame is set through `CameraFrameExtensions.SetFrame`: binning
+  FIRST (the frame's setters check against the binned sensor), then the frame snapped to the camera's
+  `RoiConstraints` and kept on the BINNED sensor, which a driver's constraints do not always shrink for binning
+  (the fake's and ZWO's name the unbinned sensor at any binning).
+- **A command that is not a job is refused (409) while a job holds the camera**: a cooler switched off under a
+  running cool-down, or a camera rebinned under a job, fights the job for it. `NodeJobs.TryGetRunningOn` answers.
+
+`TianWenNodeClient` has `CoolCameraAsync`, `WarmCameraAsync`, `CameraCoolerOffAsync` and `SetCameraSettingsAsync`.
+Pinned by `CameraOperationTests` (a real node), `CameraFrameTests` and `DeviceHubCoolerIntentTests`.
+
 ## Previews go through the shared stretch, never a private one
 
 `PreviewEncoder` (`Api/`) is the one JPEG preview encoder, used by `GET

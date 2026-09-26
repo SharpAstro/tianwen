@@ -1,4 +1,3 @@
-using System;
 using TianWen.Lib.Devices;
 
 namespace TianWen.UI.Abstractions
@@ -33,14 +32,12 @@ namespace TianWen.UI.Abstractions
 
             // Snap the requested size to the camera's real ROI rule (free step-1 default for ASCOM / Alpaca;
             // the fake reports ZWO-style 8 / 2). Snap leaves the origin at 0 and the fake recentres the disk
-            // internally, so only the size is applied here. Keep the size strictly below the sensor extent so
-            // the NumX/NumY setters (which validate value < CameraXSize) accept it.
+            // internally, so only the size is applied here. The whole sensor is a legal size: this used to keep
+            // one step below it, for the fake's and DAL's setters, which wrongly refused the full frame.
             var snapped = camera.RoiConstraints.Snap(new RoiRect(0, 0, width, height));
-            var w = Math.Min(snapped.Width, Math.Max(16, camera.CameraXSize - camera.RoiConstraints.WidthStep));
-            var h = Math.Min(snapped.Height, Math.Max(16, camera.CameraYSize - camera.RoiConstraints.HeightStep));
-            camera.NumX = w;
-            camera.NumY = h;
-            return (w, h);
+            camera.NumX = snapped.Width;
+            camera.NumY = snapped.Height;
+            return (snapped.Width, snapped.Height);
         }
     }
 }

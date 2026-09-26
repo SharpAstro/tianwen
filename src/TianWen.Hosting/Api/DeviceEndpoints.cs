@@ -69,6 +69,20 @@ internal static class DeviceEndpoints
         group.MapPost("/devices/warm-and-disconnect", (DeviceRequestDto request, DeviceOperations devices) =>
             EnvelopeResults.Json(devices.WarmAndDisconnect(request.DeviceUri), HostingJsonContext.Default.ResponseEnvelopeJobDto));
 
+        // A camera's cooling and settings (P2 part 3, #929): cooling and warming are ramps, so jobs; the cooler off and the
+        // settings are immediate, and refused while a job is working on the camera.
+        group.MapPost("/devices/camera/cool", (CoolRequestDto request, DeviceOperations devices) =>
+            EnvelopeResults.Json(devices.Cool(request), HostingJsonContext.Default.ResponseEnvelopeJobDto));
+
+        group.MapPost("/devices/camera/warm", (DeviceRequestDto request, DeviceOperations devices) =>
+            EnvelopeResults.Json(devices.Warm(request.DeviceUri), HostingJsonContext.Default.ResponseEnvelopeJobDto));
+
+        group.MapPost("/devices/camera/cooler-off", async (DeviceRequestDto request, DeviceOperations devices, CancellationToken ct) =>
+            EnvelopeResults.Json(await devices.CoolerOffAsync(request.DeviceUri, ct), HostingJsonContext.Default.ResponseEnvelopeString));
+
+        group.MapPost("/devices/camera/settings", async (CameraSettingsRequestDto request, DeviceOperations devices, CancellationToken ct) =>
+            EnvelopeResults.Json(await devices.ApplySettingsAsync(request, ct), HostingJsonContext.Default.ResponseEnvelopeCameraSettingsDto));
+
         // Starts a discovery, or joins the one running, and answers 202 with its job at once. It used to run
         // inline on the REQUEST's token: a client's 10 s control budget cut a serial sweep off mid-probe, and a
         // dropped request cancelled a probe half-way (P0b item 17 of docs/plans/hardware-in-the-server.md).

@@ -871,14 +871,12 @@ namespace TianWen.UI.Abstractions
             bus.Subscribe<SetCoolerOffSignal>(async sig =>
             {
                 if (appState.DeviceHub is not { } hub) return;
-                if (!hub.TryGetConnectedDriver<TianWen.Lib.Devices.ICameraDriver>(sig.DeviceUri, out var camera))
-                {
-                    return;
-                }
                 try
                 {
-                    await EquipmentActions.SetCoolerOffAsync(camera, cts.Token);
-                    Notify(NotificationSeverity.Info, "Cooler off");
+                    if (await hub.CoolerOffAsync(sig.DeviceUri, cts.Token))
+                    {
+                        Notify(NotificationSeverity.Info, "Cooler off");
+                    }
                 }
                 catch (Exception ex)
                 {
