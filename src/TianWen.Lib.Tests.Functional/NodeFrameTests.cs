@@ -86,11 +86,12 @@ public class NodeFrameTests(ITestOutputHelper output) : IAsyncLifetime
         var got = await Client.GetLatestFrameAsync(FrameSources.Ota(0), after: null, reader, ct);
 
         got.Error.ShouldBeNull();
-        got.FrameNumber.ShouldBe(3);
+        var number = got.FrameNumber.ShouldNotBeNull();
+        number.ShouldBeGreaterThan(0, "the node's token for the frame it shows");
         ShouldBeBitExact(got.Image.ShouldNotBeNull(), sent);
         got.Image.Release();
 
-        var again = await Client.GetLatestFrameAsync(FrameSources.Ota(0), after: 3, reader, ct);
+        var again = await Client.GetLatestFrameAsync(FrameSources.Ota(0), after: number, reader, ct);
         again.IsUnchanged.ShouldBeTrue("the frame the client holds was sent again");
         sent.TryLease(out var stillShown).ShouldBeTrue("serving the frame took it from the slot");
         stillShown.Dispose();
@@ -105,7 +106,7 @@ public class NodeFrameTests(ITestOutputHelper output) : IAsyncLifetime
 
         var got = await Client.GetLatestFrameAsync(FrameSources.Guider, after: null, new FrameReader(), ct);
 
-        got.FrameNumber.ShouldBe(12);
+        got.FrameNumber.ShouldNotBeNull().ShouldBeGreaterThan(0);
         ShouldBeBitExact(got.Image.ShouldNotBeNull(), sent);
         got.Image.Release();
     }
@@ -138,9 +139,12 @@ public class NodeFrameTests(ITestOutputHelper output) : IAsyncLifetime
         session.LastCapturedImages.Returns([Frame(8, 8, (x, y) => x)]);
         session.LastCapturedImageNumber(0).Returns(5);
 
-        await UntilAsync("FRAME-AVAILABLE for OTA 0's new frame", _ => ValueTask.FromResult((
-            pushed.Any(f => f.Source == FrameSources.Ota(0) && f.Number == 5), $"{pushed.Count} pushed")), ct);
+        // The number pushed is the node's token for the frame, the one the route answers with.
+        var announced = await UntilAsync<FrameAvailableDto>("FRAME-AVAILABLE for OTA 0's new frame", _ => ValueTask.FromResult<(FrameAvailableDto?, string)>((
+            pushed.FirstOrDefault(f => f.Source == FrameSources.Ota(0)), $"{pushed.Count} pushed")), ct);
         pushed.ShouldNotContain(f => f.Number == 0, "an empty slot was announced");
+        (await Client.GetLatestFrameAsync(FrameSources.Ota(0), after: announced.Number, new FrameReader(), ct))
+            .IsUnchanged.ShouldBeTrue("the token pushed names the frame the route shows");
     }
 
     // The plan's measurement: a 26 MP frame (6248 x 4176, an IMX571's) over the socket on this machine. Timed for the

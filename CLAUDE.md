@@ -1174,9 +1174,12 @@ full native-AOT rules, and the reasoning behind each rule below:
    `StretchSolver` + `Image.RenderStretchedRgba`, the same pipeline as the GPU viewer and the TUI, and
    resolves `Auto` as the live pane does. The shim once divided by `Image.MaxValue` and called it an
    auto-stretch, which renders a linear sub near-black. **A preview LEASES the frame and answers
-   `If-None-Match` with a 304 before touching it**, and its token is the slot's own
-   `LastCapturedImageNumber`, never the camera's `FrameNumber`, which names the exposure in progress (a
-   sub behind). A session's preview slot holds a lease of its own until the next frame replaces it
+   `If-None-Match` with a 304 before touching it**. **Every route that serves a frame reads `NodeFrames`**
+   (the JPEG previews, the linear frames, `FRAME-AVAILABLE`): the frame each source shows, whoever took it (the
+   node's own preview when taken since the latest run started, else the session's slot), and ONE token per source,
+   the node's, bumped when the frame on show changes. Never a producer's own number (a preview and a session
+   would collide), never the camera's `FrameNumber` (it names the exposure in progress, a sub behind). A
+   session's preview slot holds a lease of its own until the next frame replaces it
    (`Session.PublishCapturedImage`), which costs one camera array per OTA.
 5. **The Alpaca plane is a DEVICE plane and cannot become the session plane.** Ownership there is the
    hub lease, not an Alpaca policy: actuation and `Connected=false` answer `0x40B`, reads and

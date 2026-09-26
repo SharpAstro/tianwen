@@ -53,20 +53,19 @@ public class NodePreviewTests(ITestOutputHelper outputHelper) : IAsyncLifetime
 
         var first = await client.GetPreviewAsync(otaIndex: 0, quality: null, scale: null, ifNotFrameNumber: null, ct);
         first.HasImage.ShouldBeTrue(first.Error);
-        first.FrameNumber.ShouldBe(3);
+        var token = first.FrameNumber.ShouldNotBeNull();
 
-        controlled.Session.ClearReceivedCalls();
-        var again = await client.GetPreviewAsync(otaIndex: 0, quality: null, scale: null, ifNotFrameNumber: first.FrameNumber, ct);
+        // Answered before the frame is leased or encoded: FramePreviewTests pins that no lease is even tried.
+        var again = await client.GetPreviewAsync(otaIndex: 0, quality: null, scale: null, ifNotFrameNumber: token, ct);
 
         again.IsUnchanged.ShouldBeTrue(again.Error);
-        _ = controlled.Session.DidNotReceive().LastCapturedImages;
 
         // And as plain HTTP sees it, so a client that is not ours (curl, a browser) gets the standard answer.
         using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/preview/0");
-        request.Headers.IfNoneMatch.Add(new EntityTagHeaderValue("\"3\""));
+        request.Headers.IfNoneMatch.Add(new EntityTagHeaderValue($"\"{token}\""));
         using var response = await _harness.Client.SendAsync(request, ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotModified);
-        response.Headers.ETag.ShouldNotBeNull().Tag.ShouldBe("\"3\"");
+        response.Headers.ETag.ShouldNotBeNull().Tag.ShouldBe($"\"{token}\"");
         (await response.Content.ReadAsByteArrayAsync(ct)).ShouldBeEmpty();
     }
 
@@ -77,14 +76,15 @@ public class NodePreviewTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         var controlled = await RunningSessionShowingAsync(frameNumber: 3);
         var client = new TianWenNodeClient(_harness.Client);
 
-        (await client.GetPreviewAsync(otaIndex: 0, quality: null, scale: null, ifNotFrameNumber: null, ct)).FrameNumber.ShouldBe(3);
+        var first = (await client.GetPreviewAsync(otaIndex: 0, quality: null, scale: null, ifNotFrameNumber: null, ct)).FrameNumber.ShouldNotBeNull();
 
         // The session publishes its next frame.
+        controlled.Session.LastCapturedImages.Returns([TestFrames.BufferedMono(out _)]);
         controlled.Session.LastCapturedImageNumber(0).Returns(4);
-        var next = await client.GetPreviewAsync(otaIndex: 0, quality: null, scale: null, ifNotFrameNumber: 3, ct);
+        var next = await client.GetPreviewAsync(otaIndex: 0, quality: null, scale: null, ifNotFrameNumber: first, ct);
 
         next.HasImage.ShouldBeTrue(next.Error);
-        next.FrameNumber.ShouldBe(4);
+        next.FrameNumber.ShouldNotBeNull().ShouldNotBe(first);
     }
 
     [Fact(Timeout = 30_000)]
@@ -96,12 +96,10 @@ public class NodePreviewTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         controlled.Session.LastGuideFrameNumber.Returns(9);
         var client = new TianWenNodeClient(_harness.Client);
 
-        (await client.GetGuidePreviewAsync(quality: null, scale: null, ifNotFrameNumber: null, ct)).FrameNumber.ShouldBe(9);
+        var token = (await client.GetGuidePreviewAsync(quality: null, scale: null, ifNotFrameNumber: null, ct)).FrameNumber.ShouldNotBeNull();
 
-        controlled.Session.ClearReceivedCalls();
-        var again = await client.GetGuidePreviewAsync(quality: null, scale: null, ifNotFrameNumber: 9, ct);
+        var again = await client.GetGuidePreviewAsync(quality: null, scale: null, ifNotFrameNumber: token, ct);
 
         again.IsUnchanged.ShouldBeTrue(again.Error);
-        _ = controlled.Session.DidNotReceive().LastGuideFrame;
     }
 }

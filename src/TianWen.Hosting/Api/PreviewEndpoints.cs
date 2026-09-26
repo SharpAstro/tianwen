@@ -20,9 +20,8 @@ namespace TianWen.Hosting.Api
     /// <c>X-Frame-Number</c> and as an <c>ETag</c>, and a request whose <c>If-None-Match</c> names the
     /// current one is answered 304 with no body, before the frame is leased or encoded: re-encoding a
     /// full-frame preview is not free, and it used to happen on every poll, with the client comparing the
-    /// token only once the encode was done. The token is the frame's own
-    /// (<see cref="Lib.Sequencing.ISessionTelemetry.LastCapturedImageNumber"/>, the guider's
-    /// <c>LastGuideFrameNumber</c>), which a client compares for difference, not order. Binary WebSocket
+    /// token only once the encode was done. The token is the node's for the source (<see cref="NodeFrames"/>),
+    /// the same the linear frames carry, which a client compares for difference, not order. Binary WebSocket
     /// push is a later refinement; at 1-2 fps over a LAN this poll is cheap enough not to need one.
     /// </para>
     /// </summary>
@@ -38,17 +37,12 @@ namespace TianWen.Hosting.Api
                 int? quality,
                 double? scale,
                 HttpContext context,
-                IHostedSession hosted,
+                NodeFrames frames,
                 CancellationToken ct) =>
             {
-                if (hosted.CurrentSession is not { } session)
-                {
-                    return NoSession();
-                }
-
-                var render = await CapturedImagePreview.RenderAsync(
-                    session,
-                    otaIndex,
+                var render = await FramePreview.RenderAsync(
+                    frames.Ota(otaIndex),
+                    $"OTA {otaIndex}",
                     quality ?? PreviewEncoder.DefaultQuality,
                     scale ?? 1.0,
                     IfNoneMatch(context),
@@ -66,16 +60,12 @@ namespace TianWen.Hosting.Api
                 int? quality,
                 double? scale,
                 HttpContext context,
-                IHostedSession hosted,
+                NodeFrames frames,
                 CancellationToken ct) =>
             {
-                if (hosted.CurrentSession is not { } session)
-                {
-                    return NoSession();
-                }
-
-                var render = await GuidePreview.RenderAsync(
-                    session,
+                var render = await FramePreview.RenderAsync(
+                    frames.Guider(),
+                    "The guider",
                     quality ?? PreviewEncoder.DefaultQuality,
                     scale ?? 1.0,
                     IfNoneMatch(context),
@@ -84,12 +74,16 @@ namespace TianWen.Hosting.Api
                 return Answer(context, render);
             });
 
+            // A preview exposure outside a session, and a snapshot of the frame an OTA shows (P5 part 2, #934). The
+            // exposure is a job the node finishes; its frame is then the OTA's, on every route above.
+            group.MapPost("/ota/{otaIndex:int}/exposure", async (int otaIndex, PreviewExposureRequestDto request, NodePreviews previews, CancellationToken ct) =>
+                EnvelopeResults.Json(await previews.StartExposureAsync(otaIndex, request, ct), HostingJsonContext.Default.ResponseEnvelopeJobDto));
+
+            group.MapPost("/ota/{otaIndex:int}/snapshot", async (int otaIndex, NodePreviews previews) =>
+                EnvelopeResults.Json(await previews.SaveSnapshotAsync(otaIndex), HostingJsonContext.Default.ResponseEnvelopeString));
+
             return group;
         }
-
-        private static IResult NoSession() => EnvelopeResults.Json(
-            ResponseEnvelope<string>.Fail("No active session", 404),
-            HostingJsonContext.Default.ResponseEnvelopeString);
 
         private static IResult Answer(HttpContext context, PreviewRender render)
         {

@@ -47,6 +47,9 @@ public static class HostedSessionServiceCollectionExtensions
         // The node's runs that are not a session (P5, #934): a dark library first, through the CLI's own capture.
         services.TryAddSingleton<DarkFrameRun>();
         services.AddSingleton<NodeDarkLibrary>();
+        // The frame each source shows, whoever took it, and the node's preview exposures outside a session (P5 part 2).
+        services.AddSingleton<NodeFrames>();
+        services.AddSingleton<NodePreviews>();
         // The node's one profile writer (P3 part 1, #930): every profile write, whoever asked, pushes PROFILE-CHANGED.
         services.AddSingleton<NodeProfiles>();
         // Where a masked device setting goes (P3 part 4). A host that composes AddExternal has chosen one already; any

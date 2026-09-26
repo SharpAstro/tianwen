@@ -601,8 +601,8 @@ calibration, so colour renders Unlinked and mono Linked; it was a literal Linked
 divided by `Image.MaxValue` and called it an auto-stretch, which renders a linear sub near-black; do not
 reintroduce a private normalisation here.
 
-**The frame is its publisher's, so a preview LEASES it for the encode** (`CapturedImagePreview`,
-`GuidePreview`) and only ever *reads* it (`normalizeToUnit: false`). A session's preview slot holds a
+**The frame is its publisher's, so a preview LEASES it for the encode** (`FramePreview`, one renderer for
+every source) and only ever *reads* it (`normalizeToUnit: false`). A session's preview slot holds a
 lease of its own (`Session.PublishCapturedImage`), so its frame stays readable until the next one
 replaces it: a refused lease means "replaced mid-read", and the next poll finds its successor. The
 per-OTA preview read the slot bare, and a bare lease would not have been enough, since the imaging loop
@@ -611,9 +611,29 @@ used to leave a released frame in the slot for the rest of each exposure (P0b it
 **The change token is a conditional GET.** A picture carries its frame's token as `X-Frame-Number` and
 as an `ETag` (`PreviewHeaders`, in Contracts), and a request whose `If-None-Match` names the current one
 is answered 304, before the frame is leased or encoded; `TianWenNodeClient` sends it and reads the 304 as
-`Unchanged`. The token is the frame's own, `ISessionTelemetry.LastCapturedImageNumber` (the guider's
-`LastGuideFrameNumber`), never `CameraExposureState.FrameNumber`: that one advances as an exposure
-STARTS, so the preview served the previous frame under the new number and ran a whole sub behind.
+`Unchanged`. The token is the node's for the source (`NodeFrames`, below), never
+`CameraExposureState.FrameNumber`: that one advances as an exposure STARTS, so the preview served the
+previous frame under the new number and ran a whole sub behind.
+
+**The frame on show, whoever took it** (`NodeFrames`, P5 part 2 of
+[../plans/hardware-in-the-server.md](../plans/hardware-in-the-server.md), #934). Every route that serves a frame
+reads it: the JPEG previews above, the linear frames below, the ninaAPI `prepared-image` and `FRAME-AVAILABLE`.
+
+- **Which frame an OTA shows:** the node's own preview of that OTA, when it was taken since the node's latest run
+  started; else the latest session's slot, going on or ended. A preview taken before a run is stale once the run
+  starts, and is given back the moment that is seen; none can be taken during one, so a session going on always
+  shows its own frames.
+- **One token per source, the node's**, bumped whenever the frame on show changes (another object, or none). A
+  producer's own number cannot serve: a session numbers its frames from the start and a preview slot would number
+  its own, so a client holding a session's frame N would be answered "unchanged" for a preview numbered N too. The
+  frame last seen is held WEAKLY, only to tell a new one from it.
+- **A preview exposure is a job** (`POST /api/v1/preview/ota/{index}/exposure`, `NodePreviews`) with the camera of
+  an OTA of the active profile, through `PreviewCapture`, the capture the GUI uses. It is refused in the device
+  plane's order, and **the camera is LEASED while it exposes** (the GUI's preview never was), by the job, which
+  therefore never joins another (`NodeJobs.TryStart`). `POST /api/v1/preview/ota/{index}/snapshot` saves the
+  frame an OTA shows, leased for the write.
+
+Pinned by `NodeFramesTests`, `FramePreviewTests` and `NodePreviewExposureTests`.
 
 ## Linear frames on the wire
 
@@ -636,16 +656,15 @@ save) needs it LINEAR, in floats, which the preview JPEG is not: it is stretched
 Pinned by `FrameWireTests`, including a frame from the fake camera itself coming back bit for bit with its metadata.
 
 **The route and the push** (P4 part 2). `GET /api/v1/frames/ota/{index}/latest` and `/api/v1/frames/guider/latest` serve
-the frame a source shows now, the same slot and guide frame the JPEG previews encode (`FrameSources`):
+the frame a source shows now, the same frame the JPEG previews encode (`FrameSources`, `NodeFrames`):
 
 - **The number answers first.** A request names the number of the frame it holds (`after`); while the source still shows
-  that one the answer is a 204 carrying the number, and nothing is leased. The number is read before the frame, so it can
-  name one older than the pixels served (a wasted refetch) but never a newer one (a skipped frame). Compare for
-  difference, not order: a new run numbers from the start.
+  that one the answer is a 204 carrying the number, and nothing is leased. The number is the node's token for the
+  source, which names exactly the frame it came with (`NodeFrames`). Compare for difference, not order.
 - **The frame is leased for the write**, so the slot keeps it for whoever asks next.
 - **`FRAME-AVAILABLE`** (`FrameAvailableDto`: the source and the number) is pushed by the broadcaster's poll when a
-  source's number moves, a new run's from nothing, so a frame that lands before the first poll is announced too. A hint:
-  the route is authoritative.
+  source's token moves, with or without a session, so a new run's first frame and a preview taken outside a run are
+  announced like any other. A hint: the route is authoritative.
 - `TianWenNodeClient.GetLatestFrameAsync(source, after, reader)` reads through a `FrameReader` the caller keeps.
 
 **Measured** (Release, this 16-core x64 desktop, with another session's builds running): a 26 MP frame (6248 x 4176)
