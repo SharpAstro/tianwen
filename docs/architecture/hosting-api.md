@@ -437,8 +437,8 @@ the position, the mount has landed or reports itself parked), and cancelling it 
 - **Filter wheel**: `POST /api/v1/devices/filterwheel/change` (`FilterChangeRequestDto`, a position counted from 0).
 - **Mount**: `POST /api/v1/devices/mount/goto` (`MountGotoRequestDto`, J2000), `/park`, `/unpark`, `/tracking`
   (immediate) and `/stop`.
-- **The goto is the GUI's own**, `MountGoto` in Lib (lifted out of the GUI's `MountActions`, which keeps solve and
-  sync and the nudge): unpark, the J2000 to mount transform at the ACTIVE PROFILE's site, the horizon limit, the
+- **The goto is the GUI's own**, `MountGoto` in Lib (lifted out of the GUI's `MountActions`, whose solve and sync
+  and nudge followed it, as `MountSolveSync` and `MountNudge`): unpark, the J2000 to mount transform at the ACTIVE PROFILE's site, the horizon limit, the
   destination pier side, the tracking rate. With no active profile there is no site, and no goto (409). What only
   the mount's geometry can answer (below the horizon, a pier side it cannot reach) FAILS the job with its reason,
   where a lease, a busy device or a bad request is refused before any job.

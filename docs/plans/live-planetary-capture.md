@@ -14,8 +14,10 @@ seam, a controller + tab on top, and a recenter controller.
 ```
   GUI 🪐 PlanetaryTab : ImageRendererBase        (reuse RAW/STACK + wavelet sliders + GPU stretch/WB)
         | driven by
-  PlanetaryCaptureController (UI.Abstractions)    capture loop + Tick() (follow latest + publish + sharpen)
+  PlanetaryCaptureController (UI.Abstractions)    Tick() (follow latest + publish + sharpen)
         | owns
+  PlanetaryCapture (Lib)                           capture loop, live controls, recenter (the node runs it too)
+        | fills
   LiveStackPreviewSource  (EXISTS)  : IPreviewSource
         | wraps
   RollingWindowStacker    (EXISTS - pull-only via LoadAsync)
@@ -129,9 +131,11 @@ releases). D and E are hardware/quality upgrades behind the same contract.
   per-frame seeing blur (lucky-imaging grading) + noise; deterministic.
 - `FakeCameraDriver : IVideoCameraDriver` -- streams a drifting synthetic planet into a software ROI window
   over the virtual sensor; `JogRoiAsync` pans the readout (the COM-recenter actuator), `DroppedFrames`.
-- `TianWen.UI.Abstractions/PlanetaryCaptureController.cs` -- owns the camera capture loop + the frame
-  stream; `Tick()` (render thread) follows latest + publishes the master + pushes wavelet-sharpen changes.
-  Native video or rapid-exposure fallback, picked by capability.
+- `TianWen.Lib/Imaging/Planetary/PlanetaryCapture.cs` -- the camera capture loop + the frame stream, the live
+  controls and the recenter; native video or rapid-exposure fallback, picked by capability. Lifted out of the
+  controller for P5 part 5 of `hardware-in-the-server.md` (#934), so the node runs the same loop.
+- `TianWen.UI.Abstractions/PlanetaryCaptureController.cs` -- owns a `PlanetaryCapture`; `Tick()` (render
+  thread) follows latest + publishes the master + pushes wavelet-sharpen changes.
 - `ViewerState.BuildWaveletOptions()` -- the single source for live-stack wavelet options, now shared by
   `ViewerController` (tianwen-fits) and `PlanetaryCaptureController` (GUI).
 - Tests: `FakeCameraVideoTests` (renderer determinism/brightness/sharpness; fake video frame shape, ROI
@@ -508,16 +512,19 @@ mount actuation in the controller, and a RECENTER panel section on top.
 - **`IVideoCameraDriver.VideoRoi`** (new) -- the live readout window (origin + size) so the loop knows how much
   pan range is left before an edge. The fake reports its capture-loop-owned ROI window; not-streaming -> a
   sensor-sized window.
-- **Capture-loop hook** (`PlanetaryCaptureController.MaybeRecenterAsync`): runs on the capture loop (off the
+- **Capture-loop hook** (`PlanetaryCapture.MaybeRecenterAsync`): runs on the capture loop (off the
   render thread) after each push on the still-alive frame -- `PlanetaryDisk.BoundingBox` + `CenterOfMass` ->
   `Decide` -> stage a ROI jog (drained by `ApplyPendingControlsAsync` the same iteration) and/or fire the mount
   pulse. Config (`auto`, `mountJog`, deadband, gain, flips) is staged by the render thread via
   `ConfigureRecenter`; the mount + pixel scale are attached on Start (`AttachMount`). Auto-recenter defaults ON
   (zero-disturbance, ROI-only; a no-disk frame yields a centred COM -> no jog); mount jog opt-in OFF.
-- **Mount actuation -- one shared actuator.** `MountActions.PulseGuideArcsecAsync` converts arcsec -> a
-  guide-rate-sized, capped `StartPulseGuideAsync`; used by BOTH the auto loop (single-flight + cooldown, fired
-  non-blocking so it never stalls the high-fps loop) and the manual `JogMountSignal` (N/S/E/W buttons,
-  focuser-jog routing model: gated on no-running-session + a connected pulse-guide mount).
+- **Mount actuation -- one shared actuator.** `MountNudge.PulseArcsecAsync` (Lib, was the GUI's
+  `MountActions.PulseGuideArcsecAsync`) converts arcsec -> a guide-rate-sized, capped `StartPulseGuideAsync`;
+  used by BOTH the auto loop (single-flight + cooldown, fired non-blocking so it never stalls the high-fps loop)
+  and the manual `JogMountSignal` (N/S/E/W buttons, focuser-jog routing model: gated on no-running-session + a
+  connected pulse-guide mount). **The capture claims only the camera, so the auto loop's nudge asks
+  `DeviceOwnershipGate` over the mount first** and is dropped while another run or a job holds it
+  (`PlanetaryCaptureTests`); it used to pulse regardless, whatever held the mount.
 - **RECENTER panel section** (`VkPlanetaryTab`, between REGION and FOCUSER): `[x] Auto-recenter (ROI)`, Deadband
   + Gain steppers, a live `off dx,dy px [actuator]` readout while capturing, `[ ] Mount jog (coarse)`, and a
   `Nudge N/S/E/W` row. Config synced to the controller once per render. The duplicate `[x]/[ ]` overlay-toggle
