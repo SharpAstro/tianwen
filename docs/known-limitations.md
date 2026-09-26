@@ -100,6 +100,19 @@ masters, and the three Carina-Wide 2025-03-19 masters, an EVAL field whose eval 
 exported unstretched while every other field's were stretched. Pinned by `NafnetInputStretchRingTests`
 and, end to end through the shipped model, `N2nDenoiserTests.ACanvasRingIsLeftOutOfTheStretchAndComesBackExactlyZero`.
 
+**Every model trained before the fix no longer matches inference exactly, the shipped one included.**
+Their tiles were exported with the OLD stretch (a zero-ringed master from a floor of 0) and inference
+now uses the fixed one, so for a ringed input the two differ until a re-export and a retrain. Where
+the old gate flipped, the fix is a clear improvement (those masters reached the net unstretched); for
+the other zero-ringed masters the shipped `tianwen_denoise_osc_e2wide_s2` now answers differently, and
+by how much is NOT measured. In E13's 78-session pool the floor moves on 43 sessions, and the median
+the stretch maps to 0.25 shrinks to 0.79 of its old value (as low as 0.19). E12 and E13 stay internally
+consistent (old stretch throughout, same eval caches), so they read as comparisons within it; the
+Carina-Wide 2025-03-19 eval field's tiles were exported unstretched, so its absolute numbers move on a
+re-export. Owed before a model ships: train it on a post-fix export (`training/denoise/run-pool-reexport.ps1`,
+running since 2026-09-26), and compare the shipped model with and without the fix on a few ringed
+masters. Recorded on #489.
+
 **What remains: an INTERIOR exact zero (a clipped pixel) is a measurement and still sets the floor**, so
 a bright-sky frame with one still reads as stretched. The percentile alternative named below would
 cover it and is not taken; no archive master has been seen to need it. The history follows.
