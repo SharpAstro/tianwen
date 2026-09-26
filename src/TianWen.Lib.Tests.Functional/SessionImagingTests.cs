@@ -1,6 +1,8 @@
 using Shouldly;
 using System;
+using System.Collections.Immutable;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
@@ -24,6 +26,7 @@ public class SessionImagingTests(ITestOutputHelper output)
         SessionConfiguration? configuration = null,
         ScheduledObservation[]? observations = null,
         DateTimeOffset? now = null,
+        bool withFilterWheel = false,
         CancellationToken cancellationToken = default)
     {
         var config = configuration ?? SessionTestHelper.DefaultConfiguration;
@@ -35,7 +38,7 @@ public class SessionImagingTests(ITestOutputHelper output)
         // 'await using' disposes it. Disposing here would cancel the context's token and return a
         // dead context. That was already true before teardown did anything, the no-op Dispose just
         // hid it.
-        var ctx = await SessionTestHelper.CreateSessionAsync(output, config, obs, now: now, cancellationToken: cancellationToken);
+        var ctx = await SessionTestHelper.CreateSessionAsync(output, config, obs, now: now, withFilterWheel: withFilterWheel, cancellationToken: cancellationToken);
 
         ctx.Camera.TrueBestFocus = TrueBestFocusPosition;
         ctx.Camera.FocusPosition = TrueBestFocusPosition; // at perfect focus
@@ -626,6 +629,119 @@ public class SessionImagingTests(ITestOutputHelper output)
         var finalBaseline = ctx.Session.BaselineByObservation[0][0];
         finalBaseline.IsValid.ShouldBeTrue();
         finalBaseline.Exposure.ShouldBe(subExposure, "the baseline in use should be one taken from science frames");
+    }
+
+    /// <summary>
+    /// A filter ladder that changes slot every frame must still see focus drift. A frame is compared
+    /// against the baseline of ITS OWN acquisition setting (filter slot, exposure, gain), and each setting
+    /// collects that baseline from its own first <see cref="SessionConfiguration.BaselineHfdFrameCount"/>
+    /// frames without disturbing the other's. With one baseline per telescope, the refocus filed its 2 s
+    /// AutoFocus baseline, every science frame then went to a collection the other slot restarted, none
+    /// ever finished, and the trigger was off for the rest of the target: one refocus, never a second.
+    /// </summary>
+    /// <remarks>
+    /// Slots 0 (Luminance) and 2 (Green) of the fake LRGB wheel both carry a zero focus offset, so a
+    /// slot change never moves the focuser and the only focus change is the drift the test applies: a
+    /// few steps per frame written, before AND after the refocus, well under what one frame's noise
+    /// could flag on its own.
+    /// </remarks>
+    [Fact(Timeout = 300_000)]
+    public async Task GivenFilterLadderAlternatingEveryFrameWhenFocusDriftsSlowlyThenRefocusFires()
+    {
+        // given: two slots alternating every frame, 30 s subs, no AutoFocus baseline
+        var ct = TestContext.Current.CancellationToken;
+        var subExposure = TimeSpan.FromSeconds(30);
+        var scheduledDuration = TimeSpan.FromMinutes(40);
+        const int FramesBeforeDrift = 6;
+        const int DriftStepsPerFrame = 8;
+
+        var ladder = ImmutableArray.CreateBuilder<FilterExposure>();
+        for (var k = 0; k < 120; k++)
+        {
+            ladder.Add(new FilterExposure(FilterPosition: k % 2 == 0 ? 0 : 2, subExposure, Count: 1));
+        }
+
+        var config = SessionTestHelper.DefaultConfiguration with
+        {
+            FocusDriftThreshold = 1.05f,
+            BaselineHfdFrameCount = 2,
+            DitherEveryNthFrame = 0
+        };
+
+        var observations = new[]
+        {
+            new ScheduledObservation(
+                new Target(16.695, 36.46, "M13", null),
+                new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero),
+                scheduledDuration,
+                AcrossMeridian: false,
+                FilterPlan: ladder.ToImmutable(),
+                Gain: 0,
+                Offset: 0
+            )
+        };
+
+        await using var ctx = await CreateImagingSessionAsync(configuration: config, observations: observations, withFilterWheel: true, cancellationToken: ct);
+        ctx.FilterWheel.ShouldNotBeNull();
+        ctx.FilterWheel.Filters[0].Position.ShouldBe(0, "the premise: slot 0 carries no focus offset");
+        ctx.FilterWheel.Filters[2].Position.ShouldBe(0, "the premise: slot 2 carries no focus offset");
+
+        IMountDriver mount = ctx.Mount;
+        await mount.EnsureTrackingAsync(cancellationToken: ct);
+
+        var guider = (FakeGuider)ctx.Session.Setup.Guider.Driver;
+        await guider.GuideAsync(0.3, 3, 30, ct);
+        await ctx.TimeProvider.SleepAsync(TimeSpan.FromSeconds(4), ct);
+
+        var observation = ctx.Session.ActiveObservation;
+        observation.ShouldNotBeNull();
+        var hourAngle = await ctx.Mount.GetHourAngleAsync(ct);
+
+        // when: after a few frames of each slot, focus creeps outward a little with every frame written
+        var driftedThrough = FramesBeforeDrift;
+        var totalDrift = 0;
+        ctx.TimeProvider.ExternalTimePump = true;
+        var imagingTask = ctx.Track(Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ctx.Token), ctx.Token));
+
+        await ctx.TimeProvider.PumpUntilCompletedAsync(imagingTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(4),
+            onIteration: async iteration =>
+            {
+                var written = ctx.Session.TotalFramesWritten;
+                if (written <= driftedThrough)
+                {
+                    return;
+                }
+
+                var steps = (written - driftedThrough) * DriftStepsPerFrame;
+                driftedThrough = written;
+                totalDrift += steps;
+                var currentPos = await ctx.Focuser.GetPositionAsync(ct);
+                await ctx.Focuser.BeginMoveAsync(currentPos + steps, ct);
+                while (await ctx.Focuser.GetIsMovingAsync(ct))
+                {
+                    ctx.TimeProvider.Advance(TimeSpan.FromMilliseconds(100));
+                }
+            },
+            progress: () => ctx.Session.ImagingLoopTicks, cancellationToken: ct);
+
+        imagingTask.IsCompleted.ShouldBeTrue("imaging loop should have completed within timeout");
+        await imagingTask;
+
+        // then: every refocus came while the drift was still small. A refocus count alone is not enough:
+        // with one baseline per telescope a slot repeating by chance (a refocus's restart) could finish a
+        // baseline, but only long after focus had gone, so the loop refocused against a baseline already
+        // twice the best HFD and then imaged on out of focus.
+        var hfds = ctx.Session.ExposureLog.Select(e => e.MedianHfd).Where(h => h > 0 && !float.IsNaN(h)).ToArray();
+        hfds.ShouldNotBeEmpty();
+        var bestHfd = hfds.Min();
+        var worstHfd = hfds.Max();
+        output.WriteLine($"Frames written: {ctx.Session.TotalFramesWritten}, drift applied: {totalDrift} steps, drift refocuses: {ctx.Session.DriftRefocusCount}, HFD best {bestHfd:F2} worst {worstHfd:F2}");
+        totalDrift.ShouldBeGreaterThan(0, "the drift should have started");
+        ctx.Session.DriftRefocusCount.ShouldBeGreaterThanOrEqualTo(2,
+            "the drift goes on after the refocus, so it must trigger again: the refocus files a 2 s AutoFocus " +
+            "baseline, and each slot must collect its own science baseline beside it");
+        (worstHfd / bestHfd).ShouldBeLessThan(1.6f,
+            "slow drift under a ladder that changes slot every frame must be caught before focus is lost");
     }
 
     [Fact(Timeout = 120_000)]

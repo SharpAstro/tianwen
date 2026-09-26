@@ -913,10 +913,13 @@ frames from a different focus position (a stale high-HFD window fitted against t
 baseline re-triggers immediately -- refocus oscillation). The window is a `CircularBuffer<T>`, the
 lock-free most-recent-N ring (torn-free `Snapshot`; the GUI render thread polls `Session.GuideSamples`
 off the same type every frame). Pinned by `FocusDriftDetectorTests` + `CircularBufferTests`.
-**A stored baseline the frame is not `IsComparableTo` counts as ABSENT, never as a reason to skip**:
-the loop re-collects one from the next `BaselineHfdFrameCount` comparable frames. AutoFocus stores its
-2 s verification frame, so skipping instead switched the trigger off after every AutoFocus (#820).
-Assert a refocus through `Session.DriftRefocusCount`, never through a baseline existing afterwards.
+**There is one baseline per ACQUISITION SETTING, not per telescope** (`AcquisitionSetting`, exactly what
+`IsComparableTo` compares, keyed with the telescope and observation): a frame is compared with its own
+setting's baseline, and a setting with none collects one from its first `BaselineHfdFrameCount` frames
+without disturbing the others. One per telescope switched the trigger off after every AutoFocus (its 2 s
+verification frame is never comparable to a science sub) and never finished a baseline under a ladder
+changing slot every frame (#820). A drift refocus and a target change drop EVERY setting's baseline for
+the telescope. Assert a refocus through `Session.DriftRefocusCount`, never through a baseline existing.
 
 ### Driver Resilience on the Hot Path
 

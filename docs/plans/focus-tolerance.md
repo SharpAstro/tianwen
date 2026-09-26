@@ -87,20 +87,28 @@ exposures on the arms, and distrust a run whose arms never climbed.
 
 ### F0: drift detection is off after every AutoFocus (a bug, found while mapping this)
 
-**SHIPPED** (#820). The imaging loop now treats a stored baseline that is not `IsComparableTo` the incoming frame
-as absent, and collects a comparable one from the first `BaselineHfdFrameCount` frames (`Session.Imaging.cs`);
-`IsComparableTo` is unchanged. A collection restarts when a sample arrives that is not comparable to the ones
-already gathered, so a baseline is always the median of frames taken with one set of settings
-(`AccumulateBaselineSample`). Pinned by
-`SessionImagingTests.GivenStartOfNightAutoFocusWhenFocusDriftsAtALongerExposureThenRefocusFiresAndFiresAgain` (the
-first target, then a second drift after the drift refocus) and
-`SessionObservationLoopTests.GivenRefocusOnNewTargetWhenFocusDriftsOnTheNextTargetThenRefocusFires`
-(`AlwaysRefocusOnNewTarget`), both of which count refocuses through `Session.DriftRefocusCount` and failed with
-zero on the old loop.
+**SHIPPED** (#820). The session keeps one drift baseline per ACQUISITION SETTING rather than one per telescope:
+`AcquisitionSetting` (filter slot, exposure, gain, exactly what `IsComparableTo` compares, which is unchanged) keys
+the stored baselines and the collections in progress, per telescope and per observation (`Session.Focus.cs`). A
+frame is compared with the baseline of its own setting; a setting with none yet collects its own from its first
+`BaselineHfdFrameCount` frames, without disturbing the others (`AccumulateBaselineSample`). The AutoFocus
+verification frame simply sits under its own 2 s key, which no science frame reaches. A filter ladder keeps a
+baseline per slot side by side, so each slot is compared with where focus was when that slot was first measured,
+however often the ladder changes slot. A drift refocus and a target change still clear the history window, and
+now clear every setting's baseline for the telescope with it, since after the focuser moves none of them
+describes the focus position. `BaselineByObservation` keeps the most recent baseline per telescope for the
+scout's star-count comparison, which does not depend on the setting.
 
-One consequence to know: in a filter ladder, a baseline belongs to one filter slot, so each change of slot
-re-baselines from that slot's first frames. Drift that accumulated while another filter was imaging is not
-compared across the change. Before this, frames of every slot but the baseline's were never compared at all.
+Pinned by three session tests that count refocuses through `Session.DriftRefocusCount`:
+- `SessionImagingTests.GivenStartOfNightAutoFocusWhenFocusDriftsAtALongerExposureThenRefocusFiresAndFiresAgain`:
+  the first target, then a second drift after the drift refocus. Zero refocuses on the old loop.
+- `SessionObservationLoopTests.GivenRefocusOnNewTargetWhenFocusDriftsOnTheNextTargetThenRefocusFires`:
+  `AlwaysRefocusOnNewTarget`. Zero refocuses on the old loop.
+- `SessionImagingTests.GivenFilterLadderAlternatingEveryFrameWhenFocusDriftsSlowlyThenRefocusFires`: two slots
+  alternating every frame while focus creeps 8 steps per frame. With one baseline per telescope that is replaced
+  whenever the frame is not comparable, the refocus filed its 2 s baseline and every later collection was
+  restarted by the other slot: one refocus, then HFD from 2.65 to 11.4 with none. Per setting: 14 refocuses,
+  worst HFD 2.97.
 
 What follows is the finding as written, kept for the reasoning.
 

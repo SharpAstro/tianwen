@@ -33,7 +33,9 @@ internal partial record Session(
 
     private readonly ConcurrentQueue<GuiderEventArgs> _guiderEvents = [];
     private readonly ConcurrentDictionary<int, FrameMetrics[]> _baselineByObservation = [];
-    private readonly ConcurrentDictionary<int, List<FrameMetrics>[]> _baselineSamples = [];
+    // Focus-drift baselines, and the samples collecting them, one per acquisition setting (#820).
+    private readonly ConcurrentDictionary<DriftBaselineKey, FrameMetrics> _driftBaselines = [];
+    private readonly ConcurrentDictionary<DriftBaselineKey, List<FrameMetrics>> _baselineSamples = [];
     private int _activeObservation = UNINITIALIZED_OBSERVATION_INDEX;
     private int _spareIndex;
     private int _totalFramesWritten;
@@ -366,7 +368,10 @@ internal partial record Session(
     }
 
     /// <summary>
-    /// Per-observation, per-telescope baseline metrics for focus drift and environmental anomaly detection.
+    /// Per-observation, per-telescope baseline metrics: the one each telescope established MOST RECENTLY,
+    /// whatever its acquisition setting. The scout compares a new target's star counts with the previous
+    /// target's through it. Focus drift does not read it: a frame is compared with the baseline of its own
+    /// setting, kept in <see cref="_driftBaselines"/>.
     /// Keyed by observation index because metrics vary with sky area, altitude, and guiding quality.
     /// </summary>
     internal IReadOnlyDictionary<int, FrameMetrics[]> BaselineByObservation => _baselineByObservation;
@@ -381,7 +386,9 @@ internal partial record Session(
         {
             _frameMetricsHistory[i].Clear();
         }
-        return Interlocked.Increment(ref _activeObservation);
+        var next = Interlocked.Increment(ref _activeObservation);
+        ForgetDriftBaselinesOfOtherObservations(next);
+        return next;
     }
 
     /// <summary>

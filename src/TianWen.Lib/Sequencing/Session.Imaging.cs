@@ -906,7 +906,6 @@ internal partial record Session
             else if (fetchImagesSuccessAll)
             {
                 // Check for focus drift using pre-computed frame results (no duplicate star detection)
-                var currentBaselines = GetBaselineForCurrentObservation();
                 {
                     for (var i = 0; i < scopes && i < _lastFrameMetrics.Length; i++)
                     {
@@ -916,12 +915,13 @@ internal partial record Session
                             continue;
                         }
 
-                        // No baseline for this frame yet: collect one from the first comparable frames.
-                        // A stored baseline taken with other acquisition settings counts as ABSENT, not
-                        // as a reason to skip: AutoFocus stores its 2 s verification frame, which a long
-                        // science sub is never comparable to (it integrates less image motion), so
-                        // skipping here switched drift detection off after every AutoFocus (#820).
-                        if (currentBaselines is null || !currentBaselines[i].IsValid || !currentMetrics.IsComparableTo(currentBaselines[i]))
+                        // A frame is compared with the baseline of ITS OWN acquisition setting (filter slot,
+                        // exposure, gain); a setting with none yet collects one from its first frames without
+                        // disturbing the others. AutoFocus files its 2 s verification frame, which a long
+                        // science sub is never comparable to, so one baseline per telescope switched drift
+                        // detection off after every AutoFocus, and a ladder changing slot every frame never
+                        // finished collecting one (#820).
+                        if (!TryGetDriftBaseline(i, currentMetrics, out var baseline))
                         {
                             AccumulateBaselineSample(i, currentMetrics);
                             continue;
@@ -931,21 +931,23 @@ internal partial record Session
                         // frames (FocusDriftDetector) instead of a single-frame comparison, so one
                         // bloated frame (wind, passing haze) does not trigger a spurious refocus.
                         var trendHfd = FocusDriftDetector.EstimateTrendHfd(
-                            _frameMetricsHistory[i].Snapshot.AsSpan(), currentBaselines[i],
+                            _frameMetricsHistory[i].Snapshot.AsSpan(), baseline,
                             fallbackHfd: currentMetrics.MedianHfd, Configuration.FocusDriftMinSamples);
 
-                        var ratio = trendHfd / currentBaselines[i].MedianHfd;
+                        var ratio = trendHfd / baseline.MedianHfd;
 
                         if (ratio > Configuration.FocusDriftThreshold)
                         {
                             _logger.LogWarning("Focus drift detected on telescope #{TelescopeNumber}: trend HFD={TrendHFD:F2} (current={CurrentHFD:F2}) vs baseline={BaselineHFD:F2} (ratio={Ratio:F2}), triggering auto-refocus.",
-                                i + 1, trendHfd, currentMetrics.MedianHfd, currentBaselines[i].MedianHfd, ratio);
+                                i + 1, trendHfd, currentMetrics.MedianHfd, baseline.MedianHfd, ratio);
                             DriftRefocusCount++;
 
                             // The focuser is about to move: pre-refocus samples no longer describe
                             // the new focus position, and a stale high-HFD window fitted against the
-                            // fresh baseline would re-trigger immediately (refocus oscillation).
+                            // fresh baseline would re-trigger immediately (refocus oscillation). The
+                            // same goes for every setting's baseline, and any collection in progress.
                             _frameMetricsHistory[i].Clear();
+                            ForgetDriftBaselines(i);
 
                             // Write pending images before refocusing
                             await WriteQueuedImagesToFitsFilesAsync();
@@ -956,9 +958,7 @@ internal partial record Session
                             var (converged, newBaseline) = await AutoFocusAsync(i, cancellationToken);
                             if (converged && newBaseline.IsValid)
                             {
-                                var baselines = GetBaselineForCurrentObservation() ?? new FrameMetrics[scopes];
-                                baselines[i] = newBaseline;
-                                SetBaselineForCurrentObservation(baselines);
+                                StoreBaseline(i, newBaseline);
                             }
 
                             await ResilientInvokeAsync(
@@ -970,12 +970,12 @@ internal partial record Session
 
                         // Check for condition deterioration (clouds, fog, dew):
                         // star count drop relative to baseline indicates sky transparency loss
-                        var starCountRatio = (float)currentMetrics.StarCount / currentBaselines[i].StarCount;
+                        var starCountRatio = (float)currentMetrics.StarCount / baseline.StarCount;
                         if (starCountRatio < Configuration.ConditionDeteriorationThreshold)
                         {
                             _logger.LogWarning(
                                 "Condition deterioration detected on telescope #{TelescopeNumber}: {CurrentStars} stars vs baseline {BaselineStars} (ratio={Ratio:F2}), pausing guiding.",
-                                i + 1, currentMetrics.StarCount, currentBaselines[i].StarCount, starCountRatio);
+                                i + 1, currentMetrics.StarCount, baseline.StarCount, starCountRatio);
                             ConditionDeteriorationCount++;
 
                             await WriteQueuedImagesToFitsFilesAsync();
@@ -983,7 +983,7 @@ internal partial record Session
 
                             var recoveryTimeout = Configuration.ConditionRecoveryTimeout ?? TimeSpan.FromMinutes(10);
                             var recovered = await WaitForConditionRecoveryAsync(
-                                i, currentBaselines[i], recoveryTimeout, cancellationToken);
+                                i, baseline, recoveryTimeout, cancellationToken);
 
                             if (recovered)
                             {

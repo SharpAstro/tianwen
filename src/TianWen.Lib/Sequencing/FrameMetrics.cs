@@ -24,10 +24,10 @@ public readonly record struct FrameMetrics(int StarCount, float MedianHfd, float
     /// <summary>
     /// Whether this metrics instance was captured with the same acquisition settings as <paramref name="other"/>
     /// (equal exposure, gain AND filter position), meaning their star metrics (HFD, FWHM, star count) are
-    /// directly comparable.
+    /// directly comparable. Exactly when their <see cref="AcquisitionSetting"/>s are equal.
     /// </summary>
     public readonly bool IsComparableTo(in FrameMetrics other)
-        => Exposure == other.Exposure && Gain == other.Gain && FilterPosition == other.FilterPosition;
+        => AcquisitionSetting.Of(this) == AcquisitionSetting.Of(other);
 
     /// <summary>
     /// Border margin fraction (0.1 = 10% border on each side = 80% central region).
@@ -70,4 +70,15 @@ public readonly record struct FrameMetrics(int StarCount, float MedianHfd, float
             filterPosition
         );
     }
+}
+
+/// <summary>
+/// What <see cref="FrameMetrics.IsComparableTo"/> compares, as a key: two frames are comparable exactly when
+/// their settings are equal. The session keeps one focus-drift baseline per setting, so a filter ladder
+/// compares each frame with the baseline of its own slot and exposure rather than with whichever slot
+/// came last. Kept off <see cref="FrameMetrics"/> itself, which crosses the wire.
+/// </summary>
+internal readonly record struct AcquisitionSetting(TimeSpan Exposure, short Gain, int FilterPosition)
+{
+    public static AcquisitionSetting Of(in FrameMetrics metrics) => new AcquisitionSetting(metrics.Exposure, metrics.Gain, metrics.FilterPosition);
 }
