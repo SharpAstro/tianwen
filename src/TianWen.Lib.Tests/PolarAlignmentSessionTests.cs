@@ -394,8 +394,8 @@ namespace TianWen.Lib.Tests
             await foreach (var tick in session.RefineAsync(ctsLoop.Token))
             {
                 // Lock in: the orchestrator must surface the live solve's WCS
-                // on every successful tick. The host (LiveSessionTab via
-                // PolarAlignmentActions) propagates it to the mini-viewer's
+                // on every successful tick. The host (PolarAlignmentRun's
+                // onFrameSolved, in the GUI and the node) propagates it to the mini-viewer's
                 // PreviewPlateSolveResult so the polar overlay's sky->pixel
                 // projection tracks the *current* refine pose; without this
                 // the overlay projects through a stale Phase-A WCS and the

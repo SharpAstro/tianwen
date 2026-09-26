@@ -538,6 +538,10 @@ logic. Records of (rate, duration) live on the session struct.
   Subscribe lambdas only **route**: dispatch to a new
   `PolarAlignmentActions` static helper (mirror `EquipmentActions`,
   `PlannerActions`). Math + I/O lives in `PolarAlignmentSession`.
+  (Since P5 part 4 of `hardware-in-the-server.md`, #934, the helper is gone: the
+  device resolution, the claim, Phase A and the refine loop are
+  `PolarAlignmentRun` in Lib, which the node runs too, and the GUI only shows
+  its state and frames.)
 - **No new tab.** Polar alignment is a third **mode** of the existing
   `LiveSessionTab` alongside *preview* and *session*. The image surface,
   WCS pipeline, OTA selector (`#1`/`#2` buttons at `LiveSessionTab.cs:270-284`),

@@ -53,13 +53,13 @@ namespace TianWen.UI.Abstractions
             bus.Subscribe<StartPolarAlignmentSignal>(sig =>
             {
                 if (!EnsureLocalContext("Polar alignment")) return;
-                if (!EnsureSessionIdle("Session is running \u2014 polar alignment unavailable")) return;
+                if (!EnsureSessionIdle("Session is running: polar alignment unavailable")) return;
                 if (liveSessionState.PolarAlignmentCts is not null)
                 {
                     Notify(NotificationSeverity.Warning, "Polar alignment already running");
                     return;
                 }
-                if (appState.ActiveProfile?.Data is not { } profileData || profileData.OTAs.Length == 0)
+                if (appState.ActiveProfile?.Data is not { } profileData)
                 {
                     Notify(NotificationSeverity.Warning, "No profile / OTA configured");
                     return;
@@ -69,129 +69,58 @@ namespace TianWen.UI.Abstractions
                     Notify(NotificationSeverity.Warning, "Device hub not available");
                     return;
                 }
-                if (!TryGetConnected<IMountDriver>(hub, profileData.Mount, "Mount", out var mount, "Mount not connected \u2014 connect a mount first")) return;
-                if (profileData.SiteLatitude is not { } lat || profileData.SiteLongitude is not { } lon)
+
+                // The setup panel supplies the full configuration; the toolbar and the TUI pin only the rotation.
+                var request = new PolarAlignmentRequest(sig.OtaIndex, sig.UseGuider,
+                    sig.Configuration ?? (PolarAlignmentConfiguration.Default with { RotationDeg = sig.DeltaRaDeg }));
+                // The devices, the capture source and the claim on them are the run's (PolarAlignmentRun, which the node
+                // runs too); what stays here is where its state and its frames are shown.
+                if (!PolarAlignmentRun.TryCreate(request, profileData, hub, external, sp.GetRequiredService<ICelestialObjectDB>(),
+                    sp.GetRequiredService<IPlateSolverFactory>(), _timeProvider, logger,
+                    onFrameCaptured: (otaIndex, image) => ShowPolarFrame(liveSessionState, otaIndex, image),
+                    onFrameSolved: result =>
+                    {
+                        liveSessionState.PreviewPlateSolveResult = result;
+                        liveSessionState.NeedsRedraw = true;
+                    },
+                    out var run, out var refusal))
                 {
-                    Notify(NotificationSeverity.Warning, "Site location not configured for this profile");
+                    Notify(NotificationSeverity.Warning, refusal);
                     return;
                 }
-                var solverFactory = sp.GetRequiredService<IPlateSolverFactory>();
-
-                // Build the capture source (guider or main-camera path) + site; the
-                // device-resolution + capture-source wiring lives in PolarAlignmentActions
-                // so this lambda routes only.
-                var built = PolarAlignmentActions.BuildCaptureSource(
-                    sig, profileData, hub, mount, liveSessionState,
-                    external, sp.GetRequiredService<ICelestialObjectDB>(), _timeProvider, logger);
-                if (built.Error is { } buildError)
-                {
-                    Notify(NotificationSeverity.Warning, buildError);
-                    return;
-                }
-                // Asked for rather than asserted: a build that reported no error but produced no
-                // source is a contradiction, and the user is owed a message either way.
-                if (built.Source is not { } source)
-                {
-                    Notify(NotificationSeverity.Warning,
-                        "Polar alignment could not open a capture source.");
-                    return;
-                }
-                var activeGuider = built.ActiveGuider;
-
-                // Claimed before anything is set up, so a start is refused while another run holds the mount or
-                // the camera (P0c item 2 of docs/plans/hardware-in-the-server.md): without it nothing stopped a
-                // jog or a second run from moving the mount polar was rotating. The session owns the claim and
-                // releases it once the mount is restored.
-                if (!DeviceLeaseSet.TryAcquire(hub, [profileData.Mount, .. built.Drives], "polar alignment", out var claim, out var refusal))
-                {
-                    Notify(NotificationSeverity.Warning, refusal.Describe());
-                    return;
-                }
-
-                var site = PolarAlignmentActions.BuildSite(profileData, hub, lat, lon);
-
-                // Setup-panel path supplies the full configuration. Toolbar /
-                // legacy callers leave Configuration null and pin only
-                // DeltaRaDeg; fall back to Default for everything else.
-                var config = sig.Configuration ?? (PolarAlignmentConfiguration.Default with { RotationDeg = sig.DeltaRaDeg });
 
                 var polarCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
                 liveSessionState.PolarAlignmentCts = polarCts;
                 liveSessionState.Mode = LiveSessionMode.PolarAlign;
-                liveSessionState.PolarPhase = PolarAlignmentPhase.Idle;
-                liveSessionState.PolarStatusMessage = "Starting polar alignment\u2026";
-                liveSessionState.PolarPhaseAResult = null;
-                liveSessionState.LastPolarSolve = null;
-                liveSessionState.NeedsRedraw = true;
+                ShowPolarState(liveSessionState, run.State);
+                run.StateChanged += state => ShowPolarState(liveSessionState, state);
                 appState.NeedsRedraw = true;
 
-                // Completed last of all, whatever the run does, a constructor that throws included: a
-                // RigShutdown waits on it before it touches the mount or the camera polar was driving.
+                // Completed last of all, whatever the run does: a RigShutdown waits on it before it touches the mount or
+                // the camera polar was driving, and the run has given both back by then.
                 var ended = liveSessionState.BeginPolarRun();
                 tracker.Run(async () =>
                 {
                     try
                     {
-                        var session = new PolarAlignmentSession(
-                            external, mount, source, solverFactory,
-                            _timeProvider, logger, site, config, claim);
-                        try
-                        {
-                            // If the guider was looping/calibrating/guiding from a prior session,
-                            // stop it cleanly first. PHD2's LoopAsync (used inside GuiderCaptureSource)
-                            // will refuse if the app is mid-calibration. Best-effort; failure here
-                            // is logged but doesn't fail the routine; the orchestrator's first frame
-                            // will surface the real problem with a useful message.
-                            if (activeGuider is not null)
-                            {
-                                try
-                                {
-                                    await activeGuider.StopCaptureAsync(TimeSpan.FromSeconds(10), polarCts.Token);
-                                }
-                                catch (Exception ex)
-                                {
-                                    logger.LogWarning(ex, "PolarAlignment: guider StopCaptureAsync before run failed");
-                                }
-                            }
-
-                            await PolarAlignmentActions.RunAsync(session, liveSessionState, logger, polarCts.Token);
-                        }
-                        catch (OperationCanceledException ex)
-                        {
-                            logger.LogInformation(ex, "Polar alignment routine cancelled");
-                        }
-                        catch (Exception ex)
-                        {
-                            logger.LogError(ex, "Polar alignment routine failed");
-                            liveSessionState.PolarPhase = PolarAlignmentPhase.Failed;
-                            liveSessionState.PolarStatusMessage = $"Polar alignment error: {StatusText.FromException(ex)}";
-                            Notify(NotificationSeverity.Error, $"Polar alignment failed: {ex.Message}");
-                        }
-                        finally
-                        {
-                            // ReverseAxisBack / Park / LeaveInPlace runs here.
-                            liveSessionState.PolarPhase = PolarAlignmentPhase.RestoringMount;
-                            liveSessionState.NeedsRedraw = true;
-                            try { await session.DisposeAsync(); }
-                            catch (Exception ex) { logger.LogWarning(ex, "PolarAlignmentSession dispose failed"); }
-                            liveSessionState.PolarAlignmentCts = null;
-                            polarCts.Dispose();
-                            // Drop back into preview mode unless the user already swapped tabs.
-                            if (liveSessionState.Mode == LiveSessionMode.PolarAlign)
-                            {
-                                liveSessionState.Mode = LiveSessionMode.Preview;
-                            }
-                            liveSessionState.PolarPhase = PolarAlignmentPhase.Idle;
-                            liveSessionState.NeedsRedraw = true;
-                            appState.NeedsRedraw = true;
-                        }
+                        await run.RunAsync(polarCts.Token);
+                    }
+                    catch (Exception ex)
+                    {
+                        // The run's own state says so already, on the status line.
+                        Notify(NotificationSeverity.Error, $"Polar alignment failed: {ex.Message}");
                     }
                     finally
                     {
-                        // The session released it after restoring the mount; this is for a session that never
-                        // got as far as being constructed. Before `ended`, so a shutdown waiting on it finds the
-                        // devices free.
-                        claim.Dispose();
+                        liveSessionState.PolarAlignmentCts = null;
+                        polarCts.Dispose();
+                        // Drop back into preview mode unless the user already swapped tabs.
+                        if (liveSessionState.Mode == LiveSessionMode.PolarAlign)
+                        {
+                            liveSessionState.Mode = LiveSessionMode.Preview;
+                        }
+                        liveSessionState.NeedsRedraw = true;
+                        appState.NeedsRedraw = true;
                         ended.TrySetResult();
                     }
                 }, "PolarAlignment");
@@ -250,6 +179,33 @@ namespace TianWen.UI.Abstractions
                 liveSessionState.NeedsRedraw = true;
                 appState.NeedsRedraw = true;
             });
+        }
+
+        /// <summary>Reflects a polar run's state into the live view, which the render thread reads each frame.</summary>
+        private static void ShowPolarState(LiveSessionState live, PolarRunState state)
+        {
+            live.PolarPhase = state.Phase;
+            live.PolarStatusMessage = state.StatusMessage;
+            live.PolarPhaseAResult = state.PhaseA;
+            live.LastPolarSolve = state.LastSolve;
+            live.NeedsRedraw = true;
+        }
+
+        /// <summary>
+        /// Shows a polar probe or refinement frame in its OTA's slot, which it now OWNS: the previous frame there is released,
+        /// or its camera buffer never goes back (a 60 MP refine at a few Hz leaks hundreds of MB a second). The render thread
+        /// may briefly read recycled pixels during the swap, one frame of flicker at worst, which a bounded heap is worth.
+        /// </summary>
+        private static void ShowPolarFrame(LiveSessionState live, int otaIndex, Image image)
+        {
+            if (otaIndex >= live.LastCapturedImages.Length)
+            {
+                image.Release();
+                return;
+            }
+            live.LastCapturedImages[otaIndex]?.Release();
+            live.LastCapturedImages[otaIndex] = image;
+            live.NeedsRedraw = true;
         }
     }
 }
