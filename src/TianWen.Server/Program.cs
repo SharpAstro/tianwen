@@ -95,6 +95,8 @@ using (held)
         .AddHostedSession()
         .AddSingleton(listening)
         .AddSingleton(role)
+        // The crash journal beside the socket, and which node the keeper just saw crash, if that is why this one runs.
+        .AddSingleton(NodeJournalOptions.For(socketPath, node.AfterCrashOf))
         .AddSingleton(sp => new NodeSettingsStore(sp.GetRequiredService<IExternal>(), settings))
         .AddSingleton(NodeLogonStart.ForThisUser());
 
@@ -154,9 +156,10 @@ using (held)
     // LAN announcement then reads the same file rather than minting a second one beside it.
     var identity = app.Services.GetRequiredService<NodeIdentity>();
     var logger = app.Services.GetRequiredService<ILogger<Program>>();
-    logger.LogInformation("TianWen Server {Version} starting on {Socket}{Lan} (node {NodeId}){Spawned}{Fake}",
+    logger.LogInformation("TianWen Server {Version} starting on {Socket}{Lan} (node {NodeId}){Spawned}{Fake}{AfterCrash}",
         identity.Version, socketPath, listening.LanPort is { } p ? $" and TCP {p}" : "", identity.NodeId,
-        node.Spawned ? ", started by a client" : "", node.FakeDevicesOnly ? ", fake devices only" : "");
+        node.Spawned ? ", started by a client" : "", node.FakeDevicesOnly ? ", fake devices only" : "",
+        node.AfterCrashOf is { } crashed ? $", after node {crashed} crashed" : "");
 
     await app.RunAsync();
     // Stopped, or asked to restart to apply a setting it reads only at start (its keeper starts it again).

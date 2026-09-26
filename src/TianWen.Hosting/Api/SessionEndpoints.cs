@@ -155,7 +155,7 @@ internal static class SessionEndpoints
 
             // The run is the NODE's, on the node's token, never this request's: a client dropping its
             // connection, or a GUI restarting, must not cancel a night. Caller polls /state for progress.
-            if (!await hosted.TryStartAsync(session, static (run, runToken) => run.RunAsync(runToken)))
+            if (!await hosted.TryStartAsync(session, NodeRunKind.Session, profileId.Value, static (run, runToken) => run.RunAsync(runToken)))
             {
                 await session.DisposeAsync();
                 // Lost a race with another start: what this one drained goes back for the next.
@@ -286,7 +286,7 @@ internal static class SessionEndpoints
 
             // The run is the node's, on the node's token (see /start). Caller polls /state for progress
             // (phase Flats -> Complete/Failed); the finished run stays readable until the next start.
-            if (!await hosted.TryStartAsync(session, (run, runToken) => run.RunFlatsOnlyAsync(period, runToken)))
+            if (!await hosted.TryStartAsync(session, NodeRunKind.Flats, profileId.Value, (run, runToken) => run.RunFlatsOnlyAsync(period, runToken)))
             {
                 await session.DisposeAsync();
                 return EnvelopeResults.Json(

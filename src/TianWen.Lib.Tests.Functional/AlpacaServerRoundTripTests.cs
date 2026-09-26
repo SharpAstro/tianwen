@@ -230,6 +230,26 @@ namespace TianWen.Lib.Tests.Functional
         }
 
         [Fact]
+        public async Task ACoolerCommandedOverThePlaneIsWhatTheNodeWouldReestablish()
+        {
+            // The crash journal (P1 of docs/plans/hardware-in-the-server.md): a cooler another client cools over the
+            // plane is the node's to bring back after a crash, like one a session cools.
+            var client = NewAlpacaClient();
+            var ct = TestContext.Current.CancellationToken;
+            var camera = new Uri("Camera://FakeDevice/FakeCamera1");
+            await client.PutAsync(_baseUrl, "camera", 0, "connected", [new("Connected", "true")], ct);
+
+            await client.PutAsync(_baseUrl, "camera", 0, "setccdtemperature", [new("SetCCDTemperature", "-15")], ct);
+            await client.PutAsync(_baseUrl, "camera", 0, "cooleron", [new("CoolerOn", "true")], ct);
+            _hub!.TryGetCoolerIntent(camera, out var cooling).ShouldBeTrue();
+            cooling.ShouldBe(CoolerIntent.CoolTo(-15));
+
+            await client.PutAsync(_baseUrl, "camera", 0, "cooleron", [new("CoolerOn", "false")], ct);
+            _hub.TryGetCoolerIntent(camera, out var off).ShouldBeTrue();
+            off.ShouldBe(CoolerIntent.Off);
+        }
+
+        [Fact]
         public async Task AnUnknownMemberIsNotImplementedRatherThanAServerError()
         {
             var raw = await _client!.GetAsync("/api/v1/telescope/0/dooffsets", TestContext.Current.CancellationToken);

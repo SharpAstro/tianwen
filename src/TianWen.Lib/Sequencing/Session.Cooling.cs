@@ -51,6 +51,17 @@ internal partial record Session
         var scopes = Setup.Telescopes.Length;
         var coolingStates = new CameraCoolingState[scopes];
 
+        // The ramp's TARGET is what a node that crashed part-way re-establishes, never the step it had reached
+        // (the crash journal, P1 of docs/plans/hardware-in-the-server.md). Holding at the sensor's own temperature
+        // names no target, so it records nothing.
+        if (DeviceHub is { } hub && IntentOf(desiredSetpointTemp) is { } intent)
+        {
+            for (var i = 0; i < scopes; i++)
+            {
+                hub.SetCoolerIntent(Setup.Telescopes[i].Camera.Device.DeviceUri, intent);
+            }
+        }
+
         // Estimate step count from initial temperature delta to compute per-step sleep.
         // CoolToSetpointAsync adjusts by ~1°C per call, so steps ≈ |delta|.
         // Clamp to reasonable bounds: at least 1s per step, at most totalRampTime.
@@ -148,6 +159,14 @@ internal partial record Session
 
         return coolingStates.All(state => !(state.IsCoolable ?? false) || (state.TargetSetpointReached ?? false));
     }
+
+    /// <summary>What a ramp to <paramref name="target"/> asks of a cooler, or null for one that names no target.</summary>
+    internal static CoolerIntent? IntentOf(SetpointTemp target) => target.Kind switch
+    {
+        SetpointTempKind.Normal => CoolerIntent.CoolTo(target.TempC),
+        SetpointTempKind.Ambient => CoolerIntent.Warm,
+        _ => null,
+    };
 
 
 

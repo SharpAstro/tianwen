@@ -170,6 +170,14 @@ namespace TianWen.RemoteClient
         public Task<NodeResult<NodeInfoDto>> GetNodeAsync(CancellationToken cancellationToken) =>
             GetAsync("api/v1/node", HostingJsonContext.Default.ResponseEnvelopeNodeInfoDto, _timeouts.StatePoll, cancellationToken);
 
+        /// <summary>
+        /// <c>DELETE /node/recovery</c>: the report of the node that died before this one (<see cref="NodeInfoDto.Recovery"/>)
+        /// has been shown, and its user has chosen what to do about it.
+        /// </summary>
+        public Task<NodeResult<string>> DismissRecoveryAsync(CancellationToken cancellationToken) =>
+            SendAsync(HttpMethod.Delete, "api/v1/node/recovery", content: null, HostingJsonContext.Default.ResponseEnvelopeString,
+                _timeouts.Control, cancellationToken);
+
         // ---------------------------------------------------------------------------------
         // Session
         // ---------------------------------------------------------------------------------

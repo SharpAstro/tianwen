@@ -78,9 +78,11 @@ public interface IHostedSession : IHostedService
     /// nothing a client's connection does. A run that has ended is replaced, its session disposed before
     /// this one touches the rig.
     /// </summary>
+    /// <param name="kind">What kind of run it is, and <paramref name="profileId"/> the profile it runs on: what the
+    /// node's journal records, so a node started after this one crashed can say which run was interrupted.</param>
     /// <returns><see langword="false"/> when another run is going on, in which case the session is still
     /// the caller's to dispose.</returns>
-    Task<bool> TryStartAsync(ISession session, Func<ISession, CancellationToken, Task> run);
+    Task<bool> TryStartAsync(ISession session, NodeRunKind kind, Guid profileId, Func<ISession, CancellationToken, Task> run);
 
     /// <summary>
     /// Asks the run going on to stop. Its token is cancelled and it ends through its own Finalise (park,
@@ -139,7 +141,13 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
     /// </summary>
     internal event Action<ISession>? RunStarting;
 
+    /// <summary>Raised as a run starts and again as it ends, from whichever thread did it: the journal listens.</summary>
+    internal event Action? RunChanged;
+
     public bool IsRunning => Volatile.Read(ref _run) is { Completion.IsCompleted: false };
+
+    /// <summary>What the run going on is (its kind, profile and start), or null when none is.</summary>
+    internal NodeRunRecord? CurrentRunRecord => Volatile.Read(ref _run) is { Completion.IsCompleted: false } run ? run.Record : null;
 
     public Guid? ActiveProfileId => settings.Current.ActiveProfileId;
 
@@ -244,7 +252,7 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
 
     public Task WhenInitialisedAsync(CancellationToken cancellationToken) => _initialisation.WaitAsync(cancellationToken);
 
-    public async Task<bool> TryStartAsync(ISession session, Func<ISession, CancellationToken, Task> run)
+    public async Task<bool> TryStartAsync(ISession session, NodeRunKind kind, Guid profileId, Func<ISession, CancellationToken, Task> run)
     {
         var previous = Volatile.Read(ref _run);
         if (previous is { Completion.IsCompleted: false })
@@ -254,7 +262,7 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
 
         // Built before the swap and started only by winning it: building the run INSIDE the exchange
         // would start it on every racing caller (CLAUDE.md, Concurrency).
-        var next = new NodeRun(session, run, logger);
+        var next = new NodeRun(session, new NodeRunRecord(kind, profileId, timeProvider.GetUtcNow()), run, logger);
         if (Interlocked.CompareExchange(ref _run, next, previous) != previous)
         {
             next.Release(won: false);
@@ -280,7 +288,28 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
         }
 
         next.Release(won: true);
+        RaiseRunChanged();
+        _ = RaiseRunChangedWhenEndedAsync(next.Completion);
         return true;
+    }
+
+    private async Task RaiseRunChangedWhenEndedAsync(Task completion)
+    {
+        // A run's completion never faults: its body's failures are caught and logged where it runs.
+        await completion.ConfigureAwait(false);
+        RaiseRunChanged();
+    }
+
+    private void RaiseRunChanged()
+    {
+        try
+        {
+            RunChanged?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "A subscriber failed as the node's run started or ended");
+        }
     }
 
     public Task? TryAbort()
@@ -339,13 +368,33 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
             }
         }
 
+        var camerasStopped = true;
         try
         {
             await hub.StopConnectedCamerasAsync(timeProvider, logger).WaitAsync(cancellationToken);
         }
         catch (OperationCanceledException)
         {
+            camerasStopped = false;
             logger.LogError("The host's shutdown timeout ran out while its cameras were warming");
+        }
+
+        // Then every device left, as the process's exit would a moment later anyway, so a node whose stop FINISHED
+        // holds nothing and leaves no crash journal. One cut short releases nothing more: a camera still warming, or a
+        // run still in its Finalise, is what the journal must go on describing for the next node.
+        if (camerasStopped && Volatile.Read(ref _run) is not { Completion.IsCompleted: false })
+        {
+            foreach (var (uri, _) in hub.ConnectedDevices)
+            {
+                try
+                {
+                    await hub.DisconnectAsync(uri, force: true, CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "The host's stop could not disconnect {DeviceUri}", uri);
+                }
+            }
         }
 
         await _lifetime.CancelAsync();
@@ -374,13 +423,16 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
         private readonly TaskCompletionSource<bool> _release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _disposed;
 
-        public NodeRun(ISession session, Func<ISession, CancellationToken, Task> body, ILogger logger)
+        public NodeRun(ISession session, NodeRunRecord record, Func<ISession, CancellationToken, Task> body, ILogger logger)
         {
             Session = session;
+            Record = record;
             Completion = RunWhenReleasedAsync(body, logger);
         }
 
         public ISession Session { get; }
+
+        public NodeRunRecord Record { get; }
 
         /// <summary>Completes when the run has ended, its Finalise included, or when its start lost the swap.</summary>
         public Task Completion { get; }
@@ -443,3 +495,6 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
         }
     }
 }
+
+/// <summary>What a node's run is: its kind, the profile it runs on, and when it started (for the journal).</summary>
+internal sealed record NodeRunRecord(NodeRunKind Kind, Guid ProfileId, DateTimeOffset StartedUtc);

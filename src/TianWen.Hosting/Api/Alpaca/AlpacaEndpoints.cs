@@ -174,6 +174,12 @@ namespace TianWen.Hosting.Api.Alpaca
                         : null;
 
                     await write(Connected(hub, entry), new AlpacaParameters(form), cancellationToken).ConfigureAwait(false);
+
+                    // A cooler commanded over the plane is the node's to re-establish after a crash (the journal).
+                    if (IsCoolerCommand(deviceType, member))
+                    {
+                        await hub.RecordCommandedCoolerAsync(entry.DeviceUri, cancellationToken).ConfigureAwait(false);
+                    }
                     return Results.Json(MethodEnvelope(http), AlpacaServerJsonContext.Default.AlpacaMethodResponse);
                 }
 
@@ -251,6 +257,12 @@ namespace TianWen.Hosting.Api.Alpaca
 
         private static IResult ImageBytesFault(int errorNumber, string message) =>
             Results.Bytes(AlpacaImageBytesWriter.EncodeError(errorNumber, message), AlpacaImageBytesMimeType);
+
+        /// <summary>Whether a camera write commands its cooler: switching it, or moving its setpoint.</summary>
+        private static bool IsCoolerCommand(string deviceType, string member) =>
+            string.Equals(deviceType, "camera", StringComparison.OrdinalIgnoreCase)
+            && (string.Equals(member, "cooleron", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(member, "setccdtemperature", StringComparison.OrdinalIgnoreCase));
 
         /// <summary>The hub's connected driver, or a NotConnected fault -- the ASCOM answer for using a
         /// device before connecting it.</summary>

@@ -21,7 +21,8 @@ internal static class NodeEndpoints
 {
     public static void MapNodeApi(this IEndpointRouteBuilder routes)
     {
-        routes.MapGet("/api/v1/node", (NodeIdentity identity, NodeListening listening, NodeSettingsStore settings, EventHub events, IDeviceHub hub, IHostedSession hosted, ITimeProvider timeProvider) =>
+        routes.MapGet("/api/v1/node", (NodeIdentity identity, NodeListening listening, NodeSettingsStore settings, EventHub events, IDeviceHub hub, IHostedSession hosted,
+            NodeJournalService journal, ITimeProvider timeProvider) =>
             EnvelopeResults.Json(
                 ResponseEnvelope<NodeInfoDto>.Ok(new NodeInfoDto
                 {
@@ -34,8 +35,19 @@ internal static class NodeEndpoints
                     ClientsAttached = events.NativeClientCount,
                     HoldsHardware = hub.ConnectedDevices.Count > 0 || hosted.IsRunning,
                     NowUtc = timeProvider.GetUtcNow(),
+                    Recovery = journal.Recovery,
                 }),
                 HostingJsonContext.Default.ResponseEnvelopeNodeInfoDto));
+
+        // A client has shown the report of the node before this one (GET /api/v1/node's Recovery) and its user has
+        // chosen what to do: it goes, and the journal it came from with it unless this node has written its own. Any
+        // client may, on the LAN too: dismissing a report changes nothing on the rig, and a headless node's only
+        // window may be remote.
+        routes.MapDelete("/api/v1/node/recovery", (NodeJournalService journal) =>
+        {
+            journal.DismissRecovery();
+            return EnvelopeResults.Json(ResponseEnvelope<string>.Ok("Dismissed"), HostingJsonContext.Default.ResponseEnvelopeString);
+        });
 
         // Stops the node the safe way, the host's own stop (a run ends through its Finalise, the hub's cameras are
         // warmed, P0b item 4), after which the process exits cleanly and its keeper with it. Answered at once: the

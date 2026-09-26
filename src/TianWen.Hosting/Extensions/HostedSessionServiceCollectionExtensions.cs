@@ -27,6 +27,12 @@ public static class HostedSessionServiceCollectionExtensions
         services.AddSingleton<HostedSession>();
         services.AddSingleton<IHostedSession>(sp => sp.GetRequiredService<HostedSession>());
         services.AddSingleton<EventHub>();
+        // The crash journal (P1 of docs/plans/hardware-in-the-server.md): kept only by a node that says where, which
+        // tianwen-server does beside its socket. Registered FIRST of the hosted services so it stops LAST, after the
+        // run and the hub's cameras have come down, and writes what is left of them.
+        services.TryAddSingleton(NodeJournalOptions.None);
+        services.AddSingleton<NodeJournalService>();
+        services.AddHostedService(sp => sp.GetRequiredService<NodeJournalService>());
         // P3 of docs/plans/mount-safety-limits.md: enforces a configured mount limit against any
         // connected mount whether or not a session owns it. Node-scoped (survives across sessions
         // starting and ending), not part of IHostedSession itself.

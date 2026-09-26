@@ -135,9 +135,39 @@ file at each pass (`Profile.TryReadDataAsync`, so an edit by another process is 
 to the serial probe, whose provider is asynchronous for it (`IPinnedSerialPortsProvider.GetPinnedPortsAsync`). The
 walk over a profile's URI slots is one, `PinnedSerialPort.In`, for the GUI's provider and the node's.
 
+
+**A node that dies leaves a crash journal** (`node.journal` beside its socket and lock, `NodeJournal`,
+`NodeJournalService`, decision 8): the devices connected through its hub (full URIs, what a successor reconnects by),
+the run going on (`NodeRunKind`, profile, start, the target it is on) and each camera's cooler intent. It is written
+atomically as any of that changes, and a 5 s poll catches what raises nothing (the target a run moves on to).
+- **A cooler's INTENT is the hub's, recorded where the cooler is commanded** (`IDeviceHub.SetCoolerIntent`,
+  `CoolerIntent`), because the camera's own state cannot say it: mid-ramp its setpoint is a step, and a warm-up is a
+  process no setpoint describes. A session's ramp records its TARGET (`Session.IntentOf`), the hub's warm-up records
+  Warm and then Off, and the Alpaca plane and the ninaAPI shim record what their command left the cooler doing
+  (`RecordCommandedCoolerAsync`). A disconnect forgets it. **A new place that commands a cooler owes the same.**
+- **A node that holds nothing has no journal.** The host's stop, once the run and the cameras have ended within its
+  budget, releases every other device too (a mount left for the process's exit was journaled as held, and reported by
+  the next node as a crash that never happened), so a clean stop leaves none; one cut short leaves what it got to, a
+  camera still warming included.
+- **A node that finds one reports it** on `GET /api/v1/node` (`Recovery`, `NodeRecoveryDto`: the interrupted run, when
+  the journal was written, the devices and their cooler intents) until a client dismisses it
+  (`DELETE /api/v1/node/recovery`, any client, since dismissing changes nothing on the rig). The journal is kept on
+  disk until then, or until this node holds something of its own or stops cleanly, so a node that dies holding
+  nothing leaves the next one the same report.
+- **Which journal is believed**: the one written by the node whose crash its keeper just saw, since the keeper names
+  it (`--after-crash <pid>`) and is the witness that no boot came between. Any other is `Stale`, shown and never acted
+  on, when it is older than the machine's last boot or its age against the boot cannot be judged. The boot comes from
+  the OS (`MachineBoot`): the newest Kernel-Boot event 27 on Windows, the only source that sees a Fast Startup boot
+  (the tick count, `LastBootUpTime` and the registry's shutdown time all ran on through one on the desktop that
+  measured it), `btime` on Linux, `kern.boottime` on macOS. `WrittenUtc` is the machine's real clock, never the node's,
+  which a simulated `TIANWEN_NOW` shifts.
+- **It never resumes a run.** Acting on a journal (reconnecting its devices, re-establishing each cooler from its
+  intent, the crash-loop guard) is P1 part 7b.
+
 Pinned by `NodeSocketTests`, `NodeAddressTests`, `ExeBesideTests`, `NodeKeeperTests`, `NodeKeeperProcessTests`,
-`LocalNodeLauncherTests`, `DetachedProcessTests`, `NodeShareTests`, `NodeShareSettingTests` and
-`NodeActiveProfileTests`.
+`LocalNodeLauncherTests`, `DetachedProcessTests`, `NodeShareTests`, `NodeShareSettingTests`,
+`NodeActiveProfileTests`, `NodeJournalTests`, `DeviceHubCoolerIntentTests`, `NodeJournalServiceTests` and
+`NodeJournalProcessTests`.
 
 ## Six invariants on the session plane
 

@@ -22,7 +22,10 @@ namespace TianWen.Hosting;
 /// write to, so it logs to its file only.</param>
 /// <param name="FakeDevicesOnly"><c>--fake-devices</c>: the fake device source and no other, so the node touches no
 /// hardware: a node for tests and demonstrations.</param>
-public sealed record NodeArguments(string SocketPath, int Port, bool LocalOnly, bool Keeper, bool Spawned, bool FakeDevicesOnly)
+/// <param name="AfterCrashOf"><c>--after-crash &lt;pid&gt;</c>: the keeper started this node because the node with that
+/// process id crashed just now, so a journal THAT node wrote is seconds old however long ago it was written, and no
+/// boot can have come between (<see cref="NodeJournal"/>). Never on a command line a client builds.</param>
+public sealed record NodeArguments(string SocketPath, int Port, bool LocalOnly, bool Keeper, bool Spawned, bool FakeDevicesOnly, int? AfterCrashOf)
 {
     /// <summary>The port a node run by hand listens on for the LAN.</summary>
     public const int DefaultPort = NodeWire.LanPort;
@@ -35,6 +38,7 @@ public sealed record NodeArguments(string SocketPath, int Port, bool LocalOnly, 
         string? socket = null;
         var port = DefaultPort;
         bool localOnly = false, keeper = false, spawned = false, fakeDevicesOnly = false;
+        int? afterCrashOf = null;
 
         for (var i = 0; i < args.Length; i++)
         {
@@ -60,6 +64,14 @@ public sealed record NodeArguments(string SocketPath, int Port, bool LocalOnly, 
                     socket = args[++i];
                     break;
 
+                case "--after-crash" when i + 1 < args.Length:
+                    if (!int.TryParse(args[++i], NumberStyles.None, CultureInfo.InvariantCulture, out var crashed) || crashed < 1)
+                    {
+                        return Fail($"--after-crash takes the process id of the node that crashed, not {args[i]}", out parsed, out error);
+                    }
+                    afterCrashOf = crashed;
+                    break;
+
                 case "--port" when i + 1 < args.Length:
                     if (!int.TryParse(args[++i], NumberStyles.None, CultureInfo.InvariantCulture, out port) || port is < 1 or > 65535)
                     {
@@ -78,14 +90,14 @@ public sealed record NodeArguments(string SocketPath, int Port, bool LocalOnly, 
             return Fail(invalid, out parsed, out error);
         }
 
-        parsed = new NodeArguments(socketPath, port, localOnly, keeper, spawned, fakeDevicesOnly);
+        parsed = new NodeArguments(socketPath, port, localOnly, keeper, spawned, fakeDevicesOnly, afterCrashOf);
         error = null;
         return true;
     }
 
     /// <summary>
     /// The command line a keeper starts its node with: everything it was told itself, as the node reads it, less
-    /// <c>--keeper</c> and with <c>--spawned</c>.
+    /// <c>--keeper</c> and with <c>--spawned</c>. The keeper adds <c>--after-crash</c> itself, per start.
     /// </summary>
     public IReadOnlyList<string> ForTheNode()
     {

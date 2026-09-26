@@ -102,7 +102,7 @@ internal static class NinaSequenceEndpoints
             }
 
             // The run is the node's, on the node's token, never this request's (see the native /start).
-            if (!await hosted.TryStartAsync(session, static (run, runToken) => run.RunAsync(runToken)))
+            if (!await hosted.TryStartAsync(session, NodeRunKind.Session, profileId, static (run, runToken) => run.RunAsync(runToken)))
             {
                 await session.DisposeAsync();
                 foreach (var target in pendingTargets)

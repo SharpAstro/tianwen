@@ -105,9 +105,11 @@ internal static class NinaEquipmentEndpoints
                 return NinaFail("Camera does not support cooling");
             }
 
+            var camUri = session.Setup.Telescopes[0].Camera.Device.DeviceUri;
             if (cancel == true)
             {
                 await cam.SetCoolerOnAsync(false, ct);
+                await hub.RecordCommandedCoolerAsync(camUri, ct);
                 return NinaOk("Cooling cancelled");
             }
 
@@ -115,6 +117,7 @@ internal static class NinaEquipmentEndpoints
             {
                 await cam.SetSetCCDTemperatureAsync(temperature.Value, ct);
                 await cam.SetCoolerOnAsync(true, ct);
+                await hub.RecordCommandedCoolerAsync(camUri, ct);
                 return NinaOk($"Cooling to {temperature.Value}°C");
             }
 
@@ -146,6 +149,7 @@ internal static class NinaEquipmentEndpoints
             }
 
             await cam.SetCoolerOnAsync(false, ct);
+            await hub.RecordCommandedCoolerAsync(session.Setup.Telescopes[0].Camera.Device.DeviceUri, ct);
             return NinaOk("Warming started");
         });
     }

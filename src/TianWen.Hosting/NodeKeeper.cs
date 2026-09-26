@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -29,23 +30,38 @@ namespace TianWen.Hosting;
 /// <see cref="CrashLoopWindow"/>. A node that crashes because a driver crashes it would crash again on the same
 /// device, so a second crash leaves the node down, for the next client to report, rather than restarted forever.
 /// </para>
+/// <para>
+/// <b>A node started after a crash is told which node crashed</b> (<c>--after-crash &lt;pid&gt;</c>), so it knows the
+/// journal that node left is seconds old (<see cref="NodeJournal"/>): the keeper is the one witness that no boot came
+/// between.
+/// </para>
 /// </remarks>
-public sealed class NodeKeeper(Func<CancellationToken, Task<int>> runNode, TimeProvider timeProvider, ILogger logger)
+/// <param name="runNode">Starts the node and waits for it to end; handed the process id of the node that just crashed,
+/// when that is why it is starting.</param>
+public sealed class NodeKeeper(Func<int?, CancellationToken, Task<NodeKeeper.NodeEnded>> runNode, TimeProvider timeProvider, ILogger logger)
 {
+    /// <summary>How one run of the node ended: its exit code, and which process it was.</summary>
+    public readonly record struct NodeEnded(int ExitCode, int ProcessId);
+
     /// <summary>Two crashes this close together are a loop, not bad luck.</summary>
     public static readonly TimeSpan CrashLoopWindow = TimeSpan.FromMinutes(5);
 
     /// <summary>A keeper of the node at <paramref name="nodePath"/>, started with <paramref name="nodeArguments"/>.</summary>
     public static NodeKeeper ForProcess(string nodePath, IReadOnlyList<string> nodeArguments, TimeProvider timeProvider, ILogger logger) =>
-        new NodeKeeper(cancellationToken => RunNodeProcessAsync(nodePath, nodeArguments, logger, cancellationToken), timeProvider, logger);
+        new NodeKeeper((afterCrashOf, cancellationToken) => RunNodeProcessAsync(nodePath,
+            afterCrashOf is { } crashed ? [.. nodeArguments, "--after-crash", crashed.ToString(CultureInfo.InvariantCulture)] : nodeArguments,
+            logger, cancellationToken), timeProvider, logger);
 
     /// <returns>How the keeper ended, as a <see cref="NodeExitCodes"/> value.</returns>
     public async Task<int> RunAsync(CancellationToken cancellationToken)
     {
         DateTimeOffset? lastCrash = null;
+        int? crashedJustNow = null;
         while (true)
         {
-            var exit = await runNode(cancellationToken).ConfigureAwait(false);
+            var ended = await runNode(crashedJustNow, cancellationToken).ConfigureAwait(false);
+            var exit = ended.ExitCode;
+            crashedJustNow = null;
             if (exit is NodeExitCodes.Restart)
             {
                 // The node stopped to apply a setting it reads only at start: not a crash, and started again at once.
@@ -66,11 +82,12 @@ public sealed class NodeKeeper(Func<CancellationToken, Task<int>> runNode, TimeP
             }
 
             lastCrash = now;
-            logger.LogWarning("The node crashed (exit {ExitCode}); starting it again", exit);
+            crashedJustNow = ended.ProcessId;
+            logger.LogWarning("The node (pid {Pid}) crashed (exit {ExitCode}); starting it again", ended.ProcessId, exit);
         }
     }
 
-    private static async Task<int> RunNodeProcessAsync(string nodePath, IReadOnlyList<string> nodeArguments, ILogger logger, CancellationToken cancellationToken)
+    private static async Task<NodeEnded> RunNodeProcessAsync(string nodePath, IReadOnlyList<string> nodeArguments, ILogger logger, CancellationToken cancellationToken)
     {
         // No window, the keeper's own (null) standard streams, and the data root as its working directory, never the
         // directory a client happened to be started from.
@@ -93,20 +110,20 @@ public sealed class NodeKeeper(Func<CancellationToken, Task<int>> runNode, TimeP
         catch (Win32Exception ex)
         {
             logger.LogError(ex, "Could not start the node {Path}", nodePath);
-            return NodeExitCodes.CouldNotStart;
+            return new NodeEnded(NodeExitCodes.CouldNotStart, 0);
         }
 
         if (node is null)
         {
             logger.LogError("Could not start the node {Path}", nodePath);
-            return NodeExitCodes.CouldNotStart;
+            return new NodeEnded(NodeExitCodes.CouldNotStart, 0);
         }
 
         using (node)
         {
             logger.LogInformation("Started the node {Path}, pid {Pid}", nodePath, node.Id);
             await node.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
-            return node.ExitCode;
+            return new NodeEnded(node.ExitCode, node.Id);
         }
     }
 }

@@ -101,6 +101,29 @@ public static class DeviceHubCameraSafetyExtensions
             => WarmCameraAsync(hub, deviceUri, timeProvider, logger, disconnectAfter: false, force: false, cancellationToken);
 
         /// <summary>
+        /// Records, as the camera's <see cref="CoolerIntent"/>, what an IMMEDIATE command left its cooler doing:
+        /// cooling to its setpoint, or off. For a surface that commands the cooler directly, a device plane or a
+        /// compatibility shim, rather than through a ramp, whose TARGET is the intent instead. A camera that cannot
+        /// say whether its cooler is on records nothing: an intent guessed is worse than none.
+        /// </summary>
+        public async ValueTask RecordCommandedCoolerAsync(Uri cameraUri, CancellationToken cancellationToken)
+        {
+            if (!hub.TryGetConnectedDriver<ICameraDriver>(cameraUri, out var camera) || !camera.CanGetCoolerOn)
+            {
+                return;
+            }
+
+            if (!await camera.GetCoolerOnAsync(cancellationToken))
+            {
+                hub.SetCoolerIntent(cameraUri, CoolerIntent.Off);
+            }
+            else if (camera.CanSetCCDTemperature)
+            {
+                hub.SetCoolerIntent(cameraUri, CoolerIntent.CoolTo(await camera.GetSetCCDTemperatureAsync(cancellationToken)));
+            }
+        }
+
+        /// <summary>
         /// Disconnects every connected camera for good, warming first each one whose cooler is on, all
         /// at once. The last step of stopping a rig, for a host that is shutting down: call it only once
         /// every run has ENDED, since a run's own <c>Finalise</c> warms its cameras and two ramps on one
@@ -199,10 +222,15 @@ public static class DeviceHubCameraSafetyExtensions
             if (!coolerOn)
             {
                 logger.LogInformation("Camera cooler is off for {Uri}; skipping warm-up ramp", deviceUri);
+                hub.SetCoolerIntent(deviceUri, CoolerIntent.Off);
                 if (disconnectAfter) await hub.DisconnectAsync(deviceUri, force, cancellationToken);
                 return;
             }
         }
+
+        // What a node that crashed mid-ramp re-establishes: the warm-up, from wherever the sensor then is, never a
+        // cool-down back to the setpoint this ramp is leaving.
+        hub.SetCoolerIntent(deviceUri, CoolerIntent.Warm);
 
         // Determine target temperature: heat-sink if available, else +25°C.
         double target = 25.0;
@@ -238,6 +266,7 @@ public static class DeviceHubCameraSafetyExtensions
 
         try { await camera.SetCoolerOnAsync(false, cancellationToken); }
         catch (Exception ex) { logger.LogWarning(ex, "SetCoolerOnAsync(false) failed for {Uri}", deviceUri); }
+        hub.SetCoolerIntent(deviceUri, CoolerIntent.Off);
 
         await timeProvider.SleepAsync(TimeSpan.FromSeconds(2), cancellationToken);
 
