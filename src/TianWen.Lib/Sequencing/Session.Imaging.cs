@@ -447,15 +447,21 @@ internal partial record Session
                 if (guideStats is { } gs)
                 {
                     UpdateGuideStats(gs);
-                    // Use real per-frame errors when available, fall back to synthetic
-                    var raErr = gs.LastRaErr ?? gs.RaRMS * (new Random(tickCount).NextDouble() * 2 - 1);
-                    var decErr = gs.LastDecErr ?? gs.DecRMS * (new Random(tickCount + 1).NextDouble() * 2 - 1);
+                }
+
+                // A sample is a MEASURED error or nothing. With no last error the guider has not
+                // measured one yet (or cannot say), and anything stood in for it -- a zero before the
+                // first measurement, the RMS scaled by a random number after -- is read by
+                // GuideStatistics.OverExposure as real guiding: null is not zero (#821). The dither
+                // mark stays pending for the next real sample.
+                if (guideStats is { LastRaErr: { } raErr, LastDecErr: { } decErr } measured)
+                {
                     var isDither = _ditherPending;
                     if (isDither) _ditherPending = false;
                     var isSettling = _guiderState is "Settling";
                     AppendGuideErrorSample(new GuideErrorSample(
                         _timeProvider.GetUtcNow(), raErr, decErr,
-                        gs.LastRaPulseMs ?? 0, gs.LastDecPulseMs ?? 0,
+                        measured.LastRaPulseMs ?? 0, measured.LastDecPulseMs ?? 0,
                         isDither, isSettling));
                 }
             }

@@ -95,6 +95,13 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
         }
     }
 
+    /// <summary>
+    /// Test hook: report guide stats (an RMS and peaks) but no last per-frame error, as a guider
+    /// does before its first measurement or when it cannot say. A session must then record no guide
+    /// sample at all, never one stood in for the missing value (#821).
+    /// </summary>
+    internal bool ReportsNoLastError { get; set; }
+
     private enum GuiderState
     {
         Idle = 0,
@@ -238,8 +245,8 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
             DecRMS = (tracker?.DecRmsShort ?? 0.2) * scale,
             PeakRa = (tracker?.PeakRaShort ?? 0.5) * scale,
             PeakDec = (tracker?.PeakDecShort ?? 0.4) * scale,
-            LastRaErr = tracker?.LastRaError * scale,
-            LastDecErr = tracker?.LastDecError * scale,
+            LastRaErr = ReportsNoLastError ? null : tracker?.LastRaError * scale,
+            LastDecErr = ReportsNoLastError ? null : tracker?.LastDecError * scale,
         });
     }
 
