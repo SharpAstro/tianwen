@@ -291,22 +291,19 @@ return until its loop has exited**, or the next target's guide loop starts on a 
 hasn't released yet -- `DeviceOwnershipTests.AFinishedRunGivesTheRigBack` was this, a race misdiagnosed
 as starvation for a day. Full story: `docs/architecture/session-test-harness.md`.
 
-**No wall-clock `CancellationTokenSource` timeouts** in session tests; use `[Fact(Timeout = ...)]`
-(inner timeouts cause flakes). **A test that drives a whole run needs that bound**: a wedged run hangs
-rather than fails, and an unbounded hang is a five-minute `--hangdump` timeout plus a multi-GB dump
-instead of one red test.
+**No wall-clock timeout inside a test**, a `CancellationTokenSource` or a `Stopwatch` budget alike;
+use `[Fact(Timeout = ...)]` and wait on `TestContext.Current.CancellationToken`, which xunit cancels at
+it (inner timeouts cause flakes). #940 was one: a 10 s budget inside a 60 s test ran out while a machine
+stalled by other work had not yet scheduled a node's first journal write, 40 ms of work on a quiet one.
+`NodeWait` (the functional tests) is the shape: bounded only by the test's timeout, it logs what it sees
+as it changes, so a timeout says whether the code was stuck or starved. **A test that drives a whole run
+needs that bound**: a wedged run hangs rather than fails, and an unbounded hang is a five-minute
+`--hangdump` timeout plus a multi-GB dump instead of one red test.
 
-**That bound is best-effort, not a guarantee, and xunit says so**: `IFactAttribute.Timeout`'s own
-documentation reads "using this with parallelization turned on will result in undefined behavior.
-Timeout is only supported when parallelization is disabled, either globally or with a
-parallelization-disabled test collection". `[Collection("Session")]` serialises its OWN tests but
-still runs alongside other collections, and neither `TianWen.Lib.Tests` nor `.Functional` sets
-`parallelizeTestCollections: false` (only `.Simulators` does), so every session bound sits in that
-undefined zone. Keep writing the bound, since it is the best available and it costs nothing, but do
-not read a hang that outlived one as impossible, and do not quote it as the reason a past hang was
-nameable without checking whether that test carried one at the time. Making it
-reliable means `parallelizeTestCollections: false` on the two suites, which is a measurement, not a
-one-line edit: less parallelism has twice come out FASTER here (see below).
+**Under xunit 4.x that bound is reliable** with the default `parallelAlgorithm`, Conservative, which all
+three suites use: 4.0.1's `IFactAttribute.Timeout` documentation calls timing and timeouts undefined only
+under `Aggressive`. Older xunit documented them as undefined whenever parallelization was on, and this
+file said so until #940. Never set `parallelAlgorithm: aggressive` without giving that up.
 
 **A `Timeout` on a SYNCHRONOUS test does nothing at all** and the analyzer now says so
 (`xUnit1069`): the framework can fail the test but cannot interrupt a body that never awaits. 36
