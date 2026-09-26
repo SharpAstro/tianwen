@@ -217,12 +217,71 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
     public bool CanSlewAsync { get; } = true;
     public bool CanSync { get; } = true;
 
-    public bool CanMoveAxis(TelescopeAxis axis) => false;
+    // Axis motion: each axis at its own rate, in degrees a second, stepped by a timer of its own as a slew is. It reports
+    // as slewing while either axis moves, as ASCOM requires, but is kept apart from a goto's _isSlewing, so a goto's timer
+    // never walks toward a stale target. The device plane's leased move-axis is tested against it.
+    private double _primaryAxisRate;
+    private double _secondaryAxisRate;
+    private ITimer? _axisTimer;
 
-    public IReadOnlyList<AxisRate> AxisRates(TelescopeAxis axis) => [];
+    public bool CanMoveAxis(TelescopeAxis axis) => axis is TelescopeAxis.Primary or TelescopeAxis.Seconary;
 
-    public ValueTask MoveAxisAsync(TelescopeAxis axis, double rate, CancellationToken cancellationToken)
-        => throw new NotSupportedException("MoveAxis not supported on FakeMountDriver");
+    public IReadOnlyList<AxisRate> AxisRates(TelescopeAxis axis) => CanMoveAxis(axis) ? [new AxisRate(0, DEFAULT_SLEW_RATE)] : [];
+
+    public async ValueTask MoveAxisAsync(TelescopeAxis axis, double rate, CancellationToken cancellationToken)
+    {
+        if (!Connected)
+        {
+            throw new InvalidOperationException("Mount is not connected");
+        }
+        if (!CanMoveAxis(axis))
+        {
+            throw new ArgumentOutOfRangeException(nameof(axis), axis, "The fake mount moves its primary and secondary axes");
+        }
+        if (!(Math.Abs(rate) <= DEFAULT_SLEW_RATE))
+        {
+            throw new ArgumentOutOfRangeException(nameof(rate), rate, $"A rate is at most {DEFAULT_SLEW_RATE} degrees a second either way");
+        }
+
+        bool moving;
+        using (await _sem.AcquireLockAsync(cancellationToken))
+        {
+            if (axis is TelescopeAxis.Primary)
+            {
+                _primaryAxisRate = rate;
+            }
+            else
+            {
+                _secondaryAxisRate = rate;
+            }
+            moving = _primaryAxisRate != 0 || _secondaryAxisRate != 0;
+        }
+
+        if (!moving)
+        {
+            Interlocked.Exchange(ref _axisTimer, null)?.Dispose();
+        }
+        else if (Volatile.Read(ref _axisTimer) is null)
+        {
+            var period = TimeSpan.FromMilliseconds(100);
+            Interlocked.Exchange(ref _axisTimer, TimeProvider.CreateTimer(AxisTimerCallback, null, period, period))?.Dispose();
+        }
+    }
+
+    private void AxisTimerCallback(object? state)
+    {
+        // Try-acquire, as the slew timer does: skip a tick while the lock is held.
+        if (!_sem.Wait(0)) return;
+        try
+        {
+            _ra = ConditionRA(_ra + _primaryAxisRate * 0.1 * DEG2HOURS);
+            _dec = Math.Clamp(_dec + _secondaryAxisRate * 0.1, -90.0, 90.0);
+        }
+        finally
+        {
+            _sem.Release();
+        }
+    }
 
     public IReadOnlyList<TrackingSpeed> TrackingSpeeds { get; } = [TrackingSpeed.Sidereal, TrackingSpeed.Lunar, TrackingSpeed.Solar];
 
@@ -509,12 +568,15 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
     // --- Slewing ---
 
     public ValueTask<bool> IsSlewingAsync(CancellationToken cancellationToken)
-        => ValueTask.FromResult(_isSlewing);
+        => ValueTask.FromResult(_isSlewing || Volatile.Read(ref _axisTimer) is not null);
 
     public ValueTask AbortSlewAsync(CancellationToken cancellationToken)
     {
         _isSlewing = false;
         Interlocked.Exchange(ref _slewTimer, null)?.Dispose();
+        // An abort stops axis motion too, as ASCOM's does.
+        (_primaryAxisRate, _secondaryAxisRate) = (0, 0);
+        Interlocked.Exchange(ref _axisTimer, null)?.Dispose();
         return ValueTask.CompletedTask;
     }
 

@@ -117,6 +117,20 @@ public sealed class MountGotoRequestDto
     public int? MinAltitudeDegrees { get; init; }
 }
 
+/// <summary>
+/// Moves one of a mount's axes at a rate, or stops it at 0: <c>POST /api/v1/devices/mount/move-axis</c>. The motion is
+/// LEASED: it stops by itself <see cref="Api.NodeWire.MoveAxisLease"/> after the last request that asked for it, so a
+/// client holding a move repeats this request while it holds.
+/// </summary>
+public sealed class MoveAxisRequestDto
+{
+    public required string DeviceUri { get; init; }
+    public required TelescopeAxis Axis { get; init; }
+
+    /// <summary>Degrees a second, signed for the direction, inside one of the axis's rate ranges; 0 stops the axis.</summary>
+    public required double Rate { get; init; }
+}
+
 /// <summary>Switches a mount's tracking: <c>POST /api/v1/devices/mount/tracking</c>.</summary>
 public sealed class MountTrackingRequestDto
 {

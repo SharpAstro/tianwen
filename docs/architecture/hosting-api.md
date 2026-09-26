@@ -431,6 +431,28 @@ is `ActuationGate`'s rule and what `NodeActuationGateTests` pins over the re-poi
 `SetMountTrackingAsync` and `StopMountAsync`. Pinned by `MotionOperationTests` (a real node) and
 `NodeActuationGateTests`.
 
+### The leased move-axis
+
+P2 part 5 (#929). **`POST /api/v1/devices/mount/move-axis`** (`MoveAxisRequestDto`: an axis and a signed rate in
+degrees a second, inside one of the axis's `AxisRates`; 0 stops it) moves the axis, and the motion is LEASED: it
+stops by itself `NodeWire.MoveAxisLease` (2 s) after the last request that asked for it. A move-axis used to run
+until something stopped it, so a client that died, or lost its connection, mid-move left the axis running.
+
+- **A client holding a move repeats the request while it holds**, every half second: the same request RENEWS the
+  motion, and one naming a new rate for an axis changes it. The answer is the motion's job, the same one while it
+  lives (`TianWenNodeClient.MoveAxisAsync`).
+- **The motion is ONE job on the mount** (`move-axis`) holding both axes, so a goto or a park is refused while it
+  runs. It ends when the lease lapses, when both axes are asked to stop, or when it is cancelled (`/mount/stop`,
+  `DELETE /jobs/{id}`), and it stops both axes on the node's own token whichever ended it: a stop a cancellation
+  could skip is how an axis keeps running.
+- A renewal racing the lapse can land just as the job stops; the next renewal starts a new job, a hiccup rather
+  than a runaway. The ninaAPI shim's own move-axis is unchanged, and unleased, for its clients.
+- The fake mount moves both axes now (it refused `MoveAxis`), reporting itself slewing while either moves; an abort
+  stops axis motion, as ASCOM's does.
+
+Pinned by `MotionOperationTests`: a motion nobody renews stops by itself, a renewed one outlives its lease and stops
+when asked, a stop ends it, and a held mount refuses it.
+
 ## Previews go through the shared stretch, never a private one
 
 `PreviewEncoder` (`Api/`) is the one JPEG preview encoder, used by `GET

@@ -12,6 +12,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Hosting.Api;
 using TianWen.Hosting.Dto;
+using TianWen.Lib.Devices;
 
 namespace TianWen.RemoteClient
 {
@@ -406,6 +407,15 @@ namespace TianWen.RemoteClient
                 HostingJsonContext.Default.MountTrackingRequestDto, HostingJsonContext.Default.ResponseEnvelopeString, _timeouts.Control, cancellationToken);
 
         /// <summary><c>POST /devices/mount/stop</c> -- stops the mount where it is, ending the goto or park job that drives it, if one does.</summary>
+        /// <summary>
+        /// <c>POST /devices/mount/move-axis</c> -- moves the axis at <paramref name="rate"/> degrees a second, or stops it
+        /// at 0 (P2 part 5, #929). LEASED: the axis stops by itself <see cref="NodeWire.MoveAxisLease"/> after the last
+        /// call, so a caller holding a move repeats this while it holds (every half second), and one that dies stops it.
+        /// </summary>
+        public Task<NodeResult<JobDto>> MoveAxisAsync(Uri deviceUri, TelescopeAxis axis, double rate, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/devices/mount/move-axis", new MoveAxisRequestDto { DeviceUri = deviceUri.ToString(), Axis = axis, Rate = rate },
+                HostingJsonContext.Default.MoveAxisRequestDto, HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
+
         public Task<NodeResult<string>> StopMountAsync(Uri deviceUri, CancellationToken cancellationToken) =>
             SendJsonAsync(HttpMethod.Post, "api/v1/devices/mount/stop", new DeviceRequestDto { DeviceUri = deviceUri.ToString() },
                 HostingJsonContext.Default.DeviceRequestDto, HostingJsonContext.Default.ResponseEnvelopeString, _timeouts.Control, cancellationToken);

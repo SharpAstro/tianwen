@@ -106,6 +106,11 @@ internal static class DeviceEndpoints
         group.MapPost("/devices/mount/tracking", async (MountTrackingRequestDto request, DeviceOperations devices, CancellationToken ct) =>
             EnvelopeResults.Json(await devices.SetTrackingAsync(request, ct), HostingJsonContext.Default.ResponseEnvelopeString));
 
+        // Leased (P2 part 5): the axis stops by itself NodeWire.MoveAxisLease after the last request asking for it, so a
+        // client holding a move repeats this request while it holds.
+        group.MapPost("/devices/mount/move-axis", async (MoveAxisRequestDto request, DeviceOperations devices, CancellationToken ct) =>
+            EnvelopeResults.Json(await devices.MoveAxisAsync(request, ct), HostingJsonContext.Default.ResponseEnvelopeJobDto));
+
         group.MapPost("/devices/mount/stop", async (DeviceRequestDto request, DeviceOperations devices, CancellationToken ct) =>
             EnvelopeResults.Json(await devices.StopMountAsync(request.DeviceUri, ct), HostingJsonContext.Default.ResponseEnvelopeString));
 

@@ -191,6 +191,7 @@ public class MotionOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
                 (await Client.ParkMountAsync(Mount.DeviceUri, ct)).Error,
                 (await Client.SetMountTrackingAsync(Mount.DeviceUri, false, ct)).Error,
                 (await Client.StopMountAsync(Mount.DeviceUri, ct)).Error,
+                (await Client.MoveAxisAsync(Mount.DeviceUri, TelescopeAxis.Primary, 1.0, ct)).Error,
                 (await Client.MoveFocuserAsync(new FocuserMoveRequestDto { DeviceUri = Focuser.DeviceUri.ToString(), Steps = 10 }, ct)).Error,
                 (await Client.StopFocuserAsync(Focuser.DeviceUri, ct)).Error,
             })
@@ -198,6 +199,66 @@ public class MotionOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
                 refused.ShouldNotBeNull().ShouldContain("Session run");
             }
         }
+    }
+
+    // Part 5: a move-axis is LEASED. Nobody renewing it is a client that died mid-move, and the axis must stop by itself.
+    [Fact(Timeout = 60_000)]
+    public async Task AMoveAxisNobodyRenewsStopsByItself()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var mount = (IMountDriver)await Hub.ConnectAsync(Mount, ct);
+        var ra = await mount.GetRightAscensionAsync(ct);
+
+        var job = (await Client.MoveAxisAsync(Mount.DeviceUri, TelescopeAxis.Primary, 1.0, ct)).Value.ShouldNotBeNull();
+        job.Kind.ShouldBe("move-axis");
+        await UntilAsync("the axis to move", async token => (await mount.IsSlewingAsync(token) && await mount.GetRightAscensionAsync(token) != ra, "not moving"), ct);
+
+        var stopped = await UntilEndedAsync(job.Id, ct);
+        stopped.State.ShouldBe(JobState.Succeeded);
+        stopped.Step.ShouldNotBeNull().ShouldContain("nothing renewed");
+        (await mount.IsSlewingAsync(ct)).ShouldBeFalse("the lease lapsed and the node stopped the axis");
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task ARenewedMoveAxisOutlivesItsLeaseAndStopsWhenAsked()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var mount = (IMountDriver)await Hub.ConnectAsync(Mount, ct);
+        var job = (await Client.MoveAxisAsync(Mount.DeviceUri, TelescopeAxis.Seconary, -1.0, ct)).Value.ShouldNotBeNull();
+
+        // Held for twice the lease, renewed every half second as a client holding the button does.
+        var until = DateTimeOffset.UtcNow + Hosting.Api.NodeWire.MoveAxisLease * 2;
+        while (DateTimeOffset.UtcNow < until)
+        {
+            (await Client.MoveAxisAsync(Mount.DeviceUri, TelescopeAxis.Seconary, -1.0, ct)).Value.ShouldNotBeNull().Id.ShouldBe(job.Id, "a renewal is the same motion");
+            await Task.Delay(TimeSpan.FromMilliseconds(500), ct);
+        }
+        (await Client.GetJobAsync(job.Id, ct)).Value.ShouldNotBeNull().State.ShouldBe(JobState.Running);
+
+        // Another kind of job waits for the motion to end.
+        (await Client.GotoAsync(new MountGotoRequestDto { DeviceUri = Mount.DeviceUri.ToString(), RaJ2000 = 1, DecJ2000 = 85 }, ct)).StatusCode.ShouldBe(409);
+
+        (await Client.MoveAxisAsync(Mount.DeviceUri, TelescopeAxis.Seconary, 0, ct)).IsSuccess.ShouldBeTrue();
+        var stopped = await UntilEndedAsync(job.Id, ct);
+        stopped.State.ShouldBe(JobState.Succeeded);
+        stopped.Step.ShouldNotBeNull().ShouldNotContain("nothing renewed");
+        (await mount.IsSlewingAsync(ct)).ShouldBeFalse();
+        (await Client.MoveAxisAsync(Mount.DeviceUri, TelescopeAxis.Seconary, 0, ct)).IsNotFound.ShouldBeTrue("nothing is moving to stop");
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task AStopEndsAMoveAxisAndARateTheAxisCannotTakeIsRefused()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var mount = (IMountDriver)await Hub.ConnectAsync(Mount, ct);
+
+        (await Client.MoveAxisAsync(Mount.DeviceUri, TelescopeAxis.Primary, 99, ct)).StatusCode.ShouldBe(400);
+
+        var job = (await Client.MoveAxisAsync(Mount.DeviceUri, TelescopeAxis.Primary, 0.5, ct)).Value.ShouldNotBeNull();
+        (await Client.StopMountAsync(Mount.DeviceUri, ct)).IsSuccess.ShouldBeTrue();
+
+        (await UntilEndedAsync(job.Id, ct)).State.ShouldBe(JobState.Cancelled);
+        (await mount.IsSlewingAsync(ct)).ShouldBeFalse();
     }
 
     // The session-scoped routes from before the device plane answered 404 with no session; re-pointed at it, they reach
