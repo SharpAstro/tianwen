@@ -1088,6 +1088,9 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
 - **Read the plan doc before touching the Canon path** -- it is a list of five things that fail
   SILENTLY. Auto-recenter defaults ON (ROI-only, zero mount disturbance); mount jog is opt-in OFF and
   its **sign is uncalibrated**.
+- **The capture loop is `PlanetaryCapture` (Lib), ONE for the GUI and the node**: the camera, the stream, the
+  live controls and the recenter. The GUI's `PlanetaryCaptureController` only stacks and shows what it streams.
+  It claims only the camera, so **a recenter nudge asks `DeviceOwnershipGate` over the mount first**.
 
 ### AI Image Enhancement: SETI Astro (ONNX) + RC-Astro (CLI)
 

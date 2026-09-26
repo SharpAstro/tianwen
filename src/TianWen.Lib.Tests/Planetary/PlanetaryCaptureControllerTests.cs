@@ -43,7 +43,7 @@ public class PlanetaryCaptureControllerTests(ITestOutputHelper output)
         public LockStepPump(PlanetaryCaptureController controller)
         {
             _controller = controller;
-            controller.ArmFrameGate();
+            controller.Capture.ArmFrameGate();
         }
 
         /// <summary>Frames this pump has let the capture loop take, over every <see cref="PumpAsync"/> call.</summary>
@@ -65,8 +65,8 @@ public class PlanetaryCaptureControllerTests(ITestOutputHelper output)
                 // Completes on that settled frame, or immediately once the capture loop has ended, so a
                 // producer that died bounds out through maxFrames and fails the caller's assertion rather
                 // than hanging to the [Fact] timeout with nothing to say.
-                var next = _controller.WaitForNextFrameAsync(ct);
-                _controller.StepFrame();
+                var next = _controller.Capture.WaitForNextFrameAsync(ct);
+                _controller.Capture.StepFrame();
                 Stepped++;
                 await next;
             }
@@ -79,7 +79,7 @@ public class PlanetaryCaptureControllerTests(ITestOutputHelper output)
         // The loop may never hold a frame the pump did not step. Equality is the steady state; fewer is a
         // stopped loop, which the caller's predicate reports.
         private void AssertNotAhead()
-            => _controller.FramesReceived.ShouldBeLessThanOrEqualTo(Stepped, "the capture loop ran ahead of the pump");
+            => _controller.Capture.FramesReceived.ShouldBeLessThanOrEqualTo(Stepped, "the capture loop ran ahead of the pump");
     }
 
     [Fact(Timeout = 60_000)]
@@ -108,11 +108,11 @@ public class PlanetaryCaptureControllerTests(ITestOutputHelper output)
         // Play the render thread: tick until the first stacked master is published.
         var reached = await pump.PumpAsync(() => controller.HasMaster, ct);
 
-        output.WriteLine($"frames received={controller.FramesReceived}, fps={controller.MeasuredFps:F0}");
+        output.WriteLine($"frames received={controller.Capture.FramesReceived}, fps={controller.Capture.MeasuredFps:F0}");
         reached.ShouldBeTrue();
         controller.HasMaster.ShouldBeTrue();
-        controller.FramesReceived.ShouldBeGreaterThan(0);
-        controller.DroppedFrames.ShouldBe(0);
+        controller.Capture.FramesReceived.ShouldBeGreaterThan(0);
+        controller.Capture.DroppedFrames.ShouldBe(0);
 
         var source = controller.Source;
         source.ShouldNotBeNull();
@@ -154,10 +154,10 @@ public class PlanetaryCaptureControllerTests(ITestOutputHelper output)
 
         var reached = await pump.PumpAsync(() => controller.HasMaster, ct);
 
-        output.WriteLine($"frames received={controller.FramesReceived}");
+        output.WriteLine($"frames received={controller.Capture.FramesReceived}");
         reached.ShouldBeTrue();
         controller.HasMaster.ShouldBeTrue();
-        controller.FramesReceived.ShouldBeGreaterThan(0);
+        controller.Capture.FramesReceived.ShouldBeGreaterThan(0);
 
         var source = controller.Source;
         source.ShouldNotBeNull();
@@ -206,7 +206,7 @@ public class PlanetaryCaptureControllerTests(ITestOutputHelper output)
         controller.Source.Width.ShouldBe(128);
 
         // Resize the ROI live; the source should track down to the new size within a bounded number of frames.
-        controller.SetRoiSize(96, 96);
+        controller.Capture.SetRoiSize(96, 96);
         var resized = await pump.PumpAsync(() => controller.Source is { Width: 96 }, ct);
 
         output.WriteLine($"after resize: source={controller.Source?.Width}x{controller.Source?.Height}, resized={resized}");
@@ -239,14 +239,14 @@ public class PlanetaryCaptureControllerTests(ITestOutputHelper output)
             state, external.TimeProvider, NullLogger<PlanetaryCaptureController>.Instance,
             new RollingWindowOptions { FallbackWindowFrames = 8, MaxWindowFrames = 16 });
 
-        controller.ConfigureRecenter(auto: true, mountJog: false, deadbandPixels: 2, gain: 0.5);
+        controller.Capture.ConfigureRecenter(auto: true, mountJog: false, deadbandPixels: 2, gain: 0.5);
         var pump = new LockStepPump(controller);
         controller.Start(camera, new VideoCaptureOptions(TimeSpan.FromMilliseconds(5)), ct);
 
         // Capture the ROI origin once streaming has produced a frame, then run until the window has followed
         // the drift to the right (the recenter loop panned it). The planet drifts 120 px/s against a 5 ms
         // per-frame fake clock -- 0.6 px per FRAME -- so the chase is deterministic in frames.
-        (await pump.PumpAsync(() => controller.FramesReceived > 0, ct)).ShouldBeTrue();
+        (await pump.PumpAsync(() => controller.Capture.FramesReceived > 0, ct)).ShouldBeTrue();
 
         var startX = camera.VideoRoi.X;
         var startY = camera.VideoRoi.Y;
@@ -255,7 +255,7 @@ public class PlanetaryCaptureControllerTests(ITestOutputHelper output)
         var chaseFrames = pump.Stepped - chaseStart;
 
         var endX = camera.VideoRoi.X;
-        output.WriteLine($"ROI X: start={startX} end={endX} Y={camera.VideoRoi.Y}, chase frames={chaseFrames}, frames={controller.FramesReceived}");
+        output.WriteLine($"ROI X: start={startX} end={endX} Y={camera.VideoRoi.Y}, chase frames={chaseFrames}, frames={controller.Capture.FramesReceived}");
         chased.ShouldBeTrue();
         endX.ShouldBeGreaterThan(startX + 8);          // the window chased the drifting disk right
         // 10 px at 0.6 px per frame is ~17 frames of drift. Measured: 15 (the window starts 2 px past centre
@@ -292,21 +292,21 @@ public class PlanetaryCaptureControllerTests(ITestOutputHelper output)
             state, external.TimeProvider, NullLogger<PlanetaryCaptureController>.Instance,
             new RollingWindowOptions { FallbackWindowFrames = 8, MaxWindowFrames = 16 });
 
-        controller.ConfigureRecenter(auto: false, mountJog: false, deadbandPixels: 2, gain: 0.5);
+        controller.Capture.ConfigureRecenter(auto: false, mountJog: false, deadbandPixels: 2, gain: 0.5);
         var pump = new LockStepPump(controller);
         controller.Start(camera, new VideoCaptureOptions(TimeSpan.FromMilliseconds(5)), ct);
 
-        (await pump.PumpAsync(() => controller.FramesReceived > 0, ct)).ShouldBeTrue();
+        (await pump.PumpAsync(() => controller.Capture.FramesReceived > 0, ct)).ShouldBeTrue();
 
         var startX = camera.VideoRoi.X;
         // Run well past the point the recenter loop would have moved the window (the test above needs
         // 15 frames to chase 10 px at the same drift); the planet drifts but the window must not
         // move. Gated, 300 steps are exactly 300 frames.
-        var target = controller.FramesReceived + 300;
-        (await pump.PumpAsync(() => controller.FramesReceived >= target, ct, maxFrames: 300)).ShouldBeTrue();
-        controller.FramesReceived.ShouldBe(target);
+        var target = controller.Capture.FramesReceived + 300;
+        (await pump.PumpAsync(() => controller.Capture.FramesReceived >= target, ct, maxFrames: 300)).ShouldBeTrue();
+        controller.Capture.FramesReceived.ShouldBe(target);
 
-        output.WriteLine($"ROI X: start={startX} end={camera.VideoRoi.X}, frames={controller.FramesReceived}");
+        output.WriteLine($"ROI X: start={startX} end={camera.VideoRoi.X}, frames={controller.Capture.FramesReceived}");
         camera.VideoRoi.X.ShouldBe(startX);   // no recenter -> unmoved
 
         await controller.StopAsync(ct);
@@ -384,7 +384,7 @@ public class PlanetaryCaptureControllerTests(ITestOutputHelper output)
 
         var pump = new LockStepPump(controller);
         controller.Start(camera, new VideoCaptureOptions(TimeSpan.FromMilliseconds(2)), ct);
-        (await pump.PumpAsync(() => controller.FramesReceived > 0, ct)).ShouldBeTrue();
+        (await pump.PumpAsync(() => controller.Capture.FramesReceived > 0, ct)).ShouldBeTrue();
         await controller.StopAsync(ct);
         controller.IsCapturing.ShouldBeFalse();
 

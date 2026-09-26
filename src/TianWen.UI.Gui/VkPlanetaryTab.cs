@@ -282,11 +282,11 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
             () => { _exposureIdx = Math.Max(0, _exposureIdx - 1); PushExposure(controller, capturing); },
             () => { _exposureIdx = Math.Min(ExposurePresetsMs.Length - 1, _exposureIdx + 1); PushExposure(controller, capturing); }));
         rows.Add(Stepper("Gain", _gain.ToString(), canEdit, "Gain",
-            () => { _gain = Math.Max(0, _gain - GainStep); if (capturing) controller.SetGain(_gain); },
-            () => { _gain = Math.Min(GainMax, _gain + GainStep); if (capturing) controller.SetGain(_gain); }));
+            () => { _gain = Math.Max(0, _gain - GainStep); if (capturing) controller.Capture.SetGain(_gain); },
+            () => { _gain = Math.Min(GainMax, _gain + GainStep); if (capturing) controller.Capture.SetGain(_gain); }));
         if (capturing)
         {
-            var readout = $"{controller.MeasuredFps:F0} fps   {controller.FramesReceived} frm   {controller.DroppedFrames} drop";
+            var readout = $"{controller.Capture.MeasuredFps:F0} fps   {controller.Capture.FramesReceived} frm   {controller.Capture.DroppedFrames} drop";
             rows.Add(Layout.Builder.Text(readout, PanelFontSize * 0.85f, HeaderText, TextAlign.Near, TextAlign.Center).RowH(BaseRowHeight));
         }
 
@@ -300,8 +300,8 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
         rows.Add(SectionHeader("REGION (ROI)"));
         rows.Add(Layout.Builder.Fill(key: "RoiPip").RowH(BaseRowHeight * 3f));
         rows.Add(Stepper("Size", $"{_roi.Width}x{_roi.Height}", canEdit, "RoiSize",
-            () => { SetRoiSize(_roiSizeIdx - 1); if (capturing) controller.SetRoiSize(_roi.Width, _roi.Height); },
-            () => { SetRoiSize(_roiSizeIdx + 1); if (capturing) controller.SetRoiSize(_roi.Width, _roi.Height); }));
+            () => { SetRoiSize(_roiSizeIdx - 1); if (capturing) controller.Capture.SetRoiSize(_roi.Width, _roi.Height); },
+            () => { SetRoiSize(_roiSizeIdx + 1); if (capturing) controller.Capture.SetRoiSize(_roi.Width, _roi.Height); }));
         rows.Add(Layout.Builder.HStack(
                 Layout.Builder.Text("Pan", PanelFontSize, DimText, TextAlign.Near, TextAlign.Center).WFixed(40f).HStar(),
                 RoiPanButton("◀", "RoiPanLeft", canEdit, -1, 0, controller, capturing),
@@ -326,9 +326,9 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
             () => _gainIdx = Math.Min(RecenterGainPresetsPct.Length - 1, _gainIdx + 1)));
         if (capturing && _autoRecenter)
         {
-            var (ox, oy) = controller.LastComOffset;
+            var (ox, oy) = controller.Capture.LastComOffset;
             rows.Add(Layout.Builder.Text(
-                    $"off {ox:+0.0;-0.0},{oy:+0.0;-0.0} px   {controller.LastRecenterActuator}",
+                    $"off {ox:+0.0;-0.0},{oy:+0.0;-0.0} px   {controller.Capture.LastRecenterActuator}",
                     PanelFontSize * 0.8f, DimText, TextAlign.Near, TextAlign.Center)
                 .RowH(BaseRowHeight * 0.8f));
         }
@@ -492,7 +492,7 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
                     if (capturing)
                     {
                         var (dx, dy) = RoiPanDelta(dirX, dirY);
-                        controller.JogRoi(dx, dy);
+                        controller.Capture.JogRoi(dx, dy);
                     }
                     PanRoi(dirX, dirY);
                 }) : null);
@@ -504,7 +504,7 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
     {
         if (capturing)
         {
-            controller.SetExposure(TimeSpan.FromMilliseconds(ExposurePresetsMs[_exposureIdx]));
+            controller.Capture.SetExposure(TimeSpan.FromMilliseconds(ExposurePresetsMs[_exposureIdx]));
         }
     }
 
@@ -540,7 +540,7 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
     // Pushes the current recenter config to the controller (called on every toggle / stepper change). Cheap;
     // the controller stages it for the capture loop to read next frame.
     private void PushRecenter(PlanetaryCaptureController controller)
-        => controller.ConfigureRecenter(_autoRecenter, _mountJog,
+        => controller.Capture.ConfigureRecenter(_autoRecenter, _mountJog,
             DeadbandPresetsPx[_deadbandIdx], RecenterGainPresetsPct[_gainIdx] / 100.0);
 
     // The PiP: a sensor-proportioned thumbnail (dark box) with the red ROI rectangle drawn at its mapped

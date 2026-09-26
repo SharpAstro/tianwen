@@ -304,14 +304,17 @@ namespace TianWen.UI.Abstractions
                     // fallback (Phase C). No-op when no mount is connected or the scale is unknown (NaN) -- the
                     // recenter loop then stays ROI-only.
                     IMountDriver? recenterMount = null;
+                    Uri? recenterMountUri = null;
                     if (appState.ActiveProfile?.Data is { } capturePdata
                         && capturePdata.Mount is { Scheme: not "none" } mountUri
                         && hub.TryGetConnectedDriver<IMountDriver>(mountUri, out var rcMount) && rcMount is not null)
                     {
                         recenterMount = rcMount;
+                        recenterMountUri = mountUri;
                     }
-                    planetaryCapture.AttachMount(
-                        recenterMount, CoordinateUtils.PixelScaleArcsec(camera.PixelSizeX, ota.FocalLength));
+                    // The capture claims only the camera, so each nudge asks the gate over the mount first.
+                    planetaryCapture.Capture.AttachMount(
+                        recenterMount, recenterMountUri, hub, CoordinateUtils.PixelScaleArcsec(camera.PixelSizeX, ota.FocalLength));
 
                     // Bind the capture's lifetime to the app shutdown token: quitting cancels it (its loops poll
                     // the token), so the camera is released without an imperative Stop() in the quit path.
@@ -356,8 +359,7 @@ namespace TianWen.UI.Abstractions
 
                 RunTracked($"JogMount {sig.Direction}", "Mount jog failed", async ct =>
                 {
-                    await MountActions.PulseGuideArcsecAsync(
-                        mount, sig.Direction, sig.Arcsec, _timeProvider, logger: logger, cancellationToken: ct);
+                    await MountNudge.PulseArcsecAsync(mount, sig.Direction, sig.Arcsec, logger: logger, cancellationToken: ct);
                     Notify(NotificationSeverity.Info, $"Mount nudge {sig.Direction} {sig.Arcsec:F0} arcsec");
                 }, onFinally: () => appState.NeedsRedraw = true);
             });
