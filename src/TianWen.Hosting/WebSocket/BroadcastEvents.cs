@@ -78,6 +78,19 @@ internal static class BroadcastEvents
         }
     };
 
+    /// <summary>
+    /// A profile the node wrote or deleted, whoever asked for it. The latency hint: <c>GET /api/v1/profiles/{id}</c> is
+    /// authoritative (P3 part 1, #930).
+    /// </summary>
+    public static WebSocketEventDto ProfileChanged(ProfileChangedDto change) => new WebSocketEventDto
+    {
+        Event = Api.NodeWire.ProfileChangedEvent,
+        Data = new Dictionary<string, object?>
+        {
+            [ProfileChangedDto.EventKey] = change
+        }
+    };
+
     /// <summary>A job started, moved on or ended. The latency hint: <c>GET /api/v1/jobs/{id}</c> is authoritative.</summary>
     public static WebSocketEventDto JobProgress(JobDto job) => new WebSocketEventDto
     {

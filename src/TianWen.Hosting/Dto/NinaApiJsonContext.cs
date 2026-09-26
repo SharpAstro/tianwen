@@ -21,6 +21,7 @@ namespace TianWen.Hosting.Dto;
 [JsonSerializable(typeof(DateTimeOffset))]
 [JsonSerializable(typeof(int[]))]
 [JsonSerializable(typeof(DeviceStateDto))]
+[JsonSerializable(typeof(ProfileChangedDto))]
 [JsonSerializable(typeof(ResponseEnvelope<string>))]
 [JsonSerializable(typeof(ResponseEnvelope<string[]>))]
 [JsonSerializable(typeof(ResponseEnvelope<NinaCameraInfoDto>))]

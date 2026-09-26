@@ -32,6 +32,37 @@ public sealed class ProfileDetailDto
     /// <inheritdoc cref="SiteLatitude"/>
     public double? SiteElevation { get; init; }
 
+    /// <summary>
+    /// The WHOLE profile, as the node stores it (P3 part 1 of docs/plans/hardware-in-the-server.md, #930), including what
+    /// <see cref="Equipment"/> leaves out: the guider focuser, the OAG OTA, mount limits, the site tie-breaker, focus
+    /// direction and the sensor geometry smart framing needs. A client on the node's socket edits this and sends it back
+    /// whole, naming <see cref="Revision"/>. Null only from a node that predates it.
+    /// </summary>
+    public ProfileData? Data { get; init; }
+
+    /// <summary>
+    /// The revision <see cref="Data"/> was read at, the hash of the stored profile (<see cref="StoredProfile"/>). An edit
+    /// names it, and one the stored profile has moved past is refused rather than overwriting a change it never saw.
+    /// </summary>
+    public string? Revision { get; init; }
+
+    /// <summary>The profile as its file holds it, whole, with the revision it was read or written at.</summary>
+    public static ProfileDetailDto FromStored(StoredProfile stored)
+    {
+        var detail = FromProfile(stored.Profile);
+        return new ProfileDetailDto
+        {
+            ProfileId = detail.ProfileId,
+            Name = detail.Name,
+            Equipment = detail.Equipment,
+            SiteLatitude = detail.SiteLatitude,
+            SiteLongitude = detail.SiteLongitude,
+            SiteElevation = detail.SiteElevation,
+            Data = stored.Profile.Data ?? ProfileData.Empty,
+            Revision = stored.Revision,
+        };
+    }
+
     public static ProfileDetailDto FromProfile(Profile profile)
     {
         var data = profile.Data ?? ProfileData.Empty;

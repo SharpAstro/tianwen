@@ -468,6 +468,35 @@ It found one bug the in-process tests could not: a filter wheel's reading carrie
 slot from `GetPositionAsync` now (-1 while the wheel turns), and `DeviceHubReadingTests` turns a wheel to a slot
 whose offset is not its number, where the old test compared the reading with the same wrong field.
 
+## Profiles: the node is the one writer
+
+P3 part 1 (#930). Every profile the node writes goes through ONE writer, `NodeProfiles`, whoever asked for it: an edit
+over the socket, and the node's own writes (reconcile, sensor capture, the backlash mirror, which follow in later parts).
+Each write reads the profile's FILE as it is now, inside the writer's lock, never the registry: until P6 the GUI, the
+TUI and the CLI still save profiles themselves, so the node's registry can be behind the disk.
+
+- **`GET /api/v1/profiles/{id}` carries the WHOLE profile** (`ProfileDetailDto.Data`, the `ProfileData` the file holds)
+  and its REVISION. `Equipment` and the site fields stay for the clients that read them; `Data` is what they leave
+  out: the guider focuser, the OAG OTA, mount limits, the site tie-breaker, focus direction and the sensor geometry.
+  A client on the LAN may read it (decision 4).
+- **`PUT /api/v1/profiles/{id}` takes the whole profile back** (`UpdateProfileRequest`: `Data`, an optional new
+  `Name`, and the `Revision` it was read at) and answers the profile as stored. A revision is the hash of the stored
+  file's bytes (`StoredProfile`, `Profile.ComputeRevision`), so it keeps no state, holds across a restart, and moves
+  when ANY process saves the profile. An edit whose revision the file has moved past is refused with a **412**: the
+  client reads the profile again and reapplies its edit, rather than overwriting a change it never saw. An edit that
+  would store what is stored already writes and pushes nothing. A profile with no mount, guider or telescope list, or
+  a telescope with no name or camera, is a 400 (JSON leaves a missing field null rather than refusing it).
+- **Changing a profile is for the socket only** (decision 4): `PUT`, `POST /api/v1/profiles` and `DELETE` answer 403
+  over TCP. Create and delete were open to the LAN before P3.
+- **`PROFILE-CHANGED` is pushed for every write** (`NodeWire.ProfileChangedEvent`, `ProfileChangedDto`: the id, the
+  name and revision it has now, or `Deleted`), after the registry is re-read so `GET /api/v1/profiles` lists it. A
+  hint: `GET /api/v1/profiles/{id}` is authoritative.
+
+`TianWenNodeClient` has `GetProfileAsync`, `UpdateProfileAsync`, `CreateProfileAsync` and `DeleteProfileAsync`. Pinned
+by `NodeProfileWriterTests` (a profile with every field set crosses and is stored exactly as sent, a stale revision is
+refused, every write is pushed and listed, a malformed profile is refused, and a LAN client reads but cannot write) and
+`ProfileRevisionTests`.
+
 ## Previews go through the shared stretch, never a private one
 
 `PreviewEncoder` (`Api/`) is the one JPEG preview encoder, used by `GET
@@ -558,7 +587,8 @@ will NOT flag a regression (the IL2026/IL3050 trim/AOT warnings only surface on 
 2. **Both JSON source-gen contexts are registered via `ConfigureHttpJsonOptions`** (in
    `AddHostedSession`): `HostingJsonContext` (camelCase) then `NinaApiJsonContext` (PascalCase) on the
    `TypeInfoResolverChain`. This is what makes **request-body binding** AOT-safe; the POST/PUT
-   endpoints that take a complex body (`CreateProfileRequest`, `PendingTarget`, `SetProfileRequest`)
+   endpoints that take a complex body (`CreateProfileRequest`, `UpdateProfileRequest`, `PendingTarget`,
+   `SetProfileRequest`, the device plane's request DTOs)
    would otherwise throw `NotSupportedException` at runtime. Responses do not depend on it; every
    `Results.Json(...)` passes an explicit `JsonTypeInfo`.
 3. **No `ResponseEnvelope<object>` payloads.** A polymorphic `object` payload cannot be resolved by a

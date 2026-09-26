@@ -43,6 +43,8 @@ public static class HostedSessionServiceCollectionExtensions
         services.AddHostedService(sp => sp.GetRequiredService<DeviceStatePoller>());
         // Its second part: connect, disconnect and warm-and-disconnect as the node's jobs, one per device at a time.
         services.AddSingleton<DeviceOperations>();
+        // The node's one profile writer (P3 part 1, #930): every profile write, whoever asked, pushes PROFILE-CHANGED.
+        services.AddSingleton<NodeProfiles>();
         // Single-flight server-side AI enhancer behind POST /api/v1/image/enhance. The SharpenPipeline
         // is OPTIONAL -- it is registered only by AddRcAstroAi()/AddTianWenAi(), which a host (the
         // functional-test host, or a server with no AI models) need not wire. Resolve it via GetService

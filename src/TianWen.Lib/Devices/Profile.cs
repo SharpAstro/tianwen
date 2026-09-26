@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -88,12 +89,61 @@ public record class Profile(Uri DeviceUri) : DeviceBase(DeviceUri)
 
     internal FileInfo ProfileFullPath(IExternal external) => new FileInfo(Path.Combine(external.ProfileFolder.FullName, DeviceIdFromUUID(ProfileId) + ProfileExt));
 
-    public Task SaveAsync(IExternal external, CancellationToken cancellationToken)
-        => external.AtomicWriteJsonAsync(
-            ProfileFullPath(external).FullName,
-            new ProfileDto(ProfileId, DisplayName, Data ?? ProfileData.Empty),
-            ProfileJsonSerializerContextIndented.ProfileDto,
-            cancellationToken);
+    public async Task SaveAsync(IExternal external, CancellationToken cancellationToken)
+        => await SaveStoredAsync(external, cancellationToken);
+
+    /// <summary>
+    /// Saves the profile, as <see cref="SaveAsync"/> does, and answers with the revision it was saved at.
+    /// </summary>
+    public async Task<StoredProfile> SaveStoredAsync(IExternal external, CancellationToken cancellationToken)
+    {
+        var stored = StoredForm();
+        await external.AtomicWriteAsync(ProfileFullPath(external).FullName, (stream, token) => stream.WriteAsync(stored, token).AsTask(), cancellationToken);
+        return new StoredProfile(this, RevisionOf(stored));
+    }
+
+    /// <summary>
+    /// The revision this profile has once saved: the hash of the file <see cref="SaveAsync"/> writes, so two profiles
+    /// that would store the same bytes have the same revision, whatever arrays they hold.
+    /// </summary>
+    public string ComputeRevision() => RevisionOf(StoredForm());
+
+    /// <summary>
+    /// The profile saved as <paramref name="profileId"/>, read from its file as it is now, with the revision of what was
+    /// read; null when there is none or it cannot be read. For a writer that must not overwrite a change it has not seen:
+    /// it compares the revision it read at with this one, inside its own write.
+    /// </summary>
+    public static async Task<StoredProfile?> TryReadStoredAsync(IExternal external, Guid profileId, CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(external.ProfileFolder.FullName, DeviceIdFromUUID(profileId) + ProfileExt);
+        byte[] stored;
+        await using (var stream = await SharedFile.TryOpenReadAsync(path, cancellationToken))
+        {
+            if (stream is null)
+            {
+                return null;
+            }
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer, cancellationToken);
+            stored = buffer.ToArray();
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize(stored, ProfileJsonSerializerContextIndented.ProfileDto) is { } dto
+                ? new StoredProfile(new Profile(profileId, dto.Name, dto.Data), RevisionOf(stored))
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private byte[] StoredForm()
+        => JsonSerializer.SerializeToUtf8Bytes(new ProfileDto(ProfileId, DisplayName, Data ?? ProfileData.Empty), ProfileJsonSerializerContextIndented.ProfileDto);
+
+    private static string RevisionOf(ReadOnlySpan<byte> stored) => Convert.ToHexStringLower(SHA256.HashData(stored), 0, 16);
 
     public void Delete(IExternal external)
     {
@@ -170,6 +220,13 @@ public record class Profile(Uri DeviceUri) : DeviceBase(DeviceUri)
             => displayName is { Length: > 0 } ? $"{displayName} ({deviceId})" : deviceId;
     }
 }
+
+/// <summary>
+/// A profile as its file holds it, and the revision of what was read or written: the hash of the file's bytes
+/// (<see cref="Profile.ComputeRevision"/>). A writer that names the revision it read at can tell that another process has
+/// changed the file since.
+/// </summary>
+public readonly record struct StoredProfile(Profile Profile, string Revision);
 
 [JsonSerializable(typeof(ProfileDto))]
 [JsonSerializable(typeof(ProfileData))]

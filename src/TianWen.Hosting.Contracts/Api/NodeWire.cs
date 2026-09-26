@@ -38,6 +38,13 @@ public static class NodeWire
     public const string DeviceStateEvent = "DEVICE-STATE";
 
     /// <summary>
+    /// The event a node pushes for every profile it writes or deletes, whoever asked, carrying the change under
+    /// <c>Profile</c> (<see cref="Dto.ProfileChangedDto.TryFromEvent"/>). A latency hint:
+    /// <c>GET /api/v1/profiles/{id}</c> is authoritative.
+    /// </summary>
+    public const string ProfileChangedEvent = "PROFILE-CHANGED";
+
+    /// <summary>
     /// How long a mount's axis keeps moving after the last <c>POST /api/v1/devices/mount/move-axis</c> that asked for it:
     /// a client holding a move repeats the request well inside this (every half second is right), and one that stops
     /// asking, or dies, stops the axis within it. A move-axis used to run until something stopped it, so a client that
