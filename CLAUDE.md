@@ -1242,6 +1242,11 @@ DTOs + `HostingJsonContext`) and `TianWen.RemoteClient` (`TianWenNodeClient`, `T
 - **The overlay model is the whole design: selecting a rig changes what you look at, never what this
   node owns.** A remote connect is a read-only HTTP mirror (no lease, no hardware); the single-session
   invariant is per NODE; `RemoteRigBinding` persists on a stable `NodeId`, never an address.
+- **A rig's frames are LINEAR and follow the SCREEN.** The mirror's slots hold the node's own frames
+  (`GET /frames/{source}/latest`, never the preview JPEG) under a local session's contract: publish the
+  successor, THEN release the frame it replaces, and a reader leases. `ViewContexts.PollAll` asks only the
+  rig on screen; a mirror asked for none gives its frames back. A `LastFramePath` is a file here only over
+  the local socket (`SavedFramePathOnThisMachine`). `docs/architecture/hosting-api.md`, "Linear frames".
 - **One `LiveSessionState` per view context**: Active (renders), Local (this node's own hardware --
   every quit/park/disconnect path belongs here), All (poll + redraw). Reaching for Active where Local
   is meant parks the local mount from a remote view. The reverse bites too: a button drawn over a

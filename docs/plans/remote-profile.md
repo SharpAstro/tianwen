@@ -961,8 +961,10 @@ Layout DSL section, and the measured detail is here.
   `ARigOpensOnTheTabItsStateCallsFor`.
 - **Zero device I/O**, and structurally so: cards are built in the pre-gate part of `PollPreviewTelemetry`
   and the board is **not** added to that method's `ActiveTab` gate (which exists to guard polling
-  already-connected *drivers*). Previews stay **off** -- N mirrors each pulling JPEGs is the failure mode
-  `RemoteSessionMirror.Previews` was made opt-in for.
+  already-connected *drivers*). Frames stay **off** for every rig but the one on screen -- N mirrors each
+  pulling frames is the failure mode `RemoteSessionMirror.Previews` was made opt-in for. Since P4 of
+  [hardware-in-the-server](hardware-in-the-server.md) the frames are the node's own, linear, and
+  `ViewContexts.PollAll` asks only the rig on screen for them.
 - **The rig section is content-sized** (a `Grid(columns).WithAutoRows()` plus a trailing `Spacer`), never
   Star-filled, because multi-night progress is the intended neighbour on that screen and a Star-sized
   section would have to be reworked to admit it. A grid rather than a `WrapH` flow because fixed-width
