@@ -548,6 +548,37 @@ composes the weather sources) has no masked settings there. **A node on a data r
 falls back to the same: a test's node never writes the user's credential vault. `TianWenNodeClient.SetDeviceSettingAsync`
 and `GetDeviceSecretAsync`. Pinned by `NodeDeviceSettingTests`.
 
+### Every profile write, and the route that carries it
+
+P3 part 5 (#930): the checklist P6 cuts the hosts over by. The GUI and the TUI share `AppSignalHandler`, so their write
+sites are the same ones; each keeps the `EquipmentActions` transform it computes its edit with and swaps only its save.
+`ProfileEditParityTests` pins that a transform's edit sent through the node stores exactly what the host's own save
+stores today (by revision, the hash of the stored bytes), one case per site that edits.
+
+| Write site today (`AppSignalHandler.Equipment.cs` unless named) | Through the node |
+|---|---|
+| New profile (`ProfileNameInput`, `EquipmentActions.CreateProfileAsync`) | `POST /api/v1/profiles` |
+| Site (the latitude, longitude and elevation inputs, `SetSite`), and its push to the mount | `PUT /api/v1/profiles/{id}`; the node pushes an edited site to the connected mount when the profile wins |
+| Mount limits (the four limit inputs, `SetMountLimits`) | `PUT /api/v1/profiles/{id}` |
+| Guider focal length | `PUT /api/v1/profiles/{id}` |
+| An OTA's name, focal length, aperture, design (`UpdateOTA`) | `PUT /api/v1/profiles/{id}` |
+| Add an OTA (`AddOtaSignal`), remove one (`EquipmentTab.ProfilePanel`) | `PUT /api/v1/profiles/{id}` |
+| Assign a device to a slot (`AssignDeviceSignal`, `ApplyAssignment`), the manual light panel (`AssignManualCoverSignal`) | `PUT /api/v1/profiles/{id}`; a slot's previous device is disconnected through P2's `disconnect-safety` and disconnect job, as `AutoDisconnectOrphanAsync` does |
+| The site tie-breaker (`EquipmentTab.ProfilePanel`) | `PUT /api/v1/profiles/{id}` |
+| A filter wheel's filter table (`EquipmentTab.FilterTable` and the TUI's, `SetFilterConfig`) | `PUT /api/v1/profiles/{id}` |
+| A device's setting (`StringSettingInput`, `EquipmentTab.DeviceSettings`): a masked one into the credential store, any other onto the URI | `PUT /api/v1/devices/setting` |
+| Every other `UpdateProfileSignal` (the generic replace the panels above post, the TUI's Equipment tab among them) | `PUT /api/v1/profiles/{id}` |
+| Reconcile-all after a discovery (`DiscoverDevicesSignal`, `ReconcileAllProfilesAsync`) | the node's own, at the end of the discovery job |
+| The legacy site migration at start (`TianWen.UI.Gui/Program.cs`) | the node's own, in the same reconcile |
+| The mount's site on connect (`ConnectDeviceSignal`, `ReconcileSiteWithProfileAsync`) | the node's own, in the connect job |
+| A camera's sensor on connect (`ConnectDeviceSignal`, `CaptureSensorSpecs`) | the node's own, in the connect job |
+| The backlash mirror at a session's end (`SessionBootstrapper`, `SaveBacklashEstimatesIfChangedAsync`) | the node's own, at a node run's end |
+| The CLI's `profile` verbs (`ProfileSelector`: create, pick the mount and the guider; `ProfileSubCommand`: create and every edit through `SaveAndListAsync`) | `POST` and `PUT /api/v1/profiles`, once the CLI is a client of the node (P6) |
+
+`ProfileFlowProcessTests` runs a profile's life through a spawned node over its socket: created, assigned, reconciled by
+a discovery, written into by connecting its mount and camera, a device setting placed, a stale edit refused, the active
+profile's delete refused, and every write pushed.
+
 ## Previews go through the shared stretch, never a private one
 
 `PreviewEncoder` (`Api/`) is the one JPEG preview encoder, used by `GET
