@@ -103,6 +103,10 @@ public partial class Image
     /// a performance guard worthless.</para>
     /// <para>Both halves are required: a file stating only DATAMAX leaves min NaN and recalculates
     /// anyway, so writing one without the other buys nothing.</para>
+    /// <para><b>A pair that passes is still only a claim.</b> Both pixel paths then ask
+    /// <see cref="SamplesLeaveRange"/>, a compare-only pass, and take the observed range when a sample
+    /// lies outside the stated one (#804: <c>DATAMAX = 1</c> over drizzle weights up to 69). What the gate
+    /// still saves is the fold, not the look.</para>
     /// </remarks>
     internal static bool NeedsMinMaxRecalc(float minValue, float maxValue)
         => float.IsNaN(minValue) || minValue < 0 || float.IsNaN(maxValue)
@@ -262,7 +266,8 @@ public partial class Image
                 throw;
             }
 
-            if (needsMinMaxValRecalc)
+            // A stated range the samples leave is no range at all (#804), the same rule as the HDU path's.
+            if (needsMinMaxValRecalc || SamplesLeaveRange(planes, minValue, maxValue))
             {
                 (minValue, maxValue) = ObservedRange(planes);
             }
@@ -853,11 +858,6 @@ public partial class Image
         var minValue = (float)hdu.MinimumValue;
         var maxValue = (float)hdu.MaximumValue;
         bool needsMinMaxValRecalc = NeedsMinMaxRecalc(minValue, maxValue);
-        if (needsMinMaxValRecalc)
-        {
-            maxValue = float.MinValue;
-            minValue = float.MaxValue;
-        }
 
         bool trivialScaling = bscale == 1f && bzero == 0f;
         var imgChannels = new float[channelCount][,];
@@ -900,7 +900,10 @@ public partial class Image
             }
         }
 
-        if (needsMinMaxValRecalc)
+        // A stated range is believed only while the samples keep to it. DATAMAX = 1 over drizzle weights of
+        // 30 to 70 read as unit-scaled and put every sample past the histogram (#804), so a contradicted
+        // card is treated as a missing one. Allocation-free, and the full fold runs only when needed.
+        if (needsMinMaxValRecalc || SamplesLeaveRange(imgChannels, minValue, maxValue))
         {
             (minValue, maxValue) = ObservedRange(imgChannels);
         }

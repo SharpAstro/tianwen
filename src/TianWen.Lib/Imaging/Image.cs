@@ -784,6 +784,56 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
     }
 
     /// <summary>
+    /// Whether any sample lies outside a range a file STATED (<c>DATAMIN</c> / <c>DATAMAX</c>), which makes
+    /// the stated range a claim the samples contradict. NaN is no sample, as in <see cref="ObservedRange"/>,
+    /// and a stated range wider than the samples is not a contradiction (a writer may state a sensor's full
+    /// scale). Vectorised, allocation-free, and stops at the first contradicting vector.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Why the FITS reader asks.</b> A stated range used to be believed outright, so a 2026-08 drizzle
+    /// weight sidecar written <c>DATAMAX = 1</c> over weights of 30 to 70 read as unit-scaled, every sample
+    /// fell past the histogram's bins, and the viewer's open failed with no median (#804). A card the
+    /// samples leave is treated as a missing one: the reader takes <see cref="ObservedRange"/> instead.</para>
+    /// <para><b>What it costs.</b> One compare-only pass over the planes the read has just filled, where a
+    /// stated range used to cost none; <see cref="ObservedRange"/> runs only when it finds a contradiction.
+    /// The comparison is cheaper than the fold (two compares per vector, no select and no running
+    /// minimum or maximum to carry), and a read is bounded by the file, not by this.</para>
+    /// </remarks>
+    internal static bool SamplesLeaveRange(float[][,] channels, float min, float max)
+    {
+        foreach (var channel in channels)
+        {
+            var span = MemoryMarshal.CreateReadOnlySpan(ref channel[0, 0], channel.Length);
+            var i = 0;
+            if (Vector.IsHardwareAccelerated && span.Length >= Vector<float>.Count)
+            {
+                var lowest = new Vector<float>(min);
+                var highest = new Vector<float>(max);
+                for (; i <= span.Length - Vector<float>.Count; i += Vector<float>.Count)
+                {
+                    // An ordered compare is false on a NaN lane, so a hole never counts as outside.
+                    var v = new Vector<float>(span.Slice(i, Vector<float>.Count));
+                    if (Vector.GreaterThanAny(v, highest) || Vector.LessThanAny(v, lowest))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            for (; i < span.Length; i++)
+            {
+                var v = span[i];
+                if (v > max || v < min)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Creates a jagged channel array structure: an array of 2D float arrays, one per channel.
     /// This avoids a single huge LOH allocation for multi-channel images.
     /// </summary>

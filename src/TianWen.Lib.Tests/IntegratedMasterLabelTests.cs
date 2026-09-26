@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Threading;
@@ -184,12 +185,30 @@ public class IntegratedMasterLabelTests
             IIntegrationStrategy strategy = tiled
                 ? new TilePipelinedDrizzleStrategy(minFrameCount: 1)
                 : new DrizzleStrategy(minFrameCount: 1);
-            var master = (await strategy.RunAsync(job, ct)).Master;
+            var result = await strategy.RunAsync(job, ct);
+            var master = result.Master;
+            var what = $"{(tiled ? "TilePipelinedDrizzle" : "BayerDrizzle")}, normalise={normalise}";
 
             // Unnormalised, the drizzle divides every sample by the frame's full scale and subtracts
             // nothing, so the pedestal is still in the data, divided by the same number.
-            ShouldCarryTheIntegrationsZero(master, normalise ? 0f : AduPedestal / AduFullScale,
-                $"{(tiled ? "TilePipelinedDrizzle" : "BayerDrizzle")}, normalise={normalise}");
+            ShouldCarryTheIntegrationsZero(master, normalise ? 0f : AduPedestal / AduFullScale, what);
+
+            // The coverage is accumulated WEIGHT, above 1 over four frames, and its label is what the
+            // sidecar writes as DATAMAX: both drizzle strategies labelled it 1, so every weight sidecar
+            // stated a range its samples left and read back as unit-scaled (#804).
+            var coverage = result.Coverage.ShouldNotBeNull();
+            var (_, peakWeight) = Image.ObservedRange([.. Enumerable.Range(0, coverage.ChannelCount).Select(coverage.GetChannelArray)]);
+            peakWeight.ShouldBeGreaterThan(1f, $"{what}: four frames' weight");
+            coverage.MaxValue.ShouldBe(peakWeight, $"{what}: the coverage is labelled with the weight it reached");
+
+            var masterPath = Path.Combine(dir.FullName, "master.fits");
+            IntegrationFitsWriter.WriteCoverageMap(masterPath, coverage, frameCount);
+            var sidecar = IntegrationFitsWriter.ExistingSidecarPath(IntegrationFitsWriter.CoveragePathFor(masterPath)).ShouldNotBeNull();
+            using (var fits = Image.OpenFits(sidecar))
+            {
+                var hdu = fits.ReadFirstImageHdu().ShouldNotBeNull();
+                ((float)hdu.MaximumValue).ShouldBe(peakWeight, $"{what}: the written DATAMAX");
+            }
         }
         finally
         {

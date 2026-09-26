@@ -416,13 +416,7 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
             // frames' pedestal is still in the data in those units (same as DrizzleStrategy).
             pedestal: firstCalibrated.Pedestal * invMax,
             imageMeta: refMeta), normalised: applyNormalization);
-        var coverageMap = new Image(
-            data: masterWeight,
-            bitDepth: BitDepth.Float32,
-            maxValue: 1.0f,
-            minValue: 0f,
-            pedestal: 0f,
-            imageMeta: refMeta);
+        var coverageMap = CoveragePlane.FromDrizzleWeights(masterWeight, refMeta);
 
         var uncovered = totalCells - coveredCells;
         // Drizzle rejects per sample, so it has no per-cell rejection fraction to report. Its

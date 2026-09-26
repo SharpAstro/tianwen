@@ -539,13 +539,7 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
             // weight by the number of frames here -- the raw weight sum is
             // more informative for QA (a cell with weight=10.0 saw 10 unit-
             // drops; weight<1.0 is suspiciously under-covered).
-            var coverageMap = new Image(
-                data: Weight,
-                bitDepth: BitDepth.Float32,
-                maxValue: 1.0f,
-                minValue: 0f,
-                pedestal: 0f,
-                imageMeta: refMeta);
+            var coverageMap = CoveragePlane.FromDrizzleWeights(Weight, refMeta);
 
             // Drizzle's outlier rejection is per SAMPLE, not per output cell (see DrizzleClip), so it
             // has no per-cell rejection fraction to put here and reports its count separately
