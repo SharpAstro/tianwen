@@ -53,4 +53,10 @@ public sealed class NodeInfoDto
     /// devices it held. Null when the last node stopped cleanly, or once a client has dismissed it.
     /// </summary>
     public NodeRecoveryDto? Recovery { get; init; }
+
+    /// <summary>
+    /// The run going on now, of whatever kind (a session, a flat run, a dark library), or null when none is: what a
+    /// client names when the node refuses a start.
+    /// </summary>
+    public NodeRunDto? Run { get; init; }
 }

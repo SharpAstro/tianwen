@@ -55,7 +55,7 @@ internal static class SessionEndpoints
             if (hosted.IsRunning)
             {
                 return EnvelopeResults.Json(
-                    ResponseEnvelope<string>.Fail("A session is already running", 409),
+                    ResponseEnvelope<string>.Fail(NodeRuns.AlreadyGoingOn(hosted.RunningKind), 409),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
@@ -168,7 +168,7 @@ internal static class SessionEndpoints
                     hosted.AddTarget(target);
                 }
                 return EnvelopeResults.Json(
-                    ResponseEnvelope<string>.Fail("A session is already running", 409),
+                    ResponseEnvelope<string>.Fail(NodeRuns.AlreadyGoingOn(hosted.RunningKind), 409),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
@@ -190,7 +190,7 @@ internal static class SessionEndpoints
             if (hosted.IsRunning)
             {
                 return EnvelopeResults.Json(
-                    ResponseEnvelope<string>.Fail("A session is already running", 409),
+                    ResponseEnvelope<string>.Fail(NodeRuns.AlreadyGoingOn(hosted.RunningKind), 409),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
@@ -290,7 +290,7 @@ internal static class SessionEndpoints
             {
                 await session.DisposeAsync();
                 return EnvelopeResults.Json(
-                    ResponseEnvelope<string>.Fail("A session is already running", 409),
+                    ResponseEnvelope<string>.Fail(NodeRuns.AlreadyGoingOn(hosted.RunningKind), 409),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
@@ -304,8 +304,10 @@ internal static class SessionEndpoints
         {
             // Cancels the run, which ends through its own Finalise (park, warm-up, covers) while /state
             // shows it doing so. It used to dispose the session at once, disconnecting its drivers under a
-            // run that carried on, so Finalise never ran properly.
-            if (hosted.TryAbort() is null)
+            // run that carried on, so Finalise never ran properly. A session or a flat run only: another kind of
+            // run (a dark library) is stopped through its own route, so an abort meant for a session that has
+            // ended never cuts one short.
+            if (hosted.RunningKind is not (NodeRunKind.Session or NodeRunKind.Flats) || hosted.TryAbort() is null)
             {
                 return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("No active session", 404),
@@ -364,7 +366,7 @@ internal static class SessionEndpoints
             if (hosted.IsRunning)
             {
                 return EnvelopeResults.Json(
-                    ResponseEnvelope<string>.Fail("A session is already running", 409),
+                    ResponseEnvelope<string>.Fail(NodeRuns.AlreadyGoingOn(hosted.RunningKind), 409),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 

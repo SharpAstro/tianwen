@@ -125,7 +125,7 @@ public sealed class DarkFrameRun(IExternal external, ITimeProvider timeProvider,
         var folder = Path.Combine(
             external.ImageOutputFolder.FullName,
             options.FrameType is FrameType.Bias ? "Bias" : "Darks",
-            DateTimeOffset.UtcNow.ToString("yyyy-MM-dd", DateTimeFormatInfo.InvariantInfo));
+            timeProvider.GetUtcNow().ToString("yyyy-MM-dd", DateTimeFormatInfo.InvariantInfo));
         Directory.CreateDirectory(folder);
 
         var captured = new List<DarkFrameCaptured>(options.Count);
