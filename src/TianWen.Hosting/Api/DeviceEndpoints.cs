@@ -1,4 +1,5 @@
 using System.Linq;
+using System.Threading;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -52,6 +53,21 @@ internal static class DeviceEndpoints
             EnvelopeResults.Json(
                 ResponseEnvelope<DeviceStateDto[]>.Ok(poller.Snapshot()),
                 HostingJsonContext.Default.ResponseEnvelopeDeviceStateDtoArray));
+
+        // The device plane's connect and disconnect (P2 part 2, #929), each a job the node finishes on its own token, one
+        // job per device at a time. The rules and their order are the Equipment tab's: DeviceOperations.
+        group.MapPost("/devices/connect", (DeviceRequestDto request, DeviceOperations devices) =>
+            EnvelopeResults.Json(devices.Connect(request.DeviceUri), HostingJsonContext.Default.ResponseEnvelopeJobDto));
+
+        // The read before a disconnect is offered: a camera's cooler and whether it is at work, and the run holding it.
+        group.MapGet("/devices/disconnect-safety", async (string deviceUri, DeviceOperations devices, CancellationToken ct) =>
+            EnvelopeResults.Json(await devices.CheckDisconnectAsync(deviceUri, ct), HostingJsonContext.Default.ResponseEnvelopeDisconnectCheckDto));
+
+        group.MapPost("/devices/disconnect", async (DisconnectRequestDto request, DeviceOperations devices, CancellationToken ct) =>
+            EnvelopeResults.Json(await devices.DisconnectAsync(request.DeviceUri, request.SkipWarmUp, ct), HostingJsonContext.Default.ResponseEnvelopeJobDto));
+
+        group.MapPost("/devices/warm-and-disconnect", (DeviceRequestDto request, DeviceOperations devices) =>
+            EnvelopeResults.Json(devices.WarmAndDisconnect(request.DeviceUri), HostingJsonContext.Default.ResponseEnvelopeJobDto));
 
         // Starts a discovery, or joins the one running, and answers 202 with its job at once. It used to run
         // inline on the REQUEST's token: a client's 10 s control budget cut a serial sweep off mid-probe, and a

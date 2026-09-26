@@ -20,14 +20,22 @@ public enum JobState
 /// </summary>
 /// <remarks>
 /// A job carries no result of its own. What it produced is read where it lives (a discovery's devices from
-/// <c>GET /api/v1/devices/structured</c>), so a job type never needs a payload type of its own on the wire.
+/// <c>GET /api/v1/devices/structured</c>, a connect's device from <c>GET /api/v1/devices/state</c>), so a job type
+/// never needs a payload type of its own on the wire. A record, so the node's copies of it as it moves on are
+/// <c>with</c> expressions that cannot forget a field.
 /// </remarks>
-public sealed class JobDto
+public sealed record JobDto
 {
     public required string Id { get; init; }
 
-    /// <summary>What the job does: <c>discover</c>.</summary>
+    /// <summary>What the job does: <c>discover</c>, <c>connect</c>, <c>disconnect</c>, <c>warm-and-disconnect</c>.</summary>
     public required string Kind { get; init; }
+
+    /// <summary>
+    /// The device the job acts on, as its URI; null for a job that acts on none (a discovery). A device takes one job
+    /// at a time, so a client that reconnects can put a running job back on the device's row.
+    /// </summary>
+    public string? DeviceUri { get; init; }
 
     public JobState State { get; init; }
 

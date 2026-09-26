@@ -308,6 +308,40 @@ namespace TianWen.RemoteClient
             GetAsync("api/v1/devices/state", HostingJsonContext.Default.ResponseEnvelopeDeviceStateDtoArray, _timeouts.StatePoll, cancellationToken);
 
         /// <summary>
+        /// <c>POST /devices/connect</c> -- connects the device the URI names (the whole URI: its settings ride on it), as a
+        /// job the node finishes on its own (P2 part 2, #929). Answers the job at once; a second connect of the same
+        /// device joins it, and one while another job holds the device is refused (409).
+        /// </summary>
+        public Task<NodeResult<JobDto>> ConnectDeviceAsync(Uri deviceUri, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/devices/connect", new DeviceRequestDto { DeviceUri = deviceUri.ToString() },
+                HostingJsonContext.Default.DeviceRequestDto, HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
+
+        /// <summary>
+        /// <c>GET /devices/disconnect-safety</c> -- whether the connected device can be disconnected now (a camera's cooler
+        /// and whether it is at work) and which run holds it: the read before a disconnect is offered. 404 when it is not
+        /// connected.
+        /// </summary>
+        public Task<NodeResult<DisconnectCheckDto>> GetDisconnectSafetyAsync(Uri deviceUri, CancellationToken cancellationToken) =>
+            GetAsync($"api/v1/devices/disconnect-safety?deviceUri={Uri.EscapeDataString(deviceUri.ToString())}",
+                HostingJsonContext.Default.ResponseEnvelopeDisconnectCheckDto, _timeouts.Control, cancellationToken);
+
+        /// <summary>
+        /// <c>POST /devices/disconnect</c> -- disconnects the device as a job. Refused (409) while a run holds it, whatever
+        /// <paramref name="skipWarmUp"/> says, and, unless it says to skip the warm-up, while a camera is cold or at work.
+        /// </summary>
+        public Task<NodeResult<JobDto>> DisconnectDeviceAsync(Uri deviceUri, bool skipWarmUp, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/devices/disconnect", new DisconnectRequestDto { DeviceUri = deviceUri.ToString(), SkipWarmUp = skipWarmUp },
+                HostingJsonContext.Default.DisconnectRequestDto, HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
+
+        /// <summary>
+        /// <c>POST /devices/warm-and-disconnect</c> -- warms a cooled camera, turns its cooler off and disconnects it, as a
+        /// job whose ramp runs in the node, so it finishes whatever becomes of this client. Refused (409) while a run holds it.
+        /// </summary>
+        public Task<NodeResult<JobDto>> WarmAndDisconnectDeviceAsync(Uri deviceUri, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/devices/warm-and-disconnect", new DeviceRequestDto { DeviceUri = deviceUri.ToString() },
+                HostingJsonContext.Default.DeviceRequestDto, HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
+
+        /// <summary>
         /// <c>POST /devices/discover</c> -- starts a discovery on the node, or joins the one running, and answers
         /// at once with its job (202). Follow it with <see cref="GetJobAsync"/> or the <c>JOB-PROGRESS</c> push,
         /// then read what it found with <see cref="GetDevicesAsync"/>. It runs on the node's token, so this

@@ -300,14 +300,18 @@ its connection closing, never cancels a serial probe half-way.
 - A `JOB-PROGRESS` push (`Id`, `Kind`, `State`, `Step`, `Error`) is the latency hint.
 - **One of a kind runs at a time, and a second start JOINS it**: a discovery is one sweep of the ports, and
   a second would fight the first for them.
+- **A job on a device holds the DEVICE, not its kind** (`NodeJobs.TryStartOrJoin`, keyed on the URI's
+  `DeviceKey`): another start of the same kind joins it, one of another kind is refused with a 409 naming the
+  job (a disconnect half-way through a connect would race it for the driver), and two devices run their jobs
+  side by side. `JobDto.DeviceUri` names the device, so a client that reconnects can put a job back on its row.
 - **A job carries no result.** What it produced is read where it lives (a discovery's devices from
   `/devices/structured`), so a job kind never needs a payload type of its own on the wire.
 
 Discovery is the first: `POST /api/v1/devices/discover`. It was a `GET` that ran the whole discovery
 inline on the REQUEST's token and answered display strings, so a client's 10 s control budget cut a serial
 sweep off mid-probe (P0b item 17 of [../plans/hardware-in-the-server.md](../plans/hardware-in-the-server.md),
-#752, fixed by #916). Connect, warm and disconnect, a preview exposure, solve and sync, and a move follow in P2, through the
-same `NodeJobs.StartOrJoin`; **a new slow endpoint starts a job, never runs inline**. `TianWenNodeClient`
+#752, fixed by #916). Connect, disconnect and warm-and-disconnect followed in P2 (below); a preview exposure, solve
+and sync, and a move follow them; **a new slow endpoint starts a job, never runs inline**. `TianWenNodeClient`
 has `StartDiscoveryAsync`, `GetJobAsync`, `GetJobsAsync` and `CancelJobAsync`. Pinned by `NodeJobTests`.
 
 ## The device plane's read side: one reader, and a held device is the run's
@@ -346,6 +350,29 @@ What a client shows of a device with no session running (P2 part 1 of
 Pinned by `DeviceStateTests` (a real node: every device read and served with its lease and limit; a held
 device left alone and re-read once let go; a change pushed, an idle one not, and a goodbye),
 `DeviceStatePollerTests` (the cadences and the push's wire form) and `DeviceHubReadingTests`.
+
+### Connect and disconnect, as the node's jobs
+
+P2 part 2 (#929). `DeviceOperations` asks the Equipment tab's questions in the Equipment tab's order, so a client
+that switches over at the cut (P6) meets the same answers; each route takes the WHOLE device URI in its body (its
+settings ride on the query, and a URI's left part cannot be a path segment).
+
+- **`POST /api/v1/devices/connect`** (`DeviceRequestDto`): the node builds the device from its URI through the source
+  its host names (`IDeviceHub.TryGetDeviceFromUri`; 404 when none does) and connects it as a job.
+- **`GET /api/v1/devices/disconnect-safety?deviceUri=`** (`DisconnectCheckDto`): the read BEFORE a disconnect is
+  offered, a camera's cooler and whether it is at work (`GetDisconnectSafetyAsync`) and the run holding the device.
+- **`POST /api/v1/devices/disconnect`** (`DisconnectRequestDto`): refused with a 409 naming the run while one holds
+  the device, FIRST; then, unless `SkipWarmUp`, refused while a camera is cold or at work, saying so.
+- **`POST /api/v1/devices/warm-and-disconnect`**: the hub's ramp (`WarmAndDisconnectAsync`) as a job, so a warm-up the
+  window started finishes whatever becomes of the window. Cancelling it (`DELETE /jobs/{id}`) stops the ramp where it
+  is and disconnects nothing.
+- **`SkipWarmUp` is consent to a COLD disconnect, never to ending a night**: no request gets past a lease, exactly as
+  the GUI's Force Off does not. Stopping the run is the way past it.
+
+Connecting does not yet reconcile the mount's site or capture a camera's sensor geometry into the profile, as the GUI
+does on connect: both are profile writes, which move to the node in P3. `TianWenNodeClient` has `ConnectDeviceAsync`,
+`GetDisconnectSafetyAsync`, `DisconnectDeviceAsync` and `WarmAndDisconnectDeviceAsync`. Pinned by
+`DeviceOperationTests` (a real node) and `NodeJobsPerDeviceTests`.
 
 ## Previews go through the shared stretch, never a private one
 

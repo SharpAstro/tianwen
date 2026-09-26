@@ -24,6 +24,9 @@ namespace TianWen.Hosting;
 /// closing, never cancels a serial probe half-way. Only <see cref="TryCancel"/> and the host stopping do.</para>
 /// <para><b>One of a kind at a time.</b> A second start of a kind already running JOINS it: a discovery is one
 /// sweep of the ports, and a second would fight the first for them.</para>
+/// <para><b>One job per device.</b> A job on a device (<see cref="TryStartOrJoin"/>) holds the device rather than its
+/// kind: another start of the same kind joins it, one of another kind is refused (a disconnect half-way through a
+/// connect would race it for the driver), and two devices run their jobs side by side.</para>
 /// <para>A job that has ended stays answerable for a while (the last <see cref="EndedKept"/>), so a client that
 /// reconnects after it ended still learns how.</para>
 /// </remarks>
@@ -32,7 +35,9 @@ internal sealed class NodeJobs(IHostApplicationLifetime lifetime, ITimeProvider 
     internal const int EndedKept = 32;
 
     private readonly ConcurrentDictionary<string, Job> _jobs = new ConcurrentDictionary<string, Job>(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<string, Job> _runningByKind = new ConcurrentDictionary<string, Job>(StringComparer.Ordinal);
+    // The running job in each slot: a kind for a job on no device, the device's key for a job on one. A device key is a
+    // URI's left part ("Camera://FakeDevice/1"), so it can never be a kind's name.
+    private readonly ConcurrentDictionary<string, Job> _running = new ConcurrentDictionary<string, Job>(StringComparer.Ordinal);
     private readonly ConcurrentQueue<string> _ended = new ConcurrentQueue<string>();
 
     /// <summary>A job started, moved on, or ended. Raised on the job's own thread.</summary>
@@ -45,22 +50,45 @@ internal sealed class NodeJobs(IHostApplicationLifetime lifetime, ITimeProvider 
     /// returns what it came to (the job's last step), or null.</param>
     public JobDto StartOrJoin(string kind, Func<JobStep, CancellationToken, Task<string?>> work)
     {
-        var job = new Job(Guid.NewGuid().ToString("N"), kind, timeProvider.GetUtcNow());
+        // The slot is the kind itself, so whatever holds it is of this kind, and this only ever starts or joins.
+        TryStartOrJoin(kind, slot: kind, deviceUri: null, work, out var job);
+        return job;
+    }
 
-        // The job is published before any of its work runs, so of two racing starts only the one whose job
-        // got in runs anything, and the other answers with that job.
-        if (!_runningByKind.TryAdd(kind, job))
+    /// <summary>
+    /// Starts a job of <paramref name="kind"/> on the device at <paramref name="deviceUri"/>, or answers the one already
+    /// running on it. A device takes one job at a time: a start of the same kind JOINS the running one (a second connect
+    /// of a camera is the same connect), and one of another kind is refused.
+    /// </summary>
+    /// <returns>False when a job of another kind holds the device; <paramref name="job"/> is then that job, which a
+    /// refusal names.</returns>
+    public bool TryStartOrJoin(string kind, Uri deviceUri, Func<JobStep, CancellationToken, Task<string?>> work, out JobDto job)
+        => TryStartOrJoin(kind, deviceUri.DeviceKey, deviceUri.ToString(), work, out job);
+
+    private bool TryStartOrJoin(string kind, string slot, string? deviceUri, Func<JobStep, CancellationToken, Task<string?>> work, out JobDto job)
+    {
+        var started = new Job(Guid.NewGuid().ToString("N"), kind, slot, deviceUri, timeProvider.GetUtcNow());
+
+        // The job is published before any of its work runs, so of two racing starts only the one whose job got in runs
+        // anything, and the other answers with that job. A loop, not a retry by recursion: the job holding the slot can
+        // end between the two looks, and then the slot is simply tried again.
+        while (!_running.TryAdd(slot, started))
         {
-            return _runningByKind.TryGetValue(kind, out var running) ? running.Snapshot : StartOrJoin(kind, work);
+            if (_running.TryGetValue(slot, out var running))
+            {
+                job = running.Snapshot;
+                return running.Kind == kind;
+            }
         }
 
         // The host stopping stops it. A registration rather than a linked source, so the source never needs
         // disposing and a cancel racing the job's end is always safe; the registration goes when the job does.
-        job.StopsWithTheHost = lifetime.ApplicationStopping.Register(static state => (state as CancellationTokenSource)?.Cancel(), job.Cancellation);
-        _jobs[job.Id] = job;
-        Changed?.Invoke(this, job.Snapshot);
-        _ = Task.Run(() => RunAsync(job, work), CancellationToken.None);
-        return job.Snapshot;
+        started.StopsWithTheHost = lifetime.ApplicationStopping.Register(static state => (state as CancellationTokenSource)?.Cancel(), started.Cancellation);
+        _jobs[started.Id] = started;
+        Changed?.Invoke(this, started.Snapshot);
+        _ = Task.Run(() => RunAsync(started, work), CancellationToken.None);
+        job = started.Snapshot;
+        return true;
     }
 
     /// <summary>How the job stands, running or ended; false once it has been forgotten, or never was.</summary>
@@ -113,18 +141,15 @@ internal sealed class NodeJobs(IHostApplicationLifetime lifetime, ITimeProvider 
             logger.LogError(ex, "Job {Kind} {Id} failed", job.Kind, job.Id);
         }
 
-        job.Snapshot = new JobDto
+        job.Snapshot = job.Snapshot with
         {
-            Id = job.Id,
-            Kind = job.Kind,
             State = state,
             Step = step ?? job.Snapshot.Step,
             Error = error,
-            StartedUtc = job.Snapshot.StartedUtc,
             EndedUtc = timeProvider.GetUtcNow()
         };
 
-        _runningByKind.TryRemove(new KeyValuePair<string, Job>(job.Kind, job));
+        _running.TryRemove(new KeyValuePair<string, Job>(job.Slot, job));
         job.StopsWithTheHost.Dispose();
         _ended.Enqueue(job.Id);
         while (_ended.Count > EndedKept && _ended.TryDequeue(out var forgotten))
@@ -143,14 +168,7 @@ internal sealed class NodeJobs(IHostApplicationLifetime lifetime, ITimeProvider 
             return;
         }
 
-        job.Snapshot = new JobDto
-        {
-            Id = current.Id,
-            Kind = current.Kind,
-            State = JobState.Running,
-            Step = step,
-            StartedUtc = current.StartedUtc
-        };
+        job.Snapshot = current with { Step = step };
         Changed?.Invoke(this, job.Snapshot);
     }
 
@@ -169,14 +187,17 @@ internal sealed class NodeJobs(IHostApplicationLifetime lifetime, ITimeProvider 
         public void Report(string step) => _jobs.Report(_job, step);
     }
 
-    internal sealed class Job(string id, string kind, DateTimeOffset startedUtc)
+    internal sealed class Job(string id, string kind, string slot, string? deviceUri, DateTimeOffset startedUtc)
     {
         // A reference, so a write is atomic and a reader always sees a whole snapshot.
-        private volatile JobDto _snapshot = new JobDto { Id = id, Kind = kind, State = JobState.Running, StartedUtc = startedUtc };
+        private volatile JobDto _snapshot = new JobDto { Id = id, Kind = kind, DeviceUri = deviceUri, State = JobState.Running, StartedUtc = startedUtc };
 
         public string Id { get; } = id;
 
         public string Kind { get; } = kind;
+
+        /// <summary>What the job holds while it runs: its kind, or the key of the device it acts on.</summary>
+        public string Slot { get; } = slot;
 
         /// <summary>Never disposed: a source with no timer and no link holds nothing to release.</summary>
         public CancellationTokenSource Cancellation { get; } = new CancellationTokenSource();
