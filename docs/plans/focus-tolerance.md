@@ -1,6 +1,6 @@
 # Focus Tolerance: the New Critical Focus Zone, Measured by the V-Curve We Already Fit
 
-**Status: NOT STARTED; tracked by #822, with F0 (a bug) tracked by #820.** Written 2026-09-25, raised by the user from GoldAstro's
+**Status: PARTIAL; F0 (a bug, #820) SHIPPED, F1 onward NOT STARTED and tracked by #822.** Written 2026-09-25, raised by the user from GoldAstro's
 [New Critical Focus Zone](https://goldastro.com/goldfocus/ncfz.php) and the technical pages it links: the
 traditional CFZ, the focus and collimation calculator, focus techniques, resolution, signal and noise. They are
 saved with Markdown extracts under `OneDrive\Dokumente\Astro-Info\GoldAstro`. The site answers 406 to a
@@ -87,7 +87,22 @@ exposures on the arms, and distrust a run whose arms never climbed.
 
 ### F0: drift detection is off after every AutoFocus (a bug, found while mapping this)
 
-Tracked by #820.
+**SHIPPED** (#820). The imaging loop now treats a stored baseline that is not `IsComparableTo` the incoming frame
+as absent, and collects a comparable one from the first `BaselineHfdFrameCount` frames (`Session.Imaging.cs`);
+`IsComparableTo` is unchanged. A collection restarts when a sample arrives that is not comparable to the ones
+already gathered, so a baseline is always the median of frames taken with one set of settings
+(`AccumulateBaselineSample`). Pinned by
+`SessionImagingTests.GivenStartOfNightAutoFocusWhenFocusDriftsAtALongerExposureThenRefocusFiresAndFiresAgain` (the
+first target, then a second drift after the drift refocus) and
+`SessionObservationLoopTests.GivenRefocusOnNewTargetWhenFocusDriftsOnTheNextTargetThenRefocusFires`
+(`AlwaysRefocusOnNewTarget`), both of which count refocuses through `Session.DriftRefocusCount` and failed with
+zero on the old loop.
+
+One consequence to know: in a filter ladder, a baseline belongs to one filter slot, so each change of slot
+re-baselines from that slot's first frames. Drift that accumulated while another filter was imaging is not
+compared across the change. Before this, frames of every slot but the baseline's were never compared at all.
+
+What follows is the finding as written, kept for the reasoning.
 
 `AutoFocusAsync` stores its verification frame as the observation's drift baseline, taken at the AutoFocus exposure
 of 2 s (`Session.Focus.cs`: `autoFocusExposure`, then `FrameMetrics.FromStarList(verifyStars, autoFocusExposure, ...)`).

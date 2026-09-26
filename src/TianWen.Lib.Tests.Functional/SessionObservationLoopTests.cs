@@ -320,6 +320,100 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// #820: with <see cref="SessionConfiguration.AlwaysRefocusOnNewTarget"/>, every target starts on
+    /// a 2 s AutoFocus baseline that a 30 s sub is never comparable to, so drift detection used to be
+    /// off on every target. Defocus on the SECOND target, keyed on frames written there (never on a
+    /// science baseline existing, so the test runs the same way with the bug present), and require
+    /// the refocus.
+    /// </summary>
+    [Fact(Timeout = 300_000)]
+    public async Task GivenRefocusOnNewTargetWhenFocusDriftsOnTheNextTargetThenRefocusFires()
+    {
+        // given
+        var ct = TestContext.Current.CancellationToken;
+        var subExposure = TimeSpan.FromSeconds(30);
+        const int FramesBeforeDefocus = 4;
+
+        var config = SessionTestHelper.DefaultConfiguration with
+        {
+            MinHeightAboveHorizon = 10,
+            AlwaysRefocusOnNewTarget = true,
+            FocusDriftThreshold = 1.05f,
+            BaselineHfdFrameCount = 2,
+            DitherEveryNthFrame = 0
+        };
+
+        var observations = new[]
+        {
+            new ScheduledObservation(
+                new Target(5.588, -5.391, "M42", null),
+                WinterNightStart,
+                TimeSpan.FromMinutes(10),
+                AcrossMeridian: false,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
+                Gain: 0,
+                Offset: 0
+            ),
+            new ScheduledObservation(
+                new Target(3.791, 24.105, "M45", null),
+                WinterNightStart,
+                TimeSpan.FromMinutes(20),
+                AcrossMeridian: false,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
+                Gain: 0,
+                Offset: 0
+            )
+        };
+
+        await using var ctx = await CreateWinterSessionAsync(observations, config, cancellationToken: ct);
+
+        IMountDriver mount = ctx.Mount;
+        await mount.EnsureTrackingAsync(cancellationToken: ct);
+
+        // when
+        var framesAtSecondTarget = -1;
+        var refocusesBeforeDefocus = -1;
+        ctx.TimeProvider.ExternalTimePump = true;
+        var loopTask = ctx.Track(Task.Run(async () => await ctx.Session.ObservationLoopAsync(ctx.Token), ctx.Token));
+
+        await ctx.TimeProvider.PumpUntilCompletedAsync(loopTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(24),
+            onIteration: async iteration =>
+            {
+                if (ctx.Session.CurrentObservationIndex != 1)
+                {
+                    return;
+                }
+
+                var written = ctx.Session.TotalFramesWritten;
+                if (framesAtSecondTarget < 0)
+                {
+                    framesAtSecondTarget = written;
+                }
+                else if (refocusesBeforeDefocus < 0 && written >= framesAtSecondTarget + FramesBeforeDefocus)
+                {
+                    refocusesBeforeDefocus = ctx.Session.DriftRefocusCount;
+                    output.WriteLine($"Defocus on the second target after pump {iteration} ({written} frames written), by 80 steps");
+                    var currentPos = await ctx.Focuser.GetPositionAsync(ct);
+                    await ctx.Focuser.BeginMoveAsync(currentPos + 80, ct);
+                    while (await ctx.Focuser.GetIsMovingAsync(ct))
+                    {
+                        ctx.TimeProvider.Advance(TimeSpan.FromMilliseconds(100));
+                    }
+                }
+            },
+            progress: () => ctx.Session.ImagingLoopTicks, cancellationToken: ct);
+
+        loopTask.IsCompleted.ShouldBeTrue("observation loop should have completed within timeout");
+        await loopTask;
+
+        // then
+        output.WriteLine($"Frames written: {ctx.Session.TotalFramesWritten}, drift refocuses: {ctx.Session.DriftRefocusCount}");
+        refocusesBeforeDefocus.ShouldBeGreaterThanOrEqualTo(0, "the second target should have been defocused");
+        ctx.Session.DriftRefocusCount.ShouldBeGreaterThan(refocusesBeforeDefocus,
+            "drift on a target that started with an AutoFocus must trigger a refocus");
+    }
+
+    /// <summary>
     /// Test meridian flip: a target starting slightly east of meridian (HA ≈ -0.15h) with
     /// AcrossMeridian=true. After ~15 min of fake time, HA crosses the deadband (+0.1h),
     /// triggering PerformMeridianFlipAsync. The mount re-slews, guider restarts, and

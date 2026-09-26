@@ -454,6 +454,117 @@ public class SessionImagingTests(ITestOutputHelper output)
         output.WriteLine($"Final baseline HFD: {baselines[0].MedianHfd:F2}");
     }
 
+    /// <summary>
+    /// #820: drift refocus must fire after an AutoFocus, both on the first target (the start-of-night
+    /// AutoFocus files its baseline before the loop starts) and after a drift refocus (which files a
+    /// fresh one). Both store the 2 s AutoFocus verification frame, which a 30 s science sub is never
+    /// <see cref="FrameMetrics.IsComparableTo"/>; the loop used to skip every such frame and never
+    /// re-baseline, so the trigger was off for the rest of the target.
+    /// </summary>
+    /// <remarks>
+    /// The defocus is keyed on frames WRITTEN, never on a science baseline existing, so the test runs
+    /// the same way with the bug present and fails on the refocus count rather than on a missing
+    /// precondition.
+    /// </remarks>
+    [Fact(Timeout = 300_000)]
+    public async Task GivenStartOfNightAutoFocusWhenFocusDriftsAtALongerExposureThenRefocusFiresAndFiresAgain()
+    {
+        // given: a start-of-night AutoFocus, then 30 s science subs
+        var ct = TestContext.Current.CancellationToken;
+        var subExposure = TimeSpan.FromSeconds(30);
+        var scheduledDuration = TimeSpan.FromMinutes(40);
+        const int FramesBeforeDefocus = 4;
+
+        var config = SessionTestHelper.DefaultConfiguration with
+        {
+            FocusDriftThreshold = 1.05f,
+            BaselineHfdFrameCount = 2,
+            DitherEveryNthFrame = 0
+        };
+
+        var observations = new[]
+        {
+            new ScheduledObservation(
+                new Target(16.695, 36.46, "M13", null),
+                new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero),
+                scheduledDuration,
+                AcrossMeridian: false,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
+                Gain: 0,
+                Offset: 0
+            )
+        };
+
+        await using var ctx = await CreateImagingSessionAsync(configuration: config, observations: observations, cancellationToken: ct);
+
+        IMountDriver mount = ctx.Mount;
+        await mount.EnsureTrackingAsync(cancellationToken: ct);
+
+        (await ctx.Session.AutoFocusAllTelescopesAsync(ct)).ShouldBeTrue("the start-of-night AutoFocus should converge");
+        var autoFocusBaseline = ctx.Session.BaselineByObservation[0][0];
+        autoFocusBaseline.IsValid.ShouldBeTrue();
+        autoFocusBaseline.Exposure.ShouldNotBe(subExposure, "the premise: the AutoFocus baseline is not at the science exposure");
+
+        var guider = (FakeGuider)ctx.Session.Setup.Guider.Driver;
+        await guider.GuideAsync(0.3, 3, 30, ct);
+        await ctx.TimeProvider.SleepAsync(TimeSpan.FromSeconds(4), ct);
+
+        var observation = ctx.Session.ActiveObservation;
+        observation.ShouldNotBeNull();
+        var hourAngle = await ctx.Mount.GetHourAngleAsync(ct);
+
+        // when: defocus after a few science frames, and again a few frames after the first refocus
+        var defocusCount = 0;
+        var framesAtFirstRefocus = -1;
+        ctx.TimeProvider.ExternalTimePump = true;
+        var imagingTask = ctx.Track(Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ctx.Token), ctx.Token));
+
+        await ctx.TimeProvider.PumpUntilCompletedAsync(imagingTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(4),
+            onIteration: async iteration =>
+            {
+                var written = ctx.Session.TotalFramesWritten;
+                if (framesAtFirstRefocus < 0 && ctx.Session.DriftRefocusCount >= 1)
+                {
+                    framesAtFirstRefocus = written;
+                }
+
+                var due = defocusCount switch
+                {
+                    0 => written >= FramesBeforeDefocus,
+                    1 => framesAtFirstRefocus >= 0 && written >= framesAtFirstRefocus + FramesBeforeDefocus,
+                    _ => false
+                };
+                if (due)
+                {
+                    output.WriteLine($"Defocus #{defocusCount + 1} after pump {iteration} ({written} frames written), by 80 steps");
+                    var currentPos = await ctx.Focuser.GetPositionAsync(ct);
+                    await ctx.Focuser.BeginMoveAsync(currentPos + 80, ct);
+                    while (await ctx.Focuser.GetIsMovingAsync(ct))
+                    {
+                        ctx.TimeProvider.Advance(TimeSpan.FromMilliseconds(100));
+                    }
+                    defocusCount++;
+                }
+            },
+            progress: () => ctx.Session.ImagingLoopTicks, cancellationToken: ct);
+
+        imagingTask.IsCompleted.ShouldBeTrue("imaging loop should have completed within timeout");
+        await imagingTask;
+
+        // then
+        output.WriteLine($"Frames written: {ctx.Session.TotalFramesWritten}, drift refocuses: {ctx.Session.DriftRefocusCount}");
+        defocusCount.ShouldBeGreaterThanOrEqualTo(1, "the first defocus should have happened");
+        ctx.Session.DriftRefocusCount.ShouldBeGreaterThanOrEqualTo(1,
+            "drift after the start-of-night AutoFocus must trigger a refocus on the first target");
+        defocusCount.ShouldBe(2, "the second defocus should have happened after the first refocus");
+        ctx.Session.DriftRefocusCount.ShouldBeGreaterThanOrEqualTo(2,
+            "drift after a drift refocus must trigger another refocus");
+
+        var finalBaseline = ctx.Session.BaselineByObservation[0][0];
+        finalBaseline.IsValid.ShouldBeTrue();
+        finalBaseline.Exposure.ShouldBe(subExposure, "the baseline in use should be one taken from science frames");
+    }
+
     [Fact(Timeout = 120_000)]
     public async Task GivenDitherEveryNthFrameWhenEnoughFramesCapturedThenDitheringTriggered()
     {
