@@ -36,6 +36,14 @@ public static class NodeWire
     /// (<see cref="Dto.DeviceStateDto.TryFromEvent"/>). A latency hint: <c>GET /api/v1/devices/state</c> is authoritative.
     /// </summary>
     public const string DeviceStateEvent = "DEVICE-STATE";
+
+    /// <summary>
+    /// How long a mount's axis keeps moving after the last <c>POST /api/v1/devices/mount/move-axis</c> that asked for it:
+    /// a client holding a move repeats the request well inside this (every half second is right), and one that stops
+    /// asking, or dies, stops the axis within it. A move-axis used to run until something stopped it, so a client that
+    /// died mid-move left the axis running.
+    /// </summary>
+    public static readonly System.TimeSpan MoveAxisLease = System.TimeSpan.FromSeconds(2);
 }
 
 /// <summary>

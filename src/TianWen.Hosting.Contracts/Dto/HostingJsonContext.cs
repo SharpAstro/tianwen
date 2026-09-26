@@ -52,6 +52,7 @@ namespace TianWen.Hosting.Dto;
 [JsonSerializable(typeof(FilterChangeRequestDto))]
 [JsonSerializable(typeof(MountGotoRequestDto))]
 [JsonSerializable(typeof(MountTrackingRequestDto))]
+[JsonSerializable(typeof(MoveAxisRequestDto))]
 [JsonSerializable(typeof(ScheduledObservationDto))]
 [JsonSerializable(typeof(ScheduledObservationDto[]))]
 [JsonSerializable(typeof(EnhanceRequestDto))]
