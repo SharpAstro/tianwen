@@ -30,7 +30,8 @@ public class FrameWireTests(ITestOutputHelper output)
                     plane[y, x] = sample(x, y) + c * 1000;
                 }
             }
-            planes.Add(new Channel(plane, channels == 1 ? Filter.Luminance : c == 0 ? Filter.Red : Filter.Green, c * 1000, 4000 + c * 1000, (byte)c));
+            // A second channel's filter is one no catalogue knows, whose text is its identity.
+            planes.Add(new Channel(plane, channels == 1 ? Filter.Luminance : c == 0 ? Filter.Red : Filter.FromName("Vendor XYZ 7nm"), c * 1000, 4000 + c * 1000, (byte)c));
         }
         var meta = new ImageMeta("Frame", new DateTimeOffset(2026, 9, 27, 21, 30, 0, TimeSpan.Zero), TimeSpan.FromSeconds(120), FrameType.Light,
             "Fake Camera", 3.76f, 3.76f, 1000, 1, Filter.Luminance, 1, 1, float.NaN, SensorType.Monochrome, 0, 0, RowOrder.TopDown, -10, 0.5f);
