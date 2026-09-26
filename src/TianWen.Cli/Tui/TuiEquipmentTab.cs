@@ -33,6 +33,9 @@ internal sealed class TuiEquipmentTab(
 
     private Mode _mode = Mode.Browse;
 
+    /// <summary>The settings list as last rendered, so a test can find a row where it was painted.</summary>
+    internal ScrollableList<EquipmentFieldItem>? SettingsList => _settingsList;
+
     /// <summary>
     /// Which site field has the keyboard. Shared with the rest of the app rather than tracked here,
     /// because there is one keyboard: this used to be an <c>_editFieldIndex</c> int, a third answer to a
@@ -520,6 +523,11 @@ internal sealed class TuiEquipmentTab(
             IsConnected = connected,
             IsPending = pending,
             FieldIndex = fieldIdx,
+            // The same two methods O and Enter run, so a click cannot take a route the keys do not.
+            OnToggleConnection = uri is { } toggleUri
+                ? _ => RunSlotClick(() => ToggleSlotConnection(toggleUri, connected))
+                : null,
+            OnOpenPicker = _ => RunSlotClick(() => EnterAssignmentMode(slot.Slot)),
         };
         fieldIdx++;
         return item;
@@ -846,7 +854,8 @@ internal sealed class TuiEquipmentTab(
 
     /// <summary>
     /// Left panel: a click selects the profile and switches to it. Right panel: a click on an OTA
-    /// header's [X] arms, then confirms, the delete.
+    /// header's [X] arms, then confirms, the delete; on a slot row's [On|Off] it does what <c>O</c> does,
+    /// and on its [>] what <c>Enter</c> does.
     /// <para>
     /// Both resolve through the list rather than a registered region. A profile row IS the affordance, so
     /// <see cref="ScrollableList{T}.HitTestRow"/> yields the item behind the point; the [X] is a node on
@@ -921,6 +930,43 @@ internal sealed class TuiEquipmentTab(
             bus?.Post(new UpdateProfileSignal(updated));
         }
         _pendingDeleteOtaIndex = -1;
+    }
+
+    /// <summary>
+    /// Connects or disconnects a slot's device: the ONE path for <c>O</c> and for a click on the row's
+    /// <c>[On|Off]</c>. It only posts the opposite of the hub state; every decision that can refuse or hold
+    /// the change -- the ownership gate (a device a run has leased), the disconnect safety pre-check (a
+    /// cooled or busy camera) and the confirm strip that pre-check raises -- lives in the signal handler,
+    /// so neither route can skip one.
+    /// </summary>
+    private void ToggleSlotConnection(Uri slotUri, bool isConnected)
+    {
+        if (isConnected)
+        {
+            bus?.Post(new DisconnectDeviceSignal(slotUri));
+        }
+        else
+        {
+            bus?.Post(new ConnectDeviceSignal(slotUri));
+        }
+        NeedsRedraw = true;
+    }
+
+    /// <summary>
+    /// Runs a slot row's click only where its key would have reached it: in Browse mode, with the site
+    /// editor closed. A click also cancels an armed OTA delete, as any key other than the confirming
+    /// chord does.
+    /// </summary>
+    private void RunSlotClick(Action action)
+    {
+        if (_mode != Mode.Browse || eqState.IsEditingSite)
+        {
+            return;
+        }
+
+        _pendingDeleteOtaIndex = -1;
+        action();
+        NeedsRedraw = true;
     }
 
     protected override void HandleTabInput(InputEvent evt){
@@ -1026,17 +1072,7 @@ internal sealed class TuiEquipmentTab(
                     var item = FindSelectedItem();
                     if (item is { Slot: not null, IsSlotActive: true, SlotDeviceUri: { } slotUri })
                     {
-                        // Post the opposite of the current hub state. Safety / warm-up
-                        // decisions happen in AppSignalHandler.
-                        if (item.IsConnected)
-                        {
-                            bus?.Post(new DisconnectDeviceSignal(slotUri));
-                        }
-                        else
-                        {
-                            bus?.Post(new ConnectDeviceSignal(slotUri));
-                        }
-                        NeedsRedraw = true;
+                        ToggleSlotConnection(slotUri, item.IsConnected);
                     }
                     return false;
                 }

@@ -26,11 +26,13 @@ internal sealed class GuiSignalHarness : IAsyncDisposable
     private readonly CancellationTokenSource _cts;
 
     private GuiSignalHarness(ServiceProvider services, CancellationTokenSource cts, GuiAppState appState, ViewContexts contexts,
-        SkyMapState skyMap, SignalBus bus, BackgroundTaskTracker tracker, IDeviceHub hub, Uri mountUri, Uri cameraUri, Uri focuserUri)
+        SkyMapState skyMap, EquipmentTabState equipment, SignalBus bus, BackgroundTaskTracker tracker, IDeviceHub hub,
+        Uri mountUri, Uri cameraUri, Uri focuserUri)
     {
         _services = services;
         _cts = cts;
         AppState = appState;
+        Equipment = equipment;
         Contexts = contexts;
         SkyMap = skyMap;
         Bus = bus;
@@ -44,6 +46,9 @@ internal sealed class GuiSignalHarness : IAsyncDisposable
     }
 
     public GuiAppState AppState { get; }
+
+    /// <summary>The Equipment tab's state the handler writes, e.g. a disconnect's confirm strip.</summary>
+    public EquipmentTabState Equipment { get; }
     public ViewContexts Contexts { get; }
     public SkyMapState SkyMap { get; }
     public SignalBus Bus { get; }
@@ -98,10 +103,11 @@ internal sealed class GuiSignalHarness : IAsyncDisposable
         var bus = new SignalBus();
         var tracker = new BackgroundTaskTracker();
         var cts = new CancellationTokenSource();
-        _ = new AppSignalHandler(services, appState, new PlannerState(), new SessionTabState(), new EquipmentTabState(),
+        var equipment = new EquipmentTabState();
+        _ = new AppSignalHandler(services, appState, new PlannerState(), new SessionTabState(), equipment,
             contexts, skyMap, bus, tracker, cts, cts.Token, external);
 
-        return new GuiSignalHarness(services, cts, appState, contexts, skyMap, bus, tracker, hub,
+        return new GuiSignalHarness(services, cts, appState, contexts, skyMap, equipment, bus, tracker, hub,
             mount.DeviceUri, camera.DeviceUri, focuser.DeviceUri);
     }
 
