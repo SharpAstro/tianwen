@@ -80,7 +80,7 @@ internal static class NodeEndpoints
                 HostingJsonContext.Default.ResponseEnvelopeNodeShareDto);
         }
 
-        await settings.SaveAsync(new NodeSettings(request.Shared), cancellationToken);
+        await settings.UpdateAsync(current => current with { ShareOnLan = request.Shared }, cancellationToken);
         logon.Set(request.Shared, Environment.ProcessPath ?? throw new InvalidOperationException("The node cannot tell which executable it is, to start at logon"));
 
         var applied = listening.IsShared == request.Shared;

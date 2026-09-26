@@ -19,7 +19,7 @@ namespace TianWen.Lib.Tests
     /// </summary>
     public class HostedSessionSurfaceTests
     {
-        private static HostedSession CreateHost() => new HostedSession(Substitute.For<ISessionFactory>(), Substitute.For<IDeviceHub>(), Substitute.For<ITimeProvider>(), Microsoft.Extensions.Logging.Abstractions.NullLogger<HostedSession>.Instance);
+        private static HostedSession CreateHost() => new HostedSession(Substitute.For<ISessionFactory>(), Substitute.For<IDeviceHub>(), Substitute.For<ITimeProvider>(), new NodeSettingsStore(Substitute.For<IExternal>(), NodeSettings.Default), Microsoft.Extensions.Logging.Abstractions.NullLogger<HostedSession>.Instance);
 
         private static SessionPromptEventArgs Prompt(TaskCompletionSource<bool> completion)
             => new SessionPromptEventArgs("Manual flat panel", "Switch it on, then Continue.", "Continue", "Cancel", completion);

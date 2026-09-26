@@ -113,7 +113,7 @@ internal sealed class SerialProbeService : ISerialProbeService
             ports = _external.EnumerateAvailableSerialPorts(portLock);
         }
 
-        var pinned = _pinnedPortsProvider?.GetPinnedPorts() ?? [];
+        var pinned = _pinnedPortsProvider is { } provider ? await provider.GetPinnedPortsAsync(cancellationToken) : [];
 
         _logger.LogDebug("Enumerated {PortCount} serial port(s); {ProbeCount} probe(s) registered; {PinnedCount} pinned.",
             ports.Count, _probes.Length, pinned.Count);

@@ -66,6 +66,26 @@ public record class Profile(Uri DeviceUri) : DeviceBase(DeviceUri)
 
     public Guid ProfileId => Guid.Parse(DeviceId);
 
+    /// <summary>
+    /// The data of the profile saved as <paramref name="profileId"/>, read from its file as it is now, or null when there
+    /// is none or it cannot be read. For a reader that knows a profile only by its id: the node's active profile.
+    /// </summary>
+    public static async Task<ProfileData?> TryReadDataAsync(IExternal external, Guid profileId, CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(external.ProfileFolder.FullName, DeviceIdFromUUID(profileId) + ProfileExt);
+        try
+        {
+            await using var stream = await SharedFile.TryOpenReadAsync(path, cancellationToken);
+            return stream is null
+                ? null
+                : (await JsonSerializer.DeserializeAsync(stream, ProfileJsonSerializerContextIndented.ProfileDto, cancellationToken))?.Data;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     internal FileInfo ProfileFullPath(IExternal external) => new FileInfo(Path.Combine(external.ProfileFolder.FullName, DeviceIdFromUUID(ProfileId) + ProfileExt));
 
     public Task SaveAsync(IExternal external, CancellationToken cancellationToken)

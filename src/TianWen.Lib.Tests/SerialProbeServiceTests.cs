@@ -511,7 +511,7 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
     private sealed class StubPinnedPortsProvider(params PinnedSerialPort[] pinned) : IPinnedSerialPortsProvider
     {
         public static readonly StubPinnedPortsProvider Empty = new();
-        public IReadOnlyList<PinnedSerialPort> GetPinnedPorts() => pinned;
+        public ValueTask<IReadOnlyList<PinnedSerialPort>> GetPinnedPortsAsync(CancellationToken cancellationToken) => new ValueTask<IReadOnlyList<PinnedSerialPort>>(pinned);
     }
 
     private sealed class ProbeTestExternal(ITestOutputHelper? output = null) : FakeExternal(output ?? NullTestOutputHelper.Instance)

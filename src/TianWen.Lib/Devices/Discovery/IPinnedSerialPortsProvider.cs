@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace TianWen.Lib.Devices.Discovery;
 
@@ -22,5 +24,10 @@ public interface IPinnedSerialPortsProvider
     /// (<c>wifi</c>, <c>wpd</c>, fake-mount names) are excluded so they don't clutter
     /// the verification pass.
     /// </summary>
-    IReadOnlyList<PinnedSerialPort> GetPinnedPorts();
+    /// <remarks>
+    /// Asynchronous because a provider may have to read the profile to answer: the node's reads its active profile
+    /// from disk at each pass, so a profile edited by another process is the one probed (P1 of
+    /// docs/plans/hardware-in-the-server.md, #917). A provider that holds the profile in memory answers at once.
+    /// </remarks>
+    ValueTask<IReadOnlyList<PinnedSerialPort>> GetPinnedPortsAsync(CancellationToken cancellationToken);
 }

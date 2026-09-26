@@ -22,7 +22,10 @@ public interface IHostedSession : IHostedService
     /// <summary>Whether a run is going on now. A run that has ended does not block the next start.</summary>
     bool IsRunning { get; }
 
-    /// <summary>Active profile ID, set before starting a session or via profile/switch.</summary>
+    /// <summary>
+    /// Active profile ID, set before starting a session or via profile/switch. Node state, kept in the data root
+    /// (<see cref="NodeSettings"/>), so a restarted node is set up as it was.
+    /// </summary>
     Guid? ActiveProfileId { get; }
 
     /// <summary>Targets queued before session start. Drained into the session when it begins.</summary>
@@ -46,7 +49,8 @@ public interface IHostedSession : IHostedService
     /// <summary>Most recent notifications, oldest first.</summary>
     ImmutableArray<NotificationDto> Notifications { get; }
 
-    void SetActiveProfile(Guid profileId);
+    /// <summary>Makes <paramref name="profileId"/> the active profile, kept for the node's next start too.</summary>
+    Task SetActiveProfileAsync(Guid profileId, CancellationToken cancellationToken);
     void AddTarget(PendingTarget target);
     void ClearTargets();
 
@@ -86,7 +90,7 @@ public interface IHostedSession : IHostedService
     Task? TryAbort();
 }
 
-internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITimeProvider timeProvider, ILogger<HostedSession> logger)
+internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITimeProvider timeProvider, NodeSettingsStore settings, ILogger<HostedSession> logger)
     : IHostedSession
 {
     /// <summary>
@@ -112,7 +116,6 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
     private readonly CancellationTokenSource _lifetime = new CancellationTokenSource();
     private volatile Task _initialisation = Task.CompletedTask;
 
-    private Guid? _activeProfileId;
     private SessionPromptEventArgs? _pendingPrompt;
     private ImmutableArray<ScheduledObservation> _pendingSchedule = [];
     private readonly List<PendingTarget> _pendingTargets = [];
@@ -138,7 +141,7 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
 
     public bool IsRunning => Volatile.Read(ref _run) is { Completion.IsCompleted: false };
 
-    public Guid? ActiveProfileId => _activeProfileId;
+    public Guid? ActiveProfileId => settings.Current.ActiveProfileId;
 
     public IReadOnlyList<PendingTarget> PendingTargets
     {
@@ -157,9 +160,9 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
 
     public ImmutableArray<NotificationDto> Notifications => _notifications.Snapshot;
 
-    public void SetActiveProfile(Guid profileId)
+    public async Task SetActiveProfileAsync(Guid profileId, CancellationToken cancellationToken)
     {
-        _activeProfileId = profileId;
+        await settings.UpdateAsync(current => current with { ActiveProfileId = profileId }, cancellationToken);
     }
 
     public void AddTarget(PendingTarget target)

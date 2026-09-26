@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -10,11 +11,15 @@ using TianWen.Lib.IO;
 namespace TianWen.Hosting;
 
 /// <summary>
-/// The node's machine settings, kept in the data root and read at every start: today only "Share this rig on the
-/// LAN" (docs/plans/hardware-in-the-server.md, decision 3). A MACHINE setting, not a profile's or a session's, since it
-/// decides whether the machine can be reached, and which user profile is active has no bearing on that.
+/// The node's own state, kept in the data root and read at every start (docs/plans/hardware-in-the-server.md):
+/// <list type="bullet">
+/// <item>"Share this rig on the LAN" (decision 3), a MACHINE setting, not a profile's or a session's, since it decides
+/// whether the machine can be reached;</item>
+/// <item>the node's active profile, which it used to hold in memory only, null after every start: a restarted node
+/// is the same rig, set up for the same equipment, and the pinned serial ports of discovery come from it.</item>
+/// </list>
 /// </summary>
-public sealed record NodeSettings(bool ShareOnLan)
+public sealed record NodeSettings(bool ShareOnLan, Guid? ActiveProfileId = null)
 {
     public const string FileName = "node-settings.json";
 
@@ -47,13 +52,28 @@ public sealed class NodeSettingsStore(IExternal external, NodeSettings initial)
 {
     private NodeSettings _current = initial;
 
+    // One change at a time, each written before the next reads: a share toggled while the profile is switched must
+    // keep both. A semaphore, since the write awaits.
+    private readonly SemaphoreSlim _updating = new SemaphoreSlim(1, 1);
+
     public NodeSettings Current => Volatile.Read(ref _current);
 
-    public async Task SaveAsync(NodeSettings settings, CancellationToken cancellationToken)
+    /// <summary>Writes <paramref name="change"/> of the current settings, and makes it current once it is written.</summary>
+    public async Task<NodeSettings> UpdateAsync(Func<NodeSettings, NodeSettings> change, CancellationToken cancellationToken)
     {
-        await external.AtomicWriteJsonAsync(NodeSettings.PathIn(external.AppDataFolder), settings, NodeSettingsJsonContext.Default.NodeSettings, cancellationToken)
-            .ConfigureAwait(false);
-        Volatile.Write(ref _current, settings);
+        await _updating.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var next = change(Current);
+            await external.AtomicWriteJsonAsync(NodeSettings.PathIn(external.AppDataFolder), next, NodeSettingsJsonContext.Default.NodeSettings, cancellationToken)
+                .ConfigureAwait(false);
+            Volatile.Write(ref _current, next);
+            return next;
+        }
+        finally
+        {
+            _updating.Release();
+        }
     }
 }
 
