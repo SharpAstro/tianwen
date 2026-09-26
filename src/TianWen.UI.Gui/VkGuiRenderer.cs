@@ -10,6 +10,7 @@ using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
 using TianWen.UI.Shared;
+using TianWen.Lib;
 
 namespace TianWen.UI.Gui
 {

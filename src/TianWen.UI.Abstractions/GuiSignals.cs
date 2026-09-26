@@ -474,7 +474,7 @@ public readonly record struct SkyMapShowMountInfoSignal(
 /// (encoder) pointing; the camera is the only witness of where it ACTUALLY points.
 /// For slew-less trackers (SkyGuider Pro: CanSlew=false, CanSync=true) this is the
 /// only way the marker can ever be correct - aim by hand, solve &amp; sync, repeat.
-/// Routed to <c>MountActions.SolveAndSyncAsync</c>; only valid when no session is
+/// Routed to <c>MountSolveSync.SolveAndSyncAsync</c>; only valid when no session is
 /// running and both a camera and a sync-capable mount are connected. The captured
 /// frame lands in the preview slot and the solve result in
 /// <see cref="LiveSessionState.PreviewPlateSolveResult"/>, mirroring

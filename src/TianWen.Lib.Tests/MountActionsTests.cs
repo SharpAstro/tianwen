@@ -266,7 +266,7 @@ public class MountActionsTests
 
         var outcome = await InvokeSolveSyncAsync(mount, camera, solver);
 
-        outcome.Result.ShouldBe(MountActions.SolveSyncResult.NotPossible);
+        outcome.Result.ShouldBe(MountSolveSync.SolveSyncResult.NotPossible);
         outcome.StatusMessage.ShouldContain("does not support sync");
         outcome.CapturedImage.ShouldBeNull();
         await camera.DidNotReceiveWithAnyArgs().StartExposureAsync(default, default, Arg.Any<CancellationToken>());
@@ -283,7 +283,7 @@ public class MountActionsTests
 
         var outcome = await InvokeSolveSyncAsync(mount, camera, solver);
 
-        outcome.Result.ShouldBe(MountActions.SolveSyncResult.NotPossible);
+        outcome.Result.ShouldBe(MountSolveSync.SolveSyncResult.NotPossible);
         outcome.StatusMessage.ShouldBe("Camera is not connected");
         await mount.DidNotReceiveWithAnyArgs().SyncRaDecAsync(default, default, Arg.Any<CancellationToken>());
     }
@@ -298,7 +298,7 @@ public class MountActionsTests
 
         var outcome = await InvokeSolveSyncAsync(mount, camera, solver);
 
-        outcome.Result.ShouldBe(MountActions.SolveSyncResult.NotPossible);
+        outcome.Result.ShouldBe(MountSolveSync.SolveSyncResult.NotPossible);
         outcome.StatusMessage.ShouldBe("Mount pointing unavailable");
         await camera.DidNotReceiveWithAnyArgs().StartExposureAsync(default, default, Arg.Any<CancellationToken>());
     }
@@ -312,7 +312,7 @@ public class MountActionsTests
 
         var outcome = await InvokeSolveSyncAsync(mount, camera, solver);
 
-        outcome.Result.ShouldBe(MountActions.SolveSyncResult.CaptureFailed);
+        outcome.Result.ShouldBe(MountSolveSync.SolveSyncResult.CaptureFailed);
         outcome.CapturedImage.ShouldBeNull();
         await mount.DidNotReceiveWithAnyArgs().SyncRaDecAsync(default, default, Arg.Any<CancellationToken>());
     }
@@ -327,7 +327,7 @@ public class MountActionsTests
 
         var outcome = await InvokeSolveSyncAsync(mount, camera, solver);
 
-        outcome.Result.ShouldBe(MountActions.SolveSyncResult.SolveFailed);
+        outcome.Result.ShouldBe(MountSolveSync.SolveSyncResult.SolveFailed);
         // Ownership of the captured frame still transfers so the caller can show/release it.
         outcome.CapturedImage.ShouldBeSameAs(image);
         outcome.SolveResult.ShouldNotBeNull();
@@ -345,7 +345,7 @@ public class MountActionsTests
 
         var outcome = await InvokeSolveSyncAsync(mount, camera, solver);
 
-        outcome.Result.ShouldBe(MountActions.SolveSyncResult.Synced);
+        outcome.Result.ShouldBe(MountSolveSync.SolveSyncResult.Synced);
         outcome.StatusMessage.ShouldStartWith("Synced");
         outcome.CapturedImage.ShouldBeSameAs(image);
         outcome.SolveResult.ShouldNotBeNull();
@@ -366,7 +366,7 @@ public class MountActionsTests
 
         var outcome = await InvokeSolveSyncAsync(mount, camera, solver);
 
-        outcome.Result.ShouldBe(MountActions.SolveSyncResult.Synced);
+        outcome.Result.ShouldBe(MountSolveSync.SolveSyncResult.Synced);
         await mount.Received(1).SyncRaDecAsync(6.01, 44.99, Arg.Any<CancellationToken>());
     }
 
@@ -382,7 +382,7 @@ public class MountActionsTests
 
         var outcome = await InvokeSolveSyncAsync(mount, camera, solver);
 
-        outcome.Result.ShouldBe(MountActions.SolveSyncResult.SyncFailed);
+        outcome.Result.ShouldBe(MountSolveSync.SolveSyncResult.SyncFailed);
         outcome.StatusMessage.ShouldContain("sync rejected");
         outcome.CapturedImage.ShouldBeSameAs(image);
     }
@@ -396,17 +396,17 @@ public class MountActionsTests
 
         var outcome = await InvokeSolveSyncAsync(mount, camera, solver);
 
-        outcome.Result.ShouldBe(MountActions.SolveSyncResult.SyncFailed);
+        outcome.Result.ShouldBe(MountSolveSync.SolveSyncResult.SyncFailed);
         outcome.StatusMessage.ShouldContain("transform failed");
         await mount.DidNotReceiveWithAnyArgs().SyncRaDecAsync(default, default, Arg.Any<CancellationToken>());
     }
 
-    private static Task<MountActions.SolveSyncOutcome> InvokeSolveSyncAsync(
+    private static Task<MountSolveSync.SolveSyncOutcome> InvokeSolveSyncAsync(
         IMountDriver mount, ICameraDriver camera, IPlateSolverFactory solver)
     {
         var profile = MakeProfile();
         var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 4, 20, 12, 0, 0, TimeSpan.Zero));
-        return MountActions.SolveAndSyncAsync(
+        return MountSolveSync.SolveAndSyncAsync(
             mount, camera, otaName: "TestOTA", focalLengthMm: 400, apertureMm: 80,
             focuser: null, filterWheel: null, catalogDb: null,
             solverFactory: solver, profile: profile, timeProvider: timeProvider,

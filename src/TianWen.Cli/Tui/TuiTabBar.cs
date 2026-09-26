@@ -3,6 +3,7 @@ using Console.Lib;
 using DIR.Lib;
 using TianWen.Lib.Devices;
 using TianWen.UI.Abstractions;
+using TianWen.Lib;
 
 namespace TianWen.Cli.Tui;
 

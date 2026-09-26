@@ -2,7 +2,7 @@ using System;
 using System.Globalization;
 using System.Text;
 
-namespace TianWen.UI.Abstractions
+namespace TianWen.Lib
 {
     /// <summary>
     /// Turns an exception message into something safe to paint in a one-line status bar.

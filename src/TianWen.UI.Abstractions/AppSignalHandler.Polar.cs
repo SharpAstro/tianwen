@@ -24,6 +24,7 @@ using TianWen.Lib.Extensions;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
 using TianWen.Lib.Sequencing.PolarAlignment;
+using TianWen.Lib;
 
 namespace TianWen.UI.Abstractions
 {
