@@ -1265,7 +1265,8 @@ anyway, the synthetic truth is exact). The held-out split stays by session, unch
   - **`<model>.contract.json` provenance stamped into the artifact set**: tensor conventions
     (layout, stretch constants, psf01 encoding), dataset manifest SHA-256, git commit, package pins,
     ONNX SHA-256, timestamp; asserted at load time in C# (NeuralGuider's gate-and-refuse pattern,
-    minus the delete: refuse + log + fall back to SAS).
+    minus the delete: refuse + log + fall back to SAS; since 2026-09-26 there is no SAS tier, so a
+    refused model leaves its role to RC-Astro or out of the program).
 
 ### 3a. P1 smoke-run findings (2026-08-12, GTX 1070, eleven variants)
 

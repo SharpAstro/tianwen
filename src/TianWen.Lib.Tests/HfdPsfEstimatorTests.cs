@@ -44,12 +44,14 @@ public class HfdPsfEstimatorTests
     }
 
     /// <summary>
-    /// The range belongs to the MODEL, and the shipped deconvolver runs SAS AI4, so the default must
-    /// stay SAS's. A mismatch here is silent at runtime: the graph still runs and is simply told a PSF
-    /// about twice the one it was handed.
+    /// The range belongs to the MODEL. No graph TianWen runs consumes the default today (the SETI
+    /// Astro deconvolver it was set for went with that tier on 2026-09-26), and TianWen's own contract
+    /// becomes the default alongside the model trained under it, in the same change. Until then it must
+    /// not drift there by accident: a mismatch is silent at runtime, the graph still runs and is simply
+    /// told a PSF about twice the one it was handed.
     /// </summary>
     [Fact]
-    public void TheDefaultRangeIsStillTheOneTheShippedModelWasTrainedUnder()
+    public void TheDefaultRangeStaysTheOriginalContractUntilTianWensOwnModelShips()
     {
         var estimator = new HfdPsfEstimator();
 
@@ -59,12 +61,12 @@ public class HfdPsfEstimatorTests
     }
 
     /// <summary>
-    /// Resolving through the container must keep the shipped range, which is the thing the optional
+    /// Resolving through the container must keep the default range, which is the thing the optional
     /// constructor parameters could quietly break: <c>TryAddSingleton&lt;IPsfEstimator, HfdPsfEstimator&gt;</c>
     /// has to pick the defaults rather than fail or fill them with zeroes.
     /// </summary>
     [Fact]
-    public void TheContainerBuildsItWithTheShippedRange()
+    public void TheContainerBuildsItWithTheDefaultRange()
     {
         var services = new ServiceCollection();
         services.AddSingleton<IPsfEstimator, HfdPsfEstimator>();

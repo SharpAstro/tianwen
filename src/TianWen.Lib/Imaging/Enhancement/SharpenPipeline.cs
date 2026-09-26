@@ -11,7 +11,7 @@ using Microsoft.Extensions.Logging;
 namespace TianWen.Lib.Imaging.Enhancement;
 
 /// <summary>
-/// Composes the AI4 enhancers into a sharpen flow described by a sequence
+/// Composes the role-typed enhancers into a sharpen flow described by a sequence
 /// of strongly-typed <see cref="SharpenStep"/> records: each step bundles
 /// "what to do" with its own parameters (blend amount, mode, etc.).
 /// Pipeline execution honours <see cref="SharpenRequest.Steps"/> order
@@ -88,11 +88,39 @@ public sealed class SharpenPipeline(
     };
 
     /// <summary>
-    /// True when a full-image deblurrer (RC-Astro BlurXTerminator) is registered,
-    /// so callers can prefer the BlurX-first <see cref="SharpenRequest.DeblurFirst"/>
-    /// canonical over the SAS-shaped <see cref="SharpenRequest.Canonical"/>.
+    /// Which roles can serve <paramref name="input"/> under <paramref name="options"/>, asked at
+    /// ENHANCE time. A deferred RC-Astro role answers by its licence (its probe runs here, on the first
+    /// enhance, never at DI build), the in-house denoiser by the channel count and its weights; a role
+    /// with no registration is absent, and one that cannot say serves everything it is handed.
     /// </summary>
-    public bool SupportsDeblur => deblurrer is not null;
+    /// <remarks>
+    /// The channel count asked about is the one the steps will SEE: a 1-channel CFA mosaic is debayered
+    /// before any step runs (<see cref="ProcessAsync(SharpenRequest, EnhanceOptions, IProgress{EnhanceProgress}, CancellationToken)"/>),
+    /// so it counts as three.
+    /// </remarks>
+    public EnhanceCapabilities CapabilitiesFor(Image input, EnhanceOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        ArgumentNullException.ThrowIfNull(options);
+        var channels = input.ChannelCount == 1 && input.ImageMeta.SensorType is SensorType.RGGB ? 3 : input.ChannelCount;
+        return new EnhanceCapabilities(
+            Deblur: IEnhancerAvailability.Serves(deblurrer, channels, options),
+            GradientCorrection: IEnhancerAvailability.Serves(gradientCorrector, channels, options),
+            StarRemoval: IEnhancerAvailability.Serves(starRemover, channels, options),
+            StellarSharpen: IEnhancerAvailability.Serves(stellarSharpener, channels, options),
+            Deconvolve: IEnhancerAvailability.Serves(nonStellarDeconvolver, channels, options),
+            Denoise: IEnhancerAvailability.Serves(denoiser, channels, options));
+    }
+
+    /// <summary>
+    /// The canonical linear program for <paramref name="input"/>, shaped by what can serve it: the ONE
+    /// program the viewer, the CLI, the stacking <c>--enhance</c> and the enhance endpoint run. With a
+    /// star remover it is the split program (BlurX-first when a deblurrer serves); without one it is
+    /// whole-frame (deblur, gradient, denoise). A caller varies blends and switches on the result; it
+    /// never chooses the shape.
+    /// </summary>
+    public LinearEnhanceProgram CanonicalProgram(Image input, EnhanceOptions options)
+        => LinearEnhanceProgram.For(CapabilitiesFor(input, options));
 
     /// <summary>
     /// The finite-input boundary every enhancer stands behind: interior holes are interpolated from
@@ -100,7 +128,7 @@ public sealed class SharpenPipeline(
     /// to the per-channel mean. The same instance comes back when there is nothing to fill.
     /// </summary>
     /// <remarks>
-    /// <para><b>The enhancers -- SAS ONNX and RC-Astro alike -- compute non-NaN-aware global
+    /// <para><b>The enhancers -- RC-Astro and the ONNX runners alike -- compute non-NaN-aware global
     /// normalisation, so a single NaN poisons the whole output to NaN.</b> That much was always
     /// handled here. What was not is WHICH value goes into a hole, and it was the per-channel MEAN
     /// on the reasoning that non-finite samples "sit in the sparse-coverage border that autocrop
@@ -237,6 +265,36 @@ public sealed class SharpenPipeline(
         // would conflate AI noise reduction with histogram redistribution.
         // Anchors the headline "AI removed X% noise" delta in SharpenResult.
         var linearStarlessNoise = inputNoise;
+        var splits = request.Steps.Any(static s => s is RemoveStarsStep);
+
+        // In the whole-frame program (no split), the most-processed whole frame IS the result: it is
+        // promoted to `final` and leaves its intermediate slot, so it is never returned twice. Called by
+        // a final-plate stretch that runs before any DenoiseFrameStep made one (a mono frame with no
+        // RC-Astro: gradient correction, then the stretch), and at the end of the run. Returns null
+        // when nothing produced a frame, rather than ever promoting the caller's own source.
+        Image? PromoteWholeFrame()
+        {
+            if (final is not null || splits)
+            {
+                return final;
+            }
+            if (gradientCorrected is not null)
+            {
+                final = gradientCorrected;
+                gradientCorrected = null;
+            }
+            else if (deblurred is not null)
+            {
+                final = deblurred;
+                deblurred = null;
+            }
+            if (final is not null)
+            {
+                linearStarlessNoise = final.EstimateNoiseProfile();
+            }
+            return final;
+        }
+
         var phaseSw = Stopwatch.StartNew();
         var stepCount = request.Steps.Length;
         var stepIndex = 0;
@@ -260,7 +318,6 @@ public sealed class SharpenPipeline(
                         // Full-image deconvolution (BlurX) at the head: tightens
                         // stars AND non-stellar structure on the source before any
                         // split, so downstream steps consume `deblurred ?? source`.
-                        // Replaces the SAS remove-then-sharpen-stars approach.
                         var raw = await Require(deblurrer).EnhanceAsync(source, options, stepProgress, cancellationToken);
                         if (ReferenceEquals(raw, source))
                         {
@@ -415,6 +472,39 @@ public sealed class SharpenPipeline(
                         {
                             starless.Release();
                             starless = null;
+                        }
+                        break;
+                    }
+
+                    case DenoiseFrameStep denoiseFrame:
+                    {
+                        // The whole-frame program's denoise, run when no star remover serves the input:
+                        // the most-processed WHOLE frame goes in and what comes out is the result, so it
+                        // is `final` directly, with nothing to recombine.
+                        var inputPlate = gradientCorrected ?? deblurred ?? source;
+                        var raw = await Require(denoiser).EnhanceAsync(inputPlate, denoiseFrame.Variant, options, stepProgress, cancellationToken);
+                        if (denoiseFrame.Blend < 1f)
+                        {
+                            final = inputPlate.Lerp(raw, denoiseFrame.Blend);
+                            raw.Release();
+                        }
+                        else
+                        {
+                            final = raw;
+                        }
+                        linearStarlessNoise = final.EstimateNoiseProfile();
+                        timings.Add(("denoise-frame", phaseSw.ElapsedMilliseconds, linearStarlessNoise));
+                        // The two plates it read from are consumed: the gradient-corrected one is kept
+                        // only when the caller asked for it, the deblurred one is always internal.
+                        if (!request.KeepIntermediates.HasFlag(SharpenIntermediates.GradientCorrected) && gradientCorrected is not null)
+                        {
+                            gradientCorrected.Release();
+                            gradientCorrected = null;
+                        }
+                        if (deblurred is not null)
+                        {
+                            deblurred.Release();
+                            deblurred = null;
                         }
                         break;
                     }
@@ -607,7 +697,7 @@ public sealed class SharpenPipeline(
                         // The non-split workflow's stretch step: validation
                         // ensures this only fires after RecombineStep, so
                         // `final` is populated.
-                        var input = Require(final);
+                        var input = Require(final ?? PromoteWholeFrame());
                         var stretched = input.MtfStretch(mtfFinalStep.TargetMedian, out _, out _);
                         input.Release();
                         final = stretched;
@@ -621,7 +711,7 @@ public sealed class SharpenPipeline(
                         // ApplyGhsChain (single source of truth for per-channel
                         // auto-converge + multi-pass + telemetry); validation
                         // ensures `final` is populated.
-                        var input = Require(final);
+                        var input = Require(final ?? PromoteWholeFrame());
                         var (stretched, spLabel, convergenceLabel) = ApplyGhsChain(
                             input,
                             lnD: ghsFinalStep.LnD, b: ghsFinalStep.B, userSp: ghsFinalStep.SP,
@@ -639,7 +729,7 @@ public sealed class SharpenPipeline(
                         // Asinh stretch on the recombined `final` plate. The
                         // non-split-workflow asinh option. Validation ensures
                         // `final` is populated.
-                        var input = Require(final);
+                        var input = Require(final ?? PromoteWholeFrame());
                         var stretched = input.AsinhStretch(
                             asinhFinalStep.Beta, asinhFinalStep.BlackPoint, asinhFinalStep.LumaWeights);
                         input.Release();
@@ -673,6 +763,13 @@ public sealed class SharpenPipeline(
             final?.Release();
             throw;
         }
+
+        // A whole-frame program with nothing to denoise (a mono frame and no RC-Astro: gradient
+        // correction alone) still has a result: with no split, the most-processed whole frame IS the
+        // result, so it is promoted to `final` and leaves its intermediate slot, never returned twice.
+        // A program that splits the stars ends at its recombine as before, and one that produced no
+        // frame at all (only a declined deblur) returns no Final rather than the caller's own source.
+        PromoteWholeFrame();
 
         // FinalNoise = the σ of the most-processed *linear* starless plate,
         // tracked separately via linearStarlessNoise so stretch / bg-reduce /
@@ -887,11 +984,17 @@ public sealed class SharpenPipeline(
         return (current, spLabel, convergenceLabel);
     }
 
-    private static bool HasPrecedingRecombine(SharpenRequest request, int index)
+    /// <summary>Whether a step before <paramref name="index"/> produced the final plate: a
+    /// <see cref="RecombineStep"/> in the split program, a <see cref="DenoiseFrameStep"/> in the
+    /// whole-frame one.</summary>
+    private static bool HasPrecedingFinal(SharpenRequest request, int index)
     {
+        var splits = request.Steps.Any(static s => s is RemoveStarsStep);
         for (var k = 0; k < index; k++)
         {
-            if (request.Steps[k] is RecombineStep) return true;
+            // In the whole-frame program the gradient-corrected frame is promoted to the final plate
+            // when nothing later made one, which is what a mono frame with no RC-Astro gets.
+            if (request.Steps[k] is RecombineStep or DenoiseFrameStep || (!splits && request.Steps[k] is GradientCorrectionStep)) return true;
         }
         return false;
     }
@@ -914,6 +1017,7 @@ public sealed class SharpenPipeline(
         // "linear prestretch", pass 2 redistributes contrast).
         var hasStarless = false;
         var hasStarsOnly = false;
+        var hasFrameResult = false;
         var seenTypes = new HashSet<Type>();
 
         for (var i = 0; i < request.Steps.Length; i++)
@@ -935,13 +1039,31 @@ public sealed class SharpenPipeline(
                         nameof(request));
                     break;
                 case GradientCorrectionStep:
-                    if (hasStarless) throw new ArgumentException(
-                        $"SharpenRequest.Steps[{i}]: GradientCorrectionStep must run BEFORE RemoveStarsStep -- Frank Sackenheim's canonical order is gradient -> stars -> detail -> stretch. Move the gradient step to the head of the request.",
+                    if (hasStarless || hasFrameResult) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: GradientCorrectionStep must run BEFORE RemoveStarsStep or DenoiseFrameStep -- Frank Sackenheim's canonical order is gradient -> stars -> detail -> stretch. Move the gradient step to the head of the request.",
                         nameof(request));
                     break;
                 case RemoveStarsStep:
+                    if (hasFrameResult) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: RemoveStarsStep cannot follow DenoiseFrameStep; a program either splits the stars (and denoises the starless plate) or works on the whole frame, never both.",
+                        nameof(request));
                     hasStarless = true;
                     hasStarsOnly = true;
+                    break;
+                case DenoiseFrameStep:
+                    if (hasStarless) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: DenoiseFrameStep denoises the WHOLE frame and cannot follow RemoveStarsStep; a split program denoises the starless plate with DenoiseStarlessStep.",
+                        nameof(request));
+                    hasFrameResult = true;
+                    for (var j = i + 1; j < request.Steps.Length; j++)
+                    {
+                        if (request.Steps[j] is not (MtfStretchFinalStep or GhsStretchFinalStep or AsinhStretchFinalStep))
+                        {
+                            throw new ArgumentException(
+                                $"SharpenRequest.Steps[{i}]: only MtfStretchFinalStep, GhsStretchFinalStep or AsinhStretchFinalStep may follow DenoiseFrameStep; got {request.Steps[j].GetType().Name} at Steps[{j}].",
+                                nameof(request));
+                        }
+                    }
                     break;
                 case SharpenStarsStep:
                     if (!hasStarsOnly) throw new ArgumentException(
@@ -1047,16 +1169,16 @@ public sealed class SharpenPipeline(
                     }
                     break;
                 case MtfStretchFinalStep mtfFinal:
-                    if (!HasPrecedingRecombine(request, i)) throw new ArgumentException(
-                        $"SharpenRequest.Steps[{i}]: MtfStretchFinalStep requires a preceding RecombineStep.",
+                    if (!HasPrecedingFinal(request, i)) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: MtfStretchFinalStep requires a preceding RecombineStep or DenoiseFrameStep (no final plate to stretch).",
                         nameof(request));
                     if (mtfFinal.TargetMedian is <= 0.0 or >= 1.0) throw new ArgumentException(
                         $"SharpenRequest.Steps[{i}]: MtfStretchFinalStep.TargetMedian must be in (0, 1); got {mtfFinal.TargetMedian}.",
                         nameof(request));
                     break;
                 case GhsStretchFinalStep ghsFinal:
-                    if (!HasPrecedingRecombine(request, i)) throw new ArgumentException(
-                        $"SharpenRequest.Steps[{i}]: GhsStretchFinalStep requires a preceding RecombineStep.",
+                    if (!HasPrecedingFinal(request, i)) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: GhsStretchFinalStep requires a preceding RecombineStep or DenoiseFrameStep (no final plate to stretch).",
                         nameof(request));
                     if (ghsFinal.LnD < 0.0) throw new ArgumentException(
                         $"SharpenRequest.Steps[{i}]: GhsStretchFinalStep.LnD must be >= 0; got {ghsFinal.LnD}.",
@@ -1100,8 +1222,8 @@ public sealed class SharpenPipeline(
                         nameof(request));
                     break;
                 case AsinhStretchFinalStep asinhFinal:
-                    if (!HasPrecedingRecombine(request, i)) throw new ArgumentException(
-                        $"SharpenRequest.Steps[{i}]: AsinhStretchFinalStep requires a preceding RecombineStep.",
+                    if (!HasPrecedingFinal(request, i)) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: AsinhStretchFinalStep requires a preceding RecombineStep or DenoiseFrameStep (no final plate to stretch).",
                         nameof(request));
                     if (asinhFinal.Beta < 1.0 || asinhFinal.Beta > 1000.0) throw new ArgumentException(
                         $"SharpenRequest.Steps[{i}]: AsinhStretchFinalStep.Beta must be in [1, 1000]; got {asinhFinal.Beta}.",
@@ -1122,27 +1244,32 @@ public sealed class SharpenPipeline(
         {
             switch (step)
             {
+                // The canonical program never reaches these (CanonicalProgram asks the roles first);
+                // they are for a hand-built request, and each names what would serve the role.
                 case DeblurStep when deblurrer is null:
                     throw new InvalidOperationException(
                         "SharpenPipeline: DeblurStep requested but no IImageDeblurrer registered. " +
-                        "DeblurFirst requires RC-Astro BlurXTerminator (AddRcAstroAi()); the SAS backend has no full-image deblur.");
+                        "The whole-frame deblur is RC-Astro BlurXTerminator (AddRcAstroAi()).");
                 case GradientCorrectionStep when gradientCorrector is null:
                     throw new InvalidOperationException(
                         "SharpenPipeline: GradientCorrectionStep requested but no IGradientCorrector registered. " +
                         "Call AddTianWenAi() (or register a custom IGradientCorrector) in your composition root.");
                 case RemoveStarsStep when starRemover is null:
                     throw new InvalidOperationException(
-                        "SharpenPipeline: RemoveStarsStep requested but no IStarRemover registered. " +
-                        "Call AddTianWenAi() (or register a custom IStarRemover) in your composition root.");
+                        "SharpenPipeline: RemoveStarsStep requested but no IStarRemover registered. Star removal is " +
+                        "RC-Astro StarXTerminator (AddRcAstroAi()) until TianWen's own star remover ships; without one, " +
+                        "run the whole-frame program SharpenPipeline.CanonicalProgram builds.");
                 case SharpenStarsStep when stellarSharpener is null:
                     throw new InvalidOperationException(
-                        "SharpenPipeline: SharpenStarsStep requested but no IStellarSharpener registered.");
+                        "SharpenPipeline: SharpenStarsStep requested but no IStellarSharpener registered. None ships " +
+                        "today; RC-Astro BlurXTerminator's whole-frame deblur tightens the stars instead.");
                 case DeconvolveStarlessStep when nonStellarDeconvolver is null:
                     throw new InvalidOperationException(
-                        "SharpenPipeline: DeconvolveStarlessStep requested but no INonStellarDeconvolver registered.");
-                case DenoiseStarlessStep when denoiser is null:
+                        "SharpenPipeline: DeconvolveStarlessStep requested but no INonStellarDeconvolver registered. " +
+                        "It is RC-Astro BlurXTerminator (AddRcAstroAi()) until TianWen's own deconvolver ships.");
+                case DenoiseStarlessStep or DenoiseFrameStep when denoiser is null:
                     throw new InvalidOperationException(
-                        "SharpenPipeline: DenoiseStarlessStep requested but no IDenoiseEnhancer registered.");
+                        $"SharpenPipeline: {step.GetType().Name} requested but no IDenoiseEnhancer registered.");
             }
         }
     }
@@ -1158,8 +1285,7 @@ public abstract record SharpenStep;
 /// gradient correction and star removal) -- the BlurX-first / PixInsight OSC
 /// shape. Because stars are tightened in place, no separate
 /// <see cref="SharpenStarsStep"/> is needed. Backed by
-/// <see cref="IImageDeblurrer"/> (RC-Astro only; the SAS backend has no
-/// full-image deblur). Must be the first step.</summary>
+/// <see cref="IImageDeblurrer"/> (RC-Astro only). Must be the first step.</summary>
 /// <param name="Blend">AI strength in [0, 1], applied as a post-hoc lerp toward
 /// the source (0 = source untouched; 1 = full deblur). The product's own
 /// stellar / non-stellar sharpening amounts are configured on the enhancer.</param>
@@ -1189,10 +1315,10 @@ public sealed record GradientCorrectionStep : SharpenStep;
 /// downstream <see cref="RecombineStep.Mode"/> for round-trip consistency.</param>
 public sealed record RemoveStarsStep(RecombineMode SplitMode = RecombineMode.Additive) : SharpenStep;
 
-/// <summary>Stellar sharpening on the stars-only plate.</summary>
-/// <param name="Blend">AI strength in [0, 1]. 0 = stars untouched; 1 = full
-/// AI output; ~0.5 is a typical good value for tight star fields where
-/// AI4 over-sharpens.</param>
+/// <summary>Stellar sharpening on the stars-only plate. No sharpener ships today (the SAS one went with
+/// the SAS tier on 2026-09-26); the role stays for an in-house model, and the canonical program asks for
+/// it only when one serves.</summary>
+/// <param name="Blend">AI strength in [0, 1]. 0 = stars untouched; 1 = full AI output.</param>
 public sealed record SharpenStarsStep(float Blend = 1.0f) : SharpenStep;
 
 /// <summary>Non-stellar deconvolution on the starless plate (PSF-conditional).</summary>
@@ -1203,14 +1329,18 @@ public sealed record DeconvolveStarlessStep(float Blend = 1.0f) : SharpenStep;
 /// <summary>Noise reduction on the starless plate. Sees the
 /// <see cref="DeconvolveStarlessStep"/> output if that step ran first,
 /// otherwise the raw starless plate.</summary>
-/// <param name="Blend">AI strength in [0, 1]. 0 = noise untouched; 1 = full
-/// AI output. AI4 NoiseX is conservative on faint detail so full strength
-/// is usually safe.</param>
-/// <param name="Variant">Model weight bundle. <see cref="DenoiseVariant.Default"/>
-/// is the full AI4 NAFNet (slowest, highest quality); <see cref="DenoiseVariant.Lite"/>
-/// is the half-width fast variant; <see cref="DenoiseVariant.Walking"/> is
-/// trained on dither-correlated pattern noise.</param>
+/// <param name="Blend">AI strength in [0, 1]. 0 = noise untouched; 1 = full AI output.</param>
+/// <param name="Variant">Model weight bundle; see <see cref="DenoiseVariant"/> for which backend
+/// offers which.</param>
 public sealed record DenoiseStarlessStep(float Blend = 1.0f, DenoiseVariant Variant = DenoiseVariant.Default) : SharpenStep;
+
+/// <summary>Noise reduction on the WHOLE frame: the whole-frame program's denoise, for an input no star
+/// remover serves (no RC-Astro StarXTerminator). Reads the most-processed whole frame (gradient-corrected,
+/// else deblurred, else the source) and produces the final plate directly, so it takes the place of the
+/// split and the recombine. Never combined with <see cref="RemoveStarsStep"/>.</summary>
+/// <param name="Blend">AI strength in [0, 1]. 0 = noise untouched; 1 = full AI output.</param>
+/// <param name="Variant">Model weight bundle; see <see cref="DenoiseVariant"/>.</param>
+public sealed record DenoiseFrameStep(float Blend = 1.0f, DenoiseVariant Variant = DenoiseVariant.Default) : SharpenStep;
 
 /// <summary>S-curve background reduction on the starless / nebula plate.
 /// Pulls the histogram peak down toward black via a symmetric cubic-Hermite
@@ -1527,7 +1657,7 @@ public enum SharpenIntermediates
 public sealed record LinearEnhanceProgram
 {
     /// <summary>Whole-frame deblur (BlurXTerminator) ahead of star extraction.
-    /// Requires an <see cref="IImageDeblurrer"/>; see <see cref="SharpenPipeline.SupportsDeblur"/>.</summary>
+    /// Requires an <see cref="IImageDeblurrer"/> that serves the input; see <see cref="SharpenPipeline.CapabilitiesFor"/>.</summary>
     public bool Deblur { get; init; }
 
     /// <inheritdoc cref="DeblurStep.Blend"/>
@@ -1536,6 +1666,12 @@ public sealed record LinearEnhanceProgram
     /// <summary>Flatten the background before the stars come out. On by default:
     /// every canonical program has always included it.</summary>
     public bool GradientCorrection { get; init; } = true;
+
+    /// <summary>Split the stars from the starless plate and work on each (the split program), or
+    /// work on the whole frame (the whole-frame program, for an input no star remover serves). In
+    /// the whole-frame program the denoise runs on the frame and yields the result directly, and the
+    /// plate-only steps (stellar sharpen, starless deconvolution, SCNR, recombine) do not exist.</summary>
+    public bool SplitStars { get; init; } = true;
 
     /// <inheritdoc cref="RemoveStarsStep.SplitMode"/>
     public RecombineMode SplitMode { get; init; } = RecombineMode.Additive;
@@ -1578,23 +1714,33 @@ public sealed record LinearEnhanceProgram
     public RecombineMode RecombineMode { get; init; } = RecombineMode.Additive;
 
     /// <summary>
-    /// The canonical program for a pipeline with or without a deblurrer, which is the only
-    /// thing that changes its SHAPE. With one (RC-Astro): whole-frame deblur, then no stellar
-    /// sharpen and no starless deconvolution -- both are already done -- and SCNR on the stars,
-    /// which BlurX's tightened faint stars need. Without one (SAS-shaped): no deblur, and the
-    /// stars plate is sharpened and the starless plate deconvolved instead, with nothing for
-    /// SCNR to neutralise.
+    /// The canonical program for what can serve an input, which is the only thing that changes its
+    /// SHAPE (<see cref="SharpenPipeline.CanonicalProgram"/> asks the roles, then calls this).
+    /// <list type="bullet">
+    /// <item>A star remover serves: the SPLIT program. With a whole-frame deblurrer (RC-Astro), deblur
+    /// first, then no stellar sharpen and no starless deconvolution (both already done) and SCNR on the
+    /// stars, which BlurX's tightened faint stars need. Without one, the stars plate is sharpened and
+    /// the starless plate deconvolved where those roles serve, with nothing for SCNR to
+    /// neutralise.</item>
+    /// <item>No star remover: the WHOLE-FRAME program, deblur (where it serves), gradient correction,
+    /// and a whole-frame denoise (where it serves) whose output is the result.</item>
+    /// </list>
+    /// No step is asked of a role nothing serves.
     /// </summary>
-    public static LinearEnhanceProgram For(bool supportsDeblur) => new()
+    public static LinearEnhanceProgram For(EnhanceCapabilities capabilities) => new()
     {
-        Deblur = supportsDeblur,
-        StellarSharpen = !supportsDeblur,
-        DeconvolveStarless = !supportsDeblur,
-        Scnr = supportsDeblur ? ScnrMode.Average : ScnrMode.None,
+        Deblur = capabilities.Deblur,
+        GradientCorrection = capabilities.GradientCorrection,
+        SplitStars = capabilities.StarRemoval,
+        StellarSharpen = capabilities.StarRemoval && capabilities.StellarSharpen && !capabilities.Deblur,
+        DeconvolveStarless = capabilities.StarRemoval && capabilities.Deconvolve && !capabilities.Deblur,
+        Denoise = capabilities.Denoise,
+        Scnr = capabilities.StarRemoval && capabilities.Deblur ? ScnrMode.Average : ScnrMode.None,
     };
 
-    /// <summary>Every step that acts on the plates, in order, up to but not including the
-    /// composite. A caller inserting its own per-plate stretch inserts it after these.</summary>
+    /// <summary>Every step that acts on the plates (or, whole-frame, on the frame), in order, up to but
+    /// not including the composite. A caller inserting its own per-plate stretch inserts it after these,
+    /// and only in the split program.</summary>
     public ImmutableArray<SharpenStep> PlateSteps
     {
         get
@@ -1602,6 +1748,11 @@ public sealed record LinearEnhanceProgram
             var steps = ImmutableArray.CreateBuilder<SharpenStep>(6);
             if (Deblur) steps.Add(new DeblurStep(Blend: DeblurBlend));
             if (GradientCorrection) steps.Add(new GradientCorrectionStep());
+            if (!SplitStars)
+            {
+                if (Denoise) steps.Add(new DenoiseFrameStep(Blend: DenoiseBlend, Variant: DenoiseVariant));
+                return steps.ToImmutable();
+            }
             steps.Add(new RemoveStarsStep(SplitMode: SplitMode));
             if (StellarSharpen) steps.Add(new SharpenStarsStep(Blend: StellarBlend));
             if (DeconvolveStarless) steps.Add(new DeconvolveStarlessStep(Blend: DeconvolveBlend));
@@ -1610,11 +1761,16 @@ public sealed record LinearEnhanceProgram
         }
     }
 
-    /// <summary>SCNR on the stars plate and the recombine that ends the program.</summary>
+    /// <summary>SCNR on the stars plate and the recombine that ends the split program; empty for the
+    /// whole-frame program, whose last step already produced the result.</summary>
     public ImmutableArray<SharpenStep> CompositeSteps
     {
         get
         {
+            if (!SplitStars)
+            {
+                return [];
+            }
             var steps = ImmutableArray.CreateBuilder<SharpenStep>(2);
             if (Scnr != ScnrMode.None) steps.Add(new ScnrStarsStep(Mode: Scnr, Amount: ScnrAmount));
             if (Recombine) steps.Add(new RecombineStep(Mode: RecombineMode));
@@ -1646,25 +1802,25 @@ public sealed record LinearEnhanceProgram
 /// for the gradient-corrected plate.</param>
 public sealed record SharpenRequest(Image Source, ImmutableArray<SharpenStep> Steps, SharpenIntermediates KeepIntermediates = SharpenIntermediates.All)
 {
-    /// <summary>Returns a request with the canonical "sharpen everything"
-    /// workflow per Frank Sackenheim: gradient correction, remove stars,
-    /// sharpen stars, deconvolve starless, denoise starless, recombine.
-    /// All steps at default blend strength.</summary>
+    /// <summary>The split program with EVERY role, per Frank Sackenheim: gradient correction, remove
+    /// stars, sharpen stars, deconvolve starless, denoise starless, recombine, all at default blend. A
+    /// named shape for a caller that has every role (tests, a custom pipeline); a host running the
+    /// canonical enhance asks <see cref="SharpenPipeline.CanonicalProgram"/> instead, which drops what
+    /// nothing serves.</summary>
     public static SharpenRequest Canonical(Image source)
-        => new(source, LinearEnhanceProgram.For(supportsDeblur: false).ToSteps());
+        => new(source, LinearEnhanceProgram.For(EnhanceCapabilities.AllRoles(deblur: false)).ToSteps());
 
     /// <summary>
-    /// BlurX-first canonical for the RC-Astro / PixInsight OSC flow: full-image
+    /// BlurX-first split program for the RC-Astro / PixInsight OSC flow: full-image
     /// deblur (BlurXTerminator) -&gt; gradient correction -&gt; remove stars -&gt;
     /// denoise the starless plate + SCNR the stars plate -&gt; recombine. There is
     /// NO stellar sharpener (BlurX already tightened the stars) and NO baked
     /// stretch -- the output is a LINEAR master to be stretched downstream, just
-    /// like <see cref="Canonical"/>. Requires an <see cref="IImageDeblurrer"/>
-    /// (RC-Astro); choose this over <see cref="Canonical"/> when
-    /// <see cref="SharpenPipeline.SupportsDeblur"/> is true.
+    /// like <see cref="Canonical"/>. A named shape like <see cref="Canonical"/>;
+    /// <see cref="SharpenPipeline.CanonicalProgram"/> picks it when a deblurrer serves.
     /// </summary>
     public static SharpenRequest DeblurFirst(Image source)
-        => new(source, LinearEnhanceProgram.For(supportsDeblur: true).ToSteps());
+        => new(source, LinearEnhanceProgram.For(EnhanceCapabilities.AllRoles(deblur: true)).ToSteps());
 }
 
 /// <summary>

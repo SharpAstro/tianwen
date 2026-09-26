@@ -69,7 +69,7 @@ public static class HostedSessionServiceCollectionExtensions
         // IsAvailable == false and the endpoint returns 503. Using GetService also drops the old
         // ordering requirement (AddRcAstroAi before AddHostedSession), since it resolves lazily at
         // activation time when every registration is already in place. Constructing it spawns no
-        // rc-astro process -- the RC-vs-SAS choice is deferred to the first EnhanceAsync (DeferredEnhancer).
+        // rc-astro process -- the RC-vs-in-house choice is deferred to the first EnhanceAsync (DeferredEnhancer).
         services.AddSingleton<HostedImageEnhancer>(sp => new HostedImageEnhancer(
             sp.GetService<TianWen.Lib.Imaging.Enhancement.SharpenPipeline>(),
             sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<HostedImageEnhancer>>()));

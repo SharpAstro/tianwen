@@ -313,14 +313,15 @@ public class SharpenPipelineTests(ITestOutputHelper output)
     [Fact]
     public async Task ProcessAsync_FailsClearlyWhenEnhancerNotRegistered()
     {
-        // Pipeline with no enhancers; RemoveStarsStep throws first with the
-        // hint pointing at AddTianWenAi().
+        // Pipeline with no enhancers; a hand-built RemoveStarsStep throws first, naming what serves
+        // the role (RC-Astro, AddRcAstroAi) and the whole-frame program to run without one.
         var pipeline = new SharpenPipeline();
         var src = SyntheticRgb(8, 8, 0.5f);
 
         var ex = await Should.ThrowAsync<InvalidOperationException>(async () =>
             await pipeline.ProcessAsync(new SharpenRequest(src, [new RemoveStarsStep()]), TestContext.Current.CancellationToken));
-        ex.Message.ShouldContain("AddTianWenAi");
+        ex.Message.ShouldContain("AddRcAstroAi");
+        ex.Message.ShouldContain("CanonicalProgram");
     }
 
     [Fact]
@@ -733,27 +734,23 @@ public class SharpenPipelineTests(ITestOutputHelper output)
         pipeline.ShouldNotBeNull();
     }
 
-    // --- End-to-end smoke test (gated on real models) ------------------
+    // --- End-to-end smoke test (gated on the in-house weights) ----------
 
-    private static bool HasAllModels(out string skip)
-    {
-        var r = new ModelResolver();
-        if (r.TryResolve("darkstar_color_AI4.onnx", out _) &&
-            r.TryResolve("deep_sharp_stellar_AI4.onnx", out _) &&
-            r.TryResolve("deep_nonstellar_sharp_conditional_psf_AI4.onnx", out _) &&
-            r.TryResolve("deep_denoise_color_AI4.onnx", out _))
-        {
-            skip = string.Empty;
-            return true;
-        }
-        skip = "AI4 model files not all present; run tools/tianwen-ai-models-fetch.ps1 to enable this test.";
-        return false;
-    }
-
+    /// <summary>
+    /// What TianWen ships WITHOUT RC-Astro, end to end: <c>AddTianWenAi()</c> registers no star
+    /// remover, so the canonical program for a colour frame is the whole-frame one, gradient correction
+    /// (GraXpert, else the classical fit) and the in-house N2N denoise, whose output is the result. The
+    /// SETI Astro run this replaced (four AI4 models, the split program) went with the SAS tier on
+    /// 2026-09-26. Gated on the N2N weights, which ship in the repo (LFS).
+    /// </summary>
     [Fact]
-    public async Task ProcessAsync_CanonicalAgainstRealModels()
+    public async Task ProcessAsync_TheCanonicalProgramWithoutRcAstroRunsWholeFrameOnTheInHouseModels()
     {
-        if (!HasAllModels(out var skip)) { Assert.Skip(skip); return; }
+        if (!new ModelResolver().TryResolve(TianWen.AI.Imaging.Onnx.N2nDenoiser.ModelFileName, out _))
+        {
+            Assert.Skip($"{TianWen.AI.Imaging.Onnx.N2nDenoiser.ModelFileName} not found (or an LFS pointer); run 'git lfs pull' to enable this test.");
+            return;
+        }
 
         using var factory = LoggerFactory.Create(b => b.AddProvider(new XUnitLoggerProvider(output, appendScope: false)));
         var services = new ServiceCollection();
@@ -764,9 +761,7 @@ public class SharpenPipelineTests(ITestOutputHelper output)
         using var provider = services.BuildServiceProvider();
         var pipeline = provider.GetRequiredService<SharpenPipeline>();
 
-        // Synthetic but realistic: low-key background + a couple of bright
-        // Gaussian blobs (stars). Chunk size means the whole image fits in
-        // one chunk per enhancer.
+        // Synthetic but realistic: low-key background + a couple of bright Gaussian blobs (stars).
         const int w = 256, h = 192;
         var src = SyntheticRgb(w, h, 0.10f);
         for (var dy = -5; dy <= 5; dy++)
@@ -777,34 +772,29 @@ public class SharpenPipelineTests(ITestOutputHelper output)
                 AddStarPixel(src, 2 * w / 3 + dx, h / 2 + dy, weight);
             }
 
-        var result = await pipeline.ProcessAsync(SharpenRequest.Canonical(src), TestContext.Current.CancellationToken);
+        var program = pipeline.CanonicalProgram(src, EnhanceOptions.Default);
+        program.SplitStars.ShouldBeFalse("AddTianWenAi registers no star remover");
+        program.ToSteps().ShouldBe([new GradientCorrectionStep(), new DenoiseFrameStep()]);
 
-        result.Final.ShouldNotBeNull();
-        result.Starless.ShouldNotBeNull();
-        result.StarsOnly.ShouldNotBeNull();
-        result.SharpenedStars.ShouldNotBeNull();
-        result.DeconvolvedStarless.ShouldNotBeNull();
-        result.DenoisedStarless.ShouldNotBeNull();
+        var result = await pipeline.ProcessAsync(
+            new SharpenRequest(src, program.ToSteps(), SharpenIntermediates.None), TestContext.Current.CancellationToken);
 
-        var (rc, rw, rh) = result.Final.Shape;
+        var final = result.Final.ShouldNotBeNull();
+        result.Starless.ShouldBeNull();
+        var (rc, rw, rh) = final.Shape;
         rc.ShouldBe(3);
         rw.ShouldBe(w);
         rh.ShouldBe(h);
         for (var c = 0; c < 3; c++)
         {
-            var span = result.Final.GetChannelSpan(c);
+            var span = final.GetChannelSpan(c);
             for (var i = 0; i < span.Length; i++)
             {
                 float.IsFinite(span[i]).ShouldBeTrue($"non-finite c={c} idx={i}: {span[i]}");
             }
         }
 
-        result.Final.Release();
-        result.Starless.Release();
-        result.StarsOnly.Release();
-        result.SharpenedStars.Release();
-        result.DeconvolvedStarless.Release();
-        result.DenoisedStarless.Release();
+        final.Release();
     }
 
     private static void AddStarPixel(Image image, int x, int y, float weight)

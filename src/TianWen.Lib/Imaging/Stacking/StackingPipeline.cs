@@ -1240,9 +1240,10 @@ public sealed class StackingPipeline(
         var integrationCalibrator = calibrator;
         if (options.RemoveStarsPerFrame)
         {
-            if (starRemover is null)
+            // Asked of what the per-frame path calls, the parameterless EnhanceAsync, whose backend is Auto.
+            if (!Enhancement.IEnhancerAvailability.ServesAny(starRemover, Enhancement.EnhanceOptions.Default))
             {
-                var reason = "--remove-stars needs an IStarRemover; register one (AddRcAstroAi() or AddTianWenAi()) in the composition root";
+                var reason = "--remove-stars needs a star remover, and none serves: RC-Astro StarXTerminator is not installed or not licensed, and TianWen has no star-removal model yet";
                 logger.LogError("  [starless] {Reason}", reason);
                 try { Directory.Delete(stagingDir, recursive: true); } catch { /* hygiene */ }
                 return new GroupResult(slug, lightList.Count, matched.Count, Result: null, MasterFitsPath: null,
@@ -1974,14 +1975,15 @@ public sealed class StackingPipeline(
                 // (there the coma is the only compact source, every star being a streak), so the
                 // difference is the comet alone. Measured on SWAN, that recovers 100% of it out to
                 // 120 px and leaks no star trails at all. Masking stays as the fallback for a host
-                // with no AI backend registered -- it is strictly worse, and on a slow body like 10P
-                // it cannot work at all.
+                // where no star remover serves -- it is strictly worse, and on a slow body like 10P
+                // it cannot work at all. SERVES, not registered: a deferred RC-Astro remover is
+                // registered on every host, and on one without the product its first use throws.
                 CometModel? model = null;
-                if (starRemover is null)
+                if (!Enhancement.IEnhancerAvailability.Serves(starRemover, primary.Integration.Master.ChannelCount, Enhancement.EnhanceOptions.Default))
                 {
                     logger.LogInformation(
-                        "  [comet] no IStarRemover registered, so the star layer falls back to EXCLUDING the body. "
-                            + "Register one (AddRcAstroAi() or AddTianWenAi()) to subtract it instead, which keeps "
+                        "  [comet] no star remover serves this master, so the star layer falls back to EXCLUDING the body. "
+                            + "RC-Astro StarXTerminator (installed and licensed) subtracts it instead, which keeps "
                             + "every frame and removes the tail and the coma wings a disc cannot reach");
                 }
                 else

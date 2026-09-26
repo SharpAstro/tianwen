@@ -21,7 +21,9 @@ namespace TianWen.Lib.Tests;
 /// </summary>
 /// <remarks>
 /// Skipped unless <c>TIANWEN_PSF_STORE_DIR</c> points at a dataset out-dir with <c>session-masters/</c>
-/// and the AI4 model resolves; <c>TIANWEN_PSF_PROBE_FILTER</c> (default <c>Rim</c>) selects masters.
+/// and <c>TIANWEN_DECONV_MODEL</c> names a deconvolver graph that resolves (TianWen's own ships at E7;
+/// the SETI Astro graph D1 measured went with the SAS tier on 2026-09-26);
+/// <c>TIANWEN_PSF_PROBE_FILTER</c> (default <c>Rim</c>) selects masters.
 /// Off-label: the graph is a non-stellar deconvolver meant for a starless plate, but stars are the
 /// only PSF probe a frame offers and the comparison is per-tile AGAINST whole-image on the same
 /// pixels, so what is off-label cancels.
@@ -30,7 +32,11 @@ public class PerChunkPsfOutputProbe(ITestOutputHelper output)
 {
     private const string DirVar = "TIANWEN_PSF_STORE_DIR";
     private const string FilterVar = "TIANWEN_PSF_PROBE_FILTER";
+    private const string ModelVar = "TIANWEN_DECONV_MODEL";
     private const int Bins = 3;
+
+    /// <summary>The graph to probe, by model file name, or null when <see cref="ModelVar"/> is unset.</summary>
+    private static string? DeconvModel => Environment.GetEnvironmentVariable(ModelVar) is { Length: > 0 } m ? m : null;
 
     private sealed record BinStats(int Stars, float MedianFwhm);
 
@@ -67,14 +73,16 @@ public class PerChunkPsfOutputProbe(ITestOutputHelper output)
         var mastersDir = Path.Combine(root!, "session-masters");
         Assert.SkipUnless(Directory.Exists(mastersDir), $"no session-masters at {mastersDir}");
         var resolver = new ModelResolver();
+        var model = DeconvModel;
+        Assert.SkipWhen(model is null, $"{ModelVar} not set (it names the deconvolver graph to probe)");
         string modelPath;
         try
         {
-            modelPath = resolver.Resolve(OnnxNonStellarDeconvolver.Model);
+            modelPath = resolver.Resolve(model!);
         }
         catch (Exception ex) when (ex is FileNotFoundException or InvalidOperationException)
         {
-            Assert.Skip($"{OnnxNonStellarDeconvolver.Model} does not resolve: {ex.Message}");
+            Assert.Skip($"{model} does not resolve: {ex.Message}");
             return;
         }
 
@@ -86,15 +94,15 @@ public class PerChunkPsfOutputProbe(ITestOutputHelper output)
         Assert.SkipWhen(masters.Length == 0, $"no master matches '{filter}'");
 
         var ct = TestContext.Current.CancellationToken;
-        // The SHIPPED range, because the shipped graph is what runs.
+        // The estimator's default range; a graph trained on another contract wants its own.
         var estimator = new HfdPsfEstimator();
-        using var whole = new OnnxNonStellarDeconvolver(resolver, estimator, chunkSize: 256, overlap: 64, perChunkPsf: false);
-        using var perTile = new OnnxNonStellarDeconvolver(resolver, estimator, chunkSize: 256, overlap: 64, perChunkPsf: true);
+        using var whole = new OnnxNonStellarDeconvolver(model!, resolver, estimator, chunkSize: 256, overlap: 64, perChunkPsf: false);
+        using var perTile = new OnnxNonStellarDeconvolver(model!, resolver, estimator, chunkSize: 256, overlap: 64, perChunkPsf: true);
 
         output.WriteLine($"model     {modelPath}");
         output.WriteLine($"masters   {masters.Length} matching '{filter}'; bins are thirds of the half-diagonal from the frame centre (inner, middle, outer)");
         output.WriteLine($"columns   median star FWHM px and star count per bin, for the INPUT, the whole-image run and the per-tile run; c/o = inner over outer");
-        output.WriteLine($"psf01     the SHIPPED encoding over [{estimator.RadiusRange.Min}, {estimator.RadiusRange.Max}] px, since the shipped graph is what runs; a master whose");
+        output.WriteLine($"psf01     the estimator's default encoding over [{estimator.RadiusRange.Min}, {estimator.RadiusRange.Max}] px; a master whose");
         output.WriteLine("          radii sit under the floor clamps every tile to the whole-image value and cannot discriminate (tiles differing 0)");
         output.WriteLine("");
         output.WriteLine($"{"master",-40} {"arm",-9} {"inner",6} {"n",5} {"middle",6} {"n",5} {"outer",6} {"n",5} {"c/o",5} {"s",6}");
@@ -157,7 +165,7 @@ public class PerChunkPsfOutputProbe(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Does the shipped graph respond to psf01 AT ALL on a real master? The per-tile comparison above
+    /// Does the graph respond to psf01 AT ALL on a real master? The per-tile comparison above
     /// read as a null on every Rim master (whole and per-tile within 0.01 px and one percent in count
     /// while 250 of 289 tiles carried a different label), which is either a graph that ignores its
     /// conditioning input at this scale or a difference too small to see; running the same graph at
@@ -165,7 +173,7 @@ public class PerChunkPsfOutputProbe(ITestOutputHelper output)
     /// same filter and bins as the comparison.
     /// </summary>
     [Fact]
-    public async Task ReportWhetherTheShippedGraphRespondsToPsf01AtAll()
+    public async Task ReportWhetherTheGraphRespondsToPsf01AtAll()
     {
         Assert.SkipUnless(Environment.GetEnvironmentVariable("TIANWEN_PSF_PROBE_SENSITIVITY") == "1", "TIANWEN_PSF_PROBE_SENSITIVITY is not 1");
         var root = Environment.GetEnvironmentVariable(DirVar);
@@ -173,7 +181,9 @@ public class PerChunkPsfOutputProbe(ITestOutputHelper output)
         var mastersDir = Path.Combine(root!, "session-masters");
         Assert.SkipUnless(Directory.Exists(mastersDir), $"no session-masters at {mastersDir}");
         var resolver = new ModelResolver();
-        Assert.SkipUnless(resolver.TryResolve(OnnxNonStellarDeconvolver.Model, out var modelPath), $"{OnnxNonStellarDeconvolver.Model} does not resolve");
+        var model = DeconvModel;
+        Assert.SkipWhen(model is null, $"{ModelVar} not set (it names the deconvolver graph to probe)");
+        Assert.SkipUnless(resolver.TryResolve(model!, out var modelPath), $"{model} does not resolve");
 
         var filter = Environment.GetEnvironmentVariable(FilterVar) is { Length: > 0 } f ? f : "Rim";
         var masters = Directory.GetFiles(mastersDir, "*.fits")
@@ -204,7 +214,7 @@ public class PerChunkPsfOutputProbe(ITestOutputHelper output)
                 Print(shortName, "input", await MeasureAsync(unit, ct), 0);
                 foreach (var psf01 in new[] { 0.0f, 0.5f, 1.0f })
                 {
-                    using var deconvolver = new OnnxNonStellarDeconvolver(resolver, new FixedPsfEstimator(psf01), chunkSize: 256, overlap: 64);
+                    using var deconvolver = new OnnxNonStellarDeconvolver(model!, resolver, new FixedPsfEstimator(psf01), chunkSize: 256, overlap: 64);
                     var started = DateTime.UtcNow;
                     var result = await deconvolver.EnhanceAsync(unit, ct);
                     try

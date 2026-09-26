@@ -47,11 +47,11 @@ namespace TianWen.Lib.Tests
         [Fact]
         public void TheBodyCarriesTheBuildTheOsAndTheAiBlock()
         {
-            var body = BodyOf(BugReportLink.ForViewer(Build, Os, ["backend: SETI Astro", "models: 3 resolved"]));
+            var body = BodyOf(BugReportLink.ForViewer(Build, Os, ["backend: RC-Astro", "models: 3 resolved"]));
 
             body.ShouldContain(Build);
             body.ShouldContain(Os);
-            body.ShouldContain("backend: SETI Astro");
+            body.ShouldContain("backend: RC-Astro");
             body.ShouldContain("models: 3 resolved");
         }
 

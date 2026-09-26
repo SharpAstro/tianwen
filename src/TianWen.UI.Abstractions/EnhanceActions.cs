@@ -40,7 +40,7 @@ public static class EnhanceActions
         // here is a spatial model, and the canvas ring is exact zero -- a hard cliff a CNN reads as
         // structure and smears inward, which is what a border still visible after a gradient correction
         // actually is. Note the pipeline cannot be told to ignore it instead: SharpenPipeline fills
-        // non-finite samples with the channel mean at its boundary (SAS ONNX and RC-Astro both
+        // non-finite samples with the channel mean at its boundary (the ONNX models and RC-Astro both
         // normalise without NaN awareness), so masking is not available, and exact zeros pass through
         // untouched.
         //
@@ -55,13 +55,12 @@ public static class EnhanceActions
             wcs = wcs?.CroppedTo(region.X, region.Y);
         }
 
-        // BlurX-first program when a deblurrer is registered (RC-Astro), else the SAS-shaped
-        // canonical -- the same selection MasterPostProcessor makes, via the shared factories
-        // (single source of truth for the step program). Linear in / linear out: the viewer
+        // The canonical program for what serves THIS input, the same one MasterPostProcessor, the
+        // CLI and the enhance endpoint run (SharpenPipeline.CanonicalProgram): BlurX-first where a
+        // deblurrer serves, whole-frame where no star remover does. Linear in / linear out: the viewer
         // applies its own stretch, so no final stretch step is included.
-        var request = pipeline.SupportsDeblur
-            ? SharpenRequest.DeblurFirst(input)
-            : SharpenRequest.Canonical(input);
+        var program = pipeline.CanonicalProgram(input, options);
+        var request = new SharpenRequest(input, program.ToSteps());
 
         // Per-step progress -> viewer status line. Runs on the background thread; these scalar
         // writes to ViewerState are the only writers during the run and the render thread reads
@@ -117,12 +116,12 @@ public static class EnhanceActions
         var doc = await AstroImageDocument.AdoptImageAsync(
             enhanced.WithZeroPedestal(), debayerAlgorithm, wcs, source.FilePath, crop, cancellationToken)
             .ConfigureAwait(false);
-        // Both canonical programs run a GradientCorrectionStep, so the background of what comes back
+        // Every canonical program runs a GradientCorrectionStep, so the background of what comes back
         // has been flattened and levelled. Nothing needs telling any more: AstroImageDocument.
         // ChannelsAlreadyAgree MEASURES that from the per-channel medians the stretch already has, so
         // the enhanced plate gets the right answer by the same route a master flattened in any other
         // tool does. The flag this used to set could only ever be right about our own output.
-        state.StatusMessage = $"Enhanced ({(pipeline.SupportsDeblur ? "BlurX-first" : "SAS")})";
+        state.StatusMessage = $"Enhanced ({(program.Deblur ? "BlurX-first" : program.SplitStars ? "stars split" : "whole frame")})";
         return doc;
     }
 }

@@ -205,7 +205,7 @@ public sealed record StackingOptions(
     // Which display-side renditions to emit (preview PNG and/or Ultra HDR gain-map JPEG).
     // Default = the PNG quick-look, matching the pre-flags behaviour.
     MasterRenderOutputs RenderOutputs = MasterRenderOutputs.PreviewPng,
-    // RC-Astro vs SAS backend selection + per-product strength overrides for the
+    // Enhancer backend selection (RC-Astro, in-house) + per-product strength overrides for the
     // --enhance pass. null = EnhanceOptions.Default (Auto backend, no overrides) --
     // identical to the pre-option behaviour. Threaded immutably to SharpenPipeline.
     EnhanceOptions? EnhanceOptions = null,

@@ -90,6 +90,29 @@ Embedded data
   bundled Content file, and this file is attribution rather than licence text.
 
 
+SETI Astro Suite Pro
+--------------------
+
+TianWen builds on the source of SETI Astro Suite Pro by Franklin Marek, published
+under the GNU General Public License version 3:
+
+  https://github.com/setiastro/setiastrosuitepro
+
+  Data: the sensor quantum-efficiency, filter-transmission and Pickles stellar
+  spectrum curves of its `SASP_data.fits`, which `tools/import-sasp-data/` converts
+  into TianWen's filter-curve and quantum-efficiency tables. The curves themselves
+  come from their original publishers (sensor and filter vendors, the Pickles
+  library) and keep those terms; the compilation is SETI Astro's.
+
+  Method: several display and inference routines follow its published Python and
+  say so where they do, among them the pivot1 background neutralisation, the
+  StarStretch, statistical and generalised hyperbolic stretch curves, the border
+  and stitching of tiled inference, and the test for an input already stretched.
+
+GPL-3.0 material may be combined into an AGPL-3.0 work (AGPL-3.0 section 13). Its
+AI model weights are licensed separately and are not used; see below.
+
+
 External programs, invoked and never linked
 -------------------------------------------
 
@@ -102,21 +125,24 @@ directly from its author:
   astrometry.net (`AstrometryNetPlateSolver`) https://astrometry.net
   GraXpert (gradient correction)             https://graxpert.com
   RC-Astro BlurXTerminator / NoiseXTerminator / StarXTerminator  https://www.rc-astro.com
-  SETI Astro Suite ONNX models               https://www.setiastro.com
 
 **TianWen's own licence does not restrict driving these programs; each vendor's
 terms govern its own software.** RC-Astro runs as a separate process
-(`rc-astro --json`) against the user's own licence. SETI Astro's ONNX weights
-differ in two ways: they are loaded in process rather than run as a program, and
-since 2026-09-24 they carry their own licence (`COSMIC_CLARITY_LICENSE.txt`, on
-the release that hosts them), which permits use only within SASpro, for personal
-non-commercial processing, unless the author consents in writing. TianWen never
-fetches them and nothing in it tells a user to: it reads them only where SASpro
-or the user put them, and `tools/tianwen-ai-models-fetch.ps1` is a developer
-tool. TianWen distributes **no third-party model weights** and no vendor
-binaries of its own; it locates what the user installed.
+(`rc-astro --json`) against the user's own licence. GraXpert differs in one way:
+TianWen does not run it, but loads its background-extraction model in process,
+reading it where GraXpert put it and under GraXpert's own terms for its models.
+TianWen distributes **no third-party model weights** and no vendor binaries of its
+own; it locates what the user installed.
 Nothing in this section forms part of TianWen's Corresponding Source, because none
 of it is part of TianWen.
+
+SETI Astro Suite Pro's ONNX models are no longer used at all. Since 2026-09-24
+they carry their own licence (`COSMIC_CLARITY_LICENSE.txt`, on the release that
+hosts them), which permits use only within SASpro, for personal non-commercial
+processing, unless the author consents in writing. On 2026-09-26 TianWen stopped
+loading them and stopped searching SASpro's models folder. Releases before that
+read them only where SASpro or the user had put them, and never fetched or
+redistributed them.
 
 Building our own models meets a narrower restriction as well:
 RC-Astro's licence forbids using its outputs to create, train, validate or

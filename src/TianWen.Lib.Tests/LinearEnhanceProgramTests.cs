@@ -18,13 +18,13 @@ namespace TianWen.Lib.Tests;
 public class LinearEnhanceProgramTests
 {
     /// <summary>
-    /// The SAS-shaped program: no deblurrer, so the stars plate is sharpened and the starless plate
-    /// deconvolved, and there is no green fringe for SCNR to neutralise.
+    /// The split program with every role and no deblurrer: the stars plate is sharpened and the
+    /// starless plate deconvolved, and there is no green fringe for SCNR to neutralise.
     /// </summary>
     [Fact]
-    public void WithoutADeblurrerTheProgramIsTheSasShapedOne()
+    public void WithEveryRoleAndNoDeblurrerTheSplitProgramSharpensAndDeconvolves()
     {
-        LinearEnhanceProgram.For(supportsDeblur: false).ToSteps()
+        LinearEnhanceProgram.For(EnhanceCapabilities.AllRoles(deblur: false)).ToSteps()
             .Select(static s => s.GetType()).ShouldBe(
             [
                 typeof(GradientCorrectionStep),
@@ -45,7 +45,7 @@ public class LinearEnhanceProgramTests
     [Fact]
     public void WithADeblurrerTheProgramIsTheBlurXFirstOne()
     {
-        LinearEnhanceProgram.For(supportsDeblur: true).ToSteps()
+        LinearEnhanceProgram.For(EnhanceCapabilities.AllRoles(deblur: true)).ToSteps()
             .Select(static s => s.GetType()).ShouldBe(
             [
                 typeof(DeblurStep),
@@ -58,17 +58,69 @@ public class LinearEnhanceProgramTests
     }
 
     /// <summary>
+    /// No star remover serves (no RC-Astro StarXTerminator): the WHOLE-FRAME program. Gradient
+    /// correction, then the denoise on the frame, whose output is the result, so there is no split,
+    /// no plate-only step and no recombine; a deblurrer, where one serves, still goes first.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void WithoutAStarRemoverTheProgramIsWholeFrame(bool deblur)
+    {
+        var capabilities = new EnhanceCapabilities(
+            Deblur: deblur, GradientCorrection: true, StarRemoval: false, StellarSharpen: true, Deconvolve: true, Denoise: true);
+        var steps = LinearEnhanceProgram.For(capabilities).ToSteps().Select(static s => s.GetType()).ToArray();
+
+        steps.ShouldBe(deblur
+            ? [typeof(DeblurStep), typeof(GradientCorrectionStep), typeof(DenoiseFrameStep)]
+            : [typeof(GradientCorrectionStep), typeof(DenoiseFrameStep)]);
+    }
+
+    /// <summary>
+    /// A mono frame with no RC-Astro: nothing denoises it (the in-house model is colour-only), so the
+    /// program is gradient correction alone, and the pipeline promotes that frame to the result.
+    /// </summary>
+    [Fact]
+    public void WithOnlyAGradientCorrectorTheProgramIsThatAlone()
+    {
+        var capabilities = new EnhanceCapabilities(
+            Deblur: false, GradientCorrection: true, StarRemoval: false, StellarSharpen: false, Deconvolve: false, Denoise: false);
+
+        LinearEnhanceProgram.For(capabilities).ToSteps().Select(static s => s.GetType())
+            .ShouldBe([typeof(GradientCorrectionStep)]);
+    }
+
+    /// <summary>
+    /// A role nothing serves never gets a step. StarXTerminator and NoiseXTerminator licensed, no
+    /// BlurX, no stellar sharpener: the split program without the sharpen and the deconvolution.
+    /// </summary>
+    [Fact]
+    public void ARoleNothingServesNeverGetsAStep()
+    {
+        var capabilities = new EnhanceCapabilities(
+            Deblur: false, GradientCorrection: true, StarRemoval: true, StellarSharpen: false, Deconvolve: false, Denoise: true);
+
+        LinearEnhanceProgram.For(capabilities).ToSteps().Select(static s => s.GetType()).ShouldBe(
+        [
+            typeof(GradientCorrectionStep),
+            typeof(RemoveStarsStep),
+            typeof(DenoiseStarlessStep),
+            typeof(RecombineStep),
+        ]);
+    }
+
+    /// <summary>
     /// The two public factories are the program and nothing else. They used to BE two more copies
     /// of the order, which is what made four copies in total.
     /// </summary>
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void TheCanonicalRequestsAreTheProgram(bool supportsDeblur)
+    public void TheCanonicalRequestsAreTheProgram(bool deblur)
     {
         var source = TestImage();
-        var request = supportsDeblur ? SharpenRequest.DeblurFirst(source) : SharpenRequest.Canonical(source);
-        request.Steps.ShouldBe(LinearEnhanceProgram.For(supportsDeblur).ToSteps());
+        var request = deblur ? SharpenRequest.DeblurFirst(source) : SharpenRequest.Canonical(source);
+        request.Steps.ShouldBe(LinearEnhanceProgram.For(EnhanceCapabilities.AllRoles(deblur)).ToSteps());
     }
 
     /// <summary>
@@ -77,11 +129,13 @@ public class LinearEnhanceProgramTests
     /// order has to give the whole program back, or that split would silently drop or reorder a step.
     /// </summary>
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void ThePlateAndCompositeHalvesReassembleIntoTheWholeProgram(bool supportsDeblur)
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    public void ThePlateAndCompositeHalvesReassembleIntoTheWholeProgram(bool deblur, bool starRemoval)
     {
-        var program = LinearEnhanceProgram.For(supportsDeblur);
+        var program = LinearEnhanceProgram.For(EnhanceCapabilities.AllRoles(deblur) with { StarRemoval = starRemoval });
         program.PlateSteps.AddRange(program.CompositeSteps).ShouldBe(program.ToSteps());
     }
 
@@ -92,7 +146,7 @@ public class LinearEnhanceProgramTests
     [Fact]
     public void ClearingAToggleRemovesOnlyThatStep()
     {
-        var program = LinearEnhanceProgram.For(supportsDeblur: true);
+        var program = LinearEnhanceProgram.For(EnhanceCapabilities.AllRoles(deblur: true));
 
         (program with { GradientCorrection = false }).ToSteps()
             .ShouldBe(program.ToSteps().Where(static s => s is not GradientCorrectionStep));
@@ -112,7 +166,7 @@ public class LinearEnhanceProgramTests
     [Fact]
     public void ABlendReachesItsOwnStep()
     {
-        var steps = (LinearEnhanceProgram.For(supportsDeblur: true) with
+        var steps = (LinearEnhanceProgram.For(EnhanceCapabilities.AllRoles(deblur: true)) with
         {
             DeblurBlend = 0.25f,
             DenoiseBlend = 0.75f,
@@ -122,6 +176,11 @@ public class LinearEnhanceProgramTests
         steps.OfType<DeblurStep>().Single().Blend.ShouldBe(0.25f);
         steps.OfType<DenoiseStarlessStep>().Single().Blend.ShouldBe(0.75f);
         steps.OfType<ScnrStarsStep>().Single().Amount.ShouldBe(0.5f);
+
+        // The whole-frame program's denoise carries the same dial.
+        var wholeFrame = (LinearEnhanceProgram.For(EnhanceCapabilities.AllRoles(deblur: false) with { StarRemoval = false })
+            with { DenoiseBlend = 0.6f }).ToSteps();
+        wholeFrame.OfType<DenoiseFrameStep>().Single().Blend.ShouldBe(0.6f);
     }
 
     /// <summary>A trivial RGB frame. These tests never run the pipeline -- the factories only need

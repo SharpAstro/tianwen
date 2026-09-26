@@ -133,8 +133,8 @@ public enum PngPqGamut { Srgb, Bt2020 }
 /// explicit <c>-o</c> overrides.
 /// </summary>
 /// <remarks>
-/// AI enhancers go through the AI4 NAFNet pipeline wired by
-/// <c>services.AddTianWenAi()</c>. Input is normalised to <c>[0, 1]</c>
+/// AI enhancers go through the role-typed pipeline wired by
+/// <c>services.AddRcAstroAi()</c> (RC-Astro where licensed, TianWen's own models otherwise). Input is normalised to <c>[0, 1]</c>
 /// via <see cref="Image.ScaleFloatValuesToUnit"/> before inference
 /// (the enhancers validate the range and would otherwise reject the call);
 /// output is written at <c>BitDepth.Float32</c> in the same normalised
@@ -456,7 +456,7 @@ internal sealed class ImageSubCommand(
         var gamutOpt = BuildPngPqGamutOption();
 
         var cmd = new Command("denoise",
-            "Noise reduction (RC-Astro NoiseXTerminator, the SETI Astro AI4 model, or the in-house N2N "
+            "Noise reduction (RC-Astro NoiseXTerminator where licensed, else the in-house N2N "
             + "denoiser, whichever serves the role) and nothing else. Inside `sharpen` this runs on the "
             + "STARLESS plate; here it runs on the frame as given, which is what you want when the input "
             + "is already starless or when you are judging the denoiser on its own.")
@@ -466,7 +466,7 @@ internal sealed class ImageSubCommand(
         };
         cmd.SetAction((parseResult, ct) => RunSingleRoleAsync(
             "denoise", denoiser,
-            "Register one with AddTianWenAi() (SETI Astro weights), AddRcAstroAi() (NoiseXTerminator) or AddTianWenN2nDenoiser().",
+            "Register one with AddRcAstroAi() (NoiseXTerminator, else TianWen's own N2N model on colour data) or AddTianWenAi() (the N2N model alone).",
             parseResult.Required(inputArg), parseResult.GetValue(outputOpt),
             parseResult.GetValue(formatOpt),
             Math.Clamp(parseResult.GetValue(peakNitsOpt), 1f, 10000f),
@@ -493,7 +493,7 @@ internal sealed class ImageSubCommand(
         };
         var stellarSharpenOpt = new Option<bool>("--stellar-sharpen")
         {
-            Description = "Opt in to the SAS stellar-sharpening pass on the extracted stars (default OFF). Stars from a registered/drizzled stack are already round, and the SAS NAFNet over-sharpens bright cores - it pushes them past 1.0 (hard clamp) and hardens the edges into square white blocks. Left off, stars pass through to StarStretch/recombine unmodified. Hard override: when a BlurX deblurrer is live (RC-Astro present) this pass is skipped even if requested, since the BlurX-first flow deblurs whole-frame before star extraction.",
+            Description = "Opt in to a stellar-sharpening pass on the extracted stars (default OFF), where a stellar sharpener is available: none ships today (the SETI Astro one was removed on 2026-09-26), so this is reported and ignored until TianWen's own does. Left off, stars pass through to StarStretch/recombine unmodified. Hard override: when a BlurX deblurrer is live (RC-Astro present) this pass is skipped even if requested, since the BlurX-first flow deblurs whole-frame before star extraction.",
         };
         var noGradientOpt = new Option<bool>("--no-gradient")
         {
@@ -520,7 +520,7 @@ internal sealed class ImageSubCommand(
         var (pngPqPeakNitsOpt, pngPqGamutOpt) = HdrCompanionOptions();
         var stellarBlendOpt = new Option<float>("--stellar-blend")
         {
-            Description = "AI strength for the stellar sharpening pass in [0, 1], applied only when --stellar-sharpen is set. 0 = stars untouched; 1 = full AI output; ~0.5 is a typical good value for tight star fields where AI4 over-sharpens.",
+            Description = "AI strength for the stellar sharpening pass in [0, 1], applied only when --stellar-sharpen is set. 0 = stars untouched; 1 = full AI output.",
             DefaultValueFactory = _ => 1.0f,
         };
         var deconvBlendOpt = new Option<float>("--deconv-blend")
@@ -530,12 +530,12 @@ internal sealed class ImageSubCommand(
         };
         var denoiseBlendOpt = new Option<float>("--denoise-blend")
         {
-            Description = "AI strength for the denoise pass on the starless plate in [0, 1]. 0 = noise untouched; 1 = full AI output. AI4 NoiseX is conservative on faint nebula detail so full strength is usually safe.",
+            Description = "AI strength for the denoise pass in [0, 1] (on the starless plate, or on the whole frame when no star remover serves). 0 = noise untouched; 1 = full AI output.",
             DefaultValueFactory = _ => 1.0f,
         };
         var denoiseVariantOpt = new Option<string>("--denoise-variant")
         {
-            Description = "AI4 denoise weight bundle: 'default' (full NAFNet, slowest+best), 'lite' (half-width, ~2x faster), or 'walking' (trained on dither-correlated pattern noise).",
+            Description = "Denoise weight bundle: 'default', 'lite' or 'walking'. Only 'default' is served today: RC-Astro NoiseXTerminator has one model, and TianWen's own N2N model has one bundle and refuses the others (the SETI Astro lite and walking bundles were removed on 2026-09-26; a walking-noise model of our own is planned).",
             DefaultValueFactory = _ => "default",
         };
         var scnrOpt = new Option<string>("--scnr")
@@ -670,7 +670,7 @@ internal sealed class ImageSubCommand(
         // backend-neutral when the n2n lane made them serve more than RC-Astro).
         var aiBackendOpt = new Option<string>("--ai-backend")
         {
-            Description = "AI enhancer backend for the RC-servable roles (star removal / deblur / deconvolution / denoise): 'auto' (RC-Astro when present + licensed, else SAS ONNX - default), 'rc' (force RC-Astro whenever the CLI is installed, skipping the license probe), 'sas' (force SAS ONNX even when RC-Astro is licensed), or 'n2n' (the in-house TianWen Noise2Noise model for the denoise step - OSC-only, ships with the repo; other roles behave as auto). No effect on stellar-sharpen / gradient-correction (SAS-only).",
+            Description = "AI enhancer backend for the RC-servable roles (star removal / deblur / deconvolution / denoise): 'auto' (RC-Astro when present + licensed, else TianWen's own model where the role has one - default), 'rc' (force RC-Astro whenever the CLI is installed, skipping the license probe), or 'n2n' (the in-house TianWen Noise2Noise model for the denoise step - OSC-only, ships with the repo; other roles behave as auto). A role nothing serves is left out: with no star remover the program runs whole-frame. No effect on gradient correction (GraXpert, else the classical fit). 'sas' was removed on 2026-09-26.",
             DefaultValueFactory = _ => "auto",
         };
         var deblurSharpenOpt = new Option<double>("--deblur-sharpen")
@@ -689,7 +689,7 @@ internal sealed class ImageSubCommand(
             DefaultValueFactory = _ => 0,
         };
 
-        var cmd = new Command("sharpen", "Full AI4 NAFNet sharpen pipeline: remove stars, sharpen the stars-only plate, deconvolve + denoise the starless plate, optional SCNR on stars, recombine.")
+        var cmd = new Command("sharpen", "The canonical AI enhance: with a star remover (RC-Astro StarXTerminator), deblur, gradient, remove stars, denoise (and deconvolve) the starless plate, optional SCNR on stars, recombine; without one, whole-frame gradient correction and denoise. Every step runs only where a backend serves it.")
         {
             Arguments = { inputArg },
             Options = { outputOpt, modeOpt, stellarSharpenOpt, noGradientOpt, noDeconvOpt, noDenoiseOpt, noRecombineOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt, stellarBlendOpt, deconvBlendOpt, denoiseBlendOpt, denoiseVariantOpt, scnrOpt, scnrAmountOpt, dualStretchOpt, stretchStarsAmountOpt, stretchStarlessMedianOpt, starStretchModeOpt, starlessStretchModeOpt, stretchModeOpt, ghsConvergeOpt, ghsLnDOpt, ghsBOpt, ghsLpOpt, ghsHpOpt, ghsSpOpt, ghsPassesOpt, ghsStagesOpt, ghsAutoTargetValueOpt, ghsAutoTargetOpt, asinhBetaOpt, asinhBlackPointOpt, asinhLumaOpt, noReduceBgOpt, reduceBgCompressionOpt, noCompressHighlightsOpt, highlightKneeOpt, highlightAmountOpt, aiBackendOpt, deblurSharpenOpt, denoiseStrengthOpt, denoiseIterationsOpt },
@@ -867,36 +867,55 @@ internal sealed class ImageSubCommand(
             var normalised = src.ScaleFloatValuesToUnit();
 
 
-            // Stellar-sharpen is opt-in (default OFF). Stars from a registered/
-            // drizzled stack are already round, and the SAS NAFNet over-sharpens
-            // bright cores -- it pushes them past 1.0 (hard clamp) and hardens the
-            // edges into square white blocks (measured ~89k clipped px on a dense
-            // field; 0 with it off). So it stays off unless --stellar-sharpen is
-            // passed. Hard override: when a BlurX deblurrer is live (RC-Astro
-            // present) it is skipped even if opted in -- the BlurX-first (PixInsight
-            // OSC) flow deblurs whole-frame before star extraction, so re-sharpening
-            // the split stars double-dips.
-            var deblurLive = sharpenPipeline.SupportsDeblur;
-            var doStellar = stellarOptIn && !deblurLive;
+            // What can serve THIS image under THESE options sets the program's shape (the RC-Astro
+            // licence probe runs here, at the first enhance, never at DI build): the split program with
+            // a star remover, BlurX-first where a deblurrer serves, and the whole-frame program
+            // (gradient, then denoise the frame) where no star remover does.
+            var capabilities = sharpenPipeline.CapabilitiesFor(normalised, enhanceOptions);
+            var deblurLive = capabilities.Deblur;
+            if (!capabilities.StarRemoval && (dualStretch || noRecombine))
+            {
+                consoleHost.WriteError(
+                    "--dual-stretch, --star-stretch-mode, --starless-stretch-mode and --no-recombine work on the split star and starless plates, " +
+                    "and no star remover serves this image (star removal is RC-Astro StarXTerminator until TianWen's own ships).");
+                return 1;
+            }
+
+            // Stellar-sharpen is opt-in (default OFF), and only where a stellar sharpener serves: none
+            // ships today (the SETI Astro one went with the SAS tier on 2026-09-26, and it hardened
+            // bright cores into square white blocks, ~89k clipped px measured on a dense field). Hard
+            // override: when a BlurX deblurrer is live it is skipped even if opted in -- the BlurX-first
+            // (PixInsight OSC) flow deblurs whole-frame before star extraction, so re-sharpening the
+            // split stars double-dips.
+            var doStellar = stellarOptIn && !deblurLive && capabilities.StellarSharpen && capabilities.StarRemoval;
             if (stellarOptIn && deblurLive)
             {
                 consoleHost.WriteScrollable(
                     "[sharpen] --stellar-sharpen ignored: BlurX deblurrer live (deblur is whole-frame upstream; re-sharpening extracted stars over-sharpens).");
             }
-
+            else if (stellarOptIn && !doStellar)
+            {
+                consoleHost.WriteScrollable(
+                    "[sharpen] --stellar-sharpen ignored: no stellar sharpener is available (none ships today; RC-Astro BlurXTerminator's deblur tightens stars).");
+            }
 
             // SCNR on the stars plate follows whichever canonical program applies, and only an
             // explicit --scnr overrides it. SharpenRequest.DeblurFirst carries ScnrStarsStep
             // (Average) and SharpenRequest.Canonical does not, which is the split honoured here:
             // BlurX tightens every star to near the sampling limit, and the faint ones then carry a
             // green fringe where the G channel outpaces R and B, so the BlurX-first flow neutralises
-            // it and the SAS-shaped flow has nothing to neutralise. --dual-stretch keeps its own
+            // it and the split program without a deblurrer has nothing to neutralise. --dual-stretch keeps its own
             // reason on top: green stars are a stretched-space artefact, so a program that stretches
             // in-pipeline wants SCNR whichever deblurrer is live.
             var scnrExplicit = parseResult.GetResult(scnrOpt)?.Tokens.Count > 0;
             var effectiveScnrMode = scnrExplicit ? scnrMode
                 : deblurLive || dualStretch ? ScnrMode.Average
                 : ScnrMode.None;
+            if (scnrExplicit && !capabilities.StarRemoval && scnrMode != ScnrMode.None)
+            {
+                consoleHost.WriteScrollable(
+                    "[sharpen] --scnr ignored: SCNR works on the stars plate, and with no star remover the program is whole-frame.");
+            }
 
             // THE STEP ORDER IS NOT WRITTEN HERE. LinearEnhanceProgram.For is the one place it
             // lives, and the viewer's Enhance button, the hosted endpoint and MasterPostProcessor
@@ -907,25 +926,24 @@ internal sealed class ImageSubCommand(
             // and on the command line came out visibly different, an uncorrected background with
             // its colour cast intact, and nothing said so.
             //
-            // Deviations from the canonical defaults, each with its own reason:
-            //  - StellarSharpen is opt-in here and canonical off the command line, because the SAS
-            //    NAFNet over-sharpens bright cores into square white blocks (~89k clipped px
-            //    measured on a dense field, 0 with it off).
+            // Deviations from the canonical defaults, each with its own reason (and none of them can
+            // switch on a step no role serves: every step flag is ANDed with its capability):
+            //  - StellarSharpen is opt-in here, where a sharpener serves at all (see above).
             //  - DeconvolveStarless survives a live deblurrer only if asked for outright.
             //  - Scnr follows whichever canonical program applies unless --scnr overrides it, and
             //    --dual-stretch wants it either way (green stars are a stretched-space artefact).
             //  - Recombine is cleared by --no-recombine, which writes each plate separately.
-            var program = LinearEnhanceProgram.For(deblurLive) with
+            var program = LinearEnhanceProgram.For(capabilities) with
             {
                 // Blend left at the step default, as the canonical program has it; --deblur-sharpen
                 // tunes RC-Astro's own sharpening through EnhanceOptions and is a different dial.
-                GradientCorrection = !noGradient,
+                GradientCorrection = !noGradient && capabilities.GradientCorrection,
                 SplitMode = mode,
                 StellarSharpen = doStellar,
                 StellarBlend = stellarBlend,
-                DeconvolveStarless = !noDeconv && (!deblurLive || deconvExplicit),
+                DeconvolveStarless = !noDeconv && capabilities.StarRemoval && capabilities.Deconvolve && (!deblurLive || deconvExplicit),
                 DeconvolveBlend = deconvBlend,
-                Denoise = !noDenoise,
+                Denoise = !noDenoise && capabilities.Denoise,
                 DenoiseBlend = denoiseBlend,
                 DenoiseVariant = denoiseVariant,
                 Scnr = effectiveScnrMode,
@@ -1246,7 +1264,7 @@ internal sealed class ImageSubCommand(
             "2D-viewer companion file alongside the FITS output. 'none' (default) = no companion. 'png' = 16-bit RGBA + cICP sRGB (SDR). 'png-pq' = 16-bit RGBA + cICP HDR10 PQ (HDR display). 'jxr' = JPEG XR with float-true HDR pixels.");
         var (pngPqPeakNitsOpt, pngPqGamutOpt) = HdrCompanionOptions();
 
-        var cmd = new Command("remove-stars", "AI4 NAFNet star removal only. Produces a starless export.")
+        var cmd = new Command("remove-stars", "Star removal only (RC-Astro StarXTerminator; TianWen's own star remover is planned). Produces a starless export.")
         {
             Arguments = { inputArg },
             Options = { outputOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt },

@@ -208,8 +208,9 @@ public class ChunkedInferenceTests
     }
 
     /// <summary>
-    /// featherPx = 0 must remain the byte-for-byte unweighted mean, because the AI4 NAFNet path is
-    /// a port pinned against SAS Pro and does not opt in.
+    /// featherPx = 0 must remain the byte-for-byte unweighted mean, because the NAFNet path (a port
+    /// pinned against SAS Pro's GPL source, and what TianWen's own models were trained through) does
+    /// not opt in.
     /// </summary>
     [Fact]
     public void Stitch_DefaultsToTheUnweightedMeanSoTheNafnetPortIsUnchanged()

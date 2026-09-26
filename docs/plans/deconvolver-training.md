@@ -35,9 +35,12 @@ deconvolver arm rather than re-reading E3 at the old budget.
   IS a lever and it is the CEILING, not the floor, that is throwing resolution away.** The estimator
   now exposes its unclamped measurement (`MeasureRadiusPxAsync`) and a range-parameterised
   `EncodeRadiusToPsf01`, because a clamped value cannot be re-encoded under a candidate range.
-- Backend order today: RC-Astro `bxt` when installed and licensed, else SAS
-  `deep_nonstellar_sharp_conditional_psf_AI4.onnx`. Neither may appear in this training, validation
-  or metric loop (EULA section 10; SAS licence unverified, excluded by default).
+- Backend order today: RC-Astro `bxt` when installed and licensed, else NOTHING. The SAS
+  `deep_nonstellar_sharp_conditional_psf_AI4.onnx` fallback went with that tier on 2026-09-26, so the
+  starless-deconvolution role waits for this programme's model (E7), and `OnnxNonStellarDeconvolver`
+  is the shell it ships through. Neither vendor's output may appear in this training, validation or
+  metric loop (RC's EULA section 10; SETI Astro's licence of 2026-09-24 forbids distillation and
+  derived models).
 
 ### Measurements (the sweep is calibrated, with three caveats)
 

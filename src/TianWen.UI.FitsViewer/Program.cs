@@ -37,7 +37,7 @@ services
     .AddExternal()
     .AddAstrometry()
     // RC-preferred AI enhancers (sxt/nxt/bxt when the rc-astro CLI is installed + licensed, else the
-    // SETI Astro ONNX baseline). Registers SharpenPipeline for the viewer's Enhance action.
+    // in-house models where a role has one). Registers SharpenPipeline for the viewer's Enhance action.
     .AddRcAstroAi()
     .AddSingleton<BackgroundTaskTracker>()
     .AddSingleton<ViewerController>();

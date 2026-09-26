@@ -403,38 +403,28 @@ public class N2nDenoiserTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// The N2N model is opt-in and must not displace <see cref="OnnxDenoiser"/> by merely being
-    /// registered: it is OSC-only, and it has never been compared against the AI4 denoiser on the
-    /// enhance pipeline's own job. Both halves of that are asserted here so a future
-    /// <c>TryAddSingleton</c> slip in <c>AddTianWenAi</c> shows up as a red test.
+    /// Since the SETI Astro tier was removed (2026-09-26), the N2N model IS the local denoiser:
+    /// <c>AddTianWenAi</c> registers it, and it declines mono through <see cref="IEnhancerAvailability"/>
+    /// rather than failing, so the canonical program simply leaves the denoise out for a mono frame.
     /// </summary>
     [Fact]
-    public void TheDefaultRegistrationKeepsTheAi4DenoiserAndTheOptInReplacesIt()
+    public void AddTianWenAi_RegistersTheN2nModelAsTheDenoiserAndItDeclinesMono()
     {
         var services = new ServiceCollection();
         services.AddSingleton(NullLoggerFactory.Instance);
         services.AddLogging();
         services.AddTianWenAi();
-        using (var provider = services.BuildServiceProvider())
-        {
-            provider.GetRequiredService<IDenoiseEnhancer>().ShouldBeOfType<OnnxDenoiser>();
-        }
+        using var provider = services.BuildServiceProvider();
 
-        var optIn = new ServiceCollection();
-        optIn.AddSingleton(NullLoggerFactory.Instance);
-        optIn.AddLogging();
-        optIn.AddTianWenN2nDenoiser();
-        using (var provider = optIn.BuildServiceProvider())
-        {
-            var denoiser = provider.GetRequiredService<IDenoiseEnhancer>();
-            denoiser.ShouldBeOfType<N2nDenoiser>();
-            denoiser.Name.ShouldContain("N2N");
-        }
+        var denoiser = provider.GetRequiredService<IDenoiseEnhancer>();
+        denoiser.ShouldBeOfType<N2nDenoiser>();
+        denoiser.Name.ShouldContain("N2N");
+        ((IEnhancerAvailability)denoiser).CanServe(1, EnhanceOptions.Default).ShouldBeFalse();
     }
 
     /// <summary>
     /// One weight bundle exists, so a caller asking for Lite or Walking is told rather than
-    /// silently handed Default -- the variant axis belongs to the AI4 family, not to this model.
+    /// silently handed Default -- this model has one bundle, whatever the variant axis offers.
     /// Both routes in: the variant overload and the pipeline's variant+options overload.
     /// </summary>
     [Fact]

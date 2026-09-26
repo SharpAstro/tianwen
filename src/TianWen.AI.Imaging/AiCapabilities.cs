@@ -15,14 +15,14 @@ namespace TianWen.AI.Imaging;
 /// licensed RC-Astro CLI is reachable.
 ///
 /// <para><b>Why it exists.</b> Every one of these failures is silent until the moment someone runs a
-/// five-minute enhance. A missing SAS weight file, a Git LFS pointer stub where weights should be, an
+/// five-minute enhance. A missing weight file, a Git LFS pointer stub where weights should be, an
 /// unlicensed RC product, an <c>rc-astro.exe</c> that is installed but broken -- none of them show up
 /// anywhere until the work is already underway, and on a DEPLOYED install nobody has a repo or a dev
 /// tool to go looking with. This turns "AI enhance did nothing / crashed" into one report you can ask
 /// a user for.</para>
 ///
 /// <para><b>It must be asked for, never run on its own.</b> <c>AddRcAstroAi()</c> deliberately defers
-/// the RC-vs-SAS choice and its blocking license probe to the first <c>EnhanceAsync</c>, precisely so
+/// the RC-vs-in-house choice and its blocking license probe to the first enhance, precisely so
 /// that composing a service collection spawns no <c>rc-astro</c> process. A capability probe that ran
 /// at startup or during DI would undo that. Each product license check is a process launch, so this
 /// is async, and it must not be called from a render thread.</para>
@@ -46,26 +46,17 @@ public sealed record AiCapabilities(
     /// <summary>
     /// Every model any enhancer in this assembly might load, paired with the role it serves.
     /// <para>
-    /// Deliberately a CANDIDATE list, not a required one: <c>OnnxDenoiser</c> alone accounts for six
-    /// entries (mono/colour x Default/Lite/Walking) and a given run needs exactly one of them, so
-    /// "3 absent" is normal and healthy. Anything reporting on this must count per ROLE -- a role is
-    /// available if any of its candidates resolved -- and never present a raw missing-count as
-    /// breakage.
+    /// Deliberately a CANDIDATE list, not a required one: a role with several weight bundles needs
+    /// exactly one of them on a given run, so a missing variant is normal and healthy. Anything
+    /// reporting on this must count per ROLE -- a role is available if any of its candidates resolved
+    /// -- and never present a raw missing-count as breakage. The roles TianWen has no model for yet
+    /// (star removal, stellar sharpening, starless deconvolution) have no row: they are RC-Astro's, and
+    /// the RC half of the report covers them. The SETI Astro rows went with the SAS tier on 2026-09-26.
     /// </para>
     /// </summary>
     public static ImmutableArray<(string Capability, string Variant, string FileName)> Requirements =>
     [
-        ("Star removal (SAS)", "mono", OnnxStarRemover.MonoModel),
-        ("Star removal (SAS)", "colour", OnnxStarRemover.ColorModel),
-        ("Stellar sharpen (SAS)", "", OnnxStellarSharpener.Model),
-        ("Deconvolve (SAS)", "", OnnxNonStellarDeconvolver.Model),
         ("Gradient correction (GraXpert)", "", OnnxBackgroundExtractor.ModelName),
-        ("Denoise (SAS)", "mono", OnnxDenoiser.MonoDefault),
-        ("Denoise (SAS)", "colour", OnnxDenoiser.ColorDefault),
-        ("Denoise (SAS)", "mono lite", OnnxDenoiser.MonoLite),
-        ("Denoise (SAS)", "colour lite", OnnxDenoiser.ColorLite),
-        ("Denoise (SAS)", "mono walking", OnnxDenoiser.MonoWalking),
-        ("Denoise (SAS)", "colour walking", OnnxDenoiser.ColorWalking),
         ("Denoise (in-house N2N, OSC)", "", N2nDenoiser.ModelFileName),
     ];
 
@@ -119,6 +110,13 @@ public sealed record AiCapabilities(
         return new AiRcAstroStatus(exe, products.ToImmutable(), Probed: true);
     }
 
+    /// <summary>What an enhance does with no RC-Astro product to call: the canonical program runs
+    /// whole-frame (no star remover), with the in-house denoiser for colour data and gradient
+    /// correction always.</summary>
+    private const string WithoutRcAstro =
+        "enhance runs whole-frame: gradient correction, and denoise by TianWen's own model on colour data; " +
+        "no star removal or deconvolution";
+
     // Indirection so this assembly does not take a compile-time dependency on TianWen.Lib just for
     // one string; AppContext.BaseDirectory is the same value BuildInfo.InstallFolder reports.
     private static string BuildInfoInstallFolder() => AppContext.BaseDirectory;
@@ -145,9 +143,9 @@ public sealed record AiCapabilities(
         {
             { ExecutablePath: { Length: > 0 } } => RcAstro.Products.Any(p => p.Licensed)
                 ? $"RC-Astro: {string.Join(", ", RcAstro.Products.Where(p => p.Licensed).Select(p => p.ProductKey))} licensed"
-                : "RC-Astro: installed, nothing licensed -- SAS used instead",
+                : $"RC-Astro: installed, nothing licensed -- {WithoutRcAstro}",
             { Probed: false } => "RC-Astro: not probed",
-            _ => "RC-Astro: not installed -- SAS used instead",
+            _ => $"RC-Astro: not installed -- {WithoutRcAstro}",
         });
         foreach (var p in RcAstro.Products.Where(p => !p.Licensed))
         {
@@ -225,7 +223,7 @@ public readonly record struct AiModelRequirement(string Capability, string Varia
 
 /// <param name="ProductKey">RC-Astro product key (<c>sxt</c> / <c>nxt</c> / <c>bxt</c>).</param>
 /// <param name="Licensed">Whether the license probe said yes. A present-but-unlicensed product falls
-/// back to the SAS ONNX enhancer rather than failing.</param>
+/// back to TianWen's own model where the role has one, and is otherwise left out of the program.</param>
 public readonly record struct AiRcAstroProduct(string ProductKey, bool Licensed);
 
 /// <param name="ExecutablePath">Resolved <c>rc-astro</c> path, or <c>null</c> when absent / not asked.</param>

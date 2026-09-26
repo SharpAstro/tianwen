@@ -13,7 +13,7 @@ namespace TianWen.Lib.Tests;
 
 /// <summary>
 /// Phase 3a: the threaded <see cref="EnhanceOptions"/> surface -- per-call backend
-/// selection (Auto / ForceRcAstro / ForceSas) in <c>DeferredEnhancer</c> and RC-Astro
+/// selection (Auto / ForceRcAstro / N2n) in <c>DeferredEnhancer</c> and RC-Astro
 /// per-product <see cref="EnhanceTuning"/> flowing into the <c>rc-astro</c> CLI args.
 /// Uses a fake <see cref="IRcAstroCli"/> so it runs with no real binary: backend choice
 /// is asserted via which factory ran, tuning via the captured CLI args.
@@ -99,94 +99,115 @@ public class RcAstroPhase3Tests
         cli.LastExtraArgs.ShouldBe(["--dn", "0.90", "--it", "2"]);
     }
 
+    /// <summary>
+    /// A role with no in-house lane (the starless deconvolver until E7): RC-Astro when the choice
+    /// lands on it, and otherwise NO backend -- it reports that it cannot serve, which is what keeps
+    /// the canonical program from asking, and a direct call fails naming the role. There is no SETI
+    /// Astro fallback any more (removed 2026-09-26).
+    /// </summary>
     [Theory]
-    [InlineData(EnhanceBackend.ForceSas, true, true, false)]      // SAS even when present + licensed
     [InlineData(EnhanceBackend.Auto, true, true, true)]           // RC when present + licensed
-    [InlineData(EnhanceBackend.Auto, true, false, false)]         // SAS when present but unlicensed
+    [InlineData(EnhanceBackend.Auto, true, false, false)]         // present but unlicensed -> nothing
     [InlineData(EnhanceBackend.ForceRcAstro, true, false, true)]  // RC when present, license gate skipped
-    [InlineData(EnhanceBackend.ForceRcAstro, false, false, false)]// SAS when the binary is absent
+    [InlineData(EnhanceBackend.ForceRcAstro, false, false, false)]// binary absent -> nothing
     [InlineData(EnhanceBackend.N2n, true, true, true)]            // no in-house lane on this role -> Auto -> RC
-    [InlineData(EnhanceBackend.N2n, false, false, false)]         // no in-house lane, no RC -> Auto -> SAS
-    public async Task Backend_SelectionMatrix(EnhanceBackend backend, bool available, bool licensed, bool expectRc)
+    [InlineData(EnhanceBackend.N2n, false, false, false)]         // no in-house lane, no RC -> nothing
+    public async Task Backend_SelectionMatrix_WithoutAnInHouseLane(EnhanceBackend backend, bool available, bool licensed, bool expectRc)
     {
         var cli = new FakeRcAstroCli(available, licensed);
         var rc = new RecordingEnhancer("rc");
-        var sas = new RecordingEnhancer("sas");
-        var deferred = new DeferredNonStellarDeconvolver(cli, () => rc, () => sas);
+        var deferred = new DeferredNonStellarDeconvolver(cli, () => rc);
         var src = RcAstroTestSupport.BuildNebula(32, 32, seed: 1);
+        var options = new EnhanceOptions(backend);
 
-        await deferred.EnhanceAsync(src, new EnhanceOptions(backend), cancellationToken: TestContext.Current.CancellationToken);
-
-        rc.Called.ShouldBe(expectRc);
-        sas.Called.ShouldBe(!expectRc);
+        deferred.CanServe(3, options).ShouldBe(expectRc);
+        if (expectRc)
+        {
+            await deferred.EnhanceAsync(src, options, cancellationToken: TestContext.Current.CancellationToken);
+            rc.Called.ShouldBeTrue();
+        }
+        else
+        {
+            var ex = await Should.ThrowAsync<InvalidOperationException>(async () =>
+                await deferred.EnhanceAsync(src, options, cancellationToken: TestContext.Current.CancellationToken));
+            ex.Message.ShouldContain("starless deconvolution");
+            rc.Called.ShouldBeFalse();
+        }
     }
 
     /// <summary>
-    /// The explicit N2n backend routes the DENOISE role to the in-house lane whenever one is
-    /// wired -- no model-file probe, no RC consultation. And a DeferredDenoiser built WITHOUT
-    /// the lane (a composition root that never wired it) degrades to Auto rather than throwing,
-    /// because the same options record reaches roles that cannot serve n2n.
-    /// </summary>
-    [Fact]
-    public async Task ExplicitN2n_RoutesToTheInHouseLane_AndDegradesToAutoWithoutOne()
-    {
-        var cli = new FakeRcAstroCli(available: false);
-        var src = RcAstroTestSupport.BuildNoisyRgb(32, 32, bg: 0.2f, noiseSigma: 0.02f, seed: 7);
-
-        var sas = new RecordingEnhancer("sas");
-        var n2n = new RecordingEnhancer("n2n");
-        var withLane = new DeferredDenoiser(cli, () => new RecordingEnhancer("rc"), () => sas, () => n2n);
-        await withLane.EnhanceAsync(src, DenoiseVariant.Default, new EnhanceOptions(EnhanceBackend.N2n),
-            cancellationToken: TestContext.Current.CancellationToken);
-        n2n.Called.ShouldBeTrue();
-        sas.Called.ShouldBeFalse();
-
-        var sasOnly = new RecordingEnhancer("sas");
-        var withoutLane = new DeferredDenoiser(cli, () => new RecordingEnhancer("rc"), () => sasOnly);
-        await withoutLane.EnhanceAsync(src, DenoiseVariant.Default, new EnhanceOptions(EnhanceBackend.N2n),
-            cancellationToken: TestContext.Current.CancellationToken);
-        sasOnly.Called.ShouldBeTrue();
-    }
-
-    /// <summary>
-    /// The Auto rescue tier: with no RC binary, Auto lands on SAS -- and only when the SAS AI4
-    /// weights are NOT on disk, the input is OSC, and the variant is Default does the in-house
-    /// N2N model serve instead. A mono input or a Lite variant stays with SAS, whose own
-    /// missing-model error names the one bundle that could serve it.
+    /// The denoise role's in-house lane: Auto takes RC-Astro where nxt is licensed and the in-house
+    /// model otherwise; <see cref="EnhanceBackend.N2n"/> takes the in-house model even where RC is
+    /// licensed; ForceRcAstro takes RC whenever the binary exists and the in-house model when it
+    /// does not.
     /// </summary>
     [Theory]
-    [InlineData(true, 3, DenoiseVariant.Default, false)]  // SAS weights installed -> SAS, byte-for-byte the old path
-    [InlineData(false, 3, DenoiseVariant.Default, true)]  // absent + OSC default -> N2N rescue
-    [InlineData(false, 1, DenoiseVariant.Default, false)] // mono -> N2N cannot serve it
-    [InlineData(false, 3, DenoiseVariant.Lite, false)]    // Lite -> N2N has one bundle, no Lite
-    public async Task AutoRescue_ServesN2nOnlyWhenSasWeightsAreAbsentAndTheInputIsServable(
-        bool sasWeightsOnDisk, int channels, DenoiseVariant variant, bool expectN2n)
+    [InlineData(EnhanceBackend.Auto, true, true, "rc")]
+    [InlineData(EnhanceBackend.Auto, true, false, "n2n")]
+    [InlineData(EnhanceBackend.Auto, false, false, "n2n")]
+    [InlineData(EnhanceBackend.N2n, true, true, "n2n")]
+    [InlineData(EnhanceBackend.ForceRcAstro, true, false, "rc")]
+    [InlineData(EnhanceBackend.ForceRcAstro, false, false, "n2n")]
+    public async Task Denoise_PrefersRcAstroThenTheInHouseModel(EnhanceBackend backend, bool available, bool licensed, string expected)
     {
-        var dir = Directory.CreateTempSubdirectory("tw-n2n-rescue-").FullName;
+        var cli = new FakeRcAstroCli(available, licensed);
+        var rc = new RecordingEnhancer("rc");
+        var n2n = new RecordingEnhancer("n2n");
+        var deferred = new DeferredDenoiser(cli, () => rc, () => n2n);
+        var src = RcAstroTestSupport.BuildNoisyRgb(32, 32, bg: 0.2f, noiseSigma: 0.02f, seed: 7);
+
+        await deferred.EnhanceAsync(src, DenoiseVariant.Default, new EnhanceOptions(backend),
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        rc.Called.ShouldBe(expected == "rc");
+        n2n.Called.ShouldBe(expected == "n2n");
+    }
+
+    /// <summary>
+    /// A denoiser built WITHOUT the in-house lane (a composition root that never wired it) degrades
+    /// <see cref="EnhanceBackend.N2n"/> to Auto rather than throwing, because the same options record
+    /// reaches roles that cannot serve n2n.
+    /// </summary>
+    [Fact]
+    public async Task ExplicitN2n_WithoutTheLane_DegradesToAuto()
+    {
+        var cli = new FakeRcAstroCli(available: true, licensed: true);
+        var rc = new RecordingEnhancer("rc");
+        var withoutLane = new DeferredDenoiser(cli, () => rc);
+        var src = RcAstroTestSupport.BuildNoisyRgb(32, 32, bg: 0.2f, noiseSigma: 0.02f, seed: 7);
+
+        await withoutLane.EnhanceAsync(src, DenoiseVariant.Default, new EnhanceOptions(EnhanceBackend.N2n),
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        rc.Called.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// Availability passes through the proxy to the in-house model's own answer: with no RC-Astro,
+    /// the denoise role serves 3-channel input exactly when the N2N weights resolve, and never mono.
+    /// This is what the canonical program asks before it puts a denoise step in the program.
+    /// </summary>
+    [Theory]
+    [InlineData(true, 3, true)]
+    [InlineData(true, 1, false)]   // the N2N model is one-shot-colour; mono is left out, not failed
+    [InlineData(false, 3, false)]  // no weights on disk: nothing to run
+    public void Denoise_AvailabilityIsTheInHouseModelsOwnAnswer(bool weightsOnDisk, int channels, bool expected)
+    {
+        var dir = Directory.CreateTempSubdirectory("tw-n2n-avail-").FullName;
         try
         {
-            // Presence is all the rescue probes (content is never read), but the file must not
-            // LOOK like a Git LFS pointer stub, which ModelResolver refuses by design.
-            if (sasWeightsOnDisk)
+            // Presence is all CanServe probes (content is never read), but the file must not LOOK
+            // like a Git LFS pointer stub, which ModelResolver refuses by design.
+            if (weightsOnDisk)
             {
-                File.WriteAllText(Path.Combine(dir, TianWen.AI.Imaging.Onnx.OnnxDenoiser.ModelFileNameFor(channels, variant)), "weights");
+                File.WriteAllText(Path.Combine(dir, TianWen.AI.Imaging.Onnx.N2nDenoiser.ModelFileName), "weights");
             }
-            File.WriteAllText(Path.Combine(dir, TianWen.AI.Imaging.Onnx.N2nDenoiser.ModelFileName), "weights");
             var resolver = new TianWen.AI.Imaging.ModelResolver([dir]);
-
             var cli = new FakeRcAstroCli(available: false);
-            var sas = new RecordingEnhancer("sas");
-            var n2n = new RecordingEnhancer("n2n");
-            var deferred = new DeferredDenoiser(cli, () => new RecordingEnhancer("rc"), () => sas, () => n2n, resolver);
+            var deferred = new DeferredDenoiser(cli, () => new RecordingEnhancer("rc"),
+                () => new TianWen.AI.Imaging.Onnx.N2nDenoiser(resolver));
 
-            var src = channels == 3
-                ? RcAstroTestSupport.BuildNoisyRgb(32, 32, bg: 0.2f, noiseSigma: 0.02f, seed: 7)
-                : new Image([new float[32, 32]], BitDepth.Float32, 1.0f, 0f, 0f, new ImageMeta { SensorType = SensorType.Monochrome });
-            await deferred.EnhanceAsync(src, variant, new EnhanceOptions(EnhanceBackend.Auto),
-                cancellationToken: TestContext.Current.CancellationToken);
-
-            n2n.Called.ShouldBe(expectN2n);
-            sas.Called.ShouldBe(!expectN2n);
+            deferred.CanServe(channels, EnhanceOptions.Default).ShouldBe(expected);
         }
         finally
         {

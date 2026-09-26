@@ -16,15 +16,15 @@ namespace TianWen.Lib.Imaging.Enhancement;
 /// consumes.
 /// </summary>
 /// <remarks>
-/// Whole-image scalar for v1: <see cref="IPsfEstimator.EstimateChunkAsync"/>
-/// delegates to the whole-image variant. A future per-chunk variant could
-/// reuse FindStars on chunk slices or port SAS Pro's
-/// <c>measure_psf_radius</c> (SEP-based), but the per-image scalar is good
-/// enough for typical small-FOV astro frames where PSF is roughly uniform.
+/// Two estimates: the whole-image scalar (<see cref="EstimateAsync"/>), and one per REGION
+/// (<see cref="EstimateChunkAsync"/>) measured on that region's own stars, which answers the
+/// whole-image value where a region has too few. SAS Pro's <c>measure_psf_radius</c> reaches the same
+/// QUANTITY per tile by a different route (SEP-based), so the two are the same quantity, not the same
+/// estimator (<c>docs/plans/model-training-roadmap.md</c> section 8).
 /// </remarks>
 // The defaults below are literals rather than MinRadiusPx / MaxRadiusPx because a primary
 // constructor's parameter defaults cannot see the type's own constants. They must stay equal to them,
-// and HfdPsfEstimatorTests.TheDefaultRangeIsStillTheOneTheShippedModelWasTrainedUnder is what says so.
+// and HfdPsfEstimatorTests.TheDefaultRangeStaysTheOriginalContractUntilTianWensOwnModelShips is what says so.
 public sealed class HfdPsfEstimator(
     ILogger<HfdPsfEstimator>? logger = null,
     float minRadiusPx = 1.0f,
@@ -51,24 +51,26 @@ public sealed class HfdPsfEstimator(
     /// <summary>
     /// The ceiling of TianWen's own contract. Above the widest input the degradation exporter can
     /// produce (a +4 px FWHM draw in quadrature on the archive's widest master reaches 3.63 px
-    /// radius), and deliberately far below SAS's 8 px: the SPREAD of psf01 over a set of frames is
+    /// radius), and deliberately far below the default's 8 px: the SPREAD of psf01 over a set of frames is
     /// <c>log2(r_hi / r_lo) / log2(max / min)</c>, so the range's total log span divides every
     /// difference, and a ceiling nothing ever approaches spends resolution for nothing. Measured over
-    /// all 79 masters, this pair spreads them 0.330 where SAS's spreads them 0.293.
+    /// all 79 masters, this pair spreads them 0.330 where the default spreads them 0.293.
     /// </summary>
     public const float TianWenMaxRadiusPx = 4.0f;
 
     /// <summary>
-    /// The range THIS instance encodes into, defaulting to SAS AI4's because that is the model the
-    /// shipped <c>OnnxNonStellarDeconvolver</c> runs.
+    /// The range THIS instance encodes into. The default, <c>[1, 8]</c> px, is the range the psf01
+    /// contract was first defined over (SETI Astro AI4's), and no graph TianWen runs consumes it today:
+    /// the deconvolver it was set for went with that tier on 2026-09-26.
     /// </summary>
     /// <remarks>
     /// <b>The range belongs to the MODEL, not to the estimator, and mismatching them is silent.</b>
     /// psf01 is a conditioning input: a graph trained on `[1, 8]` handed a number encoded over
     /// `[0.5, 4]` still runs, still produces a plausible image, and is being told a PSF roughly twice
-    /// the one it was given. So the default stays SAS's for as long as a SAS graph is what resolves,
-    /// and TianWen's own contract (<see cref="TianWenMinRadiusPx"/>, <see cref="TianWenMaxRadiusPx"/>)
-    /// becomes the default only alongside the model trained under it.
+    /// the one it was given. So TianWen's own contract (<see cref="TianWenMinRadiusPx"/>,
+    /// <see cref="TianWenMaxRadiusPx"/>) becomes the default alongside the model trained under it, in
+    /// the same change, and not before; until then a caller states the range it means (the degradation
+    /// exporter already does).
     /// </remarks>
     public (float Min, float Max) RadiusRange { get; } = (minRadiusPx, maxRadiusPx);
 
@@ -150,7 +152,7 @@ public sealed class HfdPsfEstimator(
     /// <summary>
     /// The measurement half of <see cref="EstimateAsync"/>, UNCLAMPED and unencoded. Split out
     /// rather than duplicated because the encoding range is exactly what P2's H5 is deciding
-    /// (<c>docs/plans/deconvolver-training.md</c>): under the shipped <c>[1, 8]</c> px range this
+    /// (<c>docs/plans/deconvolver-training.md</c>): under the default <c>[1, 8]</c> px range this
     /// archive's masters all clamp to psf01 = 0, so a probe that needs to compare candidate ranges
     /// cannot invert the encoded value to recover the radius, because the clamp has already
     /// destroyed it. Anything measuring the encoding must read the radius here.
@@ -192,18 +194,19 @@ public sealed class HfdPsfEstimator(
 
     /// <summary>
     /// Maps a physical PSF radius (in pixels) to the [0, 1] log2-encoded
-    /// scalar the NAFNet conditional-PSF model expects. Inputs outside
+    /// scalar a conditional-PSF model expects, over the default range. Inputs outside
     /// [<see cref="MinRadiusPx"/>, <see cref="MaxRadiusPx"/>] saturate at 0
-    /// or 1 respectively -- the model was only trained on that range.
+    /// or 1 respectively, since a model is only trained on its own range.
     /// </summary>
     public static float EncodeRadiusToPsf01(float radiusPx)
         => EncodeRadiusToPsf01(radiusPx, MinRadiusPx, MaxRadiusPx);
 
     /// <summary>
     /// The same encoding over an arbitrary radius range, so a candidate contract can be evaluated
-    /// against the shipped one without a second implementation to disagree with this one. The
-    /// shipped range is <see cref="MinRadiusPx"/> to <see cref="MaxRadiusPx"/> and is SAS AI4's;
-    /// P2's H5 is measuring whether TianWen's own model wants a lower floor.
+    /// against the default one without a second implementation to disagree with this one. The
+    /// default range is <see cref="MinRadiusPx"/> to <see cref="MaxRadiusPx"/> (SETI Astro AI4's);
+    /// TianWen's own contract is <see cref="TianWenMinRadiusPx"/> to <see cref="TianWenMaxRadiusPx"/>
+    /// (P2's H5).
     /// </summary>
     public static float EncodeRadiusToPsf01(float radiusPx, float minRadiusPx, float maxRadiusPx)
     {

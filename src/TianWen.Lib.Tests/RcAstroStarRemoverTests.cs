@@ -74,7 +74,10 @@ public class RcAstroStarRemoverTests(ITestOutputHelper output)
         }
         else
         {
-            deferred.Backend.ShouldBeOfType<OnnxStarRemover>();
+            // No licensed sxt and no in-house star remover yet: nothing serves the role, so the
+            // canonical program runs whole-frame.
+            deferred.Backend.ShouldBeNull();
+            deferred.CanServe(3, TianWen.Lib.Imaging.Enhancement.EnhanceOptions.Default).ShouldBeFalse();
         }
     }
 

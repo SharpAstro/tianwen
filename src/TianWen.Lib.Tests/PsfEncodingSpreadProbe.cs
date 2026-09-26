@@ -12,7 +12,7 @@ namespace TianWen.Lib.Tests;
 /// <summary>
 /// P2 / H5: how much of the deconvolver's conditioning scalar does a real master actually move?
 /// Runs the DEPLOYED estimator over retained session masters and reports the psf01 spread under the
-/// shipped SAS range and under candidate ranges with a lower floor.
+/// default range (SETI Astro AI4's [1, 8]) and under candidate ranges with a lower floor.
 /// </summary>
 /// <remarks>
 /// <para>Skipped unless <c>TIANWEN_PSF_STORE_DIR</c> points at a dataset out-dir (the one holding
@@ -29,7 +29,7 @@ namespace TianWen.Lib.Tests;
 /// neighbouring question. The whole hypothesis is about the deployed path, so the deployed path is
 /// what runs here.</para>
 ///
-/// <para><b>Why the radius and not the encoded value.</b> The shipped range clamps at 1 px, which is
+/// <para><b>Why the radius and not the encoded value.</b> The default range clamps at 1 px, which is
 /// where this archive sits, so an encoded value cannot be re-encoded under a different range: the
 /// clamp has already destroyed the number. The probe reads
 /// <see cref="HfdPsfEstimator.MeasureRadiusPxAsync"/>, which is that measurement before any
@@ -45,12 +45,12 @@ public class PsfEncodingSpreadProbe(ITestOutputHelper output)
     private const string DirVar = "TIANWEN_PSF_STORE_DIR";
     private const string MaxVar = "TIANWEN_PSF_PROBE_MAX";
 
-    /// <summary>The shipped SAS AI4 range, plus the candidates H5 names. The last is deliberately
+    /// <summary>The default range (SETI Astro AI4's), plus the candidates H5 names. The last is deliberately
     /// wider than the plan's proposal so the trade is visible rather than assumed: a floor buys
     /// spread and a ceiling spends it, and both ends move the same archive.</summary>
     private static readonly (string Label, float Min, float Max)[] Ranges =
     [
-        ("[1.0, 8.0] shipped", 1.0f, 8.0f),
+        ("[1.0, 8.0] default", 1.0f, 8.0f),
         ("[0.5, 8.0] H5", 0.5f, 8.0f),
         ("[0.5, 4.0]", 0.5f, 4.0f),
         ("[0.75, 3.0]", 0.75f, 3.0f),

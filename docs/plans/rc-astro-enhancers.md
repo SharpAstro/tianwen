@@ -1,5 +1,13 @@
 # RC-Astro CLI-wrapper enhancers
 
+> **2026-09-26: the SETI Astro fallback below is gone.** The SAS tier was removed from the product
+> (its model licence of 2026-09-24 allows use only within SASpro). A `DeferredEnhancer` now picks
+> RC-Astro, else TianWen's own model where the role has one (the N2N denoiser today), else nothing,
+> and answers `IEnhancerAvailability.CanServe` so the canonical program leaves out a role nothing
+> serves: without StarXTerminator the program is whole-frame. `--ai-backend sas` fails with a message
+> saying why, and `EnhanceBackend` value 2 stays unassigned. The text below describes the RC-vs-SAS
+> design as it shipped and is kept as history.
+
 Drive RC-Astro's neural tools (BlurXTerminator / NoiseXTerminator / StarXTerminator)
 from TianWen, **preferring them over the SETI Astro ONNX enhancers when the
 RC-Astro CLI is present and the product is licensed**, falling back to SAS

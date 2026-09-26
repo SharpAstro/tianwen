@@ -1,12 +1,11 @@
 namespace TianWen.AI.Imaging;
 
 /// <summary>
-/// Resolves AI enhancement model filenames (e.g. <c>darkstar_color_AI4.onnx</c>)
-/// to absolute paths on disk. The default <see cref="ModelResolver"/> looks
-/// under <c>%LOCALAPPDATA%/TianWen/models</c> (the path written by
-/// <c>tools/tianwen-ai-models-fetch.ps1</c>) with an optional fallback to the
-/// SetiAstroSuite Pro install at <c>%LOCALAPPDATA%/SASpro/models</c> so a
-/// dual-app developer install can share weights without a re-fetch.
+/// Resolves AI enhancement model filenames (e.g. <c>tianwen_denoise_osc_e2wide_s2.onnx</c>)
+/// to absolute paths on disk. The default <see cref="ModelResolver"/> looks beside the
+/// binary first (the weights the build ships), then under <c>%LOCALAPPDATA%/TianWen/models</c>,
+/// and finds GraXpert's model in GraXpert's own cache. SASpro's models folder is not searched:
+/// its weights' licence allows use only within SASpro.
 /// </summary>
 public interface IModelResolver
 {
@@ -14,12 +13,12 @@ public interface IModelResolver
     /// Returns the absolute path to <paramref name="modelFileName"/> from
     /// the first configured search location that contains it. The file name
     /// is the bare model name including the extension (e.g.
-    /// <c>"darkstar_color_AI4.onnx"</c>) -- no directory components.
+    /// <c>"graxpert_bge.onnx"</c>), with no directory components.
     /// </summary>
     /// <exception cref="System.IO.FileNotFoundException">
     /// No configured search location contains the file. The exception
-    /// message lists every path that was probed so the user can run the
-    /// fetch script (<c>tools/tianwen-ai-models-fetch.ps1</c>).
+    /// message lists every path that was probed, and names the in-house
+    /// remedy (git-lfs, for a pointer stub), never the developer fetch script.
     /// </exception>
     string Resolve(string modelFileName);
 

@@ -27,8 +27,8 @@ public interface IImageEnhancer
     /// <summary>
     /// Options-aware overload threading per-operation <see cref="EnhanceOptions"/> (backend
     /// selection + RC-Astro tuning) and an optional per-step <paramref name="progress"/> sink
-    /// (0..1). The default impl ignores both and delegates to the param-less overload, so the
-    /// SAS ONNX enhancers and test fakes need not override it; the RC-Astro wrappers and the
+    /// (0..1). The default impl ignores both and delegates to the param-less overload, so a
+    /// plain enhancer or a test fake need not override it; the RC-Astro wrappers and the
     /// <c>DeferredEnhancer</c> proxies do, to honour <see cref="EnhanceOptions.Backend"/> /
     /// <see cref="EnhanceOptions.Tuning"/> and relay NDJSON progress.
     /// </summary>

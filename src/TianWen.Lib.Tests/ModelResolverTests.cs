@@ -16,8 +16,8 @@ public class ModelResolverTests : IDisposable
     /// <remarks>
     /// This pins the shape, not the drift it replaced -- and the difference matters. Until now
     /// three hand-rolled platform switches computed this root independently and two had already
-    /// diverged: <c>SasProModelsDir</c> ignored <c>XDG_DATA_HOME</c> while its siblings honoured
-    /// it, so a Linux user who set it had SAS Pro's models looked for in the wrong place. That
+    /// diverged: <c>SasProModelsDir</c> (since removed, 2026-09-26) ignored <c>XDG_DATA_HOME</c> while
+    /// its siblings honoured it, so a Linux user who set it had SAS Pro's models looked for in the wrong place. That
     /// specific bug is NOT what fails here, because reproducing it needs <c>XDG_DATA_HOME</c> set
     /// in the environment, and an env var is process-global while these tests run in parallel --
     /// the fixture would be flakier than the thing it guards. What this catches is the next copy:
@@ -127,17 +127,19 @@ public class ModelResolverTests : IDisposable
     }
 
     /// <summary>
-    /// The per-user cache and the SAS Pro share stay reachable behind it -- the app-local entry is
-    /// an addition, not a replacement, so a fetch-script install keeps working.
+    /// The per-user cache stays reachable behind the app-local entry (an addition, not a
+    /// replacement, so a fetch-script install keeps working), and SAS Pro's models folder is NOT
+    /// searched: SETI Astro's weights allow use only within SASpro, and the tier was removed on
+    /// 2026-09-26, so no install may pick them up even where SASpro put them.
     /// </summary>
     [Fact]
-    public void DefaultDirectories_StillFallBackToThePerUserCaches()
+    public void DefaultDirectories_FallBackToThePerUserCacheAndNeverSearchSasPro()
     {
         var dirs = ModelResolver.DefaultDirectories;
 
-        dirs.Length.ShouldBe(3);
+        dirs.Length.ShouldBe(2);
         dirs[1].ShouldEndWith(Path.Combine("TianWen", "models"));
-        dirs[2].ShouldEndWith(Path.Combine("SASpro", "models"));
+        dirs.ShouldAllBe(d => !d.Contains("SASpro", System.StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>
@@ -250,7 +252,7 @@ public class ModelResolverTests : IDisposable
     {
         MakeGraXpertBge("1.0.1");
 
-        MakeResolverWithGraXpert().TryResolve("darkstar_color_AI4.onnx", out var resolved).ShouldBeFalse();
+        MakeResolverWithGraXpert().TryResolve("some_other_model.onnx", out var resolved).ShouldBeFalse();
         resolved.ShouldBeNull();
     }
 

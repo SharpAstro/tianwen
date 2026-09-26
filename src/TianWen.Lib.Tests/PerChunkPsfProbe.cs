@@ -53,7 +53,7 @@ public class PerChunkPsfProbe(ITestOutputHelper output)
         var estimator = new HfdPsfEstimator(minRadiusPx: HfdPsfEstimator.TianWenMinRadiusPx, maxRadiusPx: HfdPsfEstimator.TianWenMaxRadiusPx);
         // Constructing the deconvolver loads nothing; the session is acquired on the first EnhanceAsync,
         // which this probe never calls.
-        using var deconvolver = new OnnxNonStellarDeconvolver(new ModelResolver(), estimator, chunkSize: ChunkSize, overlap: Overlap, perChunkPsf: true);
+        using var deconvolver = new OnnxNonStellarDeconvolver("(per-tile estimation only; no graph is loaded)", new ModelResolver(), estimator, chunkSize: ChunkSize, overlap: Overlap, perChunkPsf: true);
 
         output.WriteLine($"masters   {masters.Length} matching '{filter}'; tiles {ChunkSize} px, overlap {Overlap}, the runner's own grid over the bordered plane");
         output.WriteLine($"radius    decoded from psf01 over [{HfdPsfEstimator.TianWenMinRadiusPx}, {HfdPsfEstimator.TianWenMaxRadiusPx}] px; 'starved' tiles answered the whole-image value (< {HfdPsfEstimator.MinChunkStars} stars)");

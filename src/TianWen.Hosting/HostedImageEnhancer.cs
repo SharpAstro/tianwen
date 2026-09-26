@@ -97,12 +97,10 @@ internal sealed class HostedImageEnhancer(
                 // normalised and otherwise returns a fresh copy; `src` is left unchanged.
                 var normalised = src.ScaleFloatValuesToUnit();
 
-                // BlurX-first program when a deblurrer is registered (RC-Astro), else the SAS-shaped
-                // canonical -- the same selection the viewer + MasterPostProcessor make, via the shared
-                // SharpenRequest factories (single source of truth for the step program).
-                var request = pipe.SupportsDeblur
-                    ? SharpenRequest.DeblurFirst(normalised)
-                    : SharpenRequest.Canonical(normalised);
+                // The canonical program for what serves THIS input, the same one the viewer, the CLI
+                // and MasterPostProcessor run (SharpenPipeline.CanonicalProgram): BlurX-first where a
+                // deblurrer serves, whole-frame where no star remover does.
+                var request = new SharpenRequest(normalised, pipe.CanonicalProgram(normalised, options).ToSteps());
 
                 // Synchronous relay (NOT Progress<T>): runs inline on this task thread so the status
                 // snapshot updates in order and never overwrites the terminal status set in finally.

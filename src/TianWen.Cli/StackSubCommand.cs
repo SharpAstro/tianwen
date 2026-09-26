@@ -257,7 +257,7 @@ internal sealed class StackSubCommand(
         // mirrored from `image sharpen` so `stack --enhance` honours the same knobs.
         var aiBackendOpt = new Option<string>("--ai-backend")
         {
-            Description = "AI enhancer backend for the RC-servable roles (star removal / deblur / deconvolution / denoise): 'auto' (RC-Astro when present + licensed, else SAS ONNX - default), 'rc' (force RC-Astro whenever the CLI is installed, skipping the license probe), 'sas' (force SAS ONNX even when RC-Astro is licensed), or 'n2n' (the in-house TianWen Noise2Noise model for the denoise step - OSC-only, ships with the repo; other roles behave as auto). No effect on stellar-sharpen / gradient-correction (SAS-only). Implies --enhance unless 'auto'.",
+            Description = "AI enhancer backend for the RC-servable roles (star removal / deblur / deconvolution / denoise): 'auto' (RC-Astro when present + licensed, else TianWen's own model where the role has one - default), 'rc' (force RC-Astro whenever the CLI is installed, skipping the license probe), or 'n2n' (the in-house TianWen Noise2Noise model for the denoise step - OSC-only, ships with the repo; other roles behave as auto). A role nothing serves is left out: with no star remover the master is enhanced whole-frame. No effect on gradient correction (GraXpert, else the classical fit). 'sas' was removed on 2026-09-26. Implies --enhance unless 'auto'.",
             DefaultValueFactory = _ => "auto",
         };
         var deblurSharpenOpt = new Option<double>("--deblur-sharpen")
@@ -324,11 +324,15 @@ internal sealed class StackSubCommand(
             // not a data condition, so it must not cost a 506-file scan and a full measure pass first
             // -- and it must not exit 0. A skipped GROUP is a legitimate outcome the run reports and
             // survives; a capability that was asked for and cannot exist is not.
-            if (parseResult.GetValue(removeStarsOpt) && starRemover is null)
+            // SERVES, not registered: AddRcAstroAi() registers a deferred remover on every host, and on one
+            // without a licensed StarXTerminator its first use throws, mid-run, after the scan this check
+            // exists to spare. Asked under Auto, which is what the per-frame path runs.
+            if (parseResult.GetValue(removeStarsOpt)
+                && !TianWen.Lib.Imaging.Enhancement.IEnhancerAvailability.ServesAny(starRemover, TianWen.Lib.Imaging.Enhancement.EnhanceOptions.Default))
             {
                 consoleHost.WriteError(
-                    "--remove-stars needs an IStarRemover, and none is registered. Install the RC-Astro CLI "
-                    + "(StarXTerminator, licensed) or register a star remover in the composition root.");
+                    "--remove-stars needs a star remover, and none serves: install the RC-Astro CLI "
+                    + "(StarXTerminator, licensed). TianWen has no star-removal model yet.");
                 return 1;
             }
 
@@ -407,7 +411,7 @@ internal sealed class StackSubCommand(
             // plates, so it implies --enhance just like a sub-1 blend does.
             var splitPlatesArg = parseResult.GetValue(splitPlatesOpt);
 
-            // RC-Astro / SAS backend + per-product tuning (mirrors `image sharpen`):
+            // Enhancer backend + per-product tuning (mirrors `image sharpen`):
             // a non-default backend or any tuning override is built into the immutable
             // EnhanceOptions threaded to SharpenPipeline. Like a sub-1 blend, these also
             // imply --enhance (a backend/tuning flag without --enhance would otherwise be
@@ -514,7 +518,7 @@ internal sealed class StackSubCommand(
             }
 
             // Echo the resolved enhance configuration once so the chosen backend /
-            // blend / tuning is captured in the run log (the actual RC-vs-SAS pick
+            // blend / tuning is captured in the run log (the actual RC-vs-in-house pick
             // is deferred to first EnhanceAsync; this prints the requested intent).
             if (options.Enhance)
             {
@@ -611,7 +615,7 @@ internal sealed class StackSubCommand(
                 // Two callers now: --remove-stars builds the comet layer from starless frames, and a
                 // --comet run's companion STAR layer uses the remover on the comet-aligned master to
                 // isolate the body it then subtracts from every frame. Passing it costs nothing when
-                // unused -- the RC-vs-SAS choice and its licence probe are deferred to the first
+                // unused -- the RC-vs-in-house choice and its licence probe are deferred to the first
                 // EnhanceAsync, so merely holding the reference spawns no process.
                 starRemover: options.RemoveStarsPerFrame || options.CometStarLayer ? starRemover : null);
             // The preview PNG + split-plate TIFFs are rendered INSIDE the pipeline

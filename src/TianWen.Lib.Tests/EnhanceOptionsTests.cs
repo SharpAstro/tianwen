@@ -6,7 +6,7 @@ namespace TianWen.Lib.Tests;
 
 /// <summary>
 /// Tests for <see cref="EnhanceOptions.TryParse"/> -- the single source of truth for the
-/// backend (<c>auto</c>/<c>rc</c>/<c>sas</c>/<c>n2n</c>) + per-product tuning parse shared by
+/// backend (<c>auto</c>/<c>rc</c>/<c>n2n</c>) + per-product tuning parse shared by
 /// <c>image sharpen</c>, <c>stack --enhance</c>, and the server <c>POST /api/v1/image/enhance</c>.
 /// </summary>
 public class EnhanceOptionsTests
@@ -21,8 +21,6 @@ public class EnhanceOptionsTests
     [InlineData("rcastro", EnhanceBackend.ForceRcAstro)]
     [InlineData("rc-astro", EnhanceBackend.ForceRcAstro)]
     [InlineData("RC", EnhanceBackend.ForceRcAstro)]
-    [InlineData("sas", EnhanceBackend.ForceSas)]
-    [InlineData("SAS", EnhanceBackend.ForceSas)]
     [InlineData("n2n", EnhanceBackend.N2n)]
     [InlineData("N2N", EnhanceBackend.N2n)]
     [InlineData("  n2n ", EnhanceBackend.N2n)]
@@ -47,6 +45,25 @@ public class EnhanceOptionsTests
         ok.ShouldBeFalse();
         var msg = error.ShouldNotBeNull();
         msg.ShouldContain(backend);
+        options.ShouldBe(EnhanceOptions.Default);
+    }
+
+    /// <summary>
+    /// The SETI Astro backend was removed on 2026-09-26 (its model licence allows use only within
+    /// SASpro). A script written before then still says <c>sas</c>, so it gets a message that says
+    /// what happened and what to use, never a silent Auto that would run something else.
+    /// </summary>
+    [Theory]
+    [InlineData("sas")]
+    [InlineData("SAS")]
+    public void TryParse_TheRemovedSasBackend_FailsAndSaysWhy(string backend)
+    {
+        var ok = EnhanceOptions.TryParse(backend, null, null, null, out var options, out var error);
+
+        ok.ShouldBeFalse();
+        var msg = error.ShouldNotBeNull();
+        msg.ShouldContain("removed");
+        msg.ShouldContain("auto");
         options.ShouldBe(EnhanceOptions.Default);
     }
 

@@ -1055,6 +1055,9 @@ The rules that bite:
 - **A captured non-light says so in `IMAGETYP`.** AutoFocus rungs are `FrameType.Focus`, and scouts are
   `FrameType.Scout`. Never widen a consumer's filter to admit them.
 - **`--enhance`** runs `SharpenPipeline` ONCE, into `_sharpened.fits`; `--split-plates` exports the same pass.
+  The program is `SharpenPipeline.CanonicalProgram`, shaped by what SERVES: BlurX-first where a deblurrer serves,
+  the split with a star remover, whole-frame (gradient + denoise) with neither, and then there are no plates and
+  the log says so.
 - **Render model:**
   - ONE SPCC white balance, then each plate self-stretches.
   - SPCC's clip test reads the OBSERVED peak.
@@ -1069,8 +1072,10 @@ The rules that bite:
 - **Enhanced masters render with `MasterPreviewRenderer.WithZeroPedestal`.**
 - **The CLI renders nothing.** The display-only stages (`--saturation`/`--contrast-boost`, `uhdr`) never
   touch a linear master.
-- **Stellar-sharpen is opt-in, and skipped while a deblurrer is live.**
-- **Enhance options parse once, in `EnhanceOptions.TryParse`**, for the CLI and the server endpoint alike.
+- **Stellar-sharpen is opt-in, served by nothing today** (the SETI Astro sharpener went with that tier on
+  2026-09-26), **and skipped while a deblurrer is live.**
+- **Enhance options parse once, in `EnhanceOptions.TryParse`**, for the CLI and the server endpoint alike;
+  `--ai-backend auto|rc|n2n` (`sas` fails, saying why).
 
 ### Planetary Lucky-Imaging Stack (`TianWen.Lib.Imaging.Planetary`)
 
@@ -1092,22 +1097,35 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   live controls and the recenter. The GUI's `PlanetaryCaptureController` only stacks and shows what it streams.
   It claims only the camera, so **a recenter nudge asks `DeviceOwnershipGate` over the mount first**.
 
-### AI Image Enhancement: SETI Astro (ONNX) + RC-Astro (CLI)
+### AI Image Enhancement: RC-Astro (CLI) + TianWen's own models (ONNX)
 
 `SharpenPipeline` (`TianWen.Lib/Imaging/Enhancement/`) orchestrates role-typed enhancers
 (`IStarRemover` / `IStellarSharpener` / `INonStellarDeconvolver` / `IDenoiseEnhancer` /
-`IGradientCorrector`) over an immutable `SharpenStep[]` program. Selection is **RC-preferred,
-deferred, and license-gated**: `AddRcAstroAi()` wraps `AddTianWenAi()` and `Replace`s the three
-RC-servable roles with `DeferredEnhancer` proxies that make the RC-vs-SAS choice AND the blocking
-license probe on the FIRST `EnhanceAsync`, never at DI registration -- composing a service collection
-spawns no `rc-astro` process. Design and every measurement: `docs/plans/ai-enhancement.md`,
+`IGradientCorrector` / `IImageDeblurrer`) over an immutable `SharpenStep[]` program. Selection is
+**RC-preferred, deferred, and license-gated**: `AddRcAstroAi()` wraps `AddTianWenAi()` and `Replace`s
+the RC-servable roles with `DeferredEnhancer` proxies that make the RC-vs-in-house choice AND the
+blocking license probe on the FIRST `EnhanceAsync`, never at DI registration, so composing a service
+collection spawns no `rc-astro` process. Design and every measurement: `docs/plans/ai-enhancement.md`,
 `docs/plans/rc-astro-enhancers.md`, `docs/plans/osc-narrowband-denoiser.md` § 1o and
 `docs/plans/denoiser-training.md`.
 
-- **SETI Astro (SAS Pro AI4)** -- plain ONNX in-proc (`AddTianWenAi()`); models under
-  `%LOCALAPPDATA%\TianWen\models`.
-- **In-house N2N denoiser** (`N2nDenoiser`, OSC-only, throws on mono) -- opt-in (`--ai-backend n2n` /
-  `AddTianWenN2nDenoiser`); Auto rescues with it only when SAS AI4 weights are absent. Weights ship
+- **The program is shaped by what SERVES, never by what is registered.**
+  `SharpenPipeline.CapabilitiesFor(input, options)` asks every role through `IEnhancerAvailability`
+  (a deferred RC role answers by its licence, the N2N denoiser by channel count and weights) and
+  `CanonicalProgram` builds from the answer: the split with a star remover (BlurX-first where a
+  deblurrer serves), whole-frame (gradient + denoise) without one. The viewer, the CLI, `stack
+  --enhance` and the endpoint all run that one program. **A gate on a role asks
+  `IEnhancerAvailability.Serves`, never `is null`**: a deferred RC role is registered on every host,
+  and where the product is absent its first use throws.
+- **The SETI Astro (SAS Pro AI4) tier was REMOVED on 2026-09-26** (the user's call, after its model
+  licence of 2026-09-24 allowed use only within SASpro). Nothing loads its weights or searches
+  SASpro's folder, and `EnhanceBackend` value 2 stays unassigned (enums are numeric on the wire). Its
+  GPL-3.0 Python is still ours to LEARN from (how it feeds its models:
+  `docs/plans/model-training-roadmap.md` § 8); a model file is never opened or derived from. Star
+  removal, deblur and starless deconvolution are RC-only until TianWen's own models ship into the
+  roles, which stay as the extension points.
+- **In-house N2N denoiser** (`N2nDenoiser`, OSC-only, declines mono): the default local
+  `IDenoiseEnhancer` (`AddTianWenAi()`) and the fallback behind NoiseXTerminator. Weights ship
   in-repo (`src/TianWen.AI.Imaging/models/`) as an LFS object; **any new LFS file type the apps ship
   must be added to `APP_LFS_INCLUDE` in `dotnet.yml`**, or the publish matrix ships a pointer stub as
   the model (`publish-apps`'s "Verify LFS objects materialised" step is the backstop). Full history,
@@ -1929,7 +1947,7 @@ TianWen/
 ├── Weather/            # OpenMeteo / OpenWeatherMap forecast cache
 ├── ObjectImages/       # Wikimedia object pictures, one file per (image, standard width) (ObjectPictureStore)
 ├── SmallBodies/        # JPL SBDB comet cache: comets.json + apparitions.json
-├── models/             # AI ONNX models (ModelResolver; also probes SASpro's own models dir)
+├── models/             # AI ONNX models (ModelResolver; also finds GraXpert's model in GraXpert's own cache)
 ├── Secrets/            # 0600 file per device secret, non-Windows or a TIANWEN_DATA_ROOT tree (else Credential Manager)
 ├── node.sock           # The machine's node's socket (NodeSocket), owner-only on Unix
 ├── node.lock           # One node per socket: held for the node's life, never deleted (NodeLock)

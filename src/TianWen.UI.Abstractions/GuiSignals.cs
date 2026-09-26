@@ -142,7 +142,7 @@ public readonly record struct OpenUrlSignal(string Url);
 /// <summary>Request plate solving the current image.</summary>
 public readonly record struct PlateSolveSignal;
 
-/// <summary>Request AI enhancement (RC-Astro / SAS) of the current viewer image. The host's
+/// <summary>Request AI enhancement (RC-Astro / in-house) of the current viewer image. The host's
 /// handler routes to <see cref="ViewerController.HandleToolbarAction"/> -> <see cref="EnhanceActions"/>;
 /// fires into the void where no SharpenPipeline is wired (the toolbar button is hidden there anyway).</summary>
 public readonly record struct EnhanceImageSignal;

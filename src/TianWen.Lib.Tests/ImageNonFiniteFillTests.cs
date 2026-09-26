@@ -7,7 +7,7 @@ namespace TianWen.Lib.Tests;
 /// <summary>
 /// Tests for <see cref="Image.ReplaceNonFiniteWithChannelMean"/>, the NaN guard
 /// the SharpenPipeline applies at its input boundary so drizzle coverage holes
-/// don't poison the AI enhancers (SAS or RC-Astro) to all-NaN output.
+/// don't poison the AI enhancers (the ONNX runners or RC-Astro) to all-NaN output.
 /// </summary>
 public class ImageNonFiniteFillTests
 {

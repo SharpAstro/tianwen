@@ -36,8 +36,8 @@ namespace TianWen.AI.Imaging.Onnx;
 /// quiet costs 1.0 of the extended column against 6.3 at 10 percent removed.</para>
 ///
 /// <para><b>Domain semantics: linear in, linear out, the exporter's stretch in between.</b> The
-/// contract at this boundary is a linear <c>[0, 1]</c> frame, the same one the AI4 enhancers take,
-/// and like them the net itself works in the MTF-stretched domain: every training tile was stored
+/// contract at this boundary is a linear <c>[0, 1]</c> frame, the one every enhancer here takes, and
+/// the net itself works in the MTF-stretched domain: every training tile was stored
 /// after <see cref="ChunkedNafnetRunner.ApplyInputStretch"/>, so <see cref="N2nLinearRunner"/>
 /// applies that call to the whole frame, runs, and inverts it before blending. Until 2026-09-02 the
 /// runner fed the frame verbatim on the belief that the tiles were linear, which put a real master
@@ -46,13 +46,13 @@ namespace TianWen.AI.Imaging.Onnx;
 ///
 /// <para><b>One-shot-colour only.</b> Every training session was OSC, so a mono input is rejected
 /// rather than tiled across the three input slots: that would feed it a distribution nobody has
-/// measured it on, and unlike the AI4 pairs there is no mono weight bundle to fall back to.</para>
+/// measured it on, and there is no mono weight bundle to fall back to.</para>
 ///
-/// <para><b>Not the default <see cref="IDenoiseEnhancer"/>.</b> Registering it is opt-in
-/// (<c>AddTianWenN2nDenoiser</c>) because it has never been compared against
-/// <see cref="OnnxDenoiser"/> on the enhance pipeline's own job -- only against its own ablations
-/// on held-out astro masters. Silently replacing the SAS tier's denoiser on the strength of a
-/// different measurement would be asserting something nobody checked.</para>
+/// <para><b>The default local <see cref="IDenoiseEnhancer"/> since 2026-09-26</b>, when the SETI Astro
+/// tier it was once opt-in beside was removed (its licence allows use only within SASpro).
+/// <c>AddTianWenAi()</c> registers it, and <c>AddRcAstroAi()</c> makes it the fallback behind
+/// NoiseXTerminator. It declines mono through <see cref="IEnhancerAvailability"/>, so the canonical
+/// program leaves the denoise out there instead of failing.</para>
 ///
 /// <para>Session lifecycle: one lazily-created <see cref="InferenceSession"/>, cached for the
 /// lifetime of the instance and released on <see cref="Dispose"/>.</para>
@@ -62,7 +62,7 @@ public sealed class N2nDenoiser(
     ILogger<N2nDenoiser>? logger = null,
     float defaultStrength = 1.0f,
     int overlap = 64)
-    : IDenoiseEnhancer, IDisposable
+    : IDenoiseEnhancer, IEnhancerAvailability, IDisposable
 {
     /// <summary>
     /// The shipped weights. The <c>e2wide_s2</c> segment is deliberate: the checkpoint identity is
@@ -80,12 +80,21 @@ public sealed class N2nDenoiser(
 
     public string Name => "Denoiser (TianWen N2N, OSC)";
 
+    /// <summary>
+    /// Serves 3-channel input whose weights resolve, and nothing else: a mono frame is refused by
+    /// design (one-shot-colour model, no mono bundle), and a checkout without the weights (or with an
+    /// LFS pointer stub) has nothing to run. Answered by a file probe, never a session build, so the
+    /// canonical program can ask it before any inference.
+    /// </summary>
+    public bool CanServe(int channelCount, EnhanceOptions options)
+        => channelCount == 3 && modelResolver.TryResolve(ModelFileName, out _);
+
     public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
         => EnhanceAsync(input, defaultStrength, cancellationToken);
 
     /// <summary>
-    /// The variant axis is an AI4 concept (Default / Lite / Walking weight bundles) and there is
-    /// exactly one bundle here, so anything but <see cref="DenoiseVariant.Default"/> is refused
+    /// The variant axis names weight bundles (Default / Lite / Walking) and there is exactly one
+    /// bundle here, so anything but <see cref="DenoiseVariant.Default"/> is refused
     /// instead of being quietly ignored -- a caller asking for Lite should learn it is not on offer.
     /// </summary>
     public Task<Image> EnhanceAsync(Image input, DenoiseVariant variant, CancellationToken cancellationToken = default)
@@ -98,8 +107,7 @@ public sealed class N2nDenoiser(
     /// tuning knob this model reads is <see cref="EnhanceTuning.DenoiseStrength"/>, which maps
     /// onto the blend dial -- the same "how much denoising" the user meant when they set it for
     /// RC's <c>nxt --dn</c>. <paramref name="progress"/> is dropped: chunked ORT inference has no
-    /// sub-step stream, so the pipeline's own step-boundary ticks are the progress, exactly as
-    /// for the SAS enhancers.
+    /// sub-step stream, so the pipeline's own step-boundary ticks are the progress.
     /// </summary>
     public Task<Image> EnhanceAsync(Image input, DenoiseVariant variant, EnhanceOptions options, IProgress<float>? progress = null, CancellationToken cancellationToken = default)
         => variant is DenoiseVariant.Default
@@ -134,12 +142,12 @@ public sealed class N2nDenoiser(
         {
             throw new NotSupportedException(
                 $"{nameof(N2nDenoiser)} is a one-shot-colour model and requires 3 channels, got {input.ChannelCount}. " +
-                "It has no mono weight bundle; use OnnxDenoiser for mono.");
+                "It has no mono weight bundle; a mono frame is denoised by RC-Astro NoiseXTerminator or not at all.");
         }
         // The trainer fed tiles normalised by Image.UnitScaleDivisor, so anything far outside
         // [0, 1] is a miscalibrated input (raw camera ADU being the usual case) rather than a
-        // frame this model can be expected to handle. The same 1.5 tolerance as OnnxDenoiser,
-        // for the same reason: enhanced masters can overshoot slightly above 1.
+        // frame this model can be expected to handle. A 1.5 tolerance, because enhanced masters can
+        // overshoot slightly above 1.
         if (input.MaxValue > 1.5f)
         {
             throw new ArgumentException(

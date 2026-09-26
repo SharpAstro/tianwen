@@ -1,5 +1,17 @@
 # PLAN: AI image enhancement, star removal, deconvolution, sharpening, denoise
 
+> **2026-09-26: the SETI Astro tier this plan wired in was REMOVED from the product.** SETI Astro's
+> model licence of 2026-09-24 (`COSMIC_CLARITY_LICENSE.txt`) allows use only within SASpro, and the
+> user dropped the tier rather than seek consent. `OnnxStarRemover`, `OnnxStellarSharpener` and
+> `OnnxDenoiser` are deleted, `OnnxNonStellarDeconvolver` survives as the shell TianWen's own
+> deconvolver ships through (nothing registers it until then), `ModelResolver` no longer searches
+> SASpro's folder, and `--ai-backend sas` fails with a message saying why. What survives is this
+> plan's ARCHITECTURE: the role interfaces, the step program, chunked inference, the stretch
+> round-trip. The program is now shaped by what serves (`SharpenPipeline.CanonicalProgram`), and
+> without RC-Astro it is whole-frame (gradient + the in-house N2N denoiser). Everything below is the
+> history of the SAS integration and its measurements, kept as written; how SAS Pro FEEDS its models
+> (read from its GPL-3.0 source, never from a model file) is `model-training-roadmap.md` section 8.
+
 ## Goal
 
 Wire SetiAstroSuite Pro's AI4 NAFNet models (and a Walking Noise denoise variant) into

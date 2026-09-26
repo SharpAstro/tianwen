@@ -14,7 +14,7 @@ public partial class Image
     /// sample is already finite, so the clean-input path is bit-identical.
     /// </summary>
     /// <remarks>
-    /// <para>The AI enhancers -- the SETI Astro ONNX models and the RC-Astro CLI alike -- compute
+    /// <para>The AI enhancers -- the ONNX runners and the RC-Astro CLI alike -- compute
     /// non-NaN-aware global normalisation (median / MAD / min-max), so a single NaN poisons the
     /// entire output to NaN. <see cref="Enhancement.SharpenPipeline"/> calls this at its input
     /// boundary, AFTER <see cref="WithInteriorHolesFilled"/>, so what reaches it is only the
@@ -310,9 +310,9 @@ public partial class Image
     /// Per-pixel linear interpolation: <c>(1 - amount) * this + amount * other</c>,
     /// where <paramref name="amount"/> is clamped to <c>[0, 1]</c>. Used by
     /// <c>SharpenPipeline</c> to blend an AI enhancer's output back toward
-    /// its input ("blend slider" -- typical good range 0.4..0.7 for AI4
-    /// sharpening, so the network output doesn't fully replace the source
-    /// and create the "snap-to-pixel" pixelation on tight star fields).
+    /// its input (the "blend slider"; the SETI Astro sharpener it was first
+    /// tuned on wanted 0.4..0.7, so the network output did not fully replace
+    /// the source and create "snap-to-pixel" pixelation on tight star fields).
     /// </summary>
     /// <param name="other">Right-hand operand. Must match this image's shape.</param>
     /// <param name="amount">Interpolation weight. 0 returns <c>this</c>;

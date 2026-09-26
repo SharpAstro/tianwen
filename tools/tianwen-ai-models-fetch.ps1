@@ -1,72 +1,46 @@
-# Fetch + materialize TianWen AI models (AI4, Walking Noise, GraXpert BGE, and
-# TianWen's own in-repo models) into %LOCALAPPDATA%\TianWen\models.
+# Materialize TianWen's AI models (GraXpert BGE, and TianWen's own in-repo models)
+# into %LOCALAPPDATA%\TianWen\models.
 #
 # A DEVELOPER tool, not an install step. Nothing the product prints points a user
-# here, by design. SETI Astro's AI4 weights have carried their own licence since
-# 2026-09-24 (COSMIC_CLARITY_LICENSE.txt on the same benchmarkFIT release): use
-# only within SASpro, for personal non-commercial processing, unless the author
-# (Franklin Marek, setiastro.com) consents in writing; no redistribution. Running
-# this is the developer's own use under those terms.
+# here, by design.
+#
+# SETI Astro's AI4 models are no longer fetched, and nothing in TianWen loads them.
+# Their licence (COSMIC_CLARITY_LICENSE.txt, published 2026-09-24 on the release
+# that hosts them) allows use only within SASpro unless the author consents in
+# writing, and TianWen dropped that tier on 2026-09-26. The phases that downloaded
+# SASPro_Models_AI4*.zip and hardlinked SASpro's own models folder went with it.
 #
 # Sourcing strategy:
-#   1. Probe %LOCALAPPDATA%\SASpro\models. If SetiAstroSuite Pro has a file we
-#      need, hardlink it into TianWen's tree -- zero disk cost on NTFS, the
-#      bytes survive even if SAS Pro is later uninstalled (last hardlink keeps
-#      the inode alive). Falls back to plain copy when the hardlink fails
-#      (cross-volume, non-NTFS, ReFS without hardlink support, etc.).
-#   2. For files SAS Pro does NOT have, download the upstream zip
-#      (github.com/setiastro/setiastrosuitepro releases, tag benchmarkFIT) into
-#      a cache dir and extract only the missing entries.
-#   3. TianWen's own models (src/TianWen.AI.Imaging/models/, Git LFS) hardlink
+#   1. GraXpert's background-extraction model: detect GraXpert's own cache and
+#      hardlink the newest version into TianWen's tree (zero disk cost on NTFS;
+#      plain copy when the hardlink fails, e.g. across volumes). Never downloaded:
+#      GraXpert's models are CC-BY-NC-SA-4.0 and TianWen redistributes no
+#      third-party weights, so an absent GraXpert prints a hint and is skipped.
+#      The product also finds it in GraXpert's cache on its own (ModelResolver),
+#      so this copy is a convenience, not a requirement.
+#   2. TianWen's own models (src/TianWen.AI.Imaging/models/, Git LFS) hardlink
 #      from this checkout; a pointer-stub checkout (no git-lfs installed) falls
 #      back to downloading the LFS object bytes from GitHub's media host.
-#   4. Idempotent: files already present under TianWen\models are skipped, so
+#   3. Idempotent: files already present under TianWen\models are skipped, so
 #      re-runs are safe and cheap.
-#
-# When to run this:
-#   - A development machine that needs the AI4 / Walking Noise models (the
-#     smoke tests skip without them).
-#   - After clearing %LOCALAPPDATA%\TianWen\models to re-materialize from scratch.
-#   - On CI before running AI enhancement tests (use -NoDownload to fail
-#     loudly if SAS Pro isn't pre-staged, or omit it to pull from GitHub).
 #
 # Usage:
 #   pwsh tools/tianwen-ai-models-fetch.ps1
-#   pwsh tools/tianwen-ai-models-fetch.ps1 -NoWalking
 #   pwsh tools/tianwen-ai-models-fetch.ps1 -OutputDir D:\my\models
-#   pwsh tools/tianwen-ai-models-fetch.ps1 -NoSasPro          # ignore SAS Pro source
-#   pwsh tools/tianwen-ai-models-fetch.ps1 -NoDownload        # SAS Pro only; fail on miss
-#   pwsh tools/tianwen-ai-models-fetch.ps1 -PruneCache        # delete cached zips after
-#   pwsh tools/tianwen-ai-models-fetch.ps1 -Force             # redownload cached zips
-#
-# Notes:
-#   - v1 always needs the zip cached (locally) so we can read its central
-#     directory and know the expected file set. -NoDownload therefore requires
-#     a previous run to have populated the cache. A future revision could ship
-#     a tools/saspro-models-manifest.json to lift this requirement.
+#   pwsh tools/tianwen-ai-models-fetch.ps1 -NoGraXpert        # TianWen's own models only
+#   pwsh tools/tianwen-ai-models-fetch.ps1 -NoDownload        # checkout only; report a pointer stub
 [CmdletBinding()]
 param(
     [string]$OutputDir,
-    [string]$SasProDir,
     [string]$GraXpertDir,
-    [string]$CacheDir,
-    [switch]$NoWalking,
-    [switch]$NoSasPro,
     [switch]$NoGraXpert,
-    [switch]$NoDownload,
-    [switch]$PruneCache,
-    [switch]$Force
+    [switch]$NoDownload
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-# Suppress Invoke-WebRequest's default progress bar; it stalls pwsh on multi-GB files.
+# Suppress Invoke-WebRequest's default progress bar; it stalls pwsh on large files.
 $ProgressPreference = 'SilentlyContinue'
-
-Add-Type -AssemblyName System.IO.Compression
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-
-$githubBase = 'https://github.com/setiastro/setiastrosuitepro/releases/download/benchmarkFIT'
 
 function Get-DefaultOutputDir {
     if ($IsWindows -or $env:OS -eq 'Windows_NT') {
@@ -80,25 +54,12 @@ function Get-DefaultOutputDir {
     return Join-Path $HOME '.local/share/TianWen/models'
 }
 
-function Get-DefaultSasProDir {
-    if ($IsWindows -or $env:OS -eq 'Windows_NT') {
-        $base = $env:LOCALAPPDATA
-        if (-not $base) { $base = Join-Path $HOME 'AppData/Local' }
-        return Join-Path $base 'SASpro/models'
-    }
-    if ($IsMacOS) {
-        return Join-Path $HOME 'Library/Application Support/SASpro/models'
-    }
-    return Join-Path $HOME '.local/share/SASpro/models'
-}
-
 function Get-DefaultGraXpertDir {
     # GraXpert (Steffenhir/GraXpert; GPL-3.0 code, CC-BY-NC-SA-4.0 models) stores its ONNX models under
     # %LOCALAPPDATA%/GraXpert/GraXpert/<bucket>/<version>/model.onnx -- one
     # subdir per model kind (bge-ai-models, denoise-ai-models, etc.) with
-    # one semver-named version dir each. We only consume the BGE bucket for
-    # now (background extraction); the denoise bucket overlaps with SAS Pro's
-    # AI4 NAFNet which we already ship.
+    # one semver-named version dir each. Only the BGE bucket is consumed
+    # (background extraction); TianWen denoises with its own model.
     if ($IsWindows -or $env:OS -eq 'Windows_NT') {
         $base = $env:LOCALAPPDATA
         if (-not $base) { $base = Join-Path $HOME 'AppData/Local' }
@@ -111,72 +72,10 @@ function Get-DefaultGraXpertDir {
 }
 
 if (-not $OutputDir)    { $OutputDir    = Get-DefaultOutputDir }
-if (-not $SasProDir)    { $SasProDir    = Get-DefaultSasProDir }
 if (-not $GraXpertDir)  { $GraXpertDir  = Get-DefaultGraXpertDir }
-if (-not $CacheDir)     { $CacheDir     = Join-Path $HOME '.cache/tianwen-ai-models' }
 
-New-Item -ItemType Directory -Path $CacheDir  -Force | Out-Null
 New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
-
-$useSasPro = -not $NoSasPro -and (Test-Path -LiteralPath $SasProDir)
-if ($useSasPro) {
-    Write-Host ("SAS Pro source: {0}" -f $SasProDir) -ForegroundColor DarkGray
-} elseif ($NoSasPro) {
-    Write-Host "SAS Pro source: ignored (-NoSasPro)" -ForegroundColor DarkGray
-} else {
-    Write-Host ("SAS Pro source: not found at {0} (will extract from zip)" -f $SasProDir) -ForegroundColor DarkGray
-}
-Write-Host ("Output:         {0}" -f $OutputDir) -ForegroundColor DarkGray
-
-# Jobs: (display name, URL, cached file name)
-$jobs = @(
-    [pscustomobject]@{ Name = 'AI4';     Url = "$githubBase/SASPro_Models_AI4.zip";     File = 'SASPro_Models_AI4.zip' }
-)
-if (-not $NoWalking) {
-    $jobs += [pscustomobject]@{ Name = 'Walking'; Url = "$githubBase/SASPro_Models_AI4_walking.zip"; File = 'SASPro_Models_AI4_walking.zip' }
-}
-
-function Download-Job {
-    param([Parameter(Mandatory)] $Job)
-    $dst = Join-Path $CacheDir $Job.File
-
-    # Probe total size from HEAD so we can decide skip / resume.
-    $head = Invoke-WebRequest -Uri $Job.Url -Method Head -ErrorAction Stop
-    $total = [int64]$head.Headers['Content-Length'][0]
-
-    if ((Test-Path $dst) -and -not $Force -and (Get-Item $dst).Length -eq $total) {
-        Write-Host ("  cached: {0} ({1:N0} MB)" -f $Job.File, ($total / 1MB)) -ForegroundColor DarkGray
-        return
-    }
-
-    if ($Force -and (Test-Path $dst)) { Remove-Item $dst -Force }
-
-    Write-Host ("  downloading {0} ({1:N0} MB) ..." -f $Job.File, ($total / 1MB)) -ForegroundColor Cyan
-    # -Resume picks up a partial .zip if the previous run was interrupted.
-    Invoke-WebRequest -Uri $Job.Url -OutFile $dst -Resume -ErrorAction Stop
-    $got = (Get-Item $dst).Length
-    if ($got -ne $total) {
-        throw ("Download size mismatch: expected {0:N0}, got {1:N0}" -f $total, $got)
-    }
-    Write-Host ("  done: {0}" -f $dst) -ForegroundColor Green
-}
-
-function Compute-StripPrefix {
-    # If every file entry sits under a single common top-level folder, return
-    # "<folder>/" so callers can strip it. Else return "". Matches the
-    # install_models_zip() heuristic from SetiAstroSuite Pro, which keeps our
-    # in-tree relative paths aligned with what SAS Pro itself produces on disk.
-    param([Parameter(Mandatory)] $Entries)
-    $tops = @{}
-    foreach ($e in $Entries) {
-        $parts = $e.FullName -split '[\\/]', 2
-        if ($parts.Length -lt 2 -or [string]::IsNullOrEmpty($parts[1])) { return '' }
-        $tops[$parts[0]] = $true
-        if ($tops.Count -gt 1) { return '' }
-    }
-    if ($tops.Count -eq 1) { return ($tops.Keys | Select-Object -First 1) + '/' }
-    return ''
-}
+Write-Host ("Output: {0}" -f $OutputDir) -ForegroundColor DarkGray
 
 function Try-Hardlink {
     # Returns $true on success, $false if hardlink isn't supported here
@@ -191,100 +90,8 @@ function Try-Hardlink {
     }
 }
 
-function Materialize-Job {
-    param([Parameter(Mandatory)] $Job)
-    $zipPath = Join-Path $CacheDir $Job.File
-    $haveZip = Test-Path -LiteralPath $zipPath
-
-    if (-not $haveZip) {
-        # v1 grounds the expected-file-set on the zip's central directory. No
-        # cached zip means we cannot answer "what's missing from SAS Pro" with
-        # certainty, so this is a hard failure rather than a silent partial.
-        throw ("Cached zip missing for {0} and -NoDownload set. Run once without -NoDownload to populate the cache, or commit a manifest.json (see script header)." -f $Job.Name)
-    }
-
-    Write-Host ("  materializing {0} ..." -f $Job.Name) -ForegroundColor Cyan
-    $zip = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
-    try {
-        $files = $zip.Entries | Where-Object { $_.FullName -and -not $_.FullName.EndsWith('/') -and -not $_.FullName.EndsWith('\') }
-        $strip = Compute-StripPrefix -Entries $files
-        $stripLen = $strip.Length
-
-        # ONNX-only: TianWen calls every model via Microsoft.ML.OnnxRuntime. The
-        # bundles also ship .pth / .pt PyTorch weights (SAS Pro's torch fallback)
-        # which we never load -- skip them outright so %LOCALAPPDATA%\TianWen\models
-        # stays a clean .onnx + manifest.json tree, regardless of whether the
-        # source is the cached zip or a SAS Pro hardlink.
-        $files = $files | Where-Object {
-            $ext = [System.IO.Path]::GetExtension($_.FullName).ToLowerInvariant()
-            $ext -ne '.pth' -and $ext -ne '.pt'
-        }
-
-        $skipped = 0; $hardlinked = 0; $copied = 0; $extracted = 0
-        $firstFallbackReason = $null
-        foreach ($entry in $files) {
-            $rel = $entry.FullName.Substring($stripLen) -replace '/', [System.IO.Path]::DirectorySeparatorChar
-            $target = Join-Path $OutputDir $rel
-
-            if (Test-Path -LiteralPath $target) {
-                $skipped++
-                continue
-            }
-
-            $targetDir = Split-Path -Parent $target
-            if ($targetDir) { New-Item -ItemType Directory -Path $targetDir -Force | Out-Null }
-
-            $sasprPath = if ($useSasPro) { Join-Path $SasProDir $rel } else { $null }
-            if ($sasprPath -and (Test-Path -LiteralPath $sasprPath -PathType Leaf)) {
-                if (Try-Hardlink -Source $sasprPath -Target $target) {
-                    $hardlinked++
-                } else {
-                    Copy-Item -LiteralPath $sasprPath -Destination $target -Force
-                    $copied++
-                    if (-not $firstFallbackReason) {
-                        # Re-run the link attempt without the swallow so we can
-                        # report a concrete error to the user (most likely
-                        # cross-volume between TianWen and SAS Pro on a non-C: drive).
-                        try { New-Item -ItemType HardLink -Path "$target.linkprobe" -Value $sasprPath -ErrorAction Stop | Out-Null }
-                        catch { $firstFallbackReason = $_.Exception.Message }
-                        Remove-Item -LiteralPath "$target.linkprobe" -Force -ErrorAction SilentlyContinue
-                    }
-                }
-            } else {
-                [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $target, $true)
-                $extracted++
-            }
-        }
-
-        Write-Host ("    skipped:    {0,5} (already present)" -f $skipped)     -ForegroundColor DarkGray
-        Write-Host ("    hardlinked: {0,5} (from SAS Pro)"     -f $hardlinked) -ForegroundColor Green
-        if ($copied -gt 0) {
-            Write-Host ("    copied:     {0,5} (hardlink failed: {1})" -f $copied, $firstFallbackReason) -ForegroundColor Yellow
-        }
-        Write-Host ("    extracted:  {0,5} (from cached zip)" -f $extracted)   -ForegroundColor Green
-    } finally {
-        $zip.Dispose()
-    }
-}
-
-# Phase 1: download zips (unless -NoDownload).
-if (-not $NoDownload) {
-    Write-Host "[1/4] Downloading model zips" -ForegroundColor Cyan
-    Write-Host ("  cache: {0}" -f $CacheDir) -ForegroundColor DarkGray
-    foreach ($job in $jobs) { Download-Job $job }
-} else {
-    Write-Host "[1/4] Download skipped (-NoDownload)" -ForegroundColor DarkGray
-}
-
-# Phase 2: materialize into TianWen output dir.
-Write-Host "[2/4] Materializing SAS Pro models into $OutputDir" -ForegroundColor Cyan
-foreach ($job in $jobs) { Materialize-Job $job }
-
-# Phase 3: GraXpert background-extraction (BGE) model. Single file, no zip,
-# detect-and-hardlink only. v1 has no GitHub mirror fallback -- if GraXpert
-# isn't installed locally we print a hint and skip. (Mirror story tracked
-# in TODO.md under the gradient correction work; matches our SAS Pro
-# strategy where dev relies on detection and prod uses our own mirror.)
+# Phase 1: GraXpert background-extraction (BGE) model. Single file, no zip,
+# detect-and-hardlink only (see the header for why there is no download).
 function Materialize-GraXpertBge {
     param([Parameter(Mandatory)][string]$GraXpertRoot, [Parameter(Mandatory)][string]$Output)
     $bgeRoot = Join-Path $GraXpertRoot 'bge-ai-models'
@@ -304,9 +111,8 @@ function Materialize-GraXpertBge {
     }
     $picked = $candidates[0]
     $source = Join-Path $picked.FullName 'model.onnx'
-    # Flatten to a versioned name in TianWen models tree -- consistent with the
-    # SAS Pro AI4 layout, lets a future BGE version live alongside the old one
-    # if we ever need A/B comparison.
+    # Flatten to a versioned name in the TianWen models tree, so a future BGE
+    # version can live alongside the old one for an A/B comparison.
     $target = Join-Path $Output ("graxpert_bge_v{0}.onnx" -f $picked.Name)
     # Also keep an unversioned alias so downstream code (IModelResolver) can
     # request "graxpert_bge.onnx" without baking the version in. Re-link the
@@ -336,21 +142,21 @@ function Materialize-GraXpertBge {
 }
 
 if (-not $NoGraXpert) {
-    Write-Host "[3/4] Materializing GraXpert BGE model" -ForegroundColor Cyan
+    Write-Host "[1/2] Materializing GraXpert BGE model" -ForegroundColor Cyan
     Materialize-GraXpertBge -GraXpertRoot $GraXpertDir -Output $OutputDir | Out-Null
 } else {
-    Write-Host "[3/4] GraXpert skipped (-NoGraXpert)" -ForegroundColor DarkGray
+    Write-Host "[1/2] GraXpert skipped (-NoGraXpert)" -ForegroundColor DarkGray
 }
 
-# Phase 4: TianWen's own models, shipped IN this repo
+# Phase 2: TianWen's own models, shipped IN this repo
 # (src/TianWen.AI.Imaging/models/). Preferred source is the checkout beside this
-# script -- hardlink-else-copy, same as SAS Pro. These weights are LFS objects
-# again since 2026-09-06 (between 2026-08-19 and then a .gitattributes exemption
-# made them a plain git blob, so a checkout held them outright and the pointer-stub
-# path below was dead code for them). A clone made without git-lfs holds a
-# ~130-byte pointer stub instead of weights, in
-# which case the LFS object bytes are fetched from GitHub's media host (which serves the real
-# content for a public repo; the plain raw host would serve the stub again).
+# script, hardlink-else-copy. These weights are LFS objects again since
+# 2026-09-06 (between 2026-08-19 and then a .gitattributes exemption made them a
+# plain git blob, so a checkout held them outright and the pointer-stub path
+# below was dead code for them). A clone made without git-lfs holds a ~130-byte
+# pointer stub instead of weights, in which case the LFS object bytes are fetched
+# from GitHub's media host (which serves the real content for a public repo; the
+# plain raw host would serve the stub again).
 $tianwenNativeModels = @('tianwen_denoise_osc_e2wide_s2.onnx')
 $tianwenRepoModelsDir = Join-Path $PSScriptRoot '..' 'src' 'TianWen.AI.Imaging' 'models'
 $tianwenLfsMediaBase = 'https://media.githubusercontent.com/media/SharpAstro/tianwen/main/src/TianWen.AI.Imaging/models'
@@ -398,23 +204,8 @@ function Materialize-TianWenModel {
     Write-Host ("  done:       {0} ({1:N1} MB)" -f $Name, ((Get-Item -LiteralPath $target).Length / 1MB)) -ForegroundColor Green
 }
 
-Write-Host "[4/4] Materializing TianWen native models" -ForegroundColor Cyan
+Write-Host "[2/2] Materializing TianWen native models" -ForegroundColor Cyan
 foreach ($name in $tianwenNativeModels) { Materialize-TianWenModel -Name $name }
-
-# Post-phase: optional cache pruning. Hardlinks share inodes with SAS Pro's copy
-# so the bytes survive zip removal; pure-extract files are already independent
-# bytes on disk. Either way the cache is safe to drop once materialization
-# completes successfully.
-if ($PruneCache) {
-    Write-Host "Pruning cache..." -ForegroundColor Cyan
-    foreach ($job in $jobs) {
-        $zipPath = Join-Path $CacheDir $job.File
-        if (Test-Path -LiteralPath $zipPath) {
-            Remove-Item -LiteralPath $zipPath -Force
-            Write-Host ("  removed: {0}" -f $zipPath) -ForegroundColor DarkGray
-        }
-    }
-}
 
 Write-Host ""
 Write-Host "Done. Models in: $OutputDir" -ForegroundColor Green
