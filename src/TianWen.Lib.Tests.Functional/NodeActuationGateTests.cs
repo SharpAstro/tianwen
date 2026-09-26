@@ -3,6 +3,7 @@ using NSubstitute;
 using Shouldly;
 using System;
 using System.Diagnostics.CodeAnalysis;
+using System.IO;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -35,8 +36,10 @@ public class NodeActuationGateTests(ITestOutputHelper outputHelper) : IAsyncLife
     private NodeHarness? _harness;
     private DeviceLeaseSet _runLease = DeviceLeaseSet.Empty;
 
+    // On a socket, as the machine's node listens: only a client on it may create or delete a profile (decision 4).
     [MemberNotNull(nameof(_harness))]
-    public async ValueTask InitializeAsync() => _harness = await NodeHarness.StartAsync(outputHelper, TestContext.Current.CancellationToken);
+    public async ValueTask InitializeAsync() => _harness = await NodeHarness.StartAsync(outputHelper, TestContext.Current.CancellationToken,
+        socketPath: Path.Combine(Directory.CreateTempSubdirectory("tws").FullName, "node.sock"));
 
     public async ValueTask DisposeAsync()
     {

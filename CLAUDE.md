@@ -1223,6 +1223,10 @@ full native-AOT rules, and the reasoning behind each rule below:
    and names the run): two readers on one serial port race. `DEVICE-STATE` is pushed on a change compared at the
    resolution a reader is shown, or a thermometer pushes on every read. The read side (P2 part 1, #929):
    `docs/architecture/hosting-api.md`.
+12. **The node writes a profile through ONE writer, `NodeProfiles`, and never from a cached copy** (P3, #930): each
+   write reads the file inside the writer's lock, an edit names the REVISION it was read at (the hash of the stored
+   bytes) and a stale one is a 412, and every write pushes `PROFILE-CHANGED`. **A new place the node writes a profile
+   goes through it.** Changing a profile is for the socket only (decision 4); a LAN client reads.
 
 ### Remote Rigs (mirror another node's session "as if local")
 

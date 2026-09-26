@@ -573,9 +573,43 @@ namespace TianWen.RemoteClient
             GetAsync("api/v1/profiles", HostingJsonContext.Default.ResponseEnvelopeProfileSummaryDtoArray, _timeouts.Control, cancellationToken);
 
         /// <summary><c>GET /profiles/{id}</c> -- the full equipment profile, which is all the planner
-        /// and sky map need to work against a remote rig.</summary>
+        /// and sky map need to work against a remote rig. Carries the WHOLE profile (<see cref="ProfileDetailDto.Data"/>)
+        /// and the revision it was read at, which an edit names.</summary>
         public Task<NodeResult<ProfileDetailDto>> GetProfileAsync(Guid profileId, CancellationToken cancellationToken) =>
             GetAsync($"api/v1/profiles/{profileId}", HostingJsonContext.Default.ResponseEnvelopeProfileDetailDto, _timeouts.Control, cancellationToken);
+
+        /// <summary>
+        /// <c>PUT /profiles/{id}</c>: replaces the whole profile with <paramref name="data"/>, made against
+        /// <paramref name="revision"/> (<see cref="ProfileDetailDto.Revision"/> of the copy it was edited from), and answers
+        /// the profile as stored. Only over the node's socket (a <b>403</b> over TCP). A <b>412</b> means the stored profile
+        /// has moved on since that revision: read it again and reapply the edit, never resend it as it was.
+        /// </summary>
+        /// <param name="name">A new name; null keeps the profile's.</param>
+        public Task<NodeResult<ProfileDetailDto>> UpdateProfileAsync(Guid profileId, ProfileData data, string revision, string? name,
+            CancellationToken cancellationToken) =>
+            SendJsonAsync(
+                HttpMethod.Put,
+                $"api/v1/profiles/{profileId}",
+                new UpdateProfileRequest { Name = name, Data = data, Revision = revision }, HostingJsonContext.Default.UpdateProfileRequest,
+                HostingJsonContext.Default.ResponseEnvelopeProfileDetailDto,
+                _timeouts.Control, cancellationToken);
+
+        /// <summary><c>POST /profiles</c>: creates an empty profile named <paramref name="name"/>. Only over the node's socket.</summary>
+        public Task<NodeResult<ProfileDetailDto>> CreateProfileAsync(string name, CancellationToken cancellationToken) =>
+            SendJsonAsync(
+                HttpMethod.Post,
+                "api/v1/profiles",
+                new CreateProfileRequest { Name = name }, HostingJsonContext.Default.CreateProfileRequest,
+                HostingJsonContext.Default.ResponseEnvelopeProfileDetailDto,
+                _timeouts.Control, cancellationToken);
+
+        /// <summary>
+        /// <c>DELETE /profiles/{id}</c>. Only over the node's socket; a <b>409</b> for the node's active profile, or while a
+        /// run is going.
+        /// </summary>
+        public Task<NodeResult<string>> DeleteProfileAsync(Guid profileId, CancellationToken cancellationToken) =>
+            SendAsync(HttpMethod.Delete, $"api/v1/profiles/{profileId}", content: null, HostingJsonContext.Default.ResponseEnvelopeString,
+                _timeouts.Control, cancellationToken);
 
         /// <summary>
         /// <c>GET /session/profile</c> -- which profile the node is set up to run, as opposed to
