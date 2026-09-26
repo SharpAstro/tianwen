@@ -54,6 +54,13 @@
 #   as written. Measured at export: the varied shape averages band1/band0 0.332 over its draws, against
 #   0.270 for real sub pairs and 0.257 for real half-master pairs of this bake.
 #
+# DEVIATION, 2026-09-27, after training and before the read: ELEVEN fields, not twelve. eval4's 24mm ASI585
+#   session (2025-03-19) does not plate-solve ("no solution"), so the Gaia split has no stars to score it
+#   with; the run log recorded that on 2026-09-05 and the list here should never have carried it. Its
+#   solve also stalled this run at score 9 on a wedged WSL (issue #977), and the last four scores were
+#   re-run by hand (run-pool-rescore.ps1). Excluded for good, on the user's call. The thresholds keep their
+#   count: "at least 8 of the 12" reads as at least 8 of the 11.
+#
 # Run DETACHED; read the status file, never the log. The heartbeat finds it by C:\temp\e2\pool.pid.
 #   $s = (Resolve-Path .\run-pool.ps1).Path
 #   Start-Process pwsh -ArgumentList '-NoProfile','-File',$s -WindowStyle Hidden
@@ -190,7 +197,8 @@ try {
                             'Small-Magellanic-Cloud/2023-07-29', 'Carina-Wide/2025-03-19')
         'n2n-e2-eval4b' = @('HIP-34710/2025-12-28', 'HIP-85088/2025-05-20', 'V1045-Ori/2026-01-18',
                             'eta-Car-Nebula/2026-02-20')
-        'n2n-eval4'     = @('24mm ASI585', 'RIM 135mm', 'Horsehead', 'Statue of Liberty')
+        # Not '24mm ASI585': it does not plate-solve, so the split cannot score it (DEVIATION 2026-09-27).
+        'n2n-eval4'     = @('RIM 135mm', 'Horsehead', 'Statue of Liberty')
     }
     $n = 0
     foreach ($c in $fields.Keys) {
@@ -203,7 +211,7 @@ try {
         }
         foreach ($f in $fields[$c]) {
             $n++
-            Set-Status "score $n/12 $c $f"
+            Set-Status "score $n/11 $c $f"
             & python n2n_starsplit.py --cache (Join-Path $Scratch $c) --models @models --only $f --per-session `
                 *> (Join-Path $LogDir "pool-score-$c-$($f -replace '[/\\ ]', '_').txt")
             if ($LASTEXITCODE -ne 0) { throw "score failed on $c $f (exit $LASTEXITCODE)" }
