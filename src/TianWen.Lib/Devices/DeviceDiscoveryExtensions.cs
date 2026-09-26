@@ -51,6 +51,19 @@ public static class DeviceDiscoveryExtensions
         }
 
         /// <summary>
+        /// The one rule a discovery applies to a STORED profile, for the GUI's reconcile-all and the node's alike (P3 part 2
+        /// of docs/plans/hardware-in-the-server.md, #930): a site still on the mount's URI moved into the profile
+        /// (<see cref="ProfileDataExtensions.MigrateSiteFromMountUri"/>), then every device URI reconciled with what was
+        /// discovered (<see cref="ReconcileProfileData"/>). Changed when either did anything.
+        /// </summary>
+        public (ProfileData Reconciled, bool Changed) ReconcileStoredProfile(ProfileData data)
+        {
+            var (migrated, moved) = data.MigrateSiteFromMountUri();
+            var (reconciled, drifted) = discovery.ReconcileProfileData(migrated);
+            return (reconciled, moved || drifted);
+        }
+
+        /// <summary>
         /// Applies <see cref="ReconcileUri"/> to every device URI carried by a
         /// <see cref="ProfileData"/>: top-level mount, guider, optional guider-camera /
         /// guider-focuser / weather, plus each OTA's camera / cover / focuser / filter-wheel.

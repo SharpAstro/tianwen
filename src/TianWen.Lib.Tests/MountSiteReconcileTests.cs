@@ -150,12 +150,12 @@ public class MountSiteReconcileTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task TheGuiAppliesTheProfilesHalfWhenTheMountsSiteWins()
+    public async Task TheProfileTakesTheMountsSiteWhenTheMountsSiteWins()
     {
         var ct = TestContext.Current.CancellationToken;
         var mount = await ConnectedFakeMountAsync();
 
-        var result = await EquipmentActions.ReconcileSiteOnMountConnectAsync(ProfileWithSite(null), mount, logger: null, ct);
+        var result = await mount.ReconcileSiteWithProfileAsync(ProfileWithSite(null), logger: null, ct);
 
         result.ProfileChanged.ShouldBeTrue();
         result.MountPushed.ShouldBeFalse();
@@ -164,7 +164,7 @@ public class MountSiteReconcileTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task TheGuiLeavesTheProfileAloneWhenTheMountIsGivenItsSite()
+    public async Task TheProfileIsLeftAloneWhenTheMountIsGivenItsSite()
     {
         var ct = TestContext.Current.CancellationToken;
         var mount = await ConnectedFakeMountAsync();
@@ -172,7 +172,7 @@ public class MountSiteReconcileTests(ITestOutputHelper output)
         await mount.SetSiteLongitudeAsync(double.NaN, ct);
         var profile = ProfileWithSite(Melbourne);
 
-        var result = await EquipmentActions.ReconcileSiteOnMountConnectAsync(profile, mount, logger: null, ct);
+        var result = await mount.ReconcileSiteWithProfileAsync(profile, logger: null, ct);
 
         result.ProfileChanged.ShouldBeFalse();
         result.MountPushed.ShouldBeTrue();

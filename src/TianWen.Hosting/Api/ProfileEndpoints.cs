@@ -45,7 +45,8 @@ internal static class ProfileEndpoints
         // PUT /api/v1/profiles/{id}: replaces the WHOLE profile, made against the revision the client read. Only over
         // the socket (decision 4), and through the node's one writer, which refuses a stale revision (412) rather than
         // overwrite a change the client never saw.
-        group.MapPut("/{id:guid}", async (Guid id, UpdateProfileRequest request, HttpContext context, NodeProfiles profiles, CancellationToken ct) =>
+        group.MapPut("/{id:guid}", async (Guid id, UpdateProfileRequest request, HttpContext context, NodeProfiles profiles, DeviceOperations devices,
+            CancellationToken ct) =>
         {
             if (!NodeEndpoints.CameOverTheSocket(context))
             {
@@ -57,6 +58,7 @@ internal static class ProfileEndpoints
             }
 
             var write = await profiles.UpdateAsync(id, request.Revision, current => new Profile(id, request.Name ?? current.DisplayName, request.Data), ct);
+            await devices.AfterProfileEditAsync(id, write, ct);
             return write switch
             {
                 { Outcome: ProfileWriteOutcome.NotFound } => EnvelopeResults.Json(

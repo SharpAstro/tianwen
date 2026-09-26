@@ -103,8 +103,10 @@ public static class EquipmentActions
     }
 
     /// <summary>
-    /// Reconciles every registered profile against the current discovery cache and
-    /// persists the ones whose device URIs drifted (COM5 -> COM6, new DHCP IP, etc.).
+    /// Reconciles every registered profile against the current discovery cache
+    /// (<see cref="DeviceDiscoveryExtensions.ReconcileStoredProfile"/>, the rule the node applies too) and
+    /// persists the ones that changed: device URIs that drifted (COM5 -> COM6, new DHCP IP, etc.), or a
+    /// site still on the mount's URI.
     /// Returns the (original, updated) pairs for each profile that actually changed,
     /// so the caller can decide which to reflect into UI state without having to
     /// re-run the comparison.
@@ -117,7 +119,7 @@ public static class EquipmentActions
         {
             if (p.Data is not { } data) continue;
 
-            var (reconciled, changed) = discovery.ReconcileProfileData(data);
+            var (reconciled, changed) = discovery.ReconcileStoredProfile(data);
             if (!changed) continue;
 
             var updated = p.WithData(reconciled);
@@ -229,36 +231,6 @@ public static class EquipmentActions
         return false;
     }
 
-    /// <summary>
-    /// Pushes the site to the connected mount hardware when the tie-breaker says the profile
-    /// wins (best-effort: a failed push is logged, not thrown). No-op when the tie-breaker is
-    /// Mount, the hub is null, or no mount is connected. Extracted from the site commit callback.
-    /// </summary>
-    public static async ValueTask PushSiteToMountIfProfileWinsAsync(
-        IDeviceHub? hub, ProfileData siteData, double lat, double lon, double? elev,
-        ILogger logger, CancellationToken cancellationToken)
-    {
-        if (siteData.SiteTieBreaker == SiteTieBreaker.Profile
-            && hub is not null
-            && hub.TryGetConnectedDriver<IMountDriver>(siteData.Mount, out var mount)
-            && mount is not null)
-        {
-            try
-            {
-                await mount.SetSiteLatitudeAsync(lat, cancellationToken);
-                await mount.SetSiteLongitudeAsync(lon, cancellationToken);
-                if (elev is { } elevForPush)
-                {
-                    await mount.SetSiteElevationAsync(elevForPush, cancellationToken);
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Failed to push site to connected mount.");
-            }
-        }
-    }
-
     /// <summary>Whether a committed device setting was stored as a secret or must be applied to the URI.</summary>
     public enum DeviceSettingCommitKind
     {
@@ -299,116 +271,6 @@ public static class EquipmentActions
     public static ProfileData SetSiteTieBreaker(ProfileData data, SiteTieBreaker tieBreaker)
         => data with { SiteTieBreaker = tieBreaker };
 
-    /// <summary>
-    /// Outcome of <see cref="ReconcileSiteOnMountConnectAsync"/>.
-    /// <paramref name="Data"/> is the (possibly updated) <see cref="ProfileData"/>.
-    /// <paramref name="ProfileChanged"/> is true when the caller should persist the profile.
-    /// <paramref name="MountPushed"/> is true when the mount hardware was updated from the profile.
-    /// <paramref name="WinnerSource"/> describes where the effective site came from
-    /// for logging purposes; null when no site was available anywhere.
-    /// </summary>
-    public readonly record struct SiteReconcileResult(
-        ProfileData Data,
-        bool ProfileChanged,
-        bool MountPushed,
-        string? WinnerSource);
-
-    /// <summary>
-    /// Reconciles the connected mount's site with the stored profile's when the mount connects, by the rule
-    /// every host applies (<see cref="MountSiteExtensions"/>, where it moved for #798 so a run on the server
-    /// applies it too): when only one side has a site the other takes it, and when both do and differ,
-    /// <see cref="ProfileData.SiteTieBreaker"/> picks the side the other takes it from. The mount-side half is
-    /// applied there; the profile-side half is applied here, since this GUI is the profile's writer.
-    /// </summary>
-    public static async ValueTask<SiteReconcileResult> ReconcileSiteOnMountConnectAsync(
-        ProfileData data,
-        TianWen.Lib.Devices.IMountDriver mount,
-        ILogger? logger,
-        CancellationToken cancellationToken)
-    {
-        var decision = await mount.ReconcileSiteAsync(data.Site, data.SiteTieBreaker, logger, cancellationToken);
-
-        var updated = decision.AdoptIntoProfile && decision.Site is { } adopted
-            ? data with { SiteLatitude = adopted.Latitude, SiteLongitude = adopted.Longitude, SiteElevation = adopted.Elevation }
-            : data;
-        var winnerSource = decision.Source switch
-        {
-            SiteSource.Mount => "mount",
-            SiteSource.Profile => "profile",
-            _ => null
-        };
-
-        return new SiteReconcileResult(updated, decision.AdoptIntoProfile, decision.PushToMount, winnerSource);
-    }
-
-    /// <summary>
-    /// One-shot migration of site coordinates from the legacy Mount URI query
-    /// string (<c>?latitude=…&amp;longitude=…&amp;elevation=…</c>) into
-    /// <see cref="ProfileData.SiteLatitude"/> etc. Returns the updated
-    /// <see cref="ProfileData"/> and a flag indicating whether anything changed.
-    /// When the profile already has <see cref="ProfileData.SiteLatitude"/> set
-    /// the URI query is ignored: profile wins for migration.
-    /// </summary>
-    public static (ProfileData Data, bool Changed) MigrateSiteFromMountUri(ProfileData data)
-    {
-        if (data.SiteLatitude is not null || data.SiteLongitude is not null) return (data, false);
-        if (data.Mount == NoneDevice.Instance.DeviceUri) return (data, false);
-
-        var query = HttpUtility.ParseQueryString(data.Mount.Query);
-        var latStr = query[DeviceQueryKey.Latitude.Key];
-        var lonStr = query[DeviceQueryKey.Longitude.Key];
-        var elevStr = query[DeviceQueryKey.Elevation.Key];
-
-        if (latStr is null || lonStr is null
-            || !double.TryParse(latStr, CultureInfo.InvariantCulture, out var lat)
-            || !double.TryParse(lonStr, CultureInfo.InvariantCulture, out var lon))
-        {
-            return (data, false);
-        }
-
-        double? elev = elevStr is not null && double.TryParse(elevStr, CultureInfo.InvariantCulture, out var e) ? e : null;
-        return (data with { SiteLatitude = lat, SiteLongitude = lon, SiteElevation = elev }, true);
-    }
-
-    /// <summary>
-    /// Produce a human-readable diff of two <see cref="ProfileData"/> values,
-    /// yielding one tuple per field that changed. Used for logging post-discovery
-    /// reconciles so transport refreshes and user-config clobbers are both visible.
-    /// Returns (field label, before-value, after-value) as strings; null URIs
-    /// render as "<none>".
-    /// </summary>
-    public static IEnumerable<(string Field, string Before, string After)> DiffProfileData(ProfileData before, ProfileData after)
-    {
-        static string F(Uri? u) => u?.ToString() ?? "<none>";
-
-        if (before.Mount != after.Mount)
-            yield return ("Mount", F(before.Mount), F(after.Mount));
-        if (before.Guider != after.Guider)
-            yield return ("Guider", F(before.Guider), F(after.Guider));
-        if (before.GuiderCamera != after.GuiderCamera)
-            yield return ("GuiderCamera", F(before.GuiderCamera), F(after.GuiderCamera));
-        if (before.GuiderFocuser != after.GuiderFocuser)
-            yield return ("GuiderFocuser", F(before.GuiderFocuser), F(after.GuiderFocuser));
-        if (before.Weather != after.Weather)
-            yield return ("Weather", F(before.Weather), F(after.Weather));
-
-        var maxOtas = Math.Max(before.OTAs.Length, after.OTAs.Length);
-        for (int i = 0; i < maxOtas; i++)
-        {
-            var b = i < before.OTAs.Length ? (OTAData?)before.OTAs[i] : null;
-            var a = i < after.OTAs.Length ? (OTAData?)after.OTAs[i] : null;
-            if (b is null && a is not null) yield return ($"OTA[{i}]", "<none>", "<added>");
-            else if (a is null && b is not null) yield return ($"OTA[{i}]", "<present>", "<removed>");
-            else if (b is { } bb && a is { } aa)
-            {
-                if (bb.Camera != aa.Camera) yield return ($"OTA[{i}].Camera", F(bb.Camera), F(aa.Camera));
-                if (bb.Cover != aa.Cover) yield return ($"OTA[{i}].Cover", F(bb.Cover), F(aa.Cover));
-                if (bb.Focuser != aa.Focuser) yield return ($"OTA[{i}].Focuser", F(bb.Focuser), F(aa.Focuser));
-                if (bb.FilterWheel != aa.FilterWheel) yield return ($"OTA[{i}].FilterWheel", F(bb.FilterWheel), F(aa.FilterWheel));
-            }
-        }
-    }
-
     public static ProfileData AddOTA(ProfileData data, OTAData ota)
         => data with { OTAs = data.OTAs.Add(ota) };
 
@@ -435,53 +297,6 @@ public static class EquipmentActions
         };
 
         return data with { OTAs = data.OTAs.SetItem(otaIndex, updated) };
-    }
-
-    /// <summary>
-    /// Captures a just-connected camera's sensor geometry (pixel size + dimensions) into the OTA that
-    /// references it, so the planner can compute the sensor FOV -- and therefore smart framing groups --
-    /// offline later, before any device is connected. Returns the updated <see cref="ProfileData"/> when
-    /// something actually changed (so the caller persists), or <see langword="null"/> when the driver
-    /// reports no usable geometry, the camera isn't part of any OTA, or the specs already match (connect
-    /// is frequent; only a genuine change warrants a save). Pure transformation.
-    /// </summary>
-    public static ProfileData? CaptureSensorSpecs(ProfileData data, Uri cameraUri, ICameraDriver camera)
-    {
-        var pixelSize = camera.PixelSizeX;
-        var sensorW = camera.CameraXSize;
-        var sensorH = camera.CameraYSize;
-        if (!(pixelSize > 0) || sensorW <= 0 || sensorH <= 0)
-        {
-            return null; // driver hasn't reported usable sensor geometry
-        }
-
-        var otas = data.OTAs;
-        for (var i = 0; i < otas.Length; i++)
-        {
-            var ota = otas[i];
-            if (!DeviceBase.SameDevice(ota.Camera, cameraUri))
-            {
-                continue;
-            }
-
-            // Already captured and unchanged -> nothing to persist.
-            if (ota.CameraSensorWidthPx == sensorW
-                && ota.CameraSensorHeightPx == sensorH
-                && ota.CameraPixelSizeUm is { } existing && Math.Abs(existing - pixelSize) < 1e-6)
-            {
-                return null;
-            }
-
-            var updated = ota with
-            {
-                CameraPixelSizeUm = pixelSize,
-                CameraSensorWidthPx = sensorW,
-                CameraSensorHeightPx = sensorH,
-            };
-            return data with { OTAs = otas.SetItem(i, updated) };
-        }
-
-        return null; // camera not assigned to any OTA
     }
 
     /// <summary>

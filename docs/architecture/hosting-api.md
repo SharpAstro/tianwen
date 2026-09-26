@@ -369,8 +369,8 @@ settings ride on the query, and a URI's left part cannot be a path segment).
 - **`SkipWarmUp` is consent to a COLD disconnect, never to ending a night**: no request gets past a lease, exactly as
   the GUI's Force Off does not. Stopping the run is the way past it.
 
-Connecting does not yet reconcile the mount's site or capture a camera's sensor geometry into the profile, as the GUI
-does on connect: both are profile writes, which move to the node in P3. `TianWenNodeClient` has `ConnectDeviceAsync`,
+Connecting the active profile's mount reconciles its site, and connecting its camera records the sensor, as the GUI's
+connect does: both are profile writes, made through the node's one writer (P3 part 2, below). `TianWenNodeClient` has `ConnectDeviceAsync`,
 `GetDisconnectSafetyAsync`, `DisconnectDeviceAsync` and `WarmAndDisconnectDeviceAsync`. Pinned by
 `DeviceOperationTests` (a real node) and `NodeJobsPerDeviceTests`.
 
@@ -496,6 +496,29 @@ TUI and the CLI still save profiles themselves, so the node's registry can be be
 by `NodeProfileWriterTests` (a profile with every field set crosses and is stored exactly as sent, a stale revision is
 refused, every write is pushed and listed, a malformed profile is refused, and a LAN client reads but cannot write) and
 `ProfileRevisionTests`.
+
+### What the node writes into a profile on its own
+
+P3 part 2 (#930). The GUI's Equipment tab writes into a profile without being asked, at four moments, and the node now
+does the same at the same moments, through `NodeProfiles`, so each write is pushed. The RULES moved from the GUI's
+`EquipmentActions` into Lib and both apply the one copy until P6: `DeviceDiscoveryExtensions.ReconcileStoredProfile`,
+`ProfileDataExtensions` (`MigrateSiteFromMountUri`, `CaptureSensorSpecs`, `WithSite`, `DiffTo`) and
+`MountSiteExtensions` (`ReconcileSiteWithProfileAsync`, `PushSiteToMountIfProfileWinsAsync`).
+
+- **The discovery job ends by reconciling every stored profile** (`NodeProfiles.ReconcileAllAsync`): a device URI that
+  drifted (COM5 to COM6, a new DHCP address) is rewritten, and a site kept on the mount's URI (the legacy place) moves
+  into the profile. A profile in sync is not written. Each change is logged field by field, and the job's last step says
+  how many profiles it wrote.
+- **Connecting the active profile's mount reconciles its site** (`SiteTieBreaker`): the mount-side half is applied at
+  once, the profile-side half written, the SITE alone onto the profile as it is at the write.
+- **Connecting a camera of the active profile records its sensor** (pixel size and dimensions, into its OTA, for smart
+  framing), once: a sensor already recorded is not written again.
+- **An edit that changes the active profile's site gives it to the connected mount when the profile wins**, as the GUI's
+  site edit does, and never to a mount a run holds (`DeviceOwnershipGate`), since a site write commands the hardware and
+  the run keeps the site it settled on. The GUI's own site edit asks the gate too now; it did not.
+
+Pinned by `NodeProfileOwnWritesTests` (each of the four, against a node with fakes) and `ProfileDataRuleTests` plus
+`MountSiteReconcileTests` (the rules).
 
 ## Previews go through the shared stretch, never a private one
 

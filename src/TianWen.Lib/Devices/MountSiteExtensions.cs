@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -79,6 +80,13 @@ public sealed record SiteReconcileDecision(SiteCoordinates? Site, SiteSource Sou
 }
 
 /// <summary>
+/// The outcome of reconciling a connected mount's site with a profile's
+/// (<see cref="MountSiteExtensions.ReconcileSiteWithProfileAsync"/>): the profile as it is to be stored, whether it
+/// changed (its writer persists it), whether the mount was given the profile's site, and whose site won, for the log.
+/// </summary>
+public readonly record struct SiteReconcileResult(ProfileData Data, bool ProfileChanged, bool MountPushed, string? WinnerSource);
+
+/// <summary>
 /// A mount's site as a device-model operation, for every host: read it, write it, and reconcile it with a
 /// profile's. Lived in the GUI's <c>EquipmentActions</c> until #798, so a session started on the server never
 /// ran it, and a mount with no site of its own under the mount-wins default was never given the profile's.
@@ -139,6 +147,60 @@ public static class MountSiteExtensions
             }
 
             return decision;
+        }
+
+        /// <summary>
+        /// Reconciles the connected mount's site with the profile's when the mount connects: the mount-side half applied
+        /// (<see cref="ReconcileSiteAsync"/>), and the profile as its writer is to store it returned. Applied by the GUI and
+        /// the node alike (P3 part 2 of docs/plans/hardware-in-the-server.md, #930); only the profile's writer saves it.
+        /// </summary>
+        public async ValueTask<SiteReconcileResult> ReconcileSiteWithProfileAsync(ProfileData data, ILogger? logger, CancellationToken cancellationToken)
+        {
+            var decision = await mount.ReconcileSiteAsync(data.Site, data.SiteTieBreaker, logger, cancellationToken).ConfigureAwait(false);
+            var updated = decision.AdoptIntoProfile && decision.Site is { } adopted ? data.WithSite(adopted) : data;
+            var winnerSource = decision.Source switch
+            {
+                SiteSource.Mount => "mount",
+                SiteSource.Profile => "profile",
+                _ => null,
+            };
+            return new SiteReconcileResult(updated, decision.AdoptIntoProfile, decision.PushToMount, winnerSource);
+        }
+    }
+
+    extension(IDeviceHub hub)
+    {
+        /// <summary>
+        /// Gives the profile's connected mount the profile's site after an edit of it, when the profile wins the tie
+        /// (<see cref="SiteTieBreaker.Profile"/>). Best effort: a failed push is logged, not thrown. Not to a mount a run
+        /// holds (<see cref="DeviceOwnershipGate"/>): a site write commands the hardware, and a run keeps the site it
+        /// settled on. True when the mount was given the site.
+        /// </summary>
+        public async ValueTask<bool> PushSiteToMountIfProfileWinsAsync(ProfileData data, ILogger logger, CancellationToken cancellationToken)
+        {
+            if (data.SiteTieBreaker != SiteTieBreaker.Profile
+                || data.Site is not { } site
+                || !hub.TryGetConnectedDriver<IMountDriver>(data.Mount, out var mount)
+                || mount is null)
+            {
+                return false;
+            }
+            if (DeviceOwnershipGate.Evaluate(hub, data.Mount, DeviceAction.Actuate) is { Allowed: false } verdict)
+            {
+                logger.LogWarning("Not giving the mount the edited site: {Reason}", verdict.Describe());
+                return false;
+            }
+
+            try
+            {
+                await mount.SetSiteAsync(site, cancellationToken).ConfigureAwait(false);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to push site to connected mount.");
+                return false;
+            }
         }
     }
 }

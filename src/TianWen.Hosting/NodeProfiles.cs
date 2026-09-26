@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -24,8 +25,11 @@ internal enum ProfileWriteOutcome
     NotFound,
 }
 
-/// <summary>A write's outcome, and the profile as stored after it (null when there is none).</summary>
-internal readonly record struct ProfileWrite(ProfileWriteOutcome Outcome, StoredProfile? Stored);
+/// <summary>
+/// A write's outcome, the profile as stored after it (null when there is none), and as it was stored before (null when
+/// there was none to change).
+/// </summary>
+internal readonly record struct ProfileWrite(ProfileWriteOutcome Outcome, StoredProfile? Stored, StoredProfile? Previous = null);
 
 /// <summary>
 /// The node's ONE profile writer (P3 part 1 of docs/plans/hardware-in-the-server.md, #930). Every profile the node
@@ -78,12 +82,38 @@ internal sealed class NodeProfiles(IExternal external, IDeviceDiscovery discover
 
             var written = await changed.SaveStoredAsync(external, cancellationToken);
             await AnnounceAsync(new ProfileChangedDto { ProfileId = profileId, Name = changed.DisplayName, Revision = written.Revision });
-            return new ProfileWrite(ProfileWriteOutcome.Written, written);
+            return new ProfileWrite(ProfileWriteOutcome.Written, written, stored);
         }
         finally
         {
             _writing.Release();
         }
+    }
+
+    /// <summary>
+    /// Applies a discovery's rule to every stored profile (<see cref="DeviceDiscoveryExtensions.ReconcileStoredProfile"/>:
+    /// device URIs that drifted, a site still on the mount's URI) and logs what moved, as the GUI's reconcile-all does at
+    /// the end of its discovery. Run at the end of the node's discovery job (P3 part 2, #930). Answers how many profiles
+    /// it wrote; one that is in sync is not written.
+    /// </summary>
+    public async Task<int> ReconcileAllAsync(CancellationToken cancellationToken)
+    {
+        var written = 0;
+        foreach (var registered in discovery.RegisteredDevices(DeviceType.Profile).OfType<Profile>().ToList())
+        {
+            var write = await UpdateAsync(registered.ProfileId, readAt: null, current =>
+                current.Data is { } data && discovery.ReconcileStoredProfile(data) is (var reconciled, true) ? current.WithData(reconciled) : current,
+                cancellationToken);
+            if (write is { Outcome: ProfileWriteOutcome.Written, Previous.Profile.Data: { } before, Stored.Profile.Data: { } after })
+            {
+                written++;
+                foreach (var (field, from, to) in before.DiffTo(after))
+                {
+                    logger.LogInformation("Reconcile {Profile} {Field}: {Before} -> {After}", registered.DisplayName, field, from, to);
+                }
+            }
+        }
+        return written;
     }
 
     /// <summary>Creates an empty profile named <paramref name="name"/>.</summary>

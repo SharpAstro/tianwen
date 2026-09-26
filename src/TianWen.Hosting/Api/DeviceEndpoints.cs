@@ -118,7 +118,8 @@ internal static class DeviceEndpoints
         // inline on the REQUEST's token: a client's 10 s control budget cut a serial sweep off mid-probe, and a
         // dropped request cancelled a probe half-way (P0b item 17 of docs/plans/hardware-in-the-server.md).
         // What it found is read from /devices/structured once the job has ended.
-        group.MapPost("/devices/discover", (IDeviceDiscovery deviceDiscovery, NodeJobs jobs) =>
+        // Every stored profile is reconciled with what it found at the end (P3 part 2, #930), as the GUI's discovery does.
+        group.MapPost("/devices/discover", (IDeviceDiscovery deviceDiscovery, NodeProfiles profiles, NodeJobs jobs) =>
             EnvelopeResults.Json(
                 ResponseEnvelope<JobDto>.Accepted(jobs.StartOrJoin(DiscoverJob, async (step, ct) =>
                 {
@@ -127,7 +128,15 @@ internal static class DeviceEndpoints
                     var found = deviceDiscovery.RegisteredDeviceTypes
                         .Where(dt => dt is not DeviceType.Profile)
                         .Sum(dt => deviceDiscovery.RegisteredDevices(dt).Count());
-                    return found == 1 ? "Found 1 device" : $"Found {found} devices";
+                    step.Report("Reconciling the profiles with what was found");
+                    var reconciled = await profiles.ReconcileAllAsync(ct);
+                    var devices = found == 1 ? "Found 1 device" : $"Found {found} devices";
+                    return reconciled switch
+                    {
+                        0 => devices,
+                        1 => $"{devices}; reconciled 1 profile",
+                        _ => $"{devices}; reconciled {reconciled} profiles",
+                    };
                 })),
                 HostingJsonContext.Default.ResponseEnvelopeJobDto));
 
