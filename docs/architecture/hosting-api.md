@@ -453,6 +453,21 @@ until something stopped it, so a client that died, or lost its connection, mid-m
 Pinned by `MotionOperationTests`: a motion nobody renews stops by itself, a renewed one outlives its lease and stops
 when asked, a stop ends it, and a held mount refuses it.
 
+### The proof: the Equipment tab's flows over the socket
+
+P2 part 6 (#929). `EquipmentFlowProcessTests` spawns a real node (`KeptNode`: `--fake-devices --local-only`, a temp
+socket and data root) and drives the Equipment tab's flows through `TianWenNodeClient` over the SOCKET, in the order
+the tab runs them: discovery; connecting each device, a job each; every device read, listed and pushed; a cool-down
+and the cooler off, each recorded as the cooler intent; a settings change; a focuser move and a filter change; a
+goto, a park and an unpark, tracking, and a held move-axis let go; the disconnect check, a warm-and-disconnect and
+the disconnects, each device's goodbye pushed. What passes there is what the GUI can do once it has no hub of its
+own (P6), and every call it makes is a `TianWenNodeClient` method the cut can switch to.
+
+It found one bug the in-process tests could not: a filter wheel's reading carried the installed filter's
+`Position`, which is its FOCUS OFFSET (the fake's Red is +20), as the wheel's slot. `ReadFilterWheelAsync` reads the
+slot from `GetPositionAsync` now (-1 while the wheel turns), and `DeviceHubReadingTests` turns a wheel to a slot
+whose offset is not its number, where the old test compared the reading with the same wrong field.
+
 ## Previews go through the shared stretch, never a private one
 
 `PreviewEncoder` (`Api/`) is the one JPEG preview encoder, used by `GET
