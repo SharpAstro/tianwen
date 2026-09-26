@@ -146,6 +146,12 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
 
     public bool IsRunning => Volatile.Read(ref _run) is { Completion.IsCompleted: false };
 
+    /// <summary>
+    /// Whether the host's stop finished: the run ended through its Finalise, the cameras warmed and every device
+    /// released. The crash journal leaves nothing behind after one that did.
+    /// </summary>
+    internal bool ReleasedTheRig { get; private set; }
+
     /// <summary>What the run going on is (its kind, profile and start), or null when none is.</summary>
     internal NodeRunRecord? CurrentRunRecord => Volatile.Read(ref _run) is { Completion.IsCompleted: false } run ? run.Record : null;
 
@@ -395,6 +401,7 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
                     logger.LogWarning(ex, "The host's stop could not disconnect {DeviceUri}", uri);
                 }
             }
+            ReleasedTheRig = true;
         }
 
         await _lifetime.CancelAsync();

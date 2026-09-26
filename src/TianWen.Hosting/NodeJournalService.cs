@@ -186,9 +186,16 @@ internal sealed class NodeJournalService(
             await AwaitEndedAsync(ramp);
         }
 
-        // The last word: what the node holds as it exits, which after a clean stop is nothing.
+        // The last word: what the node holds as it exits. A stop the host FINISHED released the rig, so it leaves no
+        // journal, whatever straggled in after (a connect a recovery had in flight that ignored its token); one cut short
+        // leaves what it got to.
         try
         {
+            if (hosted.ReleasedTheRig)
+            {
+                File.Delete(path);
+                return;
+            }
             await WriteIfChangedAsync(path, stopping: true, CancellationToken.None);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -251,7 +258,7 @@ internal sealed class NodeJournalService(
         {
             if (believed is not null)
             {
-                await RecoverAsync(path, believed, cancellationToken);
+                await RecoverOnceAsync(path, believed, cancellationToken);
             }
 
             await foreach (var _ in _changed.Reader.ReadAllAsync(cancellationToken))
@@ -273,13 +280,43 @@ internal sealed class NodeJournalService(
     }
 
     /// <summary>
+    /// The recovery, once, on a token that also ends as the host starts to stop: a node asked to stop mid-recovery must
+    /// not go on connecting devices while its stop releases the rig. Whatever it did not reconnect is no holding of this
+    /// node's once it ends, and whatever goes wrong in it is logged, never the end of the journal, which the loop after
+    /// it goes on keeping.
+    /// </summary>
+    private async Task RecoverOnceAsync(string path, NodeJournal found, CancellationToken cancellationToken)
+    {
+        using var recovery = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lifetime.ApplicationStopping);
+        try
+        {
+            await RecoverAsync(path, found, recovery.Token);
+        }
+        catch (OperationCanceledException) when (recovery.IsCancellationRequested)
+        {
+            logger.LogWarning("Recovering: the node began to stop before it had reconnected everything the node before it held");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(ex, "Recovering: the recovery failed; the node goes on journaling what it holds");
+        }
+        finally
+        {
+            _pending = [];
+            _touching = null;
+        }
+    }
+
+    /// <summary>
     /// Reconnects what the node before this one held, the mount first (it restores mount-limit enforcement), then the
     /// cameras (their cooling is next), then the rest, and re-establishes each camera's cooling from its intent.
     /// </summary>
     private async Task RecoverAsync(string path, NodeJournal found, CancellationToken cancellationToken)
     {
         var devices = found.Devices.IsDefault ? [] : found.Devices;
-        var ordered = devices.Select(held => (Held: held, Device: hub.TryGetDeviceFromUri(new Uri(held.DeviceUri), out var device) ? device : null))
+        // A journal is a file a person may edit: a URI that does not parse is reported, never the end of the recovery.
+        var ordered = devices
+            .Select(held => (Held: held, Device: Uri.TryCreate(held.DeviceUri, UriKind.Absolute, out var uri) && hub.TryGetDeviceFromUri(uri, out var device) ? device : null))
             .OrderBy(static d => d.Device?.DeviceType switch { DeviceType.Mount => 0, DeviceType.Camera => 1, _ => 2 })
             .ToList();
         _pending = [.. devices];
@@ -349,9 +386,14 @@ internal sealed class NodeJournalService(
                 }));
                 break;
 
-            default:
+            case CoolerIntentKind.Off:
                 // Off stays off; the hub records it so the journal says so.
                 hub.SetCoolerIntent(camera, CoolerIntent.Off);
+                break;
+
+            default:
+                // Asked to cool to a setpoint the journal does not name: nothing to re-establish, and never "off".
+                logger.LogWarning("Recovering: {Camera} was cooling to a setpoint its journal does not name; its cooler is left as it is", camera);
                 break;
         }
     }
@@ -424,12 +466,15 @@ internal sealed class NodeJournalService(
         var devices = now.Devices;
         if (!_pending.IsDefaultOrEmpty)
         {
-            var held = devices.Select(static d => new Uri(d.DeviceUri).DeviceKey).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            devices = [.. devices.Concat(_pending.Where(p => !held.Contains(new Uri(p.DeviceUri).DeviceKey)))
+            var held = devices.Select(static d => KeyOf(d.DeviceUri)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            devices = [.. devices.Concat(_pending.Where(p => !held.Contains(KeyOf(p.DeviceUri))))
                 .OrderBy(static d => d.DeviceUri, StringComparer.Ordinal)];
         }
         return now with { Devices = devices, Run = now.Run ?? _carriedRun, Crashes = _crashes, Touching = _touching };
     }
+
+    /// <summary>A device's identity, the hub's key, or the text itself for one that does not parse.</summary>
+    private static string KeyOf(string deviceUri) => Uri.TryCreate(deviceUri, UriKind.Absolute, out var uri) ? uri.DeviceKey : deviceUri;
 
     private async Task WriteIfChangedAsync(string path, bool stopping, CancellationToken cancellationToken)
     {

@@ -263,16 +263,138 @@ public class NodeJournalServiceTests(ITestOutputHelper outputHelper)
         after.Devices.ShouldHaveSingleItem();
     }
 
-    /// <summary>A cover whose driver's connect waits for <paramref name="Gate"/>.</summary>
-    private sealed record GatedCoverDevice(Uri Uri, Task Gate) : DeviceBase(Uri)
+    /// <summary>
+    /// A cover whose driver's connect waits for <paramref name="Gate"/>, and for its token too unless
+    /// <paramref name="IgnoresItsToken"/>, as a serial driver blocked in a read may.
+    /// </summary>
+    private sealed record GatedCoverDevice(Uri Uri, Task Gate, bool IgnoresItsToken = false) : DeviceBase(Uri)
     {
         protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp)
         {
             var driver = Substitute.For<ICoverDriver>();
-            driver.ConnectAsync(Arg.Any<CancellationToken>()).Returns(_ => new ValueTask(Gate));
-            driver.Connected.Returns(_ => Gate.IsCompleted);
+            driver.ConnectAsync(Arg.Any<CancellationToken>())
+                .Returns(call => new ValueTask(IgnoresItsToken ? Gate : Gate.WaitAsync(call.Arg<CancellationToken>())));
+            driver.Connected.Returns(_ => Gate.IsCompletedSuccessfully);
             return driver;
         }
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task TheRecoveryEndsAsTheHostBeginsToStopNotWhenItsJournalDoes()
+    {
+        // The journal stops last. A recovery that went on until then connected devices the host's stop had already
+        // released, and a camera it re-cooled then would exit cold, past the stop that warms cameras.
+        var ct = TestContext.Current.CancellationToken;
+        const string gated = "CoverCalibrator://GatedCoverDevice/gated#Gated Panel";
+        const string focuser = "Focuser://FakeDevice/FakeFocuser1#Fake Focuser";
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var (path, _) = await BelievedJournalAsync(ct,
+            new NodeJournalDevice(gated, "Gated Panel", null, null),
+            new NodeJournalDevice(focuser, "Fake Focuser", null, null));
+        await using var node = await NodeHarness.StartAsync(outputHelper, ct, services =>
+        {
+            services.AddSingleton(new NodeJournalOptions(path, 31337, static () => null, TimeProvider.System));
+            services.AddKeyedSingleton<Func<Uri, DeviceBase>>("gatedcoverdevice", (_, _) => uri => new GatedCoverDevice(uri, gate.Task));
+        });
+        await UntilTheJournalAsync(path, static j => j.ProcessId == Environment.ProcessId && j.Touching == gated, ct);
+        node.Factory.Initialised.SetResult();
+        var run = await node.StartSessionAsync(ct);
+
+        // The host's stop is under way (the run ends through a Finalise the test holds), and the connect the recovery
+        // was waiting on could finish now.
+        var stop = node.App.StopAsync(ct);
+        await run.Cancelled.Task.WaitAsync(ct);
+        gate.SetResult();
+        await Task.Delay(TimeSpan.FromSeconds(1), ct);
+
+        node.App.Services.GetRequiredService<IDeviceHub>().IsConnected(new Uri(focuser))
+            .ShouldBeFalse("the recovery ended as the host began to stop, before the next device");
+
+        run.Finalise.SetResult();
+        await stop;
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task AConnectThatLandsAfterTheHostReleasedTheRigLeavesNoJournal()
+    {
+        // A driver that ignores its token finishes its connect after the host's stop released the rig: the device is
+        // connected as the process exits, which the journal must not take for something a dying node held.
+        var ct = TestContext.Current.CancellationToken;
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var (path, _) = await BelievedJournalAsync(ct, new NodeJournalDevice("CoverCalibrator://GatedCoverDevice/gated#Gated Panel", "Gated Panel", null, null));
+        await using var node = await NodeHarness.StartAsync(outputHelper, ct, services =>
+        {
+            services.AddSingleton(new NodeJournalOptions(path, 31337, static () => null, TimeProvider.System));
+            services.AddKeyedSingleton<Func<Uri, DeviceBase>>("gatedcoverdevice", (_, _) => uri => new GatedCoverDevice(uri, gate.Task, IgnoresItsToken: true));
+        });
+        await UntilTheJournalAsync(path, static j => j.ProcessId == Environment.ProcessId && j.Touching is not null, ct);
+
+        var stop = node.App.StopAsync(ct);
+        await Task.Delay(TimeSpan.FromSeconds(1), ct);
+        gate.SetResult();
+        await stop;
+
+        File.Exists(path).ShouldBeFalse("the host's stop finished, so what connected after it was no holding of a dying node");
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task ANodeAskedToStopMidRecoveryStopsReconnectingAndLeavesNoJournal()
+    {
+        // Its stop releases the rig: a recovery going on connecting devices meanwhile left them connected and journaled,
+        // and the next node reported a crash that never happened.
+        var ct = TestContext.Current.CancellationToken;
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var (path, _) = await BelievedJournalAsync(ct, new NodeJournalDevice("CoverCalibrator://GatedCoverDevice/gated#Gated Panel", "Gated Panel", null, null));
+        await using var node = await NodeHarness.StartAsync(outputHelper, ct, services =>
+        {
+            services.AddSingleton(new NodeJournalOptions(path, 31337, static () => null, TimeProvider.System));
+            services.AddKeyedSingleton<Func<Uri, DeviceBase>>("gatedcoverdevice", (_, _) => uri => new GatedCoverDevice(uri, gate.Task));
+        });
+        await UntilTheJournalAsync(path, static j => j.ProcessId == Environment.ProcessId && j.Touching is not null, ct);
+
+        var clock = Stopwatch.StartNew();
+        await node.App.StopAsync(ct);
+
+        clock.Elapsed.ShouldBeLessThan(NodeJournalService.ReconnectBudget, "the stop ended the recovery rather than waiting its connect out");
+        node.App.Services.GetRequiredService<IDeviceHub>().ConnectedDevices.ShouldBeEmpty();
+        File.Exists(path).ShouldBeFalse("a stop the host finished leaves no journal");
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task AJournalWithAUriThatDoesNotParseIsReportedAndTheJournalGoesOn()
+    {
+        // A journal is a file a person may edit: one bad line used to end the node's journaling for good.
+        var ct = TestContext.Current.CancellationToken;
+        var (path, _) = await BelievedJournalAsync(ct,
+            new NodeJournalDevice("not a device uri", "Mangled", null, null),
+            new NodeJournalDevice(Camera, "Fake Camera 1", null, null));
+        await using var node = await StartAsync(path, afterCrashOf: 31337, lastBoot: null, ct);
+        var hub = node.App.Services.GetRequiredService<IDeviceHub>();
+
+        var report = await UntilRecoveredAsync(new TianWenNodeClient(node.Client), ct);
+
+        report.Devices.Single(static d => d.DeviceUri == "not a device uri").Reconnected.ShouldBe(false);
+        report.Devices.Single(static d => d.DeviceUri == Camera).Reconnected.ShouldBe(true);
+        await UntilTheJournalAsync(path, static j => j.ProcessId == Environment.ProcessId && j.Devices.Length == 1 && j.Touching is null, ct);
+
+        // And it goes on journaling: the camera going is written, and holding nothing more, the file goes.
+        (await new TianWenNodeClient(node.Client).DismissRecoveryAsync(ct)).IsSuccess.ShouldBeTrue();
+        await hub.DisconnectAsync(new Uri(Camera), cancellationToken: ct);
+        await UntilGoneAsync(path, ct);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task ACoolIntentThatNamesNoSetpointLeavesTheCoolerAlone()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (path, _) = await BelievedJournalAsync(ct, new NodeJournalDevice(Camera, "Fake Camera 1", CoolerIntentKind.Cool, null));
+        await using var node = await StartAsync(path, afterCrashOf: 31337, lastBoot: null, ct);
+        var hub = node.App.Services.GetRequiredService<IDeviceHub>();
+
+        await UntilRecoveredAsync(new TianWenNodeClient(node.Client), ct);
+
+        hub.TryGetCoolerIntent(new Uri(Camera), out var intent).ShouldBeFalse($"never recorded as off, which it was not asked to be: {intent}");
+        node.App.Services.GetRequiredService<NodeJournalService>().RampsRunning.ShouldBe(0);
     }
 
     [Fact(Timeout = 60_000)]

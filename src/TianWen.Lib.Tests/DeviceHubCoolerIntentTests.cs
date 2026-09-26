@@ -1,8 +1,10 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using NSubstitute;
 using Shouldly;
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
@@ -106,14 +108,53 @@ public class DeviceHubCoolerIntentTests(ITestOutputHelper output)
         var camera = (ICameraDriver)await hub.ConnectAsync(device, ct);
 
         await camera.SetSetCCDTemperatureAsync(-5, ct);
-        await hub.RecordCommandedCoolerAsync(device.DeviceUri, ct);
+        await hub.RecordCommandedCoolerAsync(device.DeviceUri, NullLogger.Instance, ct);
         hub.TryGetCoolerIntent(device.DeviceUri, out var off).ShouldBeTrue();
         off.ShouldBe(CoolerIntent.Off, "a setpoint with the cooler off asks nothing of it yet");
 
         await camera.SetCoolerOnAsync(true, ct);
-        await hub.RecordCommandedCoolerAsync(device.DeviceUri, ct);
+        await hub.RecordCommandedCoolerAsync(device.DeviceUri, NullLogger.Instance, ct);
         hub.TryGetCoolerIntent(device.DeviceUri, out var cooling).ShouldBeTrue();
         cooling.ShouldBe(CoolerIntent.CoolTo(-5));
+    }
+
+    [Fact]
+    public async Task ACoolerThatCannotBeReadBackKeepsItsIntentAndFailsNothing()
+    {
+        // The command has succeeded by then: a failed read-back must not turn it into a fault.
+        var ct = TestContext.Current.CancellationToken;
+        var (_, hub) = Build();
+        var device = new FakeDevice(DeviceType.Camera, 1);
+        var camera = Substitute.For<ICameraDriver>();
+        camera.Connected.Returns(true);
+        camera.CanGetCoolerOn.Returns(true);
+        camera.GetCoolerOnAsync(Arg.Any<CancellationToken>()).Returns(_ => ValueTask.FromException<bool>(new InvalidOperationException("USB gone")));
+        await hub.AdoptAsync(device, camera, ct);
+        hub.SetCoolerIntent(device.DeviceUri, CoolerIntent.CoolTo(-10));
+
+        await Should.NotThrowAsync(hub.RecordCommandedCoolerAsync(device.DeviceUri, NullLogger.Instance, ct).AsTask());
+
+        hub.TryGetCoolerIntent(device.DeviceUri, out var kept).ShouldBeTrue();
+        kept.ShouldBe(CoolerIntent.CoolTo(-10));
+    }
+
+    [Fact]
+    public async Task ACoolerThatNamesNoSetpointRecordsNoIntent()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (_, hub) = Build();
+        var device = new FakeDevice(DeviceType.Camera, 1);
+        var camera = Substitute.For<ICameraDriver>();
+        camera.Connected.Returns(true);
+        camera.CanGetCoolerOn.Returns(true);
+        camera.CanSetCCDTemperature.Returns(true);
+        camera.GetCoolerOnAsync(Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(true));
+        camera.GetSetCCDTemperatureAsync(Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(double.NaN));
+        await hub.AdoptAsync(device, camera, ct);
+
+        await hub.RecordCommandedCoolerAsync(device.DeviceUri, NullLogger.Instance, ct);
+
+        hub.TryGetCoolerIntent(device.DeviceUri, out _).ShouldBeFalse("a cool-down to nothing is no intent");
     }
 
     [Theory]
