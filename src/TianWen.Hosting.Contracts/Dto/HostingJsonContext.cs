@@ -35,6 +35,7 @@ namespace TianWen.Hosting.Dto;
 [JsonSerializable(typeof(FlatsRequestDto))]
 [JsonSerializable(typeof(DarkLibraryRequestDto))]
 [JsonSerializable(typeof(PreviewExposureRequestDto))]
+[JsonSerializable(typeof(ResponseEnvelope<PlateSolutionDto>))]
 [JsonSerializable(typeof(ResponseEnvelope<DarkLibraryStateDto>))]
 [JsonSerializable(typeof(PendingTarget))]
 [JsonSerializable(typeof(Api.CreateProfileRequest))]

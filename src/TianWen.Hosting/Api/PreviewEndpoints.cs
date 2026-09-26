@@ -82,6 +82,17 @@ namespace TianWen.Hosting.Api
             group.MapPost("/ota/{otaIndex:int}/snapshot", async (int otaIndex, NodePreviews previews) =>
                 EnvelopeResults.Json(await previews.SaveSnapshotAsync(otaIndex), HostingJsonContext.Default.ResponseEnvelopeString));
 
+            // A plate solve of the frame an OTA shows, and solve and sync (P5 part 3): each a job; a solve's result lives
+            // at /solution, with the token of the frame it belongs to.
+            group.MapPost("/ota/{otaIndex:int}/solve", (int otaIndex, NodePreviews previews) =>
+                EnvelopeResults.Json(previews.StartSolve(otaIndex), HostingJsonContext.Default.ResponseEnvelopeJobDto));
+
+            group.MapGet("/ota/{otaIndex:int}/solution", (int otaIndex, NodePreviews previews) =>
+                EnvelopeResults.Json(previews.Solution(otaIndex), HostingJsonContext.Default.ResponseEnvelopePlateSolutionDto));
+
+            group.MapPost("/ota/{otaIndex:int}/solve-sync", async (int otaIndex, PreviewExposureRequestDto request, NodePreviews previews, CancellationToken ct) =>
+                EnvelopeResults.Json(await previews.StartSolveSyncAsync(otaIndex, request, ct), HostingJsonContext.Default.ResponseEnvelopeJobDto));
+
             return group;
         }
 

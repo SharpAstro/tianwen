@@ -401,6 +401,24 @@ namespace TianWen.RemoteClient
             SendJsonAsync(HttpMethod.Post, $"api/v1/preview/ota/{otaIndex.ToString(CultureInfo.InvariantCulture)}/exposure", request,
                 HostingJsonContext.Default.PreviewExposureRequestDto, HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
 
+        /// <summary><c>POST /preview/ota/{index}/solve</c> -- plate-solves the frame OTA <paramref name="otaIndex"/> shows, as a job; <see cref="GetSolutionAsync"/> reads the result.</summary>
+        public Task<NodeResult<JobDto>> StartSolveAsync(int otaIndex, CancellationToken cancellationToken) =>
+            PostAsync($"api/v1/preview/ota/{otaIndex.ToString(CultureInfo.InvariantCulture)}/solve", content: null,
+                HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
+
+        /// <summary><c>GET /preview/ota/{index}/solution</c> -- the last solution of OTA <paramref name="otaIndex"/>'s frame, with the frame's token.</summary>
+        public Task<NodeResult<PlateSolutionDto>> GetSolutionAsync(int otaIndex, CancellationToken cancellationToken) =>
+            GetAsync($"api/v1/preview/ota/{otaIndex.ToString(CultureInfo.InvariantCulture)}/solution",
+                HostingJsonContext.Default.ResponseEnvelopePlateSolutionDto, _timeouts.StatePoll, cancellationToken);
+
+        /// <summary>
+        /// <c>POST /preview/ota/{index}/solve-sync</c> -- takes a frame with OTA <paramref name="otaIndex"/>'s camera, solves it and
+        /// syncs the mount, as a job that succeeds only when the mount synced.
+        /// </summary>
+        public Task<NodeResult<JobDto>> StartSolveSyncAsync(int otaIndex, PreviewExposureRequestDto request, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, $"api/v1/preview/ota/{otaIndex.ToString(CultureInfo.InvariantCulture)}/solve-sync", request,
+                HostingJsonContext.Default.PreviewExposureRequestDto, HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
+
         /// <summary><c>POST /preview/ota/{index}/snapshot</c> -- saves the frame OTA <paramref name="otaIndex"/> shows on the node; answers its path there.</summary>
         public Task<NodeResult<string>> SaveSnapshotAsync(int otaIndex, CancellationToken cancellationToken) =>
             PostAsync($"api/v1/preview/ota/{otaIndex.ToString(CultureInfo.InvariantCulture)}/snapshot", content: null,

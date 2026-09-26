@@ -632,8 +632,19 @@ reads it: the JPEG previews above, the linear frames below, the ninaAPI `prepare
   plane's order, and **the camera is LEASED while it exposes** (the GUI's preview never was), by the job, which
   therefore never joins another (`NodeJobs.TryStart`). `POST /api/v1/preview/ota/{index}/snapshot` saves the
   frame an OTA shows, leased for the write.
+- **A plate solve is a job, and its result lives with the frame it is of** (P5 part 3): `POST .../ota/{index}/solve`
+  solves the frame an OTA shows through `PreviewCapture.SolveAsync`, one solve of an OTA at a time (a slot of its
+  own, `solve/ota/{index}`, not the camera), and `GET .../ota/{index}/solution` answers the last one
+  (`PlateSolutionDto`): the FRAME TOKEN it belongs to, whether it solved, its words, and the whole solution
+  (`WcsDto`: the reference point, the CD matrix and the SIP polynomials, a value it lacks as null, never 0). A solve
+  reads a frame, so a run holding the camera does not refuse it.
+- **Solve and sync is ONE job** (`POST .../ota/{index}/solve-sync`, `MountSolveSync`, the sky map's own, which moved
+  to the Lib with `StatusText`): expose, solve, sync, with the mount and the camera LEASED for all of it. Its frame
+  becomes the OTA's and its solution the OTA's solution whatever came of it, and it ends Succeeded only when the mount
+  synced, otherwise Failed with the outcome's own words. A profile with no mount, a mount that cannot sync and a run
+  going on are refusals, before any job.
 
-Pinned by `NodeFramesTests`, `FramePreviewTests` and `NodePreviewExposureTests`.
+Pinned by `NodeFramesTests`, `FramePreviewTests`, `NodePreviewExposureTests`, `WcsDtoTests` and `NodeSolveTests`.
 
 ## Linear frames on the wire
 
