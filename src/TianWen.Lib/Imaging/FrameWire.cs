@@ -268,7 +268,7 @@ public sealed class FrameReader
         for (var c = 0; c < planes.Length; c++)
         {
             var spec = header.Channels[c];
-            channels.Add(new Channel(planes[c], Filter.FromName(spec.Filter), spec.MinValue, spec.MaxValue, spec.Index)
+            channels.Add(new Channel(planes[c], spec.Filter, spec.MinValue, spec.MaxValue, spec.Index)
             {
                 Buffer = new ChannelBuffer(planes[c], Return),
             });
@@ -293,15 +293,18 @@ internal sealed record FrameHeader(int Width, int Height, BitDepth BitDepth, flo
         for (var c = 0; c < image.ChannelCount; c++)
         {
             var channel = image.GetChannel(c);
-            channels.Add(new FrameChannel(channel.Filter.Name, channel.MinValue, channel.MaxValue, channel.Index));
+            channels.Add(new FrameChannel(channel.Filter, channel.MinValue, channel.MaxValue, channel.Index));
         }
         return new FrameHeader(image.Width, image.Height, image.BitDepth, image.Pedestal, image.SamplesAreUnitReferred,
             channels.MoveToImmutable(), image.ImageMeta);
     }
 }
 
-/// <summary>A channel's own description: its filter (by name), its range and its place in the image.</summary>
-internal sealed record FrameChannel(string Filter, float MinValue, float MaxValue, byte Index);
+/// <summary>
+/// A channel's own description: its filter, its range and its place in the image. The filter goes whole, as
+/// <see cref="ImageMeta"/>'s does, never by name: an unrecognised filter's text is its identity (<see cref="Filter.RawName"/>).
+/// </summary>
+internal sealed record FrameChannel(Filter Filter, float MinValue, float MaxValue, byte Index);
 
 // The image JSON's own options (ImageJsonSerializerContext), so the metadata crosses exactly as it is written beside a
 // frame elsewhere, NaN ranges included.
