@@ -1214,6 +1214,11 @@ full native-AOT rules, and the reasoning behind each rule below:
    camera re-cooled from its intent), never a run resumed, and two crashes within `NodeKeeper.CrashLoopWindow` reconnect
    nothing. **There is ONE cooling ramp, `CameraCoolingRamp`**, which the session delegates to and the hub drives
    without one (`CoolToSetpointAsync`): a second copy is a second answer to how fast a sensor may be cooled.
+11. **A device is read through ONE set of readers, `DeviceHubReadingExtensions`**, by the GUI's telemetry polls and
+   the node's `DeviceStatePoller` alike, and **the node never reads a device a run holds** (it keeps the last reading
+   and names the run): two readers on one serial port race. `DEVICE-STATE` is pushed on a change compared at the
+   resolution a reader is shown, or a thermometer pushes on every read. The read side (P2 part 1, #929):
+   `docs/architecture/hosting-api.md`.
 
 ### Remote Rigs (mirror another node's session "as if local")
 

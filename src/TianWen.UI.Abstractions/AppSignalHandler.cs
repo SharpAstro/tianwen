@@ -325,54 +325,17 @@ namespace TianWen.UI.Abstractions
         private async Task<CameraTelemetrySample?> SampleCameraAsync(
             IDeviceHub hub, Uri uri, System.Threading.CancellationToken ct)
         {
-            if (!hub.TryGetConnectedDriver<TianWen.Lib.Devices.ICameraDriver>(uri, out var camera))
+            // The one camera sampler (DeviceHubReadingExtensions), which a node's device plane reads through too.
+            if (await hub.ReadCameraAsync(uri, _logger, ct) is not { } reading)
             {
                 return null;
             }
 
-            double? ccd = null, sink = null, setpoint = null, power = null;
-            bool coolerOn = false, busy = false;
-
-            try
-            {
-                if (camera.CanGetCCDTemperature) ccd = await camera.GetCCDTemperatureAsync(ct);
-            }
-            catch { /* tolerate transient driver errors mid-sample */ }
-
-            try
-            {
-                if (camera.CanGetHeatsinkTemperature) sink = await camera.GetHeatSinkTemperatureAsync(ct);
-            }
-            catch { }
-
-            try
-            {
-                if (camera.CanGetCoolerOn) coolerOn = await camera.GetCoolerOnAsync(ct);
-            }
-            catch { }
-
-            try
-            {
-                if (camera.CanGetCoolerPower) power = await camera.GetCoolerPowerAsync(ct);
-            }
-            catch { }
-
-            try
-            {
-                setpoint = await camera.GetSetCCDTemperatureAsync(ct);
-            }
-            catch { }
-
-            try
-            {
-                var state = await camera.GetCameraStateAsync(ct);
-                busy = state is not (TianWen.Lib.Devices.CameraState.Idle or TianWen.Lib.Devices.CameraState.NotConnected);
-            }
-            catch { }
-
+            static double? Known(double value) => double.IsNaN(value) ? null : value;
             return new CameraTelemetrySample(
                 _timeProvider.GetUtcNow(),
-                ccd, sink, setpoint, power, coolerOn, busy);
+                Known(reading.CcdTemperatureC), Known(reading.HeatsinkTemperatureC), Known(reading.SetpointC),
+                Known(reading.CoolerPowerPercent), reading.CoolerOn, reading.IsBusy);
         }
 
         /// <summary>
@@ -695,50 +658,29 @@ namespace TianWen.UI.Abstractions
         private async Task<(MountState State, string? DisplayName)> SamplePreviewMountAsync(
             IDeviceHub hub, Uri mountUri, CancellationToken ct)
         {
-            if (!hub.TryGetConnectedDriver<IMountDriver>(mountUri, out var mount) || mount is null)
+            // J2000 for the sky-map overlay: a topocentric mount's coordinates go through a Transform at the
+            // profile's site (TransformFactory.FromProfile, zero hardware I/O, unlike mount.TryGetTransformAsync
+            // which round-trips for lat/lon/elev). Rebuilt on every poll because it is cheap; the SOFA kernel in
+            // Refresh is the only real cost. The reader asks for it only for a topocentric mount, so a J2000 mount on
+            // a profile with no site warns about nothing.
+            Transform? ToJ2000()
             {
-                return (default, null);
+                if (_appState.ActiveProfile is not { } profile)
+                {
+                    return null;
+                }
+                var transform = TransformFactory.FromProfile(profile, _timeProvider, out var transformError);
+                if (transform is null)
+                {
+                    LogMountTransformUnavailable(transformError);
+                }
+                return transform;
             }
 
-            // Default to NaN (not the struct default 0.0) so a FAILED read is treated as "unavailable"
-            // by the !IsNaN guard below, instead of being mistaken for a valid RA0/Dec0 and painted at
-            // the celestial-equator origin (the "mount suddenly jumps to 0,0 / forgets its site" bug).
-            var ra = await _logger.CatchAsync(mount.GetRightAscensionAsync, ct, double.NaN);
-            var dec = await _logger.CatchAsync(mount.GetDeclinationAsync, ct, double.NaN);
-            var ha = await _logger.CatchAsync(mount.GetHourAngleAsync, ct, double.NaN);
-            var slewing = await _logger.CatchAsync(mount.IsSlewingAsync, ct);
-            var tracking = await _logger.CatchAsync(mount.IsTrackingAsync, ct);
-            var pier = await _logger.CatchAsync(mount.GetSideOfPierAsync, ct);
-
-            // Derive J2000 coordinates for the sky-map overlay. J2000 mounts skip the
-            // Transform entirely; topocentric mounts use a Transform built from the
-            // profile's site coordinates (TransformFactory.FromProfile, zero hardware
-            // I/O, unlike mount.TryGetTransformAsync which round-trips for lat/lon/elev).
-            // We rebuild it on every poll because it's cheap (one object alloc + three
-            // scalar assignments); the only genuinely expensive step is transform.Refresh()
-            // which runs the SOFA kernel after SetTopocentric.
-            var (raJ2000, decJ2000) = (double.NaN, double.NaN);
-            if (!double.IsNaN(ra) && !double.IsNaN(dec))
+            // The one mount sampler (DeviceHubReadingExtensions), which a node's device plane reads through too.
+            if (await hub.ReadMountAsync(mountUri, ToJ2000, _logger, ct) is not { } state)
             {
-                if (mount.EquatorialSystem == EquatorialCoordinateType.J2000)
-                {
-                    (raJ2000, decJ2000) = (ra, dec);
-                }
-                else if (mount.EquatorialSystem == EquatorialCoordinateType.Topocentric
-                    && _appState.ActiveProfile is { } profile)
-                {
-                    if (TransformFactory.FromProfile(profile, _timeProvider, out var transformError) is { } transform)
-                    {
-                        transform.SetTopocentric(ra, dec);
-                        transform.Refresh();
-                        raJ2000 = transform.RAJ2000;
-                        decJ2000 = transform.DecJ2000;
-                    }
-                    else
-                    {
-                        LogMountTransformUnavailable(transformError);
-                    }
-                }
+                return (default, null);
             }
 
             string? displayName = null;
@@ -747,7 +689,7 @@ namespace TianWen.UI.Abstractions
                 displayName = dev.DisplayName;
             }
 
-            return (new MountState(ra, dec, ha, pier, slewing, tracking, raJ2000, decJ2000), displayName);
+            return (state, displayName);
         }
 
         /// <summary>
