@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
+using System.Threading.Tasks;
 using DIR.Lib;
 using Shouldly;
 using TianWen.Lib.Astrometry.Catalogs;
@@ -517,6 +518,75 @@ public class SkyMapHoverAndPictureTests
         tab.HandleInput(new InputEvent.MouseMove(110f, 104f));
 
         tab.PendingHoverDueIn.ShouldBeNull("back on the nebula before it settled: the switch is cancelled");
+    }
+
+    // #953: the browser's wake waited with Task.Delay, which truncates to whole milliseconds and completes a
+    // zero delay as it is asked, and re-armed by calling itself. A wake due in under a millisecond therefore
+    // never waited, and on the browser's coarse clock it recursed until the page's stack overflowed and the
+    // runtime exited. The tab's wake is a loop, and every wait in it is a real one.
+    [Fact]
+    public async Task AWakeDueInUnderAMillisecondWaitsAWholeOneAndThenPaints()
+    {
+        using var renderer = new RgbaImageRenderer(200, 200);
+        var (tab, plannerState, time, rect) = NewNebulaCentredTab(renderer);
+        tab.HoverSettle = TimeSpan.FromMilliseconds(120);
+        tab.Render(plannerState, rect, time);
+        tab.HandleInput(new InputEvent.MouseMove(100f, 100f));
+        time.Advance(TimeSpan.FromMilliseconds(119.6));
+        tab.PendingHoverDueIn.ShouldBe(TimeSpan.FromMilliseconds(0.4));
+
+        var before = time.GetUtcNow();
+        (await tab.WaitUntilHoverSettlesAsync(TimeSpan.FromMilliseconds(0.4), TestContext.Current.CancellationToken))
+            .ShouldBeTrue("due once it has waited");
+
+        (time.GetUtcNow() - before).ShouldBe(TimeSpan.FromMilliseconds(1), "a whole millisecond, never the fraction that was left");
+    }
+
+    // Woken early, the wake waits out what is left in the same call rather than scheduling another of itself.
+    [Fact]
+    public async Task AWakeTooEarlyWaitsOutWhatIsLeftAndPaintsOnce()
+    {
+        using var renderer = new RgbaImageRenderer(200, 200);
+        var (tab, plannerState, time, rect) = NewNebulaCentredTab(renderer);
+        tab.HoverSettle = TimeSpan.FromMilliseconds(120);
+        tab.Render(plannerState, rect, time);
+        tab.HandleInput(new InputEvent.MouseMove(100f, 100f));
+
+        var before = time.GetUtcNow();
+        (await tab.WaitUntilHoverSettlesAsync(TimeSpan.FromMilliseconds(50), TestContext.Current.CancellationToken)).ShouldBeTrue();
+
+        (time.GetUtcNow() - before).ShouldBe(TimeSpan.FromMilliseconds(120), "50 ms asked, then the 70 left");
+    }
+
+    [Fact]
+    public async Task AWakeWhoseSwitchWasCancelledPaintsNothing()
+    {
+        using var renderer = new RgbaImageRenderer(200, 200);
+        var (tab, plannerState, time, rect) = NewNebulaCentredTab(renderer);
+        tab.HoverSettle = TimeSpan.FromMilliseconds(120);
+        tab.Render(plannerState, rect, time);
+        tab.HandleInput(new InputEvent.MouseMove(100f, 100f));
+        time.Advance(TimeSpan.FromMilliseconds(130));
+        tab.Render(plannerState, rect, time);
+        tab.HandleInput(new InputEvent.MouseMove(5f, 5f));
+        time.Advance(TimeSpan.FromMilliseconds(10));
+        tab.HandleInput(new InputEvent.MouseMove(110f, 104f));
+
+        (await tab.WaitUntilHoverSettlesAsync(TimeSpan.FromMilliseconds(120), TestContext.Current.CancellationToken))
+            .ShouldBeFalse("the pointer came back before it settled");
+    }
+
+    [Theory]
+    [InlineData(0.0, 1.0)]
+    [InlineData(0.001, 1.0)]
+    [InlineData(0.4, 1.0)]
+    [InlineData(0.999, 1.0)]
+    [InlineData(1.0, 1.0)]
+    [InlineData(1.2, 2.0)]
+    [InlineData(70.0, 70.0)]
+    public void AWakeAlwaysWaitsWholeMillisecondsAndNeverNone(double askedMs, double waitedMs)
+    {
+        SkyMapTab<RgbaImage>.HoverWakeWait(TimeSpan.FromMilliseconds(askedMs)).ShouldBe(TimeSpan.FromMilliseconds(waitedMs));
     }
 
     private static (HoverTestSkyMapTab Tab, PlannerState PlannerState, FakeTimeProviderWrapper Time, RectF32 Rect)
