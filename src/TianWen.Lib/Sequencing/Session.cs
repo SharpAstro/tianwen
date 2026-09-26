@@ -221,6 +221,14 @@ internal partial record Session(
     /// distinguishes a recovery from a give-up (both advance to the next observation).
     /// </summary>
     internal int ConditionRecoveryCount { get; private set; }
+
+    /// <summary>
+    /// Times the imaging loop judged focus to have drifted past
+    /// <see cref="SessionConfiguration.FocusDriftThreshold"/> and started a refocus. Test seam: a
+    /// baseline existing after the run says nothing about whether the trigger ever fired, which is
+    /// how drift detection stayed off after every AutoFocus without a test noticing (#820).
+    /// </summary>
+    internal int DriftRefocusCount { get; private set; }
     public ImmutableArray<FocusRunRecord> FocusHistory => [.. _focusHistory];
     public ImmutableArray<(int Position, float Hfd)> ActiveFocusSamples => _activeFocusSamples;
     public ImmutableArray<GuideErrorSample> GuideSamples => _guideSamples.Snapshot;

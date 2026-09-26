@@ -916,16 +916,14 @@ internal partial record Session
                             continue;
                         }
 
-                        // If no baseline yet for this observation, collect samples from first frames
-                        if (currentBaselines is null || !currentBaselines[i].IsValid)
+                        // No baseline for this frame yet: collect one from the first comparable frames.
+                        // A stored baseline taken with other acquisition settings counts as ABSENT, not
+                        // as a reason to skip: AutoFocus stores its 2 s verification frame, which a long
+                        // science sub is never comparable to (it integrates less image motion), so
+                        // skipping here switched drift detection off after every AutoFocus (#820).
+                        if (currentBaselines is null || !currentBaselines[i].IsValid || !currentMetrics.IsComparableTo(currentBaselines[i]))
                         {
                             AccumulateBaselineSample(i, currentMetrics);
-                            continue;
-                        }
-
-                        // Only compare metrics captured with the same acquisition settings
-                        if (!currentMetrics.IsComparableTo(currentBaselines[i]))
-                        {
                             continue;
                         }
 
@@ -942,6 +940,7 @@ internal partial record Session
                         {
                             _logger.LogWarning("Focus drift detected on telescope #{TelescopeNumber}: trend HFD={TrendHFD:F2} (current={CurrentHFD:F2}) vs baseline={BaselineHFD:F2} (ratio={Ratio:F2}), triggering auto-refocus.",
                                 i + 1, trendHfd, currentMetrics.MedianHfd, currentBaselines[i].MedianHfd, ratio);
+                            DriftRefocusCount++;
 
                             // The focuser is about to move: pre-refocus samples no longer describe
                             // the new focus position, and a stale high-HFD window fitted against the

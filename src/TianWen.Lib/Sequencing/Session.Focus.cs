@@ -430,6 +430,12 @@ internal partial record Session
             return arr;
         });
 
+        // A baseline is the median of COMPARABLE frames: a sample taken with other settings
+        // (a filter change mid-collection) restarts the collection rather than joining it.
+        if (samples[telescopeIndex] is [var first, ..] && !first.IsComparableTo(metrics))
+        {
+            samples[telescopeIndex].Clear();
+        }
         samples[telescopeIndex].Add(metrics);
 
         if (samples[telescopeIndex].Count >= Configuration.BaselineHfdFrameCount)

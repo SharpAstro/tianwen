@@ -913,6 +913,10 @@ frames from a different focus position (a stale high-HFD window fitted against t
 baseline re-triggers immediately -- refocus oscillation). The window is a `CircularBuffer<T>`, the
 lock-free most-recent-N ring (torn-free `Snapshot`; the GUI render thread polls `Session.GuideSamples`
 off the same type every frame). Pinned by `FocusDriftDetectorTests` + `CircularBufferTests`.
+**A stored baseline the frame is not `IsComparableTo` counts as ABSENT, never as a reason to skip**:
+the loop re-collects one from the next `BaselineHfdFrameCount` comparable frames. AutoFocus stores its
+2 s verification frame, so skipping instead switched the trigger off after every AutoFocus (#820).
+Assert a refocus through `Session.DriftRefocusCount`, never through a baseline existing afterwards.
 
 ### Driver Resilience on the Hot Path
 
