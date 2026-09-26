@@ -3,6 +3,12 @@
 # eval session (eval4, eval4b, bb-eval-4), so no neighbouring panel of an eval field is trained on
 # (eval4's Horsehead id carries no day, so every SV605CC Horsehead session is held out). Generated
 # 2026-09-26 from the bake's tiles-manifest.jsonl and test-sessions.txt.
+# DEVIATION 2026-09-26 11:27, before any training: three sessions removed, 81 -> 78, 7 cameras -> 6.
+# The exporter refused them as "not linear": each retained master carries an exact-zero canvas ring
+# (0.3 to 3.5 percent of its pixels) that pins the linearity test (the median of channel 0 minus its
+# minimum) to a minimum of 0, so their bright skies read 0.20 to 0.26 against the 0.125 threshold, while
+# ringless masters of the same camera and night read 0.06. Removed: ZWO ASI462MC Helix Nebula 2024-08-18
+# (that camera's only session), ZWO ASI585MC Pro Helix Nebula 2024-09-03, ZWO ASI585MC Pro SMC 2024-10-02.
 QHYCCD-QHY294C/IDAS-LPS-D3/Omega-Cen-Cluster/2026-02-20|QHY294PROC|ome Cen Cluster
 QHYCCD-QHY294C/IDAS-LPS-D3/Running-Chicken-Nebula/2026-02-20|QHY294PROC|Running Chicken Nebula
 SVBONY-SV605CC/Optolong-L-Quad-Enhance/Great-Orion-Nebula/2025-10-15|SVBONY SV605CC|Great Orion Nebula|Optolong L-Quad Enhance
@@ -25,7 +31,6 @@ ZWO-ASI294MC/UV-IR-Cut/Large-Magellanic-Cloud/2021-12-11|ZWO ASI294MC|LMC 4min R
 ZWO-ASI294MC/UV-IR-Cut/Large-Magellanic-Cloud/2021-12-29|ZWO ASI294MC|LMC 4min RGB s2
 ZWO-ASI294MC/UV-IR-Cut/Rosette-Nebula/2021-12-31|ZWO ASI294MC|Rosette 4min RGB
 ZWO-ASI294MC/UV-IR-Cut/eta-Car-Nebula/2024-02-03|ZWO ASI294MC|eta Car
-ZWO-ASI462MC/Unidentified-Broadband/Helix-Nebula/2024-08-18|ZWO ASI462MC|Helix Nebula FMA180 ASI462mc RGB 60s
 ZWO-ASI533MC-Pro/IDAS-LPS-D3/Centaurus-A/2023-04-02|ZWO ASI533MC Pro|Cen A 120s 135mm ASI533mc
 ZWO-ASI533MC-Pro/IDAS-LPS-D3/Large-Magellanic-Cloud/2023-09-15|ZWO ASI533MC Pro|LMCSamyang RGB ASI533mc
 ZWO-ASI533MC-Pro/IDAS-LPS-D3/Omega-Cen-Cluster/2024-02-16|ZWO ASI533MC Pro|Omega Cen 120s
@@ -80,7 +85,5 @@ ZWO-ASI585MC-Pro/Optolong-L-eNhance/eta-Car-Nebula/2025-01-14|ZWO ASI585MC Pro|E
 ZWO-ASI585MC-Pro/Unidentified-Broadband-BlueCut/Helix-Nebula/2025-08-09|ZWO ASI585MC Pro|Helix Nebula
 ZWO-ASI585MC-Pro/Unidentified-Broadband-BlueCut/Lagoon-Nebula/2025-05-25|ZWO ASI585MC Pro|Lagoon Nebula
 ZWO-ASI585MC-Pro/Unidentified-Broadband-BlueCut/Rim-Nebula/2025-05-25|ZWO ASI585MC Pro|Rim Nebula
-ZWO-ASI585MC-Pro/Unidentified-Broadband/Helix-Nebula/2024-09-03|ZWO ASI585MC Pro|Helix Neb 60s 3deg 253g 3o ASI585
-ZWO-ASI585MC-Pro/Unidentified-Broadband/Small-Magellanic-Cloud/2024-10-02|ZWO ASI585MC Pro|SMC ZS61 ASI585 0x8 120s 7o 252g -10deg 66rb
 ZWO-ASI585MC-Pro/Unidentified-Broadband/Tarantula-Nebula/2024-10-02|ZWO ASI585MC Pro|Tarantula Neb  ZS61 ASI585 0x8 120s 7o 252g -10deg 66rb
 ZWO-ASI585MC-Pro/Unidentified-Broadband/Vela-SNR/2025-01-30|ZWO ASI585MC Pro|Vela SNR 60s 6deg

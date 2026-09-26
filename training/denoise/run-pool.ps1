@@ -45,6 +45,15 @@
 #   variety, not generalisation to a camera the model never met; that needs a camera held out entirely.
 # ---------------------------------------------------------------------------------------------------
 #
+# DEVIATION, 2026-09-26 11:27, before any training: 78 sessions on 6 cameras. The export refused three
+#   sessions as "not linear" and prepare stopped on the list naming them. Each retained master carries an
+#   exact-zero canvas ring (0.3 to 3.5 percent of its pixels) that pins the linearity test's minimum to 0,
+#   so a bright sky reads 0.20 to 0.26 against the 0.125 threshold; ringless masters of the same camera and
+#   night read 0.06. Dropped: ASI462MC Helix 2024-08-18 (that camera's ONLY session, so the ASI462MC is now
+#   a camera the pool never saw), ASI585MC Helix 2024-09-03, ASI585MC SMC 2024-10-02. The predictions stand
+#   as written. Measured at export: the varied shape averages band1/band0 0.332 over its draws, against
+#   0.270 for real sub pairs and 0.257 for real half-master pairs of this bake.
+#
 # Run DETACHED; read the status file, never the log. The heartbeat finds it by C:\temp\e2\pool.pid.
 #   $s = (Resolve-Path .\run-pool.ps1).Path
 #   Start-Process pwsh -ArgumentList '-NoProfile','-File',$s -WindowStyle Hidden

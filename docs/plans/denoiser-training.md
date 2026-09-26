@@ -455,7 +455,7 @@ Settled by the campaign; restated so no run re-derives them.
 | **E10** | Probe BB (H4 step 1 and 2 on `2026-09-25-full`). **Step 1 DONE 2026-09-25** (run log, "Probe BB"): `run-bb-probe.ps1` + `run-bb-perfield.ps1`, no training; the shipped model removes 18 to 34 percent on the four broadband fields of `arms/bb-eval-4.txt` and spends 1.5 to 3.9 percent of extended amplitude at 4 percent removed where eval4b's four fields spend 0.1 to 1.0, field for field. **Step 2** `run-bb-arm.ps1`: `arms/bb-ctl-14.txt` (WIDE minus this bake's test sessions) against it plus `arms/bb-add-10.txt` (ten ASI533MC broadband sessions inside WIDE's plane range), one export, seeds sized from the measured spread, final weights. **Step 2 KILLED 2026-09-26** (run log): six seeds each, the arm's broadband extended cost is +0.43 [-0.48, +1.35] against the control, and it removes about half the noise the control does. Then found to rest on blended stars and a failed Carina catalogue match (run log, "what went wrong in Probe BB and E10"). | 2 h export, 11.5 min per seed per arm | H4 |
 | **E11** | SUPERSEDED by E12 (its one seed died at ~4800 steps; its partial curve is in the run log). The step budget (run log, "what went wrong in Probe BB and E10"). `run-steps.ps1`: the E10 control cache and recipe at 16000 steps instead of 4000 (the cosine then spans the whole run), four seeds, final weights, scored with the fixed split beside the six 4000-step controls. Primary R, full-strength removal over all eight fields (24.67 at 4000, seed sd 3.67): predicted gain >= 8; killed if the interval's upper bound is under 5. | superseded | steps |
 | **E12** | Train to convergence (run log, "what went wrong in Probe BB and E10"). `run-converge.ps1`: E11's cache and recipe under `--schedule plateau` (held rate, held-out objective every 500 steps, halve after four flat windowed scores, stop after the fourth halving, 60000-step cap), four seeds, final weights, E11's primary and kill. Launched 2026-09-26. | ~1 to 3 h per seed | steps |
-| **E13** | The varied pool (run log, E13): 81 sessions on 7 cameras, the injected shape varied per draw (0.22 to 0.65), three converged arms from one cache: `pool` (the new recipe), `poolb` (band conditioning, more signal), `pool48` (base 48, more features), three seeds each, twelve fields. `run-pool.ps1` exports now and trains once E12 hands over the GPU. | ~2.5 h export, then ~15 to 25 h GPU | data, signal, features |
+| **E13** | The varied pool (run log, E13): 78 sessions on 6 cameras (81 on 7 pre-registered; three refused at export, see the run log), the injected shape varied per draw (0.22 to 0.65), three converged arms from one cache: `pool` (the new recipe), `poolb` (band conditioning, more signal), `pool48` (base 48, more features), three seeds each, twelve fields. `run-pool.ps1` exports now and trains once E12 hands over the GPU. | ~2.5 h export, then ~15 to 25 h GPU | data, signal, features |
 
 Every arm: pre-register predictions in the run script header; three seeds; one prepared cache per
 arm, never edited between runs; launch multi-hour jobs detached (`Start-Process`), never through the
@@ -1868,6 +1868,22 @@ varies the injected shape per draw (`tianwen dataset degrade --white-fraction 0.
 so the range stops at 0.7, and every export before this (0.5) sat at 0.43 whatever the bake. Three
 converged arms from one cache, seeds interleaved: `pool` (base 32, one level plane), `poolb` (band
 conditioning), `pool48` (base 48), scored on twelve fields beside E12's converged controls.
+
+**Deviation, before any training (2026-09-26 11:27): 78 sessions on 6 cameras.** The export refused three
+sessions as "not linear" and prepare stopped on the list naming them. None of the three is stretched:
+each retained master carries an exact-zero canvas ring (0.3 to 3.5 percent of its pixels), and the
+linearity test the exporter shares with the runner (`ChunkedNafnetRunner.NeedsStretch`, the median of
+channel 0 minus its MINIMUM) takes that ring as the floor, so a bright sky reads 0.20 to 0.26 against
+the 0.125 threshold. Ringless masters of the same camera and night read 0.06 with skies as bright
+relative to their peaks (0.26 to 0.29). Dropped: the ASI462MC Helix of 2024-08-18, that camera's only
+session, so the ASI462MC is now a camera the pool never saw; the ASI585MC Helix of 2024-09-03; the
+ASI585MC SMC of 2024-10-02. The predictions stand as written. The export also measured its own mix: the
+varied shape averages band1/band0 0.332 over its draws, against 0.270 for real sub pairs and 0.257 for
+real half-master pairs of this bake, so the pool's injection is on average more correlated than the
+bake's real noise, as intended at the range's upper end. **The ring blindness is not E13's alone**: the
+same test gates the N2N runner at inference and the tile exporter, so a master with a ring and a bright
+sky is handed to a net unstretched, and a ringed master that passes is stretched from a floor of 0
+(`MtfStretch` subtracts the channel minimum) rather than from its own darkest sky.
 
 **The other models share the budget.** Every deconvolver run (`run-e3-*.ps1`, including E3.4d's prior
 that met the star clauses) trained the same fixed 4000-step cosine; `--schedule plateau` does not yet
