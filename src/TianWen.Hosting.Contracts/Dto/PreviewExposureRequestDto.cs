@@ -13,6 +13,8 @@ public sealed class PreviewExposureRequestDto
     /// <summary>Gain, or null to leave the camera's.</summary>
     public short? Gain { get; init; }
 
+    // set, not init: the JSON source generator gives an init-only property its TYPE'S default when the field is
+    // absent, dropping the initializer below (CLAUDE.md, Hosting API: the wire traps).
     /// <summary>Binning, both axes.</summary>
-    public int Binning { get; init; } = 1;
+    public int Binning { get; set; } = 1;
 }

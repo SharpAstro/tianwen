@@ -64,8 +64,10 @@ public sealed class NodeRecoveryDto
     /// <summary>The run that was going on when the node died, if one was.</summary>
     public NodeRunDto? InterruptedRun { get; init; }
 
+    // set, not init: the JSON source generator gives an init-only property its TYPE'S default when the field is
+    // absent, dropping the initializer below (CLAUDE.md, Hosting API: the wire traps).
     /// <summary>The devices the node held when it died.</summary>
-    public NodeHeldDeviceDto[] Devices { get; init; } = [];
+    public NodeHeldDeviceDto[] Devices { get; set; } = [];
 }
 
 /// <summary>A node's run: what kind, on which profile, since when, and what it was imaging.</summary>
