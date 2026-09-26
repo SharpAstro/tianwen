@@ -38,6 +38,16 @@ internal abstract class TuiTabBase : ITuiTab
     protected virtual CellMeasureContext MeasureContext => CellMeasureContext.CellAuthored;
 
     private readonly Dictionary<string, HostedRegion> _hosts = [];
+
+    /// <summary>The cursor of every list created through <see cref="HostList{T}"/>, by host key.</summary>
+    private readonly Dictionary<string, ListCursor> _listCursors = [];
+
+    /// <summary>
+    /// Cursor rows captured by <see cref="Attach"/> and not yet put back: the lists it rebuilt are empty
+    /// until the first <see cref="RenderContent"/> fills them, so the restore has to wait for that.
+    /// </summary>
+    private readonly Dictionary<string, int> _pendingCursors = [];
+
     private IVirtualTerminal? _terminal;
     private int _topRows;
     private int _bottomRows;
@@ -85,10 +95,52 @@ internal abstract class TuiTabBase : ITuiTab
         _terminal = terminal;
         _topRows = topRows;
         _bottomRows = bottomRows;
+
+        // CreateWidgets builds every list anew, cursor at row 0, so a tab switch (and a resize) would drop
+        // the user's place. Remember each cursor here and put it back once the rebuilt list has rows. A
+        // list that has no rows yet (attached again before it was ever filled) keeps what is pending
+        // rather than recording its own meaningless row 0 over it.
+        foreach (var (key, cursor) in _listCursors)
+        {
+            if (cursor.Count() > 0)
+            {
+                _pendingCursors[key] = cursor.Index();
+            }
+        }
+
         _hosts.Clear();
+        _listCursors.Clear();
         CreateWidgets();
         NeedsRedraw = true;
     }
+
+    /// <summary>
+    /// Puts back the cursors <see cref="Attach"/> remembered, clamped to the rebuilt list's rows. Runs
+    /// after <see cref="RenderContent"/>, which is what fills the lists, and before anything paints, so
+    /// the first frame after a switch already shows the row the user left on. An empty list is left as
+    /// it is, with nothing selected, and the remembered row is dropped either way: it answers "where was
+    /// I when I left", not "where should I be whenever this list next has rows".
+    /// </summary>
+    private void RestoreListCursors()
+    {
+        if (_pendingCursors.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var (key, index) in _pendingCursors)
+        {
+            if (_listCursors.TryGetValue(key, out var cursor) && cursor.Count() is > 0 and var count)
+            {
+                cursor.MoveTo(Math.Min(index, count - 1));
+            }
+        }
+
+        _pendingCursors.Clear();
+    }
+
+    /// <summary>The cursor row of the list hosted at <paramref name="key"/>, or null if there is none.</summary>
+    internal int? ListCursorIndex(string key) => _listCursors.TryGetValue(key, out var cursor) ? cursor.Index() : null;
 
     public void Render()
     {
@@ -103,6 +155,7 @@ internal abstract class TuiTabBase : ITuiTab
         // Data first: RenderContent decides what the tab is showing, and BuildLayout is allowed to
         // branch on that (a placeholder state can arrange differently from a live one).
         RenderContent();
+        RestoreListCursors();
 
         var (columns, rows) = terminal.Size;
         var content = new Rect<int>(0, _topRows, columns, Math.Max(0, rows - _topRows - _bottomRows));
@@ -169,6 +222,18 @@ internal abstract class TuiTabBase : ITuiTab
         var viewport = new TerminalViewport(terminal, 0, 0, 0, 0);
         _hosts[key] = new HostedRegion(viewport);
         return viewport;
+    }
+
+    /// <summary>
+    /// Creates the <see cref="ScrollableList{T}"/> hosted at <paramref name="key"/> and makes its cursor
+    /// survive <see cref="Attach"/>. A list whose cursor is the user's own place (not one the tab derives
+    /// from state every frame) should be created through this rather than <see cref="Host"/>.
+    /// </summary>
+    protected ScrollableList<T> HostList<T>(string key) where T : IRowLayout
+    {
+        var list = new ScrollableList<T>(Host(key));
+        _listCursors[key] = new ListCursor(() => list.CursorIndex, () => list.ItemCount, index => list.MoveTo(index));
+        return list;
     }
 
     /// <summary>
@@ -248,6 +313,9 @@ internal abstract class TuiTabBase : ITuiTab
     /// <see cref="Arranged"/>, which keeps draw and hit on the same rect by construction.
     /// </summary>
     protected virtual void RegisterClickableRegions() { }
+
+    /// <summary>A list's cursor, read and moved without knowing its item type.</summary>
+    private sealed record ListCursor(Func<int> Index, Func<int> Count, Func<int, bool> MoveTo);
 
     /// <summary>
     /// One hosted widget's viewport, plus the last size it was placed at so a resize can be reported
