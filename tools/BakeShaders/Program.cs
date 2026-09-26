@@ -60,11 +60,20 @@ if (sources.Length == 0)
 
 using var compiler = new Compiler();
 var baked = 0;
+var manifest = new System.Text.StringBuilder();
 foreach (var src in sources)
 {
     var fileName = Path.GetFileName(src);
     var kind = Path.GetExtension(src) == ".vert" ? ShaderKind.VertexShader : ShaderKind.FragmentShader;
     var source = File.ReadAllText(src);
+
+    // The build's TWSH0001 check compares each source's content with the hash recorded here, never
+    // modification times: a time check fires for ever on a clone that pulled a source edit which bakes
+    // to identical SPIR-V (a comment, whitespace), since git then rewrites the source and not the .spv
+    // (#792). Hash the bytes git stores (LF), so the record is the same whichever host baked it.
+    var hash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(
+        System.Text.Encoding.UTF8.GetBytes(source.Replace("\r\n", "\n"))));
+    manifest.Append(hash).Append("  ").Append(fileName).Append('\n');
 
     // Shader source must be ASCII: shaderc's lexer chokes on non-ASCII bytes even inside //
     // comments (a stray em dash reports as a cryptic "unexpected end of file"). Point at it clearly.
@@ -91,6 +100,11 @@ foreach (var src in sources)
     Console.WriteLine($"{fileName} -> {Path.GetFileName(outPath)} ({result.Bytecode.Length} bytes)");
     baked++;
 }
+
+// sha256sum format, paths relative to the shader directory, so `sha256sum -c spirv/sources.sha256` run
+// from there checks it by hand too. Written only once every shader compiled, so a failed bake never
+// records a source as baked.
+File.WriteAllText(Path.Combine(outDir, "sources.sha256"), manifest.ToString(), new System.Text.UTF8Encoding(false));
 
 Console.WriteLine($"baked {baked} shader(s) [{target}] -> {outDir}");
 return 0;

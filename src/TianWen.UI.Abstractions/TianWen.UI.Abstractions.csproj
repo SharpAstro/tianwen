@@ -67,40 +67,42 @@
     <IconRecipe Include="sky-icons.recipe" BakedFile="SkyIcons.g.cs" />
   </ItemGroup>
 
-  <!-- Warn (never fail) when a recipe is newer than the table it generates by more than
-       StaleBakeToleranceSeconds, or the table is missing, so an edit that forgets to re-bake is caught
-       in the build log instead of silently shipping a stale mark. Each recipe is judged on its own.
-       The tolerance exists because a git checkout writes files in directory order, the recipe often
-       last: a fresh clone measured the recipe 17 ms newer than its byte-correct table, which a plain
-       Inputs/Outputs comparison reported as stale on every clone. A forgotten re-bake is an edit made
-       minutes or days after the last bake, well past the tolerance. A timestamp is still the weaker of
-       the two available checks: the bake is byte-reproducible, so CI runs
-       'pwsh tools/bake-icons.ps1 -Verify' over both recipes and catches a HAND-EDITED table too, which a
-       timestamp cannot. This one is here because it costs nothing and needs neither the tool nor the
-       network. -->
-  <PropertyGroup>
-    <StaleBakeToleranceSeconds Condition="'$(StaleBakeToleranceSeconds)' == ''">60</StaleBakeToleranceSeconds>
-  </PropertyGroup>
-
+  <!-- Warn (never fail) when a recipe is not the content its table was baked from, or the table is
+       missing, so an edit that forgets to re-bake is caught in the build log instead of silently shipping
+       a stale mark. Each recipe is judged on its own. tools/bake-icons.ps1 records the recipe's SHA-256
+       (of the LF bytes git stores) in the table's header as "Recipe SHA-256: <hex>", and this hashes the
+       recipe as it stands with GetFileHash: the same bytes on every host, since the working copy is LF
+       everywhere (.gitattributes). CONTENT, never modification times: a time comparison fired for ever on
+       a clone that PULLED a recipe edit which left the table byte-identical, because git then rewrote the
+       recipe and not the table (#792). This is still the weaker of the two available checks: the bake is
+       byte-reproducible, so CI runs 'pwsh tools/bake-icons.ps1 -Verify' over both recipes and catches a
+       HAND-EDITED table too, which a recorded hash cannot. This one is here because it costs one small
+       file hashed per recipe and needs neither the tool nor the network. -->
   <Target Name="WarnStaleBakedIcons" BeforeTargets="CoreCompile">
     <ItemGroup>
-      <_IconRecipeCheck Include="@(IconRecipe)">
+      <_IconRecipeToHash Include="@(IconRecipe)">
         <BakedPath>$([System.IO.Path]::Combine('$(MSBuildProjectDirectory)', '%(IconRecipe.BakedFile)'))</BakedPath>
-      </_IconRecipeCheck>
-      <_IconRecipeCheck>
+      </_IconRecipeToHash>
+      <_IconRecipeToHash>
         <BakedExists>$([System.IO.File]::Exists('%(BakedPath)'))</BakedExists>
-        <AheadTicks>$([MSBuild]::Subtract($([System.IO.File]::GetLastWriteTime('%(FullPath)').ToUniversalTime().Ticks), $([System.IO.File]::GetLastWriteTime('%(BakedPath)').ToUniversalTime().Ticks)))</AheadTicks>
-      </_IconRecipeCheck>
+      </_IconRecipeToHash>
+      <_IconRecipeToHash Condition="'%(BakedExists)' == 'True'">
+        <RecordedHash>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('%(BakedPath)')), '(?&lt;=Recipe SHA-256: )[0-9A-Fa-f]{64}').Value)</RecordedHash>
+      </_IconRecipeToHash>
     </ItemGroup>
-    <PropertyGroup>
-      <_StaleBakeToleranceTicks>$([MSBuild]::Multiply($(StaleBakeToleranceSeconds), 10000000))</_StaleBakeToleranceTicks>
-    </PropertyGroup>
+    <GetFileHash Files="@(_IconRecipeToHash)" Algorithm="SHA256" HashEncoding="hex">
+      <Output TaskParameter="Items" ItemName="_IconRecipeCheck" />
+    </GetFileHash>
+    <!-- MSBuild's == is case-insensitive, so the case GetFileHash writes its hex in does not matter. -->
     <Warning Code="TWIC0001"
              Condition="'%(_IconRecipeCheck.BakedExists)' != 'True'"
              Text="%(_IconRecipeCheck.Identity) has no baked table (%(_IconRecipeCheck.BakedFile) is missing); run 'pwsh tools/bake-icons.ps1' and commit the generated table." />
     <Warning Code="TWIC0001"
-             Condition="'%(_IconRecipeCheck.BakedExists)' == 'True' and %(_IconRecipeCheck.AheadTicks) &gt; $(_StaleBakeToleranceTicks)"
-             Text="%(_IconRecipeCheck.Identity) is newer than %(_IconRecipeCheck.BakedFile) by more than $(StaleBakeToleranceSeconds) s; re-run 'pwsh tools/bake-icons.ps1' and commit the regenerated table." />
+             Condition="'%(_IconRecipeCheck.BakedExists)' == 'True' and '%(_IconRecipeCheck.RecordedHash)' == ''"
+             Text="%(_IconRecipeCheck.BakedFile) records no 'Recipe SHA-256' header line, so it cannot be checked against %(_IconRecipeCheck.Identity); re-run 'pwsh tools/bake-icons.ps1' and commit the regenerated table." />
+    <Warning Code="TWIC0001"
+             Condition="'%(_IconRecipeCheck.BakedExists)' == 'True' and '%(_IconRecipeCheck.RecordedHash)' != '' and '%(_IconRecipeCheck.RecordedHash)' != '%(_IconRecipeCheck.FileHash)'"
+             Text="%(_IconRecipeCheck.Identity) has changed since %(_IconRecipeCheck.BakedFile) was baked (its SHA-256 is not the one the table records); re-run 'pwsh tools/bake-icons.ps1' and commit the regenerated table." />
   </Target>
 
 </Project>

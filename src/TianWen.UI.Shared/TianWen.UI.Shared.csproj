@@ -38,38 +38,46 @@
     <ShaderSource Include="Shaders\*.vert;Shaders\*.frag" />
   </ItemGroup>
 
-  <!-- Warn (never fail) when a shader source is newer than its baked .spv by more than
-       StaleBakeToleranceSeconds, or the .spv is missing, so an edit that forgets to re-bake is caught in
-       the build log instead of silently shipping stale bytecode. Each shader is judged on its own and
-       its warning names it. Nothing in CI checks the .spv against its source, so this is the shaders'
-       only guard. The tolerance exists because a git checkout writes files in directory order, often a
-       few milliseconds apart with the source last, which a plain Inputs/Outputs comparison reported as
-       stale on a clean clone; a forgotten re-bake is an edit made minutes or days after the last bake,
-       well past the tolerance. -->
+  <!-- Warn (never fail) when a shader source is not the content its .spv was baked from, or the .spv is
+       missing, so an edit that forgets to re-bake is caught in the build log instead of silently
+       shipping stale bytecode. Each shader is judged on its own and its warning names it. Nothing in CI
+       checks the .spv against its source, so this is the shaders' only guard. tools/BakeShaders records
+       every source's SHA-256 (of the LF bytes git stores) in Shaders/spirv/sources.sha256, in sha256sum
+       format, and this hashes each source as it stands with GetFileHash: the same bytes on every host,
+       since the working copy is LF everywhere (.gitattributes). CONTENT, never modification times: a
+       time comparison fires for ever on a clone that PULLED a source edit which bakes to identical
+       SPIR-V (a comment, whitespace), because git then rewrites the source and not the .spv (#792). -->
   <PropertyGroup>
-    <StaleBakeToleranceSeconds Condition="'$(StaleBakeToleranceSeconds)' == ''">60</StaleBakeToleranceSeconds>
+    <_ShaderBakeManifest>$([System.IO.Path]::Combine('$(MSBuildProjectDirectory)', 'Shaders', 'spirv', 'sources.sha256'))</_ShaderBakeManifest>
   </PropertyGroup>
 
   <Target Name="WarnStaleBakedShaders" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <_ShaderBakeManifestText Condition="Exists('$(_ShaderBakeManifest)')">$([System.IO.File]::ReadAllText('$(_ShaderBakeManifest)'))</_ShaderBakeManifestText>
+    </PropertyGroup>
     <ItemGroup>
-      <_ShaderBakeCheck Include="@(ShaderSource)">
+      <_ShaderToHash Include="@(ShaderSource)">
         <BakedFile>Shaders\spirv\%(ShaderSource.Filename)%(ShaderSource.Extension).spv</BakedFile>
         <BakedPath>$([System.IO.Path]::Combine('$(MSBuildProjectDirectory)', 'Shaders', 'spirv', '%(ShaderSource.Filename)%(ShaderSource.Extension).spv'))</BakedPath>
-      </_ShaderBakeCheck>
-      <_ShaderBakeCheck>
+        <RecordedHash>$([System.Text.RegularExpressions.Regex]::Match('$(_ShaderBakeManifestText)', '(?m)^[0-9A-Fa-f]{64}(?=  $([System.Text.RegularExpressions.Regex]::Escape('%(ShaderSource.Filename)%(ShaderSource.Extension)'))\r?$)').Value)</RecordedHash>
+      </_ShaderToHash>
+      <_ShaderToHash>
         <BakedExists>$([System.IO.File]::Exists('%(BakedPath)'))</BakedExists>
-        <AheadTicks>$([MSBuild]::Subtract($([System.IO.File]::GetLastWriteTime('%(FullPath)').ToUniversalTime().Ticks), $([System.IO.File]::GetLastWriteTime('%(BakedPath)').ToUniversalTime().Ticks)))</AheadTicks>
-      </_ShaderBakeCheck>
+      </_ShaderToHash>
     </ItemGroup>
-    <PropertyGroup>
-      <_StaleBakeToleranceTicks>$([MSBuild]::Multiply($(StaleBakeToleranceSeconds), 10000000))</_StaleBakeToleranceTicks>
-    </PropertyGroup>
+    <GetFileHash Files="@(_ShaderToHash)" Algorithm="SHA256" HashEncoding="hex">
+      <Output TaskParameter="Items" ItemName="_ShaderBakeCheck" />
+    </GetFileHash>
+    <!-- MSBuild's == is case-insensitive, so the case GetFileHash writes its hex in does not matter. -->
     <Warning Code="TWSH0001"
              Condition="'%(_ShaderBakeCheck.BakedExists)' != 'True'"
-             Text="%(_ShaderBakeCheck.Identity) has no baked SPIR-V (%(_ShaderBakeCheck.BakedFile) is missing); run 'dotnet run --project tools/BakeShaders -c Release -- src/TianWen.UI.Shared/Shaders' and commit Shaders/spirv/*.spv." />
+             Text="%(_ShaderBakeCheck.Identity) has no baked SPIR-V (%(_ShaderBakeCheck.BakedFile) is missing); run 'dotnet run --project tools/BakeShaders -c Release -- src/TianWen.UI.Shared/Shaders' and commit Shaders/spirv/." />
     <Warning Code="TWSH0001"
-             Condition="'%(_ShaderBakeCheck.BakedExists)' == 'True' and %(_ShaderBakeCheck.AheadTicks) &gt; $(_StaleBakeToleranceTicks)"
-             Text="%(_ShaderBakeCheck.Identity) is newer than %(_ShaderBakeCheck.BakedFile) by more than $(StaleBakeToleranceSeconds) s; re-run 'dotnet run --project tools/BakeShaders -c Release -- src/TianWen.UI.Shared/Shaders' and commit Shaders/spirv/*.spv." />
+             Condition="'%(_ShaderBakeCheck.BakedExists)' == 'True' and '%(_ShaderBakeCheck.RecordedHash)' == ''"
+             Text="%(_ShaderBakeCheck.Identity) has no hash in Shaders/spirv/sources.sha256, so %(_ShaderBakeCheck.BakedFile) cannot be checked against it; run 'dotnet run --project tools/BakeShaders -c Release -- src/TianWen.UI.Shared/Shaders' and commit Shaders/spirv/." />
+    <Warning Code="TWSH0001"
+             Condition="'%(_ShaderBakeCheck.BakedExists)' == 'True' and '%(_ShaderBakeCheck.RecordedHash)' != '' and '%(_ShaderBakeCheck.RecordedHash)' != '%(_ShaderBakeCheck.FileHash)'"
+             Text="%(_ShaderBakeCheck.Identity) has changed since %(_ShaderBakeCheck.BakedFile) was baked (its SHA-256 is not the one Shaders/spirv/sources.sha256 records); re-run 'dotnet run --project tools/BakeShaders -c Release -- src/TianWen.UI.Shared/Shaders' and commit Shaders/spirv/." />
   </Target>
 
 </Project>

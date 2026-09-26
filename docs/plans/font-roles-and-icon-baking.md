@@ -19,7 +19,7 @@ time was searching for *the thing about to be written* rather than for *the prob
 |---|---|---|
 | `FontFallbackResolver.FromRoles` | DIR.Lib | primary -> symbol -> emoji -> per-script chain, **per-codepoint coverage read from each face's cmap** (`OpenTypeFont.GetGlyphId`), lazy face loading, `CanRender(Rune)`, `TryResolveFont(Rune)`, `CoverageRuns`, backend-generic `Measure`/`Draw`/`FitEllipsis` |
 | `FontResolver` | DIR.Lib | `ResolveSystemFont` (monospace default), `ResolveSystemScriptFonts(extra)` (CJK/Indic/Arabic), `ResolveInstalledFace`, `EnumerateInstalledFonts` incl. per-user dirs |
-| `tools/BakeShaders` | tianwen | the bake PRECEDENT: build-host-time generation, output committed AND embedded, warning `TWSH0001` when a source is newer than its baked artifact |
+| `tools/BakeShaders` | tianwen | the bake PRECEDENT: build-host-time generation, output committed AND embedded, warning `TWSH0001` when a source's hash is not the one its bake recorded (a timestamp until #792) |
 | `ManagedFontRasterizer` | DIR.Lib | glyph rasterisation, already the engine behind `Renderer.DrawText` |
 | `IconKind` + pixel painter | DIR.Lib | 11 procedural marks built from rectangles, with a cell-surface counterpart in `CellLayout` |
 
