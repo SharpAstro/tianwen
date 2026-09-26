@@ -199,12 +199,22 @@ public class NodeJournalServiceTests(ITestOutputHelper outputHelper)
         report.Devices.ShouldAllBe(static d => d.Reconnected == true && d.ReconnectError == null);
         hub.IsConnected(new Uri(Mount)).ShouldBeTrue("the mount, which restores mount-limit enforcement");
         hub.TryGetConnectedDriver<ICameraDriver>(new Uri(Camera), out var camera).ShouldBeTrue();
-        hub.TryGetCoolerIntent(new Uri(Camera), out var intent).ShouldBeTrue();
+        hub.TryGetCoolerIntent(new Uri(Camera), out var intent).ShouldBeTrue("recorded before the camera is reported reconnected");
         intent.ShouldBe(CoolerIntent.CoolTo(-10), "cooled back to its target through the session's ramp");
-        (await camera.GetCoolerOnAsync(ct)).ShouldBeTrue("the ramp's first step is taken at once");
 
-        // This node's own journal now: what it reconnected, the run it resumes nothing of, and this crash counted.
+        // The ramp runs in the background, so its first step, the cooler on, follows the report rather than precedes it.
+        var clock = Stopwatch.StartNew();
+        while (!await camera.GetCoolerOnAsync(ct) && clock.Elapsed < Budget)
+        {
+            await Task.Delay(20, ct);
+        }
+        (await camera.GetCoolerOnAsync(ct)).ShouldBeTrue("the ramp's first step follows at once");
+
+        // This node's own journal now: what it reconnected, the run it resumes nothing of, and this crash counted. The
+        // first it writes with nothing being reconnected is the recovery's last, which must already carry the intent.
         var journal = await UntilTheJournalAsync(path, static j => j.ProcessId == Environment.ProcessId && j.Devices.Length == 2 && j.Touching is null, ct);
+        journal.Devices.ShouldContain(static d => d.Cooler == CoolerIntentKind.Cool && d.CoolerSetpointC == -10,
+            "a crash before the next poll must still leave the camera's cooling to re-establish");
         journal.Crashes.Length.ShouldBe(1);
         journal.Run.ShouldNotBeNull().Target.ShouldBe("NGC 7000");
         node.Node.IsRunning.ShouldBeFalse("it never resumes a run");

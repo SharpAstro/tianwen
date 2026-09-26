@@ -24,6 +24,12 @@ public static class CameraCoolingRamp
     public const double CoolDownPowerThreshold = 80;
 
     /// <summary>
+    /// The whole degree a ramp to <paramref name="setpointC"/> drives a sensor to, which is also the cooler intent it
+    /// records. <see cref="sbyte.MinValue"/> is the ramp's "no value" for the sensor and ambient kinds, so never a target.
+    /// </summary>
+    public static sbyte TargetOf(double setpointC) => (sbyte)Math.Clamp(Math.Round(setpointC), sbyte.MinValue + 1, sbyte.MaxValue);
+
+    /// <summary>
     /// Ramps every camera in <paramref name="cameras"/> towards <paramref name="target"/> together, a step each per
     /// <see cref="StepInterval"/>, over at least <paramref name="totalRampTime"/>, and gives up at twice the ramp it
     /// planned.

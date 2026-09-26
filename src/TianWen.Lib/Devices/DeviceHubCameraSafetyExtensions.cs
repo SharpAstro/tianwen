@@ -115,8 +115,7 @@ public static class DeviceHubCameraSafetyExtensions
                 return false;
             }
 
-            // sbyte.MinValue is the ramp's "no value" for the sensor and ambient kinds, so never a target.
-            var target = (sbyte)Math.Clamp(Math.Round(setpointC), sbyte.MinValue + 1, sbyte.MaxValue);
+            var target = CameraCoolingRamp.TargetOf(setpointC);
             hub.SetCoolerIntent(cameraUri, CoolerIntent.CoolTo(target));
             return await CameraCoolingRamp.RunAsync([camera], new SetpointTemp(target, SetpointTempKind.Normal), totalRampTime,
                 CameraCoolingRamp.CoolDownPowerThreshold, SetupointDirection.Down, timeProvider, logger, afterStep: null, cancellationToken);

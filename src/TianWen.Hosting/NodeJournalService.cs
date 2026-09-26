@@ -331,9 +331,9 @@ internal sealed class NodeJournalService(
             var error = device is null ? "No device source on this node answers for it" : await ReconnectAsync(device, cancellationToken);
             _touching = null;
             _pending = _pending.Remove(held);
-            Report(held.DeviceUri, error);
             if (error is not null || device is null)
             {
+                Report(held.DeviceUri, error);
                 logger.LogWarning("Recovering: could not reconnect {Device}: {Error}", held.DeviceUri, error);
                 continue;
             }
@@ -343,6 +343,8 @@ internal sealed class NodeJournalService(
             {
                 Recool(device.DeviceUri, cooler, held.CoolerSetpointC);
             }
+            // Reported only once its cooling is the hub's intent again, so a client that reads it reconnected reads that too.
+            Report(held.DeviceUri, error: null);
         }
 
         await WriteIfChangedAsync(path, stopping: false, cancellationToken);
@@ -367,18 +369,27 @@ internal sealed class NodeJournalService(
         }
     }
 
-    /// <summary>Re-establishes a reconnected camera's cooler from its intent, in the background.</summary>
+    /// <summary>
+    /// Re-establishes a reconnected camera's cooler from its intent: the intent at once, the ramp in the background.
+    /// </summary>
+    /// <remarks>
+    /// The intent is the hub's again BEFORE the ramp starts, never once the ramp's task first runs, which is after the
+    /// recovery has gone on. Left to the ramp, the journal this recovery writes last could hold the camera with no
+    /// intent at all, and a crash before the next poll left the node after it nothing to cool the camera back to.
+    /// </remarks>
     private void Recool(Uri camera, CoolerIntentKind cooler, double? setpointC)
     {
         switch (cooler)
         {
             case CoolerIntentKind.Cool when setpointC is { } setpoint:
                 logger.LogInformation("Recovering: cooling {Camera} back to {Setpoint} C through the session's ramp", camera, setpoint);
+                hub.SetCoolerIntent(camera, CoolerIntent.CoolTo(CameraCoolingRamp.TargetOf(setpoint)));
                 _ramps.Add(RampAsync(camera, ct => hub.CoolToSetpointAsync(camera, setpoint, new SessionConfiguration().CooldownRampInterval, timeProvider, logger, ct)));
                 break;
 
             case CoolerIntentKind.Warm:
                 logger.LogInformation("Recovering: going on warming {Camera} from where the sensor is now", camera);
+                hub.SetCoolerIntent(camera, CoolerIntent.Warm);
                 _ramps.Add(RampAsync(camera, async ct =>
                 {
                     await hub.WarmAndCoolerOffAsync(camera, timeProvider, logger, ct);
