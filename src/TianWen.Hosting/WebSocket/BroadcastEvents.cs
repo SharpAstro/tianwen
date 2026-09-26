@@ -86,6 +86,7 @@ internal static class BroadcastEvents
         {
             ["Id"] = job.Id,
             ["Kind"] = job.Kind,
+            ["DeviceUri"] = job.DeviceUri,
             ["State"] = job.State.ToString(),
             ["Step"] = job.Step,
             ["Error"] = job.Error
