@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using System.Threading;
+using TianWen.RemoteClient;
 
 namespace TianWen.UI.Abstractions
 {
@@ -180,16 +181,32 @@ namespace TianWen.UI.Abstractions
             return true;
         }
 
+        /// <summary>What a rig on screen pulls: its OTA frames and its guide camera's, which the Live Session and
+        /// Guider panes draw.</summary>
+        private static readonly PreviewOptions OnScreenRigFrames = new PreviewOptions(IncludeGuider: true);
+
         /// <summary>
         /// Polls every context's session telemetry, not just the visible one -- a local session hidden
         /// under a remote overlay must keep its phase, frame counts and mount pointing current.
         /// Cheap: <see cref="LiveSessionState.PollSession"/> returns immediately when a context has no
         /// session. Call once per frame.
+        /// <para>
+        /// <b>A remote rig's frames follow the SCREEN</b> (P4 of docs/plans/hardware-in-the-server.md): the rig on
+        /// screen pulls its linear frames for the Live Session and Guider panes, and every other rig pulls none and
+        /// gives back what it holds, since N bound rigs each pulling full frames is the load the mirror's opt-in
+        /// exists to prevent. Set on every poll rather than on <see cref="Activate"/>, so a rig connected while it is
+        /// already on screen needs no second step.
+        /// </para>
         /// </summary>
         public void PollAll()
         {
+            var active = Active;
             foreach (var context in _all)
             {
+                if (context.LiveSession.ActiveSession is RemoteSessionMirror mirror)
+                {
+                    mirror.Previews = ReferenceEquals(context, active) ? OnScreenRigFrames : null;
+                }
                 context.LiveSession.PollSession();
             }
         }

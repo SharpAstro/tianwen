@@ -618,8 +618,8 @@ save) needs it LINEAR, in floats, which the preview JPEG is not: it is stretched
 - **The reader recycles its planes.** A frame's planes come back to its `FrameReader` when the image is released
   (`ChannelBuffer`'s `onRelease`), and the next frame of the same shape is read into them, so a client showing frame
   after frame allocates no plane after the first; a 26 MP float plane is 104 MB, large-object-heap garbage otherwise. It
-  reads through a pooled 1 MB band, never a frame-sized buffer. One reader per source, since a source's frames share a
-  shape.
+  reads through a pooled 1 MB band, never a frame-sized buffer. It keeps released planes BY SHAPE, so one reader can
+  serve several sources.
 
 Pinned by `FrameWireTests`, including a frame from the fake camera itself coming back bit for bit with its metadata.
 
@@ -634,7 +634,7 @@ the frame a source shows now, the same slot and guide frame the JPEG previews en
 - **`FRAME-AVAILABLE`** (`FrameAvailableDto`: the source and the number) is pushed by the broadcaster's poll when a
   source's number moves, a new run's from nothing, so a frame that lands before the first poll is announced too. A hint:
   the route is authoritative.
-- `TianWenNodeClient.GetLatestFrameAsync(source, after, reader)` reads through a `FrameReader` the caller keeps per source.
+- `TianWenNodeClient.GetLatestFrameAsync(source, after, reader)` reads through a `FrameReader` the caller keeps.
 
 **Measured** (Release, this 16-core x64 desktop, with another session's builds running): a 26 MP frame (6248 x 4176)
 crosses the socket into a recycled plane in 37 to 38 ms packed to 16 bits and 37 to 42 ms as floats. The plan had
@@ -651,6 +651,27 @@ the socket, and the node never compresses a frame on the socket whatever is aske
 best (the plan's measurements), and on the socket a copy is cheaper than any codec, while on WiFi or 100 Mbit
 compression roughly halves a frame's transfer. The saved-frame fetch (P4r, deferred) will travel as the FITS file's own
 bytes instead. Pinned by `NodeFrameCompressionTests`.
+
+**The client side** (P4 part 4). `RemoteSessionMirror` fills its frame slots (`LastCapturedImages`, `LastGuideFrame`)
+with the node's LINEAR frames through this route, never the preview JPEG, so a remote rig's Live Session and Guider
+panes stretch, measure and save the node's own frame exactly as they do a local session's; `LiveFramePreviewSource` is
+unchanged, with the network behind the mirror.
+
+- **Each poll names the frame a slot holds**, so a slot that has not moved costs a 204.
+- **The slots keep a local session's contract.** A replaced frame is released only once its successor is published, so
+  a pane's lease finds one or the other, and its planes go back to the mirror's one `FrameReader` once the last lease is
+  disposed. A mirror asked for no frames, a finished session and a disposed mirror give back everything held.
+- **Frames follow the screen.** `ViewContexts.PollAll`, which the GUI and the TUI run every frame, asks the rig on
+  screen for its OTA and guide frames and every other rig for none, since N bound rigs each pulling full frames is the
+  load the opt-in exists to prevent (the Home board's rule). Set per poll, so a rig connected while on screen needs no
+  second step. Until this, nothing asked a rig for frames and a remote rig's panes stayed empty.
+- **A saved sub is its FITS file, on this machine only.** `SavedFramePathOnThisMachine` hands the node's
+  `LastFramePath` only to a mirror that reaches its node over the local socket (`IsOnThisMachine`, set from the
+  transport), to read with `Image.TryReadFitsFile`; over TCP the path names a file on another machine, which a file of
+  the same name here must never be taken for (fetching it is P4r, deferred).
+
+Pinned by `RemoteSessionMirrorDriveTests` and, over TCP to a real node through the GUI's own `RemoteRigConnection`,
+`RemoteRigLiveFrameTests`.
 
 ## The ASCOM Alpaca device plane
 

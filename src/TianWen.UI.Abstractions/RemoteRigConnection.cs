@@ -102,7 +102,12 @@ namespace TianWen.UI.Abstractions
             var http = transport.CreateHttpClient();
             var client = new TianWenNodeClient(http);
             var events = transport.CreateEventStream(timeProvider, logger);
-            var mirror = new RemoteSessionMirror(client, events, timeProvider, logger);
+            // The rig's frames are asked for while it is on screen (ViewContexts.PollAll), never here: every bound rig
+            // connects, and N of them each pulling full frames is what the mirror's opt-in exists to prevent.
+            var mirror = new RemoteSessionMirror(client, events, timeProvider, logger)
+            {
+                IsOnThisMachine = transport.SocketPath is not null,
+            };
 
             var context = contexts.GetOrAddRemote(binding.NodeId, binding.Alias);
 

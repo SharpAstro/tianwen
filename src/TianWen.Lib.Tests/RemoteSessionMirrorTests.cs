@@ -122,7 +122,8 @@ public class RemoteSessionMirrorTests
         SessionPhase phase = SessionPhase.Observing,
         string? guiderState = "Guiding",
         int otaCount = 1,
-        PendingPromptDto? pendingPrompt = null) => new SessionStateDto
+        PendingPromptDto? pendingPrompt = null,
+        string? lastFramePath = @"C:\Data\2026-07-26\M42\Light\frame7.fits") => new SessionStateDto
         {
             Phase = phase,
             CurrentActivity = "Imaging M42 (3/12)",
@@ -131,7 +132,7 @@ public class RemoteSessionMirrorTests
             TotalExposureTimeSeconds = 840,
             CurrentObservationIndex = 0,
             ActiveTargetName = "M42",
-            LastFramePath = @"C:\Data\2026-07-26\M42\Light\frame7.fits",
+            LastFramePath = lastFramePath,
             Mount = new MountStateDto
             {
                 RightAscension = 5.588,
@@ -706,7 +707,36 @@ public class RemoteSessionMirrorTests
         // WhenWritingNull (a healthy session with FailureReason = null produced JSON that threw on
         // read). So drive the REAL server-side projection over a session, push it through the wire
         // format, and require it to arrive intact.
-        var session = Substitute.For<ISessionTelemetry>();
+        var session = Observing(Substitute.For<ISessionTelemetry>());
+
+        var projected = SessionStateDto.FromSession(session);
+
+        var (mirror, _) = BuildMirror(_ => Json(ResponseEnvelope<SessionStateDto>.Ok(projected)));
+        await using var _mirror = mirror;
+
+        await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+
+        mirror.LastError.ShouldBeNull();
+        mirror.Phase.ShouldBe(SessionPhase.Observing);
+        mirror.CurrentActivity.ShouldBe("Imaging M42");
+        mirror.FailureReason.ShouldBeNull();
+        mirror.TotalFramesWritten.ShouldBe(7);
+        mirror.MountDisplayName.ShouldBe("Fake Mount (SkyWatcher)");
+        mirror.MountState.RightAscension.ShouldBe(5.588, 1e-9);
+        mirror.TelescopeDisplays.ShouldBe(session.TelescopeDisplays);
+        mirror.CameraStates.Length.ShouldBe(1);
+        mirror.CameraStates[0].FilterName.ShouldBe("L");
+        mirror.Observations.Count.ShouldBe(1);
+        mirror.ActiveObservation.ShouldNotBeNull().Target.Name.ShouldBe("M42");
+    }
+
+    /// <summary>
+    /// Makes <paramref name="session"/> an observing session with one OTA that the node's state projection
+    /// (<see cref="SessionStateDto.FromSession"/>) serves as it would a real one: every member it reads is
+    /// answered, the optional ones left unset. Shared with the functional tests, whose node serves a substitute.
+    /// </summary>
+    internal static T Observing<T>(T session) where T : ISessionTelemetry
+    {
         session.Phase.Returns(SessionPhase.Observing);
         session.CurrentActivity.Returns("Imaging M42");
         session.FailureReason.Returns((string?)null);        // the field that broke it
@@ -731,26 +761,7 @@ public class RemoteSessionMirrorTests
         session.GuideSamples.Returns([]);
         session.GuiderState.Returns("Guiding");
         session.GuideExposure.Returns(TimeSpan.FromSeconds(2.5));
-
-        var projected = SessionStateDto.FromSession(session);
-
-        var (mirror, _) = BuildMirror(_ => Json(ResponseEnvelope<SessionStateDto>.Ok(projected)));
-        await using var _mirror = mirror;
-
-        await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
-
-        mirror.LastError.ShouldBeNull();
-        mirror.Phase.ShouldBe(SessionPhase.Observing);
-        mirror.CurrentActivity.ShouldBe("Imaging M42");
-        mirror.FailureReason.ShouldBeNull();
-        mirror.TotalFramesWritten.ShouldBe(7);
-        mirror.MountDisplayName.ShouldBe("Fake Mount (SkyWatcher)");
-        mirror.MountState.RightAscension.ShouldBe(5.588, 1e-9);
-        mirror.TelescopeDisplays.ShouldBe(session.TelescopeDisplays);
-        mirror.CameraStates.Length.ShouldBe(1);
-        mirror.CameraStates[0].FilterName.ShouldBe("L");
-        mirror.Observations.Count.ShouldBe(1);
-        mirror.ActiveObservation.ShouldNotBeNull().Target.Name.ShouldBe("M42");
+        return session;
     }
 
     [Fact]

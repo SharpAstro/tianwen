@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Threading;
 using System.Threading.Tasks;
@@ -18,20 +19,17 @@ using GuiderStateChangedEventArgs = TianWen.Lib.Sequencing.GuiderStateChangedEve
 namespace TianWen.RemoteClient
 {
     /// <summary>
-    /// How a mirror should pull preview frames. Both knobs trade link cost against fidelity, and both
-    /// are applied by the node's encoder, so a downscaled preview costs the link only what it is worth.
+    /// Which of the node's frames a mirror pulls. Every frame is the node's own, LINEAR and full-resolution
+    /// (<c>GET /frames/{source}/latest</c>, P4 of docs/plans/hardware-in-the-server.md), never the stretched preview
+    /// JPEG: the Live Session and Guider tabs stretch, measure and save what they are handed, exactly as they do a
+    /// local session's frame, and a picture stretched once already would be stretched twice.
     /// </summary>
-    /// <param name="Quality">JPEG quality 1-100; null uses the node's default (80).</param>
-    /// <param name="Scale">Downscale factor in (0, 1); null or out of range means full resolution. A
-    /// thumbnail strip wants something like 0.25.</param>
     /// <param name="IncludeGuider">
-    /// Whether to also pull the guide-camera frame. Off by default, and separately from the OTA previews
-    /// on purpose: the two are wanted by different screens. A dashboard shows science thumbnails and never
-    /// a guide frame, so it would be paying an extra request and an extra decode per poll for a picture
-    /// nothing draws, while the guider view wants the guide frame at guiding cadence and is indifferent to
-    /// whether a sub has landed. Quality and Scale are shared, since they are properties of the link.
+    /// Whether to also pull the guide-camera frame. Off by default, and separately from the OTA frames on
+    /// purpose: only a view that draws the guide camera wants it, at guiding cadence, and anything else would
+    /// pay a request per poll for a picture nothing draws.
     /// </param>
-    public readonly record struct PreviewOptions(int? Quality = null, double? Scale = null, bool IncludeGuider = false);
+    public readonly record struct PreviewOptions(bool IncludeGuider = false);
 
     /// <summary>
     /// A session running on another node, observed as an <see cref="ISessionTelemetry"/>.
@@ -53,9 +51,8 @@ namespace TianWen.RemoteClient
     /// <b>Fidelity.</b> Everything in <see cref="SessionStateDto"/> is faithful (phase, activity,
     /// failure reason, counters, mount pointing + name, per-OTA camera/focus/filter state and display
     /// facts, guide stats + sample ring, schedule, phase timeline, cooling ramp, focus history and
-    /// exposure log). Preview frames are fetched as JPEG and decoded here when
-    /// <see cref="Previews"/> is set. Fields with no wire representation yet return empty rather than
-    /// guessing, and each says why below; the tabs already handle empty because a local session starts
+    /// exposure log). The frames are the node's own, linear, when <see cref="Previews"/> asks for them.
+    /// Fields with no wire representation yet return empty rather than guessing, and each says why below; the tabs already handle empty because a local session starts
     /// out that way too. <see cref="PlateSolveHistory"/> is <b>event-sourced</b> rather than read from
     /// the snapshot -- the node broadcasts every solve but carries no history in its state -- so it
     /// covers only what has happened since this mirror attached.
@@ -130,13 +127,20 @@ namespace TianWen.RemoteClient
         // on asking. Poll loop only, like the key.
         private TaskCompletionSource<bool>? _raisedPromptCompletion;
 
-        // Decoded preview frames, one slot per OTA, and the frame number each slot holds. Published by
-        // reference swap: the poll loop decodes off the render thread and the render thread reads the
-        // array per frame.
+        // The node's frames, one slot per OTA, and the number each slot holds. Published by reference swap: the
+        // poll loop fetches off the render thread and the render thread reads the array per frame. A replaced
+        // frame is released only once its successor is published, so a reader's lease always finds one.
         private Image?[] _previews = [];
-        private long?[] _previewFrameNumbers = [];
+        private int?[] _previewFrameNumbers = [];
         private Image? _guidePreview;
-        private long? _guidePreviewFrameNumber;
+        private int? _guidePreviewFrameNumber;
+
+        // One reader for every source: it keeps the planes of a released frame by shape and reads the next frame
+        // of that shape into them, so a mirror showing frame after frame allocates no plane after the first two.
+        private readonly FrameReader _frameReader = new FrameReader();
+
+        /// <summary>How many planes the mirror's reader holds ready for the next frame (a test's view of the recycling).</summary>
+        internal int FreeFramePlanes => _frameReader.FreePlanes;
 
         private CancellationTokenSource? _cts;
         private Task? _pollLoop;
@@ -242,6 +246,9 @@ namespace TianWen.RemoteClient
             await _events.DisposeAsync().ConfigureAwait(false);
             _cts?.Dispose();
             _cts = null;
+
+            // The poll loop has stopped, so nothing publishes a frame any more: give back what is held.
+            DropFrames();
         }
 
         // -----------------------------------------------------------------------------------------
@@ -417,18 +424,20 @@ namespace TianWen.RemoteClient
         /// actual transition of its own baseline.
         /// </summary>
         /// <summary>
-        /// Whether to fetch preview frames at all, and how. Off by default: a mirror is often attached
-        /// just to watch phase and counters (a multi-rig dashboard), and previews are by far the most
-        /// expensive thing on the link. A UI that actually shows thumbnails turns them on.
+        /// Whether to fetch the node's frames at all. Off by default: a mirror is often attached just to
+        /// watch phase and counters (a multi-rig dashboard), and full-resolution frames are by far the most
+        /// expensive thing on the link. The GUI and the TUI ask only while the rig is on screen
+        /// (<c>ViewContexts.PollAll</c>), and a mirror asked for none gives back what it holds.
         /// </summary>
         public PreviewOptions? Previews { get; set; }
 
         /// <summary>
-        /// Pulls each OTA's latest preview, skipping any whose frame number the mirror already holds.
+        /// Pulls each OTA's latest frame, naming the one the mirror already holds, which the node answers with a 204
+        /// and no body while its slot still shows it.
         /// <para>
-        /// Runs on the poll loop, so decode never touches the render thread. Frames are fetched
+        /// Runs on the poll loop, so reading a frame never touches the render thread. Frames are fetched
         /// sequentially rather than in parallel: a multi-OTA rig is normally on the far end of a home
-        /// LAN or a VPN, and N concurrent full-frame JPEGs would spike latency for the state poll that
+        /// LAN or a VPN, and N concurrent full frames would spike latency for the state poll that
         /// everything else depends on.
         /// </para>
         /// </summary>
@@ -436,6 +445,8 @@ namespace TianWen.RemoteClient
         {
             if (Previews is not { } options)
             {
+                // Not asked for (a rig off screen): hold nothing, so a board of rigs costs no frame memory either.
+                DropFrames();
                 return;
             }
 
@@ -446,74 +457,81 @@ namespace TianWen.RemoteClient
                 return;
             }
 
-            var images = Volatile.Read(ref _previews);
-            var numbers = _previewFrameNumbers;
-            if (images.Length != otaCount)
+            // Copied on the first change only, and never mutated in place: the render thread may be reading the
+            // published array right now. A rig whose OTA count changed starts from empty slots.
+            var held = Volatile.Read(ref _previews);
+            var heldNumbers = _previewFrameNumbers;
+            Image?[]? images = null;
+            int?[]? numbers = null;
+            List<Image>? replaced = null;
+            if (held.Length != otaCount)
             {
                 images = new Image?[otaCount];
-                numbers = new long?[otaCount];
-            }
-            else
-            {
-                // Copy before mutating: the render thread may be reading the published array right now.
-                images = (Image?[])images.Clone();
-                numbers = (long?[])numbers.Clone();
+                numbers = new int?[otaCount];
+                replaced = [.. Held(held)];
             }
 
-            var changed = images.Length != otaCount;
             for (var i = 0; i < otaCount; i++)
             {
-                PreviewResult result;
-                try
-                {
-                    result = await _client
-                        .GetPreviewAsync(i, options.Quality, options.Scale, numbers[i], cancellationToken)
-                        .ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    throw;
-                }
-
-                if (result.IsUnchanged)
+                if (await FetchFrameAsync(FrameSources.Ota(i), (numbers ?? heldNumbers)[i], cancellationToken).ConfigureAwait(false)
+                    is not { } frame)
                 {
                     continue;
                 }
 
-                if (result.Error is { } error)
+                images ??= (Image?[])held.Clone();
+                numbers ??= (int?[])heldNumbers.Clone();
+                if (images[i] is { } old)
                 {
-                    // A preview failure must never blank the telemetry: keep the last frame and let the
-                    // state poll go on reporting. Debug, not Warning -- a link too slow for previews
-                    // would otherwise flood the log every poll.
-                    _logger.LogDebug("Preview fetch for OTA {Ota} on {Node} failed: {Error}", i, _client.BaseAddress, error);
-                    continue;
+                    (replaced ??= []).Add(old);
                 }
-
-                if (!result.HasImage)
-                {
-                    // No frame captured yet.
-                    continue;
-                }
-
-                if (Image.TryDecodeRaster(result.Jpeg, out var decoded))
-                {
-                    images[i] = decoded;
-                    numbers[i] = result.FrameNumber;
-                    changed = true;
-                }
-                else
-                {
-                    _logger.LogDebug("Preview frame for OTA {Ota} on {Node} did not decode", i, _client.BaseAddress);
-                }
+                images[i] = frame.Image;
+                numbers[i] = frame.Number;
             }
 
-            if (changed)
+            if (images is not null && numbers is not null)
             {
                 _previewFrameNumbers = numbers;
                 Volatile.Write(ref _previews, images);
             }
 
+            // Only now that their successors are published: a reader that read the old array leases before this,
+            // or is refused and reads the new one.
+            foreach (var image in replaced ?? [])
+            {
+                image.Release();
+            }
+
             await RefreshGuidePreviewAsync(state, options, cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// The frame <paramref name="source"/> shows, when it is not the one held (<paramref name="held"/>); null when
+        /// there is nothing new: the same frame, no frame yet, or a failed fetch.
+        /// </summary>
+        private async Task<(Image Image, int? Number)?> FetchFrameAsync(string source, int? held, CancellationToken cancellationToken)
+        {
+            var result = await _client.GetLatestFrameAsync(source, held, _frameReader, cancellationToken).ConfigureAwait(false);
+            if (result.Error is { } error)
+            {
+                // A frame failure must never blank the telemetry: keep the last frame and let the state poll go on
+                // reporting. Debug, not Warning -- a link too slow for frames would otherwise flood the log every poll.
+                _logger.LogDebug("Frame fetch for {Source} on {Node} failed: {Error}", source, _client.BaseAddress, error);
+                return null;
+            }
+
+            return result.HasImage ? (result.Image, result.FrameNumber) : null;
+        }
+
+        private static IEnumerable<Image> Held(Image?[] images)
+        {
+            foreach (var image in images)
+            {
+                if (image is not null)
+                {
+                    yield return image;
+                }
+            }
         }
 
         /// <summary>
@@ -529,45 +547,42 @@ namespace TianWen.RemoteClient
         private async Task RefreshGuidePreviewAsync(
             SessionStateDto state, PreviewOptions options, CancellationToken cancellationToken)
         {
-            if (!options.IncludeGuider || state.Guider is null)
+            if (!options.IncludeGuider)
+            {
+                DropGuideFrame();
+                return;
+            }
+
+            if (state.Guider is null)
             {
                 return;
             }
 
-            PreviewResult result;
-            try
-            {
-                result = await _client
-                    .GetGuidePreviewAsync(options.Quality, options.Scale, _guidePreviewFrameNumber, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-
-            if (result.IsUnchanged || !result.HasImage)
+            if (await FetchFrameAsync(FrameSources.Guider, _guidePreviewFrameNumber, cancellationToken).ConfigureAwait(false)
+                is not { } frame)
             {
                 return;
             }
 
-            if (result.Error is { } error)
-            {
-                _logger.LogDebug("Guide preview fetch on {Node} failed: {Error}", _client.BaseAddress, error);
-                return;
-            }
-
-            if (Image.TryDecodeRaster(result.Jpeg, out var decoded))
-            {
-                _guidePreviewFrameNumber = result.FrameNumber;
-                Volatile.Write(ref _guidePreview, decoded);
-            }
-            else
-            {
-                _logger.LogDebug("Guide preview frame on {Node} did not decode", _client.BaseAddress);
-            }
+            _guidePreviewFrameNumber = frame.Number;
+            // Published, THEN the frame it replaces released, as for the OTA slots.
+            Interlocked.Exchange(ref _guidePreview, frame.Image)?.Release();
         }
 
+        /// <summary>Gives back every frame held, the OTA slots and the guide frame.</summary>
+        private void DropFrames()
+        {
+            ClearPreviews();
+            DropGuideFrame();
+        }
+
+        private void DropGuideFrame()
+        {
+            _guidePreviewFrameNumber = null;
+            Interlocked.Exchange(ref _guidePreview, null)?.Release();
+        }
+
+        /// <summary>Empties the OTA slots, releasing each frame once the empty array is published.</summary>
         private void ClearPreviews()
         {
             if (Volatile.Read(ref _previews).Length == 0)
@@ -576,7 +591,10 @@ namespace TianWen.RemoteClient
             }
 
             _previewFrameNumbers = [];
-            Volatile.Write(ref _previews, []);
+            foreach (var image in Held(Interlocked.Exchange(ref _previews, [])))
+            {
+                image.Release();
+            }
         }
 
         private void RaiseDerivedEvents(SessionStateDto state)
@@ -802,6 +820,23 @@ namespace TianWen.RemoteClient
         public int CurrentObservationIndex => Snapshot?.CurrentObservationIndex ?? -1;
 
         public string? LastFramePath => Snapshot?.LastFramePath;
+
+        /// <summary>
+        /// Whether this mirror reaches its node over the machine's own socket, so a path the node names is a path
+        /// here too. The creator says so from its transport (<c>NodeTransport.SocketPath is not null</c>); the default,
+        /// false, is the safe answer.
+        /// </summary>
+        public bool IsOnThisMachine { get; init; }
+
+        /// <summary>
+        /// The last sub the node SAVED, as a file this machine can open: <see cref="LastFramePath"/> when the mirror
+        /// reaches its node over the local socket (<see cref="IsOnThisMachine"/>), otherwise null. Read it through
+        /// <see cref="Image.TryReadFitsFile(string, out Image?)"/>: the FITS file as the node wrote it, headers and all
+        /// (the local half of "a saved frame is its FITS file", P4 of docs/plans/hardware-in-the-server.md). Over TCP
+        /// the path names a file on ANOTHER machine, which a file of the same name here must never be taken for;
+        /// fetching it is the remote half (P4r, deferred).
+        /// </summary>
+        public string? SavedFramePathOnThisMachine => IsOnThisMachine ? LastFramePath : null;
 
         public string MountDisplayName => Snapshot?.MountDisplayName ?? string.Empty;
 
@@ -1123,11 +1158,11 @@ namespace TianWen.RemoteClient
         public SettleProgress? GuiderSettleProgress => null;
 
         /// <summary>
-        /// The node's per-OTA preview frames, fetched as JPEG and decoded by the poll loop.
+        /// The node's per-OTA frames, linear and full-resolution, fetched by the poll loop.
         /// <para>
-        /// Unlike a local session -- where this array hands out a <b>pinned camera buffer</b> the caller
-        /// must not retain -- these are ordinary decoded images owned by the mirror. There is nothing to
-        /// release, and no risk of starving a camera's recycle loop by holding one.
+        /// The same contract as a local session's slots: each frame is the mirror's, and it releases one (giving
+        /// its planes back to the mirror's reader) once the next is published, so a reader LEASES, never holds the
+        /// bare reference (<see cref="Image.TryLease"/>).
         /// </para>
         /// </summary>
         public Image?[] LastCapturedImages => Volatile.Read(ref _previews);
@@ -1138,13 +1173,13 @@ namespace TianWen.RemoteClient
         public int LastCapturedImageNumber(int otaIndex)
         {
             var numbers = Volatile.Read(ref _previewFrameNumbers);
-            return (uint)otaIndex < (uint)numbers.Length && numbers[otaIndex] is { } number ? (int)number : 0;
+            return (uint)otaIndex < (uint)numbers.Length && numbers[otaIndex] is { } number ? number : 0;
         }
 
         /// <summary>
-        /// The mirrored guide-camera frame, present once <see cref="Previews"/> is on and the node has a
-        /// guider producing frames. Like <see cref="LastCapturedImages"/> this is an ordinary decoded
-        /// image the mirror owns, not a pinned camera buffer, so there is nothing to release.
+        /// The mirrored guide-camera frame, present once <see cref="Previews"/> asks for it and the node has a
+        /// guider producing frames. Like <see cref="LastCapturedImages"/> it is the mirror's, released once its
+        /// successor is published, so a reader leases.
         /// </summary>
         public Image? LastGuideFrame => Volatile.Read(ref _guidePreview);
 
