@@ -12,6 +12,7 @@ using TianWen.Hosting;
 using TianWen.Hosting.Api;
 using TianWen.Lib.Devices;
 using Xunit;
+using static TianWen.Lib.Tests.Functional.NodeWait;
 
 namespace TianWen.Lib.Tests.Functional;
 
@@ -58,27 +59,6 @@ public class NodeJournalProcessTests
         using var response = await kept.Http.GetAsync($"api/v1/camera/0/{member}", ct);
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
         return body.RootElement.GetProperty("Value").GetBoolean();
-    }
-
-    private static async Task<NodeJournal> UntilTheJournalAsync(string path, Func<NodeJournal, bool> holds, CancellationToken ct)
-    {
-        var clock = Stopwatch.StartNew();
-        while (clock.Elapsed < TimeSpan.FromSeconds(30))
-        {
-            try
-            {
-                if (JsonSerializer.Deserialize(await File.ReadAllTextAsync(path, ct), NodeJournalJsonContext.Default.NodeJournal) is { } journal && holds(journal))
-                {
-                    return journal;
-                }
-            }
-            catch (Exception ex) when (ex is FileNotFoundException or IOException or JsonException)
-            {
-                // Not there yet, or being replaced this instant.
-            }
-            await Task.Delay(50, ct);
-        }
-        throw new TimeoutException($"The journal {path} never held what the test waited for");
     }
 
     [Fact(Timeout = 180_000)]

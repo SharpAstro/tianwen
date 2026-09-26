@@ -14,6 +14,7 @@ using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
 using TianWen.RemoteClient;
 using Xunit;
+using static TianWen.Lib.Tests.Functional.NodeWait;
 
 namespace TianWen.Lib.Tests.Functional;
 
@@ -26,50 +27,11 @@ namespace TianWen.Lib.Tests.Functional;
 [Collection("Hosting")]
 public class NodeJournalServiceTests(ITestOutputHelper outputHelper)
 {
-    private static readonly TimeSpan Budget = TimeSpan.FromSeconds(10);
-
     private static string NewJournalPath() => Path.Combine(Directory.CreateTempSubdirectory("twj").FullName, "node.journal");
 
     private Task<NodeHarness> StartAsync(string journal, int? afterCrashOf, DateTimeOffset? lastBoot, CancellationToken ct) =>
         NodeHarness.StartAsync(outputHelper, ct,
             services => services.AddSingleton(new NodeJournalOptions(journal, afterCrashOf, () => lastBoot, TimeProvider.System)));
-
-    private static NodeJournal? Read(string path)
-    {
-        try
-        {
-            return JsonSerializer.Deserialize(File.ReadAllText(path), NodeJournalJsonContext.Default.NodeJournal);
-        }
-        catch (Exception ex) when (ex is FileNotFoundException or IOException or JsonException)
-        {
-            // Not there, or being replaced this instant: look again.
-            return null;
-        }
-    }
-
-    private static async Task<NodeJournal> UntilTheJournalAsync(string path, Func<NodeJournal, bool> holds, CancellationToken ct)
-    {
-        var clock = Stopwatch.StartNew();
-        while (clock.Elapsed < Budget)
-        {
-            if (Read(path) is { } journal && holds(journal))
-            {
-                return journal;
-            }
-            await Task.Delay(20, ct);
-        }
-        throw new TimeoutException($"The journal {path} never held what the test waited for");
-    }
-
-    private static async Task UntilGoneAsync(string path, CancellationToken ct)
-    {
-        var clock = Stopwatch.StartNew();
-        while (File.Exists(path) && clock.Elapsed < Budget)
-        {
-            await Task.Delay(20, ct);
-        }
-        File.Exists(path).ShouldBeFalse("a node that holds nothing leaves no journal");
-    }
 
     [Fact(Timeout = 60_000)]
     public async Task WhatTheNodeHoldsIsJournaledAsItChangesAndNothingHeldLeavesNoJournal()
@@ -90,7 +52,7 @@ public class NodeJournalServiceTests(ITestOutputHelper outputHelper)
         cooling.Devices[0].CoolerSetpointC.ShouldBe(-10);
 
         await hub.DisconnectAsync(camera.DeviceUri, cancellationToken: ct);
-        await UntilGoneAsync(path, ct);
+        await UntilTheJournalIsGoneAsync(path, ct);
     }
 
     [Fact(Timeout = 60_000)]
@@ -147,7 +109,7 @@ public class NodeJournalServiceTests(ITestOutputHelper outputHelper)
         (await client.DismissRecoveryAsync(ct)).IsSuccess.ShouldBeTrue();
 
         (await client.GetNodeAsync(ct)).Value.ShouldNotBeNull().Recovery.ShouldBeNull();
-        await UntilGoneAsync(path, ct);
+        await UntilTheJournalIsGoneAsync(path, ct);
     }
 
     private const string Mount = "Mount://FakeDevice/FakeMount1?latitude=48.2&longitude=16.3#Fake Mount";
@@ -170,19 +132,15 @@ public class NodeJournalServiceTests(ITestOutputHelper outputHelper)
         return (path, written);
     }
 
-    private static async Task<NodeRecoveryDto> UntilRecoveredAsync(TianWenNodeClient client, CancellationToken ct)
-    {
-        var clock = Stopwatch.StartNew();
-        while (clock.Elapsed < Budget)
+    private static Task<NodeRecoveryDto> UntilRecoveredAsync(TianWenNodeClient client, CancellationToken ct) =>
+        UntilAsync<NodeRecoveryDto>("the node to finish reconnecting what the journal held", async token =>
         {
-            if ((await client.GetNodeAsync(ct)).Value?.Recovery is { } report && report.Devices.All(static d => d.Reconnected is not null))
-            {
-                return report;
-            }
-            await Task.Delay(20, ct);
-        }
-        throw new TimeoutException("The node never finished reconnecting what the journal held");
-    }
+            var report = (await client.GetNodeAsync(token)).Value?.Recovery;
+            return report is null
+                ? (null, "no recovery reported")
+                : (report.Devices.All(static d => d.Reconnected is not null) ? report : null,
+                    $"{report.Devices.Count(static d => d.Reconnected is not null)} of {report.Devices.Length} device(s) reported");
+        }, ct);
 
     [Fact(Timeout = 60_000)]
     public async Task ABelievedJournalIsActedOnItsDevicesReconnectedAndItsCameraCooledBack()
@@ -203,12 +161,11 @@ public class NodeJournalServiceTests(ITestOutputHelper outputHelper)
         intent.ShouldBe(CoolerIntent.CoolTo(-10), "cooled back to its target through the session's ramp");
 
         // The ramp runs in the background, so its first step, the cooler on, follows the report rather than precedes it.
-        var clock = Stopwatch.StartNew();
-        while (!await camera.GetCoolerOnAsync(ct) && clock.Elapsed < Budget)
+        await UntilAsync("the ramp's first step, the cooler on", async token =>
         {
-            await Task.Delay(20, ct);
-        }
-        (await camera.GetCoolerOnAsync(ct)).ShouldBeTrue("the ramp's first step follows at once");
+            var on = await camera.GetCoolerOnAsync(token);
+            return (on, on ? "the cooler on" : "the cooler off");
+        }, ct);
 
         // This node's own journal now: what it reconnected, the run it resumes nothing of, and this crash counted. The
         // first it writes with nothing being reconnected is the recovery's last, which must already carry the intent.
@@ -234,12 +191,7 @@ public class NodeJournalServiceTests(ITestOutputHelper outputHelper)
         node.Factory.Initialised.SetResult();
         await node.StartSessionAsync(ct);
 
-        var clock = Stopwatch.StartNew();
-        while (journal.RampsRunning > 0 && clock.Elapsed < Budget)
-        {
-            await Task.Delay(20, ct);
-        }
-        journal.RampsRunning.ShouldBe(0);
+        await UntilAsync("the recovery's ramp to end", _ => ValueTask.FromResult((journal.RampsRunning == 0, $"{journal.RampsRunning} ramp(s) running")), ct);
     }
 
     [Fact(Timeout = 60_000)]
@@ -390,7 +342,7 @@ public class NodeJournalServiceTests(ITestOutputHelper outputHelper)
         // And it goes on journaling: the camera going is written, and holding nothing more, the file goes.
         (await new TianWenNodeClient(node.Client).DismissRecoveryAsync(ct)).IsSuccess.ShouldBeTrue();
         await hub.DisconnectAsync(new Uri(Camera), cancellationToken: ct);
-        await UntilGoneAsync(path, ct);
+        await UntilTheJournalIsGoneAsync(path, ct);
     }
 
     [Fact(Timeout = 60_000)]

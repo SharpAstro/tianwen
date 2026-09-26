@@ -1,3 +1,4 @@
+using Meziantou.Extensions.Logging.Xunit.v3;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
@@ -77,7 +78,13 @@ internal sealed class NodeHarness : IAsyncDisposable
         {
             throw new InvalidOperationException($"The test node could not take the lock on {socketPath}", refusal);
         }
+        // The node's own log goes to the test's output, which a TRX keeps for a failure: a node test that fails with
+        // nothing but its assertion cannot say what the node was doing (#940). Timestamped, since what goes wrong
+        // here is usually WHEN.
         builder.Logging.ClearProviders();
+        builder.Logging.AddXunit(outputHelper, new XUnitLoggerOptions { IncludeCategory = true, IncludeLogLevel = true, TimestampFormat = "HH:mm:ss.fff" });
+        builder.Logging.SetMinimumLevel(LogLevel.Debug);
+        builder.Logging.AddFilter("Microsoft", LogLevel.Warning);
 
         var external = new FakeExternal(outputHelper, Directory.CreateTempSubdirectory("tw_" + Guid.NewGuid().ToString("D")));
         var factory = new ControlledSessionFactory();
