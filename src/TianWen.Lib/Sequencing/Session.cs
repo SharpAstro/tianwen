@@ -871,17 +871,21 @@ internal partial record Session(
                         session.UpdateGuiderState(appState);
                         session._guiderSettleProgress = await guider.GetSettleProgressAsync(ct);
 
-                        if (await guider.GetStatsAsync(ct) is { } gs)
+                        var stats = await guider.GetStatsAsync(ct);
+                        if (stats is { } gs)
                         {
                             session.UpdateGuideStats(gs);
-                            var raErr = gs.LastRaErr ?? 0;
-                            var decErr = gs.LastDecErr ?? 0;
+                        }
+
+                        // No last error means no sample: null is not zero (#821).
+                        if (stats is { LastRaErr: { } raErr, LastDecErr: { } decErr } measured)
+                        {
                             var isDither = session._ditherPending;
                             if (isDither) session._ditherPending = false;
                             var isSettling = session._guiderState is "Settling";
                             session.AppendGuideErrorSample(new GuideErrorSample(
                                 timeProvider.GetUtcNow(), raErr, decErr,
-                                gs.LastRaPulseMs ?? 0, gs.LastDecPulseMs ?? 0,
+                                measured.LastRaPulseMs ?? 0, measured.LastDecPulseMs ?? 0,
                                 isDither, isSettling));
                         }
                     }

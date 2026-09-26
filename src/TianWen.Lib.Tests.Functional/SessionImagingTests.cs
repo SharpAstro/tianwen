@@ -142,6 +142,69 @@ public class SessionImagingTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// A guider that reports an RMS but no last per-frame error has measured nothing the session can
+    /// record, so a light written meanwhile carries NO guide cards: null is not zero. The loop used to
+    /// stand the RMS times a random number in for the missing error (a zero before the first
+    /// measurement), which <see cref="GuideStatistics.OverExposure"/> read as real guiding and stamped
+    /// as <c>GUIDERMS</c> (#821).
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task GivenGuiderWithNoLastErrorWhenFrameWrittenThenItCarriesNoGuideCards()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var subExposure = TimeSpan.FromSeconds(30);
+        var observations = new[]
+        {
+            new ScheduledObservation(
+                new Target(16.695, 36.46, "M13", null),
+                new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero),
+                TimeSpan.FromMinutes(5),
+                AcrossMeridian: false,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
+                Gain: 0,
+                Offset: 0)
+        };
+
+        await using var ctx = await CreateImagingSessionAsync(observations: observations, cancellationToken: ct);
+        ctx.External.MaxFitsWrites = 100;
+
+        var lightsRoot = ctx.External.ImageOutputFolder.FullName;
+        foreach (var stale in Directory.GetFiles(lightsRoot, "frame_*.fits", SearchOption.AllDirectories))
+        {
+            File.Delete(stale);
+        }
+
+        IMountDriver mount = ctx.Mount;
+        await mount.EnsureTrackingAsync(cancellationToken: ct);
+
+        var guider = (FakeGuider)ctx.Session.Setup.Guider.Driver;
+        guider.ReportsNoLastError = true;
+        await guider.GuideAsync(0.3, 3, 30, ct);
+        await ctx.TimeProvider.SleepAsync(TimeSpan.FromSeconds(4), ct);
+
+        var observation = ctx.Session.ActiveObservation.ShouldNotBeNull();
+        var hourAngle = await mount.GetHourAngleAsync(ct);
+
+        ctx.TimeProvider.ExternalTimePump = true;
+        var imagingTask = ctx.Track(Task.Run(
+            async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ctx.Token), ctx.Token));
+        await ctx.TimeProvider.PumpUntilCompletedAsync(imagingTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(4),
+            progress: () => ctx.Session.ImagingLoopTicks, cancellationToken: ct);
+        imagingTask.IsCompleted.ShouldBeTrue("imaging loop should have completed within timeout");
+        await imagingTask;
+
+        var frames = Directory.GetFiles(lightsRoot, "frame_*.fits", SearchOption.AllDirectories);
+        frames.Length.ShouldBeGreaterThan(0, "the loop should have written at least one light");
+
+        ctx.Session.GuideSamples.Length.ShouldBe(0, "no measured error, so no guide sample");
+        foreach (var frame in frames)
+        {
+            Image.TryReadFitsHeader(frame, out var info).ShouldBeTrue($"{frame} should be a readable FITS");
+            info.Meta.Guiding.ShouldBeNull($"{frame} must not carry guide cards built from invented samples");
+        }
+    }
+
+    /// <summary>
     /// The frame a session publishes for previews stays readable until the next one replaces it, which is
     /// the guider's contract too. The imaging loop used to release it once its FITS write was done and
     /// leave the slot pointing at the released frame for the rest of the exposure, so everything that
