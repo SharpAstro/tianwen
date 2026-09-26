@@ -115,7 +115,12 @@ def build_plate():
     # a min near 0.24, would be read as linear and stretched, and torch's answer for the raw plate
     # would stop applying. The dead pixel puts the plate in band the way a training tile is (min 0,
     # median near 0.25), so the runner feeds it as it is. Restated in N2nDenoiserTests.BuildPlate.
-    plate[:, 0, 0] = 0.0
+    #
+    # INSIDE the frame, off the sample lattice, since 2026-09-26: at the corner, zero in every channel,
+    # it was a one-pixel canvas ring by the crop's own rule (Image.AbsentPixels), which the runner now
+    # leaves out of its statistics, so the plate read as linear and was stretched. An interior zero is
+    # a measurement and still sets the floor, which is also where a real frame's dead pixel sits.
+    plate[:, SIZE // 2 + 3, SIZE // 2 - 3] = 0.0
     return plate
 
 

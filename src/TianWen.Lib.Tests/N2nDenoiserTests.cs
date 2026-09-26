@@ -80,7 +80,7 @@ public class N2nDenoiserTests(ITestOutputHelper output)
     /// fixture would mean 300 KiB of incompressible noise that still has to be read identically at
     /// both ends to be worth anything.
     /// </summary>
-    private static Image BuildPlate(int size, int channels, float background, float noiseAmplitude, int starCount, uint seed)
+    private static Image BuildPlate(int size, int channels, float background, float noiseAmplitude, int starCount, uint seed, bool deadPixel = true)
     {
         var state = seed;
         float NextUnit()
@@ -143,7 +143,14 @@ public class N2nDenoiserTests(ITestOutputHelper output)
         // it a plate at 0.26 with +-0.02 grain reads as linear and is stretched, and the parity
         // fixture, which torch computed on the raw plate, stops applying. With it the parity plate is
         // in band the way every training tile was (min 0, median near 0.25) and is fed as it is.
-        for (var c = 0; c < channels; c++) planes[c][0, 0] = 0f;
+        // INSIDE the frame and off the sample lattice (n2n_fixture.py places it identically): at the
+        // corner, zero in every channel, it was a one-pixel canvas ring by the crop's own rule, which
+        // the runner leaves out of its statistics, so the plate read as linear and was stretched. An
+        // interior zero is a measurement and still sets the floor, as a real frame's dead pixel does.
+        if (deadPixel)
+        {
+            for (var c = 0; c < channels; c++) planes[c][size / 2 + 3, size / 2 - 3] = 0f;
+        }
 
         return new Image(planes, BitDepth.Float32, 1.0f, 0f, 0f,
             new ImageMeta { SensorType = SensorType.Color });
@@ -573,6 +580,72 @@ public class N2nDenoiserTests(ITestOutputHelper output)
             "the stride positions must be statistically indistinguishable from anywhere else");
 
         denoised.Release();
+        plate.Release();
+    }
+
+    /// <summary>
+    /// A bright-sky master with a canvas ring, end to end through the shipped model. Counted, the ring
+    /// was the stretch's floor: this plate read as already stretched and would have reached the net
+    /// linear. Now the covered pixels are measured, the frame takes the stretch, and the ring comes back
+    /// EXACTLY zero, which it cannot do on its own (stretched from a floor above zero it clamps to 0, and
+    /// 0 unstretches to that floor), so the crop can still find it on the enhanced master.
+    /// </summary>
+    [Fact]
+    public async Task ACanvasRingIsLeftOutOfTheStretchAndComesBackExactlyZero()
+    {
+        if (!HasModel(out var skip)) { Assert.Skip(skip); return; }
+
+        const int size = 192;
+        const int ring = 12;
+        // No dead pixel: an interior zero is a measurement that sets the floor, and this test is about
+        // a frame whose only zeros are the ring.
+        var plate = BuildPlate(size, channels: 3, background: 0.25f, noiseAmplitude: 0.01f, starCount: 25, seed: 20260926u, deadPixel: false);
+        var planes = new float[3][,];
+        for (var c = 0; c < 3; c++)
+        {
+            var plane = new float[size, size];
+            var src = plate.GetChannelSpan(c);
+            for (var y = 0; y < size; y++)
+            {
+                for (var x = 0; x < size; x++)
+                {
+                    plane[y, x] = y < ring || x < ring ? 0f : src[y * size + x];
+                }
+            }
+            planes[c] = plane;
+        }
+        var ringed = new Image(planes, BitDepth.Float32, 1f, 0f, 0f, plate.ImageMeta);
+        ChunkedNafnetRunner.ApplyInputStretch(ringed).Applied.ShouldBeTrue("the covered sky is linear");
+
+        using var enhancer = new N2nDenoiser(CreateResolver());
+        var denoised = await enhancer.EnhanceAsync(ringed, 1.0f, TestContext.Current.CancellationToken);
+
+        var moved = 0f;
+        for (var c = 0; c < 3; c++)
+        {
+            var dst = denoised.GetChannelSpan(c);
+            var src = ringed.GetChannelSpan(c);
+            for (var y = 0; y < size; y++)
+            {
+                for (var x = 0; x < size; x++)
+                {
+                    var i = y * size + x;
+                    if (y < ring || x < ring)
+                    {
+                        dst[i].ShouldBe(0f, $"ring pixel ({x}, {y}) of channel {c}");
+                    }
+                    else
+                    {
+                        moved = Math.Max(moved, Math.Abs(dst[i] - src[i]));
+                    }
+                }
+            }
+        }
+        output.WriteLine($"covered pixels moved by at most {moved:E3}");
+        moved.ShouldBeGreaterThan(1e-4f, "the covered frame was denoised");
+
+        denoised.Release();
+        ringed.Release();
         plate.Release();
     }
 }

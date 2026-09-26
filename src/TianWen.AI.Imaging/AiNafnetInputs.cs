@@ -42,7 +42,8 @@ internal static class AiNafnetInputs
     /// <summary>
     /// Threshold for the "is this input already stretched?" auto-detect in
     /// <see cref="Onnx.ChunkedNafnetRunner"/>. If
-    /// <c>median(channel0 - min) &gt;= this</c>, the input is presumed to
+    /// <c>median(channel0 - min) &gt;= this</c>, both taken over COVERED pixels (the canvas ring
+    /// left out, see <see cref="TianWen.Lib.Imaging.Image.AbsentPixels"/>), the input is presumed to
     /// already be in (or close to) the NAFNet training distribution
     /// (<see cref="TargetMedian"/> = 0.25) and the MTF round-trip is skipped
     /// -- we pass the source directly to the ONNX session, then return its

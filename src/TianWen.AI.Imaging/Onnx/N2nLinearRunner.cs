@@ -132,8 +132,10 @@ internal static class N2nLinearRunner
         var phaseSw = Stopwatch.StartNew();
 
         // 0. Into the training domain: the exporter's whole-frame stretch, or nothing when the
-        //    auto-detect says the frame is already there (see the class remarks).
-        var (stretched, stretchApplied, origMin, balances) = ChunkedNafnetRunner.ApplyInputStretch(input);
+        //    auto-detect says the frame is already there (see the class remarks). Both measure covered
+        //    pixels only; the canvas ring is found once here and handed back untouched in step 5.
+        var absent = input.AbsentPixels();
+        var (stretched, stretchApplied, origMin, balances) = ChunkedNafnetRunner.ApplyInputStretch(input, absent);
         var stretchMs = phaseSw.ElapsedMilliseconds; phaseSw.Restart();
         ct.ThrowIfCancellationRequested();
 
@@ -278,6 +280,12 @@ internal static class N2nLinearRunner
                 {
                     dst[k] = src[k] + blend * (denoised[k] - src[k]);
                 }
+            }
+            // The canvas ring leaves exactly as it came: stretched from a floor above zero it clamps to
+            // 0, and 0 unstretches to that floor rather than the zero it was.
+            if (absent is { } ring)
+            {
+                ChunkedNafnetRunner.CopyAbsent(input.GetChannelSpan(c), dst, srcW, ring);
             }
             outChannelData[c] = plane;
         }

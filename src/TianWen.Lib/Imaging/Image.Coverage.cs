@@ -84,6 +84,34 @@ public partial class Image
     }
 
     /// <summary>
+    /// The pixels no frame reached, the canvas ring: unusable (exact zero in every channel, or NaN in
+    /// any) AND connected to the border, or <c>null</c> when there are none. The same scan the crop and
+    /// the hole fill read, so no consumer can draw the ring's edge somewhere else.
+    /// </summary>
+    /// <remarks>
+    /// <para>For a consumer that MEASURES the frame and must not measure the ring as sky. The NAFNet
+    /// pre-stretch took a ring's zero as every channel's floor: three masters with a bright sky read as
+    /// already stretched (a median over that floor of 0.20 to 0.26 against a threshold of 0.125) while
+    /// ringless masters of the same camera and night read 0.06, and a ringed master that passed was
+    /// stretched from 0 rather than from its own darkest sky (E13, <c>docs/plans/denoiser-training.md</c>).</para>
+    /// <para>Border-reachability is the whole of the distinction, as it is for the crop: an interior island
+    /// of zeros is a clipped measurement, not absence, and is not in the answer.</para>
+    /// <para>Null rather than an empty matrix, so a caller's common case (no ring) is one test. A full
+    /// scan, tens of milliseconds on a full-frame master: for a step that is about to do far more, never
+    /// for a path every document takes.</para>
+    /// </remarks>
+    public BitMatrix? AbsentPixels()
+    {
+        if (Width <= 0 || Height <= 0 || ChannelCount <= 0)
+        {
+            return null;
+        }
+
+        var absent = ScanAbsence().Absent;
+        return absent.Any() ? absent : null;
+    }
+
+    /// <summary>
     /// Whether any sample of any channel is NaN, stopping at the first one: the question the hole fill asks
     /// before anything else, since a frame with no NaN has no hole.
     /// </summary>
