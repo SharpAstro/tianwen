@@ -552,6 +552,27 @@ is answered 304, before the frame is leased or encoded; `TianWenNodeClient` send
 `LastGuideFrameNumber`), never `CameraExposureState.FrameNumber`: that one advances as an exposure
 STARTS, so the preview served the previous frame under the new number and ran a whole sub behind.
 
+## Linear frames on the wire
+
+P4 part 1 (#931). A client that shows a frame (the viewer's stretch, statistics, star profile, plate solve and snapshot
+save) needs it LINEAR, in floats, which the preview JPEG is not: it is stretched, 8-bit and downscaled. `FrameWire`
+(`TianWen.Lib/Imaging`) is the binary shape a frame crosses the socket in, and `FrameReader` the client's reader:
+
+- **The planes as they are held**, row after row (`[y, x]`), so neither end transposes; before them a small preamble (the
+  magic `TWFR`, a version, the sample format) and a JSON header carrying the image's `ImageMeta`, bit depth and pedestal
+  and each channel's filter, range and place.
+- **16 bits when that loses nothing.** A frame whose every sample is a whole number from 0 to 65535, the usual camera
+  frame in ADU, goes packed to 16 bits: half the bytes, still bit-exact. The check stops at the first sample that is not
+  (a fraction, a NaN, anything out of range), and the frame goes as floats, bit for bit.
+- **The reader recycles its planes.** A frame's planes come back to its `FrameReader` when the image is released
+  (`ChannelBuffer`'s `onRelease`), and the next frame of the same shape is read into them, so a client showing frame
+  after frame allocates no plane after the first; a 26 MP float plane is 104 MB, large-object-heap garbage otherwise. It
+  reads through a pooled 1 MB band, never a frame-sized buffer. One reader per source, since a source's frames share a
+  shape.
+
+Pinned by `FrameWireTests`, including a frame from the fake camera itself coming back bit for bit with its metadata.
+The route that serves a frame, the push that announces one, and compression over TCP follow in P4's later parts.
+
 ## The ASCOM Alpaca device plane
 
 `/api/v1/{deviceType}/{n}/{member}` + `/management/...`, wired by `MapAlpacaApi`, so a remote TianWen
