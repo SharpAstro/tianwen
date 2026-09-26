@@ -45,6 +45,9 @@ public static class HostedSessionServiceCollectionExtensions
         services.AddSingleton<DeviceOperations>();
         // The node's one profile writer (P3 part 1, #930): every profile write, whoever asked, pushes PROFILE-CHANGED.
         services.AddSingleton<NodeProfiles>();
+        // What a run writes back into its profile as it ends (the backlash mirror, P3 part 3). Registered before the host
+        // of the runs, so it stops after it and a run's last write is awaited.
+        services.AddHostedService<NodeRunProfileWrites>();
         // Single-flight server-side AI enhancer behind POST /api/v1/image/enhance. The SharpenPipeline
         // is OPTIONAL -- it is registered only by AddRcAstroAi()/AddTianWenAi(), which a host (the
         // functional-test host, or a server with no AI models) need not wire. Resolve it via GetService

@@ -842,47 +842,9 @@ public static class EquipmentActions
             : null;
 
     /// <summary>
-    /// Mirrors session-inferred backlash EWMAs back into the matching focuser URIs on
-    /// <paramref name="data"/>. Each estimate is keyed by the focuser device URI used during
-    /// the session; only OTAs whose focuser matches one of those keys are touched. Other
-    /// query params on the URI (filter slot names, focus offsets, transport keys) are
-    /// preserved by <c>WithQueryValues</c>'s upsert semantics.
-    /// </summary>
-    /// <returns><c>(Updated, true)</c> when at least one URI changed; <c>(data, false)</c> otherwise.</returns>
-    public static (ProfileData Updated, bool Changed) ApplyBacklashEstimatesToProfile(
-        ProfileData data,
-        IReadOnlyDictionary<Uri, TianWen.Lib.Astrometry.Focus.BacklashEstimateRecord> estimates)
-    {
-        if (estimates.Count == 0)
-        {
-            return (data, false);
-        }
-
-        var changed = false;
-        var newOtas = new OTAData[data.OTAs.Length];
-        for (var i = 0; i < data.OTAs.Length; i++)
-        {
-            var ota = data.OTAs[i];
-            if (ota.Focuser is { } focUri && estimates.TryGetValue(focUri, out var record))
-            {
-                var updatedFocuser = focUri.WithQueryValues(
-                    (DeviceQueryKey.FocuserBacklashIn.Key, record.EwmaIn.ToString(CultureInfo.InvariantCulture)),
-                    (DeviceQueryKey.FocuserBacklashOut.Key, record.EwmaOut.ToString(CultureInfo.InvariantCulture)));
-                if (updatedFocuser != focUri)
-                {
-                    ota = ota with { Focuser = updatedFocuser };
-                    changed = true;
-                }
-            }
-            newOtas[i] = ota;
-        }
-
-        return changed ? (data with { OTAs = [.. newOtas] }, true) : (data, false);
-    }
-
-    /// <summary>
     /// End-of-session helper: pulls the focuser-backlash EWMA snapshot from <paramref name="session"/>,
-    /// mirrors it into <paramref name="profile"/>'s focuser URIs via <see cref="ApplyBacklashEstimatesToProfile"/>,
+    /// mirrors it into <paramref name="profile"/>'s focuser URIs (<see cref="ProfileDataExtensions.WithBacklashEstimates"/>,
+    /// the rule the node applies at a run's end too),
     /// and saves the profile to disk if anything changed. Returns the (possibly updated) profile; 
     /// callers should swap their UI-state <c>ActiveProfile</c> reference if it matches.
     /// </summary>
@@ -897,7 +859,7 @@ public static class EquipmentActions
             return profile;
         }
 
-        var (updated, changed) = ApplyBacklashEstimatesToProfile(data, session.FocuserBacklashEstimates);
+        var (updated, changed) = data.WithBacklashEstimates(session.FocuserBacklashEstimates);
         if (!changed)
         {
             return profile;

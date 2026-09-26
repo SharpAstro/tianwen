@@ -1,6 +1,9 @@
 using NSubstitute;
 using Shouldly;
 using System;
+using System.Collections.Generic;
+using System.Web;
+using TianWen.Lib.Astrometry.Focus;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
 using Xunit;
@@ -9,8 +12,8 @@ namespace TianWen.Lib.Tests;
 
 /// <summary>
 /// The rules a profile's writer applies on its own, one copy for the GUI and the node since P3 part 2 of
-/// docs/plans/hardware-in-the-server.md (#930): the legacy site moved off the mount's URI, and a camera's sensor
-/// recorded into its OTA.
+/// docs/plans/hardware-in-the-server.md (#930): the legacy site moved off the mount's URI, a camera's sensor recorded
+/// into its OTA, and a run's backlash mirrored onto its focuser's URI.
 /// </summary>
 public class ProfileDataRuleTests
 {
@@ -77,5 +80,22 @@ public class ProfileDataRuleTests
         rig.CaptureSensorSpecs(new FakeDevice(DeviceType.Camera, 2).DeviceUri, Sensor(3.76, 6248, 4176)).ShouldBeNull();
         rig.CaptureSensorSpecs(Camera, Sensor(double.NaN, 6248, 4176)).ShouldBeNull();
         rig.CaptureSensorSpecs(Camera, Sensor(3.76, 0, 4176)).ShouldBeNull();
+    }
+
+    [Fact]
+    public void ARunsBacklashGoesOntoItsFocusersUriAndKeepsTheRest()
+    {
+        var focuser = new Uri("Focuser://FakeDevice/FakeFocuser1?port=COM7#Fake Focuser 1");
+        var noFocuser = Rig(NoneDevice.Instance.DeviceUri);
+        var rig = noFocuser with { OTAs = [noFocuser.OTAs[0] with { Focuser = focuser }] };
+        var estimates = new Dictionary<Uri, BacklashEstimateRecord> { [focuser] = new BacklashEstimateRecord(30, 45, 5, DateTimeOffset.UnixEpoch) };
+
+        var (mirrored, changed) = rig.WithBacklashEstimates(estimates);
+
+        changed.ShouldBeTrue();
+        var query = HttpUtility.ParseQueryString(mirrored.OTAs[0].Focuser.ShouldNotBeNull().Query);
+        (query[DeviceQueryKey.FocuserBacklashIn.Key], query[DeviceQueryKey.FocuserBacklashOut.Key], query["port"]).ShouldBe(("30", "45", "COM7"));
+        mirrored.WithBacklashEstimates(estimates).Changed.ShouldBeFalse("the same backlash again is nothing to write");
+        rig.WithBacklashEstimates(new Dictionary<Uri, BacklashEstimateRecord>()).Changed.ShouldBeFalse();
     }
 }

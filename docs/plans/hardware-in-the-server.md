@@ -461,9 +461,11 @@ Found by the review (2026-09-25), all confirmed in the code:
     switches the active profile ungated (the native `PUT /session/profile` asks `ProfileSwitchGate`),
     and `DELETE /profiles/{id}` deletes a profile without asking whether it is active or running.
     **FIXED**: the ninaAPI switch asks `ProfileSwitchGate`, and a delete refuses the node's active
-    profile and, while a run is going, any profile. The node does not record which profile a run was
-    started from, so it cannot tell the one in use from the rest; refusing all of them for the length
-    of a run is the safe answer.
+    profile and, while a run is going, any profile. The node did not record which profile a run was
+    started from, so it could not tell the one in use from the rest; refusing all of them for the length
+    of a run was the safe answer. It never needed to: a start makes its profile the active one, and
+    `ProfileSwitchGate` keeps it active until the run ends, so refusing the active profile protects the
+    run's. Since P3 part 3 a delete refuses that one only.
 
 ## P0c: bugs in the hosts that the split would carry over (#788; review, 2026-09-25)
 
