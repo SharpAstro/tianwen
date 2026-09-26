@@ -4,7 +4,8 @@
 # the fixed inference (docs/known-limitations.md). The same sessions (arms/pool-train.txt), the same val pair
 # (arms/bb-val-2.txt) and the same degrade flags as run-pool.ps1, into a NEW store, then one prepared cache
 # (n2n-pool-rf), so the model to ship trains on data that matches inference. Export and prepare only: CPU and
-# disk, safe beside a training run.
+# disk, safe beside a training run. The store sits on C: (the SSD) rather than beside the bake on the USB
+# disk: about 19 GB of tiles written and then read straight back by the prepare.
 #
 # Run DETACHED; read the status file, never the log. The heartbeat finds it by C:\temp\e2\poolrf.pid.
 #   $s = (Resolve-Path .\run-pool-reexport.ps1).Path
@@ -13,7 +14,7 @@
 # child's output pipe).
 param(
     [string]$Bake = 'D:/Astro-Dataset/2026-09-25-full',
-    [string]$Export = 'D:\Astro-Dataset\degraded\pool-vshape-ringfix',
+    [string]$Export = (Join-Path ($env:TIANWEN_SCRATCH ?? 'C:\temp\tianwen-scratch') 'degraded\pool-vshape-ringfix'),
     [string]$Scratch = ($env:TIANWEN_SCRATCH ?? 'C:\temp\tianwen-scratch'),
     [string]$LogDir = 'C:\temp\e2',
     [string]$Tianwen = "$PSScriptRoot\..\..\src\TianWen.Cli\bin\Release\net10.0\tianwen.dll"
