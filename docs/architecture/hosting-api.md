@@ -247,8 +247,20 @@ Pinned by `NodeSocketTests`, `NodeAddressTests`, `ExeBesideTests`, `NodeKeeperTe
      `HostedSession.ShutdownBudget` (30 min, set as `HostOptions.ShutdownTimeout`; the default 30 s cut
      every warm-up off). **A service manager's own stop timeout must allow as long**: systemd
      `TimeoutStopSec=35min`, or it kills the process mid-ramp.
+   - **A run is of any KIND, not only a session** (P5 part 1 of
+     [../plans/hardware-in-the-server.md](../plans/hardware-in-the-server.md), #934). A run that is not a session
+     is an `INodeRun` (its `Kind`, a body, what it holds), started through the same `TryStartAsync` on the same
+     token and record, one run at a time with a session, and journaled by kind. `CurrentSession` is the latest
+     run's session or null; `CurrentRun` the latest other run; `GET /api/v1/node`'s `Run` the one going on,
+     whatever it is. **A refused start names the run going on** (`NodeRuns.AlreadyGoingOn`), never "a session"
+     for a dark library, and **each kind is stopped through its own route**: `/session/abort` stops a session or
+     a flat run only. **A run releases its lease as its BODY ends**, not when the next run disposes it, or an
+     ended run would go on refusing every command to its devices.
+   - **The dark library is the first** (`POST`, `GET` and `DELETE /api/v1/darks`, `NodeDarkLibrary`): the CLI's
+     `darks` capture (`DarkFrameRun`) on a camera connected to the node, refused in the device plane's order (a
+     run going on, the lease, the camera, a job working on it), the camera leased for the run.
 
-   Pinned by `NodeRunLifecycleTests`, all nine seen failing against the old code.
+   Pinned by `NodeRunLifecycleTests`, all nine seen failing against the old code, and `NodeDarkLibraryTests`.
 5. **A start runs on the DECLARED defaults plus what the request sets, and the whole configuration
    crosses the wire** (P0b item 10, #752). `new SessionConfiguration()` is the declared defaults (an
    explicit parameterless constructor); without it, it was the struct's zero-initialiser, which zeroes

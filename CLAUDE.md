@@ -1193,7 +1193,10 @@ full native-AOT rules, and the reasoning behind each rule below:
    connection cancel the night. An abort ends the run through its `Finalise`, never disposing it
    underneath; a finished run never blocks the next; the host stopping aborts, awaits `Finalise`, then
    warms the hub's cameras inside `HostedSession.ShutdownBudget` (and systemd's `TimeoutStopSec` must allow
-   as long). Pinned by `NodeRunLifecycleTests`.
+   as long). **A run is of any kind** (`INodeRun`, P5: a dark library first, polar and planetary to come),
+   started the same way; a refused start NAMES the run going on (`NodeRuns.AlreadyGoingOn`), each kind stops
+   through its own route, and a run releases its lease as its body ends. Pinned by `NodeRunLifecycleTests`
+   and `NodeDarkLibraryTests`.
 8. **`new SessionConfiguration()` is the DECLARED defaults; `default(SessionConfiguration)` is all zeros.**
    A record struct whose primary constructor has required parameters zero-fills on `new()` unless it
    declares a parameterless constructor, and before one was added every API session synced the mount's
