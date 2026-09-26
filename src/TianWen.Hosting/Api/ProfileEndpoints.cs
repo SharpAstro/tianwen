@@ -103,20 +103,14 @@ internal static class ProfileEndpoints
             }
 
             // A profile in use is not deleted from under its user (P0b item 18 of
-            // docs/plans/hardware-in-the-server.md, #752): the node's active profile, which a start without
-            // ?profileId= runs on, and, while a run is going, any profile, since the node does not record
-            // which one the run was started from and so cannot tell the one in use from the rest.
+            // docs/plans/hardware-in-the-server.md, #752): the node's active profile. That is also the profile any run
+            // going on was started from, which the run writes back into as it ends (the backlash mirror): a start makes
+            // its profile the active one, and ProfileSwitchGate keeps it active until the run ends. Any other profile
+            // may go while a run is going; until P3 part 3 every one was refused, for want of knowing which was in use.
             if (hosted.ActiveProfileId == id)
             {
                 return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail($"Profile {id} is the node's active profile; make another one active first", 409),
-                    HostingJsonContext.Default.ResponseEnvelopeString);
-            }
-
-            if (hosted.IsRunning)
-            {
-                return EnvelopeResults.Json(
-                    ResponseEnvelope<string>.Fail("A run is going; stop it before deleting a profile", 409),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 

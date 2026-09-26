@@ -194,16 +194,18 @@ public class NodeActuationGateTests(ITestOutputHelper outputHelper) : IAsyncLife
     }
 
     [Fact(Timeout = 30_000)]
-    public async Task NoProfileIsDeletedWhileARunIsGoing()
+    public async Task TheRunsProfileIsNotDeletedWhileItRunsButAnotherIs()
     {
-        // The node does not record which profile a run was started from, so while one runs, no delete is
-        // safe to make: the one refused could be the one in use.
-        var id = await CreateProfileAsync("Another rig");
+        // A start makes its profile the active one, which is refused, and the run writes back into it as it ends; any
+        // other profile may go while the run is going.
+        var another = await CreateProfileAsync("Another rig");
         await RunningSessionAsync(owningItsRig: true);
 
-        var (status, _) = await SendAsync("DELETE", $"/api/v1/profiles/{id}");
-
+        var (status, _) = await SendAsync("DELETE", $"/api/v1/profiles/{NodeHarness.ProfileId}");
         status.ShouldBe(409);
+
+        var (deleted, error) = await SendAsync("DELETE", $"/api/v1/profiles/{another}");
+        deleted.ShouldBe(200, error);
     }
 
     [Fact(Timeout = 30_000)]

@@ -144,6 +144,13 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
     /// <summary>Raised as a run starts and again as it ends, from whichever thread did it: the journal listens.</summary>
     internal event Action? RunChanged;
 
+    /// <summary>
+    /// A run of the node has ended, its Finalise included: its session, still readable, and its record, the profile it
+    /// was started from among it. What the node writes back into that profile hangs here (P3 part 3 of
+    /// docs/plans/hardware-in-the-server.md, #930: the backlash mirror, <see cref="NodeRunProfileWrites"/>).
+    /// </summary>
+    internal event Action<ISession, NodeRunRecord>? RunEnded;
+
     public bool IsRunning => Volatile.Read(ref _run) is { Completion.IsCompleted: false };
 
     /// <summary>
@@ -295,14 +302,22 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
 
         next.Release(won: true);
         RaiseRunChanged();
-        _ = RaiseRunChangedWhenEndedAsync(next.Completion);
+        _ = RaiseRunEndedAsync(next);
         return true;
     }
 
-    private async Task RaiseRunChangedWhenEndedAsync(Task completion)
+    private async Task RaiseRunEndedAsync(NodeRun run)
     {
         // A run's completion never faults: its body's failures are caught and logged where it runs.
-        await completion.ConfigureAwait(false);
+        await run.Completion.ConfigureAwait(false);
+        try
+        {
+            RunEnded?.Invoke(run.Session, run.Record);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "A subscriber failed as the node's run ended");
+        }
         RaiseRunChanged();
     }
 

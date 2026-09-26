@@ -16,6 +16,43 @@ public static class ProfileDataExtensions
         /// <summary>The site the profile stores, or null when it stores none.</summary>
         public SiteCoordinates? Site => SiteCoordinates.From(profile.SiteLatitude, profile.SiteLongitude, profile.SiteElevation);
 
+        /// <summary>
+        /// Mirrors a run's inferred backlash (its per-focuser EWMAs) into the matching focuser URIs, so the next run
+        /// starts from last night's value: <c>focuserBacklashIn</c> / <c>focuserBacklashOut</c>. Each estimate is keyed by
+        /// the focuser device URI the run used; only OTAs whose focuser matches one of those keys are touched, and every
+        /// other query key on the URI (filter slot names, focus offsets, transport keys) is kept. Applied at a run's end by
+        /// the GUI and the node alike (P3 part 3 of docs/plans/hardware-in-the-server.md, #930).
+        /// </summary>
+        /// <returns><c>(Updated, true)</c> when at least one URI changed; the profile unchanged and false otherwise.</returns>
+        public (ProfileData Updated, bool Changed) WithBacklashEstimates(IReadOnlyDictionary<Uri, Astrometry.Focus.BacklashEstimateRecord> estimates)
+        {
+            if (estimates.Count == 0)
+            {
+                return (profile, false);
+            }
+
+            var changed = false;
+            var newOtas = new OTAData[profile.OTAs.Length];
+            for (var i = 0; i < profile.OTAs.Length; i++)
+            {
+                var ota = profile.OTAs[i];
+                if (ota.Focuser is { } focUri && estimates.TryGetValue(focUri, out var record))
+                {
+                    var updatedFocuser = focUri.WithQueryValues(
+                        (DeviceQueryKey.FocuserBacklashIn.Key, record.EwmaIn.ToString(CultureInfo.InvariantCulture)),
+                        (DeviceQueryKey.FocuserBacklashOut.Key, record.EwmaOut.ToString(CultureInfo.InvariantCulture)));
+                    if (updatedFocuser != focUri)
+                    {
+                        ota = ota with { Focuser = updatedFocuser };
+                        changed = true;
+                    }
+                }
+                newOtas[i] = ota;
+            }
+
+            return changed ? (profile with { OTAs = [.. newOtas] }, true) : (profile, false);
+        }
+
         /// <summary>The profile with <paramref name="site"/> as its site, elevation included.</summary>
         public ProfileData WithSite(SiteCoordinates site)
             => profile with { SiteLatitude = site.Latitude, SiteLongitude = site.Longitude, SiteElevation = site.Elevation };

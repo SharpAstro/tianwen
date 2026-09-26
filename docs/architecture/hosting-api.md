@@ -520,6 +520,14 @@ does the same at the same moments, through `NodeProfiles`, so each write is push
 Pinned by `NodeProfileOwnWritesTests` (each of the four, against a node with fakes) and `ProfileDataRuleTests` plus
 `MountSiteReconcileTests` (the rules).
 
+**At a run's end the node writes the run's backlash back into the profile it was started from** (P3 part 3), as the GUI
+does at a session's end: the per-focuser estimates the run inferred go onto the profile's focuser URIs
+(`focuserBacklashIn` / `focuserBacklashOut`, `ProfileDataExtensions.WithBacklashEstimates`, lifted from `EquipmentActions`),
+so the next run starts from them. `HostedSession.RunEnded` raises it once the run has ended, its Finalise included, and
+`NodeRunProfileWrites` makes the write, reading the estimates at once because the next run's start disposes the session.
+It is registered before the host of the runs, so a run that a stop ended still gets its write before the node exits.
+Pinned by `NodeRunProfileWritesTests`.
+
 ## Previews go through the shared stretch, never a private one
 
 `PreviewEncoder` (`Api/`) is the one JPEG preview encoder, used by `GET
@@ -561,8 +569,9 @@ consumes this node's devices with the existing `AddAlpaca()` and no new client c
   slew the mount or abort an exposure mid-night (P0b item 8 of
   [../plans/hardware-in-the-server.md](../plans/hardware-in-the-server.md), #752). The ninaAPI profile
   switch asks `ProfileSwitchGate` like the native one, and `DELETE /profiles/{id}` refuses the node's
-  active profile and, while a run is going, any profile, since the node does not record which one the
-  run was started from (P0b item 18).
+  active profile, which is also the one any run going on was started from (a start makes its profile active, and
+  `ProfileSwitchGate` keeps it while the run goes); the run writes back into it as it ends. Any other profile may go
+  during a run (P0b item 18; until P3 part 3 every profile was refused while a run went).
 - **Device numbers come from the ACTIVE PROFILE, in profile order** -- never from discovery, whose
   order varies between scans; a number that moved would point a client at different hardware
   mid-session.
