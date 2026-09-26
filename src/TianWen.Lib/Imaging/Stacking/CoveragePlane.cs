@@ -14,10 +14,8 @@ namespace TianWen.Lib.Imaging.Stacking
     /// exact crop tier can tell a pixel eleven frames reached from one that two did, and a plane
     /// written with <c>maxValue: 1</c> reads as fully covered everywhere.</para>
     ///
-    /// <para>A drizzle strategy does not come through here and should not: its weight map already IS
-    /// the coverage, it says so with <see cref="IntegrationResult.RejectionMapIsCoverage"/>, and the
-    /// sidecar it writes carries the same fact under the same <c>MAPKIND</c>. Two ways to express one
-    /// thing is the surface worth removing next; this removes the four.</para>
+    /// <para>A drizzle strategy's coverage is its accumulated WEIGHT, not a count, so it comes through
+    /// <see cref="FromDrizzleWeights"/>, which labels the plane with the weight it actually reached.</para>
     /// </remarks>
     internal static class CoveragePlane
     {
@@ -65,6 +63,32 @@ namespace TianWen.Lib.Imaging.Stacking
                 data: data,
                 bitDepth: BitDepth.Float32,
                 maxValue: frameCount,
+                minValue: 0f,
+                pedestal: 0f,
+                imageMeta: meta);
+        }
+
+        /// <summary>
+        /// A drizzle's per-channel accumulated weight as its coverage image, labelled with the OBSERVED
+        /// peak weight. Both drizzle strategies finalise through here.
+        /// </summary>
+        /// <remarks>
+        /// A weight is not bounded by anything the strategy knows up front: it is roughly N/4 per red or
+        /// blue photosite and N/2 per green one over N RGGB frames, times the drop's overlap. Both
+        /// strategies used to label it <c>maxValue: 1</c>, so every sidecar they wrote said
+        /// <c>DATAMAX = 1</c> over weights up to 69 on a 135-frame stack. A reader that believed it saw
+        /// a unit-scaled image, every sample past its histogram, and no median (#804). The label is
+        /// what <c>WriteToFitsFile</c> writes as <c>DATAMAX</c>, so it must be a peak the samples keep to.
+        /// </remarks>
+        internal static Image FromDrizzleWeights(float[][,] weights, in ImageMeta meta)
+        {
+            var (_, peak) = Image.ObservedRange(weights);
+            return new Image(
+                data: weights,
+                bitDepth: BitDepth.Float32,
+                // No finite weight at all (or none above zero) keeps the old label: DATAMAX = 1 over
+                // zeros states a range the samples keep to, where 0 or NaN would state none.
+                maxValue: peak > 0f ? peak : 1f,
                 minValue: 0f,
                 pedestal: 0f,
                 imageMeta: meta);
