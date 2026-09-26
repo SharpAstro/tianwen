@@ -237,7 +237,9 @@ public sealed class PolarOverlayDto
     public double? RefractedPoleDecDeg { get; init; }
     public double? AxisRaHours { get; init; }
     public double? AxisDecDeg { get; init; }
-    public float[] RingRadiiArcmin { get; init; } = [];
+    // set, not init: the JSON source generator gives an init-only property its TYPE'S default when the field is
+    // absent, dropping the initializer below (CLAUDE.md, Hosting API: the wire traps).
+    public float[] RingRadiiArcmin { get; set; } = [];
     public double? AzErrorArcmin { get; init; }
     public double? AltErrorArcmin { get; init; }
     public Hemisphere Hemisphere { get; init; }

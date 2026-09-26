@@ -25,7 +25,9 @@ internal sealed record NodeJournal
 {
     public const int CurrentVersion = 1;
 
-    public int Version { get; init; } = CurrentVersion;
+    // set, not init: the JSON source generator gives an init-only property its TYPE'S default when the field is
+    // absent, dropping the initializer below (CLAUDE.md, Hosting API: the wire traps).
+    public int Version { get; set; } = CurrentVersion;
 
     /// <summary>When the node last wrote it, on the machine's real clock.</summary>
     public DateTimeOffset WrittenUtc { get; init; }
@@ -33,17 +35,21 @@ internal sealed record NodeJournal
     /// <summary>The node that wrote it, which its keeper names when it restarts it after a crash.</summary>
     public int ProcessId { get; init; }
 
+    // set, not init: the JSON source generator gives an init-only property its TYPE'S default when the field is
+    // absent, dropping the initializer below (CLAUDE.md, Hosting API: the wire traps).
     /// <summary>The devices connected through the node's hub, in URI order.</summary>
-    public ImmutableArray<NodeJournalDevice> Devices { get; init; } = [];
+    public ImmutableArray<NodeJournalDevice> Devices { get; set; } = [];
 
     /// <summary>The run going on, or the one a node before it died in, until that report is dismissed.</summary>
     public NodeJournalRun? Run { get; init; }
 
+    // set, not init: the JSON source generator gives an init-only property its TYPE'S default when the field is
+    // absent, dropping the initializer below (CLAUDE.md, Hosting API: the wire traps).
     /// <summary>
     /// When nodes on this socket have crashed lately, on the real clock: the crash-loop guard. Each node that finds a
     /// journal adds the crash that left it, and carries those within <see cref="NodeKeeper.CrashLoopWindow"/> on.
     /// </summary>
-    public ImmutableArray<DateTimeOffset> Crashes { get; init; } = [];
+    public ImmutableArray<DateTimeOffset> Crashes { get; set; } = [];
 
     /// <summary>
     /// The device the node is reconnecting from a journal it found, written BEFORE the connect: if a driver crashes the

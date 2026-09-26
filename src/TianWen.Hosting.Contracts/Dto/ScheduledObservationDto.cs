@@ -42,13 +42,17 @@ namespace TianWen.Hosting.Dto
         public required double DurationMinutes { get; init; }
         public required bool AcrossMeridian { get; init; }
 
+        // set, not init: the JSON source generator gives an init-only property its TYPE'S default when the field is
+        // absent, dropping the initializer below (CLAUDE.md, Hosting API: the wire traps).
         /// <summary>Per-filter exposure plan. Optional: an absent or empty plan is treated the same way
         /// as a single-filter target queued through <see cref="PendingTarget"/>.</summary>
-        public ImmutableArray<FilterExposureDto> FilterPlan { get; init; } = [];
+        public ImmutableArray<FilterExposureDto> FilterPlan { get; set; } = [];
 
         public int? Gain { get; init; }
         public int? Offset { get; init; }
 
+        // set, not init: the JSON source generator gives an init-only property its TYPE'S default when the field is
+        // absent, dropping the initializer below (CLAUDE.md, Hosting API: the wire traps).
         /// <summary>
         /// <see cref="ObservationPriority"/>, defaulting to <c>Normal</c> when absent.
         /// <para>
@@ -59,7 +63,7 @@ namespace TianWen.Hosting.Dto
         /// simply be omitted.
         /// </para>
         /// </summary>
-        public ObservationPriority Priority { get; init; } = ObservationPriority.Normal;
+        public ObservationPriority Priority { get; set; } = ObservationPriority.Normal;
 
         public static ScheduledObservationDto FromScheduled(ScheduledObservation obs)
         {

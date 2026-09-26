@@ -26,8 +26,10 @@ public sealed class DarkLibraryRequestDto
     /// <summary>Offset, or null to leave the camera's.</summary>
     public int? Offset { get; init; }
 
+    // set, not init: the JSON source generator gives an init-only property its TYPE'S default when the field is
+    // absent, dropping the initializer below (CLAUDE.md, Hosting API: the wire traps).
     /// <summary>Binning, both axes.</summary>
-    public int Bin { get; init; } = 1;
+    public int Bin { get; set; } = 1;
 
     /// <summary>Bias frames rather than darks: labelled so in their headers, which is what a stacker matches on.</summary>
     public bool Bias { get; init; }
@@ -51,8 +53,10 @@ public sealed class DarkLibraryStateDto
     /// <summary>Frames asked for.</summary>
     public int Count { get; init; }
 
+    // set, not init: the JSON source generator gives an init-only property its TYPE'S default when the field is
+    // absent, dropping the initializer below (CLAUDE.md, Hosting API: the wire traps).
     /// <summary>Frames written so far, in order.</summary>
-    public DarkLibraryFrameDto[] Frames { get; init; } = [];
+    public DarkLibraryFrameDto[] Frames { get; set; } = [];
 
     /// <summary>Whether it is going on.</summary>
     public bool Running { get; init; }
