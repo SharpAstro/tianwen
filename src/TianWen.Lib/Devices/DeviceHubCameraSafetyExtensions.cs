@@ -101,6 +101,28 @@ public static class DeviceHubCameraSafetyExtensions
             => WarmCameraAsync(hub, deviceUri, timeProvider, logger, disconnectAfter: false, force: false, cancellationToken);
 
         /// <summary>
+        /// Cools the camera at <paramref name="cameraUri"/> to <paramref name="setpointC"/> (rounded to a whole degree)
+        /// through the session's own ramp (<see cref="CameraCoolingRamp"/>), never as a jump, and records it as the
+        /// camera's intent. For a host re-establishing a cooler with no session to do it: a node after the node before it
+        /// crashed (the crash journal, P1 of docs/plans/hardware-in-the-server.md).
+        /// </summary>
+        /// <returns>True when the setpoint was reached; false when it was not, or the camera is not connected.</returns>
+        public async ValueTask<bool> CoolToSetpointAsync(Uri cameraUri, double setpointC, TimeSpan totalRampTime, ITimeProvider timeProvider, ILogger logger,
+            CancellationToken cancellationToken)
+        {
+            if (!hub.TryGetConnectedDriver<ICameraDriver>(cameraUri, out var camera))
+            {
+                return false;
+            }
+
+            // sbyte.MinValue is the ramp's "no value" for the sensor and ambient kinds, so never a target.
+            var target = (sbyte)Math.Clamp(Math.Round(setpointC), sbyte.MinValue + 1, sbyte.MaxValue);
+            hub.SetCoolerIntent(cameraUri, CoolerIntent.CoolTo(target));
+            return await CameraCoolingRamp.RunAsync([camera], new SetpointTemp(target, SetpointTempKind.Normal), totalRampTime,
+                CameraCoolingRamp.CoolDownPowerThreshold, SetupointDirection.Down, timeProvider, logger, afterStep: null, cancellationToken);
+        }
+
+        /// <summary>
         /// Records, as the camera's <see cref="CoolerIntent"/>, what an IMMEDIATE command left its cooler doing:
         /// cooling to its setpoint, or off. For a surface that commands the cooler directly, a device plane or a
         /// compatibility shim, rather than through a ramp, whose TARGET is the intent instead. A camera that cannot

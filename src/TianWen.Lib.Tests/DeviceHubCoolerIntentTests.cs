@@ -70,6 +70,33 @@ public class DeviceHubCoolerIntentTests(ITestOutputHelper output)
         seen.ShouldBe([CoolerIntent.Warm, CoolerIntent.Off], "a node that crashed mid-ramp goes on warming, never cools back down");
     }
 
+    [Fact(Timeout = 30_000)]
+    public async Task TheHubCoolsThroughTheSessionsRampAndRecordsTheTarget()
+    {
+        // What a node re-establishes after a crash: the session's own cool-down, never a jump to the setpoint.
+        var ct = TestContext.Current.CancellationToken;
+        var (external, hub) = Build();
+        var device = new FakeDevice(DeviceType.Camera, 1);
+        var camera = (ICameraDriver)await hub.ConnectAsync(device, ct);
+
+        var reached = await hub.CoolToSetpointAsync(device.DeviceUri, -10.4, TimeSpan.FromMinutes(1), external.TimeProvider, NullLogger.Instance, ct);
+
+        reached.ShouldBeTrue();
+        (await camera.GetCoolerOnAsync(ct)).ShouldBeTrue();
+        (await camera.GetCCDTemperatureAsync(ct)).ShouldBe(-10, 1.0);
+        hub.TryGetCoolerIntent(device.DeviceUri, out var intent).ShouldBeTrue();
+        intent.ShouldBe(CoolerIntent.CoolTo(-10), "a whole degree, as the ramp takes it");
+    }
+
+    [Fact]
+    public async Task TheHubCoolsNothingItDoesNotHold()
+    {
+        var (external, hub) = Build();
+
+        (await hub.CoolToSetpointAsync(new FakeDevice(DeviceType.Camera, 1).DeviceUri, -10, TimeSpan.FromMinutes(1), external.TimeProvider,
+            NullLogger.Instance, TestContext.Current.CancellationToken)).ShouldBeFalse();
+    }
+
     [Fact]
     public async Task ACommandedCoolerIsRecordedAsWhatTheCommandLeftItDoing()
     {

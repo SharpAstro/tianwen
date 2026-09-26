@@ -1205,7 +1205,11 @@ full native-AOT rules, and the reasoning behind each rule below:
    (`node.journal`, `NodeJournalService`) of its devices, its run and each camera's cooler INTENT, which the hub keeps
    (`IDeviceHub.SetCoolerIntent`): a ramp records its TARGET, never the step it reached, and **a new place that
    commands a cooler owes the same**. A journal is believed only from the node its keeper saw crash
-   (`--after-crash <pid>`) or when younger than the machine's boot (`MachineBoot`, never the tick count).
+   (`--after-crash <pid>`) or when younger than the machine's boot (`MachineBoot`, never the tick count). A believed
+   journal is ACTED on (the devices reconnected, the mount first, each named in the journal BEFORE its connect; each
+   camera re-cooled from its intent), never a run resumed, and two crashes within `NodeKeeper.CrashLoopWindow` reconnect
+   nothing. **There is ONE cooling ramp, `CameraCoolingRamp`**, which the session delegates to and the hub drives
+   without one (`CoolToSetpointAsync`): a second copy is a second answer to how fast a sensor may be cooled.
 
 ### Remote Rigs (mirror another node's session "as if local")
 

@@ -161,13 +161,29 @@ atomically as any of that changes, and a 5 s poll catches what raises nothing (t
   (the tick count, `LastBootUpTime` and the registry's shutdown time all ran on through one on the desktop that
   measured it), `btime` on Linux, `kern.boottime` on macOS. `WrittenUtc` is the machine's real clock, never the node's,
   which a simulated `TIANWEN_NOW` shifts.
-- **It never resumes a run.** Acting on a journal (reconnecting its devices, re-establishing each cooler from its
-  intent, the crash-loop guard) is P1 part 7b.
+- **A journal it believes, it acts on as it starts, and it never resumes a run.** It reconnects the devices, the mount
+  first (which restores mount-limit enforcement), then the cameras, then the rest, each within
+  `NodeJournalService.ReconnectBudget`, and reports how each went (`NodeHeldDeviceDto.Reconnected`, `ReconnectError`).
+  Each device is named in its own journal BEFORE its connect (`NodeJournal.Touching`): a driver that crashes the node
+  crashes it there, and nothing written after the connect would ever reach the file. It then re-establishes each
+  camera's cooling from its intent: a cool-down to the target through the session's own ramp, a warm-up from wherever
+  the sensor now is, and an Off left off. The run the node before it died in stays in its journal, resumed by nobody,
+  until the report is dismissed.
+- **There is ONE cooling ramp, `CameraCoolingRamp`** (Lib), which `Session.CoolCamerasToSetpointAsync` delegates to
+  with its telemetry as a per-step callback, and which the hub drives without a session
+  (`DeviceHubCameraSafetyExtensions.CoolToSetpointAsync`). A recovery's ramps end when a run starts (the session cools
+  its own cameras, and two ramps on one camera fight) and as the host starts to stop (its stop warms the cameras).
+- **The crash-loop guard**: the journal carries the recent crash times (`NodeJournal.Crashes`), each node that finds one
+  adding the crash that left it. Two within `NodeKeeper.CrashLoopWindow` is a loop (`NodeRecoveryDto.CrashLoop`): a
+  driver that crashes the node would crash every node that reconnected it, so the node reconnects nothing and names
+  the device the last one was reaching for (`SuspectDevice`). The keeper's own loop guard leaves the node down after
+  the second crash; the journal's is what keeps the next client's node from walking into the same one. A boot wipes
+  the history with the rig's state.
 
 Pinned by `NodeSocketTests`, `NodeAddressTests`, `ExeBesideTests`, `NodeKeeperTests`, `NodeKeeperProcessTests`,
 `LocalNodeLauncherTests`, `DetachedProcessTests`, `NodeShareTests`, `NodeShareSettingTests`,
 `NodeActiveProfileTests`, `NodeJournalTests`, `DeviceHubCoolerIntentTests`, `NodeJournalServiceTests` and
-`NodeJournalProcessTests`.
+`NodeJournalProcessTests` (a real keeper and node, killed holding a cooled camera, and killed twice for the loop).
 
 ## Six invariants on the session plane
 

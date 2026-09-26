@@ -42,7 +42,16 @@ internal sealed class KeptNode : IAsyncDisposable
     /// <summary>The node's socket as a plain HTTP client, for what <see cref="Client"/> does not speak (the Alpaca plane).</summary>
     public HttpClient Http => _http;
 
-    public static string ServerPath => Path.Combine(AppContext.BaseDirectory, OperatingSystem.IsWindows() ? "tianwen-server.exe" : "tianwen-server");
+    /// <summary>
+    /// The server beside the tests, or the one <see cref="ServerUnderTest"/> names: a native AOT publish, so the same
+    /// tests prove the published binary (P1's proof: AOT publish, then run it).
+    /// </summary>
+    public static string ServerPath => Environment.GetEnvironmentVariable(ServerUnderTest) is { Length: > 0 } published
+        ? published
+        : Path.Combine(AppContext.BaseDirectory, OperatingSystem.IsWindows() ? "tianwen-server.exe" : "tianwen-server");
+
+    /// <summary>Names a <c>tianwen-server</c> for the process tests to run instead of the one built beside them.</summary>
+    public const string ServerUnderTest = "TIANWEN_SERVER_UNDER_TEST";
 
     /// <summary>Starts a keeper, on <paramref name="socketPath"/> when given, else a new socket of its own.</summary>
     public static Process StartKeeper(string socketPath, string dataRoot)
@@ -70,6 +79,25 @@ internal sealed class KeptNode : IAsyncDisposable
             await prepareDataRoot(dataRoot);
         }
         var node = new KeptNode(StartKeeper(Path.Combine(folder, "node.sock"), dataRoot), Path.Combine(folder, "node.sock"), dataRoot);
+        try
+        {
+            await node.WaitForNodeAsync(static _ => true, cancellationToken);
+            return node;
+        }
+        catch
+        {
+            await node.DisposeAsync();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// A new keeper on this one's socket and data root, as the next client to start would start one after this keeper
+    /// ended (a crash loop, say).
+    /// </summary>
+    public async Task<KeptNode> StartAnotherKeeperAsync(CancellationToken cancellationToken)
+    {
+        var node = new KeptNode(StartKeeper(SocketPath, DataRoot), SocketPath, DataRoot);
         try
         {
             await node.WaitForNodeAsync(static _ => true, cancellationToken);

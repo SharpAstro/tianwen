@@ -36,18 +36,39 @@ internal sealed record NodeJournal
     /// <summary>The devices connected through the node's hub, in URI order.</summary>
     public ImmutableArray<NodeJournalDevice> Devices { get; init; } = [];
 
-    /// <summary>The run going on, if one is.</summary>
+    /// <summary>The run going on, or the one a node before it died in, until that report is dismissed.</summary>
     public NodeJournalRun? Run { get; init; }
 
+    /// <summary>
+    /// When nodes on this socket have crashed lately, on the real clock: the crash-loop guard. Each node that finds a
+    /// journal adds the crash that left it, and carries those within <see cref="NodeKeeper.CrashLoopWindow"/> on.
+    /// </summary>
+    public ImmutableArray<DateTimeOffset> Crashes { get; init; } = [];
+
+    /// <summary>
+    /// The device the node is reconnecting from a journal it found, written BEFORE the connect: if a driver crashes the
+    /// node there, this names it for the next one.
+    /// </summary>
+    public string? Touching { get; init; }
+
     /// <summary>Whether the node holds anything a successor would need to know about.</summary>
-    public bool HoldsAnything => !Devices.IsDefaultOrEmpty || Run is not null;
+    public bool HoldsAnything => !Devices.IsDefaultOrEmpty || Run is not null || Touching is not null;
 
     /// <summary>The journal of the node at <paramref name="socketPath"/>: beside its socket and lock, one per node.</summary>
     public static string PathFor(string socketPath) => Path.ChangeExtension(socketPath, ".journal");
 
     /// <summary>Whether this holds what <paramref name="other"/> holds, whenever and by whom each was written.</summary>
     public bool HoldsTheSameAs(NodeJournal other) =>
-        Run == other.Run && DevicesOrEmpty(this).SequenceEqual(DevicesOrEmpty(other));
+        Run == other.Run && Touching == other.Touching
+        && DevicesOrEmpty(this).SequenceEqual(DevicesOrEmpty(other))
+        && CrashesOrEmpty(this).SequenceEqual(CrashesOrEmpty(other));
+
+    /// <summary>
+    /// The crashes that count towards a crash loop as a node finds this journal at <paramref name="foundUtc"/>: those
+    /// within <see cref="NodeKeeper.CrashLoopWindow"/>, and the one that left this journal behind.
+    /// </summary>
+    public ImmutableArray<DateTimeOffset> CrashesWith(DateTimeOffset foundUtc) =>
+        [.. CrashesOrEmpty(this).Where(crash => foundUtc - crash < NodeKeeper.CrashLoopWindow), foundUtc];
 
     /// <summary>What <paramref name="hub"/> and the node's run hold now.</summary>
     /// <param name="session">The run's session, for the target it is on.</param>
@@ -88,15 +109,23 @@ internal sealed record NodeJournal
     /// cannot be judged.</item>
     /// </list>
     /// </summary>
+    /// <remarks>
+    /// A journal that can be believed is still not acted on when nodes have crashed twice within
+    /// <see cref="NodeKeeper.CrashLoopWindow"/> (<see cref="NodeRecoveryDto.CrashLoop"/>): a driver that crashes the node
+    /// would crash every node that reconnected it, so the loop ends here, naming the device the last one was reaching for.
+    /// </remarks>
     public NodeRecoveryDto Recover(int? afterCrashOf, DateTimeOffset foundUtc, DateTimeOffset? lastBootUtc)
     {
         var afterCrash = afterCrashOf == ProcessId;
+        var stale = !afterCrash && (lastBootUtc is not { } boot || WrittenUtc < boot);
         return new NodeRecoveryDto
         {
             JournalWrittenUtc = WrittenUtc,
             FoundUtc = foundUtc,
             AfterCrash = afterCrash,
-            Stale = !afterCrash && (lastBootUtc is not { } boot || WrittenUtc < boot),
+            Stale = stale,
+            CrashLoop = !stale && CrashesWith(foundUtc).Length >= 2,
+            SuspectDevice = Touching,
             InterruptedRun = Run is { } run
                 ? new NodeRunDto { Kind = run.Kind, ProfileId = run.ProfileId, StartedUtc = run.StartedUtc, Target = run.Target }
                 : null,
@@ -111,6 +140,8 @@ internal sealed record NodeJournal
     }
 
     private static ImmutableArray<NodeJournalDevice> DevicesOrEmpty(NodeJournal journal) => journal.Devices.IsDefault ? [] : journal.Devices;
+
+    private static ImmutableArray<DateTimeOffset> CrashesOrEmpty(NodeJournal journal) => journal.Crashes.IsDefault ? [] : journal.Crashes;
 }
 
 /// <summary>A device the node held, with the full URI it reconnects by, and for a camera its cooler intent.</summary>
