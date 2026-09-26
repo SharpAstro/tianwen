@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -89,7 +90,7 @@ internal static class NinaSystemEndpoints
         });
 
         // GET /v2/api/profile/switch?profileid=: set active profile
-        group.MapGet("/profile/switch", (string profileid, IHostedSession hosted, IDeviceHub hub) =>
+        group.MapGet("/profile/switch", async (string profileid, IHostedSession hosted, IDeviceHub hub, CancellationToken ct) =>
         {
             if (!Guid.TryParse(profileid, out var guid))
             {
@@ -109,7 +110,7 @@ internal static class NinaSystemEndpoints
                     NinaApiJsonContext.Default.ResponseEnvelopeString);
             }
 
-            hosted.SetActiveProfile(guid);
+            await hosted.SetActiveProfileAsync(guid, ct);
             return Results.Json(
                 ResponseEnvelope<string>.Ok($"Switched to profile {guid}"),
                 NinaApiJsonContext.Default.ResponseEnvelopeString);

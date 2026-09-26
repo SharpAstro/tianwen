@@ -1,6 +1,7 @@
 using Shouldly;
 using System;
 using System.Linq;
+using System.Threading.Tasks;
 using TianWen.Lib.Devices;
 using TianWen.UI.Abstractions;
 using Xunit;
@@ -17,16 +18,16 @@ namespace TianWen.Lib.Tests;
 public class ActiveProfilePinnedSerialPortsProviderTests
 {
     [Fact]
-    public void NoActiveProfileReturnsEmptyList()
+    public async Task NoActiveProfileReturnsEmptyList()
     {
         var appState = new GuiAppState { ActiveProfile = null };
         var provider = new ActiveProfilePinnedSerialPortsProvider(appState);
 
-        provider.GetPinnedPorts().ShouldBeEmpty();
+        (await provider.GetPinnedPortsAsync(TestContext.Current.CancellationToken)).ShouldBeEmpty();
     }
 
     [Fact]
-    public void MountAndOtaPortsAreAllIncludedWithExpectedUri()
+    public async Task MountAndOtaPortsAreAllIncludedWithExpectedUri()
     {
         var mountUri = new Uri("Mount://OnStepDevice/onstep?port=COM5");
         var focUri = new Uri("Focuser://QHYDevice/qfoc?port=COM7");
@@ -46,7 +47,7 @@ public class ActiveProfilePinnedSerialPortsProviderTests
             ]));
         var provider = new ActiveProfilePinnedSerialPortsProvider(new GuiAppState { ActiveProfile = profile });
 
-        var pins = provider.GetPinnedPorts();
+        var pins = (await provider.GetPinnedPortsAsync(TestContext.Current.CancellationToken));
 
         pins.Count.ShouldBe(3);
         pins.ShouldContain(p => p.Port == "serial:COM5" && p.ExpectedUri == mountUri);
@@ -55,7 +56,7 @@ public class ActiveProfilePinnedSerialPortsProviderTests
     }
 
     [Fact]
-    public void SentinelPortValuesAreIgnored()
+    public async Task SentinelPortValuesAreIgnored()
     {
         // ?port=wifi (Canon), ?port=SkyWatcher (fake mount), not OS ports, must not filter.
         var profile = MakeProfile(new ProfileData(
@@ -72,11 +73,11 @@ public class ActiveProfilePinnedSerialPortsProviderTests
             ]));
         var provider = new ActiveProfilePinnedSerialPortsProvider(new GuiAppState { ActiveProfile = profile });
 
-        provider.GetPinnedPorts().ShouldBeEmpty();
+        (await provider.GetPinnedPortsAsync(TestContext.Current.CancellationToken)).ShouldBeEmpty();
     }
 
     [Fact]
-    public void MissingPortQueryIsIgnored()
+    public async Task MissingPortQueryIsIgnored()
     {
         var profile = MakeProfile(new ProfileData(
             Mount: new Uri("Mount://NoneDevice/none"),
@@ -84,23 +85,23 @@ public class ActiveProfilePinnedSerialPortsProviderTests
             OTAs: []));
         var provider = new ActiveProfilePinnedSerialPortsProvider(new GuiAppState { ActiveProfile = profile });
 
-        provider.GetPinnedPorts().ShouldBeEmpty();
+        (await provider.GetPinnedPortsAsync(TestContext.Current.CancellationToken)).ShouldBeEmpty();
     }
 
     [Fact]
-    public void ChangingActiveProfileReflectsImmediately()
+    public async Task ChangingActiveProfileReflectsImmediately()
     {
         var appState = new GuiAppState();
         var provider = new ActiveProfilePinnedSerialPortsProvider(appState);
 
-        provider.GetPinnedPorts().ShouldBeEmpty();
+        (await provider.GetPinnedPortsAsync(TestContext.Current.CancellationToken)).ShouldBeEmpty();
 
         appState.ActiveProfile = MakeProfile(new ProfileData(
             Mount: new Uri("Mount://OnStepDevice/onstep?port=COM9"),
             Guider: new Uri("Guider://NoneDevice/none"),
             OTAs: []));
 
-        provider.GetPinnedPorts().Any(p => p.Port == "serial:COM9").ShouldBeTrue();
+        (await provider.GetPinnedPortsAsync(TestContext.Current.CancellationToken)).Any(p => p.Port == "serial:COM9").ShouldBeTrue();
     }
 
     private static Profile MakeProfile(ProfileData data)

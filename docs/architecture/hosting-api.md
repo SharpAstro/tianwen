@@ -126,8 +126,18 @@ TCP):
   running and says it applies at its next start. `GET /api/v1/node` answers the setting (`ShareOnLan`) beside the
   listening (`IsShared`).
 
+
+**The node's active profile is node state**, kept in the same settings file (`NodeSettings.ActiveProfileId`), so a
+node restarted by its keeper is set up as it was; it used to be in memory only, null after every start. Every way of
+setting it (`PUT /session/profile`, a session start with `?profileId=`, the ninaAPI shim) stays behind
+`ProfileSwitchGate`. It is also what a discovery on the node pins: `NodePinnedSerialPorts` reads the active profile's
+file at each pass (`Profile.TryReadDataAsync`, so an edit by another process is the one probed) and hands its ports
+to the serial probe, whose provider is asynchronous for it (`IPinnedSerialPortsProvider.GetPinnedPortsAsync`). The
+walk over a profile's URI slots is one, `PinnedSerialPort.In`, for the GUI's provider and the node's.
+
 Pinned by `NodeSocketTests`, `NodeAddressTests`, `ExeBesideTests`, `NodeKeeperTests`, `NodeKeeperProcessTests`,
-`LocalNodeLauncherTests`, `DetachedProcessTests`, `NodeShareTests` and `NodeShareSettingTests`.
+`LocalNodeLauncherTests`, `DetachedProcessTests`, `NodeShareTests`, `NodeShareSettingTests` and
+`NodeActiveProfileTests`.
 
 ## Six invariants on the session plane
 

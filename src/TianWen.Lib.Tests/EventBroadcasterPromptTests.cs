@@ -29,7 +29,7 @@ namespace TianWen.Lib.Tests
     {
         private static (EventBroadcaster Broadcaster, HostedSession Host, EventHub Hub) Build()
         {
-            var host = new HostedSession(Substitute.For<ISessionFactory>(), Substitute.For<IDeviceHub>(), Substitute.For<ITimeProvider>(), Microsoft.Extensions.Logging.Abstractions.NullLogger<HostedSession>.Instance);
+            var host = new HostedSession(Substitute.For<ISessionFactory>(), Substitute.For<IDeviceHub>(), Substitute.For<ITimeProvider>(), new NodeSettingsStore(Substitute.For<IExternal>(), NodeSettings.Default), Microsoft.Extensions.Logging.Abstractions.NullLogger<HostedSession>.Instance);
             var hub = new EventHub(NullLogger<EventHub>.Instance);
             var enhancer = new HostedImageEnhancer(pipeline: null, NullLogger<HostedImageEnhancer>.Instance);
             var jobs = new NodeJobs(Substitute.For<Microsoft.Extensions.Hosting.IHostApplicationLifetime>(), Substitute.For<ITimeProvider>(), NullLogger<NodeJobs>.Instance);

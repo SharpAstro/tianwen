@@ -57,10 +57,16 @@ internal sealed class KeptNode : IAsyncDisposable
         return Process.Start(start) ?? throw new InvalidOperationException($"Could not start {ServerPath}");
     }
 
-    public static async Task<KeptNode> StartAsync(CancellationToken cancellationToken)
+    /// <param name="prepareDataRoot">Writes into the node's data root before it starts (a profile it should find).</param>
+    public static async Task<KeptNode> StartAsync(CancellationToken cancellationToken, Func<string, Task>? prepareDataRoot = null)
     {
         var folder = Directory.CreateTempSubdirectory("twk").FullName;
-        var node = new KeptNode(StartKeeper(Path.Combine(folder, "node.sock"), Path.Combine(folder, "data")), Path.Combine(folder, "node.sock"), Path.Combine(folder, "data"));
+        var dataRoot = Directory.CreateDirectory(Path.Combine(folder, "data")).FullName;
+        if (prepareDataRoot is not null)
+        {
+            await prepareDataRoot(dataRoot);
+        }
+        var node = new KeptNode(StartKeeper(Path.Combine(folder, "node.sock"), dataRoot), Path.Combine(folder, "node.sock"), dataRoot);
         try
         {
             await node.WaitForNodeAsync(static _ => true, cancellationToken);

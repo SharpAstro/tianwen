@@ -55,6 +55,8 @@ public static class HostedSessionServiceCollectionExtensions
         // the user's real entry by forgetting to replace a default.
         services.TryAddSingleton(new NodeRole(spawned: false));
         services.TryAddSingleton(sp => new NodeSettingsStore(sp.GetRequiredService<IExternal>(), NodeSettings.Default));
+        // Discovery on the node verifies its active profile's pinned serial ports first, as the GUI's does.
+        services.TryAddSingleton<TianWen.Lib.Devices.Discovery.IPinnedSerialPortsProvider, NodePinnedSerialPorts>();
 
         // The host starts and stops the node's runs. It never used to: registered only as IHostedSession,
         // StartAsync (device discovery) never ran and StopAsync never stopped a run, so a SIGTERM abandoned

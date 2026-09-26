@@ -172,7 +172,7 @@ internal static class SessionEndpoints
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
-            hosted.SetActiveProfile(profileId.Value);
+            await hosted.SetActiveProfileAsync(profileId.Value, ct);
             return EnvelopeResults.Json(
                 ResponseEnvelope<string>.Ok("Session started"),
                 HostingJsonContext.Default.ResponseEnvelopeString);
@@ -294,7 +294,7 @@ internal static class SessionEndpoints
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
-            hosted.SetActiveProfile(profileId.Value);
+            await hosted.SetActiveProfileAsync(profileId.Value, ct);
             return EnvelopeResults.Json(
                 ResponseEnvelope<string>.Ok("Flats started"),
                 HostingJsonContext.Default.ResponseEnvelopeString);
@@ -471,7 +471,7 @@ internal static class SessionEndpoints
         });
 
         // PUT /api/v1/session/profile: set active profile (pre-session)
-        group.MapPut("/profile", (SetProfileRequest request, IHostedSession hosted, IDeviceHub hub) =>
+        group.MapPut("/profile", async (SetProfileRequest request, IHostedSession hosted, IDeviceHub hub, CancellationToken ct) =>
         {
             // Same single-profile-context invariant the GUI/TUI enforce (see ProfileSwitchGate): a
             // running session or connected hardware belongs to the CURRENT profile, so re-pointing the
@@ -484,7 +484,7 @@ internal static class SessionEndpoints
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
-            hosted.SetActiveProfile(request.ProfileId);
+            await hosted.SetActiveProfileAsync(request.ProfileId, ct);
             return EnvelopeResults.Json(
                 ResponseEnvelope<string>.Ok($"Active profile set to {request.ProfileId}"),
                 HostingJsonContext.Default.ResponseEnvelopeString);
