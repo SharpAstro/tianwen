@@ -393,65 +393,125 @@ internal partial record Session
             }
         }
 
-        SetBaselineForCurrentObservation(baselines);
+        // Every telescope was just refocused, so every baseline it had describes a focus position that is gone.
+        for (var i = 0; i < scopes; i++)
+        {
+            ForgetDriftBaselines(i);
+            if (baselines[i].IsValid)
+            {
+                _driftBaselines[DriftBaselineKey.For(ActiveObservationIndex, i, baselines[i])] = baselines[i];
+            }
+        }
+        _baselineByObservation[ActiveObservationIndex] = baselines;
         return allConverged;
     }
 
     private int ActiveObservationIndex => _activeObservation is >= 0 ? _activeObservation : 0;
 
-    private void SetBaselineForCurrentObservation(FrameMetrics[] baselines)
+    /// <summary>
+    /// A focus-drift baseline's key: the telescope, the observation, and the acquisition setting its frames
+    /// were taken with (<see cref="AcquisitionSetting"/>, what <see cref="FrameMetrics.IsComparableTo"/>
+    /// compares). A filter ladder keeps a baseline per slot side by side; AutoFocus files its short
+    /// verification frame under a key no science frame reaches (#820).
+    /// </summary>
+    private readonly record struct DriftBaselineKey(int Observation, int Telescope, AcquisitionSetting Setting)
     {
-        var obsIndex = ActiveObservationIndex;
-        _baselineByObservation[obsIndex] = baselines;
-        _baselineSamples.TryRemove(obsIndex, out _);
-    }
-
-    private FrameMetrics[]? GetBaselineForCurrentObservation()
-    {
-        return _baselineByObservation.TryGetValue(ActiveObservationIndex, out var baselines) ? baselines : null;
+        public static DriftBaselineKey For(int observation, int telescope, in FrameMetrics metrics)
+            => new DriftBaselineKey(observation, telescope, AcquisitionSetting.Of(metrics));
     }
 
     /// <summary>
-    /// Accumulates frame metrics from the first frames of a new target.
-    /// Once <see cref="SessionConfiguration.BaselineHfdFrameCount"/> samples are collected,
-    /// the median metrics are used as the baseline for focus drift detection.
+    /// The baseline <paramref name="metrics"/> is compared with for focus drift: the one established for the
+    /// same telescope, observation and acquisition setting. False while that setting has none yet.
+    /// </summary>
+    private bool TryGetDriftBaseline(int telescopeIndex, in FrameMetrics metrics, out FrameMetrics baseline)
+        => _driftBaselines.TryGetValue(DriftBaselineKey.For(ActiveObservationIndex, telescopeIndex, metrics), out baseline)
+            && baseline.IsValid;
+
+    /// <summary>
+    /// Files <paramref name="baseline"/> under its own setting, and as the telescope's most recent baseline
+    /// in <see cref="BaselineByObservation"/>.
+    /// </summary>
+    private void StoreBaseline(int telescopeIndex, FrameMetrics baseline)
+    {
+        var obsIndex = ActiveObservationIndex;
+        _driftBaselines[DriftBaselineKey.For(obsIndex, telescopeIndex, baseline)] = baseline;
+
+        var baselines = _baselineByObservation.TryGetValue(obsIndex, out var existing)
+            ? (FrameMetrics[])existing.Clone()
+            : new FrameMetrics[Setup.Telescopes.Length];
+        baselines[telescopeIndex] = baseline;
+        _baselineByObservation[obsIndex] = baselines;
+    }
+
+    /// <summary>
+    /// Drops every drift baseline of <paramref name="telescopeIndex"/>, and every collection in progress:
+    /// after its focuser moves, none of them describes the focus position any more.
+    /// </summary>
+    private void ForgetDriftBaselines(int telescopeIndex)
+    {
+        foreach (var key in _driftBaselines.Keys)
+        {
+            if (key.Telescope == telescopeIndex)
+            {
+                _driftBaselines.TryRemove(key, out _);
+            }
+        }
+        foreach (var key in _baselineSamples.Keys)
+        {
+            if (key.Telescope == telescopeIndex)
+            {
+                _baselineSamples.TryRemove(key, out _);
+            }
+        }
+    }
+
+    /// <summary>
+    /// A target change: drift baselines are per target, so only <paramref name="observation"/>'s survive
+    /// (a start-of-night AutoFocus files under the first observation before it becomes active).
+    /// </summary>
+    private void ForgetDriftBaselinesOfOtherObservations(int observation)
+    {
+        foreach (var key in _driftBaselines.Keys)
+        {
+            if (key.Observation != observation)
+            {
+                _driftBaselines.TryRemove(key, out _);
+            }
+        }
+        foreach (var key in _baselineSamples.Keys)
+        {
+            if (key.Observation != observation)
+            {
+                _baselineSamples.TryRemove(key, out _);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Accumulates frame metrics towards the baseline of the frame's own acquisition setting. Once
+    /// <see cref="SessionConfiguration.BaselineHfdFrameCount"/> samples of that setting are collected, their
+    /// median is its baseline for focus drift detection. Each setting collects on its own, so a filter
+    /// ladder changing slot every frame finishes a baseline per slot rather than restarting one forever.
     /// </summary>
     private void AccumulateBaselineSample(int telescopeIndex, FrameMetrics metrics)
     {
         var obsIndex = ActiveObservationIndex;
-        var scopes = Setup.Telescopes.Length;
-        var samples = _baselineSamples.GetOrAdd(obsIndex, _ =>
-        {
-            var arr = new List<FrameMetrics>[scopes];
-            for (var j = 0; j < scopes; j++)
-            {
-                arr[j] = new List<FrameMetrics>();
-            }
-            return arr;
-        });
+        var key = DriftBaselineKey.For(obsIndex, telescopeIndex, metrics);
+        var frameSamples = _baselineSamples.GetOrAdd(key, _ => new List<FrameMetrics>());
+        frameSamples.Add(metrics);
 
-        // A baseline is the median of COMPARABLE frames: a sample taken with other settings
-        // (a filter change mid-collection) restarts the collection rather than joining it.
-        if (samples[telescopeIndex] is [var first, ..] && !first.IsComparableTo(metrics))
+        if (frameSamples.Count >= Configuration.BaselineHfdFrameCount)
         {
-            samples[telescopeIndex].Clear();
-        }
-        samples[telescopeIndex].Add(metrics);
-
-        if (samples[telescopeIndex].Count >= Configuration.BaselineHfdFrameCount)
-        {
-            var frameSamples = samples[telescopeIndex];
             frameSamples.Sort((a, b) => a.MedianHfd.CompareTo(b.MedianHfd));
-            var medianIndex = frameSamples.Count / 2;
-            var medianMetrics = frameSamples[medianIndex];
-
-            var baselines = GetBaselineForCurrentObservation() ?? new FrameMetrics[scopes];
-            baselines[telescopeIndex] = medianMetrics;
-            SetBaselineForCurrentObservation(baselines);
+            var medianMetrics = frameSamples[frameSamples.Count / 2];
+            _baselineSamples.TryRemove(key, out _);
+            StoreBaseline(telescopeIndex, medianMetrics);
 
             _logger.LogInformation(
-                "Established baseline for telescope #{TelescopeNumber} on observation #{ObservationIndex}: HFD={BaselineHFD:F2}, FWHM={BaselineFWHM:F2}, stars={StarCount} (from {FrameCount} frames).",
-                telescopeIndex + 1, obsIndex + 1, medianMetrics.MedianHfd, medianMetrics.MedianFwhm, medianMetrics.StarCount, Configuration.BaselineHfdFrameCount);
+                "Established baseline for telescope #{TelescopeNumber} on observation #{ObservationIndex} ({Exposure}, gain {Gain}, filter position {FilterPosition}): HFD={BaselineHFD:F2}, FWHM={BaselineFWHM:F2}, stars={StarCount} (from {FrameCount} frames).",
+                telescopeIndex + 1, obsIndex + 1, medianMetrics.Exposure, medianMetrics.Gain, medianMetrics.FilterPosition,
+                medianMetrics.MedianHfd, medianMetrics.MedianFwhm, medianMetrics.StarCount, Configuration.BaselineHfdFrameCount);
         }
     }
 
