@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -13,6 +14,7 @@ using System.Threading.Tasks;
 using TianWen.Hosting.Api;
 using TianWen.Hosting.Dto;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Imaging;
 
 namespace TianWen.RemoteClient
 {
@@ -62,6 +64,30 @@ namespace TianWen.RemoteClient
         /// <summary>True when <see cref="Jpeg"/> holds a frame to decode.</summary>
         [MemberNotNullWhen(true, nameof(Jpeg))]
         public bool HasImage => Jpeg is { Length: > 0 };
+    }
+
+    /// <summary>
+    /// What <see cref="TianWenNodeClient.GetLatestFrameAsync"/> answered: a new linear frame (the caller's, read into a plane
+    /// the <see cref="FrameReader"/> recycles once the caller releases it), the frame the caller already holds, no frame
+    /// yet, or a failure.
+    /// </summary>
+    public readonly record struct FrameResult(Image? Image, int? FrameNumber, bool IsUnchanged, string? Error)
+    {
+        /// <summary>A new frame arrived; the caller releases <see cref="Image"/> when done with it.</summary>
+        public static FrameResult Ok(Image image, int? frameNumber) => new FrameResult(image, frameNumber, false, null);
+
+        /// <summary>The source still shows the frame the caller holds; nothing was transferred.</summary>
+        public static FrameResult Unchanged(int? frameNumber) => new FrameResult(null, frameNumber, true, null);
+
+        /// <summary>The source has no frame to show (no run, or none captured yet): the endpoint's 404.</summary>
+        public static FrameResult None => new FrameResult(null, null, false, null);
+
+        /// <summary>The fetch failed.</summary>
+        public static FrameResult Fail(string error) => new FrameResult(null, null, false, error);
+
+        /// <summary>True when <see cref="Image"/> holds a frame.</summary>
+        [MemberNotNullWhen(true, nameof(Image))]
+        public bool HasImage => Image is not null;
     }
 
     /// <summary>
@@ -552,6 +578,48 @@ namespace TianWen.RemoteClient
                 }
 
                 return PreviewResult.Ok(bytes, frameNumber);
+            }
+        }
+
+        /// <summary>
+        /// <c>GET /frames/{source}/latest</c> -- the frame <paramref name="source"/> shows now, LINEAR and full-resolution
+        /// (<see cref="FrameWire"/>), read through <paramref name="reader"/>, which recycles a released frame's planes (one
+        /// reader per source). Pass the number of the frame held as <paramref name="after"/> and the node answers 204,
+        /// touching nothing, while its source still shows it (<see cref="FrameResult.IsUnchanged"/>). A <c>FRAME-AVAILABLE</c>
+        /// push says when to ask. On the preview budget: the body is the slow part.
+        /// </summary>
+        /// <param name="source">A <see cref="FrameSources"/> name: <c>ota/{index}</c> or <c>guider</c>.</param>
+        public async Task<FrameResult> GetLatestFrameAsync(string source, int? after, FrameReader reader, CancellationToken cancellationToken)
+        {
+            var path = $"api/v1/frames/{source}/latest{(after is { } held ? $"?after={held.ToString(CultureInfo.InvariantCulture)}" : "")}";
+            using var request = new HttpRequestMessage(HttpMethod.Get, path);
+            using var budgeted = WithBudget(_timeouts.Preview, cancellationToken);
+            try
+            {
+                using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, budgeted.Token).ConfigureAwait(false);
+                var number = TryReadFrameNumber(response) is { } n ? (int?)n : null;
+                if (response.StatusCode is HttpStatusCode.NoContent)
+                {
+                    return FrameResult.Unchanged(number);
+                }
+                if (!response.IsSuccessStatusCode)
+                {
+                    // 404 is the ordinary "no frame to show" answer, not a fault to report.
+                    return response.StatusCode is HttpStatusCode.NotFound
+                        ? FrameResult.None
+                        : FrameResult.Fail($"{(int)response.StatusCode} {response.ReasonPhrase}");
+                }
+
+                await using var body = await response.Content.ReadAsStreamAsync(budgeted.Token).ConfigureAwait(false);
+                return FrameResult.Ok(await reader.ReadAsync(body, budgeted.Token).ConfigureAwait(false), number);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or IOException or InvalidDataException)
+            {
+                return FrameResult.Fail(ex is OperationCanceledException ? TimedOut(_timeouts.Preview) : ex.Message);
             }
         }
 

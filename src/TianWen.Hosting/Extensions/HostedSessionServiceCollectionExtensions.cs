@@ -126,6 +126,7 @@ public static class HostedSessionServiceCollectionExtensions
         app.MapJobApi();
         app.MapImageApi();
         app.MapPreviewApi();
+        app.MapFrameApi();
         app.MapWebSocketEndpoint();
 
         // ASCOM Alpaca DEVICE plane (docs/plans/remote-profile.md P5). Shares the /api/v1 prefix, which

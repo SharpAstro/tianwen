@@ -91,6 +91,19 @@ internal static class BroadcastEvents
         }
     };
 
+    /// <summary>
+    /// A frame source shows a new frame. The latency hint: <c>GET /api/v1/frames/{source}/latest</c> is authoritative (P4
+    /// part 2, #931).
+    /// </summary>
+    public static WebSocketEventDto FrameAvailable(FrameAvailableDto frame) => new WebSocketEventDto
+    {
+        Event = Api.NodeWire.FrameAvailableEvent,
+        Data = new Dictionary<string, object?>
+        {
+            [FrameAvailableDto.EventKey] = frame
+        }
+    };
+
     /// <summary>A job started, moved on or ended. The latency hint: <c>GET /api/v1/jobs/{id}</c> is authoritative.</summary>
     public static WebSocketEventDto JobProgress(JobDto job) => new WebSocketEventDto
     {

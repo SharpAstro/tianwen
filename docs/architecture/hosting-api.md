@@ -622,7 +622,27 @@ save) needs it LINEAR, in floats, which the preview JPEG is not: it is stretched
   shape.
 
 Pinned by `FrameWireTests`, including a frame from the fake camera itself coming back bit for bit with its metadata.
-The route that serves a frame, the push that announces one, and compression over TCP follow in P4's later parts.
+
+**The route and the push** (P4 part 2). `GET /api/v1/frames/ota/{index}/latest` and `/api/v1/frames/guider/latest` serve
+the frame a source shows now, the same slot and guide frame the JPEG previews encode (`FrameSources`):
+
+- **The number answers first.** A request names the number of the frame it holds (`after`); while the source still shows
+  that one the answer is a 204 carrying the number, and nothing is leased. The number is read before the frame, so it can
+  name one older than the pixels served (a wasted refetch) but never a newer one (a skipped frame). Compare for
+  difference, not order: a new run numbers from the start.
+- **The frame is leased for the write**, so the slot keeps it for whoever asks next.
+- **`FRAME-AVAILABLE`** (`FrameAvailableDto`: the source and the number) is pushed by the broadcaster's poll when a
+  source's number moves, a new run's from nothing, so a frame that lands before the first poll is announced too. A hint:
+  the route is authoritative.
+- `TianWenNodeClient.GetLatestFrameAsync(source, after, reader)` reads through a `FrameReader` the caller keeps per source.
+
+**Measured** (Release, this 16-core x64 desktop, with another session's builds running): a 26 MP frame (6248 x 4176)
+crosses the socket into a recycled plane in 37 to 38 ms packed to 16 bits and 37 to 42 ms as floats. The plan had
+extrapolated about 40 and 80: on the local socket the copy is cheap enough that twice the bytes cost almost nothing, and
+packing earns its keep over TCP. The first run found the 16-bit pack's scalar loop slower than the bytes it saved (187 ms
+against 42 in Debug, 29 ms of a 37.5 ms write in Release); it is vectorised through signed 32 bits, since the unsigned
+float conversion is emulated below AVX-512 and measured slower than the scalar loop. `NodeFrameTests` pins the route,
+the 204, the guider, the push and the measurement.
 
 ## The ASCOM Alpaca device plane
 
