@@ -38,4 +38,10 @@ public static class NodeExitCodes
 
     /// <summary>A keeper could not start its node at all (the executable is missing or cannot run).</summary>
     public const int CouldNotStart = 5;
+
+    /// <summary>
+    /// The node stopped to start again at once, to apply a change it reads only at start (sharing the rig on the LAN).
+    /// Its keeper starts it again, and does not count it as a crash.
+    /// </summary>
+    public const int Restart = 6;
 }

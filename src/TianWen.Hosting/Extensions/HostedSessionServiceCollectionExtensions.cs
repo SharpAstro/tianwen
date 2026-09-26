@@ -50,6 +50,11 @@ public static class HostedSessionServiceCollectionExtensions
         // NodeListening; one that registers none is described as listening nowhere.
         services.AddSingleton(sp => NodeIdentity.Load(sp.GetRequiredService<IExternal>()));
         services.TryAddSingleton(new NodeListening(SocketPath: null, LanPort: null));
+        // How the node was started and will end, and its machine settings: a host that knows better registers its own.
+        // No INodeLogonStart here: a host that may start the node at logon registers one, so a test can never write
+        // the user's real entry by forgetting to replace a default.
+        services.TryAddSingleton(new NodeRole(spawned: false));
+        services.TryAddSingleton(sp => new NodeSettingsStore(sp.GetRequiredService<IExternal>(), NodeSettings.Default));
 
         // The host starts and stops the node's runs. It never used to: registered only as IHostedSession,
         // StartAsync (device discovery) never ran and StopAsync never stopped a run, so a SIGTERM abandoned

@@ -27,6 +27,12 @@ public sealed class NodeInfoDto
     /// <summary>Whether the node is reachable from the LAN (it listens on TCP), not only on this machine's socket.</summary>
     public bool IsShared { get; init; }
 
+    /// <summary>
+    /// The machine's "Share this rig on the LAN" setting (<c>PUT /api/v1/node/share</c>). A node a client started listens
+    /// on the LAN only while it is on, from its next start; a node run by hand listens as its command line says.
+    /// </summary>
+    public bool ShareOnLan { get; init; }
+
     /// <summary>TianWen clients attached to the event stream now. Only the last one asks before a window closes.</summary>
     public int ClientsAttached { get; init; }
 
