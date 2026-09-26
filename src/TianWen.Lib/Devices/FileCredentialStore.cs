@@ -9,9 +9,11 @@ namespace TianWen.Lib.Devices;
 /// <see cref="ICredentialStore"/> fallback for non-Windows platforms: one file per secret under
 /// <c>{AppData}/Secrets</c>, restricted to the owner (<c>0600</c>) where the OS supports it. This is
 /// the same protection level the profile JSON already has; a libsecret / macOS-Keychain backend can
-/// drop in later behind the same interface. Windows uses <see cref="WindowsCredentialStore"/> instead.
+/// drop in later behind the same interface. Windows uses <see cref="WindowsCredentialStore"/> instead,
+/// except under a data root kept apart from the user's (<see cref="TianWenDataRoot.IsOverridden"/>), and a
+/// node that composes no store of its own falls back to this one.
 /// </summary>
-internal sealed class FileCredentialStore(IExternal external) : ICredentialStore
+public sealed class FileCredentialStore(IExternal external) : ICredentialStore
 {
     private readonly Lock _gate = new(); // serializes Get/Set against the per-key secret file; Set's write-to-temp-then-rename must not interleave with a concurrent read of the same key
 

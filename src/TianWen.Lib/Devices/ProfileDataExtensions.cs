@@ -53,6 +53,64 @@ public static class ProfileDataExtensions
             return changed ? (profile with { OTAs = [.. newOtas] }, true) : (profile, false);
         }
 
+        /// <summary>
+        /// The profile with <paramref name="oldUri"/> replaced by <paramref name="newUri"/> in whichever slot it occupies
+        /// (mount, guider, guider camera or focuser, weather, or an OTA's slots), matched by device, so a changed query
+        /// still finds it. The mount keeps the query keys it had that <paramref name="newUri"/> does not set (its site,
+        /// for one).
+        /// </summary>
+        public ProfileData ReplaceDeviceUri(Uri oldUri, Uri newUri)
+        {
+            var data = profile;
+            if (DeviceBase.SameDevice(data.Mount, oldUri))
+            {
+                var baseQuery = HttpUtility.ParseQueryString(data.Mount.Query);
+                var newQuery = HttpUtility.ParseQueryString(newUri.Query);
+                foreach (string? key in newQuery)
+                {
+                    if (key is not null)
+                    {
+                        baseQuery[key] = newQuery[key];
+                    }
+                }
+                data = data with { Mount = new UriBuilder(newUri) { Query = baseQuery.ToString() }.Uri };
+            }
+            if (DeviceBase.SameDevice(data.Guider, oldUri))
+            {
+                data = data with { Guider = newUri };
+            }
+            if (DeviceBase.SameDevice(data.GuiderCamera, oldUri))
+            {
+                data = data with { GuiderCamera = newUri };
+            }
+            if (DeviceBase.SameDevice(data.GuiderFocuser, oldUri))
+            {
+                data = data with { GuiderFocuser = newUri };
+            }
+            if (DeviceBase.SameDevice(data.Weather, oldUri))
+            {
+                data = data with { Weather = newUri };
+            }
+
+            for (var i = 0; i < data.OTAs.Length; i++)
+            {
+                var ota = data.OTAs[i];
+                var changed = false;
+
+                if (DeviceBase.SameDevice(ota.Camera, oldUri)) { ota = ota with { Camera = newUri }; changed = true; }
+                if (DeviceBase.SameDevice(ota.Focuser, oldUri)) { ota = ota with { Focuser = newUri }; changed = true; }
+                if (DeviceBase.SameDevice(ota.FilterWheel, oldUri)) { ota = ota with { FilterWheel = newUri }; changed = true; }
+                if (DeviceBase.SameDevice(ota.Cover, oldUri)) { ota = ota with { Cover = newUri }; changed = true; }
+
+                if (changed)
+                {
+                    data = data with { OTAs = data.OTAs.SetItem(i, ota) };
+                }
+            }
+
+            return data;
+        }
+
         /// <summary>The profile with <paramref name="site"/> as its site, elevation included.</summary>
         public ProfileData WithSite(SiteCoordinates site)
             => profile with { SiteLatitude = site.Latitude, SiteLongitude = site.Longitude, SiteElevation = site.Elevation };

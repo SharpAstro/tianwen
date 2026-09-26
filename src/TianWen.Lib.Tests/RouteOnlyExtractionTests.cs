@@ -104,7 +104,7 @@ public class RouteOnlyExtractionTests(ITestOutputHelper output)
 
         var result = EquipmentActions.CommitDeviceSetting(owm.DeviceUri, "apiKey", "sk-123", store);
 
-        result.Kind.ShouldBe(EquipmentActions.DeviceSettingCommitKind.StoredSecret);
+        result.Kind.ShouldBe(DeviceSettingCommitKind.StoredSecret);
         result.NewUri.ShouldBeNull();
         result.IsWeatherSecret.ShouldBeTrue();
         // The secret landed in the store under the device-keyed slot, NOT on the URI.
@@ -120,7 +120,7 @@ public class RouteOnlyExtractionTests(ITestOutputHelper output)
 
         var result = EquipmentActions.CommitDeviceSetting(owm.DeviceUri, "units", "metric", store);
 
-        result.Kind.ShouldBe(EquipmentActions.DeviceSettingCommitKind.UriParam);
+        result.Kind.ShouldBe(DeviceSettingCommitKind.UriParam);
         result.IsWeatherSecret.ShouldBeFalse();
         result.NewUri.ShouldNotBeNull();
         result.NewUri!.Query.ShouldContain("units=metric");

@@ -519,11 +519,15 @@ across profiles (enter once).
   The `CREDENTIAL` struct keeps string fields as `IntPtr` (hand-marshalled) so it stays blittable.
 - **Non-Windows**: `FileCredentialStore`; owner-only (`0600`) file per secret under `AppData/Secrets`.
   A libsecret / macOS-Keychain backend can drop in later behind the same interface.
-- OS-selected in `AddExternal`. Tests exercise `FileCredentialStore` over a temp dir (the Windows
-  vault is not unit-tested; it would write to the real per-user store).
+- OS-selected in `AddExternal`, **and the file store on any OS under `TIANWEN_DATA_ROOT`**
+  (`TianWenDataRoot.IsOverridden`): a data tree kept apart from the user's (a test's node) must not write the user's
+  vault. A node composed without `AddExternal` falls back to the file store under its own data folder. Tests exercise
+  `FileCredentialStore` over a temp dir (the Windows vault is not unit-tested; it would write to the real per-user store).
 
-A masked `DeviceSettingDescriptor` (`Mask: true`) routes its edit to the store, never the URI
-(`AppSignalHandler`'s `StringSettingInput.OnCommit`; it re-fetches weather afterwards). A leftover
+A masked `DeviceSettingDescriptor` (`Mask: true`) routes its edit to the store, never the URI, by ONE rule for the GUI
+and the node (`DeviceSettingHelper.Commit`; the GUI through `AppSignalHandler`'s `StringSettingInput.OnCommit`, which
+re-fetches weather afterwards, the node through `PUT /api/v1/devices/setting`, socket only, which never answers the
+value back). A leftover
 `?apiKey=` on a URI is ignored; the driver only reads the store. **Deferred:** a per-profile
 override of the shared per-device key (would need an active-profile-id provider at driver-creation
 time, since `NewInstanceFromDevice(sp)` has no profile context).
@@ -1905,7 +1909,7 @@ TianWen/
 ├── ObjectImages/       # Wikimedia object pictures, one file per (image, standard width) (ObjectPictureStore)
 ├── SmallBodies/        # JPL SBDB comet cache: comets.json + apparitions.json
 ├── models/             # AI ONNX models (ModelResolver; also probes SASpro's own models dir)
-├── Secrets/            # Non-Windows only: 0600 file per device secret (Windows uses Credential Manager)
+├── Secrets/            # 0600 file per device secret, non-Windows or a TIANWEN_DATA_ROOT tree (else Credential Manager)
 ├── node.sock           # The machine's node's socket (NodeSocket), owner-only on Unix
 ├── node.lock           # One node per socket: held for the node's life, never deleted (NodeLock)
 ├── node-settings.json  # The node's own state: "Share this rig on the LAN" and its active profile (NodeSettings)

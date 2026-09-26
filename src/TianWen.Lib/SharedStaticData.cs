@@ -39,4 +39,10 @@ public static class TianWenDataRoot
     public const string EnvironmentVariable = "TIANWEN_DATA_ROOT";
 
     public static DirectoryInfo Directory => SharedStaticData.CommonDataRoot;
+
+    /// <summary>
+    /// Whether <see cref="EnvironmentVariable"/> names the folder, so this process's data is kept apart from the user's:
+    /// its secrets then live in a file under it too, never in the user's OS credential vault.
+    /// </summary>
+    public static bool IsOverridden { get; } = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(EnvironmentVariable));
 }

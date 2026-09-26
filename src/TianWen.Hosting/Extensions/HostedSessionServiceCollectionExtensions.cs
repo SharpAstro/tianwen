@@ -45,6 +45,9 @@ public static class HostedSessionServiceCollectionExtensions
         services.AddSingleton<DeviceOperations>();
         // The node's one profile writer (P3 part 1, #930): every profile write, whoever asked, pushes PROFILE-CHANGED.
         services.AddSingleton<NodeProfiles>();
+        // Where a masked device setting goes (P3 part 4). A host that composes AddExternal has chosen one already; any
+        // other keeps its secrets in a file under its own data folder.
+        services.TryAddSingleton<ICredentialStore>(sp => new FileCredentialStore(sp.GetRequiredService<IExternal>()));
         // What a run writes back into its profile as it ends (the backlash mirror, P3 part 3). Registered before the host
         // of the runs, so it stops after it and a run's last write is awaited.
         services.AddHostedService<NodeRunProfileWrites>();

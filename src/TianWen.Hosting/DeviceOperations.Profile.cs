@@ -1,6 +1,8 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Hosting.Api;
+using TianWen.Hosting.Dto;
 using TianWen.Lib.Devices;
 
 namespace TianWen.Hosting;
@@ -48,6 +50,55 @@ internal sealed partial class DeviceOperations
             default:
                 return null;
         }
+    }
+
+    /// <summary>
+    /// Commits one of a device's settings, as the Equipment tab's text field does (P3 part 4, #930), by the rule the GUI
+    /// applies (<see cref="DeviceSettingHelper.Commit"/>): a masked setting goes into the node's credential store, keyed by
+    /// device and never echoed back; any other goes onto the device's URI, written into the named profile through the one
+    /// profile writer.
+    /// </summary>
+    public async Task<ResponseEnvelope<DeviceSettingDto>> CommitSettingAsync(DeviceSettingRequestDto request, CancellationToken cancellationToken)
+    {
+        if (!TryParse(request.DeviceUri, out var uri, out var refused))
+        {
+            return refused.Value.As<DeviceSettingDto>();
+        }
+        if (string.IsNullOrWhiteSpace(request.Key))
+        {
+            return ResponseEnvelope<DeviceSettingDto>.Fail("Name the setting's key");
+        }
+
+        var device = hub.TryGetDeviceFromUri(uri, out var known) ? known : null;
+        var commit = DeviceSettingHelper.Commit(device, uri, request.Key, request.Value, credentials);
+        if (commit is not { Kind: DeviceSettingCommitKind.UriParam, NewUri: { } newUri })
+        {
+            return ResponseEnvelope<DeviceSettingDto>.Ok(new DeviceSettingDto { Secret = true, DeviceUri = uri.ToString() });
+        }
+        if (request.ProfileId is not { } profileId)
+        {
+            return ResponseEnvelope<DeviceSettingDto>.Ok(new DeviceSettingDto { Secret = false, DeviceUri = newUri.ToString() });
+        }
+
+        var write = await profiles.UpdateAsync(profileId, readAt: null,
+            current => current.Data is { } data ? current.WithData(data.ReplaceDeviceUri(uri, newUri)) : current, cancellationToken);
+        return write.Stored is { } stored
+            ? ResponseEnvelope<DeviceSettingDto>.Ok(new DeviceSettingDto { Secret = false, DeviceUri = newUri.ToString(), Revision = stored.Revision })
+            : ResponseEnvelope<DeviceSettingDto>.NotFound($"Profile {profileId} not found");
+    }
+
+    /// <summary>Whether the device's masked setting <paramref name="key"/> has a value in the node's credential store.</summary>
+    public ResponseEnvelope<DeviceSecretDto> SecretIsSet(string deviceUri, string key)
+    {
+        if (!TryParse(deviceUri, out var uri, out var refused))
+        {
+            return refused.Value.As<DeviceSecretDto>();
+        }
+        if (!hub.TryGetDeviceFromUri(uri, out var device) || !DeviceSettingHelper.IsSecret(device, key))
+        {
+            return ResponseEnvelope<DeviceSecretDto>.NotFound($"{key} is not a masked setting of {uri}");
+        }
+        return ResponseEnvelope<DeviceSecretDto>.Ok(new DeviceSecretDto { IsSet = credentials.Get(ICredentialStore.KeyFor(device.DeviceId, key)) is { Length: > 0 } });
     }
 
     /// <summary>

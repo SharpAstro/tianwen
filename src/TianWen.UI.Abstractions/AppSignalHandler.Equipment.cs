@@ -239,7 +239,7 @@ namespace TianWen.UI.Abstractions
                 // query-param URI for the rest) lives in EquipmentActions; this routes.
                 var commit = EquipmentActions.CommitDeviceSetting(
                     editUri, key, value, sp.GetRequiredService<ICredentialStore>());
-                if (commit.Kind == EquipmentActions.DeviceSettingCommitKind.StoredSecret)
+                if (commit.Kind == DeviceSettingCommitKind.StoredSecret)
                 {
                     // The URI/profile is unchanged, so the refetch-on-weather-URI-change path won't
                     // fire; re-fetch here now that the key may have become available.
@@ -256,7 +256,7 @@ namespace TianWen.UI.Abstractions
                 if (appState.ActiveProfile is { Data: { } data } && commit.NewUri is { } newUri
                     && eqState.SavedDeviceSettingsUri is { } savedUri)
                 {
-                    var newData = EquipmentActions.UpdateDeviceUri(data, savedUri, newUri);
+                    var newData = data.ReplaceDeviceUri(savedUri, newUri);
                     bus.Post(new UpdateProfileSignal(newData));
                     eqState.BeginEditingDeviceSettings(newUri);
                 }
