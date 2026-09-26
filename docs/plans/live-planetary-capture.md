@@ -134,6 +134,13 @@ releases). D and E are hardware/quality upgrades behind the same contract.
 - `TianWen.Lib/Imaging/Planetary/PlanetaryCapture.cs` -- the camera capture loop + the frame stream, the live
   controls and the recenter; native video or rapid-exposure fallback, picked by capability. Lifted out of the
   controller for P5 part 5 of `hardware-in-the-server.md` (#934), so the node runs the same loop.
+  Its start is two halves, `TryPrepare` (camera, claim, window, a refusal in words) and `StartPrepared` (the loop,
+  on the token it is given); `TryStart` is both, for the GUI. A new window size is snapped to the camera's rule in
+  the loop, for every host.
+- `TianWen.Hosting/NodePlanetary.cs` -- the node's run (`/api/v1/planetary`, P5 part 5b): the same capture, the
+  rolling stack on the run's own task (`RollingWindowStacker`, the master published linear), and the live frame
+  copied at display rate by `FrameSampler` (Lib), both served as frames (`planetary/live`, `planetary/master`).
+  It stops once no client has watched it for the detach grace.
 - `TianWen.UI.Abstractions/PlanetaryCaptureController.cs` -- owns a `PlanetaryCapture`; `Tick()` (render
   thread) follows latest + publishes the master + pushes wavelet-sharpen changes.
 - `ViewerState.BuildWaveletOptions()` -- the single source for live-stack wavelet options, now shared by

@@ -413,6 +413,29 @@ namespace TianWen.RemoteClient
             SendAsync(HttpMethod.Delete, "api/v1/polar", null, HostingJsonContext.Default.ResponseEnvelopePolarStateDto, _timeouts.Control, cancellationToken);
 
         /// <summary>
+        /// <c>POST /planetary</c> -- a live planetary capture as the node's run (P5 part 5 of docs/plans/hardware-in-the-server.md),
+        /// stacked on the node. Its frames are <see cref="FrameSources.PlanetaryLive"/> and <see cref="FrameSources.PlanetaryMaster"/>
+        /// (<see cref="GetLatestFrameAsync"/>); it runs until <see cref="StopPlanetaryAsync"/>, or by itself until this client has
+        /// stopped beating for the node's detach grace.
+        /// </summary>
+        public Task<NodeResult<PlanetaryStateDto>> StartPlanetaryAsync(PlanetaryRequestDto request, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/planetary", request, HostingJsonContext.Default.PlanetaryRequestDto,
+                HostingJsonContext.Default.ResponseEnvelopePlanetaryStateDto, _timeouts.Control, cancellationToken);
+
+        /// <summary><c>GET /planetary</c> -- the planetary capture going on, or the last one to end.</summary>
+        public Task<NodeResult<PlanetaryStateDto>> GetPlanetaryAsync(CancellationToken cancellationToken) =>
+            GetAsync("api/v1/planetary", HostingJsonContext.Default.ResponseEnvelopePlanetaryStateDto, _timeouts.StatePoll, cancellationToken);
+
+        /// <summary><c>PUT /planetary/controls</c> -- a change to the capture going on, which it takes after its next frame.</summary>
+        public Task<NodeResult<PlanetaryStateDto>> SetPlanetaryControlsAsync(PlanetaryControlsDto controls, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Put, "api/v1/planetary/controls", controls, HostingJsonContext.Default.PlanetaryControlsDto,
+                HostingJsonContext.Default.ResponseEnvelopePlanetaryStateDto, _timeouts.Control, cancellationToken);
+
+        /// <summary><c>DELETE /planetary</c> -- ends the planetary capture going on, answered once it has.</summary>
+        public Task<NodeResult<PlanetaryStateDto>> StopPlanetaryAsync(CancellationToken cancellationToken) =>
+            SendAsync(HttpMethod.Delete, "api/v1/planetary", null, HostingJsonContext.Default.ResponseEnvelopePlanetaryStateDto, _timeouts.Control, cancellationToken);
+
+        /// <summary>
         /// <c>POST /preview/ota/{index}/exposure</c> -- a preview exposure with OTA <paramref name="otaIndex"/>'s camera outside a
         /// session, as a job (P5 part 2 of docs/plans/hardware-in-the-server.md). Its frame is then the OTA's, served by
         /// <see cref="GetLatestFrameAsync"/>.
@@ -656,7 +679,8 @@ namespace TianWen.RemoteClient
         /// touching nothing, while its source still shows it (<see cref="FrameResult.IsUnchanged"/>). A <c>FRAME-AVAILABLE</c>
         /// push says when to ask. On the preview budget: the body is the slow part.
         /// </summary>
-        /// <param name="source">A <see cref="FrameSources"/> name: <c>ota/{index}</c> or <c>guider</c>.</param>
+        /// <param name="source">A <see cref="FrameSources"/> name: <c>ota/{index}</c>, <c>guider</c>, <c>planetary/live</c> or
+        /// <c>planetary/master</c>.</param>
         public async Task<FrameResult> GetLatestFrameAsync(string source, int? after, FrameReader reader, CancellationToken cancellationToken)
         {
             var path = $"api/v1/frames/{source}/latest{(after is { } held ? $"?after={held.ToString(CultureInfo.InvariantCulture)}" : "")}";

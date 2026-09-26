@@ -1,0 +1,321 @@
+using System;
+using System.Diagnostics.CodeAnalysis;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using TianWen.Hosting.Api;
+using TianWen.Hosting.Dto;
+using TianWen.Lib.Devices;
+using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Planetary;
+
+namespace TianWen.Hosting;
+
+/// <summary>
+/// A live planetary capture as the node's run (P5 part 5 of docs/plans/hardware-in-the-server.md, #934): the GUI's own
+/// capture loop, <see cref="PlanetaryCapture"/>, through the node's camera, and the rolling stack the GUI draws from, run
+/// here instead (decision 5: only the master and a live frame cross). A client watches both through <c>/frames</c>
+/// (<see cref="FrameSources.PlanetaryLive"/>, <see cref="FrameSources.PlanetaryMaster"/>) and turns the knobs through
+/// <c>PUT /api/v1/planetary/controls</c>.
+/// </summary>
+/// <remarks>
+/// <para>The refusals come in the device plane's order: what is asked for first, a run going on, the profile, a job
+/// working on the camera, then what the capture itself refuses (the OTA, the camera, and the claim, which names whoever
+/// holds it).</para>
+/// <para>It ends by itself once no client has watched it for the detach grace (<see cref="NodeRunWatch"/>): a live view
+/// nobody sees holds a camera for nobody.</para>
+/// </remarks>
+internal sealed class NodePlanetary(IDeviceHub hub, NodeJobs jobs, IHostedSession hosted, NodeFrames frames, IExternal external,
+    ITimeProvider timeProvider, ILogger<NodePlanetary> logger)
+{
+    public async Task<ResponseEnvelope<PlanetaryStateDto>> StartAsync(PlanetaryRequestDto request, CancellationToken cancellationToken)
+    {
+        if (Invalid(request.ExposureMs, request.Gain, request.RoiWidth, request.RoiHeight) is { } invalid)
+        {
+            return ResponseEnvelope<PlanetaryStateDto>.Fail(invalid);
+        }
+        if (hosted.RunningKind is { } running)
+        {
+            return ResponseEnvelope<PlanetaryStateDto>.Fail(NodeRuns.AlreadyGoingOn(running), 409);
+        }
+        if (hosted.ActiveProfileId is not { } profileId || await Profile.TryReadDataAsync(external, profileId, cancellationToken) is not { } data)
+        {
+            return ResponseEnvelope<PlanetaryStateDto>.Fail("The node has no active profile to capture with", 409);
+        }
+        if (request.OtaIndex >= 0 && request.OtaIndex < data.OTAs.Length && jobs.TryGetRunningOn(data.OTAs[request.OtaIndex].Camera, out var job))
+        {
+            return ResponseEnvelope<PlanetaryStateDto>.Fail($"The camera is busy: a {job.Kind} of it is running (job {job.Id})", 409);
+        }
+
+        var run = new NodePlanetaryRun(frames, timeProvider, logger);
+        var capture = new PlanetaryCaptureRequest(request.OtaIndex, TimeSpan.FromMilliseconds(request.ExposureMs), request.Gain,
+            request.RoiWidth, request.RoiHeight);
+        if (!run.TryPrepare(capture, data, hub, out var refusal))
+        {
+            await run.DisposeAsync();
+            return ResponseEnvelope<PlanetaryStateDto>.Fail(refusal, 409);
+        }
+        run.Configure(request.Recenter ?? new PlanetaryRecenterDto());
+
+        if (!await hosted.TryStartAsync(run, profileId))
+        {
+            // Another run won the node between the check above and the start: the claim goes back with this one.
+            await run.DisposeAsync();
+            return ResponseEnvelope<PlanetaryStateDto>.Fail(NodeRuns.AlreadyGoingOn(hosted.RunningKind), 409);
+        }
+
+        logger.LogInformation("Planetary capture with {Camera} at {Exposure} ms", run.State.Camera, request.ExposureMs);
+        return ResponseEnvelope<PlanetaryStateDto>.Accepted(run.State);
+    }
+
+    /// <summary>The planetary capture going on, or the last one to end until the node's next run replaces it.</summary>
+    public ResponseEnvelope<PlanetaryStateDto> State()
+        => hosted.CurrentRun is NodePlanetaryRun run
+            ? ResponseEnvelope<PlanetaryStateDto>.Ok(run.State)
+            : ResponseEnvelope<PlanetaryStateDto>.NotFound("The node has run no planetary capture since its last run");
+
+    /// <summary>Stages a change to the capture going on, which it takes after its next frame.</summary>
+    public ResponseEnvelope<PlanetaryStateDto> Controls(PlanetaryControlsDto controls)
+    {
+        if ((controls.RoiWidth is null) != (controls.RoiHeight is null))
+        {
+            return ResponseEnvelope<PlanetaryStateDto>.Fail("A readout window is resized by its width and its height together");
+        }
+        if (Invalid(controls.ExposureMs ?? 1, controls.Gain, controls.RoiWidth ?? 1, controls.RoiHeight ?? 1) is { } invalid)
+        {
+            return ResponseEnvelope<PlanetaryStateDto>.Fail(invalid);
+        }
+        if (hosted.CurrentRun is not NodePlanetaryRun { IsRunning: true } run)
+        {
+            return ResponseEnvelope<PlanetaryStateDto>.NotFound("No planetary capture is running");
+        }
+
+        run.Apply(controls);
+        return ResponseEnvelope<PlanetaryStateDto>.Ok(run.State);
+    }
+
+    /// <summary>Ends the planetary capture going on, and answers once it has: a capture drains within a frame or two.</summary>
+    public async Task<ResponseEnvelope<PlanetaryStateDto>> StopAsync(CancellationToken cancellationToken)
+    {
+        // Only a planetary capture: a stop meant for one must never abort a run that replaced it.
+        if (hosted.CurrentRun is not NodePlanetaryRun { IsRunning: true } run || hosted.TryAbort(run) is not { } ended)
+        {
+            return ResponseEnvelope<PlanetaryStateDto>.NotFound("No planetary capture is running");
+        }
+
+        await ended.WaitAsync(cancellationToken);
+        return ResponseEnvelope<PlanetaryStateDto>.Ok(run.State);
+    }
+
+    // What the capture is asked to stream at, checked before anything is touched: the camera would take none of these.
+    private static string? Invalid(double exposureMs, short? gain, int roiWidth, int roiHeight)
+        => !double.IsFinite(exposureMs) || exposureMs <= 0 ? "A planetary capture needs a positive exposure"
+            : gain is < 0 ? "A gain is 0 or more"
+            : roiWidth < 1 || roiHeight < 1 ? "A readout window is at least one pixel each way"
+            : null;
+}
+
+/// <summary>
+/// One live planetary capture, as the node runs it: the capture loop, the rolling stack over what it streams, and the
+/// frames a client watches. The stack runs on the run's own task, one master at a time, so the stacker has its single
+/// writer and nothing reads the capture's stream once the run is done.
+/// </summary>
+internal sealed class NodePlanetaryRun : INodeRun
+{
+    /// <summary>How often the live frame is shown at most: display rate, not the camera's (the video-rate channel is P5 part 5c).</summary>
+    internal static readonly TimeSpan LiveFrameInterval = TimeSpan.FromMilliseconds(100);
+
+    /// <summary>How long the stack waits after one master before it stacks the next.</summary>
+    internal static readonly TimeSpan StackInterval = TimeSpan.FromMilliseconds(250);
+
+    private readonly NodeFrames _frames;
+    private readonly ITimeProvider _timeProvider;
+    private readonly ILogger _logger;
+    private readonly RollingWindowOptions _stackOptions;
+    private readonly FrameSampler _live;
+    private int _otaIndex;
+    private string _camera = "";
+    private int _roiWidth;
+    private int _roiHeight;
+    private int _masters;
+    private int _stackedFrames;
+    private int _ended;
+
+    public NodePlanetaryRun(NodeFrames frames, ITimeProvider timeProvider, ILogger logger, RollingWindowOptions? stackOptions = null)
+    {
+        _frames = frames;
+        _timeProvider = timeProvider;
+        _logger = logger;
+        _stackOptions = stackOptions ?? new RollingWindowOptions();
+        _live = new FrameSampler(timeProvider, LiveFrameInterval, nameof(NodePlanetaryRun) + ".Live");
+        Capture = new PlanetaryCapture(timeProvider, logger, _stackOptions, onFrame: Show);
+    }
+
+    /// <summary>The capture loop, which the tests step frame by frame.</summary>
+    internal PlanetaryCapture Capture { get; }
+
+    public NodeRunKind Kind => NodeRunKind.Planetary;
+
+    /// <summary>A live view: nobody watching is a camera held for nobody. A recording to disk will not be (P5 part 5d).</summary>
+    public bool EndsUnwatched => true;
+
+    /// <summary>Until its body has ended, whether or not it has begun: the node releases it at once.</summary>
+    public bool IsRunning => Volatile.Read(ref _ended) == 0;
+
+    public PlanetaryStateDto State
+    {
+        get
+        {
+            var (offsetX, offsetY) = Capture.LastComOffset;
+            return new PlanetaryStateDto
+            {
+                OtaIndex = _otaIndex,
+                Camera = _camera,
+                RoiWidth = Volatile.Read(ref _roiWidth),
+                RoiHeight = Volatile.Read(ref _roiHeight),
+                Running = IsRunning,
+                FramesReceived = Capture.FramesReceived,
+                DroppedFrames = Capture.DroppedFrames,
+                FramesPerSecond = JsonNumber.ForWire(Capture.MeasuredFps),
+                Masters = Volatile.Read(ref _masters),
+                StackedFrames = Volatile.Read(ref _stackedFrames),
+                OffsetX = JsonNumber.ForWire(offsetX),
+                OffsetY = JsonNumber.ForWire(offsetY),
+                RecenterActuator = Capture.LastRecenterActuator,
+                FailureReason = Capture.FailureReason,
+            };
+        }
+    }
+
+    /// <summary>Makes the capture ready on the profile's devices, holding the camera from here (<see cref="PlanetaryCapture.TryPrepare"/>).</summary>
+    public bool TryPrepare(in PlanetaryCaptureRequest request, ProfileData profile, IDeviceHub hub, [NotNullWhen(false)] out string? refusal)
+    {
+        if (!Capture.TryPrepare(request, profile, hub, out var roi, out refusal))
+        {
+            return false;
+        }
+        _otaIndex = request.OtaIndex;
+        _camera = Capture.Camera?.Name ?? "";
+        (_roiWidth, _roiHeight) = roi;
+        return true;
+    }
+
+    /// <summary>The recenter's settings, given whole.</summary>
+    public void Configure(PlanetaryRecenterDto recenter)
+        => Capture.ConfigureRecenter(recenter.Auto, recenter.MountJog, recenter.DeadbandPixels, recenter.Gain, recenter.FlipRa, recenter.FlipDec);
+
+    /// <summary>Stages each control the client gave, for the capture to take after its next frame.</summary>
+    public void Apply(PlanetaryControlsDto controls)
+    {
+        if (controls.ExposureMs is { } exposureMs)
+        {
+            Capture.SetExposure(TimeSpan.FromMilliseconds(exposureMs));
+        }
+        if (controls.Gain is { } gain)
+        {
+            Capture.SetGain(gain);
+        }
+        if (controls is { RoiWidth: { } width, RoiHeight: { } height })
+        {
+            Capture.SetRoiSize(width, height);
+        }
+        if (controls.JogX is not null || controls.JogY is not null)
+        {
+            Capture.JogRoi(controls.JogX ?? 0, controls.JogY ?? 0);
+        }
+        if (controls.Recenter is { } recenter)
+        {
+            Configure(recenter);
+        }
+    }
+
+    public async Task RunAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (!Capture.StartPrepared(cancellationToken))
+            {
+                throw new InvalidOperationException("The planetary capture was not made ready before its run");
+            }
+            await StackAsync(cancellationToken);
+        }
+        finally
+        {
+            // The stack has stopped reading the stream, so the capture may stop and let it go: the camera and its claim
+            // are given back as the body ends.
+            await Capture.DisposeAsync();
+            Volatile.Write(ref _ended, 1);
+        }
+    }
+
+    /// <summary>Gives the camera back for a run whose body never ran; the body does its own.</summary>
+    public ValueTask DisposeAsync() => Capture.DisposeAsync();
+
+    // On the capture loop, with each frame BORROWED: the live frame is a copy at display rate, and the window it came at
+    // is what the state reports, a live resize included.
+    private void Show(Image frame)
+    {
+        Volatile.Write(ref _roiWidth, frame.Width);
+        Volatile.Write(ref _roiHeight, frame.Height);
+        if (_live.TrySample(frame, out var sample))
+        {
+            _frames.Publish(FrameSources.PlanetaryLive, sample);
+        }
+    }
+
+    // Stacks the window ending at the newest frame, again and again, until the run is stopped or the capture ends by
+    // itself; each master becomes the planetary master.
+    private async Task StackAsync(CancellationToken cancellationToken)
+    {
+        RollingWindowStacker? stacker = null;
+        LiveCameraFrameStream? stacking = null;
+        var built = -1;
+        while (Capture.IsCapturing)
+        {
+            try
+            {
+                await _timeProvider.SleepAsync(StackInterval, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            if (Capture.Stream is not { } stream)
+            {
+                continue;
+            }
+            if (stacker is null || !ReferenceEquals(stream, stacking))
+            {
+                // The first frame, or a new window size, which rebuilt the stream: the stack starts again at its framing.
+                stacker = new RollingWindowStacker(stream, _stackOptions);
+                stacking = stream;
+                built = -1;
+            }
+            var latest = stream.LatestIndex;
+            if (latest <= built)
+            {
+                continue;
+            }
+
+            try
+            {
+                var master = await stacker.StackToAsync(latest, cancellationToken);
+                built = latest;
+                Volatile.Write(ref _stackedFrames, stacker.WindowFrameCount);
+                Interlocked.Increment(ref _masters);
+                _frames.Publish(FrameSources.PlanetaryMaster, master);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                // Dropped, and the next stack starts clean, as the GUI's does: the capture goes on.
+                _logger.LogWarning(ex, "A planetary stack failed; the next one starts again");
+                stacker = null;
+            }
+        }
+    }
+}

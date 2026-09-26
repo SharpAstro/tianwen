@@ -52,6 +52,8 @@ public static class HostedSessionServiceCollectionExtensions
         services.AddSingleton<NodePreviews>();
         // Polar alignment as the node's run (P5 part 4), and the watch that ends an interactive run nobody is watching.
         services.AddSingleton<NodePolarAlignment>();
+        // A live planetary capture as the node's run (P5 part 5), stacked here, with its live frame and master served as frames.
+        services.AddSingleton<NodePlanetary>();
         services.TryAddSingleton(NodeRunWatchOptions.Default);
         services.AddHostedService<NodeRunWatch>();
         // The node's one profile writer (P3 part 1, #930): every profile write, whoever asked, pushes PROFILE-CHANGED.
@@ -140,6 +142,7 @@ public static class HostedSessionServiceCollectionExtensions
         app.MapFrameApi();
         app.MapDarkLibraryApi();
         app.MapPolarAlignmentApi();
+        app.MapPlanetaryApi();
         app.MapWebSocketEndpoint();
 
         // ASCOM Alpaca DEVICE plane (docs/plans/remote-profile.md P5). Shares the /api/v1 prefix, which

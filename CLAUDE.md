@@ -1089,7 +1089,9 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   SILENTLY. Auto-recenter defaults ON (ROI-only, zero mount disturbance); mount jog is opt-in OFF and
   its **sign is uncalibrated**.
 - **The capture loop is `PlanetaryCapture` (Lib), ONE for the GUI and the node**: the camera, the stream, the
-  live controls and the recenter. The GUI's `PlanetaryCaptureController` only stacks and shows what it streams.
+  live controls and the recenter. The GUI's `PlanetaryCaptureController` only stacks and shows what it streams;
+  the node stacks it on its run's own task (`NodePlanetary`) and serves the live frame, copied at display rate by
+  `FrameSampler`, and the linear master as frames (`planetary/live`, `planetary/master`).
   It claims only the camera, so **a recenter nudge asks `DeviceOwnershipGate` over the mount first**.
 
 ### AI Image Enhancement: SETI Astro (ONNX) + RC-Astro (CLI)
@@ -1203,13 +1205,15 @@ full native-AOT rules, and the reasoning behind each rule below:
    connection cancel the night. An abort ends the run through its `Finalise`, never disposing it
    underneath; a finished run never blocks the next; the host stopping aborts, awaits `Finalise`, then
    warms the hub's cameras inside `HostedSession.ShutdownBudget` (and systemd's `TimeoutStopSec` must allow
-   as long). **A run is of any kind** (`INodeRun`, P5: a dark library, polar alignment, planetary to come),
-   started the same way; a refused start NAMES the run going on (`NodeRuns.AlreadyGoingOn`), each kind stops
+   as long). **A run is of any kind** (`INodeRun`, P5: a dark library, polar alignment, a planetary capture),
+   started the same way, and a run that claims its devices as the request is answered starts only once it is the
+   node's, on the node's token (`PlanetaryCapture.TryPrepare`, then `StartPrepared` in the run's body); a refused
+   start NAMES the run going on (`NodeRuns.AlreadyGoingOn`), each kind stops
    through its own route, a stop NAMES the run it means (`TryAbort(INodeRun)`, so a run that replaced it is
    never the one stopped), and a run releases its lease as its body ends. **An interactive run stops once no
    client has been present for the detach grace** (`INodeRun.EndsUnwatched`, `NodeRunWatch`, presence being
    the fresh beat a prompt waits by). Pinned by `NodeRunLifecycleTests`, `NodeDarkLibraryTests`,
-   `NodePolarAlignmentTests` and `NodeRunWatchTests`.
+   `NodePolarAlignmentTests`, `NodePlanetaryTests` and `NodeRunWatchTests`.
 8. **`new SessionConfiguration()` is the DECLARED defaults; `default(SessionConfiguration)` is all zeros.**
    A record struct whose primary constructor has required parameters zero-fills on `new()` unless it
    declares a parameterless constructor, and before one was added every API session synced the mount's
