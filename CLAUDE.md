@@ -561,6 +561,12 @@ slower fallback). Every measurement, the dataset rationale and the quad-seed/par
   from a transform the test already knows.
 - **A ctor with a non-generic `ILogger` parameter silently gets `null` from DI.** Take `ILogger<TSelf>`
   or register with a factory lambda: `docs/architecture/dependency-injection.md`.
+- **An external solver's tool never outlives the call that started it** (`WaitForExitOrKillAsync`: the
+  probe and a path translation are bounded by `ProbeTimeout`, a solve by the caller's token, and either way
+  the whole process tree is killed). `PlateSolverFactory` awaits EVERY solver's probe before solving, so an
+  unbounded `wsl solve-field -h` against a wedged WSL blocked all plate solving, the built-in solver
+  included, and every process that probed stranded its `wsl.exe` pair (2,444 of them on 2026-09-27; an
+  orphan also holds its caller's output pipe). `tools/restart-wsl.ps1` clears a wedged service.
 
 ### Comet & Small-Body Ephemeris (`TianWen.Lib.Astrometry.Comets`)
 
