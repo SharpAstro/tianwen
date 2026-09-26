@@ -228,7 +228,16 @@ namespace TianWen.RemoteClient
                 await _timeProvider.SleepAsync(NodeWire.PresenceBeatInterval, cancellationToken).ConfigureAwait(false);
                 if (Interlocked.Exchange(ref _beatAsked, 0) == 1 && socket.State is WebSocketState.Open)
                 {
-                    await socket.SendAsync(PresenceBeatUtf8, WebSocketMessageType.Text, endOfMessage: true, cancellationToken).ConfigureAwait(false);
+                    try
+                    {
+                        await socket.SendAsync(PresenceBeatUtf8, WebSocketMessageType.Text, endOfMessage: true, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        // A beat that cannot go ends the beats, never the stream: the receive loop decides the connection.
+                        _logger.LogDebug(ex, "Event stream {Endpoint}: a presence beat could not be sent", _endpoint);
+                        return;
+                    }
                 }
             }
         }

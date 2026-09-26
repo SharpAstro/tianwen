@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Logging;
 using TianWen.Lib.Devices;
 using TianWen.Hosting.Dto;
 using TianWen.Hosting.Dto.NinaV2;
@@ -87,7 +88,7 @@ internal static class NinaEquipmentEndpoints
         });
 
         // GET /v2/api/equipment/camera/cool?temperature=&minutes= or ?cancel=true
-        group.MapGet("/camera/cool", async (IHostedSession hosted, IDeviceHub hub, double? temperature, int? minutes, bool? cancel, CancellationToken ct) =>
+        group.MapGet("/camera/cool", async (IHostedSession hosted, IDeviceHub hub, ILoggerFactory loggers, double? temperature, int? minutes, bool? cancel, CancellationToken ct) =>
         {
             if (hosted.CurrentSession is not { } session || session.Setup.Telescopes.Length == 0)
             {
@@ -109,7 +110,7 @@ internal static class NinaEquipmentEndpoints
             if (cancel == true)
             {
                 await cam.SetCoolerOnAsync(false, ct);
-                await hub.RecordCommandedCoolerAsync(camUri, ct);
+                await hub.RecordCommandedCoolerAsync(camUri, loggers.CreateLogger(nameof(NinaEquipmentEndpoints)), ct);
                 return NinaOk("Cooling cancelled");
             }
 
@@ -117,7 +118,7 @@ internal static class NinaEquipmentEndpoints
             {
                 await cam.SetSetCCDTemperatureAsync(temperature.Value, ct);
                 await cam.SetCoolerOnAsync(true, ct);
-                await hub.RecordCommandedCoolerAsync(camUri, ct);
+                await hub.RecordCommandedCoolerAsync(camUri, loggers.CreateLogger(nameof(NinaEquipmentEndpoints)), ct);
                 return NinaOk($"Cooling to {temperature.Value}°C");
             }
 
@@ -125,7 +126,7 @@ internal static class NinaEquipmentEndpoints
         });
 
         // GET /v2/api/equipment/camera/warm?minutes= or ?cancel=true
-        group.MapGet("/camera/warm", async (IHostedSession hosted, IDeviceHub hub, int? minutes, bool? cancel, CancellationToken ct) =>
+        group.MapGet("/camera/warm", async (IHostedSession hosted, IDeviceHub hub, ILoggerFactory loggers, int? minutes, bool? cancel, CancellationToken ct) =>
         {
             if (hosted.CurrentSession is not { } session || session.Setup.Telescopes.Length == 0)
             {
@@ -149,7 +150,7 @@ internal static class NinaEquipmentEndpoints
             }
 
             await cam.SetCoolerOnAsync(false, ct);
-            await hub.RecordCommandedCoolerAsync(session.Setup.Telescopes[0].Camera.Device.DeviceUri, ct);
+            await hub.RecordCommandedCoolerAsync(session.Setup.Telescopes[0].Camera.Device.DeviceUri, loggers.CreateLogger(nameof(NinaEquipmentEndpoints)), ct);
             return NinaOk("Warming started");
         });
     }

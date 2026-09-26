@@ -178,7 +178,7 @@ namespace TianWen.Hosting.Api.Alpaca
                     // A cooler commanded over the plane is the node's to re-establish after a crash (the journal).
                     if (IsCoolerCommand(deviceType, member))
                     {
-                        await hub.RecordCommandedCoolerAsync(entry.DeviceUri, cancellationToken).ConfigureAwait(false);
+                        await hub.RecordCommandedCoolerAsync(entry.DeviceUri, logger, cancellationToken).ConfigureAwait(false);
                     }
                     return Results.Json(MethodEnvelope(http), AlpacaServerJsonContext.Default.AlpacaMethodResponse);
                 }

@@ -126,22 +126,34 @@ public static class DeviceHubCameraSafetyExtensions
         /// Records, as the camera's <see cref="CoolerIntent"/>, what an IMMEDIATE command left its cooler doing:
         /// cooling to its setpoint, or off. For a surface that commands the cooler directly, a device plane or a
         /// compatibility shim, rather than through a ramp, whose TARGET is the intent instead. A camera that cannot
-        /// say whether its cooler is on records nothing: an intent guessed is worse than none.
+        /// say whether its cooler is on, or names no setpoint, records nothing: an intent guessed is worse than none.
         /// </summary>
-        public async ValueTask RecordCommandedCoolerAsync(Uri cameraUri, CancellationToken cancellationToken)
+        /// <remarks>
+        /// Never fails the command it follows: that has succeeded by the time this reads the cooler back, so a read that
+        /// fails is logged and the camera keeps the intent it had. It once turned a successful Alpaca <c>cooleron</c>
+        /// into a fault the client would retry.
+        /// </remarks>
+        public async ValueTask RecordCommandedCoolerAsync(Uri cameraUri, ILogger logger, CancellationToken cancellationToken)
         {
             if (!hub.TryGetConnectedDriver<ICameraDriver>(cameraUri, out var camera) || !camera.CanGetCoolerOn)
             {
                 return;
             }
 
-            if (!await camera.GetCoolerOnAsync(cancellationToken))
+            try
             {
-                hub.SetCoolerIntent(cameraUri, CoolerIntent.Off);
+                if (!await camera.GetCoolerOnAsync(cancellationToken))
+                {
+                    hub.SetCoolerIntent(cameraUri, CoolerIntent.Off);
+                }
+                else if (camera.CanSetCCDTemperature && await camera.GetSetCCDTemperatureAsync(cancellationToken) is var setpoint && double.IsFinite(setpoint))
+                {
+                    hub.SetCoolerIntent(cameraUri, CoolerIntent.CoolTo(setpoint));
+                }
             }
-            else if (camera.CanSetCCDTemperature)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                hub.SetCoolerIntent(cameraUri, CoolerIntent.CoolTo(await camera.GetSetCCDTemperatureAsync(cancellationToken)));
+                logger.LogWarning(ex, "Could not read back the cooler of {Uri} after a command; it keeps the intent it had", cameraUri);
             }
         }
 

@@ -144,7 +144,8 @@ atomically as any of that changes, and a 5 s poll catches what raises nothing (t
   `CoolerIntent`), because the camera's own state cannot say it: mid-ramp its setpoint is a step, and a warm-up is a
   process no setpoint describes. A session's ramp records its TARGET (`Session.IntentOf`), the hub's warm-up records
   Warm and then Off, and the Alpaca plane and the ninaAPI shim record what their command left the cooler doing
-  (`RecordCommandedCoolerAsync`). A disconnect forgets it. **A new place that commands a cooler owes the same.**
+  (`RecordCommandedCoolerAsync`, which never fails the command it follows: a read-back that fails is logged and the
+  camera keeps its intent). A disconnect forgets it. **A new place that commands a cooler owes the same.**
 - **A node that holds nothing has no journal.** The host's stop, once the run and the cameras have ended within its
   budget, releases every other device too (a mount left for the process's exit was journaled as held, and reported by
   the next node as a crash that never happened), so a clean stop leaves none; one cut short leaves what it got to, a
@@ -168,7 +169,10 @@ atomically as any of that changes, and a 5 s poll catches what raises nothing (t
   crashes it there, and nothing written after the connect would ever reach the file. It then re-establishes each
   camera's cooling from its intent: a cool-down to the target through the session's own ramp, a warm-up from wherever
   the sensor now is, and an Off left off. The run the node before it died in stays in its journal, resumed by nobody,
-  until the report is dismissed.
+  until the report is dismissed. **The recovery ends as the host begins to stop** (`ApplicationStopping`), never
+  only when the journal does, which stops last, and **a stop the host finished** (`HostedSession.ReleasedTheRig`)
+  **leaves no journal** whatever connected after it; a failure inside the recovery is logged, never the end of the
+  journal, and a URI in the file that does not parse is reported, since a person may edit it.
 - **There is ONE cooling ramp, `CameraCoolingRamp`** (Lib), which `Session.CoolCamerasToSetpointAsync` delegates to
   with its telemetry as a per-step callback, and which the hub drives without a session
   (`DeviceHubCameraSafetyExtensions.CoolToSetpointAsync`). A recovery's ramps end when a run starts (the session cools
