@@ -1,4 +1,6 @@
 using System;
+using System.Threading;
+using System.Threading.Tasks;
 using DIR.Lib;
 using TianWen.UI.Abstractions.Overlays;
 
@@ -135,8 +137,9 @@ namespace TianWen.UI.Abstractions
         /// <summary>
         /// The host's way to be asked for a frame at a later time: called with the delay when a switch
         /// starts settling, since a pointer that stops moving sends nothing more that could show it. The
-        /// desktop answers from its per-iteration redraw check, the browser with a delayed repaint; the
-        /// frame itself commits the settled answer (see <see cref="DrawHoverSpot"/>).
+        /// desktop answers from its per-iteration redraw check, the browser with a delayed repaint that
+        /// waits through <see cref="WaitUntilHoverSettlesAsync"/>; the frame itself commits the settled
+        /// answer (see <see cref="DrawHoverSpot"/>).
         /// </summary>
         public Action<TimeSpan>? RequestFrameAfter { get; set; }
 
@@ -318,6 +321,52 @@ namespace TianWen.UI.Abstractions
                 return left > TimeSpan.Zero ? left : TimeSpan.Zero;
             }
         }
+
+        /// <summary>
+        /// A delayed wake for a host with no frame loop of its own (the browser): waits out
+        /// <paramref name="delay"/>, then as long as <see cref="PendingHoverDueIn"/> says is left, and
+        /// answers whether a frame should paint: true once the settling answer is due, false when nothing
+        /// is settling any more (cancelled, or a frame already showed it).
+        /// </summary>
+        /// <remarks>
+        /// <b>A loop, and every wait at least a whole millisecond</b> (<see cref="HoverWakeWait"/>). The
+        /// browser host used to re-arm by calling itself with what was left, and <c>Task.Delay</c> truncates
+        /// to whole milliseconds and completes a zero delay synchronously, so a wake due in under a
+        /// millisecond did not wait at all. On a browser's coarsened clock (about 100 us on a page that is
+        /// not cross-origin isolated) the answer then stayed the same fraction of a millisecond, and the
+        /// wake went on calling itself, synchronously and nested, until the clock moved: deep enough to
+        /// overflow the WebAssembly stack, which ends the .NET runtime and with it the page (#953).
+        /// </remarks>
+        public async Task<bool> WaitUntilHoverSettlesAsync(TimeSpan delay, CancellationToken cancellationToken = default)
+        {
+            if (_timeProvider is not { } clock)
+            {
+                return false;
+            }
+
+            while (true)
+            {
+                await clock.SleepAsync(HoverWakeWait(delay), cancellationToken);
+                if (PendingHoverDueIn is not { } dueIn)
+                {
+                    return false;
+                }
+
+                if (dueIn <= TimeSpan.Zero)
+                {
+                    return true;
+                }
+
+                delay = dueIn;
+            }
+        }
+
+        /// <summary>
+        /// What a wake actually waits for a <paramref name="delay"/>: rounded UP to whole milliseconds, and
+        /// never under one, so that it is always a real wait, never one that completes as it is asked.
+        /// </summary>
+        internal static TimeSpan HoverWakeWait(TimeSpan delay)
+            => TimeSpan.FromMilliseconds(Math.Max(1.0, Math.Ceiling(delay.TotalMilliseconds)));
 
         /// <summary>
         /// Shows a settling answer whose time has come. Called at the top of the draw, which is how a

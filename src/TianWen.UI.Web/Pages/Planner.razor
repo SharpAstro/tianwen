@@ -334,7 +334,7 @@
                 Bus = _bus,
                 RequestRepaint = RequestRenderCoalesced,
                 HoverSettle = SkyMapTab<WebGlContext>.InteractiveHoverSettle,
-                RequestFrameAfter = delay => _tracker.Run(() => RepaintAfterAsync(delay), "Hover settle repaint"),
+                RequestFrameAfter = delay => _tracker.Run(() => RepaintWhenHoverSettledAsync(delay), "Hover settle repaint"),
             };
             // One window, one context: the sky tab hands the planner tab its own WindowUiSettings, so
             // "which field has the keyboard" has a single answer across both views -- and it is the one
@@ -1928,24 +1928,17 @@
     // A widget's "a frame after this long" (the sky map's settling hover): the browser paints per event,
     // so a pointer that stops would otherwise never see the settled answer. The wake asks whether an answer
     // is actually due before painting (#339): a pointer crossing a star field schedules one wake per star it
-    // passes, and most find the switch cancelled (null: nothing to show) or not due yet (re-armed for what
-    // is left, which is also how a timer that fired a moment early is handled without a frame).
-    async Task RepaintAfterAsync(TimeSpan delay)
+    // passes, and most find the switch cancelled (nothing to show) or not due yet (the tab waits out what is
+    // left, which is also how a timer that fired a moment early is handled without a frame). The waiting is
+    // the tab's own loop, never a re-arm here: this used to call itself with what was left, and a wake due
+    // in under a millisecond recursed until the page's stack overflowed and the runtime exited (#953).
+    async Task RepaintWhenHoverSettledAsync(TimeSpan delay)
     {
-        await Task.Delay(delay);
-        if (_skyTab?.PendingHoverDueIn is not { } dueIn)
+        if (_skyTab is { } skyTab && await skyTab.WaitUntilHoverSettlesAsync(delay))
         {
-            return;
+            skyTab.State.NeedsRedraw = true;
+            RequestRenderCoalesced();
         }
-
-        if (dueIn > TimeSpan.Zero)
-        {
-            _ = RepaintAfterAsync(dueIn);
-            return;
-        }
-
-        _skyTab.State.NeedsRedraw = true;
-        RequestRenderCoalesced();
     }
 
     void RequestRenderCoalesced()

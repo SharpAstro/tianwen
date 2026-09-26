@@ -1573,8 +1573,13 @@ BEFORE painting and on the schedule-failure path**, or the canvas freezes for go
 repaints only when the router or a tab handled it, a gesture owns it, or the atlas hover's
 `HoverFrameRequests` moved** (#339), never on `NeedsRedraw`, which a render sets for reasons of its own
 (it was true on 41 moves of 41, so a gate on it passed every move); and **the settle wake paints only when
-`SkyMapTab.PendingHoverDueIn` is zero** (re-arms when early, returns when null), or a pointer crossing a
-star field paints once per star it passes. Pinned by `CanvasRenderCostTests.AHoverThatChangesNothingDoesNotPaintPerMove`. **A trackpad pinch
+`SkyMapTab.PendingHoverDueIn` is zero** (waits out what is left when early, returns when null), or a pointer
+crossing a star field paints once per star it passes. Pinned by `CanvasRenderCostTests.AHoverThatChangesNothingDoesNotPaintPerMove`.
+**The wake is the tab's own loop, `WaitUntilHoverSettlesAsync`, and every wait in it is a whole millisecond or
+more**: `Task.Delay` truncates to whole milliseconds and completes a zero delay synchronously, so the host's
+old self re-arm never waited for a wake due in under a millisecond, and on the browser's coarsened clock it
+recursed until the WebAssembly stack overflowed and the runtime exited (#953). A new delayed step in this host
+waits at least 1 ms and loops, never calls itself. **A trackpad pinch
 is `ctrl`+`wheel`** (Blazor `@onwheel`), a different path from the touch bridge and the densest gesture
 the app sees. Details: `docs/plans/web-host-carve-out.md`.
 
