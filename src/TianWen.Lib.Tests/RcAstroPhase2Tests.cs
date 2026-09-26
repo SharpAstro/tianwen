@@ -68,7 +68,8 @@ public class RcAstroPhase2Tests(ITestOutputHelper output)
         }
         else
         {
-            denoiser.Backend.ShouldBeOfType<OnnxDenoiser>();
+            // No licensed nxt: the in-house N2N model is the fallback (the SAS tier is gone).
+            denoiser.Backend.ShouldBeOfType<N2nDenoiser>();
         }
 
         if (RcAstroTestSupport.ProductAvailable("bxt", out _))
@@ -77,7 +78,8 @@ public class RcAstroPhase2Tests(ITestOutputHelper output)
         }
         else
         {
-            deconvolver.Backend.ShouldBeOfType<OnnxNonStellarDeconvolver>();
+            // No licensed bxt and no in-house deconvolver yet: nothing serves the role.
+            deconvolver.Backend.ShouldBeNull();
         }
     }
 

@@ -240,7 +240,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             : null;
         PreviewRender? render = null;
 
-        // 2.5) AI enhancement: BlurX-first / SAS-shaped pipeline on the master ->
+        // 2.5) AI enhancement: the canonical program (BlurX-first, split or whole-frame) on the master ->
         //      _sharpened.fits (+ _sharpened_autocrop.fits). The raw masters are never
         //      overwritten. When enhancing, ONE SPCC solve is computed on the enhanced
         //      (gradient-corrected, with-stars) master -- matching the PixInsight OSC flow
@@ -493,21 +493,30 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             // --enhance-blend. GhsStretch / dual-stretch are deliberately NOT
             // included -- a stacked master stays in linear photon-space so
             // downstream PixInsight / Affinity / tianwen-render workflows apply
-            // their own stretch. The two shapes (BlurX-first when RC-Astro is
-            // present, SAS-shaped otherwise) are LinearEnhanceProgram.For's whole
-            // job, so the order is read from there rather than restated here.
+            // their own stretch. The program's shape (split with a star remover,
+            // BlurX-first where a deblurrer serves, whole-frame otherwise) is
+            // SharpenPipeline.CanonicalProgram's whole job, so it is read from
+            // there rather than restated here.
             var blend = Math.Clamp(enhanceBlend, 0f, 1f);
-            var steps = (LinearEnhanceProgram.For(sharpenPipeline.SupportsDeblur) with
+            var program = sharpenPipeline.CanonicalProgram(master.Master, enhanceOptions) with
             {
                 DeblurBlend = blend,
                 StellarBlend = blend,
                 DeconvolveBlend = blend,
                 DenoiseBlend = blend,
-            }).ToSteps();
+            };
+            // --split-plates exports the split program's stars / starless lineage, and only a star
+            // remover produces one. Without it the master is enhanced whole-frame and there is nothing
+            // to export, which has to be said: a flag that silently writes nothing reads as a bug.
+            var keepPlates = splitPlates && program.SplitStars;
+            if (splitPlates && !keepPlates)
+            {
+                logger.LogWarning("  [split-plates] skipped: no star remover serves this master (RC-Astro StarXTerminator is not installed or not licensed, and TianWen has no star-removal model yet), so it is enhanced whole-frame and has no stars / starless plates");
+            }
             // --split-plates keeps the stars / starless lineage so the SAME pass
             // feeds the per-plate TIFF export; otherwise discard intermediates.
-            var request = new SharpenRequest(master.Master, steps,
-                KeepIntermediates: splitPlates ? SharpenIntermediates.StarsAndStarlessLineage : SharpenIntermediates.None);
+            var request = new SharpenRequest(master.Master, program.ToSteps(),
+                KeepIntermediates: keepPlates ? SharpenIntermediates.StarsAndStarlessLineage : SharpenIntermediates.None);
             var sharpenResult = await sharpenPipeline.ProcessAsync(request, enhanceOptions, enhanceProgress, ct);
             if (sharpenResult.Final is not { } enhancedMaster)
             {
@@ -543,7 +552,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             var renderPreviewPng = (outputs & MasterRenderOutputs.PreviewPng) != 0;
             var emitUltraHdr = (outputs & MasterRenderOutputs.UltraHdr) != 0;
             PreviewRender? spcc = null;
-            if (renderer is not null && (renderPreviewPng || emitUltraHdr || splitPlates))
+            if (renderer is not null && (renderPreviewPng || emitUltraHdr || keepPlates))
             {
                 var solveImg = enhancedCropped ?? enhancedMaster;
                 var solveWcs = enhancedCropped is not null ? croppedWcs : solvedWcs;
@@ -562,7 +571,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
                     maskedBoost: previewBoost, ultraHdrPath: uhdrPath, ct: ct);
                 spcc = render;
 
-                if (splitPlates)
+                if (keepPlates)
                 {
                     // Each plate self-stretches from its own pixels and shares ONLY the
                     // master's one SPCC white balance (render.WhiteBalance) -- the
@@ -585,7 +594,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
 
             enhancedCropped?.Release();
             enhancedMaster.Release();
-            if (splitPlates)
+            if (keepPlates)
             {
                 sharpenResult.Starless?.Release();
                 sharpenResult.StarsOnly?.Release();

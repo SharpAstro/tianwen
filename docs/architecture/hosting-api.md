@@ -784,7 +784,7 @@ Pinned by `AlpacaServerRoundTripTests`, which drives our own `AlpacaClient` agai
 
 ## The enhance endpoint (shipped shape: single-flight)
 
-`TianWen.Server` calls `AddRcAstroAi()` (registers `SharpenPipeline`; the RC-vs-SAS probe stays
+`TianWen.Server` calls `AddRcAstroAi()` (registers `SharpenPipeline`; the RC-vs-in-house probe stays
 deferred, so startup spawns no `rc-astro`). The single-flight `HostedImageEnhancer` (an `Interlocked`
 gate) runs `ProcessAsync` on a background task tied to **`ApplicationStopping`, not the request** (so
 it outlives the POST and dies only on shutdown), with a **synchronous** `IProgress` relay that swaps

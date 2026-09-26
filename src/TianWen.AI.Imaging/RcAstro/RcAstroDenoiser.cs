@@ -40,7 +40,7 @@ namespace TianWen.AI.Imaging.RcAstro
         protected override string ProductKey => "nxt";
 
         /// <summary>
-        /// RC-Astro nxt is a single model; the SAS-specific
+        /// RC-Astro nxt is a single model; a non-default
         /// <see cref="DenoiseVariant"/> (Lite / Walking) has no nxt equivalent,
         /// so it is ignored and the base denoise path runs.
         /// </summary>

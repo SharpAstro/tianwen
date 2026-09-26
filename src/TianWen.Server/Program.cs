@@ -89,8 +89,8 @@ using (held)
         .AddBuiltInGuider()
         .AddDevices()
         .AddSessionFactory()
-        // RC-Astro (preferred when present + licensed) + SAS ONNX fallback for the enhance endpoint.
-        // Registers SharpenPipeline; the RC-vs-SAS probe is deferred to first use, so this is cheap.
+        // RC-Astro (preferred when present + licensed) + the in-house models for the enhance endpoint.
+        // Registers SharpenPipeline; the RC-vs-in-house probe is deferred to first use, so this is cheap.
         .AddRcAstroAi()
         .AddHostedSession()
         .AddSingleton(listening)

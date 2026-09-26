@@ -65,7 +65,7 @@ public class EnhanceActionsTests
     /// The enhancers are spatial models and the canvas ring is exact zero -- a cliff a CNN reads as
     /// structure and smears inward, which is what a border still visible after a gradient correction
     /// is. Masking it is not available either: <c>SharpenPipeline</c> fills non-finite samples with the
-    /// channel mean at its boundary, deliberately, because SAS ONNX and RC-Astro both normalise without
+    /// channel mean at its boundary, deliberately, because the ONNX runners and RC-Astro both normalise without
     /// NaN awareness. So the crop is cut before the pipeline sees anything.
     /// <para>The WCS assertion is the one that would fail silently: a sign error there puts every
     /// overlay marker off by the crop's origin, twice over, and the picture still looks right.</para>
@@ -128,7 +128,7 @@ public class EnhanceActionsTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clone = new CloneEnhancer();
-        // No deblurrer -> SupportsDeblur false -> SAS-shaped Canonical request.
+        // Every role but a deblurrer -> the split program without BlurX.
         var pipeline = new SharpenPipeline(
             starRemover: clone, stellarSharpener: clone, nonStellarDeconvolver: clone,
             denoiser: clone, gradientCorrector: clone);
@@ -141,7 +141,7 @@ public class EnhanceActionsTests
         result.ShouldNotBeNull();
         result.UnstretchedImage.Width.ShouldBe(16);
         result.UnstretchedImage.Height.ShouldBe(16);
-        state.StatusMessage.ShouldBe("Enhanced (SAS)");
+        state.StatusMessage.ShouldBe("Enhanced (stars split)");
         // EnhanceActions does NOT own the in-progress flag (the controller does) -- it must be untouched.
         state.IsEnhancing.ShouldBeFalse();
     }
@@ -150,8 +150,8 @@ public class EnhanceActionsTests
     public async Task EnhanceAsync_PipelineThrows_ReturnsNullAndSetsErrorStatus()
     {
         var ct = TestContext.Current.CancellationToken;
-        // No enhancers registered -> ValidateRequest throws on RemoveStarsStep -> EnhanceActions
-        // catches and surfaces the reason on the status line rather than propagating.
+        // No enhancers registered -> the canonical program is empty, ValidateRequest throws, and
+        // EnhanceActions catches and surfaces the reason on the status line rather than propagating.
         var pipeline = new SharpenPipeline();
         var source = await BuildDocAsync(ct);
         var state = new ViewerState();

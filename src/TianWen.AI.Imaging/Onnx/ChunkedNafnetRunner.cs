@@ -13,10 +13,10 @@ using TianWen.Lib.Stat;
 namespace TianWen.AI.Imaging.Onnx;
 
 /// <summary>
-/// Shared chunked-inference pipeline for the AI4 NAFNet enhancers. Each
-/// concrete enhancer (<see cref="OnnxStarRemover"/>,
-/// <see cref="OnnxStellarSharpener"/>,
-/// <see cref="OnnxNonStellarDeconvolver"/>) supplies a session + IO names +
+/// Shared chunked-inference pipeline for the NAFNet-shaped ONNX enhancers. Each
+/// concrete enhancer (<see cref="OnnxNonStellarDeconvolver"/> today, the shell TianWen's own
+/// deconvolver ships through; the SETI Astro star remover and sharpener that also ran here went with
+/// the SAS tier on 2026-09-26) supplies a session + IO names +
 /// model channel count + any per-call extra inputs (e.g. the
 /// PSF-conditional scalar) and gets a <see cref="ChunkedNafnetResult"/>
 /// back with the output image plus per-phase timings.
@@ -33,8 +33,8 @@ namespace TianWen.AI.Imaging.Onnx;
 ///
 /// <para>Channel-count handling. The model's expected channel count is read off its own declared
 /// input shape (<see cref="OnnxIoNames.ImageInputChannels"/>), not supplied by the caller: every
-/// shipped AI4 NAFNet turns out to take 3 channels, including the ones named "mono", which differ
-/// from their colour siblings in training data rather than in tensor shape. If the source channel
+/// SETI Astro AI4 NAFNet this ran turned out to take 3 channels, including the ones named "mono",
+/// which differed from their colour siblings in training data rather than in tensor shape. If the source channel
 /// count differs from the model's, the runner tiles source channel 0 across all model input slots
 /// (source=1, model=3 -- the canonical mono case) and extracts only output channel 0. If source
 /// matches model (3->3 or 1->1), a direct per-channel copy is used. Source=3 with model=1 is
@@ -352,10 +352,10 @@ public static class ChunkedNafnetRunner
         }
         if (sourceChannels == 3 && modelChannels == 1)
         {
-            // We never need this. The darkstar-mono model is 1-ch; mono
-            // sources go there. Color sources go to the 3-ch model. Tiling
-            // 3-channel source down to 1 (e.g. by luminance) would silently
-            // lose chrominance and produce surprising output.
+            // We never need this: no model we run takes one channel for a
+            // colour source. Reducing a 3-channel source to 1 (e.g. by
+            // luminance) would silently lose chrominance and produce
+            // surprising output.
             throw new NotSupportedException(
                 "ChunkedNafnetRunner: cannot feed a 3-channel source to a 1-channel model -- " +
                 "would require luminance reduction that loses chrominance information.");

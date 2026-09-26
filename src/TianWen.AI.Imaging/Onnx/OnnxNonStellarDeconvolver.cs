@@ -13,12 +13,13 @@ using TianWen.Lib.Stat;
 namespace TianWen.AI.Imaging.Onnx;
 
 /// <summary>
-/// AI4 NAFNet PSF-conditional deconvolver for the starless plate. Two ONNX
-/// inputs: the image tensor and a scalar <c>psf01</c> in <c>[0, 1]</c> that
-/// the network broadcasts internally and concatenates as a 4th input
-/// channel. Delegates the chunked-inference pipeline to
-/// <see cref="ChunkedNafnetRunner"/>; this class owns PSF estimation,
-/// session management, and the per-call log line.
+/// PSF-conditional ONNX deconvolver for the starless plate: the runtime TianWen's own deconvolver ships
+/// through (deconvolver-training.md E7), with the model file named by the composition root. Two ONNX
+/// inputs: the image tensor and a scalar <c>psf01</c> in <c>[0, 1]</c> that the network broadcasts
+/// internally and concatenates as a 4th input channel. Delegates the chunked-inference pipeline to
+/// <see cref="ChunkedNafnetRunner"/>; this class owns PSF estimation, session management, and the
+/// per-call log line. Nothing registers it until that model exists: the SETI Astro graph it used to
+/// run went with the SAS tier on 2026-09-26.
 /// </summary>
 /// <remarks>
 /// <para><b><paramref name="perChunkPsf"/> conditions each tile on its own region's PSF</b>
@@ -26,11 +27,14 @@ namespace TianWen.AI.Imaging.Onnx;
 /// field (Rim: 4.03 px at the centre, 3.12 at a corner), so one number per frame tells every tile the
 /// wrong width but one. The per-tile estimate comes from <see cref="IPsfEstimator.EstimateChunkAsync(Image, int, int, int, int, float, System.Threading.CancellationToken)"/>
 /// on the LINEAR input over the tile's source region, falling back to the whole-image value where a
-/// tile has too few stars. OFF by default until it is measured against the whole-image value on Rim:
-/// the shipped SAS AI4 graph was trained on whole-image labels, and a change to what it is told is a
-/// change to what it does.</para>
+/// tile has too few stars. OFF by default until it is measured on the graph it serves: our own
+/// deconvolver's training labels are per cell, so E7 turns it on only once that graph's response to the
+/// label is measured (deconvolver-training.md D1). A conditioning input must be estimated in the domain
+/// and at the scale training labelled it, or the measurement describes the wrapper, not the model
+/// (model-training-roadmap.md section 8).</para>
 /// </remarks>
 public sealed class OnnxNonStellarDeconvolver(
+    string modelFileName,
     IModelResolver modelResolver,
     IPsfEstimator psfEstimator,
     ILogger<OnnxNonStellarDeconvolver>? logger = null,
@@ -39,13 +43,11 @@ public sealed class OnnxNonStellarDeconvolver(
     bool perChunkPsf = false)
     : INonStellarDeconvolver, IDisposable
 {
-    internal const string Model = "deep_nonstellar_sharp_conditional_psf_AI4.onnx";
-
     private readonly Lock _gate = new(); // serializes lazy InferenceSession creation and Dispose; session build is a one-time cold path, not a hot-path hand-off
     private InferenceSession? _session;
     private bool _disposed;
 
-    public string Name => "NonStellarDeconvolver (AI4 NAFNet, PSF-conditional)";
+    public string Name => $"NonStellarDeconvolver (ONNX, PSF-conditional, {modelFileName})";
 
     public async Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
     {
@@ -56,7 +58,7 @@ public sealed class OnnxNonStellarDeconvolver(
             throw new NotSupportedException(
                 $"OnnxNonStellarDeconvolver requires 1 or 3 channels, got {input.ChannelCount}.");
         }
-        // Allow up to MaxValue=1.5 to tolerate small AI4 NAFNet overshoot when
+        // Allow up to MaxValue=1.5 to tolerate small network overshoot when
         // chained as a pipeline stage (see Image.MtfUnstretch xmldoc -- network
         // excursions above [0, 1] are preserved as empirical max). Still
         // rejects miscalibrated inputs like raw [0, 65535] camera data.
@@ -163,7 +165,7 @@ public sealed class OnnxNonStellarDeconvolver(
             "OnnxNonStellarDeconvolver.EnhanceAsync: {Model} {W}x{H}x{C} modelCh={ModelChannels} chunks={Chunks} stretchApplied={StretchApplied} psf01={Psf01:F3} " +
             "stretch={Stretch}ms prep={Prep}ms infer={Infer}ms stitch={Stitch}ms unstretch={Unstretch}ms " +
             "throughput={Mpps:F2} Mp/s total={Total}ms",
-            Model, srcW, srcH, sourceChannels, result.ModelChannels, result.ChunkCount, result.StretchApplied, psf01,
+            modelFileName, srcW, srcH, sourceChannels, result.ModelChannels, result.ChunkCount, result.StretchApplied, psf01,
             result.StretchMs, result.PrepMs, result.InferMs, result.StitchMs, result.UnstretchMs,
             throughputMpps, result.TotalMs);
 
@@ -177,8 +179,8 @@ public sealed class OnnxNonStellarDeconvolver(
             ObjectDisposedException.ThrowIf(_disposed, this);
             if (_session is null)
             {
-                var modelPath = modelResolver.Resolve(Model);
-                logger?.LogInformation("OnnxNonStellarDeconvolver: loading {Model} from {Path}", Model, modelPath);
+                var modelPath = modelResolver.Resolve(modelFileName);
+                logger?.LogInformation("OnnxNonStellarDeconvolver: loading {Model} from {Path}", modelFileName, modelPath);
                 using var options = ExecutionProviderResolver.CreateSessionOptions(deviceId: 0, logger: logger);
                 _session = new InferenceSession(modelPath, options);
             }

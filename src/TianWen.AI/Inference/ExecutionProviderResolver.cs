@@ -115,7 +115,7 @@ public static class ExecutionProviderResolver
             // Both win-arm64 (Snapdragon Adreno) and win-x64 (NVIDIA/AMD/
             // Intel iGPU) -> DirectML via D3D12 compute. We previously picked
             // QNN on arm64 to target the Hexagon NPU, but QNN's HTP only
-            // accelerates INT8/INT16 nodes -- our FP32 AI4 models silently
+            // accelerates INT8/INT16 nodes -- our FP32 models silently
             // per-node-fell-back to CPU and ignored the GPU. DirectML on
             // Adreno is the right choice until we ship INT8-quantized
             // models (then revisit; see TODO "Hexagon NPU acceleration").

@@ -36,8 +36,8 @@ public interface IDenoiseEnhancer : IImageEnhancer
 
     /// <summary>
     /// Variant + options + progress overload. Default impl drops <paramref name="options"/>
-    /// and <paramref name="progress"/> and delegates to the variant overload (correct for SAS:
-    /// it has no RC tuning and only coarse step-boundary progress). The RC nxt wrapper overrides
+    /// and <paramref name="progress"/> and delegates to the variant overload (correct for an
+    /// enhancer with no RC tuning and only coarse step-boundary progress). The RC nxt wrapper overrides
     /// this to read <see cref="EnhanceTuning"/> and relay NDJSON progress, ignoring the variant
     /// (nxt is a single model).
     /// </summary>
@@ -46,22 +46,22 @@ public interface IDenoiseEnhancer : IImageEnhancer
 }
 
 /// <summary>
-/// Selects the AI4 NAFNet denoise model weight bundle. Mirrors the SAS Pro
-/// <c>denoise_engine.py</c> variant flags (<c>lite</c>, <c>walking</c>).
+/// Selects a denoise model's weight bundle. The values come from the SETI Astro AI4 family, which
+/// shipped each as its own weights and was removed on 2026-09-26; they stay as the extension point for
+/// bundles of TianWen's own (walking noise is on the roadmap as a degradation of its own,
+/// <c>docs/plans/model-training-roadmap.md</c> section 8). Only <see cref="Default"/> is served today:
+/// RC-Astro NoiseXTerminator is one model, and the N2N denoiser has one bundle and refuses the others.
 /// </summary>
 public enum DenoiseVariant
 {
-    /// <summary>Standard AI4 NAFNet weights -- highest quality, slowest.
-    /// File: <c>deep_denoise_{mono,color}_AI4.onnx</c>.</summary>
+    /// <summary>The standard bundle, and the only one any backend serves today.</summary>
     Default = 0,
 
-    /// <summary>Lite variant (half-width NAFNet, ~2x faster, slightly less
-    /// effective on faint detail). File:
-    /// <c>deep_denoise_{mono,color}_AI4_lite.onnx</c>.</summary>
+    /// <summary>A faster, lighter bundle (AI4's was a half-width NAFNet, about 2x faster and slightly
+    /// weaker on faint detail). No backend serves it today.</summary>
     Lite = 1,
 
-    /// <summary>"Walking-noise" variant trained on dither-correlated /
-    /// pattern noise (the slow drift artefact common to long uncalibrated
-    /// stacks). File: <c>deep_denoise_{mono,color}_AI4_1w.onnx</c>.</summary>
+    /// <summary>A bundle for walking noise (the drift streaks of an unguided, undithered run). No
+    /// backend serves it today.</summary>
     Walking = 2,
 }

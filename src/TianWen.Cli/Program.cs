@@ -75,8 +75,8 @@ builder.Services
     // hands the handler a standalone SkyMapState: supply what it needs rather than branch inside it.
     .AddSingleton<PlanetaryCaptureController>()
     // RC-preferred: uses RC-Astro (sxt/nxt/bxt) when the CLI is installed and the
-    // product is licensed, else falls back to the SETI Astro ONNX enhancers.
-    // AddRcAstroAi() calls AddTianWenAi() internally, so the SAS baseline stands.
+    // product is licensed, else TianWen's own model where the role has one.
+    // AddRcAstroAi() calls AddTianWenAi() internally, so the in-house baseline stands.
     .AddRcAstroAi()
     .AddSingleton<TianWen.Lib.Sequencing.DarkFrameRun>()
     .AddSingleton<IVirtualTerminal, VirtualTerminal>()

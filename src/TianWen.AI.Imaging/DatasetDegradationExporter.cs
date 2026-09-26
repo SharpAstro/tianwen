@@ -500,7 +500,7 @@ namespace TianWen.AI.Imaging
                     // stretched (or empty), and every pair built from it would carry a domain error that
                     // no parity check can see.
                     throw new InvalidOperationException(
-                        $"{sessionId}: the retained master did not read as linear (the SAS auto-detect skipped the stretch), so it is not a valid degradation source");
+                        $"{sessionId}: the retained master did not read as linear (the stretch auto-detect skipped the stretch), so it is not a valid degradation source");
                 }
 
                 var tileRows = ImmutableArray.CreateBuilder<DatasetTileExporter.TileManifestRow>();

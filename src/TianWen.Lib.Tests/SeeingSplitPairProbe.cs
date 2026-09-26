@@ -37,14 +37,13 @@ namespace TianWen.Lib.Tests;
 /// share the reference and not the extent or the origin (the first pair came out 3045x3063 against
 /// 3171x3088). They are overlaid through the <c>CANVASX0</c>/<c>CANVASY0</c> cards the stacker writes,
 /// each master's pixel (0, 0) in reference-frame pixels; a master without them cannot be aligned and the
-/// probe says so. The shipped SAS graph's arm needs the GPU and runs only under <c>TIANWEN_E210_SAS=1</c>.
+/// probe says so.
 /// The crop is a centred square of the region both masters cover, up to 1024 px, because the oracle
 /// convolves serially; the measures are per channel.
 /// </remarks>
 public class SeeingSplitPairProbe(ITestOutputHelper output)
 {
     private const string DirVar = "TIANWEN_E210_PAIR_DIR";
-    private const string SasVar = "TIANWEN_E210_SAS";
     private const int MaxSide = 1024;
     private const int MinSide = 384;
     private const int Iterations = 60;
@@ -365,10 +364,6 @@ public class SeeingSplitPairProbe(ITestOutputHelper output)
         output.WriteLine("against the truth-anchored count (over 1 with rec/A under 1 is fabrication), and ring excess against B's own null.");
     }
 
-    /// <summary>
-    /// The shipped SAS AI4 graph on the soft crop, whole-image psf01 as it ships, read against the sharp
-    /// crop with the same measures. GPU; opt-in.
-    /// </summary>
     /// <summary>The training draws' median kernel over composed width on the SH61 pool's rows
     /// (`EffectiveKernelFwhmPx / ComposedFwhmPx`, p10 / p50 / p90 = 0.26 / 0.52 / 0.69, 2026-09-14),
     /// which is what "the frame's width times a fixed fraction" can offer as a single-frame kernel.</summary>
@@ -668,100 +663,5 @@ public class SeeingSplitPairProbe(ITestOutputHelper output)
         output.WriteLine("read: one B/A for a pair is an AVERAGE over this field. A window at or under 1.000 has no blur to remove, "
             + "and a deconvolution there can only invent; a pair whose windows straddle 1.0 cannot be scored, trained on or "
             + "validated against as one number.");
-    }
-
-    [Fact]
-    public async Task ReportWhatTheShippedGraphDoesOnARealSeeingSplit()
-    {
-        Assert.SkipUnless(Environment.GetEnvironmentVariable(SasVar) == "1", $"{SasVar} is not 1 (needs the GPU)");
-        using var pair = Load(out var skip);
-        Assert.SkipWhen(pair is null, skip);
-        var resolver = new ModelResolver();
-        Assert.SkipUnless(resolver.TryResolve(OnnxNonStellarDeconvolver.Model, out _), $"{OnnxNonStellarDeconvolver.Model} does not resolve");
-
-        var ct = TestContext.Current.CancellationToken;
-        var channels = pair!.Sharp.Image.Shape.ChannelCount;
-        var region = await CommonSquareAsync(pair, 0, ct);
-        Assert.SkipWhen(region is null, "no common covered square");
-        var r = region!.Value;
-
-        // The soft crop with every channel, normalised to a peak of 1 across the channels: a TianWen
-        // master is unit-referred by convention with star peaks well over 1 (49 on this pair), and the
-        // deconvolver's range check reads the peak.
-        var cuts = new float[channels][];
-        var max = 0f;
-        for (var c = 0; c < channels; c++)
-        {
-            cuts[c] = Cut(pair.Soft.Image, c, r.SoftX, r.SoftY, r.Side, r.Side);
-            foreach (var v in cuts[c])
-            {
-                if (v > max) max = v;
-            }
-        }
-
-        var inv = max > 0f ? 1f / max : 1f;
-        var planes = new float[channels][,];
-        for (var c = 0; c < channels; c++)
-        {
-            planes[c] = new float[r.Side, r.Side];
-            for (var y = 0; y < r.Side; y++)
-            {
-                for (var x = 0; x < r.Side; x++)
-                {
-                    planes[c][y, x] = cuts[c][(y * r.Side) + x] * inv;
-                }
-            }
-        }
-
-        var unit = new Image(planes, BitDepth.Float32, 1f, 0f, 0f,
-            new ImageMeta { SensorType = channels == 1 ? SensorType.Monochrome : SensorType.Color });
-        using var deconvolver = new OnnxNonStellarDeconvolver(resolver, new HfdPsfEstimator(), chunkSize: 256, overlap: 64);
-
-        output.WriteLine($"sharp     {pair.Sharp.Path}");
-        output.WriteLine($"soft      {pair.Soft.Path}");
-        output.WriteLine($"graph     {OnnxNonStellarDeconvolver.Model}, whole-image psf01 over the shipped range; crop {r.Side} px at sharp ({r.SharpX}, {r.SharpY}) / soft ({r.SoftX}, {r.SoftY})");
-        output.WriteLine("");
-        output.WriteLine($"{"ch",2} {"A fwhm",6} {"A n",5} {"B fwhm",6} {"B n",5} {"B/A",6} {"out",6} {"out/A",6} {"recov%",7} {"out n",6} {"vs A",6} {"ring",6} {"null",6} {"excess",7} {"s",5}");
-
-        var started = DateTime.UtcNow;
-        var result = await deconvolver.EnhanceAsync(unit, ct);
-        var seconds = (DateTime.UtcNow - started).TotalSeconds;
-        try
-        {
-            for (var c = 0; c < channels; c++)
-            {
-                var truth = Cut(pair.Sharp.Image, c, r.SharpX, r.SharpY, r.Side, r.Side);
-                var (truthFwhm, truthStars) = await MeasuredFwhmAsync(truth, r.Side, ct);
-                StarList stars;
-                var truthImage = Wrap(truth, r.Side, r.Side);
-                try
-                {
-                    stars = await truthImage.FindStarsAsync(channel: 0, snrMin: 20f, cancellationToken: ct);
-                }
-                finally
-                {
-                    truthImage.Release();
-                }
-
-                // Input and output are in the unit range, so their ring statistics use their own MADs.
-                var observedUnit = FullPlane(unit, c);
-                var (bgIn, madIn) = BackgroundStats(observedUnit);
-                var (blurFwhm, blurStars) = await MeasuredFwhmAsync(observedUnit, r.Side, ct);
-                var (nullRing, nullOver) = Ringing(observedUnit, r.Side, stars, bgIn, madIn);
-                var outPlane = FullPlane(result, c);
-                var (bgOut, madOut) = BackgroundStats(outPlane);
-                var (outFwhm, outStars) = await MeasuredFwhmAsync(outPlane, r.Side, ct);
-                var (ring, overOne) = Ringing(outPlane, r.Side, stars, bgOut, madOut);
-                var recovered = float.IsFinite(outFwhm) && blurFwhm > truthFwhm
-                    ? (blurFwhm - outFwhm) / (blurFwhm - truthFwhm)
-                    : double.NaN;
-                output.WriteLine($"{c,2} {truthFwhm,6:F2} {truthStars,5} {blurFwhm,6:F2} {blurStars,5} {blurFwhm / truthFwhm,6:F3} {outFwhm,6:F2} {outFwhm / truthFwhm,6:F3} {recovered,7:P0} "
-                    + $"{outStars,6} {(truthStars > 0 ? (double)outStars / truthStars : double.NaN),6:F2} {ring,6:F2} {nullRing,6:F2} {overOne - nullOver,7:P0} {(c == 0 ? seconds : 0),5:F0}");
-            }
-        }
-        finally
-        {
-            result.Release();
-        }
     }
 }

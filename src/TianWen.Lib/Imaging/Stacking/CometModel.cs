@@ -263,7 +263,7 @@ internal sealed class CometModel
 
         if (remover is null)
         {
-            logger.LogWarning("  [comet] the comet layer holds stars and no IStarRemover is registered; cannot model the body");
+            logger.LogWarning("  [comet] the comet layer holds stars and no star remover serves it; cannot model the body");
             return null;
         }
 

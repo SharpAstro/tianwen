@@ -1,17 +1,18 @@
 namespace TianWen.AI.Imaging;
 
 /// <summary>
-/// Constants shared across the AI4 NAFNet ONNX enhancers (star removal, stellar
-/// sharpening, non-stellar conditional-PSF deconvolution, denoise). These mirror
-/// the input-distribution assumptions baked into the trained models -- if a
-/// future model retrains at a different operating point, declare a separate
-/// constants class for it rather than reassigning these.
+/// Constants shared by the NAFNet ONNX paths: the N2N denoiser's <see cref="Onnx.N2nLinearRunner"/>,
+/// the conditional-PSF deconvolver's shell (<see cref="Onnx.ChunkedNafnetRunner"/>), and the dataset
+/// exporters, whose stored tiles are what TianWen's own models train on. The values were set for the SETI Astro AI4 family, whose
+/// operating point our training data adopted; they mirror the input distribution the trained
+/// models assume, so a future model that retrains at a different operating point declares a
+/// separate constants class rather than reassigning these.
 /// </summary>
 internal static class AiNafnetInputs
 {
     /// <summary>
-    /// Target median for the MTF pre-stretch applied to every AI4 NAFNet ONNX
-    /// input. Each enhancer calls
+    /// Target median for the MTF pre-stretch applied to every NAFNet ONNX
+    /// input. Each runner calls
     /// <see cref="TianWen.Lib.Imaging.Image.MtfStretch"/> with this value before
     /// inference and <see cref="TianWen.Lib.Imaging.Image.MtfUnstretch"/> after,
     /// keeping the data inside the training distribution. SetiAstroSuite Pro's

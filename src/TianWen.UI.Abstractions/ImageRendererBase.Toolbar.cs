@@ -2378,7 +2378,6 @@ namespace TianWen.UI.Abstractions
                 ToolbarAction.Enhance => state.PreferredEnhanceBackend switch
                 {
                     EnhanceBackend.ForceRcAstro => "RC",
-                    EnhanceBackend.ForceSas => "SAS",
                     EnhanceBackend.N2n => "N2N",
                     _ => "Auto",
                 },

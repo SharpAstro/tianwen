@@ -4,27 +4,26 @@ namespace TianWen.Lib.Imaging.Enhancement;
 
 /// <summary>
 /// Which enhancer backend to use for the RC-servable roles (star removal, deblur,
-/// non-stellar deconvolution, denoise). The SAS-only roles (stellar sharpen, gradient
-/// correction) ignore this -- they have no RC-Astro equivalent.
+/// non-stellar deconvolution, denoise). Gradient correction ignores this: it has no RC-Astro
+/// equivalent (GraXpert, else the classical fit).
 /// </summary>
+/// <remarks>
+/// The values are numeric on the wire (the hosting API sends enums as numbers), so they never
+/// renumber: <c>2</c> was the SETI Astro backend, removed on 2026-09-26 with the SAS tier (SETI
+/// Astro's model licence of 2026-09-24 allows use only within SASpro), and stays unassigned.
+/// </remarks>
 public enum EnhanceBackend
 {
-    /// <summary>RC-Astro when the CLI is present AND the product is licensed; otherwise
-    /// the SAS ONNX fallback. The default, and the only behaviour before this option
-    /// existed. For the DENOISE role there is one further rescue tier: when the SAS AI4
-    /// weights are not installed (fresh checkout, fetch script never run) and the input is
-    /// OSC at the default variant, the in-house N2N model serves instead of the run dying
-    /// on a missing file -- it replaces a crash, never a measured backend's result.</summary>
+    /// <summary>RC-Astro when the CLI is present AND the product is licensed; otherwise the in-house
+    /// TianWen model where the role has one (the denoise role's N2N model, 3-channel input), and
+    /// otherwise the role has no backend and the canonical program leaves it out
+    /// (<see cref="SharpenPipeline.CanonicalProgram"/>). The default.</summary>
     Auto = 0,
 
     /// <summary>Use RC-Astro whenever the CLI binary is present, bypassing the
     /// <c>--license</c> probe (useful when the probe is flaky but the user knows the
-    /// product is licensed). Falls back to SAS only when the binary is absent.</summary>
+    /// product is licensed). Falls back to the in-house model only when the binary is absent.</summary>
     ForceRcAstro = 1,
-
-    /// <summary>Never use RC-Astro -- always the SAS ONNX enhancer, even when RC-Astro
-    /// is present and licensed (reproducibility / speed / avoiding the subprocess).</summary>
-    ForceSas = 2,
 
     /// <summary>Prefer the in-house TianWen model for any role that has one -- today that is
     /// the DENOISE role only (the Noise2Noise <c>tianwen_denoise_osc_e2wide_s2</c> net) -- and behave
@@ -39,9 +38,8 @@ public enum EnhanceBackend
 /// <summary>
 /// Optional per-role strength overrides, threaded to whichever backend serves the role.
 /// Backend-agnostic by design: each backend maps a field onto its own native dial --
-/// RC-Astro onto an <c>rc-astro</c> CLI argument, the in-house N2N denoiser onto its blend;
-/// the SAS ONNX enhancers ignore them (they steer via the pipeline's post-hoc <c>Blend</c>
-/// lerp, not native strength). A <c>null</c> field means "use the enhancer's own default",
+/// RC-Astro onto an <c>rc-astro</c> CLI argument, the in-house N2N denoiser onto its blend.
+/// A <c>null</c> field means "use the enhancer's own default",
 /// which reproduces the un-tuned behaviour bit-for-bit.
 /// </summary>
 /// <param name="DeblurSharpen">Non-stellar deblur/deconvolution sharpen in [0, 1], applied
@@ -71,14 +69,15 @@ public sealed record EnhanceOptions(EnhanceBackend Backend = EnhanceBackend.Auto
 
     /// <summary>
     /// Parses an immutable <see cref="EnhanceOptions"/> from a backend string and per-product
-    /// strength overrides. The single source of truth for the <c>auto</c>/<c>rc</c>/<c>sas</c>
+    /// strength overrides. The single source of truth for the <c>auto</c>/<c>rc</c>/<c>n2n</c>
     /// mapping and the "null override =&gt; enhancer default" tuning gate, shared by the CLI
     /// (<c>image sharpen</c>, <c>stack --enhance</c>) and the server enhance endpoint so they
     /// never drift. Callers convert their own sentinels (e.g. the CLI's <c>-1</c> "unset") to a
     /// <c>null</c> before calling.
     /// </summary>
     /// <param name="backend"><c>auto</c> (<c>null</c>/empty =&gt; auto), <c>rc</c>/<c>rcastro</c>/<c>rc-astro</c>,
-    /// <c>sas</c>, or <c>n2n</c> (case-insensitive). Anything else =&gt; <c>false</c> with <paramref name="error"/> set.</param>
+    /// or <c>n2n</c> (case-insensitive). Anything else =&gt; <c>false</c> with <paramref name="error"/> set; <c>sas</c>
+    /// gets its own message, because a script written before 2026-09-26 still says it.</param>
     /// <param name="deblurSharpen">RC <c>bxt --sn</c> override, or <c>null</c> for the enhancer default.</param>
     /// <param name="denoiseStrength">Denoise strength in <c>[0, 1]</c>: RC maps it to <c>nxt --dn</c>
     /// (<c>null</c> = noise-adaptive auto); the N2N backend maps it to its blend dial
@@ -101,11 +100,15 @@ public sealed record EnhanceOptions(EnhanceBackend Backend = EnhanceBackend.Auto
         {
             case "" or "auto": parsed = EnhanceBackend.Auto; break;
             case "rc" or "rcastro" or "rc-astro": parsed = EnhanceBackend.ForceRcAstro; break;
-            case "sas": parsed = EnhanceBackend.ForceSas; break;
             case "n2n": parsed = EnhanceBackend.N2n; break;
+            case "sas":
+                options = Default;
+                error = "The SETI Astro (SAS) backend was removed on 2026-09-26: its model licence allows use only within SASpro. " +
+                        "Use 'auto' (RC-Astro where licensed, else TianWen's own models), 'rc', or 'n2n'.";
+                return false;
             default:
                 options = Default;
-                error = $"Unknown AI backend '{backend}' (expected 'auto', 'rc', 'sas', or 'n2n')";
+                error = $"Unknown AI backend '{backend}' (expected 'auto', 'rc', or 'n2n')";
                 return false;
         }
 

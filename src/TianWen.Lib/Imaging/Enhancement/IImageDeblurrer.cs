@@ -13,9 +13,9 @@ namespace TianWen.Lib.Imaging.Enhancement;
 /// which is why the <c>DeblurFirst</c> canonical drops
 /// <see cref="IStellarSharpener"/> entirely.</para>
 ///
-/// <para>RC-Astro-only: the SETI Astro AI4 models have no full-image deblur (they
-/// use the remove-stars -> sharpen-the-stars-plate split instead), so this role
-/// is backed solely by the bxt CLI. The SAS-shaped canonical
+/// <para>RC-Astro-only today: the role is backed solely by the bxt CLI, and TianWen has
+/// no whole-frame deblur model. <see cref="SharpenPipeline.CanonicalProgram"/> puts it
+/// first wherever it serves; the split program without it
 /// (<see cref="SharpenRequest.Canonical"/>) does not use it.</para>
 /// </remarks>
 public interface IImageDeblurrer : IImageEnhancer

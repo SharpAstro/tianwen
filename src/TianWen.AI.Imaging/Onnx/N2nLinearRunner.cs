@@ -123,7 +123,7 @@ internal static class N2nLinearRunner
         {
             throw new NotSupportedException(
                 $"N2nLinearRunner: model takes {modelChannels} channels and the source has {channels}. " +
-                "Unlike the AI4 family this net has no mono weight bundle and was trained purely on " +
+                "This net has no mono weight bundle and was trained purely on " +
                 "one-shot-colour masters, so replicating a mono channel across the three slots would " +
                 "be feeding it a distribution nobody has measured it on.");
         }

@@ -806,13 +806,15 @@ public sealed class ViewerController(
             case ToolbarAction.Enhance:
                 if (reverse)
                 {
-                    // Right-click cycles the preferred backend (Auto -> RC -> SAS -> N2N); no enhance
-                    // is kicked. The button label reflects the new pick.
+                    // Right-click cycles the preferred backend (Auto -> RC -> N2N); no enhance is
+                    // kicked. The button label reflects the new pick.
                     state.PreferredEnhanceBackend = state.PreferredEnhanceBackend switch
                     {
                         EnhanceBackend.Auto => EnhanceBackend.ForceRcAstro,
-                        EnhanceBackend.ForceRcAstro => EnhanceBackend.ForceSas,
-                        EnhanceBackend.ForceSas => EnhanceBackend.N2n,
+                        EnhanceBackend.ForceRcAstro => EnhanceBackend.N2n,
+                        EnhanceBackend.N2n => EnhanceBackend.Auto,
+                        // Only a value the enum no longer defines lands here (2 was the SAS backend,
+                        // removed 2026-09-26), and a stale one restarts the cycle.
                         _ => EnhanceBackend.Auto,
                     };
                     state.StatusMessage = $"Enhance backend: {state.PreferredEnhanceBackend}";

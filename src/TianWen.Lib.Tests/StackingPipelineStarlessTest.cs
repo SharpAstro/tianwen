@@ -67,6 +67,54 @@ public class StackingPipelineStarlessTest(ITestOutputHelper output)
         }
     }
 
+    /// <summary>A star remover that is registered and serves nothing, which is what
+    /// <c>AddRcAstroAi()</c> leaves on a host without a licensed StarXTerminator.</summary>
+    private sealed class DecliningStarRemover : IStarRemover, IEnhancerAvailability
+    {
+        public string Name => nameof(DecliningStarRemover);
+
+        public bool CanServe(int channelCount, EnhanceOptions options) => false;
+
+        public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("a remover that serves nothing must never be called");
+    }
+
+    /// <summary>
+    /// A remover that is REGISTERED but serves nothing reads as absent: the group is skipped with a
+    /// reason naming what would serve, and the remover is never called. The gate used to ask whether
+    /// the remover was null, which a deferred RC-Astro remover never is, so the run went on to fail at
+    /// the first frame's star removal.
+    /// </summary>
+    [Fact]
+    public async Task ARegisteredRemoverThatServesNothingSkipsTheGroupAndIsNeverCalled()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var workspace = new TempStackingWorkspace();
+        var darksDir = Path.Combine(workspace.RootDir, "DARK");
+        Directory.CreateDirectory(darksDir);
+
+        RgbBayerSyntheticFixture.WriteSyntheticLights(workspace.LightsDir);
+        RgbBayerSyntheticFixture.WriteSyntheticDarks(darksDir);
+
+        var options = new StackingOptions(
+            DataRoot: workspace.RootDir,
+            OutputDir: workspace.OutputDir,
+            ForcedStrategy: IntegrationStrategyKind.BayerDrizzle,
+            DrizzleOptions: new DrizzleOptions(MinFrameCount: 6),
+            RemoveStarsPerFrame: true);
+        var pipeline = new StackingPipeline(options, new XunitLogger(output), catalogDb: null, starRemover: new DecliningStarRemover());
+
+        var results = new List<GroupResult>();
+        await foreach (var r in pipeline.RunAsync(ct))
+        {
+            results.Add(r);
+        }
+
+        results.Count.ShouldBe(1, "expected the single light group, skipped");
+        results[0].SkipReason.ShouldContain("none serves");
+        results[0].MasterFitsPath.ShouldBeNull();
+    }
+
     [Theory]
     [InlineData(StarRemovalMode.Mosaic)]
     [InlineData(StarRemovalMode.SplitCfa)]

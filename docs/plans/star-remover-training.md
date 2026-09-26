@@ -6,7 +6,10 @@ imaging models: it needs the deconvolver programme's PSF distribution (the injec
 it needs the classical flattener (a plate with a gradient is a worse bootstrap plate), and the
 starless plate is the pipeline's workhorse intermediate (`RemoveStarsStep`, `--split-plates`, the
 star/starless dual stretch), so a weak in-house remover would degrade every downstream step. Until
-its gates pass, `IStarRemover` stays on RC-Astro (`sxt`) when licensed, else SAS `darkstar_*_AI4`.
+its gates pass, `IStarRemover` is RC-Astro (`sxt`) when licensed, else NOTHING: the SAS
+`darkstar_*_AI4` fallback went with that tier on 2026-09-26, so without StarXTerminator the canonical
+program runs whole-frame, `--split-plates` writes no plates and `--remove-stars` refuses. Whether that
+moves this plan up the order is the user's call, raised 2026-09-26.
 
 Companions: [deconvolver-training.md](deconvolver-training.md) (the PSF family the injector uses),
 [gradient-remover-training.md](gradient-remover-training.md) (the flatten step),

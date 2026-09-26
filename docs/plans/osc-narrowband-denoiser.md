@@ -619,6 +619,14 @@ against its own ablations on held-out astro masters and has never been compared 
 AI4 family has a weight bundle. Making it the default would assert a comparison nobody ran, silently,
 on every `--ai-backend sas` run.
 
+> **2026-09-26: superseded by the SAS tier's removal.** The N2N model IS now the default local
+> `IDenoiseEnhancer` (`AddTianWenAi()`), `AddTianWenN2nDenoiser` is gone, and it declines mono through
+> `IEnhancerAvailability`, so a mono input's program leaves the denoise out rather than failing. It
+> became the default because it is the only local denoiser left, NOT because the comparison above was
+> run: that comparison can no longer be made in the product (the AI4 weights are not loaded), and one
+> against RC-Astro is ruled out by RC's EULA, so the model's standing rests on its own held-out
+> measurements.
+
 **Distribution (decided 2026-08-17): the weights live IN the repo, at
 `src/TianWen.AI.Imaging/models/`.** At 3.1 MiB the model is test-fixture-sized, so it ships like one.
 Three consumers hang off that one location. The test project copies it beside the binaries, so
@@ -651,8 +659,9 @@ server endpoint / the viewer. `EnhanceBackend.N2n` closes that, with three delib
   and must keep working; scoping it per role is what makes the flag composable rather than a trap.
   Routed by the same `DeferredEnhancer.Resolve` that arbitrates RC-vs-SAS, so there is still exactly
   one selection path.
-- **Auto gains a rescue tier, not a preference.** Auto's denoise chain is RC (present + licensed)
-  -&gt; SAS -&gt; N2N, where the N2N tier fires ONLY when the SAS AI4 weights are not on disk and the
+- **Auto gains a rescue tier, not a preference** (as shipped then; since 2026-09-26 the chain is RC,
+  then N2N, the SAS tier being gone). Auto's denoise chain was RC (present + licensed)
+  -&gt; SAS -&gt; N2N, where the N2N tier fired ONLY when the SAS AI4 weights were not on disk and the
   input is OSC at the default variant (`DeferredDenoiser.Pick`, logged as a warning). With the SAS
   weights installed, Auto is byte-for-byte the old path -- the rescue converts "fresh checkout,
   no 300 MB AI4 fetch -&gt; FileNotFoundException" into a working enhance with the 3 MiB in-repo

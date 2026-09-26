@@ -19,7 +19,7 @@ live-capture path is a different doc (`image-pipeline.md`).
 | Post-integration disk side-effects + enhance + render | `MasterPostProcessor` | `TianWen.Lib/Imaging/Stacking/` |
 | SPCC + sky-bg WB, bg-neut, MTF stretch, PNG/TIFF render | `MasterPreviewRenderer` | `TianWen.Lib/Imaging/Stacking/` |
 | Pure stretch-uniform math (CPU/GPU single source) | `StretchSolver` | `TianWen.Lib/Imaging/` |
-| AI enhance step program (BlurX-first / SAS-shaped) | `SharpenPipeline` | `TianWen.Lib/Imaging/Enhancement/` |
+| AI enhance step program (`CanonicalProgram`: BlurX-first, split or whole-frame) | `SharpenPipeline` | `TianWen.Lib/Imaging/Enhancement/` |
 | Per-pixel CPU stretch | `Image.RenderStretchedRgba16` / `StretchChannelCpu` | `TianWen.Lib/Imaging/` |
 | CLI verb | `StackSubCommand` | `TianWen.Cli/` |
 
@@ -280,13 +280,15 @@ stretch**.
 ```mermaid
 flowchart TD
     In([EnhanceAndWriteAsync]) --> GC[GC.Collect compacting<br/>reclaim integration heap<br/>avoid GPU TDR on iGPU]
-    GC --> Steps{SharpenPipeline.SupportsDeblur?}
+    GC --> Steps{"SharpenPipeline.CanonicalProgram:<br/>which roles SERVE this master?"}
 
-    Steps -->|RC-Astro present| Blur["BlurX-first program:<br/>Deblur (whole frame, auto-PSF)<br/>-> GradientCorrection<br/>-> RemoveStars (the split)<br/>-> DenoiseStarless<br/>-> ScnrStars<br/>-> Recombine"]
-    Steps -->|no RC deblurrer| Sas["SAS-shaped program:<br/>GradientCorrection<br/>-> RemoveStars (the split)<br/>-> SharpenStars<br/>-> DeconvolveStarless<br/>-> DenoiseStarless<br/>-> Recombine"]
+    Steps -->|BlurX + a star remover| Blur["BlurX-first program:<br/>Deblur (whole frame, auto-PSF)<br/>-> GradientCorrection<br/>-> RemoveStars (the split)<br/>-> DenoiseStarless<br/>-> ScnrStars<br/>-> Recombine"]
+    Steps -->|a star remover, no BlurX| Split["Split program:<br/>GradientCorrection<br/>-> RemoveStars (the split)<br/>-> SharpenStars, DeconvolveStarless<br/>(each only where one serves)<br/>-> DenoiseStarless<br/>-> Recombine"]
+    Steps -->|no star remover| Whole["Whole-frame program:<br/>Deblur (only where BlurX serves)<br/>-> GradientCorrection<br/>-> DenoiseFrame<br/>no plates"]
 
     Blur --> Final[Final = recombined enhanced master<br/>+ kept stars / starless lineage]
-    Sas --> Final
+    Split --> Final
+    Whole --> Final
     Final --> WriteSharp[Write _sharpened.fits<br/>+ _sharpened_autocrop.fits]
     WriteSharp --> OneSolve["ONE RenderAsync on the ENHANCED master:<br/>solves SPCC WB (stars in, gradient-corrected)<br/>+ renders the preview PNG"]
     OneSolve --> Plates{--split-plates?}
@@ -297,7 +299,9 @@ flowchart TD
 
 `--split-plates` is a **single AI pass**: `KeepIntermediates =
 StarsAndStarlessLineage` keeps the stars-only + denoised-starless plates from the
-SAME `ProcessAsync`. No second enhance runs.
+SAME `ProcessAsync`. No second enhance runs. Without a star remover the program is
+whole-frame and has no lineage to keep, so the plates are skipped with a warning naming
+why, and the enhanced master is still written.
 
 ---
 

@@ -15,8 +15,7 @@ internal static class OnnxIoNames
 {
     /// <summary>
     /// Single-input + single-output classification (the canonical 1-IO NAFNet
-    /// shape used by <see cref="OnnxStarRemover"/> and
-    /// <see cref="OnnxStellarSharpener"/>).
+    /// shape: an image in, an image out).
     /// </summary>
     public static (string imageInput, string output) SingleInput(InferenceSession session)
     {

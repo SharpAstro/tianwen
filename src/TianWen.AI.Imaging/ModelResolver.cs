@@ -14,9 +14,9 @@ namespace TianWen.AI.Imaging;
 /// priority order and returns the first match. The default directory list is
 /// the app-local <c>models/</c> beside the running binary first (see
 /// <see cref="AppLocalModelsDir"/>), then <c>%LOCALAPPDATA%/TianWen/models</c>
-/// (the path written by <c>tools/tianwen-ai-models-fetch.ps1</c>), then SAS Pro's
-/// <c>%LOCALAPPDATA%/SASpro/models</c> if it exists (lets a dual-app dev
-/// install share weights). Cross-platform: macOS uses
+/// (the path written by <c>tools/tianwen-ai-models-fetch.ps1</c>). SAS Pro's
+/// <c>%LOCALAPPDATA%/SASpro/models</c> is NOT searched any more: its weights' licence (2026-09-24) allows
+/// use only within SASpro, and the SAS tier was removed on 2026-09-26. Cross-platform: macOS uses
 /// <c>~/Library/Application Support/TianWen/models</c> and Linux uses
 /// <c>~/.local/share/TianWen/models</c>, mirroring the fetch script.
 ///
@@ -38,9 +38,7 @@ namespace TianWen.AI.Imaging;
 /// it, having GraXpert installed bought nothing: the only bridge was
 /// <c>tools/tianwen-ai-models-fetch.ps1</c> hardlinking the file across, which is a repo-relative
 /// dev script that a Store install has no way to run -- so "Enhance failed: graxpert_bge.onnx not
-/// found" was the shipped outcome of a correctly-installed GraXpert. This is the same courtesy
-/// already extended to SAS Pro below, which is probed in its own install directory for the same
-/// reason.</para>
+/// found" was the shipped outcome of a correctly-installed GraXpert.</para>
 /// </summary>
 public sealed class ModelResolver : IModelResolver
 {
@@ -49,7 +47,7 @@ public sealed class ModelResolver : IModelResolver
     private readonly ILogger<ModelResolver>? _logger;
 
     /// <summary>
-    /// Use the default search path list (TianWen first, SAS Pro fallback).
+    /// Use the default search path list (the app-local <c>models/</c>, then the per-user TianWen one).
     /// </summary>
     public ModelResolver(ILogger<ModelResolver>? logger = null)
         : this(DefaultSearchPaths(), logger)
@@ -139,7 +137,7 @@ public sealed class ModelResolver : IModelResolver
     }
 
     /// <summary>
-    /// The built-in search directories (TianWen's own models dir first, SAS Pro's second),
+    /// The built-in search directories (the app-local <c>models/</c> first, the per-user TianWen one second),
     /// for callers that want to prepend a path of their own without restating these.
     /// </summary>
     public static ImmutableArray<string> DefaultDirectories => DefaultSearchPaths();
@@ -249,8 +247,7 @@ public sealed class ModelResolver : IModelResolver
     /// </summary>
     private static readonly ImmutableArray<(string ModelFileName, string Bucket)> GraXpertBuckets =
     [
-        // GraXpert's denoise bucket is deliberately absent: it overlaps SAS Pro's AI4 NAFNet,
-        // which we already resolve, and nothing here asks for it.
+        // GraXpert's denoise bucket is deliberately absent: nothing here asks for it.
         (OnnxBackgroundExtractor.ModelName, "bge-ai-models"),
     ];
 
@@ -352,15 +349,13 @@ public sealed class ModelResolver : IModelResolver
     /// locating it needs env -> default dir -> PATH, whereas this cache is written by GraXpert
     /// itself through the platform's per-user data directory -- the same one
     /// <see cref="LocalAppDataDir"/> resolves. Auto-detection is not a best guess here, it is the
-    /// same API answering for both programs. Nobody could name a case where it is wrong, and the
-    /// override was also asymmetric: SAS Pro's root has none, so one vendor had a knob for no
-    /// stated reason.</para>
+    /// same API answering for both programs. Nobody could name a case where it is wrong.</para>
     /// </summary>
     private static string GraXpertRoot() => LocalAppDataDir("GraXpert", "GraXpert");
 
     private static ImmutableArray<string> DefaultSearchPaths()
     {
-        return [AppLocalModelsDir(), TianWenModelsDir(), SasProModelsDir()];
+        return [AppLocalModelsDir(), TianWenModelsDir()];
     }
 
     /// <summary>
@@ -377,8 +372,6 @@ public sealed class ModelResolver : IModelResolver
 
     private static string TianWenModelsDir() => LocalAppDataDir("TianWen", "models");
 
-    private static string SasProModelsDir() => LocalAppDataDir("SASpro", "models");
-
     /// <summary>
     /// A per-user application-data directory, ours or a vendor's.
     ///
@@ -390,9 +383,9 @@ public sealed class ModelResolver : IModelResolver
     /// <c>~/.local/share</c> there, which is NOT where a Python vendor using <c>platformdirs</c>
     /// writes. It has been right since .NET 8 and this targets net10.0.</para>
     ///
-    /// <para>Three copies of that switch had already drifted -- <see cref="SasProModelsDir"/>
-    /// silently ignored <c>XDG_DATA_HOME</c> while its two siblings honoured it, so a Linux user
-    /// who set it got SAS Pro's models looked for in the wrong place. One helper is also the only
+    /// <para>Three copies of that switch had already drifted -- one of them silently ignored
+    /// <c>XDG_DATA_HOME</c> while its two siblings honoured it, so a Linux user who set it got a
+    /// vendor's models looked for in the wrong place. One helper is also the only
     /// way the <c>HOME</c> reads go away: .NET falls back to the OS user database when <c>HOME</c>
     /// is unset, whereas <c>GetEnvironmentVariable("HOME") ?? string.Empty</c> yielded a RELATIVE
     /// path probed under the process working directory, which is most likely exactly where

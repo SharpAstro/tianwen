@@ -159,7 +159,8 @@ public sealed class ViewerState
     public float EnhanceProgressPct { get; set; }
 
     /// <summary>Preferred AI enhancer backend for the next enhance, snapshotted into an
-    /// <see cref="EnhanceOptions"/> per click. Auto = RC-Astro when present + licensed, else SAS ONNX.
+    /// <see cref="EnhanceOptions"/> per click. Auto = RC-Astro when present + licensed, else the in-house
+    /// model where the role has one.
     /// Cycled by the Enhance toolbar dropdown.</summary>
     public EnhanceBackend PreferredEnhanceBackend { get; set; } = EnhanceBackend.Auto;
 

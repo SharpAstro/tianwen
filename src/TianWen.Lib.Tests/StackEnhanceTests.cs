@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using TianWen.Lib.Geometry;
 using System.IO;
 using System.Threading;
@@ -8,6 +9,7 @@ using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Imaging.Stacking;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
@@ -34,6 +36,49 @@ public class StackEnhanceTests
         public string Name => name;
         public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
             => Task.FromResult(input);
+    }
+
+    /// <summary>
+    /// Returns a COPY, as a real enhancer does (a step owns what it produces), so the whole-frame
+    /// program's release of the plate it consumed can never reach its own result.
+    /// </summary>
+    private sealed class CopyEnhancer(string name) : IDenoiseEnhancer, IGradientCorrector
+    {
+        public string Name => name;
+
+        public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
+        {
+            var (channels, w, h) = input.Shape;
+            var data = new float[channels][,];
+            for (var c = 0; c < channels; c++)
+            {
+                var src = input.GetChannelSpan(c);
+                var plane = new float[h, w];
+                for (var y = 0; y < h; y++)
+                {
+                    for (var x = 0; x < w; x++)
+                    {
+                        plane[y, x] = src[y * w + x];
+                    }
+                }
+                data[c] = plane;
+            }
+            return Task.FromResult(new Image(data, input.BitDepth, input.MaxValue, input.MinValue, input.Pedestal, input.ImageMeta));
+        }
+    }
+
+    /// <summary>Keeps every entry logged: a flag that writes nothing has only the log to say why.</summary>
+    private sealed class RecordingLogger : ILogger
+    {
+        public ConcurrentQueue<(LogLevel Level, string Message)> Entries { get; } = new ConcurrentQueue<(LogLevel Level, string Message)>();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+            => Entries.Enqueue((logLevel, formatter(state, exception)));
     }
 
     private static Image SyntheticRgb(int w, int h, float fill)
@@ -192,6 +237,49 @@ public class StackEnhanceTests
                 "sharpened sibling must NOT appear when enhance=false");
             File.Exists(Path.Combine(tmp.FullName, "master_test_sharpened_autocrop.fits")).ShouldBeFalse(
                 "sharpened autocrop sibling must NOT appear when enhance=false");
+        }
+        finally
+        {
+            try { tmp.Delete(recursive: true); } catch { /* best-effort */ }
+        }
+    }
+
+    /// <summary>
+    /// <c>--split-plates</c> exports the split program's stars / starless lineage, and without a star
+    /// remover the program is whole-frame and has none. The enhanced master is still written, and the
+    /// log SAYS why there are no plates: before, the flag wrote nothing and said nothing, which on a
+    /// host without RC-Astro (every host, since the SAS tier went) reads as a bug.
+    /// </summary>
+    [Fact]
+    public async Task WriteMasterAsync_SplitPlatesWithoutAStarRemover_WritesTheWholeFrameMasterAndSaysWhy()
+    {
+        var tmp = Directory.CreateTempSubdirectory("StackEnhanceTests_");
+        try
+        {
+            var masterPath = Path.Combine(tmp.FullName, "master_test.fits");
+            var master = SyntheticRgb(64, 64, 0.05f);
+            var result = MakeResult(master);
+
+            // Gradient + denoise and nothing else: what a host without RC-Astro serves.
+            var sharpenPipeline = new SharpenPipeline(
+                denoiser: new CopyEnhancer("denoise"),
+                gradientCorrector: new CopyEnhancer("gradient"));
+            var logger = new RecordingLogger();
+            var processor = new MasterPostProcessor(logger, catalogDb: null, sharpenPipeline: sharpenPipeline);
+
+            await processor.WriteMasterAsync(
+                result, masterPath, searchHint: null, imageDim: null, refMeta: master.ImageMeta,
+                autocropRect: new PixelRect(4, 4, 56, 56), strategy: IntegrationStrategyKind.InRamAllFrames,
+                enhance: true, enhanceBlend: 1.0f, splitPlates: true, enhanceOptions: EnhanceOptions.Default,
+                outputs: MasterRenderOutputs.None, ct: TestContext.Current.CancellationToken);
+
+            File.Exists(Path.Combine(tmp.FullName, "master_test_sharpened.fits"))
+                .ShouldBeTrue("the whole-frame enhance still writes its master");
+            logger.Entries.ShouldContain(
+                e => e.Level == LogLevel.Warning && e.Message.Contains("[split-plates] skipped") && e.Message.Contains("no star remover"),
+                "a --split-plates run with no star remover must say why it wrote no plates");
+            logger.Entries.ShouldNotContain(e => e.Message.Contains("[enhance] failed"),
+                "the whole-frame program must run, not fail over the missing split");
         }
         finally
         {

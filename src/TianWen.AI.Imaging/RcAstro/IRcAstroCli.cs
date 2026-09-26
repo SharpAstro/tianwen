@@ -12,7 +12,7 @@ namespace TianWen.AI.Imaging.RcAstro
     /// </summary>
     /// <remarks>
     /// RC-Astro's neural models ship encrypted on disk and are only decryptable
-    /// by the official binary, so (unlike the SETI Astro ONNX models) they
+    /// by the official binary, so (unlike a plain ONNX model) they
     /// cannot be loaded into ONNX Runtime directly. The supported integration
     /// path is the documented machine protocol, which this drives.
     /// </remarks>

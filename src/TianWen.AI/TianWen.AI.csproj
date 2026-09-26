@@ -58,7 +58,7 @@
              / AMD / Intel iGPUs via D3D12) plus no-RID dev builds.
              Trade-off vs the QNN alternative on win-arm64: QNN's HTP
              backend is INT8/INT16-first, so on pure FP32 models
-             (AI4 NAFNet, Cosmic Clarity, etc.) QNN per-node-falls-back
+             (the NAFNet family, GraXpert, etc.) QNN per-node-falls-back
              to CPU and the NPU sits idle. DirectML talks to the Adreno
              via D3D12 compute and accelerates FP32 matmuls. If we later
              quantise to INT8, swap to Microsoft.ML.OnnxRuntime.QNN to put
