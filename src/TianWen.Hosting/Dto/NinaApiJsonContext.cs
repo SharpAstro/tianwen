@@ -20,6 +20,7 @@ namespace TianWen.Hosting.Dto;
 [JsonSerializable(typeof(double))]
 [JsonSerializable(typeof(DateTimeOffset))]
 [JsonSerializable(typeof(int[]))]
+[JsonSerializable(typeof(DeviceStateDto))]
 [JsonSerializable(typeof(ResponseEnvelope<string>))]
 [JsonSerializable(typeof(ResponseEnvelope<string[]>))]
 [JsonSerializable(typeof(ResponseEnvelope<NinaCameraInfoDto>))]

@@ -37,6 +37,10 @@ public static class HostedSessionServiceCollectionExtensions
         // connected mount whether or not a session owns it. Node-scoped (survives across sessions
         // starting and ending), not part of IHostedSession itself.
         services.AddHostedService<MountLimitWatcherService>();
+        // The device plane's read side (P2 part 1 of docs/plans/hardware-in-the-server.md, #929): reads every connected
+        // device a run does not hold, answers GET /api/v1/devices/state and pushes DEVICE-STATE.
+        services.AddSingleton<DeviceStatePoller>();
+        services.AddHostedService(sp => sp.GetRequiredService<DeviceStatePoller>());
         // Single-flight server-side AI enhancer behind POST /api/v1/image/enhance. The SharpenPipeline
         // is OPTIONAL -- it is registered only by AddRcAstroAi()/AddTianWenAi(), which a host (the
         // functional-test host, or a server with no AI models) need not wire. Resolve it via GetService

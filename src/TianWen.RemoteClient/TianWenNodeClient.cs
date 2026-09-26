@@ -299,6 +299,15 @@ namespace TianWen.RemoteClient
             GetAsync("api/v1/devices/structured", HostingJsonContext.Default.ResponseEnvelopeDeviceDtoArray, _timeouts.Control, cancellationToken);
 
         /// <summary>
+        /// <c>GET /devices/state</c> -- every device the node has connected or a run holds, with what the node last read
+        /// of it, whether it is connected and which run holds it (P2 part 1, #929). Authoritative; the <c>DEVICE-STATE</c>
+        /// push is the latency hint (<see cref="DeviceStateDto.TryFromEvent"/>). Asking keeps the node reading at the
+        /// GUI's cadences, for a client that polls rather than listens.
+        /// </summary>
+        public Task<NodeResult<DeviceStateDto[]>> GetDeviceStatesAsync(CancellationToken cancellationToken) =>
+            GetAsync("api/v1/devices/state", HostingJsonContext.Default.ResponseEnvelopeDeviceStateDtoArray, _timeouts.StatePoll, cancellationToken);
+
+        /// <summary>
         /// <c>POST /devices/discover</c> -- starts a discovery on the node, or joins the one running, and answers
         /// at once with its job (202). Follow it with <see cref="GetJobAsync"/> or the <c>JOB-PROGRESS</c> push,
         /// then read what it found with <see cref="GetDevicesAsync"/>. It runs on the node's token, so this

@@ -30,6 +30,12 @@ public static class NodeWire
 
     /// <summary>How long a client may go without a beat and still count as seeing a prompt: a few missed beats.</summary>
     public static readonly System.TimeSpan PresenceLapse = System.TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// The event a node pushes when a device's state changes, carrying the device's state under <c>Device</c>
+    /// (<see cref="Dto.DeviceStateDto.TryFromEvent"/>). A latency hint: <c>GET /api/v1/devices/state</c> is authoritative.
+    /// </summary>
+    public const string DeviceStateEvent = "DEVICE-STATE";
 }
 
 /// <summary>

@@ -310,6 +310,43 @@ sweep off mid-probe (P0b item 17 of [../plans/hardware-in-the-server.md](../plan
 same `NodeJobs.StartOrJoin`; **a new slow endpoint starts a job, never runs inline**. `TianWenNodeClient`
 has `StartDiscoveryAsync`, `GetJobAsync`, `GetJobsAsync` and `CancelJobAsync`. Pinned by `NodeJobTests`.
 
+## The device plane's read side: one reader, and a held device is the run's
+
+What a client shows of a device with no session running (P2 part 1 of
+[../plans/hardware-in-the-server.md](../plans/hardware-in-the-server.md), #929). `DeviceStatePoller`
+(`BackgroundService`) is the node's one reader of every connected device; the rest of P2 adds the commands.
+
+- **`GET /api/v1/devices/state` is authoritative**: every device the hub has connected or leased, as a
+  `DeviceStateDto` each. Its connection and its lease owner are read live on the request; its reading is the
+  poller's last. A camera carries the hub's cooler intent beside its reading, and a mount the node's
+  safety-limit verdict (`MountLimitWatcher.VerdictFor`, which the GUI reads every frame today).
+  `TianWenNodeClient.GetDeviceStatesAsync`.
+- **`DEVICE-STATE` (`Data["Device"]`, one `DeviceStateDto`) is the latency hint, pushed only on a change.**
+  The comparison leaves out when the device was read, and compares each sensor reading at the resolution a
+  reader is shown it (0.1 °C, a whole percent of cooler power): a thermometer's last digits differ on every
+  read, and compared in full every device carrying one was pushed on every read. A device that goes is pushed
+  once with `Connected = false`, then dropped. `DeviceStateDto.TryFromEvent` reads the push back.
+- **The node and the GUI read a device through the same code**, `DeviceHubReadingExtensions`
+  (`ReadCameraAsync`, `ReadFocuserAsync`, `ReadFilterWheelAsync`, `ReadMountAsync`, `ReadCoverAsync`), so they
+  cannot read one two ways (no host reads a cover yet; the node does, for P6). A topocentric mount's J2000
+  position uses the active profile's site, read at most every 30 s; a J2000 mount's is its own and asks for
+  no transform.
+- **A leased device is never read.** The run holding it reads it itself, and two readers on one serial
+  port race. The node keeps the last reading and names the run (`LeaseOwner`), which is also the lease table
+  P6 re-sources the GUI's ownership gate from.
+- **Cadence is the GUI's, while anyone is watching** (a socket client attached, or a snapshot asked for in
+  the last 10 s): a camera and a filter wheel every 2 s; a focuser, and a cover's flap, every second while it
+  moves, else 2 s; a mount every 0.5 s slewing, every second for 10 s after it settles tracking and then every 10 s, 2 s
+  otherwise. With nobody watching, every device every 10 s.
+- **A reading a device does not give is null, never 0** (a cooler at 0 °C and RA 0 are real readings).
+  The older DTOs still send `JsonNumber.ForWire`'s 0; P5b moves them to null.
+- The five DTOs are records, unlike the rest, so the node's copies of a reading are `with` expressions,
+  which cannot forget a field (a field a hand-listed comparison left out is a change never pushed).
+
+Pinned by `DeviceStateTests` (a real node: every device read and served with its lease and limit; a held
+device left alone and re-read once let go; a change pushed, an idle one not, and a goodbye),
+`DeviceStatePollerTests` (the cadences and the push's wire form) and `DeviceHubReadingTests`.
+
 ## Previews go through the shared stretch, never a private one
 
 `PreviewEncoder` (`Api/`) is the one JPEG preview encoder, used by `GET

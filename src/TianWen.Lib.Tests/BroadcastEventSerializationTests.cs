@@ -41,6 +41,20 @@ public class BroadcastEventSerializationTests
             new TaskCompletionSource<bool>(), defaultIfUnanswerable: false, raisedUtc: Now))],
         [BroadcastEvents.Notification(new NotificationDto { Severity = "Info", Message = "Cooling -> RoughFocus", TimestampUtc = Now })],
         [BroadcastEvents.JobProgress(new JobDto { Id = "7f3c", Kind = "discover", State = JobState.Failed, Step = "Discovering devices", Error = "the serial sweep failed", StartedUtc = Now, EndedUtc = Now })],
+        [BroadcastEvents.DeviceState(new DeviceStateDto
+        {
+            DeviceUri = "Mount://FakeDevice/1", DeviceType = DeviceType.Mount, Connected = true, LeaseOwner = "Session run", ReadUtc = Now,
+            Mount = new MountDeviceStateDto
+            {
+                RightAscension = 5.5, Declination = -5.4, PierSide = PointingState.Normal, IsSlewing = false, IsTracking = true,
+                Limit = MountLimitDto.FromVerdict(MountLimitVerdict.Clear),
+            },
+        })],
+        [BroadcastEvents.DeviceState(new DeviceStateDto
+        {
+            DeviceUri = "CoverCalibrator://FakeDevice/1", DeviceType = DeviceType.CoverCalibrator, Connected = true, ReadUtc = Now,
+            Cover = new CoverDeviceStateDto { CoverState = CoverStatus.Open, CalibratorState = CalibratorStatus.Ready, Brightness = 120, MaxBrightness = 255, CanControlBrightness = true },
+        })],
     ];
 
     [Theory]

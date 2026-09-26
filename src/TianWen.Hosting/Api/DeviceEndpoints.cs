@@ -45,6 +45,14 @@ internal static class DeviceEndpoints
                 HostingJsonContext.Default.ResponseEnvelopeDeviceDtoArray);
         });
 
+        // Every connected or held device with what the node last read of it, whether it is connected and which run holds
+        // it (P2 part 1, #929). Authoritative; DEVICE-STATE is the latency hint. Asking counts as watching, which keeps
+        // the node reading at the GUI's cadences for a client that polls rather than listens.
+        group.MapGet("/devices/state", (DeviceStatePoller poller) =>
+            EnvelopeResults.Json(
+                ResponseEnvelope<DeviceStateDto[]>.Ok(poller.Snapshot()),
+                HostingJsonContext.Default.ResponseEnvelopeDeviceStateDtoArray));
+
         // Starts a discovery, or joins the one running, and answers 202 with its job at once. It used to run
         // inline on the REQUEST's token: a client's 10 s control budget cut a serial sweep off mid-probe, and a
         // dropped request cancelled a probe half-way (P0b item 17 of docs/plans/hardware-in-the-server.md).

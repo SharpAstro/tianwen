@@ -40,6 +40,8 @@ namespace TianWen.Hosting.Dto;
 [JsonSerializable(typeof(ResponseEnvelope<WebSocketEventDto>))]
 [JsonSerializable(typeof(ResponseEnvelope<NotificationDto[]>))]
 [JsonSerializable(typeof(ResponseEnvelope<DeviceDto[]>))]
+[JsonSerializable(typeof(ResponseEnvelope<DeviceStateDto[]>))]
+[JsonSerializable(typeof(DeviceStateDto))]
 [JsonSerializable(typeof(ScheduledObservationDto))]
 [JsonSerializable(typeof(ScheduledObservationDto[]))]
 [JsonSerializable(typeof(EnhanceRequestDto))]

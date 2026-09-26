@@ -65,6 +65,19 @@ internal static class BroadcastEvents
         }
     };
 
+    /// <summary>
+    /// A device's state changed: read differently, connected or let go, or taken or released by a run. The latency
+    /// hint: <c>GET /api/v1/devices/state</c> is authoritative (P2 part 1, #929).
+    /// </summary>
+    public static WebSocketEventDto DeviceState(DeviceStateDto device) => new WebSocketEventDto
+    {
+        Event = Api.NodeWire.DeviceStateEvent,
+        Data = new Dictionary<string, object?>
+        {
+            [DeviceStateDto.EventKey] = device
+        }
+    };
+
     /// <summary>A job started, moved on or ended. The latency hint: <c>GET /api/v1/jobs/{id}</c> is authoritative.</summary>
     public static WebSocketEventDto JobProgress(JobDto job) => new WebSocketEventDto
     {

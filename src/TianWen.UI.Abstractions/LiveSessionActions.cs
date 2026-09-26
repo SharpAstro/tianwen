@@ -165,76 +165,16 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// Samples camera, focuser, and filter-wheel telemetry for one OTA from hub-connected
-        /// drivers. Driver calls are guarded by <see cref="LoggerCatchExtensions.CatchAsync{T}"/>
-        /// so a single flaky driver call doesn't abort the whole sample.
+        /// Samples camera, focuser, and filter-wheel telemetry for one OTA from hub-connected drivers, through the one
+        /// sampler a node's device plane reads through too (<see cref="DeviceHubReadingExtensions"/>). A single flaky
+        /// driver call reads as not known rather than aborting the whole sample.
         /// </summary>
         public static async Task<PreviewOTATelemetry> SampleOTATelemetryAsync(
             IDeviceHub hub, OTAData ota, ILogger logger, CancellationToken ct)
         {
-            // Camera
-            var ccdTemp = double.NaN;
-            var setpoint = double.NaN;
-            var power = double.NaN;
-            var coolerOn = false;
-            var usesGainValue = false;
-            var usesGainMode = false;
-            short gainMin = 0, gainMax = 0, currentGain = 0;
-            var gainModes = ImmutableArray<string>.Empty;
-            var sensorWidth = 0;
-            var sensorHeight = 0;
-            var roiConstraints = default(RoiConstraints);
-            var cameraConnected = hub.TryGetConnectedDriver<ICameraDriver>(ota.Camera, out var camera);
-            if (cameraConnected && camera is not null)
-            {
-                ccdTemp = await logger.CatchAsyncIf(camera.CanGetCCDTemperature, camera.GetCCDTemperatureAsync, ct, double.NaN);
-                power = await logger.CatchAsyncIf(camera.CanGetCoolerPower, camera.GetCoolerPowerAsync, ct, double.NaN);
-                coolerOn = await logger.CatchAsyncIf(camera.CanGetCoolerOn, camera.GetCoolerOnAsync, ct);
-                setpoint = await logger.CatchAsyncIf(camera.CanSetCCDTemperature, camera.GetSetCCDTemperatureAsync, ct, double.NaN);
-                usesGainValue = camera.UsesGainValue;
-                usesGainMode = camera.UsesGainMode;
-                gainMin = camera.GainMin;
-                gainMax = camera.GainMax;
-                currentGain = await logger.CatchAsync(camera.GetGainAsync, ct);
-                if (usesGainMode && camera.Gains is { Count: > 0 } gains)
-                {
-                    gainModes = [.. gains];
-                }
-                // Sensor geometry + ROI step/alignment rules for the planetary ROI picker (synchronous reads;
-                // RoiConstraints is the default free rect unless the driver overrides with its vendor rule).
-                sensorWidth = camera.CameraXSize;
-                sensorHeight = camera.CameraYSize;
-                roiConstraints = camera.RoiConstraints;
-            }
-
-            // Focuser
-            var focPos = 0;
-            var focTemp = double.NaN;
-            var focMoving = false;
-            var focConnected = false;
-            if (ota.Focuser is { } focUri)
-            {
-                focConnected = hub.TryGetConnectedDriver<IFocuserDriver>(focUri, out var foc);
-                if (focConnected && foc is not null)
-                {
-                    focPos = await logger.CatchAsync(foc.GetPositionAsync, ct);
-                    focTemp = await logger.CatchAsync(foc.GetTemperatureAsync, ct, double.NaN);
-                    focMoving = await logger.CatchAsync(foc.GetIsMovingAsync, ct);
-                }
-            }
-
-            // Filter wheel
-            var filterName = "--";
-            var fwConnected = false;
-            if (ota.FilterWheel is { } fwUri)
-            {
-                fwConnected = hub.TryGetConnectedDriver<IFilterWheelDriver>(fwUri, out var fw);
-                if (fwConnected && fw is not null)
-                {
-                    var filter = await logger.CatchAsync(fw.GetCurrentFilterAsync, ct);
-                    filterName = filter.DisplayName ?? "--";
-                }
-            }
+            var camera = await hub.ReadCameraAsync(ota.Camera, logger, ct);
+            var focuser = ota.Focuser is { } focuserUri ? await hub.ReadFocuserAsync(focuserUri, logger, ct) : null;
+            var filterWheel = ota.FilterWheel is { } filterWheelUri ? await hub.ReadFilterWheelAsync(filterWheelUri, logger, ct) : null;
 
             var camDisplay = hub.TryGetDeviceFromUri(ota.Camera, out var dev) && dev is not null
                 ? dev.DisplayName : ota.Name;
@@ -242,26 +182,26 @@ namespace TianWen.UI.Abstractions
             return new PreviewOTATelemetry(
                 OtaName: ota.Name,
                 CameraDisplayName: camDisplay,
-                CcdTempC: ccdTemp,
-                SetpointC: setpoint,
-                CoolerPowerPct: power,
-                CoolerOn: coolerOn,
-                FocusPosition: focPos,
-                FocuserTempC: focTemp,
-                FocuserIsMoving: focMoving,
-                FilterName: filterName,
-                CameraConnected: cameraConnected,
-                FocuserConnected: focConnected,
-                FilterWheelConnected: fwConnected,
-                UsesGainValue: usesGainValue,
-                UsesGainMode: usesGainMode,
-                GainMin: gainMin,
-                GainMax: gainMax,
-                CurrentGain: currentGain,
-                GainModes: gainModes,
-                SensorWidth: sensorWidth,
-                SensorHeight: sensorHeight,
-                RoiConstraints: roiConstraints);
+                CcdTempC: camera?.CcdTemperatureC ?? double.NaN,
+                SetpointC: camera?.SetpointC ?? double.NaN,
+                CoolerPowerPct: camera?.CoolerPowerPercent ?? double.NaN,
+                CoolerOn: camera?.CoolerOn ?? false,
+                FocusPosition: focuser?.Position ?? 0,
+                FocuserTempC: focuser?.TemperatureC ?? double.NaN,
+                FocuserIsMoving: focuser?.IsMoving ?? false,
+                FilterName: filterWheel?.FilterName ?? "--",
+                CameraConnected: camera is not null,
+                FocuserConnected: focuser is not null,
+                FilterWheelConnected: filterWheel is not null,
+                UsesGainValue: camera?.UsesGainValue ?? false,
+                UsesGainMode: camera?.UsesGainMode ?? false,
+                GainMin: camera?.GainMin ?? 0,
+                GainMax: camera?.GainMax ?? 0,
+                CurrentGain: camera?.Gain ?? 0,
+                GainModes: camera?.GainModes ?? ImmutableArray<string>.Empty,
+                SensorWidth: camera?.SensorWidth ?? 0,
+                SensorHeight: camera?.SensorHeight ?? 0,
+                RoiConstraints: camera?.RoiConstraints ?? default);
         }
 
         /// <summary>
