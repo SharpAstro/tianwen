@@ -69,6 +69,23 @@ public class NodeKeeperTests
         runs().ShouldBe(4);
     }
 
+    [Fact]
+    public async Task ANodeThatRestartsItselfIsStartedAgainAndItIsNoCrash()
+    {
+        // A restart to apply the share setting, twice in a minute, between two crashes an hour apart: none of it a loop.
+        var clock = new FakeTimeProvider();
+        var (keeper, runs) = KeeperOf(clock,
+            (TimeSpan.FromHours(1), Crashed),
+            (TimeSpan.FromMinutes(1), NodeExitCodes.Restart),
+            (TimeSpan.FromMinutes(1), NodeExitCodes.Restart),
+            (TimeSpan.FromHours(1), Crashed),
+            (TimeSpan.FromHours(1), NodeExitCodes.Stopped));
+
+        (await keeper.RunAsync(TestContext.Current.CancellationToken)).ShouldBe(NodeExitCodes.Stopped);
+
+        runs().ShouldBe(5);
+    }
+
     [Theory]
     [InlineData(NodeExitCodes.Stopped)]
     [InlineData(NodeExitCodes.InvalidArguments)]

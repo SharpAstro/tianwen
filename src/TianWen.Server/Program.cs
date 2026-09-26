@@ -6,6 +6,7 @@ using TianWen.AI.Imaging.RcAstro;
 using TianWen.Hosting;
 using TianWen.Hosting.Api;
 using TianWen.Lib;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Extensions;
 using TianWen.Hosting.Extensions;
 using TianWen.Lib.Logging;
@@ -47,7 +48,11 @@ using (held)
 {
     // No args: the command line is the node's own (NodeArguments), not the host configuration's.
     var builder = WebApplication.CreateBuilder();
-    var listening = new NodeListening(socketPath, node.LocalOnly ? null : node.Port);
+    // The machine's settings, read at every start: a node a client started listens on the LAN only while the rig is
+    // shared (decision 3), and a node run by hand as its command line says.
+    var settings = await NodeSettings.LoadAsync(TianWenDataRoot.Directory, CancellationToken.None);
+    var listening = NodeListeningDecision.For(node, settings);
+    var role = new NodeRole(node.Spawned);
 
     builder.WebHost.ConfigureKestrel(kestrel =>
     {
@@ -88,7 +93,10 @@ using (held)
         // Registers SharpenPipeline; the RC-vs-SAS probe is deferred to first use, so this is cheap.
         .AddRcAstroAi()
         .AddHostedSession()
-        .AddSingleton(listening);
+        .AddSingleton(listening)
+        .AddSingleton(role)
+        .AddSingleton(sp => new NodeSettingsStore(sp.GetRequiredService<IExternal>(), settings))
+        .AddSingleton(NodeLogonStart.ForThisUser());
 
     // Every source that reaches hardware or the network, left out of a node told --fake-devices: a test's node, or a
     // demonstration's, must not probe the serial ports and cameras of the machine it runs on.
@@ -151,6 +159,6 @@ using (held)
         node.Spawned ? ", started by a client" : "", node.FakeDevicesOnly ? ", fake devices only" : "");
 
     await app.RunAsync();
+    // Stopped, or asked to restart to apply a setting it reads only at start (its keeper starts it again).
+    return role.ExitCode;
 }
-
-return NodeExitCodes.Stopped;

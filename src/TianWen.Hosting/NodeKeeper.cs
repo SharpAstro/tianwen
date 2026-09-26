@@ -23,7 +23,8 @@ namespace TianWen.Hosting;
 /// inherits that and needs nothing of its own.
 /// </para>
 /// <para>
-/// <b>What ends it:</b> the node stopping cleanly (asked to, over its socket), a node that never started because its
+/// <b>What ends it:</b> the node stopping cleanly (asked to, over its socket; one that stops to restart, to apply the
+/// share setting, is started again at once), a node that never started because its
 /// command line was wrong or another node holds the socket, and a crash LOOP: two crashes within
 /// <see cref="CrashLoopWindow"/>. A node that crashes because a driver crashes it would crash again on the same
 /// device, so a second crash leaves the node down, for the next client to report, rather than restarted forever.
@@ -45,6 +46,12 @@ public sealed class NodeKeeper(Func<CancellationToken, Task<int>> runNode, TimeP
         while (true)
         {
             var exit = await runNode(cancellationToken).ConfigureAwait(false);
+            if (exit is NodeExitCodes.Restart)
+            {
+                // The node stopped to apply a setting it reads only at start: not a crash, and started again at once.
+                logger.LogInformation("The node restarted itself to apply a setting; starting it again");
+                continue;
+            }
             if (exit is NodeExitCodes.Stopped or NodeExitCodes.InvalidArguments or NodeExitCodes.AlreadyRunning or NodeExitCodes.CouldNotStart)
             {
                 logger.LogInformation("The node ended with {ExitCode}, which is not a crash; the keeper ends with it", exit);

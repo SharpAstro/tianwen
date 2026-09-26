@@ -109,8 +109,25 @@ does not take it down and it can never write over a TUI; a spawned node logs to 
    offset as `TIANWEN_CLOCK_OFFSET`, which wins over the `TIANWEN_NOW` it also inherits and would anchor at its own,
    later, start. `GET /api/v1/node` answers `NowUtc`, so a client can see it did.
 
+
+**"Share this rig on the LAN" is a MACHINE setting the node keeps** (`node-settings.json` in the data root,
+`NodeSettings`, decision 3), read at every start and changed only over the socket (`PUT /api/v1/node/share`, 403 over
+TCP):
+- **Where a node listens** (`NodeListeningDecision`): the socket always. TCP 1888 and the LAN announcement unless
+  `--local-only`, and for a node a client started only while the rig is shared, so a laptop's GUI opens no port and
+  announces no rig nobody asked to share. A node run by hand keeps TCP, as a mini PC's does.
+- **While shared, the node starts at logon** (`INodeLogonStart`): a `Run` value on Windows, an XDG autostart entry on
+  Linux, a LaunchAgent on macOS, each starting the server's keeper. Turning it off removes it. The entry is written
+  only when a client changes the setting, never reconciled at a node's start, and a host registers the real one
+  itself (`NodeLogonStart.ForThisUser()`): a host without one answers 501, and a test registers a stand-in, so no test
+  can write the user's real entry.
+- **The listening follows at the next start.** An idle node a client started restarts at once to apply it (exit
+  `NodeExitCodes.Restart`, which its keeper starts again and does not count as a crash); a node holding the rig keeps
+  running and says it applies at its next start. `GET /api/v1/node` answers the setting (`ShareOnLan`) beside the
+  listening (`IsShared`).
+
 Pinned by `NodeSocketTests`, `NodeAddressTests`, `ExeBesideTests`, `NodeKeeperTests`, `NodeKeeperProcessTests`,
-`LocalNodeLauncherTests` and `DetachedProcessTests`.
+`LocalNodeLauncherTests`, `DetachedProcessTests`, `NodeShareTests` and `NodeShareSettingTests`.
 
 ## Six invariants on the session plane
 
