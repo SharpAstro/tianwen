@@ -1877,7 +1877,8 @@ channel 0 minus its MINIMUM) takes that ring as the floor, so a bright sky reads
 the 0.125 threshold. Ringless masters of the same camera and night read 0.06 with skies as bright
 relative to their peaks (0.26 to 0.29). Dropped: the ASI462MC Helix of 2024-08-18, that camera's only
 session, so the ASI462MC is now a camera the pool never saw; the ASI585MC Helix of 2024-09-03; the
-ASI585MC SMC of 2024-10-02. The predictions stand as written. The export also measured its own mix: the
+ASI585MC SMC of 2024-10-02. Kept that way on the user's call (2026-09-26), rather than a ring fix and a
+re-export. The predictions stand as written. The export also measured its own mix: the
 varied shape averages band1/band0 0.332 over its draws, against 0.270 for real sub pairs and 0.257 for
 real half-master pairs of this bake, so the pool's injection is on average more correlated than the
 bake's real noise, as intended at the range's upper end. **The ring blindness is not E13's alone**: the
