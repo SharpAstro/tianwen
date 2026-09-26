@@ -75,6 +75,13 @@ internal sealed class NodeJobs(IHostApplicationLifetime lifetime, ITimeProvider 
     public bool TryStart(string kind, Uri deviceUri, Func<JobStep, CancellationToken, Task<string?>> work, out JobDto job)
         => TryStartOrJoin(kind, deviceUri.DeviceKey, deviceUri.ToString(), work, joins: false, out job);
 
+    /// <summary>
+    /// As <see cref="TryStart(string, Uri, Func{JobStep, CancellationToken, Task{string?}}, out JobDto)"/>, on a slot that
+    /// is not a device: what a job holds that no device is, such as the frame of one OTA a solve reads.
+    /// </summary>
+    public bool TryStart(string kind, string slot, Func<JobStep, CancellationToken, Task<string?>> work, out JobDto job)
+        => TryStartOrJoin(kind, slot, deviceUri: null, work, joins: false, out job);
+
     private bool TryStartOrJoin(string kind, string slot, string? deviceUri, Func<JobStep, CancellationToken, Task<string?>> work, bool joins, out JobDto job)
     {
         var started = new Job(Guid.NewGuid().ToString("N"), kind, slot, deviceUri, timeProvider.GetUtcNow());
