@@ -20,13 +20,14 @@ namespace TianWen.Hosting;
 /// </summary>
 /// <remarks>
 /// <para>The refusals come in the device plane's order: a run going on first, then the profile, then what the run itself
-/// refuses (the mount, the site, the capture source, and the claim, which names whoever holds a device).</para>
+/// refuses (the mount, the site, the capture source, and the claim, which names whoever holds a device), then a job
+/// working on a device it claimed.</para>
 /// <para>A stop is Done and Cancel alike, and it is ANSWERED AT ONCE: the restore reverses the Phase A rotation, tens of
 /// seconds, which no request budget allows; <c>GET /api/v1/polar</c> says when it has ended.</para>
 /// <para>It ends by itself once no client has watched it for the detach grace (<see cref="NodeRunWatch"/>): a window that
 /// went away must not leave the mount rotating for nobody.</para>
 /// </remarks>
-internal sealed class NodePolarAlignment(IDeviceHub hub, IHostedSession hosted, NodeFrames frames, IExternal external,
+internal sealed class NodePolarAlignment(IDeviceHub hub, NodeJobs jobs, IHostedSession hosted, NodeFrames frames, IExternal external,
     ICelestialObjectDB catalog, IPlateSolverFactory solver, ITimeProvider timeProvider, ILogger<NodePolarAlignment> logger)
 {
     public async Task<ResponseEnvelope<PolarStateDto>> StartAsync(PolarAlignmentRequestDto request, CancellationToken cancellationToken)
@@ -46,6 +47,19 @@ internal sealed class NodePolarAlignment(IDeviceHub hub, IHostedSession hosted, 
             catalog, solver, timeProvider, logger, shown.Captured, shown.Solved, out var alignment, out var refusal))
         {
             return ResponseEnvelope<PolarStateDto>.Fail(refusal, 409);
+        }
+
+        // A job working on a device the run claimed (a slew, a park, a cool-down) holds it in the node's jobs, not through
+        // the lease, and would go on driving it under the rotation: the claim goes back and the start is refused, as the
+        // other runs' are (#981). A run that never began restores nothing, so giving it back never moves the mount.
+        foreach (var device in alignment.Devices)
+        {
+            if (jobs.TryGetRunningOn(device, out var job))
+            {
+                await alignment.DisposeAsync();
+                var name = hub.TryGetDeviceFromUri(device, out var busy) ? busy.DisplayName : device.ToString();
+                return ResponseEnvelope<PolarStateDto>.Fail($"{name} is busy: a {job.Kind} of it is running (job {job.Id})", 409);
+            }
         }
 
         var run = new NodePolarRun(alignment, shown);

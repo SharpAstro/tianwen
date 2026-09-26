@@ -190,6 +190,29 @@ public class NodePolarAlignmentTests(ITestOutputHelper outputHelper)
     }
 
     [Fact(Timeout = 60_000)]
+    public async Task AStartIsRefusedWhileAJobWorksOnADeviceItWouldClaim()
+    {
+        // A job holds its device in the node's jobs, not through the lease, so the claim alone let a start rotate a mount
+        // or expose a camera a job was still driving (#981).
+        var ct = TestContext.Current.CancellationToken;
+        await using var node = await PolarNodeAsync(StandInSolver.Answering(null), NodeRunWatchOptions.Default.DetachGrace, ct);
+        await node.ActivateRigAsync(Camera, Mount, ct);
+        var client = ClientOf(node);
+
+        // A cool-down ramp takes minutes, and the camera is its job's until it ends.
+        var cooling = (await client.CoolCameraAsync(Camera.DeviceUri, -10, rampMinutes: null, ct)).Value.ShouldNotBeNull();
+        var busy = await client.StartPolarAlignmentAsync(Quick, ct);
+
+        busy.StatusCode.ShouldBe(409);
+        busy.Error.ShouldNotBeNull().ShouldContain(cooling.Id);
+        node.Node.IsRunning.ShouldBeFalse();
+        var hub = node.App.Services.GetRequiredService<IDeviceHub>();
+        hub.TryGetLease(Camera.DeviceUri, out _).ShouldBeFalse("the claim goes back with the refusal");
+        hub.TryGetLease(Mount.DeviceUri, out _).ShouldBeFalse();
+        (await client.CancelJobAsync(cooling.Id, ct)).IsSuccess.ShouldBeTrue();
+    }
+
+    [Fact(Timeout = 60_000)]
     public async Task AStopMeantForAPolarAlignmentNeverAbortsTheRunThatReplacedIt()
     {
         // The watch and both stop routes look at the run, then stop it: a session that replaced it in between must not be
