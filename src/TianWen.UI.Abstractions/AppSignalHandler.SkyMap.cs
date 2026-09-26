@@ -391,7 +391,7 @@ namespace TianWen.UI.Abstractions
                 {
                     try
                     {
-                        var outcome = await MountActions.SolveAndSyncAsync(
+                        var outcome = await MountSolveSync.SolveAndSyncAsync(
                             capturedMount, capturedCamera,
                             capturedOta.Name, capturedOta.FocalLength, capturedOta.Aperture,
                             ssFocuser, ssFilterWheel,
@@ -420,7 +420,7 @@ namespace TianWen.UI.Abstractions
                             liveSessionState.PreviewPlateSolveResult = solveResult;
                         }
 
-                        var severity = outcome.Result == MountActions.SolveSyncResult.Synced
+                        var severity = outcome.Result == MountSolveSync.SolveSyncResult.Synced
                             ? NotificationSeverity.Info
                             : NotificationSeverity.Warning;
                         Notify(severity, outcome.StatusMessage);

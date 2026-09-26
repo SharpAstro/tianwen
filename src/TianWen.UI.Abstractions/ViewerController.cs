@@ -11,6 +11,7 @@ using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Enhancement;
+using TianWen.Lib;
 
 namespace TianWen.UI.Abstractions;
 

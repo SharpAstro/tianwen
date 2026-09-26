@@ -82,6 +82,7 @@ using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions.Overlays;
+using TianWen.Lib;
 
 namespace TianWen.UI.Abstractions
 {
