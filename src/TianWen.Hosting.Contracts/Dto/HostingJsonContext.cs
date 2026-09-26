@@ -38,6 +38,7 @@ namespace TianWen.Hosting.Dto;
 [JsonSerializable(typeof(Api.SetProfileRequest))]
 [JsonSerializable(typeof(Api.UpdateProfileRequest))]
 [JsonSerializable(typeof(ProfileChangedDto))]
+[JsonSerializable(typeof(FrameAvailableDto))]
 [JsonSerializable(typeof(WebSocketEventDto))]
 [JsonSerializable(typeof(ResponseEnvelope<WebSocketEventDto>))]
 [JsonSerializable(typeof(ResponseEnvelope<NotificationDto[]>))]

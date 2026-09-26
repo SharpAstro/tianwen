@@ -100,9 +100,13 @@ internal sealed class EventBroadcaster(
                     // only to announce what is new -- the same division as the exposure log.
                     _watermarkFor = session;
                     _lastGuideStepPushed = NewestGuideSampleTime(session);
+                    // Unlike the guide steps, a new run's frames are announced from nothing: what it shows already is new
+                    // to every client, and a frame landing before this first poll would otherwise never be announced.
+                    _framesAnnounced = [];
                 }
 
                 PushNewGuideSteps(session);
+                PushNewFrames(session);
                 NotifyLimitTransition(session);
             }
 
@@ -177,6 +181,47 @@ internal sealed class EventBroadcaster(
         }
 
         _lastGuideStepPushed = newest;
+    }
+
+    // The frame numbers FRAME-AVAILABLE last announced: each OTA's slot, then the guider's. Written and read only by the
+    // poll loop.
+    private int[] _framesAnnounced = [];
+
+    private static int[] FrameNumbers(ISessionTelemetry session)
+    {
+        var slots = session.LastCapturedImages.Length;
+        var numbers = new int[slots + 1];
+        for (var i = 0; i < slots; i++)
+        {
+            numbers[i] = session.LastCapturedImageNumber(i);
+        }
+        numbers[slots] = session.LastGuideFrameNumber;
+        return numbers;
+    }
+
+    /// <summary>
+    /// Emits a <c>FRAME-AVAILABLE</c> for every frame source whose frame number moved since the last poll (P4 part 2 of
+    /// docs/plans/hardware-in-the-server.md, #931), so a client that shows linear frames fetches the new one rather than
+    /// polling every source. A number of 0 is an empty slot, never announced. At a second's poll a guider faster than
+    /// that is announced at the poll's rate, which is what a viewer can show anyway.
+    /// </summary>
+    private void PushNewFrames(ISessionTelemetry session)
+    {
+        var now = FrameNumbers(session);
+        var slots = now.Length - 1;
+        for (var i = 0; i < now.Length; i++)
+        {
+            var announced = i < _framesAnnounced.Length ? _framesAnnounced[i] : 0;
+            if (now[i] != 0 && now[i] != announced)
+            {
+                BroadcastSafe(BroadcastEvents.FrameAvailable(new FrameAvailableDto
+                {
+                    Source = i < slots ? FrameSources.Ota(i) : FrameSources.Guider,
+                    Number = now[i],
+                }));
+            }
+        }
+        _framesAnnounced = now;
     }
 
     private void OnJobChanged(object? sender, JobDto job) => BroadcastSafe(BroadcastEvents.JobProgress(job));

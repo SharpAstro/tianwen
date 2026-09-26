@@ -145,7 +145,24 @@ public static class FrameWire
         var packed = Math.Min(flat.Length - start, band.Length / sizeof(ushort));
         var destination = MemoryMarshal.Cast<byte, ushort>(band.AsSpan(0, packed * sizeof(ushort)));
         var source = flat.Slice(start, packed);
-        for (var i = 0; i < packed; i++)
+        var i = 0;
+        if (Vector.IsHardwareAccelerated)
+        {
+            // Two float vectors narrow into one of 16-bit samples. Vectorised because the scalar loop was most of a
+            // whole-ADU frame's write: a 26 MP frame packed in 29 ms (Release, x64), longer than the bytes it saved took
+            // on the socket. Through SIGNED 32 bits, whose conversion is one instruction, where the unsigned one is
+            // emulated below AVX-512 and measured slower than the scalar loop; a narrowing keeps the low 16 bits, which
+            // is exact for the samples PacksAsUInt16 let through, every one a whole number from 0 to 65535.
+            var floats = MemoryMarshal.Cast<float, Vector<float>>(source);
+            var shorts = MemoryMarshal.Cast<ushort, Vector<short>>(destination);
+            var pairs = Math.Min(floats.Length / 2, shorts.Length);
+            for (var p = 0; p < pairs; p++)
+            {
+                shorts[p] = Vector.Narrow(Vector.ConvertToInt32(floats[2 * p]), Vector.ConvertToInt32(floats[2 * p + 1]));
+            }
+            i = pairs * Vector<short>.Count;
+        }
+        for (; i < packed; i++)
         {
             destination[i] = (ushort)source[i];
         }

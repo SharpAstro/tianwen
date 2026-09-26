@@ -57,6 +57,8 @@ public class BroadcastEventSerializationTests
         })],
         [BroadcastEvents.ProfileChanged(new ProfileChangedDto { ProfileId = Guid.Parse("7e57ab1e-0b0e-4e5d-9a5e-000000000930"), Name = "Rig", Revision = "0123456789abcdef0123456789abcdef" })],
         [BroadcastEvents.ProfileChanged(new ProfileChangedDto { ProfileId = Guid.Parse("7e57ab1e-0b0e-4e5d-9a5e-000000000930"), Deleted = true })],
+        [BroadcastEvents.FrameAvailable(new FrameAvailableDto { Source = FrameSources.Ota(0), Number = 42 })],
+        [BroadcastEvents.FrameAvailable(new FrameAvailableDto { Source = FrameSources.Guider, Number = 7 })],
     ];
 
     [Theory]

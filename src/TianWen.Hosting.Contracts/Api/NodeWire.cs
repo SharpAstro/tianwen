@@ -45,6 +45,13 @@ public static class NodeWire
     public const string ProfileChangedEvent = "PROFILE-CHANGED";
 
     /// <summary>
+    /// The event a node pushes when a frame source shows a new frame, carrying its source and number under <c>Frame</c>
+    /// (<see cref="Dto.FrameAvailableDto.TryFromEvent"/>). A latency hint: <c>GET /api/v1/frames/{source}/latest</c> is
+    /// authoritative.
+    /// </summary>
+    public const string FrameAvailableEvent = "FRAME-AVAILABLE";
+
+    /// <summary>
     /// How long a mount's axis keeps moving after the last <c>POST /api/v1/devices/mount/move-axis</c> that asked for it:
     /// a client holding a move repeats the request well inside this (every half second is right), and one that stops
     /// asking, or dies, stops the axis within it. A move-axis used to run until something stopped it, so a client that

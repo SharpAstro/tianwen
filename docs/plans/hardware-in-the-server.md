@@ -824,7 +824,9 @@ profile, plate solve and snapshot save all assume linear floats in memory, and a
   as 16-bit instead. That halves the bytes and is still lossless; the packer checks every sample as it
   writes and falls back to float on the first one that is not.
 - **Rate.** At the spike's rate, a 26 MP frame is about 40 ms packed (52 MB) or 80 ms as float
-  (104 MB), extrapolated. Measure a real frame before designing anything faster. The reader copies the
+  (104 MB), extrapolated. **Measured in P4 part 2** (Release, this desktop, loaded): 37 to 38 ms packed and 37 to 42 ms
+  as float, the local socket's copy being cheap enough that the bytes barely count
+  (`docs/architecture/hosting-api.md`, "Linear frames on the wire"). Measure a real frame before designing anything faster. The reader copies the
   body straight into a recycled `float[,]` (viewed flat as bytes), never through a buffered array, or
   every frame is large-object-heap garbage in the client.
 - **Compression, measured 2026-09-25** (user: "see if we can use lzip or gzip for the frames over the
