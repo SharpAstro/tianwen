@@ -14,6 +14,9 @@ public enum NodeRunKind
 
     /// <summary>A dark library (<c>POST /api/v1/darks</c>).</summary>
     Darks,
+
+    /// <summary>Polar alignment (<c>POST /api/v1/polar</c>).</summary>
+    Polar,
 }
 
 /// <summary>

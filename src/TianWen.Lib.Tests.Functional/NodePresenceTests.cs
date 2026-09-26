@@ -62,11 +62,11 @@ public class NodePresenceTests(ITestOutputHelper outputHelper) : IAsyncLifetime
             }
         }, CancellationToken.None);
 
-        for (var i = 0; i < 250 && hub.PromptObserverCount == 0; i++)
+        for (var i = 0; i < 250 && hub.PresentClientCount == 0; i++)
         {
             await Task.Delay(20, ct);
         }
-        hub.PromptObserverCount.ShouldBe(1, "a connected, drawing window can see a prompt");
+        hub.PresentClientCount.ShouldBe(1, "a connected, drawing window can see a prompt");
 
         var answer = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var prompt = new SessionPromptEventArgs(

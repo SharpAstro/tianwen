@@ -68,20 +68,20 @@ public class EventHubTests
         var clock = new FakeTimeProviderWrapper();
         var hub = new EventHub(queueCapacity: 4, sendTimeout: TimeSpan.FromMinutes(5), clock);
         var client = hub.AddClient(Recording(new ConcurrentQueue<string>()));
-        hub.PromptObserverCount.ShouldBe(0, "attached, but never said it can see anything");
+        hub.PresentClientCount.ShouldBe(0, "attached, but never said it can see anything");
 
         hub.RecordBeat(client);
-        hub.PromptObserverCount.ShouldBe(1);
+        hub.PresentClientCount.ShouldBe(1);
 
         clock.Advance(TianWen.Hosting.Api.NodeWire.PresenceLapse);
-        hub.PromptObserverCount.ShouldBe(1, "a beat as old as the lapse still counts");
+        hub.PresentClientCount.ShouldBe(1, "a beat as old as the lapse still counts");
 
         clock.Advance(TimeSpan.FromSeconds(1));
-        hub.PromptObserverCount.ShouldBe(0, "its window stopped drawing, though its socket is still open");
+        hub.PresentClientCount.ShouldBe(0, "its window stopped drawing, though its socket is still open");
         hub.NativeClientCount.ShouldBe(1, "it is still attached");
 
         hub.RecordBeat(client);
-        hub.PromptObserverCount.ShouldBe(1, "it drew again");
+        hub.PresentClientCount.ShouldBe(1, "it drew again");
     }
 
     [Fact]
@@ -92,7 +92,7 @@ public class EventHubTests
 
         hub.RecordBeat(nina);
 
-        hub.PromptObserverCount.ShouldBe(0, "Touch N Stars has no route to answer a prompt");
+        hub.PresentClientCount.ShouldBe(0, "Touch N Stars has no route to answer a prompt");
     }
 
     [Fact(Timeout = 10_000)]
@@ -177,9 +177,9 @@ public class EventHubTests
         hub.RecordBeat(hub.AddClient(Recording(new ConcurrentQueue<string>()), ninaV2: true));
 
         hub.ClientCount.ShouldBe(1);
-        hub.PromptObserverCount.ShouldBe(0);
+        hub.PresentClientCount.ShouldBe(0);
 
         hub.RecordBeat(hub.AddClient(Recording(new ConcurrentQueue<string>())));
-        hub.PromptObserverCount.ShouldBe(1);
+        hub.PresentClientCount.ShouldBe(1);
     }
 }

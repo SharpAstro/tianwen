@@ -393,6 +393,26 @@ namespace TianWen.RemoteClient
             SendAsync(HttpMethod.Delete, "api/v1/darks", null, HostingJsonContext.Default.ResponseEnvelopeDarkLibraryStateDto, _timeouts.Control, cancellationToken);
 
         /// <summary>
+        /// <c>POST /polar</c> -- polar alignment as the node's run (P5 part 4 of docs/plans/hardware-in-the-server.md). Answered
+        /// at once; <see cref="GetPolarAlignmentAsync"/> follows it, and it refines until <see cref="StopPolarAlignmentAsync"/>.
+        /// It ends by itself once this client has stopped beating for the node's detach grace.
+        /// </summary>
+        public Task<NodeResult<PolarStateDto>> StartPolarAlignmentAsync(PolarAlignmentRequestDto request, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/polar", request, HostingJsonContext.Default.PolarAlignmentRequestDto,
+                HostingJsonContext.Default.ResponseEnvelopePolarStateDto, _timeouts.Control, cancellationToken);
+
+        /// <summary><c>GET /polar</c> -- the polar alignment going on, or the last one to end.</summary>
+        public Task<NodeResult<PolarStateDto>> GetPolarAlignmentAsync(CancellationToken cancellationToken) =>
+            GetAsync("api/v1/polar", HostingJsonContext.Default.ResponseEnvelopePolarStateDto, _timeouts.StatePoll, cancellationToken);
+
+        /// <summary>
+        /// <c>DELETE /polar</c> -- Done and Cancel alike. Answered at once, with the mount still to restore:
+        /// <see cref="GetPolarAlignmentAsync"/> says when it has ended.
+        /// </summary>
+        public Task<NodeResult<PolarStateDto>> StopPolarAlignmentAsync(CancellationToken cancellationToken) =>
+            SendAsync(HttpMethod.Delete, "api/v1/polar", null, HostingJsonContext.Default.ResponseEnvelopePolarStateDto, _timeouts.Control, cancellationToken);
+
+        /// <summary>
         /// <c>POST /preview/ota/{index}/exposure</c> -- a preview exposure with OTA <paramref name="otaIndex"/>'s camera outside a
         /// session, as a job (P5 part 2 of docs/plans/hardware-in-the-server.md). Its frame is then the OTA's, served by
         /// <see cref="GetLatestFrameAsync"/>.

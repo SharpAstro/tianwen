@@ -61,9 +61,10 @@ internal sealed class EventHub
     public int ClientCount => _clients.Count;
 
     /// <summary>
-    /// The clients that can answer a prompt: the native ones. A ninaAPI v2 socket (Touch N Stars) has no
-    /// prompt route, so it is nobody to wait for; it used to count, and held every prompt indefinitely (P0b
-    /// item 13 of docs/plans/hardware-in-the-server.md, #752).
+    /// The clients PRESENT: who can answer a prompt, and who is watching an interactive run, which ends once nobody is for
+    /// the detach grace (<see cref="NodeRunWatch"/>). The native ones only: a ninaAPI v2 socket (Touch N Stars) has no
+    /// prompt route, so it is nobody to wait for; it used to count, and held every prompt indefinitely (P0b item 13 of
+    /// docs/plans/hardware-in-the-server.md, #752).
     /// </summary>
     /// <remarks>
     /// Only a native client whose PRESENCE BEAT is fresh (<see cref="NodeWire.PresenceLapse"/>) counts. A registered
@@ -72,7 +73,7 @@ internal sealed class EventHub
     /// that draws it, so one that stops drawing stops counting within a few seconds, and the prompt gets the
     /// session's unattended answer as if nobody were attached.
     /// </remarks>
-    public int PromptObserverCount
+    public int PresentClientCount
     {
         get
         {

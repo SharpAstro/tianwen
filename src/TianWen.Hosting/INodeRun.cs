@@ -23,6 +23,13 @@ public interface INodeRun : IAsyncDisposable
     /// <summary>What kind of run it is: what the journal records and a refused start names.</summary>
     NodeRunKind Kind { get; }
 
+    /// <summary>
+    /// Whether it stops once no client has watched it for the node's detach grace (<see cref="NodeRunWatch"/>): an
+    /// INTERACTIVE run, polar alignment or a planetary live view, is meaningless unseen, and a window that went away
+    /// must not leave the mount rotating. One that finishes on its own (a dark library, a recording to disk) goes on.
+    /// </summary>
+    bool EndsUnwatched { get; }
+
     /// <summary>The run's body. Cancelled by an abort or the host stopping, and by nothing else.</summary>
     Task RunAsync(CancellationToken cancellationToken);
 }

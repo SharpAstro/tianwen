@@ -30,14 +30,7 @@ public class NodePreviewExposureTests(ITestOutputHelper outputHelper)
     private static TianWenNodeClient ClientOf(NodeHarness node) => new TianWenNodeClient(node.Client);
 
     /// <summary>An active profile whose one OTA has the fake camera, connected.</summary>
-    private static async Task ActiveRigAsync(NodeHarness node, CancellationToken ct)
-    {
-        var ota = new OTAData("Preview OTA", 400, Camera.DeviceUri, null, null, null, null, null);
-        var profile = new Profile(Guid.NewGuid(), "Preview rig", new ProfileData(NoneDevice.Instance.DeviceUri, NoneDevice.Instance.DeviceUri, [ota]));
-        await profile.SaveAsync(node.External, ct);
-        await node.Node.SetActiveProfileAsync(profile.ProfileId, ct);
-        await node.App.Services.GetRequiredService<IDeviceHub>().ConnectAsync(Camera, ct);
-    }
+    private static Task ActiveRigAsync(NodeHarness node, CancellationToken ct) => node.ActivateRigAsync(Camera, mount: null, ct);
 
     private static Task<JobDto> UntilEndedAsync(TianWenNodeClient client, string id, CancellationToken ct) =>
         UntilAsync<JobDto>($"job {id} to end", async token =>

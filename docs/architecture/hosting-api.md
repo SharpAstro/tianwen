@@ -259,8 +259,25 @@ Pinned by `NodeSocketTests`, `NodeAddressTests`, `ExeBesideTests`, `NodeKeeperTe
    - **The dark library is the first** (`POST`, `GET` and `DELETE /api/v1/darks`, `NodeDarkLibrary`): the CLI's
      `darks` capture (`DarkFrameRun`) on a camera connected to the node, refused in the device plane's order (a
      run going on, the lease, the camera, a job working on it), the camera leased for the run.
+   - **Polar alignment is the second** (`POST`, `GET` and `DELETE /api/v1/polar`, `NodePolarAlignment`, P5 part 4):
+     the GUI's own routine, `PolarAlignmentRun` in Lib, which resolves the devices from the active profile and
+     CLAIMS the mount and the capture devices, refusing in words. Its probe and refinement frames become the OTA's
+     (`NodeFrames`), and `GET` carries Phase A, the latest refine tick with its overlay, and the latest WCS with
+     the token of the frame it is of, NaN crossing as null. **Cancellation is how it ends**: `DELETE` is Done and
+     Cancel alike and is answered AT ONCE, since the restore reverses the Phase A rotation for longer than a
+     request may take; `GET` says when it has ended, the mount restored and the devices given back.
+   - **An interactive run stops once nobody watches it** (`INodeRun.EndsUnwatched`, `NodeRunWatch`): polar
+     alignment, and a planetary live view after it, are meaningless unseen, so once no client has been PRESENT
+     (a fresh presence beat, `EventHub.PresentClientCount`, the same rule a prompt waits by) for the detach grace
+     (60 s, `NodeRunWatchOptions`), the watch stops it through its own ending and says so in the node's
+     notifications. The grace runs from the moment nobody is present, the run's start included; a client back
+     within it cancels it. A session, a flat run and a dark library go on regardless.
+   - **A stop names the run it means** (`IHostedSession.TryAbort(INodeRun)`): the watch and every kind's own stop
+     route look at the run and then stop it, and a session that replaced it in between must not be the one
+     stopped. Only `/session/abort` and the ninaAPI stop keep the untargeted abort.
 
-   Pinned by `NodeRunLifecycleTests`, all nine seen failing against the old code, and `NodeDarkLibraryTests`.
+   Pinned by `NodeRunLifecycleTests`, all nine seen failing against the old code, `NodeDarkLibraryTests`,
+   `NodePolarAlignmentTests` and `NodeRunWatchTests`.
 5. **A start runs on the DECLARED defaults plus what the request sets, and the whole configuration
    crosses the wire** (P0b item 10, #752). `new SessionConfiguration()` is the declared defaults (an
    explicit parameterless constructor); without it, it was the struct's zero-initialiser, which zeroes

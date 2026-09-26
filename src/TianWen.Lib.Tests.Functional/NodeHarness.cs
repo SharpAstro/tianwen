@@ -16,6 +16,7 @@ using System.Threading.Tasks;
 using TianWen.Hosting;
 using TianWen.Hosting.Extensions;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Extensions;
 using TianWen.Lib.Sequencing;
 using TianWen.RemoteClient;
@@ -122,6 +123,25 @@ internal sealed class NodeHarness : IAsyncDisposable
 
         var transport = held is not null ? NodeTransport.OverSocket(held.SocketPath) : NodeTransport.OverTcp(new Uri(app.Urls.First()));
         return new NodeHarness(app, transport, factory, external, held);
+    }
+
+    /// <summary>
+    /// An active profile whose one OTA has <paramref name="camera"/>, with <paramref name="mount"/> (none when null) at a
+    /// site, and both connected to the node's hub.
+    /// </summary>
+    public async Task ActivateRigAsync(FakeDevice camera, FakeDevice? mount, CancellationToken ct)
+    {
+        var ota = new OTAData("Test OTA", 400, camera.DeviceUri, null, null, null, null, null);
+        var profile = new Profile(Guid.NewGuid(), "Test rig",
+            new ProfileData(mount?.DeviceUri ?? NoneDevice.Instance.DeviceUri, NoneDevice.Instance.DeviceUri, [ota], SiteLatitude: 48.2, SiteLongitude: 16.3));
+        await profile.SaveAsync(External, ct);
+        await Node.SetActiveProfileAsync(profile.ProfileId, ct);
+        var hub = App.Services.GetRequiredService<IDeviceHub>();
+        await hub.ConnectAsync(camera, ct);
+        if (mount is not null)
+        {
+            await hub.ConnectAsync(mount, ct);
+        }
     }
 
     /// <summary>Starts a session over HTTP and waits until its run has begun.</summary>
