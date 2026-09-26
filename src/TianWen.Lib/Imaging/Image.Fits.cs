@@ -103,10 +103,10 @@ public partial class Image
     /// a performance guard worthless.</para>
     /// <para>Both halves are required: a file stating only DATAMAX leaves min NaN and recalculates
     /// anyway, so writing one without the other buys nothing.</para>
-    /// <para><b>A pair that passes is still only a claim.</b> Both pixel paths then ask
-    /// <see cref="SamplesLeaveRange"/>, a compare-only pass, and take the observed range when a sample
-    /// lies outside the stated one (#804: <c>DATAMAX = 1</c> over drizzle weights up to 69). What the gate
-    /// still saves is the fold, not the look.</para>
+    /// <para><b>A pair that passes is believed</b>, unless the caller asks for validation, in which case
+    /// both pixel paths fold the planes and take the observed range when the samples leave the stated one
+    /// (#804: <c>DATAMAX = 1</c> over drizzle weights up to 69). <see cref="ResolveRange"/> says why that
+    /// is opt-in.</para>
     /// </remarks>
     internal static bool NeedsMinMaxRecalc(float minValue, float maxValue)
         => float.IsNaN(minValue) || minValue < 0 || float.IsNaN(maxValue)
@@ -150,6 +150,16 @@ public partial class Image
     /// </summary>
     public static bool TryReadFitsFile(string fileName, [NotNullWhen(true)] out Image? image, out WCS? wcs, bool pooled)
     {
+        return TryReadFitsFile(fileName, out image, out wcs, pooled, validateRange: false);
+    }
+
+    /// <summary>
+    /// <see cref="TryReadFitsFile(string, out Image?, out WCS?, bool)"/>, and with
+    /// <paramref name="validateRange"/> the file's stated <c>DATAMIN</c> / <c>DATAMAX</c> is checked against
+    /// the samples rather than believed (<see cref="ResolveRange"/>: a full pass over the planes).
+    /// </summary>
+    public static bool TryReadFitsFile(string fileName, [NotNullWhen(true)] out Image? image, out WCS? wcs, bool pooled, bool validateRange)
+    {
         // A TryX that throws is not a TryX, and this one threw while both its siblings did not:
         // TryReadFitsHeader (just below) has caught since it was written and TryReadTiff wraps its
         // whole body. Only the full-image path was bare, so a file the header scanner would merely
@@ -173,13 +183,13 @@ public partial class Image
             // A plain file is read by FITS.Lib's FitsReader, straight into the float planes; a gzipped
             // one, a tile-compressed one and any layout the reader declines go through the HDU reader
             // exactly as before. The two agree bit for bit (TryReadThroughFitsReader says how).
-            if (!IsGzipped(fileName) && TryReadThroughFitsReader(fileName, out image, out wcs, pooled))
+            if (!IsGzipped(fileName) && TryReadThroughFitsReader(fileName, out image, out wcs, pooled, validateRange))
             {
                 return true;
             }
 
             using var fitsFile = OpenFits(fileName);
-            return TryReadFitsFile(fitsFile, out image, out wcs, pooled);
+            return TryReadFitsFile(fitsFile, out image, out wcs, pooled, validateRange);
         }
         catch (Exception)
         {
@@ -210,7 +220,7 @@ public partial class Image
     /// is what adopting FITS.Lib's own float array amounted to. Pinned over every BITPIX, scaling and
     /// layout by <c>FitsReadPathParityTests</c>.</para>
     /// </remarks>
-    internal static bool TryReadThroughFitsReader(string fileName, [NotNullWhen(true)] out Image? image, out WCS? wcs, bool pooled)
+    internal static bool TryReadThroughFitsReader(string fileName, [NotNullWhen(true)] out Image? image, out WCS? wcs, bool pooled, bool validateRange = false)
     {
         image = null;
         wcs = null;
@@ -242,7 +252,6 @@ public partial class Image
             var imageMeta = ParseImageMetaFromHeader(hdu, channelCount);
             var minValue = (float)hdu.MinimumValue;
             var maxValue = (float)hdu.MaximumValue;
-            var needsMinMaxValRecalc = NeedsMinMaxRecalc(minValue, maxValue);
 
             var planes = new float[channelCount][,];
             var rented = pooled ? new bool[channelCount] : null;
@@ -266,11 +275,8 @@ public partial class Image
                 throw;
             }
 
-            // A stated range the samples leave is no range at all (#804), the same rule as the HDU path's.
-            if (needsMinMaxValRecalc || SamplesLeaveRange(planes, minValue, maxValue))
-            {
-                (minValue, maxValue) = ObservedRange(planes);
-            }
+            // The same rule as the HDU path's, in one place.
+            (minValue, maxValue) = ResolveRange(planes, minValue, maxValue, validateRange);
 
             image = rented is null
                 ? new Image(planes, bitDepth, maxValue, minValue, pedestal, imageMeta)
@@ -796,6 +802,12 @@ public partial class Image
     /// <inheritdoc cref="TryReadFitsFile(string, out Image?, out WCS?, bool)"/>
     public static bool TryReadFitsFile(Fits fitsFile, [NotNullWhen(true)] out Image? image, out WCS? wcs, bool pooled)
     {
+        return TryReadFitsFile(fitsFile, out image, out wcs, pooled, validateRange: false);
+    }
+
+    /// <inheritdoc cref="TryReadFitsFile(string, out Image?, out WCS?, bool, bool)"/>
+    public static bool TryReadFitsFile(Fits fitsFile, [NotNullWhen(true)] out Image? image, out WCS? wcs, bool pooled, bool validateRange)
+    {
         wcs = null;
         // Not ReadHDU: the image need not be in HDU 0, and in a tile-compressed file it never
         // is -- see FitsHduExtensions.
@@ -857,7 +869,6 @@ public partial class Image
 
         var minValue = (float)hdu.MinimumValue;
         var maxValue = (float)hdu.MaximumValue;
-        bool needsMinMaxValRecalc = NeedsMinMaxRecalc(minValue, maxValue);
 
         bool trivialScaling = bscale == 1f && bzero == 0f;
         var imgChannels = new float[channelCount][,];
@@ -900,16 +911,12 @@ public partial class Image
             }
         }
 
-        // A stated range is believed only while the samples keep to it. DATAMAX = 1 over drizzle weights of
-        // 30 to 70 read as unit-scaled and put every sample past the histogram (#804), so a contradicted
-        // card is treated as a missing one. Allocation-free, and the full fold runs only when needed.
-        if (needsMinMaxValRecalc || SamplesLeaveRange(imgChannels, minValue, maxValue))
-        {
-            (minValue, maxValue) = ObservedRange(imgChannels);
-        }
+        // A stated range is believed, or checked against the samples when the caller asks (#804); a
+        // missing one is folded from the planes. One rule for both read paths: ResolveRange.
+        (minValue, maxValue) = ResolveRange(imgChannels, minValue, maxValue, validateRange);
 
         // No min/max tracking here on purpose: ObservedRange above computes exactly the same two
-        // values from the same planes, vectorised, under the same needsMinMaxValRecalc flag -- so
+        // values from the same planes, vectorised, whenever ResolveRange needs them -- so
         // tracking them inline was a scalar duplicate of a pass that runs anyway, paid as a branch
         // and two MathF calls on every pixel of the hot conversion loop. The NaN semantics match:
         // the guard here skipped NaN and ObservedRange skips it too. (This used to claim the same of
@@ -919,7 +926,7 @@ public partial class Image
         // DATAMAX for NaN, so it round-trips to the same answer rather than to a float.MinValue peak.
         //
         // Not a hypothetical path -- a real sub carries no DATAMIN/DATAMAX (measured on three ASI533
-        // frames), so needsMinMaxValRecalc is TRUE for the files this reader exists to read.
+        // frames), so ResolveRange folds for the files this reader exists to read.
         void ConvertChannel<T>(T[,] src, float[,] dst) where T : struct, INumberBase<T>
         {
             var dstSpan = dst.AsSpan2D();

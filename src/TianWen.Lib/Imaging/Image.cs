@@ -784,53 +784,39 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
     }
 
     /// <summary>
-    /// Whether any sample lies outside a range a file STATED (<c>DATAMIN</c> / <c>DATAMAX</c>), which makes
-    /// the stated range a claim the samples contradict. NaN is no sample, as in <see cref="ObservedRange"/>,
-    /// and a stated range wider than the samples is not a contradiction (a writer may state a sensor's full
-    /// scale). Vectorised, allocation-free, and stops at the first contradicting vector.
+    /// The range a read records: the file's stated <c>DATAMIN</c> / <c>DATAMAX</c> when it states a usable
+    /// pair (<see cref="NeedsMinMaxRecalc"/>), else the <see cref="ObservedRange"/> of the planes. With
+    /// <paramref name="validateRange"/> a stated pair is also checked against the samples, and a pair they
+    /// leave is replaced by the observed range; a stated range WIDER than the samples stands, since a
+    /// writer may state a sensor's full scale.
     /// </summary>
     /// <remarks>
-    /// <para><b>Why the FITS reader asks.</b> A stated range used to be believed outright, so a 2026-08 drizzle
-    /// weight sidecar written <c>DATAMAX = 1</c> over weights of 30 to 70 read as unit-scaled, every sample
-    /// fell past the histogram's bins, and the viewer's open failed with no median (#804). A card the
-    /// samples leave is treated as a missing one: the reader takes <see cref="ObservedRange"/> instead.</para>
-    /// <para><b>What it costs.</b> One compare-only pass over the planes the read has just filled, where a
-    /// stated range used to cost none; <see cref="ObservedRange"/> runs only when it finds a contradiction.
-    /// The comparison is cheaper than the fold (two compares per vector, no select and no running
-    /// minimum or maximum to carry), and a read is bounded by the file, not by this.</para>
+    /// <para><b>Why validating is opt-in.</b> Every file TianWen writes states its range, and we believe
+    /// what we wrote: checking costs a full pass over the planes on every read, measured at +22 percent
+    /// on the read of a 26 MP float sub (18.0 against 22.1 ms) and of a 3 x 11 MP master (22.9 against
+    /// 28.0 ms; <c>FitsRangeCheckBenchmarks</c>, win-arm64, Release). The one known liar is a 2026-08
+    /// drizzle weight sidecar written with <c>DATAMAX = 1</c> over weights of 30 to 70 (#804), whose
+    /// writer is fixed; a caller that must survive such a file asks for validation, and the command that
+    /// checks an archive is #951.</para>
+    /// <para><b>A fold, not a compare-only scan.</b> An early-exit scan for a contradicting sample was
+    /// measured SLOWER than the fold that answers the whole question (5.5 against 3.8 ms on the 26 MP
+    /// sub), so validation folds once and compares the two ranges.</para>
     /// </remarks>
-    internal static bool SamplesLeaveRange(float[][,] channels, float min, float max)
+    internal static (float Min, float Max) ResolveRange(float[][,] channels, float statedMin, float statedMax, bool validateRange)
     {
-        foreach (var channel in channels)
+        if (NeedsMinMaxRecalc(statedMin, statedMax))
         {
-            var span = MemoryMarshal.CreateReadOnlySpan(ref channel[0, 0], channel.Length);
-            var i = 0;
-            if (Vector.IsHardwareAccelerated && span.Length >= Vector<float>.Count)
-            {
-                var lowest = new Vector<float>(min);
-                var highest = new Vector<float>(max);
-                for (; i <= span.Length - Vector<float>.Count; i += Vector<float>.Count)
-                {
-                    // An ordered compare is false on a NaN lane, so a hole never counts as outside.
-                    var v = new Vector<float>(span.Slice(i, Vector<float>.Count));
-                    if (Vector.GreaterThanAny(v, highest) || Vector.LessThanAny(v, lowest))
-                    {
-                        return true;
-                    }
-                }
-            }
-
-            for (; i < span.Length; i++)
-            {
-                var v = span[i];
-                if (v > max || v < min)
-                {
-                    return true;
-                }
-            }
+            return ObservedRange(channels);
         }
 
-        return false;
+        if (!validateRange)
+        {
+            return (statedMin, statedMax);
+        }
+
+        // NaN compares false, so a plane with no number keeps the stated range.
+        var (observedMin, observedMax) = ObservedRange(channels);
+        return observedMin < statedMin || observedMax > statedMax ? (observedMin, observedMax) : (statedMin, statedMax);
     }
 
     /// <summary>
