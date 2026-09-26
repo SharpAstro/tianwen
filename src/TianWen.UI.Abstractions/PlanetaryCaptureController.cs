@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -38,7 +39,7 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
         _timeProvider = timeProvider;
         _logger = logger;
         _stackOptions = stackOptions ?? new RollingWindowOptions();
-        Capture = new PlanetaryCapture(timeProvider, logger, _stackOptions, onFrame: () => state.NeedsRedraw = true);
+        Capture = new PlanetaryCapture(timeProvider, logger, _stackOptions, onFrame: _ => state.NeedsRedraw = true);
     }
 
     /// <summary>The capture: its camera loop, live controls, recenter and telemetry.</summary>
@@ -80,19 +81,49 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
             return;
         }
 
-        // The previous capture's source goes before the capture replaces the stream it reads. Start runs on the render
-        // thread, which is the only one touching the source.
+        DropSource();
+        if (Capture.Start(camera, options, appToken, claim))
+        {
+            ShowSequence(options.Exposure);
+        }
+    }
+
+    /// <summary>
+    /// Starts a capture from <paramref name="profile"/>'s devices through <see cref="PlanetaryCapture.TryStart"/>, the one
+    /// start rule the node keeps too, or says why it cannot.
+    /// </summary>
+    public bool TryStart(in PlanetaryCaptureRequest request, ProfileData profile, IDeviceHub hub, CancellationToken appToken,
+        out (int Width, int Height) roi, [NotNullWhen(false)] out string? refusal)
+    {
+        if (Capture.IsCapturing)
+        {
+            roi = default;
+            refusal = "A planetary capture is already running";
+            return false;
+        }
+
+        DropSource();
+        if (!Capture.TryStart(request, profile, hub, appToken, out roi, out refusal))
+        {
+            return false;
+        }
+        ShowSequence(request.Exposure);
+        return true;
+    }
+
+    // The previous capture's source goes before the capture replaces the stream it reads. A start runs on the render
+    // thread, which is the only one touching the source.
+    private void DropSource()
+    {
         _source?.Dispose();
         _source = null;
         _sourceStream = null;
+    }
 
-        if (!Capture.Start(camera, options, appToken, claim))
-        {
-            return;
-        }
-
+    private void ShowSequence(TimeSpan exposure)
+    {
         _state.IsSequence = true;
-        _state.SourceFps = (float)(1.0 / Math.Max(options.Exposure.TotalSeconds, 1e-3));
+        _state.SourceFps = (float)(1.0 / Math.Max(exposure.TotalSeconds, 1e-3));
         _state.NeedsTextureUpdate = true;
     }
 

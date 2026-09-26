@@ -1,13 +1,22 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TianWen.DAL;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Imaging.Planetary;
+
+/// <summary>
+/// What a planetary capture is asked to stream: OTA <paramref name="OtaIndex"/>'s camera at <paramref name="Exposure"/>
+/// per frame, <paramref name="Gain"/> (null keeps the camera's), through a readout window of
+/// <paramref name="RoiWidth"/> x <paramref name="RoiHeight"/>, snapped to the camera's ROI rule.
+/// </summary>
+public readonly record struct PlanetaryCaptureRequest(int OtaIndex, TimeSpan Exposure, short? Gain, int RoiWidth, int RoiHeight);
 
 /// <summary>
 /// A <b>live planetary capture</b>: streams frames from a camera in video mode into a <see cref="LiveCameraFrameStream"/>,
@@ -29,10 +38,14 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// </summary>
 /// <param name="stackOptions">The rolling window the host stacks over, which sizes the ring: twice its frames, at least
 /// 1024.</param>
-/// <param name="onFrame">Called on the capture loop once each frame is pushed (a GUI asks for a redraw here).</param>
-public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger, RollingWindowOptions? stackOptions = null, Action? onFrame = null)
+/// <param name="onFrame">Called on the capture loop with each frame once it is pushed, BORROWED: it is released as the
+/// call returns, so a host that keeps one copies it (a GUI only asks for a redraw here).</param>
+public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger, RollingWindowOptions? stackOptions = null, Action<Image>? onFrame = null)
     : IAsyncDisposable
 {
+    /// <summary>What the claim on the camera is called, which a refusal names.</summary>
+    public const string LeaseOwner = "planetary capture";
+
     private static readonly TimeSpan MinExposure = TimeSpan.FromMilliseconds(1);
 
     private readonly RollingWindowOptions _stackOptions = stackOptions ?? new RollingWindowOptions();
@@ -49,6 +62,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
 
     private int _captureActive;                    // 0/1
     private int _framesReceived;
+    private volatile string? _failure;
     private long _captureStartTimestamp;
 
     // Live-control changes staged by a host and drained + applied by the capture loop after each frame. 0 / NoGain =
@@ -168,6 +182,9 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
     /// </summary>
     public LiveCameraFrameStream? Stream => Volatile.Read(ref _stream);
 
+    /// <summary>Why the current or last capture's loop stopped on a fault, in words; null while it runs well or ended on a stop.</summary>
+    public string? FailureReason => _failure;
+
     /// <summary>Total frames pushed into the stream since the current capture started.</summary>
     public int FramesReceived => Volatile.Read(ref _framesReceived);
 
@@ -197,6 +214,102 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
 
     /// <summary>Which actuator the most recent recenter frame engaged (for the panel readout).</summary>
     public RecenterActuator LastRecenterActuator => (RecenterActuator)Volatile.Read(ref _lastActuator);
+
+    /// <summary>
+    /// Starts a capture from <paramref name="profile"/>'s devices, the one start rule for every host: OTA
+    /// <see cref="PlanetaryCaptureRequest.OtaIndex"/>'s camera, connected, claimed (<see cref="LeaseOwner"/>), its readout
+    /// window configured (<see cref="ConfigureRoi"/>), and the profile's mount, when connected, attached for the recenter's
+    /// coarse nudge with the OTA's pixel scale. Refuses in words, holding nothing, when any of it cannot be had.
+    /// </summary>
+    /// <param name="roi">The readout window applied, after snapping.</param>
+    public bool TryStart(in PlanetaryCaptureRequest request, ProfileData profile, IDeviceHub hub, CancellationToken token,
+        out (int Width, int Height) roi, [NotNullWhen(false)] out string? refusal)
+    {
+        roi = default;
+        if (IsCapturing)
+        {
+            refusal = "A planetary capture is already running";
+            return false;
+        }
+        if (request.OtaIndex < 0 || request.OtaIndex >= profile.OTAs.Length)
+        {
+            refusal = $"The profile has no OTA #{request.OtaIndex + 1}";
+            return false;
+        }
+        var ota = profile.OTAs[request.OtaIndex];
+        if (!hub.TryGetConnectedDriver<ICameraDriver>(ota.Camera, out var camera))
+        {
+            refusal = "Connect a camera to start a planetary capture";
+            return false;
+        }
+
+        // Claimed for the length of the capture, before the ROI touches the camera: streaming video off a camera a flat
+        // run is metering would fight it frame for frame (P0c item 2 of docs/plans/hardware-in-the-server.md). Only the
+        // camera: the recenter's nudges ask the gate over the mount instead.
+        if (!DeviceLeaseSet.TryAcquire(hub, [ota.Camera], LeaseOwner, out var claim, out var verdict))
+        {
+            refusal = verdict.Describe();
+            return false;
+        }
+
+        // Start owns the claim once handed it, refusing or not; a throw before that (the ROI, the mount wiring) must
+        // not strand it.
+        var handedOver = false;
+        var started = false;
+        try
+        {
+            roi = ConfigureRoi(camera, request.RoiWidth, request.RoiHeight);
+            if (profile.Mount is { Scheme: not "none" } mountUri && hub.TryGetConnectedDriver<IMountDriver>(mountUri, out var mount))
+            {
+                AttachMount(mount, mountUri, hub, CoordinateUtils.PixelScaleArcsec(camera.PixelSizeX, ota.FocalLength));
+            }
+            else
+            {
+                AttachMount(null, null, hub, double.NaN);
+            }
+            handedOver = true;
+            started = Start(camera, new VideoCaptureOptions(request.Exposure, request.Gain), token, claim);
+        }
+        finally
+        {
+            if (!handedOver)
+            {
+                claim.Dispose();
+            }
+        }
+
+        refusal = started ? null : "A planetary capture is already running";
+        return started;
+    }
+
+    /// <summary>
+    /// Configures a camera's sub-frame (ROI) for planetary video: bin 1 + a <paramref name="width"/> x
+    /// <paramref name="height"/> readout SIZE, <b>snapped to the camera's <see cref="RoiConstraints"/></b> (step /
+    /// alignment / min / max), the single source of truth, so e.g. a ZWO width rounds to a multiple of 8 and a height to
+    /// a multiple of 2. Sets only the size (NumX/NumY); the readout origin is left at the driver default until the
+    /// recenter loop pans it. Returns the applied (width, height) after snapping. Moved here from the GUI's
+    /// <c>PlanetaryCaptureActions</c>.
+    /// </summary>
+    public static (int Width, int Height) ConfigureRoi(ICameraDriver camera, int width, int height)
+    {
+        // Planetary wants unbinned readout. BinX must be set before NumX/NumY (their setters validate against the
+        // binned sensor size).
+        if (camera.BinX != 1)
+        {
+            camera.BinX = 1;
+        }
+        if (camera.BinY != 1)
+        {
+            camera.BinY = 1;
+        }
+
+        // Snap the requested size to the camera's real ROI rule (free step-1 default for ASCOM / Alpaca; the fake
+        // reports ZWO-style 8 / 2). The whole sensor is a legal size.
+        var snapped = camera.RoiConstraints.Snap(new RoiRect(0, 0, width, height));
+        camera.NumX = snapped.Width;
+        camera.NumY = snapped.Height;
+        return (snapped.Width, snapped.Height);
+    }
 
     /// <summary>
     /// Starts streaming from <paramref name="camera"/>. The ROI / sensor type is read from the camera's current sub-frame
@@ -245,6 +358,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         Interlocked.Exchange(ref _frameSignal, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
 
         _camera = camera;
+        _failure = null;
         Interlocked.Exchange(ref _framesReceived, 0);
         _captureStartTimestamp = timeProvider.GetTimestamp();
 
@@ -323,9 +437,10 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
                         received, stream.FrameCount, MeasuredFps, DroppedFrames);
                 }
 
-                // The ring deep-copied the frame (and split it, for a Bayer source), so the camera's buffer goes back now.
+                // A host sees the frame before it goes back (and copies it, to keep it). The ring deep-copied it (and
+                // split it, for a Bayer source), so the camera's buffer goes back now.
+                onFrame?.Invoke(frame);
                 frame.Release();
-                onFrame?.Invoke();
 
                 // Apply any live-control changes (exposure / gain / ROI size / pan) staged by a host.
                 await ApplyPendingControlsAsync(camera, token).ConfigureAwait(false);
@@ -342,6 +457,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         catch (Exception ex)
         {
             logger.LogError(ex, "Planetary capture loop faulted.");
+            _failure = StatusText.FromException(ex);
         }
         finally
         {
