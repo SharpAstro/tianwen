@@ -34,16 +34,9 @@ builder.Services
             TianWen MCP server -- read-only debugging access to the TianWen
             astronomy library. Tool categories:
               - fits.*       Inspect FITS files (headers, stats, stars, plate solve, pixels)
-              - stars.*      Per-star profile / radial / gallery PNG for visual inspection
               - catalog.*    Tycho-2 / HIP / HD / NGC / common-name lookups
-              - spcc.match   Per-gate funnel diagnostic for the photometric WB matcher
-              - stack.*      Aggregate masters in a stacking output dir
-              - profile.*    List + read user equipment profiles (read-only)
-              - devices.*    Enumerate available devices via all sources (NO connect)
-              - app.*        AppData paths, catalog init phase timings
-              - log.*        Tail + grep TianWen log files
-            All tools are read-only. Device discovery enumerates but never
-            connects; profile tools never write.
+              - log.*        Tail TianWen log files
+            All tools are read-only.
             """;
     })
     .WithStdioServerTransport()
