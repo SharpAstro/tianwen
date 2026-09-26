@@ -60,7 +60,7 @@ internal static class NinaSequenceEndpoints
             if (hosted.IsRunning)
             {
                 return Results.Json(
-                    ResponseEnvelope<string>.Fail("A session is already running", 409),
+                    ResponseEnvelope<string>.Fail(NodeRuns.AlreadyGoingOn(hosted.RunningKind), 409),
                     NinaApiJsonContext.Default.ResponseEnvelopeString);
             }
 
@@ -110,7 +110,7 @@ internal static class NinaSequenceEndpoints
                     hosted.AddTarget(target);
                 }
                 return Results.Json(
-                    ResponseEnvelope<string>.Fail("A session is already running", 409),
+                    ResponseEnvelope<string>.Fail(NodeRuns.AlreadyGoingOn(hosted.RunningKind), 409),
                     NinaApiJsonContext.Default.ResponseEnvelopeString);
             }
             logger.LogInformation("ninaAPI: sequence started");

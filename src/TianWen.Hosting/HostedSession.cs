@@ -14,13 +14,23 @@ namespace TianWen.Hosting;
 public interface IHostedSession : IHostedService
 {
     /// <summary>
-    /// The node's run: the one going on, or the last one to end, until the next start replaces it. A
-    /// finished run stays readable so a client polling <c>/session/state</c> sees how it ended.
+    /// The node's session: the one going on, or the last one to end, until the next start replaces it. A
+    /// finished run stays readable so a client polling <c>/session/state</c> sees how it ended. Null when the
+    /// node's latest run is not a session (<see cref="CurrentRun"/>).
     /// </summary>
     ISession? CurrentSession { get; }
 
-    /// <summary>Whether a run is going on now. A run that has ended does not block the next start.</summary>
+    /// <summary>
+    /// The node's latest run that is not a session (a dark library, P5), going on or the last to end, until the next
+    /// start replaces it; null when the latest run is a session, or none has been.
+    /// </summary>
+    INodeRun? CurrentRun { get; }
+
+    /// <summary>Whether a run is going on now, of any kind. A run that has ended does not block the next start.</summary>
     bool IsRunning { get; }
+
+    /// <summary>The kind of the run going on now, or null when none is: what a refused start names.</summary>
+    NodeRunKind? RunningKind { get; }
 
     /// <summary>
     /// Active profile ID, set before starting a session or via profile/switch. Node state, kept in the data root
@@ -85,6 +95,16 @@ public interface IHostedSession : IHostedService
     Task<bool> TryStartAsync(ISession session, NodeRunKind kind, Guid profileId, Func<ISession, CancellationToken, Task> run);
 
     /// <summary>
+    /// Runs <paramref name="run"/> as the node's run, exactly as a session is run: on the node's token, one run at a
+    /// time, replacing the last run to end (disposed before this one touches the rig), recorded in the journal as its
+    /// <see cref="INodeRun.Kind"/>.
+    /// </summary>
+    /// <param name="profileId">The profile it runs on, for the journal; the active profile, for a run that uses none.</param>
+    /// <returns><see langword="false"/> when another run is going on, in which case <paramref name="run"/> is still the
+    /// caller's to dispose.</returns>
+    Task<bool> TryStartAsync(INodeRun run, Guid profileId);
+
+    /// <summary>
     /// Asks the run going on to stop. Its token is cancelled and it ends through its own Finalise (park,
     /// warm-up, covers), which the returned task completes after; its session is left readable, never
     /// disposed under it. Null when nothing is running.
@@ -132,6 +152,8 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
 
     public ISession? CurrentSession => Volatile.Read(ref _run)?.Session;
 
+    public INodeRun? CurrentRun => Volatile.Read(ref _run)?.Other;
+
     /// <summary>
     /// Raised as a run starts: after its start has won the node and before its body is released, so a
     /// subscriber has the run's session before the session can raise anything. The broadcaster attaches
@@ -152,6 +174,8 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
     internal event Action<ISession, NodeRunRecord>? RunEnded;
 
     public bool IsRunning => Volatile.Read(ref _run) is { Completion.IsCompleted: false };
+
+    public NodeRunKind? RunningKind => Volatile.Read(ref _run) is { Completion.IsCompleted: false } run ? run.Record.Kind : null;
 
     /// <summary>
     /// Whether the host's stop finished: the run ended through its Finalise, the cameras warmed and every device
@@ -265,7 +289,14 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
 
     public Task WhenInitialisedAsync(CancellationToken cancellationToken) => _initialisation.WaitAsync(cancellationToken);
 
-    public async Task<bool> TryStartAsync(ISession session, NodeRunKind kind, Guid profileId, Func<ISession, CancellationToken, Task> run)
+    public Task<bool> TryStartAsync(ISession session, NodeRunKind kind, Guid profileId, Func<ISession, CancellationToken, Task> run)
+        => TryStartAsync(() => new NodeRun(session, session, new NodeRunRecord(kind, profileId, timeProvider.GetUtcNow()),
+            token => run(session, token), logger));
+
+    public Task<bool> TryStartAsync(INodeRun run, Guid profileId)
+        => TryStartAsync(() => new NodeRun(null, run, new NodeRunRecord(run.Kind, profileId, timeProvider.GetUtcNow()), run.RunAsync, logger));
+
+    private async Task<bool> TryStartAsync(Func<NodeRun> build)
     {
         var previous = Volatile.Read(ref _run);
         if (previous is { Completion.IsCompleted: false })
@@ -275,7 +306,7 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
 
         // Built before the swap and started only by winning it: building the run INSIDE the exchange
         // would start it on every racing caller (CLAUDE.md, Concurrency).
-        var next = new NodeRun(session, new NodeRunRecord(kind, profileId, timeProvider.GetUtcNow()), run, logger);
+        var next = build();
         if (Interlocked.CompareExchange(ref _run, next, previous) != previous)
         {
             next.Release(won: false);
@@ -291,13 +322,16 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
 
         // Before the body is released, so a subscriber sees every event the run raises. A subscriber failing
         // must not keep the run from starting: the rig would sit idle on a start that answered success.
-        try
+        if (next.Session is { } session)
         {
-            RunStarting?.Invoke(session);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "A subscriber failed as the node's run started; the run starts anyway");
+            try
+            {
+                RunStarting?.Invoke(session);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "A subscriber failed as the node's run started; the run starts anyway");
+            }
         }
 
         next.Release(won: true);
@@ -310,13 +344,16 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
     {
         // A run's completion never faults: its body's failures are caught and logged where it runs.
         await run.Completion.ConfigureAwait(false);
-        try
+        if (run.Session is { } session)
         {
-            RunEnded?.Invoke(run.Session, run.Record);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "A subscriber failed as the node's run ended");
+            try
+            {
+                RunEnded?.Invoke(session, run.Record);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "A subscriber failed as the node's run ended");
+            }
         }
         RaiseRunChanged();
     }
@@ -368,7 +405,7 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
             var ended = true;
             if (!run.Completion.IsCompleted)
             {
-                logger.LogWarning("The host is stopping: aborting the running session, which ends through its Finalise");
+                logger.LogWarning("The host is stopping: aborting the node's {Kind} run, which ends through its Finalise", run.Record.Kind);
                 run.Cancel();
                 try
                 {
@@ -438,21 +475,30 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
         }
     }
 
-    /// <summary>One run of the node: its session, the token that aborts it, and its whole life as a task.</summary>
+    /// <summary>
+    /// One run of the node: what it owns (its session, or another kind's run), the token that aborts it, and its whole
+    /// life as a task.
+    /// </summary>
     private sealed class NodeRun
     {
         private readonly CancellationTokenSource _abort = new CancellationTokenSource();
         private readonly TaskCompletionSource<bool> _release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly IAsyncDisposable _owned;
         private int _disposed;
 
-        public NodeRun(ISession session, NodeRunRecord record, Func<ISession, CancellationToken, Task> body, ILogger logger)
+        public NodeRun(ISession? session, IAsyncDisposable owned, NodeRunRecord record, Func<CancellationToken, Task> body, ILogger logger)
         {
             Session = session;
+            _owned = owned;
             Record = record;
             Completion = RunWhenReleasedAsync(body, logger);
         }
 
-        public ISession Session { get; }
+        /// <summary>The run's session, for a session or a flat run; null for any other kind.</summary>
+        public ISession? Session { get; }
+
+        /// <summary>The run itself, for a kind that is not a session.</summary>
+        public INodeRun? Other => _owned as INodeRun;
 
         public NodeRunRecord Record { get; }
 
@@ -473,7 +519,7 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
             }
         }
 
-        /// <summary>Disposes the session once, whoever asks first.</summary>
+        /// <summary>Disposes what the run owns once, whoever asks first.</summary>
         public async ValueTask DisposeAsync(ILogger logger)
         {
             if (Interlocked.Exchange(ref _disposed, 1) != 0)
@@ -483,16 +529,16 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
 
             try
             {
-                await Session.DisposeAsync();
+                await _owned.DisposeAsync();
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Disposing the node's last session failed");
+                logger.LogWarning(ex, "Disposing the node's last {Kind} run failed", Record.Kind);
             }
             _abort.Dispose();
         }
 
-        private async Task RunWhenReleasedAsync(Func<ISession, CancellationToken, Task> body, ILogger logger)
+        private async Task RunWhenReleasedAsync(Func<CancellationToken, Task> body, ILogger logger)
         {
             // An abort asked for before the start won is a run that never began: nothing to finalise.
             if (!await _release.Task.ConfigureAwait(false) || _abort.IsCancellationRequested)
@@ -504,15 +550,15 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
             {
                 // Off the starting thread, and on None: a token here would skip the run if it were already
                 // cancelled, after the swap had published it, leaving a run that never ran.
-                await Task.Run(() => body(Session, _abort.Token), CancellationToken.None).ConfigureAwait(false);
+                await Task.Run(() => body(_abort.Token), CancellationToken.None).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (_abort.IsCancellationRequested)
             {
-                logger.LogInformation("The node's run ended on an abort");
+                logger.LogInformation("The node's {Kind} run ended on an abort", Record.Kind);
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "The node's run faulted");
+                logger.LogError(ex, "The node's {Kind} run faulted", Record.Kind);
             }
         }
     }

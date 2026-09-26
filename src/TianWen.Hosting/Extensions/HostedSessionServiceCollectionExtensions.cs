@@ -14,6 +14,7 @@ using TianWen.Hosting.Api.NinaV2;
 using TianWen.Hosting.Dto;
 using TianWen.Hosting.WebSocket;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Sequencing;
 
 namespace TianWen.Hosting.Extensions;
 
@@ -43,6 +44,9 @@ public static class HostedSessionServiceCollectionExtensions
         services.AddHostedService(sp => sp.GetRequiredService<DeviceStatePoller>());
         // Its second part: connect, disconnect and warm-and-disconnect as the node's jobs, one per device at a time.
         services.AddSingleton<DeviceOperations>();
+        // The node's runs that are not a session (P5, #934): a dark library first, through the CLI's own capture.
+        services.TryAddSingleton<DarkFrameRun>();
+        services.AddSingleton<NodeDarkLibrary>();
         // The node's one profile writer (P3 part 1, #930): every profile write, whoever asked, pushes PROFILE-CHANGED.
         services.AddSingleton<NodeProfiles>();
         // Where a masked device setting goes (P3 part 4). A host that composes AddExternal has chosen one already; any
@@ -127,6 +131,7 @@ public static class HostedSessionServiceCollectionExtensions
         app.MapImageApi();
         app.MapPreviewApi();
         app.MapFrameApi();
+        app.MapDarkLibraryApi();
         app.MapWebSocketEndpoint();
 
         // ASCOM Alpaca DEVICE plane (docs/plans/remote-profile.md P5). Shares the /api/v1 prefix, which

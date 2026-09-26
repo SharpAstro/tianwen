@@ -376,6 +376,22 @@ namespace TianWen.RemoteClient
             SendJsonAsync(HttpMethod.Post, "api/v1/devices/camera/cool", new CoolRequestDto { DeviceUri = deviceUri.ToString(), SetpointC = setpointC, RampMinutes = rampMinutes },
                 HostingJsonContext.Default.CoolRequestDto, HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
 
+        /// <summary>
+        /// <c>POST /darks</c> -- takes a dark library with a camera connected to the node, as the node's run (P5 part 1 of
+        /// docs/plans/hardware-in-the-server.md). Answered at once; <see cref="GetDarkLibraryAsync"/> follows it.
+        /// </summary>
+        public Task<NodeResult<DarkLibraryStateDto>> StartDarkLibraryAsync(DarkLibraryRequestDto request, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/darks", request, HostingJsonContext.Default.DarkLibraryRequestDto,
+                HostingJsonContext.Default.ResponseEnvelopeDarkLibraryStateDto, _timeouts.Control, cancellationToken);
+
+        /// <summary><c>GET /darks</c> -- the dark library going on, or the last one to end.</summary>
+        public Task<NodeResult<DarkLibraryStateDto>> GetDarkLibraryAsync(CancellationToken cancellationToken) =>
+            GetAsync("api/v1/darks", HostingJsonContext.Default.ResponseEnvelopeDarkLibraryStateDto, _timeouts.StatePoll, cancellationToken);
+
+        /// <summary><c>DELETE /darks</c> -- stops the dark library going on after the frame in hand, answered once it has ended.</summary>
+        public Task<NodeResult<DarkLibraryStateDto>> StopDarkLibraryAsync(CancellationToken cancellationToken) =>
+            SendAsync(HttpMethod.Delete, "api/v1/darks", null, HostingJsonContext.Default.ResponseEnvelopeDarkLibraryStateDto, _timeouts.Control, cancellationToken);
+
         /// <summary><c>POST /devices/camera/warm</c> -- warms the camera and turns its cooler off, as a job, leaving it connected.</summary>
         public Task<NodeResult<JobDto>> WarmCameraAsync(Uri deviceUri, CancellationToken cancellationToken) =>
             SendJsonAsync(HttpMethod.Post, "api/v1/devices/camera/warm", new DeviceRequestDto { DeviceUri = deviceUri.ToString() },

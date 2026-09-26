@@ -11,6 +11,9 @@ public enum NodeRunKind
 
     /// <summary>A flat-frame run on its own (<c>POST /api/v1/session/flats</c>).</summary>
     Flats,
+
+    /// <summary>A dark library (<c>POST /api/v1/darks</c>).</summary>
+    Darks,
 }
 
 /// <summary>

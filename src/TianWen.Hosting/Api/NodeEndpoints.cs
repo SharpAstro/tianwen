@@ -21,7 +21,7 @@ internal static class NodeEndpoints
 {
     public static void MapNodeApi(this IEndpointRouteBuilder routes)
     {
-        routes.MapGet("/api/v1/node", (NodeIdentity identity, NodeListening listening, NodeSettingsStore settings, EventHub events, IDeviceHub hub, IHostedSession hosted,
+        routes.MapGet("/api/v1/node", (NodeIdentity identity, NodeListening listening, NodeSettingsStore settings, EventHub events, IDeviceHub hub, HostedSession hosted,
             NodeJournalService journal, ITimeProvider timeProvider) =>
             EnvelopeResults.Json(
                 ResponseEnvelope<NodeInfoDto>.Ok(new NodeInfoDto
@@ -36,6 +36,9 @@ internal static class NodeEndpoints
                     HoldsHardware = hub.ConnectedDevices.Count > 0 || hosted.IsRunning,
                     NowUtc = timeProvider.GetUtcNow(),
                     Recovery = journal.Recovery,
+                    Run = hosted.CurrentRunRecord is { } run
+                        ? new NodeRunDto { Kind = run.Kind, ProfileId = run.ProfileId, StartedUtc = run.StartedUtc, Target = hosted.CurrentSession?.ActiveObservation?.Target.Name }
+                        : null,
                 }),
                 HostingJsonContext.Default.ResponseEnvelopeNodeInfoDto));
 
