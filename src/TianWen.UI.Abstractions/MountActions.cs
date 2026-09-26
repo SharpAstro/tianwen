@@ -54,7 +54,7 @@ namespace TianWen.UI.Abstractions
         ///   no flaky mount-side UTC reads) - the solver search origin and the baseline the
         ///   revealed pointing error is measured from.</item>
         ///   <item><see cref="CameraExposureActions.StampDenormAsync"/> +
-        ///   <see cref="LiveSessionActions.CaptureCameraPreviewAsync"/> - the same capture path
+        ///   <see cref="PreviewCapture.CaptureAsync"/> - the same capture path
         ///   as the live-session preview, so FITS headers and fake-camera catalog rendering
         ///   behave identically.</item>
         ///   <item><see cref="IPlateSolver.SolveImageAsync"/> with the believed origin.</item>
@@ -133,7 +133,7 @@ namespace TianWen.UI.Abstractions
                 camera, otaName, focalLengthMm, apertureMm, focuser, filterWheel, mount,
                 targetName: "SolveSync", catalogDb: catalogDb, logger: logger, ct: cancellationToken);
 
-            var image = await LiveSessionActions.CaptureCameraPreviewAsync(
+            var image = await PreviewCapture.CaptureAsync(
                 camera, exposure, gain, binning, timeProvider, cancellationToken);
             if (image is null)
             {

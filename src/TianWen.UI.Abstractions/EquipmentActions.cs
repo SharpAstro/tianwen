@@ -508,34 +508,6 @@ public static class EquipmentActions
     }
 
     /// <summary>
-    /// Resolves the connected optional drivers around an OTA's camera for per-capture
-    /// FITS denorm stamping: the OTA's focuser and filter wheel plus the profile mount
-    /// (each null when unassigned or not connected). Extracted from TakePreviewSignal
-    /// so the handler routes only.
-    /// </summary>
-    public static (IFocuserDriver? Focuser, IFilterWheelDriver? FilterWheel, IMountDriver? Mount) ResolveOtaCaptureDevices(
-        IDeviceHub hub, ProfileData data, int otaIndex)
-    {
-        var ota = data.OTAs[otaIndex];
-        IFocuserDriver? focuser = null;
-        if (ota.Focuser is { } focUri && hub.TryGetConnectedDriver<IFocuserDriver>(focUri, out var focDrv))
-        {
-            focuser = focDrv;
-        }
-        IFilterWheelDriver? filterWheel = null;
-        if (ota.FilterWheel is { } fwUri && hub.TryGetConnectedDriver<IFilterWheelDriver>(fwUri, out var fwDrv))
-        {
-            filterWheel = fwDrv;
-        }
-        IMountDriver? mount = null;
-        if (data.Mount is { } mountUri && hub.TryGetConnectedDriver<IMountDriver>(mountUri, out var mountDrv))
-        {
-            mount = mountDrv;
-        }
-        return (focuser, filterWheel, mount);
-    }
-
-    /// <summary>
     /// Reachability of a device as displayed in the Equipment tab. Combines profile
     /// assignment, current discovery state, and live connection state from the hub.
     /// </summary>

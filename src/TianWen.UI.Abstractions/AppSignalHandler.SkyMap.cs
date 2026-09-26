@@ -367,7 +367,7 @@ namespace TianWen.UI.Abstractions
 
                 // Optional per-OTA devices for FITS denorm stamping (same as TakePreview);
                 // the mount is resolved separately above, so discard it here.
-                var (ssFocuser, ssFilterWheel, _) = EquipmentActions.ResolveOtaCaptureDevices(hub, pdata, sig.OtaIndex);
+                var (ssFocuser, ssFilterWheel, _) = PreviewCapture.ResolveOtaCaptureDevices(hub, pdata, sig.OtaIndex);
 
                 // Mirror the preview-capture progress UI while the solve frame exposes.
                 // ExposureSeconds is now trustworthy even for the button's parameterless

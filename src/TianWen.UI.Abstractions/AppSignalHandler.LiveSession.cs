@@ -126,7 +126,7 @@ namespace TianWen.UI.Abstractions
                 // optional (preview can fire without one) but unlocks Target stamping
                 // and FakeCameraDriver synthetic-catalog rendering when present.
                 var (previewFocuser, previewFilterWheel, previewMount) =
-                    EquipmentActions.ResolveOtaCaptureDevices(hub, previewData, sig.OtaIndex);
+                    PreviewCapture.ResolveOtaCaptureDevices(hub, previewData, sig.OtaIndex);
 
                 // Mark capturing
                 if (sig.OtaIndex < liveSessionState.PreviewCapturing.Length)
@@ -156,7 +156,7 @@ namespace TianWen.UI.Abstractions
                         logger: logger,
                         ct: ct).ConfigureAwait(false);
 
-                    var image = await LiveSessionActions.CaptureCameraPreviewAsync(
+                    var image = await PreviewCapture.CaptureAsync(
                         camera,
                         TimeSpan.FromSeconds(sig.ExposureSeconds),
                         sig.Gain is { } g ? (short)g : null,
@@ -196,9 +196,20 @@ namespace TianWen.UI.Abstractions
 
                 RunTracked("SaveSnapshot", "Snapshot failed", async _ =>
                 {
-                    var fileName = await LiveSessionActions.SaveSnapshotAsync(
-                        image, sig.OtaIndex, external, _timeProvider);
-                    Notify(NotificationSeverity.Info, $"Snapshot saved: {fileName}");
+                    // The slot's frame is its publisher's, released as the next replaces it: LEASED for the write, never
+                    // the bare reference across it.
+                    if (!image.TryLease(out var lease))
+                    {
+                        Notify(NotificationSeverity.Warning, "The preview was replaced while it was read; save again");
+                        return;
+                    }
+
+                    using (lease)
+                    {
+                        var path = await PreviewCapture.SaveSnapshotAsync(
+                            lease.Image, sig.OtaIndex, external, _timeProvider);
+                        Notify(NotificationSeverity.Info, $"Snapshot saved: {Path.GetFileName(path)}");
+                    }
                 }, onFinally: () => appState.NeedsRedraw = true);
             });
 
@@ -234,7 +245,7 @@ namespace TianWen.UI.Abstractions
 
                     // Solve orchestration (search-origin derivation + result-to-message
                     // mapping) lives in LiveSessionActions so this lambda routes only.
-                    var (result, message, solved) = await LiveSessionActions.SolvePreviewFrameAsync(
+                    var (result, message, solved) = await PreviewCapture.SolveAsync(
                         sp.GetRequiredService<IPlateSolverFactory>(), image, ct);
                     liveSessionState.PreviewPlateSolveResult = result;
                     Notify(solved ? NotificationSeverity.Info : NotificationSeverity.Warning, message);
