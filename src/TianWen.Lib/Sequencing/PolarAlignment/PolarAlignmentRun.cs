@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
@@ -58,18 +59,23 @@ public sealed class PolarAlignmentRun : IAsyncDisposable
     private volatile PolarRunState _state = new PolarRunState(PolarAlignmentPhase.Idle, "Starting polar alignment\u2026");
     private int _disposed;
 
-    private PolarAlignmentRun(PolarAlignmentSession session, IGuider? guider, int otaIndex, string sourceName, Action<PlateSolveResult>? onFrameSolved, ILogger logger)
+    private PolarAlignmentRun(PolarAlignmentSession session, IGuider? guider, int otaIndex, string sourceName, ImmutableArray<Uri> devices,
+        Action<PlateSolveResult>? onFrameSolved, ILogger logger)
     {
         _session = session;
         _guider = guider;
         OtaIndex = otaIndex;
         SourceName = sourceName;
+        Devices = devices;
         _onFrameSolved = onFrameSolved;
         _logger = logger;
     }
 
     /// <summary>The OTA whose camera it captures through, or -1 for the guider.</summary>
     public int OtaIndex { get; }
+
+    /// <summary>What it claimed: the mount, and what the capture drives (the OTA's camera, or the guider and its camera).</summary>
+    public ImmutableArray<Uri> Devices { get; }
 
     /// <summary>What it captures through, in words.</summary>
     public string SourceName { get; }
@@ -118,7 +124,8 @@ public sealed class PolarAlignmentRun : IAsyncDisposable
         // Claimed before anything is set up, so a start is refused while another run holds the mount or the camera (P0c
         // item 2 of docs/plans/hardware-in-the-server.md): without it nothing stopped a jog or a second run from moving the
         // mount polar was rotating.
-        if (!DeviceLeaseSet.TryAcquire(hub, [profile.Mount, .. source.Drives], LeaseOwner, out var claim, out var verdict))
+        ImmutableArray<Uri> devices = [profile.Mount, .. source.Drives];
+        if (!DeviceLeaseSet.TryAcquire(hub, devices, LeaseOwner, out var claim, out var verdict))
         {
             refusal = verdict.Describe();
             return false;
@@ -135,7 +142,7 @@ public sealed class PolarAlignmentRun : IAsyncDisposable
             claim.Dispose();
             throw;
         }
-        run = new PolarAlignmentRun(session, source.Guider, source.OtaIndex, source.Source.DisplayName, onFrameSolved, logger);
+        run = new PolarAlignmentRun(session, source.Guider, source.OtaIndex, source.Source.DisplayName, devices, onFrameSolved, logger);
         return true;
     }
 

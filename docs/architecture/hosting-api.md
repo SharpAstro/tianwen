@@ -261,7 +261,9 @@ Pinned by `NodeSocketTests`, `NodeAddressTests`, `ExeBesideTests`, `NodeKeeperTe
      run going on, the lease, the camera, a job working on it), the camera leased for the run.
    - **Polar alignment is the second** (`POST`, `GET` and `DELETE /api/v1/polar`, `NodePolarAlignment`, P5 part 4):
      the GUI's own routine, `PolarAlignmentRun` in Lib, which resolves the devices from the active profile and
-     CLAIMS the mount and the capture devices, refusing in words. Its probe and refinement frames become the OTA's
+     CLAIMS the mount and the capture devices, refusing in words, and a start is refused while a job works on any
+     device it claimed (#981: a job holds its device in `NodeJobs`, not through the lease, so the claim alone let a
+     start rotate a mount a slew job was still driving). Its probe and refinement frames become the OTA's
      (`NodeFrames`), and `GET` carries Phase A, the latest refine tick with its overlay, and the latest WCS with
      the token of the frame it is of, NaN crossing as null. **Cancellation is how it ends**: `DELETE` is Done and
      Cancel alike and is answered AT ONCE, since the restore reverses the Phase A rotation for longer than a
