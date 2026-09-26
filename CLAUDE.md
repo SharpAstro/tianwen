@@ -1588,10 +1588,13 @@ TianWen.UI.Shared's shaders are GLSL 450 files under `src/TianWen.UI.Shared/Shad
 `tools/BakeShaders`; there is **no runtime shaderc** (SdlVulkan.Renderer 6.23 dropped
 `Vortice.ShaderCompiler`; shaderc ships no android RID). Two rules: **edit a shader → re-bake → commit
 the `.spv`** (`dotnet run --project tools/BakeShaders -c Release -- src/TianWen.UI.Shared/Shaders`;
-**warning TWSH0001** flags a source newer than its `.spv` by more than `StaleBakeToleranceSeconds` (60,
-since a fresh checkout writes a source a few ms after its `.spv`) or a missing `.spv`, names the shader,
-and never fails; nothing in CI checks the `.spv`, so it is their only guard; TWIC0001 is its twin for
-both icon recipes); **ASCII only**, shaderc's
+**warning TWSH0001** flags a source whose SHA-256 is not the one the bake recorded in
+`Shaders/spirv/sources.sha256` (commit it with the `.spv`), a source missing from it, or a missing
+`.spv`, names the shader, and never fails; nothing in CI checks the `.spv`, so it is their only guard;
+TWIC0001 is its twin for both icon recipes, against the `Recipe SHA-256` header line
+`tools/bake-icons.ps1` writes into each table). **Both compare CONTENT, never modification times**: a
+time check fired for ever on a clone that pulled a source edit the bake left byte-identical (#792), so
+never bring a timestamp or a tolerance back; **ASCII only**, shaderc's
 lexer rejects non-ASCII bytes even inside comments. The `stereoProject` GLSL is inlined into the three
 `skymap_*.vert` files; restoring a single source is a deferred cleanup (#634).
 
