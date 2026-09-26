@@ -1,3 +1,4 @@
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Devices;
 
 namespace TianWen.Hosting.Dto;
@@ -75,6 +76,52 @@ public sealed class CameraSettingsRequestDto
 
     /// <summary>In binned pixels, snapped to what the camera can read out and kept on its sensor.</summary>
     public FrameDto? Frame { get; init; }
+}
+
+/// <summary>
+/// Moves a focuser: <c>POST /api/v1/devices/focuser/move</c>, to <see cref="Position"/> or by <see cref="Steps"/> from where
+/// it is; exactly one of the two.
+/// </summary>
+public sealed class FocuserMoveRequestDto
+{
+    public required string DeviceUri { get; init; }
+    public int? Position { get; init; }
+    public int? Steps { get; init; }
+}
+
+/// <summary>Turns a filter wheel to a position, counted from 0: <c>POST /api/v1/devices/filterwheel/change</c>.</summary>
+public sealed class FilterChangeRequestDto
+{
+    public required string DeviceUri { get; init; }
+    public required int Position { get; init; }
+}
+
+/// <summary>Slews a mount to a J2000 position: <c>POST /api/v1/devices/mount/goto</c>.</summary>
+public sealed class MountGotoRequestDto
+{
+    public required string DeviceUri { get; init; }
+
+    /// <summary>J2000 right ascension, in hours.</summary>
+    public required double RaJ2000 { get; init; }
+
+    /// <summary>J2000 declination, in degrees.</summary>
+    public required double DecJ2000 { get; init; }
+
+    /// <summary>What the target is called in the job's steps; its coordinates when null.</summary>
+    public string? Name { get; init; }
+
+    /// <summary>The catalogue object, when the target is one: the Sun and the Moon are tracked at their own rates.</summary>
+    public CatalogIndex? Index { get; init; }
+
+    /// <summary>The lowest altitude a goto may end at, in degrees; 10 when null.</summary>
+    public int? MinAltitudeDegrees { get; init; }
+}
+
+/// <summary>Switches a mount's tracking: <c>POST /api/v1/devices/mount/tracking</c>.</summary>
+public sealed class MountTrackingRequestDto
+{
+    public required string DeviceUri { get; init; }
+    public required bool On { get; init; }
 }
 
 /// <summary>A camera's settings as it reads them back after a change, which a camera may have snapped.</summary>

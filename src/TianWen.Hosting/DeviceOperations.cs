@@ -11,8 +11,9 @@ namespace TianWen.Hosting;
 
 /// <summary>
 /// What a client does to a device with no session running, the device plane (P2 of
-/// docs/plans/hardware-in-the-server.md, #929): connecting and disconnecting (part 2) and a camera's cooling and settings
-/// (part 3, <c>DeviceOperations.Camera.cs</c>). Anything slow is a JOB on the node's token (<see cref="NodeJobs"/>), so a
+/// docs/plans/hardware-in-the-server.md, #929): connecting and disconnecting (part 2), a camera's cooling and settings
+/// (part 3, <c>DeviceOperations.Camera.cs</c>), and moving a focuser, a filter wheel or a mount (part 4,
+/// <c>DeviceOperations.Motion.cs</c>). Anything slow is a JOB on the node's token (<see cref="NodeJobs"/>), so a
 /// ramp that must finish if the window dies finishes in the node, and a device takes one job at a time.
 /// </summary>
 /// <remarks>
@@ -21,7 +22,8 @@ namespace TianWen.Hosting;
 /// the hardware. A refusal answers at once; a job answers 202 and is followed through <c>GET /api/v1/jobs/{id}</c> or
 /// <c>JOB-PROGRESS</c>.
 /// </remarks>
-internal sealed partial class DeviceOperations(IDeviceHub hub, NodeJobs jobs, ITimeProvider timeProvider, ILogger<DeviceOperations> logger)
+internal sealed partial class DeviceOperations(IDeviceHub hub, NodeJobs jobs, IHostedSession hosted, IExternal external, ITimeProvider timeProvider,
+    ILogger<DeviceOperations> logger)
 {
     /// <summary>The <see cref="JobDto.Kind"/> of each job.</summary>
     internal const string ConnectJob = "connect";
@@ -135,13 +137,23 @@ internal sealed partial class DeviceOperations(IDeviceHub hub, NodeJobs jobs, IT
     }
 
     /// <summary>
-    /// A connected device a run does not hold. Ownership is asked BEFORE the hardware, and before any job starts, so the
-    /// refusal is an answer rather than a failed job; the hub refuses again should a run take the device in between.
+    /// A connected device a run does not hold. Ownership is asked FIRST, before even whether the device is connected:
+    /// "a run is using this" is the answer that tells the client what to do (<see cref="ActuationGate"/>'s rule), and it
+    /// comes before any job starts, so a refusal is an answer rather than a failed job. The hub refuses again should a run
+    /// take the device in between.
     /// </summary>
     private bool TryConnectedAndFree(string deviceUri, DeviceAction action, [NotNullWhen(true)] out Uri? uri, [NotNullWhen(false)] out Refusal? refused)
     {
         if (!TryParse(deviceUri, out uri, out refused))
         {
+            return false;
+        }
+
+        var ownership = DeviceOwnershipGate.Evaluate(hub, uri, action);
+        if (!ownership.Allowed)
+        {
+            refused = new Refusal(ownership.Describe(), 409);
+            uri = null;
             return false;
         }
         if (!hub.IsConnected(uri))
@@ -151,11 +163,45 @@ internal sealed partial class DeviceOperations(IDeviceHub hub, NodeJobs jobs, IT
             return false;
         }
 
-        var ownership = DeviceOwnershipGate.Evaluate(hub, uri, action);
-        if (!ownership.Allowed)
+        return true;
+    }
+
+    /// <summary>A connected device of the kind a command needs (<typeparamref name="TDriver"/>), which no run holds.</summary>
+    private bool TryDriver<TDriver>(string deviceUri, string kind, [NotNullWhen(true)] out Uri? uri, [NotNullWhen(true)] out TDriver? driver,
+        [NotNullWhen(false)] out Refusal? refused) where TDriver : class, IDeviceDriver
+    {
+        driver = null;
+        if (!TryConnectedAndFree(deviceUri, DeviceAction.Actuate, out uri, out refused))
         {
-            refused = new Refusal(ownership.Describe(), 409);
+            return false;
+        }
+        if (!hub.TryGetConnectedDriver(uri, out driver))
+        {
+            refused = new Refusal($"{NameOf(uri)} is not a {kind}", 400);
             uri = null;
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// As <see cref="TryDriver"/>, and with no job working on the device: what a command asks that would fight a job, an
+    /// immediate one (a cooler off under a ramp) or a second move with another target, which must not quietly join the
+    /// first.
+    /// </summary>
+    private bool TryIdle<TDriver>(string deviceUri, string kind, [NotNullWhen(true)] out Uri? uri, [NotNullWhen(true)] out TDriver? driver,
+        [NotNullWhen(false)] out Refusal? refused) where TDriver : class, IDeviceDriver
+    {
+        if (!TryDriver(deviceUri, kind, out uri, out driver, out refused))
+        {
+            return false;
+        }
+        if (jobs.TryGetRunningOn(uri, out var job))
+        {
+            refused = Busy(NameOf(uri), job);
+            uri = null;
+            driver = null;
             return false;
         }
 

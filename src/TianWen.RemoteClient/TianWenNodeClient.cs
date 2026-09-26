@@ -370,6 +370,46 @@ namespace TianWen.RemoteClient
             SendJsonAsync(HttpMethod.Post, "api/v1/devices/camera/settings", request,
                 HostingJsonContext.Default.CameraSettingsRequestDto, HostingJsonContext.Default.ResponseEnvelopeCameraSettingsDto, _timeouts.Control, cancellationToken);
 
+        /// <summary><c>POST /devices/focuser/move</c> -- to a position or by a number of steps, as a job that ends when the focuser has stopped (P2 part 4, #929). Refused (409) while another job moves it.</summary>
+        public Task<NodeResult<JobDto>> MoveFocuserAsync(FocuserMoveRequestDto request, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/devices/focuser/move", request,
+                HostingJsonContext.Default.FocuserMoveRequestDto, HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
+
+        /// <summary><c>POST /devices/focuser/stop</c> -- halts the focuser, ending the move job that drives it, if one does.</summary>
+        public Task<NodeResult<string>> StopFocuserAsync(Uri deviceUri, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/devices/focuser/stop", new DeviceRequestDto { DeviceUri = deviceUri.ToString() },
+                HostingJsonContext.Default.DeviceRequestDto, HostingJsonContext.Default.ResponseEnvelopeString, _timeouts.Control, cancellationToken);
+
+        /// <summary><c>POST /devices/filterwheel/change</c> -- turns the wheel to a position counted from 0, as a job that ends when it is there.</summary>
+        public Task<NodeResult<JobDto>> ChangeFilterAsync(Uri deviceUri, int position, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/devices/filterwheel/change", new FilterChangeRequestDto { DeviceUri = deviceUri.ToString(), Position = position },
+                HostingJsonContext.Default.FilterChangeRequestDto, HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
+
+        /// <summary><c>POST /devices/mount/goto</c> -- slews to a J2000 position through the one goto every host uses, as a job that ends when the mount has landed. What only the mount can answer (below the horizon) fails the job with its reason.</summary>
+        public Task<NodeResult<JobDto>> GotoAsync(MountGotoRequestDto request, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/devices/mount/goto", request,
+                HostingJsonContext.Default.MountGotoRequestDto, HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
+
+        /// <summary><c>POST /devices/mount/park</c> -- parks the mount, as a job that ends when it reports itself parked.</summary>
+        public Task<NodeResult<JobDto>> ParkMountAsync(Uri deviceUri, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/devices/mount/park", new DeviceRequestDto { DeviceUri = deviceUri.ToString() },
+                HostingJsonContext.Default.DeviceRequestDto, HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
+
+        /// <summary><c>POST /devices/mount/unpark</c> -- unparks the mount, as a job.</summary>
+        public Task<NodeResult<JobDto>> UnparkMountAsync(Uri deviceUri, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/devices/mount/unpark", new DeviceRequestDto { DeviceUri = deviceUri.ToString() },
+                HostingJsonContext.Default.DeviceRequestDto, HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
+
+        /// <summary><c>POST /devices/mount/tracking</c> -- switches tracking at once; refused (409) while a job moves the mount.</summary>
+        public Task<NodeResult<string>> SetMountTrackingAsync(Uri deviceUri, bool on, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/devices/mount/tracking", new MountTrackingRequestDto { DeviceUri = deviceUri.ToString(), On = on },
+                HostingJsonContext.Default.MountTrackingRequestDto, HostingJsonContext.Default.ResponseEnvelopeString, _timeouts.Control, cancellationToken);
+
+        /// <summary><c>POST /devices/mount/stop</c> -- stops the mount where it is, ending the goto or park job that drives it, if one does.</summary>
+        public Task<NodeResult<string>> StopMountAsync(Uri deviceUri, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/devices/mount/stop", new DeviceRequestDto { DeviceUri = deviceUri.ToString() },
+                HostingJsonContext.Default.DeviceRequestDto, HostingJsonContext.Default.ResponseEnvelopeString, _timeouts.Control, cancellationToken);
+
         /// <summary>
         /// <c>POST /devices/discover</c> -- starts a discovery on the node, or joins the one running, and answers
         /// at once with its job (202). Follow it with <see cref="GetJobAsync"/> or the <c>JOB-PROGRESS</c> push,

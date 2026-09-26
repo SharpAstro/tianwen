@@ -16,7 +16,7 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// Unit tests for <see cref="MountActions.SlewToJ2000Async"/>. Uses NSubstitute
+/// Unit tests for <see cref="MountGoto.SlewToJ2000Async"/>. Uses NSubstitute
 /// to stub <see cref="IMountDriver"/> (including default-interface methods like
 /// <c>TryTransformJ2000ToMountNativeAsync</c> and <c>EnsureTrackingAsync</c>) so
 /// we don't need a full transform + site stack. Same style as
@@ -234,7 +234,7 @@ public class MountActionsTests
     {
         var profile = MakeProfile();
         var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 4, 20, 12, 0, 0, TimeSpan.Zero));
-        return MountActions.SlewToJ2000Async(
+        return MountGoto.SlewToJ2000Async(
             mount, name, M31_RA_J2000, M31_DEC_J2000, index,
             profile: profile, timeProvider: timeProvider,
             minAboveHorizonDegrees: minAltitude,
