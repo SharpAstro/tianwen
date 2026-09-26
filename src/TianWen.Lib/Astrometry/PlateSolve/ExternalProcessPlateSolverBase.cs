@@ -25,23 +25,75 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
 
     public abstract float Priority { get; }
 
+    /// <summary>
+    /// How long the availability probe (<c>&lt;tool&gt; -h</c>) and a path translation may take before the
+    /// tool counts as absent. Generous for a cold WSL distro, which boots in a few seconds.
+    /// </summary>
+    /// <remarks>
+    /// <b>A probe with no bound blocked every plate solve in the process, the built-in solver included.</b>
+    /// <see cref="PlateSolverFactory"/> awaits every solver's probe before it solves anything, and against a
+    /// wedged WSL service <c>wsl solve-field -h</c> never exits: a <c>tianwen solve</c> hung for 30 minutes
+    /// on 2026-09-27, and every process that probed left its <c>wsl.exe</c> pair behind for good (2,444 of
+    /// them, about 24 GB). An orphan also inherits its parent's standard handles, so it held the output pipe
+    /// of whatever ran the CLI, and that caller waited for an end of output that never came.
+    /// </remarks>
+    protected virtual TimeSpan ProbeTimeout => TimeSpan.FromSeconds(15);
+
     public virtual async ValueTask<bool> CheckSupportAsync(CancellationToken cancellationToken = default)
     {
         try
         {
-            var proc = StartRedirectedProcess(CommandFile, "-h");
+            using var proc = StartRedirectedProcess(CommandFile, "-h");
             if (proc is null)
             {
                 return false;
             }
             proc.BeginOutputReadLine();
-            await proc.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+            proc.BeginErrorReadLine();
 
-            return proc.ExitCode == 0;
+            return await WaitForExitOrKillAsync(proc, ProbeTimeout, cancellationToken).ConfigureAwait(false)
+                && proc.ExitCode == 0;
         }
-        catch
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Waits for <paramref name="proc"/> to exit, and never lets it outlive the wait: on the timeout or on
+    /// cancellation the whole process TREE is killed. <c>wsl.exe</c> and <c>bash -l -c</c> each put the tool
+    /// one process further down, so killing only the direct child leaves the tool running.
+    /// </summary>
+    /// <returns><see langword="true"/> when the process exited on its own; <see langword="false"/> when it
+    /// ran past <paramref name="timeout"/> and was killed.</returns>
+    /// <exception cref="OperationCanceledException">The caller cancelled; the tree is killed first.</exception>
+    private protected static async Task<bool> WaitForExitOrKillAsync(Process proc, TimeSpan? timeout, CancellationToken cancellationToken)
+    {
+        using var timeoutCts = timeout is { } t ? new CancellationTokenSource(t, TimeProvider.System) : null;
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts?.Token ?? CancellationToken.None);
+        try
+        {
+            await proc.WaitForExitAsync(linked.Token).ConfigureAwait(false);
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            KillTree(proc);
+            cancellationToken.ThrowIfCancellationRequested();
+            return false;
+        }
+    }
+
+    private static void KillTree(Process proc)
+    {
+        try
+        {
+            proc.Kill(entireProcessTree: true);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
+        {
+            // Already exited, or not ours to kill: either way there is nothing left to stop.
         }
     }
 
@@ -99,7 +151,7 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
             DeleteSidecars(solveFilePath);
 
             var solveFieldArgs = FormatSolveProcessArgs(normalisedFilePath, FormatImageDimenstions(imageDim, range), FormatSearchPosition(searchOrigin, searchRadius));
-            var solveFieldProc = StartRedirectedProcess(CommandFile, solveFieldArgs);
+            using var solveFieldProc = StartRedirectedProcess(CommandFile, solveFieldArgs);
             if (solveFieldProc is null)
             {
                 return new PlateSolveResult(null, sw.Elapsed);
@@ -112,7 +164,9 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
             solveFieldProc.BeginOutputReadLine();
             solveFieldProc.BeginErrorReadLine();
 
-            await solveFieldProc.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+            // No timeout of our own: a blind solve can rightly take minutes, and the caller's token is the
+            // bound. But a cancelled solve must not leave the solver running with no one waiting for it.
+            await WaitForExitOrKillAsync(solveFieldProc, timeout: null, cancellationToken).ConfigureAwait(false);
 
             var wcsFile = Path.ChangeExtension(solveFilePath, ".wcs");
             var hasWCSFile = File.Exists(wcsFile);
@@ -272,7 +326,7 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
             return fitsFile;
         }
 
-        var pathTranslateProc = (
+        using var pathTranslateProc = (
             CommandPlatform == CygwinPlatformId
                 ? StartRedirectedProcess("cygpath", $"\"{fitsFile}\"", executionPlatform: PlatformID.Win32NT)
                 : StartRedirectedProcess("wslpath", $"\"{fitsFile}\"")
@@ -286,7 +340,11 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
         pathTranslateProc.BeginOutputReadLine();
         pathTranslateProc.BeginErrorReadLine();
 
-        await pathTranslateProc.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        // Goes through the same WSL as the probe, so it hangs the same way when the service is wedged.
+        if (!await WaitForExitOrKillAsync(pathTranslateProc, ProbeTimeout, cancellationToken).ConfigureAwait(false))
+        {
+            throw new PlateSolverException($"Translating {fitsFile} path timed out after {ProbeTimeout.TotalSeconds:0} s");
+        }
 
         if (pathTranslateProc.ExitCode == 0)
         {
