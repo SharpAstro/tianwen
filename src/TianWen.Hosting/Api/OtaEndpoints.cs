@@ -64,110 +64,32 @@ internal static class OtaEndpoints
                 HostingJsonContext.Default.ResponseEnvelopeOtaCameraStateDto);
         });
 
-        // Focuser move
-        group.MapPost("/{index:int}/focuser/move", async (int index, int position, IHostedSession hosted, IDeviceHub hub, CancellationToken ct) =>
-        {
-            if (hosted.CurrentSession is not { } session)
-            {
-                return EnvelopeResults.Json(
-                    ResponseEnvelope<string>.Fail("No active session", 404),
-                    HostingJsonContext.Default.ResponseEnvelopeString);
-            }
+        // The session-scoped routes from before the device plane, re-pointed at it (P2 part 4, #929): each resolves the
+        // OTA's device (the running session's, else the active profile's) and asks DeviceOperations, so it works with no
+        // session and follows the device plane's rules, the lease first. A move and a filter change answer their job.
+        group.MapPost("/{index:int}/focuser/move", async (int index, int position, DeviceOperations devices, CancellationToken ct) =>
+            await devices.RigOtaAsync(index, ct) is { Focuser: { } focuser }
+                ? EnvelopeResults.Json(await devices.MoveFocuserAsync(new FocuserMoveRequestDto { DeviceUri = focuser, Position = position }, ct),
+                    HostingJsonContext.Default.ResponseEnvelopeJobDto)
+                : NoDevice(index, "focuser"));
 
-            if (!TryGetOta(session, index, out var ota))
-            {
-                return EnvelopeResults.Json(
-                    ResponseEnvelope<string>.Fail($"OTA index {index} out of range"),
-                    HostingJsonContext.Default.ResponseEnvelopeString);
-            }
+        group.MapPost("/{index:int}/focuser/stop", async (int index, DeviceOperations devices, CancellationToken ct) =>
+            await devices.RigOtaAsync(index, ct) is { Focuser: { } focuser }
+                ? EnvelopeResults.Json(await devices.StopFocuserAsync(focuser, ct), HostingJsonContext.Default.ResponseEnvelopeString)
+                : NoDevice(index, "focuser"));
 
-            // Ownership first (ActuationGate), before the focuser's driver is touched.
-            if (ota.Focuser is { } focuserSlot && ActuationGate.Refusal(hub, focuserSlot.Device) is { } refused)
-            {
-                return EnvelopeResults.Json(
-                    ResponseEnvelope<string>.Fail(refused, 409),
-                    HostingJsonContext.Default.ResponseEnvelopeString);
-            }
-
-            if (ota.Focuser?.Driver is not { Connected: true } focuser)
-            {
-                return EnvelopeResults.Json(
-                    ResponseEnvelope<string>.Fail($"OTA {index} has no connected focuser"),
-                    HostingJsonContext.Default.ResponseEnvelopeString);
-            }
-
-            await focuser.BeginMoveAsync(position, ct);
-            return EnvelopeResults.Json(
-                ResponseEnvelope<string>.Ok($"Moving focuser to position {position}"),
-                HostingJsonContext.Default.ResponseEnvelopeString);
-        });
-
-        // Focuser halt
-        group.MapPost("/{index:int}/focuser/stop", async (int index, IHostedSession hosted, IDeviceHub hub, CancellationToken ct) =>
-        {
-            if (hosted.CurrentSession is not { } session)
-            {
-                return EnvelopeResults.Json(
-                    ResponseEnvelope<string>.Fail("No active session", 404),
-                    HostingJsonContext.Default.ResponseEnvelopeString);
-            }
-
-            // Ownership first (ActuationGate), before the focuser's driver is touched.
-            if (TryGetOta(session, index, out var owned) && owned.Focuser is { } focuserSlot
-                && ActuationGate.Refusal(hub, focuserSlot.Device) is { } refused)
-            {
-                return EnvelopeResults.Json(
-                    ResponseEnvelope<string>.Fail(refused, 409),
-                    HostingJsonContext.Default.ResponseEnvelopeString);
-            }
-
-            if (!TryGetOta(session, index, out var ota) || ota.Focuser?.Driver is not { Connected: true } focuser)
-            {
-                return EnvelopeResults.Json(
-                    ResponseEnvelope<string>.Fail($"OTA {index} has no connected focuser"),
-                    HostingJsonContext.Default.ResponseEnvelopeString);
-            }
-
-            await focuser.BeginHaltAsync(ct);
-            return EnvelopeResults.Json(
-                ResponseEnvelope<string>.Ok("Focuser halted"),
-                HostingJsonContext.Default.ResponseEnvelopeString);
-        });
-
-        // Filter wheel change
-        group.MapPost("/{index:int}/filterwheel/change", async (int index, int position, IHostedSession hosted, IDeviceHub hub, CancellationToken ct) =>
-        {
-            if (hosted.CurrentSession is not { } session)
-            {
-                return EnvelopeResults.Json(
-                    ResponseEnvelope<string>.Fail("No active session", 404),
-                    HostingJsonContext.Default.ResponseEnvelopeString);
-            }
-
-            // Ownership first (ActuationGate), before the filter wheel's driver is touched.
-            if (TryGetOta(session, index, out var owned) && owned.FilterWheel is { } wheelSlot
-                && ActuationGate.Refusal(hub, wheelSlot.Device) is { } refused)
-            {
-                return EnvelopeResults.Json(
-                    ResponseEnvelope<string>.Fail(refused, 409),
-                    HostingJsonContext.Default.ResponseEnvelopeString);
-            }
-
-            if (!TryGetOta(session, index, out var ota) || ota.FilterWheel?.Driver is not { Connected: true } fw)
-            {
-                return EnvelopeResults.Json(
-                    ResponseEnvelope<string>.Fail($"OTA {index} has no connected filter wheel"),
-                    HostingJsonContext.Default.ResponseEnvelopeString);
-            }
-
-            await fw.BeginMoveAsync(position, ct);
-            return EnvelopeResults.Json(
-                ResponseEnvelope<string>.Ok($"Changing filter to position {position}"),
-                HostingJsonContext.Default.ResponseEnvelopeString);
-        });
+        group.MapPost("/{index:int}/filterwheel/change", async (int index, int position, DeviceOperations devices, CancellationToken ct) =>
+            await devices.RigOtaAsync(index, ct) is { FilterWheel: { } wheel }
+                ? EnvelopeResults.Json(devices.ChangeFilter(new FilterChangeRequestDto { DeviceUri = wheel, Position = position }),
+                    HostingJsonContext.Default.ResponseEnvelopeJobDto)
+                : NoDevice(index, "filter wheel"));
 
         return group;
     }
+
+    private static IResult NoDevice(int index, string kind) => EnvelopeResults.Json(
+        ResponseEnvelope<string>.Fail($"No {kind} on OTA {index}: no session is running and the active profile names none there", 404),
+        HostingJsonContext.Default.ResponseEnvelopeString);
 
     private static bool TryGetOta(ISession session, int index, [MaybeNullWhen(false)] out OTA ota)
     {

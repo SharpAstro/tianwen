@@ -110,7 +110,7 @@ constraints GSS never had:
   user who believes they have a mechanical limit and actually has a sky-coordinate one will set the
   threshold too tight and get spurious stops, or too loose and get none.
 - **A limit that only runs during a session is half a safety net.** The GUI can slew, jog and track
-  with no session at all (`MountActions.SlewToJ2000Async`, the sky-map goto, manual axis moves).
+  with no session at all (`MountGoto.SlewToJ2000Async`, which the node's device plane runs too, the sky-map goto, manual axis moves).
 
 ## Phasing
 

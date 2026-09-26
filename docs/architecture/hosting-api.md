@@ -398,6 +398,39 @@ a device that is not a camera:
 `TianWenNodeClient` has `CoolCameraAsync`, `WarmCameraAsync`, `CameraCoolerOffAsync` and `SetCameraSettingsAsync`.
 Pinned by `CameraOperationTests` (a real node), `CameraFrameTests` and `DeviceHubCoolerIntentTests`.
 
+### Moving a focuser, a filter wheel or a mount
+
+P2 part 4 (#929). A move is a JOB that ends when the device has SETTLED (the focuser has stopped, the wheel reads
+the position, the mount has landed or reports itself parked), and cancelling it halts the device on its way out.
+
+- **Focuser**: `POST /api/v1/devices/focuser/move` (`FocuserMoveRequestDto`: a `Position`, or `Steps` from where it
+  is, one of the two, inside `0..MaxStep`) and `/focuser/stop`.
+- **Filter wheel**: `POST /api/v1/devices/filterwheel/change` (`FilterChangeRequestDto`, a position counted from 0).
+- **Mount**: `POST /api/v1/devices/mount/goto` (`MountGotoRequestDto`, J2000), `/park`, `/unpark`, `/tracking`
+  (immediate) and `/stop`.
+- **The goto is the GUI's own**, `MountGoto` in Lib (lifted out of the GUI's `MountActions`, which keeps solve and
+  sync and the nudge): unpark, the J2000 to mount transform at the ACTIVE PROFILE's site, the horizon limit, the
+  destination pier side, the tracking rate. With no active profile there is no site, and no goto (409). What only
+  the mount's geometry can answer (below the horizon, a pier side it cannot reach) FAILS the job with its reason,
+  where a lease, a busy device or a bad request is refused before any job.
+- **A second move while one runs is refused (409), not joined**: a move to another position is not the same move,
+  which `NodeJobs`' join-the-same-kind rule would otherwise make it.
+- **A stop ends the job it stops**, so it is the one command a running job does not refuse; a lease still does.
+
+**The session-scoped routes from before the device plane are re-pointed at it**: `/api/v1/mount/slew|park|unpark|
+tracking` and `/api/v1/ota/{index}/focuser/move|stop` and `/filterwheel/change` resolve the device they mean (the
+running session's, else the active profile's) and ask `DeviceOperations`, so they work with no session and follow
+the same rules, the lease FIRST. **What changed for a caller**: `/mount/slew`'s coordinates are J2000 through the
+goto (it passed them to the mount as they were), and a slew, a park, an unpark, a move and a filter change answer
+202 with their job rather than 200 with a string. The ninaAPI shim's equipment routes are unchanged.
+
+**Ownership is asked before whether the device is even connected**, on every device-plane route
+(`TryConnectedAndFree`): a device a run holds is refused with the run's name whatever state its driver is in, which
+is `ActuationGate`'s rule and what `NodeActuationGateTests` pins over the re-pointed routes. `TianWenNodeClient` has
+`MoveFocuserAsync`, `StopFocuserAsync`, `ChangeFilterAsync`, `GotoAsync`, `ParkMountAsync`, `UnparkMountAsync`,
+`SetMountTrackingAsync` and `StopMountAsync`. Pinned by `MotionOperationTests` (a real node) and
+`NodeActuationGateTests`.
+
 ## Previews go through the shared stretch, never a private one
 
 `PreviewEncoder` (`Api/`) is the one JPEG preview encoder, used by `GET

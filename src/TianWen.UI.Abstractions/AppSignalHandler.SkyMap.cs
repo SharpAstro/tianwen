@@ -212,7 +212,7 @@ namespace TianWen.UI.Abstractions
                 {
                     try
                     {
-                        var (post, msg) = await MountActions.SlewToJ2000Async(
+                        var (post, msg) = await MountGoto.SlewToJ2000Async(
                             capturedMount, capturedSig.Name, capturedSig.RA, capturedSig.Dec, capturedSig.Index,
                             profile: capturedProfile, timeProvider: _timeProvider,
                             minAboveHorizonDegrees: minAlt, logger: logger,
@@ -237,10 +237,10 @@ namespace TianWen.UI.Abstractions
                             // Kick the mount poll so the reticle picks up IsSlewing (and the
                             // fast slew cadence) this frame instead of up to a steady interval later.
                             RequestPreviewMountRefresh();
-                            var (completion, completionMsg) = await MountActions.AwaitSlewCompletionAsync(
+                            var (completion, completionMsg) = await MountGoto.AwaitSlewCompletionAsync(
                                 capturedMount, capturedSig.Name, _timeProvider,
                                 logger: logger, cancellationToken: cts.Token);
-                            var completionSeverity = completion == MountActions.SlewCompletion.Reached
+                            var completionSeverity = completion == MountGoto.SlewCompletion.Reached
                                 ? NotificationSeverity.Info
                                 : NotificationSeverity.Warning;
                             Notify(completionSeverity, completionMsg);

@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Hosting.Api;
@@ -26,7 +25,7 @@ internal sealed partial class DeviceOperations
     /// </summary>
     public ResponseEnvelope<JobDto> Cool(CoolRequestDto request)
     {
-        if (!TryCamera(request.DeviceUri, out var uri, out var camera, out var refused))
+        if (!TryDriver<ICameraDriver>(request.DeviceUri, "camera", out var uri, out var camera, out var refused))
         {
             return refused.Value.As<JobDto>();
         }
@@ -54,7 +53,7 @@ internal sealed partial class DeviceOperations
     /// <summary>Warms the camera through the hub's ramp and turns its cooler off, leaving it connected.</summary>
     public ResponseEnvelope<JobDto> Warm(string deviceUri)
     {
-        if (!TryCamera(deviceUri, out var uri, out _, out var refused))
+        if (!TryDriver<ICameraDriver>(deviceUri, "camera", out var uri, out _, out var refused))
         {
             return refused.Value.As<JobDto>();
         }
@@ -71,7 +70,7 @@ internal sealed partial class DeviceOperations
     /// <summary>Switches the cooler off at once, with no warm-up: what the Equipment tab's Force Off does to a cooler.</summary>
     public async Task<ResponseEnvelope<string>> CoolerOffAsync(string deviceUri, CancellationToken cancellationToken)
     {
-        if (!TryIdleCamera(deviceUri, out var uri, out var camera, out var refused))
+        if (!TryIdle<ICameraDriver>(deviceUri, "camera", out var uri, out var camera, out var refused))
         {
             return refused.Value.As<string>();
         }
@@ -92,7 +91,7 @@ internal sealed partial class DeviceOperations
     /// </summary>
     public async Task<ResponseEnvelope<CameraSettingsDto>> ApplySettingsAsync(CameraSettingsRequestDto request, CancellationToken cancellationToken)
     {
-        if (!TryIdleCamera(request.DeviceUri, out var uri, out var camera, out var refused))
+        if (!TryIdle<ICameraDriver>(request.DeviceUri, "camera", out var uri, out var camera, out var refused))
         {
             return refused.Value.As<CameraSettingsDto>();
         }
@@ -167,39 +166,5 @@ internal sealed partial class DeviceOperations
             return "A frame starts at or after the sensor's corner and is at least a pixel wide and high";
         }
         return null;
-    }
-
-    /// <summary>A connected camera no run holds: what every camera command asks first.</summary>
-    private bool TryCamera(string deviceUri, [NotNullWhen(true)] out Uri? uri, [NotNullWhen(true)] out ICameraDriver? camera, [NotNullWhen(false)] out Refusal? refused)
-    {
-        camera = null;
-        if (!TryConnectedAndFree(deviceUri, DeviceAction.Actuate, out uri, out refused))
-        {
-            return false;
-        }
-        if (!hub.TryGetConnectedDriver<ICameraDriver>(uri, out camera))
-        {
-            refused = new Refusal($"{NameOf(uri)} is not a camera", 400);
-            uri = null;
-            return false;
-        }
-        return true;
-    }
-
-    /// <summary>A camera no run holds and no job is working on: what an immediate command asks, since it would fight the job.</summary>
-    private bool TryIdleCamera(string deviceUri, [NotNullWhen(true)] out Uri? uri, [NotNullWhen(true)] out ICameraDriver? camera, [NotNullWhen(false)] out Refusal? refused)
-    {
-        if (!TryCamera(deviceUri, out uri, out camera, out refused))
-        {
-            return false;
-        }
-        if (jobs.TryGetRunningOn(uri, out var job))
-        {
-            refused = Busy(NameOf(uri), job);
-            uri = null;
-            camera = null;
-            return false;
-        }
-        return true;
     }
 }

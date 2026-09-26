@@ -28,134 +28,36 @@ internal static class MountEndpoints
                 HostingJsonContext.Default.ResponseEnvelopeMountStateDto);
         });
 
-        group.MapPost("/slew", async (double ra, double dec, IHostedSession hosted, IDeviceHub hub, CancellationToken ct) =>
-        {
-            if (hosted.CurrentSession is not { } session)
-            {
-                return EnvelopeResults.Json(
-                    ResponseEnvelope<string>.Fail("No active session", 404),
-                    HostingJsonContext.Default.ResponseEnvelopeString);
-            }
+        // The session-scoped routes from before the device plane, re-pointed at it (P2 part 4, #929): each resolves the
+        // mount it means (the running session's, else the active profile's) and asks DeviceOperations, so it works with no
+        // session and follows the device plane's rules, the lease first. The device plane's own routes take a device URI.
+        // /slew takes J2000 coordinates, through the one goto every host uses (MountGoto), and answers the job.
+        group.MapPost("/slew", async (double ra, double dec, DeviceOperations devices, CancellationToken ct) =>
+            await devices.RigMountAsync(ct) is { } mount
+                ? EnvelopeResults.Json(await devices.GotoAsync(new MountGotoRequestDto { DeviceUri = mount, RaJ2000 = ra, DecJ2000 = dec }, ct),
+                    HostingJsonContext.Default.ResponseEnvelopeJobDto)
+                : NoMount());
 
-            // Ownership first (ActuationGate): a run driving the mount is the answer, before anything the
-            // mount itself can or cannot do.
-            if (ActuationGate.Refusal(hub, session.Setup.Mount.Device) is { } refused)
-            {
-                return EnvelopeResults.Json(
-                    ResponseEnvelope<string>.Fail(refused, 409),
-                    HostingJsonContext.Default.ResponseEnvelopeString);
-            }
+        group.MapPost("/park", async (DeviceOperations devices, CancellationToken ct) =>
+            await devices.RigMountAsync(ct) is { } mount
+                ? EnvelopeResults.Json(devices.Park(mount), HostingJsonContext.Default.ResponseEnvelopeJobDto)
+                : NoMount());
 
-            var mount = session.Setup.Mount.Driver;
-            if (!mount.Connected)
-            {
-                return EnvelopeResults.Json(
-                    ResponseEnvelope<string>.Fail("Mount is not connected"),
-                    HostingJsonContext.Default.ResponseEnvelopeString);
-            }
+        group.MapPost("/unpark", async (DeviceOperations devices, CancellationToken ct) =>
+            await devices.RigMountAsync(ct) is { } mount
+                ? EnvelopeResults.Json(devices.Unpark(mount), HostingJsonContext.Default.ResponseEnvelopeJobDto)
+                : NoMount());
 
-            await mount.BeginSlewRaDecAsync(ra, dec, ct);
-            return EnvelopeResults.Json(
-                ResponseEnvelope<string>.Ok($"Slewing to RA={ra:F4}h Dec={dec:F4}°"),
-                HostingJsonContext.Default.ResponseEnvelopeString);
-        });
-
-        group.MapPost("/park", async (IHostedSession hosted, IDeviceHub hub, CancellationToken ct) =>
-        {
-            if (hosted.CurrentSession is not { } session)
-            {
-                return EnvelopeResults.Json(
-                    ResponseEnvelope<string>.Fail("No active session", 404),
-                    HostingJsonContext.Default.ResponseEnvelopeString);
-            }
-
-            // Ownership first (ActuationGate): a run driving the mount is the answer, before anything the
-            // mount itself can or cannot do.
-            if (ActuationGate.Refusal(hub, session.Setup.Mount.Device) is { } refused)
-            {
-                return EnvelopeResults.Json(
-                    ResponseEnvelope<string>.Fail(refused, 409),
-                    HostingJsonContext.Default.ResponseEnvelopeString);
-            }
-
-            var mount = session.Setup.Mount.Driver;
-            if (!mount.Connected || !mount.CanPark)
-            {
-                return EnvelopeResults.Json(
-                    ResponseEnvelope<string>.Fail("Mount is not connected or cannot park"),
-                    HostingJsonContext.Default.ResponseEnvelopeString);
-            }
-
-            await mount.ParkAsync(ct);
-            return EnvelopeResults.Json(
-                ResponseEnvelope<string>.Ok("Parking"),
-                HostingJsonContext.Default.ResponseEnvelopeString);
-        });
-
-        group.MapPost("/unpark", async (IHostedSession hosted, IDeviceHub hub, CancellationToken ct) =>
-        {
-            if (hosted.CurrentSession is not { } session)
-            {
-                return EnvelopeResults.Json(
-                    ResponseEnvelope<string>.Fail("No active session", 404),
-                    HostingJsonContext.Default.ResponseEnvelopeString);
-            }
-
-            // Ownership first (ActuationGate): a run driving the mount is the answer, before anything the
-            // mount itself can or cannot do.
-            if (ActuationGate.Refusal(hub, session.Setup.Mount.Device) is { } refused)
-            {
-                return EnvelopeResults.Json(
-                    ResponseEnvelope<string>.Fail(refused, 409),
-                    HostingJsonContext.Default.ResponseEnvelopeString);
-            }
-
-            var mount = session.Setup.Mount.Driver;
-            if (!mount.Connected || !mount.CanUnpark)
-            {
-                return EnvelopeResults.Json(
-                    ResponseEnvelope<string>.Fail("Mount is not connected or cannot unpark"),
-                    HostingJsonContext.Default.ResponseEnvelopeString);
-            }
-
-            await mount.UnparkAsync(ct);
-            return EnvelopeResults.Json(
-                ResponseEnvelope<string>.Ok("Unparked"),
-                HostingJsonContext.Default.ResponseEnvelopeString);
-        });
-
-        group.MapPost("/tracking", async (bool on, IHostedSession hosted, IDeviceHub hub, CancellationToken ct) =>
-        {
-            if (hosted.CurrentSession is not { } session)
-            {
-                return EnvelopeResults.Json(
-                    ResponseEnvelope<string>.Fail("No active session", 404),
-                    HostingJsonContext.Default.ResponseEnvelopeString);
-            }
-
-            // Ownership first (ActuationGate): a run driving the mount is the answer, before anything the
-            // mount itself can or cannot do.
-            if (ActuationGate.Refusal(hub, session.Setup.Mount.Device) is { } refused)
-            {
-                return EnvelopeResults.Json(
-                    ResponseEnvelope<string>.Fail(refused, 409),
-                    HostingJsonContext.Default.ResponseEnvelopeString);
-            }
-
-            var mount = session.Setup.Mount.Driver;
-            if (!mount.Connected || !mount.CanSetTracking)
-            {
-                return EnvelopeResults.Json(
-                    ResponseEnvelope<string>.Fail("Mount is not connected or cannot set tracking"),
-                    HostingJsonContext.Default.ResponseEnvelopeString);
-            }
-
-            await mount.SetTrackingAsync(on, ct);
-            return EnvelopeResults.Json(
-                ResponseEnvelope<string>.Ok(on ? "Tracking enabled" : "Tracking disabled"),
-                HostingJsonContext.Default.ResponseEnvelopeString);
-        });
+        group.MapPost("/tracking", async (bool on, DeviceOperations devices, CancellationToken ct) =>
+            await devices.RigMountAsync(ct) is { } mount
+                ? EnvelopeResults.Json(await devices.SetTrackingAsync(new MountTrackingRequestDto { DeviceUri = mount, On = on }, ct),
+                    HostingJsonContext.Default.ResponseEnvelopeString)
+                : NoMount());
 
         return group;
     }
+
+    private static IResult NoMount() => EnvelopeResults.Json(
+        ResponseEnvelope<string>.Fail("No mount: no session is running and the active profile names none", 404),
+        HostingJsonContext.Default.ResponseEnvelopeString);
 }

@@ -83,6 +83,32 @@ internal static class DeviceEndpoints
         group.MapPost("/devices/camera/settings", async (CameraSettingsRequestDto request, DeviceOperations devices, CancellationToken ct) =>
             EnvelopeResults.Json(await devices.ApplySettingsAsync(request, ct), HostingJsonContext.Default.ResponseEnvelopeCameraSettingsDto));
 
+        // Moving a focuser, a filter wheel or a mount (P2 part 4, #929): a move is a job that ends when the device has
+        // settled; a stop ends the job it stops; tracking is immediate.
+        group.MapPost("/devices/focuser/move", async (FocuserMoveRequestDto request, DeviceOperations devices, CancellationToken ct) =>
+            EnvelopeResults.Json(await devices.MoveFocuserAsync(request, ct), HostingJsonContext.Default.ResponseEnvelopeJobDto));
+
+        group.MapPost("/devices/focuser/stop", async (DeviceRequestDto request, DeviceOperations devices, CancellationToken ct) =>
+            EnvelopeResults.Json(await devices.StopFocuserAsync(request.DeviceUri, ct), HostingJsonContext.Default.ResponseEnvelopeString));
+
+        group.MapPost("/devices/filterwheel/change", (FilterChangeRequestDto request, DeviceOperations devices) =>
+            EnvelopeResults.Json(devices.ChangeFilter(request), HostingJsonContext.Default.ResponseEnvelopeJobDto));
+
+        group.MapPost("/devices/mount/goto", async (MountGotoRequestDto request, DeviceOperations devices, CancellationToken ct) =>
+            EnvelopeResults.Json(await devices.GotoAsync(request, ct), HostingJsonContext.Default.ResponseEnvelopeJobDto));
+
+        group.MapPost("/devices/mount/park", (DeviceRequestDto request, DeviceOperations devices) =>
+            EnvelopeResults.Json(devices.Park(request.DeviceUri), HostingJsonContext.Default.ResponseEnvelopeJobDto));
+
+        group.MapPost("/devices/mount/unpark", (DeviceRequestDto request, DeviceOperations devices) =>
+            EnvelopeResults.Json(devices.Unpark(request.DeviceUri), HostingJsonContext.Default.ResponseEnvelopeJobDto));
+
+        group.MapPost("/devices/mount/tracking", async (MountTrackingRequestDto request, DeviceOperations devices, CancellationToken ct) =>
+            EnvelopeResults.Json(await devices.SetTrackingAsync(request, ct), HostingJsonContext.Default.ResponseEnvelopeString));
+
+        group.MapPost("/devices/mount/stop", async (DeviceRequestDto request, DeviceOperations devices, CancellationToken ct) =>
+            EnvelopeResults.Json(await devices.StopMountAsync(request.DeviceUri, ct), HostingJsonContext.Default.ResponseEnvelopeString));
+
         // Starts a discovery, or joins the one running, and answers 202 with its job at once. It used to run
         // inline on the REQUEST's token: a client's 10 s control budget cut a serial sweep off mid-probe, and a
         // dropped request cancelled a probe half-way (P0b item 17 of docs/plans/hardware-in-the-server.md).
