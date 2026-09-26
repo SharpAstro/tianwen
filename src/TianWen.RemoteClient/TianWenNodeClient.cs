@@ -612,6 +612,26 @@ namespace TianWen.RemoteClient
                 _timeouts.Control, cancellationToken);
 
         /// <summary>
+        /// <c>PUT /devices/setting</c>: commits one of a device's settings as the Equipment tab does. A masked one (an API
+        /// key) goes into the node's credential store and never comes back; any other goes onto the device's URI, written
+        /// into <paramref name="profileId"/>'s slot for it when one is named. Only over the node's socket.
+        /// </summary>
+        public Task<NodeResult<DeviceSettingDto>> SetDeviceSettingAsync(Uri deviceUri, string key, string value, Guid? profileId,
+            CancellationToken cancellationToken) =>
+            SendJsonAsync(
+                HttpMethod.Put,
+                "api/v1/devices/setting",
+                new DeviceSettingRequestDto { DeviceUri = deviceUri.ToString(), Key = key, Value = value, ProfileId = profileId },
+                HostingJsonContext.Default.DeviceSettingRequestDto,
+                HostingJsonContext.Default.ResponseEnvelopeDeviceSettingDto,
+                _timeouts.Control, cancellationToken);
+
+        /// <summary><c>GET /devices/setting/secret</c>: whether a device's masked setting has a value on the node. Never the value.</summary>
+        public Task<NodeResult<DeviceSecretDto>> GetDeviceSecretAsync(Uri deviceUri, string key, CancellationToken cancellationToken) =>
+            GetAsync($"api/v1/devices/setting/secret?deviceUri={Uri.EscapeDataString(deviceUri.ToString())}&key={Uri.EscapeDataString(key)}",
+                HostingJsonContext.Default.ResponseEnvelopeDeviceSecretDto, _timeouts.Control, cancellationToken);
+
+        /// <summary>
         /// <c>GET /session/profile</c> -- which profile the node is set up to run, as opposed to
         /// <see cref="GetProfilesAsync"/>, which lists what it HAS. A <b>404</b> is a normal answer here
         /// (no active profile, or one that has since been deleted) and means "unknown", not "unreachable".

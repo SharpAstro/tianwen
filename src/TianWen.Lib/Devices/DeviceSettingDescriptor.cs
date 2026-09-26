@@ -1,5 +1,7 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Linq;
 using System.Web;
 
 namespace TianWen.Lib.Devices;
@@ -45,8 +47,46 @@ public readonly record struct DeviceSettingDescriptor(
     bool Mask = false,
     bool IsAdvanced = false);
 
+/// <summary>Whether a committed device setting was stored as a secret or must be applied to the URI.</summary>
+public enum DeviceSettingCommitKind
+{
+    /// <summary>A masked setting (e.g. an API key) was written to the credential store; the URI is unchanged.</summary>
+    StoredSecret,
+    /// <summary>A non-secret setting; <see cref="DeviceSettingCommitResult.NewUri"/> carries the updated device URI.</summary>
+    UriParam
+}
+
+/// <summary>Outcome of <see cref="DeviceSettingHelper.Commit"/>.</summary>
+public readonly record struct DeviceSettingCommitResult(DeviceSettingCommitKind Kind, Uri? NewUri, bool IsWeatherSecret);
+
 public static class DeviceSettingHelper
 {
+    /// <summary>
+    /// Commits a device string setting, the one rule for the GUI and the node (P3 part 4 of
+    /// docs/plans/hardware-in-the-server.md, #930). A masked setting (a secret, e.g. an API key) is persisted to the
+    /// credential store keyed by device, NEVER onto the device URI or the profile JSON, which would leak it into
+    /// plaintext config AND lose it when the URI is replaced on a provider switch; the key derives from the device id, so
+    /// it stays stable across URI changes and is shared across profiles. Any other setting is returned as a new URI
+    /// carrying the value as a query parameter, for the profile's writer to place.
+    /// </summary>
+    /// <param name="device">The device the URI names, or null when it names none this host can build, which has no
+    /// masked settings.</param>
+    public static DeviceSettingCommitResult Commit(DeviceBase? device, Uri editUri, string key, string value, ICredentialStore credentialStore)
+    {
+        if (IsSecret(device, key))
+        {
+            credentialStore.Set(ICredentialStore.KeyFor(device.DeviceId, key), value);
+            var isWeather = DeviceTypeHelper.TryParseDeviceType(editUri.Scheme) is DeviceType.Weather;
+            return new DeviceSettingCommitResult(DeviceSettingCommitKind.StoredSecret, null, isWeather);
+        }
+
+        return new DeviceSettingCommitResult(DeviceSettingCommitKind.UriParam, WithQueryParam(editUri, key, value), false);
+    }
+
+    /// <summary>Whether <paramref name="key"/> is one of <paramref name="device"/>'s masked settings, kept in the credential store.</summary>
+    public static bool IsSecret([NotNullWhen(true)] DeviceBase? device, string key)
+        => device is not null && device.Settings.Any(s => s.Key == key && s.Mask);
+
     /// <summary>
     /// Returns a new URI with the specified query parameter set to the given value.
     /// </summary>

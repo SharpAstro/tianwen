@@ -11,8 +11,9 @@ public static class ExternalServiceCollectionExtensions
         .AddSingleton<IUtf8TextBasedConnectionFactory, JsonRPCOverTcpConnectionFactory>()
         .AddTimeProvider()
         .AddSingleton<IExternal, External>()
-        // OS credential vault on Windows; owner-restricted file elsewhere. Both behind ICredentialStore.
-        .AddSingleton<ICredentialStore>(sp => OperatingSystem.IsWindows()
+        // OS credential vault on Windows; owner-restricted file elsewhere, and under a data root kept apart from the
+        // user's (TIANWEN_DATA_ROOT, a test's node), whose secrets must not reach the user's vault. Behind ICredentialStore.
+        .AddSingleton<ICredentialStore>(sp => OperatingSystem.IsWindows() && !TianWenDataRoot.IsOverridden
             ? new WindowsCredentialStore()
             : new FileCredentialStore(sp.GetRequiredService<IExternal>()));
 

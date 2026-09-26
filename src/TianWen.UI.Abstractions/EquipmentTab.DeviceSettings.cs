@@ -228,7 +228,7 @@ namespace TianWen.UI.Abstractions
                             {
                                 if (appState.ActiveProfile is { Data: { } data } && State.EditingDeviceUri is { } newUri)
                                 {
-                                    var newData = EquipmentActions.UpdateDeviceUri(data, savedDeviceUri, newUri);
+                                    var newData = data.ReplaceDeviceUri(savedDeviceUri, newUri);
                                     PostSignal(new UpdateProfileSignal(newData));
                                     State.BeginEditingDeviceSettings(newUri);
                                 }

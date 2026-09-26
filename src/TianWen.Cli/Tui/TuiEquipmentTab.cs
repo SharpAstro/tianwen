@@ -712,7 +712,7 @@ internal sealed class TuiEquipmentTab(
             return;
         }
 
-        var updatedData = EquipmentActions.UpdateDeviceUri(data, originalUri, newUri);
+        var updatedData = data.ReplaceDeviceUri(originalUri, newUri);
         bus?.Post(new UpdateProfileSignal(updatedData));
     }
 

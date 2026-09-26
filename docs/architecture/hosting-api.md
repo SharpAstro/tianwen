@@ -528,6 +528,26 @@ so the next run starts from them. `HostedSession.RunEnded` raises it once the ru
 It is registered before the host of the runs, so a run that a stop ended still gets its write before the node exits.
 Pinned by `NodeRunProfileWritesTests`.
 
+### A device's setting, and the credential store
+
+P3 part 4 (#930). `PUT /api/v1/devices/setting` (`DeviceSettingRequestDto`: the device's URI, the setting's key and
+value, and optionally the profile whose slot takes it) commits a setting as the Equipment tab's text field does, by the
+one rule both apply (`DeviceSettingHelper.Commit`, lifted from `EquipmentActions`):
+
+- **A masked setting (an API key) goes into the node's credential store**, keyed by device and shared across profiles,
+  never onto the URI or into the profile. **It never comes back**: the answer says only that it was a secret, and
+  `GET /api/v1/devices/setting/secret` answers whether one is set.
+- **Any other setting goes onto the device's URI** as a query parameter; with a profile named, the URI is replaced in
+  that profile's slot for the device through the one profile writer (`ProfileDataExtensions.ReplaceDeviceUri`, also
+  lifted), and the answer carries the new revision.
+- **Only over the socket**: a secret must not cross the LAN, and a LAN client changes no profile (decision 4).
+
+The device is resolved through the node's own device sources, so a device the node was not composed with (tianwen-server
+composes the weather sources) has no masked settings there. **A node on a data root kept apart from the user's
+(`TIANWEN_DATA_ROOT`) keeps its secrets in a file under it**, on Windows too, and one composed without `AddExternal`
+falls back to the same: a test's node never writes the user's credential vault. `TianWenNodeClient.SetDeviceSettingAsync`
+and `GetDeviceSecretAsync`. Pinned by `NodeDeviceSettingTests`.
+
 ## Previews go through the shared stretch, never a private one
 
 `PreviewEncoder` (`Api/`) is the one JPEG preview encoder, used by `GET

@@ -118,6 +118,20 @@ internal static class DeviceEndpoints
         // inline on the REQUEST's token: a client's 10 s control budget cut a serial sweep off mid-probe, and a
         // dropped request cancelled a probe half-way (P0b item 17 of docs/plans/hardware-in-the-server.md).
         // What it found is read from /devices/structured once the job has ended.
+        // A device setting, the Equipment tab's text field (P3 part 4, #930): a masked one (an API key) into the credential
+        // store, any other onto the device's URI in the named profile. Only over the socket, since a secret must not cross
+        // the LAN, and a LAN client changes no profile (decision 4). The secret never comes back; a client asks whether one
+        // is set.
+        group.MapPut("/devices/setting", async (DeviceSettingRequestDto request, HttpContext context, DeviceOperations devices, CancellationToken ct) =>
+            EnvelopeResults.Json(
+                NodeEndpoints.CameOverTheSocket(context)
+                    ? await devices.CommitSettingAsync(request, ct)
+                    : ResponseEnvelope<DeviceSettingDto>.Fail("Only a client on this machine's node socket may change a device's setting", 403),
+                HostingJsonContext.Default.ResponseEnvelopeDeviceSettingDto));
+
+        group.MapGet("/devices/setting/secret", (string deviceUri, string key, DeviceOperations devices) =>
+            EnvelopeResults.Json(devices.SecretIsSet(deviceUri, key), HostingJsonContext.Default.ResponseEnvelopeDeviceSecretDto));
+
         // Every stored profile is reconciled with what it found at the end (P3 part 2, #930), as the GUI's discovery does.
         group.MapPost("/devices/discover", (IDeviceDiscovery deviceDiscovery, NodeProfiles profiles, NodeJobs jobs) =>
             EnvelopeResults.Json(

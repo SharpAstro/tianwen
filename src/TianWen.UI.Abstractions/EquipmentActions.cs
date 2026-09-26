@@ -231,19 +231,6 @@ public static class EquipmentActions
         return false;
     }
 
-    /// <summary>Whether a committed device setting was stored as a secret or must be applied to the URI.</summary>
-    public enum DeviceSettingCommitKind
-    {
-        /// <summary>A masked setting (e.g. an API key) was written to the credential store; the URI is unchanged.</summary>
-        StoredSecret,
-        /// <summary>A non-secret setting; <see cref="DeviceSettingCommitResult.NewUri"/> carries the updated device URI.</summary>
-        UriParam
-    }
-
-    /// <summary>Outcome of <see cref="CommitDeviceSetting"/>.</summary>
-    public readonly record struct DeviceSettingCommitResult(
-        DeviceSettingCommitKind Kind, Uri? NewUri, bool IsWeatherSecret);
-
     /// <summary>
     /// Commits a device string setting. A masked setting (a secret, e.g. an API key) is
     /// persisted to the OS credential store keyed by device -- NEVER onto the device URI /
@@ -255,18 +242,7 @@ public static class EquipmentActions
     /// </summary>
     public static DeviceSettingCommitResult CommitDeviceSetting(
         Uri editUri, string key, string value, ICredentialStore credentialStore)
-    {
-        var device = TryDeviceFromUri(editUri);
-        if (device is not null && device.Settings.Any(s => s.Key == key && s.Mask))
-        {
-            credentialStore.Set(ICredentialStore.KeyFor(device.DeviceId, key), value);
-            var isWeather = DeviceTypeHelper.TryParseDeviceType(editUri.Scheme) is DeviceType.Weather;
-            return new DeviceSettingCommitResult(DeviceSettingCommitKind.StoredSecret, null, isWeather);
-        }
-
-        var newUri = DeviceSettingHelper.WithQueryParam(editUri, key, value);
-        return new DeviceSettingCommitResult(DeviceSettingCommitKind.UriParam, newUri, false);
-    }
+        => DeviceSettingHelper.Commit(TryDeviceFromUri(editUri), editUri, key, value, credentialStore);
 
     public static ProfileData SetSiteTieBreaker(ProfileData data, SiteTieBreaker tieBreaker)
         => data with { SiteTieBreaker = tieBreaker };
@@ -751,64 +727,6 @@ public static class EquipmentActions
         }
 
         return data with { OTAs = data.OTAs.SetItem(otaIndex, ota) };
-    }
-
-    /// <summary>
-    /// Returns new <see cref="ProfileData"/> with <paramref name="oldUri"/> replaced by <paramref name="newUri"/>
-    /// in whichever slot it occupies (mount, guider, guider camera/focuser, or OTA sub-slots).
-    /// </summary>
-    public static ProfileData UpdateDeviceUri(ProfileData data, Uri oldUri, Uri newUri)
-    {
-        if (DeviceBase.SameDevice(data.Mount, oldUri))
-        {
-            // Preserve mount's existing non-device query params (site coords, etc.) by
-            // merging newUri's query on top.
-            var baseQuery = HttpUtility.ParseQueryString(data.Mount.Query);
-            var newQuery = HttpUtility.ParseQueryString(newUri.Query);
-            foreach (string? key in newQuery)
-            {
-                if (key is not null)
-                {
-                    baseQuery[key] = newQuery[key];
-                }
-            }
-            var builder = new UriBuilder(newUri) { Query = baseQuery.ToString() };
-            data = data with { Mount = builder.Uri };
-        }
-        if (DeviceBase.SameDevice(data.Guider, oldUri))
-        {
-            data = data with { Guider = newUri };
-        }
-        if (DeviceBase.SameDevice(data.GuiderCamera, oldUri))
-        {
-            data = data with { GuiderCamera = newUri };
-        }
-        if (DeviceBase.SameDevice(data.GuiderFocuser, oldUri))
-        {
-            data = data with { GuiderFocuser = newUri };
-        }
-        if (DeviceBase.SameDevice(data.Weather, oldUri))
-        {
-            data = data with { Weather = newUri };
-        }
-
-        for (var i = 0; i < data.OTAs.Length; i++)
-        {
-            var ota = data.OTAs[i];
-            var changed = false;
-
-            if (DeviceBase.SameDevice(ota.Camera, oldUri)) { ota = ota with { Camera = newUri }; changed = true; }
-            if (DeviceBase.SameDevice(ota.Focuser, oldUri)) { ota = ota with { Focuser = newUri }; changed = true; }
-            if (DeviceBase.SameDevice(ota.FilterWheel, oldUri)) { ota = ota with { FilterWheel = newUri }; changed = true; }
-            if (DeviceBase.SameDevice(ota.Cover, oldUri)) { ota = ota with { Cover = newUri }; changed = true; }
-
-            if (changed)
-            {
-                data = data with { OTAs = data.OTAs.SetItem(i, ota) };
-            }
-        }
-
-        return data;
     }
 
     /// <summary>
