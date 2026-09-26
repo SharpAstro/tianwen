@@ -1,5 +1,8 @@
 using System;
 using System.Globalization;
+using System.IO;
+using System.IO.Compression;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -24,6 +27,10 @@ namespace TianWen.Hosting.Api;
 /// order: a new run numbers from the start.</para>
 /// <para><b>The frame is LEASED for the write</b> and released once it is on the wire: the slot keeps it for whoever asks
 /// next, and a refused lease means it was replaced mid-read, so the next ask finds its successor.</para>
+/// <para><b>Compressed over TCP only, and only when the client asks</b> (P4 part 3; <c>Accept-Encoding</c>: Brotli at its
+/// fastest, else gzip at its fastest). A sky frame's noise floor does not compress much (about 2x at best, measured in the
+/// plan), so the local socket, where a copy moves a whole frame in about 40 ms, never compresses: a codec would cost more
+/// than the bytes it saves. On WiFi or 100 Mbit it roughly halves a frame's transfer.</para>
 /// </remarks>
 internal static class FrameEndpoints
 {
@@ -101,12 +108,35 @@ internal static class FrameEndpoints
 
                 response.StatusCode = StatusCodes.Status200OK;
                 response.ContentType = FrameWire.ContentType;
-                await FrameWire.WriteAsync(held.Image, response.Body, httpContext.RequestAborted);
+                response.Headers.Vary = "Accept-Encoding";
+                var encoding = NodeEndpoints.CameOverTheSocket(httpContext) ? null : Encoding(httpContext.Request);
+                if (encoding is null)
+                {
+                    await FrameWire.WriteAsync(held.Image, response.Body, httpContext.RequestAborted);
+                    return;
+                }
+
+                response.Headers.ContentEncoding = encoding;
+                await using Stream compressing = encoding == "br"
+                    ? new BrotliStream(response.Body, CompressionLevel.Fastest, leaveOpen: true)
+                    : new GZipStream(response.Body, CompressionLevel.Fastest, leaveOpen: true);
+                await FrameWire.WriteAsync(held.Image, compressing, httpContext.RequestAborted);
             }
             finally
             {
                 lease?.Dispose();
             }
+        }
+
+        /// <summary>
+        /// The encoding a TCP client asked for, preferring Brotli; null when it asked for neither, or refused both with
+        /// <c>q=0</c>.
+        /// </summary>
+        private static string? Encoding(HttpRequest request)
+        {
+            var accepted = request.GetTypedHeaders().AcceptEncoding;
+            bool Accepts(string coding) => accepted.Any(a => a.Value.Equals(coding, StringComparison.OrdinalIgnoreCase) && a.Quality is not 0);
+            return Accepts("br") ? "br" : Accepts("gzip") ? "gzip" : null;
         }
     }
 }

@@ -644,6 +644,14 @@ against 42 in Debug, 29 ms of a 37.5 ms write in Release); it is vectorised thro
 float conversion is emulated below AVX-512 and measured slower than the scalar loop. `NodeFrameTests` pins the route,
 the 204, the guider, the push and the measurement.
 
+**Compressed over TCP only, and only when asked** (P4 part 3). A frame served to a TCP client whose `Accept-Encoding`
+names Brotli goes Brotli at its fastest setting, else gzip at its fastest when it names only that; `q=0` refuses a coding.
+The client's own transport asks over TCP (`NodeTransport.OverTcp`'s handler decompresses Brotli and gzip) and never over
+the socket, and the node never compresses a frame on the socket whatever is asked: a sky frame compresses about 2x at
+best (the plan's measurements), and on the socket a copy is cheaper than any codec, while on WiFi or 100 Mbit
+compression roughly halves a frame's transfer. The saved-frame fetch (P4r, deferred) will travel as the FITS file's own
+bytes instead. Pinned by `NodeFrameCompressionTests`.
+
 ## The ASCOM Alpaca device plane
 
 `/api/v1/{deviceType}/{n}/{member}` + `/management/...`, wired by `MapAlpacaApi`, so a remote TianWen
