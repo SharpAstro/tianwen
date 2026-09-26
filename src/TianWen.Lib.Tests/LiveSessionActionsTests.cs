@@ -308,10 +308,10 @@ public class LiveSessionActionsTests(ITestOutputHelper output)
     {
         var fwUri = new Uri("FilterWheel://FakeDevice/FakeFilterWheel1#Fake FW 1");
         var fw = Substitute.For<IFilterWheelDriver>();
-        // Stub the default-interface-method directly; NSubstitute intercepts it regardless
-        // of the Connected/Filters/GetPositionAsync inputs the default body would read.
-        fw.GetCurrentFilterAsync(Arg.Any<CancellationToken>())
-            .Returns(ValueTask.FromResult(new InstalledFilter(Filter.Red, Position: 1)));
+        // The wheel at slot 1, holding Red. Its focus offset (InstalledFilter.Position) is not its slot, so a sampler
+        // that took one for the other would name the wrong filter or none.
+        fw.GetPositionAsync(Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(1));
+        fw.Filters.Returns([new InstalledFilter(Filter.Luminance, Position: 0), new InstalledFilter(Filter.Red, Position: 20)]);
 
         var hub = Substitute.For<IDeviceHub>();
         hub.TryGetConnectedDriver<IFilterWheelDriver>(fwUri, out Arg.Any<IFilterWheelDriver?>())
