@@ -12,7 +12,7 @@ public static class FrameSources
     /// <summary>The guide camera's frames, at guiding cadence.</summary>
     public const string Guider = "guider";
 
-    /// <summary>OTA <paramref name="index"/>'s last captured frame: a sub, a focus rung, a flat.</summary>
+    /// <summary>The frame OTA <paramref name="index"/> shows: a session's sub, focus rung or flat, or a preview the node took.</summary>
     public static string Ota(int index) => $"ota/{index}";
 }
 
@@ -26,7 +26,7 @@ public sealed record FrameAvailableDto
     /// <summary>Where the frame is served from (<see cref="FrameSources"/>).</summary>
     public required string Source { get; init; }
 
-    /// <summary>The frame's number, its change token: compare for difference, not order (a new run numbers from the start).</summary>
+    /// <summary>The frame's number, the node's change token for its source: compare for difference, not order.</summary>
     public required int Number { get; init; }
 
     /// <summary>The key a <c>FRAME-AVAILABLE</c> event carries the frame under.</summary>

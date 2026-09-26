@@ -42,26 +42,28 @@ internal static class NinaImageEndpoints
 
         // GET /v2/api/prepared-image: last captured image as JPEG
         // Params: quality (int, 1-100), resize (bool), scale (double)
-        group.MapGet("/prepared-image", async (IHostedSession hosted, int? quality, double? scale, CancellationToken ct) =>
+        group.MapGet("/prepared-image", async (NodeFrames frames, int? quality, double? scale, CancellationToken ct) =>
         {
-            if (hosted.CurrentSession is not { } session)
+            // The first OTA with a frame, rendered by the native-v1 preview's own path (FramePreview): the frame is
+            // someone else's, so it is leased for the encode, and it goes through the shared stretch. This endpoint used
+            // to read the slot bare, and before that divided each sample by MaxValue and called it an auto-stretch,
+            // rendering a linear sub near-black.
+            NodeFrames.Shown? first = null;
+            for (var i = 0; i < frames.OtaCount && first is null; i++)
+            {
+                if (frames.Ota(i) is { Frame: not null } shown)
+                {
+                    first = shown;
+                }
+            }
+            if (first is not { } found)
             {
                 return Results.NotFound();
             }
 
-            // The first OTA with a frame, rendered by the native-v1 preview's own path (see
-            // CapturedImagePreview): the frame is the session's, so it is leased for the encode, and it goes
-            // through the shared stretch. This endpoint used to read the slot bare, and before that divided
-            // each sample by MaxValue and called it an auto-stretch, rendering a linear sub near-black.
-            var otaIndex = Array.FindIndex(session.LastCapturedImages, img => img is not null);
-            if (otaIndex < 0)
-            {
-                return Results.NotFound();
-            }
-
-            var render = await CapturedImagePreview.RenderAsync(
-                session,
-                otaIndex,
+            var render = await FramePreview.RenderAsync(
+                found,
+                "The camera",
                 quality ?? PreviewEncoder.DefaultQuality,
                 scale ?? 1.0,
                 ifNoneMatch: null,

@@ -21,10 +21,9 @@ namespace TianWen.Hosting.Api;
 /// <remarks>
 /// <para><b>The number comes first, and it answers before the frame is touched.</b> A request names the number of the
 /// frame it holds (<c>after</c>); when the source still shows that one the answer is a 204 with the number, and nothing is
-/// leased. The number is the source's own change token (a slot's <see cref="ISessionTelemetry.LastCapturedImageNumber"/>,
-/// the guider's <see cref="ISessionTelemetry.LastGuideFrameNumber"/>), read BEFORE the frame, so it can name a frame older
-/// than the pixels served (one wasted refetch) but never a newer one (a skipped frame). Compare for difference, not
-/// order: a new run numbers from the start.</para>
+/// leased. The number is the node's token for the source (<see cref="NodeFrames"/>), which names exactly the frame it came
+/// with, whoever produced it: a session's sub, or a preview the node took outside one (P5 part 2). Compare for
+/// difference, not order.</para>
 /// <para><b>The frame is LEASED for the write</b> and released once it is on the wire: the slot keeps it for whoever asks
 /// next, and a refused lease means it was replaced mid-read, so the next ask finds its successor.</para>
 /// <para><b>Compressed over TCP only, and only when the client asks</b> (P4 part 3; <c>Accept-Encoding</c>: Brotli at its
@@ -38,38 +37,23 @@ internal static class FrameEndpoints
     {
         var group = routes.MapGroup("/api/v1/frames");
 
-        group.MapGet("/ota/{index:int}/latest", (int index, int? after, IHostedSession hosted) =>
-        {
-            if (hosted.CurrentSession is not { } session)
-            {
-                return NoSession();
-            }
-
-            var number = session.LastCapturedImageNumber(index);
-            var images = session.LastCapturedImages;
-            if ((uint)index >= (uint)images.Length)
-            {
-                return Missing($"OTA index {index} out of range (0..{images.Length - 1})", 400);
-            }
-            return Serve(number, after, images[index], $"OTA {index}");
-        });
+        group.MapGet("/ota/{index:int}/latest", (int index, int? after, NodeFrames frames) =>
+            Serve(frames.Ota(index), after, $"OTA {index}"));
 
         // One guider serves the whole rig, at guiding cadence, so it is its own source rather than an OTA index.
-        group.MapGet("/guider/latest", (int? after, IHostedSession hosted) =>
-            hosted.CurrentSession is { } session
-                ? Serve(session.LastGuideFrameNumber, after, session.LastGuideFrame, "The guider")
-                : NoSession());
+        group.MapGet("/guider/latest", (int? after, NodeFrames frames) =>
+            Serve(frames.Guider(), after, "The guider"));
 
         return group;
     }
 
-    private static IResult Serve(int number, int? after, Image? published, string what)
+    private static IResult Serve(NodeFrames.Shown shown, int? after, string what)
     {
-        if (after == number && number != 0)
+        if (after == shown.Number && shown.Number != 0)
         {
-            return new FrameResult(number, null);
+            return new FrameResult(shown.Number, null);
         }
-        if (published is null)
+        if (shown.Frame is not { } published)
         {
             return Missing($"{what} has no frame to show yet", 404);
         }
@@ -77,10 +61,8 @@ internal static class FrameEndpoints
         {
             return Missing($"{what}'s frame was replaced while it was read; ask again", 404);
         }
-        return new FrameResult(number, lease);
+        return new FrameResult(shown.Number, lease);
     }
-
-    private static IResult NoSession() => Missing("No session: a frame is a run's", 404);
 
     private static IResult Missing(string error, int status) => EnvelopeResults.Json(
         ResponseEnvelope<string>.Fail(error, status),

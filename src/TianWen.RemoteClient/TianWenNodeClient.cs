@@ -392,6 +392,20 @@ namespace TianWen.RemoteClient
         public Task<NodeResult<DarkLibraryStateDto>> StopDarkLibraryAsync(CancellationToken cancellationToken) =>
             SendAsync(HttpMethod.Delete, "api/v1/darks", null, HostingJsonContext.Default.ResponseEnvelopeDarkLibraryStateDto, _timeouts.Control, cancellationToken);
 
+        /// <summary>
+        /// <c>POST /preview/ota/{index}/exposure</c> -- a preview exposure with OTA <paramref name="otaIndex"/>'s camera outside a
+        /// session, as a job (P5 part 2 of docs/plans/hardware-in-the-server.md). Its frame is then the OTA's, served by
+        /// <see cref="GetLatestFrameAsync"/>.
+        /// </summary>
+        public Task<NodeResult<JobDto>> StartPreviewExposureAsync(int otaIndex, PreviewExposureRequestDto request, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, $"api/v1/preview/ota/{otaIndex.ToString(CultureInfo.InvariantCulture)}/exposure", request,
+                HostingJsonContext.Default.PreviewExposureRequestDto, HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
+
+        /// <summary><c>POST /preview/ota/{index}/snapshot</c> -- saves the frame OTA <paramref name="otaIndex"/> shows on the node; answers its path there.</summary>
+        public Task<NodeResult<string>> SaveSnapshotAsync(int otaIndex, CancellationToken cancellationToken) =>
+            PostAsync($"api/v1/preview/ota/{otaIndex.ToString(CultureInfo.InvariantCulture)}/snapshot", content: null,
+                HostingJsonContext.Default.ResponseEnvelopeString, _timeouts.Control, cancellationToken);
+
         /// <summary><c>POST /devices/camera/warm</c> -- warms the camera and turns its cooler off, as a job, leaving it connected.</summary>
         public Task<NodeResult<JobDto>> WarmCameraAsync(Uri deviceUri, CancellationToken cancellationToken) =>
             SendJsonAsync(HttpMethod.Post, "api/v1/devices/camera/warm", new DeviceRequestDto { DeviceUri = deviceUri.ToString() },

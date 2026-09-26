@@ -51,7 +51,7 @@ internal sealed class NodeJobs(IHostApplicationLifetime lifetime, ITimeProvider 
     public JobDto StartOrJoin(string kind, Func<JobStep, CancellationToken, Task<string?>> work)
     {
         // The slot is the kind itself, so whatever holds it is of this kind, and this only ever starts or joins.
-        TryStartOrJoin(kind, slot: kind, deviceUri: null, work, out var job);
+        TryStartOrJoin(kind, slot: kind, deviceUri: null, work, joins: true, out var job);
         return job;
     }
 
@@ -63,9 +63,19 @@ internal sealed class NodeJobs(IHostApplicationLifetime lifetime, ITimeProvider 
     /// <returns>False when a job of another kind holds the device; <paramref name="job"/> is then that job, which a
     /// refusal names.</returns>
     public bool TryStartOrJoin(string kind, Uri deviceUri, Func<JobStep, CancellationToken, Task<string?>> work, out JobDto job)
-        => TryStartOrJoin(kind, deviceUri.DeviceKey, deviceUri.ToString(), work, out job);
+        => TryStartOrJoin(kind, deviceUri.DeviceKey, deviceUri.ToString(), work, joins: true, out job);
 
-    private bool TryStartOrJoin(string kind, string slot, string? deviceUri, Func<JobStep, CancellationToken, Task<string?>> work, out JobDto job)
+    /// <summary>
+    /// Starts a job of <paramref name="kind"/> on the device, and ONLY starts one: any job already running on it, of this
+    /// kind too, refuses it. For a job whose body owns something taken before it starts (a preview's lease on its camera),
+    /// which a join would never run, and so never give back; and for one whose parameters make two of a kind different
+    /// jobs (a preview of another exposure).
+    /// </summary>
+    /// <returns>False when a job holds the device; <paramref name="job"/> is then that job, which a refusal names.</returns>
+    public bool TryStart(string kind, Uri deviceUri, Func<JobStep, CancellationToken, Task<string?>> work, out JobDto job)
+        => TryStartOrJoin(kind, deviceUri.DeviceKey, deviceUri.ToString(), work, joins: false, out job);
+
+    private bool TryStartOrJoin(string kind, string slot, string? deviceUri, Func<JobStep, CancellationToken, Task<string?>> work, bool joins, out JobDto job)
     {
         var started = new Job(Guid.NewGuid().ToString("N"), kind, slot, deviceUri, timeProvider.GetUtcNow());
 
@@ -77,7 +87,7 @@ internal sealed class NodeJobs(IHostApplicationLifetime lifetime, ITimeProvider 
             if (_running.TryGetValue(slot, out var running))
             {
                 job = running.Snapshot;
-                return running.Kind == kind;
+                return joins && running.Kind == kind;
             }
         }
 

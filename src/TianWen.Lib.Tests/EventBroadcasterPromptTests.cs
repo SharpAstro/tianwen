@@ -45,7 +45,7 @@ namespace TianWen.Lib.Tests
             var enhancer = new HostedImageEnhancer(pipeline: null, NullLogger<HostedImageEnhancer>.Instance);
             var jobs = new NodeJobs(Substitute.For<Microsoft.Extensions.Hosting.IHostApplicationLifetime>(), Substitute.For<ITimeProvider>(), NullLogger<NodeJobs>.Instance);
             var broadcaster = new EventBroadcaster(
-                host, enhancer, jobs, hub,
+                host, enhancer, jobs, new NodeFrames(host), hub,
                 Substitute.For<ITimeProvider>(),
                 NullLogger<EventBroadcaster>.Instance);
             return (broadcaster, host, hub);

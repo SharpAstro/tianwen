@@ -27,6 +27,7 @@ internal sealed class EventBroadcaster(
     HostedSession hostedSession,
     HostedImageEnhancer imageEnhancer,
     NodeJobs jobs,
+    NodeFrames frames,
     EventHub eventHub,
     ITimeProvider timeProvider,
     ILogger<EventBroadcaster> logger
@@ -100,15 +101,14 @@ internal sealed class EventBroadcaster(
                     // only to announce what is new -- the same division as the exposure log.
                     _watermarkFor = session;
                     _lastGuideStepPushed = NewestGuideSampleTime(session);
-                    // Unlike the guide steps, a new run's frames are announced from nothing: what it shows already is new
-                    // to every client, and a frame landing before this first poll would otherwise never be announced.
-                    _framesAnnounced = [];
                 }
 
                 PushNewGuideSteps(session);
-                PushNewFrames(session);
                 NotifyLimitTransition(session);
             }
+
+            // With or without a session: a preview the node takes outside one is a frame too.
+            PushNewFrames();
 
             // Liveness bound on an outstanding prompt: see OnPromptRequested for why this replaces a
             // timeout rather than supplementing one.
@@ -183,45 +183,34 @@ internal sealed class EventBroadcaster(
         _lastGuideStepPushed = newest;
     }
 
-    // The frame numbers FRAME-AVAILABLE last announced: each OTA's slot, then the guider's. Written and read only by the
-    // poll loop.
-    private int[] _framesAnnounced = [];
-
-    private static int[] FrameNumbers(ISessionTelemetry session)
-    {
-        var slots = session.LastCapturedImages.Length;
-        var numbers = new int[slots + 1];
-        for (var i = 0; i < slots; i++)
-        {
-            numbers[i] = session.LastCapturedImageNumber(i);
-        }
-        numbers[slots] = session.LastGuideFrameNumber;
-        return numbers;
-    }
+    // The token FRAME-AVAILABLE last announced for each source. Written and read only by the poll loop.
+    private readonly Dictionary<string, int> _framesAnnounced = new Dictionary<string, int>(StringComparer.Ordinal);
 
     /// <summary>
-    /// Emits a <c>FRAME-AVAILABLE</c> for every frame source whose frame number moved since the last poll (P4 part 2 of
+    /// Emits a <c>FRAME-AVAILABLE</c> for every frame source whose frame moved since the last poll (P4 part 2 of
     /// docs/plans/hardware-in-the-server.md, #931), so a client that shows linear frames fetches the new one rather than
-    /// polling every source. A number of 0 is an empty slot, never announced. At a second's poll a guider faster than
-    /// that is announced at the poll's rate, which is what a viewer can show anyway.
+    /// polling every source. The tokens are <see cref="NodeFrames"/>'s, the node's own per source, so a new run's first
+    /// frame and a preview taken outside a run are announced like any other (P5 part 2). A source showing no frame is
+    /// never announced. At a second's poll a guider faster than that is announced at the poll's rate, which is what a
+    /// viewer can show anyway.
     /// </summary>
-    private void PushNewFrames(ISessionTelemetry session)
+    private void PushNewFrames()
     {
-        var now = FrameNumbers(session);
-        var slots = now.Length - 1;
-        for (var i = 0; i < now.Length; i++)
+        for (var i = 0; i < frames.OtaCount; i++)
         {
-            var announced = i < _framesAnnounced.Length ? _framesAnnounced[i] : 0;
-            if (now[i] != 0 && now[i] != announced)
-            {
-                BroadcastSafe(BroadcastEvents.FrameAvailable(new FrameAvailableDto
-                {
-                    Source = i < slots ? FrameSources.Ota(i) : FrameSources.Guider,
-                    Number = now[i],
-                }));
-            }
+            Announce(FrameSources.Ota(i), frames.Ota(i));
         }
-        _framesAnnounced = now;
+        Announce(FrameSources.Guider, frames.Guider());
+    }
+
+    private void Announce(string source, NodeFrames.Shown shown)
+    {
+        if (shown.Frame is null || _framesAnnounced.TryGetValue(source, out var announced) && announced == shown.Number)
+        {
+            return;
+        }
+        _framesAnnounced[source] = shown.Number;
+        BroadcastSafe(BroadcastEvents.FrameAvailable(new FrameAvailableDto { Source = source, Number = shown.Number }));
     }
 
     private void OnJobChanged(object? sender, JobDto job) => BroadcastSafe(BroadcastEvents.JobProgress(job));
