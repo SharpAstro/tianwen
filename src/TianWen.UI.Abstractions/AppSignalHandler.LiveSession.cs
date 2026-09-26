@@ -22,6 +22,7 @@ using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Devices.Weather;
 using TianWen.Lib.Extensions;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Planetary;
 using TianWen.Lib.Sequencing;
 using TianWen.Lib.Sequencing.PolarAlignment;
 
@@ -271,70 +272,30 @@ namespace TianWen.UI.Abstractions
                 }, onFinally: () => appState.NeedsRedraw = true);
             });
 
-            // Live planetary capture: route Start/Stop to the shared PlanetaryCaptureController (the capture
-            // loop + rolling-window stack live there; this only resolves the camera + configures the ROI).
+            // Live planetary capture: route Start/Stop to the shared PlanetaryCaptureController, whose capture starts by
+            // the one rule the node keeps too (PlanetaryCapture.TryStart: the camera, its claim, the ROI, the mount).
             var planetaryCapture = sp.GetRequiredService<PlanetaryCaptureController>();
 
             bus.Subscribe<StartVideoCaptureSignal>(sig =>
             {
                 // The remote mode pill offers Planetary too, and this streams THIS computer's camera.
                 if (!EnsureLocalContext("A planetary capture")) return;
-                if (appState.ActiveProfile?.Data is not { OTAs: var otas } || sig.OtaIndex >= otas.Length) return;
+                if (appState.ActiveProfile?.Data is not { } profileData) return;
                 if (appState.DeviceHub is not { } hub) return;
 
-                var ota = otas[sig.OtaIndex];
-                if (!TryGetConnected<ICameraDriver>(hub, ota.Camera, "Camera", out var camera, "Connect a camera to start a planetary capture")) return;
-
-                // Claimed for the length of the capture, before the ROI touches the camera: streaming video off a
-                // camera a flat run is metering would fight it frame for frame, and nothing stopped a preview or
-                // another run from reconfiguring the camera this capture streams (P0c item 2). Only the camera:
-                // the capture's own nudges drive the mount through the gate, and would refuse themselves.
-                if (!DeviceLeaseSet.TryAcquire(hub, [ota.Camera], "planetary capture", out var claim, out var refusal))
+                // Bound to the app shutdown token: quitting cancels the capture (its loops poll the token), so the camera
+                // is released without an imperative Stop() in the quit path.
+                var request = new PlanetaryCaptureRequest(sig.OtaIndex, TimeSpan.FromMilliseconds(sig.ExposureMs), sig.Gain, sig.RoiWidth, sig.RoiHeight);
+                if (!planetaryCapture.TryStart(request, profileData, hub, shutdownToken, out var roi, out var refusal))
                 {
-                    Notify(NotificationSeverity.Warning, refusal.Describe());
+                    Notify(NotificationSeverity.Warning, refusal);
                     return;
                 }
 
-                var started = false;
-                try
-                {
-                    var (roiW, roiH) = PlanetaryCaptureActions.ConfigureRoi(camera, sig.RoiWidth, sig.RoiHeight);
-
-                    // Wire the coupled mount + OTA pixel scale for the COM recenter loop's coarse mount-jog
-                    // fallback (Phase C). No-op when no mount is connected or the scale is unknown (NaN) -- the
-                    // recenter loop then stays ROI-only.
-                    IMountDriver? recenterMount = null;
-                    Uri? recenterMountUri = null;
-                    if (appState.ActiveProfile?.Data is { } capturePdata
-                        && capturePdata.Mount is { Scheme: not "none" } mountUri
-                        && hub.TryGetConnectedDriver<IMountDriver>(mountUri, out var rcMount) && rcMount is not null)
-                    {
-                        recenterMount = rcMount;
-                        recenterMountUri = mountUri;
-                    }
-                    // The capture claims only the camera, so each nudge asks the gate over the mount first.
-                    planetaryCapture.Capture.AttachMount(
-                        recenterMount, recenterMountUri, hub, CoordinateUtils.PixelScaleArcsec(camera.PixelSizeX, ota.FocalLength));
-
-                    // Bind the capture's lifetime to the app shutdown token: quitting cancels it (its loops poll
-                    // the token), so the camera is released without an imperative Stop() in the quit path.
-                    planetaryCapture.Start(camera,
-                        new VideoCaptureOptions(TimeSpan.FromMilliseconds(sig.ExposureMs), sig.Gain), shutdownToken, claim);
-                    started = true;
-
-                    // Planetary capture is now a Live Session mode (not a standalone tab): show it there.
-                    liveSessionState.Mode = LiveSessionMode.Planetary;
-                    appState.ActiveTab = GuiTab.LiveSession;
-                    Notify(NotificationSeverity.Info, $"Planetary capture started ({roiW}x{roiH}, {sig.ExposureMs:F0} ms)");
-                }
-                finally
-                {
-                    // Start owns the claim; a throw before it (the ROI, the mount wiring) must not strand it.
-                    if (!started)
-                    {
-                        claim.Dispose();
-                    }
-                }
+                // Planetary capture is now a Live Session mode (not a standalone tab): show it there.
+                liveSessionState.Mode = LiveSessionMode.Planetary;
+                appState.ActiveTab = GuiTab.LiveSession;
+                Notify(NotificationSeverity.Info, $"Planetary capture started ({roi.Width}x{roi.Height}, {sig.ExposureMs:F0} ms)");
             });
 
             bus.Subscribe<StopVideoCaptureSignal>(_ =>
