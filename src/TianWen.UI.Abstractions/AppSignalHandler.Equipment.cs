@@ -121,8 +121,10 @@ namespace TianWen.UI.Abstractions
                         "Load catalog after site edit");
                 }
 
-                await EquipmentActions.PushSiteToMountIfProfileWinsAsync(
-                    appState.DeviceHub, newSiteData, sLat, sLon, sElev, logger, cts.Token);
+                if (appState.DeviceHub is { } siteHub)
+                {
+                    await siteHub.PushSiteToMountIfProfileWinsAsync(newSiteData, logger, cts.Token);
+                }
                 await updatedSite.SaveAsync(external, cts.Token);
             };
 
@@ -316,7 +318,7 @@ namespace TianWen.UI.Abstractions
                         // Log exactly what URI moved so site / gain / filter clobbers are
                         // visible in the log instead of silently drifting.
                         var diffs = original.Data is { } originalData && updated.Data is { } updatedData
-                            ? EquipmentActions.DiffProfileData(originalData, updatedData)
+                            ? originalData.DiffTo(updatedData)
                             : [];
                         foreach (var (field, before, after) in diffs)
                         {
@@ -633,8 +635,7 @@ namespace TianWen.UI.Abstractions
                         && hub.TryGetConnectedDriver<IMountDriver>(sig.DeviceUri, out var mount)
                         && mount is not null)
                     {
-                        var outcome = await EquipmentActions.ReconcileSiteOnMountConnectAsync(
-                            pdata, mount, logger, cts.Token);
+                        var outcome = await mount.ReconcileSiteWithProfileAsync(pdata, logger, cts.Token);
                         if (outcome.ProfileChanged)
                         {
                             var updated = currentProfile.WithData(outcome.Data);
@@ -669,7 +670,7 @@ namespace TianWen.UI.Abstractions
                         && camProfile.Data is { } camData
                         && hub.TryGetConnectedDriver<ICameraDriver>(sig.DeviceUri, out var cam)
                         && cam is not null
-                        && EquipmentActions.CaptureSensorSpecs(camData, sig.DeviceUri, cam) is { } capturedData)
+                        && camData.CaptureSensorSpecs(sig.DeviceUri, cam) is { } capturedData)
                     {
                         var updated = camProfile.WithData(capturedData);
                         await updated.SaveAsync(_external, cts.Token);

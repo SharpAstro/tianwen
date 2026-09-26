@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
+using System.Web;
 
 namespace TianWen.Lib.Devices;
 
@@ -13,6 +15,124 @@ public static class ProfileDataExtensions
     {
         /// <summary>The site the profile stores, or null when it stores none.</summary>
         public SiteCoordinates? Site => SiteCoordinates.From(profile.SiteLatitude, profile.SiteLongitude, profile.SiteElevation);
+
+        /// <summary>The profile with <paramref name="site"/> as its site, elevation included.</summary>
+        public ProfileData WithSite(SiteCoordinates site)
+            => profile with { SiteLatitude = site.Latitude, SiteLongitude = site.Longitude, SiteElevation = site.Elevation };
+
+        /// <summary>
+        /// One-shot migration of site coordinates from the legacy Mount URI query string
+        /// (<c>?latitude=…&amp;longitude=…&amp;elevation=…</c>) into <see cref="ProfileData.SiteLatitude"/> etc. Returns the
+        /// updated profile and whether anything changed. When the profile already has a site the URI query is ignored:
+        /// the profile wins for migration. Applied by every discovery's reconcile
+        /// (<see cref="DeviceDiscoveryExtensions.ReconcileStoredProfile"/>) and by the GUI at start.
+        /// </summary>
+        public (ProfileData Data, bool Changed) MigrateSiteFromMountUri()
+        {
+            if (profile.SiteLatitude is not null || profile.SiteLongitude is not null) return (profile, false);
+            if (profile.Mount == NoneDevice.Instance.DeviceUri) return (profile, false);
+
+            var query = HttpUtility.ParseQueryString(profile.Mount.Query);
+            var latStr = query[DeviceQueryKey.Latitude.Key];
+            var lonStr = query[DeviceQueryKey.Longitude.Key];
+            var elevStr = query[DeviceQueryKey.Elevation.Key];
+
+            if (latStr is null || lonStr is null
+                || !double.TryParse(latStr, CultureInfo.InvariantCulture, out var lat)
+                || !double.TryParse(lonStr, CultureInfo.InvariantCulture, out var lon))
+            {
+                return (profile, false);
+            }
+
+            double? elev = elevStr is not null && double.TryParse(elevStr, CultureInfo.InvariantCulture, out var e) ? e : null;
+            return (profile with { SiteLatitude = lat, SiteLongitude = lon, SiteElevation = elev }, true);
+        }
+
+        /// <summary>
+        /// Captures a just-connected camera's sensor geometry (pixel size + dimensions) into the OTA that references it, so
+        /// the planner can compute the sensor FOV (and therefore smart framing groups) offline later, before any device is
+        /// connected. Returns the updated profile when something actually changed (so the caller persists), or
+        /// <see langword="null"/> when the driver reports no usable geometry, the camera isn't part of any OTA, or the specs
+        /// already match (connect is frequent; only a genuine change warrants a save). Pure transformation, applied on a
+        /// camera's connect by the GUI and the node alike.
+        /// </summary>
+        public ProfileData? CaptureSensorSpecs(Uri cameraUri, ICameraDriver camera)
+        {
+            var pixelSize = camera.PixelSizeX;
+            var sensorW = camera.CameraXSize;
+            var sensorH = camera.CameraYSize;
+            if (!(pixelSize > 0) || sensorW <= 0 || sensorH <= 0)
+            {
+                return null; // driver hasn't reported usable sensor geometry
+            }
+
+            var otas = profile.OTAs;
+            for (var i = 0; i < otas.Length; i++)
+            {
+                var ota = otas[i];
+                if (!DeviceBase.SameDevice(ota.Camera, cameraUri))
+                {
+                    continue;
+                }
+
+                // Already captured and unchanged -> nothing to persist.
+                if (ota.CameraSensorWidthPx == sensorW
+                    && ota.CameraSensorHeightPx == sensorH
+                    && ota.CameraPixelSizeUm is { } existing && Math.Abs(existing - pixelSize) < 1e-6)
+                {
+                    return null;
+                }
+
+                var updated = ota with
+                {
+                    CameraPixelSizeUm = pixelSize,
+                    CameraSensorWidthPx = sensorW,
+                    CameraSensorHeightPx = sensorH,
+                };
+                return profile with { OTAs = otas.SetItem(i, updated) };
+            }
+
+            return null; // camera not assigned to any OTA
+        }
+
+        /// <summary>
+        /// A human-readable diff from this profile to <paramref name="after"/>, one tuple per device slot that changed, for
+        /// logging a reconcile so a transport refresh and a user-config clobber are both visible. Null URIs render as
+        /// <c>&lt;none&gt;</c>.
+        /// </summary>
+        public IEnumerable<(string Field, string Before, string After)> DiffTo(ProfileData after)
+        {
+            static string F(Uri? u) => u?.ToString() ?? "<none>";
+
+            if (profile.Mount != after.Mount)
+                yield return ("Mount", F(profile.Mount), F(after.Mount));
+            if (profile.Guider != after.Guider)
+                yield return ("Guider", F(profile.Guider), F(after.Guider));
+            if (profile.GuiderCamera != after.GuiderCamera)
+                yield return ("GuiderCamera", F(profile.GuiderCamera), F(after.GuiderCamera));
+            if (profile.GuiderFocuser != after.GuiderFocuser)
+                yield return ("GuiderFocuser", F(profile.GuiderFocuser), F(after.GuiderFocuser));
+            if (profile.Weather != after.Weather)
+                yield return ("Weather", F(profile.Weather), F(after.Weather));
+            if (profile.Site != after.Site)
+                yield return ("Site", profile.Site?.ToString() ?? "<none>", after.Site?.ToString() ?? "<none>");
+
+            var maxOtas = Math.Max(profile.OTAs.Length, after.OTAs.Length);
+            for (int i = 0; i < maxOtas; i++)
+            {
+                var b = i < profile.OTAs.Length ? (OTAData?)profile.OTAs[i] : null;
+                var a = i < after.OTAs.Length ? (OTAData?)after.OTAs[i] : null;
+                if (b is null && a is not null) yield return ($"OTA[{i}]", "<none>", "<added>");
+                else if (a is null && b is not null) yield return ($"OTA[{i}]", "<present>", "<removed>");
+                else if (b is { } bb && a is { } aa)
+                {
+                    if (bb.Camera != aa.Camera) yield return ($"OTA[{i}].Camera", F(bb.Camera), F(aa.Camera));
+                    if (bb.Cover != aa.Cover) yield return ($"OTA[{i}].Cover", F(bb.Cover), F(aa.Cover));
+                    if (bb.Focuser != aa.Focuser) yield return ($"OTA[{i}].Focuser", F(bb.Focuser), F(aa.Focuser));
+                    if (bb.FilterWheel != aa.FilterWheel) yield return ($"OTA[{i}].FilterWheel", F(bb.FilterWheel), F(aa.FilterWheel));
+                }
+            }
+        }
 
         /// <summary>
         /// True if any URI slot in the profile references a fake device. Used at

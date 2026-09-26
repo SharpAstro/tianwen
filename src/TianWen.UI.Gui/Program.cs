@@ -277,7 +277,7 @@ if (appState.ActiveProfile is not null)
     // then persist so the migration only runs once.
     if (appState.ActiveProfile.Data is { } migrData)
     {
-        var (migrated, changed) = EquipmentActions.MigrateSiteFromMountUri(migrData);
+        var (migrated, changed) = migrData.MigrateSiteFromMountUri();
         if (changed)
         {
             // Captured rather than read back off the state inside the closure: the background save

@@ -73,7 +73,7 @@ public readonly record struct OTAData(
     int? Aperture = null,
     OpticalDesign OpticalDesign = OpticalDesign.Unknown,
     // Camera sensor geometry, auto-captured the first time the camera connects (see
-    // EquipmentActions.CaptureSensorSpecs). Persisted here -- NOT on the camera URI, which the
+    // ProfileDataExtensions.CaptureSensorSpecs). Persisted here -- NOT on the camera URI, which the
     // discovery reconcile can replace -- so the planner can compute the sensor FOV (and therefore
     // smart framing groups) offline, before any device is connected. Null until first capture.
     double? CameraPixelSizeUm = null,

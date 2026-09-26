@@ -22,8 +22,8 @@ namespace TianWen.Hosting;
 /// the hardware. A refusal answers at once; a job answers 202 and is followed through <c>GET /api/v1/jobs/{id}</c> or
 /// <c>JOB-PROGRESS</c>.
 /// </remarks>
-internal sealed partial class DeviceOperations(IDeviceHub hub, NodeJobs jobs, IHostedSession hosted, IExternal external, ITimeProvider timeProvider,
-    ILogger<DeviceOperations> logger)
+internal sealed partial class DeviceOperations(IDeviceHub hub, NodeJobs jobs, IHostedSession hosted, IExternal external, NodeProfiles profiles,
+    ITimeProvider timeProvider, ILogger<DeviceOperations> logger)
 {
     /// <summary>The <see cref="JobDto.Kind"/> of each job.</summary>
     internal const string ConnectJob = "connect";
@@ -53,7 +53,7 @@ internal sealed partial class DeviceOperations(IDeviceHub hub, NodeJobs jobs, IH
         {
             step.Report($"Connecting {name}");
             await hub.ConnectAsync(device, ct);
-            return $"Connected {name}";
+            return await WriteConnectIntoProfileAsync(device, ct) is { } noted ? $"Connected {name}; {noted}" : $"Connected {name}";
         });
     }
 
