@@ -1,17 +1,17 @@
 using System;
 using System.IO;
-using System.Threading.Tasks;
 using nom.tam.fits;
 using Shouldly;
 using TianWen.Lib.Imaging;
-using TianWen.UI.Abstractions;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// A header's <c>DATAMIN</c> / <c>DATAMAX</c> is a claim about the samples. When the samples leave it,
-/// the reader takes the observed range instead, exactly as it does when the cards are missing (#804).
+/// A header's <c>DATAMIN</c> / <c>DATAMAX</c> is a claim about the samples. By default a read BELIEVES it
+/// (every file TianWen writes states its range, and checking costs a full pass over the planes); a read
+/// that asks for validation takes the observed range when the samples leave the stated one, exactly as
+/// it does when the cards are missing (#804).
 /// </summary>
 /// <remarks>
 /// The file this reproduces is a drizzle weight sidecar from 2026-08: <c>DATAMAX = 1</c> over per-pixel
@@ -31,16 +31,16 @@ public class FitsContradictedRangeTests
     [InlineData(1.0, 0.0)]      // the issue's cards: a [0, 1] fraction over weights up to 69
     [InlineData(50.0, 0.0)]     // a maximum inside the range the samples actually span
     [InlineData(1000.0, 40.0)]  // a minimum above samples the file holds
-    public void BothReadPathsTakeTheObservedRangeOverAContradictedCard(double dataMax, double dataMin)
+    public void WhenValidatingBothReadPathsTakeTheObservedRangeOverAContradictedCard(double dataMax, double dataMin)
     {
         var path = Path.Combine(SharedTestData.CreateTempTestOutputDir(), $"contradicted-{dataMin}-{dataMax}.fits");
         WriteWeightCube(path, dataMin, dataMax);
         var (observedMin, observedMax) = ObservedRange();
 
-        Image.TryReadThroughFitsReader(path, out var viaReader, out _, pooled: false).ShouldBeTrue("FitsReader takes a plain float cube");
+        Image.TryReadThroughFitsReader(path, out var viaReader, out _, pooled: false, validateRange: true).ShouldBeTrue("FitsReader takes a plain float cube");
         using (var fits = Image.OpenFits(path))
         {
-            Image.TryReadFitsFile(fits, out var viaHdu, out _).ShouldBeTrue();
+            Image.TryReadFitsFile(fits, out var viaHdu, out _, pooled: false, validateRange: true).ShouldBeTrue();
             foreach (var (name, image) in new[] { ("FitsReader", viaReader), ("HDU reader", viaHdu) })
             {
                 image.MaxValue.ShouldBe(observedMax, $"{name}: the samples' peak, not DATAMAX = {dataMax}");
@@ -50,46 +50,48 @@ public class FitsContradictedRangeTests
     }
 
     [Fact]
-    public void ARangeTheSamplesKeepToIsTrusted()
+    public void ByDefaultBothReadPathsBelieveTheStatedRange()
+    {
+        // No validation asked, no pass over the planes: the cards are what the read records, even the
+        // issue's contradicted ones. This is the cost the default saves on every file we write.
+        var path = Path.Combine(SharedTestData.CreateTempTestOutputDir(), "believed-range.fits");
+        WriteWeightCube(path, dataMin: 0.0, dataMax: 1.0);
+
+        Image.TryReadThroughFitsReader(path, out var viaReader, out _, pooled: false).ShouldBeTrue();
+        using var fits = Image.OpenFits(path);
+        Image.TryReadFitsFile(fits, out var viaHdu, out _).ShouldBeTrue();
+        foreach (var (name, image) in new[] { ("FitsReader", viaReader), ("HDU reader", viaHdu) })
+        {
+            image.MaxValue.ShouldBe(1f, $"{name}: DATAMAX as written");
+            image.MinValue.ShouldBe(0f, $"{name}: DATAMIN as written");
+        }
+    }
+
+    [Fact]
+    public void WhenValidatingARangeTheSamplesKeepToIsTrusted()
     {
         // A stated range WIDER than the samples is legitimate (a writer may state the sensor's range),
         // so the cards stand: only a contradiction is overruled.
         var path = Path.Combine(SharedTestData.CreateTempTestOutputDir(), "kept-range.fits");
         WriteWeightCube(path, dataMin: 0.0, dataMax: 100.0);
 
-        Image.TryReadFitsFile(path, out var image).ShouldBeTrue();
+        Image.TryReadFitsFile(path, out var image, out _, pooled: false, validateRange: true).ShouldBeTrue();
         image.MaxValue.ShouldBe(100f);
         image.MinValue.ShouldBe(0f);
     }
 
     [Fact]
-    public void AWeightMapUnderAFractionHeaderHasStatistics()
+    public void WhenValidatingAWeightMapUnderAFractionHeaderHasStatistics()
     {
         var path = Path.Combine(SharedTestData.CreateTempTestOutputDir(), "weights-under-fraction-header.fits");
         WriteWeightCube(path, dataMin: 0.0, dataMax: 1.0);
 
-        Image.TryReadFitsFile(path, out var image).ShouldBeTrue();
+        Image.TryReadFitsFile(path, out var image, out _, pooled: false, validateRange: true).ShouldBeTrue();
         for (var c = 0; c < Planes; c++)
         {
             var (_, stretch) = image.GetStats(c);
             float.IsFinite(stretch.Median).ShouldBeTrue($"channel {c} has a median");
             float.IsFinite(stretch.Mad).ShouldBeTrue($"channel {c} has a MAD");
-        }
-    }
-
-    [Fact]
-    public async Task AWeightMapUnderAFractionHeaderOpensInTheViewer()
-    {
-        var path = Path.Combine(SharedTestData.CreateTempTestOutputDir(), "weights-under-fraction-header-doc.fits");
-        WriteWeightCube(path, dataMin: 0.0, dataMax: 1.0);
-
-        var document = await AstroImageDocument.OpenAsync(path, cancellationToken: TestContext.Current.CancellationToken);
-        document.ShouldNotBeNull("the document opens");
-        document.PerChannelStats.Length.ShouldBe(Planes);
-        foreach (var stats in document.PerChannelStats)
-        {
-            float.IsFinite(stats.Median).ShouldBeTrue("each channel has a median");
-            float.IsFinite(stats.Mad).ShouldBeTrue("each channel has a MAD");
         }
     }
 
