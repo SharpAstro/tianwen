@@ -44,6 +44,13 @@ internal static class FrameEndpoints
         group.MapGet("/guider/latest", (int? after, NodeFrames frames) =>
             Serve(frames.Guider(), after, "The guider"));
 
+        // A planetary capture's own (P5 part 5, #934): the live frame as the camera gave it, and the rolling master.
+        group.MapGet("/planetary/live/latest", (int? after, NodeFrames frames) =>
+            Serve(frames.Named(FrameSources.PlanetaryLive), after, "The planetary live view"));
+
+        group.MapGet("/planetary/master/latest", (int? after, NodeFrames frames) =>
+            Serve(frames.Named(FrameSources.PlanetaryMaster), after, "The planetary stack"));
+
         return group;
     }
 

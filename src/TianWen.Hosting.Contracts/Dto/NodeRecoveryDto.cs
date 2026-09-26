@@ -17,6 +17,9 @@ public enum NodeRunKind
 
     /// <summary>Polar alignment (<c>POST /api/v1/polar</c>).</summary>
     Polar,
+
+    /// <summary>A live planetary capture (<c>POST /api/v1/planetary</c>).</summary>
+    Planetary,
 }
 
 /// <summary>

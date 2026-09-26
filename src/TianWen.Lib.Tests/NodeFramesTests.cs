@@ -115,6 +115,45 @@ public class NodeFramesTests
     }
 
     [Fact]
+    public void ARunsOwnSourceShowsWhatItPublishedAndGivesBackWhatThatReplaced()
+    {
+        var (frames, hosted) = Build();
+        var run = Substitute.For<INodeRun>();
+        hosted.CurrentSession.Returns((ISession?)null);
+        hosted.CurrentRun.Returns(run);
+        var first = TestFrames.BufferedMono(out var firstBuffer);
+        frames.Publish(FrameSources.PlanetaryLive, first);
+
+        frames.Named(FrameSources.PlanetaryLive).ShouldBe(new NodeFrames.Shown(first, 1));
+        frames.Named(FrameSources.PlanetaryMaster).Frame.ShouldBeNull("each source is its own");
+
+        var second = Frame();
+        frames.Publish(FrameSources.PlanetaryLive, second);
+
+        frames.Named(FrameSources.PlanetaryLive).ShouldBe(new NodeFrames.Shown(second, 2));
+        firstBuffer.IsReleased.ShouldBeTrue("a replaced frame is given back, not kept");
+    }
+
+    [Fact]
+    public void ARunsOwnFrameIsGivenBackOnceTheNodesNextRunStarts()
+    {
+        var (frames, hosted) = Build();
+        var capture = Substitute.For<INodeRun>();
+        var next = Substitute.For<INodeRun>();
+        // A run of another kind has no session (a substitute would make one up, and it would never change).
+        hosted.CurrentSession.Returns((ISession?)null);
+        hosted.CurrentRun.Returns(capture);
+        var master = TestFrames.BufferedMono(out var masterBuffer);
+        frames.Publish(FrameSources.PlanetaryMaster, master);
+        frames.Named(FrameSources.PlanetaryMaster).Frame.ShouldBeSameAs(master, "shown after its run has ended too");
+
+        hosted.CurrentRun.Returns(next);
+
+        frames.Named(FrameSources.PlanetaryMaster).Frame.ShouldBeNull("the next run shows nothing of the last one's");
+        masterBuffer.IsReleased.ShouldBeTrue();
+    }
+
+    [Fact]
     public void TheGuiderShowsTheSessionsGuideFrame()
     {
         var (frames, hosted) = Build();

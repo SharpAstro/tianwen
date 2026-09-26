@@ -266,8 +266,20 @@ Pinned by `NodeSocketTests`, `NodeAddressTests`, `ExeBesideTests`, `NodeKeeperTe
      the token of the frame it is of, NaN crossing as null. **Cancellation is how it ends**: `DELETE` is Done and
      Cancel alike and is answered AT ONCE, since the restore reverses the Phase A rotation for longer than a
      request may take; `GET` says when it has ended, the mount restored and the devices given back.
+   - **A live planetary capture is the third** (`POST`, `GET` and `DELETE /api/v1/planetary`, `PUT
+     /api/v1/planetary/controls`, `NodePlanetary`, P5 part 5b): the GUI's own capture loop, `PlanetaryCapture` in
+     Lib, through the OTA's camera, and the rolling stack the GUI draws from, run on the node instead (decision 5:
+     only the master and a live frame cross). **The start comes in two halves**: `TryPrepare` resolves the camera,
+     claims it and sets its window as the request is answered, refusing in words, and `StartPrepared` starts the
+     loop on the node's token once the run is the node's, so it never streams on the request's token nor before
+     the node has taken it. The node stacks on the run's own task (`RollingWindowStacker`, a master every 250 ms at
+     most) and shows two frames of the run's own, `planetary/live` (the camera's frame, copied at 10 Hz at most
+     into recycled planes by `FrameSampler`) and `planetary/master` (linear), through `/frames` like any other and
+     announced by `FRAME-AVAILABLE`; `NodeFrames` keeps them until the node's next run starts. A control is STAGED
+     and taken after the next frame, and a new window size is snapped to the camera's rule in the capture loop,
+     for every host. The stop is answered once the capture has ended, a frame or two.
    - **An interactive run stops once nobody watches it** (`INodeRun.EndsUnwatched`, `NodeRunWatch`): polar
-     alignment, and a planetary live view after it, are meaningless unseen, so once no client has been PRESENT
+     alignment and a planetary live view are meaningless unseen, so once no client has been PRESENT
      (a fresh presence beat, `EventHub.PresentClientCount`, the same rule a prompt waits by) for the detach grace
      (60 s, `NodeRunWatchOptions`), the watch stops it through its own ending and says so in the node's
      notifications. The grace runs from the moment nobody is present, the run's start included; a client back
@@ -277,7 +289,7 @@ Pinned by `NodeSocketTests`, `NodeAddressTests`, `ExeBesideTests`, `NodeKeeperTe
      stopped. Only `/session/abort` and the ninaAPI stop keep the untargeted abort.
 
    Pinned by `NodeRunLifecycleTests`, all nine seen failing against the old code, `NodeDarkLibraryTests`,
-   `NodePolarAlignmentTests` and `NodeRunWatchTests`.
+   `NodePolarAlignmentTests`, `NodePlanetaryTests` and `NodeRunWatchTests`.
 5. **A start runs on the DECLARED defaults plus what the request sets, and the whole configuration
    crosses the wire** (P0b item 10, #752). `new SessionConfiguration()` is the declared defaults (an
    explicit parameterless constructor); without it, it was the struct's zero-initialiser, which zeroes
@@ -684,7 +696,9 @@ save) needs it LINEAR, in floats, which the preview JPEG is not: it is stretched
 Pinned by `FrameWireTests`, including a frame from the fake camera itself coming back bit for bit with its metadata.
 
 **The route and the push** (P4 part 2). `GET /api/v1/frames/ota/{index}/latest` and `/api/v1/frames/guider/latest` serve
-the frame a source shows now, the same frame the JPEG previews encode (`FrameSources`, `NodeFrames`):
+the frame a source shows now, the same frame the JPEG previews encode (`FrameSources`, `NodeFrames`), and
+`/api/v1/frames/planetary/live/latest` and `/planetary/master/latest` a planetary capture's own (P5 part 5b), which the
+node keeps until its next run starts:
 
 - **The number answers first.** A request names the number of the frame it holds (`after`); while the source still shows
   that one the answer is a 204 carrying the number, and nothing is leased. The number is the node's token for the

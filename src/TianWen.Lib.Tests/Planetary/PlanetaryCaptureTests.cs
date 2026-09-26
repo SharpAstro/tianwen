@@ -1,11 +1,13 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Shouldly;
 using TianWen.DAL;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
 using Xunit;
@@ -20,7 +22,7 @@ namespace TianWen.Lib.Tests;
 /// the deadband falls to the mount.
 /// </summary>
 [Collection("Session")]
-public class PlanetaryCaptureTests
+public class PlanetaryCaptureTests(ITestOutputHelper output)
 {
     private static readonly Uri MountUri = new Uri("fake://mount/1");
 
@@ -117,5 +119,65 @@ public class PlanetaryCaptureTests
 
         capture.LastRecenterActuator.ShouldBe(RecenterActuator.Mount, "the recenter still wanted the mount");
         await mount.DidNotReceive().StartPulseGuideAsync(Arg.Any<GuideDirection>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>A hub with the fake camera connected, and a profile whose one OTA has it.</summary>
+    private async Task<(IDeviceHub Hub, ProfileData Profile, Uri Camera)> RigAsync(CancellationToken ct)
+    {
+        var hub = new FakeExternal(output).BuildServiceProvider().GetRequiredService<IDeviceHub>();
+        var camera = new FakeDevice(DeviceType.Camera, 1);
+        await hub.ConnectAsync(camera, ct);
+        var profile = new ProfileData(NoneDevice.Instance.DeviceUri, NoneDevice.Instance.DeviceUri,
+            [new OTAData("Test OTA", 400, camera.DeviceUri, null, null, null, null, null)]);
+        return (hub, profile, camera.DeviceUri);
+    }
+
+    private static readonly PlanetaryCaptureRequest Request = new PlanetaryCaptureRequest(0, TimeSpan.FromMilliseconds(5), null, 640, 320);
+
+    [Fact(Timeout = 30_000)]
+    public async Task APreparedCaptureHoldsTheCameraStreamsNothingAndGivesItBackIfItNeverStarts()
+    {
+        // The node prepares as it is asked and starts once the run is its own; a start it loses to another run disposes
+        // the capture, which must not keep the camera claimed.
+        var ct = TestContext.Current.CancellationToken;
+        var (hub, profile, camera) = await RigAsync(ct);
+        var capture = new PlanetaryCapture(new FakeTimeProviderWrapper(), NullLogger.Instance);
+
+        capture.TryPrepare(Request, profile, hub, out var roi, out var refusal).ShouldBeTrue(refusal);
+
+        roi.ShouldBe((640, 320));
+        capture.IsCapturing.ShouldBeFalse("prepared is not started");
+        capture.Camera.ShouldNotBeNull();
+        hub.TryGetLease(camera, out var lease).ShouldBeTrue();
+        lease.OwnerLabel.ShouldBe(PlanetaryCapture.LeaseOwner);
+        capture.TryPrepare(Request, profile, hub, out _, out var twice).ShouldBeFalse();
+        twice.ShouldBe("A planetary capture is already running");
+
+        await capture.DisposeAsync();
+
+        hub.TryGetLease(camera, out _).ShouldBeFalse("a capture that never started gives its camera back");
+        capture.StartPrepared(ct).ShouldBeFalse("nothing is left to start");
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task APreparedCaptureStartsOnTheTokenItIsGivenAndGivesTheCameraBackAsItEnds()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (hub, profile, camera) = await RigAsync(ct);
+        await using var capture = new PlanetaryCapture(new FakeTimeProviderWrapper(), NullLogger.Instance);
+        capture.ArmFrameGate();
+        capture.TryPrepare(Request, profile, hub, out _, out var refusal).ShouldBeTrue(refusal);
+        using var run = CancellationTokenSource.CreateLinkedTokenSource(ct);
+
+        capture.StartPrepared(run.Token).ShouldBeTrue();
+        var next = capture.WaitForNextFrameAsync(ct);
+        capture.StepFrame();
+        await next;
+        capture.FramesReceived.ShouldBe(1);
+
+        await run.CancelAsync();
+        await capture.WaitForNextFrameAsync(ct);
+        capture.IsCapturing.ShouldBeFalse("the token it was started on ends it");
+        hub.TryGetLease(camera, out _).ShouldBeFalse("the loop gives the camera back as it ends");
     }
 }

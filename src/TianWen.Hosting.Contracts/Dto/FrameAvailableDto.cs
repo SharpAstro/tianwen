@@ -5,12 +5,19 @@ namespace TianWen.Hosting.Dto;
 
 /// <summary>
 /// The frame sources a node serves linear frames from (<c>GET /api/v1/frames/{source}/latest</c>, P4 of
-/// docs/plans/hardware-in-the-server.md, #931): each OTA's last captured frame, and the guide camera's.
+/// docs/plans/hardware-in-the-server.md, #931): each OTA's last captured frame, the guide camera's, and a planetary
+/// capture's live frame and rolling master (P5 part 5, #934).
 /// </summary>
 public static class FrameSources
 {
     /// <summary>The guide camera's frames, at guiding cadence.</summary>
     public const string Guider = "guider";
+
+    /// <summary>A planetary capture's live frame, as the camera gave it, at up to display rate.</summary>
+    public const string PlanetaryLive = "planetary/live";
+
+    /// <summary>A planetary capture's rolling master: the stack of its latest window, linear.</summary>
+    public const string PlanetaryMaster = "planetary/master";
 
     /// <summary>The frame OTA <paramref name="index"/> shows: a session's sub, focus rung or flat, or a preview the node took.</summary>
     public static string Ota(int index) => $"ota/{index}";

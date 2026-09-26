@@ -102,6 +102,7 @@ internal sealed class NodeRunWatch(IHostedSession hosted, EventHub clients, ITim
     private static string Describe(NodeRunKind kind) => kind switch
     {
         NodeRunKind.Polar => "Polar alignment",
+        NodeRunKind.Planetary => "The planetary capture",
         _ => $"The {kind} run",
     };
 }

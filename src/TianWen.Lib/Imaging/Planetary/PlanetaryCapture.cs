@@ -173,8 +173,8 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
     /// <summary>True while a capture loop is running.</summary>
     public bool IsCapturing => Volatile.Read(ref _captureActive) == 1;
 
-    /// <summary>The camera the active capture is streaming from, or null.</summary>
-    public ICameraDriver? Camera => _camera;
+    /// <summary>The camera the capture streams from, or is prepared to (<see cref="TryPrepare"/>), or null.</summary>
+    public ICameraDriver? Camera => Volatile.Read(ref _prepared)?.Camera ?? _camera;
 
     /// <summary>
     /// The frame stream the capture fills, or null before its first frame. REPLACED when the frames' size or layout
@@ -216,17 +216,46 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
     public RecenterActuator LastRecenterActuator => (RecenterActuator)Volatile.Read(ref _lastActuator);
 
     /// <summary>
-    /// Starts a capture from <paramref name="profile"/>'s devices, the one start rule for every host: OTA
-    /// <see cref="PlanetaryCaptureRequest.OtaIndex"/>'s camera, connected, claimed (<see cref="LeaseOwner"/>), its readout
-    /// window configured (<see cref="ConfigureRoi"/>), and the profile's mount, when connected, attached for the recenter's
-    /// coarse nudge with the OTA's pixel scale. Refuses in words, holding nothing, when any of it cannot be had.
+    /// Starts a capture from <paramref name="profile"/>'s devices, the one start rule for every host:
+    /// <see cref="TryPrepare"/> and then <see cref="StartPrepared"/>, for a host that starts it where it asks (the GUI).
+    /// Refuses in words, holding nothing, when any of it cannot be had.
     /// </summary>
     /// <param name="roi">The readout window applied, after snapping.</param>
     public bool TryStart(in PlanetaryCaptureRequest request, ProfileData profile, IDeviceHub hub, CancellationToken token,
         out (int Width, int Height) roi, [NotNullWhen(false)] out string? refusal)
     {
+        if (!TryPrepare(request, profile, hub, out roi, out refusal))
+        {
+            return false;
+        }
+        if (!StartPrepared(token))
+        {
+            refusal = "A planetary capture is already running";
+            return false;
+        }
+        return true;
+    }
+
+    // A capture made ready by TryPrepare and not yet started: its camera, what it streams at, and the claim on the camera,
+    // which StartPrepared hands to the loop and DisposeAsync gives back if it never starts.
+    private sealed record Prepared(ICameraDriver Camera, VideoCaptureOptions Options, DeviceLeaseSet Claim);
+
+    private Prepared? _prepared;
+
+    /// <summary>
+    /// Makes a capture from <paramref name="profile"/>'s devices ready to start, without streaming a frame: OTA
+    /// <see cref="PlanetaryCaptureRequest.OtaIndex"/>'s camera, connected, claimed (<see cref="LeaseOwner"/>), its readout
+    /// window configured (<see cref="ConfigureRoi"/>), and the profile's mount, when connected, attached for the recenter's
+    /// coarse nudge with the OTA's pixel scale. Refuses in words, holding nothing, when any of it cannot be had. The node
+    /// prepares as it is asked and starts on its own token once the run is its own (<see cref="StartPrepared"/>), so a
+    /// refusal is an answer to the request and the capture never runs on the request's token.
+    /// </summary>
+    /// <param name="roi">The readout window applied, after snapping.</param>
+    public bool TryPrepare(in PlanetaryCaptureRequest request, ProfileData profile, IDeviceHub hub,
+        out (int Width, int Height) roi, [NotNullWhen(false)] out string? refusal)
+    {
         roi = default;
-        if (IsCapturing)
+        if (IsCapturing || Volatile.Read(ref _prepared) is not null)
         {
             refusal = "A planetary capture is already running";
             return false;
@@ -252,10 +281,8 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
             return false;
         }
 
-        // Start owns the claim once handed it, refusing or not; a throw before that (the ROI, the mount wiring) must
-        // not strand it.
+        // The prepared start owns the claim once made; a throw before that (the ROI, the mount wiring) must not strand it.
         var handedOver = false;
-        var started = false;
         try
         {
             roi = ConfigureRoi(camera, request.RoiWidth, request.RoiHeight);
@@ -267,8 +294,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
             {
                 AttachMount(null, null, hub, double.NaN);
             }
-            handedOver = true;
-            started = Start(camera, new VideoCaptureOptions(request.Exposure, request.Gain), token, claim);
+            handedOver = Interlocked.CompareExchange(ref _prepared, new Prepared(camera, new VideoCaptureOptions(request.Exposure, request.Gain), claim), null) is null;
         }
         finally
         {
@@ -278,9 +304,16 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
             }
         }
 
-        refusal = started ? null : "A planetary capture is already running";
-        return started;
+        refusal = handedOver ? null : "A planetary capture is already running";
+        return handedOver;
     }
+
+    /// <summary>
+    /// Starts the capture <see cref="TryPrepare"/> made ready, on <paramref name="token"/>, which bounds its life. False,
+    /// holding nothing, when none was prepared or one is already running.
+    /// </summary>
+    public bool StartPrepared(CancellationToken token)
+        => Interlocked.Exchange(ref _prepared, null) is { } prepared && Start(prepared.Camera, prepared.Options, token, prepared.Claim);
 
     /// <summary>
     /// Configures a camera's sub-frame (ROI) for planetary video: bin 1 + a <paramref name="width"/> x
@@ -538,8 +571,8 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
     /// <summary>Sets the gain for the running stream (takes effect on the next frame).</summary>
     public void SetGain(int gain) => Volatile.Write(ref _pendingGain, Math.Max(0, gain));
 
-    /// <summary>Resizes the readout window (ROI) of the running stream; the frame stream rebuilds at the new size on the
-    /// next frame (the live stack restarts cleanly at the new framing).</summary>
+    /// <summary>Resizes the readout window (ROI) of the running stream, snapped to the camera's ROI rule; the frame stream
+    /// rebuilds at the new size on the next frame (the live stack restarts cleanly at the new framing).</summary>
     public void SetRoiSize(int width, int height)
     {
         Volatile.Write(ref _pendingRoiW, width);
@@ -738,8 +771,11 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         {
             if (rw > 0 && rh > 0)
             {
-                camera.NumX = rw;
-                camera.NumY = rh;
+                // Snapped here, for every host, as the start's window is (ConfigureRoi): a size a host already snapped
+                // snaps to itself, and one a client asked for over the wire must not reach the camera unsnapped.
+                var snapped = camera.RoiConstraints.Snap(new RoiRect(0, 0, rw, rh));
+                camera.NumX = snapped.Width;
+                camera.NumY = snapped.Height;
             }
 
             if (video is not null && (expTicks > 0 || gain >= 0))
@@ -817,11 +853,13 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
     }
 
     /// <summary>
-    /// Stops the capture within a bounded drain and disposes its stream. A host that stacks the stream disposes what
-    /// reads it FIRST, so nothing reads a released ring.
+    /// Stops the capture within a bounded drain and disposes its stream, and gives back the claim of one prepared and never
+    /// started. A host that stacks the stream disposes what reads it FIRST, so nothing reads a released ring.
     /// </summary>
     public async ValueTask DisposeAsync()
     {
+        Interlocked.Exchange(ref _prepared, null)?.Claim.Dispose();
+
         // Bound the capture-loop drain so a slow/stuck loop can't hang shutdown. The CTS fires off the injected
         // TimeProvider (FakeTimeProvider-controllable in tests), not the raw system clock.
         using var drainTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(3), timeProvider.System);

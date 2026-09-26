@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Threading;
 using TianWen.Hosting.Dto;
 using TianWen.Lib.Imaging;
@@ -39,8 +40,61 @@ internal sealed class NodeFrames(IHostedSession hosted)
     // Published by reference swap; a slot's frame is released only once its successor (or its absence) is out.
     private Preview?[] _previews = [];
 
+    // The frames of a source that is a run's own rather than an OTA's (a planetary capture's live frame and master), each
+    // with the run it was published in: shown until the node's next run starts, released once replaced or superseded.
+    private readonly ConcurrentDictionary<string, Preview> _named = new ConcurrentDictionary<string, Preview>(StringComparer.Ordinal);
+
     /// <summary>The frame OTA <paramref name="index"/> shows now.</summary>
     public Shown Ota(int index) => Observe(FrameSources.Ota(index), ResolveOta(index));
+
+    /// <summary>
+    /// The frame a run's own source shows now (<see cref="FrameSources.PlanetaryLive"/>,
+    /// <see cref="FrameSources.PlanetaryMaster"/>): the latest one its run published, until the node's next run starts.
+    /// </summary>
+    public Shown Named(string source) => Observe(source, ResolveNamed(source));
+
+    /// <summary>
+    /// Shows <paramref name="frame"/> as <paramref name="source"/>'s, and CONSUMES it: the node owns it from here and
+    /// releases it once another replaces it, or once a run has started since.
+    /// </summary>
+    public void Publish(string source, Image frame)
+    {
+        var next = new Preview(frame, LatestRun());
+        while (true)
+        {
+            if (_named.TryGetValue(source, out var replaced))
+            {
+                if (_named.TryUpdate(source, next, replaced))
+                {
+                    replaced.Frame.Release();
+                    return;
+                }
+            }
+            else if (_named.TryAdd(source, next))
+            {
+                return;
+            }
+        }
+    }
+
+    private Image? ResolveNamed(string source)
+    {
+        if (!_named.TryGetValue(source, out var shown))
+        {
+            return null;
+        }
+        if (ReferenceEquals(shown.LatestRun, LatestRun()))
+        {
+            return shown.Frame;
+        }
+
+        // Its run has been replaced: taken out only if nothing has replaced it in between, and given back.
+        if (_named.TryRemove(new KeyValuePair<string, Preview>(source, shown)))
+        {
+            shown.Frame.Release();
+        }
+        return null;
+    }
 
     /// <summary>The guide camera's frame now: a session's only.</summary>
     public Shown Guider() => Observe(FrameSources.Guider, hosted.CurrentSession?.LastGuideFrame);

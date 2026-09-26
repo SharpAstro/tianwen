@@ -8,7 +8,6 @@ using System.Threading.Tasks;
 using TianWen.Hosting;
 using TianWen.Hosting.Api;
 using TianWen.Hosting.Dto;
-using TianWen.Hosting.WebSocket;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
@@ -76,55 +75,8 @@ public class NodePolarAlignmentTests(ITestOutputHelper outputHelper)
     private static Task<NodeResult<CameraSettingsDto>> CommandTheCameraAsync(TianWenNodeClient client, CancellationToken ct) =>
         client.SetCameraSettingsAsync(new CameraSettingsRequestDto { DeviceUri = Camera.DeviceUri.ToString(), Bin = 1 }, ct);
 
-    /// <summary>
-    /// A client window: attached, and beating from its loop while it draws. <see cref="Drawing"/> false is a window that
-    /// froze, its socket still open.
-    /// </summary>
-    private sealed class Window : IAsyncDisposable
-    {
-        private readonly TianWenEventStream _stream;
-        private readonly CancellationTokenSource _closed = new CancellationTokenSource();
-        private readonly Task _loop;
-        private volatile bool _drawing = true;
-
-        public Window(TianWenEventStream stream)
-        {
-            _stream = stream;
-            _loop = Task.Run(async () =>
-            {
-                while (!_closed.IsCancellationRequested)
-                {
-                    if (_drawing)
-                    {
-                        _stream.Beat();
-                    }
-                    await Task.Delay(16, CancellationToken.None);
-                }
-            }, CancellationToken.None);
-        }
-
-        public bool Drawing { set => _drawing = value; }
-
-        public async ValueTask DisposeAsync()
-        {
-            await _closed.CancelAsync();
-            await _loop;
-            await _stream.DisposeAsync();
-            _closed.Dispose();
-        }
-    }
-
     /// <summary>Opens a window on <paramref name="node"/> and waits until the node counts it as present.</summary>
-    private async Task<Window> WatchingAsync(NodeHarness node, CancellationToken ct)
-    {
-        var stream = node.Transport.CreateEventStream(new SystemTimeProvider(), FakeExternal.CreateLogger(outputHelper));
-        stream.Start(ct);
-        var window = new Window(stream);
-        var clients = node.App.Services.GetRequiredService<EventHub>();
-        await UntilAsync<string>("the window to be present", _ => ValueTask.FromResult<(string?, string)>(
-            (clients.PresentClientCount > 0 ? "present" : null, $"{clients.PresentClientCount} present")), ct);
-        return window;
-    }
+    private Task<NodeWindow> WatchingAsync(NodeHarness node, CancellationToken ct) => NodeWindow.OpenAsync(node, outputHelper, ct);
 
     [Fact(Timeout = 60_000)]
     public async Task APhaseAThatCannotSolveEndsTheRunAndGivesTheRigBack()

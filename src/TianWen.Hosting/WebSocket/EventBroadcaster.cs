@@ -201,6 +201,8 @@ internal sealed class EventBroadcaster(
             Announce(FrameSources.Ota(i), frames.Ota(i));
         }
         Announce(FrameSources.Guider, frames.Guider());
+        Announce(FrameSources.PlanetaryLive, frames.Named(FrameSources.PlanetaryLive));
+        Announce(FrameSources.PlanetaryMaster, frames.Named(FrameSources.PlanetaryMaster));
     }
 
     private void Announce(string source, NodeFrames.Shown shown)
