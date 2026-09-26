@@ -50,6 +50,10 @@ public static class HostedSessionServiceCollectionExtensions
         // The frame each source shows, whoever took it, and the node's preview exposures outside a session (P5 part 2).
         services.AddSingleton<NodeFrames>();
         services.AddSingleton<NodePreviews>();
+        // Polar alignment as the node's run (P5 part 4), and the watch that ends an interactive run nobody is watching.
+        services.AddSingleton<NodePolarAlignment>();
+        services.TryAddSingleton(NodeRunWatchOptions.Default);
+        services.AddHostedService<NodeRunWatch>();
         // The node's one profile writer (P3 part 1, #930): every profile write, whoever asked, pushes PROFILE-CHANGED.
         services.AddSingleton<NodeProfiles>();
         // Where a masked device setting goes (P3 part 4). A host that composes AddExternal has chosen one already; any
@@ -135,6 +139,7 @@ public static class HostedSessionServiceCollectionExtensions
         app.MapPreviewApi();
         app.MapFrameApi();
         app.MapDarkLibraryApi();
+        app.MapPolarAlignmentApi();
         app.MapWebSocketEndpoint();
 
         // ASCOM Alpaca DEVICE plane (docs/plans/remote-profile.md P5). Shares the /api/v1 prefix, which

@@ -110,6 +110,12 @@ public interface IHostedSession : IHostedService
     /// disposed under it. Null when nothing is running.
     /// </summary>
     Task? TryAbort();
+
+    /// <summary>
+    /// <see cref="TryAbort()"/>, only while <paramref name="run"/> is the run going on: a stop meant for one run must never
+    /// abort a run that replaced it between the caller's look and its stop. Null when <paramref name="run"/> is not going on.
+    /// </summary>
+    Task? TryAbort(INodeRun run);
 }
 
 internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITimeProvider timeProvider, NodeSettingsStore settings, ILogger<HostedSession> logger)
@@ -379,6 +385,18 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
 
         run.Cancel();
         return run.Completion;
+    }
+
+    public Task? TryAbort(INodeRun run)
+    {
+        // One read: the run going on is the one named, or nothing is stopped.
+        if (Volatile.Read(ref _run) is not { Completion.IsCompleted: false } going || !ReferenceEquals(going.Other, run))
+        {
+            return null;
+        }
+
+        going.Cancel();
+        return going.Completion;
     }
 
     /// <summary>

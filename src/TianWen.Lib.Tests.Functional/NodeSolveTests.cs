@@ -32,46 +32,12 @@ public class NodeSolveTests(ITestOutputHelper outputHelper)
     /// <summary>What a stand-in solve finds: a field near Orion, with a scale and a small rotation.</summary>
     private static readonly WCS Field = new WCS(5.5, -5.4) { CRPix1 = 2071.5, CRPix2 = 1410.5, CD1_1 = -2.1e-4, CD1_2 = 3.0e-6, CD2_1 = -2.9e-6, CD2_2 = -2.1e-4 };
 
-    /// <summary>A solver that answers at once with <paramref name="answer"/>, or with no match.</summary>
-    private sealed class StandInSolver(WCS? answer) : IPlateSolverFactory
-    {
-        public string Name => "stand-in";
-
-        public float Priority => 0;
-
-        public IPlateSolver? SelectedPlateSolver => this;
-
-        public ValueTask<bool> CheckSupportAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(true);
-
-        public Task<PlateSolveResult> SolveFileAsync(string fitsFile, ImageDim? imageDim = default, float range = 0.03f, WCS? searchOrigin = default,
-            double? searchRadius = default, CancellationToken cancellationToken = default)
-            => Task.FromResult(new PlateSolveResult(answer, TimeSpan.FromMilliseconds(5)));
-
-        Task<PlateSolveResult> IPlateSolver.SolveImageAsync(Image image, ImageDim? imageDim, float range, WCS? searchOrigin, double? searchRadius,
-            CancellationToken cancellationToken)
-            => Task.FromResult(new PlateSolveResult(answer, TimeSpan.FromMilliseconds(5)));
-    }
-
     private Task<NodeHarness> NodeSolvingAsync(WCS? answer, CancellationToken ct) =>
-        NodeHarness.StartAsync(outputHelper, ct, services => services.AddSingleton<IPlateSolverFactory>(new StandInSolver(answer)));
+        NodeHarness.StartAsync(outputHelper, ct, services => services.AddSingleton<IPlateSolverFactory>(StandInSolver.Answering(answer)));
 
     private static TianWenNodeClient ClientOf(NodeHarness node) => new TianWenNodeClient(node.Client);
 
-    /// <summary>An active profile with the fake mount (at its own site) and one OTA with the fake camera, both connected.</summary>
-    private static async Task ActiveRigAsync(NodeHarness node, bool withMount, CancellationToken ct)
-    {
-        var ota = new OTAData("Solve OTA", 400, Camera.DeviceUri, null, null, null, null, null);
-        var profile = new Profile(Guid.NewGuid(), "Solve rig",
-            new ProfileData(withMount ? Mount.DeviceUri : NoneDevice.Instance.DeviceUri, NoneDevice.Instance.DeviceUri, [ota], SiteLatitude: 48.2, SiteLongitude: 16.3));
-        await profile.SaveAsync(node.External, ct);
-        await node.Node.SetActiveProfileAsync(profile.ProfileId, ct);
-        var hub = node.App.Services.GetRequiredService<IDeviceHub>();
-        await hub.ConnectAsync(Camera, ct);
-        if (withMount)
-        {
-            await hub.ConnectAsync(Mount, ct);
-        }
-    }
+    private static Task ActiveRigAsync(NodeHarness node, bool withMount, CancellationToken ct) => node.ActivateRigAsync(Camera, withMount ? Mount : null, ct);
 
     private static Task<JobDto> UntilEndedAsync(TianWenNodeClient client, string id, CancellationToken ct) =>
         UntilAsync<JobDto>($"job {id} to end", async token =>

@@ -14,6 +14,7 @@ internal static class NodeRuns
         NodeRunKind.Session => "A session is already running",
         NodeRunKind.Flats => "A flat run is already running",
         NodeRunKind.Darks => "A dark library is being taken",
+        NodeRunKind.Polar => "Polar alignment is running",
         _ => "A run is already going on",
     };
 }

@@ -89,8 +89,7 @@ internal sealed class NodeDarkLibrary(IDeviceHub hub, NodeJobs jobs, IHostedSess
     public async Task<ResponseEnvelope<DarkLibraryStateDto>> StopAsync(CancellationToken cancellationToken)
     {
         // Only a dark library: a stop meant for one must never abort a session that replaced it.
-        if (hosted.CurrentRun is not DarkLibraryRun { IsRunning: true } run || hosted.RunningKind is not NodeRunKind.Darks
-            || hosted.TryAbort() is not { } ended)
+        if (hosted.CurrentRun is not DarkLibraryRun { IsRunning: true } run || hosted.TryAbort(run) is not { } ended)
         {
             return ResponseEnvelope<DarkLibraryStateDto>.NotFound("No dark library is being taken");
         }
@@ -110,6 +109,9 @@ internal sealed class DarkLibraryRun(DarkFrameRun capture, ICameraDriver camera,
     private volatile string? _failure;
 
     public NodeRunKind Kind => NodeRunKind.Darks;
+
+    /// <summary>A dark library finishes its count whether or not anyone watches the frames being written.</summary>
+    public bool EndsUnwatched => false;
 
     /// <summary>Until its body has ended, whether or not it has begun: the node releases it at once.</summary>
     public bool IsRunning => Volatile.Read(ref _ended) == 0;

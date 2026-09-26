@@ -317,7 +317,7 @@ internal sealed class EventBroadcaster(
     /// attached client that ignores <c>PROMPT-REQUESTED</c> is a client bug, and guessing an answer after
     /// some arbitrary interval does not fix it -- it just fabricates a decision faster. The only bound is
     /// <i>liveness</i>: if the last observer goes away, or stops beating while its socket stays open (a frozen
-    /// window, <see cref="EventHub.PromptObserverCount"/>), while a prompt is outstanding, the poll loop
+    /// window, <see cref="EventHub.PresentClientCount"/>), while a prompt is outstanding, the poll loop
     /// resolves it (<see cref="ResolveOrphanedPrompt"/>).
     /// </para>
     /// <para>
@@ -330,8 +330,8 @@ internal sealed class EventBroadcaster(
     /// </summary>
     internal void OnPromptRequested(object? sender, SessionPromptEventArgs e)
     {
-        // Only a client that can answer counts: a ninaAPI v2 socket has no prompt route (EventHub.PromptObserverCount).
-        if (eventHub.PromptObserverCount == 0)
+        // Only a client that can answer counts: a ninaAPI v2 socket has no prompt route (EventHub.PresentClientCount).
+        if (eventHub.PresentClientCount == 0)
         {
             AnswerUnattended(e, "no observer attached");
             return;
@@ -372,7 +372,7 @@ internal sealed class EventBroadcaster(
     /// </summary>
     internal void ResolveOrphanedPrompt()
     {
-        if (eventHub.PromptObserverCount > 0 || hostedSession.PendingPrompt is not { } prompt)
+        if (eventHub.PresentClientCount > 0 || hostedSession.PendingPrompt is not { } prompt)
         {
             return;
         }

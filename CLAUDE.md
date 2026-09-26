@@ -965,7 +965,11 @@ session-end. Wire-up: `BacklashEstimator`, `BacklashHistoryPersistence`, `Sessio
 
 `PolarAlignmentSession` (`TianWen.Lib/Sequencing/PolarAlignment/`) is a SharpCap-style two-frame
 plate-solve routine that runs **outside** of `Session.RunAsync` against a manually-connected mount.
-See `docs/plans/polar-alignment.md` for the math/algorithm.
+See `docs/plans/polar-alignment.md` for the math/algorithm. **`PolarAlignmentRun` is the ONE routine from
+start to restore**, which the GUI runs in its own process and the node for a client (`/api/v1/polar`): it
+resolves the devices from the profile, claims them, runs Phase A and the refine loop, and restores the mount
+however it ends; a host decides only where its state and frames go. **Cancellation is how it ends** (Done and
+Cancel are one exit), never a failure.
 
 ### Flat-Frame Acquisition (automation)
 
@@ -1196,10 +1200,13 @@ full native-AOT rules, and the reasoning behind each rule below:
    connection cancel the night. An abort ends the run through its `Finalise`, never disposing it
    underneath; a finished run never blocks the next; the host stopping aborts, awaits `Finalise`, then
    warms the hub's cameras inside `HostedSession.ShutdownBudget` (and systemd's `TimeoutStopSec` must allow
-   as long). **A run is of any kind** (`INodeRun`, P5: a dark library first, polar and planetary to come),
+   as long). **A run is of any kind** (`INodeRun`, P5: a dark library, polar alignment, planetary to come),
    started the same way; a refused start NAMES the run going on (`NodeRuns.AlreadyGoingOn`), each kind stops
-   through its own route, and a run releases its lease as its body ends. Pinned by `NodeRunLifecycleTests`
-   and `NodeDarkLibraryTests`.
+   through its own route, a stop NAMES the run it means (`TryAbort(INodeRun)`, so a run that replaced it is
+   never the one stopped), and a run releases its lease as its body ends. **An interactive run stops once no
+   client has been present for the detach grace** (`INodeRun.EndsUnwatched`, `NodeRunWatch`, presence being
+   the fresh beat a prompt waits by). Pinned by `NodeRunLifecycleTests`, `NodeDarkLibraryTests`,
+   `NodePolarAlignmentTests` and `NodeRunWatchTests`.
 8. **`new SessionConfiguration()` is the DECLARED defaults; `default(SessionConfiguration)` is all zeros.**
    A record struct whose primary constructor has required parameters zero-fills on `new()` unless it
    declares a parameterless constructor, and before one was added every API session synced the mount's
