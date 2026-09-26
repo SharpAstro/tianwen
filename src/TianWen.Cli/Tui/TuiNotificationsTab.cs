@@ -18,12 +18,13 @@ internal sealed class TuiNotificationsTab(GuiAppState appState) : TuiTabBase
     protected override bool IsReady => _list is not null && _statusBar is not null;
 
     // Fill-leaf keys. The tree names these; PaintHost draws them.
-    private const string ListKey = "list";
+    internal const string ListKey = "list";
     private const string StatusKey = "status";
 
     protected override void CreateWidgets()
     {
-        _list = new ScrollableList<NotificationListItem>(Host(ListKey));
+        // HostList, so the cursor survives a tab switch: Attach rebuilds the list.
+        _list = HostList<NotificationListItem>(ListKey);
         _statusBar = new TextBar(Host(StatusKey));
     }
 

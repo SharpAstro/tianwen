@@ -99,8 +99,8 @@ internal sealed class TuiEquipmentTab(
         _profileList is not null && _settingsList is not null && _siteBar is not null && _statusBar is not null;
 
     // Fill-leaf keys. The tree names these; PaintHost draws them.
-    private const string ProfilesKey = "profiles";
-    private const string SettingsKey = "settings";
+    internal const string ProfilesKey = "profiles";
+    internal const string SettingsKey = "settings";
     private const string SiteKey = "site";
     private const string StatusKey = "status";
 
@@ -109,8 +109,9 @@ internal sealed class TuiEquipmentTab(
     {
         _siteBar = new TextBar(Host(SiteKey));
         _statusBar = new TextBar(Host(StatusKey));
-        _profileList = new ScrollableList<ProfilePickerItem>(Host(ProfilesKey));
-        _settingsList = new ScrollableList<EquipmentFieldItem>(Host(SettingsKey));
+        // HostList, so both cursors survive a tab switch: Attach rebuilds the lists.
+        _profileList = HostList<ProfilePickerItem>(ProfilesKey);
+        _settingsList = HostList<EquipmentFieldItem>(SettingsKey);
     }
 
     /// <summary>
