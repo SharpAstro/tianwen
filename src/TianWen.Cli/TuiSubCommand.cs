@@ -338,6 +338,8 @@ internal class TuiSubCommand(
             // Signal bus + background tasks + recompute check
             bus.ProcessPending(tracker);
             signalHandler.CheckRecompute();
+            // Presence: the loop that draws the terminal is running, so a remote rig's node may hold a prompt for it.
+            signalHandler.BeatRemoteRigs();
             tracker.ProcessCompletions(logger);
 
             // A confirmed abort goes on to stop the rig once the session has ended; a dismissed one withdraws.

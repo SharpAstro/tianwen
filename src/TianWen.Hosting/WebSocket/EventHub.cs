@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using TianWen.Hosting.Api;
 using TianWen.Hosting.Dto;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Hosting.WebSocket;
 
@@ -40,18 +41,20 @@ internal sealed class EventHub
     private readonly ConcurrentDictionary<string, EventClient> _clients = new ConcurrentDictionary<string, EventClient>();
     private readonly int _queueCapacity;
     private readonly TimeSpan _sendTimeout;
+    private readonly ITimeProvider _timeProvider;
     private readonly ILogger _logger;
 
-    public EventHub(ILogger<EventHub> logger)
-        : this(DefaultQueueCapacity, DefaultSendTimeout, logger)
+    public EventHub(ITimeProvider timeProvider, ILogger<EventHub> logger)
+        : this(DefaultQueueCapacity, DefaultSendTimeout, timeProvider, logger)
     {
     }
 
-    internal EventHub(int queueCapacity, TimeSpan sendTimeout, ILogger? logger = null)
+    internal EventHub(int queueCapacity, TimeSpan sendTimeout, ITimeProvider timeProvider, ILogger? logger = null)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(queueCapacity, 1);
         _queueCapacity = queueCapacity;
         _sendTimeout = sendTimeout;
+        _timeProvider = timeProvider;
         _logger = logger ?? NullLogger.Instance;
     }
 
@@ -62,7 +65,38 @@ internal sealed class EventHub
     /// prompt route, so it is nobody to wait for; it used to count, and held every prompt indefinitely (P0b
     /// item 13 of docs/plans/hardware-in-the-server.md, #752).
     /// </summary>
-    public int PromptObserverCount => NativeClientCount;
+    /// <remarks>
+    /// Only a native client whose PRESENCE BEAT is fresh (<see cref="NodeWire.PresenceLapse"/>) counts. A registered
+    /// socket used to be enough, and a window frozen by a GPU wedge keeps its socket open, so it held a prompt, and
+    /// with it the night, for ever (P1 of docs/plans/hardware-in-the-server.md, #917). A client beats from the loop
+    /// that draws it, so one that stops drawing stops counting within a few seconds, and the prompt gets the
+    /// session's unattended answer as if nobody were attached.
+    /// </remarks>
+    public int PromptObserverCount
+    {
+        get
+        {
+            var now = _timeProvider.GetUtcNow().UtcTicks;
+            var count = 0;
+            foreach (var (_, client) in _clients)
+            {
+                if (!client.NinaV2 && now - client.LastBeatTicks <= NodeWire.PresenceLapse.Ticks)
+                {
+                    count++;
+                }
+            }
+            return count;
+        }
+    }
+
+    /// <summary>Records a presence beat from client <paramref name="id"/> (<see cref="NodeWire.PresenceBeat"/>).</summary>
+    public void RecordBeat(string id)
+    {
+        if (_clients.TryGetValue(id, out var client))
+        {
+            client.LastBeatTicks = _timeProvider.GetUtcNow().UtcTicks;
+        }
+    }
 
     /// <summary>
     /// The TianWen clients attached (<c>GET /api/v1/node</c>'s <c>ClientsAttached</c>): every socket but the
@@ -197,6 +231,15 @@ internal sealed class EventHub
         public System.Net.WebSockets.WebSocket Socket { get; } = socket;
 
         public bool NinaV2 { get; } = ninaV2;
+
+        private long _lastBeatTicks = long.MinValue / 2;
+
+        /// <summary>When the client last beat, in UTC ticks; long ago until its first beat.</summary>
+        public long LastBeatTicks
+        {
+            get => Volatile.Read(ref _lastBeatTicks);
+            set => Volatile.Write(ref _lastBeatTicks, value);
+        }
 
         public Channel<byte[]> Queue { get; } = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(queueCapacity)
         {

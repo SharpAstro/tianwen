@@ -282,7 +282,8 @@ internal sealed class EventBroadcaster(
     /// <b>While an observer is attached, wait as long as it takes.</b> There is deliberately no timer: an
     /// attached client that ignores <c>PROMPT-REQUESTED</c> is a client bug, and guessing an answer after
     /// some arbitrary interval does not fix it -- it just fabricates a decision faster. The only bound is
-    /// <i>liveness</i>: if the last observer goes away while a prompt is outstanding, the poll loop
+    /// <i>liveness</i>: if the last observer goes away, or stops beating while its socket stays open (a frozen
+    /// window, <see cref="EventHub.PromptObserverCount"/>), while a prompt is outstanding, the poll loop
     /// resolves it (<see cref="ResolveOrphanedPrompt"/>).
     /// </para>
     /// <para>
@@ -329,10 +330,11 @@ internal sealed class EventBroadcaster(
     }
 
     /// <summary>
-    /// Resolves an outstanding prompt once the last observer has gone. Without this, a client that
-    /// attached, triggered the hold, and then dropped its socket would leave the run blocked with nobody
-    /// able to answer -- the exact wedge the no-observer branch exists to prevent, reached by a different
-    /// route.
+    /// Resolves an outstanding prompt once the last observer has gone, or can no longer see it: its socket
+    /// closed, or its presence beat lapsed while the socket stayed open, which is what a window frozen by a GPU
+    /// wedge looks like. Without this, a client that attached, triggered the hold, and then went would leave the
+    /// run blocked with nobody able to answer -- the exact wedge the no-observer branch exists to prevent,
+    /// reached by a different route.
     /// </summary>
     internal void ResolveOrphanedPrompt()
     {
@@ -344,8 +346,8 @@ internal sealed class EventBroadcaster(
         // Grab-and-clear first so a client reconnecting at this instant cannot double-answer.
         if (hostedSession.TryRespondToPrompt(prompt.DefaultIfUnanswerable))
         {
-            logger.LogWarning("Prompt '{Title}' was outstanding when the last observer disconnected", prompt.Title);
-            Notify("Warning", $"{prompt.Title}: observer disconnected before answering");
+            logger.LogWarning("Prompt '{Title}' was outstanding when the last observer went (disconnected, or stopped drawing)", prompt.Title);
+            Notify("Warning", $"{prompt.Title}: no window could show it any more, so it got the unattended answer");
         }
     }
 

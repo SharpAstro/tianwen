@@ -27,10 +27,21 @@ namespace TianWen.Lib.Tests
     /// </summary>
     public class EventBroadcasterPromptTests
     {
-        private static (EventBroadcaster Broadcaster, HostedSession Host, EventHub Hub) Build()
+        // The presence clock: each test's own, turned by hand.
+        private readonly FakeTimeProviderWrapper _clock = new FakeTimeProviderWrapper();
+
+        /// <summary>A TianWen client that is attached and beating: one that can see a prompt.</summary>
+        private static string Attach(EventHub hub)
+        {
+            var id = hub.AddClient(FakeClient());
+            hub.RecordBeat(id);
+            return id;
+        }
+
+        private (EventBroadcaster Broadcaster, HostedSession Host, EventHub Hub) Build()
         {
             var host = new HostedSession(Substitute.For<ISessionFactory>(), Substitute.For<IDeviceHub>(), Substitute.For<ITimeProvider>(), new NodeSettingsStore(Substitute.For<IExternal>(), NodeSettings.Default), Microsoft.Extensions.Logging.Abstractions.NullLogger<HostedSession>.Instance);
-            var hub = new EventHub(NullLogger<EventHub>.Instance);
+            var hub = new EventHub(_clock, NullLogger<EventHub>.Instance);
             var enhancer = new HostedImageEnhancer(pipeline: null, NullLogger<HostedImageEnhancer>.Instance);
             var jobs = new NodeJobs(Substitute.For<Microsoft.Extensions.Hosting.IHostApplicationLifetime>(), Substitute.For<ITimeProvider>(), NullLogger<NodeJobs>.Instance);
             var broadcaster = new EventBroadcaster(
@@ -119,7 +130,7 @@ namespace TianWen.Lib.Tests
         public void WithAnObserverAttachedThePromptIsHeldForThemRatherThanGuessed()
         {
             var (broadcaster, host, hub) = Build();
-            hub.AddClient(FakeClient());
+            Attach(hub);
             var (prompt, answer) = MakePrompt();
 
             broadcaster.OnPromptRequested(this, prompt);
@@ -137,7 +148,7 @@ namespace TianWen.Lib.Tests
             // The warning a remote observer needs: they cannot clear this one themselves, however many
             // buttons their UI offers. Severity is Error, not Warning, because the run is stopped.
             var (broadcaster, host, hub) = Build();
-            hub.AddClient(FakeClient());
+            Attach(hub);
             var (prompt, _) = MakePrompt(requiresPhysicalPresence: true);
 
             broadcaster.OnPromptRequested(this, prompt);
@@ -153,7 +164,7 @@ namespace TianWen.Lib.Tests
         public void APromptThatDoesNotNeedPhysicalPresenceOmitsThatWarning()
         {
             var (broadcaster, host, hub) = Build();
-            hub.AddClient(FakeClient());
+            Attach(hub);
             var (prompt, _) = MakePrompt(requiresPhysicalPresence: false);
 
             broadcaster.OnPromptRequested(this, prompt);
@@ -172,7 +183,7 @@ namespace TianWen.Lib.Tests
             // socket. Nobody is left who can answer, so the liveness check has to close it -- otherwise
             // Finalise never runs and the rig stays exposed.
             var (broadcaster, host, hub) = Build();
-            var clientId = hub.AddClient(FakeClient());
+            var clientId = Attach(hub);
             var (prompt, answer) = MakePrompt(defaultIfUnanswerable: false);
 
             broadcaster.OnPromptRequested(this, prompt);
@@ -187,11 +198,66 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
+        public async Task AClientThatAttachedButNeverBeatIsNobodyToWaitFor()
+        {
+            // A socket is not a window that can show the prompt (P1 of docs/plans/hardware-in-the-server.md, #917).
+            var (broadcaster, host, hub) = Build();
+            hub.AddClient(FakeClient());
+            var (prompt, answer) = MakePrompt(defaultIfUnanswerable: false);
+
+            broadcaster.OnPromptRequested(this, prompt);
+
+            answer.IsCompletedSuccessfully.ShouldBeTrue("nobody can see it, so the session's unattended answer, at once");
+            (await answer).ShouldBeFalse();
+            host.PendingPrompt.ShouldBeNull();
+        }
+
+        [Fact]
+        public async Task APromptIsLetGoOnceItsObserverStopsBeatingThoughItsSocketStaysOpen()
+        {
+            // The frozen window: a GPU wedge that freezes the loop rather than ending the process keeps the socket open.
+            var (broadcaster, host, hub) = Build();
+            Attach(hub);
+            var (prompt, answer) = MakePrompt(defaultIfUnanswerable: false);
+            broadcaster.OnPromptRequested(this, prompt);
+
+            _clock.Advance(TianWen.Hosting.Api.NodeWire.PresenceLapse);
+            broadcaster.ResolveOrphanedPrompt();
+            answer.IsCompleted.ShouldBeFalse("a beat within the lapse is still a window that can see it");
+
+            _clock.Advance(TimeSpan.FromSeconds(1));
+            broadcaster.ResolveOrphanedPrompt();
+
+            answer.IsCompletedSuccessfully.ShouldBeTrue();
+            (await answer).ShouldBeFalse();
+            host.PendingPrompt.ShouldBeNull();
+        }
+
+        [Fact]
+        public void AnObserverThatKeepsBeatingKeepsThePromptHeldAsLongAsItTakes()
+        {
+            var (broadcaster, host, hub) = Build();
+            var client = Attach(hub);
+            var (prompt, answer) = MakePrompt();
+            broadcaster.OnPromptRequested(this, prompt);
+
+            for (var minute = 0; minute < 10; minute++)
+            {
+                _clock.Advance(TimeSpan.FromSeconds(4));
+                hub.RecordBeat(client);
+                broadcaster.ResolveOrphanedPrompt();
+            }
+
+            answer.IsCompleted.ShouldBeFalse("no timer: a window that is there waits for its human");
+            host.PendingPrompt.ShouldBeSameAs(prompt);
+        }
+
+        [Fact]
         public void TheLivenessCheckLeavesAPromptAloneWhileAnObserverIsStillThere()
         {
             // It runs on every poll tick, so it must be inert in the normal case.
             var (broadcaster, host, hub) = Build();
-            hub.AddClient(FakeClient());
+            Attach(hub);
             var (prompt, answer) = MakePrompt();
 
             broadcaster.OnPromptRequested(this, prompt);
@@ -207,7 +273,7 @@ namespace TianWen.Lib.Tests
         public async Task AClientsAnswerWinsAndTheLivenessCheckThenDoesNothing()
         {
             var (broadcaster, host, hub) = Build();
-            var clientId = hub.AddClient(FakeClient());
+            var clientId = Attach(hub);
             var (prompt, answer) = MakePrompt(defaultIfUnanswerable: false);
 
             broadcaster.OnPromptRequested(this, prompt);
@@ -246,7 +312,7 @@ namespace TianWen.Lib.Tests
         public async Task APromptLeftWithOnlyANinaSocketIsResolved()
         {
             var (broadcaster, host, hub) = Build();
-            var native = hub.AddClient(FakeClient());
+            var native = Attach(hub);
             hub.AddClient(FakeClient(), ninaV2: true);
             var (prompt, answer) = MakePrompt(defaultIfUnanswerable: false);
 
@@ -267,7 +333,7 @@ namespace TianWen.Lib.Tests
             // The run was cancelled while the prompt waited: the session no longer waits on it, so a client
             // polling /session/state must not be offered it. It used to stay there until the next prompt.
             var (broadcaster, host, hub) = Build();
-            hub.AddClient(FakeClient());
+            Attach(hub);
             var (prompt, completion) = MakeWithdrawablePrompt();
 
             broadcaster.OnPromptRequested(this, prompt);
@@ -287,7 +353,7 @@ namespace TianWen.Lib.Tests
         public async Task AnEarlierPromptSettlingLeavesALaterOneOnOffer()
         {
             var (broadcaster, host, hub) = Build();
-            hub.AddClient(FakeClient());
+            Attach(hub);
             var (first, firstCompletion) = MakeWithdrawablePrompt();
             var (second, _) = MakeWithdrawablePrompt();
 

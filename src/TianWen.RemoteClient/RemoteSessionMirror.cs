@@ -201,6 +201,9 @@ namespace TianWen.RemoteClient
         /// it, just up to one poll interval behind).</summary>
         public bool IsEventStreamConnected => _events.IsConnected;
 
+        /// <summary>Tells the node this client can see a prompt; from the host's drawing loop (<see cref="TianWenEventStream.Beat"/>).</summary>
+        public void Beat() => _events.Beat();
+
         /// <summary>Starts polling and attaches the event stream. Idempotent.</summary>
         public void Start(CancellationToken cancellationToken)
         {

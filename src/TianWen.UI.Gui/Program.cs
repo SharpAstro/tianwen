@@ -577,6 +577,19 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
 // A quit (the window's close button, Esc twice): the shared rule, AppQuit.
 void RequestQuit() => appQuit.Request();
 
+// Presence: every loop iteration, drawn or idle, tells each remote rig's node this window can see a prompt. The
+// loop's own hook, since OnPostFrame runs only after a rendered frame and an idle window renders nothing; not once the
+// display is lost, when the window cannot show a prompt any more. Composed, so the debug inspector's pump still runs.
+var previousLoopIteration = loop.OnLoopIteration;
+loop.OnLoopIteration = () =>
+{
+    previousLoopIteration?.Invoke();
+    if (!displayLost)
+    {
+        signalHandler.BeatRemoteRigs();
+    }
+};
+
 // Set separately to allow loop.Stop() self-reference
 loop.OnPostFrame = () =>
 {

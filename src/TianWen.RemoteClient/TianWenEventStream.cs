@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using TianWen.Hosting.Api;
 using TianWen.Hosting.Dto;
 using TianWen.Lib;
 using TianWen.Lib.Devices;
@@ -46,6 +47,8 @@ namespace TianWen.RemoteClient
         private Task? _pump;
         // 1 once this connection has warned about an undecodable frame; reset on every connect.
         private int _warnedUnparseable;
+        // 1 once the host's loop has beaten since the last beat was sent (Beat).
+        private int _beatAsked;
 
         /// <param name="nodeBaseAddress">The node's HTTP root; the <c>ws(s)</c> event URI is derived from it.</param>
         /// <param name="socketFactory">Injectable so tests can substitute a fake socket. Defaults to a real
@@ -65,6 +68,16 @@ namespace TianWen.RemoteClient
             _socketFactory = socketFactory ?? (static () => new ClientWebSocket());
             _invoker = invoker;
         }
+
+        /// <summary>
+        /// Tells the node this client can SEE a prompt: call it from the loop that draws the client (every iteration is
+        /// fine; it only records), never from a timer or a thread of its own. The stream sends one
+        /// <see cref="NodeWire.PresenceBeat"/> per <see cref="NodeWire.PresenceBeatInterval"/> while it has been called
+        /// since the last, so a window whose loop freezes falls silent, and within
+        /// <see cref="NodeWire.PresenceLapse"/> the node stops holding a prompt for it (P1 of
+        /// docs/plans/hardware-in-the-server.md, #917).
+        /// </summary>
+        public void Beat() => Volatile.Write(ref _beatAsked, 1);
 
         /// <summary>Raised on the receive loop's thread for every decoded push event.</summary>
         public event EventHandler<WebSocketEventDto>? EventReceived;
@@ -185,6 +198,45 @@ namespace TianWen.RemoteClient
             SetConnected(true);
             _logger.LogDebug("Event stream connected to {Endpoint}", _endpoint);
 
+            // The beats go out beside the receive loop, one sender, the only one: a WebSocket allows one send and one
+            // receive at a time. They end with this connection.
+            using var connection = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var beats = SendBeatsAsync(socket, connection.Token);
+            try
+            {
+                await ReceiveAsync(socket, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                await connection.CancelAsync().ConfigureAwait(false);
+                try
+                {
+                    await beats.ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is OperationCanceledException or WebSocketException or ObjectDisposedException)
+                {
+                    // The connection ended under a send: nothing more to beat on.
+                }
+            }
+        }
+
+        /// <summary>Sends a presence beat each interval in which the host's loop asked for one (<see cref="Beat"/>).</summary>
+        private async Task SendBeatsAsync(ClientWebSocket socket, CancellationToken cancellationToken)
+        {
+            while (!cancellationToken.IsCancellationRequested && socket.State is WebSocketState.Open)
+            {
+                await _timeProvider.SleepAsync(NodeWire.PresenceBeatInterval, cancellationToken).ConfigureAwait(false);
+                if (Interlocked.Exchange(ref _beatAsked, 0) == 1 && socket.State is WebSocketState.Open)
+                {
+                    await socket.SendAsync(PresenceBeatUtf8, WebSocketMessageType.Text, endOfMessage: true, cancellationToken).ConfigureAwait(false);
+                }
+            }
+        }
+
+        private static readonly ReadOnlyMemory<byte> PresenceBeatUtf8 = System.Text.Encoding.UTF8.GetBytes(NodeWire.PresenceBeat);
+
+        private async Task ReceiveAsync(ClientWebSocket socket, CancellationToken cancellationToken)
+        {
             using var buffer = ArrayPoolHelper.Rent<byte>(ReceiveChunkBytes);
             using var message = new MemoryStream();
             while (socket.State is WebSocketState.Open && !cancellationToken.IsCancellationRequested)
