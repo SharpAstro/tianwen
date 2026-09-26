@@ -440,6 +440,26 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
+        /// Tells every connected rig's node that this window can SEE a prompt (P1 of docs/plans/hardware-in-the-server.md,
+        /// #917): called by the host from the loop that draws it, every iteration, and never while its display is lost.
+        /// A node holds a prompt only for a client whose beat is fresh, so a frozen window stops holding a remote rig's
+        /// night. It records only (each stream sends at most one beat a second); no rig connected costs nothing.
+        /// </summary>
+        public void BeatRemoteRigs()
+        {
+            var connections = _rigs.Connections;
+            if (connections.IsEmpty)
+            {
+                return;
+            }
+
+            foreach (var (_, connection) in connections)
+            {
+                connection.Mirror.Beat();
+            }
+        }
+
+        /// <summary>
         /// Keeps each connected rig's profile label current, so a card can name the optical train a rig is
         /// running rather than just its address.
         /// <para>

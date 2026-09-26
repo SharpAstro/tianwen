@@ -155,8 +155,19 @@ Pinned by `NodeSocketTests`, `NodeAddressTests`, `ExeBesideTests`, `NodeKeeperTe
    an arbitrary interval fabricates a decision rather than fixing an unresponsive client. Only a
    native client counts (`EventHub.PromptObserverCount`): a ninaAPI v2 socket has no prompt route, so it
    is nobody to wait for, and it used to hold every prompt indefinitely. The only bound is liveness --
-   if the last observer disconnects while a prompt is outstanding the poll loop resolves it. Any new
+   if the last observer goes while a prompt is outstanding the poll loop resolves it. Any new
    subscriber on a headless path owes the same.
+   **Liveness is a client's presence BEAT, not its socket** (P1, #917). A window frozen by a GPU wedge
+   keeps its socket open, so "a socket is registered" held a prompt, and the night, for ever. A client
+   calls `TianWenEventStream.Beat()` from the loop that DRAWS it (the GUI from `SdlEventLoop.OnLoopIteration`,
+   which fires every iteration whether or not a frame was drawn, so an idle window keeps beating and a
+   stuck one stops; never `OnPostFrame`, which an idle window never reaches; the TUI from its main loop),
+   and the stream sends one `BEAT` text frame (`NodeWire.PresenceBeat`) per second while it has been
+   called since the last. The node counts a native client as an observer only while its last beat is under
+   `NodeWire.PresenceLapse` (5 s) old, so an attached client that has not beaten yet is nobody to wait for,
+   and one that stops is let go within a few seconds with its socket still open. **Never beat from a timer
+   or the socket's own thread**: that proves the process lives, not that its window can show anything.
+   Pinned by `NodePresenceTests` (a real node and stream, the loop stopped under an open socket).
    **A prompt is offered until it settles** (`SessionPromptEventArgs.Settled`): answered, or withdrawn
    by whoever raised it (the session withdraws one when its run is cancelled while it waits; a mirror
    when its node stops offering it). Every holder drops it then, `/session/state`, a mirror and the

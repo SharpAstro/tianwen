@@ -158,7 +158,8 @@ public static class HostedSessionServiceCollectionExtensions
 
         try
         {
-            // Keep the connection alive by reading: the client may send pings, or close.
+            // Read until the client closes. A native client's presence beat is the one message it sends: the proof
+            // its window still draws, without which it stops counting as someone who can answer a prompt.
             var buffer = new byte[256];
             while (ws.State is WebSocketState.Open)
             {
@@ -166,6 +167,11 @@ public static class HostedSessionServiceCollectionExtensions
                 if (result.MessageType is WebSocketMessageType.Close)
                 {
                     break;
+                }
+                if (!ninaV2 && result is { MessageType: WebSocketMessageType.Text, EndOfMessage: true }
+                    && System.Text.Encoding.UTF8.GetString(buffer, 0, result.Count) == NodeWire.PresenceBeat)
+                {
+                    hub.RecordBeat(clientId);
                 }
             }
         }

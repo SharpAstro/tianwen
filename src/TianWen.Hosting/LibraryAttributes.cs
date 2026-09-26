@@ -4,3 +4,7 @@
 // NaN-guard tests must serialize through the REAL context: duplicating its options in the test would
 // let a test pass while the actual endpoint still throws.
 [assembly: InternalsVisibleTo("TianWen.Lib.Tests")]
+
+// The functional suite runs a real node and asks its EventHub who counts as seeing a prompt (NodePresenceTests):
+// a wire field would widen the API for a test.
+[assembly: InternalsVisibleTo("TianWen.Lib.Tests.Functional")]

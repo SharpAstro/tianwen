@@ -9,6 +9,7 @@ using NSubstitute;
 using Shouldly;
 using TianWen.Hosting.Dto;
 using TianWen.Hosting.WebSocket;
+using TianWen.Lib.Devices;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
@@ -59,10 +60,45 @@ public class EventHubTests
         condition().ShouldBeTrue();
     }
 
+    [Fact]
+    public void AClientCountsAsSeeingAPromptOnlyWhileItsBeatIsFresh()
+    {
+        // P1 of docs/plans/hardware-in-the-server.md (#917): a socket used to be enough, and a window frozen by a GPU
+        // wedge keeps its socket, so it held a prompt, and the night, for ever.
+        var clock = new FakeTimeProviderWrapper();
+        var hub = new EventHub(queueCapacity: 4, sendTimeout: TimeSpan.FromMinutes(5), clock);
+        var client = hub.AddClient(Recording(new ConcurrentQueue<string>()));
+        hub.PromptObserverCount.ShouldBe(0, "attached, but never said it can see anything");
+
+        hub.RecordBeat(client);
+        hub.PromptObserverCount.ShouldBe(1);
+
+        clock.Advance(TianWen.Hosting.Api.NodeWire.PresenceLapse);
+        hub.PromptObserverCount.ShouldBe(1, "a beat as old as the lapse still counts");
+
+        clock.Advance(TimeSpan.FromSeconds(1));
+        hub.PromptObserverCount.ShouldBe(0, "its window stopped drawing, though its socket is still open");
+        hub.NativeClientCount.ShouldBe(1, "it is still attached");
+
+        hub.RecordBeat(client);
+        hub.PromptObserverCount.ShouldBe(1, "it drew again");
+    }
+
+    [Fact]
+    public void ANinaApiClientNeverCountsAsSeeingAPromptEvenIfItBeats()
+    {
+        var hub = new EventHub(queueCapacity: 4, sendTimeout: TimeSpan.FromMinutes(5), new FakeTimeProviderWrapper());
+        var nina = hub.AddClient(Recording(new ConcurrentQueue<string>()), ninaV2: true);
+
+        hub.RecordBeat(nina);
+
+        hub.PromptObserverCount.ShouldBe(0, "Touch N Stars has no route to answer a prompt");
+    }
+
     [Fact(Timeout = 10_000)]
     public async Task AStalledClientHoldsUpNeitherTheBroadcastNorAnyOtherClient()
     {
-        var hub = new EventHub(queueCapacity: 64, sendTimeout: TimeSpan.FromMinutes(5));
+        var hub = new EventHub(queueCapacity: 64, sendTimeout: TimeSpan.FromMinutes(5), new SystemTimeProvider());
         hub.AddClient(Stalled());
         var received = new ConcurrentQueue<string>();
         hub.AddClient(Recording(received));
@@ -79,7 +115,7 @@ public class EventHubTests
     [Fact(Timeout = 10_000)]
     public async Task EveryClientReceivesTheEventsInTheOrderTheyWereBroadcast()
     {
-        var hub = new EventHub(queueCapacity: 256, sendTimeout: TimeSpan.FromMinutes(5));
+        var hub = new EventHub(queueCapacity: 256, sendTimeout: TimeSpan.FromMinutes(5), new SystemTimeProvider());
         var first = new ConcurrentQueue<string>();
         var second = new ConcurrentQueue<string>();
         hub.AddClient(Recording(first));
@@ -106,7 +142,7 @@ public class EventHubTests
     [Fact(Timeout = 10_000)]
     public async Task AClientThatFallsBehindIsDroppedSoItResyncsByPolling()
     {
-        var hub = new EventHub(queueCapacity: 2, sendTimeout: TimeSpan.FromMinutes(5));
+        var hub = new EventHub(queueCapacity: 2, sendTimeout: TimeSpan.FromMinutes(5), new SystemTimeProvider());
         var stalled = Stalled();
         hub.AddClient(stalled);
 
@@ -123,7 +159,7 @@ public class EventHubTests
     [Fact(Timeout = 10_000)]
     public async Task ASendThatNeverCompletesIsGivenUpAfterTheTimeout()
     {
-        var hub = new EventHub(queueCapacity: 64, sendTimeout: TimeSpan.FromMilliseconds(100));
+        var hub = new EventHub(queueCapacity: 64, sendTimeout: TimeSpan.FromMilliseconds(100), new SystemTimeProvider());
         var stalled = Stalled();
         hub.AddClient(stalled);
 
@@ -137,13 +173,13 @@ public class EventHubTests
     public void OnlyANativeClientCanAnswerAPrompt()
     {
         // A ninaAPI v2 socket (Touch N Stars) has no prompt route, so it is nobody to hold a prompt for.
-        var hub = new EventHub(queueCapacity: 4, sendTimeout: TimeSpan.FromMinutes(5));
-        hub.AddClient(Recording(new ConcurrentQueue<string>()), ninaV2: true);
+        var hub = new EventHub(queueCapacity: 4, sendTimeout: TimeSpan.FromMinutes(5), new SystemTimeProvider());
+        hub.RecordBeat(hub.AddClient(Recording(new ConcurrentQueue<string>()), ninaV2: true));
 
         hub.ClientCount.ShouldBe(1);
         hub.PromptObserverCount.ShouldBe(0);
 
-        hub.AddClient(Recording(new ConcurrentQueue<string>()));
+        hub.RecordBeat(hub.AddClient(Recording(new ConcurrentQueue<string>())));
         hub.PromptObserverCount.ShouldBe(1);
     }
 }

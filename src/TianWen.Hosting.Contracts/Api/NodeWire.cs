@@ -16,6 +16,20 @@ public static class NodeWire
 
     /// <summary>The TCP port a node listens on for the LAN: a node run by hand, or one whose rig is shared.</summary>
     public const int LanPort = 1888;
+
+    /// <summary>
+    /// The text frame a client sends on its event socket to say it can SEE a prompt: its window is drawing, its loop is
+    /// running (docs/plans/hardware-in-the-server.md, "A prompt is held only while a client can SEE it"). A client
+    /// beats from the loop that draws it, never from its socket's own thread, so a frozen window falls silent while
+    /// its socket stays open.
+    /// </summary>
+    public const string PresenceBeat = "BEAT";
+
+    /// <summary>How often a client sends <see cref="PresenceBeat"/>, when its loop has asked for one since the last.</summary>
+    public static readonly System.TimeSpan PresenceBeatInterval = System.TimeSpan.FromSeconds(1);
+
+    /// <summary>How long a client may go without a beat and still count as seeing a prompt: a few missed beats.</summary>
+    public static readonly System.TimeSpan PresenceLapse = System.TimeSpan.FromSeconds(5);
 }
 
 /// <summary>

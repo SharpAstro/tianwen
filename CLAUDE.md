@@ -1153,7 +1153,10 @@ full native-AOT rules, and the reasoning behind each rule below:
 2. **Subscribing to `PromptRequested` takes over the session's unattended answer.** `EventBroadcaster`
    restores the guarantee (no NATIVE WebSocket client -> `SessionPromptEventArgs.DefaultIfUnanswerable` at
    once, since a ninaAPI socket cannot answer; one attached -> hold with no timer, liveness is the only
-   bound), and it attaches as the node starts a run, never from its poll. **Any new subscriber on a
+   bound), and it attaches as the node starts a run, never from its poll. **Liveness is the client's
+   presence BEAT, never its socket** (a frozen window keeps its socket): a client beats from the loop that
+   DRAWS it (`TianWenEventStream.Beat()`; the GUI from `SdlEventLoop.OnLoopIteration`, never a timer), and
+   one whose beat is older than `NodeWire.PresenceLapse` is nobody to wait for. **Any new subscriber on a
    headless path owes the same**, and **whoever holds a prompt drops it on `Settled`**: the session
    withdraws one it stops waiting on. **A broadcast only queues** (`EventHub`, a bounded queue and one
    sender per client); a client that falls behind is dropped to resync by polling.
