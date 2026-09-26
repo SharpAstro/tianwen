@@ -49,7 +49,6 @@ internal partial record Session
     )
     {
         var scopes = Setup.Telescopes.Length;
-        var coolingStates = new CameraCoolingState[scopes];
 
         // The ramp's TARGET is what a node that crashed part-way re-establishes, never the step it had reached
         // (the crash journal, P1 of docs/plans/hardware-in-the-server.md). Holding at the sensor's own temperature
@@ -62,50 +61,6 @@ internal partial record Session
             }
         }
 
-        // Estimate step count from initial temperature delta to compute per-step sleep.
-        // CoolToSetpointAsync adjusts by ~1°C per call, so steps ≈ |delta|.
-        // Clamp to reasonable bounds: at least 1s per step, at most totalRampTime.
-        var maxDelta = 1.0;
-        for (var i = 0; i < scopes; i++)
-        {
-            var camera = Setup.Telescopes[i].Camera;
-            var ccdTemp = await _logger.CatchAsync(camera.Driver.GetCCDTemperatureAsync, cancellationToken, double.NaN);
-            if (!double.IsNaN(ccdTemp))
-            {
-                var target = desiredSetpointTemp.Kind switch
-                {
-                    SetpointTempKind.Normal => (double)desiredSetpointTemp.TempC,
-                    _ => ccdTemp // CCD/Ambient: target will be resolved later, estimate delta = 0
-                };
-                maxDelta = Math.Max(maxDelta, Math.Abs(ccdTemp - target));
-            }
-        }
-        // For CCD/Ambient kinds: check if cooler is even on before ramping
-        if (desiredSetpointTemp.Kind is not SetpointTempKind.Normal && maxDelta <= 1)
-        {
-            // Check if any camera's cooler is actually on
-            var anyCoolerOn = false;
-            for (var i = 0; i < scopes; i++)
-            {
-                var power = await _logger.CatchAsync(Setup.Telescopes[i].Camera.Driver.GetCoolerPowerAsync, cancellationToken, 0.0);
-                if (power > 1)
-                {
-                    anyCoolerOn = true;
-                    break;
-                }
-            }
-            if (!anyCoolerOn)
-            {
-                _logger.LogInformation("Cooling: all cameras already at ambient, skipping warmup ramp.");
-                return true;
-            }
-            maxDelta = 30;
-        }
-        var stepCount = Math.Max((int)Math.Ceiling(maxDelta), 1);
-        // Fixed 15-second step interval (like NINA). Total ramp time = max(user config, steps × 15s).
-        var rampInterval = TimeSpan.FromSeconds(15);
-        var actualRampTime = TimeSpan.FromTicks(Math.Max(totalRampTime.Ticks, stepCount * rampInterval.Ticks));
-
         var targetLabel = desiredSetpointTemp.Kind switch
         {
             SetpointTempKind.Normal => $"{desiredSetpointTemp.TempC}\u00B0C",
@@ -113,51 +68,28 @@ internal partial record Session
             _ => "sensor"
         };
 
-        var accSleep = TimeSpan.Zero;
-        do
+        var cameras = new ICameraDriver[scopes];
+        for (var i = 0; i < scopes; i++)
         {
-            for (var i = 0; i < Setup.Telescopes.Length; i++)
-            {
-                var camera = Setup.Telescopes[i].Camera;
-                coolingStates[i] = await camera.Driver.CoolToSetpointAsync(desiredSetpointTemp, thresPower, direction, coolingStates[i], cancellationToken);
+            cameras[i] = Setup.Telescopes[i].Camera.Driver;
+        }
 
-                // Record cooling sample for the live session graph. These run every
-                // rampInterval (15 s) for the whole ramp (20-30 min typical), so a USB
-                // drop here is exactly the kind of silent cumulative failure that
+        // The ramp itself is the one every host uses (CameraCoolingRamp); what is the session's is the telemetry.
+        return await CameraCoolingRamp.RunAsync(cameras, desiredSetpointTemp, totalRampTime, thresPower, direction, _timeProvider, _logger,
+            async (i, driver, ct) =>
+            {
+                // Record cooling sample for the live session graph. These run every step (15 s) for the whole ramp
+                // (20-30 min typical), so a USB drop here is exactly the kind of silent cumulative failure that
                 // PollDriverReadAsync is designed for.
-                var ccdTemp = await PollDriverReadAsync(camera.Driver, camera.Driver.GetCCDTemperatureAsync, double.NaN, cancellationToken);
-                var setpoint = await PollDriverReadAsyncIf(camera.Driver, camera.Driver.CanSetCCDTemperature, camera.Driver.GetSetCCDTemperatureAsync, double.NaN, cancellationToken);
-                var power = await PollDriverReadAsyncIf(camera.Driver, camera.Driver.CanGetCoolerPower, camera.Driver.GetCoolerPowerAsync, double.NaN, cancellationToken);
+                var ccdTemp = await PollDriverReadAsync(driver, driver.GetCCDTemperatureAsync, double.NaN, ct);
+                var setpoint = await PollDriverReadAsyncIf(driver, driver.CanSetCCDTemperature, driver.GetSetCCDTemperatureAsync, double.NaN, ct);
+                var power = await PollDriverReadAsyncIf(driver, driver.CanGetCoolerPower, driver.GetCoolerPowerAsync, double.NaN, ct);
                 if (!double.IsNaN(ccdTemp))
                 {
                     _coolingSamples.Enqueue(new CoolingSample(_timeProvider.GetUtcNow(), i, ccdTemp, double.IsNaN(setpoint) ? 0 : setpoint, double.IsNaN(power) ? 0 : power));
                     _currentActivity = $"{ccdTemp:F0}\u00B0C \u2192 {targetLabel} ({(double.IsNaN(power) ? 0 : power):F0}% power)";
                 }
-            }
-
-            // Check exit condition before sleeping: avoid unnecessary 10s wait when already at target
-            if (!coolingStates.Any(state => state.IsRamping) || cancellationToken.IsCancellationRequested)
-            {
-                if (cancellationToken.IsCancellationRequested)
-                {
-                    _logger.LogWarning("Cancellation requested, quitting cooldown loop");
-                }
-                break;
-            }
-
-            accSleep += rampInterval;
-            var estimatedRampTime = stepCount * rampInterval;
-            if (accSleep >= actualRampTime * 2)
-            {
-                _logger.LogWarning("Cooling: safety cap reached ({AccSleep} >= 2x {ActualRamp}), exiting ramp loop.",
-                    accSleep, actualRampTime);
-                break;
-            }
-
-            await _timeProvider.SleepAsync(rampInterval, cancellationToken).ConfigureAwait(false);
-        } while (true);
-
-        return coolingStates.All(state => !(state.IsCoolable ?? false) || (state.TargetSetpointReached ?? false));
+            }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>What a ramp to <paramref name="target"/> asks of a cooler, or null for one that names no target.</summary>

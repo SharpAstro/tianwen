@@ -19,6 +19,11 @@ public enum NodeRunKind
 /// dismisses it (<c>DELETE /api/v1/node/recovery</c>), so a client can say which run was interrupted and when, and offer
 /// to stop the rig safely or start the run again. The node never resumes a run by itself: a mount that has tracked for
 /// unknown minutes is exactly where a blind resume goes wrong.
+/// <para>
+/// A journal it can believe (not <see cref="Stale"/>, not a <see cref="CrashLoop"/>) the node acts on as it starts: it
+/// reconnects the devices, the mount first, which restores mount-limit enforcement, and re-establishes each camera's
+/// cooling from its intent, through the session's own ramp. <see cref="NodeHeldDeviceDto.Reconnected"/> says how each went.
+/// </para>
 /// </summary>
 public sealed class NodeRecoveryDto
 {
@@ -39,6 +44,16 @@ public sealed class NodeRecoveryDto
     /// state nobody knows, so it is shown for information and never acted on.
     /// </summary>
     public bool Stale { get; init; }
+
+    /// <summary>
+    /// Whether the node has crashed again within minutes of the last crash: a DRIVER that crashes the node would crash
+    /// every node that reconnected it, so this one reconnected nothing, and names the device the last one was reaching
+    /// for (<see cref="SuspectDevice"/>).
+    /// </summary>
+    public bool CrashLoop { get; init; }
+
+    /// <summary>The device the node that died was reconnecting when it died, when that is how it died.</summary>
+    public string? SuspectDevice { get; init; }
 
     /// <summary>The run that was going on when the node died, if one was.</summary>
     public NodeRunDto? InterruptedRun { get; init; }
@@ -72,4 +87,13 @@ public sealed class NodeHeldDeviceDto
 
     /// <summary>The setpoint a <see cref="CoolerIntentKind.Cool"/> intent holds, in degrees Celsius.</summary>
     public double? CoolerSetpointC { get; init; }
+
+    /// <summary>
+    /// Whether this node reconnected it: null while it has not tried (a stale journal, a crash loop, or not yet), false
+    /// when it could not (<see cref="ReconnectError"/> says why).
+    /// </summary>
+    public bool? Reconnected { get; init; }
+
+    /// <summary>Why it could not be reconnected.</summary>
+    public string? ReconnectError { get; init; }
 }

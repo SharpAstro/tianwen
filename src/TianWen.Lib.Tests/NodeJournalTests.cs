@@ -58,6 +58,40 @@ public class NodeJournalTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void ASecondCrashWithinTheWindowIsALoopThatNamesTheDeviceItWasReachingFor()
+    {
+        // The node before died reconnecting the camera, a minute after the crash it was recovering from.
+        var found = Held(Boot.AddHours(3)) with { Crashes = [Boot.AddHours(3).AddMinutes(-1)], Touching = "Camera://FakeDevice/FakeCamera1" };
+
+        var report = found.Recover(afterCrashOf: 4242, Boot.AddHours(3), Boot);
+
+        report.CrashLoop.ShouldBeTrue("a driver that crashes the node would crash every node that reconnected it");
+        report.SuspectDevice.ShouldBe("Camera://FakeDevice/FakeCamera1");
+        found.CrashesWith(Boot.AddHours(3)).Length.ShouldBe(2);
+    }
+
+    [Fact]
+    public void CrashesFurtherApartThanTheWindowAreNoLoop()
+    {
+        var found = Held(Boot.AddHours(3)) with { Crashes = [Boot.AddHours(3) - NodeKeeper.CrashLoopWindow - TimeSpan.FromSeconds(1)] };
+
+        found.Recover(afterCrashOf: 4242, Boot.AddHours(3), Boot).CrashLoop.ShouldBeFalse();
+        found.CrashesWith(Boot.AddHours(3)).ShouldBe([Boot.AddHours(3)], "only the crash that left this journal counts, and it is carried on");
+    }
+
+    [Fact]
+    public void AStaleJournalIsNoCrashLoop()
+    {
+        // A boot came between: whatever crashed before it is not a loop this node is in.
+        var found = Held(Boot.AddMinutes(-2)) with { Crashes = [Boot.AddMinutes(-3)] };
+
+        var report = found.Recover(afterCrashOf: null, Boot.AddMinutes(1), Boot);
+
+        report.Stale.ShouldBeTrue();
+        report.CrashLoop.ShouldBeFalse();
+    }
+
+    [Fact]
     public void TheReportSaysWhichRunWasInterruptedAndWhatWasHeld()
     {
         var journal = Held(Boot.AddHours(3));
@@ -105,7 +139,10 @@ public class NodeJournalTests(ITestOutputHelper output)
         Held(Boot, pid: 1).HoldsTheSameAs(Held(Boot.AddHours(1), pid: 2)).ShouldBeTrue();
         Held(Boot).HoldsTheSameAs(Held(Boot) with { Run = null }).ShouldBeFalse();
         Held(Boot).HoldsTheSameAs(Held(Boot) with { Devices = [] }).ShouldBeFalse();
+        Held(Boot).HoldsTheSameAs(Held(Boot) with { Touching = "Mount://FakeDevice/FakeMount1" }).ShouldBeFalse("the device being reconnected must reach the file first");
+        Held(Boot).HoldsTheSameAs(Held(Boot) with { Crashes = [Boot] }).ShouldBeFalse();
         new NodeJournal().HoldsAnything.ShouldBeFalse();
+        new NodeJournal { Touching = "Mount://FakeDevice/FakeMount1" }.HoldsAnything.ShouldBeTrue("named before its connect, when nothing is held yet");
     }
 
     [Fact]
