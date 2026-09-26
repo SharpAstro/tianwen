@@ -70,8 +70,11 @@ public static class DeviceHubReadingExtensions
                 return null;
             }
 
-            var filter = await logger.CatchAsync(filterWheel.GetCurrentFilterAsync, cancellationToken);
-            return new FilterWheelReading(filter.Position, filter.DisplayName);
+            // The SLOT, from the wheel. InstalledFilter.Position is the filter's focus offset, and this reported it as the
+            // slot until the device plane's end-to-end test turned a wheel to slot 1 and read back Red's +20.
+            var slot = await logger.CatchAsync(filterWheel.GetPositionAsync, cancellationToken, -1);
+            var filters = filterWheel.Filters;
+            return new FilterWheelReading(slot, slot >= 0 && slot < filters.Count ? filters[slot].DisplayName : null);
         }
 
         /// <summary>

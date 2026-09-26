@@ -30,7 +30,10 @@ public readonly record struct CameraReading(
 /// <summary>What a connected focuser reads now; a temperature it does not give is NaN.</summary>
 public readonly record struct FocuserReading(int Position, double TemperatureC, bool IsMoving);
 
-/// <summary>What a connected filter wheel reads now: the slot it is at and the filter in it, if named.</summary>
+/// <summary>
+/// What a connected filter wheel reads now: the slot it is at, counted from 0 (-1 while it turns, or when it cannot say,
+/// as ASCOM's wheels report it), and the name of the filter in that slot, null when there is none to name.
+/// </summary>
 public readonly record struct FilterWheelReading(int Position, string? FilterName);
 
 /// <summary>

@@ -53,19 +53,28 @@ public class DeviceHubReadingTests(ITestOutputHelper output)
         reading.IsMoving.ShouldBeFalse();
     }
 
-    [Fact]
-    public async Task AFilterWheelReadsItsSlot()
+    // The SLOT, not the filter's focus offset: the fake's slot 1 holds Red at +20, so a reading of the offset reads 20.
+    // This test compared the reading with the installed filter's offset, the same wrong field, and could never fail.
+    [Fact(Timeout = 30_000)]
+    public async Task AFilterWheelReadsItsSlotNotItsFiltersFocusOffset()
     {
         var ct = TestContext.Current.CancellationToken;
-        var hub = Hub();
+        var external = new FakeExternal(output);
+        var hub = external.BuildServiceProvider().GetRequiredService<IDeviceHub>();
         var device = new FakeDevice(DeviceType.FilterWheel, 1);
         var filterWheel = (IFilterWheelDriver)await hub.ConnectAsync(device, ct);
-        var expected = await filterWheel.GetCurrentFilterAsync(ct);
+        filterWheel.Filters[1].Position.ShouldNotBe(1, "a slot whose focus offset is not its number, or the test proves nothing");
+        await filterWheel.BeginMoveAsync(1, ct);
+        // The wheel turns on the fake clock, a step every 5 ms.
+        while (await filterWheel.GetPositionAsync(ct) != 1)
+        {
+            external.TimeProvider.Advance(TimeSpan.FromMilliseconds(5));
+        }
 
         var reading = (await hub.ReadFilterWheelAsync(device.DeviceUri, FakeExternal.CreateLogger(output), ct)).ShouldNotBeNull();
 
-        reading.Position.ShouldBe(expected.Position);
-        reading.FilterName.ShouldBe(expected.DisplayName);
+        reading.Position.ShouldBe(1);
+        reading.FilterName.ShouldBe(filterWheel.Filters[1].DisplayName);
     }
 
     [Fact]
