@@ -1,4 +1,5 @@
 using System;
+using System.Net;
 using System.Net.Http;
 using Microsoft.Extensions.Logging;
 using TianWen.Hosting.Api;
@@ -40,7 +41,20 @@ namespace TianWen.RemoteClient
         {
             if (SocketPath is null)
             {
-                return new HttpClient { BaseAddress = BaseAddress, Timeout = NodeTimeouts.ClientBackstop };
+                // Over TCP a client takes a linear frame compressed (P4 part 3 of docs/plans/hardware-in-the-server.md):
+                // on WiFi or 100 Mbit that roughly halves a frame's transfer. The socket never asks, since there a copy is
+                // cheaper than any codec, and the node never compresses a frame there anyway.
+                SocketsHttpHandler? tcp = new SocketsHttpHandler { AutomaticDecompression = DecompressionMethods.Brotli | DecompressionMethods.GZip };
+                try
+                {
+                    var overTcp = new HttpClient(tcp) { BaseAddress = BaseAddress, Timeout = NodeTimeouts.ClientBackstop };
+                    tcp = null;
+                    return overTcp;
+                }
+                finally
+                {
+                    tcp?.Dispose();
+                }
             }
 
             // Handed to the client, which disposes it. Nulled once it is, the form CA2000 can follow.
