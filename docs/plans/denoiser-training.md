@@ -454,7 +454,7 @@ Settled by the campaign; restated so no run re-derives them.
 
 | **E10** | Probe BB (H4 step 1 and 2 on `2026-09-25-full`). **Step 1 DONE 2026-09-25** (run log, "Probe BB"): `run-bb-probe.ps1` + `run-bb-perfield.ps1`, no training; the shipped model removes 18 to 34 percent on the four broadband fields of `arms/bb-eval-4.txt` and spends 1.5 to 3.9 percent of extended amplitude at 4 percent removed where eval4b's four fields spend 0.1 to 1.0, field for field. **Step 2** `run-bb-arm.ps1`: `arms/bb-ctl-14.txt` (WIDE minus this bake's test sessions) against it plus `arms/bb-add-10.txt` (ten ASI533MC broadband sessions inside WIDE's plane range), one export, seeds sized from the measured spread, final weights. **Step 2 KILLED 2026-09-26** (run log): six seeds each, the arm's broadband extended cost is +0.43 [-0.48, +1.35] against the control, and it removes about half the noise the control does. Then found to rest on blended stars and a failed Carina catalogue match (run log, "what went wrong in Probe BB and E10"). | 2 h export, 11.5 min per seed per arm | H4 |
 | **E11** | SUPERSEDED by E12 (its one seed died at ~4800 steps; its partial curve is in the run log). The step budget (run log, "what went wrong in Probe BB and E10"). `run-steps.ps1`: the E10 control cache and recipe at 16000 steps instead of 4000 (the cosine then spans the whole run), four seeds, final weights, scored with the fixed split beside the six 4000-step controls. Primary R, full-strength removal over all eight fields (24.67 at 4000, seed sd 3.67): predicted gain >= 8; killed if the interval's upper bound is under 5. | superseded | steps |
-| **E12** | Train to convergence (run log, "what went wrong in Probe BB and E10"). `run-converge.ps1`: E11's cache and recipe under `--schedule plateau` (held rate, held-out objective every 500 steps, halve after four flat windowed scores, stop after the fourth halving, 60000-step cap), four seeds, final weights, E11's primary and kill. Launched 2026-09-26. | ~1 to 3 h per seed | steps |
+| **E12** | Train to convergence (run log, "what went wrong in Probe BB and E10"). `run-converge.ps1`: E11's cache and recipe under `--schedule plateau` (held rate, held-out objective every 500 steps, halve after four flat windowed scores, stop after the fourth halving, 60000-step cap), four seeds, final weights, E11's primary and kill. Launched 2026-09-26. **DONE 14:27: not killed, and prediction 2 failed** (G +0.63, 95 percent interval -6.5 to +7.8; seed sd 5.00): the frontier is better on six of seven readable fields and worse on V1045 Ori's compact column (run log, "E12's result"). | ~1 to 3 h per seed | steps |
 | **E13** | The varied pool (run log, E13): 78 sessions on 6 cameras (81 on 7 pre-registered; three refused at export, see the run log), the injected shape varied per draw (0.22 to 0.65), three converged arms from one cache: `pool` (the new recipe), `poolb` (band conditioning, more signal), `pool48` (base 48, more features), three seeds each, twelve fields. `run-pool.ps1` exports now and trains once E12 hands over the GPU. | ~2.5 h export, then ~15 to 25 h GPU | data, signal, features |
 
 Every arm: pre-register predictions in the run script header; three seeds; one prepared cache per
@@ -1847,6 +1847,25 @@ halves the rate after four scores without a 0.1 percent gain, and stops at the p
 halving; `--steps` (60000) is only a cap. Four seeds, final weights, scored with the fixed split beside
 the six 4000-step controls, with E11's primary and kill.
 
+**E12's result (2026-09-26 14:27): not killed, and the predicted gain did not appear; what convergence
+buys is cheaper quiet, not more of it.** All four seeds ran well past 12000 steps before the rule
+stopped them (37500, 43000, 26000, 28000; prediction 1 holds), and the held-out objective kept falling
+long after step 4000 (seed 0: 1.89e-5 at step 11000, 1.25e-5 at its best, step 33500). But R, the
+full-strength removal averaged over the eight fields, is 25.30 against 24.67 for the six 4000-step
+controls re-scored in the same pass: G = +0.63, 95 percent interval -6.5 to +7.8, so prediction 2 (at
+least +8) fails, and the seed sd is 5.00 against 3.67, so prediction 4 fails. Neither kill fires: the
+interval's upper bound is above +5, and the matched-removal check fails on ONE field, V1045 Ori, where
+every converged seed spends more compact amplitude than every control at 4 and 10 percent. On the other
+six fields the split can read (Carina-Wide 2025-03-19 drops out of it), the converged models spend LESS
+to buy the same quiet, most clearly on eta Car (stars at 10 percent removed: 6.4 to 8.5 against 14.0
+to 31.6), both SMCs and Lagoon-and-Trifid. So a converged run keeps more of the frame at a given
+removal without removing more at full strength, and its full-strength removal varies more between
+seeds (HIP-85088: 8.0, 7.6, 14.0 and 38.8). A reading, not a measurement: the training objective (L2
+against injected noise) and R reward different things, and convergence optimised the one R does not
+see; the frontier is where it shows. This also sets the sizing E13's pre-registration defers to: 2.8 x
+5.00 x sqrt(2/3) = 11.4 points of R, which three seeds an arm cannot resolve, so E13's readable claims
+are its frontier ones.
+
 **E13, the varied pool** (`run-pool.ps1`, pre-registered 2026-09-26 before its export): what a model meant
 for any sensor needs once runs converge, raised by the user ("more variety needs more signal and more
 features"). Two past negatives about exactly those levers were read at the broken budget: band
@@ -1884,7 +1903,11 @@ real half-master pairs of this bake, so the pool's injection is on average more 
 bake's real noise, as intended at the range's upper end. **The ring blindness is not E13's alone**: the
 same test gates the N2N runner at inference and the tile exporter, so a master with a ring and a bright
 sky is handed to a net unstretched, and a ringed master that passes is stretched from a floor of 0
-(`MtfStretch` subtracts the channel minimum) rather than from its own darkest sky.
+(`MtfStretch` subtracts the channel minimum) rather than from its own darkest sky. **Fixed the same day**
+(`docs/known-limitations.md`): the pre-stretch measures covered pixels only. Every export before the fix,
+E13's included, stretched a ringed master from the wrong floor (108 of the bake's 190 floors move) and
+exported the Carina-Wide 2025-03-19 eval field unstretched; scores on one cache stay comparable with
+each other, and a re-exported eval cache will move Carina's absolute numbers.
 
 **The other models share the budget.** Every deconvolver run (`run-e3-*.ps1`, including E3.4d's prior
 that met the star clauses) trained the same fixed 4000-step cosine; `--schedule plateau` does not yet
