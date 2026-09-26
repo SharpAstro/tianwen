@@ -287,63 +287,98 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             : 0;
     }
 
+    /// <summary>
+    /// Records <paramref name="entry"/> as a catalogue load does, and for a duplicate the entry it
+    /// <paramref name="duplicates"/>: how a test builds what the baked data happens not to hold, such as a cycle.
+    /// </summary>
+    internal void AddEntry(CelestialObject entry, CatalogIndex duplicates = default)
+    {
+        _objectsByIndex[entry.Index] = entry;
+        if (duplicates != default)
+        {
+            _crossIndexLookuptable.AddLookupEntry(entry.Index, duplicates);
+        }
+    }
+
+    /// <summary>
+    /// How many duplicate entries one lookup follows before giving up. A duplicate names the entry it duplicates,
+    /// which may itself be a duplicate; the bound is what turns a cycle in that data (A names B, B names A) into a
+    /// failed lookup rather than a lookup that never ends.
+    /// </summary>
+    internal const int MaxDuplicateHops = 8;
+
     /// <inheritdoc/>
+    /// <remarks>
+    /// A duplicate is followed to the entry it names by going round the loop again, never by calling this method:
+    /// the cross-index table is baked data, and the call it replaces guarded only against an entry naming itself,
+    /// so a longer cycle recursed until the stack overflowed, on every host, the browser's first (#953 found how
+    /// little stack a WebAssembly page has). The baked catalogue has no such cycle today; this keeps a future
+    /// bake that has one from taking the application down.
+    /// </remarks>
     public bool TryLookupByIndex(CatalogIndex index, [NotNullWhen(true)] out CelestialObject celestialObject)
     {
-        if (!TryLookupByIndexDirect(index, out celestialObject, out var cat, out _)
-            && IsCrossCat(cat)
-            && _crossIndexLookuptable.TryGetValue(index, out var crossIndices)
-        )
+        for (var hop = 0; hop <= MaxDuplicateHops; hop++)
         {
-            if (crossIndices.i1 != 0 && crossIndices.i1 != index && TryLookupByIndexDirect(crossIndices.i1, out celestialObject, out _, out _))
+            if (!TryLookupByIndexDirect(index, out celestialObject, out var cat, out _)
+                && IsCrossCat(cat)
+                && _crossIndexLookuptable.TryGetValue(index, out var crossIndices)
+            )
             {
-                index = crossIndices.i1;
-            }
-            else if (crossIndices.ext is { Length: > 0 } ext)
-            {
-                foreach (var crossIndex in ext)
+                if (crossIndices.i1 != 0 && crossIndices.i1 != index && TryLookupByIndexDirect(crossIndices.i1, out celestialObject, out _, out _))
                 {
-                    if (crossIndex != 0 && crossIndex != index && TryLookupByIndexDirect(crossIndex, out celestialObject, out _, out _))
+                    index = crossIndices.i1;
+                }
+                else if (crossIndices.ext is { Length: > 0 } ext)
+                {
+                    foreach (var crossIndex in ext)
                     {
-                        index = crossIndex;
-                        break;
+                        if (crossIndex != 0 && crossIndex != index && TryLookupByIndexDirect(crossIndex, out celestialObject, out _, out _))
+                        {
+                            index = crossIndex;
+                            break;
+                        }
                     }
                 }
             }
-        }
 
-        if (celestialObject.Index is 0)
-        {
+            if (celestialObject.Index is 0)
+            {
+                return false;
+            }
+            else if (celestialObject.ObjectType is not ObjectType.Duplicate)
+            {
+                return true;
+            }
+
+            if (_crossIndexLookuptable.TryGetValue(index, out var followIndicies) && followIndicies.i1 > 0)
+            {
+                if (followIndicies.ext == null && followIndicies.i1 != index)
+                {
+                    index = followIndicies.i1;
+                    continue;
+                }
+                else if (followIndicies.ext is CatalogIndex[] { Length: > 0 } ext)
+                {
+                    var followedObjs = new List<CelestialObject>(ext.Length + 1);
+                    AddToFollowObjs(followedObjs, index, followIndicies.i1);
+
+                    foreach (var followIndex in followIndicies.ext)
+                    {
+                        AddToFollowObjs(followedObjs, index, followIndex);
+                    }
+
+                    if (followedObjs.Count is 1)
+                    {
+                        celestialObject = followedObjs[0];
+                        return true;
+                    }
+                }
+            }
             return false;
         }
-        else if (celestialObject.ObjectType is not ObjectType.Duplicate)
-        {
-            return true;
-        }
 
-        if (_crossIndexLookuptable.TryGetValue(index, out var followIndicies) && followIndicies.i1 > 0)
-        {
-            if (followIndicies.ext == null && followIndicies.i1 != index)
-            {
-                return TryLookupByIndex(followIndicies.i1, out celestialObject);
-            }
-            else if (followIndicies.ext is CatalogIndex[] { Length: > 0 } ext)
-            {
-                var followedObjs = new List<CelestialObject>(ext.Length + 1);
-                AddToFollowObjs(followedObjs, index, followIndicies.i1);
-
-                foreach (var followIndex in followIndicies.ext)
-                {
-                    AddToFollowObjs(followedObjs, index, followIndex);
-                }
-
-                if (followedObjs.Count is 1)
-                {
-                    celestialObject = followedObjs[0];
-                    return true;
-                }
-            }
-        }
+        // Round a cycle of duplicates, or down a chain longer than any the catalogue holds: nothing to name.
+        celestialObject = default;
         return false;
 
         void AddToFollowObjs(List<CelestialObject> followedObjs, CatalogIndex index, CatalogIndex followIndex)

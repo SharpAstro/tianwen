@@ -21,6 +21,7 @@ public class CelestialObjectDBBenchmarks
     private CelestialObjectDB _db = null!;
     private CatalogIndex[] _lookupIndices = null!;
     private CatalogIndex[] _crossIndices = null!;
+    private CatalogIndex[] _duplicateIndices = null!;
     private string[] _commonNames = null!;
 
     [GlobalSetup]
@@ -47,6 +48,10 @@ public class CelestialObjectDBBenchmarks
             CatalogIndex.NGC3372, CatalogIndex.M042, CatalogIndex.HIP016537,
             CatalogIndex.vdB0020, CatalogIndex.HR1084, CatalogIndex.Mel022,
         ];
+
+        // Entries the catalogue marks as DUPLICATES of another, so each lookup follows one to the entry it
+        // names: the path TryLookupByIndex takes round its loop (it recursed until #953's follow-up).
+        _duplicateIndices = ResolveAll("IC 1005", "IC 1830", "IC 2959", "IC 4375", "IC 5363", "NGC 1652", "NGC 4046", "NGC 5708", "NGC 952");
 
         _commonNames =
         [
@@ -93,6 +98,31 @@ public class CelestialObjectDBBenchmarks
                 hits++;
         }
         return hits;
+    }
+
+    [Benchmark]
+    public int TryLookupByIndex_FollowsDuplicates()
+    {
+        var hits = 0;
+        foreach (var idx in _duplicateIndices)
+        {
+            if (_db.TryLookupByIndex(idx, out _))
+                hits++;
+        }
+        return hits;
+    }
+
+    private static CatalogIndex[] ResolveAll(params string[] names)
+    {
+        var indices = new CatalogIndex[names.Length];
+        for (var i = 0; i < names.Length; i++)
+        {
+            if (!CatalogUtils.TryGetCleanedUpCatalogName(names[i], out indices[i]))
+            {
+                throw new InvalidOperationException($"{names[i]} is no catalogue name");
+            }
+        }
+        return indices;
     }
 
     [Benchmark]
