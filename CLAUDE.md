@@ -1202,7 +1202,8 @@ full native-AOT rules, and the reasoning behind each rule below:
    budget cut a serial sweep off mid-probe (P0b item 17). One of a kind at a time; a second start joins it.
    **A job on a device holds the DEVICE** (`NodeJobs.TryStartOrJoin`): the same kind joins, another kind is a 409
    naming the holder, and two devices run side by side. A device-plane refusal (a lease, a cold camera) is an
-   answer before the job, never a failed job (`DeviceOperations`, P2 part 2).
+   answer before the job, never a failed job (`DeviceOperations`, P2 part 2), and a command that is NOT a job
+   (a cooler off, a camera's settings) is refused while a job holds the device, whose ramp it would fight.
 10. **The machine's node is found on its SOCKET, and one lock admits it** (`NodeSocket`, `NodeLock`): every node
    takes `node.lock` however it was started, only the lock's holder clears a stale socket (never probe-then-delete),
    and the lock file is never deleted. A client reaches a node through `NodeTransport` (`OverSocket` / `OverTcp`)

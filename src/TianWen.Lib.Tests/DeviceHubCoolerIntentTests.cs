@@ -176,4 +176,23 @@ public class DeviceHubCoolerIntentTests(ITestOutputHelper output)
     {
         Session.IntentOf(new SetpointTemp(sbyte.MinValue, SetpointTempKind.CCD)).ShouldBeNull();
     }
+
+    // Switched off by hand, a camera must not be re-cooled by the node that follows a crash.
+    [Fact]
+    public async Task ACoolerSwitchedOffAtOnceIsRecordedAsOff()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (_, hub) = Build();
+        var device = new FakeDevice(DeviceType.Camera, 1);
+        var camera = (ICameraDriver)await hub.ConnectAsync(device, ct);
+        await camera.SetCoolerOnAsync(true, ct);
+        hub.SetCoolerIntent(device.DeviceUri, CoolerIntent.CoolTo(-10));
+
+        (await hub.CoolerOffAsync(device.DeviceUri, ct)).ShouldBeTrue();
+
+        (await camera.GetCoolerOnAsync(ct)).ShouldBeFalse();
+        hub.TryGetCoolerIntent(device.DeviceUri, out var intent).ShouldBeTrue();
+        intent.ShouldBe(CoolerIntent.Off);
+        (await hub.CoolerOffAsync(new FakeDevice(DeviceType.Camera, 7).DeviceUri, ct)).ShouldBeFalse("it is not connected");
+    }
 }

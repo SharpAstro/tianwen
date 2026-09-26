@@ -38,3 +38,55 @@ public sealed class DisconnectCheckDto
     /// <summary>The run holding the device, which refuses every disconnect until it ends; null when nothing does.</summary>
     public string? LeaseOwner { get; init; }
 }
+
+/// <summary>Cools a camera to a setpoint through the session's own ramp: <c>POST /api/v1/devices/camera/cool</c>.</summary>
+public sealed class CoolRequestDto
+{
+    public required string DeviceUri { get; init; }
+
+    /// <summary>The target, in °C; rounded to a whole degree, as a session's is.</summary>
+    public required double SetpointC { get; init; }
+
+    /// <summary>How long the ramp may take, in minutes; null for a session's default.</summary>
+    public double? RampMinutes { get; init; }
+}
+
+/// <summary>A readout frame in binned sensor pixels: top-left, then size.</summary>
+public sealed class FrameDto
+{
+    public required int X { get; init; }
+    public required int Y { get; init; }
+    public required int Width { get; init; }
+    public required int Height { get; init; }
+}
+
+/// <summary>
+/// The settings to change on a camera: <c>POST /api/v1/devices/camera/settings</c>. Each is left as it is when null. Gain
+/// and offset are values for a camera that takes one, and an index into its named list for one that takes a mode.
+/// </summary>
+public sealed class CameraSettingsRequestDto
+{
+    public required string DeviceUri { get; init; }
+    public short? Gain { get; init; }
+    public int? Offset { get; init; }
+
+    /// <summary>Both axes. Setting it without a frame reads out the whole binned sensor.</summary>
+    public int? Bin { get; init; }
+
+    /// <summary>In binned pixels, snapped to what the camera can read out and kept on its sensor.</summary>
+    public FrameDto? Frame { get; init; }
+}
+
+/// <summary>A camera's settings as it reads them back after a change, which a camera may have snapped.</summary>
+public sealed class CameraSettingsDto
+{
+    /// <summary>Null for a camera that has no gain to set.</summary>
+    public short? Gain { get; init; }
+
+    /// <summary>Null for a camera that has no offset to set.</summary>
+    public int? Offset { get; init; }
+
+    public required int BinX { get; init; }
+    public required int BinY { get; init; }
+    public required FrameDto Frame { get; init; }
+}

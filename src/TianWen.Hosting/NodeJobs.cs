@@ -91,6 +91,16 @@ internal sealed class NodeJobs(IHostApplicationLifetime lifetime, ITimeProvider 
         return true;
     }
 
+    /// <summary>
+    /// The job running on the device, if one is: what a command that is not a job asks first, since switching a cooler
+    /// off under a running ramp, or rebinning a camera a job is exposing, fights the job for the device.
+    /// </summary>
+    public bool TryGetRunningOn(Uri deviceUri, [NotNullWhen(true)] out JobDto? job)
+    {
+        job = _running.TryGetValue(deviceUri.DeviceKey, out var running) ? running.Snapshot : null;
+        return job is not null;
+    }
+
     /// <summary>How the job stands, running or ended; false once it has been forgotten, or never was.</summary>
     public bool TryGet(string id, [NotNullWhen(true)] out JobDto? job)
     {

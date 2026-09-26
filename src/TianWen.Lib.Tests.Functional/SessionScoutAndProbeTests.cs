@@ -55,13 +55,13 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
     }
 
     // The fake camera lazily sizes its readout window on the first exposure; the oracle / gauge FOV
-    // computation reads NumX/NumY/BinX up front, so set a (near) full-frame readout explicitly for the
+    // computation reads NumX/NumY/BinX up front, so set a full-frame readout explicitly for the
     // tests that call those helpers without first taking a frame.
     private static void InitCameraReadout(SessionTestContext ctx)
     {
         ctx.Camera.BinX = 1;
-        ctx.Camera.NumX = ctx.Camera.CameraXSize - 1;
-        ctx.Camera.NumY = ctx.Camera.CameraYSize - 1;
+        ctx.Camera.NumX = ctx.Camera.CameraXSize;
+        ctx.Camera.NumY = ctx.Camera.CameraYSize;
     }
 
     private static ScheduledObservation Obs(double ra, double dec, string name)

@@ -696,19 +696,6 @@ public static class EquipmentActions
     }
 
     /// <summary>
-    /// Switches the cooler off immediately, no warm-up ramp (see
-    /// <c>IDeviceHub.WarmAndCoolerOffAsync</c> for the condensation-safe ramped path).
-    /// Extracted from SetCoolerOffSignal so the handler routes only.
-    /// </summary>
-    public static async ValueTask SetCoolerOffAsync(ICameraDriver camera, CancellationToken cancellationToken)
-    {
-        if (camera.CanSetCoolerOn)
-        {
-            await camera.SetCoolerOnAsync(false, cancellationToken);
-        }
-    }
-
-    /// <summary>
     /// Resolves the device instance for a connect request: prefers the hub-registered
     /// device (carries query-param config), falling back to a freshly-discovered match
     /// by URI equality. Extracted from ConnectDeviceSignal so the handler routes only.
