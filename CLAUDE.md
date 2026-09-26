@@ -1201,7 +1201,11 @@ full native-AOT rules, and the reasoning behind each rule below:
    and the lock file is never deleted. A client reaches a node through `NodeTransport` (`OverSocket` / `OverTcp`)
    and asks `GET /api/v1/node` first; compatibility is `NodeWire.Version`, never the build (P1, #917). A client
    finds or starts the machine's node through `LocalNodeLauncher`, which starts the KEEPER (`--keeper`) from the
-   client's own directory, never the node and never a spawn of its own.
+   client's own directory, never the node and never a spawn of its own. **A node that dies leaves a crash journal**
+   (`node.journal`, `NodeJournalService`) of its devices, its run and each camera's cooler INTENT, which the hub keeps
+   (`IDeviceHub.SetCoolerIntent`): a ramp records its TARGET, never the step it reached, and **a new place that
+   commands a cooler owes the same**. A journal is believed only from the node its keeper saw crash
+   (`--after-crash <pid>`) or when younger than the machine's boot (`MachineBoot`, never the tick count).
 
 ### Remote Rigs (mirror another node's session "as if local")
 
@@ -1876,6 +1880,7 @@ TianWen/
 ├── node.sock           # The machine's node's socket (NodeSocket), owner-only on Unix
 ├── node.lock           # One node per socket: held for the node's life, never deleted (NodeLock)
 ├── node-settings.json  # The node's own state: "Share this rig on the LAN" and its active profile (NodeSettings)
+├── node.journal        # The node's crash journal: what it holds, gone once it holds nothing (NodeJournal)
 └── lan-node-id.txt     # tianwen-server's stable LAN NodeId, the key remote-rig bindings persist against
 ```
 

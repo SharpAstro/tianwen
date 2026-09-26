@@ -20,19 +20,43 @@ public class NodeKeeperTests
 {
     private const int Crashed = -1;
 
-    /// <summary>A keeper whose node ends with each exit in turn, the clock moved on by the paired gap BEFORE it ends.</summary>
-    private static (NodeKeeper Keeper, Func<int> Runs) KeeperOf(FakeTimeProvider clock, params (TimeSpan Before, int Exit)[] exits)
+    /// <summary>
+    /// A keeper whose node ends with each exit in turn, the clock moved on by the paired gap BEFORE it ends. Run N is
+    /// process 1000 + N, and <paramref name="toldOfCrash"/> gets what each start was told crashed before it.
+    /// </summary>
+    private static (NodeKeeper Keeper, Func<int> Runs) KeeperOf(FakeTimeProvider clock, params (TimeSpan Before, int Exit)[] exits) =>
+        KeeperOf(clock, new List<int?>(), exits);
+
+    private static (NodeKeeper Keeper, Func<int> Runs) KeeperOf(FakeTimeProvider clock, List<int?> toldOfCrash, params (TimeSpan Before, int Exit)[] exits)
     {
         var queue = new Queue<(TimeSpan Before, int Exit)>(exits);
         var runs = 0;
-        var keeper = new NodeKeeper(_ =>
+        var keeper = new NodeKeeper((afterCrashOf, _) =>
         {
             runs++;
+            toldOfCrash.Add(afterCrashOf);
             var (before, exit) = queue.Dequeue();
             clock.Advance(before);
-            return Task.FromResult(exit);
+            return Task.FromResult(new NodeKeeper.NodeEnded(exit, 1000 + runs));
         }, clock, NullLogger.Instance);
         return (keeper, () => runs);
+    }
+
+    [Fact]
+    public async Task ANodeStartedAfterACrashIsToldWhichNodeCrashedAndNoOtherStartIs()
+    {
+        // Its journal is seconds old only if the node that wrote it is the one that just crashed.
+        var clock = new FakeTimeProvider();
+        var told = new List<int?>();
+        var (keeper, _) = KeeperOf(clock, told,
+            (TimeSpan.FromHours(1), Crashed),
+            (TimeSpan.FromMinutes(1), NodeExitCodes.Restart),
+            (TimeSpan.FromHours(1), Crashed),
+            (TimeSpan.FromHours(1), NodeExitCodes.Stopped));
+
+        (await keeper.RunAsync(TestContext.Current.CancellationToken)).ShouldBe(NodeExitCodes.Stopped);
+
+        told.ShouldBe([null, 1001, null, 1003]);
     }
 
     [Fact]

@@ -22,7 +22,12 @@ internal class DeviceHub(IServiceProvider serviceProvider, ILogger<DeviceHub> lo
     /// </summary>
     private readonly ConcurrentDictionary<string, LeaseHandle> _leases = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>What each camera's cooler is being asked to do, keyed like <see cref="_connected"/>.</summary>
+    private readonly ConcurrentDictionary<string, CoolerIntent> _coolerIntents = new(StringComparer.OrdinalIgnoreCase);
+
     public event EventHandler<DeviceConnectedEventArgs>? DeviceStateChanged;
+
+    public event EventHandler? CoolerIntentChanged;
 
     // ── URI → DeviceBase factory (absorbed from DeviceUriRegistry) ──
 
@@ -119,6 +124,9 @@ internal class DeviceHub(IServiceProvider serviceProvider, ILogger<DeviceHub> lo
         {
             return;
         }
+
+        // A camera that is no longer the hub's is no longer the node's to re-establish.
+        _coolerIntents.TryRemove(key, out _);
 
         try
         {
@@ -219,6 +227,23 @@ internal class DeviceHub(IServiceProvider serviceProvider, ILogger<DeviceHub> lo
             }
         }
     }
+
+    // ── Cooler intent ──
+
+    public void SetCoolerIntent(Uri cameraUri, CoolerIntent intent)
+    {
+        var key = cameraUri.DeviceKey;
+        if (_coolerIntents.TryGetValue(key, out var previous) && previous == intent)
+        {
+            return;
+        }
+
+        _coolerIntents[key] = intent;
+        logger.LogDebug("DeviceHub: the cooler of {DeviceUri} is asked to {Kind} {Setpoint}", cameraUri, intent.Kind, intent.SetpointC);
+        CoolerIntentChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    public bool TryGetCoolerIntent(Uri cameraUri, out CoolerIntent intent) => _coolerIntents.TryGetValue(cameraUri.DeviceKey, out intent);
 
     public async ValueTask<bool> IsCoolingAsync(Uri deviceUri, CancellationToken cancellationToken = default)
     {

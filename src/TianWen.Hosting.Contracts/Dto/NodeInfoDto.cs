@@ -47,4 +47,10 @@ public sealed class NodeInfoDto
     /// included), and this is how the client can tell.
     /// </summary>
     public DateTimeOffset NowUtc { get; init; }
+
+    /// <summary>
+    /// What the node before this one left when it died instead of stopping: which run was interrupted, when, and the
+    /// devices it held. Null when the last node stopped cleanly, or once a client has dismissed it.
+    /// </summary>
+    public NodeRecoveryDto? Recovery { get; init; }
 }

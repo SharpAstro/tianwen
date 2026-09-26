@@ -106,6 +106,23 @@ public interface IDeviceHub : IAsyncDisposable
     /// <summary>A snapshot of every live claim.</summary>
     IReadOnlyList<DeviceLease> Leases { get; }
 
+    // ── Cooler intent ──
+
+    /// <summary>
+    /// Records what the cooler of the camera at <paramref name="cameraUri"/> is being asked to do: the target of a
+    /// cool-down, a warm-up in progress, or off (<see cref="CoolerIntent"/>). What a node re-establishes after it
+    /// crashed, which the camera's own state cannot tell it mid-ramp (the crash journal, P1 of
+    /// docs/plans/hardware-in-the-server.md, #917). Whatever commands a cooler records it: a session's ramp, the
+    /// hub's warm-up, a device plane's command. Forgotten when the camera disconnects through the hub.
+    /// </summary>
+    void SetCoolerIntent(Uri cameraUri, CoolerIntent intent);
+
+    /// <summary>What the cooler of the camera at <paramref name="cameraUri"/> was last asked to do, if anything asked.</summary>
+    bool TryGetCoolerIntent(Uri cameraUri, out CoolerIntent intent);
+
+    /// <summary>Fired when a camera's recorded <see cref="CoolerIntent"/> changes.</summary>
+    event EventHandler? CoolerIntentChanged;
+
     /// <summary>
     /// Fired when a device is connected or disconnected via the hub.
     /// </summary>

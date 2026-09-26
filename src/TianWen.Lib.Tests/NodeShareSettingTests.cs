@@ -27,7 +27,7 @@ public class NodeShareSettingTests
     [InlineData(true, true, true, false)]
     public void ANodeListensOnTheLanAsItWasStartedAndTheSettingSay(bool spawned, bool shared, bool localOnly, bool onTheLan)
     {
-        var node = new NodeArguments(Path.Combine(Path.GetTempPath(), "node.sock"), NodeArguments.DefaultPort, localOnly, Keeper: false, spawned, FakeDevicesOnly: false);
+        var node = new NodeArguments(Path.Combine(Path.GetTempPath(), "node.sock"), NodeArguments.DefaultPort, localOnly, Keeper: false, spawned, FakeDevicesOnly: false, AfterCrashOf: null);
 
         var listening = NodeListeningDecision.For(node, new NodeSettings(shared));
 

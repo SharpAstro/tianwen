@@ -39,6 +39,9 @@ internal sealed class KeptNode : IAsyncDisposable
 
     public TianWenNodeClient Client { get; }
 
+    /// <summary>The node's socket as a plain HTTP client, for what <see cref="Client"/> does not speak (the Alpaca plane).</summary>
+    public HttpClient Http => _http;
+
     public static string ServerPath => Path.Combine(AppContext.BaseDirectory, OperatingSystem.IsWindows() ? "tianwen-server.exe" : "tianwen-server");
 
     /// <summary>Starts a keeper, on <paramref name="socketPath"/> when given, else a new socket of its own.</summary>

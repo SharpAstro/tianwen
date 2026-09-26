@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
 using System;
 using System.Threading;
@@ -44,6 +45,11 @@ public class SessionCoolingTests(ITestOutputHelper output)
         var power = await ctx.Camera.GetCoolerPowerAsync(ct);
         output.WriteLine($"Cooler power: {power:F1}%");
         power.ShouldBeGreaterThan(0, "cooler should be drawing power");
+
+        // What a node that crashed mid-ramp would re-establish: the TARGET, not a step on the way (the crash journal).
+        ctx.Session.ServiceProvider.GetRequiredService<IDeviceHub>()
+            .TryGetCoolerIntent(ctx.Session.Setup.Telescopes[0].Camera.Device.DeviceUri, out var intent).ShouldBeTrue();
+        intent.ShouldBe(CoolerIntent.CoolTo(-10));
     }
 
     [Fact(Timeout = 60_000)]

@@ -13,7 +13,7 @@
          reflection-based request delegates -> IL2026/IL3050 + runtime NotSupportedException risk. -->
     <IsAotCompatible>true</IsAotCompatible>
     <EnableRequestDelegateGenerator>true</EnableRequestDelegateGenerator>
-    <!-- LibraryImport (NodeDetachment's setsid and dup2). -->
+    <!-- LibraryImport (NodeDetachment's setsid and dup2, MachineBoot's event log and sysctl). -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
