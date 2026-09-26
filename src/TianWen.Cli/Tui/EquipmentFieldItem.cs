@@ -61,6 +61,20 @@ namespace TianWen.Cli.Tui
         /// "..." on the target segment so the user gets visible feedback.</summary>
         public bool IsPending { get; init; }
 
+        /// <summary>
+        /// Invoked when the actionable segment of <c>[On|Off]</c> is clicked -- the one naming the state the
+        /// device is NOT in, as <c>O</c> moves it. The tab binds it to the same method <c>O</c> runs, so a
+        /// click reaches the disconnect's ownership gate, safety pre-check and confirm strip exactly as the
+        /// key does. Null leaves the strip unbound, which is what it was before: drawn and inert.
+        /// </summary>
+        public Action<InputModifier>? OnToggleConnection { get; init; }
+
+        /// <summary>
+        /// Invoked when <c>[&gt;]</c> is clicked; the tab binds it to the assignment picker <c>Enter</c> opens.
+        /// Null leaves the glyph unbound.
+        /// </summary>
+        public Action<InputModifier>? OnOpenPicker { get; init; }
+
         // --- OTA header rows ---
 
         /// <summary>OTA index for OTA headers (-1 for non-OTA rows).</summary>
@@ -105,6 +119,15 @@ namespace TianWen.Cli.Tui
 
         /// <summary>The delete affordance an OTA header carries.</summary>
         public const string DeleteActionLabel = "[X]";
+
+        /// <summary>The assignment-picker affordance a device-slot row carries.</summary>
+        public const string PickerActionLabel = " [>]";
+
+        /// <summary>The hit a slot row's actionable <c>[On|Off]</c> segment carries.</summary>
+        public const string ToggleConnectionAction = "ToggleConnection";
+
+        /// <summary>The hit a slot row's <c>[&gt;]</c> carries.</summary>
+        public const string OpenPickerAction = "OpenPicker";
 
         public Layout.Node BuildRow(in RowContext context)
         {
@@ -194,10 +217,22 @@ namespace TianWen.Cli.Tui
         /// a clamped Star now, so the surplus goes to the device name, which is the field that actually
         /// runs long.
         /// </para>
+        /// <para>
+        /// Both affordances carry their own hit, like the OTA header's <c>[X]</c>: the row that draws a glyph
+        /// is the row that binds it. They used to be drawn on every row and bound to nothing, so connecting a
+        /// device or opening the picker was keyboard-only (<c>O</c>, <c>Enter</c>) behind glyphs that looked
+        /// like buttons.
+        /// </para>
         /// </summary>
         private Layout.Node BuildSlotRow(bool isSelected)
         {
             var pen = TuiRowPalette.ForRow(isSelected);
+
+            var picker = pen.Cell(PickerActionLabel, PickerActionLabel.Length);
+            if (OnOpenPicker is { } onOpenPicker)
+            {
+                picker = picker.Clickable(new HitResult.ButtonHit($"{OpenPickerAction}{FieldIndex}"), onOpenPicker);
+            }
 
             return Layout.Builder.HStack(
                 pen.Gap(2),
@@ -205,7 +240,7 @@ namespace TianWen.Cli.Tui
                 pen.Gap(1),
                 pen.Text(SlotDeviceName ?? "(none)").WStar(2f, 4f),
                 BuildToggleStrip(pen),
-                pen.Cell(" [>]", 4))
+                picker)
                 .RowH(1).Bg(pen.Background);
         }
 
@@ -217,6 +252,11 @@ namespace TianWen.Cli.Tui
         /// string version needed a helper that re-applied the enclosing style on exit plus a scan over the
         /// emitted escape bytes to know how far to pad the line. A nested run's reset used to wipe the
         /// selection background for the rest of the row.
+        /// </para>
+        /// <para>
+        /// Only the segment naming the state the device is NOT in is clickable, as in the GUI's segmented
+        /// button: it runs <see cref="OnToggleConnection"/>, which is what <c>O</c> runs. The live segment
+        /// carries no hit, so clicking "On" on a connected device cannot disconnect it.
         /// </para>
         /// </summary>
         private Layout.Node BuildToggleStrip(RowPen pen)
@@ -237,12 +277,27 @@ namespace TianWen.Cli.Tui
             var onText = IsPending && !IsConnected ? "..." : "On";
             var offText = IsPending && IsConnected ? "..." : "Off";
 
+            var onSegment = pen.WithForeground(on).Cell(onText, 3, TextAlign.Center);
+            var offSegment = pen.WithForeground(off).Cell(offText, 3, TextAlign.Center);
+            if (OnToggleConnection is { } onToggle)
+            {
+                var hit = new HitResult.ButtonHit($"{ToggleConnectionAction}{FieldIndex}");
+                if (IsConnected)
+                {
+                    offSegment = offSegment.Clickable(hit, onToggle);
+                }
+                else
+                {
+                    onSegment = onSegment.Clickable(hit, onToggle);
+                }
+            }
+
             return Layout.Builder.HStack(
                 pen.Gap(1),
                 pen.Cell("[", 1),
-                pen.WithForeground(on).Cell(onText, 3, TextAlign.Center),
+                onSegment,
                 pen.Cell("|", 1),
-                pen.WithForeground(off).Cell(offText, 3, TextAlign.Center),
+                offSegment,
                 pen.Cell("]", 1),
                 pen.Gap(1))
                 .WFixed(ToggleColumns).HStar().Bg(pen.Background);

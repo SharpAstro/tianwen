@@ -5,6 +5,7 @@ using Console.Lib;
 using DIR.Lib;
 using Shouldly;
 using TianWen.Cli.Tui;
+using TianWen.UI.Abstractions;
 using Xunit;
 
 namespace TianWen.Lib.Tests
@@ -159,6 +160,53 @@ namespace TianWen.Lib.Tests
             var title = arranged.Single(
                 n => n.Node is Layout.Node.Leaf { Content: Layout.Content.Text { Value: var v } } && v.Contains(Name));
             (title.Bounds.X + title.Bounds.Width).ShouldBeLessThanOrEqualTo(action.Bounds.X);
+        }
+
+        /// <summary>A device-slot row with both of its affordances bound, which is how the tab builds one.</summary>
+        private static EquipmentFieldItem SlotRow(bool assigned, bool connected) => new EquipmentFieldItem
+        {
+            Slot = new AssignTarget.ProfileLevel("Mount"),
+            SlotLabel = "Mount",
+            SlotDeviceName = assigned ? "Fake Mount" : null,
+            IsSlotActive = assigned,
+            SlotDeviceUri = assigned ? new Uri("Mount://FakeDevice/FakeMount1") : null,
+            IsConnected = connected,
+            FieldIndex = 3,
+            OnToggleConnection = assigned ? _ => { } : null,
+            OnOpenPicker = _ => { },
+        };
+
+        /// <summary>The text drawn in the leaf that carries <paramref name="action"/>'s hit, or null when none does.</summary>
+        private static string? TextUnderHit(ImmutableArray<Layout.ArrangedNode<int>> arranged, string action)
+        {
+            foreach (var node in arranged)
+            {
+                if (node.Node is { Hit: HitResult.ButtonHit { Action: var a } } && a == action)
+                {
+                    return node.Node is Layout.Node.Leaf { Content: Layout.Content.Text { Value: var value } } ? value : "";
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Only the segment naming the state the device is NOT in is clickable, as in the GUI's segmented button:
+        /// clicking "On" on a connected device must not disconnect it.
+        /// </summary>
+        [Theory]
+        [InlineData(true, "Off")]
+        [InlineData(false, "On")]
+        public void OnlyTheSegmentThatChangesTheStateIsClickable(bool connected, string clickable)
+            => TextUnderHit(Arrange(SlotRow(assigned: true, connected), 60),
+                $"{EquipmentFieldItem.ToggleConnectionAction}3").ShouldBe(clickable);
+
+        [Fact]
+        public void AnUnassignedSlotHasNoToggleButStillOpensThePicker()
+        {
+            var arranged = Arrange(SlotRow(assigned: false, connected: false), 60);
+
+            TextUnderHit(arranged, $"{EquipmentFieldItem.ToggleConnectionAction}3").ShouldBeNull();
+            TextUnderHit(arranged, $"{EquipmentFieldItem.OpenPickerAction}3").ShouldBe(EquipmentFieldItem.PickerActionLabel);
         }
 
         /// <summary>
