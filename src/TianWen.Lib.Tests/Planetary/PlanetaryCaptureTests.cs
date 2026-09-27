@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
@@ -157,6 +158,31 @@ public class PlanetaryCaptureTests(ITestOutputHelper output)
 
         hub.TryGetLease(camera, out _).ShouldBeFalse("a capture that never started gives its camera back");
         capture.StartPrepared(ct).ShouldBeFalse("nothing is left to start");
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task ARecordingEndsWithTheCaptureThatFeedsIt()
+    {
+        // A host that stops its capture without disposing it (the GUI's Stop) must not leave a recording waiting for frames
+        // that will never come: the file would stay unfinished, its header unwritten, until the host disposed it.
+        var ct = TestContext.Current.CancellationToken;
+        var (hub, profile, _) = await RigAsync(ct);
+        await using var capture = new PlanetaryCapture(new FakeTimeProviderWrapper(), NullLogger.Instance);
+        capture.ArmFrameGate();
+        capture.TryStart(Request, profile, hub, ct, out _, out var refusal).ShouldBeTrue(refusal);
+        var path = Path.Combine(Directory.CreateTempSubdirectory("twser").FullName, "capture.ser");
+        capture.TryStartRecording(path, TimeSpan.FromHours(1), out var recording, out refusal).ShouldBeTrue(refusal);
+        for (var i = 0; i < 2; i++)
+        {
+            var next = capture.WaitForNextFrameAsync(ct);
+            capture.StepFrame();
+            await next;
+        }
+
+        await capture.StopAsync(ct);
+        await recording.Completion.WaitAsync(ct);
+
+        (recording.IsRecording, recording.EndReason, recording.FramesWritten).ShouldBe((false, "the capture ended", 2));
     }
 
     [Fact(Timeout = 30_000)]

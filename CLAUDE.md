@@ -1105,7 +1105,9 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   `FrameSampler`, and the linear master as frames (`planetary/live`, `planetary/master`). **A live view STREAMS them
   and the client ASKS for each frame** (`FrameStreamWire`, drop-to-latest): a send is done once the kernel has the
   bytes, and a loopback socket buffers dozens of planetary frames, so a node that sent on its own fed a reader that
-  paused every stale frame of the pause (measured).
+  paused every stale frame of the pause (measured). **A recording to disk (`SerRecording`) never slows the capture**:
+  the loop converts and queues, a writer task of its own does the disk, and a frame the disk cannot take is dropped
+  and counted. It finishes its duration unwatched.
   It claims only the camera, so **a recenter nudge asks `DeviceOwnershipGate` over the mount first**.
 
 ### AI Image Enhancement: RC-Astro (CLI) + TianWen's own models (ONNX)
@@ -1248,7 +1250,8 @@ full native-AOT rules, and the reasoning behind each rule below:
    through its own route, a stop NAMES the run it means (`TryAbort(INodeRun)`, so a run that replaced it is
    never the one stopped), and a run releases its lease as its body ends. **An interactive run stops once no
    client has been present for the detach grace** (`INodeRun.EndsUnwatched`, `NodeRunWatch`, presence being
-   the fresh beat a prompt waits by). Pinned by `NodeRunLifecycleTests`, `NodeDarkLibraryTests`,
+   the fresh beat a prompt waits by); `EndsUnwatched` is asked at every look, so a planetary capture that is RECORDING
+   is not interactive, finishes its recording, and its live view then gets a grace of its own. Pinned by `NodeRunLifecycleTests`, `NodeDarkLibraryTests`,
    `NodePolarAlignmentTests`, `NodePlanetaryTests` and `NodeRunWatchTests`.
 8. **`new SessionConfiguration()` is the DECLARED defaults; `default(SessionConfiguration)` is all zeros.**
    A record struct whose primary constructor has required parameters zero-fills on `new()` unless it

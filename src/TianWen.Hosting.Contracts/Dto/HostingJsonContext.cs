@@ -41,6 +41,7 @@ namespace TianWen.Hosting.Dto;
 [JsonSerializable(typeof(ResponseEnvelope<PolarStateDto>))]
 [JsonSerializable(typeof(PlanetaryRequestDto))]
 [JsonSerializable(typeof(PlanetaryControlsDto))]
+[JsonSerializable(typeof(PlanetaryRecordRequestDto))]
 [JsonSerializable(typeof(ResponseEnvelope<PlanetaryStateDto>))]
 [JsonSerializable(typeof(PendingTarget))]
 [JsonSerializable(typeof(Api.CreateProfileRequest))]

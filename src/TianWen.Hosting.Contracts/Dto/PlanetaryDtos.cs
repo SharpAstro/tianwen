@@ -1,3 +1,4 @@
+using System;
 using TianWen.Lib.Imaging.Planetary;
 
 namespace TianWen.Hosting.Dto;
@@ -128,4 +129,61 @@ public sealed class PlanetaryStateDto
 
     /// <summary>Why it failed, in words; null while it runs, and when it ended on a stop.</summary>
     public string? FailureReason { get; init; }
+
+    /// <summary>The recording to disk going on, or the last one to end; null before any.</summary>
+    public PlanetaryRecordingDto? Recording { get; init; }
+}
+
+/// <summary>
+/// A recording of the capture going on to a SER file under the node's image folder: <c>POST /api/v1/planetary/record</c>
+/// (P5 part 5d). It finishes its duration whether or not anyone watches; <c>DELETE /api/v1/planetary/record</c> ends it
+/// sooner.
+/// </summary>
+public sealed class PlanetaryRecordRequestDto
+{
+    // set, not init: the JSON source generator gives an init-only property its TYPE'S default when the field is
+    // absent, dropping the initializer below (CLAUDE.md, Hosting API: the wire traps).
+    /// <summary>How long to record, in seconds.</summary>
+    public double DurationSeconds { get; set; } = 60;
+}
+
+/// <summary>A recording to disk, going on or the last to end (<see cref="SerRecording"/>).</summary>
+public sealed class PlanetaryRecordingDto
+{
+    /// <summary>The SER file, on the node's disk.</summary>
+    public required string Path { get; init; }
+
+    public DateTimeOffset StartedUtc { get; init; }
+
+    /// <summary>When it ends by itself.</summary>
+    public DateTimeOffset EndsUtc { get; init; }
+
+    public bool Recording { get; init; }
+
+    /// <summary>Whether the file is whole: closed, its header written. A recording that has ended may still be writing.</summary>
+    public bool Written { get; init; }
+
+    public int FramesWritten { get; init; }
+
+    /// <summary>Frames the disk could not keep up with, never recorded.</summary>
+    public int FramesDropped { get; init; }
+
+    /// <summary>Why it ended, in words; null while it records.</summary>
+    public string? EndReason { get; init; }
+
+    /// <summary>Why the file could not be written, in words.</summary>
+    public string? FailureReason { get; init; }
+
+    public static PlanetaryRecordingDto From(SerRecording recording) => new PlanetaryRecordingDto
+    {
+        Path = recording.Path,
+        StartedUtc = recording.StartedAt,
+        EndsUtc = recording.EndsAt,
+        Recording = recording.IsRecording,
+        Written = recording.Completion.IsCompleted,
+        FramesWritten = recording.FramesWritten,
+        FramesDropped = recording.FramesDropped,
+        EndReason = recording.EndReason,
+        FailureReason = recording.FailureReason,
+    };
 }

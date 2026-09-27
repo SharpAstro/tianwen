@@ -29,6 +29,22 @@ public static class SerImageBridge
     }
 
     /// <summary>
+    /// The SER colour id a frame of <paramref name="channels"/> channels with <paramref name="meta"/> is written as, the
+    /// inverse of <see cref="ToSensorType"/>: three channels are RGB, a one-channel RGGB-family mosaic the Bayer mode its
+    /// offsets name, anything else mono.
+    /// </summary>
+    public static SerColorId SerColorOf(in ImageMeta meta, int channels)
+        => channels >= 3 ? SerColorId.Rgb
+         : meta.SensorType != SensorType.RGGB ? SerColorId.Mono
+         : ((meta.BayerOffsetX & 1) == 1, (meta.BayerOffsetY & 1) == 1) switch
+         {
+             (false, false) => SerColorId.BayerRGGB,
+             (true, false) => SerColorId.BayerGRBG,
+             (false, true) => SerColorId.BayerGBRG,
+             (true, true) => SerColorId.BayerBGGR,
+         };
+
+    /// <summary>
     /// Decodes frame <paramref name="index"/> into unit-range [0,1] float channels, filling the
     /// caller-supplied buffers with no allocation. Bayer/mono write ONE channel (the raw mosaic, left
     /// for the debayer); RGB/BGR write THREE de-interleaved channels in R,G,B order (BGR is swapped).
