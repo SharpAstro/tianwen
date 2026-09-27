@@ -24,6 +24,7 @@ using TianWen.Lib.Extensions;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
 using TianWen.Lib.Sequencing.PolarAlignment;
+using TianWen.Hosting.Dto;
 
 namespace TianWen.UI.Abstractions
 {
@@ -173,22 +174,13 @@ namespace TianWen.UI.Abstractions
             {
                 // Every object panel's Goto lands here, and it slews THIS computer's mount.
                 if (!EnsureLocalContext("A goto")) return;
-                if (appState.ActiveProfile is not { Data: { } pdata } profile
+                if (appState.ActiveProfile is not { Data: { } pdata }
                     || pdata.Mount is not { Scheme: not "none" } mountUri)
                 {
                     Notify(NotificationSeverity.Warning, "No mount configured in the active profile");
                     return;
                 }
-                // Ownership rather than a session flag: the mount is equally spoken for by a sky-flat
-                // run (which slews to the anti-solar zenith) and by polar alignment.
-                if (!EnsureDeviceControllable(mountUri)) return;
-                if (appState.DeviceHub is not { } hub
-                    || !hub.TryGetConnectedDriver<IMountDriver>(mountUri, out var mount)
-                    || mount is null)
-                {
-                    Notify(NotificationSeverity.Warning, "Mount is not connected \u2014 connect it from the Equipment tab first");
-                    return;
-                }
+                if (LocalNodeOrSay() is not { } node) return;
 
                 // Two-click confirmation for Sun slew. First click arms, second click
                 // within the window proceeds. The arm/confirm state machine lives on
@@ -204,69 +196,39 @@ namespace TianWen.UI.Abstractions
                     return;
                 }
 
-                var minAlt = System.Math.Max((int)plannerState.MinHeightAboveHorizon, 1);
-                var capturedMount = mount;
-                var capturedSig = sig;
-                var capturedProfile = profile;
-                tracker.Run(async () =>
+                // The node slews (a mount a run holds is refused, in the run's name; one not connected, saying so) and its
+                // job ends when the mount lands or gives up, which is the note the status bar ends on.
+                var request = new MountGotoRequestDto
                 {
-                    try
+                    DeviceUri = mountUri.ToString(),
+                    RaJ2000 = sig.RA,
+                    DecJ2000 = sig.Dec,
+                    Name = sig.Name,
+                    Index = sig.Index,
+                    MinAltitudeDegrees = System.Math.Max((int)plannerState.MinHeightAboveHorizon, 1),
+                };
+                var capturedSig = sig;
+                RunTracked($"Goto {sig.Name}", "Slew failed", async ct =>
+                {
+                    var starting = node.Client.GotoAsync(request, ct);
+                    // Surface the slew destination on the sky map (marker + ETA, the latter estimated in the render path
+                    // from the reticle). The signal carries J2000 catalog coords, matching the overlay frame.
+                    skyMapState.ActiveSlewTarget = new SlewTargetInfo(capturedSig.Name, capturedSig.RA, capturedSig.Dec);
+                    skyMapState.SlewEtaSeconds = double.NaN;
+                    Notify(NotificationSeverity.Info, $"Slewing to {capturedSig.Name}");
+                    if (await RunNodeJobAsync(node, starting, $"Slew to {capturedSig.Name}", ct) is { } landed)
                     {
-                        var (post, msg) = await MountGoto.SlewToJ2000Async(
-                            capturedMount, capturedSig.Name, capturedSig.RA, capturedSig.Dec, capturedSig.Index,
-                            profile: capturedProfile, timeProvider: _timeProvider,
-                            minAboveHorizonDegrees: minAlt, logger: logger,
-                            cancellationToken: cts.Token);
-                        var severity = post == SlewPostCondition.Slewing
-                            ? NotificationSeverity.Info
-                            : NotificationSeverity.Warning;
-                        Notify(severity, msg);
-                        skyMapState.NeedsRedraw = true;
-
-                        // Follow up with a "Reached <name>" / "Slew timed out" notification when
-                        // the mount actually stops slewing, so the status bar isn't permanently
-                        // stuck on the kick-off "Slewing to ..." message.
-                        if (post == SlewPostCondition.Slewing)
-                        {
-                            // Surface the slew destination on the sky map (marker + ETA, the
-                            // latter estimated in the render path from the polled reticle).
-                            // The signal carries J2000 catalog coords, matching the overlay frame.
-                            skyMapState.ActiveSlewTarget = new SlewTargetInfo(
-                                capturedSig.Name, capturedSig.RA, capturedSig.Dec);
-                            skyMapState.SlewEtaSeconds = double.NaN;
-                            // Kick the mount poll so the reticle picks up IsSlewing (and the
-                            // fast slew cadence) this frame instead of up to a steady interval later.
-                            RequestPreviewMountRefresh();
-                            var (completion, completionMsg) = await MountGoto.AwaitSlewCompletionAsync(
-                                capturedMount, capturedSig.Name, _timeProvider,
-                                logger: logger, cancellationToken: cts.Token);
-                            var completionSeverity = completion == MountGoto.SlewCompletion.Reached
-                                ? NotificationSeverity.Info
-                                : NotificationSeverity.Warning;
-                            Notify(completionSeverity, completionMsg);
-                        }
+                        Notify(NotificationSeverity.Info, landed.Step ?? $"Reached {capturedSig.Name}");
                     }
-                    catch (OperationCanceledException oce)
-                    {
-                        // Shutdown / explicit cancel: no notification needed, but log so a
-                        // mid-slew abort is still traceable in the file logger.
-                        logger.LogDebug(oce, "Slew to {Name} cancelled", capturedSig.Name);
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogWarning(ex, "Slew to {Name} failed", capturedSig.Name);
-                        Notify(NotificationSeverity.Error, $"Slew failed: {ex.Message}");
-                    }
-                    finally
-                    {
-                        // Slew finished (reached / timed out / cancelled / failed): drop the
-                        // destination marker so it doesn't linger after the mount settles.
-                        skyMapState.ActiveSlewTarget = null;
-                        skyMapState.SlewEtaSeconds = double.NaN;
-                        skyMapState.NeedsRedraw = true;
-                        appState.NeedsRedraw = true;
-                    }
-                }, $"Goto {sig.Name}");
+                }, onFinally: () =>
+                {
+                    // Slew finished (reached / timed out / cancelled / failed): drop the
+                    // destination marker so it doesn't linger after the mount settles.
+                    skyMapState.ActiveSlewTarget = null;
+                    skyMapState.SlewEtaSeconds = double.NaN;
+                    skyMapState.NeedsRedraw = true;
+                    appState.NeedsRedraw = true;
+                });
             });
 
             bus.Subscribe<SkyMapClickSelectSignal>(sig =>
@@ -341,20 +303,10 @@ namespace TianWen.UI.Abstractions
                 {
                     return;
                 }
-                if (appState.ActiveProfile is not { Data: { } pdata } profile
-                    || pdata.Mount is not { Scheme: not "none" } mountUri)
+                if (appState.ActiveProfile is not { Data: { } pdata }
+                    || pdata.Mount is not { Scheme: not "none" })
                 {
                     Notify(NotificationSeverity.Warning, "No mount configured in the active profile");
-                    return;
-                }
-                // Solve & sync rewrites the mount's pointing model -- doing that under any run that
-                // owns the mount would corrupt its idea of where it is pointing.
-                if (!EnsureDeviceControllable(mountUri)) return;
-                if (appState.DeviceHub is not { } hub
-                    || !hub.TryGetConnectedDriver<IMountDriver>(mountUri, out var mount)
-                    || mount is null)
-                {
-                    Notify(NotificationSeverity.Warning, "Mount is not connected \u2014 connect it from the Equipment tab first");
                     return;
                 }
                 if (pdata.OTAs is not { Length: > 0 } otas || sig.OtaIndex >= otas.Length)
@@ -362,16 +314,9 @@ namespace TianWen.UI.Abstractions
                     Notify(NotificationSeverity.Warning, "No OTA configured in the active profile");
                     return;
                 }
-                var ota = otas[sig.OtaIndex];
-                if (!TryGetConnected<ICameraDriver>(hub, ota.Camera, "Camera", out var camera)) return;
-
-                // Optional per-OTA devices for FITS denorm stamping (same as TakePreview);
-                // the mount is resolved separately above, so discard it here.
-                var (ssFocuser, ssFilterWheel, _) = PreviewCapture.ResolveOtaCaptureDevices(hub, pdata, sig.OtaIndex);
+                if (LocalNodeOrSay() is not { } node) return;
 
                 // Mirror the preview-capture progress UI while the solve frame exposes.
-                // ExposureSeconds is now trustworthy even for the button's parameterless
-                // `new SkyMapSolveSyncSignal()` thanks to its explicit parameterless ctor.
                 if (sig.OtaIndex < liveSessionState.PreviewCapturing.Length)
                 {
                     liveSessionState.PreviewCapturing[sig.OtaIndex] = true;
@@ -382,74 +327,28 @@ namespace TianWen.UI.Abstractions
                 skyMapState.SolveSyncInProgress = true; // drives the "Solving ..." button label
                 appState.NeedsRedraw = true;
 
+                // The node exposes, solves and syncs (solve and sync rewrites the mount's pointing, which a run holding
+                // the mount refuses); its frame is the OTA's there, shown by the view's mirror, its solution the OTA's.
+                var request = new PreviewExposureRequestDto { ExposureSeconds = sig.ExposureSeconds, Gain = sig.Gain is { } g ? (short)g : null, Binning = sig.Binning };
                 var capturedSig = sig;
-                var capturedMount = mount;
-                var capturedCamera = camera;
-                var capturedProfile = profile;
-                var capturedOta = ota;
-                tracker.Run(async () =>
+                RunTracked("SolveAndSync", "Solve & sync failed", async ct =>
                 {
-                    try
+                    if (await RunNodeJobAsync(node, node.Client.StartSolveSyncAsync(capturedSig.OtaIndex, request, ct), "Solve & sync", ct) is { } synced)
                     {
-                        var outcome = await MountSolveSync.SolveAndSyncAsync(
-                            capturedMount, capturedCamera,
-                            capturedOta.Name, capturedOta.FocalLength, capturedOta.Aperture,
-                            ssFocuser, ssFilterWheel,
-                            sp.GetRequiredService<ICelestialObjectDB>(),
-                            sp.GetRequiredService<IPlateSolverFactory>(),
-                            capturedProfile, _timeProvider,
-                            TimeSpan.FromSeconds(capturedSig.ExposureSeconds),
-                            capturedSig.Gain is { } g ? (short)g : null,
-                            capturedSig.Binning,
-                            logger, cts.Token);
-
-                        // Stash the solve frame into the preview slot (ownership transfer from
-                        // the outcome; release the previous occupant so its ChannelBuffer drops).
-                        if (outcome.CapturedImage is { } image
-                            && capturedSig.OtaIndex < liveSessionState.LastCapturedImages.Length)
-                        {
-                            liveSessionState.LastCapturedImages[capturedSig.OtaIndex]?.Release();
-                            liveSessionState.LastCapturedImages[capturedSig.OtaIndex] = image;
-                        }
-                        else
-                        {
-                            outcome.CapturedImage?.Release();
-                        }
-                        if (outcome.SolveResult is { } solveResult)
-                        {
-                            liveSessionState.PreviewPlateSolveResult = solveResult;
-                        }
-
-                        var severity = outcome.Result == MountSolveSync.SolveSyncResult.Synced
-                            ? NotificationSeverity.Info
-                            : NotificationSeverity.Warning;
-                        Notify(severity, outcome.StatusMessage);
+                        Notify(NotificationSeverity.Info, synced.Step ?? "Synced");
                     }
-                    catch (OperationCanceledException oce)
+                    await ShowSolutionAsync(node, capturedSig.OtaIndex, ct);
+                }, onFinally: () =>
+                {
+                    if (capturedSig.OtaIndex < liveSessionState.PreviewCapturing.Length)
                     {
-                        // Shutdown / explicit cancel - log so a mid-solve abort stays traceable.
-                        logger.LogDebug(oce, "Solve & sync cancelled");
+                        liveSessionState.PreviewCapturing[capturedSig.OtaIndex] = false;
                     }
-                    catch (Exception ex)
-                    {
-                        logger.LogWarning(ex, "Solve & sync failed");
-                        Notify(NotificationSeverity.Error, $"Solve & sync failed: {ex.Message}");
-                    }
-                    finally
-                    {
-                        if (capturedSig.OtaIndex < liveSessionState.PreviewCapturing.Length)
-                        {
-                            liveSessionState.PreviewCapturing[capturedSig.OtaIndex] = false;
-                        }
-                        skyMapState.SolveSyncInProgress = false; // re-enable the Solve & Sync button
-                        // A sync doesn't change slew/track state, so the cadence ramp won't
-                        // notice it - force a poll so the reticle jumps to the synced pointing.
-                        RequestPreviewMountRefresh();
-                        skyMapState.NeedsRedraw = true;
-                        liveSessionState.NeedsRedraw = true;
-                        appState.NeedsRedraw = true;
-                    }
-                }, "SolveAndSync");
+                    skyMapState.SolveSyncInProgress = false; // re-enable the Solve & Sync button
+                    skyMapState.NeedsRedraw = true;
+                    liveSessionState.NeedsRedraw = true;
+                    appState.NeedsRedraw = true;
+                });
             });
         }
     }

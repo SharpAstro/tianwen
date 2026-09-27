@@ -96,7 +96,12 @@ public class IdleRigDevicesTests(ITestOutputHelper output)
         var sampled = new PreviewOTATelemetry[data.OTAs.Length];
         for (var i = 0; i < sampled.Length; i++)
         {
-            sampled[i] = await LiveSessionActions.SampleOTATelemetryAsync(hub, data.OTAs[i], NullLogger.Instance, ct);
+            // The node's own readers, as a reading of the devices where they are (DeviceHubReadingExtensions).
+            var ota = data.OTAs[i];
+            sampled[i] = PreviewOTATelemetry.From(ota,
+                await hub.ReadCameraAsync(ota.Camera, NullLogger.Instance, ct),
+                ota.Focuser is { } focuserUri ? await hub.ReadFocuserAsync(focuserUri, NullLogger.Instance, ct) : null,
+                ota.FilterWheel is { } filterWheelUri ? await hub.ReadFilterWheelAsync(filterWheelUri, NullLogger.Instance, ct) : null);
         }
         local.PreviewOTATelemetry = [.. sampled];
         local.MountState = MountState.Unknown;

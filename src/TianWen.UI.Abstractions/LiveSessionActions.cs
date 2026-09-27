@@ -165,32 +165,6 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// Samples camera, focuser, and filter-wheel telemetry for one OTA from hub-connected drivers, through the one
-        /// sampler a node's device plane reads through too (<see cref="DeviceHubReadingExtensions"/>). A single flaky
-        /// driver call reads as not known rather than aborting the whole sample.
-        /// </summary>
-        public static async Task<PreviewOTATelemetry> SampleOTATelemetryAsync(
-            IDeviceHub hub, OTAData ota, ILogger logger, CancellationToken ct)
-        {
-            var camera = await hub.ReadCameraAsync(ota.Camera, logger, ct);
-            var focuser = ota.Focuser is { } focuserUri ? await hub.ReadFocuserAsync(focuserUri, logger, ct) : null;
-            var filterWheel = ota.FilterWheel is { } filterWheelUri ? await hub.ReadFilterWheelAsync(filterWheelUri, logger, ct) : null;
-            return PreviewOTATelemetry.From(ota, camera, focuser, filterWheel);
-        }
-
-        /// <summary>
-        /// Moves the focuser by <paramref name="steps"/> relative to its current position.
-        /// Returns the computed absolute target position.
-        /// </summary>
-        public static async Task<int> JogFocuserAsync(IFocuserDriver focuser, int steps, CancellationToken ct)
-        {
-            var currentPos = await focuser.GetPositionAsync(ct);
-            var targetPos = currentPos + steps;
-            await focuser.BeginMoveAsync(targetPos, ct);
-            return targetPos;
-        }
-
-        /// <summary>
         /// Standard astrophotography exposure-time ladder in seconds. The preview stepper
         /// walks this list in both directions; longer exposures (&gt;5 min) are intentionally
         /// absent since preview mode is for framing / focus checks, not sub-framing.

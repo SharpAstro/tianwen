@@ -1,10 +1,12 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TianWen.Hosting.Dto;
+using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
@@ -198,6 +200,40 @@ namespace TianWen.UI.Abstractions
             {
                 _logger.LogDebug("Could not list the profiles of {Node}: {Error}", LocalNodeName, listed.Error);
             }
+        }
+
+        /// <summary>
+        /// The focuser of OTA <paramref name="otaIndex"/>, and this computer's node to move it through. Silent when the OTA has
+        /// none (the jog is click-driven and self-explanatory); a panel of a rig on show acts on this computer's rig never.
+        /// </summary>
+        private bool TryResolveOtaFocuser(int otaIndex, [NotNullWhen(true)] out LocalNodeConnection? node, [NotNullWhen(true)] out Uri? focuserUri)
+        {
+            node = null;
+            focuserUri = null;
+            // The planetary panel's jog, beside its mount nudges, reaches here from a remote view too.
+            if (!EnsureLocalContext("A focuser move")) return false;
+            if (_appState.ActiveProfile?.Data is not { OTAs: var otas } || otaIndex >= otas.Length) return false;
+            if (otas[otaIndex].Focuser is not { } focuser || focuser == NoneDevice.Instance.DeviceUri) return false;
+            if (LocalNodeOrSay() is not { } local) return false;
+            node = local;
+            focuserUri = focuser;
+            return true;
+        }
+
+        /// <summary>
+        /// The node's solution of OTA <paramref name="otaIndex"/>'s frame, shown on this computer's view and said: from a
+        /// solve, or a solve and sync, whose frame is the one the view shows.
+        /// </summary>
+        private async Task ShowSolutionAsync(LocalNodeConnection node, int otaIndex, CancellationToken cancellationToken)
+        {
+            var solution = await node.Client.GetSolutionAsync(otaIndex, cancellationToken).ConfigureAwait(false);
+            if (solution is not { IsSuccess: true, Value: { } solved })
+            {
+                return;
+            }
+            LocalLiveSession.PreviewPlateSolveResult = new PlateSolveResult(solved.Solution?.ToWcs(), TimeSpan.FromSeconds(solved.ElapsedSeconds));
+            LocalLiveSession.NeedsRedraw = true;
+            Notify(solved.Solved ? NotificationSeverity.Info : NotificationSeverity.Warning, solved.Message);
         }
 
         /// <summary>
