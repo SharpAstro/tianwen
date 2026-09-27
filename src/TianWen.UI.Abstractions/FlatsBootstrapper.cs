@@ -109,33 +109,8 @@ namespace TianWen.UI.Abstractions
                 }
                 session.PhaseChanged += OnPhaseChanged;
 
-                // Surface session-driven user prompts (e.g. "switch on the manual panel"). Fires on the
-                // session's background thread; a reference assignment + NeedsRedraw is all that crosses over.
-                void OnPromptRequested(object? _, SessionPromptEventArgs e)
-                {
-                    // Nobody can see an overlay once the display is gone: answer as an unattended caller
-                    // would, rather than hold the run for a frame that will never be drawn.
-                    if (liveSessionState.AnswerPromptsUnattended)
-                    {
-                        e.Respond(e.DefaultIfUnanswerable);
-                        return;
-                    }
-                    liveSessionState.PendingPrompt = e;
-                    liveSessionState.NeedsRedraw = true;
-                    appState.ActiveTab = GuiTab.LiveSession;
-                    appState.NeedsRedraw = true;
-
-                    // Off the bar once it settles by any route: the session withdraws it when the run is
-                    // cancelled while it waits, and a prompt it no longer waits on must not stay up.
-                    _ = e.Settled.ContinueWith(_ =>
-                    {
-                        if (liveSessionState.TryClearPendingPrompt(e))
-                        {
-                            liveSessionState.NeedsRedraw = true;
-                        }
-                    }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
-                }
-                session.PromptRequested += OnPromptRequested;
+                // The run's prompts ("switch on the manual panel") on the live view: the ONE wiring.
+                var prompts = LiveSessionPrompts.ShowOn(session, liveSessionState, appState);
 
                 var started = SessionNotes.ForRunStart(flatRun: true);
                 appState.AppendNotification(timeProvider.GetUtcNow(), started.Severity, started.Message);
@@ -157,7 +132,7 @@ namespace TianWen.UI.Abstractions
                         finally
                         {
                             session.PhaseChanged -= OnPhaseChanged;
-                            session.PromptRequested -= OnPromptRequested;
+                            prompts.Dispose();
                             // Clear any prompt left open by a cancel mid-wait (the session's WaitAsync already
                             // resolved it to "decline"; this just drops the stale overlay).
                             liveSessionState.PendingPrompt = null;

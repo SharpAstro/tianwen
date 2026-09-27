@@ -1,15 +1,25 @@
 using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Net;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using DIR.Lib;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Shouldly;
+using TianWen.Hosting.Api;
+using TianWen.Hosting.Dto;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Sequencing;
+using TianWen.RemoteClient;
 using TianWen.UI.Abstractions;
 using Xunit;
 
@@ -112,6 +122,35 @@ internal sealed class GuiSignalHarness : IAsyncDisposable
             mount.DeviceUri, camera.DeviceUri, focuser.DeviceUri);
     }
 
+    private readonly List<RemoteSessionMirror> _mirrors = [];
+
+    /// <summary>
+    /// Connects the remote rig on screen as <see cref="RemoteRigConnection"/> does, its node a recorder: every request the
+    /// view sends it, as "METHOD path", each answered with success.
+    /// </summary>
+    public ConcurrentQueue<string> ConnectRemoteRig()
+    {
+        var sent = new ConcurrentQueue<string>();
+        var http = new HttpClient(new RecordingNode(sent)) { BaseAddress = new Uri("http://rig.local:1888/") };
+        var clock = new SystemTimeProvider();
+        var mirror = new RemoteSessionMirror(new TianWenNodeClient(http),
+            new TianWenEventStream(http.BaseAddress, clock, NullLogger.Instance), clock, NullLogger.Instance);
+        _mirrors.Add(mirror);
+        Contexts.Active.LiveSession.ActiveSession = mirror;
+        Contexts.Active.Mirror = mirror;
+        return sent;
+    }
+
+    private sealed class RecordingNode(ConcurrentQueue<string> sent) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            sent.Enqueue($"{request.Method} {request.RequestUri?.AbsolutePath}");
+            var body = JsonSerializer.Serialize(ResponseEnvelope<string>.Ok("ok"), HostingJsonContext.Default.ResponseEnvelopeString);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "application/json") });
+        }
+    }
+
     public void Post<T>(T signal) where T : notnull
     {
         Bus.Post(signal);
@@ -146,6 +185,10 @@ internal sealed class GuiSignalHarness : IAsyncDisposable
         await _cts.CancelAsync();
         await PlanetaryCapture.DisposeAsync();
         await Tracker.DrainAsync();
+        foreach (var mirror in _mirrors)
+        {
+            await mirror.DisposeAsync();
+        }
 
         // Stop the rig before its services go, as a host does: a cancelled run can leave a fake camera mid-exposure,
         // and the frame's end resolves from the provider. The provider marks itself disposed before it disposes the

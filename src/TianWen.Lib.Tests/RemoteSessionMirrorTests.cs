@@ -735,6 +735,40 @@ public class RemoteSessionMirrorTests
         mirror.ActiveObservation.ShouldNotBeNull().Target.Name.ShouldBe("M42");
     }
 
+    [Fact(Timeout = 10_000)]
+    public async Task ARigsPromptShowsOnItsViewAndItsAnswerReachesItsNode()
+    {
+        // The node holds a rig's prompt for the GUI that beats to it as present; nothing subscribed the mirror's, so it
+        // was never shown and held the night (P5b part 5). Through the ONE wiring, it waits on the rig's view, and its
+        // answer goes to the rig's node.
+        var ct = TestContext.Current.CancellationToken;
+        var prompt = new PendingPromptDto
+        {
+            Title = "Manual flat panel", Message = "Switch the panel on, then Continue.",
+            ContinueLabel = "Continue", CancelLabel = "Cancel", RequiresPhysicalPresence = true,
+        };
+        var answered = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var (mirror, _) = BuildMirror(request =>
+        {
+            if (request.Method == HttpMethod.Post)
+            {
+                answered.TrySetResult(request.RequestUri?.PathAndQuery ?? "");
+                return Json(ResponseEnvelope<string>.Ok("ok"));
+            }
+            return Json(ResponseEnvelope<SessionStateDto>.Ok(RunningState(pendingPrompt: prompt)));
+        });
+        await using var _mirror = mirror;
+        var view = new LiveSessionState { ActiveSession = mirror };
+        using var _prompts = LiveSessionPrompts.ShowOn(mirror, view, app: null);
+
+        await mirror.PollOnceAsync(ct);
+
+        var shown = view.PendingPrompt.ShouldNotBeNull();
+        shown.Title.ShouldBe("Manual flat panel");
+        shown.Respond(true);
+        (await answered.Task.WaitAsync(ct)).ShouldBe("/api/v1/session/prompt/respond?proceed=true");
+    }
+
     [Fact]
     public async Task ARigsViewFollowsTheRunItsNodeReports()
     {

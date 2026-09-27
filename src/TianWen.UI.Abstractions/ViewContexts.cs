@@ -66,6 +66,13 @@ namespace TianWen.UI.Abstractions
         /// <see cref="LiveSessionState.ActiveSession"/> -- that is what the P3.1 split bought).
         /// </summary>
         public LiveSessionState LiveSession { get; } = new LiveSessionState();
+
+        /// <summary>
+        /// A rig's mirror while it is connected, and so how a control from its view reaches its node (P5b part 5): an
+        /// abort, a flat run's cancel. Null for the local context, whose runs this computer owns, and for a rig not
+        /// connected.
+        /// </summary>
+        public RemoteSessionMirror? Mirror { get; internal set; }
     }
 
     /// <summary>

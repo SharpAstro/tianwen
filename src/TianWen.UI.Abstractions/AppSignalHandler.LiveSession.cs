@@ -84,16 +84,10 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<ConfirmAbortSessionSignal>(_ =>
             {
-                // The ABORT a rig's panel shows once its run is reported (P5b part 4) would otherwise cancel THIS
-                // computer's session; until part 5 sends it to the rig's own node, a rig's view refuses it.
-                if (!EnsureLocalContext("Aborting a session"))
-                {
-                    liveSessionState.ShowAbortConfirm = false;
-                    return;
-                }
-                liveSessionState.SessionCts?.Cancel();
-                liveSessionState.ShowAbortConfirm = false;
-                liveSessionState.NeedsRedraw = true;
+                // The ABORT of the rig on screen: this computer's session, or a rig's through its own node (P5b part 5).
+                _contexts.Active.LiveSession.ShowAbortConfirm = false;
+                StopActiveRun("Aborting the session", () => liveSessionState.SessionCts?.Cancel());
+                _contexts.Active.LiveSession.NeedsRedraw = true;
                 appState.NeedsRedraw = true;
             });
         }
