@@ -458,6 +458,10 @@ plain interfaces, so remote implementations slot in without tab changes.
    output was undeserializable (a healthy session with `FailureReason = null` threw "missing required
    properties" on read). Invisible for as long as nothing ever read a response. Fixed by dropping
    `required` from the 18 nullable wire properties, with the rule written into `SessionStateDto`'s doc.
+   A nineteenth slipped past that sweep because it was DECLARED non-null: `OtaCameraStateDto.FilterName`
+   came from `CameraExposureState.FilterName`, which a session publishes as a default struct (a null
+   string) until each camera's first frame, so no client could read a session's state through its
+   initialisation, cooling and focus. P5's end-to-end proof found it (#934); the source is `string?` now.
    (2) The mandatory AOT-publish smoke test found a **pre-existing** 500: NaN is not valid JSON, and
    because serialization runs while the response streams, one unguarded value takes down the whole
    endpoint as a bodiless 500. It surfaced on `/v2/api/equipment/camera/info`, but the audit showed it
