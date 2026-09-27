@@ -17,15 +17,19 @@ param(
     [string]$Export = (Join-Path ($env:TIANWEN_SCRATCH ?? 'C:\temp\tianwen-scratch') 'degraded\pool-vshape-ringfix'),
     [string]$Scratch = ($env:TIANWEN_SCRATCH ?? 'C:\temp\tianwen-scratch'),
     [string]$LogDir = 'C:\temp\e2',
-    [string]$Tianwen = "$PSScriptRoot\..\..\src\TianWen.Cli\bin\Release\net10.0\tianwen.dll"
+    [string]$Tianwen = "$PSScriptRoot\..\..\src\TianWen.Cli\bin\Release\net10.0\tianwen.dll",
+    # A later re-export (the bake changed under a session) gets its own cache and its own status files,
+    # so it never overwrites the cache a run is training from.
+    [string]$Cache = 'n2n-pool-rf',
+    [string]$Tag = 'poolrf'
 )
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 
-$status = Join-Path $LogDir 'poolrf.status'
-$log = Join-Path $LogDir 'poolrf.log'
-$stopFile = Join-Path $LogDir 'poolrf.stop'
-$PID | Out-File (Join-Path $LogDir 'poolrf.pid') -Encoding ascii
+$status = Join-Path $LogDir "$Tag.status"
+$log = Join-Path $LogDir "$Tag.log"
+$stopFile = Join-Path $LogDir "$Tag.stop"
+$PID | Out-File (Join-Path $LogDir "$Tag.pid") -Encoding ascii
 function Set-Status([string]$what) { "running $(Get-Date -Format o): $what" | Out-File $status -Encoding utf8 }
 function Read-List([string]$path) {
     Get-Content $path | Where-Object { $_.Trim() -and -not $_.StartsWith('#') } | ForEach-Object { $_.Trim() }
@@ -84,12 +88,12 @@ try {
 
     # 2. Prepare the cache a post-fix arm trains from, with run-pool.ps1's own selection.
     if (Stop-Requested 'prepare') { return }
-    $cache = Join-Path $Scratch 'n2n-pool-rf'
+    $cache = Join-Path $Scratch $Cache
     if (Test-Path (Join-Path $cache 'meta.json')) {
         "prepare: $cache present, skipped" | Tee-Object -FilePath $log -Append
     }
     else {
-        Set-Status 'prepare n2n-pool-rf'
+        Set-Status "prepare $Cache"
         & python n2n_smoke.py --prepare --root $Export --cache $cache `
             --train-from-list arms\pool-train.txt --val-from-list arms\bb-val-2.txt `
             --cells-per-session 45 --val-cells-per-session 120 *>> $log
