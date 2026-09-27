@@ -11,6 +11,7 @@ using System.Net.Http.Json;
 using System.Text.Json.Serialization.Metadata;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.DAL;
 using TianWen.Hosting.Api;
 using TianWen.Hosting.Dto;
 using TianWen.Lib.Devices;
@@ -196,6 +197,14 @@ namespace TianWen.RemoteClient
         /// </summary>
         public Task<NodeResult<NodeInfoDto>> GetNodeAsync(CancellationToken cancellationToken) =>
             GetAsync("api/v1/node", HostingJsonContext.Default.ResponseEnvelopeNodeInfoDto, _timeouts.StatePoll, cancellationToken);
+
+        /// <summary>
+        /// <c>POST /node/shutdown</c>, over the node's socket only (403 over TCP): stops the node the safe way, a run ending
+        /// through its Finalise and the hub's cameras warmed, then the process exits and its keeper with it (P6 part 1). The
+        /// answer (202) comes at once; the stop can take as long as a warm-up, so a caller waits for the node to stop answering.
+        /// </summary>
+        public Task<NodeResult<string>> ShutdownNodeAsync(CancellationToken cancellationToken) =>
+            PostAsync("api/v1/node/shutdown", content: null, HostingJsonContext.Default.ResponseEnvelopeString, _timeouts.Control, cancellationToken);
 
         /// <summary>
         /// <c>DELETE /node/recovery</c>: the report of the node that died before this one (<see cref="NodeInfoDto.Recovery"/>)
@@ -544,7 +553,16 @@ namespace TianWen.RemoteClient
             SendJsonAsync(HttpMethod.Post, "api/v1/devices/mount/tracking", new MountTrackingRequestDto { DeviceUri = deviceUri.ToString(), On = on },
                 HostingJsonContext.Default.MountTrackingRequestDto, HostingJsonContext.Default.ResponseEnvelopeString, _timeouts.Control, cancellationToken);
 
-        /// <summary><c>POST /devices/mount/stop</c> -- stops the mount where it is, ending the goto or park job that drives it, if one does.</summary>
+        /// <summary>
+        /// <c>POST /devices/mount/nudge</c> -- nudges the mount by <paramref name="arcsec"/> towards <paramref name="direction"/>
+        /// with one guide-rate pulse, as a job that ends when the mount reports the pulse done (P6 part 1); refused (409) on a
+        /// mount a run or another job holds.
+        /// </summary>
+        public Task<NodeResult<JobDto>> NudgeMountAsync(Uri deviceUri, GuideDirection direction, double arcsec, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/devices/mount/nudge",
+                new MountNudgeRequestDto { DeviceUri = deviceUri.ToString(), Direction = direction, Arcsec = arcsec },
+                HostingJsonContext.Default.MountNudgeRequestDto, HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
+
         /// <summary>
         /// <c>POST /devices/mount/move-axis</c> -- moves the axis at <paramref name="rate"/> degrees a second, or stops it
         /// at 0 (P2 part 5, #929). LEASED: the axis stops by itself <see cref="NodeWire.MoveAxisLease"/> after the last
@@ -554,6 +572,7 @@ namespace TianWen.RemoteClient
             SendJsonAsync(HttpMethod.Post, "api/v1/devices/mount/move-axis", new MoveAxisRequestDto { DeviceUri = deviceUri.ToString(), Axis = axis, Rate = rate },
                 HostingJsonContext.Default.MoveAxisRequestDto, HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
 
+        /// <summary><c>POST /devices/mount/stop</c> -- stops the mount where it is, ending the goto or park job that drives it, if one does.</summary>
         public Task<NodeResult<string>> StopMountAsync(Uri deviceUri, CancellationToken cancellationToken) =>
             SendJsonAsync(HttpMethod.Post, "api/v1/devices/mount/stop", new DeviceRequestDto { DeviceUri = deviceUri.ToString() },
                 HostingJsonContext.Default.DeviceRequestDto, HostingJsonContext.Default.ResponseEnvelopeString, _timeouts.Control, cancellationToken);

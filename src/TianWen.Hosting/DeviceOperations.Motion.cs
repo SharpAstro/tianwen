@@ -20,6 +20,7 @@ internal sealed partial class DeviceOperations
     internal const string SlewJob = "slew";
     internal const string ParkJob = "park";
     internal const string UnparkJob = "unpark";
+    internal const string NudgeJob = "nudge";
 
     /// <summary>How often a job asks a moving device whether it has settled.</summary>
     private static readonly TimeSpan SettlePoll = TimeSpan.FromMilliseconds(250);
@@ -226,6 +227,49 @@ internal sealed partial class DeviceOperations
             step.Report($"Unparking {name}");
             await mount.UnparkAsync(ct);
             return $"{name} unparked";
+        });
+    }
+
+    /// <summary>
+    /// Nudges the mount by an angle with one guide-rate pulse (<see cref="MountNudge"/>, the one the GUI's buttons and the
+    /// planetary recentre use), as a job that ends when the mount reports the pulse done (P6 part 1). A mount whose guide rate
+    /// is unknown cannot have its pulse sized, and the job fails saying so rather than reporting a nudge it never made.
+    /// </summary>
+    public ResponseEnvelope<JobDto> NudgeMount(MountNudgeRequestDto request)
+    {
+        if (!TryIdle<IMountDriver>(request.DeviceUri, "mount", out var uri, out var mount, out var refused))
+        {
+            return refused.Value.As<JobDto>();
+        }
+        var name = NameOf(uri);
+        if (!mount.CanPulseGuide)
+        {
+            return ResponseEnvelope<JobDto>.Fail($"{name} cannot pulse-guide, so it cannot be nudged");
+        }
+        if (!(request.Arcsec > 0))
+        {
+            return ResponseEnvelope<JobDto>.Fail("A nudge names a distance above 0 arcseconds");
+        }
+
+        var (direction, arcsec) = (request.Direction, request.Arcsec);
+        return Start(NudgeJob, uri, name, async (step, ct) =>
+        {
+            step.Report($"Nudging {name} {direction} by {arcsec:F0} arcsec");
+            if (await MountNudge.PulseArcsecAsync(mount, direction, arcsec, logger: logger, cancellationToken: ct) is not { } pulse)
+            {
+                throw new InvalidOperationException($"{name} reports no {direction} guide rate, so no pulse could be sized");
+            }
+            // The pulse runs on after its start returns: the nudge is done when the mount says so, or a generous while after.
+            var deadline = timeProvider.GetUtcNow() + pulse + TimeSpan.FromSeconds(5);
+            while (await mount.IsPulseGuidingAsync(ct))
+            {
+                if (timeProvider.GetUtcNow() > deadline)
+                {
+                    throw new TimeoutException($"{name} still reports a pulse {pulse.TotalSeconds + 5:F0} s after a {pulse.TotalMilliseconds:F0} ms nudge");
+                }
+                await timeProvider.SleepAsync(SettlePoll, ct);
+            }
+            return $"{name} nudged {direction} by {arcsec:F0} arcsec ({pulse.TotalMilliseconds:F0} ms)";
         });
     }
 

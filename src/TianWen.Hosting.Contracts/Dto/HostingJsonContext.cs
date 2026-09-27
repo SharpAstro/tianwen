@@ -66,6 +66,7 @@ namespace TianWen.Hosting.Dto;
 [JsonSerializable(typeof(MountGotoRequestDto))]
 [JsonSerializable(typeof(MountTrackingRequestDto))]
 [JsonSerializable(typeof(MoveAxisRequestDto))]
+[JsonSerializable(typeof(MountNudgeRequestDto))]
 [JsonSerializable(typeof(DeviceSettingRequestDto))]
 [JsonSerializable(typeof(ResponseEnvelope<DeviceSettingDto>))]
 [JsonSerializable(typeof(ResponseEnvelope<DeviceSecretDto>))]

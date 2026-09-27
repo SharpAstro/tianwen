@@ -22,7 +22,11 @@ public static class MountNudge
     /// </summary>
     /// <param name="maxPulse">Upper bound on the pulse duration (default 2 s).</param>
     /// <param name="logger">Optional logger for the sizing breadcrumb.</param>
-    public static async Task PulseArcsecAsync(
+    /// <returns>
+    /// The pulse started, which runs on after this returns (<see cref="IMountDriver.StartPulseGuideAsync"/>), or null when
+    /// none was issued, so a caller that reports the nudge (the node's job, P6 part 1) never claims one that did not happen.
+    /// </returns>
+    public static async Task<TimeSpan?> PulseArcsecAsync(
         IMountDriver mount,
         GuideDirection direction,
         double arcsec,
@@ -32,7 +36,7 @@ public static class MountNudge
     {
         if (!mount.Connected || !mount.CanPulseGuide || !(arcsec > 0.0))
         {
-            return;
+            return null;
         }
 
         var rateDegPerSec = direction is GuideDirection.East or GuideDirection.West
@@ -43,7 +47,7 @@ public static class MountNudge
         if (!(arcsecPerSec > 0.0))
         {
             logger?.LogDebug("Mount nudge skipped: {Dir} guide rate is {Rate} deg/s.", direction, rateDegPerSec);
-            return;
+            return null;
         }
 
         var ms = arcsec / arcsecPerSec * 1000.0;
@@ -54,6 +58,8 @@ public static class MountNudge
             "Mount nudge {Dir} {Arcsec:F1} arcsec -> {Ms:F0} ms (guide rate {Rate:F4} deg/s).",
             direction, arcsec, ms, rateDegPerSec);
 
-        await mount.StartPulseGuideAsync(direction, TimeSpan.FromMilliseconds(ms), cancellationToken);
+        var pulse = TimeSpan.FromMilliseconds(ms);
+        await mount.StartPulseGuideAsync(direction, pulse, cancellationToken);
+        return pulse;
     }
 }

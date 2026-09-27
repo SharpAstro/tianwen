@@ -201,15 +201,11 @@ namespace TianWen.RemoteClient
         private async Task<bool> StopAsync(NodeTransport transport, NodeInfoDto running, CancellationToken cancellationToken)
         {
             using var http = transport.CreateHttpClient();
-            try
+            var asked = await new TianWenNodeClient(http, new NodeTimeouts(AskBudget, AskBudget, AskBudget))
+                .ShutdownNodeAsync(cancellationToken).ConfigureAwait(false);
+            if (!asked.IsSuccess)
             {
-                using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                budget.CancelAfter(AskBudget);
-                using var answer = await http.PostAsync("api/v1/node/shutdown", content: null, budget.Token).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (!cancellationToken.IsCancellationRequested && ex is HttpRequestException or OperationCanceledException or IOException)
-            {
-                logger.LogWarning(ex, "Asking node pid {Pid} to stop failed", running.ProcessId);
+                logger.LogWarning("Asking node pid {Pid} to stop failed: {Error}", running.ProcessId, asked.Error);
             }
 
             var deadline = Stopwatch.StartNew();

@@ -1,3 +1,4 @@
+using TianWen.DAL;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Devices;
 
@@ -136,6 +137,21 @@ public sealed class MountTrackingRequestDto
 {
     public required string DeviceUri { get; init; }
     public required bool On { get; init; }
+}
+
+/// <summary>
+/// Nudges a mount by an angle towards a direction with one guide-rate pulse: <c>POST /api/v1/devices/mount/nudge</c> (P6
+/// part 1 of docs/plans/hardware-in-the-server.md), the planetary panel's coarse recentre. The pulse is sized from that
+/// axis's guide rate and bounded at two seconds, so a large request never issues an unbounded one
+/// (<see cref="MountNudge"/>). A nudge has no direction to default to, so it names one, as a move-axis names its axis.
+/// </summary>
+public sealed class MountNudgeRequestDto
+{
+    public required string DeviceUri { get; init; }
+    public required GuideDirection Direction { get; init; }
+
+    /// <summary>How far, in arcseconds; above 0.</summary>
+    public required double Arcsec { get; init; }
 }
 
 /// <summary>A camera's settings as it reads them back after a change, which a camera may have snapped.</summary>
