@@ -71,9 +71,9 @@ public sealed class ProfileDetailDto
             ProfileId = profile.ProfileId,
             Name = profile.DisplayName,
             Equipment = ProfileEquipmentDto.FromData(data),
-            SiteLatitude = data.SiteLatitude is { } lat ? JsonNumber.ForWire(lat) : null,
-            SiteLongitude = data.SiteLongitude is { } lon ? JsonNumber.ForWire(lon) : null,
-            SiteElevation = data.SiteElevation is { } elev ? JsonNumber.ForWire(elev) : null,
+            SiteLatitude = data.SiteLatitude is { } lat ? JsonNumber.OrNull(lat) : null,
+            SiteLongitude = data.SiteLongitude is { } lon ? JsonNumber.OrNull(lon) : null,
+            SiteElevation = data.SiteElevation is { } elev ? JsonNumber.OrNull(elev) : null,
         };
     }
 }

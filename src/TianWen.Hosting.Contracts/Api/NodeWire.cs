@@ -12,7 +12,11 @@ namespace TianWen.Hosting.Api;
 /// </remarks>
 public static class NodeWire
 {
-    public const int Version = 1;
+    /// <summary>
+    /// 2: the native state plane sends an unknown number as null, never 0 (P5b part 2), so a client of wire 1, whose
+    /// fields are required numbers, cannot read it.
+    /// </summary>
+    public const int Version = 2;
 
     /// <summary>The TCP port a node listens on for the LAN: a node run by hand, or one whose rig is shared.</summary>
     public const int LanPort = 1888;

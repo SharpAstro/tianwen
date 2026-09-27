@@ -111,7 +111,8 @@ public sealed class PlanetaryStateDto
     /// <summary>Frames the camera reported dropped; 0 for one that cannot report it.</summary>
     public int DroppedFrames { get; init; }
 
-    public double FramesPerSecond { get; init; }
+    /// <summary>The camera's measured rate; null until it can be measured.</summary>
+    public double? FramesPerSecond { get; init; }
 
     /// <summary>Masters the node has stacked so far.</summary>
     public int Masters { get; init; }
@@ -119,10 +120,11 @@ public sealed class PlanetaryStateDto
     /// <summary>Frames in the latest master's window.</summary>
     public int StackedFrames { get; init; }
 
-    /// <summary>The disk's last centre-of-mass offset from the frame's centre, in pixels.</summary>
-    public double OffsetX { get; init; }
+    /// <summary>The disk's last centre-of-mass offset from the frame's centre, in pixels; null until a disk is found.</summary>
+    public double? OffsetX { get; init; }
 
-    public double OffsetY { get; init; }
+    /// <inheritdoc cref="OffsetX"/>
+    public double? OffsetY { get; init; }
 
     /// <summary>Which actuator the latest recenter frame engaged.</summary>
     public RecenterActuator RecenterActuator { get; init; }

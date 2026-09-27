@@ -27,9 +27,17 @@ namespace TianWen.Hosting.Dto
     /// </para>
     /// <para>
     /// <b>Why 0 is the default fallback:</b> it is what N.I.N.A. itself reports for an unavailable
-    /// reading, so the ninaAPI shim stays compatible, and native-v1 clients already saw 0 for a pre-poll
-    /// mount. Enabling named literals instead would emit the non-standard <c>"NaN"</c> token, which real
-    /// nina clients do not parse -- which is exactly why the policy is currently off.
+    /// reading, so the ninaAPI shim stays compatible. Enabling named literals instead would emit the
+    /// non-standard <c>"NaN"</c> token, which real nina clients do not parse -- which is exactly why the
+    /// policy is currently off.
+    /// </para>
+    /// <para>
+    /// <b>The native state plane sends an unknown as <c>null</c>, never 0</b> (<see cref="OrNull(double)"/>,
+    /// P5b part 2 of docs/plans/hardware-in-the-server.md): a mirror read a pre-poll mount's 0 as RA 0,
+    /// Dec 0 and snapped the reticle there, and every other unknown as a real reading. A client reads the
+    /// null back as NaN (<see cref="FromWire(double?)"/>). <see cref="ForWire(double, double)"/> and its 0
+    /// stay for what other applications read: the ninaAPI shim, the Alpaca plane, and the broadcast events,
+    /// which go to ninaAPI sockets as well.
     /// </para>
     /// </summary>
     public static class JsonNumber
@@ -58,6 +66,19 @@ namespace TianWen.Hosting.Dto
         /// <inheritdoc cref="ForWire(double, double)"/>
         public static float ForWire(float value, float fallback = 0f) =>
             WireAllowsNonFinite || float.IsFinite(value) ? value : fallback;
+
+        /// <summary><paramref name="value"/> on the native wire: itself when it is a number, <c>null</c> when it is
+        /// not known (NaN) or not finite.</summary>
+        public static double? OrNull(double value) => double.IsFinite(value) ? value : null;
+
+        /// <inheritdoc cref="OrNull(double)"/>
+        public static float? OrNull(float value) => float.IsFinite(value) ? value : null;
+
+        /// <summary>A number read off the native wire: <c>null</c>, the wire's "not known", is NaN again.</summary>
+        public static double FromWire(double? value) => value ?? double.NaN;
+
+        /// <inheritdoc cref="FromWire(double?)"/>
+        public static float FromWire(float? value) => value ?? float.NaN;
 
         /// <summary>
         /// The wire encoding of "not known". Use it for a pre-built DTO -- a <c>Disconnected</c>

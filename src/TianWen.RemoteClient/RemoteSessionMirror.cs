@@ -852,9 +852,9 @@ namespace TianWen.RemoteClient
                 }
 
                 return new MountState(
-                    m.RightAscension,
-                    m.Declination,
-                    m.HourAngle,
+                    JsonNumber.FromWire(m.RightAscension),
+                    JsonNumber.FromWire(m.Declination),
+                    JsonNumber.FromWire(m.HourAngle),
                     Enum.TryParse<PointingState>(m.PierSide, out var pier) ? pier : PointingState.Unknown,
                     m.IsSlewing,
                     m.IsTracking);
@@ -915,7 +915,7 @@ namespace TianWen.RemoteClient
                         camera.FilterName,
                         camera.FocusPosition,
                         Enum.TryParse<CameraState>(camera.State, out var s) ? s : CameraState.Idle,
-                        camera.FocuserTemperature,
+                        JsonNumber.FromWire(camera.FocuserTemperature),
                         camera.FocuserIsMoving));
                 }
                 return builder.MoveToImmutable();
@@ -938,7 +938,7 @@ namespace TianWen.RemoteClient
                     // countdown reads CameraStates.SubExposure instead, and the drift detector is a
                     // node-side concern.
                     metrics[i] = new FrameMetrics(
-                        cameras[i].StarCount, cameras[i].MedianHfd, cameras[i].MedianFwhm,
+                        cameras[i].StarCount, JsonNumber.FromWire(cameras[i].MedianHfd), JsonNumber.FromWire(cameras[i].MedianFwhm),
                         TimeSpan.Zero, Gain: 0, FilterPosition: -1);
                 }
                 return metrics;
@@ -1031,14 +1031,14 @@ namespace TianWen.RemoteClient
                     return null;
                 }
 
-                // A node with a guider that has not produced stats yet reports all zeros; treat that as
-                // "no stats" so the UI shows a placeholder rather than a perfect 0.00" RMS.
-                if (guider is { TotalRMS: 0, RaRMS: 0, DecRMS: 0, PeakRa: 0, PeakDec: 0 })
+                // A guider that has no stats yet sends none: null, which the UI shows as a placeholder.
+                if (guider is { TotalRMS: null, RaRMS: null, DecRMS: null, PeakRa: null, PeakDec: null })
                 {
                     return null;
                 }
 
-                return GuideStats.FromRms(guider.TotalRMS, guider.RaRMS, guider.DecRMS, guider.PeakRa, guider.PeakDec);
+                return GuideStats.FromRms(JsonNumber.FromWire(guider.TotalRMS), JsonNumber.FromWire(guider.RaRMS),
+                    JsonNumber.FromWire(guider.DecRMS), JsonNumber.FromWire(guider.PeakRa), JsonNumber.FromWire(guider.PeakDec));
             }
         }
 
@@ -1055,8 +1055,8 @@ namespace TianWen.RemoteClient
                 foreach (var step in steps)
                 {
                     builder.Add(new GuideErrorSample(
-                        step.Timestamp, step.RaError, step.DecError,
-                        step.RaCorrectionMs, step.DecCorrectionMs, step.IsDither, step.IsSettling));
+                        step.Timestamp, JsonNumber.FromWire(step.RaError), JsonNumber.FromWire(step.DecError),
+                        JsonNumber.FromWire(step.RaCorrectionMs), JsonNumber.FromWire(step.DecCorrectionMs), step.IsDither, step.IsSettling));
                 }
                 return builder.MoveToImmutable();
             }
@@ -1088,7 +1088,7 @@ namespace TianWen.RemoteClient
                 {
                     builder.Add(new ExposureLogEntry(
                         e.Timestamp, e.TargetName, e.FilterName,
-                        TimeSpan.FromSeconds(e.ExposureSeconds), e.FrameNumber, e.MedianHfd, e.StarCount));
+                        TimeSpan.FromSeconds(e.ExposureSeconds), e.FrameNumber, JsonNumber.FromWire(e.MedianHfd), e.StarCount));
                 }
                 return builder.MoveToImmutable();
             }
@@ -1107,8 +1107,8 @@ namespace TianWen.RemoteClient
                 foreach (var run in runs)
                 {
                     builder.Add(new FocusRunRecord(
-                        run.Timestamp, run.OtaName, run.FilterName, run.BestPosition, run.BestHfd,
-                        ToCurve(run.Curve), run.FitA, run.FitB));
+                        run.Timestamp, run.OtaName, run.FilterName, run.BestPosition, JsonNumber.FromWire(run.BestHfd),
+                        ToCurve(run.Curve), JsonNumber.FromWire(run.FitA), JsonNumber.FromWire(run.FitB)));
                 }
                 return builder.MoveToImmutable();
             }
@@ -1130,7 +1130,8 @@ namespace TianWen.RemoteClient
                 foreach (var s in samples)
                 {
                     builder.Add(new CoolingSample(
-                        s.Timestamp, s.CameraIndex, s.TemperatureC, s.SetpointTemperatureC, s.CoolerPowerPercent));
+                        s.Timestamp, s.CameraIndex, JsonNumber.FromWire(s.TemperatureC), JsonNumber.FromWire(s.SetpointTemperatureC),
+                        JsonNumber.FromWire(s.CoolerPowerPercent)));
                 }
                 return builder.MoveToImmutable();
             }
@@ -1146,7 +1147,7 @@ namespace TianWen.RemoteClient
             var builder = ImmutableArray.CreateBuilder<(int, float)>(curve.Length);
             foreach (var sample in curve)
             {
-                builder.Add((sample.Position, sample.Hfd));
+                builder.Add((sample.Position, JsonNumber.FromWire(sample.Hfd)));
             }
             return builder.MoveToImmutable();
         }
@@ -1275,7 +1276,7 @@ namespace TianWen.RemoteClient
         }
 
         private static ScheduledObservation ToScheduled(ObservationDto obs) => new ScheduledObservation(
-            new Target(obs.TargetRA, obs.TargetDec, obs.TargetName, null),
+            new Target(JsonNumber.FromWire(obs.TargetRA), JsonNumber.FromWire(obs.TargetDec), obs.TargetName, null),
             obs.Start,
             TimeSpan.FromMinutes(obs.DurationMinutes),
             obs.AcrossMeridian,

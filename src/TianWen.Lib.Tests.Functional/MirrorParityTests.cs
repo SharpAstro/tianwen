@@ -41,10 +41,6 @@ public class MirrorParityTests(ITestOutputHelper output)
     /// <summary>Every member a mirror renders differently today, with the P5b part that closes it.</summary>
     private static readonly IReadOnlyDictionary<string, string> KnownGaps = new Dictionary<string, string>
     {
-        // Part 2, NaN crosses as null: the node's pre-poll mount arrives at RA 0, Dec 0, which passes PollSession's guard
-        // against an unpolled mount, so the mirror adopts a pointing and a name the in-process view rightly holds back.
-        ["MountDisplayName"] = "P5b part 2",
-
         // Part 3, lossless state: an observation rebuilt from its name, its plan flattened to one guessed filter.
         ["ActiveObservation.Target.CatalogIndex"] = "P5b part 3",
         ["ActiveObservation.Priority"] = "P5b part 3",
@@ -90,8 +86,11 @@ public class MirrorParityTests(ITestOutputHelper output)
                 Gain: 120, Offset: 10, Priority: ObservationPriority.High),
         ];
         output.WriteLine($"{DateTimeOffset.Now:HH:mm:ss.fff} building the session");
+        // The SkyWatcher fake is the mount that reports its mechanical axis angle, which the wire must carry too. A
+        // SkyWatcher board keeps no site, so the rig's profile names it, as a real one does.
         await using var ctx = await SessionTestHelper.CreateSessionAsync(output, observations: observations, now: WinterNight,
-            withFilterWheel: true, cancellationToken: ct);
+            mountPort: "SkyWatcher", withFilterWheel: true, profileSite: new SiteCoordinates(48.2, 16.3, 200),
+            cancellationToken: ct);
         output.WriteLine($"{DateTimeOffset.Now:HH:mm:ss.fff} starting the node");
         await using var node = await NodeHarness.StartAsync(output, ct,
             services => services.AddSingleton<ISessionFactory>(new OneSessionFactory(ctx.Session)));
@@ -203,6 +202,7 @@ public class MirrorParityTests(ITestOutputHelper output)
         local.IsRunning = false;
         await CompareAsync("after the run");
 
+        output.WriteLine($"The session ended {ctx.Session.Phase}{(ctx.Session.FailureReason is { } why ? $": {why}" : "")}");
         output.WriteLine($"Compared at: {string.Join("; ", compared)}");
         output.WriteLine($"Diverged: {string.Join(", ", diverged.Order(StringComparer.Ordinal))}");
         ctx.Session.Phase.ShouldBe(SessionPhase.Complete, "the session ran its whole night");

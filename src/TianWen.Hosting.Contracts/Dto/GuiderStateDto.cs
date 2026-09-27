@@ -7,11 +7,11 @@ namespace TianWen.Hosting.Dto;
 public sealed class GuiderStateDto
 {
     public string? State { get; init; }
-    public required double TotalRMS { get; init; }
-    public required double RaRMS { get; init; }
-    public required double DecRMS { get; init; }
-    public required double PeakRa { get; init; }
-    public required double PeakDec { get; init; }
+    public double? TotalRMS { get; init; }
+    public double? RaRMS { get; init; }
+    public double? DecRMS { get; init; }
+    public double? PeakRa { get; init; }
+    public double? PeakDec { get; init; }
     public required double GuideExposureSeconds { get; init; }
     public required ImmutableArray<GuideStepDto> RecentSteps { get; init; }
 
@@ -50,10 +50,10 @@ public sealed class GuiderStateDto
             steps.Add(new GuideStepDto
             {
                 Timestamp = s.Timestamp,
-                RaError = JsonNumber.ForWire(s.RaError),
-                DecError = JsonNumber.ForWire(s.DecError),
-                RaCorrectionMs = JsonNumber.ForWire(s.RaCorrectionMs),
-                DecCorrectionMs = JsonNumber.ForWire(s.DecCorrectionMs),
+                RaError = JsonNumber.OrNull(s.RaError),
+                DecError = JsonNumber.OrNull(s.DecError),
+                RaCorrectionMs = JsonNumber.OrNull(s.RaCorrectionMs),
+                DecCorrectionMs = JsonNumber.OrNull(s.DecCorrectionMs),
                 IsDither = s.IsDither,
                 IsSettling = s.IsSettling,
             });
@@ -62,21 +62,20 @@ public sealed class GuiderStateDto
         return new GuiderStateDto
         {
             State = session.GuiderState,
-            // A stats object can exist before any sample has been folded in, so the figures can be
-            // NaN even when `stats` is non-null -- the ?? only guards the null case.
-            TotalRMS = JsonNumber.ForWire(stats?.TotalRMS ?? 0),
-            RaRMS = JsonNumber.ForWire(stats?.RaRMS ?? 0),
-            DecRMS = JsonNumber.ForWire(stats?.DecRMS ?? 0),
-            PeakRa = JsonNumber.ForWire(stats?.PeakRa ?? 0),
-            PeakDec = JsonNumber.ForWire(stats?.PeakDec ?? 0),
+            // Null with no stats, and null for a figure no sample has been folded into yet (NaN): not known
+            // is never 0 on the native wire.
+            TotalRMS = JsonNumber.OrNull(stats?.TotalRMS ?? double.NaN),
+            RaRMS = JsonNumber.OrNull(stats?.RaRMS ?? double.NaN),
+            DecRMS = JsonNumber.OrNull(stats?.DecRMS ?? double.NaN),
+            PeakRa = JsonNumber.OrNull(stats?.PeakRa ?? double.NaN),
+            PeakDec = JsonNumber.OrNull(stats?.PeakDec ?? double.NaN),
             GuideExposureSeconds = session.GuideExposure.TotalSeconds,
             RecentSteps = steps.MoveToImmutable(),
-            // Through ForWire like every other double here: a centroid on a frame with no star can come
-            // back non-finite, and one NaN reaching the writer is a bodiless 500 for the WHOLE state
-            // response, not just this field.
-            GuideStarX = session.GuideStarPosition is { } p ? JsonNumber.ForWire(p.X) : null,
-            GuideStarY = session.GuideStarPosition is { } q ? JsonNumber.ForWire(q.Y) : null,
-            GuideStarSNR = session.GuideStarSNR is { } snr ? JsonNumber.ForWire(snr) : null,
+            // A centroid on a frame with no star can come back non-finite, which is not known, so null: one NaN
+            // reaching the writer would be a bodiless 500 for the WHOLE state response, not just this field.
+            GuideStarX = session.GuideStarPosition is { } p ? JsonNumber.OrNull(p.X) : null,
+            GuideStarY = session.GuideStarPosition is { } q ? JsonNumber.OrNull(q.Y) : null,
+            GuideStarSNR = session.GuideStarSNR is { } snr ? JsonNumber.OrNull(snr) : null,
             GuideFrameNumber = session.LastGuideFrameNumber,
         };
     }
@@ -85,10 +84,10 @@ public sealed class GuiderStateDto
 public sealed class GuideStepDto
 {
     public required DateTimeOffset Timestamp { get; init; }
-    public required double RaError { get; init; }
-    public required double DecError { get; init; }
-    public required double RaCorrectionMs { get; init; }
-    public required double DecCorrectionMs { get; init; }
+    public double? RaError { get; init; }
+    public double? DecError { get; init; }
+    public double? RaCorrectionMs { get; init; }
+    public double? DecCorrectionMs { get; init; }
     public required bool IsDither { get; init; }
     public required bool IsSettling { get; init; }
 }
