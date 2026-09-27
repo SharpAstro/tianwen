@@ -152,8 +152,7 @@ internal partial record Session
             // A mount with no site yields no transform, and without a site there is no night to plan by.
             if (Site is null)
             {
-                throw new SessionFailedException(
-                    "No site is known: neither the request, the mount nor the profile names one. Set the site in the profile's Equipment settings, or on the mount.");
+                throw new SessionFailedException(NoSiteReason);
             }
 
             throw new InvalidOperationException("Failed to retrieve time transformation from mount");
