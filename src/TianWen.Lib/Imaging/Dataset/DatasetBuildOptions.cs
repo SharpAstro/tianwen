@@ -203,7 +203,7 @@ public sealed record DatasetBuildOptions
     /// session whose tiles went missing is re-registered rather than silently counted. The PSF/noise
     /// report accumulates across runs via <see cref="DatasetPsfStore"/>, so a resumed run no longer
     /// narrows it; a session with tiles but no stored PSF record needs
-    /// <see cref="RegenPsfForExportedSessions"/>. Default false (fresh manifest, prior behaviour).</summary>
+    /// <see cref="FillMissingPsf"/>. Default false (fresh manifest, prior behaviour).</summary>
     public bool Resume { get; init; } = false;
 
     /// <summary>
@@ -216,8 +216,13 @@ public sealed record DatasetBuildOptions
     /// register + integrate, so recovering it costs the same as building the session in the first
     /// place. A plain resume must stay a fast skip, so it reports how many sessions are missing PSF
     /// records and leaves the choice to the caller. Default false.</para>
+    ///
+    /// <para><b>The name says what it does, and only that</b> (#557). It was <c>--regen-psf</c>, which
+    /// promised a re-measure it never did: a session that already has a record is decided before this
+    /// is read, and a 2026-08-11 re-run needed the store rotated aside by hand to make the flag do
+    /// anything. Re-measuring a record that exists is <see cref="ForcePsfRemeasure"/>.</para>
     /// </summary>
-    public bool RegenPsfForExportedSessions { get; init; } = false;
+    public bool FillMissingPsf { get; init; } = false;
 
     /// <summary>
     /// When true, each integrated session master is written to
@@ -304,7 +309,7 @@ public sealed record DatasetBuildOptions
     /// Re-measure the PSF/noise record for exported sessions <b>even when one already exists</b>,
     /// replacing it. Tiles are left untouched.
     ///
-    /// <para>Distinct from <see cref="RegenPsfForExportedSessions"/>, which fills GAPS: that one only
+    /// <para>Distinct from <see cref="FillMissingPsf"/>, which fills GAPS: that one only
     /// touches sessions the report does not cover, so it is idempotent, converges, and costs nothing
     /// on a second run. It cannot express the case this exists for, because the sessions whose
     /// records are wrong are precisely the ones that HAVE a record.</para>
@@ -337,7 +342,7 @@ public sealed record DatasetBuildOptions
     /// <para>The subs it describes are the quality gate's SURVIVORS, not the registered set (the record
     /// says so in <c>SessionPsf.SubSelection</c>); which survivors would have failed to register is
     /// exactly the expensive half this skips. Sessions with no record are left alone (that is
-    /// <see cref="RegenPsfForExportedSessions"/>'s job), and it is refused together with
+    /// <see cref="FillMissingPsf"/>'s job), and it is refused together with
     /// <see cref="ForcePsfRemeasure"/>: run them as two passes, subs first, so the forced master
     /// re-measure has an identity to carry.</para>
     /// </summary>

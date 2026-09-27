@@ -190,18 +190,20 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
         {
             Description = "Stop after session discovery and print the inventory (no tiles written).",
         };
-        var regenPsfOpt = new Option<bool>("--regen-psf")
+        var fillMissingPsfOpt = new Option<bool>("--fill-missing-psf")
         {
             Description = "Re-measure PSF/noise stats for sessions whose tiles are already exported " +
                           "but which have no record in stats/psf-sessions.jsonl, so the report covers " +
                           "them. Leaves their tiles untouched. Costs a full re-registration per " +
                           "session (the profile is measured on the session master), which is why a " +
-                          "plain --resume reports them as missing instead of doing this by default.",
+                          "plain --resume reports them as missing instead of doing this by default. " +
+                          "A session that already has a record is skipped; to re-measure those, " +
+                          "use --force-psf.",
         };
         var forcePsfOpt = new Option<bool>("--force-psf")
         {
             Description = "Re-measure PSF/noise stats for EVERY exported session, replacing records " +
-                          "that already exist. Tiles are left untouched. Unlike --regen-psf, which " +
+                          "that already exist. Tiles are left untouched. Unlike --fill-missing-psf, which " +
                           "only fills gaps and is therefore cheap and idempotent, this is what an " +
                           "estimator change needs: the records that are wrong are exactly the ones " +
                           "that already exist. Reads the RETAINED session master where one is on " +
@@ -274,7 +276,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             {
                 archiveRootOpt, outOpt,
                 minExposureOpt, maxExposureOpt, excludeInstrumeOpt, excludeObjectOpt, excludePathOpt, holdOutOpt, rebuildSessionOpt, parametersOpt, minSubsOpt,
-                tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, requireDarkOpt, requireGainMatchOpt, maxDarkDeltaTOpt, hotPixelSigmaOpt, warpInterpolationOpt, softwareOpt, discoverOnlyOpt, resumeOpt, regenPsfOpt, forcePsfOpt, remeasureSubsOpt, siteOpt, scratchRootOpt,
+                tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, requireDarkOpt, requireGainMatchOpt, maxDarkDeltaTOpt, hotPixelSigmaOpt, warpInterpolationOpt, softwareOpt, discoverOnlyOpt, resumeOpt, fillMissingPsfOpt, forcePsfOpt, remeasureSubsOpt, siteOpt, scratchRootOpt,
                 noStageLightsOpt, noHeaderIndexOpt,
             },
         };
@@ -321,7 +323,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 StageLights = !parseResult.GetValue(noStageLightsOpt),
                 UseHeaderIndex = !parseResult.GetValue(noHeaderIndexOpt),
                 Resume = parseResult.GetValue(resumeOpt),
-                RegenPsfForExportedSessions = parseResult.GetValue(regenPsfOpt),
+                FillMissingPsf = parseResult.GetValue(fillMissingPsfOpt),
                 ForcePsfRemeasure = parseResult.GetValue(forcePsfOpt),
                 RemeasureSubs = parseResult.GetValue(remeasureSubsOpt),
                 FallbackSite = ParseSite(parseResult.GetValue(siteOpt)),
@@ -447,7 +449,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             {
                 consoleHost.WriteScrollable(
                     $"[dataset] WARNING: {result.PsfMissing} session(s) have tiles but no PSF record, so the report does not " +
-                    $"cover them. Re-run with --regen-psf to measure them (tiles are left untouched).");
+                    $"cover them. Re-run with --fill-missing-psf to measure them (tiles are left untouched).");
             }
 
             // A non-zero parity diff means the stored tiles no longer equal the C# stretch of their
@@ -679,7 +681,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             "Re-render stats/psf-noise-report.md from stats/psf-sessions.jsonl. No archive scan, " +
             "nothing re-measured, no tile touched -- for when the report's INPUTS changed but the " +
             "measurements did not (a telescope alias, a rendering fix). Sessions come from the tile " +
-            "manifest. To re-MEASURE, that is 'build --regen-psf' (fills gaps) or '--force-psf' " +
+            "manifest. To re-MEASURE, that is 'build --fill-missing-psf' (fills gaps) or '--force-psf' " +
             "(replaces records).")
         {
             Options = { outOpt },
@@ -707,7 +709,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 consoleHost.WriteScrollable(
                     $"[dataset] WARNING: {result.PsfMissing} session(s) have tiles but no PSF record, so the " +
                     $"report does not cover them. A re-render cannot fix that (the profile is measured on the " +
-                    $"session master); use 'dataset build --regen-psf'.");
+                    $"session master); use 'dataset build --fill-missing-psf'.");
             }
             return 0;
         });

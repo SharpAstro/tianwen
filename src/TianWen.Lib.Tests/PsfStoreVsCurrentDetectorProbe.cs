@@ -36,7 +36,7 @@ namespace TianWen.Lib.Tests;
 /// deblending change shows up.</para>
 ///
 /// <para>A re-measure is <c>tianwen dataset build --force-psf</c>, which REPLACES existing records;
-/// <c>--regen-psf</c> only fills gaps and cannot correct a record that is present and wrong.</para>
+/// <c>--fill-missing-psf</c> only fills gaps and cannot correct a record that is present and wrong.</para>
 /// </remarks>
 public class PsfStoreVsCurrentDetectorProbe(ITestOutputHelper output)
 {
