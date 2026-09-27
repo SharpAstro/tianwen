@@ -18,48 +18,6 @@ public class RunClaimTests(ITestOutputHelper output)
 {
 
     [Fact(Timeout = 60_000)]
-    public async Task WhilePolarAlignmentRunsItsMountAndCameraAreClaimed()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        await using var h = await GuiSignalHarness.StartAsync(output, ct);
-
-        h.Post(new StartPolarAlignmentSignal(OtaIndex: 0));
-
-        h.Claimed(h.MountUri).ShouldBeTrue("polar rotates the mount");
-        h.Claimed(h.CameraUri).ShouldBeTrue("polar exposes on the camera");
-        h.Claimed(h.FocuserUri).ShouldBeFalse("it only reads the focuser, for the frames' cards");
-    }
-
-    [Fact(Timeout = 60_000)]
-    public async Task APolarRunGivesItsDevicesBackOnceItHasEnded()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        await using var h = await GuiSignalHarness.StartAsync(output, ct);
-        h.Post(new StartPolarAlignmentSignal(OtaIndex: 0));
-
-        h.Post(new CancelPolarAlignmentSignal());
-        await h.UntilAsync(() => h.Contexts.Local.LiveSession.PolarRunEnded.IsCompleted, ct);
-
-        h.Claimed(h.MountUri).ShouldBeFalse();
-        h.Claimed(h.CameraUri).ShouldBeFalse();
-    }
-
-    [Fact(Timeout = 60_000)]
-    public async Task APolarStartIsRefusedWhileAnotherRunHoldsItsMount()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        await using var h = await GuiSignalHarness.StartAsync(output, ct);
-        h.Hub.TryAcquireLease(h.MountUri, "the imaging session", out var sessionClaim).ShouldBeTrue();
-
-        h.Post(new StartPolarAlignmentSignal(OtaIndex: 0));
-
-        h.Contexts.Local.LiveSession.PolarAlignmentCts.ShouldBeNull("polar never started");
-        h.Claimed(h.CameraUri).ShouldBeFalse("a refused start leaves ownership as it found it");
-        h.ShouldHaveRefused("the imaging session");
-        sessionClaim.Dispose();
-    }
-
-    [Fact(Timeout = 60_000)]
     public async Task WhilePlanetaryCaptureStreamsItsCameraIsClaimedAndStoppingGivesItBack()
     {
         var ct = TestContext.Current.CancellationToken;

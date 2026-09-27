@@ -712,23 +712,6 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// Guards an action that must not run during a session. Returns true (proceed) when idle;
-        /// when a session is running it notifies <paramref name="message"/> (Warning) and returns
-        /// false. Call as <c>if (!EnsureSessionIdle("...")) return;</c>. The message is bespoke per
-        /// action ("Cannot slew manually ...", "Session already running", ...), so it is a required
-        /// argument rather than a templated default.
-        /// </summary>
-        private bool EnsureSessionIdle(string message)
-        {
-            if (!LocalLiveSession.IsRunning)
-            {
-                return true;
-            }
-            Notify(NotificationSeverity.Warning, message);
-            return false;
-        }
-
-        /// <summary>
         /// Guards a run that would drive THIS node's hardware while a remote rig is on screen. Every
         /// handler here acts locally, so starting one from a remote view would silently run a local
         /// session behind a remote overlay -- the failure the local/active split exists to prevent.
@@ -739,29 +722,32 @@ namespace TianWen.UI.Abstractions
         /// which drove THIS computer's rig from a remote rig's panel. P6 routes each to its context's node.
         /// </summary>
         /// <summary>
-        /// Stops the run on the view on screen (P5b part 5): this computer's through <paramref name="local"/>, a rig's
-        /// through its node, whose abort ends a session's or a flat run's run alike through its own Finalise. A rig's
-        /// ABORT and a flat run's Cancel used to act on THIS computer's run.
+        /// Stops the run on the view on screen through its node (P5b part 5, P6): a rig's, and this computer's, whose runs are
+        /// its node's since the cut. The node's abort ends a session's or a flat run's run alike through its own Finalise. A
+        /// rig's ABORT and a flat run's Cancel used to act on THIS computer's run.
         /// </summary>
-        private void StopActiveRun(string what, Action local)
+        private void StopActiveRun(string what)
         {
             var active = _contexts.Active;
-            if (active.IsLocal)
-            {
-                local();
-                return;
-            }
             if (active.Mirror is not { } mirror)
             {
-                Notify(NotificationSeverity.Warning, $"{what}: '{active.DisplayName}' is not connected");
+                if (active.IsLocal)
+                {
+                    LocalNodeOrSay();
+                }
+                else
+                {
+                    Notify(NotificationSeverity.Warning, $"{what}: '{active.DisplayName}' is not connected");
+                }
                 return;
             }
+            var where = active.IsLocal ? "this computer's node" : $"'{active.DisplayName}'";
             _tracker.Run(async () =>
             {
                 var sent = await mirror.AbortAsync(_cts.Token);
                 Notify(sent.IsSuccess ? NotificationSeverity.Info : NotificationSeverity.Warning, sent.IsSuccess
-                    ? $"{what}: sent to '{active.DisplayName}'"
-                    : $"{what}: '{active.DisplayName}' did not take it ({sent.Error})");
+                    ? $"{what}: sent to {where}"
+                    : $"{what}: {where} did not take it ({sent.Error})");
             }, what);
         }
 

@@ -42,4 +42,12 @@ public sealed class FlatsRequestDto
 
     /// <summary>Maximum auto-exposure metering brackets (calibrator/manual). Null = config default.</summary>
     public int? MaxBrackets { get; init; }
+
+    /// <summary>
+    /// The configuration the flat run starts from, sent whole, as a session's is: a client's session setup, whose cooler
+    /// setpoint makes the flats match the lights' temperature (P6 of docs/plans/hardware-in-the-server.md, #936, where the
+    /// GUI's flat run moved onto the node). The flat knobs above are laid over it. Null starts from the node's declared
+    /// defaults.
+    /// </summary>
+    public SessionConfigApiDto? Configuration { get; init; }
 }

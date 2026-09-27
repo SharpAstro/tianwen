@@ -62,11 +62,9 @@ namespace TianWen.UI.Abstractions
         public string? NodeId { get; internal set; }
 
         /// <summary>
-        /// This context's session state. For the local context it is fed by
-        /// <c>SessionBootstrapper</c> / <c>FlatsBootstrapper</c> and the preview telemetry poll; for a
-        /// remote one it will be fed by a <c>RemoteSessionMirror</c> (both assign an
-        /// <see cref="TianWen.Lib.Sequencing.ISessionTelemetry"/> to
-        /// <see cref="LiveSessionState.ActiveSession"/> -- that is what the P3.1 split bought).
+        /// This context's session state, fed by its node's <c>RemoteSessionMirror</c> (assigned to
+        /// <see cref="LiveSessionState.ActiveSession"/> as an <see cref="TianWen.Lib.Sequencing.ISessionTelemetry"/>, which is
+        /// what the P3.1 split bought) and its idle devices by its connection: this computer's node's since P6, as a rig's.
         /// </summary>
         public LiveSessionState LiveSession { get; } = new LiveSessionState();
 
@@ -116,9 +114,9 @@ namespace TianWen.UI.Abstractions
         private void OnMirrorChanged(object? sender, EventArgs e) => LiveSession.NeedsRedraw = true;
 
         /// <summary>
-        /// A rig's notes as this computer's feed shows notes, newest first (P5b part 6): its node's ring, then what it
-        /// pushed (<see cref="RemoteSessionMirror.Notes"/>). Empty for the local context, whose notes are the app's own
-        /// (<see cref="GuiAppState.Notifications"/>), and for a rig not connected. Mapped once per change of the mirror's
+        /// A node's notes as this computer's feed shows notes, newest first (P5b part 6): its ring, then what it pushed
+        /// (<see cref="RemoteSessionMirror.Notes"/>). This computer's own node's too since P6, which its feed merges with the
+        /// app's own (<see cref="MergedWith"/>); empty for a view whose node is not connected. Mapped once per change of the mirror's
         /// notes, not per frame.
         /// </summary>
         public ImmutableArray<NotificationEntry> NodeNotes
@@ -152,6 +150,47 @@ namespace TianWen.UI.Abstractions
         private sealed record NodeNotesCache(ImmutableArray<TianWen.Hosting.Dto.NotificationDto> Source, ImmutableArray<NotificationEntry> Entries);
 
         private NodeNotesCache? _nodeNotes;
+
+        /// <summary>
+        /// This computer's notes as its feed shows them (P6 of docs/plans/hardware-in-the-server.md, #936): the app's own
+        /// (<paramref name="own"/>: its device actions, its refusals) and its node's (<see cref="NodeNotes"/>: its runs, in
+        /// the words a rig's feed uses), merged newest first, since the runs whose notes the app used to write are the node's.
+        /// Merged once per change of either, not per frame.
+        /// </summary>
+        internal ImmutableArray<NotificationEntry> MergedWith(ImmutableArray<NotificationEntry> own)
+        {
+            var node = NodeNotes;
+            if (node.IsEmpty)
+            {
+                return own;
+            }
+            if (Volatile.Read(ref _merged) is { } cached && cached.Own == own && cached.Node == node)
+            {
+                return cached.Entries;
+            }
+
+            var merged = ImmutableArray.CreateBuilder<NotificationEntry>(own.Length + node.Length);
+            int o = 0, n = 0;
+            while (o < own.Length || n < node.Length)
+            {
+                // Both newest first: take the newer head, this computer's first on a tie.
+                if (n >= node.Length || o < own.Length && own[o].When >= node[n].When)
+                {
+                    merged.Add(own[o++]);
+                }
+                else
+                {
+                    merged.Add(node[n++]);
+                }
+            }
+            var entries = merged.MoveToImmutable();
+            Volatile.Write(ref _merged, new MergedNotesCache(own, node, entries));
+            return entries;
+        }
+
+        private sealed record MergedNotesCache(ImmutableArray<NotificationEntry> Own, ImmutableArray<NotificationEntry> Node, ImmutableArray<NotificationEntry> Entries);
+
+        private MergedNotesCache? _merged;
     }
 
     /// <summary>
@@ -164,7 +203,7 @@ namespace TianWen.UI.Abstractions
     {
         /// <summary>The feed of the view on show.</summary>
         public static NotificationFeed Of(ViewContext view, GuiAppState app) =>
-            view.IsLocal ? new NotificationFeed(app.Notifications, null) : new NotificationFeed(view.NodeNotes, view.DisplayName);
+            view.IsLocal ? new NotificationFeed(view.MergedWith(app.Notifications), null) : new NotificationFeed(view.NodeNotes, view.DisplayName);
 
         /// <summary>Whether these are this computer's own notes, the only ones it can clear: a rig's are its node's.</summary>
         public bool IsLocal => RigName is null;

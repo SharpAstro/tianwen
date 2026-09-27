@@ -24,6 +24,7 @@ using TianWen.Lib.Extensions;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
 using TianWen.Lib.Sequencing.PolarAlignment;
+using TianWen.Hosting.Dto;
 
 namespace TianWen.UI.Abstractions
 {
@@ -52,39 +53,53 @@ namespace TianWen.UI.Abstractions
             bus.Subscribe<StartFlatsSignal>(async sig =>
             {
                 if (!EnsureLocalContext("A flat run")) return;
-                if (!EnsureSessionIdle("Session is running \u2014 flats unavailable")) return;
-                if (liveSessionState.FlatsCts is not null)
-                {
-                    Notify(NotificationSeverity.Warning, "Flat run already running");
-                    return;
-                }
                 if (appState.ActiveProfile is not { Data: { } profileData } profile || profileData.OTAs.Length == 0)
                 {
                     Notify(NotificationSeverity.Warning, "No profile / OTA configured");
                     return;
                 }
+                if (LocalNodeOrSay() is not { } node) return;
 
-                // Site drives the mount sync + denorm stamp + sky-flat solar-altitude gate; NaN falls back
-                // to the mount's own site inside ConnectForFlatsAsync (matches the CLI path).
-                var siteLat = profileData.SiteLatitude ?? double.NaN;
-                var siteLon = profileData.SiteLongitude ?? double.NaN;
+                // Run by the node: connect, cool, capture, finalise, and its prompts (switch the panel on) on this view
+                // through the connection's one prompt wiring. It starts from the session tab's configuration, so the flats
+                // cool to the setpoint the lights are taken at.
+                var (source, period) = sig.Source switch
+                {
+                    FlatIlluminationChoice.SkyDusk => ("sky", "dusk"),
+                    FlatIlluminationChoice.SkyDawn => ("sky", "dawn"),
+                    _ => ("calibrator", (string?)null),
+                };
+                var request = new FlatsRequestDto
+                {
+                    Source = source,
+                    Period = period,
+                    Count = sig.FlatsPerFilter,
+                    Configuration = SessionConfigApiDto.FromConfiguration(SessionStartPlan.ForFlats(sessionState, profileData)),
+                };
 
-                // Everything past the preconditions -- factory init, config injection, session create,
-                // event wiring, tracked RunFlatsOnlyAsync -- lives in FlatsBootstrapper so this lambda
-                // routes only (see CLAUDE.md "Signal Handler Pattern").
-                await FlatsBootstrapper.BuildAndStartAsync(
-                    sp.GetRequiredService<ISessionFactory>(),
-                    appState, sessionState, liveSessionState, profile,
-                    sig.Source, sig.FlatsPerFilter, siteLat, siteLon,
-                    tracker, _timeProvider, logger, cts.Token);
+                liveSessionState.Mode = LiveSessionMode.Flats;
+                liveSessionState.FlatStatusMessage = "Starting flat run\u2026";
+                liveSessionState.FlatCancelRequested = false;
+                liveSessionState.NeedsRedraw = true;
+                appState.ActiveTab = GuiTab.LiveSession;
+                appState.NeedsRedraw = true;
+
+                var started = await node.Mirror.StartFlatsAsync(request, profile.ProfileId, cts.Token);
+                if (!started.IsSuccess)
+                {
+                    liveSessionState.FlatStatusMessage = started.Error;
+                    Notify(NotificationSeverity.Warning, $"The flat run did not start: {started.Error}");
+                }
+                liveSessionState.NeedsRedraw = true;
+                appState.NeedsRedraw = true;
             });
 
             bus.Subscribe<CancelFlatsSignal>(_ =>
             {
-                // The flat run of the rig on screen: this computer's, or a rig's through its own node (P5b part 5). The
-                // finaliser (close covers, warm, disconnect) still runs on cancel, via RunFlatsOnlyAsync's finally block;
-                // the panel's Cancel button shows the amber "Cancelling..." state meanwhile.
-                StopActiveRun("Cancelling the flat run", () => liveSessionState.FlatsCts?.Cancel());
+                // The flat run of the rig on screen, through its own node, this computer's included. The node's finaliser
+                // (close covers, warm, disconnect) still runs; the panel shows "Cancelling..." until the run has ended.
+                _contexts.Active.LiveSession.FlatCancelRequested = true;
+                StopActiveRun("Cancelling the flat run");
                 _contexts.Active.LiveSession.NeedsRedraw = true;
                 appState.NeedsRedraw = true;
             });

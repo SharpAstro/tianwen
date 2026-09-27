@@ -209,7 +209,7 @@ internal sealed class ControlledSessionFactory : ISessionFactory
 
     public ISession Create(Guid profileId, in SessionConfiguration configuration, ReadOnlySpan<ScheduledObservation> observations)
     {
-        var session = new ControlledSession(configuration);
+        var session = new ControlledSession(configuration, [.. observations]);
         OnCreated?.Invoke(session);
         Created.Enqueue(session);
         return session.Session;
@@ -223,9 +223,10 @@ internal sealed class ControlledSession
     private int _disposals;
     private int _disposedWhileRunning;
 
-    public ControlledSession(SessionConfiguration configuration)
+    public ControlledSession(SessionConfiguration configuration, ScheduledObservation[]? observations = null)
     {
         Configuration = configuration;
+        Observations = observations ?? [];
         Session = Substitute.For<ISession>();
         Session.RunAsync(Arg.Any<CancellationToken>()).Returns(call => RunAsync(call.Arg<CancellationToken>()));
         Session.RunFlatsOnlyAsync(Arg.Any<TwilightPeriod>(), Arg.Any<CancellationToken>())
@@ -243,6 +244,10 @@ internal sealed class ControlledSession
 
     public ISession Session { get; }
     public SessionConfiguration Configuration { get; }
+
+    /// <summary>The schedule the session was made with: what a client pushed, or the node's target queue.</summary>
+    public ScheduledObservation[] Observations { get; }
+
     public CancellationToken RunToken { get; private set; }
     public TaskCompletionSource Started { get; } = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
     public TaskCompletionSource Cancelled { get; } = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

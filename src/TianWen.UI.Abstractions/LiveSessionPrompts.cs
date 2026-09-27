@@ -7,8 +7,8 @@ namespace TianWen.UI.Abstractions;
 
 /// <summary>
 /// The ONE wiring of a run's prompts to the live view that shows them (P5b part 5 of docs/plans/hardware-in-the-server.md):
-/// a local session's (<see cref="SessionBootstrapper"/>), a flat run's (<see cref="FlatsBootstrapper"/>) and a rig's,
-/// through its mirror (<see cref="RemoteRigConnection"/>), whose answer the mirror sends to the rig's node.
+/// every node's, this computer's and each rig's, through its mirror (<see cref="NodeConnection"/>), whose answer the mirror
+/// sends to the node; this computer's are brought to the front, as its runs' always were.
 /// <para>
 /// Only the flat run had it. A local full session subscribed nothing, so the one prompt a session raises (a manual flat
 /// panel at the end-of-session flats) was declined unseen; and nothing subscribed a mirror's, while the GUI beats to the

@@ -638,33 +638,4 @@ public static class EquipmentActions
         => data.SiteLatitude is { } lat && data.SiteLongitude is { } lon
             ? (lat, lon, data.SiteElevation)
             : null;
-
-    /// <summary>
-    /// End-of-session helper: pulls the focuser-backlash EWMA snapshot from <paramref name="session"/>,
-    /// mirrors it into <paramref name="profile"/>'s focuser URIs (<see cref="ProfileDataExtensions.WithBacklashEstimates"/>,
-    /// the rule the node applies at a run's end too),
-    /// and saves the profile to disk if anything changed. Returns the (possibly updated) profile; 
-    /// callers should swap their UI-state <c>ActiveProfile</c> reference if it matches.
-    /// </summary>
-    public static async Task<Profile> SaveBacklashEstimatesIfChangedAsync(
-        TianWen.Lib.Sequencing.ISession session,
-        Profile profile,
-        IExternal external,
-        CancellationToken cancellationToken)
-    {
-        if (profile.Data is not { } data)
-        {
-            return profile;
-        }
-
-        var (updated, changed) = data.WithBacklashEstimates(session.FocuserBacklashEstimates);
-        if (!changed)
-        {
-            return profile;
-        }
-
-        var newProfile = profile.WithData(updated);
-        await newProfile.SaveAsync(external, cancellationToken);
-        return newProfile;
-    }
 }

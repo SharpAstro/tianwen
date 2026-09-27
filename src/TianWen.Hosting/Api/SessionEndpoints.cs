@@ -263,11 +263,11 @@ internal static class SessionEndpoints
             // The first run after a launch waits for the node's discovery, on the request's token.
             await hosted.WhenInitialisedAsync(ct);
 
-            // The declared defaults with the flat knobs overlaid. The site is left unset: the factory takes the
-            // profile's when the profile is the site's authority, and otherwise RunFlatsOnlyAsync falls back to
-            // the mount's own (the headless rig's mount carries its site). It was 0, 0 until the defaults
-            // stopped being zeros.
-            var defaults = new SessionConfiguration();
+            // The client's configuration, else the declared defaults, with the flat knobs overlaid. The declared
+            // defaults leave the site unset: the factory takes the profile's when the profile is the site's authority,
+            // and otherwise RunFlatsOnlyAsync falls back to the mount's own (the headless rig's mount carries its site).
+            // It was 0, 0 until the defaults stopped being zeros.
+            var defaults = request?.Configuration?.ToConfiguration() ?? new SessionConfiguration();
             var config = defaults with
             {
                 // An operator asked for this run explicitly and may well have switched a hand-switched
