@@ -456,6 +456,7 @@ Settled by the campaign; restated so no run re-derives them.
 | **E11** | SUPERSEDED by E12 (its one seed died at ~4800 steps; its partial curve is in the run log). The step budget (run log, "what went wrong in Probe BB and E10"). `run-steps.ps1`: the E10 control cache and recipe at 16000 steps instead of 4000 (the cosine then spans the whole run), four seeds, final weights, scored with the fixed split beside the six 4000-step controls. Primary R, full-strength removal over all eight fields (24.67 at 4000, seed sd 3.67): predicted gain >= 8; killed if the interval's upper bound is under 5. | superseded | steps |
 | **E12** | Train to convergence (run log, "what went wrong in Probe BB and E10"). `run-converge.ps1`: E11's cache and recipe under `--schedule plateau` (held rate, held-out objective every 500 steps, halve after four flat windowed scores, stop after the fourth halving, 60000-step cap), four seeds, final weights, E11's primary and kill. Launched 2026-09-26. **DONE 14:27: not killed, and prediction 2 failed** (G +0.63, 95 percent interval -6.5 to +7.8; seed sd 5.00): the frontier is better on six of seven readable fields and worse on V1045 Ori's compact column (run log, "E12's result"). | ~1 to 3 h per seed | steps |
 | **E13** | The varied pool (run log, E13): 78 sessions on 6 cameras (81 on 7 pre-registered; three refused at export, see the run log), the injected shape varied per draw (0.22 to 0.65), three converged arms from one cache: `pool` (the new recipe), `poolb` (band conditioning, more signal), `pool48` (base 48, more features), three seeds each, twelve fields. `run-pool.ps1` exports now and trains once E12 hands over the GPU. **DONE 2026-09-27: no prediction holds** (R: pool 21.7, poolb 18.6, pool48 15.0, against E12's 25.3; eleven fields, the unsolvable 24mm ASI585 excluded for good): the varied pool moves removal BETWEEN fields, far more on HIP-34710 and HIP-85088, far less on three bb-eval-4 fields and eta Car (run log, "E13's result"). | ~2.5 h export, then ~15 to 25 h GPU | data, signal, features |
+| **E14** | The ring fix alone (run log, E14): E13's `pool` arm byte for byte on `n2n-pool-rf`, the same pool re-exported after the canvas-ring fix, three seeds; scored on the old eval caches AND on ring-fixed ones built from 2026-09-25-full. `run-poolrf.ps1` (training), `run-poolrf-score.ps1`, `run-poolrf-evalrf.ps1`. Trained 2026-09-27, ~54 min a seed. **IN PROGRESS: the old caches are read** (R poolrf 18.83, seed sd 4.29, against pool 21.74; prediction 2 holds); the ring-fixed read, the primary one, is building. | ~3 h GPU, ~2 h bake | stretch |
 
 Every arm: pre-register predictions in the run script header; three seeds; one prepared cache per
 arm, never edited between runs; launch multi-hour jobs detached (`Start-Process`), never through the
@@ -1951,6 +1952,27 @@ reads the Lanczos-bake fields as quiet. **Next, before any model trains on the p
 (`n2n-pool-rf`, prepared 2026-09-26):** score `pool` on Lagoon with the level plane raised, and see
 whether its removal returns. Carina-Wide's numbers are suspect for every arm (exported unstretched,
 above). For shipping, E12's recipe remains the best by R.
+
+**E14, the ring fix alone** (`run-poolrf.ps1`, pre-registered 2026-09-27 before any checkpoint): E13's
+`pool` arm again, flag for flag, on `n2n-pool-rf`, which holds the same 78 sessions, val pair, degrade
+flags and seed as `n2n-pool`; only a ringed master's stretch differs. So `poolrf` against `pool`, seed for
+seed, is what the fix buys in training. Its predictions: on ring-fixed eval caches, R no lower than
+`pool`'s beyond 2.8 x pool's seed sd x sqrt(2/3) and the frontier no worse on 8 of 11 fields (KILL: lower
+by more, and the fixed stretch itself costs removal); on the old caches, no better; and E13's
+redistribution is not the ring. The three seeds converged in 54 minutes each (seed 2 stopped at step
+20500). **A deviation before any ring-fixed score:** the ring-fixed caches come from 2026-09-25-full
+for all eleven fields, because the eval4b and eval4 tiles came from bakes of older code
+(2025-2026-organized, 2025-2026-darkscaled) that cannot be re-exported ring-only without porting the
+stretch out of the product; for those seven fields old against ring-fixed also changes the bake. A ring
+census picked the six eval sessions whose stretch moves (Carina-Wide, which the old export left
+unstretched; HIP-85088; V1045 Ori; eta Car 2026-02-20; Horsehead; the Skull session that is eval4's
+"Statue of Liberty" field) for a restack; the other five keep their tiles.
+
+**On the old caches** (all 16 models re-scored in one pass; `pool`, `conv` and `ctl4k` reproduce E13's
+numbers exactly): `poolrf` R 18.83 (seed sd 4.29) against `pool` 21.74 (sd 1.26), paired by seed -6.15,
+-2.70 and +0.13, 2.91 points down against a 2.88 threshold, so prediction 2 holds. The frontier is inside
+`pool`'s range on seven readable fields, better on V1045 Ori and worse on eta Car. The seed spread is the
+new thing: 3.4 times `pool`'s.
 
 **The other models share the budget.** Every deconvolver run (`run-e3-*.ps1`, including E3.4d's prior
 that met the star clauses) trained the same fixed 4000-step cosine; `--schedule plateau` does not yet
