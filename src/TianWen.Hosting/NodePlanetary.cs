@@ -122,8 +122,11 @@ internal sealed class NodePlanetary(IDeviceHub hub, NodeJobs jobs, IHostedSessio
 /// </summary>
 internal sealed class NodePlanetaryRun : INodeRun
 {
-    /// <summary>How often the live frame is shown at most: display rate, not the camera's (the video-rate channel is P5 part 5c).</summary>
-    internal static readonly TimeSpan LiveFrameInterval = TimeSpan.FromMilliseconds(100);
+    /// <summary>
+    /// How often the live frame is shown at most: a display's rate, not the camera's. A client streaming it asks for each
+    /// frame (P5 part 5c), so a slower view simply takes fewer, and the copy is into planes the sampler recycles.
+    /// </summary>
+    internal static readonly TimeSpan LiveFrameInterval = TimeSpan.FromMilliseconds(33);
 
     /// <summary>How long the stack waits after one master before it stacks the next.</summary>
     internal static readonly TimeSpan StackInterval = TimeSpan.FromMilliseconds(250);
@@ -257,7 +260,7 @@ internal sealed class NodePlanetaryRun : INodeRun
     {
         Volatile.Write(ref _roiWidth, frame.Width);
         Volatile.Write(ref _roiHeight, frame.Height);
-        if (_live.TrySample(frame, out var sample))
+        if (_live.TrySample(frame, _timeProvider.GetUtcNow(), out var sample))
         {
             _frames.Publish(FrameSources.PlanetaryLive, sample);
         }

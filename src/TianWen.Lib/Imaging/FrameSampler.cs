@@ -30,7 +30,10 @@ public sealed class FrameSampler(ITimeProvider timeProvider, TimeSpan interval, 
     /// A copy of <paramref name="frame"/> the caller owns, when <c>interval</c> has passed since the last one (the first
     /// frame always); false, copying nothing, otherwise. <paramref name="frame"/> is only read.
     /// </summary>
-    public bool TrySample(Image frame, [NotNullWhen(true)] out Image? sample)
+    /// <param name="arrived">When the frame arrived, which the copy carries as its start time when the frame has none: no
+    /// driver stamps a VIDEO frame, so a live view could not tell a fresh frame from a stale one, and a snapshot of one
+    /// would be dated the year 1.</param>
+    public bool TrySample(Image frame, DateTimeOffset arrived, [NotNullWhen(true)] out Image? sample)
     {
         var now = timeProvider.GetTimestamp();
         if (_sampled && timeProvider.GetElapsedTime(_lastSample, now) < interval)
@@ -50,7 +53,8 @@ public sealed class FrameSampler(ITimeProvider timeProvider, TimeSpan interval, 
             Array.Copy(channel.Data, plane, plane.Length);
             channels.Add(_planes.Wrap(plane, channel.MinValue, channel.MaxValue, channel.Index, channel.Filter));
         }
-        sample = new Image(channels.MoveToImmutable(), frame.BitDepth, frame.Pedestal, frame.ImageMeta, frame.SamplesAreUnitReferred);
+        var meta = frame.ImageMeta.ExposureStartTime == default ? frame.ImageMeta with { ExposureStartTime = arrived } : frame.ImageMeta;
+        sample = new Image(channels.MoveToImmutable(), frame.BitDepth, frame.Pedestal, meta, frame.SamplesAreUnitReferred);
         return true;
     }
 }

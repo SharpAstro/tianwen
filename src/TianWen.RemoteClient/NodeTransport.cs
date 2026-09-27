@@ -1,6 +1,9 @@
 using System;
 using System.Net;
 using System.Net.Http;
+using System.Net.WebSockets;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TianWen.Hosting.Api;
 using TianWen.Lib.Devices;
@@ -96,6 +99,40 @@ namespace TianWen.RemoteClient
                 handler?.Dispose();
             }
         }
+
+        /// <summary>
+        /// Opens <paramref name="source"/> (a <see cref="Hosting.Dto.FrameSources"/> name the node streams) as a
+        /// <see cref="NodeFrameStream"/>, over the same transport; the caller's to dispose.
+        /// </summary>
+        public async Task<NodeFrameStream> OpenFrameStreamAsync(string source, CancellationToken cancellationToken)
+        {
+            var endpoint = WebSocketUri(BaseAddress, FrameStreamWire.PathOf(source));
+            HttpMessageInvoker? invoker = SocketPath is null ? null : new HttpMessageInvoker(NodeSocket.CreateHandler(SocketPath));
+            ClientWebSocket? socket = new ClientWebSocket();
+            try
+            {
+                await socket.ConnectAsync(endpoint, invoker, cancellationToken).ConfigureAwait(false);
+                var stream = new NodeFrameStream(socket, invoker);
+                socket = null;
+                invoker = null;
+                return stream;
+            }
+            finally
+            {
+                socket?.Dispose();
+                invoker?.Dispose();
+            }
+        }
+
+        /// <summary>The <c>ws://</c> (or <c>wss://</c>) form of <paramref name="path"/> on the node at <paramref name="baseAddress"/>.</summary>
+        internal static Uri WebSocketUri(Uri baseAddress, string path)
+            => new UriBuilder(baseAddress)
+            {
+                Scheme = baseAddress.Scheme is "https" or "wss" ? "wss" : "ws",
+                Path = path,
+                Query = string.Empty,
+                Fragment = string.Empty,
+            }.Uri;
 
         /// <summary>Where the node is, for a log line or a message: the socket's path, or the address.</summary>
         public override string ToString() => SocketPath ?? BaseAddress.ToString();

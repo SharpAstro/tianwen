@@ -280,11 +280,21 @@ Pinned by `NodeSocketTests`, `NodeAddressTests`, `ExeBesideTests`, `NodeKeeperTe
      claims it and sets its window as the request is answered, refusing in words, and `StartPrepared` starts the
      loop on the node's token once the run is the node's, so it never streams on the request's token nor before
      the node has taken it. The node stacks on the run's own task (`RollingWindowStacker`, a master every 250 ms at
-     most) and shows two frames of the run's own, `planetary/live` (the camera's frame, copied at 10 Hz at most
+     most) and shows two frames of the run's own, `planetary/live` (the camera's frame, copied at about 30 Hz at most, a display's rate,
      into recycled planes by `FrameSampler`) and `planetary/master` (linear), through `/frames` like any other and
      announced by `FRAME-AVAILABLE`; `NodeFrames` keeps them until the node's next run starts. A control is STAGED
      and taken after the next frame, and a new window size is snapped to the camera's rule in the capture loop,
-     for every host. The stop is answered once the capture has ended, a frame or two.
+     for every host. The stop is answered once the capture has ended, a frame or two. **Both frames also STREAM**
+     (P5 part 5c, `FrameStreamWire`): a WebSocket per source at `/api/v1/frames/planetary/{live,master}/stream`,
+     on which the client ASKS for each frame (the text `next`) and the node answers with one binary message, its
+     number and then the frame as `/frames` sends it: the newest, or the first newer than the last one sent.
+     **The client asks because a send is "done" once the kernel has the bytes**: a loopback socket buffers
+     megabytes, dozens of planetary frames, so the first version, which sent whenever its last send had gone, fed
+     a reader that paused for 2 s every frame of the pause, the first of them 100 ms after the frame before it
+     (measured, with the live frame then at 10 Hz). The node wakes on `NodeFrames.NextPublish`, taken BEFORE the source is read. A stream ends
+     when its client closes it and as the host starts stopping, with a close the client has 2 s to answer
+     (#985's rule). The live frame carries when it arrived as its start time, since no driver dates a video
+     frame. The client is `NodeTransport.OpenFrameStreamAsync`, over the socket or TCP alike.
    - **An interactive run stops once nobody watches it** (`INodeRun.EndsUnwatched`, `NodeRunWatch`): polar
      alignment and a planetary live view are meaningless unseen, so once no client has been PRESENT
      (a fresh presence beat, `EventHub.PresentClientCount`, the same rule a prompt waits by) for the detach grace
@@ -715,6 +725,9 @@ node keeps until its next run starts:
   source's token moves, with or without a session, so a new run's first frame and a preview taken outside a run are
   announced like any other. A hint: the route is authoritative.
 - `TianWenNodeClient.GetLatestFrameAsync(source, after, reader)` reads through a `FrameReader` the caller keeps.
+- **A planetary capture's two sources also stream** (P5 part 5c): `NodeTransport.OpenFrameStreamAsync(source)` gives
+  a `NodeFrameStream` whose `ReadAsync` asks for the next frame and reads it, drop-to-latest (see the planetary run
+  above for why the client asks).
 
 **Measured** (Release, this 16-core x64 desktop, with another session's builds running): a 26 MP frame (6248 x 4176)
 crosses the socket into a recycled plane in 37 to 38 ms packed to 16 bits and 37 to 42 ms as floats. The plan had
