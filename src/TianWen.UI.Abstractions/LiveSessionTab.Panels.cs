@@ -292,8 +292,8 @@ namespace TianWen.UI.Abstractions
             }
 
             // Flats mode never sets IsRunning (RunFlatsOnlyAsync is not the full RunAsync), so the tab
-            // keeps the preview layout + mode pill; the run's live state is tracked via FlatsCts and the
-            // session snapshot mirrored by PollSession.
+            // keeps the preview layout + mode pill; the run's live state is the view's node's, as its mirror reports it
+            // (IsFlatRunGoingOn) and PollSession snapshots it.
             if (state.Mode == LiveSessionMode.Flats)
             {
                 RenderFlatsSidePanel(state, rect, fontSize, pad, rowH);

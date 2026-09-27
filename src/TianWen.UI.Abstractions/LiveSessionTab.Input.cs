@@ -35,6 +35,20 @@ namespace TianWen.UI.Abstractions
 
             switch (evt)
             {
+                // The quit's question is the app's and above everything, a run's prompt included: Enter takes the
+                // default, its letter the other, Escape stays.
+                case InputEvent.KeyDown(InputKey.Enter, _) when state.QuitDialog is { } quit:
+                    PostSignal(new AnswerQuitSignal(quit.Default));
+                    return true;
+
+                case InputEvent.KeyDown(InputKey.Escape, _) when state.QuitDialog is not null:
+                    PostSignal(new AnswerQuitSignal(null));
+                    return true;
+
+                case InputEvent.KeyDown(var key, _) when state.QuitDialog is { } quit && key == quit.OtherKey:
+                    PostSignal(new AnswerQuitSignal(quit.Other));
+                    return true;
+
                 // A session prompt is modal-ish: Enter = Continue, Escape = Cancel. Handled first so it
                 // wins over abort-confirm / mode shortcuts while open. Mouse clicks reach the [Continue] /
                 // [Cancel] buttons via their registered clickable regions.

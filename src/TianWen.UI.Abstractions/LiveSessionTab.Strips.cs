@@ -359,6 +359,51 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
+        /// The quit's question (decision 1 of docs/plans/hardware-in-the-server.md, #936): a centred card with the question
+        /// and its two choices, the default on the right in the muscle-memory spot. Enter takes the default, its letter the
+        /// other and Escape stays (handled in <c>.Input</c>). Stopping the rig is amber, since it ends a night.
+        /// </summary>
+        private void RenderQuitDialog(RectF32 contentRect, QuitDialog dialog, float fontSize)
+        {
+            var fontPath = FontPath;
+            var dpiScale = DpiScale;
+            var pad = BasePadding * dpiScale;
+            var rowH = BaseRowHeight * dpiScale;
+            var cardW = MathF.Min(contentRect.Width * 0.7f, 560f * dpiScale);
+            var cardH = rowH * 6f + pad * 2f;
+            var cardX = contentRect.X + (contentRect.Width - cardW) / 2f;
+            var cardY = contentRect.Y + (contentRect.Height - cardH) / 2f;
+
+            // The backdrop takes a press itself, so nothing under the question (an ABORT, a jog) is pressed through it.
+            RenderLayout(Layout.Builder.Spacer().Bg(new RGBAColor32(0x00, 0x00, 0x00, 0xaa))
+                .Clickable(new HitResult.ButtonHit("QuitBackdrop"), _ => { }, CursorKind.Default), contentRect);
+            RenderLayout(Layout.Builder.Spacer().Bg(PanelBg), new RectF32(cardX, cardY, cardW, cardH));
+            RenderLayout(Layout.Builder.Spacer().Bg(StatusSlewing), new RectF32(cardX, cardY, cardW, 2f)); // accent bar
+
+            var innerX = cardX + pad;
+            var innerW = cardW - pad * 2f;
+            DrawText(dialog.Title, fontPath, innerX, cardY + pad, innerW, rowH,
+                fontSize * 1.1f, BrightText, TextAlign.Near, TextAlign.Center);
+            DrawText(dialog.Message, fontPath, innerX, cardY + pad + rowH, innerW, rowH * 2.4f,
+                fontSize, BodyText, TextAlign.Near, TextAlign.Near);
+            DrawText(dialog.KeyHint, fontPath, innerX, cardY + pad + rowH * 3.4f, innerW, rowH,
+                fontSize * 0.92f, BodyText, TextAlign.Near, TextAlign.Center);
+
+            var otherBg = dialog.Other is QuitAction.StopTheRig ? GuiTheme.Palette.Warn : GuiTheme.NeutralButtonBg;
+            var btnH = rowH * 1.3f;
+            var btnY = cardY + cardH - btnH - pad;
+            var btnRow = Layout.Builder.HStack(
+                    Layout.Builder.Text(QuitDialog.LabelOf(dialog.Other), fontSize, BrightText, TextAlign.Center, TextAlign.Center)
+                        .WStar().HStar().Bg(otherBg).BgHover(GuiTheme.Hover(otherBg))
+                        .Clickable(new HitResult.ButtonHit("QuitOther"), _ => PostSignal(new AnswerQuitSignal(dialog.Other))),
+                    Layout.Builder.Text(QuitDialog.LabelOf(dialog.Default), fontSize, BrightText, TextAlign.Center, TextAlign.Center)
+                        .WStar().HStar().Bg(GuiTheme.GoButtonBg).BgHover(GuiTheme.Hover(GuiTheme.GoButtonBg))
+                        .Clickable(new HitResult.ButtonHit("QuitDefault"), _ => PostSignal(new AnswerQuitSignal(dialog.Default))))
+                .WithGap(pad);
+            RenderLayout(btnRow, new RectF32(innerX, btnY, innerW, btnH), scale: DesignScale.One);
+        }
+
+        /// <summary>
         /// The caution line for a prompt that gates a physical act, or null when none is needed.
         /// <para>
         /// Shown for the local context too, not only remote: "physical presence" means somebody has to be

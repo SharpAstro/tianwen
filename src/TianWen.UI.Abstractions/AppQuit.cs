@@ -1,32 +1,34 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using DIR.Lib;
+using Microsoft.Extensions.Logging;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.UI.Abstractions;
 
 /// <summary>
-/// Quitting the app, the one rule for the GUI and the TUI: a running session is aborted only once the user
-/// confirms it, the host's own background work is cancelled, and the rig is stopped by
-/// <see cref="RigShutdown"/> (every run through its own ending, then the cameras warmed and disconnected)
-/// while the host keeps its loop going to show the progress. A quit asked for while that runs is refused,
-/// since a warm-up must not be cut.
+/// Quitting the app, the one rule for the GUI and the TUI (decision 1 of docs/plans/hardware-in-the-server.md, #936). The
+/// rig is this computer's node's, so a window that closes stops nothing by itself: only the LAST client attached to the node
+/// asks, and a client that is not the last one detaches without asking, so closing a second window never warms a rig the
+/// first is watching. With a run going on the question is whether to leave it running (the default) or stop the rig (the
+/// node's abort, its Finalise, then every device warmed up and disconnected, with progress). With devices connected and no
+/// run it is whether to warm them up and disconnect them (the default, which the node finishes after the window has gone)
+/// or leave them connected. With neither it quits at once.
 /// </summary>
 /// <remarks>
-/// <para>The rule lived in the GUI's <c>Program.cs</c> alone, and the TUI had none (P0c item 1 of
-/// docs/plans/hardware-in-the-server.md, #788): Q broke its loop straight into a drain that cancelled
-/// nothing, so it waited for ever on the mount-limit watcher, which loops until its token is cancelled. The
-/// terminal froze with the rig untouched, a running session was awaited to its natural end instead of
-/// aborted, and Ctrl+C, read as a key, could not get it out.</para>
-/// <para>The host drives it from its own loop: <see cref="Request"/> for a quit (a key, the window's close
-/// button), <see cref="Tick"/> once per iteration after its signals, and it stops looping on
-/// <see cref="IsComplete"/>. P6 replaces the confirmation with the quit dialog for both hosts.</para>
+/// <para>The host drives it from its own loop: <see cref="Request"/> for a quit (a key, the window's close button),
+/// <see cref="Answer"/> for the dialog's choice, and it stops looping on <see cref="IsComplete"/>. The question is the
+/// local view's <see cref="LiveSessionState.QuitDialog"/>, drawn by each host's Live Session tab its own way (the GUI's
+/// card, the TUI's status line).</para>
+/// <para>The TUI had no quit rule before P0c (#788): Q drained a tracker nothing had cancelled, and hung for ever on the
+/// mount-limit watcher. Every quit here cancels the host's own background work first, whatever it then does with the rig.</para>
 /// </remarks>
-/// <param name="hostBackground">The host's own background work, which is not the rig's: the planner, the
-/// weather fetch, the mount-limit watcher, the planetary capture. Cancelled as the stop begins.</param>
-/// <param name="beforeRigStop">Anything the host records as it goes (the GUI's remote-rig last-seen).</param>
+/// <param name="hostBackground">The host's own background work, which is not the rig's: the planner, the weather fetch,
+/// the watching of the node's runs. Cancelled as the quit goes ahead.</param>
+/// <param name="beforeQuit">Anything the host records as it goes (the GUI's remote-rig last-seen).</param>
 public sealed class AppQuit(
     GuiAppState appState,
     ViewContexts contexts,
@@ -34,100 +36,165 @@ public sealed class AppQuit(
     BackgroundTaskTracker tracker,
     CancellationTokenSource hostBackground,
     ITimeProvider timeProvider,
-    Func<Task>? beforeRigStop = null)
+    ILogger logger,
+    Func<Task>? beforeQuit = null)
 {
     private string? _progress;
+    private int _deciding;
 
     /// <summary>What the stop is doing now ("Finalising the session: ...", "Warming ..."), or null.</summary>
     public string? Progress => Volatile.Read(ref _progress);
 
     /// <summary>
-    /// The stop has finished: every run has ended, the cameras are warm and disconnected, and the host's
-    /// background work has drained, so the host may leave its loop. Reads the tracker's pending set, which
-    /// drops finished work only in <see cref="BackgroundTaskTracker.ProcessCompletions"/>, so it holds for a
-    /// host that processes completions every iteration (both do).
+    /// The quit has finished: whatever it asked of the node has been asked (and, for "Stop the rig", done), and the host's
+    /// background work has drained, so the host may leave its loop. Reads the tracker's pending set, which drops finished
+    /// work only in <see cref="BackgroundTaskTracker.ProcessCompletions"/>, so it holds for a host that processes completions
+    /// every iteration (both do).
     /// </summary>
     public bool IsComplete => appState.ShuttingDown && !tracker.HasPending;
 
     /// <summary>
-    /// A quit: Q, Ctrl+C, the window's close button. Asks first while THIS computer's session runs, whichever
-    /// rig is on screen (a session on a remote rig is that rig's, and closing a client that watches it is no
-    /// reason to stop it); refuses while the rig is already stopping; otherwise stops the rig.
+    /// A quit: Q, Ctrl+C, the window's close button. Refused while the quit is already going ahead; ignored while the
+    /// question is on screen or being worked out; otherwise asks the node what is going on and asks the user only as
+    /// decision 1 says.
     /// </summary>
     public void Request()
     {
         if (appState.ShuttingDown)
         {
-            Notify(NotificationSeverity.Warning, "Warming cameras\u2026 please wait");
+            Notify(NotificationSeverity.Warning, Volatile.Read(ref _progress) is { } stopping
+                ? $"Quitting… {stopping}, please wait"
+                : "Quitting… please wait");
             return;
         }
-
-        var local = contexts.Local.LiveSession;
-        if (local.Phase is SessionPhase.Finalising)
+        if (contexts.Local.LiveSession.QuitDialog is not null)
         {
-            Notify(NotificationSeverity.Warning, "Warming cameras\u2026 please wait");
+            // Asked already: put the question back on screen, where a switch of view may have taken it from.
+            ShowQuestion();
             return;
         }
-
-        if (local.IsRunning && !local.ShowAbortConfirm)
+        if (Interlocked.CompareExchange(ref _deciding, 1, 0) != 0)
         {
-            // The confirmation is drawn by the Live Session tab, which renders the ACTIVE context: with a
-            // remote rig on screen it was set where no frame drew it, so the local context goes on screen.
-            contexts.Activate(contexts.Local);
-            local.ShowAbortConfirm = true;
-            appState.QuitRequested = true;
-            appState.ActiveTab = GuiTab.LiveSession;
-            appState.NeedsRedraw = true;
             return;
         }
 
-        StopRig();
+        tracker.Run(DecideAsync, "Deciding how to quit");
     }
 
-    /// <summary>
-    /// Once per loop iteration, after the host has processed its signals: a confirmation dismissed with the
-    /// session still running withdraws the quit, and one confirmed (the session has ended) goes on to stop the
-    /// rig.
-    /// </summary>
-    public void Tick()
+    // What the node holds decides the question: the node is asked, never this process's picture of it.
+    private async Task DecideAsync()
     {
-        if (!appState.QuitRequested)
+        try
         {
-            return;
+            if (await AskAsync().ConfigureAwait(false) is { } dialog)
+            {
+                contexts.Local.LiveSession.QuitDialog = dialog;
+                ShowQuestion();
+            }
+            else
+            {
+                GoAhead();
+            }
         }
-
-        var local = contexts.Local.LiveSession;
-        if (!local.ShowAbortConfirm && local.IsRunning && local.SessionCts is { IsCancellationRequested: false })
+        finally
         {
-            // Dismissed. It used to stay requested, and the host then quit by itself when the session ended.
-            appState.QuitRequested = false;
-            return;
-        }
-
-        if (!local.IsRunning && !appState.ShuttingDown)
-        {
-            appState.QuitRequested = false;
-            Request();
+            Volatile.Write(ref _deciding, 0);
         }
     }
 
-    private void StopRig()
+    private async Task<QuitDialog?> AskAsync()
+    {
+        if (appState.LocalNode is not { } node)
+        {
+            // No node: nothing of the rig is this window's to ask about.
+            return null;
+        }
+
+        using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(5), timeProvider.System);
+        var answer = await node.Client.GetNodeAsync(budget.Token).ConfigureAwait(false);
+        if (answer.Value is not { } now)
+        {
+            // A node that does not answer cannot be stopped from here either; the window goes.
+            logger.LogWarning("Quit: this computer's node did not answer ({Error}); quitting without asking", answer.Error);
+            return null;
+        }
+
+        // Only the last client asks. The count includes this one while its event stream is attached.
+        var others = now.ClientsAttached - (node.Mirror.IsEventStreamConnected ? 1 : 0);
+        if (others > 0)
+        {
+            logger.LogInformation("Quit: {Others} other client(s) attached to this computer's node; detaching without asking", others);
+            return null;
+        }
+        if (now.Run is { } run)
+        {
+            return QuitDialog.RunGoingOn(run);
+        }
+
+        var connected = node.Devices.Values.Count(static d => d.Connected);
+        return connected > 0 ? QuitDialog.DevicesConnected(connected) : null;
+    }
+
+    // The question is drawn by the Live Session tab, which renders the ACTIVE context: with a remote rig on screen it would
+    // be set where no frame draws it, so this computer's goes on screen.
+    private void ShowQuestion()
+    {
+        contexts.Activate(contexts.Local);
+        appState.ActiveTab = GuiTab.LiveSession;
+        contexts.Local.LiveSession.NeedsRedraw = true;
+        appState.NeedsRedraw = true;
+    }
+
+    /// <summary>The dialog's choice, or null to stay (Escape).</summary>
+    public void Answer(QuitAction? action)
+    {
+        var local = contexts.Local.LiveSession;
+        if (local.QuitDialog is null)
+        {
+            return;
+        }
+        local.QuitDialog = null;
+        local.NeedsRedraw = true;
+        appState.NeedsRedraw = true;
+
+        switch (action)
+        {
+            case null:
+                return;
+
+            case QuitAction.StopTheRig when appState.LocalNode is { } node:
+                GoAhead(ct => rig.StopAsync(node.Client, p => Volatile.Write(ref _progress, p), ct), "Stopping the rig");
+                return;
+
+            case QuitAction.WarmUpAndDisconnect when appState.LocalNode is { } node:
+                // Taken by the node, which finishes the warm-ups after this window has gone.
+                GoAhead(ct => rig.WarmUpAndDisconnectAsync(node.Client, p => Volatile.Write(ref _progress, p), untilDone: false, ct),
+                    "Warming up and disconnecting");
+                return;
+
+            default:
+                GoAhead();
+                return;
+        }
+    }
+
+    private void GoAhead(Func<CancellationToken, Task>? withTheRig = null, string? what = null)
     {
         hostBackground.Cancel();
 
-        if (beforeRigStop is { } before)
+        if (beforeQuit is { } before)
         {
-            tracker.Run(before, "Before the rig stops");
+            tracker.Run(before, "Before quitting");
         }
-
-        // ONE tracked task: the runs aborted through their own endings, then the cameras. The host's loop
-        // goes on meanwhile, so the progress shows and a second quit is answered rather than frozen out.
-        tracker.Run(() => rig.StopAsync(RigShutdownMode.Quit, progress: p => Volatile.Write(ref _progress, p)),
-            "Stopping the rig");
+        if (withTheRig is { } work)
+        {
+            // Not the host's background token, which the quit has just cancelled: a stop the user asked for runs to its end.
+            tracker.Run(() => work(CancellationToken.None), what ?? "Stopping the rig");
+        }
 
         appState.ShuttingDown = true;
         appState.ShutdownComplete = false;
-        Notify(NotificationSeverity.Info, "Shutting down\u2026");
+        Notify(NotificationSeverity.Info, "Shutting down…");
     }
 
     private void Notify(NotificationSeverity severity, string message)

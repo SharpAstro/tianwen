@@ -23,7 +23,8 @@ public class RunsThroughTheNodeTests(ITestOutputHelper output)
     /// <summary>M 81: circumpolar at the harness's site (48.2 N), so it is schedulable whatever night the test runs on.</summary>
     private static readonly Target M81 = new Target(9.926, 69.07, "M 81", null);
 
-    private static async Task<ControlledSession> StartedSessionAsync(GuiNodeHarness h, int setpointC)
+    /// <summary>A session the planner here planned, started on the harness's node and running there.</summary>
+    internal static async Task<ControlledSession> StartedSessionAsync(GuiNodeHarness h, int setpointC)
     {
         var ct = TestContext.Current.CancellationToken;
         h.Node.Factory.Initialised.TrySetResult();

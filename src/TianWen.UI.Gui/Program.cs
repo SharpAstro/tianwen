@@ -185,8 +185,9 @@ using var backgroundCts = CancellationTokenSource.CreateLinkedTokenSource(cts.To
 var tracker = new BackgroundTaskTracker();
 var lastWindowTitle = "\U0001F52D TianWen";
 
-// Stopping the rig, one sequence for a quit and for a dead display (RigShutdown says why the order matters).
-var rigShutdown = new RigShutdown(guiRenderer.ViewContexts.Local.LiveSession, appState.DeviceHub, timeProvider, logger);
+// Stopping the rig when the user asks for it at a quit: the node's run through its own ending, then its devices
+// (RigShutdown says why the order matters). The node does it; this follows it.
+var rigShutdown = new RigShutdown(timeProvider, logger);
 var displayLost = false;
 var handlers = new GuiEventHandlers(sp, appState, plannerState, guiRenderer, cts, backgroundCts.Token, external, tracker)
 {
@@ -240,11 +241,13 @@ int _lastShutdownPendingCount = -1;
 string? _lastShutdownProgress = null;
 var signalHandler = handlers.SignalHandler;
 
-// Quitting, the one rule the TUI shares (AppQuit): ask first while this computer's session runs, then cancel
-// the background work, stop the rig through its runs' own endings and warm the cameras, while the loop shows
-// the progress. Recording how recently each watched rig answered goes first, before its mirror goes away.
-var appQuit = new AppQuit(appState, guiRenderer.ViewContexts, rigShutdown, tracker, backgroundCts, timeProvider,
+// Quitting, the one rule the TUI shares (AppQuit, decision 1): the rig is this computer's node's, so only the last
+// client asks, whether to leave a run going or stop the rig, or whether to warm up and disconnect what is connected; the
+// background work is cancelled either way, and the loop shows a stop's progress. Recording how recently each watched rig
+// answered goes first, before its mirror goes away.
+var appQuit = new AppQuit(appState, guiRenderer.ViewContexts, rigShutdown, tracker, backgroundCts, timeProvider, logger,
     () => signalHandler.FlushRigLastSeenAsync(System.Threading.CancellationToken.None));
+bus.Subscribe<AnswerQuitSignal>(sig => appQuit.Answer(sig.Action));
 // This computer's node, found or started (P6): it holds the rig, and the local view reads it as it reads a rig. In the
 // background, since a node can take seconds to come up and the window says so meanwhile; the profile, the planner's start
 // and the session setup follow once it answers.
@@ -299,12 +302,12 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
     },
 
     // The renderer gave the device up (SdlVulkan.Renderer 7.48 declares a device that keeps refusing work
-    // dead, which is the Adreno's actual failure). The loop stops after this; what follows loop.Run then
-    // keeps the night alive without a window instead of ending it (P0a, #743).
+    // dead, which is the Adreno's actual failure). The loop stops after this, and the window's process leaves:
+    // the night is the node's, and goes on without it (P0a, #743; P6, #936).
     OnGpuWedged = () =>
     {
         displayLost = true;
-        logger.LogCritical("The GPU was declared wedged: this window cannot draw again. Runs go on without it; closing the window stops the rig.");
+        logger.LogCritical("The GPU was declared wedged: this window cannot draw again. It leaves, and the rig goes on on this computer's node.");
     },
 
     // One pointer callback: the loop synthesizes the InputEvents with the real release coordinates
@@ -558,10 +561,6 @@ loop.OnPostFrame = () =>
         return;
     }
 
-    // After the signals above: a dismissed confirmation withdraws the quit, a confirmed one goes on to stop
-    // the rig once the session has ended (AppQuit.Tick).
-    appQuit.Tick();
-
     if (!appState.ShuttingDown && !signalSetRedraw)
     {
         appState.NeedsRedraw = false;
@@ -667,12 +666,12 @@ loop.OnKeyDown = evt =>
     return true;
 };
 
-// Intercept window close button: behave like abort when session is active
+// The window's close button is a quit, which asks the node what it holds before it asks the user anything, so the close
+// is always intercepted: the loop stops itself once the quit is complete (ShutdownComplete).
 loop.OnQuit = () =>
 {
     RequestQuit();
-    // Intercept if session is running (including Finalise), showing abort confirm, or shutting down
-    return appState.ShuttingDown || appState.QuitRequested || guiRenderer.ViewContexts.Local.LiveSession.IsRunning;
+    return true;
 };
 
 #if SIBLING_DEBUG_INSPECTORS
@@ -724,7 +723,9 @@ using var debugInspector = DebugInspector.Attach(loop, new DebugInspectorOptions
         // posting StartFlats (which runs regardless of the visible mode) and observed via phase +
         // these fields.
         s.Set("liveSessionMode", ls.Mode.ToString());
-        s.Set("flatRunActive", ls.FlatsCts is not null);
+        s.Set("flatRunActive", ls.IsFlatRunGoingOn);
+        // The quit's question while it is asked (decision 1): answered by posting AnswerQuit.
+        s.Set("quitQuestion", contexts.Local.LiveSession.QuitDialog?.Message);
         s.Set("flatStatus", ls.FlatStatusMessage);
 
         // Sky-map viewport: lets the inspector frame the view deterministically (via the
@@ -790,93 +791,11 @@ catch (Exception ex)
 
 if (displayLost || loopFault is not null)
 {
-    RunWithoutDisplay(loopFault is null ? "Display lost" : "Display failed");
-}
-
-// P0a (#743): the window cannot draw any more, and the rig must not notice. The runs the old tail cut off
-// mid-ramp (it cancelled `cts`, which the session is linked to, then drained for at most 5 s) go on to
-// their own end instead, the window stays pumped so it can still be closed, and closing it means "stop the
-// rig": abort, Finalise in full, then the cameras. Only then does the ordinary teardown below run.
-void RunWithoutDisplay(string why)
-{
-    // What serves only the window, and the planetary capture (interactive, meaningless unseen). The runs
-    // are the RigShutdown's.
-    backgroundCts.Cancel();
-
-    using var stopRig = new CancellationTokenSource();
-    string? progress = null;
-    var tail = Task.Run(() => rigShutdown.StopAsync(RigShutdownMode.DisplayLost, stopRig.Token,
-        p => Volatile.Write(ref progress, p)));
-
-    var local = guiRenderer.ViewContexts.Local.LiveSession;
-    SetHeadlessTitle(HeadlessTitle(why,
-        local.IsRunning ? RigShutdown.SessionGoesOn
-        : local.FlatsCts is not null ? RigShutdown.FlatRunGoesOn
-        : "Stopping the rig"));
-
-    // Nothing of the app runs now: no frame is drawn, and no input, signal, telemetry poll or chrome has a
-    // window to serve. The loop only keeps the window's events pumping, which SdlVulkan.Renderer 7.49 makes
-    // safe on a wedged window (it stays inert), so the window is still movable and closable.
-    loop.OnRender = null;
-    loop.OnPostFrame = null;
-    loop.OnKeyDown = null;
-    loop.OnPointerInput = null;
-    loop.OnTextInput = null;
-    loop.OnTextEditing = null;
-    loop.OnPinch = null;
-    loop.OnPinchEnd = null;
-    loop.OnResize = null;
-    loop.OnRenderDegraded = null;
-
-    string? shownProgress = null;
-    loop.CheckNeedsRedraw = () =>
-    {
-        // Once per loop iteration, on this thread: the loop stops itself when the stop has finished.
-        if (tail.IsCompleted)
-        {
-            loop.Stop();
-            return false;
-        }
-
-        if (Volatile.Read(ref progress) is { } now && !ReferenceEquals(now, shownProgress))
-        {
-            shownProgress = now;
-            SetHeadlessTitle(HeadlessTitle(why, now));
-        }
-        return false;
-    };
-
-    loop.OnQuit = () =>
-    {
-        // Asking reports itself through the progress (RigShutdown.StoppingTheRig), on this thread, so the
-        // next check above shows it and nothing reported earlier can overwrite it.
-        stopRig.Cancel();
-        // Always intercepted: the window stays until the stop completes, since a warm-up must not be cut.
-        return true;
-    };
-
-    // No deadline: a session left to finish runs until its own end, dawn included.
-    loop.Run(CancellationToken.None);
-
-    if (tail.Exception is { } stopFault)
-    {
-        logger.LogError(stopFault.GetBaseException(), "Stopping the rig without a display failed.");
-    }
-}
-
-// The title is the only thing a window that cannot draw still shows, so while a run is left to finish it
-// also says what closing does. Once the rig is stopping, closing again changes nothing, so the hint goes.
-static string HeadlessTitle(string why, string progress)
-    => progress is RigShutdown.SessionGoesOn or RigShutdown.FlatRunGoesOn
-        ? $"{why}. {progress}. Close this window to stop the rig."
-        : $"{why}. {progress}";
-
-// Needs no GPU (SDL's own window title), so it works on a window that can no longer draw.
-void SetHeadlessTitle(string title)
-{
-    lastWindowTitle = title;
-    sdlWindow.SetTitle(title);
-    logger.LogWarning("{Title}", title);
+    // P0a (#743) and P6 (#936): the window cannot draw any more, and the rig must not notice, which it no longer can: the
+    // runs are this computer's node's and go on without the window, the node answers a prompt nobody is present to see,
+    // and an interactive run (polar alignment, a planetary live view) stops once its grace is spent. So this process only
+    // leaves; P7 starts a successor window on the same night.
+    logger.LogWarning("{Why}: this window leaves, and the rig goes on on this computer's node.", loopFault is null ? "Display lost" : "Display failed");
 }
 
 // Final cleanup: drain should complete quickly since we already waited in the loop.

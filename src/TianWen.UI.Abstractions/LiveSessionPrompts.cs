@@ -29,13 +29,7 @@ public static class LiveSessionPrompts
         // Fires on the run's thread; a reference assignment and a redraw flag are all that cross over.
         void OnPromptRequested(object? _, SessionPromptEventArgs prompt)
         {
-            // Nobody can see an overlay once the display is gone: answer as an unattended caller would, rather than hold
-            // the run for a frame that will never be drawn.
-            if (view.AnswerPromptsUnattended)
-            {
-                prompt.Respond(prompt.DefaultIfUnanswerable);
-                return;
-            }
+            // A window that cannot show it answers nothing here: it stops beating, and the node answers for nobody present.
             view.PendingPrompt = prompt;
             view.NeedsRedraw = true;
             if (app is not null)

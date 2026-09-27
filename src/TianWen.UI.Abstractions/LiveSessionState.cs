@@ -54,50 +54,17 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public LiveSessionMode Mode { get; set; } = LiveSessionMode.Preview;
 
-        /// <summary>CTS for cancelling the running session (linked to app-level CTS).</summary>
-        public CancellationTokenSource? SessionCts { get; set; }
-
         /// <summary>
-        /// Completes once the session started last has ENDED, its <c>Finalise</c> (park, warm-up, covers)
-        /// included, however it ended, and is complete already while none has been started. What a
-        /// <see cref="RigShutdown"/> awaits before it touches a camera the session may still be warming:
-        /// <see cref="IsRunning"/> says the same thing only to a caller willing to poll it.
-        /// </summary>
-        public System.Threading.Tasks.Task SessionEnded { get; private set; } = System.Threading.Tasks.Task.CompletedTask;
-
-        /// <summary>
-        /// Completes once the flat run started last has ENDED (see <see cref="SessionEnded"/>).
-        /// </summary>
-        public System.Threading.Tasks.Task FlatRunEnded { get; private set; } = System.Threading.Tasks.Task.CompletedTask;
-
-        /// <summary>
-        /// Completes once the polar-alignment run started last has ENDED, its mount restore (reverse the
-        /// axis, park or leave in place) included (see <see cref="SessionEnded"/>).
+        /// Completes once the polar-alignment run this view watches has ENDED on the node, its mount restore (reverse the
+        /// axis, park or leave in place) included, and is complete already while none has been started.
         /// </summary>
         public System.Threading.Tasks.Task PolarRunEnded { get; private set; } = System.Threading.Tasks.Task.CompletedTask;
 
         /// <summary>
-        /// Called by a run's starter, on the thread that starts it and before anything of the run can
-        /// fail: the returned source MUST then be completed on every path the run can end by, or a
-        /// shutdown waits for it for ever. Continuations run asynchronously, so completing it from inside
-        /// the run's own <c>finally</c> never runs a waiter inline there.
+        /// Called by the polar watcher's starter before anything of the run can fail: the returned source MUST then be
+        /// completed on every path the watching can end by. Continuations run asynchronously, so completing it from inside
+        /// the watcher's own <c>finally</c> never runs a waiter inline there.
         /// </summary>
-        internal System.Threading.Tasks.TaskCompletionSource BeginSession()
-        {
-            var ended = NewRunEnded();
-            SessionEnded = ended.Task;
-            return ended;
-        }
-
-        /// <inheritdoc cref="BeginSession"/>
-        internal System.Threading.Tasks.TaskCompletionSource BeginFlatRun()
-        {
-            var ended = NewRunEnded();
-            FlatRunEnded = ended.Task;
-            return ended;
-        }
-
-        /// <inheritdoc cref="BeginSession"/>
         internal System.Threading.Tasks.TaskCompletionSource BeginPolarRun()
         {
             var ended = NewRunEnded();
@@ -433,9 +400,6 @@ namespace TianWen.UI.Abstractions
         /// <summary>Latest status line for the Flats side panel (phase transitions, errors, per-filter progress).</summary>
         public string? FlatStatusMessage { get; set; }
 
-        /// <summary>CTS for cancelling an in-flight on-demand flat run. Non-null while a flat run is active.</summary>
-        public CancellationTokenSource? FlatsCts { get; set; }
-
         /// <summary>
         /// Whether the view's node runs a flat run now, as its mirror reports it (P6 of docs/plans/hardware-in-the-server.md,
         /// #936): this computer's view and a rig's alike, since a flat run is the node's. The Flats panel shows its progress and
@@ -473,12 +437,15 @@ namespace TianWen.UI.Abstractions
             => ReferenceEquals(Interlocked.CompareExchange(ref _pendingPrompt, null, prompt), prompt);
 
         /// <summary>
-        /// True once nobody can SEE a prompt any more: the window's GPU died and the runs go on without it
-        /// (<see cref="RigShutdownMode.DisplayLost"/>). A run's prompt is then answered at once with its
-        /// <see cref="TianWen.Lib.Sequencing.SessionPromptEventArgs.DefaultIfUnanswerable"/>, the answer an
-        /// unattended caller gives, instead of waiting for an overlay no frame will ever draw.
+        /// The quit's question (decision 1 of docs/plans/hardware-in-the-server.md, #936), or null when none is asked. Only
+        /// ever set on this computer's view, by <see cref="AppQuit"/>, and drawn over everything by the Live Session tab.
         /// </summary>
-        public bool AnswerPromptsUnattended { get; set; }
+        public QuitDialog? QuitDialog
+        {
+            get => Volatile.Read(ref _quitDialog);
+            set => Volatile.Write(ref _quitDialog, value);
+        }
+        private QuitDialog? _quitDialog;
 
         /// <summary>
         /// OTA index currently targeted by keyboard shortcuts and mouse clicks in

@@ -95,6 +95,16 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
     /// <summary>The planetary view the handler starts and stops: the node's capture, as this computer shows it.</summary>
     public PlanetaryCaptureController Planetary => _services.GetRequiredService<PlanetaryCaptureController>();
 
+    /// <summary>The token the handler's own background work runs on, which a quit cancels as the host's does.</summary>
+    public CancellationToken HostBackground => _cts.Token;
+
+    /// <summary>The host's quit over this harness, as the GUI composes it: its background work is the handler's.</summary>
+    public AppQuit Quit()
+    {
+        var clock = new SystemTimeProvider();
+        return new AppQuit(AppState, Contexts, new RigShutdown(clock, NullLogger.Instance), Tracker, _cts, clock, NullLogger.Instance);
+    }
+
     /// <summary>This computer's node as the handler reads it.</summary>
     public LocalNodeConnection Local => AppState.LocalNode.ShouldNotBeNull(AppState.LocalNodeProblem);
 

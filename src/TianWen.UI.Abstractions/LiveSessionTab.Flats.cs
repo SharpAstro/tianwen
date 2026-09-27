@@ -7,7 +7,7 @@ namespace TianWen.UI.Abstractions
     /// <summary>
     /// Flats mode (<see cref="LiveSessionMode.Flats"/>): the side panel for on-demand flat capture.
     /// Setup phase renders an illumination-source selector + flats-per-filter stepper + Start; while a
-    /// run is in flight (<see cref="LiveSessionState.FlatsCts"/> non-null) it renders the flat phase +
+    /// run is going on (<see cref="LiveSessionState.IsFlatRunGoingOn"/>, the view's node's) it renders the flat phase +
     /// status + Cancel. The centre preview viewer (shared with Preview / PolarAlign) shows the metering
     /// and kept frames the session publishes. Mirrors <see cref="LiveSessionTab{TSurface}"/>'s
     /// <c>.Polar</c> partial.
