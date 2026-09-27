@@ -170,7 +170,7 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
     public async Task WithAConnectionThatHadToAbandonAWriteThePortIsGivenUpAfterThatProbe()
     {
         // The wire form of the case above: the write's own deadline fires while the driver still holds the
-        // write (SerialConnectionBase.TryWriteAsync), so the probe sees a failed write, reads nothing and
+        // write (Serial.Lib's write deadline, through SerialConnection.TryWriteAsync), so the probe sees a failed write, reads nothing and
         // returns null -- indistinguishable from a device that is not there. HasAbandonedIo is what tells the
         // two apart. Without it every remaining probe on the port burned a full budget and every close of the
         // port stranded a thread: nine of each per discovery on the Bluetooth listener port.
@@ -593,8 +593,8 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
         /// <summary>Whether the service opened this handle with DTR + RTS asserted.</summary>
         public bool ControlLinesAsserted { get; init; }
 
-        public bool TryClose() { IsOpen = false; return true; }
-        public void Dispose() => TryClose();
+        public ValueTask<bool> TryCloseAsync() { IsOpen = false; return ValueTask.FromResult(true); }
+        public ValueTask DisposeAsync() { IsOpen = false; return ValueTask.CompletedTask; }
 
         private readonly SemaphoreSlim _sem = new(1, 1);
         public ValueTask<ResourceLock> WaitAsync(CancellationToken cancellationToken) => _sem.AcquireLockAsync(cancellationToken);

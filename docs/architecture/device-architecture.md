@@ -189,8 +189,8 @@ does when the device is connected and does not answer.
 | Gemini Focuser Pro | [`gemini-focuser-pro-protocol.md`](gemini-focuser-pro-protocol.md) | `Devices/Gemini/GeminiFocuser*.cs` | USB serial |
 | Gemini FlatPanel Lite | [`gemini-flatpanel-lite-protocol.md`](gemini-flatpanel-lite-protocol.md) | `Devices/Gemini/GeminiFlatPanel*.cs` | USB serial |
 
-All of them share the transport in `Connections/` (`ISerialConnection`, `SerialConnectionBase`'s read
-helpers, `SerialConnection` for COM ports) and one rule from [`driver-resilience.md`](driver-resilience.md):
+All of them share the transport in `Connections/` (`ISerialConnection`, and `SerialConnection` for COM ports,
+an adapter over the Serial.Lib sibling, docs/plans/serial-lib.md) and one rule from [`driver-resilience.md`](driver-resilience.md):
 **a read the device did not answer throws a transient exception, never a value**, because the
 session's retry and reconnect layer only ever sees exceptions. Where a driver still breaks that rule,
 its document says so and #810 tracks the fix. A new native driver gets its document with its first

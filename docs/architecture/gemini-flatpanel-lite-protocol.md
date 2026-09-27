@@ -116,9 +116,9 @@ So the probe declares:
   different DTR-triggered controller (e.g. some OnStep boards) on the same port.
 
 On the shared pass 1 the probe is **skipped** (it can't match without DTR), so the 2.2 s warmup is paid
-once, in pass 2, where it now matches and auto-discovery finds the panel. Probe reads use the cancellable
-**synchronous** path (`ISerialConnection.SynchronousReads`), because CH34x bridges spuriously abort async
-`BaseStream` reads (`ERROR_OPERATION_ABORTED`) after the first read; see
+once, in pass 2, where it now matches and auto-discovery finds the panel. Every read goes through Serial.Lib,
+which never uses the async `BaseStream` reads a CH34x bridge spuriously aborts (`ERROR_OPERATION_ABORTED`) after
+the first read (the interim `SynchronousReads` opt-in this driver and the probe needed is gone); see
 [../plans/serial-lib.md](../plans/serial-lib.md). Manual assignment
 (`CoverCalibrator://GeminiDevice/…?port=serial:COMx`) also works, that path reconstructs the device from
 the URI and the driver's own connect asserts DTR + boot-waits.

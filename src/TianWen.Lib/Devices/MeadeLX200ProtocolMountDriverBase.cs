@@ -992,7 +992,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
             if (_deviceInfo.SerialDevice is { IsOpen: true } port)
             {
                 await port.WaitAsync(cancellationToken);
-                return port.TryClose();
+                return await port.TryCloseAsync();
             }
             else if (_deviceInfo.SerialDevice is { })
             {

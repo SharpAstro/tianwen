@@ -41,13 +41,6 @@ public record class GeminiFocuserDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
         // The myFocuserPro2 Arduino resets when DTR is asserted on open (classic auto-reset); the driver
         // then waits out the boot before handshaking. Asserting DTR+RTS matches the vendor driver's
         // ResetControllerOnConnect path and the FlatPanel's CH34x requirement.
-        var conn = await external.OpenSerialDeviceAsync(port, GeminiFocuserProtocol.Baud, encoding ?? Encoding.ASCII, assertControlLines: true, cancellationToken);
-        if (conn is not null)
-        {
-            // CH34x bridges spuriously abort async BaseStream reads (ERROR_OPERATION_ABORTED) after the first
-            // read, so use the cancellable synchronous read path (see ISerialConnection.SynchronousReads).
-            conn.SynchronousReads = true;
-        }
-        return conn;
+        return await external.OpenSerialDeviceAsync(port, GeminiFocuserProtocol.Baud, encoding ?? Encoding.ASCII, assertControlLines: true, cancellationToken);
     }
 }

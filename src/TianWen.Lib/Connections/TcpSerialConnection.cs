@@ -114,7 +114,9 @@ internal sealed class TcpSerialConnection : ISerialConnection
     /// <inheritdoc />
     public string? VerboseTag { get; set; }
 
-    public bool TryClose()
+    public ValueTask<bool> TryCloseAsync() => ValueTask.FromResult(Close());
+
+    private bool Close()
     {
         IsOpen = false;
         try
@@ -182,7 +184,11 @@ internal sealed class TcpSerialConnection : ISerialConnection
         }
     }
 
-    public void Dispose() => TryClose();
+    public ValueTask DisposeAsync()
+    {
+        _ = Close();
+        return ValueTask.CompletedTask;
+    }
 
     public ValueTask<ResourceLock> WaitAsync(CancellationToken cancellationToken) => _semaphore.AcquireLockAsync(cancellationToken);
 

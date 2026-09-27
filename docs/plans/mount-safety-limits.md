@@ -729,7 +729,8 @@ Driven through the SDL inspector against `tianwen-gui`; every finding below was 
    budget could end it. A `dotnet-stack` dump showed NO thread in serial I/O -- a pending overlapped write
    is invisible -- and the tell was the missing `COM4 --> :GVP#` line, which is logged after the await.
    Fixes, each pinned: the profile scan no longer probes (`DeviceDiscoveryTests`); writes are bounded at
-   the port AND as a task (`SerialConnectionBase.WriteTimeoutMs`), closes are bounded (`TryClose`), and
+   the port AND as a task (then `SerialConnectionBase.WriteTimeoutMs`; Serial.Lib's write deadline since
+   docs/plans/serial-lib.md P3), closes are bounded (then `TryClose`, now `TryCloseAsync`), and
    an attempt whose I/O ignores its budget is abandoned (`SerialProbeService.AbandonGrace`); a write the
    driver never completed marks the connection (`ISerialConnection.HasAbandonedIo`) and the pass gives
    that port up for the rest of the discovery (`SerialProbeServiceTests`, two cases). The distinction is

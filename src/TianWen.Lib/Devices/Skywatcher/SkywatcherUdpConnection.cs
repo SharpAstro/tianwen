@@ -34,14 +34,20 @@ internal sealed class SkywatcherUdpConnection : ISerialConnection
     public bool IsOpen { get; private set; }
     public Encoding Encoding { get; }
 
-    public bool TryClose()
+    public ValueTask<bool> TryCloseAsync() => ValueTask.FromResult(Close());
+
+    private bool Close()
     {
         IsOpen = false;
         _client.Dispose();
         return true;
     }
 
-    public void Dispose() => TryClose();
+    public ValueTask DisposeAsync()
+    {
+        _ = Close();
+        return ValueTask.CompletedTask;
+    }
 
     public ValueTask<ResourceLock> WaitAsync(CancellationToken cancellationToken) => _semaphore.AcquireLockAsync(cancellationToken);
 

@@ -142,11 +142,11 @@ Every exchange takes the port's lock (`ISerialConnection.WaitAsync`), writes the
 (`SgpMountDriverBase.SendAndReceiveAsync` for a read, `SendCommandAsync` for a command). Four transport
 facts decide what "no reply" means here (#810):
 
-- **The read has no deadline of its own.** Only a write is bounded (`SerialConnectionBase.WriteTimeoutMs`,
-  2 s), and the driver does not set `SynchronousReads`, so a mount that never answers holds the call until
-  the caller's token fires.
+- **The read has no deadline of its own.** Only a write is bounded (`SerialConnection.WriteTimeout`, 2 s,
+  held by Serial.Lib), and `SerialConnection` opens its port with no read deadline, so a mount that never
+  answers holds the call until the caller's token fires.
 - **The read helper swallows every exception, the caller's cancellation included.**
-  `SerialConnectionBase.TryReadTerminatedRawAsync` returns -1 and `TryReadTerminatedAsync` null, exactly as
+  `SerialConnection.TryReadTerminatedRawAsync` returns -1 and `TryReadTerminatedAsync` null, exactly as
   for a reply whose `#` is not within `MaxTerminatedResponseBytes`, so the driver cannot tell a lost reply
   from a cancelled one.
 - **Nothing discards input before a command** (the driver never calls `DiscardInBuffer`), so a reply that

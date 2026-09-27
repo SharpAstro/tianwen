@@ -98,9 +98,15 @@ internal class FakeSgpSerialDevice : ISerialConnection
 
     public ValueTask<ResourceLock> WaitAsync(CancellationToken cancellationToken) => _semaphore.AcquireLockAsync(cancellationToken);
 
-    public void Dispose() => TryClose();
+    public ValueTask DisposeAsync()
+    {
+        _ = Close();
+        return ValueTask.CompletedTask;
+    }
 
-    public bool TryClose()
+    public ValueTask<bool> TryCloseAsync() => ValueTask.FromResult(Close());
+
+    private bool Close()
     {
         IsOpen = false;
         Interlocked.Exchange(ref _trackingTimer, null)?.Dispose();

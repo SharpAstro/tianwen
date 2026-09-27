@@ -44,8 +44,8 @@ internal sealed class FakeGeminiFocuserSerialDevice(
 
     public bool IsOpen { get; private set; } = true;
     public Encoding Encoding => Encoding.ASCII;
-    public bool TryClose() { IsOpen = false; return true; }
-    public void Dispose() => TryClose();
+    public ValueTask<bool> TryCloseAsync() { IsOpen = false; return ValueTask.FromResult(true); }
+    public ValueTask DisposeAsync() { IsOpen = false; return ValueTask.CompletedTask; }
 
     public ValueTask<ResourceLock> WaitAsync(CancellationToken cancellationToken) => _sem.AcquireLockAsync(cancellationToken);
 

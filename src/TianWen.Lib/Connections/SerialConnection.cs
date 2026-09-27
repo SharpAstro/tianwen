@@ -1,211 +1,256 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
+using SharpAstro.Serial;
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.IO.Ports;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace TianWen.Lib.Connections;
 
-internal sealed class SerialConnection(string portName, int baud, Encoding encoding, ILogger logger, bool assertControlLines = false)
-    : SerialConnectionBase(encoding, logger)
+/// <summary>
+/// <see cref="ISerialConnection"/> over a Serial.Lib port (<c>SharpAstro.Serial</c>), which owns everything a serial
+/// transport has to get right: reads that never abort spuriously (the CH34x trap of <c>System.IO.Ports</c> async
+/// reads), writes a dead driver cannot strand (the Bluetooth listener port), a bounded open and close, bytes after a
+/// terminator kept for the next read, and a removed device told apart from a timeout (docs/plans/serial-lib.md).
+/// This class only adapts: the library's typed failures become the <c>Try*</c> contract's null / -1 / false, and every
+/// exchange is logged the way the probe log has always shown it.
+/// </summary>
+internal sealed class SerialConnection : ISerialConnection
 {
-    public static IReadOnlyList<string> EnumerateSerialPorts()
+    /// <summary>
+    /// The longest reply <see cref="TryReadTerminatedAsync"/> accepts, terminator included: a reply whose terminator is
+    /// not within this many bytes is refused (null), never truncated. 128 because that is the window this read always
+    /// had in practice (it asked the pool for 100, was handed the 128-byte bucket, and passed the whole array on)
+    /// until the <see cref="ArrayPoolHelper"/> migration handed on exactly the 100 requested and silently cut it.
+    /// </summary>
+    internal const int MaxTerminatedResponseBytes = 128;
+
+    /// <summary>
+    /// A write to a healthy port completes in milliseconds; one still pending after this is given up and the port marked
+    /// (<see cref="HasAbandonedIo"/>). Same value as <see cref="TcpSerialConnection"/>'s stream timeouts.
+    /// </summary>
+    internal static readonly TimeSpan WriteTimeout = TimeSpan.FromSeconds(2);
+
+    private readonly ISerialPort _port;
+    private readonly ILogger _logger;
+    private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
+
+    internal SerialConnection(ISerialPort port, Encoding encoding, ILogger logger)
     {
-        var portNames = SerialPort.GetPortNames();
-
-        var prefixedPortNames = new List<string>(portNames.Length);
-        for (var i = 0; i < portNames.Length; i++)
-        {
-            prefixedPortNames.Add($"{ISerialConnection.SerialProto}{portNames[i]}");
-        }
-
-        return prefixedPortNames;
-    }
-
-    private readonly SerialPort _port =  new SerialPort(ISerialConnection.CleanupPortName(portName), baud);
-
-    // SerialPort.Close blocks for as long as the driver takes to complete or cancel the handle's pending I/O,
-    // and the Bluetooth virtual port that ignored WriteTimeout never completes the write it is holding.
-    private const int CloseTimeoutMs = 2000;
-
-    protected override Stream OpenStream()
-    {
-        // The port-level half of the write bound; the task-level half is in TryWriteAsync. See WriteTimeoutMs.
-        _port.WriteTimeout = WriteTimeoutMs;
-        // Assert DTR + RTS before opening for bridges that hold the MCU in reset otherwise
-        // (e.g. the Gemini FlatPanel's CH341). Opt-in: off for every device that doesn't need it.
-        if (assertControlLines)
-        {
-            _port.DtrEnable = true;
-            _port.RtsEnable = true;
-        }
-
-        _port.Open();
-        return _port.BaseStream;
-    }
-
-    public override bool IsOpen => _port.IsOpen;
-
-    public override string DisplayName => _port.PortName;
-
-    /// <inheritdoc />
-    public override void DiscardInBuffer()
-    {
-        // SerialPort.DiscardInBuffer can throw InvalidOperationException if the port
-        // was closed concurrently (race with TryClose). Swallow that; best-effort.
-        if (!_port.IsOpen) return;
-        try
-        {
-            // Read any pending bytes FIRST so the operator can see what the device
-            // actually sent: OnStep's unterminated "0" on its first :GVP# is the
-            // canonical case: a prior LX200 probe's read times out before the '#'
-            // it never sent, leaving a stray '0' in the buffer that would pollute
-            // the next framed read. BytesToRead is non-blocking; BaseStream.Read
-            // with a Span returns immediately when bytes are buffered.
-            var pending = _port.BytesToRead;
-            if (pending > 0)
-            {
-                Span<byte> scratch = stackalloc byte[256];
-                // Cap at 4 KiB so a misbehaving device can't starve discovery with
-                // an endless chatter stream: the native discard below sweeps any
-                // remainder into the bit bucket.
-                var drained = 0;
-                while (pending > 0 && drained < 4096)
-                {
-                    var take = Math.Min(pending, scratch.Length);
-                    var n = _port.BaseStream.Read(scratch[..take]);
-                    if (n <= 0) break;
-                    LogDrained(scratch[..n]);
-                    drained += n;
-                    pending = _port.BytesToRead;
-                }
-            }
-            _port.DiscardInBuffer();
-        }
-        catch (InvalidOperationException)
-        {
-            // port closed between the IsOpen check and the native call; ignore.
-        }
-        catch (IOException ex)
-        {
-            // Reading the pending bytes failed (rare, driver-level). Try the
-            // native discard anyway so the next probe starts clean-ish, and log
-            // the failure at Debug so it isn't a silent no-op.
-            _logger.LogDebug(ex, "DiscardInBuffer drain-read failed on {Port}", DisplayName);
-            try { _port.DiscardInBuffer(); }
-            catch (InvalidOperationException) { /* see above */ }
-        }
+        _port = port;
+        _logger = logger;
+        Encoding = encoding;
     }
 
     /// <summary>
-    /// Closes the serial port if it is open
+    /// Opens <paramref name="portName"/> (with or without the <c>serial:</c> prefix). <paramref name="assertControlLines"/>
+    /// asserts DTR and RTS from the open on, for bridges that hold the MCU in reset otherwise (the Gemini FlatPanel's CH341).
     /// </summary>
-    /// <returns>true if the prot is closed</returns>
-    public override bool TryClose()
+    /// <exception cref="SerialException">The port is missing, busy, or did not open in time.</exception>
+    public static async ValueTask<SerialConnection> OpenAsync(string portName, int baud, Encoding encoding, ILogger logger, bool assertControlLines, CancellationToken cancellationToken)
     {
-        if (!_port.IsOpen)
+        var settings = new SerialSettings(baud)
         {
-            return true;
-        }
+            AssertDtr = assertControlLines,
+            AssertRts = assertControlLines,
+            // Reads are bounded by the caller's token, as ISerialConnection's always have been: a QHY filter wheel's
+            // reply blocks until the wheel arrives, and every driver chooses its own budget.
+            ReadTimeout = Timeout.InfiniteTimeSpan,
+            WriteTimeout = WriteTimeout,
+        };
+        var port = await SerialPorts.OpenAsync(ISerialConnection.CleanupPortName(portName), settings, cancellationToken).ConfigureAwait(false);
+        return new SerialConnection(port, encoding, logger);
+    }
 
-        // An unbounded Close here would move the wedge from the probe to its cleanup (see CloseTimeoutMs), so
-        // the close runs on a pool thread with a deadline; past it the HANDLE is abandoned rather than the
-        // caller -- one blocked pool thread until the driver lets go, and a port the next open reports busy,
-        // both logged. Blocking on a Task is otherwise banned in this codebase; this one wraps a synchronous
-        // native call with no continuation to deadlock on, behind a synchronous interface member.
-        var close = Task.Run(_port.Close);
+    /// <summary>The OS ports present now, each with the <c>serial:</c> prefix.</summary>
+    public static IReadOnlyList<string> EnumerateSerialPorts()
+    {
+        var ports = SerialPorts.Enumerate();
+        var names = new List<string>(ports.Count);
+        foreach (var port in ports)
+        {
+            names.Add($"{ISerialConnection.SerialProto}{port.PortName}");
+        }
+        return names;
+    }
+
+    public bool IsOpen => _port.IsOpen;
+
+    public string DisplayName => _port.PortName;
+
+    public Encoding Encoding { get; }
+
+    /// <inheritdoc />
+    public bool LogVerbose { get; set; }
+
+    /// <inheritdoc />
+    public string? VerboseTag { get; set; }
+
+    /// <inheritdoc />
+    public bool HasAbandonedIo => _port.HasAbandonedIo;
+
+    public ValueTask<ResourceLock> WaitAsync(CancellationToken cancellationToken) => _semaphore.AcquireLockAsync(cancellationToken);
+
+    public async ValueTask<bool> TryWriteAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken)
+    {
         try
         {
-            if (!close.Wait(CloseTimeoutMs))
-            {
-                _logger.LogWarning("{Port} did not close within {Timeout}ms (pending I/O the driver never completed); abandoning the handle.",
-                    _port.PortName, CloseTimeoutMs);
-                return false;
-            }
+            await _port.WriteAsync(data, cancellationToken).ConfigureAwait(false);
         }
-        catch (AggregateException ex)
+        catch (SerialIoAbandonedException)
         {
-            _logger.LogWarning(ex.InnerException ?? ex, "{Port} failed to close.", _port.PortName);
+            _logger.LogWarning("{Port} never completed the write of {Message}; the port is marked as not completing I/O.",
+                DisplayName, Render(data.Span));
+            return false;
+        }
+        catch (Exception ex) when (ex is SerialException or ObjectDisposedException or OperationCanceledException)
+        {
+            _logger.LogError(ex, "Error while sending message {Message} to serial device on serial port {Port}", Render(data.Span), DisplayName);
             return false;
         }
 
-        return base.TryClose();
+        LogTraffic("-->", Render(data.Span));
+        return true;
     }
 
-    // ReadTimeout slice for the synchronous read path: short enough to observe cancellation promptly,
-    // long enough not to busy-spin.
-    private const int SyncReadSliceMs = 200;
+    public async ValueTask<string?> TryReadTerminatedAsync(ReadOnlyMemory<byte> terminators, CancellationToken cancellationToken)
+    {
+        using var buffer = ArrayPoolHelper.Rent<byte>(MaxTerminatedResponseBytes);
+        var bytesRead = await TryReadTerminatedRawAsync(buffer.AsMemory(0, MaxTerminatedResponseBytes - 1), terminators, cancellationToken).ConfigureAwait(false);
+        return bytesRead >= 0 ? Encoding.GetString(buffer.AsSpan(0, bytesRead)) : null;
+    }
 
-    /// <summary>
-    /// Cancellable synchronous read loop used when <see cref="ISerialConnection.SynchronousReads"/> is set.
-    /// .NET's <c>SerialStream</c> "async" is itself just a blocking read on a background thread
-    /// (dotnet/runtime#28968), and its <c>BaseStream.ReadAsync</c> spuriously aborts with
-    /// <c>ERROR_OPERATION_ABORTED</c> on some USB bridges (CH34x) after the first read. So here we do exactly
-    /// what the runtime maintainers recommend: a blocking <c>Read</c> (honors <c>ReadTimeout</c>, immune to
-    /// the abort). Cancellation is observed between <c>ReadTimeout</c> slices, so no blocked thread is
-    /// abandoned. Returns bytes stored, or -1 on failure/cancellation; matching the base "Try*" contract
-    /// (report failure via the return value, never throw).
-    /// </summary>
-    private int SyncRead(Memory<byte> message, ReadOnlyMemory<byte> terminators, bool exact, CancellationToken cancellationToken)
+    public async ValueTask<int> TryReadTerminatedRawAsync(Memory<byte> message, ReadOnlyMemory<byte> terminators, CancellationToken cancellationToken)
     {
         try
         {
-            _port.ReadTimeout = SyncReadSliceMs;
-            var count = 0;
-            while (count < message.Length)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                int b;
-                try
-                {
-                    b = _port.ReadByte();
-                }
-                catch (TimeoutException)
-                {
-                    continue; // slice elapsed with no byte; re-check cancellation and keep waiting
-                }
-
-                if (b < 0)
-                {
-                    return exact ? -1 : count; // EOF: an exact read is short (fail); terminated returns what it has
-                }
-                if (!exact && terminators.Span.IndexOf((byte)b) >= 0)
-                {
-                    return count; // terminator reached, not stored, matching the async path's contract
-                }
-
-                message.Span[count++] = (byte)b;
-            }
-            return count; // buffer full
+            var bytesRead = await _port.ReadTerminatedAsync(message, terminators, cancellationToken).ConfigureAwait(false);
+            // The terminator is consumed, not stored; shown as a marker so e.g. LX200 "On-Step#" reads as the wire did.
+            LogTraffic("<--", Render(message.Span[..bytesRead]) + "<term>");
+            return bytesRead;
         }
-        catch (OperationCanceledException)
+        catch (SerialFramingException ex)
         {
+            _logger.LogWarning("Terminator (any of {Terminators}) not found in message from serial device on serial port {Port} ({Received})",
+                Render(terminators.Span), DisplayName, Render(ex.Received.Span));
+            return -1;
+        }
+        catch (Exception ex) when (ex is SerialException or ObjectDisposedException or OperationCanceledException)
+        {
+            // Try* contract: failures are the return value. A cancelled read is the caller's own budget (a probe
+            // timeout, a driver's deadline); a removed device, a closed port or a driver fault is the rest.
+            LogReadFailure(ex);
+            _logger.LogDebug(ex, "TryReadTerminatedRawAsync failed on {Port}", DisplayName);
             return -1;
         }
     }
 
-    public override async ValueTask<int> TryReadTerminatedRawAsync(Memory<byte> message, ReadOnlyMemory<byte> terminators, CancellationToken cancellationToken)
+    public async ValueTask<string?> TryReadExactlyAsync(int count, CancellationToken cancellationToken)
     {
-        if (!SynchronousReads)
-        {
-            return await base.TryReadTerminatedRawAsync(message, terminators, cancellationToken).ConfigureAwait(false);
-        }
-
-        // Task.Run without the token: SyncRead observes cancellation internally and returns -1, so the read
-        // never surfaces an OperationCanceledException (matching the base async path, which also swallows it).
-        return await Task.Run(() => SyncRead(message, terminators, exact: false, cancellationToken)).ConfigureAwait(false);
+        using var buffer = ArrayPoolHelper.Rent<byte>(count);
+        return await TryReadExactlyRawAsync(buffer.AsMemory(0, count), cancellationToken).ConfigureAwait(false)
+            ? Encoding.GetString(buffer.AsSpan(0, count))
+            : null;
     }
 
-    public override async ValueTask<bool> TryReadExactlyRawAsync(Memory<byte> message, CancellationToken cancellationToken)
+    public async ValueTask<bool> TryReadExactlyRawAsync(Memory<byte> message, CancellationToken cancellationToken)
     {
-        if (!SynchronousReads)
+        try
         {
-            return await base.TryReadExactlyRawAsync(message, cancellationToken).ConfigureAwait(false);
+            await _port.ReadExactlyAsync(message, cancellationToken).ConfigureAwait(false);
+            LogTraffic("<--", $"{Render(message.Span)} ({message.Length})");
+            return true;
         }
-
-        return await Task.Run(() => SyncRead(message, default, exact: true, cancellationToken)).ConfigureAwait(false) == message.Length;
+        catch (Exception ex) when (ex is SerialException or ObjectDisposedException or OperationCanceledException)
+        {
+            LogReadFailure(ex);
+            _logger.LogDebug(ex, "TryReadExactlyRawAsync failed on {Port}", DisplayName);
+            return false;
+        }
     }
+
+    /// <inheritdoc />
+    public void DiscardInBuffer()
+    {
+        // Read what is pending FIRST so the operator can see what the device actually sent: OnStep's unterminated "0"
+        // on its first :GVP# is the canonical case, a prior LX200 probe's read timing out before the '#' it never sent.
+        // Capped at 4 KiB so a chattering device cannot flood the log; the port discards the rest.
+        Span<byte> drained = stackalloc byte[4096];
+        try
+        {
+            var n = _port.DiscardInput(drained);
+            if (n > 0 && LogVerbose)
+            {
+                LogTraffic("<--", $"(drained {n} byte(s): {Render(drained[..n])})");
+            }
+        }
+        catch (Exception ex) when (ex is SerialException or ObjectDisposedException)
+        {
+            // A port closed or removed between probes: the next probe fails cleanly on its own write.
+            _logger.LogDebug(ex, "DiscardInBuffer failed on {Port}", DisplayName);
+        }
+    }
+
+    /// <summary>
+    /// Closes the port within the library's close deadline. False when the close had to be abandoned: the driver still
+    /// holds I/O it never completed (the Bluetooth listener port's stranded write), so the next open may find it busy.
+    /// </summary>
+    public async ValueTask<bool> TryCloseAsync()
+    {
+        var closed = await _port.CloseAsync().ConfigureAwait(false);
+        // As the old transport did: a waiter on the exchange lock of a closed connection fails at once rather than
+        // waiting on a port that will not answer again.
+        _semaphore.Dispose();
+        if (!closed)
+        {
+            _logger.LogWarning("{Port} did not close in time (pending I/O the driver never completed); abandoning the handle.", DisplayName);
+        }
+        return closed;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _ = await TryCloseAsync().ConfigureAwait(false);
+    }
+
+    private string Render(ReadOnlySpan<byte> bytes) => Encoding.GetString(bytes).ReplaceNonPrintableWithHex() ?? "";
+
+    /// <summary>
+    /// One line per exchange: at Info, tagged, while probing (<see cref="LogVerbose"/>), so the operator sees the
+    /// handshake without enabling Debug; at Trace otherwise, since drivers poll dozens of times a second.
+    /// </summary>
+    private void LogTraffic(string direction, string rendered)
+    {
+        if (!LogVerbose)
+        {
+            _logger.LogTrace("{Direction} {Message}", direction, rendered);
+        }
+        else if (VerboseTag is { Length: > 0 } tag)
+        {
+            _logger.LogInformation("{Port} [{Tag}] {Direction} {Message}", DisplayName, tag, direction, rendered);
+        }
+        else
+        {
+            _logger.LogInformation("{Port} {Direction} {Message}", DisplayName, direction, rendered);
+        }
+    }
+
+    /// <summary>
+    /// The "no response" side of an exchange as one tagged Info line while probing, so every --> write has a matching
+    /// &lt;-- outcome: the failure's type (a timeout, a removal, a cancel), what arrived before it, and whether the port
+    /// is still open (the caller's cancel against a port closed under the read).
+    /// </summary>
+    private void LogReadFailure(Exception ex)
+    {
+        if (!LogVerbose)
+        {
+            return;
+        }
+        var received = ex is SerialTimeoutException { Received.Length: > 0 } timeout ? Render(timeout.Received.Span) : "-";
+        LogTraffic("<--", $"(no response: {ex.GetType().Name}: {Sanitize(ex.Message)}; received {received}; IsOpen={IsOpen})");
+    }
+
+    // An exception message can be multi-line, which would shred the one-line-per-exchange probe log.
+    private static string Sanitize(string message) => message.TrimEnd().Replace("\r\n", " ").Replace('\n', ' ').Replace('\r', ' ');
 }

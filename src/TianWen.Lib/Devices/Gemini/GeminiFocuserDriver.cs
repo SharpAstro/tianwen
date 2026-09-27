@@ -159,7 +159,7 @@ internal sealed class GeminiFocuserDriver(GeminiFocuserDevice device, IServicePr
             }
 
             Logger.LogWarning("Gemini Focuser {DeviceId}: open connection did not answer the handshake; rebuilding the connection.", device.DeviceId);
-            existing.TryClose();
+            await existing.TryCloseAsync().ConfigureAwait(false);
             _conn = null;
         }
 
@@ -232,7 +232,7 @@ internal sealed class GeminiFocuserDriver(GeminiFocuserDevice device, IServicePr
         }
         catch
         {
-            conn.TryClose();
+            await conn.TryCloseAsync().ConfigureAwait(false);
             throw;
         }
 
@@ -241,16 +241,20 @@ internal sealed class GeminiFocuserDriver(GeminiFocuserDevice device, IServicePr
         DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(true));
     }
 
-    public ValueTask DisconnectAsync(CancellationToken cancellationToken = default)
+    public async ValueTask DisconnectAsync(CancellationToken cancellationToken = default)
     {
-        _conn?.TryClose();
+        var conn = _conn;
         _conn = null;
+        if (conn is not null)
+        {
+            await conn.TryCloseAsync().ConfigureAwait(false);
+        }
         _connected = false;
         DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(false));
-        return ValueTask.CompletedTask;
     }
 
-    public void Dispose() => _conn?.TryClose();
+    // A synchronous Dispose cannot await the close: it starts it, and DisposeAsync is the path that waits.
+    public void Dispose() => _conn?.CloseInBackground(Logger);
 
     public ValueTask DisposeAsync() => DisconnectAsync();
 }

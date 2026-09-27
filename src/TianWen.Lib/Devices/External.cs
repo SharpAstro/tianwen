@@ -16,7 +16,7 @@ internal sealed class External(
     IUtf8TextBasedConnectionFactory textBasedConnectionFactory,
     ILogger<External> logger,
     Astrometry.Catalogs.ICelestialObjectDB celestialObjectDB
-) : IExternal, IDisposable
+) : IExternal, IDisposable, IAsyncDisposable
 {
     private Task? _dbInitTask;
     private readonly SemaphoreSlim _serialPortEnumerationSemaphore = new SemaphoreSlim(1, 1);
@@ -71,20 +71,19 @@ internal sealed class External(
 
     public async ValueTask<ISerialConnection> OpenSerialDeviceAsync(string address, int baud, Encoding encoding, bool assertControlLines = false, CancellationToken cancellationToken = default)
     {
-        // BCL SerialPort.Open is a synchronous blocking call (opens the OS handle,
-        // queries the line state, etc.): no real async equivalent exists. Offload
-        // to the thread pool so callers never block a driver thread on a COM port
-        // that takes 10–100 ms (or worse, a stuck USB bridge) to open.
-        return await Task.Run(
-            () => _serialConnections.AddOrUpdate(address,
-                OpenSerialConnection,
-                (portName, existing) => existing.IsOpen ? existing : OpenSerialConnection(portName)
-            ),
-            cancellationToken);
+        // A port already open here is handed out again rather than opened twice (the second open would find it busy).
+        if (_serialConnections.TryGetValue(address, out var existing) && existing.IsOpen)
+        {
+            return existing;
+        }
 
-        // assertControlLines asserts DTR + RTS on open (needed by some USB-serial bridges, e.g. the
-        // Gemini FlatPanel's CH341). Default false preserves the existing behaviour for every other device.
-        ISerialConnection OpenSerialConnection(string portName) => new SerialConnection(portName, baud, encoding, logger, assertControlLines);
+        // Serial.Lib bounds the open (a stuck USB bridge, or a Bluetooth port connecting to its remote end, cannot hold
+        // the caller) and throws a SerialException naming what went wrong: missing, busy, or not opened in time.
+        // assertControlLines asserts DTR + RTS on open (needed by some USB-serial bridges, e.g. the Gemini FlatPanel's
+        // CH341); false keeps every other device's open as it was.
+        var connection = await SerialConnection.OpenAsync(address, baud, encoding, logger, assertControlLines, cancellationToken).ConfigureAwait(false);
+        _serialConnections[address] = connection;
+        return connection;
     }
 
     public Task<IUtf8TextBasedConnection> ConnectGuiderAsync(EndPoint address, CommunicationProtocol protocol = CommunicationProtocol.JsonRPC, CancellationToken cancellationToken = default)
@@ -99,20 +98,37 @@ internal sealed class External(
     /// Everything held here is a managed wrapper: the semaphore, and serial connections that each own
     /// and release their own OS handle. So there is nothing unmanaged to free and no finalizer.
     /// </remarks>
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+        _disposed = true;
+        _serialPortEnumerationSemaphore.Dispose();
+
+        foreach (var serialConnection in _serialConnections.Values)
+        {
+            await serialConnection.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// For a container disposed synchronously: each connection's close is started and left to finish on its own
+    /// (bounded by the transport), never waited on. <see cref="DisposeAsync"/> is the path that waits.
+    /// </summary>
     public void Dispose()
     {
         if (_disposed)
         {
             return;
         }
-
+        _disposed = true;
         _serialPortEnumerationSemaphore.Dispose();
 
         foreach (var serialConnection in _serialConnections.Values)
         {
-            serialConnection.Dispose();
+            serialConnection.CloseInBackground(logger);
         }
-
-        _disposed = true;
     }
 }

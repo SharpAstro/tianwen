@@ -295,7 +295,6 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Http" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
-    <PackageReference Include="System.IO.Ports" />
     <PackageReference Include="System.Numerics.Tensors" />
     <PackageReference Include="FC.SDK" />
   </ItemGroup>
@@ -446,6 +445,17 @@
   </ItemGroup>
   <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
     <PackageReference Include="Lzip.Lib" />
+  </ItemGroup>
+
+  <!-- Serial.Lib: serial port I/O (SharpAstro.Serial) under Connections/SerialConnection, which adapts it to
+       ISerialConnection. Cancellable, deadline-honouring reads that never abort spuriously, typed failures,
+       and port enumeration with a stable hardware identity (docs/plans/serial-lib.md).
+       Sibling repo's csproj lives at ../Serial.Lib/src/Serial.Lib/Serial.Lib.csproj. -->
+  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <ProjectReference Include="..\..\..\Serial.Lib\src\Serial.Lib\Serial.Lib.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
+    <PackageReference Include="Serial.Lib" />
   </ItemGroup>
 
 </Project>

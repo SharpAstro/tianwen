@@ -31,7 +31,7 @@ TCP; otherwise it defers to `DeviceBase.ConnectSerialDeviceAsync` and the serial
 | DTR / RTS | not asserted: neither the probe nor the driver asks for `assertControlLines` | n/a |
 | Connect bound | `SerialPort.Open` | 3 s (`TcpSerialConnection.DefaultConnectTimeout`), then `TimeoutException` |
 | Encoding | Latin1 on the driver's connection (the base's `_encoding`); ASCII in both probes | same |
-| I/O bounds | writes 2 s (`SerialConnectionBase.WriteTimeoutMs`); reads have no timeout of their own and end on the caller's token (#810) | `ReadTimeout` / `WriteTimeout` = 2000 ms are set on the `NetworkStream`, but the driver reads through `ReadAsync`, which those properties do not bound per the .NET documentation, so reads end on the caller's token here too |
+| I/O bounds | writes 2 s (`SerialConnection.WriteTimeout`, held by Serial.Lib); reads have no timeout of their own and end on the caller's token (#810) | `ReadTimeout` / `WriteTimeout` = 2000 ms are set on the `NetworkStream`, but the driver reads through `ReadAsync`, which those properties do not bound per the .NET documentation, so reads end on the caller's token here too |
 
 The Equipment tab edits the transport in place through `OnStepDevice.Settings`: `port` shows only while `host`
 is empty, `host` always, `tcp` only while `host` is set. Filling in a host flips the mount to TCP on its next
