@@ -344,22 +344,32 @@ public class SessionLifecycleTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// With no site anywhere a run cannot plan its night, and says what to do about it. It used to fail deep in
-    /// SOFA with "Site longitude has not been set", from a transform built on the mount's NaN site.
+    /// With no site anywhere a run cannot slew or plan its night, and initialisation refuses it saying what to do
+    /// about it (#994). It used to fail deep in SOFA with "Site longitude has not been set", from a transform built
+    /// on the mount's NaN site, and later at the rough-focus slew to Dec NaN.
     /// </summary>
     [Fact(Timeout = 120_000)]
-    public async Task GivenNoSiteAnywhereWhenPlanningTheNightThenTheRunFailsSayingToSetOne()
+    public async Task GivenNoSiteAnywhereWhenInitialisingThenTheRunFailsSayingToSetOne()
     {
         var ct = TestContext.Current.CancellationToken;
         await using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
         await ctx.Mount.SetSiteLatitudeAsync(double.NaN, ct);
         await ctx.Mount.SetSiteLongitudeAsync(double.NaN, ct);
 
-        await InitialiseAsync(ctx, ct);
+        var initTask = ctx.Track(Task.Run(async () => await ctx.Session.InitialisationAsync(ctx.Token), ctx.Token));
+        while (!initTask.IsCompleted && !ct.IsCancellationRequested)
+        {
+            await ctx.TimeProvider.SleepAsync(TimeSpan.FromSeconds(1), ct);
+            await Task.Delay(10, ct);
+        }
+
+        var failure = await Should.ThrowAsync<SessionFailedException>(initTask);
+        failure.Message.ShouldBe(Session.NoSiteReason);
         ctx.Session.Site.ShouldBeNull("premise: the request, the mount and the profile name none");
 
-        var failure = await Should.ThrowAsync<SessionFailedException>(ctx.Session.SessionEndTimeAsync(WinterNight.UtcDateTime, ct).AsTask());
-        failure.Message.ShouldContain("Set the site");
+        // The night planner keeps its own refusal, for a caller that reaches it without initialising.
+        var planning = await Should.ThrowAsync<SessionFailedException>(ctx.Session.SessionEndTimeAsync(WinterNight.UtcDateTime, ct).AsTask());
+        planning.Message.ShouldBe(Session.NoSiteReason);
     }
 
     private static async Task InitialiseAsync(SessionTestContext ctx, CancellationToken ct)

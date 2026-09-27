@@ -92,6 +92,10 @@ internal partial record Session
 
     private volatile SiteCoordinates? _settledSite;
 
+    /// <summary>The <see cref="FailureReason"/> of a run that has no <see cref="Site"/>.</summary>
+    internal const string NoSiteReason =
+        "No site is known: neither the request, the mount nor the profile names one. Set the site's latitude and longitude in the profile's Equipment settings, or on the mount.";
+
     /// <summary>
     /// Settles <see cref="Site"/> and gives the mount that site. A site the request names is the run's,
     /// whoever else has one. Otherwise the mount's own is reconciled with the profile's under the profile's
@@ -376,6 +380,14 @@ internal partial record Session
                 await mount.Driver.GetSiteLongitudeAsync(cancellationToken),
                 await _logger.CatchAsync(mount.Driver.GetRightAscensionAsync, cancellationToken, double.NaN),
                 await _logger.CatchAsync(mount.Driver.GetDeclinationAsync, cancellationToken, double.NaN));
+        }
+
+        // Refuse a run with no site here, before any camera cools: every slew, the night window and the
+        // horizon limit need one, and without it the first slew (rough focus at the zenith) went to Dec NaN
+        // and failed as an "unexpected error" naming none of the cause (#994).
+        if (Site is null)
+        {
+            throw new SessionFailedException(NoSiteReason);
         }
 
         // The run's site for the per-camera denorm stamp (fixed for the session).
