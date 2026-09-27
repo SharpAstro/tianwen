@@ -39,7 +39,9 @@ internal static class SessionEndpoints
                 session,
                 ToPromptDto(hosted.PendingPrompt),
                 notifications.IsDefaultOrEmpty ? null : notifications[^1],
-                timeProvider.GetUtcNow());
+                timeProvider.GetUtcNow(),
+                // The session /state shows is the one a session or a flat run started; any other kind of run answers 404.
+                hosted.RunningKind is NodeRunKind.Session or NodeRunKind.Flats ? hosted.RunningKind : null);
             return EnvelopeResults.Json(
                 ResponseEnvelope<SessionStateDto>.Ok(dto),
                 HostingJsonContext.Default.ResponseEnvelopeSessionStateDto);

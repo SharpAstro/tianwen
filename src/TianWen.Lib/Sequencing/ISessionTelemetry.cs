@@ -28,6 +28,13 @@ namespace TianWen.Lib.Sequencing
     /// </summary>
     public interface ISessionTelemetry
     {
+        /// <summary>
+        /// The run going on on this session as the node that runs it reports it: null where the host running it tracks
+        /// the run itself (an in-process <c>Session</c>, whose bootstrapper owns the live view's running flag and mode),
+        /// and the node's word for a mirror, which has no other way to know (P5b part 4).
+        /// </summary>
+        ReportedRun? Run => null;
+
         ScheduledObservation? ActiveObservation { get; }
 
         ScheduledObservationTree Observations { get; }

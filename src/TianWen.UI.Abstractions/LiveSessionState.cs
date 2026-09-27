@@ -549,11 +549,29 @@ namespace TianWen.UI.Abstractions
         /// Polls the active session and updates cached fields. Call once per frame.
         /// Designed to be cheap: reads volatile fields, no allocations on steady state.
         /// </summary>
+        // Poll-only state: written only here, on the loop that polls, so it needs no guard (CLAUDE.md, background-task state).
+        private ReportedRun? _reportedRun;
+
+        /// <inheritdoc cref="PollSession()"/>
         public void PollSession()
         {
             if (ActiveSession is not { } session)
             {
                 return;
+            }
+
+            // A mirror reports its node's run, which is how a rig's view knows one is going on; an in-process session
+            // reports none, since the bootstrapper that runs it owns these flags (P5b part 4). A flat run is not a
+            // session run (IsRunning stays false, as a local one leaves it) and puts the view in its mode as it begins;
+            // the mode stays once it ends, until the panel is closed, as a local one does.
+            if (session.Run is { } run)
+            {
+                IsRunning = run is ReportedRun.Session;
+                if (run is ReportedRun.Flats && _reportedRun is not ReportedRun.Flats)
+                {
+                    Mode = LiveSessionMode.Flats;
+                }
+                _reportedRun = run;
             }
 
             Phase = session.Phase;

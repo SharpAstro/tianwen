@@ -28,6 +28,13 @@ public sealed class SessionStateDto
     /// </summary>
     public DateTimeOffset? NodeNowUtc { get; init; }
 
+    /// <summary>
+    /// The node's run on this session, null when none is going on (P5b part 4): a session's or a flat run's. The phase
+    /// cannot say it, since a run goes on through Finalise after its last phase, and nothing else on a mirror's side
+    /// sets the live view's running flag.
+    /// </summary>
+    public NodeRunKind? Run { get; init; }
+
     public required SessionPhase Phase { get; init; }
     public string? CurrentActivity { get; init; }
     /// <summary>User-facing reason when <see cref="Phase"/> is Failed (which device / what to check); null otherwise.</summary>
@@ -132,11 +139,13 @@ public sealed class SessionStateDto
     /// <param name="lastNotification">Newest entry of the node's notification ring, which likewise lives on
     /// the host and not on the session -- the session raises events, the host records them.</param>
     /// <param name="nodeNow">The node's clock now (<see cref="NodeNowUtc"/>).</param>
+    /// <param name="nodeRun">The node's run on this session (<see cref="Run"/>).</param>
     public static SessionStateDto FromSession(
         ISessionTelemetry session,
         PendingPromptDto? pendingPrompt = null,
         NotificationDto? lastNotification = null,
-        DateTimeOffset? nodeNow = null)
+        DateTimeOffset? nodeNow = null,
+        NodeRunKind? nodeRun = null)
     {
         var displays = session.TelescopeDisplays;
         var coolingSamples = session.CoolingSamples;
@@ -238,6 +247,7 @@ public sealed class SessionStateDto
             MountLimit = MountLimitDto.FromVerdict(session.MountLimitVerdict),
             LastNotification = lastNotification,
             NodeNowUtc = nodeNow,
+            Run = nodeRun,
             MountDisplayName = session.MountDisplayName,
             Guider = GuiderStateDto.FromSession(session),
             Cameras = cameraStates.MoveToImmutable(),

@@ -42,6 +42,37 @@ public class GuiContextGatingTests(ITestOutputHelper output)
         h.ShouldHaveRefused(Refusal);
     }
 
+    /// <summary>
+    /// A rig's view shows ABORT once its node reports its run (P5b part 4), and the abort cancels the LOCAL session's
+    /// token: without the guard, aborting the rig on screen would end this computer's night instead.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task AnAbortWithARemoteRigOnScreenDoesNotCancelTheLocalSession()
+    {
+        await using var h = await GuiSignalHarness.StartAsync(output, TestContext.Current.CancellationToken, remoteOnScreen: true);
+        using var localRun = new CancellationTokenSource();
+        h.Contexts.Local.LiveSession.SessionCts = localRun;
+
+        h.Post(new ConfirmAbortSessionSignal());
+
+        localRun.IsCancellationRequested.ShouldBeFalse("the local session was aborted from a remote rig's view");
+        h.ShouldHaveRefused(Refusal);
+    }
+
+    /// <summary>A rig's flat run puts its view in the Flats mode (P5b part 4), whose Cancel cancels the LOCAL flat run.</summary>
+    [Fact(Timeout = 30_000)]
+    public async Task ACancelFlatsWithARemoteRigOnScreenDoesNotCancelTheLocalFlatRun()
+    {
+        await using var h = await GuiSignalHarness.StartAsync(output, TestContext.Current.CancellationToken, remoteOnScreen: true);
+        using var localFlats = new CancellationTokenSource();
+        h.Contexts.Local.LiveSession.FlatsCts = localFlats;
+
+        h.Post(new CancelFlatsSignal());
+
+        localFlats.IsCancellationRequested.ShouldBeFalse("the local flat run was cancelled from a remote rig's view");
+        h.ShouldHaveRefused(Refusal);
+    }
+
     [Fact(Timeout = 30_000)]
     public async Task AMountNudgeWithARemoteRigOnScreenDoesNotPulseTheLocalMount()
     {

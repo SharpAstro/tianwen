@@ -17,6 +17,7 @@ using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Sequencing;
 using TianWen.RemoteClient;
+using TianWen.UI.Abstractions;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
@@ -125,8 +126,10 @@ public class RemoteSessionMirrorTests
         string? guiderState = "Guiding",
         int otaCount = 1,
         PendingPromptDto? pendingPrompt = null,
-        string? lastFramePath = @"C:\Data\2026-07-26\M42\Light\frame7.fits") => new SessionStateDto
+        string? lastFramePath = @"C:\Data\2026-07-26\M42\Light\frame7.fits",
+        NodeRunKind? run = null) => new SessionStateDto
         {
+            Run = run,
             Phase = phase,
             CurrentActivity = "Imaging M42 (3/12)",
             FailureReason = null,
@@ -730,6 +733,46 @@ public class RemoteSessionMirrorTests
         mirror.CameraStates[0].FilterName.ShouldBe("L");
         mirror.Observations.Count.ShouldBe(1);
         mirror.ActiveObservation.ShouldNotBeNull().Target.Name.ShouldBe("M42");
+    }
+
+    [Fact]
+    public async Task ARigsViewFollowsTheRunItsNodeReports()
+    {
+        // Nothing on a rig's side sets the live view's running flag or its mode: they come from the node's run (P5b part
+        // 4). A session's run is running; a flat run is not (a local one leaves the flag false too) but puts the view in
+        // its mode; and the mode stays once the flat run has ended, until the panel is closed, as a local one does.
+        var run = (NodeRunKind?)NodeRunKind.Session;
+        var (mirror, _) = BuildMirror(_ => Json(ResponseEnvelope<SessionStateDto>.Ok(RunningState(run: run))));
+        await using var _mirror = mirror;
+        var view = new LiveSessionState { ActiveSession = mirror };
+
+        await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+        view.PollSession();
+        (view.IsRunning, view.Mode).ShouldBe((true, LiveSessionMode.Preview));
+
+        run = NodeRunKind.Flats;
+        await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+        view.PollSession();
+        (view.IsRunning, view.Mode).ShouldBe((false, LiveSessionMode.Flats));
+
+        run = null;
+        await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+        view.PollSession();
+        (view.IsRunning, view.Mode).ShouldBe((false, LiveSessionMode.Flats));
+    }
+
+    [Fact]
+    public void AnInProcessSessionReportsNoRunSoItsHostKeepsTheFlags()
+    {
+        // An in-process session's bootstrapper owns the running flag (it raises it before the session exists, to refuse a
+        // second start); a poll must never lower it underneath.
+        var session = Observing(Substitute.For<ISessionTelemetry>());
+        session.Run.Returns((ReportedRun?)null);
+        var view = new LiveSessionState { ActiveSession = session, IsRunning = true };
+
+        view.PollSession();
+
+        view.IsRunning.ShouldBeTrue();
     }
 
     [Fact]
