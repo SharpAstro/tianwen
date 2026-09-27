@@ -75,6 +75,11 @@ ACCEPTED ones, because NED and HyperLeda are compilations carrying the same stal
 the SOURCE catalogue settles a disputed row (MCG at HEASARC, the IRAS PSC/FSC), and that is a human
 step. Send the CONFIRMED list upstream with both the SIMBAD link and the second opinion.
 
+**#53 was merged upstream on 2026-09-27 and the refresh brought it in** (OpenNGC `master` at "Add notes
+about Simbad wrong identifications"): the Cocoon Galaxy now sits on NGC 4490 in OpenNGC's own row, so its
+two `OpenNgcCorrections` lines went red and were deleted, as designed, and the SIMBAD merge snapshot was
+re-baked on the new input. The table is down to the Flame Nebula pair, which upstream declined.
+
 **An upstream DECLINE is a permanent line in `OpenNgcCorrections`, and it has to say so.** The Flame
 Nebula is the case: OpenNGC keeps it on IC 434 on a taxonomy argument (NGC 2024 the cluster inside
 Orion B, IC 434 the HII region) and we override it, because Stellarium's curated list puts the name

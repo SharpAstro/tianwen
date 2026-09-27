@@ -119,6 +119,11 @@ public sealed class OpenNgcCorrectionsTests
         matches.ShouldNotContain(ic434.Index);
     }
 
+    /// <summary>
+    /// Upstream's own row now, not a correction: the Cocoon Galaxy line was accepted in
+    /// mattiaverga/OpenNGC#53 and its two correction lines went when the refresh brought the fix in. Kept
+    /// so a later refresh that regresses the name fails here rather than on a viewer label.
+    /// </summary>
     [Fact]
     public async Task TheCatalogueCarriesTheCocoonGalaxyOnNgc4490NotNgc4990()
     {
