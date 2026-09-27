@@ -324,9 +324,20 @@ internal sealed class NodeJournalService(
 
         foreach (var (held, device) in ordered)
         {
-            // Named BEFORE the connect: a driver that crashes the node here is the next node's suspect.
+            // Named BEFORE the connect: a driver that crashes the node here is the next node's suspect. A write that fails
+            // (a reader holding the file without delete sharing past SharedFile's retries, a full disk) does not stop the
+            // reconnect: restoring the mount, and with it mount-limit enforcement, outweighs naming a suspect, and the
+            // keeper's crash-loop guard still bounds a loop the journal could not record (#949).
             _touching = held.DeviceUri;
-            await WriteIfChangedAsync(path, stopping: false, cancellationToken);
+            try
+            {
+                await WriteIfChangedAsync(path, stopping: false, cancellationToken);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                logger.LogWarning(ex, "Recovering: could not name {Device} in the node's journal {Path} before reconnecting it; reconnecting it anyway",
+                    held.DeviceUri, path);
+            }
 
             var error = device is null ? "No device source on this node answers for it" : await ReconnectAsync(device, cancellationToken);
             _touching = null;
@@ -347,7 +358,16 @@ internal sealed class NodeJournalService(
             Report(held.DeviceUri, error: null);
         }
 
-        await WriteIfChangedAsync(path, stopping: false, cancellationToken);
+        // Everything is reconnected by now: a write that fails here is the writer loop's to retry at the next change,
+        // never a recovery that failed.
+        try
+        {
+            await WriteIfChangedAsync(path, stopping: false, cancellationToken);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            logger.LogError(ex, "Could not write the node's journal {Path} after recovering; trying again at the next change", path);
+        }
     }
 
     private async Task<string?> ReconnectAsync(DeviceBase device, CancellationToken cancellationToken)
