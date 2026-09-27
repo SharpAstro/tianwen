@@ -230,9 +230,11 @@ namespace TianWen.UI.Abstractions
             var pierLabel = ms.PierSide is Lib.Devices.PointingState.Normal ? "E" : ms.PierSide is Lib.Devices.PointingState.ThroughThePole ? "W" : "";
             var mountStatus = ms.IsSlewing ? "Slewing" : ms.IsTracking ? "Tracking" : "Idle";
             var statusColor = ms.IsSlewing ? StatusSlewing : ms.IsTracking ? StatusTracking : DimText;
-            var raStr = Lib.Astrometry.CoordinateUtils.HoursToHMS(ms.RightAscension, withFrac: false);
-            var haStr = $"HA {ms.HourAngle:+0.00;-0.00}h";
-            var decStr = Lib.Astrometry.CoordinateUtils.DegreesToDMS(ms.Declination, withFrac: false);
+            // Unknown until the session's first poll, or with no mount connected before it (MountState.Unknown): dashes,
+            // never NaN, which the sexagesimal formatters refuse.
+            var raStr = double.IsNaN(ms.RightAscension) ? "--" : Lib.Astrometry.CoordinateUtils.HoursToHMS(ms.RightAscension, withFrac: false);
+            var haStr = double.IsNaN(ms.HourAngle) ? "HA --" : $"HA {ms.HourAngle:+0.00;-0.00}h";
+            var decStr = double.IsNaN(ms.Declination) ? "--" : Lib.Astrometry.CoordinateUtils.DegreesToDMS(ms.Declination, withFrac: false);
 
             var nameRow = Layout.Builder.HStack(
                     Layout.Builder.Text("\u25cf", BaseFontSize * 0.7f, dotColor, TextAlign.Center, TextAlign.Center).WFixed(BaseRowHeight * 0.6f).HStar(),

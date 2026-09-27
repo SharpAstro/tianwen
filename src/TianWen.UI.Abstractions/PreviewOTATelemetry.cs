@@ -40,5 +40,37 @@ namespace TianWen.UI.Abstractions
             "", "", double.NaN, double.NaN, double.NaN,
             false, 0, double.NaN, false, "--",
             false, false, false);
+
+        /// <summary>
+        /// One OTA's telemetry from what its devices read, a device that is not connected read as <see langword="null"/>:
+        /// ONE rule for this computer's devices, read through its hub (<see cref="LiveSessionActions.SampleOTATelemetryAsync"/>),
+        /// and a rig's, read by its node and sent as its device states (P5b part 9 of docs/plans/hardware-in-the-server.md),
+        /// so an idle rig's OTA panels lay out as this computer's do. The camera is named by its URI, as every device is
+        /// (<see cref="DeviceBase.DisplayNameOf"/>), else by the OTA.
+        /// </summary>
+        public static PreviewOTATelemetry From(OTAData ota, CameraReading? camera, FocuserReading? focuser, FilterWheelReading? filterWheel) =>
+            new PreviewOTATelemetry(
+                OtaName: ota.Name,
+                CameraDisplayName: DeviceBase.DisplayNameOf(ota.Camera) is { Length: > 0 } name ? name : ota.Name,
+                CcdTempC: camera?.CcdTemperatureC ?? double.NaN,
+                SetpointC: camera?.SetpointC ?? double.NaN,
+                CoolerPowerPct: camera?.CoolerPowerPercent ?? double.NaN,
+                CoolerOn: camera?.CoolerOn ?? false,
+                FocusPosition: focuser?.Position ?? 0,
+                FocuserTempC: focuser?.TemperatureC ?? double.NaN,
+                FocuserIsMoving: focuser?.IsMoving ?? false,
+                FilterName: filterWheel?.FilterName ?? "--",
+                CameraConnected: camera is not null,
+                FocuserConnected: focuser is not null,
+                FilterWheelConnected: filterWheel is not null,
+                UsesGainValue: camera?.UsesGainValue ?? false,
+                UsesGainMode: camera?.UsesGainMode ?? false,
+                GainMin: camera?.GainMin ?? 0,
+                GainMax: camera?.GainMax ?? 0,
+                CurrentGain: camera?.Gain ?? 0,
+                GainModes: camera?.GainModes ?? ImmutableArray<string>.Empty,
+                SensorWidth: camera?.SensorWidth ?? 0,
+                SensorHeight: camera?.SensorHeight ?? 0,
+                RoiConstraints: camera?.RoiConstraints ?? default);
     }
 }

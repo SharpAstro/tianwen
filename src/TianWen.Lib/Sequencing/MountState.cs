@@ -36,4 +36,11 @@ public readonly record struct MountState(
     /// driver's null, carried as NaN like every other unknown here). Feeds the meridian safety limit's
     /// mechanical tier, which wins over the hour-angle estimate when present.
     /// </summary>
-    double PrimaryAxisAngleDeg = double.NaN);
+    double PrimaryAxisAngleDeg = double.NaN)
+{
+    /// <summary>
+    /// No pointing known: no mount connected, or none read yet. NaN, never <c>default</c>, which reads as a real pointing at
+    /// RA 0, Dec 0 and once drew the sky map's reticle there. One value for every view, this computer's and a rig's.
+    /// </summary>
+    public static readonly MountState Unknown = new MountState(double.NaN, double.NaN, double.NaN, PointingState.Unknown, false, false);
+}

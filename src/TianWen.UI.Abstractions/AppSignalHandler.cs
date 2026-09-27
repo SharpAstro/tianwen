@@ -90,7 +90,7 @@ namespace TianWen.UI.Abstractions
         /// planned at its site, and its clock, twilight and sky are drawn there; selecting a rig changes what you look at,
         /// and the site is part of what you look at.
         /// </summary>
-        internal Profile? ProfileOnShow => _contexts.Active is { IsLocal: false } rig ? rig.RigProfile : _appState.ActiveProfile;
+        internal Profile? ProfileOnShow => _contexts.ProfileOnShow(_appState.ActiveProfile);
 
         // The view the planner last planned for. Read and written on the UI thread by CheckRecompute alone, which is how any
         // switch of view (a rig selected, this computer's view, a rig forgotten, a quit) replans without each owing a step.
@@ -466,6 +466,36 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
+        /// The rig on show reads its devices from its node while its node runs nothing (P5b part 9): the OTA panels and the
+        /// mount of its idle Live Session, and the reticle of its sky map, on the tabs this computer's own idle poll below
+        /// serves. The Equipment tab is this computer's, so it is not one of them. The cadence and the one-at-a-time rule are
+        /// the connection's (<see cref="RemoteRigConnection.MaybeRefreshDevicesAsync"/>).
+        /// </summary>
+        private void PollRigOnShowDevices()
+        {
+            if (_contexts.Active is not { IsLocal: false } view || view.LiveSession.IsRunning
+                || _appState.ActiveTab is not (GuiTab.LiveSession or GuiTab.SkyMap))
+            {
+                return;
+            }
+            foreach (var (_, connection) in _rigs.Connections)
+            {
+                if (!ReferenceEquals(connection.Context, view) || !connection.DevicesRefreshDue)
+                {
+                    continue;
+                }
+                RunTracked("RefreshRigDevices", $"Could not read the devices of {connection.Binding.Alias}",
+                    async ct =>
+                    {
+                        if (await connection.MaybeRefreshDevicesAsync(ct).ConfigureAwait(false))
+                        {
+                            _appState.NeedsRedraw = true;
+                        }
+                    });
+            }
+        }
+
+        /// <summary>
         /// Polls connected devices for preview telemetry when the Live Session tab is visible
         /// and no session is running. Reads camera, focuser, filter wheel, and mount state
         /// from hub-connected drivers via the active profile's OTA configuration.
@@ -490,6 +520,7 @@ namespace TianWen.UI.Abstractions
             NotifyLimitTransitions(); // first: it also refreshes the local verdict the cards below read
             _appState.HomeCards = HomeBoard.BuildCards(_contexts, _rigs, _appState, _timeProvider.GetUtcNow());
             RefreshRigProfileNames();
+            PollRigOnShowDevices();
 
             if (LocalLiveSession.IsRunning) return;
 
@@ -695,9 +726,10 @@ namespace TianWen.UI.Abstractions
             }
 
             // The one mount sampler (DeviceHubReadingExtensions), which a node's device plane reads through too.
+            // A mount that is not connected points nowhere known (MountState.Unknown), never at RA 0, Dec 0.
             if (await hub.ReadMountAsync(mountUri, ToJ2000, _logger, ct) is not { } state)
             {
-                return (default, null);
+                return (MountState.Unknown, null);
             }
 
             string? displayName = null;

@@ -37,6 +37,15 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public static readonly TimeSpan ProfileRefreshInterval = TimeSpan.FromMinutes(2);
 
+        /// <summary>
+        /// How often an idle rig's devices are read, and how often while one moves (a focuser, or the mount slewing): the
+        /// cadences this computer's idle view reads its own devices at (<see cref="AppSignalHandler.PollPreviewTelemetry"/>).
+        /// </summary>
+        public static readonly TimeSpan DevicesRefreshInterval = TimeSpan.FromSeconds(2);
+
+        /// <inheritdoc cref="DevicesRefreshInterval"/>
+        public static readonly TimeSpan DevicesRefreshIntervalMoving = TimeSpan.FromSeconds(1);
+
         private readonly HttpClient _http;
         private readonly TianWenNodeClient _client;
         private readonly TianWenEventStream _events;
@@ -48,6 +57,8 @@ namespace TianWen.UI.Abstractions
         private DateTimeOffset? _profileCheckedUtc;
         private int _profileRefreshInFlight;
         private string? _profileRevision;
+        private long _devicesCheckedTicks;
+        private int _devicesRefreshInFlight;
 
         private RemoteRigConnection(
             RemoteRigBinding binding, ViewContext context, Uri address,
@@ -265,6 +276,74 @@ namespace TianWen.UI.Abstractions
             finally
             {
                 Volatile.Write(ref _profileRefreshInFlight, 0);
+            }
+        }
+
+        /// <summary>
+        /// Whether <see cref="MaybeRefreshDevicesAsync"/> would read now: a synchronous check, as
+        /// <see cref="ProfileRefreshDue"/> is, so the render loop asks it for nothing. Faster while a device moves, which is
+        /// when the readout is watched.
+        /// </summary>
+        public bool DevicesRefreshDue
+        {
+            get
+            {
+                var last = Volatile.Read(ref _devicesCheckedTicks);
+                return last == 0 || _timeProvider.GetElapsedTime(last) >= (AnyDeviceMoving(Context.LiveSession) ? DevicesRefreshIntervalMoving : DevicesRefreshInterval);
+            }
+        }
+
+        private static bool AnyDeviceMoving(LiveSessionState view)
+        {
+            if (view.MountState.IsSlewing)
+            {
+                return true;
+            }
+            foreach (var ota in view.PreviewOTATelemetry)
+            {
+                if (ota.FocuserIsMoving)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Reads the rig's devices from its node and puts them on its view (P5b part 9, <see cref="RigDevices"/>): the OTA
+        /// panels and the mount an idle rig's Live Session lays out, and the mount its sky map draws, as this computer's idle
+        /// view reads its own. For the host to call while the rig is on show and its node runs nothing (a run's state carries
+        /// its own devices), at most every <see cref="DevicesRefreshInterval"/> and never concurrently with itself. Returns
+        /// <see langword="true"/> when the view took a reading, so the caller redraws. Nothing is read before the rig's
+        /// profile is, since its OTAs are what the readings are laid out by.
+        /// </summary>
+        public async Task<bool> MaybeRefreshDevicesAsync(CancellationToken cancellationToken)
+        {
+            if (!DevicesRefreshDue || Context.RigProfile?.Data is not { } profile)
+            {
+                return false;
+            }
+            if (Interlocked.CompareExchange(ref _devicesRefreshInFlight, 1, 0) != 0)
+            {
+                return false;
+            }
+
+            try
+            {
+                Volatile.Write(ref _devicesCheckedTicks, _timeProvider.GetTimestamp());
+                var result = await _client.GetDeviceStatesAsync(cancellationToken).ConfigureAwait(false);
+                if (result is not { IsSuccess: true, Value: { } devices })
+                {
+                    // Most often the rig is off, which its card and tabs already say: keep the last reading shown.
+                    _logger.LogDebug("Could not read the devices of rig '{Alias}': {Error}", Binding.Alias, result.Error);
+                    return false;
+                }
+                RigDevices.Apply(Context.LiveSession, profile, devices);
+                return true;
+            }
+            finally
+            {
+                Volatile.Write(ref _devicesRefreshInFlight, 0);
             }
         }
 

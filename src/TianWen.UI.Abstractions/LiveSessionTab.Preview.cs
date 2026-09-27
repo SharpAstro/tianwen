@@ -455,15 +455,16 @@ namespace TianWen.UI.Abstractions
                 TianWen.Lib.Devices.PointingState.ThroughThePole => "Through Pole",
                 _ => "?"
             };
-            statusText += $"  Pier: {pierLabel}  HA: {ms.HourAngle:F2}h";
+            // An unknown pointing (no mount connected, or none read yet) says so rather than printing NaN.
+            statusText += double.IsNaN(ms.HourAngle) ? $"  Pier: {pierLabel}  HA: --" : $"  Pier: {pierLabel}  HA: {ms.HourAngle:F2}h";
 
             var content = Layout.Builder.VStack(
                     Layout.Builder.HStack(
                             Layout.Builder.Text("\u25cf", BaseFontSize * 0.7f, dotColor, TextAlign.Center, TextAlign.Center).WFixed(BaseRowHeight * 0.6f).HStar(),
                             Layout.Builder.Text(state.MountDisplayName ?? "Mount", BaseFontSize * 0.85f, HeaderText).WStar().HStar())
                         .RowH(BaseRowHeight),
-                    Layout.Builder.Text($"RA {ms.RightAscension:F4}h", BaseFontSize * 0.85f, BodyText).RowH(BaseRowHeight),
-                    Layout.Builder.Text($"Dec {ms.Declination:F3}\u00b0", BaseFontSize * 0.85f, BodyText).RowH(BaseRowHeight),
+                    Layout.Builder.Text(double.IsNaN(ms.RightAscension) ? "RA --" : $"RA {ms.RightAscension:F4}h", BaseFontSize * 0.85f, BodyText).RowH(BaseRowHeight),
+                    Layout.Builder.Text(double.IsNaN(ms.Declination) ? "Dec --" : $"Dec {ms.Declination:F3}\u00b0", BaseFontSize * 0.85f, BodyText).RowH(BaseRowHeight),
                     Layout.Builder.Text(statusText, BaseFontSize * 0.85f, ms.IsSlewing ? StatusSlewing : DimText).RowH(BaseRowHeight))
                 .Pad(BasePadding);
 

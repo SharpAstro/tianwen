@@ -77,6 +77,9 @@ internal sealed class TuiLiveSessionTab(
     // collects them: DispatchInfoRowClick resolves a click against the rects the list painted.
     private readonly List<InfoRowItem> _rows = [];
 
+    /// <summary>The info panel's rows as the last render built them, for a test to read.</summary>
+    internal IReadOnlyList<InfoRowItem> InfoRows => _rows;
+
     [MemberNotNullWhen(true, nameof(_topBar), nameof(_guideBar), nameof(_infoList), nameof(_statusBar), nameof(_previewToolbar))]
     protected override bool IsReady =>
         _topBar is not null && _guideBar is not null && _infoList is not null && _statusBar is not null && _previewToolbar is not null;
@@ -259,9 +262,10 @@ internal sealed class TuiLiveSessionTab(
             BuildPolarRows();
         }
         // Preview mode: no session running + profile with OTAs. Render per-OTA
-        // telemetry rows with clickable stepper cells + action buttons.
+        // telemetry rows with clickable stepper cells + action buttons. The profile is the view's own: a rig's rows are its
+        // OTAs, never this computer's (P5b part 9).
         else if (!LiveState.IsRunning
-            && appState.ActiveProfile?.Data is { OTAs.Length: > 0 } profileData)
+            && contexts.ProfileOnShow(appState.ActiveProfile)?.Data is { OTAs.Length: > 0 } profileData)
         {
             // Arrays are sized on telemetry poll; render can race ahead of the first
             // poll on the very first frame after the tab becomes active. Size them
@@ -692,9 +696,11 @@ internal sealed class TuiLiveSessionTab(
         var pier = ms.PierSide is PointingState.Normal ? "E" : ms.PierSide is PointingState.ThroughThePole ? "W" : "";
         _rows.Add(new HeadingRow($"{session.MountDisplayName}  {mountStatus}  {pier}"));
 
-        var raStr = CoordinateUtils.HoursToHMS(ms.RightAscension, withFrac: false);
-        var decStr = CoordinateUtils.DegreesToDMS(ms.Declination, withFrac: false);
-        _rows.Add(new TextRow($"RA {raStr}  HA {ms.HourAngle:+0.00;-0.00}h"));
+        // Unknown until the session's first poll (MountState.Unknown): dashes, never NaN, which the formatters refuse.
+        var raStr = double.IsNaN(ms.RightAscension) ? "--" : CoordinateUtils.HoursToHMS(ms.RightAscension, withFrac: false);
+        var decStr = double.IsNaN(ms.Declination) ? "--" : CoordinateUtils.DegreesToDMS(ms.Declination, withFrac: false);
+        var haStr = double.IsNaN(ms.HourAngle) ? "--" : $"{ms.HourAngle:+0.00;-0.00}h";
+        _rows.Add(new TextRow($"RA {raStr}  HA {haStr}"));
         _rows.Add(new TextRow($"Dec {decStr}"));
 
         if (LiveState.ActiveObservation is { Target: var target })
@@ -840,7 +846,7 @@ internal sealed class TuiLiveSessionTab(
             var src = LiveState.PolarAlignUseGuider ? "Guider" : "Main";
             hint = $" Escape:cancel polar align ({src})  (Done button above)";
         }
-        else if (appState.ActiveProfile?.Data is { OTAs.Length: > 0 })
+        else if (contexts.ProfileOnShow(appState.ActiveProfile)?.Data is { OTAs.Length: > 0 })
         {
             // Preview mode: short cheat sheet. Selected-OTA actions.
             var srcHint = LiveState.PolarAlignUseGuider ? "Guider" : "Main";
@@ -1039,7 +1045,7 @@ internal sealed class TuiLiveSessionTab(
     /// </summary>
     private bool HandlePreviewInput(InputEvent evt)
     {
-        if (appState.ActiveProfile?.Data is not { OTAs.Length: > 0 } profileData)
+        if (contexts.ProfileOnShow(appState.ActiveProfile)?.Data is not { OTAs.Length: > 0 } profileData)
         {
             return false;
         }
