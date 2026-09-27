@@ -167,9 +167,9 @@ public sealed class SessionStateDto
                 {
                     Timestamp = cs.Timestamp,
                     CameraIndex = cs.CameraIndex,
-                    TemperatureC = JsonNumber.ForWire(cs.TemperatureC),
-                    SetpointTemperatureC = JsonNumber.ForWire(cs.SetpointTempC),
-                    CoolerPowerPercent = JsonNumber.ForWire(cs.CoolerPowerPercent),
+                    TemperatureC = JsonNumber.OrNull(cs.TemperatureC),
+                    SetpointTemperatureC = JsonNumber.OrNull(cs.SetpointTempC),
+                    CoolerPowerPercent = JsonNumber.OrNull(cs.CoolerPowerPercent),
                 });
             }
         }
@@ -190,7 +190,7 @@ public sealed class SessionStateDto
         {
             foreach (var (position, hfd) in activeSamples)
             {
-                active.Add(new FocusSampleDto { Position = position, Hfd = JsonNumber.ForWire(hfd) });
+                active.Add(new FocusSampleDto { Position = position, Hfd = JsonNumber.OrNull(hfd) });
             }
         }
 
@@ -207,7 +207,7 @@ public sealed class SessionStateDto
                     FilterName = entry.FilterName,
                     ExposureSeconds = entry.Exposure.TotalSeconds,
                     FrameNumber = entry.FrameNumber,
-                    MedianHfd = JsonNumber.ForWire(entry.MedianHfd),
+                    MedianHfd = JsonNumber.OrNull(entry.MedianHfd),
                     StarCount = entry.StarCount,
                 });
             }
@@ -267,9 +267,9 @@ public sealed class CoolingSampleDto
 {
     public required DateTimeOffset Timestamp { get; init; }
     public required int CameraIndex { get; init; }
-    public required double TemperatureC { get; init; }
-    public required double SetpointTemperatureC { get; init; }
-    public required double CoolerPowerPercent { get; init; }
+    public double? TemperatureC { get; init; }
+    public double? SetpointTemperatureC { get; init; }
+    public double? CoolerPowerPercent { get; init; }
 }
 
 /// <summary>One completed auto-focus run, including the V-curve it fitted.</summary>
@@ -279,14 +279,14 @@ public sealed class FocusRunDto
     public required string OtaName { get; init; }
     public required string FilterName { get; init; }
     public required int BestPosition { get; init; }
-    public required float BestHfd { get; init; }
+    public float? BestHfd { get; init; }
     public required ImmutableArray<FocusSampleDto> Curve { get; init; }
 
     /// <summary>Hyperbola fit coefficients; NaN when the run recorded no fit.</summary>
-    public required double FitA { get; init; }
+    public double? FitA { get; init; }
 
     /// <inheritdoc cref="FitA"/>
-    public required double FitB { get; init; }
+    public double? FitB { get; init; }
 
     public static FocusRunDto FromRecord(FocusRunRecord record)
     {
@@ -295,7 +295,7 @@ public sealed class FocusRunDto
         {
             foreach (var (position, hfd) in record.Curve)
             {
-                curve.Add(new FocusSampleDto { Position = position, Hfd = JsonNumber.ForWire(hfd) });
+                curve.Add(new FocusSampleDto { Position = position, Hfd = JsonNumber.OrNull(hfd) });
             }
         }
 
@@ -305,10 +305,10 @@ public sealed class FocusRunDto
             OtaName = record.OtaName,
             FilterName = record.FilterName,
             BestPosition = record.BestPosition,
-            BestHfd = JsonNumber.ForWire(record.BestHfd),
+            BestHfd = JsonNumber.OrNull(record.BestHfd),
             Curve = curve.MoveToImmutable(),
-            FitA = JsonNumber.ForWire(record.FitA),
-            FitB = JsonNumber.ForWire(record.FitB),
+            FitA = JsonNumber.OrNull(record.FitA),
+            FitB = JsonNumber.OrNull(record.FitB),
         };
     }
 }
@@ -316,7 +316,7 @@ public sealed class FocusRunDto
 public sealed class FocusSampleDto
 {
     public required int Position { get; init; }
-    public required float Hfd { get; init; }
+    public float? Hfd { get; init; }
 }
 
 public sealed class ExposureLogDto
@@ -326,7 +326,7 @@ public sealed class ExposureLogDto
     public required string FilterName { get; init; }
     public required double ExposureSeconds { get; init; }
     public required int FrameNumber { get; init; }
-    public required float MedianHfd { get; init; }
+    public float? MedianHfd { get; init; }
     public required int StarCount { get; init; }
 }
 
@@ -381,8 +381,8 @@ public sealed class PhaseTimestampDto
 public sealed class ObservationDto
 {
     public required string TargetName { get; init; }
-    public required double TargetRA { get; init; }
-    public required double TargetDec { get; init; }
+    public double? TargetRA { get; init; }
+    public double? TargetDec { get; init; }
     public required DateTimeOffset Start { get; init; }
     public required double DurationMinutes { get; init; }
     public required bool AcrossMeridian { get; init; }
@@ -411,8 +411,8 @@ public sealed class ObservationDto
     {
         TargetName = obs.Target.Name,
         // A synthesized target (name known, coordinates not) carries NaN.
-        TargetRA = JsonNumber.ForWire(obs.Target.RA),
-        TargetDec = JsonNumber.ForWire(obs.Target.Dec),
+        TargetRA = JsonNumber.OrNull(obs.Target.RA),
+        TargetDec = JsonNumber.OrNull(obs.Target.Dec),
         Start = obs.Start,
         DurationMinutes = obs.Duration.TotalMinutes,
         AcrossMeridian = obs.AcrossMeridian,

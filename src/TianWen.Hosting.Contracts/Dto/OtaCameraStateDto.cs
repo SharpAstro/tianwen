@@ -34,21 +34,21 @@ public sealed class OtaCameraStateDto
     /// </summary>
     public string? FilterName { get; init; }
     public required int FocusPosition { get; init; }
-    public required double FocuserTemperature { get; init; }
+    public double? FocuserTemperature { get; init; }
     public required bool FocuserIsMoving { get; init; }
 
     // Last frame metrics
     public required int StarCount { get; init; }
-    public required float MedianHfd { get; init; }
-    public required float MedianFwhm { get; init; }
+    public float? MedianHfd { get; init; }
+    public float? MedianFwhm { get; init; }
 
     // Cooling. Taken from the newest CoolingSample for this camera rather than added to
     // CameraExposureState: the session already records the ramp, so re-polling the driver for the state
     // projection would be a second source of the same fact that could disagree with the ramp chart drawn
     // beside it. NaN (-> 0 on a strict wire) until the first cooling sample lands.
-    public required double SensorTemperatureC { get; init; }
-    public required double SetpointTemperatureC { get; init; }
-    public required double CoolerPowerPercent { get; init; }
+    public double? SensorTemperatureC { get; init; }
+    public double? SetpointTemperatureC { get; init; }
+    public double? CoolerPowerPercent { get; init; }
 
     public static OtaCameraStateDto FromState(int otaIndex, CameraExposureState camera, FrameMetrics metrics,
         TelescopeDisplayInfo display, CoolingSample? cooling = null) => new()
@@ -65,13 +65,13 @@ public sealed class OtaCameraStateDto
         FocusPosition = camera.FocusPosition,
         // NaN by default on CameraExposureState whenever no focuser is fitted, and the HFD/FWHM below
         // are NaN until a frame has been measured -- all three occur on an ordinary healthy session.
-        FocuserTemperature = JsonNumber.ForWire(camera.FocuserTemperature),
+        FocuserTemperature = JsonNumber.OrNull(camera.FocuserTemperature),
         FocuserIsMoving = camera.FocuserIsMoving,
         StarCount = metrics.StarCount,
-        MedianHfd = JsonNumber.ForWire(metrics.MedianHfd),
-        MedianFwhm = JsonNumber.ForWire(metrics.MedianFwhm),
-        SensorTemperatureC = JsonNumber.ForWire(cooling?.TemperatureC ?? double.NaN),
-        SetpointTemperatureC = JsonNumber.ForWire(cooling?.SetpointTempC ?? double.NaN),
-        CoolerPowerPercent = JsonNumber.ForWire(cooling?.CoolerPowerPercent ?? double.NaN),
+        MedianHfd = JsonNumber.OrNull(metrics.MedianHfd),
+        MedianFwhm = JsonNumber.OrNull(metrics.MedianFwhm),
+        SensorTemperatureC = JsonNumber.OrNull(cooling?.TemperatureC ?? double.NaN),
+        SetpointTemperatureC = JsonNumber.OrNull(cooling?.SetpointTempC ?? double.NaN),
+        CoolerPowerPercent = JsonNumber.OrNull(cooling?.CoolerPowerPercent ?? double.NaN),
     };
 }

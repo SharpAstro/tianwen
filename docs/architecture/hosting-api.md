@@ -412,7 +412,9 @@ What a client shows of a device with no session running (P2 part 1 of
   moves, else 2 s; a mount every 0.5 s slewing, every second for 10 s after it settles tracking and then every 10 s, 2 s
   otherwise. With nobody watching, every device every 10 s.
 - **A reading a device does not give is null, never 0** (a cooler at 0 °C and RA 0 are real readings).
-  The older DTOs still send `JsonNumber.ForWire`'s 0; P5b moves them to null.
+  The session state, the guider's, the profile's site and the planetary state do the same since P5b part 2
+  (`JsonNumber.OrNull`, wire 2). The ninaAPI shim, the Alpaca plane and the broadcast events, which go to ninaAPI
+  sockets too, keep `JsonNumber.ForWire`'s 0, N.I.N.A.'s own convention.
 - The five DTOs are records, unlike the rest, so the node's copies of a reading are `with` expressions,
   which cannot forget a field (a field a hand-listed comparison left out is a change never pushed).
 

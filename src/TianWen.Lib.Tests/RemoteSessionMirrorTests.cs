@@ -731,6 +731,33 @@ public class RemoteSessionMirrorTests
     }
 
     [Fact]
+    public async Task AnUnknownNumberCrossesAsNullAndReadsBackAsNaN()
+    {
+        // NaN is "not known" throughout the domain. On the native wire it is null, never 0: as 0, a pre-poll mount read
+        // as RA 0, Dec 0 and a mirror snapped its reticle there, and a focuser with no thermometer read 0.0 C (P5b part 2).
+        var session = Observing(Substitute.For<ISessionTelemetry>());
+        session.MountState.Returns(new MountState(double.NaN, double.NaN, double.NaN, PointingState.Unknown, false, false));
+        session.CameraStates.Returns([new CameraExposureState(0, DateTimeOffset.UnixEpoch, TimeSpan.FromSeconds(60), 0, "L", 0,
+            CameraState.Idle, FocuserTemperature: double.NaN)]);
+        session.LastFrameMetrics.Returns([new FrameMetrics(0, float.NaN, float.NaN, TimeSpan.Zero, 0, FilterPosition: -1)]);
+
+        var projected = SessionStateDto.FromSession(session);
+        var mount = projected.Mount.ShouldNotBeNull();
+        (mount.RightAscension, mount.Declination, mount.HourAngle).ShouldBe(((double?)null, (double?)null, (double?)null));
+        projected.Cameras.ShouldHaveSingleItem().FocuserTemperature.ShouldBeNull();
+
+        var (mirror, _) = BuildMirror(_ => Json(ResponseEnvelope<SessionStateDto>.Ok(projected)));
+        await using var _mirror = mirror;
+        await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+
+        mirror.LastError.ShouldBeNull();
+        double.IsNaN(mirror.MountState.RightAscension).ShouldBeTrue("an unpolled mount is not at RA 0");
+        double.IsNaN(mirror.MountState.Declination).ShouldBeTrue();
+        double.IsNaN(mirror.CameraStates.ShouldHaveSingleItem().FocuserTemperature).ShouldBeTrue("no thermometer is not 0 C");
+        float.IsNaN(mirror.LastFrameMetrics.ShouldHaveSingleItem().MedianHfd).ShouldBeTrue("an unmeasured frame has no HFD");
+    }
+
+    [Fact]
     public async Task ASessionBeforeItsFirstFrameRoundTripsBackIntoAMirror()
     {
         // A session publishes a DEFAULT camera state for every camera from the start of its run until each
