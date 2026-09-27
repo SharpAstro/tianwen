@@ -150,6 +150,13 @@ internal static class SessionEndpoints
             {
                 session = factory.Create(profileId.Value, config, observations);
             }
+            catch (SessionRefusedException ex)
+            {
+                // The profile exists but cannot run a session (#989): the caller's to fix, in the factory's words.
+                return EnvelopeResults.Json(
+                    ResponseEnvelope<string>.Fail(ex.Message, 422),
+                    HostingJsonContext.Default.ResponseEnvelopeString);
+            }
             catch (ArgumentException ex)
             {
                 return EnvelopeResults.Json(
@@ -280,6 +287,12 @@ internal static class SessionEndpoints
             try
             {
                 session = factory.Create(profileId.Value, config, []);
+            }
+            catch (SessionRefusedException ex)
+            {
+                return EnvelopeResults.Json(
+                    ResponseEnvelope<string>.Fail(ex.Message, 422),
+                    HostingJsonContext.Default.ResponseEnvelopeString);
             }
             catch (ArgumentException ex)
             {
