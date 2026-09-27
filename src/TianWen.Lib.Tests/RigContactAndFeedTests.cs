@@ -135,6 +135,56 @@ public class RigContactAndFeedTests
         }
     }
 
+    /// <summary>
+    /// A rig whose node has stopped answering withholds what it was doing, which its mirror only remembers, and keeps its
+    /// prompt (the run is still blocked, more urgently once nobody can answer it remotely) and its last note (often why it
+    /// went quiet). The card is its run as <see cref="HomeBoard.RunCard"/> describes it, the rule this computer's card uses.
+    /// </summary>
+    [Fact]
+    public void AQuietRigsCardWithholdsWhatItWasDoingAndKeepsItsPromptAndItsNote()
+    {
+        var run = new RigCard(
+            Title: "", Subtitle: null, IsLocal: false, IsOnline: true, Phase: SessionPhase.Observing, Status: "Imaging M31",
+            Target: "M31", FramesWritten: 12, GuideRmsArcsec: 0.6,
+            Prompt: new RigCardPrompt("Open the cover", TimeSpan.FromMinutes(2), RequiresPhysicalPresence: true),
+            Devices: null, IsViewed: false,
+            Progress: new RigCardProgress(1, 2, 3, 10),
+            Cooling: new RigCardCooling(-10, -10, 40, 1, 1, IsRamping: false),
+            MedianHfd: 2.1,
+            MeridianFlipUtc: Now.AddHours(1),
+            MountLimit: new MountLimitVerdict(MountLimitKind.Meridian, MountLimitResponse.Warn, 12.5, MountLimitBasis.HourAngle));
+        var binding = new RemoteRigBinding
+        {
+            BindingId = Guid.NewGuid(),
+            NodeId = "node-a",
+            Alias = "Observatory Pi",
+            LastSeenUtc = Now.AddHours(-3),
+        };
+        var note = Note(-4, "Guiding lost", "Warning");
+
+        var answering = HomeBoard.RemoteCard(run, new NodeContact(NodeContactState.Answering, Now), binding, "Wide field", note, Now, isViewed: false);
+        answering.ShouldBe(run with
+        {
+            Title = "Observatory Pi",
+            Subtitle = "Wide field",
+            LastNote = new RigCardNote(NotificationSeverity.Warning, "Guiding lost", TimeSpan.FromMinutes(4)),
+        }, "an answering rig's card is its run, under its own name");
+
+        var quiet = HomeBoard.RemoteCard(run, new NodeContact(NodeContactState.NotAnswering, Now.AddMinutes(-3)), binding, "Wide field",
+            note, Now, isViewed: false);
+        quiet.IsOnline.ShouldBeFalse();
+        quiet.Status.ShouldBe("Not answering (last seen 3 min ago)");
+        quiet.Target.ShouldBeNull();
+        quiet.GuideRmsArcsec.ShouldBeNull();
+        quiet.Progress.ShouldBeNull();
+        quiet.Cooling.ShouldBeNull();
+        quiet.MedianHfd.ShouldBeNull();
+        quiet.MeridianFlipUtc.ShouldBeNull();
+        quiet.MountLimit.ShouldBeNull();
+        quiet.Prompt.ShouldBe(run.Prompt, "a blocked run stays blocked");
+        quiet.LastNote.ShouldNotBeNull().Message.ShouldBe("Guiding lost", "the last thing it said is often why it went quiet");
+    }
+
     [Fact]
     public async Task TheLiveViewCarriesItsRigsContactAndLetsItGoWithTheRig()
     {

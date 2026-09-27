@@ -1333,7 +1333,9 @@ DTOs + `HostingJsonContext`) and `TianWen.RemoteClient` (`TianWenNodeClient`, `T
   priority ran at High, the enum's 0 (`WireDefaultsTests`). A field whose absence means "keep what it was"
   is nullable instead (`SessionConfigApiDto`).
 - **A mirrored session must render as the same session in-process, and `MirrorParityTests` measures it**: one
-  real session, run by a node on a pumped clock, read both ways at every phase and compared member by member.
+  real session, run by a node on a pumped clock, read both ways at every phase and compared member by member, and
+  its Live Session and Guider tabs and Home card DRAWN both ways and compared by text, regions and pixels
+  (`TabPictures`), since a tab also reads the session itself (the mount's name, the OTAs, the schedule's length).
   Each divergence known today is listed with the P5b part (or P6) that closes it, so a new divergence fails and so
   does a listed one that has come to agree: delete its line. A member added to `LiveSessionState` goes into its
   snapshot (`docs/plans/hardware-in-the-server.md`, "P5b: mirror parity, part by part").

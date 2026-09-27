@@ -1257,6 +1257,18 @@ part 9's idle layout.
 The Live Session, Guider and Home tabs lay out identically for the two states the harness compares.
 The known-gap list holds only what P6 decides (the frame on show).
 
+It lands in two PRs:
+- **9a, the tabs drawn both ways.** At every comparison the harness also draws each view's Live Session and Guider tabs
+  offline, over the CPU renderer, and compares what they drew: each run of text with its place, size and colour, each
+  region laid out, and where those agree, the pixels (`TabPictures`). A tab reads more than the state's members: the
+  session's own mount name, its OTAs (`TelescopeDisplays`) and its schedule's length, which only a drawing compares. The
+  Home tab draws only from its cards, and what a card says of a run is now ONE rule for this computer's card and a rig's
+  (`HomeBoard.RunCard`), which the harness compares. No preview viewer is attached: the frame on show is P6's. The first
+  run found nothing: the running states lay out the same.
+- **9b, an idle rig.** With no run, the Live Session tab lays out the OTAs and the mount from `PreviewOTATelemetry` and
+  the mount's state, which only this computer's device poll writes: a rig with no run shows "No OTAs configured", and
+  the TUI's preview rows show this computer's OTAs.
+
 ## Phasing
 
 The cut is **one wave** ("cut an API in ONE wave"; "one path, designed first"). Two processes cannot

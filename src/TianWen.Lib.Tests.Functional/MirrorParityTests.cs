@@ -22,7 +22,8 @@ namespace TianWen.Lib.Tests.Functional;
 /// on fake devices, run by an in-process node on a pumped fake clock, read at every phase and at its first frames through
 /// both paths the GUI has. The in-process path reads the <see cref="Session"/> itself, as the GUI's Local context does;
 /// the mirror path polls the node over HTTP through <see cref="RemoteSessionMirror"/>, as a rig's context does. The two
-/// <see cref="LiveSessionState"/>s are compared member by member.
+/// <see cref="LiveSessionState"/>s are compared member by member, and each view's Live Session and Guider tabs and Home card
+/// are drawn and compared too (<see cref="TabPictures"/>, part 9), since a tab also reads the session itself.
 /// <para>
 /// <see cref="KnownGaps"/> names every divergence known today and the part that closes it. The test fails on a
 /// divergence the list does not name, and on a listed one that never diverged, so each part deletes its lines and the
@@ -104,17 +105,30 @@ public class MirrorParityTests(ITestOutputHelper output)
         var diverged = new HashSet<string>(StringComparer.Ordinal);
         var unexplained = new List<string>();
         var compared = new List<string>();
+        // Each view's tabs, drawn as a window draws them (P5b part 9): the snapshot compares what a tab reads off the
+        // state, these what it draws, which includes what it reads off the session itself.
+        using var localTabs = new TabPictures();
+        using var remoteTabs = new TabPictures();
 
         async Task CompareAsync(string at)
         {
             output.WriteLine($"{DateTimeOffset.Now:HH:mm:ss.fff} comparing {at}, the session's clock at {ctx.TimeProvider.GetUtcNow():HH:mm:ss}");
             compared.Add(at);
-            foreach (var (member, inProcess, mirrored) in await ReadBothAsync(local, remote, mirror, at, ct))
+            var (members, tabs) = await ReadBothAsync(local, remote, mirror, (localTabs, remoteTabs), ctx.TimeProvider, at, ct);
+            foreach (var (member, inProcess, mirrored) in members)
             {
                 diverged.Add(member);
                 if (!KnownGaps.ContainsKey(member))
                 {
                     unexplained.Add($"{at}: {member}: in-process <{inProcess}>, mirrored <{mirrored}>");
+                }
+            }
+            foreach (var (tab, differences) in tabs)
+            {
+                diverged.Add(tab);
+                if (!KnownGaps.ContainsKey(tab))
+                {
+                    unexplained.Add($"{at}: {tab}: {string.Join("; ", differences.Take(12))}{(differences.Count > 12 ? $" (and {differences.Count - 12} more)" : "")}");
                 }
             }
         }
@@ -190,11 +204,13 @@ public class MirrorParityTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Both views read while the session is held. The in-process view is read before and after the mirror's poll; a
-    /// session still settling between the two (a continuation already scheduled when the hold began) is read again.
+    /// Both views read, and their tabs drawn, while the session is held. The in-process view is read before and after the
+    /// mirror's poll and the drawing; a session still settling between the two (a continuation already scheduled when the
+    /// hold began) is read again.
     /// </summary>
-    private static async Task<List<(string Member, string InProcess, string Mirrored)>> ReadBothAsync(
-        LiveSessionState local, LiveSessionState remote, RemoteSessionMirror mirror, string at, CancellationToken ct)
+    private static async Task<(List<(string Member, string InProcess, string Mirrored)> Members, List<(string Tab, List<string> Differences)> Tabs)> ReadBothAsync(
+        LiveSessionState local, LiveSessionState remote, RemoteSessionMirror mirror,
+        (TabPictures Local, TabPictures Remote) tabs, ITimeProvider time, string at, CancellationToken ct)
     {
         for (var attempt = 0; attempt < 20; attempt++)
         {
@@ -203,17 +219,24 @@ public class MirrorParityTests(ITestOutputHelper output)
             await mirror.PollOnceAsync(ct);
             remote.PollSession();
             var mirrored = Snapshot(remote);
+            var mirroredTabs = tabs.Remote.Draw(remote, time);
             local.PollSession();
+            var inProcessTabs = tabs.Local.Draw(local, time);
             var after = Snapshot(local);
             if (!before.SequenceEqual(after))
             {
                 await Task.Delay(20, ct);
                 continue;
             }
-            return after.Keys.Union(mirrored.Keys)
+            var members = after.Keys.Union(mirrored.Keys)
                 .Select(k => (Member: k, InProcess: after.GetValueOrDefault(k, "(absent)"), Mirrored: mirrored.GetValueOrDefault(k, "(absent)")))
                 .Where(d => !string.Equals(d.InProcess, d.Mirrored, StringComparison.Ordinal))
                 .ToList();
+            var tabDifferences = inProcessTabs.Zip(mirroredTabs)
+                .Select(pair => (Tab: pair.First.Tab, Differences: TabPictures.Differences(pair.First, pair.Second).ToList()))
+                .Where(d => d.Differences.Count > 0)
+                .ToList();
+            return (members, tabDifferences);
         }
         throw new InvalidOperationException($"The session kept changing while it was held {at}");
     }
