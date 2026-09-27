@@ -1,0 +1,4 @@
+# eval4's three scored fields as 2026-09-25-full names them; "Statue of Liberty" is the OBJECT Skull session of that night (43 subs)
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/Rim-Nebula/2025-05-02|ZWO ASI533MC Pro|Rim Nebula|Optolong L-Ultimate 3nm
+SVBONY-SV605CC/Optolong-L-Quad-Enhance/Horsehead-Nebula/2025-10-28|SVBONY SV605CC|Horsehead Nebula|Optolong L-Quad Enhance
+SVBONY-SV605CC/Optolong-L-Quad-Enhance/Skull-and-Crossbones-Nebula/2026-02-14|SVBONY SV605CC|Skull and Crossbones Nebula|Optolong L-Quad Enhance

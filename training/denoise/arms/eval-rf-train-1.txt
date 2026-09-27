@@ -1,0 +1,2 @@
+# The train half every ring-fixed eval cache must have and never scores: one session in none of their val lists
+SVBONY-SV605CC/Optolong-L-Quad-Enhance/Pleiades/2025-10-28|SVBONY SV605CC|Pleiades|Optolong L-Quad Enhance
