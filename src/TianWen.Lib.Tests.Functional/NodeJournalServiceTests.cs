@@ -1,17 +1,22 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using NSubstitute;
 using Shouldly;
 using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Hosting;
 using TianWen.Hosting.Dto;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
+using TianWen.Lib.IO;
 using TianWen.RemoteClient;
 using Xunit;
 using static TianWen.Lib.Tests.Functional.NodeWait;
@@ -320,6 +325,96 @@ public class NodeJournalServiceTests(ITestOutputHelper outputHelper)
         clock.Elapsed.ShouldBeLessThan(NodeJournalService.ReconnectBudget, "the stop ended the recovery rather than waiting its connect out");
         node.App.Services.GetRequiredService<IDeviceHub>().ConnectedDevices.ShouldBeEmpty();
         File.Exists(path).ShouldBeFalse("a stop the host finished leaves no journal");
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task AJournalWriteThatFailsMidRecoveryStillReconnectsEveryDeviceTheMountIncluded()
+    {
+        // A reader holding the journal without delete sharing refuses its replace, past SharedFile's retries; the
+        // recovery used to end at the first such write, leaving the mount (and mount-limit enforcement) down (#949).
+        var ct = TestContext.Current.CancellationToken;
+        const string focuser = "Focuser://FakeDevice/FakeFocuser1#Fake Focuser";
+        var (path, _) = await BelievedJournalAsync(ct,
+            new NodeJournalDevice(Camera, "Fake Camera 1", CoolerIntentKind.Cool, -10),
+            new NodeJournalDevice(Mount, "Fake Mount", null, null),
+            new NodeJournalDevice(focuser, "Fake Focuser", null, null));
+        var external = new JournalRefusingExternal(outputHelper, path);
+        var logs = new WarningCapture();
+        await using var node = await NodeHarness.StartAsync(outputHelper, ct, services =>
+        {
+            services.AddSingleton(new NodeJournalOptions(path, 31337, static () => null, TimeProvider.System));
+            services.AddSingleton<IExternal>(external);
+            services.AddSingleton<ILoggerProvider>(logs);
+        });
+        var hub = node.App.Services.GetRequiredService<IDeviceHub>();
+
+        var report = await UntilRecoveredAsync(new TianWenNodeClient(node.Client), ct);
+
+        report.Devices.ShouldAllBe(static d => d.Reconnected == true && d.ReconnectError == null);
+        hub.IsConnected(new Uri(Mount)).ShouldBeTrue("the mount, which restores mount-limit enforcement, whatever the journal");
+        hub.IsConnected(new Uri(Camera)).ShouldBeTrue();
+        hub.IsConnected(new Uri(focuser)).ShouldBeTrue();
+        external.RefusedWrites.ShouldBeGreaterThanOrEqualTo(3, "one refused write naming each device before its connect");
+        foreach (var device in new[] { Mount, Camera, focuser })
+        {
+            logs.Warnings.ShouldContain(w => w.Contains(device) && w.Contains("reconnecting it anyway"), $"a warning naming {device}");
+        }
+
+        // The hold ends: the writer loop, which outlived the refused writes, journals what the node now holds.
+        external.Refusing = false;
+        var journal = await UntilTheJournalAsync(path, static j => j.ProcessId == Environment.ProcessId && j.Touching is null, ct);
+        journal.Devices.Length.ShouldBe(3);
+    }
+
+    /// <summary>A node's IO whose writes to the journal fail as a replace refused past its retries does, until told not to.</summary>
+    private sealed class JournalRefusingExternal(ITestOutputHelper outputHelper, string journal)
+        : FakeExternal(outputHelper, Directory.CreateTempSubdirectory("tw_" + Guid.NewGuid().ToString("D"))), IExternal
+    {
+        private int _refused;
+        private volatile bool _refusing = true;
+
+        public bool Refusing { get => _refusing; set => _refusing = value; }
+
+        public int RefusedWrites => Volatile.Read(ref _refused);
+
+        Task IExternal.AtomicWriteJsonAsync<T>(string filePath, T value, JsonTypeInfo<T> jsonTypeInfo, CancellationToken ct)
+        {
+            if (_refusing && string.Equals(filePath, journal, StringComparison.Ordinal))
+            {
+                Interlocked.Increment(ref _refused);
+                return Task.FromException(new IOException($"The process cannot access the file '{filePath}' because it is being used by another process."));
+            }
+            return SharedFile.WriteAsync(filePath, (stream, token) => JsonSerializer.SerializeAsync(stream, value, jsonTypeInfo, token), ct);
+        }
+    }
+
+    /// <summary>Every warning or worse the node logs, formatted.</summary>
+    private sealed class WarningCapture : ILoggerProvider
+    {
+        private readonly ConcurrentQueue<string> _warnings = new ConcurrentQueue<string>();
+
+        public IReadOnlyCollection<string> Warnings => _warnings.ToArray();
+
+        public ILogger CreateLogger(string categoryName) => new Capture(_warnings);
+
+        public void Dispose()
+        {
+        }
+
+        private sealed class Capture(ConcurrentQueue<string> sink) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => logLevel >= LogLevel.Warning;
+
+            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            {
+                if (IsEnabled(logLevel))
+                {
+                    sink.Enqueue(formatter(state, exception));
+                }
+            }
+        }
     }
 
     [Fact(Timeout = 60_000)]
