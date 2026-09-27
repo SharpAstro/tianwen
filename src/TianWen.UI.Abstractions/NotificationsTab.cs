@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using DIR.Lib;
+using TianWen.Lib.Sequencing;
 
 namespace TianWen.UI.Abstractions
 {

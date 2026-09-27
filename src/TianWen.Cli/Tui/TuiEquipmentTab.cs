@@ -5,6 +5,7 @@ using System.Globalization;
 using Console.Lib;
 using DIR.Lib;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
 
 namespace TianWen.Cli.Tui;

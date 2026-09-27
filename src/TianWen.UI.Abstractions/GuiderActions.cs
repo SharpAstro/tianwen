@@ -30,13 +30,6 @@ public static class GuiderActions
     /// session phase change fires, so without these a lost guide star is invisible unless the
     /// user happens to be staring at the guide graph.
     /// </summary>
-    public static (string Message, NotificationSeverity Severity)? NotificationForGuiderTransition(string? oldState, string? newState) => (oldState, newState) switch
-    {
-        (_, "LostLock") => ("Guide star lost, guider is re-acquiring.", NotificationSeverity.Warning),
-        ("LostLock", "Guiding" or "Settling") => ("Guide star re-acquired.", NotificationSeverity.Info),
-        _ => null,
-    };
-
     /// <summary>One-line RMS summary.</summary>
     public static string FormatRmsSummary(GuideStats? stats)
     {

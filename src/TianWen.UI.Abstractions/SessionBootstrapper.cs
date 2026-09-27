@@ -120,77 +120,27 @@ namespace TianWen.UI.Abstractions
                 liveSessionState.ActiveSession = session;
                 // SiteTimeZone is no longer copied here -- LiveSessionState reads it
                 // through to the single app-wide GuiAppState.SiteTimeZone.
-                appState.AppendNotification(timeProvider.GetUtcNow(),
-                    NotificationSeverity.Info, "Session started");
+                var started = SessionNotes.ForRunStart(flatRun: false);
+                appState.AppendNotification(timeProvider.GetUtcNow(), started.Severity, started.Message);
                 appState.NeedsRedraw = true;
 
-                // Surface FOV-obstruction scout decisions in the notification feed.
-                // The scout is a 30-90s opaque pause between centering and guider start;
-                // without this the user sees nothing until the next phase ticks.
-                // Healthy outcomes are silent (the common case shouldn't spam toasts).
-                session.ScoutCompleted += (_, e) =>
+                // The run's notes in the feed, in the words a node's feed uses for the same run (SessionNotes, the ONE
+                // mapping). A scout is a 30-90 s opaque pause between centring and guiding, a lost guide star is worth
+                // knowing, and each phase says where the night is; healthy outcomes and ordinary churn stay quiet.
+                void Note(SessionNote? note)
                 {
-                    var (msg, severity) = (e.Classification, e.Outcome) switch
-                    {
-                        (ScoutClassification.Healthy, _) => (null, NotificationSeverity.Info),
-                        (ScoutClassification.Transparency, _) =>
-                            ($"Scout on {e.Target.Name}: low transparency \u2014 proceeding (recovery loop will engage if it persists).",
-                             NotificationSeverity.Info),
-                        (ScoutClassification.Obstruction, ScoutOutcome.Proceed) =>
-                            ($"Scout on {e.Target.Name}: obstruction cleared during wait \u2014 imaging now.",
-                             NotificationSeverity.Info),
-                        (ScoutClassification.Obstruction, ScoutOutcome.Advance) =>
-                            ($"Scout on {e.Target.Name}: FOV obstructed (~{string.Join("/", e.StarCountsPerOTA)} stars vs baseline)"
-                             + (e.EstimatedClearIn is { } c
-                                 ? $", clears in {c.TotalMinutes:F0} min \u2014 advancing to next target."
-                                 : " with no usable clear time \u2014 advancing to next target."),
-                             NotificationSeverity.Warning),
-                        _ => (null, NotificationSeverity.Info)
-                    };
-                    if (msg is not null)
-                    {
-                        appState.AppendNotification(timeProvider.GetUtcNow(), severity, msg);
-                        appState.NeedsRedraw = true;
-                    }
-                };
-
-                // Surface guider star-loss / recovery transitions in the notification feed.
-                // Mapping lives in GuiderActions; silent for ordinary state churn.
-                session.GuiderStateChanged += (_, e) =>
-                {
-                    if (GuiderActions.NotificationForGuiderTransition(e.OldState, e.NewState) is { } n)
+                    if (note is { } n)
                     {
                         appState.AppendNotification(timeProvider.GetUtcNow(), n.Severity, n.Message);
                         appState.NeedsRedraw = true;
                     }
-                };
-
-                // Surface each session phase transition in the notification feed.
-                // Terminal phases (Complete/Aborted/Failed) are emitted in the RunAsync
-                // finally block below, so they are skipped here to avoid duplicates.
-                // Extracted to a named local so it can be unsubscribed in finally; 
-                // prevents a dangling delegate from keeping a stale session alive
-                // if the session reference is ever captured here in future refactors.
-                void OnPhaseChanged(object? _, SessionPhaseChangedEventArgs e)
-                {
-                    var phaseMsg = e.NewPhase switch
-                    {
-                        SessionPhase.Initialising => "Initialising session…",
-                        SessionPhase.WaitingForDark => "Waiting for astronomical dark…",
-                        SessionPhase.Cooling => "Cooling cameras to setpoint…",
-                        SessionPhase.RoughFocus => "Initial rough focus…",
-                        SessionPhase.AutoFocus => "Auto-focusing…",
-                        SessionPhase.CalibratingGuider => "Calibrating guider…",
-                        SessionPhase.Observing => "Observation loop started",
-                        SessionPhase.Finalising => "Finalising session…",
-                        _ => null
-                    };
-                    if (phaseMsg is not null)
-                    {
-                        appState.AppendNotification(timeProvider.GetUtcNow(), NotificationSeverity.Info, phaseMsg);
-                        appState.NeedsRedraw = true;
-                    }
                 }
+                session.ScoutCompleted += (_, e) => Note(SessionNotes.ForScout(e));
+                session.GuiderStateChanged += (_, e) => Note(SessionNotes.ForGuiderTransition(e.OldState, e.NewState));
+
+                // The terminal phases are noted once the run (its Finalise included) has ended, in the finally below.
+                // A named local, so it can be unsubscribed there and never keep a stale session alive.
+                void OnPhaseChanged(object? _, SessionPhaseChangedEventArgs e) => Note(SessionNotes.ForPhase(e.NewPhase));
                 session.PhaseChanged += OnPhaseChanged;
 
                 // RunAsync includes Finalise: run as tracked background task so:
@@ -237,18 +187,10 @@ namespace TianWen.UI.Abstractions
                                 logger.LogWarning(ex, "Failed to mirror backlash estimates into profile at session end");
                             }
 
-                            var (phaseMsg, phaseSeverity) = liveSessionState.Phase switch
+                            // Session.FailureReason carries the user-facing "which device, what to check" text.
+                            if (SessionNotes.ForRunEnd(liveSessionState.Phase, session.FailureReason) is { } ended)
                             {
-                                SessionPhase.Complete => ("Session complete", NotificationSeverity.Info),
-                                SessionPhase.Aborted => ("Session aborted", NotificationSeverity.Warning),
-                                // Session.FailureReason carries the user-facing "which device / what to
-                                // check" text; without it fall back to the bare phase.
-                                SessionPhase.Failed => (session.FailureReason is { } why ? $"Session failed: {why}" : "Session failed", NotificationSeverity.Error),
-                                _ => (null, NotificationSeverity.Info)
-                            };
-                            if (phaseMsg is not null)
-                            {
-                                appState.AppendNotification(timeProvider.GetUtcNow(), phaseSeverity, phaseMsg);
+                                appState.AppendNotification(timeProvider.GetUtcNow(), ended.Severity, ended.Message);
                             }
                             else
                             {

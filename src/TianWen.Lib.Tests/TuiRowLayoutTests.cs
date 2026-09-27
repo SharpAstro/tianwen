@@ -8,6 +8,7 @@ using Shouldly;
 using TianWen.Cli.Plan;
 using TianWen.Cli.Tui;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
 using Xunit;
 
