@@ -57,7 +57,7 @@ public static class DatasetBuildRunner
     /// <see cref="DatasetPsfStore"/>, so the report still covers them without re-registration.</param>
     /// <param name="PsfMissing">Resumed sessions that have tiles but no stored PSF record, so the
     /// report does not cover them. Non-zero means the report is incomplete and says which flag fixes
-    /// it (<see cref="DatasetBuildOptions.RegenPsfForExportedSessions"/>).</param>
+    /// it (<see cref="DatasetBuildOptions.FillMissingPsf"/>).</param>
     /// <param name="PsfRemeasured">Already-exported sessions re-registered purely to recover their
     /// PSF measurement; their tiles were left untouched.</param>
     public sealed record RunResult(
@@ -301,7 +301,7 @@ public static class DatasetBuildRunner
         var loopStart = StageTimings.Start();
         // Cross-session overhead, which belongs to the RUN rather than to any one session: a resumed
         // session produces no timing record of its own, so without this its cost is invisible. The
-        // first run of this instrumentation is what surfaced the need -- a --regen-psf run reported
+        // first run of this instrumentation is what surfaced the need -- a --fill-missing-psf run reported
         // 72.9% unaccounted, all of it the resume checks below, and that is exactly the reading the
         // unaccounted line exists to make possible.
         var overhead = new StageTimings();
@@ -428,7 +428,7 @@ public static class DatasetBuildRunner
             if (tilesReusable && checkpoint is not null)
             {
                 // Two separate intents, kept separate because they cost wildly different amounts.
-                // RegenPsfForExportedSessions FILLS GAPS: it is idempotent and touches only sessions
+                // FillMissingPsf FILLS GAPS: it is idempotent and touches only sessions
                 // the report does not cover, so it converges and re-running it is nearly free.
                 // ForcePsfRemeasure RE-MEASURES REGARDLESS, which is what an estimator change needs
                 // and what the gap-fill cannot express: a session that already has a record is
@@ -443,7 +443,7 @@ public static class DatasetBuildRunner
                 var measure = options.ForcePsfRemeasure
                     || masterMissing
                     || (hasRecord && options.RemeasureSubs)
-                    || (!hasRecord && options.RegenPsfForExportedSessions);
+                    || (!hasRecord && options.FillMissingPsf);
                 if (!measure)
                 {
                     resumed++;
@@ -515,7 +515,7 @@ public static class DatasetBuildRunner
                 //
                 // Requires a PRIOR RECORD, which is what keeps the two intents apart. --force-psf has
                 // one by definition (that is what makes its record stale), so it takes this path. A
-                // --regen-psf gap-fill has none, so its sub metrics exist nowhere and it must
+                // --fill-missing-psf gap-fill has none, so its sub metrics exist nowhere and it must
                 // re-register; that is a property of the data, not a limitation worth flagging.
                 if (options.RetainSessionMasters
                     && psfBySession.TryGetValue(session.Id, out var priorPsf)
@@ -734,7 +734,7 @@ public static class DatasetBuildRunner
                 // outside the process collided with this append (see JsonLinesFile.AppendAsync).
                 //
                 // The measurement is not lost so much as deferred: it is recoverable by
-                // RegenPsfForExportedSessions, which re-registers only the sessions the report does
+                // FillMissingPsf, which re-registers only the sessions the report does
                 // not cover. Counting it into psfMissing is what makes that discoverable, because the
                 // end-of-run warning names both the shortfall and the flag that fixes it.
                 try
@@ -747,7 +747,7 @@ public static class DatasetBuildRunner
                 {
                     psfMissing++;
                     logger?.LogWarning(ex,
-                        "  [{Session}] tiles are exported but its PSF record could not be persisted; the session STANDS and is recoverable with --regen-psf.",
+                        "  [{Session}] tiles are exported but its PSF record could not be persisted; the session STANDS and is recoverable with --fill-missing-psf.",
                         session.Id);
                 }
                 timings.Record(PsfStage, psfStart, items: 1,
@@ -870,7 +870,7 @@ public static class DatasetBuildRunner
             // Actionable rather than merely apologetic: name the flag that fixes it and say what it
             // costs, because the fix means re-registering those sessions.
             logger?.LogWarning(
-                "PSF/noise report is missing {Missing} session(s) that have tiles but no stored PSF record, so it describes {Covered} of {Total}. Re-run with RegenPsfForExportedSessions (--regen-psf) to measure them; that re-registers each one (tiles are left untouched).",
+                "PSF/noise report is missing {Missing} session(s) that have tiles but no stored PSF record, so it describes {Covered} of {Total}. Re-run with FillMissingPsf (--fill-missing-psf) to measure them; that re-registers each one (tiles are left untouched).",
                 psfMissing, psfBySession.Count, sessions.Length);
         }
         progress?.Report(
@@ -922,7 +922,7 @@ public static class DatasetBuildRunner
             // Same warning a normal run gives, and the same remedy: report-only cannot measure,
             // because the field-radius profile needs the session master.
             logger?.LogWarning(
-                "PSF/noise report is missing {Missing} session(s) that have tiles but no stored PSF record, so it describes {Covered} of {Total}. A report-only render cannot fix that; re-run with RegenPsfForExportedSessions (--regen-psf), which re-registers each one.",
+                "PSF/noise report is missing {Missing} session(s) that have tiles but no stored PSF record, so it describes {Covered} of {Total}. A report-only render cannot fix that; re-run with FillMissingPsf (--fill-missing-psf), which re-registers each one.",
                 psfMissing, covered, exported.Count);
         }
         progress?.Report(

@@ -696,7 +696,7 @@ namespace TianWen.Lib.Tests
         /// <para>The sub metrics are why the prior RECORD is needed as well as the FITS. They come from
         /// the frame gate at registration time and exist nowhere on a master, so they are carried
         /// through from the stored record verbatim, which is also what makes a gap-fill
-        /// (<c>--regen-psf</c>, no record by definition) unable to use this path.</para>
+        /// (<c>--fill-missing-psf</c>, no record by definition) unable to use this path.</para>
         /// </summary>
         [Fact]
         public async Task Run_ForcedPsfRemeasure_ReadsTheRetainedMaster_InsteadOfReRegistering()
@@ -915,14 +915,14 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
-        /// --regen-psf fills GAPS and --force-psf RE-MEASURES REGARDLESS, and the difference matters
+        /// --fill-missing-psf fills GAPS and --force-psf RE-MEASURES REGARDLESS, and the difference matters
         /// because the sessions whose records are wrong after an estimator change are exactly the ones
         /// that already have a record. The gap-fill cannot reach them by construction, so before the
         /// force flag existed the only way to re-measure was to delete the whole store by hand, which
         /// also discarded the records of sessions that were still fine.
         /// </summary>
         [Fact]
-        public async Task Run_ForcePsf_ReMeasuresSessionsThatAlreadyHaveARecord_WhereRegenPsfWillNot()
+        public async Task Run_ForcePsf_ReMeasuresSessionsThatAlreadyHaveARecord_WhereFillMissingPsfWillNot()
         {
             var ct = TestContext.Current.CancellationToken;
             var root = Path.Combine(_dir, "archive");
@@ -951,7 +951,7 @@ namespace TianWen.Lib.Tests
 
             // Gap-fill has no gap to fill, so it resumes without measuring anything.
             var regen = await DatasetBuildRunner.RunAsync(
-                options with { Resume = true, RegenPsfForExportedSessions = true }, cancellationToken: ct);
+                options with { Resume = true, FillMissingPsf = true }, cancellationToken: ct);
             regen.Resumed.ShouldBe(1);
             regen.PsfRemeasured.ShouldBe(0);
 

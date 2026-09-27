@@ -82,7 +82,7 @@ gated by metrics and training signal right now, not by calibration matching.
   next bake.
 - **Session 65 (`Vela SNR P2a 240s L-Ultra`) had its PSF record written by a later binary.** A file
   read from outside the process collided with the store append that closes a session and failed it;
-  a `--regen-psf` pass recovered it, tiles untouched. The PSF measurement code is identical across
+  a `--regen-psf` pass (renamed `--fill-missing-psf` by #557) recovered it, tiles untouched. The PSF measurement code is identical across
   the two binaries, so the record is comparable. Root cause and both fixes are in the commit
   two #172 store-sharing fixes ("reading a store could fail the session that was writing it", "file sharing is a mutual grant"): stores now share reads in both directions, and a store write can no
   longer fail a session whose tiles are already on disk.
@@ -103,7 +103,7 @@ one artifact that tells the deconvolution sweep what PSF range to cover.
 Fixed 2026-08-10: `DatasetPsfStore` (`stats/psf-sessions.jsonl`) checkpoints each session's raw
 measurement samples as it completes, and the report is re-rendered from that store after every
 session, so it accumulates across runs and a killed run costs only its in-flight session. Recovering
-the sessions measured before the store existed needs `--regen-psf`, which re-registers an
+the sessions measured before the store existed needs `--fill-missing-psf`, which re-registers an
 already-exported session purely to re-measure it and leaves its tiles untouched. Two related
 protections landed with it: a resume checkpoint is honoured only if the tiles are still PRESENT on
 disk (the manifest is a claim about the past, and a session whose tiles were deleted was being
@@ -446,7 +446,7 @@ result look good.
   discovery found, which is the only reason it walks ~19k FITS headers first; report-only takes its
   session set from the tile manifest instead, which is the record of what was actually exported. A
   sibling command rather than a `build` flag because `build` requires `--archive-root` and a
-  re-render must work with the archive unmounted. To re-MEASURE it is still `build --regen-psf`
+  re-render must work with the archive unmounted. To re-MEASURE it is still `build --fill-missing-psf`
   (fills gaps) or `--force-psf` (replaces records), both of which re-register.
 - **Measured FWHM depends strongly on how BRIGHT the star is, and that is the biggest single
   contaminant of the PSF numbers.** On real masters, pooling all radii, the median FWHM across
