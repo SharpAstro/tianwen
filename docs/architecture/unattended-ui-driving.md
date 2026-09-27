@@ -102,10 +102,14 @@ screenshot-poll-and-OCR**. Three pieces compose:
    targets in the Planner first"). Planner pins persist **per-profile** to `AppData/Planner` and reload at
    startup (`PlannerPersistence.TryLoadAsync`), so pin once and every later unattended run reuses them.
 
-**Ground truth for fine telemetry is the Debug log, not the inspector snapshot.** The `AppState` snapshot
-reads `LiveSessionState`, which can lag during the guide loop; per-frame guide stats (errDec/corrDec/RMS),
-HA, and pier side come from `%LOCALAPPDATA%/TianWen/Logs/<date>/GUI_*.log`. The describe path is the right
-tool for orchestration and coarse state; the log is the source of truth for what the drivers actually did.
+**Ground truth for fine telemetry is the NODE's Debug log, not the inspector snapshot.** Since P6 of
+`docs/plans/hardware-in-the-server.md` (#936) the rig runs in `tianwen-server`, which the GUI and the TUI find or
+start at their own start-up, and the drivers are there: per-frame guide stats (errDec/corrDec/RMS), HA and pier side
+come from `%LOCALAPPDATA%/TianWen/Logs/<date>/Server_*.log`. The `AppState` snapshot reads `LiveSessionState`, a
+mirror of the node's session that can lag during the guide loop, and `GUI_*.log` records what the window did (its
+renders, its GPU, its requests to the node). The describe path is the right tool for orchestration and coarse state;
+the node's log is the source of truth for what the drivers actually did. A quit asks what to do with the rig only
+from the last client attached (the inspector's `quitQuestion`), answered by posting `AnswerQuit`.
 
 ## Driving the TUI unattended (the terminal inspector)
 

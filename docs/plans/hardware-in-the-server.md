@@ -1369,6 +1369,40 @@ Risks the survey named, each owed a test in the cut:
 - The CLI's `flats` counting its output by the local folder's change.
 - A cooler setpoint becoming a ramp job, which changes what the Equipment tab's setpoint does.
 
+#### How the cut was made
+
+One commit per step, each building and each leaving both suites green:
+- **A node's devices on its connection.** `NodeConnection` is the base of this computer's connection
+  (`LocalNodeConnection`) and a rig's: the device model seeded from `GET /devices/state` and kept by `DEVICE-STATE`,
+  the listing (`NodeDevice`, a camera's named gains and whether it cools), the profile with its revision, and every
+  per-frame read answered from them.
+- **This computer's node as Local.** Found or started at start-up (`AppSignalHandler.ConnectLocalNodeAsync`), its id
+  kept out of the rig picker and the Home board; the active profile, the planner's start and the session setup
+  follow once it answers.
+- **The Equipment tab, the Live Session's device actions and the sky map's** go to the node as its jobs: discovery,
+  connect, disconnect with its safety read, warm-up, the cooling ramp, preview, snapshot, solve, focuser, nudge, goto
+  and solve and sync. A refusal is the node's, naming the run. An edit of the profile names its revision, and a 412
+  is made again onto the profile as it is now (`NodeProfileWrites`, one helper for the GUI, the TUI and the CLI).
+- **Every run is the node's.** A session with the schedule planned here and the session tab's configuration
+  (`SessionStartPlan`), a flat run from that configuration, polar alignment followed by its watcher, and planetary
+  (`PlanetaryCaptureController`: the node stacks, the view shows the masters it streams through the same
+  `LiveStackPreviewSource` a SER playback uses, and sends the panel's controls only as they change). An abort goes to
+  the node of the view on show. `SessionBootstrapper` and `FlatsBootstrapper` are gone.
+- **Quitting follows decision 1** (`AppQuit`, `QuitDialog`), and "Stop the rig" is the node's order
+  (`RigShutdown`): the run through its own ending, then the devices. A dead display stops nothing; the window
+  leaves.
+- **The CLI's `profile`, `device`, `darks` and `flats` are node clients** (`ConsoleHost`): the node is found or
+  started on the first verb that needs it, never for a stack or a solve.
+- **The tests stand on a node**: `GuiNodeHarness` is the GUI's handler over a real node on its socket; the
+  in-process harness is gone.
+
+The risks above, answered: the reticle's FOV reads the profile's captured sensor, never a live driver
+(`VkGuiRenderer`); the per-frame reads come from the device model; the recenter settings are sent on change
+(`NodePlanetaryViewTests`); `StartVideoCaptureSignal` only posts the start, whose claim is the node's; the preview,
+polar and solve slots show the node's frames; `flats` counts by the output folder the node writes into, on this
+machine, with the run followed by the node's run record; and the Equipment tab's setpoint is the node's ramp job,
+whose intent the node keeps.
+
 ## Phasing
 
 The cut is **one wave** ("cut an API in ONE wave"; "one path, designed first"). Two processes cannot

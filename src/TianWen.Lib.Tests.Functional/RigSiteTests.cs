@@ -14,7 +14,7 @@ using TianWen.UI.Abstractions;
 using Xunit;
 using static TianWen.Lib.Tests.RemoteSessionMirrorDriveTests;
 
-namespace TianWen.Lib.Tests;
+namespace TianWen.Lib.Tests.Functional;
 
 /// <summary>
 /// A rig's view is of the rig, its site included (P5b part 8 of docs/plans/hardware-in-the-server.md, #935): the planner
@@ -22,6 +22,7 @@ namespace TianWen.Lib.Tests;
 /// drawn in its zone; the sky map draws the rig's schedule, the one being imaged matched as an object is. Before this every
 /// rig was planned, clocked and twilit at this computer's site, and its reticle carried this computer's sensor.
 /// </summary>
+[Collection("NodeProcesses")]
 public class RigSiteTests(ITestOutputHelper output)
 {
     private const double SydneyLatitude = -33.87;
@@ -34,7 +35,7 @@ public class RigSiteTests(ITestOutputHelper output)
         SiteLatitude: SydneyLatitude,
         SiteLongitude: SydneyLongitude));
 
-    private static async Task RecomputedAsync(GuiSignalHarness gui)
+    private static async Task RecomputedAsync(GuiNodeHarness gui)
     {
         gui.Handler.CheckRecompute();
         await gui.Tracker.DrainAsync();
@@ -43,7 +44,9 @@ public class RigSiteTests(ITestOutputHelper output)
     [Fact(Timeout = 60_000)]
     public async Task TheRigOnShowIsPlannedAtItsSiteAndThisComputersViewAtThisComputers()
     {
-        await using var gui = await GuiSignalHarness.StartAsync(output, TestContext.Current.CancellationToken);
+        await using var gui = await GuiNodeHarness.StartAsync(output, TestContext.Current.CancellationToken);
+        // The start-up work of the handler (the planner's start at this computer's site, the session setup) is done first.
+        await gui.UntilSettledAsync(TestContext.Current.CancellationToken);
         var rig = gui.Contexts.GetOrAddRemote("observatory-node", "Observatory");
         rig.RigProfile = RigProfile();
 
@@ -65,7 +68,9 @@ public class RigSiteTests(ITestOutputHelper output)
     [Fact(Timeout = 60_000)]
     public async Task ARigWhoseProfileIsNotReadYetIsNotPlannedAtThisComputersSite()
     {
-        await using var gui = await GuiSignalHarness.StartAsync(output, TestContext.Current.CancellationToken);
+        await using var gui = await GuiNodeHarness.StartAsync(output, TestContext.Current.CancellationToken);
+        // The start-up work of the handler (the planner's start at this computer's site, the session setup) is done first.
+        await gui.UntilSettledAsync(TestContext.Current.CancellationToken);
         var rig = gui.Contexts.GetOrAddRemote("observatory-node", "Observatory");
         gui.Contexts.Activate(rig).ShouldBeTrue();
 
@@ -73,7 +78,6 @@ public class RigSiteTests(ITestOutputHelper output)
 
         gui.Handler.ProfileOnShow.ShouldBeNull();
         gui.Planner.NeedsRecompute.ShouldBeTrue("it waits for the rig's profile rather than planning at the wrong site");
-        double.IsNaN(gui.Planner.SiteLatitude).ShouldBeTrue("nothing planned yet");
     }
 
     /// <summary>
@@ -83,7 +87,9 @@ public class RigSiteTests(ITestOutputHelper output)
     [Fact(Timeout = 60_000)]
     public async Task ARigWithNoPinsOfItsOwnShowsNoneOfThisComputers()
     {
-        await using var gui = await GuiSignalHarness.StartAsync(output, TestContext.Current.CancellationToken);
+        await using var gui = await GuiNodeHarness.StartAsync(output, TestContext.Current.CancellationToken);
+        // The start-up work of the handler (the planner's start at this computer's site, the session setup) is done first.
+        await gui.UntilSettledAsync(TestContext.Current.CancellationToken);
         gui.Planner.Proposals = [new ProposedObservation(new Target(5.588, -5.39, "M42", CatalogIndex.NGC1976))];
         var rig = gui.Contexts.GetOrAddRemote("observatory-node", "Observatory");
         rig.RigProfile = RigProfile();

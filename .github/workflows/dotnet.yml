@@ -637,6 +637,22 @@ jobs:
     - name: Publish TianWen.Server
       run: dotnet publish src/TianWen.Server/TianWen.Server.csproj -r ${{ matrix.rid }} -c Release -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:GeneratePackageOnBuild=false
       shell: bash
+    # The rig is this computer's node's (P6 of docs/plans/hardware-in-the-server.md, #936): the GUI and the CLI find or
+    # start tianwen-server from their OWN directory, so an archive of either without it cannot touch a device.
+    # src/ExeBeside.targets publishes it beside them, and tianwen-ascomhost beside it on Windows; this fails the leg
+    # rather than shipping an archive that lost one.
+    - name: Verify tianwen-server ships beside the GUI and the CLI
+      run: |
+        ext=""
+        case "${{ matrix.rid }}" in win-*) ext=".exe" ;; esac
+        for app in TianWen.Cli TianWen.UI.Gui; do
+          dir="src/$app/bin/Release/net10.0/${{ matrix.rid }}/publish"
+          test -f "$dir/tianwen-server$ext" || { echo "::error::$app's publish has no tianwen-server$ext"; exit 1; }
+          case "${{ matrix.rid }}" in
+            win-*) test -f "$dir/tianwen-ascomhost.exe" || { echo "::error::$app's publish has no tianwen-ascomhost.exe"; exit 1; } ;;
+          esac
+        done
+      shell: bash
     - uses: actions/upload-artifact@v7
       with:
         name: tianwen-cli-${{ matrix.rid }}

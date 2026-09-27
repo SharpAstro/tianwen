@@ -135,11 +135,11 @@ flows through the ordinary calibrator path with no session branching.
 Tracked by #849.
 
 A **`LiveSessionMode.Flats`** entry on the Live Session tab, joining Preview / PolarAlign / Planetary via
-the mode-pill dropdown. It drives `ISession.RunFlatsOnlyAsync` as a tracked background task
-(`FlatsBootstrapper`, the flats counterpart to `SessionBootstrapper`) and does **not** set
-`LiveSessionState.IsRunning` -- so the tab keeps the preview layout + mode pill, and the run is gated on
-`FlatsCts`. The bootstrapper sets `LiveSessionState.ActiveSession` so the per-frame `PollSession` mirrors
-the phase, current-activity, and captured frames into the preview.
+the mode-pill dropdown. Since P6 of `docs/plans/hardware-in-the-server.md` (#936) the flat run is this computer's
+node's: the tab starts it with the session tab's configuration (`POST /api/v1/session/flats`), knows it by its mirror's
+run (`LiveSessionState.IsFlatRunGoingOn`) and never by `IsRunning`, so the tab keeps the preview layout and the mode
+pill, and the per-frame `PollSession` mirrors the phase, the current activity and the captured frames into the preview.
+(It was `FlatsBootstrapper` running `ISession.RunFlatsOnlyAsync` in the GUI's own process, gated on a `FlatsCts`.)
 
 - **Side panel** (`LiveSessionTab.Flats.cs`, mirroring `.Polar`): setup form (illumination-source selector
   cycling Calibrator / Sky-dusk / Sky-dawn, a flats-per-filter stepper, a source hint, Start + Cancel) when
