@@ -100,6 +100,12 @@ using (held)
         .AddSingleton(sp => new NodeSettingsStore(sp.GetRequiredService<IExternal>(), settings))
         .AddSingleton(NodeLogonStart.ForThisUser());
 
+    // How long an interactive run goes on with nobody present, when told: registered after the host's default, so it wins.
+    if (node.DetachGrace is { } grace)
+    {
+        builder.Services.AddNodeDetachGrace(grace);
+    }
+
     // Every source that reaches hardware or the network, left out of a node told --fake-devices: a test's node, or a
     // demonstration's, must not probe the serial ports and cameras of the machine it runs on.
     if (!node.FakeDevicesOnly)

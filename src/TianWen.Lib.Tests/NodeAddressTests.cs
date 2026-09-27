@@ -164,13 +164,24 @@ public class NodeAddressTests(ITestOutputHelper outputHelper)
     public void AKeeperStartsItsNodeWithWhatItWasToldLessKeeperAndAsSpawned()
     {
         var socket = Path.Combine(Path.GetTempPath(), "kept.sock");
-        NodeArguments.TryParse(["--keeper", "--socket", socket, "--port", "1999", "--local-only", "--fake-devices"], out var keeper, out var error)
-            .ShouldBeTrue(error);
+        NodeArguments.TryParse(["--keeper", "--socket", socket, "--port", "1999", "--local-only", "--fake-devices", "--detach-grace", "2.5"],
+            out var keeper, out var error).ShouldBeTrue(error);
         keeper.Keeper.ShouldBeTrue();
+        keeper.DetachGrace.ShouldBe(TimeSpan.FromSeconds(2.5));
 
         NodeArguments.TryParse([.. keeper.ForTheNode()], out var node, out error).ShouldBeTrue(error);
 
         node.ShouldBe(keeper with { Keeper = false, Spawned = true });
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-3")]
+    [InlineData("soon")]
+    public void ADetachGraceIsAPositiveNumberOfSeconds(string seconds)
+    {
+        NodeArguments.TryParse(["--detach-grace", seconds], out _, out var error).ShouldBeFalse();
+        error.ShouldNotBeNull().ShouldStartWith("--detach-grace takes a number of seconds");
     }
 
     [Fact]

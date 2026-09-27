@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
@@ -54,7 +55,10 @@ internal sealed class KeptNode : IAsyncDisposable
     public const string ServerUnderTest = "TIANWEN_SERVER_UNDER_TEST";
 
     /// <summary>Starts a keeper, on <paramref name="socketPath"/> when given, else a new socket of its own.</summary>
-    public static Process StartKeeper(string socketPath, string dataRoot)
+    /// <param name="arguments">More for the node's command line, which the keeper passes on (a short detach grace).</param>
+    /// <param name="environment">More for its environment, which the node inherits (a night's clock, <c>TIANWEN_NOW</c>).</param>
+    public static Process StartKeeper(string socketPath, string dataRoot, IReadOnlyList<string>? arguments = null,
+        IReadOnlyDictionary<string, string>? environment = null)
     {
         var start = new ProcessStartInfo(ServerPath)
         {
@@ -65,12 +69,23 @@ internal sealed class KeptNode : IAsyncDisposable
         {
             start.ArgumentList.Add(argument);
         }
+        foreach (var argument in arguments ?? [])
+        {
+            start.ArgumentList.Add(argument);
+        }
         start.Environment[TianWenDataRoot.EnvironmentVariable] = dataRoot;
+        foreach (var (name, value) in environment ?? new Dictionary<string, string>())
+        {
+            start.Environment[name] = value;
+        }
         return Process.Start(start) ?? throw new InvalidOperationException($"Could not start {ServerPath}");
     }
 
     /// <param name="prepareDataRoot">Writes into the node's data root before it starts (a profile it should find).</param>
-    public static async Task<KeptNode> StartAsync(CancellationToken cancellationToken, Func<string, Task>? prepareDataRoot = null)
+    /// <param name="arguments">More for the node's command line (<see cref="StartKeeper"/>).</param>
+    /// <param name="environment">More for its environment (<see cref="StartKeeper"/>).</param>
+    public static async Task<KeptNode> StartAsync(CancellationToken cancellationToken, Func<string, Task>? prepareDataRoot = null,
+        IReadOnlyList<string>? arguments = null, IReadOnlyDictionary<string, string>? environment = null)
     {
         var folder = Directory.CreateTempSubdirectory("twk").FullName;
         var dataRoot = Directory.CreateDirectory(Path.Combine(folder, "data")).FullName;
@@ -78,7 +93,7 @@ internal sealed class KeptNode : IAsyncDisposable
         {
             await prepareDataRoot(dataRoot);
         }
-        var node = new KeptNode(StartKeeper(Path.Combine(folder, "node.sock"), dataRoot), Path.Combine(folder, "node.sock"), dataRoot);
+        var node = new KeptNode(StartKeeper(Path.Combine(folder, "node.sock"), dataRoot, arguments, environment), Path.Combine(folder, "node.sock"), dataRoot);
         try
         {
             await node.WaitForNodeAsync(static _ => true, cancellationToken);

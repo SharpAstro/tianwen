@@ -88,6 +88,9 @@ does not take it down and it can never write over a TUI; a spawned node logs to 
 - **`--fake-devices`** registers the fake device source and no other, for a node that must touch no hardware: a
   test's, or a demonstration's. With `TIANWEN_DATA_ROOT` it touches none of the user's data either
   (`KeptNode`, the functional tests' real keeper and node).
+- **`--detach-grace <seconds>`** sets how long an interactive run goes on once no client is present (`NodeRunWatch`,
+  a minute by default), passed from the keeper to its node: for a respawn that takes longer, or a test that cannot
+  wait a minute per detach (`NodeRunsProcessTests`, P5's proof, runs with 3 s).
 - **Logs roll at local midnight**: `Logs/<date>/Server_*.log` and `Keeper_*.log`, one file per process and day, for
   every program (`FileLoggerProvider`).
 
