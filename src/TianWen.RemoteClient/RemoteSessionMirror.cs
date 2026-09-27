@@ -1,10 +1,12 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using TianWen.Hosting.Api;
 using TianWen.Hosting.Dto;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.Focus;
@@ -26,12 +28,26 @@ namespace TianWen.RemoteClient
     /// JPEG: the Live Session and Guider tabs stretch, measure and save what they are handed, exactly as they do a
     /// local session's frame, and a picture stretched once already would be stretched twice.
     /// </summary>
+    /// <param name="IncludeOtas">
+    /// Whether to pull each OTA's frame, which only the Live Session tab draws (P5b part 6): a rig on screen on any
+    /// other tab pulls none.
+    /// </param>
     /// <param name="IncludeGuider">
     /// Whether to also pull the guide-camera frame. Off by default, and separately from the OTA frames on
     /// purpose: only a view that draws the guide camera wants it, at guiding cadence, and anything else would
     /// pay a request per poll for a picture nothing draws.
     /// </param>
-    public readonly record struct PreviewOptions(bool IncludeGuider = false);
+    public readonly record struct PreviewOptions(bool IncludeOtas = true, bool IncludeGuider = false)
+    {
+        /// <summary>
+        /// The declared defaults, each OTA's frame and no guide frame. Without this a bare <c>new PreviewOptions()</c> is the
+        /// struct's zero, which asks for no frame at all: a record struct's parameterless <c>new()</c> never reads the primary
+        /// constructor's defaults.
+        /// </summary>
+        public PreviewOptions() : this(IncludeOtas: true, IncludeGuider: false)
+        {
+        }
+    }
 
     /// <summary>
     /// A session running on another node, observed as an <see cref="ISessionTelemetry"/>.
@@ -48,6 +64,14 @@ namespace TianWen.RemoteClient
     /// thread always sees one internally consistent snapshot with no lock and no torn mix of two polls.
     /// Events only fire notifications; they never mutate the snapshot. A missed event therefore costs a
     /// moment of staleness, never a wrong screen -- which is why there is no replay or resync protocol.
+    /// </para>
+    /// <para>
+    /// <b>Every event the node sends is handled, and each is one of four kinds</b> (P5b part 6, <see cref="Dispatch"/>):
+    /// a change to the state, which makes the mirror poll at once rather than at its next tick; a new frame
+    /// (<c>FRAME-AVAILABLE</c>), which fetches that frame and nothing else; an occurrence the state does not carry, which
+    /// is raised as its event (a solve, a scout, a note); or another client's business (a device's state, a profile, a
+    /// job, an enhance), which this session's mirror leaves to it. <see cref="Changed"/> tells a view there is something
+    /// new to draw.
     /// </para>
     /// <para>
     /// <b>Fidelity.</b> Everything in <see cref="SessionStateDto"/> is faithful (phase, activity,
@@ -146,6 +170,22 @@ namespace TianWen.RemoteClient
 
         private CancellationTokenSource? _cts;
         private Task? _pollLoop;
+
+        // The node's token for each frame source, from the state and from FRAME-AVAILABLE, whichever came last (P5b part
+        // 6): a source is fetched only when its token is not the one its slot holds. Written by the poll loop and by the
+        // socket's thread, so concurrent.
+        private readonly ConcurrentDictionary<string, int> _frameTokens = new ConcurrentDictionary<string, int>(StringComparer.Ordinal);
+
+        // Whether the node sends those tokens at all: false for a node older than part 6, whose frames are asked for on
+        // every poll, as they were. Only touched by the poll loop.
+        private bool _nodeSendsFrameTokens;
+
+        // What the events since the last pass ask of the next one: a state poll, or only a frame (P5b part 6). Raised on the
+        // socket's thread, taken by the poll loop; the wake is completed and replaced on every raise, so a raise after the
+        // loop looked is never slept past.
+        private int _statePending;
+        private int _framesPending;
+        private TaskCompletionSource _wake = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public RemoteSessionMirror(
             TianWenNodeClient client,
@@ -340,11 +380,19 @@ namespace TianWen.RemoteClient
 
         private async Task PollLoopAsync(CancellationToken cancellationToken)
         {
+            var pollState = true;
             while (!cancellationToken.IsCancellationRequested)
             {
                 try
                 {
-                    await PollOnceAsync(cancellationToken).ConfigureAwait(false);
+                    if (pollState)
+                    {
+                        await PollOnceAsync(cancellationToken).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        await RefreshFramesAsync(cancellationToken).ConfigureAwait(false);
+                    }
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -352,7 +400,75 @@ namespace TianWen.RemoteClient
                     break;
                 }
 
-                await _timeProvider.SleepAsync(NextPollInterval(), cancellationToken).ConfigureAwait(false);
+                pollState = await WaitForNextPassAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// Waits out the poll interval, or less when an event asks for a pass sooner (P5b part 6). True when the next pass
+        /// polls the state (the interval ran out, or an event said the state changed); false when it only fetches the
+        /// frames an event named.
+        /// </summary>
+        internal async Task<bool> WaitForNextPassAsync(CancellationToken cancellationToken)
+        {
+            // The wake is taken BEFORE the flags are looked at, so an event raised in between completes this one.
+            var wake = Volatile.Read(ref _wake).Task;
+            if (TakePendingPass() is { } pending)
+            {
+                return pending;
+            }
+
+            using var sleeping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var sleep = _timeProvider.SleepAsync(NextPollInterval(), sleeping.Token).AsTask();
+            if (await Task.WhenAny(sleep, wake).ConfigureAwait(false) == sleep)
+            {
+                // Ran out, or the mirror is stopping, which this rethrows. A state poll is due either way, and it fetches
+                // the frames too.
+                await sleep.ConfigureAwait(false);
+                TakePendingPass();
+                return true;
+            }
+
+            // Woken: the sleep is not wanted any more.
+            await sleeping.CancelAsync().ConfigureAwait(false);
+            return TakePendingPass() ?? true;
+        }
+
+        /// <summary>What the events since the last pass ask for: a state poll (true), only frames (false), or nothing.</summary>
+        private bool? TakePendingPass()
+        {
+            if (Interlocked.Exchange(ref _statePending, 0) == 1)
+            {
+                // A state poll fetches the frames too.
+                Interlocked.Exchange(ref _framesPending, 0);
+                return true;
+            }
+            return Interlocked.Exchange(ref _framesPending, 0) == 1 ? false : null;
+        }
+
+        /// <summary>Asks the poll loop for a pass now: a state poll, or only the frames.</summary>
+        private void Wake(bool state)
+        {
+            if (state)
+            {
+                Interlocked.Exchange(ref _statePending, 1);
+            }
+            else
+            {
+                Interlocked.Exchange(ref _framesPending, 1);
+            }
+            Interlocked.Exchange(ref _wake, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)).TrySetResult();
+        }
+
+        /// <summary>
+        /// A frames-only pass, for a <c>FRAME-AVAILABLE</c> that came between two polls: the frames the node now shows, read
+        /// against the state last polled. Nothing while the node is not answering or shows no session.
+        /// </summary>
+        internal async Task RefreshFramesAsync(CancellationToken cancellationToken)
+        {
+            if (IsNodeReachable && Snapshot is { } state)
+            {
+                await RefreshPreviewsAsync(state, cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -384,6 +500,7 @@ namespace TianWen.RemoteClient
         internal async Task PollOnceAsync(CancellationToken cancellationToken)
         {
             var result = await _client.GetSessionStateAsync(cancellationToken).ConfigureAwait(false);
+            var wasReachable = IsNodeReachable;
 
             if (result is { IsSuccess: true, Value: { } state })
             {
@@ -392,8 +509,14 @@ namespace TianWen.RemoteClient
                 _consecutiveFailures = 0;
                 StampContact();
                 Volatile.Write(ref _clockSkewTicks, state.NodeNowUtc is { } nodeNow ? (_timeProvider.GetUtcNow() - nodeNow).Ticks : 0);
+                _nodeSendsFrameTokens = state.Frames is not null;
+                foreach (var token in state.Frames ?? [])
+                {
+                    _frameTokens[token.Source] = token.Number;
+                }
                 Volatile.Write(ref _snapshot, state);
                 RaiseDerivedEvents(state);
+                RaiseChanged();
                 await RefreshPreviewsAsync(state, cancellationToken).ConfigureAwait(false);
                 return;
             }
@@ -407,11 +530,15 @@ namespace TianWen.RemoteClient
                 // A 404 is the node ANSWERING, so it resets the backoff -- an idle rig is a healthy rig.
                 _consecutiveFailures = 0;
                 StampContact(); // a 404 is the node answering -- "seen" is about the node, not the session
-                Volatile.Write(ref _snapshot, null);
+                var ended = Interlocked.Exchange(ref _snapshot, null) is not null;
                 _lastGuiderState = null;
                 _lastPhase = SessionPhase.NotStarted;
                 WithdrawRaisedPrompt();
                 ClearPreviews();
+                if (ended || !wasReachable)
+                {
+                    RaiseChanged();
+                }
                 return;
             }
 
@@ -419,19 +546,16 @@ namespace TianWen.RemoteClient
             // state on screen (flagged stale via IsNodeReachable) rather than blanking the tab.
             IsNodeReachable = false;
             LastError = result.Error;
+            if (wasReachable)
+            {
+                RaiseChanged();
+            }
             if (_consecutiveFailures < int.MaxValue)
             {
                 _consecutiveFailures++;
             }
         }
 
-        /// <summary>
-        /// Events the node does not broadcast, derived from consecutive polls.
-        /// <see cref="GuiderStateChanged"/> has no server-side broadcast yet, and a phase change seen
-        /// only by polling (a dropped WS frame) must still reach subscribers, so both are diffed here.
-        /// Raising <see cref="PhaseChanged"/> from both paths is safe because the poll fires only on an
-        /// actual transition of its own baseline.
-        /// </summary>
         /// <summary>
         /// Whether to fetch the node's frames at all. Off by default: a mirror is often attached just to
         /// watch phase and counters (a multi-rig dashboard), and full-resolution frames are by far the most
@@ -459,10 +583,11 @@ namespace TianWen.RemoteClient
                 return;
             }
 
-            var otaCount = state.Cameras.IsDefaultOrEmpty ? 0 : state.Cameras.Length;
+            var otaCount = !options.IncludeOtas || state.Cameras.IsDefaultOrEmpty ? 0 : state.Cameras.Length;
             if (otaCount == 0)
             {
                 ClearPreviews();
+                await RefreshGuidePreviewAsync(state, options, cancellationToken).ConfigureAwait(false);
                 return;
             }
 
@@ -482,8 +607,13 @@ namespace TianWen.RemoteClient
 
             for (var i = 0; i < otaCount; i++)
             {
-                if (await FetchFrameAsync(FrameSources.Ota(i), (numbers ?? heldNumbers)[i], cancellationToken).ConfigureAwait(false)
-                    is not { } frame)
+                var source = FrameSources.Ota(i);
+                var heldNumber = (numbers ?? heldNumbers)[i];
+                if (!HasNewFrame(source, heldNumber, out var token))
+                {
+                    continue;
+                }
+                if (await FetchFrameAsync(source, heldNumber, token, cancellationToken).ConfigureAwait(false) is not { } frame)
                 {
                     continue;
                 }
@@ -502,6 +632,7 @@ namespace TianWen.RemoteClient
             {
                 _previewFrameNumbers = numbers;
                 Volatile.Write(ref _previews, images);
+                RaiseChanged();
             }
 
             // Only now that their successors are published: a reader that read the old array leases before this,
@@ -515,10 +646,33 @@ namespace TianWen.RemoteClient
         }
 
         /// <summary>
+        /// Whether the node shows a frame on <paramref name="source"/> other than the one held (<paramref name="held"/>),
+        /// by the source's token (P5b part 6): a slot is asked for only once there is something new in it. Always true from
+        /// a node that sends no tokens, which is asked every poll, naming the frame held, as it was before.
+        /// </summary>
+        private bool HasNewFrame(string source, int? held, out int token)
+        {
+            if (!_nodeSendsFrameTokens)
+            {
+                token = 0;
+                return true;
+            }
+
+            // A token of 0 is a source that has never shown a frame.
+            token = _frameTokens.TryGetValue(source, out var known) ? known : 0;
+            return token != (held ?? 0);
+        }
+
+        /// <summary>
         /// The frame <paramref name="source"/> shows, when it is not the one held (<paramref name="held"/>); null when
         /// there is nothing new: the same frame, no frame yet, or a failed fetch.
+        /// <para>
+        /// Asked for because the source's token was <paramref name="token"/>: when the node answers that it shows the frame
+        /// held after all, or none, the token is put back to the one held, unless another has come in since, so an older
+        /// token (a state polled before the event that brought the frame held) is not asked about again on every pass.
+        /// </para>
         /// </summary>
-        private async Task<(Image Image, int? Number)?> FetchFrameAsync(string source, int? held, CancellationToken cancellationToken)
+        private async Task<(Image Image, int? Number)?> FetchFrameAsync(string source, int? held, int token, CancellationToken cancellationToken)
         {
             var result = await _client.GetLatestFrameAsync(source, held, _frameReader, cancellationToken).ConfigureAwait(false);
             if (result.Error is { } error)
@@ -529,7 +683,13 @@ namespace TianWen.RemoteClient
                 return null;
             }
 
-            return result.HasImage ? (result.Image, result.FrameNumber) : null;
+            if (result.HasImage)
+            {
+                return (result.Image, result.FrameNumber);
+            }
+
+            _frameTokens.TryUpdate(source, held ?? 0, token);
+            return null;
         }
 
         private static IEnumerable<Image> Held(Image?[] images)
@@ -562,12 +722,12 @@ namespace TianWen.RemoteClient
                 return;
             }
 
-            if (state.Guider is null)
+            if (state.Guider is null || !HasNewFrame(FrameSources.Guider, _guidePreviewFrameNumber, out var token))
             {
                 return;
             }
 
-            if (await FetchFrameAsync(FrameSources.Guider, _guidePreviewFrameNumber, cancellationToken).ConfigureAwait(false)
+            if (await FetchFrameAsync(FrameSources.Guider, _guidePreviewFrameNumber, token, cancellationToken).ConfigureAwait(false)
                 is not { } frame)
             {
                 return;
@@ -576,6 +736,7 @@ namespace TianWen.RemoteClient
             _guidePreviewFrameNumber = frame.Number;
             // Published, THEN the frame it replaces released, as for the OTA slots.
             Interlocked.Exchange(ref _guidePreview, frame.Image)?.Release();
+            RaiseChanged();
         }
 
         /// <summary>Gives back every frame held, the OTA slots and the guide frame.</summary>
@@ -606,6 +767,11 @@ namespace TianWen.RemoteClient
             }
         }
 
+        /// <summary>
+        /// The events the poll owns, from the difference between consecutive states: a phase, the guider's state and a
+        /// prompt. The node broadcasts each of them too, and those pushes only make the mirror poll at once
+        /// (<see cref="Dispatch"/>), so an event seen both ways, or only by polling after a dropped frame, is raised once.
+        /// </summary>
         private void RaiseDerivedEvents(SessionStateDto state)
         {
             if (state.Phase != _lastPhase)
@@ -736,24 +902,140 @@ namespace TianWen.RemoteClient
         /// </summary>
         internal void OnNodeEvent(object? sender, WebSocketEventDto dto)
         {
+            if (Dispatch(dto) is NodeEventKind.Unknown)
+            {
+                // A node newer than this client: nothing to do with it, and not an error.
+                _logger.LogDebug("Event {Event} from {Node} is not one this mirror knows", dto.Event, _client.BaseAddress);
+            }
+        }
+
+        /// <summary>What an event from the node is to this mirror (P5b part 6).</summary>
+        internal enum NodeEventKind
+        {
+            /// <summary>The session's state changed: the mirror polls now, or at its tick for one as frequent as a guide step.</summary>
+            StateChanged,
+
+            /// <summary>A frame source shows a new frame: fetch it.</summary>
+            FrameAvailable,
+
+            /// <summary>Something the state does not carry happened: raised as its event.</summary>
+            Occurrence,
+
+            /// <summary>Another client's business: a device's state, a profile, a job, an enhance.</summary>
+            NotTheSessions,
+
+            /// <summary>An event this client does not know, from a newer node.</summary>
+            Unknown,
+        }
+
+        /// <summary>
+        /// Handles one event from the node and says which kind it was. Every event the node broadcasts is one of the first
+        /// four kinds (<c>RemoteSessionMirrorEventTests</c> sends each one here), so none goes unhandled.
+        /// </summary>
+        internal NodeEventKind Dispatch(WebSocketEventDto dto)
+        {
             switch (dto.Event)
             {
                 case "SESSION-PHASE-CHANGED":
-                    // Deliberately NOT raised here: the poll's own diff owns PhaseChanged, so a phase
-                    // transition cannot be announced twice (once by the push, once by the next poll)
-                    // to subscribers that count transitions. The push still earns its keep -- it wakes
-                    // the loop's consumer promptly via the redraw the notification triggers.
-                    break;
+                case "GUIDER-STATE-CHANGED":
+                case "PROMPT-REQUESTED":
+                    // Deliberately NOT raised from the push: the poll owns PhaseChanged, GuiderStateChanged and
+                    // PromptRequested (RaiseDerivedEvents), so a transition cannot be announced twice to subscribers that
+                    // count them. The push makes the poll come now instead of at its tick.
+                    Wake(state: true);
+                    return NodeEventKind.StateChanged;
 
                 case "FRAME-WRITTEN":
                     AppendFrame(dto);
-                    break;
+                    Wake(state: true);
+                    return NodeEventKind.StateChanged;
+
+                case "GUIDE-STEP":
+                    // The guide graph's samples are on the state, which the poll brings at its cadence: polling a whole
+                    // state on every guide step is exactly the load part 7 takes off, so a step wakes nothing.
+                    return NodeEventKind.StateChanged;
+
+                case NodeWire.FrameAvailableEvent:
+                    if (FrameAvailableDto.TryFromEvent(dto, out var frame))
+                    {
+                        _frameTokens[frame.Source] = frame.Number;
+                        Wake(state: false);
+                    }
+                    return NodeEventKind.FrameAvailable;
 
                 case "PLATE-SOLVE-COMPLETED":
                     AppendPlateSolve(dto);
-                    break;
+                    return NodeEventKind.Occurrence;
+
+                case "SCOUT-COMPLETED":
+                    RaiseScoutCompleted(dto);
+                    return NodeEventKind.Occurrence;
+
+                case "NOTIFICATION":
+                    RaiseNoteReceived(dto);
+                    return NodeEventKind.Occurrence;
+
+                case NodeWire.DeviceStateEvent:
+                case NodeWire.ProfileChangedEvent:
+                case "JOB-PROGRESS":
+                case "ENHANCE-PROGRESS":
+                case "ENHANCE-COMPLETED":
+                    // The device plane's, a profile's, a job's and an enhance's, each read by the client that asked for it.
+                    return NodeEventKind.NotTheSessions;
+
+                default:
+                    return NodeEventKind.Unknown;
             }
         }
+
+        /// <summary>
+        /// Raises <see cref="ScoutCompleted"/> for a scout the node's session finished, with the target it scouted, whole.
+        /// Nothing is raised for a payload whose classification or outcome is not one this client knows: a scout reported
+        /// as Healthy because its word was not understood would be a verdict nobody gave.
+        /// </summary>
+        private void RaiseScoutCompleted(WebSocketEventDto dto)
+        {
+            if (dto.Data is not { } data
+                || !TryParseEnum<ScoutClassification>(data, "Classification", out var classification)
+                || !TryParseEnum<ScoutOutcome>(data, "Outcome", out var outcome))
+            {
+                return;
+            }
+
+            var target = new Target(
+                ReadDouble(data, "TargetRA") ?? double.NaN,
+                ReadDouble(data, "TargetDec") ?? double.NaN,
+                ReadString(data, "TargetName") ?? string.Empty,
+                ReadULong(data, "CatalogIndex") is { } index ? (CatalogIndex)index : null);
+            _scoutCompleted?.Invoke(this, new ScoutCompletedEventArgs(
+                target,
+                classification,
+                ReadDouble(data, "EstimatedClearInSeconds") is { } clearIn ? TimeSpan.FromSeconds(clearIn) : null,
+                outcome,
+                ReadInts(data, "StarCountsPerOTA")));
+        }
+
+        /// <summary>Raises <see cref="NoteReceived"/> for a note the node recorded, as it pushed it.</summary>
+        private void RaiseNoteReceived(WebSocketEventDto dto)
+        {
+            if (dto.Data is not { } data
+                || ReadString(data, "Message") is not { } message
+                || ReadDateTimeOffset(data, "TimestampUtc") is not { } when)
+            {
+                return;
+            }
+
+            NoteReceived?.Invoke(this, new NotificationDto
+            {
+                Severity = ReadString(data, "Severity") ?? nameof(NotificationSeverity.Info),
+                Message = message,
+                TimestampUtc = when,
+            });
+            RaiseChanged();
+        }
+
+        /// <summary>Tells a view there is something new to draw.</summary>
+        private void RaiseChanged() => Changed?.Invoke(this, EventArgs.Empty);
 
         /// <summary>
         /// Raises <see cref="FrameWritten"/> for a frame the node just wrote.
@@ -808,6 +1090,7 @@ namespace TianWen.RemoteClient
 
             _plateSolveHistory = Append(_plateSolveHistory, record, MaxPlateSolveHistory);
             PlateSolveCompleted?.Invoke(this, new PlateSolveCompletedEventArgs(record));
+            RaiseChanged();
         }
 
         // -----------------------------------------------------------------------------------------
@@ -1239,13 +1522,7 @@ namespace TianWen.RemoteClient
         /// <summary>Raised from the node's PLATE-SOLVE-COMPLETED broadcast.</summary>
         public event EventHandler<PlateSolveCompletedEventArgs>? PlateSolveCompleted;
 
-        /// <summary>
-        /// Not raised yet: the node broadcasts SCOUT-COMPLETED, but its payload carries a per-OTA
-        /// star-count map that <see cref="ScoutCompletedEventArgs"/> cannot be rebuilt from faithfully
-        /// (it needs the resolved <c>Target</c>). Declared with explicit accessors so a subscriber is
-        /// still REGISTERED and starts receiving the moment this is wired -- a field-like event that is
-        /// never raised trips CS0067, and swallowing the subscription instead would be a silent lie.
-        /// </summary>
+        /// <summary>Raised from the node's SCOUT-COMPLETED broadcast, which carries the scouted target whole (P5b part 6).</summary>
         public event EventHandler<ScoutCompletedEventArgs>? ScoutCompleted
         {
             add => _scoutCompleted += value;
@@ -1253,8 +1530,20 @@ namespace TianWen.RemoteClient
         }
         private EventHandler<ScoutCompletedEventArgs>? _scoutCompleted;
 
-        /// <summary>Raised from the poll diff, since the node has no such broadcast yet.</summary>
+        /// <summary>Raised from the poll diff (see <see cref="RaiseDerivedEvents"/>); the node's GUIDER-STATE-CHANGED only makes it poll now.</summary>
         public event EventHandler<GuiderStateChangedEventArgs>? GuiderStateChanged;
+
+        /// <summary>
+        /// A note the node recorded, as it pushed it (<c>NOTIFICATION</c>). The node's ring
+        /// (<see cref="GetNotificationsAsync"/>) holds what came before.
+        /// </summary>
+        public event EventHandler<NotificationDto>? NoteReceived;
+
+        /// <summary>
+        /// Something a view draws changed (P5b part 6): a state polled, the node gone quiet or back, a session ended, a
+        /// frame, a solve or a note. Raised on the poll loop or the socket's thread, so a handler only flags a redraw.
+        /// </summary>
+        public event EventHandler? Changed;
 
         /// <summary>
         /// Raised when the node reports an outstanding prompt, with a <see cref="SessionPromptEventArgs.Respond"/>
@@ -1336,6 +1625,53 @@ namespace TianWen.RemoteClient
 
         private static TEnum ParseEnum<TEnum>(System.Collections.Generic.Dictionary<string, object?> data, string key, TEnum fallback)
             where TEnum : struct, Enum =>
-            ReadString(data, key) is { } s && Enum.TryParse<TEnum>(s, out var parsed) ? parsed : fallback;
+            TryParseEnum<TEnum>(data, key, out var parsed) ? parsed : fallback;
+
+        private static bool TryParseEnum<TEnum>(System.Collections.Generic.Dictionary<string, object?> data, string key, out TEnum parsed)
+            where TEnum : struct, Enum
+        {
+            parsed = default;
+            return ReadString(data, key) is { } s && Enum.TryParse(s, out parsed);
+        }
+
+        private static ulong? ReadULong(System.Collections.Generic.Dictionary<string, object?> data, string key) =>
+            data.TryGetValue(key, out var v) ? v switch
+            {
+                System.Text.Json.JsonElement e when e.ValueKind is System.Text.Json.JsonValueKind.Number && e.TryGetUInt64(out var u) => u,
+                ulong u => u,
+                _ => null
+            } : null;
+
+        private static DateTimeOffset? ReadDateTimeOffset(System.Collections.Generic.Dictionary<string, object?> data, string key) =>
+            data.TryGetValue(key, out var v) ? v switch
+            {
+                System.Text.Json.JsonElement e when e.ValueKind is System.Text.Json.JsonValueKind.String && e.TryGetDateTimeOffset(out var at) => at,
+                DateTimeOffset at => at,
+                _ => null
+            } : null;
+
+        private static int[] ReadInts(System.Collections.Generic.Dictionary<string, object?> data, string key)
+        {
+            if (!data.TryGetValue(key, out var v))
+            {
+                return [];
+            }
+            if (v is int[] ints)
+            {
+                return ints;
+            }
+            if (v is not System.Text.Json.JsonElement { ValueKind: System.Text.Json.JsonValueKind.Array } array)
+            {
+                return [];
+            }
+
+            var read = new int[array.GetArrayLength()];
+            var i = 0;
+            foreach (var item in array.EnumerateArray())
+            {
+                read[i++] = item.TryGetInt32(out var n) ? n : 0;
+            }
+            return read;
+        }
     }
 }

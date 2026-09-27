@@ -16,6 +16,7 @@ namespace TianWen.Hosting.Dto;
 [JsonSerializable(typeof(string))]
 [JsonSerializable(typeof(bool))]
 [JsonSerializable(typeof(int))]
+[JsonSerializable(typeof(ulong))]
 [JsonSerializable(typeof(float))]
 [JsonSerializable(typeof(double))]
 [JsonSerializable(typeof(DateTimeOffset))]

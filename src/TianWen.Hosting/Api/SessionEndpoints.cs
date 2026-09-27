@@ -23,7 +23,7 @@ internal static class SessionEndpoints
     {
         var group = routes.MapGroup("/api/v1/session");
 
-        group.MapGet("/state", (IHostedSession hosted, ITimeProvider timeProvider) =>
+        group.MapGet("/state", (IHostedSession hosted, NodeFrames frames, ITimeProvider timeProvider) =>
         {
             if (hosted.CurrentSession is not { } session)
             {
@@ -41,7 +41,8 @@ internal static class SessionEndpoints
                 notifications.IsDefaultOrEmpty ? null : notifications[^1],
                 timeProvider.GetUtcNow(),
                 // The session /state shows is the one a session or a flat run started; any other kind of run answers 404.
-                hosted.RunningKind is NodeRunKind.Session or NodeRunKind.Flats ? hosted.RunningKind : null);
+                hosted.RunningKind is NodeRunKind.Session or NodeRunKind.Flats ? hosted.RunningKind : null,
+                FrameTokens(frames));
             return EnvelopeResults.Json(
                 ResponseEnvelope<SessionStateDto>.Ok(dto),
                 HostingJsonContext.Default.ResponseEnvelopeSessionStateDto);
@@ -502,6 +503,22 @@ internal static class SessionEndpoints
     /// Whether the request carries a body: a Content-Length above zero or a chunked one. Keying on
     /// Content-Length alone skipped every chunked body, which is what <c>JsonContent</c> sends.
     /// </summary>
+    /// <summary>
+    /// The node's token for each source a session's views read, every OTA's and the guide camera's, as the frame routes
+    /// answer it (P5b part 6): a client fetches a frame only once its source's token has moved.
+    /// </summary>
+    private static FrameAvailableDto[] FrameTokens(NodeFrames frames)
+    {
+        var otaCount = frames.OtaCount;
+        var tokens = new FrameAvailableDto[otaCount + 1];
+        for (var i = 0; i < otaCount; i++)
+        {
+            tokens[i] = new FrameAvailableDto { Source = FrameSources.Ota(i), Number = frames.Ota(i).Number };
+        }
+        tokens[otaCount] = new FrameAvailableDto { Source = FrameSources.Guider, Number = frames.Guider().Number };
+        return tokens;
+    }
+
     private static bool HasBody(HttpContext httpContext)
         => httpContext.Features.Get<IHttpRequestBodyDetectionFeature>() is { CanHaveBody: true };
 

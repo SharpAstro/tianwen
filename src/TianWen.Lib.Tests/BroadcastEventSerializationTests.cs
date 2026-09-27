@@ -7,6 +7,7 @@ using TianWen.Hosting;
 using TianWen.Hosting.Api;
 using TianWen.Hosting.Dto;
 using TianWen.Hosting.WebSocket;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Sequencing;
@@ -34,7 +35,7 @@ public class BroadcastEventSerializationTests
         [BroadcastEvents.PhaseChanged(new SessionPhaseChangedEventArgs(SessionPhase.Cooling, SessionPhase.RoughFocus))],
         [BroadcastEvents.FrameWritten(new ExposureLogEntry(Now, "NGC 7293", "L", TimeSpan.FromSeconds(320), 1, 2.4f, 33))],
         [BroadcastEvents.PlateSolveCompleted(new PlateSolveRecord(Now, PlateSolveContext.Centering, "OTA 1", Succeeded: true, Solution: null, TimeSpan.FromMilliseconds(434), 33, 29))],
-        [BroadcastEvents.ScoutCompleted(new ScoutCompletedEventArgs(new Target(22.49, -20.8, "NGC 7293", null),
+        [BroadcastEvents.ScoutCompleted(new ScoutCompletedEventArgs(new Target(22.49, -20.8, "NGC 7293", CatalogIndex.NGC7293),
             ScoutClassification.Healthy, estimatedClearIn: TimeSpan.FromMinutes(5), ScoutOutcome.Proceed, [19, 37]))],
         [BroadcastEvents.GuiderStateChanged(new GuiderStateChangedEventArgs("Calibrating", "Guiding"))],
         [BroadcastEvents.PromptRequested(new SessionPromptEventArgs("Panel", "Switch the panel on", "Continue", "Cancel",

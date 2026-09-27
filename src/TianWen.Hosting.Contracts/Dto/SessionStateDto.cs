@@ -35,6 +35,14 @@ public sealed class SessionStateDto
     /// </summary>
     public NodeRunKind? Run { get; init; }
 
+    /// <summary>
+    /// The node's token for every frame source the session's views read, each OTA and the guide camera (P5b part 6):
+    /// what a client compares with the frame it holds before it asks for one, so it fetches a frame only once there is
+    /// a new one. <c>FRAME-AVAILABLE</c> says the same sooner; this is what makes a missed event cost one poll rather
+    /// than a frame never fetched. Null from a node too old to send it, whose client asks every poll as it did.
+    /// </summary>
+    public FrameAvailableDto[]? Frames { get; init; }
+
     public required SessionPhase Phase { get; init; }
     public string? CurrentActivity { get; init; }
     /// <summary>User-facing reason when <see cref="Phase"/> is Failed (which device / what to check); null otherwise.</summary>
@@ -140,12 +148,14 @@ public sealed class SessionStateDto
     /// the host and not on the session -- the session raises events, the host records them.</param>
     /// <param name="nodeNow">The node's clock now (<see cref="NodeNowUtc"/>).</param>
     /// <param name="nodeRun">The node's run on this session (<see cref="Run"/>).</param>
+    /// <param name="frames">The node's token for each frame source (<see cref="Frames"/>).</param>
     public static SessionStateDto FromSession(
         ISessionTelemetry session,
         PendingPromptDto? pendingPrompt = null,
         NotificationDto? lastNotification = null,
         DateTimeOffset? nodeNow = null,
-        NodeRunKind? nodeRun = null)
+        NodeRunKind? nodeRun = null,
+        FrameAvailableDto[]? frames = null)
     {
         var displays = session.TelescopeDisplays;
         var coolingSamples = session.CoolingSamples;
@@ -248,6 +258,7 @@ public sealed class SessionStateDto
             LastNotification = lastNotification,
             NodeNowUtc = nodeNow,
             Run = nodeRun,
+            Frames = frames,
             MountDisplayName = session.MountDisplayName,
             Guider = GuiderStateDto.FromSession(session),
             Cameras = cameraStates.MoveToImmutable(),

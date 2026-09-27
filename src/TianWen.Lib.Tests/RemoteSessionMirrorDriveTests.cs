@@ -36,7 +36,7 @@ namespace TianWen.Lib.Tests
         // Scripted transport, routed by path so one handler can serve state + preview + prompt
         // -------------------------------------------------------------------------------------------
 
-        private sealed class RoutingHandler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
+        internal sealed class RoutingHandler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
         {
             public List<string> Requests { get; } = [];
 
@@ -47,7 +47,7 @@ namespace TianWen.Lib.Tests
             }
         }
 
-        private static HttpResponseMessage Json<T>(ResponseEnvelope<T> envelope, HttpStatusCode status = HttpStatusCode.OK)
+        internal static HttpResponseMessage Json<T>(ResponseEnvelope<T> envelope, HttpStatusCode status = HttpStatusCode.OK)
         {
             var json = JsonSerializer.Serialize(envelope, typeof(ResponseEnvelope<T>), HostingJsonContext.Default);
             return new HttpResponseMessage(status) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
@@ -59,13 +59,13 @@ namespace TianWen.Lib.Tests
         private static HttpResponseMessage Conflict(string error) =>
             Json(ResponseEnvelope<string>.Fail(error, statusCode: 409));
 
-        private static (RemoteSessionMirror Mirror, RoutingHandler Handler) BuildMirror(
-            Func<HttpRequestMessage, HttpResponseMessage> respond, bool onThisMachine = false)
+        internal static (RemoteSessionMirror Mirror, RoutingHandler Handler) BuildMirror(
+            Func<HttpRequestMessage, HttpResponseMessage> respond, bool onThisMachine = false, FakeTimeProviderWrapper? timeProvider = null)
         {
             var handler = new RoutingHandler(respond);
             var http = new HttpClient(handler) { BaseAddress = new Uri("http://rig.local:1888/") };
             var client = new TianWenNodeClient(http);
-            var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 7, 27, 21, 0, 0, TimeSpan.Zero));
+            timeProvider ??= new FakeTimeProviderWrapper(new DateTimeOffset(2026, 7, 27, 21, 0, 0, TimeSpan.Zero));
             var events = new TianWenEventStream(http.BaseAddress, timeProvider, NullLogger.Instance);
             return (new RemoteSessionMirror(client, events, timeProvider, NullLogger.Instance) { IsOnThisMachine = onThisMachine }, handler);
         }
@@ -79,7 +79,7 @@ namespace TianWen.Lib.Tests
             RemoteSessionMirrorTests.RunningState(otaCount: otaCount, pendingPrompt: prompt);
 
         /// <summary>A whole-ADU mono frame, as a camera delivers one.</summary>
-        private static Image CameraFrame(float offset = 0f, int width = 64, int height = 48)
+        internal static Image CameraFrame(float offset = 0f, int width = 64, int height = 48)
         {
             var planes = Image.CreateChannelData(1, height, width);
             for (var y = 0; y < height; y++)
@@ -96,7 +96,7 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>The frame as the node's route writes it.</summary>
-        private static async Task<byte[]> WireAsync(Image frame)
+        internal static async Task<byte[]> WireAsync(Image frame)
         {
             using var body = new MemoryStream();
             await FrameWire.WriteAsync(frame, body, TestContext.Current.CancellationToken);
@@ -104,7 +104,7 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>The route's 200: the frame's bytes, stamped with its number.</summary>
-        private static HttpResponseMessage FrameResponse(byte[] wire, int frameNumber)
+        internal static HttpResponseMessage FrameResponse(byte[] wire, int frameNumber)
         {
             var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(wire) };
             response.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(FrameWire.ContentType);
@@ -113,17 +113,17 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>The route's 204: the slot still shows the frame the client named.</summary>
-        private static HttpResponseMessage Unchanged(int frameNumber)
+        internal static HttpResponseMessage Unchanged(int frameNumber)
         {
             var response = new HttpResponseMessage(HttpStatusCode.NoContent);
             response.Headers.Add(TianWenNodeClient.PreviewFrameNumberHeader, frameNumber.ToString());
             return response;
         }
 
-        private static bool IsFrameRoute(HttpRequestMessage request) =>
+        internal static bool IsFrameRoute(HttpRequestMessage request) =>
             request.RequestUri is { } uri && uri.AbsolutePath.Contains("/frames/", StringComparison.Ordinal);
 
-        private static bool Released(Image image)
+        internal static bool Released(Image image)
         {
             if (image.TryLease(out var lease))
             {
