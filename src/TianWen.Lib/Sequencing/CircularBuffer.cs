@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Threading;
 
 namespace TianWen.Lib.Sequencing;
 
@@ -19,25 +20,52 @@ namespace TianWen.Lib.Sequencing;
 /// </summary>
 public sealed class CircularBuffer<T>(int capacity)
 {
-    private ImmutableArray<T> _items = [];
+    // The window and how many items were ever added, behind ONE reference, so a reader of both never sees one from
+    // before an append and the other from after it.
+    private State _state = new State([], 0);
+
+    private sealed record State(ImmutableArray<T> Items, long Appended);
 
     /// <summary>Torn-free snapshot of the current window, oldest first.</summary>
-    public ImmutableArray<T> Snapshot => _items;
+    public ImmutableArray<T> Snapshot => Volatile.Read(ref _state).Items;
 
-    public int Count => _items.Length;
+    public int Count => Snapshot.Length;
+
+    /// <summary>
+    /// The window and how many items were ever added, read together (P5b part 7 of docs/plans/hardware-in-the-server.md):
+    /// item <c>i</c> of the window is the <c>Appended - Items.Length + i</c>th ever added, which is what lets a client that
+    /// holds the first N ask for the rest and nothing else. The count never goes back, <see cref="Clear"/> included.
+    /// </summary>
+    public (ImmutableArray<T> Items, long Appended) Window
+    {
+        get
+        {
+            var state = Volatile.Read(ref _state);
+            return (state.Items, state.Appended);
+        }
+    }
 
     public void Add(T item)
     {
         // CAS loop: each instance has a single logical writer today, but this keeps a
         // second writer from silently losing an append should that ever change.
-        ImmutableArray<T> current, next;
+        State current, next;
         do
         {
-            current = _items;
-            next = current.Length < capacity ? current.Add(item) : current.RemoveAt(0).Add(item);
+            current = Volatile.Read(ref _state);
+            var items = current.Items.Length < capacity ? current.Items.Add(item) : current.Items.RemoveAt(0).Add(item);
+            next = new State(items, current.Appended + 1);
         }
-        while (ImmutableInterlocked.InterlockedCompareExchange(ref _items, next, current) != current);
+        while (Interlocked.CompareExchange(ref _state, next, current) != current);
     }
 
-    public void Clear() => _items = [];
+    public void Clear()
+    {
+        State current;
+        do
+        {
+            current = Volatile.Read(ref _state);
+        }
+        while (Interlocked.CompareExchange(ref _state, new State([], current.Appended), current) != current);
+    }
 }

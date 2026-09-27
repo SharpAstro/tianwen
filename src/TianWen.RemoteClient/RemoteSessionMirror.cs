@@ -171,6 +171,109 @@ namespace TianWen.RemoteClient
         private CancellationTokenSource? _cts;
         private Task? _pollLoop;
 
+        // The session's histories as polled so far, each mapped once from the wire (P5b part 7): the node sends only what
+        // the cursor says is new, and it is appended here. Written by the poll loop, read by the render thread, both
+        // through ONE reference, so a frame never reads one history from before a poll and another from after it.
+        private Histories _histories = Histories.None;
+
+        /// <summary>
+        /// A session's histories held, the session they are of, and the number of the next guide step wanted (P5b part 7).
+        /// </summary>
+        internal sealed record Histories(
+            Guid? SessionId,
+            ImmutableArray<ExposureLogEntry> ExposureLog,
+            ImmutableArray<FocusRunRecord> FocusHistory,
+            ImmutableArray<CoolingSample> CoolingSamples,
+            ImmutableArray<PhaseTimestamp> PhaseTimeline,
+            ImmutableArray<GuideErrorSample> GuideSamples,
+            long NextGuideStep)
+        {
+            public static Histories None { get; } = new Histories(null, [], [], [], [], [], 0);
+
+            /// <summary>Where the client's copy ends, for the next poll to name; null while it holds no session's.</summary>
+            public SessionStateCursor? Cursor => SessionId is { } id
+                ? new SessionStateCursor(id, ExposureLog.Length, FocusHistory.Length, CoolingSamples.Length, PhaseTimeline.Length, NextGuideStep)
+                : null;
+
+            /// <summary>
+            /// <paramref name="held"/> continued with a polled state: each history appended where the node says its part
+            /// starts, when that is where the copy held ends and the state is of the same session; else the part sent is
+            /// the history, and one that could not be continued (a part starting anywhere but the end held or the start)
+            /// leaves no session named, so the next poll asks for everything. A node from before part 7 names no session
+            /// and sends every history whole, which this takes as it comes.
+            /// </summary>
+            public static Histories Continue(Histories held, SessionStateDto state)
+            {
+                var from = state.HistoryFrom;
+                var same = from is not null && state.SessionId is { } id && held.SessionId == id;
+                var intact = true;
+
+                ImmutableArray<T> Next<TDto, T>(ImmutableArray<T> have, int start, ImmutableArray<TDto> sent, Func<TDto, T> map)
+                {
+                    var part = Map(sent, map);
+                    if (same && start == have.Length)
+                    {
+                        return have.AddRange(part);
+                    }
+                    if (from is not null && start != 0)
+                    {
+                        intact = false;
+                    }
+                    return part;
+                }
+
+                var exposureLog = Next(held.ExposureLog, from?.ExposureLog ?? 0, state.ExposureLog, ToExposure);
+                var focusHistory = Next(held.FocusHistory, from?.FocusHistory ?? 0, state.FocusHistory, ToFocusRun);
+                var cooling = Next(held.CoolingSamples, from?.CoolingSamples ?? 0, state.CoolingSamples, ToCooling);
+                var phases = Next(held.PhaseTimeline, from?.PhaseTimeline ?? 0, state.PhaseTimeline, ToPhase);
+
+                // The guide steps are a window of the latest, like the session's own ring: appended when they follow what
+                // is held (or follow a gap, when this client fell behind the ring), and trimmed to the ring's size.
+                var steps = Map(state.Guider?.RecentSteps ?? [], ToGuideStep);
+                var guideFrom = from?.GuideSteps ?? 0;
+                var guide = same && guideFrom >= held.NextGuideStep ? held.GuideSamples.AddRange(steps) : steps;
+                if (guide.Length > ISessionTelemetry.GuideSampleCapacity)
+                {
+                    guide = guide.RemoveRange(0, guide.Length - ISessionTelemetry.GuideSampleCapacity);
+                }
+
+                return new Histories(intact ? state.SessionId : null, exposureLog, focusHistory, cooling, phases, guide, guideFrom + steps.Length);
+            }
+
+            private static ImmutableArray<T> Map<TDto, T>(ImmutableArray<TDto> sent, Func<TDto, T> map)
+            {
+                if (sent.IsDefaultOrEmpty)
+                {
+                    return [];
+                }
+
+                var builder = ImmutableArray.CreateBuilder<T>(sent.Length);
+                foreach (var item in sent)
+                {
+                    builder.Add(map(item));
+                }
+                return builder.MoveToImmutable();
+            }
+
+            private static ExposureLogEntry ToExposure(ExposureLogDto e) => new ExposureLogEntry(
+                e.Timestamp, e.TargetName, e.FilterName,
+                TimeSpan.FromSeconds(e.ExposureSeconds), e.FrameNumber, JsonNumber.FromWire(e.MedianHfd), e.StarCount);
+
+            private static FocusRunRecord ToFocusRun(FocusRunDto run) => new FocusRunRecord(
+                run.Timestamp, run.OtaName, run.FilterName, run.BestPosition, JsonNumber.FromWire(run.BestHfd),
+                ToCurve(run.Curve), JsonNumber.FromWire(run.FitA), JsonNumber.FromWire(run.FitB));
+
+            private static CoolingSample ToCooling(CoolingSampleDto s) => new CoolingSample(
+                s.Timestamp, s.CameraIndex, JsonNumber.FromWire(s.TemperatureC), JsonNumber.FromWire(s.SetpointTemperatureC),
+                JsonNumber.FromWire(s.CoolerPowerPercent));
+
+            private static PhaseTimestamp ToPhase(PhaseTimestampDto pt) => new PhaseTimestamp(pt.Phase, pt.StartTime);
+
+            private static GuideErrorSample ToGuideStep(GuideStepDto step) => new GuideErrorSample(
+                step.Timestamp, JsonNumber.FromWire(step.RaError), JsonNumber.FromWire(step.DecError),
+                JsonNumber.FromWire(step.RaCorrectionMs), JsonNumber.FromWire(step.DecCorrectionMs), step.IsDither, step.IsSettling);
+        }
+
         // The node's token for each frame source, from the state and from FRAME-AVAILABLE, whichever came last (P5b part
         // 6): a source is fetched only when its token is not the one its slot holds. Written by the poll loop and by the
         // socket's thread, so concurrent.
@@ -539,7 +642,7 @@ namespace TianWen.RemoteClient
         /// <summary>One poll cycle. Internal so a test can step it with a fake clock.</summary>
         internal async Task PollOnceAsync(CancellationToken cancellationToken)
         {
-            var result = await _client.GetSessionStateAsync(cancellationToken).ConfigureAwait(false);
+            var result = await _client.GetSessionStateAsync(Volatile.Read(ref _histories).Cursor, cancellationToken).ConfigureAwait(false);
             var contactBefore = (NodeContactState)Volatile.Read(ref _contactState);
 
             if (result is { IsSuccess: true, Value: { } state })
@@ -555,6 +658,8 @@ namespace TianWen.RemoteClient
                 {
                     _frameTokens[token.Source] = token.Number;
                 }
+                // The histories first, then the snapshot: a reader that sees the new state finds its histories already there.
+                Volatile.Write(ref _histories, Histories.Continue(Volatile.Read(ref _histories), state));
                 Volatile.Write(ref _snapshot, state);
                 RaiseDerivedEvents(state);
                 RaiseChanged();
@@ -575,6 +680,7 @@ namespace TianWen.RemoteClient
                 StampContact(); // a 404 is the node answering -- "seen" is about the node, not the session
                 Volatile.Write(ref _contactState, (int)NodeContactState.Answering);
                 var ended = Interlocked.Exchange(ref _snapshot, null) is not null;
+                Volatile.Write(ref _histories, Histories.None);
                 _lastGuiderState = null;
                 _lastPhase = SessionPhase.NotStarted;
                 WithdrawRaisedPrompt();
@@ -1420,23 +1526,7 @@ namespace TianWen.RemoteClient
             }
         }
 
-        public ImmutableArray<PhaseTimestamp> PhaseTimeline
-        {
-            get
-            {
-                if (Snapshot?.PhaseTimeline is not { IsDefaultOrEmpty: false } timeline)
-                {
-                    return [];
-                }
-
-                var builder = ImmutableArray.CreateBuilder<PhaseTimestamp>(timeline.Length);
-                foreach (var pt in timeline)
-                {
-                    builder.Add(new PhaseTimestamp(pt.Phase, pt.StartTime));
-                }
-                return builder.MoveToImmutable();
-            }
-        }
+        public ImmutableArray<PhaseTimestamp> PhaseTimeline => Volatile.Read(ref _histories).PhaseTimeline;
 
         public string? GuiderState => Snapshot?.Guider?.State;
 
@@ -1463,25 +1553,7 @@ namespace TianWen.RemoteClient
             }
         }
 
-        public ImmutableArray<GuideErrorSample> GuideSamples
-        {
-            get
-            {
-                if (Snapshot?.Guider?.RecentSteps is not { IsDefaultOrEmpty: false } steps)
-                {
-                    return [];
-                }
-
-                var builder = ImmutableArray.CreateBuilder<GuideErrorSample>(steps.Length);
-                foreach (var step in steps)
-                {
-                    builder.Add(new GuideErrorSample(
-                        step.Timestamp, JsonNumber.FromWire(step.RaError), JsonNumber.FromWire(step.DecError),
-                        JsonNumber.FromWire(step.RaCorrectionMs), JsonNumber.FromWire(step.DecCorrectionMs), step.IsDither, step.IsSettling));
-                }
-                return builder.MoveToImmutable();
-            }
-        }
+        public ImmutableArray<GuideErrorSample> GuideSamples => Volatile.Read(ref _histories).GuideSamples;
 
         // --- Event-sourced: the state DTO carries no history for these, but the node broadcasts every
         // occurrence, so it covers everything since this mirror attached (not the whole run). --------
@@ -1489,74 +1561,20 @@ namespace TianWen.RemoteClient
         public ImmutableArray<PlateSolveRecord> PlateSolveHistory => _plateSolveHistory;
 
         /// <summary>
-        /// Read from the snapshot, which carries the <b>whole run</b>. Deliberately NOT the
-        /// event-sourced <c>_exposureLog</c> that FRAME-WRITTEN feeds: that only ever covered frames
-        /// written while this mirror was attached, so a client joining mid-night showed an empty frame
-        /// list next to a non-zero frame count. Polling is the authoritative channel (the broadcast is a
-        /// latency hint), so the snapshot wins and the worst case is lagging one frame by one poll.
+        /// The <b>whole run's</b> log, from the polls (P5b part 7: the first poll brings it whole, each later one only the
+        /// entries after those held). Deliberately NOT built from FRAME-WRITTEN, which only ever covered frames written
+        /// while this mirror was attached, so a client joining mid-night showed an empty frame list next to a non-zero
+        /// frame count. Polling is the authoritative channel (the broadcast is a latency hint), so the worst case is
+        /// lagging one frame by one poll.
         /// </summary>
-        public ImmutableArray<ExposureLogEntry> ExposureLog
-        {
-            get
-            {
-                if (Snapshot?.ExposureLog is not { IsDefaultOrEmpty: false } log)
-                {
-                    return [];
-                }
+        public ImmutableArray<ExposureLogEntry> ExposureLog => Volatile.Read(ref _histories).ExposureLog;
 
-                var builder = ImmutableArray.CreateBuilder<ExposureLogEntry>(log.Length);
-                foreach (var e in log)
-                {
-                    builder.Add(new ExposureLogEntry(
-                        e.Timestamp, e.TargetName, e.FilterName,
-                        TimeSpan.FromSeconds(e.ExposureSeconds), e.FrameNumber, JsonNumber.FromWire(e.MedianHfd), e.StarCount));
-                }
-                return builder.MoveToImmutable();
-            }
-        }
-
-        public ImmutableArray<FocusRunRecord> FocusHistory
-        {
-            get
-            {
-                if (Snapshot?.FocusHistory is not { IsDefaultOrEmpty: false } runs)
-                {
-                    return [];
-                }
-
-                var builder = ImmutableArray.CreateBuilder<FocusRunRecord>(runs.Length);
-                foreach (var run in runs)
-                {
-                    builder.Add(new FocusRunRecord(
-                        run.Timestamp, run.OtaName, run.FilterName, run.BestPosition, JsonNumber.FromWire(run.BestHfd),
-                        ToCurve(run.Curve), JsonNumber.FromWire(run.FitA), JsonNumber.FromWire(run.FitB)));
-                }
-                return builder.MoveToImmutable();
-            }
-        }
+        public ImmutableArray<FocusRunRecord> FocusHistory => Volatile.Read(ref _histories).FocusHistory;
 
         public ImmutableArray<(int Position, float Hfd)> ActiveFocusSamples
             => ToCurve(Snapshot?.ActiveFocusSamples ?? []);
 
-        public ImmutableArray<CoolingSample> CoolingSamples
-        {
-            get
-            {
-                if (Snapshot?.CoolingSamples is not { IsDefaultOrEmpty: false } samples)
-                {
-                    return [];
-                }
-
-                var builder = ImmutableArray.CreateBuilder<CoolingSample>(samples.Length);
-                foreach (var s in samples)
-                {
-                    builder.Add(new CoolingSample(
-                        s.Timestamp, s.CameraIndex, JsonNumber.FromWire(s.TemperatureC), JsonNumber.FromWire(s.SetpointTemperatureC),
-                        JsonNumber.FromWire(s.CoolerPowerPercent)));
-                }
-                return builder.MoveToImmutable();
-            }
-        }
+        public ImmutableArray<CoolingSample> CoolingSamples => Volatile.Read(ref _histories).CoolingSamples;
 
         private static ImmutableArray<(int Position, float Hfd)> ToCurve(ImmutableArray<FocusSampleDto> curve)
         {

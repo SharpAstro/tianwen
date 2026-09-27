@@ -21,6 +21,13 @@ public interface IHostedSession : IHostedService
     ISession? CurrentSession { get; }
 
     /// <summary>
+    /// <see cref="CurrentSession"/> with the id the node names it by for as long as it is the one on show (P5b part 7), in
+    /// ONE read, so a state is never of one run and named for another: a client's cursor into a session's histories names
+    /// the session, and one naming another gets them whole.
+    /// </summary>
+    (ISession Session, Guid Id)? CurrentSessionWithId { get; }
+
+    /// <summary>
     /// The node's latest run that is not a session (a dark library, P5), going on or the last to end, until the next
     /// start replaces it; null when the latest run is a session, or none has been.
     /// </summary>
@@ -157,6 +164,9 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
     private readonly CircularBuffer<NotificationDto> _notifications = new CircularBuffer<NotificationDto>(NotificationCapacity);
 
     public ISession? CurrentSession => Volatile.Read(ref _run)?.Session;
+
+    public (ISession Session, Guid Id)? CurrentSessionWithId =>
+        Volatile.Read(ref _run) is { Session: { } session } run ? (session, run.SessionId) : null;
 
     public INodeRun? CurrentRun => Volatile.Read(ref _run)?.Other;
 
@@ -514,6 +524,9 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
 
         /// <summary>The run's session, for a session or a flat run; null for any other kind.</summary>
         public ISession? Session { get; }
+
+        /// <summary>The id the node names <see cref="Session"/> by (<see cref="IHostedSession.CurrentSessionWithId"/>).</summary>
+        public Guid SessionId { get; } = Guid.NewGuid();
 
         /// <summary>The run itself, for a kind that is not a session.</summary>
         public INodeRun? Other => _owned as INodeRun;

@@ -23,6 +23,30 @@ public class CircularBufferTests
         buffer.Snapshot.ShouldBe([3, 4, 5]);
     }
 
+    /// <summary>
+    /// The window and how many were ever added are read together, and the count never goes back, Clear included: a node
+    /// sends a client the guide samples after the number it holds (P5b part 7), which a count that reset would repeat.
+    /// </summary>
+    [Fact]
+    public void The_window_counts_every_item_ever_added_and_Clear_keeps_the_count()
+    {
+        var buffer = new CircularBuffer<int>(3);
+        for (var i = 1; i <= 5; i++)
+        {
+            buffer.Add(i);
+        }
+
+        var (items, appended) = buffer.Window;
+        items.ShouldBe([3, 4, 5]);
+        appended.ShouldBe(5L, "item i of the window is the (appended - count + i)th added");
+
+        buffer.Clear();
+        buffer.Window.Items.ShouldBeEmpty();
+        buffer.Window.Appended.ShouldBe(5L);
+        buffer.Add(6);
+        buffer.Window.Appended.ShouldBe(6L);
+    }
+
     [Fact]
     public void Snapshot_is_stable_across_later_adds()
     {

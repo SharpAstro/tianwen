@@ -23,9 +23,9 @@ internal static class SessionEndpoints
     {
         var group = routes.MapGroup("/api/v1/session");
 
-        group.MapGet("/state", (IHostedSession hosted, NodeFrames frames, ITimeProvider timeProvider) =>
+        group.MapGet("/state", (HttpContext httpContext, IHostedSession hosted, NodeFrames frames, ITimeProvider timeProvider) =>
         {
-            if (hosted.CurrentSession is not { } session)
+            if (hosted.CurrentSessionWithId is not var (session, sessionId))
             {
                 return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail("No active session", 404),
@@ -42,7 +42,10 @@ internal static class SessionEndpoints
                 timeProvider.GetUtcNow(),
                 // The session /state shows is the one a session or a flat run started; any other kind of run answers 404.
                 hosted.RunningKind is NodeRunKind.Session or NodeRunKind.Flats ? hosted.RunningKind : null,
-                FrameTokens(frames));
+                FrameTokens(frames),
+                // Each history from where the client's copy ends, when it names this session (P5b part 7).
+                sessionId,
+                SessionStateCursor.FromQuery(key => httpContext.Request.Query.TryGetValue(key, out var value) ? value.ToString() : null));
             return EnvelopeResults.Json(
                 ResponseEnvelope<SessionStateDto>.Ok(dto),
                 HostingJsonContext.Default.ResponseEnvelopeSessionStateDto);
