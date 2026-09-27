@@ -44,10 +44,14 @@ class Gate:
     the deployment case and not as the extrapolation it is on a sub.
     """
 
-    def __init__(self, mm, cells, device, input_slot=1):
+    def __init__(self, mm, cells, device, input_slot=1, sigma=None):
         self.dev = device
         self.masters = np.asarray(mm[cells, S.SLOT_MASTER], dtype=np.float32)
         self.subs = np.asarray(mm[cells, input_slot], dtype=np.float32)
+        # E16's --cond-map: the stored per-pixel planes of the two inputs the probe denoises, or None for a
+        # model on the scalar plane. Taken here with the tiles, so the probe feeds what the training step does.
+        self.master_planes = None if sigma is None else np.asarray(sigma[cells, S.SLOT_MASTER], dtype=np.float32)
+        self.sub_planes = None if sigma is None else np.asarray(sigma[cells, input_slot], dtype=np.float32)
         if not np.any(self.subs):
             raise SystemExit(f"gate input slot {input_slot} is all zeros on this cache; a pair cache "
                              f"needs --half-only, which probes night A's half slot")
@@ -84,14 +88,18 @@ class Gate:
         self.sub_mad = np.array([_whole_mad(t)[1]
                                  for t in S.crop(self.subs).mean(axis=1)])
 
-    def _forward(self, model, cond, src):
+    def _forward(self, model, cond, src, planes=None):
         """cond is the conditioning PLANE COUNT (falsy when off), not a flag, so the probe builds
-        the same input the training step does instead of assuming a single scalar plane."""
+        the same input the training step does instead of assuming a single scalar plane. `planes` is
+        the input's stored per-pixel plane under --cond-map, which then wins over the scalar."""
         out = []
         with torch.no_grad():
             for i in range(0, len(src), 8):
                 x = torch.from_numpy(src[i:i + 8]).to(self.dev)
-                out.append(model(S.with_sigma(x, planes=cond) if cond else x).cpu().numpy())
+                if planes is not None:
+                    out.append(model(S.with_plane(x, planes[i:i + 8])).cpu().numpy())
+                else:
+                    out.append(model(S.with_sigma(x, planes=cond) if cond else x).cpu().numpy())
         return np.concatenate(out)
 
     def spurious_per_tile(self, arr, ref_mad=None):
@@ -133,7 +141,7 @@ class Gate:
         try:
             # Applied to the MASTER: the deployment case, and where noise/amp/detect mean what
             # the final report means by them.
-            den_m = S.crop(self._forward(model, cond, self.masters))
+            den_m = S.crop(self._forward(model, cond, self.masters, self.master_planes))
             la = den_m.mean(axis=1)
             noise = float(np.mean([M.bg_stats(t)[1] for t in la])) / self.base_noise
             amp, det, _ = M.measure(la, self.stars, self.lm)
@@ -148,7 +156,7 @@ class Gate:
             # Applied to a SUB: where the model extrapolates hardest, so invention shows up.
             # The gate's direction depends on the input, which is why it is measured here and
             # not on the master, where the input IS the reference and low would mean erasure.
-            den_s = S.crop(self._forward(model, cond, self.subs))
+            den_s = S.crop(self._forward(model, cond, self.subs, self.sub_planes))
             spur_per_tile = self.spurious_per_tile(den_s)
             spur_abs_per_tile = self.spurious_per_tile(den_s, ref_mad=self.sub_mad)
         finally:
