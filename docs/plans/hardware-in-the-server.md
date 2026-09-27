@@ -1200,8 +1200,15 @@ It lands in two PRs:
   not the frame held: a poll with nothing new asks for no frame at all, where each OTA was asked every 500 ms. A node
   from before this sends no tokens and is asked every poll, as before. The rig on screen pulls only the frames its tab
   draws (`ViewContexts.FramesShownOn`), and its view redraws on the mirror's `Changed`.
-- **6b, a stale rig and its feed.** The Live Session and Guider tabs say when a rig has stopped answering, and a rig's
-  notes are its node's ring, then each `NOTIFICATION` it pushes.
+- **6b, a stale rig and its feed.** Whether a node is answering is one rule, `ISessionTelemetry.Contact`: Connecting
+  until the first poll comes back, then Answering or NotAnswering as the latest poll found it, with when it last answered.
+  It is said in one wording (`RemoteRigActions.DescribeContact`: "Connecting", "Not answering (last seen 3 min ago)") by
+  the rig's Home card, its Live Session tab (in place of the activity, GUI and TUI) and its Guider tab (in the header).
+  The card used to call a rig still connecting "Not answering". A rig's notes are its node's feed
+  (`RemoteSessionMirror.Notes`): the ring, read at the first answer and again after the socket reconnects, since a note
+  pushed while it was down is in the ring alone, then each `NOTIFICATION`, one of each note. The Notifications tab shows
+  the feed of the view on show (`NotificationFeed`), and the card's last note comes from it, so a rig's "session ended"
+  note stays on the card after its node goes idle, where the state's own note went with the state.
 
 ### P5b part 7: incremental polling
 

@@ -212,7 +212,9 @@ internal sealed class TuiLiveSessionTab(
 
         // Phase + activity
         var phaseLabel = LiveSessionActions.PhaseLabel(LiveState.Phase);
-        var statusText = LiveSessionActions.PhaseStatusText(LiveState, timeProvider);
+        // A rig whose node has gone quiet says so in place of the activity (P5b part 6), the same words as the GUI's.
+        var statusText = RemoteRigActions.DescribeContact(LiveState.Contact, binding: null, timeProvider.GetUtcNow())
+            ?? LiveSessionActions.PhaseStatusText(LiveState, timeProvider);
         _topBar.Text($" [{phaseLabel}]  {statusText}");
 
         // Right side: obs/frame/exp counter

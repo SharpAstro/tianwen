@@ -276,9 +276,26 @@ namespace TianWen.UI.Abstractions
         /// </para>
         /// </summary>
         public static string DescribeLastSeen(RemoteRigBinding binding, DateTimeOffset now) =>
-            binding.LastSeenUtc is { } seen ? $" (last seen {FormatAge(seen, now)})"
-            : binding.LastAddress is { } address ? $" (last seen at {address})"
+            LastSeenTail(binding.LastSeenUtc, binding.LastAddress, now);
+
+        private static string LastSeenTail(DateTimeOffset? lastSeen, string? lastAddress, DateTimeOffset now) =>
+            lastSeen is { } seen ? $" (last seen {FormatAge(seen, now)})"
+            : lastAddress is { } address ? $" (last seen at {address})"
             : "";
+
+        /// <summary>
+        /// What a view of a rig says about its node when it is not simply answering (P5b part 6): "Connecting" before
+        /// its first answer, "Not answering (last seen 3 min ago)" once it has gone quiet, and null while it answers.
+        /// ONE wording for the rig's Home card and its Live Session and Guider tabs; <paramref name="binding"/> is the
+        /// card's fallback to when and where the rig was last seen before this run, which the tabs do without.
+        /// </summary>
+        public static string? DescribeContact(NodeContact contact, RemoteRigBinding? binding, DateTimeOffset now) => contact.State switch
+        {
+            NodeContactState.Connecting => "Connecting",
+            NodeContactState.NotAnswering =>
+                $"Not answering{LastSeenTail(contact.LastAnsweredUtc ?? binding?.LastSeenUtc, binding?.LastAddress, now)}",
+            _ => null,
+        };
 
         /// <summary>
         /// A coarse human age: "moments ago" / "12 min ago" / "3 h ago" / "5 days ago".

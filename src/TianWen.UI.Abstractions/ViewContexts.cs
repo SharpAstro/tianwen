@@ -97,6 +97,66 @@ namespace TianWen.UI.Abstractions
         private RemoteSessionMirror? _mirror;
 
         private void OnMirrorChanged(object? sender, EventArgs e) => LiveSession.NeedsRedraw = true;
+
+        /// <summary>
+        /// A rig's notes as this computer's feed shows notes, newest first (P5b part 6): its node's ring, then what it
+        /// pushed (<see cref="RemoteSessionMirror.Notes"/>). Empty for the local context, whose notes are the app's own
+        /// (<see cref="GuiAppState.Notifications"/>), and for a rig not connected. Mapped once per change of the mirror's
+        /// notes, not per frame.
+        /// </summary>
+        public ImmutableArray<NotificationEntry> NodeNotes
+        {
+            get
+            {
+                if (Mirror is not { } mirror)
+                {
+                    return [];
+                }
+
+                var notes = mirror.Notes;
+                if (Volatile.Read(ref _nodeNotes) is { } cached && cached.Source == notes)
+                {
+                    return cached.Entries;
+                }
+
+                var entries = ImmutableArray.CreateBuilder<NotificationEntry>(notes.Length);
+                for (var i = notes.Length - 1; i >= 0; i--)
+                {
+                    entries.Add(NotificationEntry.FromNode(notes[i]));
+                }
+                var mapped = new NodeNotesCache(notes, entries.MoveToImmutable());
+                // A reference swap: two render loops (the GUI's, the TUI's) mapping the same notes at once write the same
+                // thing, so the last write winning is harmless.
+                Volatile.Write(ref _nodeNotes, mapped);
+                return mapped.Entries;
+            }
+        }
+
+        private sealed record NodeNotesCache(ImmutableArray<TianWen.Hosting.Dto.NotificationDto> Source, ImmutableArray<NotificationEntry> Entries);
+
+        private NodeNotesCache? _nodeNotes;
+    }
+
+    /// <summary>
+    /// The notifications a view shows (P5b part 6): this computer's own on its own view, and on a rig's its node's notes,
+    /// so the Notifications tab, like every other, shows what is on screen. ONE description for the GUI's tab and the TUI's.
+    /// </summary>
+    /// <param name="Entries">Newest first.</param>
+    /// <param name="RigName">The rig the notes are from; null for this computer's own.</param>
+    public readonly record struct NotificationFeed(ImmutableArray<NotificationEntry> Entries, string? RigName)
+    {
+        /// <summary>The feed of the view on show.</summary>
+        public static NotificationFeed Of(ViewContext view, GuiAppState app) =>
+            view.IsLocal ? new NotificationFeed(app.Notifications, null) : new NotificationFeed(view.NodeNotes, view.DisplayName);
+
+        /// <summary>Whether these are this computer's own notes, the only ones it can clear: a rig's are its node's.</summary>
+        public bool IsLocal => RigName is null;
+
+        /// <summary>The tab's heading.</summary>
+        public string Header => IsLocal ? $"Notifications ({Entries.Length})" : $"Notifications from {RigName} ({Entries.Length})";
+
+        /// <summary>What the tab says with nothing to list.</summary>
+        public string EmptyText => IsLocal ? "No notifications yet." : $"No notes from {RigName} yet.";
     }
 
     /// <summary>

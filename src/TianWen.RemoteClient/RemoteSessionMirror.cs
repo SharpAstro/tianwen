@@ -198,6 +198,45 @@ namespace TianWen.RemoteClient
             _timeProvider = timeProvider;
             _logger = logger;
             _events.EventReceived += OnNodeEvent;
+            _events.ConnectedChanged += OnEventStreamConnectedChanged;
+        }
+
+        /// <summary>
+        /// Whether the node is answering, and when it last did (P5b part 6): connecting until the first poll comes back,
+        /// then as the latest poll found it. One rule for every view of a rig: its Home card, its Live Session and its
+        /// Guider tab.
+        /// </summary>
+        public NodeContact Contact => new NodeContact((NodeContactState)Volatile.Read(ref _contactState), LastContactUtc);
+
+        // The contact state, written by the poll loop and read by the render thread.
+        private int _contactState = (int)NodeContactState.Connecting;
+
+        /// <summary>
+        /// The node's notes, oldest first as its ring keeps them (P5b part 6): the ring as it stood when it was fetched, then
+        /// each <c>NOTIFICATION</c> it pushed. The ring is fetched when the node first answers and again after the socket
+        /// reconnects, since a note pushed while it was down is in the ring and nowhere else.
+        /// </summary>
+        public ImmutableArray<NotificationDto> Notes => _notes;
+
+        // Replaced whole by the poll loop (the ring) and the socket's thread (a push), never mutated: one reference, so a
+        // read is never torn.
+        private ImmutableArray<NotificationDto> _notes = [];
+
+        /// <summary>The most notes kept: the node's own ring holds no more.</summary>
+        internal const int MaxNotes = 500;
+
+        // Whether the ring is to be fetched on the node's next answer: at the start, and after the socket reconnects.
+        // Raised on the socket's thread, taken by the poll loop.
+        private int _ringDue = 1;
+
+        /// <summary>The socket (re)connected: the ring is read again at the node's next answer. <c>internal</c> so a test can
+        /// raise it without a socket.</summary>
+        internal void OnEventStreamConnectedChanged(object? sender, bool connected)
+        {
+            if (connected)
+            {
+                Interlocked.Exchange(ref _ringDue, 1);
+            }
         }
 
         /// <summary>
@@ -272,6 +311,7 @@ namespace TianWen.RemoteClient
         public async ValueTask DisposeAsync()
         {
             _events.EventReceived -= OnNodeEvent;
+            _events.ConnectedChanged -= OnEventStreamConnectedChanged;
 
             if (_cts is { } cts)
             {
@@ -500,7 +540,7 @@ namespace TianWen.RemoteClient
         internal async Task PollOnceAsync(CancellationToken cancellationToken)
         {
             var result = await _client.GetSessionStateAsync(cancellationToken).ConfigureAwait(false);
-            var wasReachable = IsNodeReachable;
+            var contactBefore = (NodeContactState)Volatile.Read(ref _contactState);
 
             if (result is { IsSuccess: true, Value: { } state })
             {
@@ -508,6 +548,7 @@ namespace TianWen.RemoteClient
                 LastError = null;
                 _consecutiveFailures = 0;
                 StampContact();
+                Volatile.Write(ref _contactState, (int)NodeContactState.Answering);
                 Volatile.Write(ref _clockSkewTicks, state.NodeNowUtc is { } nodeNow ? (_timeProvider.GetUtcNow() - nodeNow).Ticks : 0);
                 _nodeSendsFrameTokens = state.Frames is not null;
                 foreach (var token in state.Frames ?? [])
@@ -518,6 +559,8 @@ namespace TianWen.RemoteClient
                 RaiseDerivedEvents(state);
                 RaiseChanged();
                 await RefreshPreviewsAsync(state, cancellationToken).ConfigureAwait(false);
+                // After the state and its frames are out: the ring is the node's history, which a view can wait for.
+                await RefreshNotesIfDueAsync(cancellationToken).ConfigureAwait(false);
                 return;
             }
 
@@ -530,12 +573,14 @@ namespace TianWen.RemoteClient
                 // A 404 is the node ANSWERING, so it resets the backoff -- an idle rig is a healthy rig.
                 _consecutiveFailures = 0;
                 StampContact(); // a 404 is the node answering -- "seen" is about the node, not the session
+                Volatile.Write(ref _contactState, (int)NodeContactState.Answering);
                 var ended = Interlocked.Exchange(ref _snapshot, null) is not null;
                 _lastGuiderState = null;
                 _lastPhase = SessionPhase.NotStarted;
                 WithdrawRaisedPrompt();
                 ClearPreviews();
-                if (ended || !wasReachable)
+                await RefreshNotesIfDueAsync(cancellationToken).ConfigureAwait(false);
+                if (ended || contactBefore is not NodeContactState.Answering)
                 {
                     RaiseChanged();
                 }
@@ -543,10 +588,11 @@ namespace TianWen.RemoteClient
             }
 
             // Unreachable: keep the last snapshot. A brief network blip should leave the last known
-            // state on screen (flagged stale via IsNodeReachable) rather than blanking the tab.
+            // state on screen (flagged stale via IsNodeReachable and Contact) rather than blanking the tab.
             IsNodeReachable = false;
             LastError = result.Error;
-            if (wasReachable)
+            Volatile.Write(ref _contactState, (int)NodeContactState.NotAnswering);
+            if (contactBefore is not NodeContactState.NotAnswering)
             {
                 RaiseChanged();
             }
@@ -555,6 +601,71 @@ namespace TianWen.RemoteClient
                 _consecutiveFailures++;
             }
         }
+
+        /// <summary>
+        /// Fetches the node's notification ring when it is due (<see cref="Notes"/>), and merges it with what was pushed. A
+        /// ring that could not be read is due again at the next answer: a feed missing its start would read as a node that
+        /// said nothing before this client attached.
+        /// </summary>
+        private async Task RefreshNotesIfDueAsync(CancellationToken cancellationToken)
+        {
+            if (Interlocked.Exchange(ref _ringDue, 0) == 0)
+            {
+                return;
+            }
+
+            var ring = await _client.GetNotificationsAsync(cancellationToken).ConfigureAwait(false);
+            if (ring is { IsSuccess: true, Value: { } notes })
+            {
+                if (MergeNotes(notes))
+                {
+                    RaiseChanged();
+                }
+                return;
+            }
+
+            _logger.LogDebug("Reading the notification ring of {Node} failed: {Error}", _client.BaseAddress, ring.Error);
+            Interlocked.Exchange(ref _ringDue, 1);
+        }
+
+        /// <summary>
+        /// Merges notes into <see cref="Notes"/>, the ring's and the pushes' alike: one of each note (a note is its instant,
+        /// severity and wording), oldest first, the newest <see cref="MaxNotes"/> kept. True when a note was new.
+        /// </summary>
+        internal bool MergeNotes(IReadOnlyCollection<NotificationDto> incoming) =>
+            ImmutableInterlocked.Update(ref _notes, static (held, incoming) =>
+            {
+                var seen = new HashSet<(DateTimeOffset, string, string)>(held.Length + incoming.Count);
+                foreach (var note in held)
+                {
+                    seen.Add((note.TimestampUtc, note.Severity, note.Message));
+                }
+
+                List<NotificationDto>? added = null;
+                foreach (var note in incoming)
+                {
+                    if (seen.Add((note.TimestampUtc, note.Severity, note.Message)))
+                    {
+                        (added ??= []).Add(note);
+                    }
+                }
+                if (added is null)
+                {
+                    // Nothing new: the same array, so Update reports no change.
+                    return held;
+                }
+
+                // OrderBy is stable, so two notes of one instant keep the order they came in.
+                ImmutableArray<NotificationDto> merged = [.. held.AddRange(added).OrderBy(static n => n.TimestampUtc)];
+                if (merged.Length > MaxNotes)
+                {
+                    merged = merged.RemoveRange(0, merged.Length - MaxNotes);
+                }
+
+                // Notes older than a full feed keeps come back with every read of the ring and are trimmed straight off
+                // again: that is nothing new, and the same array says so.
+                return merged.SequenceEqual(held) ? held : merged;
+            }, incoming);
 
         /// <summary>
         /// Whether to fetch the node's frames at all. Off by default: a mirror is often attached just to
@@ -1015,7 +1126,8 @@ namespace TianWen.RemoteClient
                 ReadInts(data, "StarCountsPerOTA")));
         }
 
-        /// <summary>Raises <see cref="NoteReceived"/> for a note the node recorded, as it pushed it.</summary>
+        /// <summary>Adds a note the node pushed to <see cref="Notes"/>, and raises <see cref="NoteReceived"/> for it, unless the
+        /// feed has it already.</summary>
         private void RaiseNoteReceived(WebSocketEventDto dto)
         {
             if (dto.Data is not { } data
@@ -1025,12 +1137,18 @@ namespace TianWen.RemoteClient
                 return;
             }
 
-            NoteReceived?.Invoke(this, new NotificationDto
+            var note = new NotificationDto
             {
                 Severity = ReadString(data, "Severity") ?? nameof(NotificationSeverity.Info),
                 Message = message,
                 TimestampUtc = when,
-            });
+            };
+            // One note once: a push the ring read already brought (the socket and the read raced) is not raised again.
+            if (!MergeNotes([note]))
+            {
+                return;
+            }
+            NoteReceived?.Invoke(this, note);
             RaiseChanged();
         }
 

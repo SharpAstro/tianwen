@@ -9,7 +9,7 @@ namespace TianWen.Cli.Tui;
 /// TUI notifications history tab. Newest first. Keyboard: Up/Down scroll one row,
 /// PgUp/PgDn page, Home/End jump to ends, C clears. Mouse wheel scrolls.
 /// </summary>
-internal sealed class TuiNotificationsTab(GuiAppState appState) : TuiTabBase
+internal sealed class TuiNotificationsTab(GuiAppState appState, ViewContexts contexts) : TuiTabBase
 {
     private ScrollableList<NotificationListItem>? _list;
     private TextBar? _statusBar;
@@ -52,19 +52,20 @@ internal sealed class TuiNotificationsTab(GuiAppState appState) : TuiTabBase
     {
         if (!IsReady) return;
 
-        var entries = appState.Notifications;
+        // The feed of the view on show (P5b part 6): this computer's, or the rig on screen's node's notes.
+        var feed = NotificationFeed.Of(contexts.Active, appState);
+        var entries = feed.Entries;
         var items = new NotificationListItem[entries.Length];
         for (var i = 0; i < entries.Length; i++)
         {
             items[i] = new NotificationListItem(entries[i], appState.SiteTimeZone);
         }
 
-        var header = entries.Length > 0
-            ? $" Notifications ({entries.Length})"
-            : " Notifications \u2014 nothing yet";
-        _list.Items(items).Header(header);
+        _list.Items(items).Header(" " + (entries.Length > 0 ? feed.Header : feed.EmptyText));
 
-        _statusBar.Text(" \u2191\u2193:scroll  PgUp/PgDn:page  Home/End:jump  C:clear  Q:quit");
+        _statusBar.Text(feed.IsLocal
+            ? " \u2191\u2193:scroll  PgUp/PgDn:page  Home/End:jump  C:clear  Q:quit"
+            : " \u2191\u2193:scroll  PgUp/PgDn:page  Home/End:jump  Q:quit");
         _statusBar.RightText(appState.StatusMessage ?? "");
     }
 
@@ -122,7 +123,8 @@ internal sealed class TuiNotificationsTab(GuiAppState appState) : TuiTabBase
             return false;
         }
 
-        if (key == InputKey.C)
+        // This computer's own notes only: a rig's are its node's.
+        if (key == InputKey.C && contexts.Active.IsLocal)
         {
             appState.ClearNotifications();
             NeedsRedraw = true;

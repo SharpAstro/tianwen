@@ -73,7 +73,7 @@ public class TuiListCursorTests
         var terminal = Terminal();
         var appState = WithProfile();
         var tab = EquipmentTab(appState);
-        var other = new TuiNotificationsTab(appState);
+        var other = new TuiNotificationsTab(appState, new ViewContexts());
 
         tab.Attach(terminal);
         tab.Render();
@@ -98,7 +98,7 @@ public class TuiListCursorTests
             appState.AppendNotification(Now.AddMinutes(i), NotificationSeverity.Info, $"note {i}");
         }
 
-        var tab = new TuiNotificationsTab(appState);
+        var tab = new TuiNotificationsTab(appState, new ViewContexts());
         tab.Attach(terminal);
         tab.Render();
         Press(tab, InputKey.Down, 3);
@@ -121,7 +121,7 @@ public class TuiListCursorTests
             appState.AppendNotification(Now.AddMinutes(i), NotificationSeverity.Info, $"note {i}");
         }
 
-        var tab = new TuiNotificationsTab(appState);
+        var tab = new TuiNotificationsTab(appState, new ViewContexts());
         tab.Attach(terminal);
         tab.Render();
         Press(tab, InputKey.Down, 3);
@@ -143,7 +143,7 @@ public class TuiListCursorTests
             appState.AppendNotification(Now.AddMinutes(i), NotificationSeverity.Info, $"note {i}");
         }
 
-        var tab = new TuiNotificationsTab(appState);
+        var tab = new TuiNotificationsTab(appState, new ViewContexts());
         tab.Attach(terminal);
         tab.Render();
         Press(tab, InputKey.Down, 5);
@@ -177,7 +177,7 @@ public class TuiListCursorTests
             appState.AppendNotification(Now.AddMinutes(i), NotificationSeverity.Info, $"note {i}");
         }
 
-        var tab = new TuiNotificationsTab(appState);
+        var tab = new TuiNotificationsTab(appState, new ViewContexts());
         tab.Attach(terminal);
         tab.Render();
         Press(tab, InputKey.Down, 4);
@@ -187,7 +187,7 @@ public class TuiListCursorTests
         tab.Render();
 
         // Nothing to select, so the restore leaves the list exactly as a never-touched empty one is.
-        var fresh = new TuiNotificationsTab(appState);
+        var fresh = new TuiNotificationsTab(appState, new ViewContexts());
         fresh.Attach(terminal);
         fresh.Render();
         tab.ListCursorIndex(TuiNotificationsTab.ListKey).ShouldBe(fresh.ListCursorIndex(TuiNotificationsTab.ListKey));

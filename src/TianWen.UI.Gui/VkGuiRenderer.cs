@@ -1036,7 +1036,7 @@ namespace TianWen.UI.Gui
                     break;
 
                 case GuiTab.Notifications:
-                    _notificationsTab.Render(appState, contentRect);
+                    _notificationsTab.Render(appState, ViewContexts.Active, contentRect);
                     break;
 
                 case GuiTab.Home:

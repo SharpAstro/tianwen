@@ -180,6 +180,15 @@ namespace TianWen.UI.Abstractions
                     });
                 RenderLayout(modeLeaf, new RectF32(pillX, pillY, pillW, pillH));
 
+                // A rig whose node has gone quiet says so beside the pill (P5b part 6): what the tab shows is then only
+                // the last thing the node said.
+                if (RemoteRigActions.DescribeContact(state.Contact, binding: null, timeProvider.GetUtcNow()) is { } quiet)
+                {
+                    var quietX = pillX + pillW + pad;
+                    RenderLayout(Layout.Builder.Text(quiet, BaseFontSize, GuiTheme.Palette.Warn, TextAlign.Near, TextAlign.Center),
+                        new RectF32(quietX, rect.Y, MathF.Max(0f, rect.X + rect.Width - pad - quietX), rect.Height));
+                }
+
                 // Current time is shown by the global status-bar clock (top-right on every
                 // tab) -- no separate in-content clock here, to avoid a duplicate display.
                 return;
@@ -190,7 +199,10 @@ namespace TianWen.UI.Abstractions
             // hand-placed FillRect pill + three absolutely-positioned DrawText columns.
             var pillColor = LiveSessionActions.PhaseColor(state.Phase);
             var label = LiveSessionActions.PhaseLabel(state.Phase);
-            var activityText = LiveSessionActions.PhaseStatusText(state, timeProvider);
+            // A rig whose node has gone quiet says so in place of the activity (P5b part 6), which would otherwise go on
+            // reading as live.
+            var quietText = RemoteRigActions.DescribeContact(state.Contact, binding: null, timeProvider.GetUtcNow());
+            var activityText = quietText ?? LiveSessionActions.PhaseStatusText(state, timeProvider);
 
             var obsIdx = state.CurrentObservationIndex;
             var obsCount = state.ActiveSession?.Observations.Count ?? 0;
@@ -207,7 +219,8 @@ namespace TianWen.UI.Abstractions
             var runTree = Layout.Builder.HStack(
                     Layout.Builder.Text(label, BaseFontSize * 0.9f, AbortText, TextAlign.Center, TextAlign.Center)
                         .WFixed(140f).HStar().Bg(pillColor),
-                    Layout.Builder.Text(activityText, BaseFontSize, BodyText, TextAlign.Near, TextAlign.Center).WStar(),
+                    Layout.Builder.Text(activityText, BaseFontSize, quietText is null ? BodyText : GuiTheme.Palette.Warn,
+                        TextAlign.Near, TextAlign.Center).WStar(),
                     Layout.Builder.Text(progressParts, BaseFontSize, DimText, TextAlign.Far, TextAlign.Center).WStar())
                 .WithGap(BasePadding).Pad(BasePadding);
             RenderLayout(runTree, rect);

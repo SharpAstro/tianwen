@@ -215,7 +215,10 @@ public class RemoteSessionMirrorEventTests
             {
                 return FrameResponse(wires[shown - 7], shown);
             }
-            stateRequests++;
+            if (request.RequestUri!.AbsolutePath.EndsWith("/session/state", StringComparison.Ordinal))
+            {
+                stateRequests++;
+            }
             return State(Tokens(ota0: 7));
         });
 

@@ -134,6 +134,14 @@ namespace TianWen.UI.Abstractions
         /// <summary>Current session phase.</summary>
         public SessionPhase Phase { get; set; }
 
+        /// <summary>
+        /// Whether the node running the session on show is answering (P5b part 6): always for this computer's own, and a
+        /// rig's word from its mirror. The Live Session and Guider tabs say so when it is not, since all they show is then
+        /// the last thing the node said. A record struct wider than a pointer, so written and read under the poll's
+        /// thread only (<see cref="PollSession"/>, on the render loop).
+        /// </summary>
+        public NodeContact Contact { get; set; }
+
         /// <summary>Total FITS frames written so far.</summary>
         public int TotalFramesWritten { get; set; }
 
@@ -557,6 +565,8 @@ namespace TianWen.UI.Abstractions
         {
             if (ActiveSession is not { } session)
             {
+                // Nothing on show has a node to go quiet: a rig let go must not leave its last word on the view.
+                Contact = NodeContact.InProcess;
                 return;
             }
 
@@ -575,6 +585,7 @@ namespace TianWen.UI.Abstractions
             }
 
             Phase = session.Phase;
+            Contact = session.Contact;
             TotalFramesWritten = session.TotalFramesWritten;
             TotalExposureTime = session.TotalExposureTime;
             CurrentObservationIndex = session.CurrentObservationIndex;

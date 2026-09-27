@@ -97,10 +97,13 @@ namespace TianWen.UI.Abstractions
             var dpiScale = DpiScale;
             State.PollFromLiveState(liveState);
             CameraRect = ProfilePlotRect = TargetViewRect = GraphRect = default;
+            // A rig whose node has gone quiet says so in the header (P5b part 6): the graph and the frame are then only
+            // the last the node sent.
+            var quiet = RemoteRigActions.DescribeContact(liveState.Contact, binding: null, timeProvider.GetUtcNow());
 
             if (State.PlaceholderReason is { } reason)
             {
-                RenderLayout(BuildPlaceholderTree(GuiderActions.PlaceholderText(reason)),
+                RenderLayout(BuildPlaceholderTree(GuiderActions.PlaceholderText(reason), quiet),
                     contentRect);
                 return;
             }
@@ -119,7 +122,7 @@ namespace TianWen.UI.Abstractions
             }
 
             var fontSize = BaseFontSize * dpiScale;
-            RenderLayout(BuildFrameTree(contentRect.Height / dpiScale), contentRect,
+            RenderLayout(BuildFrameTree(contentRect.Height / dpiScale, quiet), contentRect,
                 drawFill: (fill, rect) =>
                 {
                     switch (fill.Key)
@@ -158,17 +161,23 @@ namespace TianWen.UI.Abstractions
         /// Raster panes are keyed Fill leaves (painted in the drawFill callback); a pane with no
         /// data yet becomes a centred Text leaf instead, so empty states are layout too.
         /// </summary>
-        private Layout.Node BuildFrameTree(float contentHDesign)
+        private Layout.Node BuildFrameTree(float contentHDesign, string? quiet)
         {
             // Header: guider state + RMS. A lost guide star renders in alert red -- a silent
             // flatline with a healthy-looking header is how star loss went unnoticed before.
             var guiderLabelColor = State.GuiderState is "LostLock" ? AlertText : HeaderText;
-            var header = Layout.Builder.HStack(
-                    Layout.Builder.Text($"[{FormatGuiderStateLabel()}]", BaseFontSize, guiderLabelColor)
-                        .ColW(BaseGuiderLabelWidth),
-                    Layout.Builder.Text(GuiderActions.FormatRmsSummary(State.LastGuideStats),
-                        BaseFontSize * 0.9f, BodyText, TextAlign.Far).Stretch())
-                .Pad(BasePadding).Bg(HeaderBg);
+            var headerItems = new List<Layout.Node>
+            {
+                Layout.Builder.Text($"[{FormatGuiderStateLabel()}]", BaseFontSize, guiderLabelColor)
+                    .ColW(BaseGuiderLabelWidth),
+            };
+            if (quiet is not null)
+            {
+                headerItems.Add(Layout.Builder.Text(quiet, BaseFontSize * 0.9f, GuiTheme.Palette.Warn).Stretch());
+            }
+            headerItems.Add(Layout.Builder.Text(GuiderActions.FormatRmsSummary(State.LastGuideStats),
+                BaseFontSize * 0.9f, BodyText, TextAlign.Far).Stretch());
+            var header = Layout.Builder.HStack([.. headerItems]).Pad(BasePadding).Bg(HeaderBg);
 
             var camera = (GuideCameraViewer is not null && _displayedGuideFrame is not null
                     ? Layout.Builder.Fill(key: CameraFillKey)
@@ -216,14 +225,15 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>Placeholder chrome: the reason in the header strip plus a large centred copy in
-        /// the body, as one tree.</summary>
-        private static Layout.Node BuildPlaceholderTree(string text)
+        /// the body, as one tree. A quiet rig's word (<paramref name="quiet"/>) takes the header, since the reason is then
+        /// only what the node last said.</summary>
+        private static Layout.Node BuildPlaceholderTree(string text, string? quiet)
             => Layout.Builder.Dock(
                     Layout.Builder.Text(text, BaseFontSize * 1.5f, PlaceholderText,
                         TextAlign.Center, TextAlign.Center).Stretch(),
                     Layout.Builder.Top(
                         Layout.Builder.HStack(
-                                Layout.Builder.Text(text, BaseFontSize, PlaceholderText).Stretch())
+                                Layout.Builder.Text(quiet ?? text, BaseFontSize, quiet is null ? PlaceholderText : GuiTheme.Palette.Warn).Stretch())
                             .Pad(BasePadding).Bg(HeaderBg),
                         BaseHeaderHeight))
                 .Bg(ContentBg);

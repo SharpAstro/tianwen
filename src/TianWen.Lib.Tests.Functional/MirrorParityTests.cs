@@ -248,6 +248,8 @@ public class MirrorParityTests(ITestOutputHelper output)
         Put(nameof(state.OtaCount), state.OtaCount);
         Put(nameof(state.PendingPrompt), state.PendingPrompt?.Title);
         Put(nameof(state.Phase), state.Phase);
+        // The state only: when the node last answered is a mirror's alone, since a session in this process has no node.
+        Put("Contact.State", state.Contact.State);
         Put(nameof(state.TotalFramesWritten), state.TotalFramesWritten);
         Put(nameof(state.TotalExposureTime), state.TotalExposureTime);
         Put(nameof(state.CurrentObservationIndex), state.CurrentObservationIndex);

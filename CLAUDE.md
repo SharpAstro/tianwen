@@ -1346,6 +1346,12 @@ DTOs + `HostingJsonContext`) and `TianWen.RemoteClient` (`TianWenNodeClient`, `T
   added to `BroadcastEvents` goes into `BroadcastEventSerializationTests.EveryEvent`, which then fails
   `RemoteSessionMirrorEventTests` until `Dispatch` says what it is. **A frame is fetched only once its source's
   token moved** (the state's `Frames` or the push), and a view redraws on the mirror's `Changed`, never on a tick.
+  **Whether a rig is answering is ONE rule, `ISessionTelemetry.Contact`** (Connecting until the first poll comes back,
+  then as the latest poll found it), **said in ONE wording, `RemoteRigActions.DescribeContact`**, by the rig's Home card
+  and its Live Session and Guider tabs alike (P5b part 6b): a view of a quiet rig otherwise goes on showing the last thing
+  its node said as though it were live. **A rig's notes are its node's feed** (`RemoteSessionMirror.Notes`: the ring, read
+  at the first answer and after the socket reconnects, then each push, one of each note), shown by the Notifications tab
+  while the rig is on screen (`NotificationFeed`, one description for the GUI's tab and the TUI's).
 - **Every request has a time budget** (state 5 s, preview 30 s, control 10 s; 60 s `HttpClient`
   backstop). Budget expiry and caller cancellation both surface as `OperationCanceledException` meaning
   opposite things: keep `when (...)` filters on the ORIGINAL token, never the linked one.
