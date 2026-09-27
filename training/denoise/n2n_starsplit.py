@@ -41,6 +41,24 @@ FLOOR_MARGIN = 2.0     # a session's confirmed fraction must clear this times it
 BLEND_PX = 2.5         # a broad unmatched peak this close to a catalogued star is a blend
 BLEND_DEEPER = 1.0     # "catalogued" reaches this many magnitudes past the session's match cap
 
+# Detail kept, added 2026-09-28 after E15's 1:1 sheets showed every model, the shipped one included,
+# smoothing away the Orion Nebula's bright filaments while no column here moved: the columns above score
+# LOCAL MAXIMA, and a filament is a ridge. Per band of the H2 decomposition and per brightness level, the
+# share of the signal's band power the output keeps, against the independent half B:
+#   kept = sum(Y_b * B_b) / sum(A_b * B_b)
+# With A = S + nA and B = S + nB, nB is independent of A and of the model's output, so the numerator is
+# E[Y_b S_b] and the denominator E[S_b^2]: 1.0 keeps the band's signal (the identity and a perfect
+# denoiser both do), below 1 smooths it away, above 1 amplifies it. Removing noise cannot move it, which
+# is the point. The level of a pixel is B's own low-pass (independent of A); star-like peaks are masked,
+# since the columns above already score them; and a bin whose denominator is not clearly signal prints
+# '-' (the DoG bands are spatially correlated, so the z threshold is set high rather than read as a test).
+DETAIL_BANDS = ((0.0, 1.0), (1.0, 2.0), (2.0, 4.0))
+DETAIL_LEVELS = (0.30, 0.45, 0.60)   # stretched units; the export stretch puts a frame's median at 0.25
+DETAIL_LEVEL_SIGMA = 3.0
+DETAIL_MASK_PX = 3
+DETAIL_MIN_PIXELS = 2000
+DETAIL_MIN_Z = 10.0
+
 
 def audit_extended(idx, session_of, mask, cap_of, confirmed, compact, extended, crop_shape,
                    radius=2.5, deeper=1.0, randoms=200):
@@ -82,6 +100,71 @@ def audit_extended(idx, session_of, mask, cap_of, confirmed, compact, extended, 
         print(f"{sid.split('|')[0][-44:]:44s} {cap_of[sid]:4g} " + ' '.join(f'{c:>19s}' for c in cells))
     print('Read EXTENDED against RANDOM on the same row: at the random rate the population is not catalogued '
           'stars; near the STARS column it is, and a structure claim resting on it is a claim about stars.')
+
+
+def detail_bands(lum):
+    """The DETAIL_BANDS of a stack of luminance tiles, one (n, h, w) array per band."""
+    return [np.stack([M.dog(x, s1, s2) for x in lum]) for s1, s2 in DETAIL_BANDS]
+
+
+def detail_bins(lb, stars, extended):
+    """Per pixel, the index of its DETAIL_LEVELS bin by B's low-pass, or -1 where a star-like peak is
+    masked. Every detected peak is masked except those the split called extended, so a session dropped
+    from the split (no extended population) masks all of its peaks: conservative, never star-polluted."""
+    from scipy.ndimage import gaussian_filter
+    r = DETAIL_MASK_PX
+    out = np.empty(lb.shape, np.int8)
+    for t in range(len(lb)):
+        b = np.digitize(gaussian_filter(lb[t], DETAIL_LEVEL_SIGMA), DETAIL_LEVELS).astype(np.int8)
+        keep = set(zip(extended[t][0].tolist(), extended[t][1].tolist()))
+        ys, xs, _ = stars[t]
+        for y, x in zip(ys.tolist(), xs.tolist()):
+            if (y, x) not in keep:
+                b[max(0, y - r):y + r + 1, max(0, x - r):x + r + 1] = -1
+        out[t] = b
+    return out
+
+
+def detail_reference(a_bands, b_bands, bins):
+    """Per (band, level): the denominator sum(A_b * B_b), its z (sum over root sum of squares), and the
+    pixel count, computed once for every model."""
+    ref = []
+    for k in range(len(DETAIL_BANDS)):
+        prod = a_bands[k] * b_bands[k]
+        row = []
+        for lvl in range(len(DETAIL_LEVELS) + 1):
+            sel = bins == lvl
+            p = prod[sel]
+            den = float(p.sum())
+            z = den / (float(np.sqrt((p.astype(np.float64) ** 2).sum())) + 1e-30)
+            row.append((den, z, int(sel.sum())))
+        ref.append(row)
+    return ref
+
+
+def detail_kept(lum_out, b_bands, bins, ref):
+    """Detail kept per (band, level) for one output, None where the bin is unreadable."""
+    y_bands = detail_bands(lum_out)
+    out = []
+    for k in range(len(DETAIL_BANDS)):
+        row = []
+        for lvl in range(len(DETAIL_LEVELS) + 1):
+            den, z, n = ref[k][lvl]
+            if n < DETAIL_MIN_PIXELS or z < DETAIL_MIN_Z or den <= 0:
+                row.append(None)
+                continue
+            row.append(float((y_bands[k] * b_bands[k])[bins == lvl].sum()) / den)
+        out.append(row)
+    return out
+
+
+def detail_line(label, kept):
+    """One line per output: the levels left to right, the bands of each level comma-separated. No
+    slash and no '%:' anywhere, so the model-row readers (e13_read / e14_read / e15_read) never match it."""
+    cells = []
+    for lvl in range(len(DETAIL_LEVELS) + 1):
+        cells.append(','.join('   -' if kept[k][lvl] is None else f'{kept[k][lvl]:4.2f}' for k in range(len(DETAIL_BANDS))))
+    return f'{"":14s} detail kept {label:>10s}: ' + ' | '.join(cells)
 
 
 def main():
@@ -265,6 +348,22 @@ def main():
     base_noise = float(np.mean([M.bg_stats(t)[1] for t in raw.mean(axis=1)]))
     raw_amp = {k: M.measure(raw.mean(axis=1), t, lb)[0][0] for k, t in pops.items()}
 
+    from scipy.ndimage import gaussian_filter
+    raw_lum = raw.mean(axis=1)
+    d_bins = detail_bins(lb, stars, extended)
+    d_a, d_b = detail_bands(raw_lum), detail_bands(lb)
+    d_ref = detail_reference(d_a, d_b, d_bins)
+    edges = ['<{:.2f}'.format(DETAIL_LEVELS[0])] + [f'{lo:.2f}-{hi:.2f}' for lo, hi in zip(DETAIL_LEVELS, DETAIL_LEVELS[1:])] + \
+            ['>={:.2f}'.format(DETAIL_LEVELS[-1])]
+    print('DETAIL KEPT, against half B: sum(Y*B)/sum(A*B) per band, 1.0 keeps the signal, below 1 smooths it away.')
+    print(f'  levels (B low-pass): ' + ' | '.join(
+        f'{e} {d_ref[0][lvl][2]:,} px, z {"/".join(f"{d_ref[k][lvl][1]:.0f}" for k in range(len(DETAIL_BANDS)))}'
+        for lvl, e in enumerate(edges)))
+    print(f'  each level shows bands {", ".join(f"{s1:g}-{s2:g} px" for s1, s2 in DETAIL_BANDS)}; star-like peaks masked '
+          f'({int((d_bins < 0).sum()):,} px); "-" is a bin under {DETAIL_MIN_PIXELS} px or z {DETAIL_MIN_Z:g}')
+    print(detail_line('gauss1 ref', detail_kept(np.stack([gaussian_filter(x, 1.0) for x in raw_lum]), d_b, d_bins, d_ref)))
+    print()
+
     alphas = [float(x) for x in a.blend.split(',') if x.strip()]
     targets = [float(x) for x in a.match.split(',') if x.strip()]
     # The last column is the model at FULL strength (the last --blend, 1.0 by default): how much noise
@@ -299,6 +398,7 @@ def main():
         full_removed = pts['Gaia stars'][-1][0]
         full = f"{full_removed:5.1f}%: " + '/'.join(f'{pts[k][-1][1]:5.1f}' for k in pops)
         print(f'{slug:14s} ' + ' '.join(f'{r:>27}' for r in row) + f'{full:>36}')
+        print(detail_line('full', detail_kept(out.mean(axis=1), d_b, d_bins, d_ref)))
         if a.per_session:
             # The pooled "removed" is a mean over cells of several fields, and a model can denoise one
             # field while making another NOISIER (arm X: +4 percent pooled on eval4b, -13 to -25 on
