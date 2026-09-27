@@ -81,9 +81,6 @@ public class GuiAppState
         return order[next];
     }
 
-    /// <summary>Device URI registry for resolving camera URIs to device instances.</summary>
-    public IDeviceHub? DeviceHub { get; init; }
-
     /// <summary>
     /// This computer's node (P6 of docs/plans/hardware-in-the-server.md, #936), which holds its devices and runs its
     /// sessions, as the local view reads it: every device read and action on this computer's rig goes through it. Null

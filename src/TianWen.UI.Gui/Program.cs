@@ -31,26 +31,10 @@ services
     })
     .AddExternal()
     .AddAstrometry()
-    .AddZWO()
-    .AddPlayerOne()
-    .AddToupTek()
-    .AddQHY()
-    .AddAscom()
-    .AddAlpaca()
-    .AddMeade()
-    .AddOnStep()
-    .AddIOptron()
-    .AddSkywatcher()
-    .AddGemini()
-    .AddProfiles()
-    .AddFake()
-    .AddPHD2()
-    .AddBuiltInGuider()
+    // The rig is this computer's node's (P6 of docs/plans/hardware-in-the-server.md, #936): no device source, no hub
+    // and no session factory here. The weather is the one device kind a client reads for itself, over HTTP.
     .AddOpenMeteo()
-    .AddCanon()
     .AddOpenWeatherMap()
-    .AddDevices()
-    .AddSessionFactory()
     .AddFitsViewer()
     // Live planetary capture controller (drives the 🪐 tab's video capture + rolling-window stack).
     .AddSingleton<PlanetaryCaptureController>()
@@ -62,11 +46,7 @@ services
         o.ServiceName = "tianwen-gui";
         o.ServicePort = 0;
     })
-    .AddSingleton(sp => new GuiAppState { DeviceHub = sp.GetService<IDeviceHub>(), PeerTable = sp.GetService<IPeerTable>() })
-    // Profile-aware pinned-port provider: any COM port currently referenced by the
-    // active profile is excluded from discovery probing. Absent this registration,
-    // SerialProbeService falls through to general probing; safe default.
-    .AddSingleton<IPinnedSerialPortsProvider, ActiveProfilePinnedSerialPortsProvider>();
+    .AddSingleton(sp => new GuiAppState { PeerTable = sp.GetService<IPeerTable>() });
 
 var sp = services.BuildServiceProvider();
 var appState = sp.GetRequiredService<GuiAppState>();
@@ -254,12 +234,6 @@ bus.Subscribe<AnswerQuitSignal>(sig => appQuit.Answer(sig.Action));
 tracker.Run(() => signalHandler.ConnectLocalNodeAsync(new LocalNodeOptions(), requestedProfile, includeFake: false, backgroundCts.Token),
     "Connect to this computer's node");
 
-// P3 of docs/plans/mount-safety-limits.md, the GUI half: a profile's mount safety limits apply to a MANUAL
-// slew with no session running -- the case the config was put on the profile for -- and a session only
-// enforces them on the mount it leases. The GUI runs a bare ServiceCollection, so the watcher's loop is
-// driven here the way LanDiscovery's lifecycle is above, on the background token: quitting stops it
-// without touching a running session, whose leased mount the watcher skips on its own anyway.
-tracker.Run(() => sp.GetRequiredService<MountLimitWatcher>().RunAsync(backgroundCts.Token), "Mount limit watcher");
 
 // --- Main event loop via SdlEventLoop ---
 var _lastSessionRedrawTimestamp = timeProvider.GetTimestamp();

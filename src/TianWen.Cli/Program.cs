@@ -47,26 +47,11 @@ builder.Services
     })
     .AddExternal()
     .AddAstrometry()
-    .AddZWO()
-    .AddPlayerOne()
-    .AddToupTek()
-    .AddQHY()
-    .AddAscom()
-    .AddAlpaca()
-    .AddMeade()
-    .AddOnStep()
-    .AddIOptron()
-    .AddSkywatcher()
-    .AddGemini()
-    .AddProfiles()
-    .AddFake()
-    .AddPHD2()
-    .AddBuiltInGuider()
+    // The rig is this computer's node's (P6 of docs/plans/hardware-in-the-server.md, #936): the verbs that touch it are
+    // the node's clients (ConsoleHost), so there is no device source, no hub and no session factory here. The weather
+    // is the one device kind a client reads for itself, over HTTP.
     .AddOpenMeteo()
-    .AddCanon()
     .AddOpenWeatherMap()
-    .AddDevices()
-    .AddSessionFactory()
     .AddFitsViewer()
     // Required by the shared AppSignalHandler, which resolves it in its CONSTRUCTOR (unlike its other
     // dependencies, which resolve lazily inside subscribe lambdas) -- so a host missing it cannot start
