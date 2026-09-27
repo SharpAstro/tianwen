@@ -28,6 +28,19 @@ namespace TianWen.Hosting.Dto
         /// <summary>Whether the node currently holds a connected driver for this URI.</summary>
         public required bool Connected { get; init; }
 
+        /// <summary>
+        /// A camera's named gains (<see cref="IDeviceWithGainModes"/>), which a session offers in place of a gain value; null
+        /// for a camera that takes a value and for any other device. What the device IS, so known with nothing connected
+        /// (P6 part 1 of docs/plans/hardware-in-the-server.md).
+        /// </summary>
+        public string[]? GainModes { get; init; }
+
+        /// <summary>
+        /// Whether a camera has a cooler to set (false for an <see cref="IUncooledCamera"/>, a DSLR); null for any other
+        /// device. What a session's camera settings offer a setpoint by, known with nothing connected.
+        /// </summary>
+        public bool? CanCool { get; init; }
+
         public static DeviceDto FromDevice(DeviceBase device, bool connected) => new()
         {
             Uri = device.DeviceUri.ToString(),
@@ -35,6 +48,8 @@ namespace TianWen.Hosting.Dto
             DeviceId = device.DeviceId,
             DeviceType = device.DeviceType.ToString(),
             Connected = connected,
+            GainModes = device is IDeviceWithGainModes { GainModes.Count: > 0 } withGainModes ? [.. withGainModes.GainModes] : null,
+            CanCool = device.DeviceType is TianWen.Lib.Devices.DeviceType.Camera ? device is not IUncooledCamera : null,
         };
     }
 }

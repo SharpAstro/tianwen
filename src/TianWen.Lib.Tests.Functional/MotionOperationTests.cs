@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.DAL;
 using TianWen.Hosting;
 using TianWen.Hosting.Dto;
 using TianWen.Lib.Devices;
@@ -192,12 +193,60 @@ public class MotionOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
                 (await Client.SetMountTrackingAsync(Mount.DeviceUri, false, ct)).Error,
                 (await Client.StopMountAsync(Mount.DeviceUri, ct)).Error,
                 (await Client.MoveAxisAsync(Mount.DeviceUri, TelescopeAxis.Primary, 1.0, ct)).Error,
+                (await Client.NudgeMountAsync(Mount.DeviceUri, GuideDirection.East, 30, ct)).Error,
                 (await Client.MoveFocuserAsync(new FocuserMoveRequestDto { DeviceUri = Focuser.DeviceUri.ToString(), Steps = 10 }, ct)).Error,
                 (await Client.StopFocuserAsync(Focuser.DeviceUri, ct)).Error,
             })
             {
                 refused.ShouldNotBeNull().ShouldContain("Session run");
             }
+        }
+    }
+
+    /// <summary>
+    /// A nudge is one guide-rate pulse, sized from the axis's guide rate and capped at two seconds, as a job that ends when
+    /// the mount reports the pulse done (P6 part 1): the planetary panel's coarse recentre, through the node. The pulse runs
+    /// on after its start returns, so a job that ended at the start would leave the mount still pulsing.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task AMountIsNudgedByOnePulseAsAJobThatEndsWhenThePulseIsDone()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var mount = (IMountDriver)await Hub.ConnectAsync(Mount, ct);
+
+        // 60 arcsec asks for more than the two-second cap at the fake's guide rate, so the pulse outlasts the request.
+        var nudge = (await Client.NudgeMountAsync(Mount.DeviceUri, GuideDirection.East, 60, ct)).Value.ShouldNotBeNull();
+        (await Client.NudgeMountAsync(Mount.DeviceUri, GuideDirection.West, 10, ct)).StatusCode
+            .ShouldBe(409, "the mount is the first nudge's until its pulse is done");
+
+        var ended = await UntilEndedAsync(nudge.Id, ct);
+        ended.State.ShouldBe(JobState.Succeeded, ended.Error);
+        ended.Step.ShouldNotBeNull().ShouldContain("nudged East by 60 arcsec");
+        (await mount.IsPulseGuidingAsync(ct)).ShouldBeFalse("the job ends when the pulse has");
+
+        (await Client.NudgeMountAsync(Mount.DeviceUri, GuideDirection.North, 0, ct)).StatusCode.ShouldBe(400);
+        (await Client.NudgeMountAsync(Mount.DeviceUri, GuideDirection.North, -5, ct)).StatusCode.ShouldBe(400);
+    }
+
+    /// <summary>A mount with no guide rate on the axis cannot have its pulse sized, and the job says so rather than a nudge it never made.</summary>
+    [Fact(Timeout = 60_000)]
+    public async Task ANudgeOnAnAxisWithNoGuideRateFailsSayingSo()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var mount = (IMountDriver)await Hub.ConnectAsync(Mount, ct);
+        var rate = await mount.GetGuideRateDeclinationAsync(ct);
+        await mount.SetGuideRateDeclinationAsync(0, ct);
+        try
+        {
+            var nudge = (await Client.NudgeMountAsync(Mount.DeviceUri, GuideDirection.North, 20, ct)).Value.ShouldNotBeNull();
+
+            var ended = await UntilEndedAsync(nudge.Id, ct);
+            ended.State.ShouldBe(JobState.Failed);
+            ended.Error.ShouldNotBeNull().ShouldContain("guide rate");
+        }
+        finally
+        {
+            await mount.SetGuideRateDeclinationAsync(rate, CancellationToken.None);
         }
     }
 

@@ -106,6 +106,10 @@ internal static class DeviceEndpoints
         group.MapPost("/devices/mount/tracking", async (MountTrackingRequestDto request, DeviceOperations devices, CancellationToken ct) =>
             EnvelopeResults.Json(await devices.SetTrackingAsync(request, ct), HostingJsonContext.Default.ResponseEnvelopeString));
 
+        // One guide-rate pulse, as a job (P6 part 1): the planetary panel's coarse recentre.
+        group.MapPost("/devices/mount/nudge", (MountNudgeRequestDto request, DeviceOperations devices) =>
+            EnvelopeResults.Json(devices.NudgeMount(request), HostingJsonContext.Default.ResponseEnvelopeJobDto));
+
         // Leased (P2 part 5): the axis stops by itself NodeWire.MoveAxisLease after the last request asking for it, so a
         // client holding a move repeats this request while it holds.
         group.MapPost("/devices/mount/move-axis", async (MoveAxisRequestDto request, DeviceOperations devices, CancellationToken ct) =>

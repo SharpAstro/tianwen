@@ -82,7 +82,8 @@ does not take it down and it can never write over a TUI; a spawned node logs to 
 
 - **`POST /api/v1/node/shutdown`** stops the node the safe way (the host's stop: a run's `Finalise`, the hub's
   cameras warmed), after which it exits 0 and its keeper with it. Only over the socket (a request with no IP
-  address; the connection's end-point feature is not one a request can see), 403 over TCP.
+  address; the connection's end-point feature is not one a request can see), 403 over TCP. Every client asks through
+  `TianWenNodeClient.ShutdownNodeAsync` (P6 part 1), the launcher included.
 - **`HoldsHardware`** on `GET /api/v1/node`: a device connected or a run going on. A node that holds hardware is
   never stopped to replace it.
 - **`--fake-devices`** registers the fake device source and no other, for a node that must touch no hardware: a
@@ -383,6 +384,13 @@ sweep off mid-probe (P0b item 17 of [../plans/hardware-in-the-server.md](../plan
 and sync, and a move follow them; **a new slow endpoint starts a job, never runs inline**. `TianWenNodeClient`
 has `StartDiscoveryAsync`, `GetJobAsync`, `GetJobsAsync` and `CancelJobAsync`. Pinned by `NodeJobTests`.
 
+**What discovery found is `GET /api/v1/devices/structured`** (`DeviceDto`, `TianWenNodeClient.GetDevicesAsync`): each
+device's URI, name, type and whether the node holds it connected, and for a camera what it IS (P6 part 1): its named
+gains (`GainModes`, a DSLR's ISO steps; null for a camera that takes a gain value) and whether it has a cooler
+(`CanCool`). A session's camera settings are offered by those two, and a client knows them with nothing connected, as the
+GUI knew them from its own device registry. The fake devices are listed like any other (every node registers the fake
+source); showing them is the client's choice (the GUI's Shift+Discover). Pinned by `DeviceListingCapabilityTests`.
+
 ## The device plane's read side: one reader, and a held device is the run's
 
 What a client shows of a device with no session running (P2 part 1 of
@@ -478,7 +486,10 @@ the position, the mount has landed or reports itself parked), and cancelling it 
   is, one of the two, inside `0..MaxStep`) and `/focuser/stop`.
 - **Filter wheel**: `POST /api/v1/devices/filterwheel/change` (`FilterChangeRequestDto`, a position counted from 0).
 - **Mount**: `POST /api/v1/devices/mount/goto` (`MountGotoRequestDto`, J2000), `/park`, `/unpark`, `/tracking`
-  (immediate) and `/stop`.
+  (immediate), `/stop`, and `/nudge` (P6 part 1: `MountNudgeRequestDto`, a direction and arcseconds above 0), one
+  guide-rate pulse through `MountNudge` as a job that ends when the mount reports the pulse DONE, since the pulse runs on
+  after its start returns. A mount with no guide rate on that axis fails the job saying so: `MountNudge` returns the pulse
+  it issued, or null, so no caller reports a nudge that did not happen.
 - **The goto is the GUI's own**, `MountGoto` in Lib (lifted out of the GUI's `MountActions`, whose solve and sync
   and nudge followed it, as `MountSolveSync` and `MountNudge`): unpark, the J2000 to mount transform at the ACTIVE PROFILE's site, the horizon limit, the
   destination pier side, the tracking rate. With no active profile there is no site, and no goto (409). What only
@@ -499,7 +510,7 @@ goto (it passed them to the mount as they were), and a slew, a park, an unpark, 
 (`TryConnectedAndFree`): a device a run holds is refused with the run's name whatever state its driver is in, which
 is `ActuationGate`'s rule and what `NodeActuationGateTests` pins over the re-pointed routes. `TianWenNodeClient` has
 `MoveFocuserAsync`, `StopFocuserAsync`, `ChangeFilterAsync`, `GotoAsync`, `ParkMountAsync`, `UnparkMountAsync`,
-`SetMountTrackingAsync` and `StopMountAsync`. Pinned by `MotionOperationTests` (a real node) and
+`SetMountTrackingAsync`, `NudgeMountAsync` and `StopMountAsync`. Pinned by `MotionOperationTests` (a real node) and
 `NodeActuationGateTests`.
 
 ### The leased move-axis

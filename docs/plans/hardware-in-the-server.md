@@ -1291,6 +1291,84 @@ It lands in two PRs:
   device control through a node client, this computer's included. `IdleRigDevicesTests` draws an idle rig and this
   computer's view of the same devices on a real node, and they lay out the same.
 
+## P6: the cut (#936)
+
+A survey of 2026-09-27, against `main` once P5b had landed, listed every place the GUI (`TianWen.UI.Gui`, with the
+logic it shares in `TianWen.UI.Abstractions`), the TUI and the CLI (`TianWen.Cli`) still touch hardware in-process, and
+the node route that takes each over:
+
+| Group | Sites | Examples |
+|---|---|---|
+| Composition | about 45 lines in six files, and the two `TianWen.Devices.Native` references | the device sources in `Program.cs` (GUI and CLI), `GuiAppState.DeviceHub`, `RigShutdown(hub)`, the GUI's and the TUI's `MountLimitWatcher` |
+| Connect, disconnect, discovery | 15 | the Equipment tab's connect, Connect All, disconnect, warm and disconnect, the CLI's `device` verbs and `darks` |
+| Telemetry outside a run | 8 | `PollPreviewTelemetry`, `PollCameraTelemetry`, the mount poll, the Equipment tab's cooler and mount sections |
+| Actuation | 15 | preview, snapshot, solve, focuser, planetary, goto, solve and sync, cooling |
+| Runs | 10 | `SessionBootstrapper`, `FlatsBootstrapper`, polar, the CLI's `darks` and `flats`, the first-run wizard, `RigShutdown` and `AppQuit` |
+| Profile writes | about 40 | the Equipment tab's edits (the `UpdateProfileSignal` funnel), the CLI's `profile` verbs, the backlash mirror |
+| Gates | five, with about 20 callers | `EnsureDeviceControllable`, `DeviceOwnershipGate`, `ProfileSwitchGate`, `EnsureSessionIdle`, `EnsureLocalContext` |
+| Other hub reads | about 15 | reachability and labels on the render thread, `SessionTabState.InitializeFromProfile(hub)`, the inspector's mount fields |
+
+Nearly every site has its route already (P2 to P5). Decision 7 fixes the shape of what is left: this computer's
+devices cannot move to the node one subsystem at a time, since the node and the GUI would then both hold them. So P6 is
+two parts.
+
+### P6 part 1: the server surface's last gaps
+
+The survey named six places with no route; three need one, each built and tested end to end as P2 to P5 were:
+- **A guide-rate nudge of the mount** (the planetary panel's coarse recentre, `MountNudge.PulseArcsecAsync`), a short job
+  refused on a leased or busy mount like every actuation route.
+- **What a camera IS: its named gains and whether it can cool**, on the node's device listing (`DeviceDto.GainModes`,
+  `CanCool`; `SessionTabState` read both off the GUI's device registry to offer a gain and a setpoint), known with nothing
+  connected since they are what the device is, not what it reads.
+- **`TianWenNodeClient.ShutdownNodeAsync`** for `POST /api/v1/node/shutdown`, which only the launcher posts today.
+
+The other three need none:
+- **The weather forecast stays in the clients.** Its sources are HTTP clients that own no hardware, and the API key they
+  read is in the per-user credential store, which the node writes (P3 part 4) and every client of the same user reads.
+  The web build fetches the same way.
+- **"Include fake devices" is a client's filter**, not a discovery parameter: a node lists the fake devices it
+  registers (every node does), and the GUI's Shift+Discover and the TUI's `--fake` choose whether to show them.
+- **A camera's pixel size** is not needed: the sky map's sensor rectangle comes from the profile's captured sensor for
+  every view at the cut, as it does for a rig since P5b part 8. The polar demo's misalignment nudge stays a fake
+  device's own query key.
+
+Pinned by `MotionOperationTests` (a nudge's job ends when its pulse does, a held or busy mount refuses it, an axis with no
+guide rate fails it saying so), `DeviceListingCapabilityTests` and `NodeShutdownClientTests` (refused over TCP, a stop
+over the socket).
+
+### P6 part 2: the cut, in one wave
+
+One PR, reviewable commit by commit, which switches the GUI, the TUI and the CLI together (decision 7):
+- **Local is the local node.** `ViewContexts.Local` holds a mirror of the machine's node, found or started through
+  `LocalNodeLauncher` over its socket, with the node's id from `GET /api/v1/node`; the peer table and the rig picker
+  leave that id out ("Which rig the GUI shows").
+- **Each view reads its devices from a client-side model**, seeded from `GET /devices/state` and kept by `DEVICE-STATE`
+  (part 9b's `RigDevices` reads for an idle rig): every per-frame read (connected, reachable, a label, a telemetry row)
+  answers from it, never an HTTP call per frame.
+- **Each action goes to the view's node** through `TianWenNodeClient`. Run controls do already (P5b part 5); device
+  actions go to the local node, and a remote rig's panel still refuses them (the overlay model), since the node's
+  actuation routes accept a LAN caller and whether a rig's panel may command its devices is the user's call.
+- **Profile edits carry the revision they were read at**, and a 412 re-reads the profile and applies the edit again.
+- **A run starts on the node**: `SessionBootstrapper` and `FlatsBootstrapper` go, and polar, planetary and the CLI's
+  `darks` and `flats` start their node runs.
+- **The gates come from the node**: a lease or a job holds a device there, and the node answers the refusal. A gate
+  that asks a hub which is not there would answer "free", so every one is deleted, not left.
+- **The frame on show comes from the node's copy** (P4 part 5), which deletes the parity harness's last known gap.
+- **Quitting follows decision 1**: the last client asks, a run left running is the default, and "Stop the rig and quit"
+  is the node's abort, `Finalise` and warm-up, with progress.
+- **Deleted**: `GuiAppState.DeviceHub`, every device source but the weather's in the GUI's and the CLI's composition, the
+  `TianWen.Devices.Native` references, the GUI's and the TUI's `MountLimitWatcher`, `RigShutdown`'s hub path, the
+  inspector's in-process mount fields.
+- **Packaging**: `tianwen-server` and `tianwen-ascomhost` inside the GUI's and the CLI's archives and the GUI's `.app`.
+
+Risks the survey named, each owed a test in the cut:
+- A render-thread read of a live driver (the sky map reticle's FOV, `VkGuiRenderer`), and the per-frame hub reads.
+- The planetary tab pushing its recenter settings every frame: over HTTP it sends only a change.
+- `StartVideoCaptureSignal` claiming the camera in a synchronous render-thread subscriber.
+- The preview, polar and solve-and-sync slots holding an in-process `Image`.
+- The CLI's `flats` counting its output by the local folder's change.
+- A cooler setpoint becoming a ramp job, which changes what the Equipment tab's setpoint does.
+
 ## Phasing
 
 The cut is **one wave** ("cut an API in ONE wave"; "one path, designed first"). Two processes cannot
