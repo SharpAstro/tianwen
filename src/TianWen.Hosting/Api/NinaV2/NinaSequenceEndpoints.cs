@@ -94,6 +94,12 @@ internal static class NinaSequenceEndpoints
             {
                 session = factory.Create(profileId, new SessionConfiguration(), observations);
             }
+            catch (SessionRefusedException ex)
+            {
+                return Results.Json(
+                    ResponseEnvelope<string>.Fail(ex.Message, 422),
+                    NinaApiJsonContext.Default.ResponseEnvelopeString);
+            }
             catch (ArgumentException ex)
             {
                 return Results.Json(

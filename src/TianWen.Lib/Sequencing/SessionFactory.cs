@@ -63,6 +63,15 @@ internal class SessionFactory(
             throw new ArgumentException($"Profile {profileId} must contain at least one OTA", nameof(profileId));
         }
 
+        // A session always has a guider (#989), and a profile without one is refused here, the one point every
+        // start goes through, before any wrapper is built: the Guider wrapper used to throw on a NoneDevice with
+        // a message naming a blank device.
+        var guiderDevice = HasGuider(profileData.Guider) ? DeviceFromUri(profileData.Guider) : null;
+        if (guiderDevice is null or NoneDevice)
+        {
+            throw new SessionRefusedException(SessionRefusedException.NoGuiderMessage);
+        }
+
         OTA? guiderIsOAGOfOTA = null;
 
         var telescopeCount = profileData.OTAs.Length;
@@ -87,7 +96,7 @@ internal class SessionFactory(
         }
 
         var mount = new Mount(DeviceFromUri(profileData.Mount), serviceProvider);
-        var guider = new Guider(DeviceFromUri(profileData.Guider), serviceProvider);
+        var guider = new Guider(guiderDevice, serviceProvider);
         var guiderCamera = profileData.GuiderCamera is { } guiderCameraUri ? new Camera(DeviceFromUri(guiderCameraUri), serviceProvider) : null;
         var guiderFocuser = profileData.GuiderFocuser is { } guiderFocuserUri ? new Focuser(DeviceFromUri(guiderFocuserUri), serviceProvider) : null;
 
@@ -127,6 +136,11 @@ internal class SessionFactory(
         }
 
         return setup;
+
+        // Absent (a profile file missing the slot deserialises it as null) or NoneDevice under any scheme,
+        // Guider://NoneDevice/none as much as none://NoneDevice/None.
+        static bool HasGuider([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] Uri? uri)
+            => uri is not null && !uri.Host.Equals(nameof(NoneDevice), StringComparison.OrdinalIgnoreCase);
 
         DeviceBase DeviceFromUri(Uri deviceUri, int? otaIdx = null)
         {

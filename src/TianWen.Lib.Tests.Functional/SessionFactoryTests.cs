@@ -424,6 +424,29 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         ).Message.ShouldContain("at least one OTA");
     }
 
+    /// <summary>
+    /// A session always has a guider (#989), and the factory, the one point every start goes through, refuses a
+    /// profile without one in words naming the fix, never with the Guider wrapper's blank device name.
+    /// </summary>
+    [Theory]
+    [InlineData("Guider://NoneDevice/none")]
+    [InlineData("none://NoneDevice/None#None")]
+    [InlineData(null)]
+    public void AProfileWithNoGuiderIsRefusedInWords(string? guiderUri)
+    {
+        var profileData = new ProfileData(
+            Mount: CreateMountDevice().DeviceUri,
+            Guider: guiderUri is null ? null! : new Uri(guiderUri),
+            OTAs: [new OTAData("Test Scope", 1000, CreateCameraDevice().DeviceUri, null, null, null, null, null)]);
+        var (factory, _) = CreateFactory(profileData);
+
+        var refused = Should.Throw<SessionRefusedException>(() =>
+            factory.Create(TestProfileId, SessionTestHelper.DefaultConfiguration, [CreateDefaultObservation()]));
+
+        refused.Message.ShouldBe(SessionRefusedException.NoGuiderMessage);
+        refused.Message.ShouldStartWith("This profile has no guider.");
+    }
+
     [Fact]
     public void GivenProfileWithApertureAndOpticalDesignWhenCreatedThenOTAHasValues()
     {

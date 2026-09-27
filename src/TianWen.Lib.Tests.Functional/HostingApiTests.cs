@@ -24,8 +24,9 @@ public class HostingApiTests(ITestOutputHelper outputHelper) : IAsyncLifetime
 {
     private WebApplication? _app;
     private HttpClient? _client;
+    private IExternal? _external;
 
-    [MemberNotNull(nameof(_app), nameof(_client))]
+    [MemberNotNull(nameof(_app), nameof(_client), nameof(_external))]
     public async ValueTask InitializeAsync()
     {
         var builder = WebApplication.CreateBuilder();
@@ -35,6 +36,7 @@ public class HostingApiTests(ITestOutputHelper outputHelper) : IAsyncLifetime
 
         builder.Logging.ClearProviders();
         var fakeExternal = new FakeExternal(outputHelper, System.IO.Directory.CreateTempSubdirectory("tw_" + Guid.NewGuid().ToString("D")));
+        _external = fakeExternal;
         // Register TianWen services with fake devices (mirrors CLI registration chain)
         builder.Services.AddSingleton<IExternal>(fakeExternal);
         // A real clock, as NodeHarness uses: on the fake one the node's background loops spin.
@@ -207,6 +209,39 @@ public class HostingApiTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         var doc = JsonDocument.Parse(json);
         doc.RootElement.GetProperty("success").GetBoolean().ShouldBeFalse();
         doc.RootElement.GetProperty("error").GetString().ShouldNotBeNull().ShouldContain("Invalid profile ID");
+    }
+
+    /// <summary>
+    /// A session always has a guider (#989). A profile of fake devices whose guider is none is refused by the node's
+    /// real session factory as a client error in words naming the fix, before any device connects: it used to come
+    /// back as "Could not instantiate driver ... for device  which is a Guider", naming a blank device.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task SessionStart_OnAProfileWithNoGuider_IsRefusedInWords()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var profileId = Guid.NewGuid();
+        var profile = new Profile(profileId, "No guider", new ProfileData(
+            Mount: new TianWen.Lib.Devices.Fake.FakeDevice(DeviceType.Mount, 1).DeviceUri,
+            Guider: new Uri("Guider://NoneDevice/none"),
+            OTAs: [new OTAData("Main", 1000, new TianWen.Lib.Devices.Fake.FakeDevice(DeviceType.Camera, 1).DeviceUri, Cover: null,
+                Focuser: new TianWen.Lib.Devices.Fake.FakeDevice(DeviceType.Focuser, 1).DeviceUri,
+                FilterWheel: new TianWen.Lib.Devices.Fake.FakeDevice(DeviceType.FilterWheel, 1).DeviceUri,
+                PreferOutwardFocus: null, OutwardIsPositive: null)],
+            SiteLatitude: 48.2, SiteLongitude: 16.3));
+        await profile.SaveAsync(_external, ct);
+        // The node discovered its profiles as it started, before this one existed.
+        await DiscoverAsync(ct);
+
+        using var response = await _client.PostAsync($"/api/v1/session/start?profileId={profileId}", null, ct);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+
+        doc.RootElement.GetProperty("success").GetBoolean().ShouldBeFalse();
+        doc.RootElement.GetProperty("statusCode").GetInt32().ShouldBe(422);
+        ((int)response.StatusCode).ShouldBe(422, "a client error, never a 500");
+        doc.RootElement.GetProperty("error").GetString().ShouldBe(TianWen.Lib.Sequencing.SessionRefusedException.NoGuiderMessage);
+        _app.Services.GetRequiredService<IDeviceHub>().ConnectedDevices.ShouldBeEmpty("the refusal comes before any device connects");
+        _app.Services.GetRequiredService<TianWen.Hosting.IHostedSession>().IsRunning.ShouldBeFalse();
     }
 
     [Fact(Timeout = 10_000)]
