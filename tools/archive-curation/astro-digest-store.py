@@ -23,7 +23,9 @@ THREE THINGS THIS GETS RIGHT, each of which cost something to learn:
    dictionary hit.
 
 3. It is resumable and append-only. A path whose size and mtime are unchanged is not re-read, so an
-   interrupted run resumes cheaply and a later run over a mostly-unchanged archive is fast.
+   interrupted run resumes cheaply and a later run over a mostly-unchanged archive is fast. It is
+   still RE-RECORDED when it names another inode or its link count moved, which a dedupe does
+   without touching the mtime; the digest is kept for the same inode and taken from the new one's.
 4. A file it cannot digest NAMES ITSELF. A failed stat and an empty digest (a corrupt/truncated
    header or a dataless FITS) are both logged to stderr as they happen and listed under the final
    summary with the reason, so a bad file is chased directly instead of reverse-engineered from a
@@ -187,7 +189,7 @@ def main():
         files = files[:args.limit]
     print(f"[scan] {len(files):,} files to consider\n", flush=True)
 
-    hashed = reused_path = reused_inode = failed = 0
+    hashed = reused_path = reused_inode = relinked = failed = 0
     bytes_read = 0
     failures = []  # (path, reason) for every file counted as failed, so a bad file names itself
     gone, missed = [], []  # recorded paths the walk did not reach: absent, or still on disk
@@ -208,11 +210,23 @@ def main():
 
             key = os.path.normcase(path)
             prev = by_path.get(key)
-            if prev and prev.get("size") == st.st_size and abs(prev.get("mtime", 0) - st.st_mtime) < 2:
-                reused_path += 1
-                continue
-
             ino_key = (st.st_dev, st.st_ino)
+            nlink = getattr(st, "st_nlink", 1)
+            if prev and prev.get("size") == st.st_size and abs(prev.get("mtime", 0) - st.st_mtime) < 2:
+                if (prev.get("dev"), prev.get("ino")) == ino_key and prev.get("nlink", 1) == nlink:
+                    reused_path += 1
+                    continue
+                # Same size and mtime, but the path names another inode now (a dedupe relinked it onto
+                # a byte-identical file, which keeps the mtime) or its inode gained or lost a name. The
+                # record is rewritten, or every reader that reasons about links reads the old inode:
+                # 1,110 relinked paths kept theirs on 2026-09-27. Same inode: the digest stands as is.
+                relinked += 1
+                if (prev.get("dev"), prev.get("ino")) == ino_key:
+                    rec = dict(prev, nlink=nlink)
+                    out.write(json.dumps(rec) + "\n")
+                    by_path[key] = rec
+                    continue
+
             # A hard link to something already hashed: the bytes are literally the same bytes, so the
             # digest is known without reading them. This is where the run's time is won.
             known = by_inode.get(ino_key) if st.st_ino else None
@@ -244,7 +258,7 @@ def main():
                 "mtime": st.st_mtime,
                 "dev": st.st_dev,
                 "ino": st.st_ino,
-                "nlink": getattr(st, "st_nlink", 1),
+                "nlink": nlink,
                 "digest": digest,
                 "kind": kind,
             }
@@ -294,6 +308,7 @@ def main():
     print(f"  hashed fresh        {hashed:,}  ({bytes_read/G:.2f} GB read)")
     print(f"  reused via hardlink {reused_inode:,}   (bytes never re-read)")
     print(f"  already in store    {reused_path:,}")
+    print(f"  relinked            {relinked:,}  (same bytes, a new inode or link count: record rewritten)")
     print(f"  failed / skipped    {failed:,}")
     for fp, reason in failures:
         print(f"      - {fp}  ({reason})")
