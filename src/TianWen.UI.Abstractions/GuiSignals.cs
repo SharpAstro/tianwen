@@ -294,6 +294,12 @@ public readonly record struct CancelFlatsSignal;
 public readonly record struct RespondSessionPromptSignal(bool Proceed);
 
 /// <summary>
+/// The user's answer to the quit's question (<see cref="LiveSessionState.QuitDialog"/>): the choice taken, or null to stay.
+/// The host hands it to its <see cref="AppQuit"/>, which owns the quit.
+/// </summary>
+public readonly record struct AnswerQuitSignal(QuitAction? Action);
+
+/// <summary>
 /// Assign a Manual Light Panel (a hand-switched <see cref="TianWen.Lib.Devices.ManualCoverDevice"/>) to
 /// the equipment tab's currently-active Cover slot. The manual panel is not discoverable, so it can't be
 /// picked from the discovered-device list; this is the explicit "add" affordance. Once assigned it flows

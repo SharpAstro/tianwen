@@ -833,7 +833,11 @@ internal sealed class TuiLiveSessionTab(
         }
 
         string hint;
-        if (LiveState.ShowAbortConfirm)
+        if (LiveState.QuitDialog is { } quit)
+        {
+            hint = " " + quit.OneLine;
+        }
+        else if (LiveState.ShowAbortConfirm)
         {
             hint = " Press Enter to confirm ABORT, Escape to cancel";
         }
@@ -945,6 +949,24 @@ internal sealed class TuiLiveSessionTab(
     }
 
     protected override void HandleTabInput(InputEvent evt){
+        // The quit's question is the app's and above everything, before any mode's shortcuts (Enter captures and S saves
+        // in preview): Enter takes the default, its letter the other, Escape stays.
+        if (LiveState.QuitDialog is { } quit)
+        {
+            QuitAction? answer = evt switch
+            {
+                InputEvent.KeyDown(InputKey.Enter, _) => quit.Default,
+                InputEvent.KeyDown(var key, _) when key == quit.OtherKey => quit.Other,
+                _ => null,
+            };
+            if (answer is not null || evt is InputEvent.KeyDown(InputKey.Escape, _))
+            {
+                bus.Post(new AnswerQuitSignal(answer));
+                NeedsRedraw = true;
+                return;
+            }
+        }
+
         // Polar-align mode: Esc cancels the routine instead of falling through to
         // the abort-confirmation strip (which is a session-only concept). Done is
         // surfaced as a button on the side panel rather than a keybind because
@@ -987,11 +1009,12 @@ internal sealed class TuiLiveSessionTab(
                 NeedsRedraw = true;
                 return;
 
-            case InputEvent.KeyDown(InputKey.C, InputModifier.Ctrl) when LiveState.IsRunning:
-            case InputEvent.KeyDown(InputKey.Escape or InputKey.Q, _) when LiveState.IsRunning:
+            // Escape asks to abort the run on screen. Q and Ctrl+C are the quit's, whose question offers to leave the run
+            // going or stop the rig (decision 1), so they are not consumed here.
+            case InputEvent.KeyDown(InputKey.Escape, _) when LiveState.IsRunning:
                 LiveState.ShowAbortConfirm = true;
                 NeedsRedraw = true;
-                return; // consumed via NeedsRedraw; don't quit
+                return;
 
             // Preview viewer controls: same shortcuts as FITS viewer
             case InputEvent.KeyDown(InputKey.T, _):

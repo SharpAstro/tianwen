@@ -129,13 +129,14 @@ internal class TuiSubCommand(
             plannerState.NeedsRedraw = true;
         };
 
-        // Quitting is the GUI's rule (AppQuit): ask first while this computer's session runs, then cancel the
-        // background work above, stop the rig through its runs' own endings and warm the cameras, while the
-        // loop shows the progress. Q used to drain a tracker nothing had cancelled, and hung for ever on the
-        // mount-limit watcher.
-        var rigShutdown = new RigShutdown(contexts.Local.LiveSession, registry, consoleHost.TimeProvider, logger);
-        var appQuit = new AppQuit(appState, contexts, rigShutdown, tracker, backgroundCts, consoleHost.TimeProvider,
+        // Quitting is the GUI's rule (AppQuit, decision 1): the rig is this computer's node's, so only the last client
+        // asks, whether to leave a run going or stop the rig, or whether to warm up and disconnect what is connected; the
+        // background work above is cancelled either way, and the loop shows a stop's progress. Q used to drain a tracker
+        // nothing had cancelled, and hung for ever on the mount-limit watcher.
+        var rigShutdown = new RigShutdown(consoleHost.TimeProvider, logger);
+        var appQuit = new AppQuit(appState, contexts, rigShutdown, tracker, backgroundCts, consoleHost.TimeProvider, logger,
             () => signalHandler.FlushRigLastSeenAsync(CancellationToken.None));
+        bus.Subscribe<AnswerQuitSignal>(sig => appQuit.Answer(sig.Action));
 
         // This computer's node, found or started (P6 of docs/plans/hardware-in-the-server.md, #936), running the profile
         // chosen above: it holds the rig, and the local view reads it as it reads a rig. The planner's start and the
@@ -335,8 +336,6 @@ internal class TuiSubCommand(
             signalHandler.BeatNodes();
             tracker.ProcessCompletions(logger);
 
-            // A confirmed abort goes on to stop the rig once the session has ended; a dismissed one withdraws.
-            appQuit.Tick();
             if (appQuit.IsComplete)
             {
                 break;

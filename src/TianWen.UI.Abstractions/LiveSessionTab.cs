@@ -215,6 +215,10 @@ namespace TianWen.UI.Abstractions
                 {
                     RenderSessionPrompt(contentRect, planetaryPrompt, fs);
                 }
+                if (state.QuitDialog is { } planetaryQuit)
+                {
+                    RenderQuitDialog(contentRect, planetaryQuit, fs);
+                }
                 return;
             }
 
@@ -389,6 +393,12 @@ namespace TianWen.UI.Abstractions
             if (state.PendingPrompt is { } pendingPrompt)
             {
                 RenderSessionPrompt(contentRect, pendingPrompt, fs);
+            }
+
+            // The quit's question is the app's, not the run's: over everything, a prompt included.
+            if (state.QuitDialog is { } quit)
+            {
+                RenderQuitDialog(contentRect, quit, fs);
             }
         }
 

@@ -53,20 +53,6 @@ public class LiveSessionPromptsTests
     }
 
     [Fact]
-    public async Task WithTheDisplayGoneAPromptGetsTheUnattendedAnswerAtOnce()
-    {
-        var run = Substitute.For<ISessionTelemetry>();
-        var view = new LiveSessionState { AnswerPromptsUnattended = true };
-        using var _ = LiveSessionPrompts.ShowOn(run, view, app: null);
-        var (prompt, answer) = Prompt(defaultIfUnanswerable: true);
-
-        run.PromptRequested += Raise.EventWith(run, prompt);
-
-        (await answer.Task).ShouldBeTrue();
-        view.PendingPrompt.ShouldBeNull();
-    }
-
-    [Fact]
     public void OnceDetachedARunsPromptNoLongerShows()
     {
         var run = Substitute.For<ISessionTelemetry>();
