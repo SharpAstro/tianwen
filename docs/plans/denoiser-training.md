@@ -458,6 +458,8 @@ Settled by the campaign; restated so no run re-derives them.
 | **E13** | The varied pool (run log, E13): 78 sessions on 6 cameras (81 on 7 pre-registered; three refused at export, see the run log), the injected shape varied per draw (0.22 to 0.65), three converged arms from one cache: `pool` (the new recipe), `poolb` (band conditioning, more signal), `pool48` (base 48, more features), three seeds each, twelve fields. `run-pool.ps1` exports now and trains once E12 hands over the GPU. **DONE 2026-09-27: no prediction holds** (R: pool 21.7, poolb 18.6, pool48 15.0, against E12's 25.3; eleven fields, the unsolvable 24mm ASI585 excluded for good): the varied pool moves removal BETWEEN fields, far more on HIP-34710 and HIP-85088, far less on three bb-eval-4 fields and eta Car (run log, "E13's result"). | ~2.5 h export, then ~15 to 25 h GPU | data, signal, features |
 | **E14** | The ring fix alone (run log, E14): E13's `pool` arm byte for byte on `n2n-pool-rf`, the same pool re-exported after the canvas-ring fix, three seeds; scored on the old eval caches AND on ring-fixed ones built from 2026-09-25-full. `run-poolrf.ps1` (training), `run-poolrf-score.ps1`, `run-poolrf-evalrf.ps1`. Trained 2026-09-27, ~54 min a seed. **DONE 2026-09-27: not killed** (run log, "E14 on the ring-fixed caches"). Ring-fixed, the primary read: R poolrf 22.52 (seed sd 4.91) against pool 23.75 (sd 0.89), -1.23 inside the 2.04 threshold; the frontier is worse on eta Car and the Skull, better on Horsehead. Old caches: 18.83 against 21.74 (prediction 2 holds). E13's redistribution survives the fix (prediction 3). E12's `conv` leads both domains (29.18 ring-fixed). | ~3 h GPU, ~2 h bake | stretch |
 | **E15** | E12's recipe on data that matches inference (run log, E15): the E10 control cache re-exported after the ring fix (`n2n-bb-ctl-rf`, the same 16 sessions and cells, 9 of them with a stretch the fix moves), then `run-converge.ps1`'s training line exactly, four seeds; every model re-scored in one pass on E14's ring-fixed caches, the shipped `e2_wide_s2` as a reference. `run-e15.ps1`, pre-registered in its header. The ship candidate. **DONE 2026-09-28: not killed, four of five predictions hold** (run log, "E15's result"): R `convrf` 29.78 against `conv` 29.18, and its seed sd 0.58 against 4.53; the frontier against `conv` is worse on one field of ten readable, against the shipped model better on seven. Prediction 5 (the moves concentrate on broadband) fails. Every model, the shipped one included, smooths away real structure in a bright emission core. | 1 h 28 min export and prepare, 2 h 57 min for four seeds and the scoring | stretch, ship |
+| **E16a** | The per-pixel noise plane alone (run log, "Detail kept" and E16a): E15's cells and recipe exactly, `--cond-map` in place of `--cond`, the tiles proved byte-identical to `n2n-bb-ctl-rf`'s so the plane is the only difference. Scored on the `-rfs` eval caches in two conditions: the half-A planes as estimated (`tianwen dataset noise-planes`) and with each field's anchor taken from its half pairs (`--plane-truth-anchor`, the primary). `run-e16a.ps1`, pre-registered in its header. **Launched 2026-09-28.** | ~1.5 h export, ~3 h for four seeds | conditioning |
+| **E16b** | NOT STARTED. Bright-cell sampling on top of E16a (cells chosen from bright structure, calibrated from the session's quiet cells rather than a MAD of each bright cell's own structure), and bright eval cells so the detail-kept levels read on more than two fields. | | data |
 
 Every arm: pre-register predictions in the run script header; three seeds; one prepared cache per
 arm, never edited between runs; launch multi-hour jobs detached (`Start-Process`), never through the
@@ -2087,6 +2089,31 @@ texture. Given the true noise instead (`--absolute`), the checkpoints keep all t
 removal (eta Car 26.0 to 12.7 percent): they were trained on the same inflated estimate, so an honest one
 reads to them as "barely noisy". Two defects, one cause: the conditioning plane is a texture statistic
 of the tile, not the noise at the pixel.
+
+**E16's machinery** (2026-09-28, all on stage 6). `StretchedNoise` (TianWen.Lib) is the one function for the
+plane: the exporter's shot-noise model at the stretch's inverse of a low-passed level, times the stretch's slope,
+the channels combined as the trainer's luminance, low-passed; pinned against injected-and-stretched noise within
+1 percent from the sky to a level of 0.8. `tianwen dataset degrade` writes each draw's plane (`.sigma.f16`, the
+draw's own noise, known) and the clean master's, pinned against the draws' own noise within 2 percent at shallow
+depths; deeper draws measure short of the plane because the stretch clips at the master's minimum, so **every
+export so far has clipped the dark-sky noise of its deep draws** (a 1.26-sub draw on the fixture lost 17 percent
+of its measured noise), a property of all earlier training data. `--prepare` packs the planes (`sigma.f16`),
+`--train --cond-map` conditions on them, the gate and the held-out objective too. For real frames
+`StretchedNoise.EstimateCalibration` estimates a frame's noise from the frame (blocks through a 4 px high-pass,
+each divided by the model's level dependence, the quiet quantile), and `tianwen dataset noise-planes` writes the
+estimated planes beside a bake's master and half tiles. **Against the half pairs' own noise the estimated half
+planes keep their shape across levels (V1045 Ori 0.97 to 0.98, eta Car 1.21 to 1.26) but their anchor is off by a
+factor per field**, median 1.31 over eleven fields, 0.78 (Horsehead) to 2.54 (Lagoon, the uncooled Uranus-C):
+a half's own stretch is not retained, so the master's stands in, and pattern noise both halves share cancels in the
+truth but not in a one-frame estimate. The estimator is therefore not ready to ship behind a `--cond-map` model,
+and E16a is read under an oracle anchor as well as the estimate.
+
+**E16a, pre-registered** (`run-e16a.ps1`): E15's cells and recipe, the plane the only difference. Predictions
+under the oracle anchor: (1) brightest-level 1-2 px detail kept at full strength, mean of V1045 Ori and eta Car,
+at least 0.92 against convrf's 0.85 (KILL below 0.88, which an untrained convrf given the plane reaches); (2) at
+0.45-0.60, convrf + 0.03; (3) R within 3 points of 29.78 (KILL: lower by more than 5); (4) the frontier no worse on
+all but two readable fields; (5) under the estimate, higher R and lower bright detail than the oracle on each field
+whose estimate reads high.
 
 **Next, E16:** condition on the NOISE, per pixel. In training the exporter already knows it (the injected
 draw's sigma, `LinearDegradation.SigmaAt`, through the stretch); at inference the runner holds the linear
