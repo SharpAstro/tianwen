@@ -457,7 +457,7 @@ Settled by the campaign; restated so no run re-derives them.
 | **E12** | Train to convergence (run log, "what went wrong in Probe BB and E10"). `run-converge.ps1`: E11's cache and recipe under `--schedule plateau` (held rate, held-out objective every 500 steps, halve after four flat windowed scores, stop after the fourth halving, 60000-step cap), four seeds, final weights, E11's primary and kill. Launched 2026-09-26. **DONE 14:27: not killed, and prediction 2 failed** (G +0.63, 95 percent interval -6.5 to +7.8; seed sd 5.00): the frontier is better on six of seven readable fields and worse on V1045 Ori's compact column (run log, "E12's result"). | ~1 to 3 h per seed | steps |
 | **E13** | The varied pool (run log, E13): 78 sessions on 6 cameras (81 on 7 pre-registered; three refused at export, see the run log), the injected shape varied per draw (0.22 to 0.65), three converged arms from one cache: `pool` (the new recipe), `poolb` (band conditioning, more signal), `pool48` (base 48, more features), three seeds each, twelve fields. `run-pool.ps1` exports now and trains once E12 hands over the GPU. **DONE 2026-09-27: no prediction holds** (R: pool 21.7, poolb 18.6, pool48 15.0, against E12's 25.3; eleven fields, the unsolvable 24mm ASI585 excluded for good): the varied pool moves removal BETWEEN fields, far more on HIP-34710 and HIP-85088, far less on three bb-eval-4 fields and eta Car (run log, "E13's result"). | ~2.5 h export, then ~15 to 25 h GPU | data, signal, features |
 | **E14** | The ring fix alone (run log, E14): E13's `pool` arm byte for byte on `n2n-pool-rf`, the same pool re-exported after the canvas-ring fix, three seeds; scored on the old eval caches AND on ring-fixed ones built from 2026-09-25-full. `run-poolrf.ps1` (training), `run-poolrf-score.ps1`, `run-poolrf-evalrf.ps1`. Trained 2026-09-27, ~54 min a seed. **DONE 2026-09-27: not killed** (run log, "E14 on the ring-fixed caches"). Ring-fixed, the primary read: R poolrf 22.52 (seed sd 4.91) against pool 23.75 (sd 0.89), -1.23 inside the 2.04 threshold; the frontier is worse on eta Car and the Skull, better on Horsehead. Old caches: 18.83 against 21.74 (prediction 2 holds). E13's redistribution survives the fix (prediction 3). E12's `conv` leads both domains (29.18 ring-fixed). | ~3 h GPU, ~2 h bake | stretch |
-| **E15** | E12's recipe on data that matches inference (run log, E15): the E10 control cache re-exported after the ring fix (`n2n-bb-ctl-rf`, the same 16 sessions and cells, 9 of them with a stretch the fix moves), then `run-converge.ps1`'s training line exactly, four seeds; every model re-scored in one pass on E14's ring-fixed caches, the shipped `e2_wide_s2` as a reference. `run-e15.ps1`, pre-registered in its header. The ship candidate. **Launched 2026-09-27.** | ~40 min export, then ~1 to 3 h per seed | stretch, ship |
+| **E15** | E12's recipe on data that matches inference (run log, E15): the E10 control cache re-exported after the ring fix (`n2n-bb-ctl-rf`, the same 16 sessions and cells, 9 of them with a stretch the fix moves), then `run-converge.ps1`'s training line exactly, four seeds; every model re-scored in one pass on E14's ring-fixed caches, the shipped `e2_wide_s2` as a reference. `run-e15.ps1`, pre-registered in its header. The ship candidate. **DONE 2026-09-28: not killed, four of five predictions hold** (run log, "E15's result"): R `convrf` 29.78 against `conv` 29.18, and its seed sd 0.58 against 4.53; the frontier against `conv` is worse on one field of ten readable, against the shipped model better on seven. Prediction 5 (the moves concentrate on broadband) fails. Every model, the shipped one included, smooths away real structure in a bright emission core. | 1 h 28 min export and prepare, 2 h 57 min for four seeds and the scoring | stretch, ship |
 
 Every arm: pre-register predictions in the run script header; three seeds; one prepared cache per
 arm, never edited between runs; launch multi-hour jobs detached (`Start-Process`), never through the
@@ -2003,6 +2003,46 @@ the frontier no worse than `conv`'s on all but at most two of the fields both ca
 moves, moves most on the four bb-eval-4 fields, because the moved training sessions are the broadband ones.
 Whether `convrf` replaces the shipped model is decided after the read, on the frontier against
 `e2_wide_s2` and a look at 1:1.
+
+**E15's result** (2026-09-28; 21 models in one pass, and `conv`, `poolrf`, `pool` and `ctl4k` reproduce
+E14's ring-fixed values to the digit, so the CLI rebuilt at this HEAD moved nothing). The export matched
+16 sessions plus the pier-flip variants of three of them (22 in its count); the prepared cache holds
+exactly `n2n-bb-ctl`'s 870 cells. **Not killed; predictions 1 to 4 hold, 5 fails.**
+
+| | R | seed sd | vs `conv` |
+|---|---|---|---|
+| `convrf` (E15) | **29.78** | **0.58** | +0.60 (paired +3.98, +5.75, -3.22, -4.13) |
+| `conv` (E12) | 29.18 | 4.53 | |
+| shipped `e2_wide_s2` | 27.51 | | -1.67 |
+| `ctl4k` (E10) | 23.22 | 3.37 | |
+| `pool` (E13) | 23.75 | 0.89 | |
+| `poolrf` (E14) | 22.52 | 4.91 | |
+
+- (1) +0.60 against the 8.98 threshold (conv's sd in this pass): holds, and says nothing finer.
+- (2) The frontier against `conv`: worse on eta Car, better on V1045 Ori and Horsehead, inside on seven,
+  Carina-Wide unreadable (no model reaches 4 percent there). Worse on one of ten readable: holds.
+- (3) 7.26 above `poolrf`: holds, so the recipe to ship stays E12's.
+- (4) **The seed sd fell from 4.53 to 0.58**, the finding of the run. `conv`'s seeds disagree most on
+  HIP-34710 (13.8 to 31.4), HIP-85088 (13.1 to 39.1) and Horsehead (24.9 to 49.3), where `convrf`'s span
+  2 to 8 points; its seed range is narrower on nine of the eleven fields (not V1045 Ori or the Skull).
+  The field pattern moved too: `conv` removes 62 to 67 percent on the Skull and 4 to 12 on Rim, `convrf`
+  28 to 33 and 19 to 22. Trained on the stretch inference uses, the recipe's seeds agree.
+- (5) Fails: the largest moves are HIP-34710 (+18.6), the Skull (-32.6), Rim (+11.8) and Horsehead
+  (-9.3), not the bb-eval-4 fields (+0.3 to +9.4).
+
+Against the shipped model (a reference, not a prediction): R +2.27, and at matched removal `convrf` spends
+fewer stars and less compact detail on seven fields, is inside its value on two, spends more on the
+Skull, with Carina unreadable. **Every seed stopped earlier than E12's** (steps 11500 to 18500 against 26000 to 43000;
+seed 0's best held-out objective came at step 1500), and the objective sits about five times higher
+than on `n2n-bb-ctl`, as it did for E14's ring-fixed pool: the stretch of the val tiles changed, so the
+plateau rule reads a flatter curve. All four seeds passed the gate (steps 4000 to 9000).
+
+**What the 1:1 sheets show** (`n2n_compare.py`, shipped / `conv_s0` / `convrf_s1`, each arm's seed nearest
+its mean R, on the three ring-fixed eval caches): on star fields the three are hard to tell apart. **On a
+bright emission core (eval4b's V1045 Ori field, the Orion Nebula) every model smooths away filaments and
+dark bays that the independent half B shows**, the shipped one also turning the nebula olive, `convrf`
+tinting its core highlight a pale green-white. None of the scored columns measures bright extended
+structure, so no table above can see it; it is the open question before a ship.
 
 **The other models share the budget.** Every deconvolver run (`run-e3-*.ps1`, including E3.4d's prior
 that met the star clauses) trained the same fixed 4000-step cosine; `--schedule plateau` does not yet
