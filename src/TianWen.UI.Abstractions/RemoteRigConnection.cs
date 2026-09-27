@@ -13,9 +13,8 @@ using TianWen.RemoteClient;
 namespace TianWen.UI.Abstractions
 {
     /// <summary>
-    /// One bound rig, live: resolves its address from discovery, owns the
-    /// <see cref="RemoteSessionMirror"/> that mirrors its session, and hands that mirror to a
-    /// <see cref="ViewContext"/> so the tabs render the rig exactly as they render a local session.
+    /// One bound rig, live: a <see cref="NodeConnection"/> over the LAN, whose address it resolves from discovery, so the
+    /// tabs render the rig exactly as they render this computer's own node.
     /// <para>
     /// <b>Address is resolved per connect, never stored as identity.</b> A binding names a
     /// <see cref="RemoteRigBinding.NodeId"/>; the endpoint comes from the live peer table, falling back
@@ -25,69 +24,38 @@ namespace TianWen.UI.Abstractions
     /// now holds its old address.
     /// </para>
     /// </summary>
-    public sealed class RemoteRigConnection : IAsyncDisposable
+    public sealed class RemoteRigConnection : NodeConnection
     {
         /// <summary>The LAN.Lib service name a TianWen node announces.</summary>
         public const string NodeServiceName = "tianwen-server";
 
-        /// <summary>
-        /// How often the rig is re-asked which profile it runs, and for that profile. Slow on purpose: it changes when
-        /// somebody reconfigures the rig, not during a night, so this is two orders of magnitude rarer than the state poll
-        /// and its traffic is noise next to it.
-        /// </summary>
-        public static readonly TimeSpan ProfileRefreshInterval = TimeSpan.FromMinutes(2);
+        private int _firstContactClaimed;
 
-        /// <summary>
-        /// How often an idle rig's devices are read, and how often while one moves (a focuser, or the mount slewing): the
-        /// cadences this computer's idle view reads its own devices at (<see cref="AppSignalHandler.PollPreviewTelemetry"/>).
-        /// </summary>
-        public static readonly TimeSpan DevicesRefreshInterval = TimeSpan.FromSeconds(2);
-
-        /// <inheritdoc cref="DevicesRefreshInterval"/>
-        public static readonly TimeSpan DevicesRefreshIntervalMoving = TimeSpan.FromSeconds(1);
-
-        private readonly HttpClient _http;
-        private readonly TianWenNodeClient _client;
-        private readonly TianWenEventStream _events;
-        private readonly IDisposable _prompts;
-        private readonly ITimeProvider _timeProvider;
-        private readonly ILogger _logger;
-
-        private string? _profileName;
-        private DateTimeOffset? _profileCheckedUtc;
-        private int _profileRefreshInFlight;
-        private string? _profileRevision;
-        private long _devicesCheckedTicks;
-        private int _devicesRefreshInFlight;
-
-        private RemoteRigConnection(
-            RemoteRigBinding binding, ViewContext context, Uri address,
-            HttpClient http, TianWenNodeClient client, TianWenEventStream events,
-            RemoteSessionMirror mirror, IDisposable prompts, ITimeProvider timeProvider, ILogger logger)
+        private RemoteRigConnection(RemoteRigBinding binding, ViewContext context, Uri address, NodeTransport transport,
+            ITimeProvider timeProvider, ILogger logger, CancellationToken cancellationToken)
+            // A rig's question waits where the rig is shown: its prompts are not brought to the front.
+            : base(context, transport, promptsApp: null, timeProvider, logger, cancellationToken)
         {
             Binding = binding;
-            Context = context;
             Address = address;
-            _http = http;
-            _client = client;
-            _events = events;
-            Mirror = mirror;
-            _prompts = prompts;
-            _timeProvider = timeProvider;
-            _logger = logger;
         }
 
         /// <summary>The binding this connection serves.</summary>
         public RemoteRigBinding Binding { get; }
 
-        /// <summary>The view context whose <see cref="ViewContext.LiveSession"/> this connection feeds.</summary>
-        public ViewContext Context { get; }
-
         /// <summary>The node root actually connected to.</summary>
         public Uri Address { get; }
 
-        /// <summary>The live mirror. Also the control surface (start / flats / abort / prompts).</summary>
-        public RemoteSessionMirror Mirror { get; }
+        private protected override string Name => $"rig '{Binding.Alias}'";
+
+        /// <summary>The binding's own choice of profile, else the one the rig runs (P5b part 8).</summary>
+        private protected override Guid? ProfileToPlanWith(Guid? running) => Binding.RemoteProfileId ?? running;
+
+        private protected override void OnProfileRead(Profile profile) => Context.RigProfile = profile;
+
+        private protected override Profile? ProfileOnView => Context.RigProfile;
+
+        private protected override void OnDetached() => Context.RigProfile = null;
 
         /// <summary>
         /// Resolves <paramref name="binding"/> to an address and starts mirroring it, returning null when
@@ -108,35 +76,12 @@ namespace TianWen.UI.Abstractions
                 return null;
             }
 
-            // The HTTP client's timeout is the backstop only (NodeTransport): the per-request budgets in
-            // NodeTimeouts are what actually bite. Explicit rather than the 100 s default, which is far too long to
-            // notice a rig has gone: a rig that is switched off does not refuse the connection (that fails
-            // instantly), it black-holes the packets, so the wait is the full timeout.
-            var transport = NodeTransport.OverTcp(address);
-            var http = transport.CreateHttpClient();
-            var client = new TianWenNodeClient(http);
-            var events = transport.CreateEventStream(timeProvider, logger);
-            // The rig's frames are asked for while it is on screen (ViewContexts.PollAll), never here: every bound rig
-            // connects, and N of them each pulling full frames is what the mirror's opt-in exists to prevent.
-            var mirror = new RemoteSessionMirror(client, events, timeProvider, logger)
-            {
-                IsOnThisMachine = transport.SocketPath is not null,
-            };
-
-            var context = contexts.GetOrAddRemote(binding.NodeId, binding.Alias);
-
-            // This is the whole payoff of the ISessionTelemetry split: from here the Live Session and
-            // Guider tabs render the rig with no knowledge that it is remote.
-            context.LiveSession.ActiveSession = mirror;
-            context.Mirror = mirror;
-            // The rig's prompts on its own view (and its Home card), answered back to its node through the mirror. Not
-            // brought to the front: a rig's question waits where the rig is shown.
-            var prompts = LiveSessionPrompts.ShowOn(mirror, context.LiveSession, app: null);
-
-            mirror.Start(cancellationToken);
+            // A rig that is switched off does not refuse the connection (that fails instantly), it black-holes the packets,
+            // so NodeTransport's explicit backstop, not the 100 s default, is what notices it has gone.
+            var connection = new RemoteRigConnection(binding, contexts.GetOrAddRemote(binding.NodeId, binding.Alias), address,
+                NodeTransport.OverTcp(address), timeProvider, logger, cancellationToken);
             logger.LogInformation("Mirroring rig '{Alias}' at {Address}", binding.Alias, address);
-
-            return new RemoteRigConnection(binding, context, address, http, client, events, mirror, prompts, timeProvider, logger);
+            return connection;
         }
 
         /// <summary>
@@ -185,181 +130,6 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public bool TryClaimFirstContact() =>
             Mirror.LastContactUtc is not null && Interlocked.Exchange(ref _firstContactClaimed, 1) == 0;
-
-        private int _firstContactClaimed;
-
-        /// <summary>
-        /// The profile the rig is set up to run, or <see langword="null"/> until it has been learned (and
-        /// for a rig with no active profile, or one too old to report it). Written by
-        /// <see cref="MaybeRefreshProfileAsync"/> on a background task and read on the render thread,
-        /// hence the volatile reference read.
-        /// </summary>
-        public string? ProfileName => Volatile.Read(ref _profileName);
-
-        /// <summary>
-        /// Whether <see cref="MaybeRefreshProfileAsync"/> would actually do anything. A synchronous
-        /// predicate so a per-frame caller can skip the call entirely rather than allocating a completed
-        /// task per connection per frame; the async path re-checks it, so this is one rule, not two.
-        /// </summary>
-        public bool ProfileRefreshDue =>
-            _profileCheckedUtc is not { } last || _timeProvider.GetUtcNow() - last >= ProfileRefreshInterval;
-
-        /// <summary>
-        /// Re-asks the rig which profile it runs, and reads that profile whole onto the rig's view
-        /// (<see cref="ViewContext.RigProfile"/>, P5b part 8): the one the binding names, else the one the rig runs. Its site
-        /// is where the rig's nights are planned and its twilight and clock are drawn, and its sensor the rectangle drawn at
-        /// its pointing. At most once every <see cref="ProfileRefreshInterval"/> and never concurrently with itself. Returns
-        /// <see langword="true"/> only when the name or the profile <i>changed</i> (by the revision the node reads it at),
-        /// so a caller can redraw, and replan, on the transition rather than every tick.
-        /// <para>
-        /// Polled rather than pushed because the fact has no event: the rig's profile is changed through
-        /// the rig, and the beacon it announces is not a second place to put this -- a rig reached through
-        /// its stored address hint has no beacon at all, and would then be the one rig on the board with
-        /// no label. One source, even if it costs a request every couple of minutes.
-        /// </para>
-        /// <para>
-        /// A failure leaves the previous name in place and is <b>not</b> logged as a warning: the common
-        /// cause is a rig that has gone offline, which the card already says plainly. Only a 404 clears
-        /// the name, because that is the node stating it has no active profile.
-        /// </para>
-        /// </summary>
-        public async Task<bool> MaybeRefreshProfileAsync(CancellationToken cancellationToken)
-        {
-            if (!ProfileRefreshDue)
-            {
-                return false;
-            }
-
-            // One in flight at a time. Claimed before the timestamp is written so a slow request cannot be
-            // joined by a second one that sees a stale timestamp.
-            if (Interlocked.CompareExchange(ref _profileRefreshInFlight, 1, 0) != 0)
-            {
-                return false;
-            }
-
-            try
-            {
-                _profileCheckedUtc = _timeProvider.GetUtcNow();
-                var result = await _client.GetActiveProfileAsync(cancellationToken).ConfigureAwait(false);
-
-                var resolved = result switch
-                {
-                    { IsSuccess: true, Value: { } profile } => profile.Name,
-                    // The node answered that it has none -- that IS the answer, so drop any stale label.
-                    { IsNotFound: true } => null,
-                    // Unreachable or errored: keep what we had rather than blanking a good label.
-                    _ => ProfileName,
-                };
-                var changed = !string.Equals(resolved, ProfileName, StringComparison.Ordinal);
-                Volatile.Write(ref _profileName, resolved);
-
-                // The profile the rig's view plans with, read whole: the binding's own choice, else the one the rig runs.
-                if ((Binding.RemoteProfileId ?? (result is { IsSuccess: true, Value: { } running } ? running.ProfileId : null)) is { } profileId)
-                {
-                    var detail = await _client.GetProfileAsync(profileId, cancellationToken).ConfigureAwait(false);
-                    if (detail is { IsSuccess: true, Value: { Data: { } data } profile }
-                        && !string.Equals(profile.Revision, _profileRevision, StringComparison.Ordinal))
-                    {
-                        _profileRevision = profile.Revision;
-                        Context.RigProfile = new Profile(profile.ProfileId, profile.Name, data);
-                        changed = true;
-                    }
-                    else if (detail.Error is { } error && !detail.IsSuccess)
-                    {
-                        // A failure keeps the profile held, as a failed name keeps the name: most often the rig is off.
-                        _logger.LogDebug("Could not read profile {ProfileId} of rig '{Alias}': {Error}", profileId, Binding.Alias, error);
-                    }
-                }
-
-                return changed;
-            }
-            finally
-            {
-                Volatile.Write(ref _profileRefreshInFlight, 0);
-            }
-        }
-
-        /// <summary>
-        /// Whether <see cref="MaybeRefreshDevicesAsync"/> would read now: a synchronous check, as
-        /// <see cref="ProfileRefreshDue"/> is, so the render loop asks it for nothing. Faster while a device moves, which is
-        /// when the readout is watched.
-        /// </summary>
-        public bool DevicesRefreshDue
-        {
-            get
-            {
-                var last = Volatile.Read(ref _devicesCheckedTicks);
-                return last == 0 || _timeProvider.GetElapsedTime(last) >= (AnyDeviceMoving(Context.LiveSession) ? DevicesRefreshIntervalMoving : DevicesRefreshInterval);
-            }
-        }
-
-        private static bool AnyDeviceMoving(LiveSessionState view)
-        {
-            if (view.MountState.IsSlewing)
-            {
-                return true;
-            }
-            foreach (var ota in view.PreviewOTATelemetry)
-            {
-                if (ota.FocuserIsMoving)
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        /// <summary>
-        /// Reads the rig's devices from its node and puts them on its view (P5b part 9, <see cref="RigDevices"/>): the OTA
-        /// panels and the mount an idle rig's Live Session lays out, and the mount its sky map draws, as this computer's idle
-        /// view reads its own. For the host to call while the rig is on show and its node runs nothing (a run's state carries
-        /// its own devices), at most every <see cref="DevicesRefreshInterval"/> and never concurrently with itself. Returns
-        /// <see langword="true"/> when the view took a reading, so the caller redraws. Nothing is read before the rig's
-        /// profile is, since its OTAs are what the readings are laid out by.
-        /// </summary>
-        public async Task<bool> MaybeRefreshDevicesAsync(CancellationToken cancellationToken)
-        {
-            if (!DevicesRefreshDue || Context.RigProfile?.Data is not { } profile)
-            {
-                return false;
-            }
-            if (Interlocked.CompareExchange(ref _devicesRefreshInFlight, 1, 0) != 0)
-            {
-                return false;
-            }
-
-            try
-            {
-                Volatile.Write(ref _devicesCheckedTicks, _timeProvider.GetTimestamp());
-                var result = await _client.GetDeviceStatesAsync(cancellationToken).ConfigureAwait(false);
-                if (result is not { IsSuccess: true, Value: { } devices })
-                {
-                    // Most often the rig is off, which its card and tabs already say: keep the last reading shown.
-                    _logger.LogDebug("Could not read the devices of rig '{Alias}': {Error}", Binding.Alias, result.Error);
-                    return false;
-                }
-                RigDevices.Apply(Context.LiveSession, profile, devices);
-                return true;
-            }
-            finally
-            {
-                Volatile.Write(ref _devicesRefreshInFlight, 0);
-            }
-        }
-
-        public async ValueTask DisposeAsync()
-        {
-            // Detach BEFORE tearing the mirror down: a render pass between dispose and detach would read
-            // a mirror whose poll loop has already stopped, and show a frozen session as though live.
-            Context.LiveSession.ActiveSession = null;
-            Context.Mirror = null;
-            Context.RigProfile = null;
-            _prompts.Dispose();
-            Context.LiveSession.PendingPrompt = null;
-
-            await Mirror.DisposeAsync().ConfigureAwait(false);
-            _http.Dispose();
-        }
     }
 
     /// <summary>
