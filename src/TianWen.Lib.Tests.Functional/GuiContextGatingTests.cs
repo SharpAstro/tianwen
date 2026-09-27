@@ -14,7 +14,7 @@ using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
 using Xunit;
 
-namespace TianWen.Lib.Tests;
+namespace TianWen.Lib.Tests.Functional;
 
 /// <summary>
 /// With a REMOTE rig on screen, the GUI's actions that drive THIS computer's rig refuse, as the session, flat and
@@ -27,6 +27,7 @@ namespace TianWen.Lib.Tests;
 /// nothing" is what shows the local rig was left alone, deterministically and without waiting on a slew.
 /// </para>
 /// </summary>
+[Collection("NodeProcesses")]
 public class GuiContextGatingTests(ITestOutputHelper output)
 {
     private const string Refusal = "runs on this computer";
@@ -34,11 +35,11 @@ public class GuiContextGatingTests(ITestOutputHelper output)
     [Fact(Timeout = 30_000)]
     public async Task APlanetaryStartWithARemoteRigOnScreenLeavesTheLocalCameraAlone()
     {
-        await using var h = await GuiSignalHarness.StartAsync(output, TestContext.Current.CancellationToken, remoteOnScreen: true);
+        await using var h = await GuiNodeHarness.StartAsync(output, TestContext.Current.CancellationToken, remoteOnScreen: true);
 
         h.Post(new StartVideoCaptureSignal(OtaIndex: 0));
 
-        h.PlanetaryCapture.IsCapturing.ShouldBeFalse("the local camera started streaming");
+        h.Planetary.IsCapturing.ShouldBeFalse("the local camera started streaming");
         h.Contexts.Local.LiveSession.Mode.ShouldNotBe(LiveSessionMode.Planetary);
         h.ShouldHaveRefused(Refusal);
     }
@@ -51,7 +52,7 @@ public class GuiContextGatingTests(ITestOutputHelper output)
     public async Task AnAbortOnARemoteRigsViewGoesToThatRigsNodeAndNeverTheLocalSession()
     {
         var ct = TestContext.Current.CancellationToken;
-        await using var h = await GuiSignalHarness.StartAsync(output, ct, remoteOnScreen: true);
+        await using var h = await GuiNodeHarness.StartAsync(output, ct, remoteOnScreen: true);
         var rig = h.ConnectRemoteRig();
 
         h.Post(new ConfirmAbortSessionSignal());
@@ -64,7 +65,7 @@ public class GuiContextGatingTests(ITestOutputHelper output)
     public async Task ACancelFlatsOnARemoteRigsViewGoesToThatRigsNodeAndNeverTheLocalFlatRun()
     {
         var ct = TestContext.Current.CancellationToken;
-        await using var h = await GuiSignalHarness.StartAsync(output, ct, remoteOnScreen: true);
+        await using var h = await GuiNodeHarness.StartAsync(output, ct, remoteOnScreen: true);
         var rig = h.ConnectRemoteRig();
 
         h.Post(new CancelFlatsSignal());
@@ -76,7 +77,7 @@ public class GuiContextGatingTests(ITestOutputHelper output)
     [Fact(Timeout = 30_000)]
     public async Task AnAbortOnARigThatIsNotConnectedSaysSo()
     {
-        await using var h = await GuiSignalHarness.StartAsync(output, TestContext.Current.CancellationToken, remoteOnScreen: true);
+        await using var h = await GuiNodeHarness.StartAsync(output, TestContext.Current.CancellationToken, remoteOnScreen: true);
 
         h.Post(new ConfirmAbortSessionSignal());
 
@@ -90,7 +91,7 @@ public class GuiContextGatingTests(ITestOutputHelper output)
     [Fact(Timeout = 30_000)]
     public async Task AnAnswerOnARemoteRigsViewAnswersThatRigsPromptNotTheLocalOne()
     {
-        await using var h = await GuiSignalHarness.StartAsync(output, TestContext.Current.CancellationToken, remoteOnScreen: true);
+        await using var h = await GuiNodeHarness.StartAsync(output, TestContext.Current.CancellationToken, remoteOnScreen: true);
         var (local, localAnswer) = Prompt("Local panel");
         var (remote, remoteAnswer) = Prompt("Rig panel");
         h.Contexts.Local.LiveSession.PendingPrompt = local;
@@ -113,7 +114,7 @@ public class GuiContextGatingTests(ITestOutputHelper output)
     [Fact(Timeout = 30_000)]
     public async Task AMountNudgeWithARemoteRigOnScreenDoesNotPulseTheLocalMount()
     {
-        await using var h = await GuiSignalHarness.StartAsync(output, TestContext.Current.CancellationToken, remoteOnScreen: true);
+        await using var h = await GuiNodeHarness.StartAsync(output, TestContext.Current.CancellationToken, remoteOnScreen: true);
 
         h.Post(new JogMountSignal(GuideDirection.North, Arcsec: 10));
 
@@ -124,7 +125,7 @@ public class GuiContextGatingTests(ITestOutputHelper output)
     [Fact(Timeout = 30_000)]
     public async Task AGotoWithARemoteRigOnScreenDoesNotSlewTheLocalMount()
     {
-        await using var h = await GuiSignalHarness.StartAsync(output, TestContext.Current.CancellationToken, remoteOnScreen: true);
+        await using var h = await GuiNodeHarness.StartAsync(output, TestContext.Current.CancellationToken, remoteOnScreen: true);
 
         h.Post(new SkyMapSlewToObjectSignal("M 42", 5.588, -5.39, Index: null, ObjectType.Unknown));
 
@@ -135,7 +136,7 @@ public class GuiContextGatingTests(ITestOutputHelper output)
     [Fact(Timeout = 30_000)]
     public async Task ASolveAndSyncWithARemoteRigOnScreenDoesNotTouchTheLocalRig()
     {
-        await using var h = await GuiSignalHarness.StartAsync(output, TestContext.Current.CancellationToken, remoteOnScreen: true);
+        await using var h = await GuiNodeHarness.StartAsync(output, TestContext.Current.CancellationToken, remoteOnScreen: true);
 
         h.Post(new SkyMapSolveSyncSignal());
 
@@ -151,7 +152,7 @@ public class GuiContextGatingTests(ITestOutputHelper output)
     [Fact(Timeout = 30_000)]
     public async Task AFocuserJogWithARemoteRigOnScreenDoesNotMoveTheLocalFocuser()
     {
-        await using var h = await GuiSignalHarness.StartAsync(output, TestContext.Current.CancellationToken, remoteOnScreen: true);
+        await using var h = await GuiNodeHarness.StartAsync(output, TestContext.Current.CancellationToken, remoteOnScreen: true);
 
         h.Post(new JogFocuserSignal(OtaIndex: 0, Steps: 10));
 

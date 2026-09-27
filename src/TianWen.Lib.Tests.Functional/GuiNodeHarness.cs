@@ -141,6 +141,9 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
             catalog.DeepSkyCoordinateGrid.Returns(new RaDecIndex());
             catalog.AllObjectIndices.Returns(new HashSet<CatalogIndex>());
             var external = new FakeExternal(output);
+            // No comets: an empty list, never the substitute's default array, which a planner recompute enumerates.
+            var comets = Substitute.For<ICometRepository>();
+            comets.All.Returns(System.Collections.Immutable.ImmutableArray<CometElements>.Empty);
             var services = new ServiceCollection()
                 .AddSingleton<IExternal>(external)
                 .AddSingleton<ITimeProvider>(new SystemTimeProvider())
@@ -150,7 +153,7 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
                 .AddSingleton<PlanetaryCaptureController>()
                 .AddSingleton(catalog)
                 // The planner's start loads the comets beside the catalogue: none, here.
-                .AddSingleton(Substitute.For<ICometRepository>())
+                .AddSingleton(comets)
                 .AddSingleton(Substitute.For<IPlateSolverFactory>())
                 .BuildServiceProvider();
 

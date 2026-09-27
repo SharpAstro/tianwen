@@ -346,9 +346,10 @@ screenshot-poll-and-OCR**. **Every mechanism -- the fake-device URI shapes incl.
 - **Anchor the clock with `TIANWEN_NOW`** to a real night at that site, or the session stalls in
   daylight instead of leaving `WaitingForDark`. **`StartSession` needs >=1 pinned target**
   (`PlannerState.Proposals.Length > 0`); planner pins persist per-profile, so pin once.
-- **Ground truth for fine telemetry is the Debug log, not the inspector snapshot.** `AppState` reads
-  `LiveSessionState`, which can lag during the guide loop; per-frame guide stats, HA and pier side come
-  from `%LOCALAPPDATA%/TianWen/Logs/<date>/GUI_*.log`.
+- **Ground truth for fine telemetry is the NODE's Debug log, not the inspector snapshot.** The rig runs in
+  `tianwen-server` (P6, #936), so per-frame guide stats, HA and pier side come from
+  `%LOCALAPPDATA%/TianWen/Logs/<date>/Server_*.log`; the GUI's `LiveSessionState` is a mirror of it and can lag
+  during the guide loop, and `GUI_*.log` records only what the window did.
 - **Use `render_liveness`, not a screenshot, to decide IF the render thread is stuck** -- every
   inspector command runs ON that thread. **`validation_report` with zero messages is evidence only when
   `active` is true** (the DEBUG + `SDLVK_VALIDATION=1` gate AND `layerAvailable`); a host with no
@@ -465,8 +466,9 @@ releasing it only after restoring the mount. Every new kind of run owes the same
   `LiveSessionState.IsRunning` checks, every one wrong the same way: `IsRunning` is **false during a flat
   run** (which is why `HasActiveRun` exists), so mid-flat-run the focuser could be jogged, the mount
   pulsed and slewed, and a planetary capture started on the camera being metered. A UI flag also cannot
-  work for the hosted API or the Alpaca plane, which never see one. Ask `DeviceOwnershipGate`; in the
-  GUI that is `EnsureDeviceControllable(uri)`.
+  work for the hosted API or the Alpaca plane, which never see one. Ask `DeviceOwnershipGate`, which the
+  node does: a client (the GUI, the TUI, the CLI) holds no hub since P6 (#936), so it asks the node and shows
+  the node's refusal, which names the run.
 - **Enforcement is asymmetric, deliberately.** Disconnect has one choke point, so `DisconnectAsync`
   throws `DeviceLeasedException` unless `force: true`; a caller that skips the gate gets an exception,
   not a stolen driver. Actuation has no choke point short of proxying every driver (an interception layer
@@ -474,17 +476,20 @@ releasing it only after restoring the mount. Every new kind of run owes the same
 - **`force: true` is for process shutdown only.** Note that GUI "Force Off" does **not** force past
   ownership: it means "skip the warm-up", which is what the user confirmed; consenting to a cold
   disconnect is not consenting to kill the night.
-- **Stopping the rig is ONE sequence, `RigShutdown`** (`TianWen.UI.Abstractions`), for a quit and for a
-  display that died: the runs first, each through its own ending (a session's and a flat run's `Finalise`,
-  polar's mount restore), and the cameras warmed and disconnected only once every run has ENDED
-  (`LiveSessionState.SessionEnded` / `FlatRunEnded` / `PolarRunEnded`, which each starter completes on
-  EVERY path its run can end by). A quit aborts the runs; `DisplayLost` (P0a, #743) lets a session and a
-  flat run finish on their own and answers their prompts unattended. **Never queue a camera warm-up
-  beside a run's cancel**: that is how `Finalise` and the quit once ramped one camera at the same time.
-  **Quitting is ONE rule too, `AppQuit`, for the GUI and the TUI**: ask first while this computer's
-  session runs, cancel the host's OWN background work (planner, limit watcher, planetary; a separate
-  token from the loop's), then `RigShutdown`, with the loop kept going to show it and a second quit
-  refused. The TUI had none and hung on Q, draining a tracker whose limit watcher nothing cancelled (P0c).
+- **Stopping the rig is ONE order, `RigShutdown`** (`TianWen.UI.Abstractions`, a node client since P6):
+  the node's run first, through its own ending (a session's and a flat run's `Finalise`, polar's mount
+  restore), and the devices warmed up and disconnected, as the node's jobs, only once the node says the run
+  has ENDED (`RigShutdownOrderTests`). **Never queue a camera warm-up beside a run's cancel**: that is how
+  `Finalise` and the quit once ramped one camera at the same time. A dead display stops nothing: the runs are
+  the node's, so the window leaves (P7 starts a successor).
+  **Quitting is ONE rule too, `AppQuit`, for the GUI and the TUI** (decision 1 of
+  `docs/plans/hardware-in-the-server.md`): only the LAST client attached to the node asks (the node's
+  `ClientsAttached`, less this one's own stream); with a run going on, "Leave the rig running" (the default) or
+  "Stop the rig and quit"; with devices connected and no run, "Warm up and disconnect" (the default, which the
+  node finishes after the window has gone) or "Leave connected". The question is `LiveSessionState.QuitDialog`
+  on this computer's view, drawn by both Live Session tabs over everything (Enter the default, its letter the
+  other, Escape stays). Every quit cancels the host's OWN background work first (a separate token from the
+  loop's); the TUI once hung on Q, draining a tracker whose limit watcher nothing cancelled (P0c).
 - **Escalation is explicit:** stop the run (abort the session / cancel the flat run) and the lease frees.
   There is no override on the actuation path by design.
 - `GetDisconnectSafetyAsync` is a **hardware**-safety check (cooler on / mid-exposure) and returns `Safe`
@@ -1001,9 +1006,10 @@ exposure solvers, the cover-capability model, the GUI mode, config knobs and eve
   path.**
 - **`RunFlatsOnlyAsync` connects a subset** (never the guider); `FinaliseFlatsAsync` is its focused
   `Finalise` counterpart.
-- **The GUI surface is a MODE on the Live Session tab, not a tab** (`LiveSessionMode.Flats`).
-  `FlatsBootstrapper` sets `ActiveSession` **without** `IsRunning`, which is exactly why hardware
-  guards must ask `DeviceOwnershipGate` and never a UI flag (see Device Ownership).
+- **The GUI surface is a MODE on the Live Session tab, not a tab** (`LiveSessionMode.Flats`). The flat run
+  is the node's (P6), started with the session tab's configuration; the view knows it by its mirror's run
+  (`LiveSessionState.IsFlatRunGoingOn`), never by `IsRunning`, which a flat run does not set. That is exactly
+  why hardware guards ask `DeviceOwnershipGate` and never a UI flag (see Device Ownership).
 - **With no `PromptRequested` subscriber the session answers `UnattendedPromptResponse`, which
   defaults to `Decline`** -- proceeding would assert a physical act nobody performed.
 - **Native Gemini FlatPanel Lite driver** (`AddGemini()`): an ASCOM-free serial `ICoverDriver`. Wire
@@ -1107,8 +1113,10 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   SILENTLY. Auto-recenter defaults ON (ROI-only, zero mount disturbance); mount jog is opt-in OFF and
   its **sign is uncalibrated**.
 - **The capture loop is `PlanetaryCapture` (Lib), ONE for the GUI and the node**: the camera, the stream, the
-  live controls and the recenter. The GUI's `PlanetaryCaptureController` only stacks and shows what it streams;
-  the node stacks it on its run's own task (`NodePlanetary`) and serves the live frame, copied at display rate by
+  live controls and the recenter. The GUI's `PlanetaryCaptureController` starts the node's run, sends the panel's
+  controls only as they CHANGE (`NodePlanetaryCapture`: the panel pushes its recenter every frame) and shows the
+  masters the node streams through the same `LiveStackPreviewSource` a SER playback uses (`NodeMasters`); the node
+  stacks it on its run's own task (`NodePlanetary`) and serves the live frame, copied at display rate by
   `FrameSampler`, and the linear master as frames (`planetary/live`, `planetary/master`). **A live view STREAMS them
   and the client ASKS for each frame** (`FrameStreamWire`, drop-to-latest): a send is done once the kernel has the
   bytes, and a loopback socket buffers dozens of planetary frames, so a node that sent on its own fed a reader that

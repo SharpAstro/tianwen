@@ -13,18 +13,19 @@ using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
 using Xunit;
 
-namespace TianWen.Lib.Tests;
+namespace TianWen.Lib.Tests.Functional;
 
 /// <summary>
 /// The TUI's Live Session rows are the view's own (P5b part 9 of docs/plans/hardware-in-the-server.md, #935): the real
 /// tab over the GUI's real signal handler. An idle rig's rows listed this computer's OTAs, since they were built from this
 /// computer's profile, and a running view's mount row printed a pointing not read yet through formatters that throw on NaN.
 /// </summary>
+[Collection("NodeProcesses")]
 public class TuiLiveSessionRigRowsTests(ITestOutputHelper output)
 {
     private static readonly DateTimeOffset Now = new DateTimeOffset(2025, 12, 15, 21, 0, 0, TimeSpan.Zero);
 
-    private static TuiLiveSessionTab Render(GuiSignalHarness h)
+    private static TuiLiveSessionTab Render(GuiNodeHarness h)
     {
         var terminal = Substitute.For<IVirtualTerminal>();
         terminal.Size.Returns((120, 40));
@@ -38,7 +39,7 @@ public class TuiLiveSessionRigRowsTests(ITestOutputHelper output)
     [Fact(Timeout = 60_000)]
     public async Task AnIdleRigsRowsAreItsOwnOtas()
     {
-        await using var h = await GuiSignalHarness.StartAsync(output, TestContext.Current.CancellationToken);
+        await using var h = await GuiNodeHarness.StartAsync(output, TestContext.Current.CancellationToken);
         // Two OTAs to this computer's one, so rows built from this computer's profile cannot pass for the rig's.
         var rigCamera = new FakeDevice(DeviceType.Camera, 7);
         var wideCamera = new FakeDevice(DeviceType.Camera, 8);
@@ -71,12 +72,15 @@ public class TuiLiveSessionRigRowsTests(ITestOutputHelper output)
     [Fact(Timeout = 60_000)]
     public async Task ARunsMountRowSaysItDoesNotKnowThePointingYet()
     {
-        await using var h = await GuiSignalHarness.StartAsync(output, TestContext.Current.CancellationToken);
+        await using var h = await GuiNodeHarness.StartAsync(output, TestContext.Current.CancellationToken);
         var session = Substitute.For<ISessionTelemetry>();
         session.TelescopeDisplays.Returns(ImmutableArray<TelescopeDisplayInfo>.Empty);
         session.Observations.Returns(new ScheduledObservationTree([]));
         session.MountDisplayName.Returns("Test mount");
-        var view = h.Contexts.Local.LiveSession;
+        // A rig's view, which no node feeds here: this computer's reads its node's mount, which knows where it points.
+        var rig = h.Contexts.GetOrAddRemote("observatory-node", "Observatory");
+        h.Contexts.Activate(rig).ShouldBeTrue();
+        var view = rig.LiveSession;
         view.ActiveSession = session;
         view.IsRunning = true;
 
