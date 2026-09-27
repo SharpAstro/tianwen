@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using System.CommandLine;
 using TianWen.Cli.Tui;
 using TianWen.Lib.Devices;
+using TianWen.RemoteClient;
 using TianWen.UI.Abstractions;
 
 namespace TianWen.Cli;
@@ -136,8 +137,11 @@ internal class TuiSubCommand(
         var appQuit = new AppQuit(appState, contexts, rigShutdown, tracker, backgroundCts, consoleHost.TimeProvider,
             () => signalHandler.FlushRigLastSeenAsync(CancellationToken.None));
 
-        // Load saved session configuration for the active profile
-        tracker.Run(() => signalHandler.LoadSessionConfigAsync(backgroundCts.Token), "Load session config");
+        // This computer's node, found or started (P6 of docs/plans/hardware-in-the-server.md, #936), running the profile
+        // chosen above: it holds the rig, and the local view reads it as it reads a rig. The planner's start and the
+        // session setup follow once it answers.
+        tracker.Run(() => signalHandler.ConnectLocalNodeAsync(new LocalNodeOptions(), profile.ProfileId.ToString(), backgroundCts.Token),
+            "Connect to this computer's node");
 
         // P3 of docs/plans/mount-safety-limits.md for this host too: a profile's mount safety limits apply to
         // a manual slew with no session running, and only a session enforces them on the mount it leases.
@@ -175,12 +179,6 @@ internal class TuiSubCommand(
         if (includeFake)
         {
             bus.Post(new DiscoverDevicesSignal(IncludeFake: true));
-        }
-
-        // Kick off planner computation in background
-        if (transform is not null)
-        {
-            tracker.Run(() => signalHandler.InitializePlannerAsync(transform, backgroundCts.Token), "Compute tonight's best targets");
         }
 
         // Prevent Ctrl+C from killing the process: it arrives as a regular key event instead
@@ -340,7 +338,7 @@ internal class TuiSubCommand(
             bus.ProcessPending(tracker);
             signalHandler.CheckRecompute();
             // Presence: the loop that draws the terminal is running, so a remote rig's node may hold a prompt for it.
-            signalHandler.BeatRemoteRigs();
+            signalHandler.BeatNodes();
             tracker.ProcessCompletions(logger);
 
             // A confirmed abort goes on to stop the rig once the session has ended; a dismissed one withdraws.

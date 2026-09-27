@@ -49,7 +49,7 @@ namespace TianWen.UI.Abstractions
             ILogger logger,
             CancellationToken cancellationToken)
         {
-            var binding = FindBinding(rigs, appState.PeerTable, displayName);
+            var binding = FindBinding(rigs, appState, displayName);
             if (binding is null)
             {
                 return new SelectOutcome(NotificationSeverity.Warning,
@@ -137,6 +137,21 @@ namespace TianWen.UI.Abstractions
         /// a rig comes online picks up only what is still missing.
         /// </para>
         /// </summary>
+        /// <summary>
+        /// The rigs announcing on the LAN, which the picker lists and a pick is matched back against: every node but this
+        /// computer's own (<see cref="GuiAppState.IsThisComputersNode"/>). ONE list for both, since the picker's labels are
+        /// disambiguated over it and the pick finds its peer by the same label.
+        /// </summary>
+        internal static IReadOnlyList<LanPeer> RigPeers(GuiAppState appState)
+        {
+            var peers = appState.PeerTable?.PeersOf(RemoteRigConnection.NodeServiceName);
+            if (peers is null || peers.Count == 0)
+            {
+                return [];
+            }
+            return appState.LocalNode is null ? peers : [.. peers.Where(p => !appState.IsThisComputersNode(p.NodeId))];
+        }
+
         public static async Task<ConnectAllOutcome> ConnectAllAsync(
             RemoteRigRegistry rigs,
             ViewContexts contexts,
@@ -157,7 +172,7 @@ namespace TianWen.UI.Abstractions
                     break;
                 }
 
-                if (rigs.IsConnected(binding.BindingId))
+                if (rigs.IsConnected(binding.BindingId) || appState.IsThisComputersNode(binding.NodeId))
                 {
                     continue;
                 }
@@ -323,10 +338,10 @@ namespace TianWen.UI.Abstractions
         /// legitimately announce the same name, and a renamed rig must keep its binding.
         /// </para>
         /// </summary>
-        private static RemoteRigBinding? FindBinding(RemoteRigRegistry rigs, IPeerTable? peers, string displayName)
+        private static RemoteRigBinding? FindBinding(RemoteRigRegistry rigs, GuiAppState appState, string displayName)
         {
-            var candidates = peers?.PeersOf(RemoteRigConnection.NodeServiceName);
-            if (candidates is null || candidates.Count == 0)
+            var candidates = RigPeers(appState);
+            if (candidates.Count == 0)
             {
                 // Not announcing right now -- fall back to a binding whose alias matches, so an offline
                 // rig can still be selected (and reported as offline) rather than vanishing.

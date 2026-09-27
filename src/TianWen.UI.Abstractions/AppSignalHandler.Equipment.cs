@@ -121,8 +121,7 @@ namespace TianWen.UI.Abstractions
                 if (plannerState.ObjectDb is null
                     && TransformFactory.FromProfile(updatedSite, _timeProvider, out _) is { } siteTransform)
                 {
-                    _tracker.Run(() => InitializePlannerAsync(siteTransform, cts.Token),
-                        "Load catalog after site edit");
+                    StartPlanner(siteTransform, "Load catalog after site edit");
                 }
 
                 if (appState.DeviceHub is { } siteHub)
@@ -659,8 +658,7 @@ namespace TianWen.UI.Abstractions
                                 && appState.ActiveProfile is { } activeProfile
                                 && TransformFactory.FromProfile(activeProfile, _timeProvider, out _) is { } rTransform)
                             {
-                                _tracker.Run(() => InitializePlannerAsync(rTransform, cts.Token),
-                                    "Load catalog after site reconcile");
+                                StartPlanner(rTransform, "Load catalog after site reconcile");
                             }
                         }
                     }
