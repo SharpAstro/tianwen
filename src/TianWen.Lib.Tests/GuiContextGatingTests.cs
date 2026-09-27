@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using DIR.Lib;
@@ -43,11 +44,43 @@ public class GuiContextGatingTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// A rig's view shows ABORT once its node reports its run (P5b part 4), and the abort cancels the LOCAL session's
-    /// token: without the guard, aborting the rig on screen would end this computer's night instead.
+    /// A rig's view shows ABORT once its node reports its run (P5b part 4): the abort goes to THAT rig's node (P5b part
+    /// 5), and never cancels this computer's session, which it used to.
     /// </summary>
     [Fact(Timeout = 30_000)]
-    public async Task AnAbortWithARemoteRigOnScreenDoesNotCancelTheLocalSession()
+    public async Task AnAbortOnARemoteRigsViewGoesToThatRigsNodeAndNeverTheLocalSession()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var h = await GuiSignalHarness.StartAsync(output, ct, remoteOnScreen: true);
+        var rig = h.ConnectRemoteRig();
+        using var localRun = new CancellationTokenSource();
+        h.Contexts.Local.LiveSession.SessionCts = localRun;
+
+        h.Post(new ConfirmAbortSessionSignal());
+
+        await h.UntilAsync(() => rig.Contains("POST /api/v1/session/abort"), ct);
+        localRun.IsCancellationRequested.ShouldBeFalse("the local session was aborted from a remote rig's view");
+    }
+
+    /// <summary>A rig's flat run puts its view in the Flats mode (P5b part 4); its Cancel goes to that rig's node.</summary>
+    [Fact(Timeout = 30_000)]
+    public async Task ACancelFlatsOnARemoteRigsViewGoesToThatRigsNodeAndNeverTheLocalFlatRun()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var h = await GuiSignalHarness.StartAsync(output, ct, remoteOnScreen: true);
+        var rig = h.ConnectRemoteRig();
+        using var localFlats = new CancellationTokenSource();
+        h.Contexts.Local.LiveSession.FlatsCts = localFlats;
+
+        h.Post(new CancelFlatsSignal());
+
+        await h.UntilAsync(() => rig.Contains("POST /api/v1/session/abort"), ct);
+        localFlats.IsCancellationRequested.ShouldBeFalse("the local flat run was cancelled from a remote rig's view");
+    }
+
+    /// <summary>A rig not connected has no node to send the abort to: the view says so, and the local run is left alone.</summary>
+    [Fact(Timeout = 30_000)]
+    public async Task AnAbortOnARigThatIsNotConnectedSaysSo()
     {
         await using var h = await GuiSignalHarness.StartAsync(output, TestContext.Current.CancellationToken, remoteOnScreen: true);
         using var localRun = new CancellationTokenSource();
@@ -55,22 +88,35 @@ public class GuiContextGatingTests(ITestOutputHelper output)
 
         h.Post(new ConfirmAbortSessionSignal());
 
-        localRun.IsCancellationRequested.ShouldBeFalse("the local session was aborted from a remote rig's view");
-        h.ShouldHaveRefused(Refusal);
+        localRun.IsCancellationRequested.ShouldBeFalse();
+        h.ShouldHaveRefused("is not connected");
     }
 
-    /// <summary>A rig's flat run puts its view in the Flats mode (P5b part 4), whose Cancel cancels the LOCAL flat run.</summary>
+    /// <summary>
+    /// The answer goes to the prompt on screen: a rig's, when its view is (P5b part 5). It used to answer this computer's
+    /// prompt whatever view it was given on.
+    /// </summary>
     [Fact(Timeout = 30_000)]
-    public async Task ACancelFlatsWithARemoteRigOnScreenDoesNotCancelTheLocalFlatRun()
+    public async Task AnAnswerOnARemoteRigsViewAnswersThatRigsPromptNotTheLocalOne()
     {
         await using var h = await GuiSignalHarness.StartAsync(output, TestContext.Current.CancellationToken, remoteOnScreen: true);
-        using var localFlats = new CancellationTokenSource();
-        h.Contexts.Local.LiveSession.FlatsCts = localFlats;
+        var (local, localAnswer) = Prompt("Local panel");
+        var (remote, remoteAnswer) = Prompt("Rig panel");
+        h.Contexts.Local.LiveSession.PendingPrompt = local;
+        h.Contexts.Active.LiveSession.PendingPrompt = remote;
 
-        h.Post(new CancelFlatsSignal());
+        h.Post(new RespondSessionPromptSignal(Proceed: true));
 
-        localFlats.IsCancellationRequested.ShouldBeFalse("the local flat run was cancelled from a remote rig's view");
-        h.ShouldHaveRefused(Refusal);
+        remoteAnswer.Task.IsCompletedSuccessfully.ShouldBeTrue("the rig's prompt was answered");
+        (await remoteAnswer.Task).ShouldBeTrue();
+        localAnswer.Task.IsCompleted.ShouldBeFalse("the local prompt was answered from a remote rig's view");
+        h.Contexts.Local.LiveSession.PendingPrompt.ShouldBeSameAs(local);
+    }
+
+    private static (SessionPromptEventArgs Prompt, TaskCompletionSource<bool> Answer) Prompt(string title)
+    {
+        var answer = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        return (new SessionPromptEventArgs(title, "Switch it on, then Continue.", "Continue", "Cancel", answer), answer);
     }
 
     [Fact(Timeout = 30_000)]

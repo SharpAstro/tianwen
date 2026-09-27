@@ -81,27 +81,24 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<CancelFlatsSignal>(_ =>
             {
-                // A rig's flat run puts its view in the Flats mode (P5b part 4), whose Cancel would otherwise cancel THIS
-                // computer's flat run; until part 5 sends it to the rig's own node, a rig's view refuses it.
-                if (!EnsureLocalContext("Cancelling a flat run"))
-                {
-                    return;
-                }
-                // The finaliser (close covers, warm, disconnect) still runs on cancel via RunFlatsOnlyAsync's
-                // finally block; the panel's Cancel button shows the amber "Cancelling..." state meanwhile.
-                liveSessionState.FlatsCts?.Cancel();
-                liveSessionState.NeedsRedraw = true;
+                // The flat run of the rig on screen: this computer's, or a rig's through its own node (P5b part 5). The
+                // finaliser (close covers, warm, disconnect) still runs on cancel, via RunFlatsOnlyAsync's finally block;
+                // the panel's Cancel button shows the amber "Cancelling..." state meanwhile.
+                StopActiveRun("Cancelling the flat run", () => liveSessionState.FlatsCts?.Cancel());
+                _contexts.Active.LiveSession.NeedsRedraw = true;
                 appState.NeedsRedraw = true;
             });
 
             bus.Subscribe<RespondSessionPromptSignal>(sig =>
             {
-                // Forward the user's Continue/Cancel to the session's awaiting prompt and drop the overlay.
-                if (liveSessionState.PendingPrompt is { } prompt)
+                // The answer goes to the prompt on screen: this computer's run's, or a rig's, which its mirror sends to the
+                // rig's node (P5b part 5). It used to answer this computer's prompt whatever view it was given on.
+                var view = _contexts.Active.LiveSession;
+                if (view.PendingPrompt is { } prompt)
                 {
                     prompt.Respond(sig.Proceed);
-                    liveSessionState.PendingPrompt = null;
-                    liveSessionState.NeedsRedraw = true;
+                    view.PendingPrompt = null;
+                    view.NeedsRedraw = true;
                     appState.NeedsRedraw = true;
                 }
             });

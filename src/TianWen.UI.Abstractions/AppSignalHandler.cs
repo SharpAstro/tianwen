@@ -1008,6 +1008,33 @@ namespace TianWen.UI.Abstractions
         /// planetary Start, the mount nudges, Goto, Solve and Sync, and the focuser's jog and goto, each of
         /// which drove THIS computer's rig from a remote rig's panel. P6 routes each to its context's node.
         /// </summary>
+        /// <summary>
+        /// Stops the run on the view on screen (P5b part 5): this computer's through <paramref name="local"/>, a rig's
+        /// through its node, whose abort ends a session's or a flat run's run alike through its own Finalise. A rig's
+        /// ABORT and a flat run's Cancel used to act on THIS computer's run.
+        /// </summary>
+        private void StopActiveRun(string what, Action local)
+        {
+            var active = _contexts.Active;
+            if (active.IsLocal)
+            {
+                local();
+                return;
+            }
+            if (active.Mirror is not { } mirror)
+            {
+                Notify(NotificationSeverity.Warning, $"{what}: '{active.DisplayName}' is not connected");
+                return;
+            }
+            _tracker.Run(async () =>
+            {
+                var sent = await mirror.AbortAsync(_cts.Token);
+                Notify(sent.IsSuccess ? NotificationSeverity.Info : NotificationSeverity.Warning, sent.IsSuccess
+                    ? $"{what}: sent to '{active.DisplayName}'"
+                    : $"{what}: '{active.DisplayName}' did not take it ({sent.Error})");
+            }, what);
+        }
+
         private bool EnsureLocalContext(string what)
         {
             if (!_contexts.IsRemoteActive)

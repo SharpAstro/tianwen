@@ -143,6 +143,10 @@ namespace TianWen.UI.Abstractions
                 void OnPhaseChanged(object? _, SessionPhaseChangedEventArgs e) => Note(SessionNotes.ForPhase(e.NewPhase));
                 session.PhaseChanged += OnPhaseChanged;
 
+                // The run's prompts on the live view, as a flat run's are: the ONE wiring. A full session subscribed
+                // nothing, so the manual panel its end-of-session flats ask for was declined unseen (P5b part 5).
+                var prompts = LiveSessionPrompts.ShowOn(session, liveSessionState, appState);
+
                 // RunAsync includes Finalise: run as tracked background task so:
                 // 1. UI stays responsive (signal handler returns immediately)
                 // 2. DrainAsync at shutdown waits for Finalise to complete
@@ -162,6 +166,9 @@ namespace TianWen.UI.Abstractions
                         finally
                         {
                             session.PhaseChanged -= OnPhaseChanged;
+                            prompts.Dispose();
+                            // A prompt left open by a cancel mid-wait was already declined by the run; drop the overlay.
+                            liveSessionState.PendingPrompt = null;
                             liveSessionState.IsRunning = false;
                             liveSessionState.NeedsRedraw = true;
 

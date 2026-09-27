@@ -40,6 +40,7 @@ namespace TianWen.UI.Abstractions
         private readonly HttpClient _http;
         private readonly TianWenNodeClient _client;
         private readonly TianWenEventStream _events;
+        private readonly IDisposable _prompts;
         private readonly ITimeProvider _timeProvider;
         private readonly ILogger _logger;
 
@@ -50,7 +51,7 @@ namespace TianWen.UI.Abstractions
         private RemoteRigConnection(
             RemoteRigBinding binding, ViewContext context, Uri address,
             HttpClient http, TianWenNodeClient client, TianWenEventStream events,
-            RemoteSessionMirror mirror, ITimeProvider timeProvider, ILogger logger)
+            RemoteSessionMirror mirror, IDisposable prompts, ITimeProvider timeProvider, ILogger logger)
         {
             Binding = binding;
             Context = context;
@@ -59,6 +60,7 @@ namespace TianWen.UI.Abstractions
             _client = client;
             _events = events;
             Mirror = mirror;
+            _prompts = prompts;
             _timeProvider = timeProvider;
             _logger = logger;
         }
@@ -114,11 +116,15 @@ namespace TianWen.UI.Abstractions
             // This is the whole payoff of the ISessionTelemetry split: from here the Live Session and
             // Guider tabs render the rig with no knowledge that it is remote.
             context.LiveSession.ActiveSession = mirror;
+            context.Mirror = mirror;
+            // The rig's prompts on its own view (and its Home card), answered back to its node through the mirror. Not
+            // brought to the front: a rig's question waits where the rig is shown.
+            var prompts = LiveSessionPrompts.ShowOn(mirror, context.LiveSession, app: null);
 
             mirror.Start(cancellationToken);
             logger.LogInformation("Mirroring rig '{Alias}' at {Address}", binding.Alias, address);
 
-            return new RemoteRigConnection(binding, context, address, http, client, events, mirror, timeProvider, logger);
+            return new RemoteRigConnection(binding, context, address, http, client, events, mirror, prompts, timeProvider, logger);
         }
 
         /// <summary>
@@ -270,6 +276,9 @@ namespace TianWen.UI.Abstractions
             // Detach BEFORE tearing the mirror down: a render pass between dispose and detach would read
             // a mirror whose poll loop has already stopped, and show a frozen session as though live.
             Context.LiveSession.ActiveSession = null;
+            Context.Mirror = null;
+            _prompts.Dispose();
+            Context.LiveSession.PendingPrompt = null;
 
             await Mirror.DisposeAsync().ConfigureAwait(false);
             _http.Dispose();
