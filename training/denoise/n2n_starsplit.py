@@ -175,6 +175,9 @@ def main():
     ap.add_argument('--models', nargs='+', default=None, help='slug=checkpoint.pt (required unless --audit-extended)')
     ap.add_argument('--blend', default='0.2,0.4,0.7,1.0')
     ap.add_argument('--match', default='4,10', help='noise-removal percentages to compare AT')
+    ap.add_argument('--plane-truth-anchor', action='store_true',
+                    help='E16 evaluation condition: scale each session\'s estimated half-A planes to the half pair\'s own '
+                         'noise over its sky (an ORACLE anchor, shape kept); only a --cond-map checkpoint reads planes')
     ap.add_argument('--detail-at', default='15',
                     help='noise-removal percentages at which detail kept is ALSO read, beside full strength: a model '
                          'that removes more noise loses more detail by construction, so recipes compare here')
@@ -382,6 +385,28 @@ def main():
     sig, sig_has = S.open_sigma(a.cache, meta)
     half_a_planes = (np.asarray(sig[idx, S.SLOT_HALF_A], dtype=np.float32)
                      if sig is not None and sig_has[idx, S.SLOT_HALF_A].all() else None)
+    if half_a_planes is not None and a.plane_truth_anchor:
+        # The ORACLE-anchor condition: each session's estimated planes scaled so that, over its sky (B's low-pass in
+        # 0.15 to 0.30, star-like peaks masked), their mean is the half pair's own noise, (A - B) / sqrt 2. The plane's
+        # SHAPE stays the model's; only the anchor, which a one-frame estimate gets wrong by a factor per field (the
+        # run log, "Detail kept"), is taken from the truth. An evaluation condition, never a product one.
+        from scipy.ndimage import gaussian_filter
+        la_raw = raw.mean(axis=1)
+        crop_planes = S.crop(half_a_planes)
+        for sid in dict.fromkeys(session_of[i] for i in idx):
+            ts = [t for t, i in enumerate(idx) if session_of[i] == sid]
+            d = ((la_raw[ts] - lb[ts]) / np.sqrt(2.0))
+            lvl = np.stack([gaussian_filter(lb[t], DETAIL_LEVEL_SIGMA) for t in ts])
+            sky = (lvl >= 0.15) & (lvl < 0.30) & (d_bins[ts] >= 0)
+            if sky.sum() < 3000:
+                print(f'plane truth anchor: {sid.split("|")[0][-44:]}: under 3000 sky pixels, left as estimated')
+                continue
+            v = d[sky]
+            truth = 1.4826 * float(np.median(np.abs(v - np.median(v))))
+            est = float(np.mean(crop_planes[ts][sky])) / S.PLANE_SCALE
+            factor = truth / est
+            half_a_planes[ts] *= factor
+            print(f'plane truth anchor: {sid.split("|")[0][-44:]}: estimated x{factor:.3f}')
     for spec in a.models:
         slug, ckpt = spec.split('=', 1)
         cond_map = bool(torch.load(ckpt if os.path.isabs(ckpt) else os.path.join(a.cache, ckpt),

@@ -72,6 +72,9 @@ TILE_EXT = ".f16"
 SIGMA_EXT = ".sigma.f16"
 SIGMA_FILE = "sigma.f16"
 SIGMA_HAS_FILE = "sigma_has.npy"
+# A plane value per unit of stretched sigma: StretchedNoise.PlaneScale in C# (the scalar plane's convention, 0.6745
+# sigma for pure noise, times SIGMA_SCALE). Planes arrive in these units; divide to read a sigma back.
+PLANE_SCALE = 0.6745 * 100.0
 
 
 def sigma_path_for(rel):
