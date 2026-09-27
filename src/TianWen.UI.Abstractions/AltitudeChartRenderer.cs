@@ -1243,6 +1243,27 @@ public static class AltitudeChartRenderer
     // Legend
     // -----------------------------------------------------------------------
 
+    private const string LegendTargetsKey = "legend-targets";
+
+    /// <summary>
+    /// Lays out and paints the legend row through the engine, since this renderer is static and has no widget of its
+    /// own. One per renderer, so a frame allocates none. Sizes are device px, hence <see cref="DesignScale.One"/>.
+    /// </summary>
+    private sealed class LegendRow<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer)
+    {
+        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Renderer<TSurface>, LegendRow<TSurface>> Rows = new();
+
+        public static LegendRow<TSurface> For(Renderer<TSurface> renderer)
+            => Rows.GetValue(renderer, static r => new LegendRow<TSurface>(r));
+
+        public System.Collections.Immutable.ImmutableArray<Layout.ArrangedNode<float>> Paint(Layout.Node tree, RectF32 rect)
+        {
+            // Each chart frame is a frame of this widget: drop what the previous one recorded, or it accumulates.
+            BeginFrame();
+            return RenderLayout(tree, rect, scale: DesignScale.One);
+        }
+    }
+
     private static void DrawLegend<TSurface>(
         Renderer<TSurface> renderer,
         Target[] allTargets,
@@ -1261,18 +1282,23 @@ public static class AltitudeChartRenderer
         var lineY    = legendY + legendH / 2;
         var availW   = rendererW - plotX * 2;
 
-        // The weather source's credit, right-aligned under the plot's right edge; the targets give way to it.
-        var creditFs = FontSize(rendererH, 8);
-        var creditW  = credit is null ? 0 : (int)MathF.Ceiling(renderer.MeasureText(credit.AsSpan(), fontFamily, creditFs).Width) + 8;
+        // Reserve space at the end, never less than the old Primary/Spare labels'
+        var targetW  = availW - 180;
+
+        // The weather source's credit, right-aligned under the plot's right edge. It is a node, so the engine
+        // measures it, and the targets give way to the fill it leaves them.
         if (credit is not null)
         {
-            renderer.DrawText(credit, fontFamily, creditFs, GrayColor,
-                MakeRect(plotRight - creditW, legendY, creditW, legendH), TextAlign.Far, TextAlign.Center);
+            var row = LegendRow<TSurface>.For(renderer);
+            row.FontPath = fontFamily;
+            var arranged = row.Paint(
+                Layout.Builder.HStack(
+                    Layout.Builder.Fill(key: LegendTargetsKey).WStar(),
+                    Layout.Builder.Spacer().WFixed(8f),
+                    Layout.Builder.Text(credit, FontSize(rendererH, 8), GrayColor, TextAlign.Far, TextAlign.Center).HStar()),
+                new RectF32(plotX, legendY, plotRight - plotX, legendH));
+            targetW = Math.Min(targetW, (int)ArrangedFills.RectOf(arranged, LegendTargetsKey).Width);
         }
-
-        // Reserve space at the end: the credit's width, and never less than the old Primary/Spare labels'
-        var suffixW  = Math.Max(180, creditW);
-        var targetW  = availW - suffixW;
 
         // Show top-scored targets that fit (max 6 for readability)
         var maxTargets = Math.Min(allTargets.Length, 6);
