@@ -405,7 +405,7 @@ internal sealed class SerialProbeService : ISerialProbeService
                 {
                     if (isolateEachProbe)
                     {
-                        TryCloseWithLog(conn);
+                        await TryCloseWithLogAsync(conn);
                         conn = null;
                     }
                 }
@@ -420,7 +420,7 @@ internal sealed class SerialProbeService : ISerialProbeService
             // BaudRate mutation.
             if (conn is not null)
             {
-                TryCloseWithLog(conn);
+                await TryCloseWithLogAsync(conn);
             }
         }
 
@@ -432,11 +432,6 @@ internal sealed class SerialProbeService : ISerialProbeService
                 // Log the exact handshake at Info during probes; drivers opening the
                 // same port for session use do not touch this flag.
                 c.LogVerbose = true;
-                // Use the cancellable synchronous read path for probing. .NET's async SerialPort BaseStream
-                // reads spuriously abort with ERROR_OPERATION_ABORTED on some USB bridges (CH34x) after the
-                // first read, which was silently sinking probe replies on those ports (every probe logged
-                // "no response"); synchronous reads are immune (see ISerialConnection.SynchronousReads).
-                c.SynchronousReads = true;
                 // Open/close framing at Info so every exchange in the log is visibly
                 // bracketed by the baud rate it ran at: otherwise the baud only
                 // shows up inside a _logger scope, which most formatters drop.
@@ -454,10 +449,11 @@ internal sealed class SerialProbeService : ISerialProbeService
             }
         }
 
-        void TryCloseWithLog(ISerialConnection c)
+        async ValueTask TryCloseWithLogAsync(ISerialConnection c)
         {
-            c.TryClose();
-            _logger.LogInformation("{Port} closed (was @ {Baud} baud)", port, baud);
+            // Bounded by the transport: a port whose driver never completed a write is abandoned, not waited on.
+            var closed = await c.TryCloseAsync();
+            _logger.LogInformation("{Port} closed (was @ {Baud} baud){Abandoned}", port, baud, closed ? "" : "; the handle was abandoned");
         }
     }
 

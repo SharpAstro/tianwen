@@ -67,10 +67,13 @@ internal class QHYSerialControlledFilterWheelDriver(QHYDevice device, IServicePr
         return (false, CONNECTION_ID_UNKNOWN, default(QHYSerialFilterWheelInfo));
     }
 
-    protected override Task<bool> DoDisconnectDeviceAsync(int connectionId, CancellationToken cancellationToken)
+    protected override async Task<bool> DoDisconnectDeviceAsync(int connectionId, CancellationToken cancellationToken)
     {
-        _deviceInfo.SerialDevice?.TryClose();
-        return Task.FromResult(true);
+        if (_deviceInfo.SerialDevice is { } serial)
+        {
+            await serial.TryCloseAsync();
+        }
+        return true;
     }
 
     protected override async ValueTask<bool> InitDeviceAsync(CancellationToken cancellationToken)

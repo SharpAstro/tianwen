@@ -18,6 +18,7 @@
     <PackageVersion Include="SER.Lib" Version="1.1.*" />
 
     <PackageVersion Include="Lzip.Lib" Version="1.1.*" />
+    <PackageVersion Include="Serial.Lib" Version="1.1.*" />
 
     <PackageVersion Include="LAN.Lib" Version="2.0.*" />
     <PackageVersion Include="SharpAstro.AppShell" Version="1.1.*" />
@@ -37,7 +38,6 @@
     <PackageVersion Include="Microsoft.Testing.Extensions.HangDump" Version="2.4.1" />
     <PackageVersion Include="Microsoft.Testing.Extensions.TrxReport" Version="2.4.1" />
     <PackageVersion Include="System.IO.Hashing" Version="10.0.12" />
-    <PackageVersion Include="System.IO.Ports" Version="10.0.12" />
     <PackageVersion Include="System.Numerics.Tensors" Version="10.0.12" />
 
     <PackageVersion Include="Microsoft.ML.OnnxRuntime" Version="1.24.*" />

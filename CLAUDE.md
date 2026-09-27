@@ -166,7 +166,7 @@ column: `docs/architecture/sibling-builds-and-releases.md`): `DIR.Lib`, `SdlVulk
 `Console.Lib`, `FITS.Lib` (`../FITS.Lib`, csproj `CSharpFITS/CSharpFITS.csproj`), `FC.SDK` (no
 auto-detect), `ZWOptical.SDK` (`../ZWOptical.SDK`, csproj at the repo root),
 `QHYCCD.SDK` (csproj at the repo root), `SharpAstro.Fonts` (`../Fonts.Lib`, transitive), `SER.Lib`,
-`Lzip.Lib`, `LAN.Lib`, `WebGl.Renderer`, `SharpAstro.AppShell` (`../AppShell`), `TianWen.DAL` (csproj at
+`Lzip.Lib`, `Serial.Lib`, `LAN.Lib`, `WebGl.Renderer`, `SharpAstro.AppShell` (`../AppShell`), `TianWen.DAL` (csproj at
 the repo root).
 
 **Auto-detection** (`Directory.Build.props`): a **single** property `UseLocalSiblings` gates them all.
@@ -174,7 +174,7 @@ The build switches to ProjectReference when **every** sibling working copy exist
 `Console.Lib`, `SdlVulkan.Renderer`, `WebGl.Renderer`, the `Codecs`-repo codec family (`SharpAstro.Tiff`,
 `SharpAstro.Exif`, `SharpAstro.Png`, `SharpAstro.Color.Icc`, `SharpAstro.Jxr`,
 `SharpAstro.Jpeg.IccInjector`, `SharpAstro.Exr`, `SharpAstro.Codecs`), `QHYCCD.SDK`, `TianWen.DAL`,
-`ZWOptical.SDK`, `FITS.Lib`, `SER.Lib`, `Lzip.Lib`, `LAN.Lib` and `SharpAstro.AppShell`; otherwise it falls
+`ZWOptical.SDK`, `FITS.Lib`, `SER.Lib`, `Lzip.Lib`, `Serial.Lib`, `LAN.Lib` and `SharpAstro.AppShell`; otherwise it falls
 through to PackageReference. **A sibling's FOLDER must carry its repo's current name**: the check is a
 path, so a clone still under a renamed repo's old name (`zwo-sdk-nuget` for `ZWOptical.SDK`, found
 2026-09-19) is a missing sibling, and one missing sibling silently puts EVERY library back on the
@@ -426,14 +426,21 @@ that only reads files must not either.
 **A profile scan never probes a COM port, and a port that will not TAKE bytes is given up, not retried.**
 `DiscoverOnlyDeviceType(type)` runs the serial probe pass only when a source for that type consumes it (it
 used to run for `Profile` -- at GUI start-up on the main thread and from `MountLimitWatcher` every 5 s).
-`SerialConnectionBase` bounds every write twice (port `WriteTimeout` + task deadline) and `SerialConnection`
-bounds the close, because a Windows Bluetooth SPP listener port (`bthmodem.sys`, created for any paired
+Serial.Lib (the sibling `SerialConnection` adapts to `ISerialConnection`) bounds every write twice (port
+`WriteTimeout` + task deadline) and the close, because a Windows Bluetooth SPP listener port (`bthmodem.sys`, created for any paired
 device advertising SPP) accepts an open and then never completes a write, and `SerialStream` ignores its
 token. Only a write the driver never completed raises `ISerialConnection.HasAbandonedIo`, on which the pass
 drops the port for the rest of the discovery; a READ timeout never does -- a device at the wrong baud or
 awaiting another protocol completes the write and stays silent, and still gets every probe and baud. Found
 and measured live 2026-08-30: `docs/plans/mount-safety-limits.md`,
 "Live verification".
+
+**Serial I/O is the Serial.Lib sibling's, and closing a connection is asynchronous.** `SerialConnection` only
+adapts it to `ISerialConnection`: the library's typed failures become the `Try*` null / -1 / false, and reads are
+bounded by the caller's token alone (`Timeout.InfiniteTimeSpan`), as they always were. `ISerialConnection` is
+`IAsyncDisposable` and closes through `TryCloseAsync`; a synchronous `Dispose` that cannot await starts the close
+with `CloseInBackground` and never waits on it. A new transport guarantee goes into Serial.Lib with a test there,
+never into the adapter: `docs/plans/serial-lib.md`.
 
 ### Device Ownership (the hub lease)
 

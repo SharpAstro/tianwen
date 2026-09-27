@@ -21,12 +21,12 @@ adds or overrides in [`onstep-protocol.md`](onstep-protocol.md); everything it i
 |---|---|
 | Baud rate | 9600 (the `DeviceBase.ConnectSerialDeviceAsync` default); the URI's `baud` key overrides it for the driver, the probe is fixed at 9600 |
 | Port | the URI's `port` key, opened only when it starts with `serial:` or `COM`, or its last path segment starts with `tty`, through `IExternal.OpenSerialDeviceAsync`, which hands back an already-open connection to the same address |
-| Line settings | .NET `SerialPort` defaults (8 data bits, no parity, 1 stop bit, no handshake); `SerialConnection` sets none |
+| Line settings | Serial.Lib's defaults (8 data bits, no parity, 1 stop bit, no handshake); `SerialConnection` sets none |
 | DTR / RTS | not asserted: the base never asks for `assertControlLines` |
 | Encoding | Latin1 on the driver's connection (the base's `_encoding`), so the degree byte 0xDF survives; ASCII in `MeadeSerialProbe` |
-| Write bound | 2 s, twice: the port's `WriteTimeout` and a task deadline (`SerialConnectionBase.WriteTimeoutMs`) |
-| Read bound | none. The driver never sets `SynchronousReads`, and the async path sets no `ReadTimeout`, so a silent mount holds a read until the caller's token ends it (#810) |
-| Close bound | 2 s (`SerialConnection.CloseTimeoutMs`), then the handle is abandoned |
+| Write bound | 2 s, twice: the port's `WriteTimeout` and a task deadline (`SerialConnection.WriteTimeout`, held by Serial.Lib) |
+| Read bound | none. `SerialConnection` opens its port with no read deadline (`Timeout.InfiniteTimeSpan`), so a silent mount holds a read until the caller's token ends it (#810) |
+| Close bound | 2 s (Serial.Lib's close timeout, `TryCloseAsync`), then the handle is abandoned |
 
 ## Framing
 
@@ -37,7 +37,7 @@ adds or overrides in [`onstep-protocol.md`](onstep-protocol.md); everything it i
   the write to the last read. `SetUTCDateAsync` and the `:MS#` step of `BeginSlewRaDecAsync` hold it across
   several writes and reads.
 - **Terminated reply:** read up to `#` or a NUL byte (the base's `Terminators`), terminator stripped.
-  `SendAndReceiveAsync` allows 128 bytes (`SerialConnectionBase.MaxTerminatedResponseBytes`);
+  `SendAndReceiveAsync` allows 128 bytes (`SerialConnection.MaxTerminatedResponseBytes`);
   `SendAndReceiveRawAsync` reads into a 10-byte buffer (`:D#`, `:GL#`, `:GS#`, `:Gt#`, `:Gg#`). A reply whose
   terminator does not arrive within the buffer is refused (-1), never truncated, and its tail stays in the
   stream.
@@ -180,8 +180,8 @@ each poll here is four exchanges (`:D#`, `:GC#`, `:GL#`, `:GG#`).
 
 `MeadeSerialProbe` (`ISerialProbe`): name `Meade`, 9600 baud, ASCII, `ProbeFraming.HashTerminated`,
 `ProbeExclusivity.Shared` (one handle with the other 9600-baud probes), a 500 ms budget for the whole exchange
-(doubled on the second pass), one attempt. `SerialProbeService` reads through the synchronous path while
-probing (`SynchronousReads = true`) and drains the receive buffer before and after each probe. The probe calls
+(doubled on the second pass), one attempt. `SerialProbeService` logs every exchange while probing (`LogVerbose`)
+and drains the receive buffer before and after each probe. The probe calls
 `MeadeDeviceSource.TryGetMountInfo`, which holds the connection lock throughout and terminates on `#` alone:
 
 1. `:GVP#`: a reply of 2 characters or more once trailing whitespace is trimmed, else no match.
@@ -264,10 +264,10 @@ alignment, tracking, a completed slew and disconnect; none of its slews checks w
   `DeviceDriverBase.TrySetConnectionStateAsync` has already set the state to connected and reverts it only when
   init THROWS, so `ConnectAsync` throws while `Connected` reads `true`, and the next `ConnectAsync` returns at
   once without re-running init. The base's bug, not this driver's; it is on #806.
-- **The async read can swallow the next line.** `SerialConnectionBase.TryReadTerminatedRawAsync` reads with
-  `ReadAtLeastAsync`, which may return bytes past the terminator, and drops them, so a multi-line reply arriving
-  in one chunk (the `:SC` block) would leave `SetUTCDateAsync`'s discard reads waiting for the caller's token.
-  And nothing discards a late reply: a read abandoned on the token leaves its reply to answer the next command.
+- **A late reply answers the next command.** Bytes past a terminator are kept for the next read since the move to
+  Serial.Lib (the old transport's `ReadAtLeastAsync` dropped them, so a multi-line reply arriving in one chunk, the
+  `:SC` block, could leave `SetUTCDateAsync`'s discard reads waiting for the caller's token). But nothing discards a
+  late reply: a read abandoned on the token leaves its reply to answer the next command.
 - **Discovery writes to mounts it then rejects.** `TryGetMountInfo` writes the `TW@` id into an unused slot
   before `ProbeAsync` checks the product regex, so any device on the shared 9600 handle that answers
   `<AN UNUSED SITE>` gets a site name. `OnStepDeviceSource` carries a copy of the same writing code.

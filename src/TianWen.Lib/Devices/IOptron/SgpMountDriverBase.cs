@@ -502,7 +502,7 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
             if (_deviceInfo.SerialDevice is { IsOpen: true } port)
             {
                 await port.WaitAsync(cancellationToken);
-                return port.TryClose();
+                return await port.TryCloseAsync();
             }
             else if (_deviceInfo.SerialDevice is { })
             {

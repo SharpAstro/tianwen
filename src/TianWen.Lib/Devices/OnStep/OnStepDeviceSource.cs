@@ -260,7 +260,7 @@ internal partial class OnStepDeviceSource(
         }
         finally
         {
-            conn.TryClose();
+            await conn.TryCloseAsync();
         }
     }
 

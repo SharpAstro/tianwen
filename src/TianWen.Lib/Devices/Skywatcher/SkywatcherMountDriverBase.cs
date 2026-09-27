@@ -1417,7 +1417,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             if (_deviceInfo.SerialDevice is { IsOpen: true } port)
             {
                 await port.WaitAsync(cancellationToken);
-                return port.TryClose();
+                return await port.TryCloseAsync();
             }
             else if (_deviceInfo.SerialDevice is { })
             {

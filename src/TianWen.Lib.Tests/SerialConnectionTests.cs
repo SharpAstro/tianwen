@@ -1,5 +1,7 @@
-﻿using Nerdbank.Streams;
+using SharpAstro.Serial;
+using System;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Connections;
@@ -7,19 +9,19 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
+/// <summary>
+/// <see cref="SerialConnection"/>, the adapter from Serial.Lib to <see cref="ISerialConnection"/>, driven over the
+/// library's own loopback pair: two real ports wired to each other in memory, so every exchange here goes through
+/// the same library code (framing, carry-over, deadlines) a COM port does.
+/// </summary>
 [Collection("Device")]
 public class SerialConnectionTests(ITestOutputHelper testOutputHelper)
 {
-    private (StreamSerialConnection C1, StreamSerialConnection C2) CreatePair()
+    private (SerialConnection C1, SerialConnection C2) CreatePair()
     {
         var logger = FakeExternal.CreateLogger(testOutputHelper);
-
-        var (stream1, stream2) = FullDuplexStream.CreatePair();
-
-        var ssc1 = new StreamSerialConnection(stream1, Encoding.Latin1, "SSC1", logger);
-        var ssc2 = new StreamSerialConnection(stream2, Encoding.Latin1, "SSC2", logger);
-
-        return (ssc1, ssc2);
+        var (first, second) = SerialLoopback.CreatePair(new SerialSettings(9600) { ReadTimeout = Timeout.InfiniteTimeSpan });
+        return (new SerialConnection(first, Encoding.Latin1, logger), new SerialConnection(second, Encoding.Latin1, logger));
     }
 
     [Fact]
@@ -57,7 +59,7 @@ public class SerialConnectionTests(ITestOutputHelper testOutputHelper)
     [Theory]
     [InlineData(1)]
     [InlineData(100)]
-    [InlineData(SerialConnectionBase.MaxTerminatedResponseBytes - 1)]
+    [InlineData(SerialConnection.MaxTerminatedResponseBytes - 1)]
     public async ValueTask ATerminatedReplyThatFitsTheWindowIsRead(int bodyLength)
     {
         var cancellationToken = TestContext.Current.CancellationToken;
@@ -74,10 +76,51 @@ public class SerialConnectionTests(ITestOutputHelper testOutputHelper)
     {
         var cancellationToken = TestContext.Current.CancellationToken;
         var (ssc1, ssc2) = CreatePair();
-        var body = new string('x', SerialConnectionBase.MaxTerminatedResponseBytes);
+        var body = new string('x', SerialConnection.MaxTerminatedResponseBytes);
 
         (await ssc1.TryWriteAsync(Encoding.Latin1.GetBytes(body + "#"), cancellationToken)).ShouldBe(true);
 
         (await ssc2.TryReadTerminatedAsync("#"u8.ToArray(), cancellationToken)).ShouldBeNull();
+    }
+
+    [Fact(Timeout = 10_000)]
+    public async ValueTask ACancelledReadIsNullAndTheNextReadGetsItsReply()
+    {
+        // The CH34x trap, through the adapter: after a read the caller's budget ended, nothing may still be waiting
+        // to eat the next reply.
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var (ssc1, ssc2) = CreatePair();
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(TimeSpan.FromMilliseconds(150));
+
+        (await ssc2.TryReadTerminatedAsync("#"u8.ToArray(), budget.Token)).ShouldBeNull();
+
+        (await ssc1.TryWriteAsync("EOK#"u8.ToArray(), cancellationToken)).ShouldBe(true);
+        (await ssc2.TryReadTerminatedAsync("#"u8.ToArray(), cancellationToken)).ShouldBe("EOK");
+    }
+
+    [Fact]
+    public async ValueTask BytesAfterATerminatorWaitForTheNextRead()
+    {
+        // Two replies in one arrival: the old transport kept only the first and dropped what followed its terminator.
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var (ssc1, ssc2) = CreatePair();
+
+        (await ssc1.TryWriteAsync("P7820#Z17.06#"u8.ToArray(), cancellationToken)).ShouldBe(true);
+
+        (await ssc2.TryReadTerminatedAsync("#"u8.ToArray(), cancellationToken)).ShouldBe("P7820");
+        (await ssc2.TryReadTerminatedAsync("#"u8.ToArray(), cancellationToken)).ShouldBe("Z17.06");
+    }
+
+    [Fact]
+    public async ValueTask AClosedConnectionRefusesAWrite()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var (ssc1, _) = CreatePair();
+
+        (await ssc1.TryCloseAsync()).ShouldBeTrue();
+
+        ssc1.IsOpen.ShouldBeFalse();
+        (await ssc1.TryWriteAsync(":00#"u8.ToArray(), cancellationToken)).ShouldBeFalse();
     }
 }

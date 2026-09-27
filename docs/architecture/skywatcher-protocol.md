@@ -29,8 +29,8 @@ and hands it back while it is open.
 | Data / parity / stop | 8-N-1, the .NET `SerialPort` defaults, which `SerialConnection` does not change |
 | Handshake | none; DTR and RTS are not asserted |
 | Encoding | ASCII |
-| Write timeout | 2000 ms, at the port and at the task (`SerialConnectionBase.WriteTimeoutMs`) |
-| Read timeout | **none.** The driver's connection keeps `SynchronousReads` off and `SerialPort.ReadTimeout` at its infinite default, so a silent board holds the read, and the port lock, until the caller's token fires |
+| Write timeout | 2000 ms, at the port and at the task (`SerialConnection.WriteTimeout`, held by Serial.Lib) |
+| Read timeout | **none.** `SerialConnection` opens its port with no read deadline (`Timeout.InfiniteTimeSpan`), so a silent board holds the read, and the port lock, until the caller's token fires |
 
 **WiFi.** When `port` parses as an IP address (`IPAddress.TryParse`), the same method returns a
 `SkywatcherUdpConnection` to UDP port 11880 (`SkywatcherProtocol.WIFI_PORT`) and ignores `baud`. It
@@ -41,7 +41,7 @@ sends one datagram per command and takes one datagram per reply, cut at the firs
 (inferred from the API, not measured). A `SocketException` or a cancellation both read as "no reply".
 
 **On both transports the read helpers return `null` for no reply, a timeout, a dead port and the caller's
-own cancellation alike** (`SerialConnectionBase.TryReadTerminatedRawAsync`, the UDP `catch` blocks). The
+own cancellation alike** (`SerialConnection.TryReadTerminatedRawAsync`, the UDP `catch` blocks). The
 driver cannot tell them apart, which is fact 1 of #810.
 
 ## Framing

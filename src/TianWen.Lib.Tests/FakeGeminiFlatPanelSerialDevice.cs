@@ -31,8 +31,8 @@ internal sealed class FakeGeminiFlatPanelSerialDevice(string identity = "GeminiF
 
     public bool IsOpen { get; private set; } = true;
     public Encoding Encoding => Encoding.ASCII;
-    public bool TryClose() { IsOpen = false; return true; }
-    public void Dispose() => TryClose();
+    public ValueTask<bool> TryCloseAsync() { IsOpen = false; return ValueTask.FromResult(true); }
+    public ValueTask DisposeAsync() { IsOpen = false; return ValueTask.CompletedTask; }
 
     // Mirror real hardware + the driver's discard-before-every-command: clear any unread '*'-framed acks so
     // they don't offset the next query's read. Called under the protocol's WaitAsync lock, so no extra guard.

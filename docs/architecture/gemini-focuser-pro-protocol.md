@@ -41,9 +41,9 @@ Commands are `:` … `#`; responses are `<status-char>` + payload + `#`.
   as the vendor driver's `Substring(1, len-2)` does. `ParsePayload` also tolerates the terminator being
   present or already stripped by the read.
 
-Reads terminate on the `#` byte (`ProbeFraming.HashTerminated`, the same framing family as LX200). Reads
-use the cancellable **synchronous** path (`ISerialConnection.SynchronousReads`) because CH34x bridges
-spuriously abort async `BaseStream` reads (`ERROR_OPERATION_ABORTED`) after the first read.
+Reads terminate on the `#` byte (`ProbeFraming.HashTerminated`, the same framing family as LX200). Every
+read goes through Serial.Lib, which never uses the async `BaseStream` reads a CH34x bridge spuriously aborts
+(`ERROR_OPERATION_ABORTED`) after the first read; the bench tests of that library run against this focuser.
 
 ## Get commands (request → response)
 

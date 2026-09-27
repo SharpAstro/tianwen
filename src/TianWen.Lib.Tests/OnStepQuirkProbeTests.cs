@@ -171,13 +171,19 @@ public class OnStepQuirkProbeTests(ITestOutputHelper output)
         public ValueTask<ResourceLock> WaitAsync(CancellationToken cancellationToken)
             => _sem.AcquireLockAsync(cancellationToken);
 
-        public bool TryClose()
+        public ValueTask<bool> TryCloseAsync() => ValueTask.FromResult(Close());
+
+        private bool Close()
         {
             IsOpen = false;
             return true;
         }
 
-        public void Dispose() => TryClose();
+        public ValueTask DisposeAsync()
+        {
+            _ = Close();
+            return ValueTask.CompletedTask;
+        }
 
         public ValueTask<bool> TryWriteAsync(ReadOnlyMemory<byte> message, CancellationToken cancellationToken)
         {
@@ -232,7 +238,7 @@ public class OnStepQuirkProbeTests(ITestOutputHelper output)
                     {
                         if (terminators.Span.IndexOf(b) >= 0)
                         {
-                            // Match SerialConnectionBase semantics: terminator is
+                            // Match SerialConnection semantics: terminator is
                             // logically "in" the buffer but the returned length
                             // excludes it. Callers read [0..read) for the payload.
                             return read;
