@@ -86,11 +86,11 @@ public class SaveDialogFolderTests
         string? asked = null;
         var called = 0;
         dialog.SaveAsync(Arg.Any<IReadOnlyDictionary<string, IReadOnlyList<string>>>(),
-                Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<CancellationToken>(), Arg.Any<string?>())
+                Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(call =>
             {
                 called++;
-                asked = call.ArgAt<string?>(4);
+                asked = call.ArgAt<string?>(3);
                 return Task.FromResult<string?>(null);
             });
 

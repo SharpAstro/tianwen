@@ -481,8 +481,8 @@ public sealed class ViewerController(
             var suggested = (withOverlays ? stem + "-annotated" : stem) + ".png";
             var title = withOverlays ? "Save image with overlays" : "Save image as displayed";
 
-            var target = await fileDialog.SaveAsync(filters, suggested, title, token,
-                initialDirectory: SaveDialogDirectory(saveDoc.FilePath)).ConfigureAwait(false);
+            var target = await fileDialog.SaveAsync(filters, suggested, title,
+                SaveDialogDirectory(saveDoc.FilePath), token).ConfigureAwait(false);
             if (target is null)
             {
                 state.StatusMessage = null;
