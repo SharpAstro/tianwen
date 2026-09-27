@@ -730,6 +730,27 @@ public class RemoteSessionMirrorTests
         mirror.ActiveObservation.ShouldNotBeNull().Target.Name.ShouldBe("M42");
     }
 
+    [Fact]
+    public async Task ASessionBeforeItsFirstFrameRoundTripsBackIntoAMirror()
+    {
+        // A session publishes a DEFAULT camera state for every camera from the start of its run until each
+        // camera's first frame, and again once it leaves Observing, so its filter name is null all through
+        // initialisation, cooling and focus. A required filter name failed the whole read for all of that: no
+        // client could read a session's state before its first frame.
+        var session = Observing(Substitute.For<ISessionTelemetry>());
+        session.Phase.Returns(SessionPhase.Cooling);
+        session.CameraStates.Returns([default(CameraExposureState)]);
+
+        var (mirror, _) = BuildMirror(_ => Json(ResponseEnvelope<SessionStateDto>.Ok(SessionStateDto.FromSession(session))));
+        await using var _mirror = mirror;
+
+        await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+
+        mirror.LastError.ShouldBeNull();
+        mirror.Phase.ShouldBe(SessionPhase.Cooling);
+        mirror.CameraStates.ShouldHaveSingleItem().FilterName.ShouldBeNull();
+    }
+
     /// <summary>
     /// Makes <paramref name="session"/> an observing session with one OTA that the node's state projection
     /// (<see cref="SessionStateDto.FromSession"/>) serves as it would a real one: every member it reads is

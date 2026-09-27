@@ -27,7 +27,12 @@ public sealed class OtaCameraStateDto
     public required DateTimeOffset ExposureStart { get; init; }
     public required double SubExposureSeconds { get; init; }
     public required int FrameNumber { get; init; }
-    public required string FilterName { get; init; }
+    /// <summary>
+    /// Null until the camera's first frame (<see cref="CameraExposureState.FilterName"/>). Nullable and NOT
+    /// <c>required</c>: the serializer omits a null, and a required property then fails the WHOLE read, so a
+    /// session's state could not be read by any client from its start until its first frame.
+    /// </summary>
+    public string? FilterName { get; init; }
     public required int FocusPosition { get; init; }
     public required double FocuserTemperature { get; init; }
     public required bool FocuserIsMoving { get; init; }

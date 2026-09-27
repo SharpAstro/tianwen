@@ -1316,7 +1316,9 @@ DTOs + `HostingJsonContext`) and `TianWen.RemoteClient` (`TianWenNodeClient`, `T
   planetary Start, nudges, Goto, Solve and Sync, the focuser), and a new one owes the same.
 - **`ISession`/`ISessionTelemetry` split**: telemetry is the wire-crossable read surface, `Setup` stays
   local, so a remote rig renders with no tab knowing it is remote.
-- **Three wire traps:** never `required` on a nullable wire property (`WhenWritingNull` omits it); route
+- **Three wire traps:** never `required` on a nullable wire property (`WhenWritingNull` omits it), nor on one
+  whose SOURCE is null at run time whatever it declares (a default struct's string: a session's camera states
+  before their first frame, which made its whole state unreadable until then); route
   a non-finite double through `ForWire`, or it is a bodiless 500 for the WHOLE endpoint; and **a serialised
   property with a declared default is `set`, never `init`**: the source generator gives an absent init-only
   property its TYPE'S default, so a request without a binning arrived at bin 0 and a schedule without a
