@@ -49,12 +49,17 @@ try {
                             'eta-Car-Nebula/2026-02-20')
         'n2n-eval4'     = @('RIM 135mm', 'Horsehead', 'Statue of Liberty')
     }
+    if ($Domain -eq 'rf') {
+        # Every rf cache is prepared from 2026-09-25-full (run-poolrf.ps1, deviation 2026-09-27 17:15), which
+        # names eval4's fields by today's ids; "Statue of Liberty" was that night's OBJECT Skull session.
+        $fields['n2n-eval4'] = @('Rim-Nebula/2025-05-02', 'Horsehead-Nebula/2025-10-28', 'Skull-and-Crossbones-Nebula/2026-02-14')
+    }
     $n = 0
     $failed = @()
     foreach ($c in $fields.Keys) {
         $cache = if ($Domain -eq 'rf' -and $c -notin $Unchanged) { "$c-rf" } else { $c }
         if (-not (Test-Path (Join-Path $Scratch "$cache\meta.json"))) { throw "no cache $cache under $Scratch" }
-        if ($c -eq 'n2n-bb-eval4') {
+        if ($c -eq 'n2n-bb-eval4' -or $Domain -eq 'rf') {
             $env:TIANWEN_BAKES = $Bake
             $env:TIANWEN_SOLVED_MASTERS = Join-Path $LogDir 'gaia\solved-2026-09-25-full'
         }

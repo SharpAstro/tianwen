@@ -36,6 +36,20 @@
 #   own control cache re-exported. Unseen sensors, as E13.
 # ---------------------------------------------------------------------------------------------------
 #
+# DEVIATION, 2026-09-27 17:15, after training and before any ring-fixed score: the ring-fixed caches come
+#   from 2026-09-25-full for ALL eleven fields, not from re-exports of the same cells. The eval4b tiles came
+#   from 2025-2026-organized and the eval4 tiles from 2025-2026-darkscaled, bakes of older code (bilinear
+#   warp, older calibration); restacking there with today's code changes more than the stretch, and
+#   re-stretching their tiles outside the product would port its stretch into Python. So for those seven
+#   fields old against rf is NOT a ring-only contrast; for the four bb-eval4 fields it is. The primary read
+#   is unchanged: every model in one pass on identical tiles. Measured first (the ring census, covered
+#   floor against the whole-frame one): in 2026-09-25-full six eval sessions' stretch moves (Carina-Wide,
+#   exported unstretched until now; HIP-85088; V1045 Ori; eta Car 2026-02-20; Horsehead 2025-10-28; Skull
+#   and Crossbones 2026-02-14, which is eval4's "Statue of Liberty" field, OBJECT Skull, 43 subs), so those
+#   six are restacked with --rebuild-session and the other five keep their tiles. eval4's fields are named
+#   by today's ids in the rf domain (Rim-Nebula/2025-05-02, Horsehead-Nebula/2025-10-28,
+#   Skull-and-Crossbones-Nebula/2026-02-14). The predictions stand as written.
+#
 # Run DETACHED; read the status file, never the log. The heartbeat finds it by C:\temp\e2\e14.pid.
 #   $s = (Resolve-Path .\run-poolrf.ps1).Path
 #   Start-Process pwsh -ArgumentList '-NoProfile','-File',$s -WindowStyle Hidden
