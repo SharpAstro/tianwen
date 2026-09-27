@@ -124,6 +124,57 @@ public class StretchedNoiseTests(ITestOutputHelper output)
         brightPredicted.ShouldBeLessThan(skyPredicted * 0.7);
     }
 
+    /// <summary>
+    /// The inference-side estimate on the frame that broke the scalar: most of it covered in fine nebular texture.
+    /// The darkest-half MAD of such a frame reads the texture as noise; the block estimate, each block divided by
+    /// what the model says its level carries and the quiet quantile taken, has to find the injected sigma.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TheEstimateFindsTheNoiseUnderNebularTexture(bool warped)
+    {
+        const int size = 512;
+        var truth = new LinearDegradation.NoiseCalibration(PedestalAdu: 0.0, BackgroundAdu: 0.02, OneSubSigmaAdu: 0.004, StackedFrames: 16);
+        var rng = new Random(3);
+        var channels = new float[Channels][];
+        for (var c = 0; c < Channels; c++)
+        {
+            var p = new float[size * size];
+            for (var y = 0; y < size; y++)
+            {
+                for (var x = 0; x < size; x++)
+                {
+                    // Sky at 0.02; over three quarters of the frame a nebula whose level rises to 0.25 and whose
+                    // texture, at 1 to 3 px, is several times the noise.
+                    var neb = x > size / 4 ? 0.23 * Math.Min(1.0, (x - (size / 4)) / 200.0) : 0.0;
+                    var texture = neb > 0 ? 0.015 * Math.Sin(x / 1.3) * Math.Sin(y / 1.7) + (0.01 * Math.Sin((x + y) / 2.9)) : 0.0;
+                    p[(y * size) + x] = (float)(0.02 + neb + texture);
+                }
+            }
+            var shape = warped ? NoiseField.Warped(size, size, 8, rng, 0.5) : NoiseField.White(size, size, rng);
+            LinearDegradation.AddNoiseInPlace(p, shape, truth, 1.0);
+            channels[c] = p;
+        }
+        var data = new float[Channels][,];
+        for (var c = 0; c < Channels; c++)
+        {
+            var plane = new float[size, size];
+            Buffer.BlockCopy(channels[c], 0, plane, 0, channels[c].Length * sizeof(float));
+            data[c] = plane;
+        }
+        var image = new Image(data, BitDepth.Float32, 1f, 0f, 0f, new ImageMeta { SensorType = SensorType.Color });
+        var (origMin, balances) = image.MtfStretchParameters(0.25);
+        var stretches = Enumerable.Range(0, Channels).Select(c => new StretchedNoise.ChannelStretch(balances[c], origMin[c])).ToArray();
+
+        var estimated = StretchedNoise.EstimateCalibration(image, stretches);
+
+        output.WriteLine($"warped {warped}: estimated one-sub sigma {estimated.OneSubSigmaAdu:E3} against {truth.OneSubSigmaAdu:E3} " +
+                         $"({estimated.OneSubSigmaAdu / truth.OneSubSigmaAdu:F3}x), background {estimated.BackgroundAdu:F4} against {truth.BackgroundAdu:F4}");
+        (estimated.OneSubSigmaAdu / truth.OneSubSigmaAdu).ShouldBe(1.0, 0.12);
+        estimated.BackgroundAdu.ShouldBe(truth.BackgroundAdu, 0.004);
+    }
+
     [Fact]
     public void AFlatSkyPlaneIsFlatAndInTheScalarsUnits()
     {

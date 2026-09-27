@@ -431,10 +431,14 @@ def prepare(args):
             raise SystemExit(f"plane {p} is {len(raw)} bytes, expected {TILE * TILE * 2}")
         return np.frombuffer(raw, "<f2").reshape(TILE, TILE)
 
-    first = cells[keys[0]] if keys else None
-    probe = ([first["master"]] + first["subs"][:1] + [first.get("half_a")]) if first else []
+    # Any cell may be the first with a plane: an eval cache's training sessions carry none (noise-planes wrote the
+    # eval sessions only), so the check looks at every cell's master and half A, which costs a stat each.
+    def has_sidecar(rel):
+        return bool(rel) and os.path.exists(os.path.join(sigma_root, sigma_path_for(rel).replace("/", os.sep)))
+
     sigma = sigma_has = None
-    if any(rel and read_sigma(rel) is not None for rel in probe):
+    if any(has_sidecar(cells[k]["master"]) or has_sidecar(cells[k].get("half_a"))
+           or (cells[k]["subs"] and has_sidecar(cells[k]["subs"][0])) for k in keys):
         sigma = np.memmap(os.path.join(args.cache, SIGMA_FILE), dtype=np.float16, mode="w+",
                           shape=(n, SLOTS_WITH_HALVES, TILE, TILE))
         sigma_has = np.zeros((n, SLOTS_WITH_HALVES), dtype=bool)

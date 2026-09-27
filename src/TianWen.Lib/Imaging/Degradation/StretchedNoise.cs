@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.Degradation;
 
@@ -111,6 +112,129 @@ public static class StretchedNoise
             plane[i] = (float)(PlaneScale * Math.Sqrt(sumSq[i]) / channels);
         }
         return planeSigmaPx > 0 ? Image.SeparableGaussianBlur(plane, width, height, planeSigmaPx) : plane;
+    }
+
+    /// <summary>Block side, in pixels, of <see cref="EstimateCalibration"/>'s local noise readings.</summary>
+    public const int EstimateBlockPx = 32;
+
+    /// <summary>The high-pass <see cref="EstimateCalibration"/> reads noise through: the frame minus its own
+    /// low-pass at this sigma, which removes gradients and large structure and keeps nearly all of a stack's
+    /// noise (correlated over a pixel or two, far inside this scale).</summary>
+    public const float EstimateHighPassSigmaPx = 4f;
+
+    /// <summary>Which quantile of the per-block anchors <see cref="EstimateCalibration"/> answers with: a low
+    /// one, because texture only ever ADDS to a block's reading, so the quietest blocks are the honest ones.</summary>
+    public const double EstimateQuantile = 0.25;
+
+    /// <summary>
+    /// A frame's OWN noise calibration, estimated from the frame alone: what a runner has at inference, and what an
+    /// eval plane has for a half-master (at a depth of sqrt 2 against its master). The result is in the units of
+    /// <see cref="LinearDegradation.NoiseCalibration"/> with <c>StackedFrames</c> 1, so a depth of 1 is this
+    /// frame's own noise.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Why not the darkest half of a tile.</b> That is the scalar plane's estimator, and on a frame
+    /// filled with nebulosity its darkest half is texture: it read eta Car's noise at twice the truth. Here the
+    /// frame is split into blocks, each block's noise is read through a high-pass, and each reading is divided by
+    /// what the noise MODEL says a block at that level carries (the same <see cref="SigmaAt"/> the plane uses),
+    /// so every block estimates the same anchor. Texture only adds to a block's reading, so a low quantile of the
+    /// anchors is the honest one, and the model's level dependence is what lets bright smooth blocks vote at all
+    /// instead of reading as quiet sky.</para>
+    /// <para>Channel 0 anchors every channel, as the exporter's calibration does.</para>
+    /// </remarks>
+    /// <param name="unitLinear">The linear frame, in the units the stretch was measured in.</param>
+    /// <param name="stretches">The frame's stretch, one per channel (only channel 0 is read).</param>
+    /// <param name="absent">The canvas ring (<see cref="Image.AbsentPixels"/>): a block touching it is skipped.</param>
+    public static LinearDegradation.NoiseCalibration EstimateCalibration(
+        Image unitLinear, IReadOnlyList<ChannelStretch> stretches, BitMatrix? absent = null)
+    {
+        var (_, width, height) = unitLinear.Shape;
+        var stretch = stretches[0];
+        var linear = unitLinear.GetChannelSpan(0);
+        var y = new float[width * height];
+        var skip = new bool[width * height];
+        for (var i = 0; i < y.Length; i++)
+        {
+            var v = linear[i];
+            if (float.IsNaN(v))
+            {
+                skip[i] = true;
+                continue;
+            }
+            y[i] = (float)Image.MidtonesTransferFunction(stretch.MidtonesBalance, Math.Max(0.0, v - stretch.OrigMin));
+        }
+        if (absent is { } ring)
+        {
+            for (var row = 0; row < height; row++)
+            {
+                for (var x = ring.NextSetBit(row, 0); x >= 0; x = ring.NextSetBit(row, x + 1))
+                {
+                    skip[(row * width) + x] = true;
+                }
+            }
+        }
+        var low = Image.SeparableGaussianBlur(WithoutNaN(y), width, height, EstimateHighPassSigmaPx);
+
+        var levels = new List<double>();
+        var mads = new List<double>();
+        var block = new float[EstimateBlockPx * EstimateBlockPx];
+        var hp = new float[EstimateBlockPx * EstimateBlockPx];
+        for (var by = 0; by + EstimateBlockPx <= height; by += EstimateBlockPx)
+        {
+            for (var bx = 0; bx + EstimateBlockPx <= width; bx += EstimateBlockPx)
+            {
+                var ok = true;
+                var k = 0;
+                for (var yy = by; yy < by + EstimateBlockPx && ok; yy++)
+                {
+                    for (var xx = bx; xx < bx + EstimateBlockPx; xx++)
+                    {
+                        var i = (yy * width) + xx;
+                        if (skip[i])
+                        {
+                            ok = false;
+                            break;
+                        }
+                        block[k] = y[i];
+                        hp[k] = y[i] - low[i];
+                        k++;
+                    }
+                }
+                if (!ok)
+                {
+                    continue;
+                }
+                var (median, _) = StatisticsHelper.MedianAndMad(block.AsSpan());
+                var (_, mad) = StatisticsHelper.MedianAndMad(hp.AsSpan());
+                levels.Add(median);
+                mads.Add(1.4826 * mad);
+            }
+        }
+        if (levels.Count == 0)
+        {
+            throw new ArgumentException($"no {EstimateBlockPx} px block of the frame is free of the canvas ring and NaN", nameof(unitLinear));
+        }
+
+        // The sky: the darkest 30 percent of blocks, whose median level fixes the background the ramp anchors at.
+        var sorted = new List<double>(levels);
+        sorted.Sort();
+        var darkest = sorted.GetRange(0, Math.Max(1, (int)(sorted.Count * 0.3)));
+        var skyLevel = darkest[darkest.Count / 2];
+        var background = Image.MidtonesTransferFunction(1.0 - stretch.MidtonesBalance, skyLevel) + stretch.OrigMin;
+        var unit = new LinearDegradation.NoiseCalibration(unitLinear.Pedestal, background, 1.0, 1);
+
+        var anchors = new List<double>(levels.Count);
+        for (var b = 0; b < levels.Count; b++)
+        {
+            var perUnit = SigmaAt(levels[b], stretch, unit, 1.0);
+            if (perUnit > 0 && double.IsFinite(perUnit) && mads[b] > 0)
+            {
+                anchors.Add(mads[b] / perUnit);
+            }
+        }
+        anchors.Sort();
+        var anchor = anchors.Count > 0 ? anchors[(int)Math.Clamp(anchors.Count * EstimateQuantile, 0, anchors.Count - 1)] : 0.0;
+        return new LinearDegradation.NoiseCalibration(unitLinear.Pedestal, background, anchor, 1);
     }
 
     /// <summary>A copy with every NaN replaced by the finite median, so a blur cannot spread one. A plane over a
