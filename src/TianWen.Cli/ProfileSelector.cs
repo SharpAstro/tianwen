@@ -95,9 +95,11 @@ internal class ProfileSelector(IConsoleHost consoleHost, Option<string?> selecte
             return null;
         }
 
-        // Create profile
-        var profile = new Profile(Guid.NewGuid(), name, ProfileData.Empty);
-        await profile.SaveAsync(consoleHost.External, ct);
+        // Create profile: the node makes it and names it, so the id is the one it answers.
+        if (await consoleHost.SaveProfileAsync(new Profile(Guid.NewGuid(), name, ProfileData.Empty), ct) is not { } profile)
+        {
+            return null;
+        }
         consoleHost.WriteScrollable($"Created profile '{name}' ({profile.ProfileId})");
 
         // Step 2: Discover devices
@@ -127,8 +129,7 @@ internal class ProfileSelector(IConsoleHost consoleHost, Option<string?> selecte
             if (mountIdx >= 0 && mountIdx < mounts.Length)
             {
                 var data = profile.Data ?? ProfileData.Empty;
-                profile = profile.WithData(data with { Mount = mounts[mountIdx].DeviceUri });
-                await profile.SaveAsync(consoleHost.External, ct);
+                profile = await consoleHost.SaveProfileAsync(profile.WithData(data with { Mount = mounts[mountIdx].DeviceUri }), ct) ?? profile;
             }
         }
 
@@ -142,8 +143,7 @@ internal class ProfileSelector(IConsoleHost consoleHost, Option<string?> selecte
             if (guiderIdx >= 0 && guiderIdx < guiders.Length)
             {
                 var data = profile.Data ?? ProfileData.Empty;
-                profile = profile.WithData(data with { Guider = guiders[guiderIdx].DeviceUri });
-                await profile.SaveAsync(consoleHost.External, ct);
+                profile = await consoleHost.SaveProfileAsync(profile.WithData(data with { Guider = guiders[guiderIdx].DeviceUri }), ct) ?? profile;
             }
         }
 
