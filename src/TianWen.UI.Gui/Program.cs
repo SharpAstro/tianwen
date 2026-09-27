@@ -96,8 +96,9 @@ if (StartupTimeOverride.TryGet(out var simulatedNow, out var clockOffset))
 var requestedProfile = args.Length >= 2 && args[0] is "--active" or "-a" ? args[1] : null;
 
 // --- One instance for the whole application ---
-// Unlike the viewer, this is NOT keyed on anything: a second GUI would poll the same drivers and
-// contend for them, and the multi-rig Home tab already exists so one GUI can watch several rigs.
+// Unlike the viewer, this is NOT keyed on anything: a second GUI would only be a second client of this
+// computer's node (which the design allows), and the multi-rig Home tab already exists so one GUI can
+// watch several rigs.
 // So a second launch activates the running window and exits.
 //
 // The payload is empty because there is no document to hand over, and an empty payload is a
@@ -106,6 +107,20 @@ var requestedProfile = args.Length >= 2 && args[0] is "--active" or "-a" ? args[
 // ignored rather than silently dropped. Acting on it is deferred.
 const string GuiGateScope = "tianwen-gui";
 const string GuiSingleInstanceEnvVar = "TIANWEN_GUI_SINGLE_INSTANCE";
+
+// A window that replaces one whose GPU could not draw again (P7, #937) waits for that one to go first: the gate would
+// otherwise hand this start to the process that is dying. The night is the node's, so the wait costs it nothing.
+var startedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+var generation = GuiSuccession.GenerationOf(Environment.GetEnvironmentVariable);
+if (GuiSuccession.PredecessorOf(Environment.GetEnvironmentVariable) is { } predecessor)
+{
+    var gone = await GuiSuccession.WaitForPredecessorAsync(predecessor, GuiSuccession.PredecessorExitBudget, CancellationToken.None);
+    logger.LogWarning("This window replaces {Predecessor}, whose display was lost (window {Generation} in a row){Gone}",
+        predecessor, generation, gone ? "" : "; it had not exited in time");
+    appState.RecordNotification(timeProvider.GetUtcNow(), NotificationSeverity.Warning,
+        "The last window lost its display, so this one replaced it. The rig went on on this computer's node.");
+}
+
 InstanceGate? instanceGate = null;
 if (!string.Equals(Environment.GetEnvironmentVariable(GuiSingleInstanceEnvVar), "0", StringComparison.Ordinal))
 {
@@ -765,11 +780,21 @@ catch (Exception ex)
 
 if (displayLost || loopFault is not null)
 {
-    // P0a (#743) and P6 (#936): the window cannot draw any more, and the rig must not notice, which it no longer can: the
-    // runs are this computer's node's and go on without the window, the node answers a prompt nobody is present to see,
-    // and an interactive run (polar alignment, a planetary live view) stops once its grace is spent. So this process only
-    // leaves; P7 starts a successor window on the same night.
-    logger.LogWarning("{Why}: this window leaves, and the rig goes on on this computer's node.", loopFault is null ? "Display lost" : "Display failed");
+    // P0a (#743), P6 (#936) and P7 (#937): the window cannot draw any more, and the rig must not notice, which it no longer
+    // can: the runs are this computer's node's and go on without the window. A fresh process gets a fresh driver
+    // instance, so a successor takes the night over within the grace an interactive run is given, and this one leaves
+    // WITHOUT its Vulkan teardown, which blocks for ever on a hung device (docs/plans/gpu-device-recovery.md).
+    var why = loopFault is null ? "Display lost" : "Display failed";
+    var uptime = System.Diagnostics.Stopwatch.GetElapsedTime(startedAt);
+    if (Environment.ProcessPath is { } exe
+        && GuiSuccession.SuccessorFor(exe, args, Environment.ProcessId, generation, uptime) is { } successor)
+    {
+        // Does not return. The file log writes through, so nothing is lost with the teardown skipped.
+        GuiSuccession.LeaveFor(successor, why, instanceGate, logger);
+    }
+    // This window and the successors before it: past the cap, a GPU that fails every window is not one to keep starting on.
+    logger.LogWarning("{Why}: {Count} windows in a row lost their display, so no new one is started; the rig goes on on this computer's node.",
+        why, generation + 1);
 }
 
 // Final cleanup: drain should complete quickly since we already waited in the loop.

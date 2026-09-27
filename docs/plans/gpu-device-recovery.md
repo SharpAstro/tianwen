@@ -1,7 +1,9 @@
 # GPU device loss: the 2026-09-22 wedge, what the desktop must check, and in-process recovery
 
-Status: **NOT STARTED** (the recovery); **FOUND** (the mechanism: a Windows GPU timeout reset,
-LiveKernelEvent 141); **OPEN** (which submission runs past the 2 s watchdog). High priority: `TODO.md`.
+Status: **DONE by respawn** (the recovery: P7 of `hardware-in-the-server.md`, #937, replaces a window whose device
+cannot draw again with a fresh process, so recreating the device in-process is now optional; see "The respawn");
+**FOUND** (the mechanism: a Windows GPU timeout reset, LiveKernelEvent 141); **OPEN** (which submission runs past
+the 2 s watchdog).
 
 ## What happened (win-arm64, Adreno X1-85, 2026-09-22 20:35 local)
 
@@ -83,9 +85,11 @@ expectation, not a measurement.
    the driver's result, which runs the mid-frame recovery (sync and swapchain rebuilt), the backoff,
    and after two recoveries within a second the host's `OnRenderDegraded` (the GUI switches to
    Notifications, resets the atlas zoom, records a warning).
-2. **A device that stays dead cannot be brought back in-process.** This is the open item. It is not
-   impossible: the same `VkDevice` cannot recover from `DEVICE_LOST`, but a new one can be created,
-   and everything device-owned rebuilt. What it takes:
+2. **A device that stays dead cannot be brought back in-process.** This was the open item, and since
+   P7 (#937) a respawn answers it (see "The respawn"). What follows is now an OPTIONAL improvement on
+   that: a window that rebuilds its device keeps its tab, zoom and open panels, where a successor starts
+   from its profile. It is not impossible: the same `VkDevice` cannot recover from `DEVICE_LOST`, but a
+   new one can be created, and everything device-owned rebuilt. What it takes:
    - SdlVulkan.Renderer: destroy and recreate the device behind `VulkanContext` (pipelines, the
      per-frame sync, the vertex ring, the glyph atlases, descriptor pools, the swapchain), on the
      sacrificial recovery task so a driver blocking inside teardown (the June 2026 zombie) is
@@ -96,10 +100,11 @@ expectation, not a measurement.
      texture, and the font atlases refill lazily.
    - A host that cannot rebuild keeps running headless with a degraded surface and a notification,
      never a frozen window, because a running session with cooling cameras is worth more than the
-     picture of it. **The TianWen GUI does since P0a of the hardware-in-the-server plan (#743)**:
+     picture of it. **The TianWen GUI did since P0a of the hardware-in-the-server plan (#743)**:
      SdlVulkan.Renderer 7.49 keeps a wedged window inert and closable while `Run` pumps its events
-     again, and `RigShutdown`'s `DisplayLost` lets a session and a flat run finish on their own,
-     `Finalise` included, before the cameras are warmed and the process exits.
+     again, and the window let a session and a flat run finish on their own before it exited. Since P6
+     (#936) the runs are not in the window at all but in this computer's node, so a window that cannot
+     draw only leaves, and since P7 (#937) a successor takes its place.
 
 ## What the desktop found, and what the laptop then measured (2026-09-23)
 
@@ -169,17 +174,51 @@ Three details worth copying if we ever go that way, and one reason we probably c
   stale hand-off from yesterday cannot restore anything.
 - **The successor is marked by an environment variable** so the single-instance gate does not hand
   the session back to the process that is dying.
-- **The reason it does not transfer**: a PDF viewer's whole state is which documents are open and
-  where the reader was looking, and that is a few hundred bytes. Ours is a running session with a
-  mount tracking, cameras at setpoint, a guider calibrated and a filter wheel mid-sequence, held
-  through device leases that a new process would have to re-acquire from drivers that still believe
-  they are owned. A respawn ends the night. That is the argument FOR in-process recreation here and
-  against simply taking their approach, and it is why this plan still says what it says.
+- **The reason it did not transfer, until P6**: a PDF viewer's whole state is which documents are
+  open and where the reader was looking, and that is a few hundred bytes. Ours was a running session
+  with a mount tracking, cameras at setpoint, a guider calibrated and a filter wheel mid-sequence, held
+  through device leases that a new process would have had to re-acquire from drivers that still
+  believed they were owned. A respawn ended the night, which was the argument for in-process
+  recreation. **P6 of the hardware-in-the-server plan (#936) took that argument away**: the session,
+  the leases and every driver are the node's (`tianwen-server`), the window holds nothing a successor
+  must re-acquire, and P7 (#937) takes their approach (below).
 
 Also worth knowing: **their submodule predates the 7.46 streak fix**, so on that build a device
 rejecting every submit still reads as healthy for ever and their `OnGpuWedged` can only be reached
 through the fence-stuck path or an explicit `DEVICE_LOST`. If the wedge is ever reproduced there,
 that is why it will look different.
+
+## The respawn (P7 of hardware-in-the-server, #937)
+
+A window whose device is declared wedged (`OnGpuWedged`), or whose event loop failed, is replaced by a
+fresh process, and the night goes on in the node throughout. `GuiSuccession` (`TianWen.UI.Abstractions`)
+holds the rules; `TianWen.UI.Gui/Program.cs` only applies them:
+
+- **The dying window starts its successor and leaves with no Vulkan teardown.** The successor is the same
+  executable with the same arguments (`--active` passes through, which asks the node for the profile it
+  already runs). It releases the instance gate and calls `Environment.Exit(70)`, skipping the teardown,
+  because `vkDeviceWaitIdle` and `vkFreeMemory` block for ever on a hung device.
+- **The successor is marked by the ENVIRONMENT, never an argument**: `TIANWEN_GUI_SUCCESSOR_OF` names the
+  process it replaces, and `TIANWEN_GUI_GENERATION` counts the windows in a row that have replaced one. A
+  user's own arguments stay the user's.
+- **It waits for its predecessor to EXIT before it claims the gate** (the plan's open question on
+  `InstanceGate`), for up to `PredecessorExitBudget` (15 s). Otherwise the gate would hand its start to the
+  process that is dying, which would activate the dead window and exit. The predecessor releases the gate
+  before it exits, so a successor that runs out of budget still claims it.
+- **There is no manifest to hand over**, which is where ours differs from Drawboard's: the successor finds
+  the node, reads the session it runs and beats presence from its first loop iteration, which is how an
+  interactive run (polar alignment, a planetary live view) keeps the grace `NodeRunWatch` gives it. What a
+  successor does not keep is the window's own view: the tab on show, the zoom, an open panel. So there is
+  no freshness window either.
+- **A boot loop is bounded twice**: at most `MaxGeneration` (three) replacements in a row, and a window that
+  drew for `HealthyUptime` (five minutes) starts the count again. Past the cap, the window leaves without a successor
+  and says why in its log; the rig goes on in the node, and a window the user opens again finds it.
+- **The successor says what happened**: a Warning in its notifications, and the log names the process it
+  replaced.
+
+Pinned by `GuiSuccessionTests`. **Not yet run live**: the inspector's `gpu_fault lost` against a Debug GUI
+in the middle of a session is the proof, and it waits for the same supervised run as P6's (a GUI started
+here spawns a node that probes this machine's serial ports and drivers).
 
 ## What the desktop must check (it has the Vulkan validation layer; this machine does not)
 
@@ -237,7 +276,10 @@ logged"; it was not ruled out, it was the cause (see "What killed the device").
 
 - `SdlVulkan.Renderer/src/SdlVulkan.Renderer/VulkanContext.cs`: `SubmitFrame`, `RejectedSubmitStreakLimit`, `LastFrameSubmitted`, `RecoverFromGpuError`.
 - `SdlVulkan.Renderer/src/SdlVulkan.Renderer/SdlEventLoop.cs`: the render-view catch, the recovery storm accounting, `OnRenderDegraded`, `OnGpuWedged`.
-- `tianwen/src/TianWen.UI.Gui/Program.cs`: the GUI's `OnRenderDegraded` handler.
+- `tianwen/src/TianWen.UI.Gui/Program.cs`: the GUI's `OnRenderDegraded` handler, and the respawn: the wait for a
+  predecessor before the gate is claimed, and the successor started on a lost display.
+- `tianwen/src/TianWen.UI.Abstractions/GuiSuccession.cs`: the respawn's rules (the environment markers, the
+  generation cap and healthy uptime, the wait for the predecessor).
 - `tianwen/src/TianWen.UI.Shared/Shaders/skymap_overlay.*`: the atlas's marker pipeline.
 - `tianwen/src/TianWen.UI.Abstractions/SkyMapTab.Hover.cs`: the wash.
 - `tianwen/src/TianWen.Lib.Tests/ShaderContractTests.cs`: the source rules, and what they deliberately do not cover.
