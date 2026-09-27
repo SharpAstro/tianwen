@@ -43,9 +43,8 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>
         /// One OTA's telemetry from what its devices read, a device that is not connected read as <see langword="null"/>:
-        /// ONE rule for this computer's devices, read through its hub (<see cref="LiveSessionActions.SampleOTATelemetryAsync"/>),
-        /// and a rig's, read by its node and sent as its device states (P5b part 9 of docs/plans/hardware-in-the-server.md),
-        /// so an idle rig's OTA panels lay out as this computer's do. The camera is named by its URI, as every device is
+        /// ONE rule for every view's devices, read by its node and sent as its device states (P5b part 9 and P6 of
+        /// docs/plans/hardware-in-the-server.md), this computer's included since its devices are its node's. The camera is named by its URI, as every device is
         /// (<see cref="DeviceBase.DisplayNameOf"/>), else by the OTA.
         /// </summary>
         public static PreviewOTATelemetry From(OTAData ota, CameraReading? camera, FocuserReading? focuser, FilterWheelReading? filterWheel) =>

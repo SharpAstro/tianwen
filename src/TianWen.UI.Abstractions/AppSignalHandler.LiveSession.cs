@@ -25,6 +25,7 @@ using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
 using TianWen.Lib.Sequencing;
 using TianWen.Lib.Sequencing.PolarAlignment;
+using TianWen.Hosting.Dto;
 
 namespace TianWen.UI.Abstractions
 {
@@ -110,25 +111,13 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<TakePreviewSignal>(sig =>
             {
-                if (!EnsureSessionIdle("Session is running \u2014 preview unavailable")) return;
+                if (!EnsureLocalContext("A preview")) return;
                 if (appState.ActiveProfile?.Data is not { } previewData || sig.OtaIndex >= previewData.OTAs.Length)
                 {
                     Notify(NotificationSeverity.Warning, "Invalid OTA index");
                     return;
                 }
-                if (appState.DeviceHub is not { } hub) return;
-
-                var ota = previewData.OTAs[sig.OtaIndex];
-                // Ownership, not only the session flag above: IsRunning is false during a flat run, so a preview
-                // exposed on the camera a flat run was metering, and on one planetary or polar was driving.
-                if (!EnsureDeviceControllable(ota.Camera)) return;
-                if (!TryGetConnected<ICameraDriver>(hub, ota.Camera, "Camera", out var camera)) return;
-
-                // Resolve the OTA's other devices for per-capture FITS denorm. Mount is
-                // optional (preview can fire without one) but unlocks Target stamping
-                // and FakeCameraDriver synthetic-catalog rendering when present.
-                var (previewFocuser, previewFilterWheel, previewMount) =
-                    PreviewCapture.ResolveOtaCaptureDevices(hub, previewData, sig.OtaIndex);
+                if (LocalNodeOrSay() is not { } node) return;
 
                 // Mark capturing
                 if (sig.OtaIndex < liveSessionState.PreviewCapturing.Length)
@@ -139,42 +128,15 @@ namespace TianWen.UI.Abstractions
                 }
                 appState.NeedsRedraw = true;
 
+                // The node exposes (it stamps the frame's headers as a session's are), keeps the frame as the OTA's, and
+                // pushes FRAME-AVAILABLE, on which the view's mirror fetches it: the frame on show is the node's. The node
+                // refuses a camera a run holds, in the run's name.
+                var request = new PreviewExposureRequestDto { ExposureSeconds = sig.ExposureSeconds, Gain = sig.Gain is { } g ? (short)g : null, Binning = sig.Binning };
                 RunTracked($"PreviewCapture OTA{sig.OtaIndex}", "Preview failed", async ct =>
                 {
-                    // Stamp denorm fields before exposing -- shared with Session.Imaging
-                    // and polar alignment so the live preview's FITS headers (and the
-                    // FakeCameraDriver's synthetic-catalog rendering) match the other
-                    // capture paths exactly.
-                    await CameraExposureActions.StampDenormAsync(
-                        camera,
-                        ota.Name,
-                        ota.FocalLength,
-                        ota.Aperture,
-                        previewFocuser,
-                        previewFilterWheel,
-                        previewMount,
-                        targetName: previewMount is not null ? "Preview" : null,
-                        catalogDb: sp.GetRequiredService<ICelestialObjectDB>(),
-                        logger: logger,
-                        ct: ct).ConfigureAwait(false);
-
-                    var image = await PreviewCapture.CaptureAsync(
-                        camera,
-                        TimeSpan.FromSeconds(sig.ExposureSeconds),
-                        sig.Gain is { } g ? (short)g : null,
-                        sig.Binning,
-                        _timeProvider,
-                        ct);
-
-                    if (image is not null
-                        && sig.OtaIndex < liveSessionState.LastCapturedImages.Length)
+                    if (await RunNodeJobAsync(node, node.Client.StartPreviewExposureAsync(sig.OtaIndex, request, ct), "Preview", ct) is { } done)
                     {
-                        // Release the previous slot's image before replacing -- otherwise
-                        // its ChannelBuffer ref never drops and the camera can't recycle
-                        // (mirrors the polar-refine onFrameCaptured leak fix).
-                        liveSessionState.LastCapturedImages[sig.OtaIndex]?.Release();
-                        liveSessionState.LastCapturedImages[sig.OtaIndex] = image;
-                        Notify(NotificationSeverity.Info, $"Preview captured: OTA {sig.OtaIndex + 1}");
+                        Notify(NotificationSeverity.Info, done.Step ?? $"Preview captured: OTA {sig.OtaIndex + 1}");
                     }
                 }, onFinally: () =>
                 {
@@ -188,42 +150,22 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<SaveSnapshotSignal>(sig =>
             {
-                if (liveSessionState.IsRunning) return;
-                if (sig.OtaIndex >= liveSessionState.LastCapturedImages.Length) return;
-                if (liveSessionState.LastCapturedImages[sig.OtaIndex] is not { } image)
-                {
-                    Notify(NotificationSeverity.Warning, "No preview image to save");
-                    return;
-                }
+                if (!EnsureLocalContext("A snapshot")) return;
+                if (LocalNodeOrSay() is not { } node) return;
 
-                RunTracked("SaveSnapshot", "Snapshot failed", async _ =>
+                // Saved by the node, of the frame it shows: its own copy, where a session's subs are written.
+                RunTracked("SaveSnapshot", "Snapshot failed", async ct =>
                 {
-                    // The slot's frame is its publisher's, released as the next replaces it: LEASED for the write, never
-                    // the bare reference across it.
-                    if (!image.TryLease(out var lease))
-                    {
-                        Notify(NotificationSeverity.Warning, "The preview was replaced while it was read; save again");
-                        return;
-                    }
-
-                    using (lease)
-                    {
-                        var path = await PreviewCapture.SaveSnapshotAsync(
-                            lease.Image, sig.OtaIndex, external, _timeProvider);
-                        Notify(NotificationSeverity.Info, $"Snapshot saved: {Path.GetFileName(path)}");
-                    }
+                    var saved = await node.Client.SaveSnapshotAsync(sig.OtaIndex, ct);
+                    Notify(saved.IsSuccess ? NotificationSeverity.Info : NotificationSeverity.Warning, saved.IsSuccess
+                        ? $"Snapshot saved: {Path.GetFileName(saved.Value)}"
+                        : saved.Error ?? "No preview image to save");
                 }, onFinally: () => appState.NeedsRedraw = true);
             });
 
             bus.Subscribe<PlateSolvePreviewSignal>(sig =>
             {
-                if (liveSessionState.IsRunning) return;
-                if (sig.OtaIndex >= liveSessionState.LastCapturedImages.Length) return;
-                if (liveSessionState.LastCapturedImages[sig.OtaIndex] is not { } image)
-                {
-                    Notify(NotificationSeverity.Warning, "No preview image to solve");
-                    return;
-                }
+                if (!EnsureLocalContext("A plate solve")) return;
                 // Drop duplicate clicks: if a solve is already running for this OTA,
                 // ignore. The button is rendered as "Solving…" with no click handler,
                 // but a stray hit before the redraw could still fire the signal.
@@ -232,6 +174,7 @@ namespace TianWen.UI.Abstractions
                 {
                     return;
                 }
+                if (LocalNodeOrSay() is not { } node) return;
 
                 if (sig.OtaIndex < liveSessionState.PreviewPlateSolving.Length)
                 {
@@ -245,12 +188,11 @@ namespace TianWen.UI.Abstractions
                     appState.StatusMessage = "Plate solving\u2026";
                     appState.NeedsRedraw = true;
 
-                    // Solve orchestration (search-origin derivation + result-to-message
-                    // mapping) lives in LiveSessionActions so this lambda routes only.
-                    var (result, message, solved) = await PreviewCapture.SolveAsync(
-                        sp.GetRequiredService<IPlateSolverFactory>(), image, ct);
-                    liveSessionState.PreviewPlateSolveResult = result;
-                    Notify(solved ? NotificationSeverity.Info : NotificationSeverity.Warning, message);
+                    // Solved by the node, of the frame it shows, with its solvers; the solution is the OTA's there.
+                    if (await RunNodeJobAsync(node, node.Client.StartSolveAsync(sig.OtaIndex, ct), "Plate solve", ct) is not null)
+                    {
+                        await ShowSolutionAsync(node, sig.OtaIndex, ct);
+                    }
                 }, onFinally: () =>
                 {
                     if (sig.OtaIndex < liveSessionState.PreviewPlateSolving.Length)
@@ -264,12 +206,15 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<JogFocuserSignal>(sig =>
             {
-                if (!TryResolveIdleOtaFocuser(sig.OtaIndex, out var focuser)) return;
+                if (!TryResolveOtaFocuser(sig.OtaIndex, out var node, out var focuserUri)) return;
 
                 RunTracked($"JogFocuser OTA{sig.OtaIndex}", "Focuser jog failed", async ct =>
                 {
-                    var targetPos = await LiveSessionActions.JogFocuserAsync(focuser, sig.Steps, ct);
-                    Notify(NotificationSeverity.Info, $"Focuser \u2192 {targetPos}");
+                    var move = new FocuserMoveRequestDto { DeviceUri = focuserUri.ToString(), Steps = sig.Steps };
+                    if (await RunNodeJobAsync(node, node.Client.MoveFocuserAsync(move, ct), "Focuser jog", ct) is { } done)
+                    {
+                        Notify(NotificationSeverity.Info, done.Step ?? "Focuser moved");
+                    }
                 }, onFinally: () => appState.NeedsRedraw = true);
             });
 
@@ -305,35 +250,35 @@ namespace TianWen.UI.Abstractions
                 Notify(NotificationSeverity.Info, "Planetary capture stopped");
             });
 
-            // Manual mount nudge (planetary panel coarse-recenter buttons) -> the same pulse-guide actuator the
-            // COM recenter loop uses. Mirrors the focuser-jog route: resolve the connected mount, pulse on the
-            // tracker. Gated on no running session + a pulse-guide-capable mount.
+            // Manual mount nudge (planetary panel coarse-recenter buttons): one guide-rate pulse, as the node's job, which
+            // ends when the mount reports the pulse done and is refused on a mount a run holds, in the run's name.
             bus.Subscribe<JogMountSignal>(sig =>
             {
                 if (!EnsureLocalContext("A mount nudge")) return;
                 if (appState.ActiveProfile?.Data is not { } pdata) return;
                 if (pdata.Mount is not { Scheme: not "none" } mountUri) return;
-                if (appState.DeviceHub is not { } hub) return;
-                // Was a silent `if (liveSessionState.IsRunning) return;` -- wrong twice over: it let a jog
-                // through during a flat run, and when it did refuse it gave the user no reason at all.
-                if (!EnsureDeviceControllable(mountUri)) return;
-                if (!hub.TryGetConnectedDriver<IMountDriver>(mountUri, out var mount) || mount is null) return;
+                if (LocalNodeOrSay() is not { } node) return;
 
                 RunTracked($"JogMount {sig.Direction}", "Mount jog failed", async ct =>
                 {
-                    await MountNudge.PulseArcsecAsync(mount, sig.Direction, sig.Arcsec, logger: logger, cancellationToken: ct);
-                    Notify(NotificationSeverity.Info, $"Mount nudge {sig.Direction} {sig.Arcsec:F0} arcsec");
+                    if (await RunNodeJobAsync(node, node.Client.NudgeMountAsync(mountUri, sig.Direction, sig.Arcsec, ct), "Mount nudge", ct) is { } done)
+                    {
+                        Notify(NotificationSeverity.Info, done.Step ?? $"Mount nudge {sig.Direction} {sig.Arcsec:F0} arcsec");
+                    }
                 }, onFinally: () => appState.NeedsRedraw = true);
             });
 
             bus.Subscribe<GotoFocuserSignal>(sig =>
             {
-                if (!TryResolveIdleOtaFocuser(sig.OtaIndex, out var focuser)) return;
+                if (!TryResolveOtaFocuser(sig.OtaIndex, out var node, out var focuserUri)) return;
 
                 RunTracked($"GotoFocuser OTA{sig.OtaIndex}", "Focuser goto failed", async ct =>
                 {
-                    await focuser.BeginMoveAsync(sig.TargetPosition, ct);
-                    Notify(NotificationSeverity.Info, $"Focuser \u2192 {sig.TargetPosition}");
+                    var move = new FocuserMoveRequestDto { DeviceUri = focuserUri.ToString(), Position = sig.TargetPosition };
+                    if (await RunNodeJobAsync(node, node.Client.MoveFocuserAsync(move, ct), "Focuser goto", ct) is { } done)
+                    {
+                        Notify(NotificationSeverity.Info, done.Step ?? $"Focuser \u2192 {sig.TargetPosition}");
+                    }
                 }, onFinally: () => appState.NeedsRedraw = true);
             });
         }

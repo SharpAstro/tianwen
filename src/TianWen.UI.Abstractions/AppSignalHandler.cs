@@ -232,46 +232,6 @@ namespace TianWen.UI.Abstractions
         // on the UI thread.
         private readonly Dictionary<string, DateTimeOffset> _telemetryLastRead = new();
 
-        // Preview-mode poll state (mirrors _telemetryLastSampleTicks pattern;
-        // also UI-thread-only, never touched from tracker continuations).
-        private readonly Dictionary<string, long> _previewTelemetryLastTicks = new();
-        private readonly ConcurrentDictionary<string, byte> _previewTelemetryInFlight = new();
-        private long _previewMountLastTicks;
-        // 0 = idle, 1 = poll in flight. Uses Interlocked because the UI thread checks
-        // and sets it before kicking off the tracker task, and the tracker continuation
-        // clears it on completion: same UI/background split as the telemetry sets.
-        private int _previewMountInFlight;
-        private bool _loggedFirstPreviewMountSample;
-
-        // Mount-reticle poll cadence ramps down instead of snapping straight to the slow
-        // steady rate the instant tracking is detected. Fast while slewing, fast for a
-        // settle window after the mount lands and starts tracking, then relaxing to the
-        // slow steady cadence only once it has tracked undisturbed for that window.
-        // Sidereal tracking is sub-pixel on any sky-map FOV, so the slow cadence is purely
-        // a serial-load saver - the ramp means the reticle never lags a deliberate move by
-        // up to the steady interval. _steadyTrackingSinceTicks holds the timestamp steady
-        // tracking began (0 = not steady); _wasSteadyTracking is last frame's flag for the
-        // transition edge. Both are UI-thread-only - read + written only in the
-        // PollPreviewTelemetry gate, never from tracker continuations.
-        private long _steadyTrackingSinceTicks;
-        private bool _wasSteadyTracking;
-        // Set by RequestPreviewMountRefresh (called from the goto / solve-and-sync tracker
-        // continuations) to force the next poll tick to sample immediately, bypassing the
-        // interval so a deliberate move lands on the reticle within a frame. Volatile
-        // because the setter runs on a background thread while the gate reads it on the UI
-        // thread; consumed (cleared) only once a poll actually starts.
-        private int _forcePreviewMountPoll;
-
-        // Mount-reticle poll intervals (see _steadyTrackingSinceTicks). Slewing keeps up
-        // with visible motion; Settling is the fast post-landing rate held for the settle
-        // window; Steady is the relaxed sidereal rate; Idle covers parked / not-tracking.
-        private static readonly TimeSpan MountPollSlewing = TimeSpan.FromMilliseconds(500);
-        private static readonly TimeSpan MountPollSettling = TimeSpan.FromSeconds(1);
-        private static readonly TimeSpan MountPollSteady = TimeSpan.FromSeconds(10);
-        private static readonly TimeSpan MountPollIdle = TimeSpan.FromSeconds(2);
-        private static readonly TimeSpan MountTrackingSettleWindow = TimeSpan.FromSeconds(10);
-
-
         /// <summary>
         /// Samples connected cameras' cooler and temperature telemetry into <see cref="EquipmentTabState.CameraTelemetry"/>,
         /// from what this computer's node last read of each (P6: its device model, kept by its reads and pushes), never from
@@ -471,10 +431,10 @@ namespace TianWen.UI.Abstractions
                 });
 
         /// <summary>
-        /// Polls connected devices for preview telemetry when the Live Session tab is visible
-        /// and no session is running. Reads camera, focuser, filter wheel, and mount state
-        /// from hub-connected drivers via the active profile's OTA configuration.
-        /// Call once per frame from the host's main loop. Internally rate-limited.
+        /// The per-frame state mirroring of every view: the rig list and the Home board, each node's profile and devices (the
+        /// idle panels, the mount's reticle and its limit verdict are laid out from the devices by the node's connection,
+        /// <see cref="RigDevices"/>, P6 of docs/plans/hardware-in-the-server.md). Reads no device: the node does, at the GUI's
+        /// cadences, and a read of it is of its last readings. Call once per frame from the host's main loop.
         /// </summary>
         public void PollPreviewTelemetry()
         {
@@ -496,225 +456,8 @@ namespace TianWen.UI.Abstractions
             _appState.HomeCards = HomeBoard.BuildCards(_contexts, _rigs, _appState, _timeProvider.GetUtcNow());
             RefreshNodeProfiles();
             PollNodeDevices();
-
-            if (LocalLiveSession.IsRunning) return;
-
-            // Preview polling drives the Live Session tab, the Sky Map tab (for the
-            // mount-position reticle overlay), and the Equipment tab (for the mount
-            // status expander). Any tab that displays live mount / focuser state should
-            // be added here rather than spinning up a parallel poll path; two concurrent
-            // polls on the same serial mount would race the port.
-            if (_appState.ActiveTab is not (GuiTab.LiveSession or GuiTab.SkyMap or GuiTab.Equipment)) return;
-            if (_appState.ActiveProfile?.Data is not { OTAs: { Length: > 0 } otas } profileData) return;
-            if (_appState.DeviceHub is not { } hub) return;
-
-            var nowTicks = _timeProvider.GetTimestamp();
-
-            LocalLiveSession.ResizePreviewArrays(otas.Length);
-
-            // Per-OTA camera + focuser + filter polling: rate-adaptive on focuser state.
-            // When the focuser is actively moving the user wants sub-second feedback on
-            // the position readout; in steady state a 2s cadence is plenty (temperature
-            // and filter changes are slow or user-triggered). The last-known moving flag
-            // is up to one poll interval stale; the first tick after a move starts is
-            // therefore up to 2s slow, which matches perceived click-to-refresh latency.
-            for (var i = 0; i < otas.Length; i++)
-            {
-                var ota = otas[i];
-                var key = ota.Camera.GetLeftPart(UriPartial.Path);
-
-                if (_previewTelemetryInFlight.ContainsKey(key)) continue;
-
-                var prevTelemetry = i < LocalLiveSession.PreviewOTATelemetry.Length
-                    ? LocalLiveSession.PreviewOTATelemetry[i]
-                    : default;
-                var focuserMoving = prevTelemetry.FocuserIsMoving;
-                var sampleInterval = focuserMoving ? TimeSpan.FromSeconds(1) : TimeSpan.FromSeconds(2);
-
-                if (_previewTelemetryLastTicks.TryGetValue(key, out var last)
-                    && _timeProvider.GetElapsedTime(last, nowTicks) < sampleInterval)
-                {
-                    continue;
-                }
-
-                _previewTelemetryLastTicks[key] = nowTicks;
-                _previewTelemetryInFlight.TryAdd(key, 0);
-
-                var capturedOta = ota;
-                var capturedIndex = i;
-
-                _tracker.Run(async () =>
-                {
-                    try
-                    {
-                        var telemetry = await LiveSessionActions.SampleOTATelemetryAsync(hub, capturedOta, _logger, _cts.Token);
-                        var arr = LocalLiveSession.PreviewOTATelemetry;
-                        if (capturedIndex < arr.Length)
-                        {
-                            var builder = arr.ToBuilder();
-                            builder[capturedIndex] = telemetry;
-                            LocalLiveSession.PreviewOTATelemetry = builder.ToImmutable();
-                            _appState.NeedsRedraw = true;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogDebug(ex, "Preview telemetry poll failed for OTA {Index}", capturedIndex);
-                    }
-                    finally
-                    {
-                        _previewTelemetryInFlight.TryRemove(key, out _);
-                    }
-                }, $"PreviewTelemetry OTA{capturedIndex}");
-            }
-
-            // Mount polling - rate-adaptive on last-known slew/tracking state, with a
-            // ramp-down so the reticle stays responsive right after a move. Steady sidereal
-            // tracking is ~15 arcsec/s, which is sub-pixel on any sky-map FOV we support, so
-            // the slow steady cadence is purely a serial-load saver (6 reads per tick). But
-            // snapping straight to it the instant tracking is detected made a freshly-landed
-            // goto / sync lag by up to the steady interval. Instead: fast while slewing, fast
-            // for MountTrackingSettleWindow after the mount lands and starts tracking, then
-            // relaxing to the steady rate only once it has tracked undisturbed that long.
-            var prevMount = LocalLiveSession.MountState;
-            var steadyNow = prevMount.IsTracking && !prevMount.IsSlewing;
-            if (steadyNow && !_wasSteadyTracking)
-            {
-                _steadyTrackingSinceTicks = nowTicks;   // just entered steady tracking - start the settle clock
-            }
-            else if (!steadyNow)
-            {
-                _steadyTrackingSinceTicks = 0;           // moving or parked - cancel the settle clock
-            }
-            _wasSteadyTracking = steadyNow;
-
-            TimeSpan mountInterval;
-            if (prevMount.IsSlewing)
-            {
-                mountInterval = MountPollSlewing;
-            }
-            else if (steadyNow)
-            {
-                var settledFor = _steadyTrackingSinceTicks != 0
-                    ? _timeProvider.GetElapsedTime(_steadyTrackingSinceTicks, nowTicks)
-                    : TimeSpan.Zero;
-                mountInterval = settledFor >= MountTrackingSettleWindow ? MountPollSteady : MountPollSettling;
-            }
-            else
-            {
-                mountInterval = MountPollIdle;
-            }
-
-            // A forced refresh (deliberate move just issued) bypasses the interval entirely.
-            var forceNow = Volatile.Read(ref _forcePreviewMountPoll) == 1;
-            if ((forceNow || _timeProvider.GetElapsedTime(_previewMountLastTicks, nowTicks) >= mountInterval)
-                && profileData.Mount is { Scheme: not "none" } mountUri
-                && Interlocked.CompareExchange(ref _previewMountInFlight, 1, 0) == 0)
-            {
-                // Consume the force flag only once a poll actually starts; if the in-flight
-                // guard above lost (a poll is already running) the flag persists for next frame.
-                Volatile.Write(ref _forcePreviewMountPoll, 0);
-                _previewMountLastTicks = nowTicks;
-
-                _tracker.Run(async () =>
-                {
-                    try
-                    {
-                        var (ms, displayName) = await SamplePreviewMountAsync(hub, mountUri, _cts.Token);
-                        // One-shot diagnostic log the first time a preview mount sample comes
-                        // back. Confirms RA/Dec reads work end-to-end against the driver
-                        // without spamming the log every 2-10 seconds during steady tracking.
-                        if (!_loggedFirstPreviewMountSample)
-                        {
-                            _loggedFirstPreviewMountSample = true;
-                            _logger.LogInformation("Preview mount first sample: RA={RA:F4}h Dec={Dec:F4}° HA={HA:F4}h slewing={Slewing} tracking={Tracking}",
-                                ms.RightAscension, ms.Declination, ms.HourAngle, ms.IsSlewing, ms.IsTracking);
-                        }
-                        LocalLiveSession.MountState = ms;
-                        if (displayName is not null)
-                        {
-                            LocalLiveSession.MountDisplayName = displayName;
-                        }
-                        _appState.NeedsRedraw = true;
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogDebug(ex, "Preview mount poll failed");
-                    }
-                    finally
-                    {
-                        Interlocked.Exchange(ref _previewMountInFlight, 0);
-                    }
-                }, "PreviewMount");
-            }
         }
 
-        /// <summary>
-        /// Forces the next <see cref="PollPreviewTelemetry"/> tick to sample the mount
-        /// immediately, bypassing the cadence interval. Call after a deliberate move (a
-        /// goto kicking off, a solve &amp; sync landing) so the reticle reflects the new
-        /// pointing within a frame instead of waiting out the steady poll interval. The
-        /// in-flight guard still serialises against any poll already running; if one is,
-        /// the request persists until the next free tick. Safe to call from a background
-        /// tracker continuation.
-        /// </summary>
-        private void RequestPreviewMountRefresh() => Volatile.Write(ref _forcePreviewMountPoll, 1);
-
-        // De-duplicate the mount-transform-unavailable warning so a misconfigured
-        // profile doesn't log once per poll. Reset to null to re-arm when the error
-        // message changes or after a successful conversion (a future refinement).
-        private string? _lastMountTransformError;
-
-        private void LogMountTransformUnavailable(string? reason)
-        {
-            if (reason is null || reason == _lastMountTransformError)
-            {
-                return;
-            }
-            _lastMountTransformError = reason;
-            _logger.LogWarning(
-                "Mount J2000 conversion unavailable; reticle will fall back to native coords (silent {Offset:F2} deg shift). {Reason}",
-                0.35, // approx topocentric<->J2000 shift for an epoch-2025 observer
-                reason);
-        }
-
-        private async Task<(MountState State, string? DisplayName)> SamplePreviewMountAsync(
-            IDeviceHub hub, Uri mountUri, CancellationToken ct)
-        {
-            // J2000 for the sky-map overlay: a topocentric mount's coordinates go through a Transform at the
-            // profile's site (TransformFactory.FromProfile, zero hardware I/O, unlike mount.TryGetTransformAsync
-            // which round-trips for lat/lon/elev). Rebuilt on every poll because it is cheap; the SOFA kernel in
-            // Refresh is the only real cost. The reader asks for it only for a topocentric mount, so a J2000 mount on
-            // a profile with no site warns about nothing.
-            Transform? ToJ2000()
-            {
-                if (_appState.ActiveProfile is not { } profile)
-                {
-                    return null;
-                }
-                var transform = TransformFactory.FromProfile(profile, _timeProvider, out var transformError);
-                if (transform is null)
-                {
-                    LogMountTransformUnavailable(transformError);
-                }
-                return transform;
-            }
-
-            // The one mount sampler (DeviceHubReadingExtensions), which a node's device plane reads through too.
-            // A mount that is not connected points nowhere known (MountState.Unknown), never at RA 0, Dec 0.
-            if (await hub.ReadMountAsync(mountUri, ToJ2000, _logger, ct) is not { } state)
-            {
-                return (MountState.Unknown, null);
-            }
-
-            string? displayName = null;
-            if (hub.TryGetDeviceFromUri(mountUri, out var dev) && dev is not null)
-            {
-                displayName = dev.DisplayName;
-            }
-
-            return (state, displayName);
-        }
 
         /// <summary>
         /// Checks <see cref="PlannerState.NeedsRecompute"/> and triggers a background recompute
@@ -920,42 +663,13 @@ namespace TianWen.UI.Abstractions
         // node's own feed carries its limit (EventBroadcaster does the same there) and rides in on its card.
         private (MountLimitKind Kind, bool WarningOnly) _lastLimitClass;
 
-        // With no session at all, the LOCAL rig's verdict comes from the MountLimitWatcher (P3): a manual slew
-        // that a limit stopped used to reach only the log -- the Home card read "Idle" and the feed carried the
-        // slew's own notification and nothing else. A session (running, or a flats run holding the lease) owns
-        // its rig's verdict through LiveSessionState.PollSession, and the watcher steps back from a leased mount
-        // anyway, so the two sources never overlap. Resolved lazily: a host that never registered the watcher
-        // (tests, a bare service collection) simply keeps Clear.
-        private MountLimitWatcher? _limitWatcher;
-        private bool _limitWatcherResolved;
-
-        private void RefreshWatcherVerdict()
-        {
-            if (LocalLiveSession.ActiveSession is not null)
-            {
-                return;
-            }
-            if (!_limitWatcherResolved)
-            {
-                _limitWatcher = _sp.GetService<MountLimitWatcher>();
-                _limitWatcherResolved = true;
-            }
-            if (_limitWatcher is null)
-            {
-                return;
-            }
-            LocalLiveSession.MountLimitVerdict = _appState.ActiveProfile?.Data?.Mount is { } mountUri
-                ? _limitWatcher.VerdictFor(mountUri)
-                : MountLimitVerdict.Clear;
-        }
-
         /// <summary>
-        /// Once per frame, by the host: the GUI from <see cref="PollPreviewTelemetry"/>, the TUI from its loop. Refreshes
-        /// the local verdict from the watcher when no session exists, then a no-op between class changes.
+        /// Once per frame, by the host: the GUI from <see cref="PollPreviewTelemetry"/>, the TUI from its loop. The local
+        /// verdict is the node's (a session's own, else its device plane's, laid out with the devices); a no-op between class
+        /// changes.
         /// </summary>
         public void NotifyLimitTransitions()
         {
-            RefreshWatcherVerdict();
             var verdict = LocalLiveSession.MountLimitVerdict;
             var cls = (verdict.Kind, verdict.IsWarningOnly);
             if (cls == _lastLimitClass)
@@ -1015,31 +729,6 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// Guards a manual command against a device some run currently owns, notifying the shared
-        /// <see cref="DeviceOwnershipVerdict.Describe"/> explanation when it refuses. Call as
-        /// <c>if (!EnsureDeviceControllable(uri)) return;</c>.
-        /// <para>
-        /// <b>Use this, not <see cref="EnsureSessionIdle"/>, for anything that commands hardware.</b>
-        /// <c>EnsureSessionIdle</c> asks the UI whether a <i>full session</i> is running, which is false
-        /// during a flat run and unset entirely by polar-align and planetary capture -- all of which own
-        /// the hardware just as completely. This asks the hub who actually holds the device, so it is
-        /// right for every kind of run and stays right for the hosted API and the Alpaca plane, which
-        /// never see a UI flag at all.
-        /// </para>
-        /// </summary>
-        private bool EnsureDeviceControllable(Uri deviceUri)
-        {
-            var verdict = DeviceOwnershipGate.Evaluate(_appState.DeviceHub, deviceUri, DeviceAction.Actuate);
-            if (verdict.Allowed)
-            {
-                return true;
-            }
-
-            Notify(NotificationSeverity.Warning, verdict.Describe());
-            return false;
-        }
-
-        /// <summary>
         /// Guards a run that would drive THIS node's hardware while a remote rig is on screen. Every
         /// handler here acts locally, so starting one from a remote view would silently run a local
         /// session behind a remote overlay -- the failure the local/active split exists to prevent.
@@ -1085,46 +774,6 @@ namespace TianWen.UI.Abstractions
             Notify(NotificationSeverity.Warning,
                 $"{what} runs on this computer; switch back from '{_contexts.Active.DisplayName}' first");
             return false;
-        }
-
-        /// <summary>
-        /// Resolves a connected driver of type <typeparamref name="T"/> for <paramref name="uri"/>.
-        /// Returns true with a non-null <paramref name="driver"/> when connected; otherwise notifies
-        /// (Warning) "<paramref name="label"/> not connected" (or <paramref name="message"/> when the
-        /// wording is bespoke) and returns false. Collapses the
-        /// <c>TryGetConnectedDriver + "|| x is null" + Notify + return</c> guard to one line; the
-        /// <c>|| x is null</c> was dead code (<see cref="IDeviceHub.TryGetConnectedDriver"/> is
-        /// <c>[NotNullWhen(true)]</c>).
-        /// </summary>
-        private bool TryGetConnected<T>(IDeviceHub hub, Uri uri, string label,
-            [NotNullWhen(true)] out T? driver, string? message = null)
-            where T : class, IDeviceDriver
-        {
-            if (hub.TryGetConnectedDriver(uri, out driver))
-            {
-                return true;
-            }
-            Notify(NotificationSeverity.Warning, message ?? $"{label} not connected");
-            return false;
-        }
-
-        /// <summary>
-        /// Silent Live-Session prologue shared by the focuser jog/goto handlers: requires no running
-        /// session, a valid OTA index in the active profile, a device hub, and a connected focuser
-        /// assigned to that OTA. Returns false (deliberately without a notification: these are
-        /// click-driven and self-explanatory) if any link is missing.
-        /// </summary>
-        private bool TryResolveIdleOtaFocuser(int otaIndex, [NotNullWhen(true)] out IFocuserDriver? focuser)
-        {
-            focuser = null;
-            // The planetary panel's jog, beside its mount nudges, reaches here from a remote view too.
-            if (!EnsureLocalContext("A focuser move")) return false;
-            if (_appState.ActiveProfile?.Data is not { OTAs: var otas } || otaIndex >= otas.Length) return false;
-            if (_appState.DeviceHub is not { } hub) return false;
-            if (otas[otaIndex].Focuser is not { } focUri) return false;
-            // Ownership, not LiveSessionState.IsRunning: a flat run holds the focuser with IsRunning false.
-            if (!EnsureDeviceControllable(focUri)) return false;
-            return hub.TryGetConnectedDriver(focUri, out focuser);
         }
 
         /// <summary>

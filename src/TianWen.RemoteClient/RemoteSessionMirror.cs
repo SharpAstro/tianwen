@@ -281,7 +281,7 @@ namespace TianWen.RemoteClient
 
         // Whether the node sends those tokens at all: false for a node older than part 6, whose frames are asked for on
         // every poll, as they were. Only touched by the poll loop.
-        private bool _nodeSendsFrameTokens;
+        private volatile bool _nodeSendsFrameTokens;
 
         // What the events since the last pass ask of the next one: a state poll, or only a frame (P5b part 6). Raised on the
         // socket's thread, taken by the poll loop; the wake is completed and replaced on every raise, so a raise after the
@@ -605,15 +605,31 @@ namespace TianWen.RemoteClient
 
         /// <summary>
         /// A frames-only pass, for a <c>FRAME-AVAILABLE</c> that came between two polls: the frames the node now shows, read
-        /// against the state last polled. Nothing while the node is not answering or shows no session.
+        /// against the state last polled, or for a node running no session, against its view's telescopes
+        /// (<see cref="IdleOtaCount"/>). Nothing while the node is not answering.
         /// </summary>
         internal async Task RefreshFramesAsync(CancellationToken cancellationToken)
         {
-            if (IsNodeReachable && Snapshot is { } state)
+            if (!IsNodeReachable)
             {
-                await RefreshPreviewsAsync(state, cancellationToken).ConfigureAwait(false);
+                return;
             }
+            await RefreshPreviewsAsync(Snapshot, cancellationToken).ConfigureAwait(false);
         }
+
+        /// <summary>
+        /// How many telescopes the node's view shows while the node runs no session, whose frames it then fetches: a preview
+        /// exposure, a solve's frame, the last frames of a session that ended (P6 of docs/plans/hardware-in-the-server.md,
+        /// #936; the node shows each OTA's latest, <c>NodeFrames</c>). A node with no session reports no cameras, so the count
+        /// is the view's, from its profile; zero fetches none, which is also what a view that never sets it gets.
+        /// </summary>
+        public int IdleOtaCount
+        {
+            get => Volatile.Read(ref _idleOtaCount);
+            set => Volatile.Write(ref _idleOtaCount, Math.Max(0, value));
+        }
+
+        private int _idleOtaCount;
 
         /// <summary>
         /// How long to wait before the next poll: the live cadence while the rig is answering, doubling up
@@ -684,7 +700,8 @@ namespace TianWen.RemoteClient
                 _lastGuiderState = null;
                 _lastPhase = SessionPhase.NotStarted;
                 WithdrawRaisedPrompt();
-                ClearPreviews();
+                // The frames the node still shows (its previews, an ended session's last), never blanked for the session's end.
+                await RefreshPreviewsAsync(null, cancellationToken).ConfigureAwait(false);
                 await RefreshNotesIfDueAsync(cancellationToken).ConfigureAwait(false);
                 if (ended || contactBefore is not NodeContactState.Answering)
                 {
@@ -791,7 +808,9 @@ namespace TianWen.RemoteClient
         /// everything else depends on.
         /// </para>
         /// </summary>
-        private async Task RefreshPreviewsAsync(SessionStateDto state, CancellationToken cancellationToken)
+        /// <param name="state">The state last polled; null for a node running no session, whose view's telescopes
+        /// (<see cref="IdleOtaCount"/>) are fetched instead, and which shows no guide frame.</param>
+        private async Task RefreshPreviewsAsync(SessionStateDto? state, CancellationToken cancellationToken)
         {
             if (Previews is not { } options)
             {
@@ -800,7 +819,8 @@ namespace TianWen.RemoteClient
                 return;
             }
 
-            var otaCount = !options.IncludeOtas || state.Cameras.IsDefaultOrEmpty ? 0 : state.Cameras.Length;
+            var cameras = state is null ? IdleOtaCount : state.Cameras.IsDefaultOrEmpty ? 0 : state.Cameras.Length;
+            var otaCount = options.IncludeOtas ? cameras : 0;
             if (otaCount == 0)
             {
                 ClearPreviews();
@@ -931,10 +951,11 @@ namespace TianWen.RemoteClient
         /// </para>
         /// </summary>
         private async Task RefreshGuidePreviewAsync(
-            SessionStateDto state, PreviewOptions options, CancellationToken cancellationToken)
+            SessionStateDto? state, PreviewOptions options, CancellationToken cancellationToken)
         {
-            if (!options.IncludeGuider)
+            if (!options.IncludeGuider || state is null)
             {
+                // Not asked for, or no session: the guide camera shows frames only in a session's guide loop.
                 DropGuideFrame();
                 return;
             }
@@ -1176,6 +1197,8 @@ namespace TianWen.RemoteClient
                     if (FrameAvailableDto.TryFromEvent(dto, out var frame))
                     {
                         _frameTokens[frame.Source] = frame.Number;
+                        // Only a node that keeps tokens pushes them, and an idle one never answers a state to say so.
+                        _nodeSendsFrameTokens = true;
                         Wake(state: false);
                     }
                     return NodeEventKind.FrameAvailable;

@@ -175,14 +175,19 @@ public abstract class NodeConnection : IAsyncDisposable
 
     /// <summary>
     /// The view's OTA panels and mount from the devices held, while the node runs no session (a run's state carries its own
-    /// devices), and once the view's profile is known, since its OTAs are what the devices are laid out by.
+    /// devices), and once the view's profile is known, since its OTAs are what the devices are laid out by. The profile's
+    /// telescopes are also the frames the mirror fetches from a node with no session (a preview, a solve's frame).
     /// </summary>
     private void LayOutIdleDevices()
     {
         var view = Context.LiveSession;
-        if (!view.IsRunning && ProfileOnView?.Data is { } profile)
+        if (ProfileOnView?.Data is { } profile)
         {
-            RigDevices.Apply(view, profile, [.. Devices.Values]);
+            Mirror.IdleOtaCount = profile.OTAs.Length;
+            if (!view.IsRunning)
+            {
+                RigDevices.Apply(view, profile, [.. Devices.Values]);
+            }
         }
         view.NeedsRedraw = true;
     }

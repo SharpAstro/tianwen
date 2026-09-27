@@ -16,8 +16,6 @@ namespace TianWen.Lib.Tests;
 /// </summary>
 public class RunClaimTests(ITestOutputHelper output)
 {
-    private const string PolarOwner = "polar alignment";
-    private const string PlanetaryOwner = "planetary capture";
 
     [Fact(Timeout = 60_000)]
     public async Task WhilePolarAlignmentRunsItsMountAndCameraAreClaimed()
@@ -30,11 +28,6 @@ public class RunClaimTests(ITestOutputHelper output)
         h.Claimed(h.MountUri).ShouldBeTrue("polar rotates the mount");
         h.Claimed(h.CameraUri).ShouldBeTrue("polar exposes on the camera");
         h.Claimed(h.FocuserUri).ShouldBeFalse("it only reads the focuser, for the frames' cards");
-
-        h.MarkPending();
-        h.Post(new JogMountSignal(GuideDirection.North, Arcsec: 10));
-        h.ShouldHaveStartedNothing("a jog of the mount polar is rotating");
-        h.ShouldHaveRefused(PolarOwner);
     }
 
     [Fact(Timeout = 60_000)]
@@ -78,31 +71,8 @@ public class RunClaimTests(ITestOutputHelper output)
         h.Claimed(h.CameraUri).ShouldBeTrue("planetary streams off the camera");
         h.Claimed(h.MountUri).ShouldBeFalse("its own nudges drive the mount, and would refuse themselves");
 
-        h.MarkPending();
-        h.Post(new TakePreviewSignal(OtaIndex: 0, ExposureSeconds: 1));
-        h.ShouldHaveStartedNothing("an exposure on the camera planetary is streaming");
-        h.ShouldHaveRefused(PlanetaryOwner);
-
         h.Post(new StopVideoCaptureSignal());
         await h.UntilAsync(() => !h.Claimed(h.CameraUri), ct);
-    }
-
-    /// <summary>
-    /// The preview Capture asked whether a SESSION ran, and <c>IsRunning</c> is false during a flat run, so it
-    /// exposed on the camera a flat run was metering.
-    /// </summary>
-    [Fact(Timeout = 60_000)]
-    public async Task APreviewCaptureOnACameraARunHoldsIsRefused()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        await using var h = await GuiSignalHarness.StartAsync(output, ct);
-        h.Hub.TryAcquireLease(h.CameraUri, "the flat run", out var flatClaim).ShouldBeTrue();
-
-        h.Post(new TakePreviewSignal(OtaIndex: 0, ExposureSeconds: 1));
-
-        h.ShouldHaveStartedNothing("an exposure on the camera the flat run is metering");
-        h.ShouldHaveRefused("the flat run");
-        flatClaim.Dispose();
     }
 
     /// <summary>

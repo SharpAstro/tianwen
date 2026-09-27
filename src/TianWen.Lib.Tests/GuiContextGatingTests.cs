@@ -167,19 +167,4 @@ public class GuiContextGatingTests(ITestOutputHelper output)
         h.ShouldHaveStartedNothing("a move of the local focuser");
         h.ShouldHaveRefused(Refusal);
     }
-
-    /// <summary>
-    /// The control: the same Goto with this computer's rig on screen does drive it, so a refusal above is the
-    /// context's doing and not a rig the harness failed to wire.
-    /// </summary>
-    [Fact(Timeout = 30_000)]
-    public async Task AGotoWithTheLocalRigOnScreenSlewsIt()
-    {
-        await using var h = await GuiSignalHarness.StartAsync(output, TestContext.Current.CancellationToken);
-
-        h.Post(new SkyMapSlewToObjectSignal("M 42", 5.588, -5.39, Index: null, ObjectType.Unknown));
-
-        h.Tracker.PendingCount.ShouldBeGreaterThan(h.PendingBefore, "the local mount's slew was handed to the tracker");
-        h.AppState.Notifications.ShouldNotContain(n => n.Message.Contains(Refusal));
-    }
 }
