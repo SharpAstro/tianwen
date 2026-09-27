@@ -162,7 +162,8 @@ public static class HostedSessionServiceCollectionExtensions
 
     private static void MapWebSocketEndpoint(this IEndpointRouteBuilder routes)
     {
-        routes.Map("/api/v1/events", (HttpContext context, EventHub hub) => ServeEventSocketAsync(context, hub, ninaV2: false));
+        routes.Map("/api/v1/events", (HttpContext context, EventHub hub, IHostApplicationLifetime lifetime) =>
+            ServeEventSocketAsync(context, hub, lifetime, ninaV2: false));
     }
 
     /// <summary>
@@ -173,15 +174,22 @@ public static class HostedSessionServiceCollectionExtensions
     private static void MapNinaWebSocketEndpoint(this IEndpointRouteBuilder routes)
     {
         // TNS may send { action: "subscribe", eventType: "..." }; every event is broadcast regardless.
-        routes.Map("/v2/socket", (HttpContext context, EventHub hub) => ServeEventSocketAsync(context, hub, ninaV2: true));
+        routes.Map("/v2/socket", (HttpContext context, EventHub hub, IHostApplicationLifetime lifetime) =>
+            ServeEventSocketAsync(context, hub, lifetime, ninaV2: true));
     }
 
     /// <summary>
     /// One client's connection, for both sockets: registered with the hub, whose sender for it does all the
     /// writing, while this reads until the client closes or its socket is aborted (a client the hub dropped
-    /// for falling behind, or for a send that timed out).
+    /// for falling behind, or for a send that timed out), or the host starts stopping.
     /// </summary>
-    private static async Task ServeEventSocketAsync(HttpContext context, EventHub hub, bool ninaV2)
+    /// <remarks>
+    /// The host waits for its open requests before it stops, for up to its whole shutdown budget (30 minutes on a node),
+    /// and the run's <c>Finalise</c> and the cameras' warm-up share that budget. So a socket that ended only with its client
+    /// held every stop with a client attached for all of it (#985). Stopping aborts the socket instead, as the node dying
+    /// would: the client reconnects with its usual backoff, and finds the node gone or back.
+    /// </remarks>
+    private static async Task ServeEventSocketAsync(HttpContext context, EventHub hub, IHostApplicationLifetime lifetime, bool ninaV2)
     {
         if (!context.WebSockets.IsWebSocketRequest)
         {
@@ -192,6 +200,7 @@ public static class HostedSessionServiceCollectionExtensions
 
         var ws = await context.WebSockets.AcceptWebSocketAsync();
         var clientId = hub.AddClient(ws, ninaV2);
+        using var ending = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, lifetime.ApplicationStopping);
 
         try
         {
@@ -200,7 +209,7 @@ public static class HostedSessionServiceCollectionExtensions
             var buffer = new byte[256];
             while (ws.State is WebSocketState.Open)
             {
-                var result = await ws.ReceiveAsync(buffer, context.RequestAborted);
+                var result = await ws.ReceiveAsync(buffer, ending.Token);
                 if (result.MessageType is WebSocketMessageType.Close)
                 {
                     break;
@@ -218,7 +227,7 @@ public static class HostedSessionServiceCollectionExtensions
         }
         catch (OperationCanceledException)
         {
-            // Server shutting down
+            // The host is stopping, or the request was aborted: the cancelled read has aborted the socket.
         }
         finally
         {
