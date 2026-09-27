@@ -1347,7 +1347,8 @@ One PR, reviewable commit by commit, which switches the GUI, the TUI and the CLI
   answers from it, never an HTTP call per frame.
 - **Each action goes to the view's node** through `TianWenNodeClient`. Run controls do already (P5b part 5); device
   actions go to the local node, and a remote rig's panel still refuses them (the overlay model), since the node's
-  actuation routes accept a LAN caller and whether a rig's panel may command its devices is the user's call.
+  actuation routes accept a LAN caller and whether a rig's panel may command its devices is the user's call. Decided
+  (decision 13): it may once it has been granted control, and until then it sees and does not command (P6b).
 - **Profile edits carry the revision they were read at**, and a 412 re-reads the profile and applies the edit again.
 - **A run starts on the node**: `SessionBootstrapper` and `FlatsBootstrapper` go, and polar, planetary and the CLI's
   `darks` and `flats` start their node runs.
@@ -1403,6 +1404,77 @@ polar and solve slots show the node's frames; `flats` counts by the output folde
 machine, with the run followed by the node's run record; and the Equipment tab's setpoint is the node's ramp job,
 whose intent the node keeps.
 
+### P6b: control over the LAN by grant
+
+Issue #1021, decision 13, which answers the question P6 part 2 left open. Until it, a node's commands were open to
+anyone who could reach TCP 1888 (plain HTTP, no authentication), while a TianWen window viewing a rig refused to
+command it: the app was the stricter of the two, and a rig was only as safe as the LAN it sat on. Decision 13 (the
+user, 2026-09-28): **a remote client can see, but not manipulate, by default.** It asks, a client on the rig's own
+machine accepts or declines, and on acceptance it gains the capability.
+
+**Seeing is free; everything else needs control.** Over TCP every read stays open. Every command needs control: a
+run's start and its abort, a prompt's answer, a device action, a job, a profile's read-write routes aside (those stay
+socket-only, decision 4). Over the node socket nothing changes: a client of this machine never needs a grant.
+
+**A TianWen client asks, and the rig's machine answers.** The rules are chess's LAN invite, lifted into LAN.Lib 2.1
+as `LanInvites<T>` rather than copied: one request waits at a time, it lives only while its asker keeps polling (a
+presence lapse, so nothing is granted to a window that has gone), and an answer names the request it answers. A client
+without control shows "Ask to control" where a command would be, and a refusal offers it. The request is pushed to
+the clients that may answer it, and the rig's GUI and TUI draw it over everything, like the quit question: "'Laptop'
+asks to control this rig: Allow / Decline". Allowed, the node mints a grant (`LanGrants`: a 256-bit token handed to the
+asker once, kept only as its hash in `node-grants.json`), and the asker keeps the token in its credential store, keyed
+by the rig's `NodeId`, and sends it as `Authorization: Bearer` on every request and on its event socket's upgrade. **A
+grant is remembered until revoked**, so a headless rig needs one acceptance per laptop, from the TUI or `tianwen node`
+over SSH. With it, the rig's view sends its device actions, run starts, aborts and prompt answers to the rig's node,
+which is where `EnsureLocalContext` stops refusing.
+
+**Other apps are refused, and the refusal is their request.** The Alpaca device plane and the ninaAPI routes serve
+applications that cannot ask (N.I.N.A. over Alpaca, a ninaAPI client). A command from one of them over TCP, from an
+address not allowed, is refused and recorded, **and on the Alpaca plane `Connected = true` is a command**: it connects
+the hardware through the hub, so an app not allowed is refused at its connect, with a message saying where the rig's
+owner allows it. Reads stay open (the management API and each device's properties), which is what lets an app find the
+rig's devices at all; most of a device's properties answer NotConnected until it connects anyway. The node serves the
+management API on its TCP port but does not answer Alpaca's UDP discovery (port 32227), so an app finds a rig by its
+address. The record is one per address, a retry updating it rather than adding another (an app retries on its own),
+holding its host name, what it is (its `User-Agent`, an Alpaca `ClientID`), what it tried and when, and it is put to the
+rig's machine and its granted clients as a question, as a TianWen client's request is: Allow, Always allow `<host>`, or
+Ignore. Nothing waits on the node's side, since the app does not know to: its next attempt (the user pressing Connect
+again) is let in. From that record:
+- **Allow** lets that address command until the node restarts (the user: per session, which is fine).
+- **Always allow `<host>`** persists. The host name comes from a reverse lookup of the address, counted only when the
+  name resolves back to the same address (forward-confirmed, `LanHostNames` in LAN.Lib 2.1), so a DHCP renewal does not
+  break it and a stray PTR record cannot claim it. An address with no confirmed name can only be allowed until restart.
+
+**Who manages access: this machine's clients, or a client granted control.** Answering a request, revoking a grant,
+allowing or revoking an app, and switching "Share this rig on the LAN". A granted client can already drive the whole
+rig, so letting it manage who else may is no escalation, and it is what lets a laptop manage a headless rig from its
+own dashboard once it has been granted.
+
+**Where: a Sharing panel on the rig's Home card.** The LAN share switch (decision 3's, which no client could set until
+now: only the socket route existed), the requests waiting, the granted clients with revoke, the apps allowed with
+revoke, and the recent refusals with Allow and Always allow.
+
+**Presence and "the last client" count only clients that can command.** A see-only watcher is present in the sense
+that it draws, but it can answer nothing: counted for a prompt, it would hold one nobody can answer, and counted for
+the quit question (decision 1), it would stop this window asking. Both counts are the event socket's clients that came
+over the socket or carry a live grant, re-evaluated as they are read, so a revoke takes effect at once. The
+interactive-run grace (`NodeRunWatch`) keeps counting every watcher: a polar alignment someone is watching is not
+unwatched.
+
+**What it does not stop.** Plain HTTP: a token can be read off the wire, and a host name or an address can be spoofed.
+It closes "anyone who can reach the port", not a hostile LAN, which is TLS's job and a plan of its own.
+
+#### P6b parts
+
+1. **LAN.Lib 2.1**: `LanInvites<T>`, `LanGrants` and `LanHostNames`, each with no transport, and chess's lobby moved
+   onto `LanInvites` in chess's own change.
+2. **The node**: the gate over TCP (the refusal a client can tell from a socket-only one), the request, answer, grant
+   and revoke routes, the refused-app record with Allow and Always allow, management over the socket or a grant, both
+   presence counts, and one read of all of it for the Sharing panel. The wire version moves.
+3. **The clients**: the Sharing panel on the Home card, "Ask to control" and the request drawn on the rig's machine,
+   a granted view's commands sent to its rig's node, the token in the credential store, and `tianwen node requests`,
+   `allow`, `decline`, `grants`, `revoke` and `share` for a headless rig.
+
 ## Phasing
 
 The cut is **one wave** ("cut an API in ONE wave"; "one path, designed first"). Two processes cannot
@@ -1425,11 +1497,12 @@ and 10.0 ships it (P9).
 | **P5** (#934), DONE (2026-09-27) | **Shipped:** the node's run is any kind (part 1, #973: `INodeRun`, started, journaled and refused like a session; a refusal names the run going on), with a dark library the first (`/api/v1/darks`, the camera leased and given back as the run ends); a preview exposure and a snapshot outside a session (part 2, #974: `NodeFrames`, the frame each source shows whoever took it, under one node token per source; the preview a job that leases its camera); a plate solve and a solve and sync as jobs (part 3, #976: the solution kept with the token of the frame it is of, whole on the wire; solve and sync one job holding the mount and the camera); polar alignment as the node's run and the detach grace (part 4, #978: `PolarAlignmentRun` lifted into Lib for the GUI and the node alike, `/api/v1/polar` with its frames the OTA's and its state whole on the wire, an interactive run stopped once no client has been present for 60 s by `NodeRunWatch`, and a stop that names the run it means); the planetary capture loop lifted into Lib (part 5a, #979: `PlanetaryCapture` for the GUI and the node alike, and its recenter's mount nudge asking the ownership gate); a live planetary capture as the node's run (part 5b, #983: `/api/v1/planetary` with its controls, the start in two halves so the camera is claimed as the request is answered and the loop streams only on the node's token, the rolling stack taken on the node, the live frame (`FrameSampler`, display rate) and the linear master served as frames, and a new window snapped to the camera's rule for every host); both frames as drop-to-latest streams (part 5c, #987: a WebSocket per source on which the client ASKS for each frame and the node answers with the newest, since a socket buffers dozens of frames and a node that sent on its own fed a paused reader every stale one; the live frame dated as it arrived and shown at a display's rate); a recording to disk (part 5d, #988: `/api/v1/planetary/record` into a SER file beside the snapshots, `SerRecording` in Lib converting on the capture loop and writing on a task of its own so a slow disk drops counted frames and never the capture's rate, and a capture that records not interactive, so the recording finishes its duration unwatched and the live view after it gets a grace of its own; #814's memory-mapped ring is the optimisation still ahead). Found on the way: an attached client's event socket held every node stop for the whole 30-minute shutdown budget, the run's `Finalise` and the warm-up included (#985, fixed in #986: a request that lasts ends as the host starts stopping). Polar alignment's start now refuses a device a job is working on, as the planetary, dark library and preview starts do (#981: a job holds its device in the node's jobs, not the lease). **The proof** (#991): every kind over a spawned node's socket with its client gone mid-run, the grace shortened for it by `--detach-grace`; a planetary live view and polar alignment stop cleanly once the grace is spent and a client back within it keeps them, a dark library and a session go on. It found that no client could read a session's state before its first frame (a required filter name, null in a default camera state; fixed in #990). **The rest:** run kinds: polar alignment, planetary capture with the rolling stack and recentering, preview / snapshot / solve and sync, a dark library (the CLI's `darks`). Each states what it does when its LAST client detaches: a session and a flat run go on; polar and a planetary live view stop after a grace long enough for a respawned window (P7) to re-attach; a planetary recording to disk finishes its duration. (P0a stops polar and planetary on a dead GPU for the same reason: interactive, meaningless unseen.) | each mode over a fake rig through the socket, with a client killed mid-run: the session goes on, polar stops cleanly after the grace, and a client back within the grace keeps it |
 | **P5b** (#935), DONE (2026-09-27) | **Shipped** in nine parts (P5b above): the parity harness (#993); NaN crosses as null (#995); lossless state (#996); a run is on and says so (#997, #998); control goes to the rig's own node (#999); every event and a redraw (#1004), a quiet rig says so and its feed is its node's (#1010); incremental polling (#1011); the rig's own site, sensor and schedule (#1014); the tabs drawn both ways in the harness (#1015) and an idle rig's devices from its node (part 9b). The known-gap list holds only P6's (the frame on show). **The rest:** Mirror parity: the mirror sets `IsRunning`, the abort route, the pending prompt and the notification feed; handles every event the node sends (it handles two of seven today); the WHOLE `SessionConfiguration` on the wire; lossless mount state (J2000, altitude, axis angle), frame metrics, guide stats, settle progress, star profile, calibration overlay, backlash, scouts and each observation's `CatalogIndex`; NaN crosses as null, never 0; prompts and abort routed to the Active context's own node; incremental polling instead of the whole night's log and guide ring every 500 ms | ONE fake session rendered in-process and through a mirror over a real server gives equal `LiveSessionState` snapshots at every phase (a golden parity test), and the Live Session, Guider and Home tabs lay out identically both ways |
 | **P6** (#936) | **The cut, GUI, TUI and CLI in one wave** (P8 folded in: the TUI builds the same `AppSignalHandler`, so two backends would otherwise live on). Each drops `IDeviceHub`, every device source and `TianWen.Devices.Native`; Local means the local node; the quit dialog (decision 1, last client only); the GUI's and the TUI's `MountLimitWatcher` deleted; the gates re-sourced from the node; the CLI's `darks`, `flats`, `device` and `profile` verbs and the first-run wizard become node clients; inspector snapshot fields read the mirror; `unattended-ui-driving.md` and the E2E harness spawn a server; CLAUDE.md's telemetry ground truth moves to `Server_*.log`; packaging ships `tianwen-server` and `tianwen-ascomhost` inside the GUI's and the CLI's archives and the GUI's `.app` (every file in `Contents/MacOS` signed); the frame on show from the node's own copy (moved from P4 part 5: a saved sub's is its file, and the camera gets its array back after the write) | the unattended-driving flows pass unchanged against a spawned server; killing the GUI mid-session leaves the session running; a new GUI re-attaches to it; a CLI `device warm` during a GUI session is refused by the lease, not raced |
+| **P6b** (#1021) | Control over the LAN by grant (decision 13): seeing is free and every command over TCP needs control; a TianWen client asks and the rig's machine answers (`LanInvites`), a grant remembered until revoked (`LanGrants`); another app's refused command is its request, allowed until the node restarts or always by forward-confirmed host name; managed from this machine or a granted client, in a Sharing panel on the rig's Home card; presence and "the last client" count only clients that can command | a laptop's window over TCP is refused a command, asks, is allowed from the rig's machine, commands, keeps control across restarts of both, and is refused again once revoked; an Alpaca PUT over TCP is refused, allowed, and refused again after the node restarts, unless always allowed by its host name |
 | **P7** (#937) | **Shipped:** GPU recovery by respawn (`GuiSuccession`): a lost display (`OnGpuWedged`) or a failed loop starts a successor GUI, the same executable and arguments marked by the environment, and the window leaves with no Vulkan teardown; the successor waits for its predecessor to exit before it claims `InstanceGate`, and a boot loop stops after three replacements in a row, reset by five minutes of healthy drawing; `gpu-device-recovery.md` says in-process recreation is now optional. **The rest:** the live proof, with P6's | `gpu_fault lost` mid-session: a new window appears on the same session within seconds |
 | **P8** | Folded into P6 (#936) on 2026-09-25 | |
 | **P9** (#938) | **Release 10.0**: `VersionMajorMinor` 9.0 to 10.0 with its `CHANGELOG.md` entry in the same commit (`/bump-version`), saying what breaks: closing a window no longer stops the rig; every host needs `tianwen-server` beside it; a spawned node stays off the LAN until shared; profiles are edited through the node; and the `TianWen.Lib` API that moved (`WarmAndDisconnectAsync` into Lib, the job and node DTOs). Then `/release-tianwen` | each release archive carries the server and runs a fake night end to end on win-x64 |
 
-## Decisions (all made by the user; 1 to 7 and 9 to 12 on 2026-09-25)
+## Decisions (all made by the user; 1 to 7 and 9 to 12 on 2026-09-25, 13 on 2026-09-28)
 
 1. **Closing a window: DECIDED, it asks, and only the last client asks.** With a run active (a session,
    flats, polar or planetary), the dialog offers "Leave the rig running" (the default) and "Stop the rig
@@ -1471,6 +1544,16 @@ and 10.0 ships it (P9).
 12. **No GPU work in the process that owns the rig: DECIDED** (new, 2026-09-25). Enhancing is done
     client-side ("ideally enhancing is done client side anyway"); the node keeps `/image/enhance` "for
     more advanced usages", and it answers 409 while the node holds any device or run.
+
+13. **Control over the LAN: DECIDED, see by default, command by grant** (2026-09-28; user: "remote can see, but not
+    manipulate by default. we use the existing LAN acceptance way where a locally pipe connected client can accept
+    requests from other clients, which then gain the capability"). A grant is remembered until revoked; aborting a run
+    and answering its prompts need one too (one rule); it lands before 10.0. Other apps (Alpaca, ninaAPI), which cannot
+    ask, are allowed by their network identity (user: "we can allow right access to other alpaca etc clients based on
+    their network identity"): until the node restarts, or always by a forward-confirmed reverse lookup of the host name
+    (user: "we could do a reverse lookup and find the hostname"). Managed from this machine or a client granted control,
+    in a Sharing panel on the rig's Home card. The handshake and the grants are LAN.Lib's, not copies (user: "possible
+    to factor this out?"). Mechanics under "P6b: control over the LAN by grant".
 
 Adopted without a question, as the review's defaults: a client probes `localhost:1888` for a node under
 another account before spawning (and uses it as the Local rig when one answers); every server takes
