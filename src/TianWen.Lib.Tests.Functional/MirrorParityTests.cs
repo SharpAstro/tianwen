@@ -41,9 +41,6 @@ public class MirrorParityTests(ITestOutputHelper output)
     /// <summary>Every member a mirror renders differently today, with the P5b part that closes it.</summary>
     private static readonly IReadOnlyDictionary<string, string> KnownGaps = new Dictionary<string, string>
     {
-        // Part 4, a run is on: only SessionBootstrapper sets it.
-        ["IsRunning"] = "P5b part 4",
-
         // P6 (#936), the frame on show: a session empties its slot and an in-process view shows nothing, while a mirror
         // keeps the last frame it holds, as ReleaseCapturedImages says a client does. P6 makes the local view a mirror.
         ["LastCapturedImages[0]"] = "P6, the frame on show",

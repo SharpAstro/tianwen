@@ -818,6 +818,14 @@ namespace TianWen.RemoteClient
 
         public SessionPhase Phase => Snapshot?.Phase ?? SessionPhase.NotStarted;
 
+        /// <summary>The node's run on the session it serves (P5b part 4); none with no session, or while the node answers idle.</summary>
+        public ReportedRun? Run => Snapshot?.Run switch
+        {
+            NodeRunKind.Session => ReportedRun.Session,
+            NodeRunKind.Flats => ReportedRun.Flats,
+            _ => ReportedRun.None,
+        };
+
         public string? CurrentActivity => Snapshot?.CurrentActivity;
 
         public string? FailureReason => Snapshot?.FailureReason;

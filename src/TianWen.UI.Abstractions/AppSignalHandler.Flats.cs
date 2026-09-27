@@ -81,6 +81,12 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<CancelFlatsSignal>(_ =>
             {
+                // A rig's flat run puts its view in the Flats mode (P5b part 4), whose Cancel would otherwise cancel THIS
+                // computer's flat run; until part 5 sends it to the rig's own node, a rig's view refuses it.
+                if (!EnsureLocalContext("Cancelling a flat run"))
+                {
+                    return;
+                }
                 // The finaliser (close covers, warm, disconnect) still runs on cancel via RunFlatsOnlyAsync's
                 // finally block; the panel's Cancel button shows the amber "Cancelling..." state meanwhile.
                 liveSessionState.FlatsCts?.Cancel();
