@@ -107,7 +107,7 @@ internal class TuiSubCommand(
         var appState = new GuiAppState { ActiveProfile = profile, ActiveTab = GuiTab.Equipment, DeviceHub = registry };
         var eqState = new EquipmentTabState();
         var sessionState = new SessionTabState();
-        sessionState.InitializeFromProfile(profile, registry);
+        sessionState.InitializeFromProfile(profile, appState.CameraCapabilitiesOf);
         var bus = new SignalBus();
         var tracker = new BackgroundTaskTracker();
         // View contexts: the local node plus (later) any observed rigs. Exactly one today; the tabs
@@ -140,8 +140,8 @@ internal class TuiSubCommand(
         // This computer's node, found or started (P6 of docs/plans/hardware-in-the-server.md, #936), running the profile
         // chosen above: it holds the rig, and the local view reads it as it reads a rig. The planner's start and the
         // session setup follow once it answers.
-        tracker.Run(() => signalHandler.ConnectLocalNodeAsync(new LocalNodeOptions(), profile.ProfileId.ToString(), backgroundCts.Token),
-            "Connect to this computer's node");
+        tracker.Run(() => signalHandler.ConnectLocalNodeAsync(new LocalNodeOptions(), profile.ProfileId.ToString(), includeFake,
+            backgroundCts.Token), "Connect to this computer's node");
 
         // P3 of docs/plans/mount-safety-limits.md for this host too: a profile's mount safety limits apply to
         // a manual slew with no session running, and only a session enforces them on the mount it leases.
@@ -158,14 +158,14 @@ internal class TuiSubCommand(
 
         // Create tabs
         var fontPath = TuiFontPath.Resolve();
-        var equipmentContent = new EquipmentContent(consoleHost.DeviceHub);
+        var equipmentContent = new EquipmentContent();
 
         var tabs = new Dictionary<GuiTab, ITuiTab>
         {
             // First tab whose tree is SHARED with the GPU surface (HomeBoardLayout) rather than written
             // for the terminal.
             [GuiTab.Home] = new TuiHomeTab(appState, contexts, signalHandler.Rigs, consoleHost.TimeProvider, bus),
-            [GuiTab.Equipment] = new TuiEquipmentTab(appState, eqState, contexts, equipmentContent, consoleHost, bus),
+            [GuiTab.Equipment] = new TuiEquipmentTab(appState, eqState, equipmentContent, bus),
             [GuiTab.Planner] = new TuiPlannerTab(appState, plannerState, fontPath, consoleHost.TimeProvider, bus),
             [GuiTab.Session] = new TuiSessionTab(appState, sessionState, plannerState, bus),
             [GuiTab.LiveSession] = new TuiLiveSessionTab(appState, contexts, terminal, consoleHost.TimeProvider, bus),
@@ -174,12 +174,6 @@ internal class TuiSubCommand(
         };
 
         // BuildScheduleSignal is now handled inside AppSignalHandler; no host-level subscription needed
-
-        // Auto-discover devices on startup when --fake is passed
-        if (includeFake)
-        {
-            bus.Post(new DiscoverDevicesSignal(IncludeFake: true));
-        }
 
         // Prevent Ctrl+C from killing the process: it arrives as a regular key event instead
         System.Console.TreatControlCAsInput = true;

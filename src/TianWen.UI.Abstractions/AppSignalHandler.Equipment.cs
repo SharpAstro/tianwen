@@ -24,6 +24,8 @@ using TianWen.Lib.Extensions;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
 using TianWen.Lib.Sequencing.PolarAlignment;
+using TianWen.Hosting.Dto;
+using TianWen.RemoteClient;
 
 namespace TianWen.UI.Abstractions
 {
@@ -32,21 +34,6 @@ namespace TianWen.UI.Abstractions
     // moved verbatim from the single-file ctor in the Phase-5 by-area split.
     public partial class AppSignalHandler
     {
-        /// <summary>
-        /// Runs a device connect/disconnect on a thread-pool thread so its <b>synchronous prefix
-        /// never executes on the render thread</b>. <see cref="SignalBus.ProcessPending"/> invokes
-        /// async signal handlers inline on the render thread, running each handler up to its first
-        /// yielding <c>await</c> before the returned task is handed to the tracker. Several drivers
-        /// block synchronously <i>before</i> that first await; most notably ASCOM COM drivers whose
-        /// <c>Connected = true/false</c> setter busy-spins <c>Application.DoEvents()</c> for ~1&#160;s
-        /// (Gemini FlatPanel Lite, iOptron, …). Left inline that freezes the GUI (Not Responding), and
-        /// on a host with no message pump it can crash the process. Offloading the call moves that
-        /// blocking prefix off the render loop. The fake devices connect instantly precisely because
-        /// they have no such blocking prefix.
-        /// </summary>
-        private static Task RunDeviceOpOffRenderThreadAsync(Func<Task> deviceOp, CancellationToken ct)
-            => Task.Run(deviceOp, ct);
-
         /// <summary>Wires the equipment tab's text-input commit callbacks (site, profile, OTA, device settings).</summary>
         private void SubscribeEquipmentTextInputs(SignalBus bus)
         {
@@ -66,16 +53,29 @@ namespace TianWen.UI.Abstractions
 
             eqState.ProfileNameInput.OnCommit = async text =>
             {
-                if (text.Length > 0)
+                if (text.Length == 0 || LocalNodeOrSay() is not { } node)
                 {
-                    var profile = await EquipmentActions.CreateProfileAsync(text, external, cts.Token);
-                    appState.ActiveProfile = profile;
-                    eqState.IsCreatingProfile = false;
-                    eqState.ProfileNameInput.Clear();
-                    bus.Post(new DeactivateTextInputSignal());
-                    plannerState.NeedsRecompute = true;
-                    appState.NeedsRedraw = true;
+                    return;
                 }
+
+                eqState.IsCreatingProfile = false;
+                eqState.ProfileNameInput.Clear();
+                bus.Post(new DeactivateTextInputSignal());
+
+                var created = await node.Client.CreateProfileAsync(text, cts.Token);
+                if (created is not { IsSuccess: true, Value: { } profile })
+                {
+                    Notify(NotificationSeverity.Error, $"Could not create the profile: {created.Error}");
+                    return;
+                }
+                // The node applies the switch rule itself (a device connected, a run going on) and says why it refuses.
+                var set = await node.Client.SetActiveProfileAsync(profile.ProfileId, cts.Token);
+                if (!set.IsSuccess)
+                {
+                    Notify(NotificationSeverity.Warning, $"Created '{profile.Name}', but it could not be made the active profile: {set.Error}");
+                }
+                await RefreshProfileListAsync(node, cts.Token);
+                await RefreshLocalProfileNowAsync(node, cts.Token);
             };
 
             eqState.ProfileNameInput.OnCancel = () =>
@@ -104,8 +104,6 @@ namespace TianWen.UI.Abstractions
                 var sData = siteProfile.Data ?? ProfileData.Empty;
                 var newSiteData = EquipmentActions.SetSite(sData, sLat, sLon, sElev);
                 var updatedSite = siteProfile.WithData(newSiteData);
-                // Update UI immediately, save in background
-                appState.ActiveProfile = updatedSite;
                 eqState.IsEditingSite = false;
                 bus.Post(new DeactivateTextInputSignal());
                 // This computer's site: the planner's only while its own view is on show; a rig's view plans at the rig's.
@@ -124,11 +122,8 @@ namespace TianWen.UI.Abstractions
                     StartPlanner(siteTransform, "Load catalog after site edit");
                 }
 
-                if (appState.DeviceHub is { } siteHub)
-                {
-                    await siteHub.PushSiteToMountIfProfileWinsAsync(newSiteData, logger, cts.Token);
-                }
-                await updatedSite.SaveAsync(external, cts.Token);
+                // The node gives a connected mount the new site when the profile wins the tie (AfterProfileEditAsync).
+                await WriteLocalProfileAsync(siteProfile, newSiteData, name: null, cts.Token);
             };
 
             // Cancel ends the edit exactly the way commit does, by POSTING the signal. This path once
@@ -201,10 +196,7 @@ namespace TianWen.UI.Abstractions
                 if (appState.ActiveProfile is { } profile && profile.Data is { } pd)
                 {
                     int? guiderFl = int.TryParse(text, out var fl) && fl > 0 ? fl : null;
-                    var updated = profile.WithData(pd with { GuiderFocalLength = guiderFl });
-                    appState.ActiveProfile = updated;
-                    appState.NeedsRedraw = true;
-                    await updated.SaveAsync(external, cts.Token);
+                    await WriteLocalProfileAsync(profile, pd with { GuiderFocalLength = guiderFl }, name: null, cts.Token);
                 }
             };
 
@@ -237,16 +229,23 @@ namespace TianWen.UI.Abstractions
 
                 var value = eqState.StringSettingInput.Text;
                 eqState.EditingStringSettingKey = null;
-
-                // The masked-secret-vs-URI-param decision (credential-store write for secrets,
-                // query-param URI for the rest) lives in EquipmentActions; this routes.
-                var commit = EquipmentActions.CommitDeviceSetting(
-                    editUri, key, value, sp.GetRequiredService<ICredentialStore>());
-                if (commit.Kind == DeviceSettingCommitKind.StoredSecret)
+                if (LocalNodeOrSay() is not { } node)
                 {
-                    // The URI/profile is unchanged, so the refetch-on-weather-URI-change path won't
-                    // fire; re-fetch here now that the key may have become available.
-                    if (commit.IsWeatherSecret)
+                    return;
+                }
+
+                // One rule on the node for the GUI and every other client (DeviceSettingHelper.Commit): a masked setting
+                // goes into the credential store, never onto the URI; any other onto the device's URI in the profile.
+                var committed = await node.Client.SetDeviceSettingAsync(editUri, key, value, appState.ActiveProfile?.ProfileId, cts.Token);
+                if (committed is not { IsSuccess: true, Value: { } setting })
+                {
+                    Notify(NotificationSeverity.Error, $"Could not save {key}: {committed.Error}");
+                    return;
+                }
+                if (setting.Secret)
+                {
+                    // The profile is unchanged, so no weather URI change refetches: the key may have become available now.
+                    if (EquipmentActions.TryDeviceFromUri(editUri)?.DeviceType is DeviceType.Weather)
                     {
                         await FetchWeatherForecastAsync(cts.Token);
                     }
@@ -254,13 +253,10 @@ namespace TianWen.UI.Abstractions
                     return;
                 }
 
-                // Non-secret: keep as a query param on the device URI (existing behaviour).
-                eqState.EditingDeviceUri = commit.NewUri;
-                if (appState.ActiveProfile is { Data: { } data } && commit.NewUri is { } newUri
-                    && eqState.SavedDeviceSettingsUri is { } savedUri)
+                if (Uri.TryCreate(setting.DeviceUri, UriKind.Absolute, out var newUri))
                 {
-                    var newData = data.ReplaceDeviceUri(savedUri, newUri);
-                    bus.Post(new UpdateProfileSignal(newData));
+                    eqState.EditingDeviceUri = newUri;
+                    await RefreshLocalProfileNowAsync(node, cts.Token);
                     eqState.BeginEditingDeviceSettings(newUri);
                 }
             };
@@ -286,59 +282,30 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<DiscoverDevicesSignal>(async sig =>
             {
-                if (eqState.IsDiscovering) return;
+                if (eqState.IsDiscovering || LocalNodeOrSay() is not { } node) return;
 
                 eqState.IsDiscovering = true;
                 appState.StatusMessage = sig.IncludeFake ? "Discovering devices (+ fake)..." : "Discovering devices...";
                 appState.NeedsRedraw = true;
                 try
                 {
-                    var dm = sp.GetRequiredService<IDeviceDiscovery>();
-                    await dm.CheckSupportAsync(cts.Token);
-                    await dm.DiscoverAsync(cts.Token);
-                    eqState.DiscoveredDevices = [.. dm.RegisteredDeviceTypes
-                        .Where(t => t is not DeviceType.Profile and not DeviceType.None)
-                        .SelectMany(dm.RegisteredDevices)
-                        .Where(d => sig.IncludeFake || d is not TianWen.Lib.Devices.Fake.FakeDevice)
-                        .OrderBy(d => d.DeviceType).ThenBy(d => d.DisplayName)];
-
-                    // Profile-switcher dropdown / no-profile picker source (docs/plans/remote-profile.md):
-                    // DiscoverAsync above already populated DeviceType.Profile, so this is free -- no
-                    // separate DiscoverOnlyDeviceType round-trip.
-                    eqState.AllProfiles = [.. dm.RegisteredDevices(DeviceType.Profile).OfType<Profile>()
-                        .OrderBy(p => p.DisplayName, StringComparer.OrdinalIgnoreCase)];
-
-                    // Route post-discovery profile reconciliation to EquipmentActions,
-                    // then reflect any active-profile update back into UI state.
-                    var reconciledProfiles = await EquipmentActions.ReconcileAllProfilesAsync(dm, external, cts.Token);
-                    foreach (var (original, updated) in reconciledProfiles)
+                    // The node discovers on its own token, then reconciles every profile with what it found (a COM port
+                    // moved, a new DHCP address, a site still on the mount's URI), writing each that changed and pushing it.
+                    if (await RunNodeJobAsync(node, node.Client.StartDiscoveryAsync(cts.Token), "Discovery", cts.Token) is null)
                     {
-                        if (appState.ActiveProfile?.ProfileId == original.ProfileId)
-                        {
-                            appState.ActiveProfile = updated;
-                        }
-
-                        // Log exactly what URI moved so site / gain / filter clobbers are
-                        // visible in the log instead of silently drifting.
-                        var diffs = original.Data is { } originalData && updated.Data is { } updatedData
-                            ? originalData.DiffTo(updatedData)
-                            : [];
-                        foreach (var (field, before, after) in diffs)
-                        {
-                            logger.LogInformation(
-                                "Reconcile {Profile} {Field}: {Before} -> {After}",
-                                original.DisplayName, field, before, after);
-                        }
+                        return;
                     }
-                    if (reconciledProfiles.Count > 0)
+                    if (await node.RefreshListingAsync(cts.Token) is { } failure)
                     {
-                        logger.LogInformation("Post-discovery reconcile: updated {Count} profile(s)", reconciledProfiles.Count);
+                        Notify(NotificationSeverity.Error, $"Could not list the devices: {failure}");
+                        return;
                     }
-                }
-                catch (Exception ex)
-                {
-                    logger.LogWarning(ex, "Device discovery failed");
-                    Notify(NotificationSeverity.Error, "Discovery failed");
+                    eqState.DiscoveredDevices = EquipmentActions.ForTheDeviceList(node.Listed, sig.IncludeFake);
+                    await RefreshProfileListAsync(node, cts.Token);
+                    // What each camera is (its named gains, whether it cools) comes with the listing.
+                    sessionState.InitializeFromProfile(appState.ActiveProfile, appState.CameraCapabilitiesOf);
+                    sessionState.NeedsRedraw = true;
+                    await RefreshLocalProfileNowAsync(node, cts.Token);
                 }
                 finally
                 {
@@ -363,10 +330,7 @@ namespace TianWen.UI.Abstractions
                     Cover: null, Focuser: null, FilterWheel: null,
                     PreferOutwardFocus: null, OutwardIsPositive: null,
                     Aperture: null, OpticalDesign: OpticalDesign.Unknown);
-                var updated = p.WithData(EquipmentActions.AddOTA(data, newOta));
-                appState.ActiveProfile = updated;
-                appState.NeedsRedraw = true;
-                await updated.SaveAsync(external, cts.Token);
+                await WriteLocalProfileAsync(p, EquipmentActions.AddOTA(data, newOta), name: null, cts.Token);
             });
 
             bus.Subscribe<EditMountLimitsSignal>(_ =>
@@ -412,32 +376,24 @@ namespace TianWen.UI.Abstractions
                 }
             });
 
-            bus.Subscribe<SwitchProfileSignal>(sig =>
+            bus.Subscribe<SwitchProfileSignal>(async sig =>
             {
                 var target = eqState.AllProfiles.FirstOrDefault(p => p.ProfileId == sig.ProfileId);
-                if (target is null || target.ProfileId == appState.ActiveProfile?.ProfileId) return;
+                if (target is null || target.ProfileId == appState.ActiveProfile?.ProfileId || LocalNodeOrSay() is not { } node) return;
 
-                // Single-profile-context invariant: never swap out from under connected hardware or a
-                // running session (ProfileSwitchGate's doc comment has the why). Gated HERE rather than
-                // in the dropdown so no poster of this signal can bypass it.
-                //
-                // LOCAL profiles only -- this signal never carries a remote rig. Selecting a rig is a
-                // view-context overlay (SelectRemoteRigSignal, deliberately ungated): the local session
-                // keeps running underneath and its notifications keep bubbling up. Correspondingly the
-                // gate reads the LOCAL context, not the on-screen one -- rebinding this node's profile
-                // is refused while its own hardware is busy, whichever context you happen to be watching.
-                var verdict = ProfileSwitchGate.Evaluate(appState.DeviceHub, LocalLiveSession.HasActiveRun);
-                if (!verdict.Allowed)
+                // Single-profile-context invariant: never swap out from under connected hardware or a running run
+                // (ProfileSwitchGate's doc comment has the why), which the NODE applies, over its own hub and runs, and
+                // answers with the gate's own words. LOCAL profiles only: selecting a rig is a view-context overlay
+                // (SelectRemoteRigSignal, deliberately ungated).
+                var set = await node.Client.SetActiveProfileAsync(target.ProfileId, cts.Token);
+                if (!set.IsSuccess)
                 {
-                    var reason = verdict.Describe();
-                    eqState.ProfileSwitchBlocked = reason;
-                    Notify(NotificationSeverity.Warning, $"Cannot switch to '{target.DisplayName}': {reason}");
+                    eqState.ProfileSwitchBlocked = set.Error;
+                    Notify(NotificationSeverity.Warning, $"Cannot switch to '{target.DisplayName}': {set.Error}");
                     appState.NeedsRedraw = true;
                     return;
                 }
-
-                appState.ActiveProfile = target;
-                appState.NeedsRedraw = true;
+                await RefreshLocalProfileNowAsync(node, cts.Token);
             });
 
             bus.Subscribe<SelectRemoteRigSignal>(sig =>
@@ -519,13 +475,10 @@ namespace TianWen.UI.Abstractions
 
                     var newData = EquipmentActions.ApplyAssignment(data, target, device.DeviceType, device.DeviceUri);
 
-                    var updated = profile.WithData(newData);
-                    appState.ActiveProfile = updated;
                     // Keep the slot active so the user can swap the assigned device by
                     // clicking another row immediately, without re-clicking the slot.
                     // Click the slot itself again to deactivate.
-                    appState.NeedsRedraw = true;
-                    await updated.SaveAsync(external, cts.Token);
+                    await WriteLocalProfileAsync(profile, newData, name: null, cts.Token);
 
                     // Fetch weather forecast immediately when a weather device is assigned
                     if (device.DeviceType is DeviceType.Weather)
@@ -534,26 +487,10 @@ namespace TianWen.UI.Abstractions
                         appState.NeedsRedraw = true;
                     }
 
-                    // Auto-disconnect the orphan if it's still connected and safe
-                    // (EquipmentActions.AutoDisconnectOrphanAsync); this lambda only maps
-                    // the outcome to notifications.
-                    if (appState.DeviceHub is { } hub)
+                    // The device the slot had: disconnected when still connected and safe, else left and said so.
+                    if (appState.LocalNode is { } node)
                     {
-                        var (outcome, safety) = await EquipmentActions.AutoDisconnectOrphanAsync(
-                            hub, prevSlotUri, device.DeviceUri, logger, cts.Token);
-                        switch (outcome)
-                        {
-                            case EquipmentActions.OrphanDisconnectOutcome.Disconnected:
-                                Notify(NotificationSeverity.Info, $"Previous {target.ExpectedDeviceType} disconnected");
-                                break;
-                            case EquipmentActions.OrphanDisconnectOutcome.LeftConnected:
-                                Notify(NotificationSeverity.Warning, $"Previous {target.ExpectedDeviceType} left connected ({safety}). Click Off on its row to warm up.");
-                                break;
-                        }
-                        if (outcome != EquipmentActions.OrphanDisconnectOutcome.NotApplicable)
-                        {
-                            appState.NeedsRedraw = true;
-                        }
+                        await DisconnectOrphanAsync(node, prevSlotUri, device.DeviceUri, target.ExpectedDeviceType, cts.Token);
                     }
                 }
             });
@@ -576,37 +513,29 @@ namespace TianWen.UI.Abstractions
                 var manual = new TianWen.Lib.Devices.ManualCoverDevice();
                 var data = profile.Data ?? ProfileData.Empty;
                 var newData = EquipmentActions.ApplyAssignment(data, target, DeviceType.CoverCalibrator, manual.DeviceUri);
-                var updated = profile.WithData(newData);
-                appState.ActiveProfile = updated;
-                appState.NeedsRedraw = true;
-                await updated.SaveAsync(external, cts.Token);
+                await WriteLocalProfileAsync(profile, newData, name: null, cts.Token);
                 Notify(NotificationSeverity.Info, "Manual Light Panel assigned - switch it on before capturing flats");
             });
 
             bus.Subscribe<ConnectAllDevicesSignal>(_ =>
             {
-                if (appState.ActiveProfile?.Data is not { } pdata) return;
-                if (appState.DeviceHub is not { } hub) return;
+                if (appState.ActiveProfile?.Data is not { } pdata || LocalNodeOrSay() is not { } node) return;
 
-                // Fan out to per-device ConnectDeviceSignal so each connect goes through
-                // the same in-flight gate, notification, and safety paths as a manual
-                // click. Skip URIs that the hub already considers connected; connecting
-                // an already-connected URI just churns PendingTransitions without effect.
+                // Fan out to per-device ConnectDeviceSignal so each connect goes through the same in-flight gate,
+                // notification and safety paths as a manual click. Skips what the node already holds connected.
                 foreach (var uri in pdata.AssignedDeviceUris)
                 {
-                    if (hub.IsConnected(uri)) continue;
+                    if (node.IsConnected(uri)) continue;
                     bus.Post(new ConnectDeviceSignal(uri));
                 }
             });
 
             bus.Subscribe<ConnectDeviceSignal>(async sig =>
             {
-                if (appState.DeviceHub is not { } hub)
+                if (LocalNodeOrSay() is not { } node)
                 {
-                    Notify(NotificationSeverity.Warning, "Device hub unavailable");
                     return;
                 }
-
                 if (!eqState.PendingTransitions.TryAdd(sig.DeviceUri, 0))
                 {
                     return; // transition already in flight
@@ -615,78 +544,15 @@ namespace TianWen.UI.Abstractions
 
                 try
                 {
-                    // Prefer the resolved device (carries query-param config); fall back
-                    // to a freshly-discovered match by URI equality.
-                    var device = EquipmentActions.ResolveDeviceForConnect(hub, eqState.DiscoveredDevices, sig.DeviceUri);
-
-                    if (device is null)
+                    // The node connects (on its own token, so a slow serial handshake never blocks this window) and writes
+                    // into the active profile what a connect settles: a mount's site reconciled with the profile's, a
+                    // camera's sensor recorded for the planner's framing (DeviceOperations.WriteConnectIntoProfileAsync).
+                    var name = EquipmentActions.DeviceLabel(sig.DeviceUri, node);
+                    if (await RunNodeJobAsync(node, node.Client.ConnectDeviceAsync(sig.DeviceUri, cts.Token), $"Connecting {name}", cts.Token) is { } done)
                     {
-                        Notify(NotificationSeverity.Warning, "Cannot resolve device URI for connect");
-                        return;
+                        Notify(NotificationSeverity.Info, done.Step ?? $"Connected: {name}");
+                        await RefreshLocalProfileNowAsync(node, cts.Token);
                     }
-
-                    await RunDeviceOpOffRenderThreadAsync(() => hub.ConnectAsync(device, cts.Token).AsTask(), cts.Token);
-                    Notify(NotificationSeverity.Info, $"Connected: {device.DisplayName}");
-
-                    // Mount connect → reconcile site between mount hardware and profile,
-                    // per SiteTieBreaker. Updates ProfileState + PlannerState; persists
-                    // profile if adopted; pushes to mount if profile wins.
-                    if (device.DeviceType == DeviceType.Mount
-                        && appState.ActiveProfile is { } currentProfile
-                        && currentProfile.Data is { } pdata
-                        && DeviceBase.SameDevice(pdata.Mount, sig.DeviceUri)
-                        && hub.TryGetConnectedDriver<IMountDriver>(sig.DeviceUri, out var mount)
-                        && mount is not null)
-                    {
-                        var outcome = await mount.ReconcileSiteWithProfileAsync(pdata, logger, cts.Token);
-                        if (outcome.ProfileChanged)
-                        {
-                            var updated = currentProfile.WithData(outcome.Data);
-                            await updated.SaveAsync(_external, cts.Token);
-                            appState.ActiveProfile = updated;
-                        }
-                        // This computer's site: the planner's only while its own view is on show (P5b part 8).
-                        if (outcome.Data.SiteLatitude is { } rlat && outcome.Data.SiteLongitude is { } rlon && _contexts.Active.IsLocal)
-                        {
-                            plannerState.SiteLatitude = rlat;
-                            plannerState.SiteLongitude = rlon;
-                            plannerState.NeedsRedraw = true;
-
-                            // If the catalog hasn't loaded yet because we previously
-                            // had no site, fire InitializePlannerAsync now.
-                            if (plannerState.ObjectDb is null
-                                && appState.ActiveProfile is { } activeProfile
-                                && TransformFactory.FromProfile(activeProfile, _timeProvider, out _) is { } rTransform)
-                            {
-                                StartPlanner(rTransform, "Load catalog after site reconcile");
-                            }
-                        }
-                    }
-
-                    // Camera connect -> capture sensor geometry into the matching OTA so the planner
-                    // can compute the sensor FOV (smart framing groups) offline afterwards. Idempotent:
-                    // CaptureSensorSpecs returns null (no save) once the specs are stored and unchanged.
-                    // ActiveProfile is re-read fresh here; a rare ConnectAll multi-camera race can drop
-                    // one OTA's first capture, which self-heals on the next connect.
-                    if (device.DeviceType == DeviceType.Camera
-                        && appState.ActiveProfile is { } camProfile
-                        && camProfile.Data is { } camData
-                        && hub.TryGetConnectedDriver<ICameraDriver>(sig.DeviceUri, out var cam)
-                        && cam is not null
-                        && camData.CaptureSensorSpecs(sig.DeviceUri, cam) is { } capturedData)
-                    {
-                        var updated = camProfile.WithData(capturedData);
-                        await updated.SaveAsync(_external, cts.Token);
-                        appState.ActiveProfile = updated;
-                        // The FOV is now known -> push it to the planner and (re)compute framing groups.
-                        RefreshSensorFovAndFraming();
-                        logger.LogInformation("Captured sensor geometry for {Uri} into profile", sig.DeviceUri);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    logger.LogWarning(ex, "Connect failed for {Uri}", sig.DeviceUri);
-                    Notify(NotificationSeverity.Error, $"Connect failed: {ex.Message}");
                 }
                 finally
                 {
@@ -697,195 +563,109 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<DisconnectDeviceSignal>(async sig =>
             {
-                if (appState.DeviceHub is not { } hub)
+                if (LocalNodeOrSay() is not { } node)
                 {
                     return;
                 }
 
-                // Ownership first, and BEFORE the hardware-safety check: "a run is using this" is a
-                // different refusal from "the cooler is on", and offering the [Warm & Off] [Force Off]
-                // strip for a device the session is driving would invite the user to break their own run.
-                // GetDisconnectSafetyAsync cannot cover this -- it returns Safe for anything that is not
-                // a camera, so the mount was previously disconnectable mid-session with no warning at all.
-                var ownership = DeviceOwnershipGate.Evaluate(hub, sig.DeviceUri, DeviceAction.Disconnect);
-                if (!ownership.Allowed)
+                // What the node says of it first: a run holding the device is a different refusal from a cold camera, and
+                // offering the [Warm & Off] [Force Off] strip for a device the session is driving would invite the user to
+                // break their own run. The node refuses the disconnect itself either way.
+                var check = await node.Client.GetDisconnectSafetyAsync(sig.DeviceUri, cts.Token);
+                if (check is not { IsSuccess: true, Value: { } safety })
                 {
-                    Notify(NotificationSeverity.Warning, ownership.Describe());
+                    Notify(NotificationSeverity.Warning, check.Error ?? "The device cannot be disconnected now");
                     return;
                 }
-
-                // Pre-flight safety check. If the device is a cooled/busy camera, don't
-                // disconnect: set the per-row confirmation state so the UI shows the
-                // [Warm & Off] [Force Off] [Cancel] strip instead of executing.
-                var safety = await hub.GetDisconnectSafetyAsync(sig.DeviceUri, cts.Token);
-                if (safety != DisconnectSafety.Safe)
+                if (safety.LeaseOwner is { } owner)
+                {
+                    Notify(NotificationSeverity.Warning, new DeviceOwnershipVerdict(new DeviceLease(sig.DeviceUri, owner), DeviceAction.Disconnect).Describe());
+                    return;
+                }
+                // A cooled or busy camera is not disconnected: the row shows the [Warm & Off] [Force Off] [Cancel] strip.
+                if (safety.Safety != DisconnectSafety.Safe)
                 {
                     eqState.PendingDisconnectConfirm = sig.DeviceUri;
-                    eqState.PendingDisconnectSafety = safety;
+                    eqState.PendingDisconnectSafety = safety.Safety;
                     eqState.PendingForceConfirm = null;
                     appState.NeedsRedraw = true;
                     return;
                 }
 
-                if (!eqState.PendingTransitions.TryAdd(sig.DeviceUri, 0))
-                {
-                    return;
-                }
-                appState.NeedsRedraw = true;
-
-                try
-                {
-                    await RunDeviceOpOffRenderThreadAsync(() => hub.DisconnectAsync(sig.DeviceUri, cancellationToken: cts.Token).AsTask(), cts.Token);
-                    Notify(NotificationSeverity.Info, "Device disconnected");
-                }
-                catch (Exception ex)
-                {
-                    logger.LogWarning(ex, "Disconnect failed for {Uri}", sig.DeviceUri);
-                    Notify(NotificationSeverity.Error, $"Disconnect failed: {ex.Message}");
-                }
-                finally
-                {
-                    eqState.PendingTransitions.TryRemove(sig.DeviceUri, out _);
-                    appState.NeedsRedraw = true;
-                }
+                await RunDisconnectAsync(node, sig.DeviceUri, node.Client.DisconnectDeviceAsync(sig.DeviceUri, skipWarmUp: false, cts.Token),
+                    "Device disconnected");
             });
 
             bus.Subscribe<ForceDisconnectDeviceSignal>(async sig =>
             {
-                if (appState.DeviceHub is not { } hub)
+                if (LocalNodeOrSay() is not { } node)
                 {
                     return;
                 }
 
-                // Bypass the safety pre-check. Caller already passed two-stage confirmation.
-                //
-                // "Force" here means "skip the warm-up", which is what the user actually confirmed. It
-                // deliberately does NOT mean "take the device off a running session": consenting to a cold
-                // disconnect is not consenting to kill the night. Ownership is still checked, and the only
-                // way past it stays the explicit one -- stop the run.
-                var forceOwnership = DeviceOwnershipGate.Evaluate(hub, sig.DeviceUri, DeviceAction.Disconnect);
-                if (!forceOwnership.Allowed)
-                {
-                    Notify(NotificationSeverity.Warning, forceOwnership.Describe());
-                    return;
-                }
-
+                // Past the safety check: the caller already passed two-stage confirmation. "Force" means "skip the
+                // warm-up", which is what the user confirmed; it does NOT take a device off a running run, which the node
+                // still refuses in its own words: consenting to a cold disconnect is not consenting to kill the night.
                 eqState.PendingDisconnectConfirm = null;
                 eqState.PendingForceConfirm = null;
-                if (!eqState.PendingTransitions.TryAdd(sig.DeviceUri, 0))
-                {
-                    return;
-                }
-                appState.NeedsRedraw = true;
-
-                try
-                {
-                    await RunDeviceOpOffRenderThreadAsync(() => hub.DisconnectAsync(sig.DeviceUri, cancellationToken: cts.Token).AsTask(), cts.Token);
-                    Notify(NotificationSeverity.Info, "Device force-disconnected (no warm-up)");
-                    logger.LogWarning("Force-disconnect of {Uri} (bypassed safety check)", sig.DeviceUri);
-                }
-                catch (Exception ex)
-                {
-                    logger.LogWarning(ex, "Force-disconnect failed for {Uri}", sig.DeviceUri);
-                    Notify(NotificationSeverity.Error, $"Force-disconnect failed: {ex.Message}");
-                }
-                finally
-                {
-                    eqState.PendingTransitions.TryRemove(sig.DeviceUri, out _);
-                    appState.NeedsRedraw = true;
-                }
+                await RunDisconnectAsync(node, sig.DeviceUri, node.Client.DisconnectDeviceAsync(sig.DeviceUri, skipWarmUp: true, cts.Token),
+                    "Device force-disconnected (no warm-up)");
             });
 
             bus.Subscribe<WarmAndDisconnectDeviceSignal>(async sig =>
             {
-                if (appState.DeviceHub is not { } hub)
+                if (LocalNodeOrSay() is not { } node)
                 {
                     return;
                 }
 
                 eqState.PendingDisconnectConfirm = null;
                 eqState.PendingForceConfirm = null;
-                if (!eqState.PendingTransitions.TryAdd(sig.DeviceUri, 0))
-                {
-                    return;
-                }
-                appState.NeedsRedraw = true;
-
-                try
-                {
-                    await RunDeviceOpOffRenderThreadAsync(() => hub.WarmAndDisconnectAsync(sig.DeviceUri, _timeProvider, _logger, force: false, cts.Token).AsTask(), cts.Token);
-                    Notify(NotificationSeverity.Info, "Camera warmed and disconnected");
-                }
-                catch (OperationCanceledException)
-                {
-                    Notify(NotificationSeverity.Warning, "Warm-up cancelled");
-                }
-                catch (Exception ex)
-                {
-                    logger.LogWarning(ex, "Warm-and-disconnect failed for {Uri}", sig.DeviceUri);
-                    Notify(NotificationSeverity.Error, $"Warm-up failed: {ex.Message}");
-                }
-                finally
-                {
-                    eqState.PendingTransitions.TryRemove(sig.DeviceUri, out _);
-                    appState.NeedsRedraw = true;
-                }
+                // The ramp runs in the node, so it finishes whatever becomes of this window.
+                await RunDisconnectAsync(node, sig.DeviceUri, node.Client.WarmAndDisconnectDeviceAsync(sig.DeviceUri, cts.Token),
+                    "Camera warmed and disconnected");
             });
 
             bus.Subscribe<SetCoolerSetpointSignal>(async sig =>
             {
-                if (appState.DeviceHub is not { } hub) return;
-                if (!TryGetConnected<ICameraDriver>(hub, sig.DeviceUri, "Camera", out var camera)) return;
-                try
+                if (LocalNodeOrSay() is not { } node) return;
+
+                // Cooled through the session's own ramp (CameraCoolingRamp), on the node: the one answer to how fast a
+                // sensor may be cooled, where the Equipment tab used to set the setpoint at once.
+                var starting = node.Client.CoolCameraAsync(sig.DeviceUri, sig.SetpointC, rampMinutes: null, cts.Token);
+                Notify(NotificationSeverity.Info, $"Cooling to {sig.SetpointC:F1}\u00b0C");
+                if (await RunNodeJobAsync(node, starting, "Cooling", cts.Token) is { } cooled)
                 {
-                    await EquipmentActions.SetCoolerSetpointAsync(camera, sig.SetpointC, cts.Token);
-                    Notify(NotificationSeverity.Info, $"Cooling to {sig.SetpointC:F1}\u00b0C");
-                }
-                catch (Exception ex)
-                {
-                    logger.LogWarning(ex, "SetCoolerSetpoint failed for {Uri}", sig.DeviceUri);
-                    Notify(NotificationSeverity.Error, $"Cooler setpoint failed: {ex.Message}");
+                    Notify(NotificationSeverity.Info, cooled.Step ?? $"Cooled to {sig.SetpointC:F1}\u00b0C");
                 }
             });
 
             bus.Subscribe<WarmAndCoolerOffSignal>(async sig =>
             {
-                if (appState.DeviceHub is not { } hub) return;
+                if (LocalNodeOrSay() is not { } node) return;
                 eqState.PendingCoolerOffConfirm = null;
                 eqState.PendingCoolerOffForceConfirm = null;
                 appState.NeedsRedraw = true;
 
-                try
+                if (await RunNodeJobAsync(node, node.Client.WarmCameraAsync(sig.DeviceUri, cts.Token), "Warm-up", cts.Token) is not null)
                 {
-                    await hub.WarmAndCoolerOffAsync(sig.DeviceUri, _timeProvider, _logger, cts.Token);
                     Notify(NotificationSeverity.Info, "Camera warmed; cooler off");
                 }
-                catch (OperationCanceledException)
-                {
-                    Notify(NotificationSeverity.Warning, "Warm-up cancelled");
-                }
-                catch (Exception ex)
-                {
-                    logger.LogWarning(ex, "Warm-and-cooler-off failed for {Uri}", sig.DeviceUri);
-                    Notify(NotificationSeverity.Error, $"Warm-up failed: {ex.Message}");
-                }
-                finally { appState.NeedsRedraw = true; }
+                appState.NeedsRedraw = true;
             });
 
             bus.Subscribe<SetCoolerOffSignal>(async sig =>
             {
-                if (appState.DeviceHub is not { } hub) return;
-                try
+                if (LocalNodeOrSay() is not { } node) return;
+                var off = await node.Client.CameraCoolerOffAsync(sig.DeviceUri, cts.Token);
+                if (off.IsSuccess)
                 {
-                    if (await hub.CoolerOffAsync(sig.DeviceUri, cts.Token))
-                    {
-                        Notify(NotificationSeverity.Info, "Cooler off");
-                    }
+                    Notify(NotificationSeverity.Info, "Cooler off");
+                    await node.RefreshDevicesNowAsync(cts.Token);
                 }
-                catch (Exception ex)
+                else
                 {
-                    logger.LogWarning(ex, "SetCoolerOff failed for {Uri}", sig.DeviceUri);
-                    Notify(NotificationSeverity.Error, $"Cooler off failed: {ex.Message}");
+                    Notify(NotificationSeverity.Error, $"Cooler off failed: {off.Error}");
                 }
             });
 
@@ -894,15 +674,11 @@ namespace TianWen.UI.Abstractions
                 if (appState.ActiveProfile is { } profile)
                 {
                     var previousWeather = profile.Data?.Weather;
-                    var updated = profile.WithData(sig.Data);
-                    appState.ActiveProfile = updated;
-                    appState.NeedsRedraw = true;
-                    await updated.SaveAsync(external, cts.Token);
+                    await WriteLocalProfileAsync(profile, sig.Data, name: null, cts.Token);
 
-                    // Camera / focuser / filter-wheel assignments may have changed; rebuild the per-OTA
-                    // settings so gain modes (DSLR ISO vs ZWO numeric) and cooling capability come from
-                    // the new device's driver instead of being cached from the old one.
-                    sessionState.InitializeFromProfile(updated, appState.DeviceHub);
+                    // Camera / focuser / filter-wheel assignments may have changed; rebuild the per-OTA settings so gain
+                    // modes (DSLR ISO vs ZWO numeric) and cooling come from the new camera, as the node listed it.
+                    sessionState.InitializeFromProfile(appState.ActiveProfile, appState.CameraCapabilitiesOf);
                     sessionState.NeedsRedraw = true;
 
                     // Refetch weather when the weather device URI changes (e.g. API key entered)
@@ -938,19 +714,30 @@ namespace TianWen.UI.Abstractions
             plannerState.Bus = bus;
             sessionState.Bus = bus;
 
-            // Refresh per-OTA camera capabilities when a driver connects or disconnects via the hub; 
-            // gain modes / cooling info may only become known after the driver is actually instantiated.
-            if (appState.DeviceHub is { } hub)
+        }
+
+        /// <summary>
+        /// Runs a disconnect job on <paramref name="deviceUri"/> with its row marked as changing, noting
+        /// <paramref name="done"/> once the node has done it.
+        /// </summary>
+        private async Task RunDisconnectAsync(LocalNodeConnection node, Uri deviceUri, Task<NodeResult<JobDto>> starting, string done)
+        {
+            if (!_eqState.PendingTransitions.TryAdd(deviceUri, 0))
             {
-                hub.DeviceStateChanged += (_, _) =>
+                return;
+            }
+            _appState.NeedsRedraw = true;
+            try
+            {
+                if (await RunNodeJobAsync(node, starting, $"Disconnecting {EquipmentActions.DeviceLabel(deviceUri, node)}", _cts.Token) is not null)
                 {
-                    if (appState.ActiveProfile is { } profile)
-                    {
-                        sessionState.InitializeFromProfile(profile, hub);
-                        sessionState.NeedsRedraw = true;
-                        appState.NeedsRedraw = true;
-                    }
-                };
+                    Notify(NotificationSeverity.Info, done);
+                }
+            }
+            finally
+            {
+                _eqState.PendingTransitions.TryRemove(deviceUri, out _);
+                _appState.NeedsRedraw = true;
             }
         }
     }

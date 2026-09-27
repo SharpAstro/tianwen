@@ -133,7 +133,9 @@ namespace TianWen.UI.Abstractions
         /// Initializes <see cref="CameraSettings"/> from the active profile's OTAs.
         /// Computes default gain and exposure from f-ratio.
         /// </summary>
-        public void InitializeFromProfile(Profile? profile, IDeviceHub? registry = null)
+        /// <param name="capabilitiesOf">What each camera is (its named gains, whether it cools), as the node listed it
+        /// (<see cref="GuiAppState.CameraCapabilitiesOf"/>); a camera it answers nothing for takes a gain value and cools.</param>
+        public void InitializeFromProfile(Profile? profile, Func<Uri, CameraCapabilities?>? capabilitiesOf = null)
         {
             CameraSettings.Clear();
 
@@ -166,21 +168,9 @@ namespace TianWen.UI.Abstractions
                     }
                 }
 
-                // Resolve camera capabilities from device registry
-                IReadOnlyList<string> gainModes = [];
-                var hasCooling = true;
-                if (ota.Camera is { } camUri && registry is not null
-                    && registry.TryGetDeviceFromUri(camUri, out var device))
-                {
-                    if (device is IDeviceWithGainModes withGain)
-                    {
-                        gainModes = withGain.GainModes;
-                    }
-                    if (device is IUncooledCamera)
-                    {
-                        hasCooling = false;
-                    }
-                }
+                var capabilities = ota.Camera is { } camUri && capabilitiesOf?.Invoke(camUri) is { } known ? known : CameraCapabilities.Unknown;
+                var gainModes = capabilities.GainModes;
+                var hasCooling = capabilities.CanCool;
 
                 CameraSettings.Add(new PerOtaCameraSettings
                 {

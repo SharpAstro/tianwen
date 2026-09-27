@@ -29,6 +29,12 @@ namespace TianWen.Hosting.Dto
         public required bool Connected { get; init; }
 
         /// <summary>
+        /// The vendor or transport moniker the Equipment tab's device list shows ("ZWO", "ASCOM", "Open-Meteo"): what the
+        /// device's own type says (<see cref="DeviceBase.Source"/>), which a client of the node cannot work out from a URI.
+        /// </summary>
+        public string? Source { get; init; }
+
+        /// <summary>
         /// A camera's named gains (<see cref="IDeviceWithGainModes"/>), which a session offers in place of a gain value; null
         /// for a camera that takes a value and for any other device. What the device IS, so known with nothing connected
         /// (P6 part 1 of docs/plans/hardware-in-the-server.md).
@@ -48,6 +54,7 @@ namespace TianWen.Hosting.Dto
             DeviceId = device.DeviceId,
             DeviceType = device.DeviceType.ToString(),
             Connected = connected,
+            Source = device.Source,
             GainModes = device is IDeviceWithGainModes { GainModes.Count: > 0 } withGainModes ? [.. withGainModes.GainModes] : null,
             CanCool = device.DeviceType is TianWen.Lib.Devices.DeviceType.Camera ? device is not IUncooledCamera : null,
         };

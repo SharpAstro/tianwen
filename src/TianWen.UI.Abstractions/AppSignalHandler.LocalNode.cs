@@ -25,7 +25,10 @@ namespace TianWen.UI.Abstractions
         /// the node held it. For the host to run in the background at start: a node can take seconds to come up, and the
         /// window says so meanwhile rather than waiting to open.
         /// </summary>
-        public async Task ConnectLocalNodeAsync(LocalNodeOptions options, string? requestedProfile, CancellationToken cancellationToken)
+        /// <param name="includeFake">Whether the first discovery lists the fake devices (the TUI's <c>--fake</c>); it does
+        /// anyway when the profile names one, so a profile set up with fake devices can connect them at once.</param>
+        public async Task ConnectLocalNodeAsync(LocalNodeOptions options, string? requestedProfile, bool includeFake,
+            CancellationToken cancellationToken)
         {
             var (connection, message) = await LocalNodeConnection.FindOrStartAsync(
                 _contexts, _appState, options, _timeProvider, _logger, cancellationToken).ConfigureAwait(false);
@@ -45,7 +48,9 @@ namespace TianWen.UI.Abstractions
 
             await ChooseLocalProfileAsync(connection.Client, requestedProfile, cancellationToken).ConfigureAwait(false);
             await connection.MaybeRefreshProfileAsync(cancellationToken).ConfigureAwait(false);
-            await MigrateLegacySiteAsync(connection, cancellationToken).ConfigureAwait(false);
+
+            // The first discovery, so the Equipment tab lists what the node can reach, and the profile's devices resolve.
+            _bus.Post(new DiscoverDevicesSignal(IncludeFake: includeFake || _appState.ActiveProfile?.Data is { ReferencesAnyFakeDevice: true }));
 
             if (_appState.ActiveProfile is not { } profile)
             {
@@ -122,37 +127,6 @@ namespace TianWen.UI.Abstractions
             if (!set.IsSuccess)
             {
                 Notify(NotificationSeverity.Warning, $"Could not make '{choice.Name}' the active profile: {set.Error}");
-            }
-        }
-
-        /// <summary>
-        /// Earlier builds kept the site on the mount's URI. It is copied into the profile's own site fields the first time
-        /// such a profile is read (<see cref="ProfileData.MigrateSiteFromMountUri"/>), and written back through the node, at
-        /// the revision it was read at, so the copy is made once.
-        /// </summary>
-        private async Task MigrateLegacySiteAsync(LocalNodeConnection connection, CancellationToken cancellationToken)
-        {
-            if (_appState.ActiveProfile is not { Data: { } data } profile || connection.ProfileRevision is not { } revision)
-            {
-                return;
-            }
-            var (migrated, changed) = data.MigrateSiteFromMountUri();
-            if (!changed)
-            {
-                return;
-            }
-
-            var written = await connection.Client.UpdateProfileAsync(profile.ProfileId, migrated, revision, null, cancellationToken).ConfigureAwait(false);
-            if (written is { IsSuccess: true, Value: { } detail })
-            {
-                connection.AdoptProfileWrite(detail);
-                _logger.LogInformation("Migrated site coordinates from Mount URI query into ProfileData for profile {ProfileId}.", profile.ProfileId);
-            }
-            else
-            {
-                // Shown migrated anyway: the site is right, and the copy is made again at the next start.
-                _appState.ActiveProfile = profile.WithData(migrated);
-                _logger.LogWarning("Could not write the migrated site of profile {ProfileId}: {Error}", profile.ProfileId, written.Error);
             }
         }
     }

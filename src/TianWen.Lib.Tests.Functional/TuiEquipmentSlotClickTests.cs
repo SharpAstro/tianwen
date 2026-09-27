@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using Console.Lib;
 using DIR.Lib;
+using Layout = DIR.Lib.Layout;
 using NSubstitute;
 using Shouldly;
 using TianWen.Cli;
@@ -10,7 +11,7 @@ using TianWen.Lib.Devices;
 using TianWen.UI.Abstractions;
 using Xunit;
 
-namespace TianWen.Lib.Tests;
+namespace TianWen.Lib.Tests.Functional;
 
 /// <summary>
 /// The TUI Equipment tab's device-slot row draws <c>[On|Off]</c> and <c>[&gt;]</c> on every row, and until #598
@@ -18,21 +19,22 @@ namespace TianWen.Lib.Tests;
 /// case here runs twice, once by KEY and once by CLICK, through the real tab over the GUI's real signal handler,
 /// and asserts the same outcome -- so a click that took a different route from the key (and could therefore skip
 /// the ownership gate, the disconnect safety pre-check or the confirm strip) would show up as a different result.
+/// Over this computer's node since P6 (#936), which holds the rig: the tab's devices are the node's.
 /// </summary>
+[Collection("NodeProcesses")]
 public class TuiEquipmentSlotClickTests(ITestOutputHelper output)
 {
     private const int Columns = 120;
     private const int Rows = 40;
 
     /// <summary>The real tab, rendered once over a terminal with 1x1-pixel cells so a mouse point IS a cell.</summary>
-    private static TuiEquipmentTab OpenTab(GuiSignalHarness h)
+    private static TuiEquipmentTab OpenTab(GuiNodeHarness h)
     {
         var terminal = Substitute.For<IVirtualTerminal>();
         terminal.Size.Returns((Columns, Rows));
         terminal.CellSize.Returns(new TermCell(1, 1));
 
-        var tab = new TuiEquipmentTab(h.AppState, h.Equipment, h.Contexts, new EquipmentContent(h.Hub),
-            Substitute.For<IConsoleHost>(), h.Bus);
+        var tab = new TuiEquipmentTab(h.AppState, h.Equipment, new EquipmentContent(), h.Bus);
         tab.Attach(terminal);
         tab.Render();
         return tab;
@@ -113,7 +115,7 @@ public class TuiEquipmentSlotClickTests(ITestOutputHelper output)
     }
 
     /// <summary>Toggles the slot's connection the way <paramref name="byClick"/> says: its Off segment, or O.</summary>
-    private static void TurnOff(GuiSignalHarness h, TuiEquipmentTab tab, Uri deviceUri, bool byClick)
+    private static void TurnOff(GuiNodeHarness h, TuiEquipmentTab tab, Uri deviceUri, bool byClick)
     {
         if (byClick)
         {
@@ -133,7 +135,7 @@ public class TuiEquipmentSlotClickTests(ITestOutputHelper output)
     [InlineData(true)]
     public async Task OffDisconnectsAnUnclaimedDevice(bool byClick)
     {
-        await using var h = await GuiSignalHarness.StartAsync(output, TestContext.Current.CancellationToken);
+        await using var h = await GuiNodeHarness.StartAsync(output, TestContext.Current.CancellationToken);
         var tab = OpenTab(h);
 
         TurnOff(h, tab, h.MountUri, byClick);
@@ -150,12 +152,13 @@ public class TuiEquipmentSlotClickTests(ITestOutputHelper output)
     [InlineData(true)]
     public async Task OffOnALeasedDeviceIsRefused(bool byClick)
     {
-        await using var h = await GuiSignalHarness.StartAsync(output, TestContext.Current.CancellationToken);
+        await using var h = await GuiNodeHarness.StartAsync(output, TestContext.Current.CancellationToken);
         h.Hub.TryAcquireLease(h.MountUri, "the imaging session", out var lease).ShouldBeTrue();
         using var _ = lease;
         var tab = OpenTab(h);
 
         TurnOff(h, tab, h.MountUri, byClick);
+        await h.UntilSettledAsync(TestContext.Current.CancellationToken);
 
         h.ShouldHaveRefused("the imaging session");
         h.Hub.IsConnected(h.MountUri).ShouldBeTrue("a leased device was disconnected");
@@ -171,7 +174,7 @@ public class TuiEquipmentSlotClickTests(ITestOutputHelper output)
     [InlineData(true)]
     public async Task OffOnACooledCameraRaisesTheConfirmStrip(bool byClick)
     {
-        await using var h = await GuiSignalHarness.StartAsync(output, TestContext.Current.CancellationToken);
+        await using var h = await GuiNodeHarness.StartAsync(output, TestContext.Current.CancellationToken);
         h.Hub.TryGetConnectedDriver<ICameraDriver>(h.CameraUri, out var camera).ShouldBeTrue();
         await camera.ShouldNotBeNull().SetCoolerOnAsync(true, TestContext.Current.CancellationToken);
         var tab = OpenTab(h);
@@ -189,7 +192,7 @@ public class TuiEquipmentSlotClickTests(ITestOutputHelper output)
     [InlineData(true)]
     public async Task ThePickerGlyphOpensTheAssignmentPicker(bool byClick)
     {
-        await using var h = await GuiSignalHarness.StartAsync(output, TestContext.Current.CancellationToken);
+        await using var h = await GuiNodeHarness.StartAsync(output, TestContext.Current.CancellationToken);
         var tab = OpenTab(h);
         var expected = FindSlotRow(tab, h.CameraUri).Item.Slot.ShouldNotBeNull();
 

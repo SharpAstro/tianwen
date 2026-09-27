@@ -248,7 +248,7 @@ var appQuit = new AppQuit(appState, guiRenderer.ViewContexts, rigShutdown, track
 // This computer's node, found or started (P6): it holds the rig, and the local view reads it as it reads a rig. In the
 // background, since a node can take seconds to come up and the window says so meanwhile; the profile, the planner's start
 // and the session setup follow once it answers.
-tracker.Run(() => signalHandler.ConnectLocalNodeAsync(new LocalNodeOptions(), requestedProfile, backgroundCts.Token),
+tracker.Run(() => signalHandler.ConnectLocalNodeAsync(new LocalNodeOptions(), requestedProfile, includeFake: false, backgroundCts.Token),
     "Connect to this computer's node");
 
 // P3 of docs/plans/mount-safety-limits.md, the GUI half: a profile's mount safety limits apply to a MANUAL
@@ -257,13 +257,6 @@ tracker.Run(() => signalHandler.ConnectLocalNodeAsync(new LocalNodeOptions(), re
 // driven here the way LanDiscovery's lifecycle is above, on the background token: quitting stops it
 // without touching a running session, whose leased mount the watcher skips on its own anyway.
 tracker.Run(() => sp.GetRequiredService<MountLimitWatcher>().RunAsync(backgroundCts.Token), "Mount limit watcher");
-
-// Auto-discover devices on startup via signal bus. If the active profile already
-// references fake devices (e.g. a dev/testing profile with Fake Mount + cameras),
-// opt the first discovery into IncludeFake so those URIs resolve to discovered
-// devices without the user having to press Shift+Discover first.
-var includeFakeOnStartup = appState.ActiveProfile?.Data is { } profileData && profileData.ReferencesAnyFakeDevice;
-bus.Post(new DiscoverDevicesSignal(IncludeFake: includeFakeOnStartup));
 
 // --- Main event loop via SdlEventLoop ---
 var _lastSessionRedrawTimestamp = timeProvider.GetTimestamp();

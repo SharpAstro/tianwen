@@ -60,7 +60,7 @@ public class LocalNodeConnectionTests(ITestOutputHelper outputHelper)
 
         /// <summary>Connects to the node on <paramref name="socketPath"/>, and only connects: a named socket starts no node.</summary>
         public Task ConnectAsync(string socketPath, string? requestedProfile, CancellationToken ct) =>
-            Handler.ConnectLocalNodeAsync(new LocalNodeOptions { NamedSocket = socketPath, AnotherAccountProbe = null }, requestedProfile, ct);
+            Handler.ConnectLocalNodeAsync(new LocalNodeOptions { NamedSocket = socketPath, AnotherAccountProbe = null }, requestedProfile, includeFake: false, ct);
 
         public async ValueTask DisposeAsync()
         {

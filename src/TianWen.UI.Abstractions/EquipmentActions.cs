@@ -56,7 +56,7 @@ public static class EquipmentActions
     /// </list>
     /// </summary>
     public static ConnectAllStatus ComputeConnectAllStatus(
-        ProfileData pd, IDeviceHub? hub,
+        ProfileData pd, NodeConnection? node,
         IReadOnlyList<DeviceBase> discoveredDevices,
         IReadOnlyDictionary<Uri, byte> pendingTransitions,
         bool isDiscovering)
@@ -68,11 +68,11 @@ public static class EquipmentActions
         foreach (var u in pd.AssignedDeviceUris)
         {
             anyAssigned = true;
-            var connected = hub?.IsConnected(u) == true;
+            var connected = node?.IsConnected(u) == true;
             if (!connected) anyNotConnected = true;
             if (pendingTransitions.ContainsKey(u)) anyPending = true;
 
-            var resolvable = (hub is not null && hub.TryGetDeviceFromUri(u, out _))
+            var resolvable = node?.Device(u) is not null
                 || connected
                 || discoveredDevices.Any(d => DeviceBase.SameDevice(d.DeviceUri, u));
             if (!resolvable) allDiscoverable = false;
@@ -95,39 +95,16 @@ public static class EquipmentActions
         return new ConnectAllStatus(true, enabled, label);
     }
 
-    public static async Task<Profile> CreateProfileAsync(string name, IExternal external, CancellationToken ct)
-    {
-        var profile = new Profile(Guid.NewGuid(), name, ProfileData.Empty);
-        await profile.SaveAsync(external, ct);
-        return profile;
-    }
-
     /// <summary>
-    /// Reconciles every registered profile against the current discovery cache
-    /// (<see cref="DeviceDiscoveryExtensions.ReconcileStoredProfile"/>, the rule the node applies too) and
-    /// persists the ones that changed: device URIs that drifted (COM5 -> COM6, new DHCP IP, etc.), or a
-    /// site still on the mount's URI.
-    /// Returns the (original, updated) pairs for each profile that actually changed,
-    /// so the caller can decide which to reflect into UI state without having to
-    /// re-run the comparison.
+    /// The devices the Equipment tab lists, of what the node listed: every device but a profile (the node lists those
+    /// too) and the empty slot, a fake device only when asked for (Shift+Discover, the TUI's <c>--fake</c>; every node
+    /// registers the fake source, so the choice is the client's), by type and then by name.
     /// </summary>
-    public static async Task<IReadOnlyList<(Profile Original, Profile Updated)>> ReconcileAllProfilesAsync(
-        IDeviceDiscovery discovery, IExternal external, CancellationToken ct)
-    {
-        var changes = new List<(Profile, Profile)>();
-        foreach (var p in discovery.RegisteredDevices(DeviceType.Profile).OfType<Profile>())
-        {
-            if (p.Data is not { } data) continue;
-
-            var (reconciled, changed) = discovery.ReconcileStoredProfile(data);
-            if (!changed) continue;
-
-            var updated = p.WithData(reconciled);
-            await updated.SaveAsync(external, ct);
-            changes.Add((p, updated));
-        }
-        return changes;
-    }
+    public static IReadOnlyList<DeviceBase> ForTheDeviceList(ImmutableArray<NodeDevice> listed, bool includeFake) =>
+        [.. listed
+            .Where(d => d.DeviceType is not DeviceType.Profile and not DeviceType.None)
+            .Where(d => includeFake || !string.Equals(d.DeviceClass, nameof(FakeDevice), StringComparison.OrdinalIgnoreCase))
+            .OrderBy(static d => d.DeviceType).ThenBy(static d => d.DisplayName, StringComparer.OrdinalIgnoreCase)];
 
     public static ProfileData AssignMount(ProfileData data, Uri mountUri)
         => data with { Mount = mountUri };
@@ -439,75 +416,6 @@ public static class EquipmentActions
     }
 
     /// <summary>
-    /// After a slot re-assignment, disconnects the previously-assigned device iff it is
-    /// still connected and safe (cooler off, idle). Cool/busy orphans are left connected
-    /// (never yank a cold camera silently). Extracted from AssignDeviceSignal so the
-    /// handler routes only; the caller maps the outcome to notifications.
-    /// </summary>
-    public static async ValueTask<(OrphanDisconnectOutcome Outcome, DisconnectSafety Safety)> AutoDisconnectOrphanAsync(
-        IDeviceHub hub, Uri? prevSlotUri, Uri newUri, ILogger logger, CancellationToken cancellationToken)
-    {
-        if (prevSlotUri is null
-            || DeviceBase.SameDevice(prevSlotUri, newUri)
-            || !hub.IsConnected(prevSlotUri))
-        {
-            return (OrphanDisconnectOutcome.NotApplicable, DisconnectSafety.Safe);
-        }
-
-        var safety = await hub.GetDisconnectSafetyAsync(prevSlotUri, cancellationToken);
-        if (safety != DisconnectSafety.Safe)
-        {
-            return (OrphanDisconnectOutcome.LeftConnected, safety);
-        }
-
-        try
-        {
-            await hub.DisconnectAsync(prevSlotUri, cancellationToken: cancellationToken);
-            return (OrphanDisconnectOutcome.Disconnected, safety);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Auto-disconnect of orphan {Uri} failed", prevSlotUri);
-            return (OrphanDisconnectOutcome.DisconnectFailed, safety);
-        }
-    }
-
-    /// <summary>
-    /// Sets the cooler setpoint and switches the cooler on (when supported). The
-    /// immediate counterpart to the ramped <c>IDeviceHub.WarmAndCoolerOffAsync</c>.
-    /// Extracted from SetCoolerSetpointSignal so the handler routes only.
-    /// </summary>
-    public static async ValueTask SetCoolerSetpointAsync(ICameraDriver camera, double setpointC, CancellationToken cancellationToken)
-    {
-        await camera.SetSetCCDTemperatureAsync(setpointC, cancellationToken);
-        if (camera.CanSetCoolerOn)
-        {
-            await camera.SetCoolerOnAsync(true, cancellationToken);
-        }
-    }
-
-    /// <summary>
-    /// Resolves the device instance for a connect request: prefers the hub-registered
-    /// device (carries query-param config), falling back to a freshly-discovered match
-    /// by URI equality. Extracted from ConnectDeviceSignal so the handler routes only.
-    /// </summary>
-    public static DeviceBase? ResolveDeviceForConnect(IDeviceHub hub, IReadOnlyList<DeviceBase> discoveredDevices, Uri uri)
-    {
-        if (hub.TryGetDeviceFromUri(uri, out var resolved))
-        {
-            return resolved;
-        }
-        foreach (var d in discoveredDevices)
-        {
-            if (DeviceBase.SameDevice(d.DeviceUri, uri))
-            {
-                return d;
-            }
-        }
-        return null;
-    }
-
-    /// <summary>
     /// Reachability of a device as displayed in the Equipment tab. Combines profile
     /// assignment, current discovery state, and live connection state from the hub.
     /// </summary>
@@ -515,7 +423,7 @@ public static class EquipmentActions
     {
         /// <summary>URI is not assigned to any slot in the active profile.</summary>
         NotAssigned,
-        /// <summary>Assigned and currently connected via <see cref="IDeviceHub"/>.</summary>
+        /// <summary>Assigned and currently connected on the node.</summary>
         Connected,
         /// <summary>Assigned, present in the latest discovery results, but not connected; connectable.</summary>
         Disconnected,
@@ -529,14 +437,14 @@ public static class EquipmentActions
     /// </summary>
     public static DeviceReachability GetReachability(
         ProfileData? data,
-        IDeviceHub? hub,
+        NodeConnection? node,
         IReadOnlyCollection<DeviceBase> discoveredDevices,
         Uri deviceUri)
     {
         // Live hub connection wins over assignment: a connected-but-unassigned device
         // (e.g. one the user just reassigned the slot away from) still needs an On|Off
         // toggle so they can disconnect it. Without this gate it would silently linger.
-        if (hub is not null && hub.IsConnected(deviceUri))
+        if (node is not null && node.IsConnected(deviceUri))
         {
             return DeviceReachability.Connected;
         }
@@ -558,18 +466,18 @@ public static class EquipmentActions
     }
 
     /// <summary>
-    /// Returns a human-readable label for a device URI, using the registry if available.
+    /// Returns a human-readable label for a device URI: the name the node holds it under, else the URI's own.
     /// </summary>
-    public static string DeviceLabel(Uri? uri, IDeviceHub? registry = null)
+    public static string DeviceLabel(Uri? uri, NodeConnection? node = null)
     {
         if (uri is null || uri == NoneDevice.Instance.DeviceUri)
         {
             return "(none)";
         }
 
-        if (registry is not null && registry.TryGetDeviceFromUri(uri, out var device))
+        if (node?.Device(uri) is { DisplayName: { Length: > 0 } held })
         {
-            return device.DisplayName;
+            return held;
         }
 
         // Fallback: use URI fragment (display name) if available, else path

@@ -49,6 +49,7 @@ public abstract class NodeConnection : IAsyncDisposable
     private long _devicesCheckedTicks;
     private int _devicesRefreshInFlight;
     private ImmutableDictionary<string, DeviceStateDto> _devices = ImmutableDictionary<string, DeviceStateDto>.Empty;
+    private ImmutableArray<NodeDevice> _listed = [];
 
     /// <summary>
     /// Connects <paramref name="context"/> to the node at <paramref name="transport"/> and starts mirroring it. No request is
@@ -98,6 +99,56 @@ public abstract class NodeConnection : IAsyncDisposable
 
     /// <summary>Whether the node holds the device connected.</summary>
     public bool IsConnected(Uri deviceUri) => Device(deviceUri) is { Connected: true };
+
+    /// <summary>
+    /// Every device the node knows of, connected or not, as it last listed them (<see cref="RefreshListingAsync"/>, after a
+    /// discovery): what the Equipment tab lists and assigns from. Empty until the first listing.
+    /// </summary>
+    public ImmutableArray<NodeDevice> Listed => _listed;
+
+    /// <summary>
+    /// Reads the node's device listing (<c>GET /api/v1/devices/structured</c>) into <see cref="Listed"/>. Answers the
+    /// failure, or null once read.
+    /// </summary>
+    public async Task<string?> RefreshListingAsync(CancellationToken cancellationToken)
+    {
+        var listing = await Client.GetDevicesAsync(cancellationToken).ConfigureAwait(false);
+        if (listing is not { IsSuccess: true, Value: { } devices })
+        {
+            return listing.Error ?? "The node did not list its devices";
+        }
+        var listed = ImmutableArray.CreateBuilder<NodeDevice>(devices.Length);
+        foreach (var device in devices)
+        {
+            if (Uri.TryCreate(device.Uri, UriKind.Absolute, out _))
+            {
+                listed.Add(new NodeDevice(device));
+            }
+        }
+        ImmutableInterlocked.InterlockedExchange(ref _listed, listed.ToImmutable());
+        return null;
+    }
+
+    /// <summary>What the camera <paramref name="camera"/> is, as the node listed it; null for one it did not list.</summary>
+    public CameraCapabilities? CameraCapabilitiesOf(Uri camera)
+    {
+        foreach (var device in Listed)
+        {
+            if (DeviceBase.SameDevice(device.DeviceUri, camera))
+            {
+                return device.Capabilities;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Whether the node would let <paramref name="action"/> be done to the device, by the run it names as holding it: the
+    /// ownership rule's own verdict and wording (<see cref="DeviceOwnershipVerdict"/>), sourced from the node, which holds
+    /// the lease. For a view to say why before it asks; the node refuses the same action itself whatever a view says.
+    /// </summary>
+    public DeviceOwnershipVerdict Ownership(Uri deviceUri, DeviceAction action) =>
+        new DeviceOwnershipVerdict(Device(deviceUri)?.LeaseOwner is { } owner ? new DeviceLease(deviceUri, owner) : null, action);
 
     /// <summary>The identity a device is keyed by: its URI's scheme, host and path, as <see cref="DeviceBase.SameDevice"/> compares.</summary>
     internal static string KeyOf(Uri deviceUri) => deviceUri.GetLeftPart(UriPartial.Path);
@@ -330,6 +381,27 @@ public abstract class NodeConnection : IAsyncDisposable
         {
             Volatile.Write(ref _devicesRefreshInFlight, 0);
         }
+    }
+
+    /// <summary>
+    /// Reads the devices now, whatever the cadence says: after a device job this view started, so its row shows what the
+    /// job did without waiting for the next read. Joins nothing and waits for nothing already in flight, which is
+    /// reading the same thing.
+    /// </summary>
+    public Task<bool> RefreshDevicesNowAsync(CancellationToken cancellationToken)
+    {
+        Volatile.Write(ref _devicesCheckedTicks, 0);
+        return MaybeRefreshDevicesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Reads the view's profile now, whatever the cadence says: after this view switched the node's profile or the node
+    /// wrote it for this view (a device setting, a connect's reconcile).
+    /// </summary>
+    public Task<bool> RefreshProfileNowAsync(CancellationToken cancellationToken)
+    {
+        Volatile.Write(ref _profileCheckedUtcTicks, 0);
+        return MaybeRefreshProfileAsync(cancellationToken);
     }
 
     private static ImmutableDictionary<string, DeviceStateDto> Keyed(IEnumerable<DeviceStateDto> devices)

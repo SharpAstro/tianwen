@@ -38,7 +38,7 @@ namespace TianWen.UI.Abstractions
         /// sections (no <c>cursor +=</c>); text-inputs, the cooler sparkline, and the slot reachability dots
         /// are keyed <see cref="Layout.Content.Fill"/> leaves painted through <see cref="_profilePanelFills"/>.
         /// Runtime-conditional sections (mount/camera telemetry, device settings) self-gate to null (no node)
-        /// when their device isn't hub-connected / declares no settings, exactly as the inline calls did.
+        /// when their device isn't connected on the node / declares no settings, exactly as the inline calls did.
         /// </summary>
         private void RenderProfilePanel(
             GuiAppState appState,
@@ -474,9 +474,9 @@ namespace TianWen.UI.Abstractions
             var isEditingOta = State.EditingOtaIndex == index;
             var capturedI = index;
 
-            var hub = appState.DeviceHub;
+            var node = appState.LocalNode;
             bool OtaDeviceConnected(Uri? u) =>
-                u is not null && u != NoneDevice.Instance.DeviceUri && hub?.IsConnected(u) == true;
+                u is not null && u != NoneDevice.Instance.DeviceUri && node?.IsConnected(u) == true;
             var otaHasConnectedDevice = OtaDeviceConnected(ota.Camera) || OtaDeviceConnected(ota.Focuser)
                 || OtaDeviceConnected(ota.FilterWheel) || OtaDeviceConnected(ota.Cover);
 
@@ -579,7 +579,7 @@ namespace TianWen.UI.Abstractions
 
             // Device name -- pre-truncate to the name column width the slot row divides into.
             var nameW = (1f - EquipmentPanelLayout.LabelShare) * (innerW - padding - arrowW);
-            var deviceLabel = EquipmentActions.DeviceLabel(deviceUri, registry: null);
+            var deviceLabel = EquipmentActions.DeviceLabel(deviceUri);
             var truncated = TextFit.TrimToWidth(Renderer, deviceLabel, fontPath, FontFallback, fontSize, nameW, TextTrim.End);
 
             // Right-edge indicator. When a device is assigned + we have the live hub + discovery snapshot,
@@ -587,7 +587,7 @@ namespace TianWen.UI.Abstractions
             EquipmentActions.DeviceReachability? slotReach = null;
             if (!isActive && deviceUri is not null && deviceUri != NoneDevice.Instance.DeviceUri)
             {
-                var reach0 = EquipmentActions.GetReachability(pd, appState.DeviceHub, State.DiscoveredDevices, deviceUri);
+                var reach0 = EquipmentActions.GetReachability(pd, appState.LocalNode, State.DiscoveredDevices, deviceUri);
                 if (reach0 != EquipmentActions.DeviceReachability.NotAssigned)
                 {
                     slotReach = reach0;

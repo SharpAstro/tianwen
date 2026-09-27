@@ -113,7 +113,7 @@ namespace TianWen.UI.Abstractions
             // Reinitialize per-OTA settings when the profile changes
             if (State.NeedsReinitialization(appState.ActiveProfile))
             {
-                State.InitializeFromProfile(appState.ActiveProfile, appState.DeviceHub);
+                State.InitializeFromProfile(appState.ActiveProfile, appState.CameraCapabilitiesOf);
             }
             // The config form's caveats compare a preference against the profile (the flip deadline against
             // the mount safety limit); the form is built deeper in, where the profile is not in scope.
