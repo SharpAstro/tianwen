@@ -67,17 +67,6 @@ internal static class OpenNgcCorrections
         + "# SIMBAD' as a WITHDRAWN line, i.e. Stellarium met the neighbouring error in this same PR and "
         + "recorded SIMBAD as its only backer. See FlameUpstream.";
 
-    private const string CocoonEvidence =
-        "SIMBAD resolves NAME Cocoon Galaxy to NGC 4490 (12 30 36 +41 38 37), 2,864 arcminutes from the "
-        + "NGC 4990 row it sat on: a digit transposition. "
-        + "https://simbad.cds.unistra.fr/simbad/sim-id?Ident=NAME+Cocoon+Galaxy";
-
-    /// <summary>
-    /// The Cocoon Galaxy fix, ACCEPTED upstream ("good catch", 2026-09-19). Both lines carrying it are
-    /// therefore temporary and go red on the refresh that brings it in.
-    /// </summary>
-    private const string CocoonUpstream = "mattiaverga/OpenNGC#53, accepted 2026-09-19";
-
     /// <summary>
     /// The Flame Nebula fix, DECLINED upstream (2026-09-19), so the two lines carrying it are permanent.
     /// </summary>
@@ -107,14 +96,6 @@ internal static class OpenNgcCorrections
             RemoveCommonNames: [], AddCommonNames: ["Flame Nebula"],
             RemoveIdentifiers: [], AddIdentifiers: ["LBN 953"],
             FlameEvidence, FlameUpstream),
-        new Correction("NGC4990",
-            RemoveCommonNames: ["Cocoon Galaxy"], AddCommonNames: [],
-            RemoveIdentifiers: [], AddIdentifiers: [],
-            CocoonEvidence, CocoonUpstream),
-        new Correction("NGC4490",
-            RemoveCommonNames: [], AddCommonNames: ["Cocoon Galaxy"],
-            RemoveIdentifiers: [], AddIdentifiers: [],
-            CocoonEvidence, CocoonUpstream),
     ];
 
     private static readonly FrozenDictionary<string, Correction> ByRow =
