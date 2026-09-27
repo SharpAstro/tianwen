@@ -225,6 +225,14 @@ namespace TianWen.UI.Abstractions
         public bool IsRemoteActive => !Active.IsLocal;
 
         /// <summary>
+        /// The profile of the view on show (P5b parts 8 and 9 of docs/plans/hardware-in-the-server.md): a rig's own, read
+        /// from its node (<see cref="ViewContext.RigProfile"/>, null until it has been), else this computer's,
+        /// <paramref name="thisComputers"/>. ONE rule for every host and tab that lays a view out from a profile: the planner
+        /// plans with it, and an idle Live Session lists its OTAs, so a rig's view never shows this computer's.
+        /// </summary>
+        public TianWen.Lib.Devices.Profile? ProfileOnShow(TianWen.Lib.Devices.Profile? thisComputers) => Active is { IsLocal: false } rig ? rig.RigProfile : thisComputers;
+
+        /// <summary>
         /// Attaches the app-wide state to every context's <see cref="LiveSessionState"/> (and to any
         /// added later) so <see cref="LiveSessionState.SiteTimeZone"/> resolves. Called once during app
         /// composition.

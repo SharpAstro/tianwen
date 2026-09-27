@@ -1376,6 +1376,12 @@ DTOs + `HostingJsonContext`) and `TianWen.RemoteClient` (`TianWenNodeClient`, `T
   own sensor. A switch of view replans in full and **drops the other view's pins first** (a load replaces them only when
   the view has some saved, so a rig with none showed this computer's and the next save wrote them into the rig's file).
   **A place that writes this computer's site into the planner does so only while its own view is on show.**
+  **An idle rig's devices are its node's** (P5b part 9): the connection reads `GET /devices/state` while the rig is on
+  show and runs nothing, and `RigDevices` lays them out by the rig's own profile through `PreviewOTATelemetry.From`, the
+  ONE builder this computer's hub readings go through too. **A mount no one holds is `MountState.Unknown` (NaN), never
+  `default`**, which reads as RA 0, Dec 0; print an unknown pointing as dashes, since the sexagesimal formatters throw on
+  NaN. **A rig's view always holds its mirror, so `HasActiveRun` asks whether its node serves a session**
+  (`ReportedRun.NoSession`), never whether a session is held.
 - **Every request has a time budget** (state 5 s, preview 30 s, control 10 s; 60 s `HttpClient`
   backstop). Budget expiry and caller cancellation both surface as `OperationCanceledException` meaning
   opposite things: keep `when (...)` filters on the ORIGINAL token, never the linked one.

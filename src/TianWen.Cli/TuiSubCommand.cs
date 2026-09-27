@@ -305,10 +305,11 @@ internal class TuiSubCommand(
             // GUI (VkGuiRenderer.RenderContent), and is what keeps a local session current while a
             // remote context is on screen. Free when no session is running.
             contexts.PollAll();
-            // The GUI runs this inside its per-frame telemetry poll, which the TUI does not have: a limit's
-            // verdict changing class (clear -> warning -> acted, or a driver's own stop) reaches the
-            // notification feed -- and so the Home board's note -- from here.
-            signalHandler.NotifyLimitTransitions();
+            // The GUI's per-frame poll, the same one (P5b part 9): a limit's verdict changing class reaching the
+            // notification feed, a rig's profile read (which its view is planned at), this computer's idle devices
+            // read for the Live Session rows, and the rig on show's from its node. The TUI used to run the first alone,
+            // so its idle rows had no readings and a rig's view was never planned.
+            signalHandler.PollPreviewTelemetry();
 
             // Force periodic redraw on live session/guider tab (~2 Hz) for clock, cooling, mount, guide updates
             if (contexts.Active.LiveSession.IsRunning && appState.ActiveTab is GuiTab.LiveSession or GuiTab.Guider)

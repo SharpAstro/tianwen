@@ -15,4 +15,11 @@ public enum ReportedRun
 
     /// <summary>A flat-frame run on its own.</summary>
     Flats,
+
+    /// <summary>
+    /// The node serves no session at all: none has run since it started, so there is none to show (P5b part 9). Unlike
+    /// <see cref="None"/>, whose session is still there to read (how it ended), this is an idle rig, as a view holding no
+    /// session is on this computer.
+    /// </summary>
+    NoSession,
 }

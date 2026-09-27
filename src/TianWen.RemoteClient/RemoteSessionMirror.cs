@@ -1326,7 +1326,7 @@ namespace TianWen.RemoteClient
         public SessionPhase Phase => Snapshot?.Phase ?? SessionPhase.NotStarted;
 
         /// <summary>The node's run on the session it serves (P5b part 4); none with no session, or while the node answers idle.</summary>
-        public ReportedRun? Run => Snapshot?.Run switch
+        public ReportedRun? Run => Snapshot is not { } snapshot ? ReportedRun.NoSession : snapshot.Run switch
         {
             NodeRunKind.Session => ReportedRun.Session,
             NodeRunKind.Flats => ReportedRun.Flats,
@@ -1372,7 +1372,7 @@ namespace TianWen.RemoteClient
                 {
                     // Same "unknown" encoding a local session uses before its first device poll, so the
                     // reticle-suppression checks downstream behave identically.
-                    return new MountState(double.NaN, double.NaN, double.NaN, PointingState.Unknown, false, false);
+                    return MountState.Unknown;
                 }
 
                 return new MountState(

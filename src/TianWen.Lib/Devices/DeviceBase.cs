@@ -45,8 +45,11 @@ public abstract record class DeviceBase(Uri DeviceUri)
     /// <summary>The device id is the path segments after the leading slash, joined.</summary>
     internal static string DeviceIdOf(Uri deviceUri) => string.Concat(deviceUri.Segments[1..]);
 
-    /// <summary>The display name is the URL-decoded fragment.</summary>
-    internal static string DisplayNameOf(Uri deviceUri) => HttpUtility.UrlDecode(deviceUri.Fragment.TrimStart('#'));
+    /// <summary>
+    /// The display name is the URL-decoded fragment. Public so a client can name a device from its URI alone, as a rig's
+    /// view names its OTAs' devices from the rig's profile (P5b part 9), with no hub to ask.
+    /// </summary>
+    public static string DisplayNameOf(Uri deviceUri) => HttpUtility.UrlDecode(deviceUri.Fragment.TrimStart('#'));
 
     /// <summary>The device class is the URI host.</summary>
     internal static string DeviceClassOf(Uri deviceUri) => deviceUri.Host;

@@ -175,33 +175,7 @@ namespace TianWen.UI.Abstractions
             var camera = await hub.ReadCameraAsync(ota.Camera, logger, ct);
             var focuser = ota.Focuser is { } focuserUri ? await hub.ReadFocuserAsync(focuserUri, logger, ct) : null;
             var filterWheel = ota.FilterWheel is { } filterWheelUri ? await hub.ReadFilterWheelAsync(filterWheelUri, logger, ct) : null;
-
-            var camDisplay = hub.TryGetDeviceFromUri(ota.Camera, out var dev) && dev is not null
-                ? dev.DisplayName : ota.Name;
-
-            return new PreviewOTATelemetry(
-                OtaName: ota.Name,
-                CameraDisplayName: camDisplay,
-                CcdTempC: camera?.CcdTemperatureC ?? double.NaN,
-                SetpointC: camera?.SetpointC ?? double.NaN,
-                CoolerPowerPct: camera?.CoolerPowerPercent ?? double.NaN,
-                CoolerOn: camera?.CoolerOn ?? false,
-                FocusPosition: focuser?.Position ?? 0,
-                FocuserTempC: focuser?.TemperatureC ?? double.NaN,
-                FocuserIsMoving: focuser?.IsMoving ?? false,
-                FilterName: filterWheel?.FilterName ?? "--",
-                CameraConnected: camera is not null,
-                FocuserConnected: focuser is not null,
-                FilterWheelConnected: filterWheel is not null,
-                UsesGainValue: camera?.UsesGainValue ?? false,
-                UsesGainMode: camera?.UsesGainMode ?? false,
-                GainMin: camera?.GainMin ?? 0,
-                GainMax: camera?.GainMax ?? 0,
-                CurrentGain: camera?.Gain ?? 0,
-                GainModes: camera?.GainModes ?? ImmutableArray<string>.Empty,
-                SensorWidth: camera?.SensorWidth ?? 0,
-                SensorHeight: camera?.SensorHeight ?? 0,
-                RoiConstraints: camera?.RoiConstraints ?? default);
+            return PreviewOTATelemetry.From(ota, camera, focuser, filterWheel);
         }
 
         /// <summary>

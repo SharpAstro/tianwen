@@ -38,8 +38,13 @@ namespace TianWen.UI.Abstractions
         /// <see cref="TianWen.Lib.Devices.ProfileSwitchGate.Evaluate"/> by both the GUI and the TUI.
         /// (Polar-align and planetary capture don't set <see cref="ActiveSession"/> at all; they are
         /// caught by the gate's connected-devices check, which is the real backstop.)
+        /// <para>
+        /// A rig's view always holds its mirror, so holding it is not having a session: a node that serves none
+        /// (<see cref="ReportedRun.NoSession"/>) is idle, and its Home card says so as this computer's does (P5b part 9). A
+        /// session that has ended is still held on both sides, since both still show how the night went.
+        /// </para>
         /// </summary>
-        public bool HasActiveRun => IsRunning || ActiveSession is not null;
+        public bool HasActiveRun => IsRunning || ActiveSession is { } session && session.Run is not ReportedRun.NoSession;
 
         /// <summary>
         /// Which mode the live view is in: <see cref="LiveSessionMode.Preview"/>,
@@ -265,7 +270,7 @@ namespace TianWen.UI.Abstractions
         /// </para>
         /// </summary>
         private sealed record MountStateHolder(MountState Value);
-        private MountStateHolder _mountStateHolder = new(default);
+        private MountStateHolder _mountStateHolder = new(MountState.Unknown);
         public MountState MountState
         {
             get => Volatile.Read(ref _mountStateHolder).Value;
@@ -273,8 +278,9 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// The session's most recent mount safety-limit verdict (P4 of mount-safety-limits.md), copied by
-        /// <see cref="PollSession"/>; Clear while nothing is wrong or no session runs. Boxed in a holder for
+        /// The mount's safety-limit verdict (P4 of mount-safety-limits.md): a session's, copied by <see cref="PollSession"/>
+        /// with the pointing it was judged on, else the idle mount's (this computer's limit watcher, or a rig's node's,
+        /// <see cref="RigDevices"/>); Clear while nothing is wrong. Boxed in a holder for
         /// the same reason <see cref="MountState"/> is: a 24-byte record struct written by the poll and read
         /// by the render thread would tear.
         /// </summary>
@@ -605,16 +611,17 @@ namespace TianWen.UI.Abstractions
             // is all-NaN ("unknown"). Copying that would snap the reticle to RA0/Dec0; a NaN RA
             // mid-session likewise means a transient failed read. In both cases keep the last
             // good value (the prior preview poll's, or the previous session sample) rather than
-            // overwriting it. The session is the authority on the mount's display name, so the
-            // name moves in lock-step with the pointing it describes.
+            // overwriting it. The session is the authority on the mount's display name and its limit
+            // verdict, so both move in lock-step with the pointing they describe; a rig whose node runs
+            // nothing therefore keeps what its node's device plane reads (RigDevices, P5b part 9).
             var sessionMount = session.MountState;
             if (!double.IsNaN(sessionMount.RightAscension))
             {
                 MountState = sessionMount;
                 MountDisplayName = session.MountDisplayName;
+                MountLimitVerdict = session.MountLimitVerdict;
             }
             MeridianFlipUtc = session.MeridianFlipUtc;
-            MountLimitVerdict = session.MountLimitVerdict;
             CurrentActivity = session.CurrentActivity;
             LastFramePath = session.LastFramePath;
             LastCapturedImages = session.LastCapturedImages;

@@ -97,6 +97,12 @@ public sealed record CameraDeviceStateDto
     /// <summary>The target of a <see cref="CoolerIntentKind.Cool"/> intent; null otherwise.</summary>
     public double? CoolerIntentSetpointC { get; init; }
 
+    /// <summary>
+    /// The camera's region-of-interest rules (its sensor's steps and alignment); null when the camera gave none, and from
+    /// a node before P5b part 9, which a client reads as <see cref="RoiConstraints"/>' default, as a camera giving none.
+    /// </summary>
+    public CameraRoiDto? Roi { get; init; }
+
     public static CameraDeviceStateDto FromReading(CameraReading reading, CoolerIntent? intent) => new CameraDeviceStateDto
     {
         CcdTemperatureC = DeviceStateDto.Known(reading.CcdTemperatureC),
@@ -115,7 +121,57 @@ public sealed record CameraDeviceStateDto
         SensorHeight = reading.SensorHeight,
         CoolerIntent = intent?.Kind,
         CoolerIntentSetpointC = intent is { Kind: CoolerIntentKind.Cool } cool ? DeviceStateDto.Known(cool.SetpointC) : null,
+        Roi = reading.RoiConstraints == default ? null : CameraRoiDto.FromConstraints(reading.RoiConstraints),
     };
+
+    /// <summary>
+    /// The reading this state was made from, as a client reads it back (P5b part 9): an unknown is NaN again, never 0, so a
+    /// rig's reading goes through the same code a camera on this computer does.
+    /// </summary>
+    public CameraReading ToReading() => new CameraReading(
+        CcdTemperatureC: CcdTemperatureC ?? double.NaN,
+        HeatsinkTemperatureC: HeatsinkTemperatureC ?? double.NaN,
+        SetpointC: SetpointC ?? double.NaN,
+        CoolerPowerPercent: CoolerPowerPercent ?? double.NaN,
+        CoolerOn: CoolerOn,
+        State: State,
+        UsesGainValue: UsesGainValue,
+        UsesGainMode: UsesGainMode,
+        GainMin: GainMin,
+        GainMax: GainMax,
+        Gain: Gain,
+        GainModes: GainModes is { } modes ? [.. modes] : [],
+        SensorWidth: SensorWidth,
+        SensorHeight: SensorHeight,
+        RoiConstraints: Roi?.ToConstraints() ?? default);
+}
+
+/// <summary>A camera's region-of-interest rules (<see cref="RoiConstraints"/>), in pixels.</summary>
+public sealed record CameraRoiDto
+{
+    public required int MaxWidth { get; init; }
+    public required int MaxHeight { get; init; }
+    public required int MinWidth { get; init; }
+    public required int MinHeight { get; init; }
+    public required int WidthStep { get; init; }
+    public required int HeightStep { get; init; }
+    public required int OriginStepX { get; init; }
+    public required int OriginStepY { get; init; }
+
+    public static CameraRoiDto FromConstraints(RoiConstraints roi) => new CameraRoiDto
+    {
+        MaxWidth = roi.MaxWidth,
+        MaxHeight = roi.MaxHeight,
+        MinWidth = roi.MinWidth,
+        MinHeight = roi.MinHeight,
+        WidthStep = roi.WidthStep,
+        HeightStep = roi.HeightStep,
+        OriginStepX = roi.OriginStepX,
+        OriginStepY = roi.OriginStepY,
+    };
+
+    public RoiConstraints ToConstraints() =>
+        new RoiConstraints(MaxWidth, MaxHeight, MinWidth, MinHeight, WidthStep, HeightStep, OriginStepX, OriginStepY);
 }
 
 /// <summary>What a focuser reads (<see cref="FocuserReading"/>).</summary>
@@ -131,6 +187,9 @@ public sealed record FocuserDeviceStateDto
         TemperatureC = DeviceStateDto.Known(reading.TemperatureC),
         IsMoving = reading.IsMoving,
     };
+
+    /// <summary>The reading this state was made from, a temperature it did not give NaN again.</summary>
+    public FocuserReading ToReading() => new FocuserReading(Position, TemperatureC ?? double.NaN, IsMoving);
 }
 
 /// <summary>What a filter wheel reads (<see cref="FilterWheelReading"/>).</summary>
@@ -144,6 +203,9 @@ public sealed record FilterWheelDeviceStateDto
         Position = reading.Position,
         FilterName = reading.FilterName,
     };
+
+    /// <summary>The reading this state was made from.</summary>
+    public FilterWheelReading ToReading() => new FilterWheelReading(Position, FilterName);
 }
 
 /// <summary>
@@ -174,6 +236,20 @@ public sealed record MountDeviceStateDto
         IsTracking = state.IsTracking,
         Limit = verdict is { } v ? MountLimitDto.FromVerdict(v) : null,
     };
+
+    /// <summary>
+    /// The mount's state as a client reads it back, an unknown NaN again. The altitude and the axis angle are a run's (the
+    /// session derives them), and a device read carries neither, so they are NaN here as they are in a device read.
+    /// </summary>
+    public MountState ToState() => new MountState(
+        RightAscension: RightAscension ?? double.NaN,
+        Declination: Declination ?? double.NaN,
+        HourAngle: HourAngle ?? double.NaN,
+        PierSide: PierSide,
+        IsSlewing: IsSlewing,
+        IsTracking: IsTracking,
+        RaJ2000: RaJ2000 ?? double.NaN,
+        DecJ2000: DecJ2000 ?? double.NaN);
 }
 
 /// <summary>What a cover or flat panel reads (<see cref="CoverReading"/>): the flap, the light and its brightness.</summary>
