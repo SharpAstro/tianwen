@@ -41,6 +41,16 @@ namespace TianWen.Lib.Sequencing
         /// </summary>
         NodeContact Contact => NodeContact.InProcess;
 
+        /// <summary>
+        /// The guide samples and how many were ever taken, read together (P5b part 7): sample <c>i</c> is the
+        /// <c>Appended - Samples.Length + i</c>th, which is what lets a node send a client only the samples it lacks.
+        /// Everything taken is still held unless a source says otherwise.
+        /// </summary>
+        (ImmutableArray<GuideErrorSample> Samples, long Appended) GuideSampleWindow => (GuideSamples, GuideSamples.Length);
+
+        /// <summary>How many of the latest guide samples a session holds, and so a mirror of one (P5b part 7).</summary>
+        const int GuideSampleCapacity = 300;
+
         ScheduledObservation? ActiveObservation { get; }
 
         ScheduledObservationTree Observations { get; }

@@ -214,7 +214,16 @@ namespace TianWen.RemoteClient
         /// <see cref="NodeResult{T}.IsNotFound"/> rather than an error to render.
         /// </summary>
         public Task<NodeResult<SessionStateDto>> GetSessionStateAsync(CancellationToken cancellationToken) =>
-            GetAsync("api/v1/session/state", HostingJsonContext.Default.ResponseEnvelopeSessionStateDto, _timeouts.StatePoll, cancellationToken);
+            GetSessionStateAsync(cursor: null, cancellationToken);
+
+        /// <summary>
+        /// <c>GET /session/state</c> with every history from where <paramref name="cursor"/> says the client's copy ends (P5b
+        /// part 7), so a night's log crosses once; null asks for everything. The answer's <see cref="SessionStateDto.HistoryFrom"/>
+        /// says where each part starts.
+        /// </summary>
+        public Task<NodeResult<SessionStateDto>> GetSessionStateAsync(SessionStateCursor? cursor, CancellationToken cancellationToken) =>
+            GetAsync(cursor is { } c ? $"api/v1/session/state?{c.ToQuery()}" : "api/v1/session/state",
+                HostingJsonContext.Default.ResponseEnvelopeSessionStateDto, _timeouts.StatePoll, cancellationToken);
 
         /// <summary>
         /// <c>POST /session/start</c>. <paramref name="profileId"/> null uses the node's active profile, and

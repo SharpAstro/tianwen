@@ -1352,6 +1352,13 @@ DTOs + `HostingJsonContext`) and `TianWen.RemoteClient` (`TianWenNodeClient`, `T
   its node said as though it were live. **A rig's notes are its node's feed** (`RemoteSessionMirror.Notes`: the ring, read
   at the first answer and after the socket reconnects, then each push, one of each note), shown by the Notifications tab
   while the rig is on screen (`NotificationFeed`, one description for the GUI's tab and the TUI's).
+  **A session's histories cross once** (P5b part 7): a poll names where the client's copy ends (`SessionStateCursor`:
+  the session, by the id the node gives it, `SessionStateDto.SessionId`, and a count per history), the node sends each
+  history from there (`HistoryFrom` says where each part starts), and the mirror appends it (`RemoteSessionMirror.Histories`,
+  mapped once). The guide steps are a ring, so their cursor counts every step ever taken (`CircularBuffer.Window`, read
+  with the items in ONE read). **A history added to the state goes through the cursor too**, or it is back to crossing
+  whole twice a second; a cursor naming another session gets everything whole, and a node or client from before part 7
+  sends or asks for everything, so the wire version did not move.
 - **Every request has a time budget** (state 5 s, preview 30 s, control 10 s; 60 s `HttpClient`
   backstop). Budget expiry and caller cancellation both surface as `OperationCanceledException` meaning
   opposite things: keep `when (...)` filters on the ORIGINAL token, never the linked one.

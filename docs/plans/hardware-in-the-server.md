@@ -1214,6 +1214,17 @@ It lands in two PRs:
 
 The histories are fetched from a cursor, not whole every 500 ms.
 
+As built: a poll names where the client's copy ends (`SessionStateCursor`: the session, by the id the node gives each run's
+session, and a count for each of the exposure log, the focus history, the cooling samples and the phase timeline, which
+are append-only for a session's life). The node sends each from there, and `HistoryFrom` says where each part starts; the
+mirror appends (`RemoteSessionMirror.Histories`), mapping each entry once, where it used to map every history again on
+every frame it was read. The guide steps are the session's ring of the latest 300, so their cursor is the number of steps
+ever taken (`CircularBuffer.Window` reads the items and the count together): the node sends the steps after it, and the
+mirror keeps the ring's size. A cursor naming another session, or longer than a history, gets it whole; a part that does not
+continue the copy leaves the next poll naming no session, so it gets everything. Older nodes and clients send or ask for
+everything, which both sides read, so `NodeWire.Version` stays 2. `IncrementalStateNodeTests` shows a node really sends
+less; `MirrorParityTests`, polling with cursors at every phase, shows the copy built this way is the session's own.
+
 ### P5b part 8: the rig's own site, configuration, camera and schedule
 
 The site's time zone and twilight, the running configuration, the sensor rectangle and the schedule

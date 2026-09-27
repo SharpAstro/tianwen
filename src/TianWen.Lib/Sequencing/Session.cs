@@ -78,7 +78,7 @@ internal partial record Session(
     private volatile string? _failureReason;
     private readonly ConcurrentQueue<FocusRunRecord> _focusHistory = [];
     private ImmutableArray<(int Position, float Hfd)> _activeFocusSamples = [];
-    private readonly CircularBuffer<GuideErrorSample> _guideSamples = new CircularBuffer<GuideErrorSample>(300);
+    private readonly CircularBuffer<GuideErrorSample> _guideSamples = new CircularBuffer<GuideErrorSample>(ISessionTelemetry.GuideSampleCapacity);
     private volatile GuideStats? _lastGuideStats;
     private volatile string? _guiderState;
     private volatile SettleProgress? _guiderSettleProgress;
@@ -234,6 +234,9 @@ internal partial record Session(
     public ImmutableArray<FocusRunRecord> FocusHistory => [.. _focusHistory];
     public ImmutableArray<(int Position, float Hfd)> ActiveFocusSamples => _activeFocusSamples;
     public ImmutableArray<GuideErrorSample> GuideSamples => _guideSamples.Snapshot;
+
+    /// <inheritdoc/>
+    public (ImmutableArray<GuideErrorSample> Samples, long Appended) GuideSampleWindow => _guideSamples.Window;
     public GuideStats? LastGuideStats => _lastGuideStats;
     public string? GuiderState => _guiderState;
     public SettleProgress? GuiderSettleProgress => _guiderSettleProgress;

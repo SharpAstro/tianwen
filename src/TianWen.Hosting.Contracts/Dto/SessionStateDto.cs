@@ -43,6 +43,19 @@ public sealed class SessionStateDto
     /// </summary>
     public FrameAvailableDto[]? Frames { get; init; }
 
+    /// <summary>
+    /// The session this state is of, as the node names it for as long as it is the one on show (P5b part 7): what a
+    /// client's <see cref="SessionStateCursor"/> names, so the histories of one session are never continued with another's.
+    /// Null from a node too old to send histories in part.
+    /// </summary>
+    public Guid? SessionId { get; init; }
+
+    /// <summary>
+    /// Where each history here starts in the session's whole history (P5b part 7): from the client's cursor when it named
+    /// this session, else from the start. Null from a node too old to send histories in part, whose histories are whole.
+    /// </summary>
+    public HistoryFromDto? HistoryFrom { get; init; }
+
     public required SessionPhase Phase { get; init; }
     public string? CurrentActivity { get; init; }
     /// <summary>User-facing reason when <see cref="Phase"/> is Failed (which device / what to check); null otherwise.</summary>
@@ -149,14 +162,23 @@ public sealed class SessionStateDto
     /// <param name="nodeNow">The node's clock now (<see cref="NodeNowUtc"/>).</param>
     /// <param name="nodeRun">The node's run on this session (<see cref="Run"/>).</param>
     /// <param name="frames">The node's token for each frame source (<see cref="Frames"/>).</param>
+    /// <param name="sessionId">The session's id on the node (<see cref="SessionId"/>); without one every history is sent
+    /// whole and no <see cref="HistoryFrom"/> is given, as a node before part 7 did.</param>
+    /// <param name="cursor">How far into each history the asking client has got; honoured only when it names
+    /// <paramref name="sessionId"/>.</param>
     public static SessionStateDto FromSession(
         ISessionTelemetry session,
         PendingPromptDto? pendingPrompt = null,
         NotificationDto? lastNotification = null,
         DateTimeOffset? nodeNow = null,
         NodeRunKind? nodeRun = null,
-        FrameAvailableDto[]? frames = null)
+        FrameAvailableDto[]? frames = null,
+        Guid? sessionId = null,
+        SessionStateCursor? cursor = null)
     {
+        // The client's cursor, when it is of this session; else every history from its start.
+        var from = sessionId is { } id && cursor is { } c && c.SessionId == id ? c : default;
+
         var displays = session.TelescopeDisplays;
         var coolingSamples = session.CoolingSamples;
         var cameraStates = ImmutableArray.CreateBuilder<OtaCameraStateDto>(session.CameraStates.Length);
@@ -181,36 +203,36 @@ public sealed class SessionStateDto
             }
         }
 
-        var timeline = ImmutableArray.CreateBuilder<PhaseTimestampDto>(session.PhaseTimeline.Length);
-        foreach (var pt in session.PhaseTimeline)
+        var phases = session.PhaseTimeline;
+        var phasesFrom = Skip(phases, from.PhaseTimeline);
+        var timeline = ImmutableArray.CreateBuilder<PhaseTimestampDto>(Remaining(phases, phasesFrom));
+        for (var i = phasesFrom; i < Length(phases); i++)
         {
+            var pt = phases[i];
             timeline.Add(new PhaseTimestampDto { Phase = pt.Phase, StartTime = pt.StartTime });
         }
 
-        var cooling = ImmutableArray.CreateBuilder<CoolingSampleDto>(coolingSamples.IsDefaultOrEmpty ? 0 : coolingSamples.Length);
-        if (!coolingSamples.IsDefaultOrEmpty)
+        var coolingFrom = Skip(coolingSamples, from.CoolingSamples);
+        var cooling = ImmutableArray.CreateBuilder<CoolingSampleDto>(Remaining(coolingSamples, coolingFrom));
+        for (var i = coolingFrom; i < Length(coolingSamples); i++)
         {
-            foreach (var cs in coolingSamples)
+            var cs = coolingSamples[i];
+            cooling.Add(new CoolingSampleDto
             {
-                cooling.Add(new CoolingSampleDto
-                {
-                    Timestamp = cs.Timestamp,
-                    CameraIndex = cs.CameraIndex,
-                    TemperatureC = JsonNumber.OrNull(cs.TemperatureC),
-                    SetpointTemperatureC = JsonNumber.OrNull(cs.SetpointTempC),
-                    CoolerPowerPercent = JsonNumber.OrNull(cs.CoolerPowerPercent),
-                });
-            }
+                Timestamp = cs.Timestamp,
+                CameraIndex = cs.CameraIndex,
+                TemperatureC = JsonNumber.OrNull(cs.TemperatureC),
+                SetpointTemperatureC = JsonNumber.OrNull(cs.SetpointTempC),
+                CoolerPowerPercent = JsonNumber.OrNull(cs.CoolerPowerPercent),
+            });
         }
 
         var focusHistory = session.FocusHistory;
-        var focusRuns = ImmutableArray.CreateBuilder<FocusRunDto>(focusHistory.IsDefaultOrEmpty ? 0 : focusHistory.Length);
-        if (!focusHistory.IsDefaultOrEmpty)
+        var focusFrom = Skip(focusHistory, from.FocusHistory);
+        var focusRuns = ImmutableArray.CreateBuilder<FocusRunDto>(Remaining(focusHistory, focusFrom));
+        for (var i = focusFrom; i < Length(focusHistory); i++)
         {
-            foreach (var run in focusHistory)
-            {
-                focusRuns.Add(FocusRunDto.FromRecord(run));
-            }
+            focusRuns.Add(FocusRunDto.FromRecord(focusHistory[i]));
         }
 
         var activeSamples = session.ActiveFocusSamples;
@@ -224,22 +246,21 @@ public sealed class SessionStateDto
         }
 
         var log = session.ExposureLog;
-        var exposures = ImmutableArray.CreateBuilder<ExposureLogDto>(log.IsDefaultOrEmpty ? 0 : log.Length);
-        if (!log.IsDefaultOrEmpty)
+        var logFrom = Skip(log, from.ExposureLog);
+        var exposures = ImmutableArray.CreateBuilder<ExposureLogDto>(Remaining(log, logFrom));
+        for (var i = logFrom; i < Length(log); i++)
         {
-            foreach (var entry in log)
+            var entry = log[i];
+            exposures.Add(new ExposureLogDto
             {
-                exposures.Add(new ExposureLogDto
-                {
-                    Timestamp = entry.Timestamp,
-                    TargetName = entry.TargetName,
-                    FilterName = entry.FilterName,
-                    ExposureSeconds = entry.Exposure.TotalSeconds,
-                    FrameNumber = entry.FrameNumber,
-                    MedianHfd = JsonNumber.OrNull(entry.MedianHfd),
-                    StarCount = entry.StarCount,
-                });
-            }
+                Timestamp = entry.Timestamp,
+                TargetName = entry.TargetName,
+                FilterName = entry.FilterName,
+                ExposureSeconds = entry.Exposure.TotalSeconds,
+                FrameNumber = entry.FrameNumber,
+                MedianHfd = JsonNumber.OrNull(entry.MedianHfd),
+                StarCount = entry.StarCount,
+            });
         }
 
         return new SessionStateDto
@@ -260,7 +281,16 @@ public sealed class SessionStateDto
             Run = nodeRun,
             Frames = frames,
             MountDisplayName = session.MountDisplayName,
-            Guider = GuiderStateDto.FromSession(session),
+            Guider = GuiderStateDto.FromSession(session, from.GuideSteps, out var guideFrom),
+            SessionId = sessionId,
+            HistoryFrom = sessionId is null ? null : new HistoryFromDto
+            {
+                ExposureLog = logFrom,
+                FocusHistory = focusFrom,
+                CoolingSamples = coolingFrom,
+                PhaseTimeline = phasesFrom,
+                GuideSteps = guideFrom,
+            },
             Cameras = cameraStates.MoveToImmutable(),
             Observations = observations.ToImmutable(),
             PhaseTimeline = timeline.MoveToImmutable(),
@@ -276,6 +306,17 @@ public sealed class SessionStateDto
     /// Newest cooling sample for a camera, or null. The ramp is append-ordered and interleaves cameras,
     /// so this walks backwards to the first matching index rather than filtering the whole array.
     /// </summary>
+    /// <summary>A history's length, a default array's included.</summary>
+    private static int Length<T>(ImmutableArray<T> history) => history.IsDefault ? 0 : history.Length;
+
+    /// <summary>
+    /// Where to start a history for a client that holds <paramref name="held"/> of it: there, unless it holds more than the
+    /// history has, which is not this history, so from the start.
+    /// </summary>
+    private static int Skip<T>(ImmutableArray<T> history, int held) => held >= 0 && held <= Length(history) ? held : 0;
+
+    private static int Remaining<T>(ImmutableArray<T> history, int from) => Length(history) - from;
+
     private static CoolingSample? NewestCoolingFor(ImmutableArray<CoolingSample> samples, int cameraIndex)
     {
         if (samples.IsDefaultOrEmpty)

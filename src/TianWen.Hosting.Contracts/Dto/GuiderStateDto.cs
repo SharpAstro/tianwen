@@ -73,12 +73,25 @@ public sealed class GuiderStateDto
 
     /// <summary>Projects the guider slice. <see cref="ISessionTelemetry"/> for the same reason as
     /// <see cref="SessionStateDto.FromSession"/>.</summary>
-    public static GuiderStateDto FromSession(ISessionTelemetry session)
+    public static GuiderStateDto FromSession(ISessionTelemetry session) => FromSession(session, guideCursor: 0, out _);
+
+    /// <summary>
+    /// Projects the guider slice with only the steps a client lacks (P5b part 7): the steps from the
+    /// <paramref name="guideCursor"/>th taken, of those the session still holds. <paramref name="firstSent"/> is the number of
+    /// the first step sent, which is where the client's copy continues.
+    /// </summary>
+    public static GuiderStateDto FromSession(ISessionTelemetry session, long guideCursor, out long firstSent)
     {
         var stats = session.LastGuideStats;
-        var steps = ImmutableArray.CreateBuilder<GuideStepDto>(session.GuideSamples.Length);
-        foreach (var s in session.GuideSamples)
+        var (samples, appended) = session.GuideSampleWindow;
+        var held = samples.IsDefault ? 0 : samples.Length;
+        var windowStart = appended - held;
+        var skip = (int)Math.Clamp(guideCursor - windowStart, 0, held);
+        firstSent = windowStart + skip;
+        var steps = ImmutableArray.CreateBuilder<GuideStepDto>(held - skip);
+        for (var i = skip; i < held; i++)
         {
+            var s = samples[i];
             steps.Add(new GuideStepDto
             {
                 Timestamp = s.Timestamp,
