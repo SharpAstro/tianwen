@@ -333,7 +333,10 @@ namespace TianWen.UI.Abstractions
         private static RigCard RemoteCard(RemoteRigConnection connection, DateTimeOffset now, bool isViewed)
         {
             var session = connection.Context.LiveSession;
-            var online = connection.Mirror.IsNodeReachable;
+            // The same rule, and the same words, as the rig's own tabs (RemoteRigActions.DescribeContact): only an
+            // answering node is online. A rig still connecting is neither live nor quiet yet, and says so.
+            var contact = connection.Mirror.Contact;
+            var online = contact.State is NodeContactState.Answering;
 
             return new RigCard(
                 Title: connection.Binding.Alias,
@@ -341,11 +344,10 @@ namespace TianWen.UI.Abstractions
                 IsLocal: false,
                 IsOnline: online,
                 Phase: session.Phase,
-                // BindingAsReached folds in the mirror's own last-contact time, so a rig that answered this
-                // session reports minutes rather than the stale stamp from a previous run.
-                Status: online
-                    ? DescribeActivity(session)
-                    : $"Not answering{RemoteRigActions.DescribeLastSeen(connection.BindingAsReached(), now)}",
+                // The contact carries the mirror's own last-contact time, so a rig that answered this session reports
+                // minutes; the binding as reached is the fallback (the address in use, and a previous run's stamp) for
+                // one that has not answered since.
+                Status: RemoteRigActions.DescribeContact(contact, connection.BindingAsReached(), now) ?? DescribeActivity(session),
                 Target: online ? session.ActiveObservation?.Target.Name : null,
                 FramesWritten: session.TotalFramesWritten,
                 GuideRmsArcsec: online ? session.LastGuideStats?.TotalRMS : null,
@@ -364,7 +366,9 @@ namespace TianWen.UI.Abstractions
                 Cooling: online ? DescribeCooling(session, now) : null,
                 MedianHfd: online ? DescribeHfd(session) : null,
                 MeridianFlipUtc: online ? session.MeridianFlipUtc : null,
-                LastNote: RemoteNote(connection.Mirror.LastNotification, now),
+                // The newest of the node's feed (P5b part 6), which outlives its session: the state's own note went with
+                // the state when the node went idle, taking the "session ended" note off the card with it.
+                LastNote: RemoteNote(connection.Mirror.Notes is [.., var newest] ? newest : connection.Mirror.LastNotification, now),
                 MountLimit: online ? LimitOf(session) : null);
         }
 
@@ -613,18 +617,15 @@ namespace TianWen.UI.Abstractions
                 : null;
 
         /// <inheritdoc cref="LocalNote"/>
-        private static RigCardNote? RemoteNote(NotificationDto? note, DateTimeOffset now) =>
-            note is { } n
-                ? new RigCardNote(
-                    // The wire deliberately carries the severity as a string matching these names, so that
-                    // the contracts assembly need not reference this one. Anything unrecognised reads as
-                    // Info: a note is worth showing even when its severity is not understood.
-                    Enum.TryParse<NotificationSeverity>(n.Severity, ignoreCase: true, out var severity)
-                        ? severity
-                        : NotificationSeverity.Info,
-                    n.Message,
-                    Age(n.TimestampUtc, now))
-                : null;
+        private static RigCardNote? RemoteNote(NotificationDto? note, DateTimeOffset now)
+        {
+            if (note is null)
+            {
+                return null;
+            }
+            var entry = NotificationEntry.FromNode(note);
+            return new RigCardNote(entry.Severity, entry.Message, Age(entry.When, now));
+        }
 
         /// <summary>How long ago, or null for a stamp that is not in the past (clock skew between nodes).</summary>
         private static TimeSpan? Age(DateTimeOffset at, DateTimeOffset now) => now > at ? now - at : null;

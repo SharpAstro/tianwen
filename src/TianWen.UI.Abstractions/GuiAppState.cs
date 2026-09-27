@@ -28,7 +28,19 @@ public enum GuiTab
 public readonly record struct NotificationEntry(
     DateTimeOffset When,
     NotificationSeverity Severity,
-    string Message);
+    string Message)
+{
+    /// <summary>
+    /// A note a node recorded, as this computer's feed shows notes: its rig's Home card and the Notifications tab of the
+    /// rig on screen (P5b part 6). The wire carries the severity as a string matching <see cref="NotificationSeverity"/>'s
+    /// names, so that the contracts assembly need not reference this one; anything unrecognised reads as Info, since a
+    /// note is worth showing even when its severity is not understood.
+    /// </summary>
+    public static NotificationEntry FromNode(TianWen.Hosting.Dto.NotificationDto note) => new NotificationEntry(
+        note.TimestampUtc,
+        Enum.TryParse<NotificationSeverity>(note.Severity, ignoreCase: true, out var severity) ? severity : NotificationSeverity.Info,
+        note.Message);
+}
 
 public class GuiAppState
 {

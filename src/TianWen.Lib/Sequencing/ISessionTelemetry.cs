@@ -35,6 +35,12 @@ namespace TianWen.Lib.Sequencing
         /// </summary>
         ReportedRun? Run => null;
 
+        /// <summary>
+        /// Whether the node running this session is answering, and when it last did (P5b part 6): always answering for a
+        /// session in this process, and a mirror's word on its node, whose last state it goes on showing once it is quiet.
+        /// </summary>
+        NodeContact Contact => NodeContact.InProcess;
+
         ScheduledObservation? ActiveObservation { get; }
 
         ScheduledObservationTree Observations { get; }

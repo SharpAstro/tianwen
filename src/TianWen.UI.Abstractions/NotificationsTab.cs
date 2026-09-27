@@ -6,8 +6,9 @@ using TianWen.Lib.Sequencing;
 namespace TianWen.UI.Abstractions
 {
     /// <summary>
-    /// Renderer-agnostic Notifications tab. Shows <see cref="GuiAppState.Notifications"/>
-    /// as a newest-first scrollable list, with colour-coded severity and a timestamp.
+    /// Renderer-agnostic Notifications tab. Shows the feed of the view on show (<see cref="NotificationFeed"/>): this
+    /// computer's <see cref="GuiAppState.Notifications"/>, or a rig's node's notes while the rig is on screen, as a
+    /// newest-first scrollable list, with colour-coded severity and a timestamp.
     /// No per-tab state: scroll position lives on the tab instance (session-scoped).
     /// </summary>
     public class NotificationsTab<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer)
@@ -41,6 +42,7 @@ namespace TianWen.UI.Abstractions
 
         public void Render(
             GuiAppState appState,
+            ViewContext view,
             RectF32 contentRect)
         {
             // Drops last frame's clickable regions, as every other tab's Render does. This was missing, so
@@ -62,14 +64,14 @@ namespace TianWen.UI.Abstractions
 
             // Header
             RenderLayout(Layout.Builder.Spacer().Bg(HeaderBg), new RectF32(contentRect.X, contentRect.Y, contentRect.Width, headerH));
-            var entries = appState.Notifications;
-            var headerLabel = $"Notifications ({entries.Length})";
-            DrawText(headerLabel.AsSpan(), fontPath,
+            var feed = NotificationFeed.Of(view, appState);
+            var entries = feed.Entries;
+            DrawText(feed.Header.AsSpan(), fontPath,
                 contentRect.X + pad, contentRect.Y, contentRect.Width - pad * 2f, headerH,
                 fontSize * 1.05f, HeaderText, TextAlign.Near, TextAlign.Center);
 
-            // Clear button (right edge of header)
-            if (entries.Length > 0)
+            // Clear button (right edge of header): this computer's own notes only, since a rig's are its node's.
+            if (feed.IsLocal && entries.Length > 0)
             {
                 var btnW = 70f * dpiScale;
                 var btnH = headerH - 6f * dpiScale;
@@ -100,7 +102,7 @@ namespace TianWen.UI.Abstractions
 
             if (entries.IsEmpty)
             {
-                DrawText("No notifications yet.".AsSpan(), fontPath,
+                DrawText(feed.EmptyText.AsSpan(), fontPath,
                     _listRect.X, _listRect.Y, _listRect.Width, _listRect.Height,
                     fontSize, EmptyText, TextAlign.Center, TextAlign.Center);
                 return;
