@@ -147,6 +147,41 @@ public class NodeFrameTests(ITestOutputHelper output) : IAsyncLifetime
             .IsUnchanged.ShouldBeTrue("the token pushed names the frame the route shows");
     }
 
+    /// <summary>
+    /// The session's state names each source's token as the frame route answers it (P5b part 6, #935), which is how a
+    /// mirror knows, from a poll it makes anyway, whether there is a frame to fetch: a token that did not match the route
+    /// would fetch a frame on every poll, or never fetch the new one.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task TheStateNamesEachSourcesTokenAsTheFrameRouteServesIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var ota = Frame(16, 12, (x, y) => x + y);
+        var guide = Frame(8, 8, (x, y) => x);
+        _node.Factory.OnCreated = controlled =>
+        {
+            // A whole state to read, then the two frames on show.
+            RemoteSessionMirrorTests.Observing(controlled.Session);
+            controlled.Session.LastCapturedImages.Returns([ota]);
+            controlled.Session.LastCapturedImageNumber(0).Returns(3);
+            controlled.Session.LastGuideFrame.Returns(guide);
+            controlled.Session.LastGuideFrameNumber.Returns(12);
+        };
+        _node.Factory.Initialised.TrySetResult();
+        await _node.StartSessionAsync(ct);
+
+        var state = (await Client.GetSessionStateAsync(ct)).Value.ShouldNotBeNull();
+        var tokens = state.Frames.ShouldNotBeNull();
+
+        foreach (var source in new[] { FrameSources.Ota(0), FrameSources.Guider })
+        {
+            var token = tokens.Where(t => t.Source == source).ShouldHaveSingleItem().Number;
+            token.ShouldBeGreaterThan(0, $"{source} shows a frame");
+            (await Client.GetLatestFrameAsync(source, after: token, new FrameReader(), ct))
+                .IsUnchanged.ShouldBeTrue($"the state's token for {source} names the frame its route shows");
+        }
+    }
+
     // The plan's measurement: a 26 MP frame (6248 x 4176, an IMX571's) over the socket on this machine. Timed for the
     // record, never asserted on: a loaded machine is slower, not wrong.
     [Theory(Timeout = 120_000)]

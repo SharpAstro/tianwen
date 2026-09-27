@@ -71,8 +71,32 @@ namespace TianWen.UI.Abstractions
         /// A rig's mirror while it is connected, and so how a control from its view reaches its node (P5b part 5): an
         /// abort, a flat run's cancel. Null for the local context, whose runs this computer owns, and for a rig not
         /// connected.
+        /// <para>
+        /// The context redraws whenever its mirror has something new (<see cref="RemoteSessionMirror.Changed"/>, P5b part
+        /// 6): a local session's bootstrapper flags its redraws, and nothing flagged a rig's, which repainted only on the
+        /// window's own tick.
+        /// </para>
         /// </summary>
-        public RemoteSessionMirror? Mirror { get; internal set; }
+        public RemoteSessionMirror? Mirror
+        {
+            get => _mirror;
+            internal set
+            {
+                if (_mirror is { } old)
+                {
+                    old.Changed -= OnMirrorChanged;
+                }
+                _mirror = value;
+                if (value is not null)
+                {
+                    value.Changed += OnMirrorChanged;
+                }
+            }
+        }
+
+        private RemoteSessionMirror? _mirror;
+
+        private void OnMirrorChanged(object? sender, EventArgs e) => LiveSession.NeedsRedraw = true;
     }
 
     /// <summary>
@@ -188,9 +212,16 @@ namespace TianWen.UI.Abstractions
             return true;
         }
 
-        /// <summary>What a rig on screen pulls: its OTA frames and its guide camera's, which the Live Session and
-        /// Guider panes draw.</summary>
-        private static readonly PreviewOptions OnScreenRigFrames = new PreviewOptions(IncludeGuider: true);
+        /// <summary>
+        /// The frames a rig on screen pulls, which are the ones its tab draws (P5b part 6): each OTA's on the Live Session
+        /// tab, the guide camera's on the Guider tab, and none on any other, which draws no frame of the rig's.
+        /// </summary>
+        internal static PreviewOptions? FramesShownOn(GuiTab? tab) => tab switch
+        {
+            GuiTab.LiveSession => new PreviewOptions(IncludeOtas: true, IncludeGuider: false),
+            GuiTab.Guider => new PreviewOptions(IncludeOtas: false, IncludeGuider: true),
+            _ => null,
+        };
 
         /// <summary>
         /// Polls every context's session telemetry, not just the visible one -- a local session hidden
@@ -199,20 +230,21 @@ namespace TianWen.UI.Abstractions
         /// session. Call once per frame.
         /// <para>
         /// <b>A remote rig's frames follow the SCREEN</b> (P4 of docs/plans/hardware-in-the-server.md): the rig on
-        /// screen pulls its linear frames for the Live Session and Guider panes, and every other rig pulls none and
+        /// screen pulls the linear frames its tab draws (<see cref="FramesShownOn"/>), and every other rig pulls none and
         /// gives back what it holds, since N bound rigs each pulling full frames is the load the mirror's opt-in
-        /// exists to prevent. Set on every poll rather than on <see cref="Activate"/>, so a rig connected while it is
-        /// already on screen needs no second step.
+        /// exists to prevent. Set on every poll rather than on <see cref="Activate"/> or a tab switch, so a rig connected
+        /// while it is already on screen needs no second step.
         /// </para>
         /// </summary>
         public void PollAll()
         {
             var active = Active;
+            var onScreen = FramesShownOn(_appState?.ActiveTab);
             foreach (var context in _all)
             {
                 if (context.LiveSession.ActiveSession is RemoteSessionMirror mirror)
                 {
-                    mirror.Previews = ReferenceEquals(context, active) ? OnScreenRigFrames : null;
+                    mirror.Previews = ReferenceEquals(context, active) ? onScreen : null;
                 }
                 context.LiveSession.PollSession();
             }

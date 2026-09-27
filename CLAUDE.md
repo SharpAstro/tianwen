@@ -1340,7 +1340,12 @@ DTOs + `HostingJsonContext`) and `TianWen.RemoteClient` (`TianWenNodeClient`, `T
   node's `RunEnded`), never at its terminal phase. A new note goes there, never into one host: a rig's feed used to read
   "Cooling -> RoughFocus" where the same run in-process read "Initial rough focus...".
 - **Polling is authoritative; the WebSocket is a latency hint** -- `NodeResult<T>` carries a status
-  code because 404 is not unreachable.
+  code because 404 is not unreachable. **Every event the node broadcasts is one the mirror handles**
+  (`RemoteSessionMirror.Dispatch`, P5b part 6): a state change polls now, `FRAME-AVAILABLE` fetches that frame
+  alone, an occurrence the state lacks is raised as its event, and the rest is named as another client's. An event
+  added to `BroadcastEvents` goes into `BroadcastEventSerializationTests.EveryEvent`, which then fails
+  `RemoteSessionMirrorEventTests` until `Dispatch` says what it is. **A frame is fetched only once its source's
+  token moved** (the state's `Frames` or the push), and a view redraws on the mirror's `Changed`, never on a tick.
 - **Every request has a time budget** (state 5 s, preview 30 s, control 10 s; 60 s `HttpClient`
   backstop). Budget expiry and caller cancellation both surface as `OperationCanceledException` meaning
   opposite things: keep `when (...)` filters on the ORIGINAL token, never the linked one.

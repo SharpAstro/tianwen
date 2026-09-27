@@ -1187,6 +1187,22 @@ The mirror handles every event the node sends. A remote context redraws when its
 Frames are fetched on `FRAME-AVAILABLE`, only for a tab that shows them. A stale rig says so on the
 Live Session and Guider tabs.
 
+It lands in two PRs:
+- **6a, events, frames and a redraw.** `RemoteSessionMirror.Dispatch` puts each event the node broadcasts into one of four kinds:
+  - a change to the state (a phase, the guider's state, a prompt, a frame written) wakes the poll now, while the poll
+    still owns the events it derives, so none is raised twice;
+  - `FRAME-AVAILABLE` fetches that frame alone, between polls;
+  - an occurrence the state does not carry is raised as its event. `SCOUT-COMPLETED` now carries its target whole, so a
+    mirror raises `ScoutCompleted` too, and a note is raised as `NoteReceived`;
+  - a device's state, a profile, a job and an enhance are named as another client's.
+
+  The state carries the node's token for each frame source (`Frames`), and a source is fetched only when its token is
+  not the frame held: a poll with nothing new asks for no frame at all, where each OTA was asked every 500 ms. A node
+  from before this sends no tokens and is asked every poll, as before. The rig on screen pulls only the frames its tab
+  draws (`ViewContexts.FramesShownOn`), and its view redraws on the mirror's `Changed`.
+- **6b, a stale rig and its feed.** The Live Session and Guider tabs say when a rig has stopped answering, and a rig's
+  notes are its node's ring, then each `NOTIFICATION` it pushes.
+
 ### P5b part 7: incremental polling
 
 The histories are fetched from a cursor, not whole every 500 ms.

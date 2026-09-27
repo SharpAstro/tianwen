@@ -16,7 +16,8 @@ namespace TianWen.Lib.Tests.Functional;
 /// docs/plans/hardware-in-the-server.md, #931): the GUI's own connection to a rig reaches a real node over TCP and, while
 /// the rig is on screen, fills its view with what the node's slot holds, which the pane then stretches exactly as it
 /// does this computer's. Taken off screen, the rig pulls nothing and gives its frame back. Before this, nothing asked a
-/// rig for frames at all and a remote rig's panes stayed empty.
+/// rig for frames at all and a remote rig's panes stayed empty. On screen, a rig pulls only the frames its TAB draws (P5b
+/// part 6, #935): the Guider tab draws no OTA frame, so the rig gives that one back there too.
 /// </summary>
 [Collection("Hosting")]
 public class RemoteRigLiveFrameTests(ITestOutputHelper output)
@@ -53,6 +54,8 @@ public class RemoteRigLiveFrameTests(ITestOutputHelper output)
             LastAddress = node.Transport.BaseAddress.ToString(),
         };
         var contexts = new ViewContexts();
+        var app = new GuiAppState { ActiveTab = GuiTab.LiveSession };
+        contexts.AttachAppState(app);
         await using var rig = RemoteRigConnection.TryConnect(binding, contexts, peers: null, new SystemTimeProvider(),
             NullLogger.Instance, ct).ShouldNotBeNull();
         contexts.Activate(rig.Context).ShouldBeTrue();
@@ -68,6 +71,25 @@ public class RemoteRigLiveFrameTests(ITestOutputHelper output)
 
         shown.GetChannelSpan(0).SequenceEqual(frame.GetChannelSpan(0)).ShouldBeTrue("the pane must get the node's frame bit for bit");
         rig.Mirror.SavedFramePathOnThisMachine.ShouldBeNull("a rig reached over TCP names no file on this machine");
+
+        app.ActiveTab = GuiTab.Guider;
+        await NodeWait.UntilAsync("the rig on the Guider tab to give its OTA frame back", _ =>
+        {
+            contexts.PollAll();
+            var released = !shown.TryLease(out var lease);
+            lease.Dispose();
+            return ValueTask.FromResult((released && rig.Mirror.LastCapturedImages.Length == 0,
+                $"slots {rig.Mirror.LastCapturedImages.Length}"));
+        }, ct);
+
+        app.ActiveTab = GuiTab.LiveSession;
+        shown = await NodeWait.UntilAsync("the rig's frame back on the Live Session tab", _ =>
+        {
+            contexts.PollAll();
+            return ValueTask.FromResult<(Image?, string)>(rig.Context.LiveSession.LastCapturedImages is [{ } image, ..]
+                ? (image, "a frame")
+                : (null, "no frame yet"));
+        }, ct);
 
         contexts.Activate(contexts.Local).ShouldBeTrue();
         await NodeWait.UntilAsync("the rig off screen to give its frame back", _ =>

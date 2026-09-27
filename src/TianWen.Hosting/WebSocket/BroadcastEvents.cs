@@ -165,6 +165,10 @@ internal static class BroadcastEvents
         Data = new Dictionary<string, object?>
         {
             ["TargetName"] = e.Target.Name,
+            // The whole target, so a client raises the event with the target the session scouted (P5b part 6).
+            ["TargetRA"] = JsonNumber.ForWire(e.Target.RA),
+            ["TargetDec"] = JsonNumber.ForWire(e.Target.Dec),
+            ["CatalogIndex"] = e.Target.CatalogIndex is { } index ? (ulong)index : null,
             ["Classification"] = e.Classification.ToString(),
             ["Outcome"] = e.Outcome.ToString(),
             ["EstimatedClearInSeconds"] = e.EstimatedClearIn?.TotalSeconds,

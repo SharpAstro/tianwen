@@ -127,9 +127,11 @@ public class RemoteSessionMirrorTests
         int otaCount = 1,
         PendingPromptDto? pendingPrompt = null,
         string? lastFramePath = @"C:\Data\2026-07-26\M42\Light\frame7.fits",
-        NodeRunKind? run = null) => new SessionStateDto
+        NodeRunKind? run = null,
+        FrameAvailableDto[]? frames = null) => new SessionStateDto
         {
             Run = run,
+            Frames = frames,
             Phase = phase,
             CurrentActivity = "Imaging M42 (3/12)",
             FailureReason = null,

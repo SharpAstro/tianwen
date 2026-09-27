@@ -1,6 +1,8 @@
 using System.Runtime.CompilerServices;
 
 [assembly: InternalsVisibleTo("TianWen.Lib.Tests")]
+// A rig's view against a real node attaches the app's state, whose tab decides which of the rig's frames are pulled.
+[assembly: InternalsVisibleTo("TianWen.Lib.Tests.Functional")]
 // The web host reads the overlay gather counter for its E2E render-stats hook. The count is a
 // diagnostic, not API: a cache miss draws the identical frame, so nothing else can tell a key that
 // holds from one that misses per event, and the browser is the only place that runs the CPU overlay
