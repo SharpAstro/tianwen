@@ -415,13 +415,16 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// Tells every connected rig's node that this window can SEE a prompt (P1 of docs/plans/hardware-in-the-server.md,
-        /// #917): called by the host from the loop that draws it, every iteration, and never while its display is lost.
-        /// A node holds a prompt only for a client whose beat is fresh, so a frozen window stops holding a remote rig's
-        /// night. It records only (each stream sends at most one beat a second); no rig connected costs nothing.
+        /// Tells every node this window reads, this computer's and each connected rig's, that it can SEE a prompt (P1 of
+        /// docs/plans/hardware-in-the-server.md, #917): called by the host from the loop that draws it, every iteration, and
+        /// never while its display is lost. A node holds a prompt only for a client whose beat is fresh, so a frozen window
+        /// stops holding a night, this computer's included now that its runs are its node's (P6). It records only (each
+        /// stream sends at most one beat a second).
         /// </summary>
-        public void BeatRemoteRigs()
+        public void BeatNodes()
         {
+            _appState.LocalNode?.Mirror.Beat();
+
             var connections = _rigs.Connections;
             if (connections.IsEmpty)
             {
@@ -443,36 +446,56 @@ namespace TianWen.UI.Abstractions
         /// otherwise a relabelled card would not appear until something else happened to dirty the frame.
         /// </para>
         /// </summary>
-        private void RefreshRigProfileNames()
+        private void RefreshNodeProfiles()
         {
+            // This computer's node the same way (P6): its profile is the app's active profile, which another client of the
+            // node may have edited or switched.
+            if (_appState.LocalNode is { ProfileRefreshDue: true } local)
+            {
+                RefreshProfileOf(local, LocalNodeName);
+            }
             foreach (var (_, connection) in _rigs.Connections)
             {
-                if (!connection.ProfileRefreshDue) continue;
-
-                RunTracked("RefreshRigProfile", $"Could not read which profile {connection.Binding.Alias} runs",
-                    async ct =>
-                    {
-                        if (await connection.MaybeRefreshProfileAsync(ct).ConfigureAwait(false))
-                        {
-                            // The rig on show plans with its profile (ProfileOnShow): a new one is a new site or sensor.
-                            if (ReferenceEquals(_contexts.Active, connection.Context))
-                            {
-                                _plannerState.NeedsRecompute = true;
-                            }
-                            _appState.NeedsRedraw = true;
-                        }
-                    });
+                if (connection.ProfileRefreshDue)
+                {
+                    RefreshProfileOf(connection, connection.Binding.Alias);
+                }
             }
         }
 
+        /// <summary>What this computer's node is called in a note about it.</summary>
+        private const string LocalNodeName = "this computer's node";
+
+        private void RefreshProfileOf(NodeConnection connection, string name) =>
+            RunTracked("RefreshNodeProfile", $"Could not read which profile {name} runs",
+                async ct =>
+                {
+                    if (await connection.MaybeRefreshProfileAsync(ct).ConfigureAwait(false))
+                    {
+                        // The view on show plans with its profile (ProfileOnShow): a new one is a new site or sensor.
+                        if (ReferenceEquals(_contexts.Active, connection.Context))
+                        {
+                            _plannerState.NeedsRecompute = true;
+                        }
+                        _appState.NeedsRedraw = true;
+                    }
+                });
+
         /// <summary>
-        /// The rig on show reads its devices from its node while its node runs nothing (P5b part 9): the OTA panels and the
-        /// mount of its idle Live Session, and the reticle of its sky map, on the tabs this computer's own idle poll below
-        /// serves. The Equipment tab is this computer's, so it is not one of them. The cadence and the one-at-a-time rule are
-        /// the connection's (<see cref="RemoteRigConnection.MaybeRefreshDevicesAsync"/>).
+        /// The views' devices, read from their nodes (P5b part 9, P6). This computer's on every tab: they are what the
+        /// Equipment tab connects, the Home card counts and the idle Live Session lays out, and a read is of the node's own
+        /// last readings (it never reads a device for a client), so it costs no device anything. The rig on show while its
+        /// node runs nothing: the OTA panels and the mount of its idle Live Session, and the reticle of its sky map. The
+        /// cadence and the one-at-a-time rule are the connection's (<see cref="NodeConnection.MaybeRefreshDevicesAsync"/>),
+        /// and the pushes between (<c>DEVICE-STATE</c>) keep them current meanwhile.
         /// </summary>
-        private void PollRigOnShowDevices()
+        private void PollNodeDevices()
         {
+            if (_appState.LocalNode is { DevicesRefreshDue: true } local)
+            {
+                RefreshDevicesOf(local, LocalNodeName);
+            }
+
             if (_contexts.Active is not { IsLocal: false } view || view.LiveSession.IsRunning
                 || _appState.ActiveTab is not (GuiTab.LiveSession or GuiTab.SkyMap))
             {
@@ -480,20 +503,22 @@ namespace TianWen.UI.Abstractions
             }
             foreach (var (_, connection) in _rigs.Connections)
             {
-                if (!ReferenceEquals(connection.Context, view) || !connection.DevicesRefreshDue)
+                if (ReferenceEquals(connection.Context, view) && connection.DevicesRefreshDue)
                 {
-                    continue;
+                    RefreshDevicesOf(connection, connection.Binding.Alias);
                 }
-                RunTracked("RefreshRigDevices", $"Could not read the devices of {connection.Binding.Alias}",
-                    async ct =>
-                    {
-                        if (await connection.MaybeRefreshDevicesAsync(ct).ConfigureAwait(false))
-                        {
-                            _appState.NeedsRedraw = true;
-                        }
-                    });
             }
         }
+
+        private void RefreshDevicesOf(NodeConnection connection, string name) =>
+            RunTracked("RefreshNodeDevices", $"Could not read the devices of {name}",
+                async ct =>
+                {
+                    if (await connection.MaybeRefreshDevicesAsync(ct).ConfigureAwait(false))
+                    {
+                        _appState.NeedsRedraw = true;
+                    }
+                });
 
         /// <summary>
         /// Polls connected devices for preview telemetry when the Live Session tab is visible
@@ -519,8 +544,8 @@ namespace TianWen.UI.Abstractions
             // screen does zero device I/O" a property that can be stated rather than argued.
             NotifyLimitTransitions(); // first: it also refreshes the local verdict the cards below read
             _appState.HomeCards = HomeBoard.BuildCards(_contexts, _rigs, _appState, _timeProvider.GetUtcNow());
-            RefreshRigProfileNames();
-            PollRigOnShowDevices();
+            RefreshNodeProfiles();
+            PollNodeDevices();
 
             if (LocalLiveSession.IsRunning) return;
 

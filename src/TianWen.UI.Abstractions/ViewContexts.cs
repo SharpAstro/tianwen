@@ -55,8 +55,11 @@ namespace TianWen.UI.Abstractions
         /// (bindings key on <see cref="NodeId"/>, never on the name).</summary>
         public string DisplayName { get; set; }
 
-        /// <summary>The LAN.Lib stable node id for a remote rig; null for <see cref="ViewContextKind.Local"/>.</summary>
-        public string? NodeId { get; }
+        /// <summary>
+        /// The node's stable id: a rig's LAN.Lib id, and this computer's own node's once it has been found or started (P6,
+        /// <see cref="LocalNodeConnection"/>), which is how the rig picker and the Home board know to leave that node out.
+        /// </summary>
+        public string? NodeId { get; internal set; }
 
         /// <summary>
         /// This context's session state. For the local context it is fed by

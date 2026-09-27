@@ -84,6 +84,40 @@ public class GuiAppState
     /// <summary>Device URI registry for resolving camera URIs to device instances.</summary>
     public IDeviceHub? DeviceHub { get; init; }
 
+    /// <summary>
+    /// This computer's node (P6 of docs/plans/hardware-in-the-server.md, #936), which holds its devices and runs its
+    /// sessions, as the local view reads it: every device read and action on this computer's rig goes through it. Null
+    /// until it has been found or started (<see cref="AppSignalHandler.ConnectLocalNodeAsync"/>), and when none could be,
+    /// which <see cref="LocalNodeProblem"/> says. Written once on a background task, read on the render thread.
+    /// </summary>
+    public LocalNodeConnection? LocalNode
+    {
+        get => System.Threading.Volatile.Read(ref _localNode);
+        internal set => System.Threading.Volatile.Write(ref _localNode, value);
+    }
+
+    private LocalNodeConnection? _localNode;
+
+    /// <summary>
+    /// Why this computer has no node to hold its rig, in words a user can act on (a broken install, a node that did not
+    /// come up); null while there is one, or while it is still being looked for.
+    /// </summary>
+    public string? LocalNodeProblem
+    {
+        get => System.Threading.Volatile.Read(ref _localNodeProblem);
+        internal set => System.Threading.Volatile.Write(ref _localNodeProblem, value);
+    }
+
+    private string? _localNodeProblem;
+
+    /// <summary>
+    /// Whether <paramref name="nodeId"/> is this computer's own node (P6): never a rig of its own, so the rig picker, the
+    /// Home board and the rig sweep leave it out, even where it shares itself on the LAN or was bound as a rig before its
+    /// view became the local one ("Which rig the GUI shows", docs/plans/hardware-in-the-server.md).
+    /// </summary>
+    public bool IsThisComputersNode(string? nodeId) =>
+        LocalNode is { } local && !string.IsNullOrEmpty(nodeId) && string.Equals(local.Node.NodeId, nodeId, StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Live LAN peer table (rigs running tianwen-server), from LAN.Lib's symmetric
     /// discovery beacon (docs/plans/remote-profile.md). Null only if a host never wired
     /// AddLanDiscovery (never true for the GUI today). A fresh snapshot on every read -- no

@@ -17,9 +17,13 @@ internal static class ProfileEndpoints
     {
         var group = routes.MapGroup("/api/v1/profiles");
 
-        // GET /api/v1/profiles: list all profiles
-        group.MapGet("/", (IDeviceDiscovery deviceDiscovery) =>
+        // GET /api/v1/profiles: list all profiles, as their files are NOW. The registry alone lags a profile another
+        // process saved since the node last discovered (the first GUI of a machine asked a node it had just started which
+        // profiles there were, and was told none, P6 part 2), so the profiles are read again first; a profile scan probes
+        // no port, so this costs one read of each small file.
+        group.MapGet("/", async (IDeviceDiscovery deviceDiscovery, CancellationToken ct) =>
         {
+            await deviceDiscovery.DiscoverOnlyDeviceType(DeviceType.Profile, ct);
             var profiles = deviceDiscovery.RegisteredDevices(DeviceType.Profile)
                 .OfType<Profile>()
                 .Select(p => new ProfileSummaryDto { ProfileId = p.ProfileId, Name = p.DisplayName })

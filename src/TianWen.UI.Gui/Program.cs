@@ -11,6 +11,7 @@ using TianWen.Lib.Extensions;
 using TianWen.Lib.Logging;
 using TianWen.Lib.Sequencing;
 using TianWen.Lib.Sequencing.PolarAlignment;
+using TianWen.RemoteClient;
 using TianWen.UI.Abstractions;
 using TianWen.UI.Abstractions.Extensions;
 using TianWen.UI.Gui;
@@ -110,26 +111,9 @@ if (StartupTimeOverride.TryGet(out var simulatedNow, out var clockOffset))
         StartupTimeOverride.EnvVarName, StartupTimeOverride.RawValue, simulatedNow, clockOffset);
 }
 
-// Resolve profile: auto-select if exactly one, otherwise none for now
-var profiles = await sp.GetRequiredService<IDeviceDiscovery>()
-    .Let(async dm =>
-    {
-        await dm.CheckSupportAsync(CancellationToken.None);
-        await dm.DiscoverOnlyDeviceType(DeviceType.Profile, CancellationToken.None);
-        return dm.RegisteredDevices(DeviceType.Profile).OfType<Profile>().ToList();
-    });
-
-if (profiles.Count == 1)
-{
-    appState.ActiveProfile = profiles[0];
-}
-else if (args.Length >= 2 && args[0] is "--active" or "-a")
-{
-    var name = args[1];
-    appState.ActiveProfile = profiles.FirstOrDefault(p =>
-        string.Equals(p.DisplayName, name, StringComparison.OrdinalIgnoreCase) ||
-        (Guid.TryParse(name, out var id) && p.ProfileId == id));
-}
+// The profile is the node's (P6 of docs/plans/hardware-in-the-server.md, #936): --active asks the node to run it, and with
+// none asked for, the node's own active profile, else the only one there is (AppSignalHandler.ConnectLocalNodeAsync).
+var requestedProfile = args.Length >= 2 && args[0] is "--active" or "-a" ? args[1] : null;
 
 // --- One instance for the whole application ---
 // Unlike the viewer, this is NOT keyed on anything: a second GUI would poll the same drivers and
@@ -261,7 +245,11 @@ var signalHandler = handlers.SignalHandler;
 // the progress. Recording how recently each watched rig answered goes first, before its mirror goes away.
 var appQuit = new AppQuit(appState, guiRenderer.ViewContexts, rigShutdown, tracker, backgroundCts, timeProvider,
     () => signalHandler.FlushRigLastSeenAsync(System.Threading.CancellationToken.None));
-tracker.Run(() => signalHandler.LoadSessionConfigAsync(backgroundCts.Token), "Load session config");
+// This computer's node, found or started (P6): it holds the rig, and the local view reads it as it reads a rig. In the
+// background, since a node can take seconds to come up and the window says so meanwhile; the profile, the planner's start
+// and the session setup follow once it answers.
+tracker.Run(() => signalHandler.ConnectLocalNodeAsync(new LocalNodeOptions(), requestedProfile, backgroundCts.Token),
+    "Connect to this computer's node");
 
 // P3 of docs/plans/mount-safety-limits.md, the GUI half: a profile's mount safety limits apply to a MANUAL
 // slew with no session running -- the case the config was put on the profile for -- and a session only
@@ -269,40 +257,6 @@ tracker.Run(() => signalHandler.LoadSessionConfigAsync(backgroundCts.Token), "Lo
 // driven here the way LanDiscovery's lifecycle is above, on the background token: quitting stops it
 // without touching a running session, whose leased mount the watcher skips on its own anyway.
 tracker.Run(() => sp.GetRequiredService<MountLimitWatcher>().RunAsync(backgroundCts.Token), "Mount limit watcher");
-
-if (appState.ActiveProfile is not null)
-{
-    // Legacy migration: earlier builds stored site in the Mount URI query string.
-    // Copy into ProfileData.Site* on first sight so TransformFactory can find it,
-    // then persist so the migration only runs once.
-    if (appState.ActiveProfile.Data is { } migrData)
-    {
-        var (migrated, changed) = migrData.MigrateSiteFromMountUri();
-        if (changed)
-        {
-            // Captured rather than read back off the state inside the closure: the background save
-            // then writes the profile it just migrated, whatever becomes active in the meantime.
-            var migratedProfile = appState.ActiveProfile.WithData(migrated);
-            appState.ActiveProfile = migratedProfile;
-            tracker.Run(() => migratedProfile.SaveAsync(external, backgroundCts.Token),
-                "Persist migrated site coordinates");
-            logger.LogInformation("Migrated site coordinates from Mount URI query into ProfileData for profile {ProfileId}.",
-                appState.ActiveProfile.ProfileId);
-        }
-    }
-
-    var transform = TransformFactory.FromProfile(appState.ActiveProfile, timeProvider, out _);
-    if (transform is not null)
-    {
-        AppSignalHandler.ApplySiteFromTransform(plannerState, transform);
-        tracker.Run(() => signalHandler.InitializePlannerAsync(transform, backgroundCts.Token), "Compute tonight's best targets");
-    }
-    else
-    {
-        appState.AppendNotification(timeProvider.GetUtcNow(),
-            NotificationSeverity.Warning, "Set site coordinates in Equipment tab");
-    }
-}
 
 // Auto-discover devices on startup via signal bus. If the active profile already
 // references fake devices (e.g. a dev/testing profile with Fake Mount + cameras),
@@ -586,7 +540,7 @@ loop.OnLoopIteration = () =>
     previousLoopIteration?.Invoke();
     if (!displayLost)
     {
-        signalHandler.BeatRemoteRigs();
+        signalHandler.BeatNodes();
     }
 };
 

@@ -41,7 +41,9 @@ public abstract class NodeConnection : IAsyncDisposable
     private readonly ITimeProvider _timeProvider;
 
     private string? _profileName;
-    private DateTimeOffset? _profileCheckedUtc;
+    // UTC ticks of the last profile read, 0 for none yet (or a push that asked for one now). A long read and written
+    // volatile, since the event stream, the render thread and a refresh all touch it.
+    private long _profileCheckedUtcTicks;
     private int _profileRefreshInFlight;
     private string? _profileRevision;
     private long _devicesCheckedTicks;
@@ -102,6 +104,16 @@ public abstract class NodeConnection : IAsyncDisposable
 
     private void OnNodeEvent(object? sender, WebSocketEventDto dto)
     {
+        if (ProfileChangedDto.TryFromEvent(dto, out var change))
+        {
+            // A write the node made, whoever asked for it: the profile is read again at the next poll rather than in two
+            // minutes, unless the change is the revision already held (this client's own write, adopted as it was answered).
+            if (!string.Equals(change.Revision, Volatile.Read(ref _profileRevision), StringComparison.Ordinal))
+            {
+                Volatile.Write(ref _profileCheckedUtcTicks, 0);
+            }
+            return;
+        }
         if (!DeviceStateDto.TryFromEvent(dto, out var device) || !Uri.TryCreate(device.DeviceUri, UriKind.Absolute, out var uri))
         {
             return;
@@ -163,7 +175,7 @@ public abstract class NodeConnection : IAsyncDisposable
     /// it, so this is one rule, not two.
     /// </summary>
     public bool ProfileRefreshDue =>
-        _profileCheckedUtc is not { } last || _timeProvider.GetUtcNow() - last >= ProfileRefreshInterval;
+        Volatile.Read(ref _profileCheckedUtcTicks) is var last && (last == 0 || _timeProvider.GetUtcNow().UtcTicks - last >= ProfileRefreshInterval.Ticks);
 
     /// <summary>
     /// Re-asks the node which profile it runs, and reads the profile the view plans with whole (<see cref="OnProfileRead"/>,
@@ -193,7 +205,7 @@ public abstract class NodeConnection : IAsyncDisposable
 
         try
         {
-            _profileCheckedUtc = _timeProvider.GetUtcNow();
+            Volatile.Write(ref _profileCheckedUtcTicks, _timeProvider.GetUtcNow().UtcTicks);
             var result = await Client.GetActiveProfileAsync(cancellationToken).ConfigureAwait(false);
 
             var resolved = result switch
@@ -211,9 +223,9 @@ public abstract class NodeConnection : IAsyncDisposable
             {
                 var detail = await Client.GetProfileAsync(profileId, cancellationToken).ConfigureAwait(false);
                 if (detail is { IsSuccess: true, Value: { Data: { } data } profile }
-                    && !string.Equals(profile.Revision, _profileRevision, StringComparison.Ordinal))
+                    && !string.Equals(profile.Revision, Volatile.Read(ref _profileRevision), StringComparison.Ordinal))
                 {
-                    _profileRevision = profile.Revision;
+                    Volatile.Write(ref _profileRevision, profile.Revision);
                     OnProfileRead(new Profile(profile.ProfileId, profile.Name, data));
                     changed = true;
                 }
@@ -230,6 +242,27 @@ public abstract class NodeConnection : IAsyncDisposable
         {
             Volatile.Write(ref _profileRefreshInFlight, 0);
         }
+    }
+
+    /// <summary>
+    /// The revision the view's profile was read at (the hash of the node's stored bytes), which an edit of it names so the
+    /// node can refuse one made against a profile that has moved on since (a 412); null until it has been read.
+    /// </summary>
+    public string? ProfileRevision => Volatile.Read(ref _profileRevision);
+
+    /// <summary>
+    /// Takes a profile this client wrote, as the node answered the write: its revision is the one the next edit names,
+    /// and it is the view's profile from here, with no second read (the write's own <c>PROFILE-CHANGED</c> push is then
+    /// at the revision held, and asks for none).
+    /// </summary>
+    public void AdoptProfileWrite(ProfileDetailDto written)
+    {
+        if (written.Data is not { } data)
+        {
+            return;
+        }
+        Volatile.Write(ref _profileRevision, written.Revision);
+        OnProfileRead(new Profile(written.ProfileId, written.Name, data));
     }
 
     /// <summary>

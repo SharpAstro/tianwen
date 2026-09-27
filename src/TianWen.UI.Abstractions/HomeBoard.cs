@@ -283,6 +283,12 @@ namespace TianWen.UI.Abstractions
             foreach (var binding in rigs.Bindings.Sort(static (a, b) =>
                          string.Compare(a.Alias, b.Alias, StringComparison.CurrentCultureIgnoreCase)))
             {
+                // This computer's own node, bound as a rig before its view became the local one: its card is the first.
+                if (appState.IsThisComputersNode(binding.NodeId))
+                {
+                    continue;
+                }
+
                 // Matched on node id, never on the alias: two rigs may announce the same name, and a
                 // renamed rig keeps its binding.
                 var isViewed = !active.IsLocal

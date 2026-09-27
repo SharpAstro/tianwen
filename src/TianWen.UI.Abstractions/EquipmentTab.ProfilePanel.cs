@@ -107,7 +107,7 @@ namespace TianWen.UI.Abstractions
         private void OpenProfileDropdown(GuiAppState appState, float x, float y, float width)
         {
             var profiles = State.AllProfiles;
-            var rigs = appState.PeerTable?.PeersOf("tianwen-server") ?? [];
+            var rigs = RemoteRigActions.RigPeers(appState);
             var rigLabels = LanPeer.ResolveLabels(rigs);
             var bound = State.BoundRigs;
 
@@ -138,7 +138,8 @@ namespace TianWen.UI.Abstractions
             // under a new name is not listed twice.
             foreach (var binding in bound)
             {
-                if (rigs.Any(p => string.Equals(p.NodeId, binding.NodeId, StringComparison.OrdinalIgnoreCase)))
+                if (appState.IsThisComputersNode(binding.NodeId)
+                    || rigs.Any(p => string.Equals(p.NodeId, binding.NodeId, StringComparison.OrdinalIgnoreCase)))
                 {
                     continue;
                 }
