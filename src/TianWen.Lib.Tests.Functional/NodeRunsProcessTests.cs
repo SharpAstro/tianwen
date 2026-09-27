@@ -18,14 +18,15 @@ namespace TianWen.Lib.Tests.Functional;
 
 /// <summary>
 /// The proof of P5 (docs/plans/hardware-in-the-server.md, #934): each kind of run over a fake rig through the SOCKET of a
-/// spawned node (<see cref="KeptNode"/>, <c>--fake-devices --local-only</c> and a 3 s detach grace), with its client gone
+/// spawned node (<see cref="KeptNode"/>, <c>--fake-devices --local-only</c> and a 5 s detach grace), with its client gone
 /// mid-run. A session and a dark library go on. Polar alignment and a planetary live view stop cleanly once the grace is
 /// spent, and a client back within the grace keeps them.
 /// </summary>
 [Collection("NodeProcesses")]
 public class NodeRunsProcessTests(ITestOutputHelper output)
 {
-    private static readonly TimeSpan Grace = TimeSpan.FromSeconds(3);
+    /// <summary>Long enough for a window to come back inside it, short enough to wait out.</summary>
+    private static readonly TimeSpan Grace = TimeSpan.FromSeconds(5);
     private static readonly Guid ProfileId = Guid.Parse("7e57ab1e-0b0e-4e5d-9a5e-000000000934");
     private static readonly Uri Mount = new Uri("Mount://FakeDevice/FakeMount1?latitude=48.2&longitude=16.3");
     private static readonly Uri Camera = new Uri("Camera://FakeDevice/FakeCamera1");
@@ -95,6 +96,17 @@ public class NodeRunsProcessTests(ITestOutputHelper output)
         return window;
     }
 
+    /// <summary>
+    /// Until the node counts no client attached: a window's socket closes as it goes, and from then the node's grace
+    /// clock runs. Every step that depends on the grace starts from here rather than from the dispose.
+    /// </summary>
+    private static Task UntilNobodyIsAttachedAsync(TianWenNodeClient client, CancellationToken ct)
+        => UntilAsync<NodeInfoDto>("the node to see its last client go", async token =>
+        {
+            var node = (await client.GetNodeAsync(token)).Value;
+            return (node is { ClientsAttached: 0 } ? node : null, node is null ? "no answer" : $"{node.ClientsAttached} attached");
+        }, ct);
+
     private static async Task<IEnumerable<string>> NotesAsync(TianWenNodeClient client, CancellationToken ct)
         => ((await client.GetNotificationsAsync(ct)).Value ?? []).Select(n => n.Message);
 
@@ -114,6 +126,7 @@ public class NodeRunsProcessTests(ITestOutputHelper output)
             return (state is { FramesReceived: > 0 } ? state : null, state is null ? "none" : $"{state.FramesReceived} frames");
         }, ct);
         await first.DisposeAsync();
+        await UntilNobodyIsAttachedAsync(client, ct);
         var second = await WindowAsync(kept, ct);
         await Task.Delay(Grace * 2, ct);
         (await client.GetPlanetaryAsync(ct)).Value.ShouldNotBeNull().Running.ShouldBeTrue("a client came back within the grace");
@@ -128,7 +141,8 @@ public class NodeRunsProcessTests(ITestOutputHelper output)
         }, ct);
         goneAt.Elapsed.ShouldBeGreaterThanOrEqualTo(Grace, "the grace is whole before it stops");
         planetary.FailureReason.ShouldBeNull("the grace ends it cleanly");
-        (await NotesAsync(client, ct)).ShouldContain(n => n.StartsWith("The planetary capture stopped: no client has watched it"));
+        // The message names the grace, which is what says the node took the one it was started with.
+        (await NotesAsync(client, ct)).ShouldContain($"The planetary capture stopped: no client has watched it for {Grace.TotalSeconds:0} s");
 
         // Polar alignment, likewise: rotating the mount for nobody is the case the grace is for.
         var third = await WindowAsync(kept, ct);
@@ -146,7 +160,7 @@ public class NodeRunsProcessTests(ITestOutputHelper output)
         }, ct);
         goneAt.Elapsed.ShouldBeGreaterThanOrEqualTo(Grace);
         aligned.FailureReason.ShouldBeNull("stopped by the grace, the mount restored, not failed");
-        (await NotesAsync(client, ct)).ShouldContain(n => n.StartsWith("Polar alignment stopped: no client has watched it"));
+        (await NotesAsync(client, ct)).ShouldContain($"Polar alignment stopped: no client has watched it for {Grace.TotalSeconds:0} s");
     }
 
     [Fact(Timeout = 240_000)]
@@ -156,9 +170,10 @@ public class NodeRunsProcessTests(ITestOutputHelper output)
         await using var kept = await RigAsync(ct);
         var client = kept.Client;
 
-        // A dark library: its window goes at once, and it takes every frame regardless.
+        // A dark library: its window goes at once, and it takes every frame regardless. It lasts well past a grace
+        // (six 2 s frames), or an interactive dark library would finish before the grace could stop it.
         var window = await WindowAsync(kept, ct);
-        (await client.StartDarkLibraryAsync(new DarkLibraryRequestDto { DeviceUri = Camera.ToString(), ExposureSeconds = 2, Count = 3 }, ct))
+        (await client.StartDarkLibraryAsync(new DarkLibraryRequestDto { DeviceUri = Camera.ToString(), ExposureSeconds = 2, Count = 6 }, ct))
             .IsSuccess.ShouldBeTrue();
         await window.DisposeAsync();
         var darks = await UntilAsync<DarkLibraryStateDto>("the dark library to end", async token =>
@@ -166,7 +181,7 @@ public class NodeRunsProcessTests(ITestOutputHelper output)
             var state = (await client.GetDarkLibraryAsync(token)).Value;
             return (state is { Running: false } ? state : null, state is null ? "none" : $"{state.Frames.Length} of {state.Count}");
         }, ct);
-        (darks.Frames.Length, darks.Stopped, darks.FailureReason).ShouldBe((3, false, (string?)null), "a dark library finishes unwatched");
+        (darks.Frames.Length, darks.Stopped, darks.FailureReason).ShouldBe((6, false, (string?)null), "a dark library finishes unwatched");
 
         // A session: on for twice the grace after its window has gone, until it is aborted.
         window = await WindowAsync(kept, ct);
@@ -177,6 +192,7 @@ public class NodeRunsProcessTests(ITestOutputHelper output)
         var started = await client.StartSessionAsync(ProfileId, configuration: null, ct);
         started.IsSuccess.ShouldBeTrue(started.Error);
         await window.DisposeAsync();
+        await UntilNobodyIsAttachedAsync(client, ct);
         await Task.Delay(Grace * 2, ct);
 
         var state = await client.GetSessionStateAsync(ct);
