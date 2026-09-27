@@ -107,6 +107,41 @@ internal sealed class NodePlanetary(IDeviceHub hub, NodeJobs jobs, IHostedSessio
         return ResponseEnvelope<PlanetaryStateDto>.Ok(run.State);
     }
 
+    /// <summary>
+    /// Starts recording the capture going on to a SER file under the node's image folder
+    /// (<see cref="PlanetaryCapture.RecordingPath"/>); it finishes its duration whether or not anyone watches.
+    /// </summary>
+    public ResponseEnvelope<PlanetaryStateDto> Record(PlanetaryRecordRequestDto request)
+    {
+        if (!double.IsFinite(request.DurationSeconds) || request.DurationSeconds <= 0)
+        {
+            return ResponseEnvelope<PlanetaryStateDto>.Fail("A recording needs a positive duration");
+        }
+        if (hosted.CurrentRun is not NodePlanetaryRun { IsRunning: true } run)
+        {
+            return ResponseEnvelope<PlanetaryStateDto>.NotFound("No planetary capture is running to record");
+        }
+
+        var path = PlanetaryCapture.RecordingPath(external, run.OtaIndex, timeProvider.GetUtcNow());
+        if (!run.TryStartRecording(path, TimeSpan.FromSeconds(request.DurationSeconds), out var refusal))
+        {
+            return ResponseEnvelope<PlanetaryStateDto>.Fail(refusal, 409);
+        }
+        return ResponseEnvelope<PlanetaryStateDto>.Ok(run.State);
+    }
+
+    /// <summary>Ends the recording going on sooner than its duration; the capture goes on.</summary>
+    public ResponseEnvelope<PlanetaryStateDto> StopRecording()
+    {
+        if (hosted.CurrentRun is not NodePlanetaryRun { IsRunning: true } run || run.Capture.Recording is not { IsRecording: true })
+        {
+            return ResponseEnvelope<PlanetaryStateDto>.NotFound("No recording is being made");
+        }
+
+        run.Capture.StopRecording();
+        return ResponseEnvelope<PlanetaryStateDto>.Ok(run.State);
+    }
+
     // What the capture is asked to stream at, checked before anything is touched: the camera would take none of these.
     private static string? Invalid(double exposureMs, short? gain, int roiWidth, int roiHeight)
         => !double.IsFinite(exposureMs) || exposureMs <= 0 ? "A planetary capture needs a positive exposure"
@@ -159,8 +194,19 @@ internal sealed class NodePlanetaryRun : INodeRun
 
     public NodeRunKind Kind => NodeRunKind.Planetary;
 
-    /// <summary>A live view: nobody watching is a camera held for nobody. A recording to disk will not be (P5 part 5d).</summary>
-    public bool EndsUnwatched => true;
+    /// <summary>
+    /// A live view: nobody watching is a camera held for nobody. Not while it RECORDS (P5 part 5d): a recording finishes
+    /// its duration unwatched, and the live view left after it has a whole grace of its own (<see cref="NodeRunWatch"/>
+    /// starts one when the run becomes interactive again).
+    /// </summary>
+    public bool EndsUnwatched => Capture.Recording is not { IsRecording: true };
+
+    /// <summary>The OTA whose camera streams.</summary>
+    internal int OtaIndex => _otaIndex;
+
+    /// <summary>Starts recording what the capture streams (<see cref="PlanetaryCapture.TryStartRecording"/>).</summary>
+    public bool TryStartRecording(string path, TimeSpan duration, [NotNullWhen(false)] out string? refusal)
+        => Capture.TryStartRecording(path, duration, out _, out refusal);
 
     /// <summary>Until its body has ended, whether or not it has begun: the node releases it at once.</summary>
     public bool IsRunning => Volatile.Read(ref _ended) == 0;
@@ -186,6 +232,7 @@ internal sealed class NodePlanetaryRun : INodeRun
                 OffsetY = JsonNumber.ForWire(offsetY),
                 RecenterActuator = Capture.LastRecenterActuator,
                 FailureReason = Capture.FailureReason,
+                Recording = Capture.Recording is { } recording ? PlanetaryRecordingDto.From(recording) : null,
             };
         }
     }

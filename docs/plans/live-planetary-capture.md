@@ -144,6 +144,12 @@ releases). D and E are hardware/quality upgrades behind the same contract.
 - `TianWen.Hosting.Contracts/Api/FrameStreamWire.cs` -- both frames as streams (P5 part 5c): a WebSocket per source,
   the client asking for each frame and the node answering with the newest, so a slow view skips frames instead of
   falling behind; `NodeTransport.OpenFrameStreamAsync` on the client. The live frame is dated when it arrived.
+- `TianWen.Lib/Imaging/Planetary/SerRecording.cs` -- a recording to disk (P5 part 5d): `PlanetaryCapture.TryStartRecording`
+  writes every frame for a duration into a SER file (`PlanetaryCapture.RecordingPath`, `Planetary/<date>/` beside the
+  snapshots), in the camera's own shape at 16 bits with each frame's arrival time; the loop converts and queues, a
+  writer task of its own does the disk (a frame the disk cannot take is dropped and counted); a frame of another size
+  ends it. The node's `/api/v1/planetary/record` finishes its duration unwatched. The GUI has no Record control yet
+  (P6), and #814's memory-mapped SER, the recording and the frame ring in one, is the optimisation still ahead.
 - `TianWen.UI.Abstractions/PlanetaryCaptureController.cs` -- owns a `PlanetaryCapture`; `Tick()` (render
   thread) follows latest + publishes the master + pushes wavelet-sharpen changes.
 - `ViewerState.BuildWaveletOptions()` -- the single source for live-stack wavelet options, now shared by

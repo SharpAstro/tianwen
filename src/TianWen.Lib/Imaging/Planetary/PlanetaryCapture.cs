@@ -452,8 +452,12 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
                 // A Bayer source is pushed WHOLE: the ring splits it into its four CFA sub-planes itself (it stores
                 // half-res planes, exactly as SerFrameStream does on load), straight into recycled planes. Mono / RGB
                 // push through unchanged. The stream is sized to this frame above, so the dimensions always match.
-                stream.Push(frame, timeProvider.GetUtcNow());
+                var arrived = timeProvider.GetUtcNow();
+                stream.Push(frame, arrived);
                 var received = Interlocked.Increment(ref _framesReceived);
+
+                // A recording converts and queues the frame; its own writer does the disk (SerRecording).
+                _recording?.TryAppend(frame, arrived);
 
                 // COM recenter: measure the disk on the just-captured frame (still alive here, before the Release
                 // below) and pull it back to the frame centre -- via the ROI window (fast, mount-free) or, when the ROI
@@ -494,6 +498,9 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         }
         finally
         {
+            // A recording ends with the frames that feed it; what it queued is still written.
+            _recording?.End("the capture ended");
+
             // The camera is free again once the loop is done with it.
             claim?.Dispose();
             Interlocked.Exchange(ref _captureActive, 0);
@@ -558,6 +565,54 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
             }
         }
     }
+
+    // ── Recording to disk (P5 part 5d) ────────────────────────────────────────────────────────────────────────────
+
+    private volatile SerRecording? _recording;
+
+    /// <summary>The recording going on, or the last one to end, until the next starts; null before any.</summary>
+    public SerRecording? Recording => _recording;
+
+    /// <summary>
+    /// Starts recording every frame the capture takes for <paramref name="duration"/> into the SER file at
+    /// <paramref name="path"/> (<see cref="SerRecording"/>). Refuses in words while no capture runs, or while a recording
+    /// already goes on.
+    /// </summary>
+    public bool TryStartRecording(string path, TimeSpan duration, [NotNullWhen(true)] out SerRecording? recording,
+        [NotNullWhen(false)] out string? refusal)
+    {
+        recording = null;
+        if (!IsCapturing)
+        {
+            refusal = "No planetary capture is running to record";
+            return false;
+        }
+        if (_recording is { IsRecording: true })
+        {
+            refusal = "A recording is already being made";
+            return false;
+        }
+
+        var now = timeProvider.GetUtcNow();
+        recording = new SerRecording(path, now, now + duration, logger);
+        _recording = recording;
+        refusal = null;
+        logger.LogInformation("Planetary capture recording to {Path} for {Duration}", path, duration);
+        return true;
+    }
+
+    /// <summary>Ends the recording going on, if one is: the frames it queued are still written.</summary>
+    public void StopRecording() => _recording?.End("it was stopped");
+
+    /// <summary>
+    /// Where a recording of OTA <paramref name="otaIndex"/>'s capture starting at <paramref name="utcNow"/> goes, beside the
+    /// snapshots (<c>PreviewCapture.SaveSnapshotAsync</c>): <c>Planetary/&lt;date&gt;/planetary_&lt;time&gt;_OTA&lt;n&gt;.ser</c>
+    /// under the image folder.
+    /// </summary>
+    public static string RecordingPath(IExternal external, int otaIndex, DateTimeOffset utcNow)
+        => System.IO.Path.Combine(external.ImageOutputFolder.FullName, "Planetary",
+            utcNow.ToString("yyyy-MM-dd", System.Globalization.DateTimeFormatInfo.InvariantInfo),
+            external.GetSafeFileName($"planetary_{utcNow:yyyy-MM-ddTHH_mm_ss}_OTA{otaIndex + 1}.ser"));
 
     // ── Live capture controls (a host stages; the capture loop drains + applies) ─────────────────────────────────
     // The "adjustable while capturing" knobs, mirroring how a real planetary capture lets you tune exposure / gain / ROI
@@ -864,6 +919,20 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         // TimeProvider (FakeTimeProvider-controllable in tests), not the raw system clock.
         using var drainTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(3), timeProvider.System);
         await StopAsync(drainTimeout.Token).ConfigureAwait(false);
+
+        // The recording's file is whole once its writer has closed it, which the loop's ending began.
+        if (_recording is { } recording)
+        {
+            recording.End("the capture ended");
+            try
+            {
+                await recording.Completion.WaitAsync(drainTimeout.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                logger.LogWarning("Planetary capture stop: the recording to {Path} was still writing", recording.Path);
+            }
+        }
 
         _stream?.Dispose();
         _stream = null;

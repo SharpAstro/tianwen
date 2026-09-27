@@ -431,6 +431,18 @@ namespace TianWen.RemoteClient
             SendJsonAsync(HttpMethod.Put, "api/v1/planetary/controls", controls, HostingJsonContext.Default.PlanetaryControlsDto,
                 HostingJsonContext.Default.ResponseEnvelopePlanetaryStateDto, _timeouts.Control, cancellationToken);
 
+        /// <summary>
+        /// <c>POST /planetary/record</c> -- records the capture going on to a SER file under the node's image folder (P5 part
+        /// 5d). It finishes its duration whether or not anyone watches; the state's <c>Recording</c> follows it.
+        /// </summary>
+        public Task<NodeResult<PlanetaryStateDto>> StartPlanetaryRecordingAsync(PlanetaryRecordRequestDto request, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/planetary/record", request, HostingJsonContext.Default.PlanetaryRecordRequestDto,
+                HostingJsonContext.Default.ResponseEnvelopePlanetaryStateDto, _timeouts.Control, cancellationToken);
+
+        /// <summary><c>DELETE /planetary/record</c> -- ends the recording going on sooner than its duration.</summary>
+        public Task<NodeResult<PlanetaryStateDto>> StopPlanetaryRecordingAsync(CancellationToken cancellationToken) =>
+            SendAsync(HttpMethod.Delete, "api/v1/planetary/record", null, HostingJsonContext.Default.ResponseEnvelopePlanetaryStateDto, _timeouts.Control, cancellationToken);
+
         /// <summary><c>DELETE /planetary</c> -- ends the planetary capture going on, answered once it has.</summary>
         public Task<NodeResult<PlanetaryStateDto>> StopPlanetaryAsync(CancellationToken cancellationToken) =>
             SendAsync(HttpMethod.Delete, "api/v1/planetary", null, HostingJsonContext.Default.ResponseEnvelopePlanetaryStateDto, _timeouts.Control, cancellationToken);

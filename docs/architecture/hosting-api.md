@@ -294,7 +294,15 @@ Pinned by `NodeSocketTests`, `NodeAddressTests`, `ExeBesideTests`, `NodeKeeperTe
      (measured, with the live frame then at 10 Hz). The node wakes on `NodeFrames.NextPublish`, taken BEFORE the source is read. A stream ends
      when its client closes it and as the host starts stopping, with a close the client has 2 s to answer
      (#985's rule). The live frame carries when it arrived as its start time, since no driver dates a video
-     frame. The client is `NodeTransport.OpenFrameStreamAsync`, over the socket or TCP alike.
+     frame. The client is `NodeTransport.OpenFrameStreamAsync`, over the socket or TCP alike. **A recording to
+     disk** (P5 part 5d, `POST` and `DELETE /api/v1/planetary/record`, `SerRecording` in Lib) writes every frame
+     for its duration into a SER file under `Planetary/<date>/` beside the snapshots, in the camera's own shape (a
+     mono plane or a Bayer mosaic, 16 bits) with each frame's arrival time in the trailer. **It finishes its
+     duration whether or not anyone watches**: the run is not interactive while it records (`EndsUnwatched`), and
+     the live view left after it gets a whole grace of its own. The capture loop only converts a frame into a
+     pooled buffer and queues it, and a writer task of the recording's own does the disk, so a slow disk costs
+     recorded frames, counted, never the capture's rate. A frame of another size (a window resized) ends it, as
+     does the capture ending; the file is whole once its writer has closed it (`Written` in the state).
    - **An interactive run stops once nobody watches it** (`INodeRun.EndsUnwatched`, `NodeRunWatch`): polar
      alignment and a planetary live view are meaningless unseen, so once no client has been PRESENT
      (a fresh presence beat, `EventHub.PresentClientCount`, the same rule a prompt waits by) for the detach grace

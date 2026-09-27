@@ -166,6 +166,80 @@ public class NodePlanetaryTests(ITestOutputHelper outputHelper)
         (await CommandTheCameraAsync(client, ct)).IsSuccess.ShouldBeTrue("the camera is given back as the run ends");
     }
 
+    [Fact(Timeout = 90_000)]
+    public async Task ARecordingFinishesItsDurationThoughNobodyWatchesAndTheLiveViewStopsAGraceAfter()
+    {
+        // The plan's rule for a recording: it finishes its duration whether or not a client watches. The live view left
+        // after it is interactive again, and stops once its own grace is spent.
+        var ct = TestContext.Current.CancellationToken;
+        var grace = TimeSpan.FromSeconds(2);
+        await using var node = await PlanetaryNodeAsync(grace, ct);
+        await node.ActivateRigAsync(Camera, mount: null, ct);
+        var client = ClientOf(node);
+        await using var window = await NodeWindow.OpenAsync(node, outputHelper, ct);
+        (await client.StartPlanetaryAsync(Default, ct)).IsSuccess.ShouldBeTrue();
+        await UntilStateAsync(client, "frames to arrive", s => s.FramesReceived > 0, ct);
+
+        // Nobody watching first: a frozen window counts as present until its last beat lapses (NodeWire.PresenceLapse), so
+        // the grace starts only then. The recording starts inside it and outlasts it twice over.
+        window.Drawing = false;
+        var clients = node.App.Services.GetRequiredService<TianWen.Hosting.WebSocket.EventHub>();
+        await UntilAsync<string>("nobody to be present", _ => ValueTask.FromResult<(string?, string)>(
+            (clients.PresentClientCount == 0 ? "gone" : null, $"{clients.PresentClientCount} present")), ct);
+        var recording = await client.StartPlanetaryRecordingAsync(new PlanetaryRecordRequestDto { DurationSeconds = 4 }, ct);
+        recording.IsSuccess.ShouldBeTrue(recording.Error);
+        var path = recording.Value.ShouldNotBeNull().Recording.ShouldNotBeNull().Path;
+
+        var written = await UntilStateAsync(client, "the recording to be written", s => s.Recording is { Written: true }, ct);
+        written.Recording.ShouldNotBeNull().EndReason.ShouldBe("its duration is over", "twice the grace unwatched, and it went on");
+        written.Running.ShouldBeTrue("the live view after it has a grace of its own");
+        var frames = written.Recording.FramesWritten;
+        frames.ShouldBeGreaterThan(0);
+        using (var reader = SharpAstro.Ser.SerReader.Open(path))
+        {
+            reader.FrameCount.ShouldBe(frames);
+            (reader.Width, reader.Height).ShouldBe((640, 320));
+            reader.Timestamps.Length.ShouldBe(frames, "each frame with when it arrived");
+        }
+        Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(path))).ShouldBe("Planetary");
+
+        var ended = await UntilStateAsync(client, "the live view to stop", s => !s.Running, ct);
+        ended.FailureReason.ShouldBeNull();
+        (await client.GetNotificationsAsync(ct)).Value.ShouldNotBeNull()
+            .ShouldContain(n => n.Message.StartsWith("The planetary capture stopped: no client has watched it"));
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task ARecordingIsMadeOfACaptureOneAtATimeAndAStopEndsItSooner()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var node = await PlanetaryNodeAsync(NodeRunWatchOptions.Default.DetachGrace, ct);
+        await node.ActivateRigAsync(Camera, mount: null, ct);
+        var client = ClientOf(node);
+        var record = new PlanetaryRecordRequestDto { DurationSeconds = 30 };
+
+        (await client.StartPlanetaryRecordingAsync(record, ct)).StatusCode.ShouldBe(404, "nothing is running to record");
+        (await client.StartPlanetaryAsync(Default, ct)).IsSuccess.ShouldBeTrue();
+        var zero = await client.StartPlanetaryRecordingAsync(new PlanetaryRecordRequestDto { DurationSeconds = 0 }, ct);
+        (zero.StatusCode, zero.Error).ShouldBe((400, "A recording needs a positive duration"));
+
+        (await client.StartPlanetaryRecordingAsync(record, ct)).IsSuccess.ShouldBeTrue();
+        var again = await client.StartPlanetaryRecordingAsync(record, ct);
+        (again.StatusCode, again.Error).ShouldBe((409, "A recording is already being made"));
+
+        (await client.StopPlanetaryRecordingAsync(ct)).IsSuccess.ShouldBeTrue();
+        var stopped = await UntilStateAsync(client, "the recording to be written", s => s.Recording is { Written: true }, ct);
+        stopped.Recording.ShouldNotBeNull().EndReason.ShouldBe("it was stopped");
+        stopped.Running.ShouldBeTrue("a recording's stop is not the capture's");
+        (await client.StopPlanetaryRecordingAsync(ct)).StatusCode.ShouldBe(404, "no recording is being made");
+
+        // A capture's stop ends the recording going on, and answers once its file is whole.
+        (await client.StartPlanetaryRecordingAsync(record, ct)).IsSuccess.ShouldBeTrue("the next recording, the last one ended");
+        var ended = (await client.StopPlanetaryAsync(ct)).Value.ShouldNotBeNull();
+        var last = ended.Recording.ShouldNotBeNull();
+        (last.EndReason, last.Written).ShouldBe(("the capture ended", true));
+    }
+
     [Fact(Timeout = 60_000)]
     public async Task ARefusedStartSaysWhyAndHoldsNothing()
     {
