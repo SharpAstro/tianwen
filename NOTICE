@@ -107,8 +107,9 @@ Nothing below ships with TianWen; it is fetched from its source while TianWen ru
   Every display of that data (the planner's weather band and the night calendar,
   in the GUI, the TUI and the web build) says so beside it, and only when some of
   what it shows is Open-Meteo's. TianWen uses the keyless free API, whose terms are
-  for non-commercial use; whether that still holds for a given distribution is
-  tracked in https://github.com/SharpAstro/tianwen/issues/559.
+  for non-commercial use: TianWen is free and shows no ads, so it qualifies, while a
+  product built on it that charges or advertises needs Open-Meteo's paid plan (see
+  the README, "License", for what that means for a distribution).
 
 
 SETI Astro Suite Pro
