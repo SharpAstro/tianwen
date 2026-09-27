@@ -428,8 +428,8 @@ namespace TianWen.UI.Abstractions
         /// This node's connected-device count, or null when the active profile assigns none (a fresh profile
         /// with nothing chosen yet, where "0/0 connected" would be noise rather than information).
         /// <para>
-        /// Read straight from the hub, which is a handful of dictionary lookups -- it does NOT talk to a
-        /// driver, so the board keeps its "no device I/O" property.
+        /// Read from this computer's node's device model (its last reads and pushes), a handful of dictionary lookups:
+        /// it asks the node nothing and talks to no driver, so the board keeps its "no device I/O" property.
         /// </para>
         /// </summary>
         private static RigDeviceLink? LocalDeviceLink(GuiAppState appState)
@@ -444,7 +444,7 @@ namespace TianWen.UI.Abstractions
             foreach (var uri in profileData.AssignedDeviceUris)
             {
                 assigned++;
-                if (appState.DeviceHub?.IsConnected(uri) == true)
+                if (appState.LocalNode?.IsConnected(uri) == true)
                 {
                     connected++;
                 }

@@ -11,13 +11,13 @@ namespace TianWen.UI.Abstractions
 {
     /// <summary>
     /// Connected-device telemetry panes: camera cooler control + temperature sparkline and the
-    /// mount status readout, both collapsible headers gated on hub connection.
+    /// mount status readout, both collapsible headers shown while this computer's node holds the device connected.
     /// </summary>
     partial class EquipmentTab<TSurface>
     {
         /// <summary>
         /// Builds the camera cooler control + telemetry sparkline as one profile-panel section node,
-        /// but only when the camera is currently connected via the device hub (else null = no section).
+        /// but only while this computer's node holds the camera connected (else null = no section).
         /// Layout: collapsible header -> readout row -> setpoint input + buttons -> optional confirm
         /// strip -> temp sparkline. The setpoint text-input and the sparkline are keyed <c>Fill</c>
         /// leaves painted through <see cref="_profilePanelFills"/> from the single panel RenderLayout.
@@ -26,7 +26,7 @@ namespace TianWen.UI.Abstractions
             GuiAppState appState, Uri? cameraUri, float innerW)
         {
             if (cameraUri is null || cameraUri == NoneDevice.Instance.DeviceUri) return null;
-            if (appState.DeviceHub is not { } hub || !hub.IsConnected(cameraUri)) return null;
+            if (appState.LocalNode?.IsConnected(cameraUri) is not true) return null;
 
             var dpiScale = DpiScale;
             var fontPath = FontPath;
@@ -145,7 +145,7 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>
         /// Builds the mount status section (RA/Dec/Slewing/Tracking) for the given mount URI as one
-        /// profile-panel node, but only when the mount is currently hub-connected (else null).
+        /// profile-panel node, but only while this computer's node holds the mount connected (else null).
         /// State comes from the single canonical <see cref="LiveSessionState.MountState"/>, populated
         /// by <c>AppSignalHandler.PollPreviewTelemetry</c> while idle (equipment / sky-map / live-session
         /// tabs visible) and by the running session's poll otherwise. The expander gives the user a
@@ -156,7 +156,7 @@ namespace TianWen.UI.Abstractions
             float innerW)
         {
             if (mountUri is null || mountUri == NoneDevice.Instance.DeviceUri) return null;
-            if (appState.DeviceHub is not { } hub || !hub.IsConnected(mountUri)) return null;
+            if (appState.LocalNode?.IsConnected(mountUri) is not true) return null;
             if (liveSessionState is null) return null;
 
             var dpiScale = DpiScale;

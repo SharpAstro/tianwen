@@ -154,7 +154,7 @@ namespace TianWen.UI.Abstractions
                 // row (assigned or not). Unassigned devices that get connected appear as
                 // "orphans" -- useful for ad-hoc connect of e.g. Open-Meteo without first
                 // wiring it into a profile slot.
-                var reach = EquipmentActions.GetReachability(data, appState.DeviceHub, devices, device.DeviceUri);
+                var reach = EquipmentActions.GetReachability(data, appState.LocalNode, devices, device.DeviceUri);
                 {
                     var connectUriForPending = EquipmentActions.FindAssignedUri(data, device.DeviceUri) ?? device.DeviceUri;
                     var pending = State.PendingTransitions.ContainsKey(connectUriForPending);

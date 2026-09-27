@@ -49,11 +49,7 @@ public class TuiListCursorTests
 
     private static TuiEquipmentTab EquipmentTab(GuiAppState appState)
     {
-        var host = Substitute.For<IConsoleHost>();
-        host.ListDevicesAsync<Profile>(default, default, default)
-            .ReturnsForAnyArgs(System.Threading.Tasks.Task.FromResult<IReadOnlyCollection<Profile>>([]));
-
-        return new TuiEquipmentTab(appState, new EquipmentTabState(), new ViewContexts(), new EquipmentContent(), host);
+        return new TuiEquipmentTab(appState, new EquipmentTabState(), new EquipmentContent());
     }
 
     private static GuiAppState WithProfile()

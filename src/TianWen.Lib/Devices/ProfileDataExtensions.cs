@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Linq;
 using System.Web;
 
 namespace TianWen.Lib.Devices;
@@ -120,7 +122,8 @@ public static class ProfileDataExtensions
         /// (<c>?latitude=…&amp;longitude=…&amp;elevation=…</c>) into <see cref="ProfileData.SiteLatitude"/> etc. Returns the
         /// updated profile and whether anything changed. When the profile already has a site the URI query is ignored:
         /// the profile wins for migration. Applied by every discovery's reconcile
-        /// (<see cref="DeviceDiscoveryExtensions.ReconcileStoredProfile"/>) and by the GUI at start.
+        /// (<see cref="DeviceDiscoveryExtensions.ReconcileStoredProfile"/>), which the node runs on every discovery, the
+        /// one a client asks for at its start included.
         /// </summary>
         public (ProfileData Data, bool Changed) MigrateSiteFromMountUri()
         {
@@ -188,6 +191,59 @@ public static class ProfileDataExtensions
             }
 
             return null; // camera not assigned to any OTA
+        }
+
+        /// <summary>
+        /// This profile, an edit made of <paramref name="based"/>, made again onto <paramref name="latest"/>: every field
+        /// the edit changed takes the edit's value, and every other field the latest's, so a change made elsewhere since
+        /// the edit was read survives it. What a client does when the node refuses an edit as made against a profile that
+        /// has moved on (a 412, P6 of docs/plans/hardware-in-the-server.md, #936), in place of losing either change.
+        /// <para>
+        /// The telescopes are rebased one by one while all three agree on how many there are, since an edit of one
+        /// telescope (its camera, its filters) must not undo a change to another; an edit that adds or removes one takes
+        /// the edit's list whole, as an index no longer names the same telescope in both.
+        /// </para>
+        /// </summary>
+        public ProfileData RebasedOnto(ProfileData based, ProfileData latest)
+        {
+            // A URI compared whole: Uri.Equals leaves out the fragment, which is a device's display name.
+            static T Pick<T>(T based, T edited, T latest) =>
+                (based is Uri a && edited is Uri b ? string.Equals(a.OriginalString, b.OriginalString, StringComparison.Ordinal) : EqualityComparer<T>.Default.Equals(based, edited))
+                    ? latest : edited;
+
+            ImmutableArray<OTAData> otas;
+            if (based.OTAs.SequenceEqual(profile.OTAs))
+            {
+                otas = latest.OTAs;
+            }
+            else if (based.OTAs.Length == profile.OTAs.Length && latest.OTAs.Length == profile.OTAs.Length)
+            {
+                var rebased = ImmutableArray.CreateBuilder<OTAData>(profile.OTAs.Length);
+                for (var i = 0; i < profile.OTAs.Length; i++)
+                {
+                    rebased.Add(Pick(based.OTAs[i], profile.OTAs[i], latest.OTAs[i]));
+                }
+                otas = rebased.MoveToImmutable();
+            }
+            else
+            {
+                otas = profile.OTAs;
+            }
+
+            return new ProfileData(
+                Mount: Pick(based.Mount, profile.Mount, latest.Mount),
+                Guider: Pick(based.Guider, profile.Guider, latest.Guider),
+                OTAs: otas,
+                GuiderCamera: Pick(based.GuiderCamera, profile.GuiderCamera, latest.GuiderCamera),
+                GuiderFocuser: Pick(based.GuiderFocuser, profile.GuiderFocuser, latest.GuiderFocuser),
+                OAG_OTA_Index: Pick(based.OAG_OTA_Index, profile.OAG_OTA_Index, latest.OAG_OTA_Index),
+                GuiderFocalLength: Pick(based.GuiderFocalLength, profile.GuiderFocalLength, latest.GuiderFocalLength),
+                Weather: Pick(based.Weather, profile.Weather, latest.Weather),
+                SiteLatitude: Pick(based.SiteLatitude, profile.SiteLatitude, latest.SiteLatitude),
+                SiteLongitude: Pick(based.SiteLongitude, profile.SiteLongitude, latest.SiteLongitude),
+                SiteElevation: Pick(based.SiteElevation, profile.SiteElevation, latest.SiteElevation),
+                SiteTieBreaker: Pick(based.SiteTieBreaker, profile.SiteTieBreaker, latest.SiteTieBreaker),
+                MountLimits: Pick(based.MountLimits, profile.MountLimits, latest.MountLimits));
         }
 
         /// <summary>

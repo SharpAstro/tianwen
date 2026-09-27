@@ -18,9 +18,7 @@ namespace TianWen.Cli.Tui;
 internal sealed class TuiEquipmentTab(
     GuiAppState appState,
     EquipmentTabState eqState,
-    ViewContexts contexts,
     EquipmentContent equipmentContent,
-    IConsoleHost consoleHost,
     SignalBus? bus = null,
     BackgroundTaskTracker? tasks = null) : TuiTabBase
 {
@@ -85,12 +83,6 @@ internal sealed class TuiEquipmentTab(
         input.Text = text;
         input.CursorPos = text.Length;
     }
-
-    /// <summary>Cached profile list for the picker.</summary>
-    private IReadOnlyCollection<Profile> _cachedProfiles = [];
-
-    /// <summary>Whether profiles have been loaded at least once.</summary>
-    private bool _profilesLoaded;
 
     /// <summary>The mode the settings list was last built for. Used to reset the cursor on mode transitions.</summary>
     private Mode _lastBuiltMode = Mode.Browse;
@@ -231,13 +223,6 @@ internal sealed class TuiEquipmentTab(
             return;
         }
 
-        // Load profiles once on first render
-        if (!_profilesLoaded)
-        {
-            _profilesLoaded = true;
-            RefreshProfiles();
-        }
-
         // Left panel: profile picker
         BuildProfileList();
 
@@ -293,7 +278,7 @@ internal sealed class TuiEquipmentTab(
         var activeIdx = -1;
         var idx = 0;
 
-        foreach (var profile in _cachedProfiles)
+        foreach (var profile in eqState.AllProfiles)
         {
             var isActive = profile.ProfileId == activeId;
             items.Add(new ProfilePickerItem
@@ -504,14 +489,14 @@ internal sealed class TuiEquipmentTab(
     };
 
     /// <summary>
-    /// Builds a device-slot row with connection state pulled from the hub. Keeps
+    /// Builds a device-slot row with connection state from this computer's node. Keeps
     /// BuildSettingsList readable and ensures profile-level and per-OTA slots render
     /// identically.
     /// </summary>
     private EquipmentFieldItem MakeSlotItem(ProfileData data, DeviceSlotRow slot, ref int fieldIdx)
     {
         var uri = slot.IsAssigned ? EquipmentActions.GetAssignedDevice(data, slot.Slot) : null;
-        var connected = uri is not null && appState.DeviceHub?.IsConnected(uri) == true;
+        var connected = uri is not null && appState.LocalNode?.IsConnected(uri) == true;
         var pending = uri is not null && eqState.PendingTransitions.ContainsKey(uri);
 
         var item = new EquipmentFieldItem
@@ -745,48 +730,16 @@ internal sealed class TuiEquipmentTab(
         return null;
     }
 
-    private void RefreshProfiles()
-    {
-        // Results arrive via callback; tracked so a failure is logged rather than swallowed.
-        _tasks.Run(() => LoadProfilesAsync(), "Load profiles");
-    }
-
-    private async Task LoadProfilesAsync()
-    {
-        try
-        {
-            _cachedProfiles = await consoleHost.ListDevicesAsync<Profile>(
-                DeviceType.Profile, DeviceDiscoveryOption.Force, default);
-            NeedsRedraw = true;
-        }
-        catch
-        {
-            // Ignore: profiles stay empty
-        }
-    }
-
     private void SwitchToSelectedProfile()
     {
         if (_profileList?.Selected is not { } picked) return;
 
         if (picked.Profile.ProfileId != appState.ActiveProfile?.ProfileId)
         {
-            // Same single-profile-context invariant the GUI enforces (see ProfileSwitchGate): never
-            // swap the profile out from under connected hardware or an active run. The TUI has no
-            // modal, so the refusal lands on the status line (and the notification history).
-            // LOCAL context: this rebinds THIS node's equipment, so the gate reads the local run
-            // regardless of which context is on screen (mirrors the GUI's SwitchProfileSignal handler).
-            var verdict = ProfileSwitchGate.Evaluate(appState.DeviceHub, contexts.Local.LiveSession.HasActiveRun);
-            if (!verdict.Allowed)
-            {
-                appState.AppendNotification(consoleHost.TimeProvider.GetUtcNow(),
-                    NotificationSeverity.Warning,
-                    $"Cannot switch to '{picked.Profile.DisplayName}': {verdict.Describe()}");
-                NeedsRedraw = true;
-                return;
-            }
-
-            appState.ActiveProfile = picked.Profile;
+            // The GUI's one handler (SwitchProfileSignal): the node applies the single-profile-context rule
+            // (ProfileSwitchGate) over its own hardware and runs, and a refusal lands on the status line and in the
+            // notification history in the gate's own words.
+            bus?.Post(new SwitchProfileSignal(picked.Profile.ProfileId));
             _editingUris.Clear();
             // The settings list rebuilds against the new profile next render; reset
             // the cursor target so we land on the first content row.
@@ -1191,8 +1144,9 @@ internal sealed class TuiEquipmentTab(
                 return false;
 
             case InputKey.R:
+                // The node's devices and profiles read again: a discovery lists both (Shift for the fake devices too).
                 _editingUris.Clear();
-                RefreshProfiles();
+                bus?.Post(new DiscoverDevicesSignal(IncludeFake: (modifiers & InputModifier.Shift) != 0));
                 NeedsRedraw = true;
                 return false;
         }

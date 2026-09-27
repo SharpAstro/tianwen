@@ -62,6 +62,7 @@ namespace TianWen.UI.Abstractions
         private readonly ITimeProvider _timeProvider;
         private readonly EquipmentTabState _eqState;
         private readonly SkyMapState _skyMapState;
+        private readonly SignalBus _bus;
 
         /// <summary>
         /// Bound rigs and their live mirrors. Owned here rather than in <see cref="GuiAppState"/> because
@@ -226,14 +227,10 @@ namespace TianWen.UI.Abstractions
             PlannerActions.ComputeFramingGroups(_plannerState);
         }
 
-        // Per-camera last-poll timestamps, keyed by URI path (host+path, no query).
-        // UI-thread-only; never touched from tracker continuations.
-        private readonly Dictionary<string, long> _telemetryLastSampleTicks = new();
-        // In-flight poll task per camera path, prevents overlapping samples.
-        // Touched from both the UI thread (Add) and tracker continuations (Remove),
-        // so it MUST be a concurrent collection: a plain HashSet/Dictionary will
-        // crash with IndexOutOfRangeException on a bucket-array race.
-        private readonly ConcurrentDictionary<string, byte> _telemetryInFlight = new();
+        // The node's read time of the last sample taken of each camera, keyed by URI path (host+path, no query), so a
+        // reading is sampled once however many frames show it. Telemetry-poll-only: written only by PollCameraTelemetry,
+        // on the UI thread.
+        private readonly Dictionary<string, DateTimeOffset> _telemetryLastRead = new();
 
         // Preview-mode poll state (mirrors _telemetryLastSampleTicks pattern;
         // also UI-thread-only, never touched from tracker continuations).
@@ -276,78 +273,34 @@ namespace TianWen.UI.Abstractions
 
 
         /// <summary>
-        /// Polls connected cameras for cooler/temperature telemetry and appends samples
-        /// to <see cref="EquipmentTabState.CameraTelemetry"/>. Call once per frame from the
-        /// host's main loop. Internally rate-limits per-camera so polling stays at ~2s,
-        /// regardless of frame rate. Cheap to call when nothing needs sampling.
+        /// Samples connected cameras' cooler and temperature telemetry into <see cref="EquipmentTabState.CameraTelemetry"/>,
+        /// from what this computer's node last read of each (P6: its device model, kept by its reads and pushes), never from
+        /// a camera: one sample per reading, at the node's cadence. Call once per frame from the host's main loop; only on
+        /// the Equipment tab, where the sparkline is.
         /// </summary>
         public void PollCameraTelemetry()
         {
-            if (_appState.DeviceHub is not { } hub) return;
-            // Only on the equipment tab: avoids hammering cameras with reads when the
-            // user isn't looking at the data. (Live-session view will be wired later.)
-            if (_appState.ActiveTab is not GuiTab.Equipment) return;
+            if (_appState.LocalNode is not { } node || _appState.ActiveTab is not GuiTab.Equipment) return;
 
-            var nowTicks = _timeProvider.GetTimestamp();
-            var sampleInterval = TimeSpan.FromSeconds(2);
-
-            foreach (var (uri, driver) in hub.ConnectedDevices)
+            foreach (var (key, device) in node.Devices)
             {
-                if (driver is not TianWen.Lib.Devices.ICameraDriver) continue;
-                var key = uri.GetLeftPart(UriPartial.Path);
-
-                if (_telemetryInFlight.ContainsKey(key)) continue;
-                if (_telemetryLastSampleTicks.TryGetValue(key, out var lastTicks)
-                    && _timeProvider.GetElapsedTime(lastTicks, nowTicks) < sampleInterval)
+                if (device is not { Connected: true, Camera: { } camera, ReadUtc: { } readUtc }
+                    || _telemetryLastRead.TryGetValue(key, out var last) && last >= readUtc)
                 {
                     continue;
                 }
+                _telemetryLastRead[key] = readUtc;
 
-                _telemetryLastSampleTicks[key] = nowTicks;
-                _telemetryInFlight.TryAdd(key, 0);
-                var capturedUri = uri;
-                _tracker.Run(async () =>
+                if (!_eqState.CameraTelemetry.TryGetValue(key, out var buffer))
                 {
-                    try
-                    {
-                        var sample = await SampleCameraAsync(hub, capturedUri, _cts.Token);
-                        if (sample is { } s)
-                        {
-                            if (!_eqState.CameraTelemetry.TryGetValue(key, out var buffer))
-                            {
-                                buffer = new CameraTelemetryBuffer();
-                                _eqState.CameraTelemetry[key] = buffer;
-                            }
-                            buffer.Add(s);
-                            _appState.NeedsRedraw = true;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogDebug(ex, "Telemetry poll failed for {Uri}", capturedUri);
-                    }
-                    finally
-                    {
-                        _telemetryInFlight.TryRemove(key, out _);
-                    }
-                }, $"Telemetry {key}");
+                    buffer = new CameraTelemetryBuffer();
+                    _eqState.CameraTelemetry[key] = buffer;
+                }
+                var reading = camera.ToReading();
+                buffer.Add(new CameraTelemetrySample(readUtc, camera.CcdTemperatureC, camera.HeatsinkTemperatureC, camera.SetpointC,
+                    camera.CoolerPowerPercent, reading.CoolerOn, reading.IsBusy));
+                _appState.NeedsRedraw = true;
             }
-        }
-
-        private async Task<CameraTelemetrySample?> SampleCameraAsync(
-            IDeviceHub hub, Uri uri, System.Threading.CancellationToken ct)
-        {
-            // The one camera sampler (DeviceHubReadingExtensions), which a node's device plane reads through too.
-            if (await hub.ReadCameraAsync(uri, _logger, ct) is not { } reading)
-            {
-                return null;
-            }
-
-            static double? Known(double value) => double.IsNaN(value) ? null : value;
-            return new CameraTelemetrySample(
-                _timeProvider.GetUtcNow(),
-                Known(reading.CcdTemperatureC), Known(reading.HeatsinkTemperatureC), Known(reading.SetpointC),
-                Known(reading.CoolerPowerPercent), reading.CoolerOn, reading.IsBusy);
         }
 
         /// <summary>
@@ -470,14 +423,11 @@ namespace TianWen.UI.Abstractions
             RunTracked("RefreshNodeProfile", $"Could not read which profile {name} runs",
                 async ct =>
                 {
+                    var previous = _appState.ActiveProfile?.ProfileId;
                     if (await connection.MaybeRefreshProfileAsync(ct).ConfigureAwait(false))
                     {
                         // The view on show plans with its profile (ProfileOnShow): a new one is a new site or sensor.
-                        if (ReferenceEquals(_contexts.Active, connection.Context))
-                        {
-                            _plannerState.NeedsRecompute = true;
-                        }
-                        _appState.NeedsRedraw = true;
+                        await OnNodeProfileChangedAsync(connection, previous, ct).ConfigureAwait(false);
                     }
                 });
 
@@ -874,7 +824,7 @@ namespace TianWen.UI.Abstractions
         {
             if (_appState.ActiveProfile is { } profile)
             {
-                await SessionPersistence.TryLoadAsync(_sessionState, profile, _external, cancellationToken, _appState.DeviceHub);
+                await SessionPersistence.TryLoadAsync(_sessionState, profile, _external, cancellationToken, _appState.CameraCapabilitiesOf);
             }
         }
 
@@ -899,6 +849,7 @@ namespace TianWen.UI.Abstractions
             _eqState = eqState;
             _contexts = contexts;
             _skyMapState = skyMapState;
+            _bus = bus;
             _tracker = tracker;
             _cts = cts;
             _external = external;

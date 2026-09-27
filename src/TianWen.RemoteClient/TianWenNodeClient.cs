@@ -598,6 +598,26 @@ namespace TianWen.RemoteClient
         public Task<NodeResult<JobDto[]>> GetJobsAsync(CancellationToken cancellationToken) =>
             GetAsync("api/v1/jobs", HostingJsonContext.Default.ResponseEnvelopeJobDtoArray, _timeouts.Control, cancellationToken);
 
+        /// <summary>
+        /// Waits for <paramref name="job"/> to end, reading it from the node every <paramref name="interval"/> (a quarter of
+        /// a second by default): the read is authoritative, as a <c>JOB-PROGRESS</c> push is only a hint. Answers the job as
+        /// it ended, or the first failure to read it (a 404 once the node no longer knows it, as after a restart, which ends
+        /// every job). One way every client of the node waits for a device job, the GUI's Equipment tab and the CLI's verbs
+        /// alike (P6 of docs/plans/hardware-in-the-server.md, #936).
+        /// </summary>
+        public async Task<NodeResult<JobDto>> UntilEndedAsync(JobDto job, ITimeProvider timeProvider, CancellationToken cancellationToken,
+            TimeSpan? interval = null)
+        {
+            var every = interval ?? TimeSpan.FromMilliseconds(250);
+            var now = NodeResult<JobDto>.Ok(job);
+            while (now is { IsSuccess: true, Value.State: JobState.Running })
+            {
+                await timeProvider.SleepAsync(every, cancellationToken).ConfigureAwait(false);
+                now = await GetJobAsync(job.Id, cancellationToken).ConfigureAwait(false);
+            }
+            return now;
+        }
+
         /// <summary><c>DELETE /jobs/{id}</c> -- asks a job to stop; it ends Cancelled once its work notices.</summary>
         public Task<NodeResult<JobDto>> CancelJobAsync(string id, CancellationToken cancellationToken) =>
             SendAsync(HttpMethod.Delete, $"api/v1/jobs/{Uri.EscapeDataString(id)}", content: null, HostingJsonContext.Default.ResponseEnvelopeJobDto,

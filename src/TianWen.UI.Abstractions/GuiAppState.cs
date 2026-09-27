@@ -118,6 +118,12 @@ public class GuiAppState
     public bool IsThisComputersNode(string? nodeId) =>
         LocalNode is { } local && !string.IsNullOrEmpty(nodeId) && string.Equals(local.Node.NodeId, nodeId, StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// What the camera <paramref name="camera"/> is (its named gains, whether it cools), as this computer's node listed it;
+    /// null until it has, and for a camera it did not list.
+    /// </summary>
+    public CameraCapabilities? CameraCapabilitiesOf(Uri camera) => LocalNode?.CameraCapabilitiesOf(camera);
+
     /// <summary>Live LAN peer table (rigs running tianwen-server), from LAN.Lib's symmetric
     /// discovery beacon (docs/plans/remote-profile.md). Null only if a host never wired
     /// AddLanDiscovery (never true for the GUI today). A fresh snapshot on every read -- no

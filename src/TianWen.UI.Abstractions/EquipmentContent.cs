@@ -101,7 +101,7 @@ public abstract record PanelSection
 /// Produces display-ready models from profile data, consumed by both
 /// GPU (PixelWidgetBase) and terminal (Console.Lib) hosts.
 /// </summary>
-public class EquipmentContent(IDeviceHub? registry = null)
+public class EquipmentContent
 {
     /// <summary>
     /// Returns all profile-level device slots (core + extra).
@@ -354,7 +354,7 @@ public class EquipmentContent(IDeviceHub? registry = null)
         return sb.ToString();
     }
 
-    private string DeviceLabel(Uri? uri) => EquipmentActions.DeviceLabel(uri, registry);
+    private static string DeviceLabel(Uri? uri) => EquipmentActions.DeviceLabel(uri);
 
     private static bool IsAssignedDevice(Uri? uri)
         => uri is not null && uri != NoneDevice.Instance.DeviceUri;

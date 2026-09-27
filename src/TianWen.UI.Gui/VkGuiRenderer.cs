@@ -890,7 +890,7 @@ namespace TianWen.UI.Gui
             if (appState.ActiveProfile?.Data is { } connectAllProfile)
             {
                 var ca = EquipmentActions.ComputeConnectAllStatus(
-                    connectAllProfile, appState.DeviceHub,
+                    connectAllProfile, appState.LocalNode,
                     EquipmentState.DiscoveredDevices, EquipmentState.PendingTransitions,
                     EquipmentState.IsDiscovering);
                 if (ca.Visible)
@@ -1094,21 +1094,9 @@ namespace TianWen.UI.Gui
             // size and sensor dimensions. Falls back to null (reticle only, no rectangle)
             // when any piece is unavailable. A rig's reticle carries the rig's own sensor, from its profile's captured
             // geometry (P5b part 8): this computer's camera is not the one at that pointing.
-            (double WidthDeg, double HeightDeg)? sensorFov = null;
-            if (ViewContexts.Active is { IsLocal: false } rig)
-            {
-                sensorFov = rig.RigProfile?.Data?.PrimarySensorFovDeg;
-            }
-            else if (appState.ActiveProfile?.Data is { OTAs: { Length: > 0 } otas }
-                && otas[0] is { FocalLength: > 0 } ota
-                && appState.DeviceHub is { } hub
-                && hub.TryGetConnectedDriver<ICameraDriver>(ota.Camera, out var camera)
-                && camera is not null
-                && camera.PixelSizeX > 0 && camera.CameraXSize > 0 && camera.CameraYSize > 0)
-            {
-                sensorFov = MosaicGenerator.ComputeFieldOfView(
-                    ota.FocalLength, camera.PixelSizeX, camera.CameraXSize, camera.CameraYSize);
-            }
+            // ONE rule for every view (P6): the profile's captured sensor, which a connect records into its OTA. The
+            // local view used to read its live camera driver here, on the render thread, every frame.
+            var sensorFov = ViewContexts.ProfileOnShow(appState.ActiveProfile)?.Data?.PrimarySensorFovDeg;
 
             _skyMapTab.State.MountOverlay = new SkyMapMountOverlay(
                 RaJ2000: raJ2000,

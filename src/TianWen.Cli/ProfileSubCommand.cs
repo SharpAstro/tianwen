@@ -210,7 +210,7 @@ internal class ProfileSubCommand(
         }
 
         // Print profile summary as markdown
-        var md = new EquipmentContent(consoleHost.DeviceHub).FormatProfileMarkdown(profile);
+        var md = new EquipmentContent().FormatProfileMarkdown(profile);
         var width = terminal.Size.Width;
         var lines = MarkdownRenderer.RenderLines(md, width, terminal.ColorMode);
         foreach (var line in lines)
@@ -302,7 +302,7 @@ internal class ProfileSubCommand(
                         // Refresh profile display
                         profile = (await consoleHost.ListDevicesAsync<Profile>(DeviceType.Profile, DeviceDiscoveryOption.Force, ct))
                             .FirstOrDefault(p => p.ProfileId == profile.ProfileId) ?? profile;
-                        md = new EquipmentContent(consoleHost.DeviceHub).FormatProfileMarkdown(profile);
+                        md = new EquipmentContent().FormatProfileMarkdown(profile);
                         lines = MarkdownRenderer.RenderLines(md, width, terminal.ColorMode);
                         consoleHost.WriteScrollable("");
                         foreach (var line in lines)

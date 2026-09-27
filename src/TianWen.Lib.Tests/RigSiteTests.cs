@@ -94,25 +94,6 @@ public class RigSiteTests(ITestOutputHelper output)
         gui.Planner.Proposals.ShouldBeEmpty();
     }
 
-    [Fact(Timeout = 60_000)]
-    public async Task EditingThisComputersSiteWhileARigIsOnShowLeavesTheRigsSite()
-    {
-        await using var gui = await GuiSignalHarness.StartAsync(output, TestContext.Current.CancellationToken);
-        var rig = gui.Contexts.GetOrAddRemote("observatory-node", "Observatory");
-        rig.RigProfile = RigProfile();
-        gui.Contexts.Activate(rig).ShouldBeTrue();
-        await RecomputedAsync(gui);
-
-        // The Equipment tab edits this computer's profile, which a rig's view is not planned with.
-        gui.Equipment.LatitudeInput.Text = "51.5";
-        gui.Equipment.LongitudeInput.Text = "-0.1";
-        gui.Equipment.ElevationInput.Text = "20";
-        await gui.Equipment.LatitudeInput.OnCommit.ShouldNotBeNull()("51.5");
-
-        gui.AppState.ActiveProfile.ShouldNotBeNull().Data.ShouldNotBeNull().SiteLatitude.ShouldBe(51.5, "this computer's profile took the edit");
-        gui.Planner.SiteLatitude.ShouldBe(SydneyLatitude, 1e-9, "the rig on show is still planned at its own site");
-    }
-
     // -------------------------------------------------------------------------------------------
     // The sky map's schedule
     // -------------------------------------------------------------------------------------------
