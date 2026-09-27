@@ -20,6 +20,8 @@ Usage:
   python n2n_starsplit.py --cache <eval cache> --models slug=ckpt.pt [...] [--match 4,10]
 """
 import argparse
+import os
+
 import numpy as np
 import torch
 
@@ -376,9 +378,15 @@ def main():
     print(f"{'model':14s} " + ' '.join(f'{t:>19.0f}% removed' for t in targets) + f"{'full strength':>36}")
     print(f"{'':14s} " + ' '.join(f'{"stars/compact/extended":>27}' for _ in targets)
           + f"{'removed: stars/compact/extended':>36}")
+    # E16: the input's per-pixel planes, for a --cond-map checkpoint (S.denoise refuses one without them).
+    sig, sig_has = S.open_sigma(a.cache, meta)
+    half_a_planes = (np.asarray(sig[idx, S.SLOT_HALF_A], dtype=np.float32)
+                     if sig is not None and sig_has[idx, S.SLOT_HALF_A].all() else None)
     for spec in a.models:
         slug, ckpt = spec.split('=', 1)
-        out = S.crop(S.denoise(a.cache, ckpt, half_a, dev))
+        cond_map = bool(torch.load(ckpt if os.path.isabs(ckpt) else os.path.join(a.cache, ckpt),
+                                   map_location='cpu').get('cond_map', False))
+        out = S.crop(S.denoise(a.cache, ckpt, half_a, dev, planes=half_a_planes if cond_map else None))
         pts = {k: [(0.0, 0.0)] for k in pops}
         for al in alphas:
             blend = raw + al * (out - raw)
