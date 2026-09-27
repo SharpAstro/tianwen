@@ -21,7 +21,7 @@ internal sealed class FileDialogService : IFileDialogHelper
         IReadOnlyDictionary<string, IReadOnlyList<string>> filters,
         string? suggestedFileName = null,
         string title = "Save image",
-        CancellationToken cancellationToken = default,
-        string? initialDirectory = null)
-        => FileDialogHelper.SaveAsync(filters, suggestedFileName, title, cancellationToken, initialDirectory);
+        string? initialDirectory = null,
+        CancellationToken cancellationToken = default)
+        => FileDialogHelper.SaveAsync(filters, suggestedFileName, title, initialDirectory, cancellationToken);
 }
