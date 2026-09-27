@@ -340,9 +340,11 @@ public partial class Image
     /// <summary>
     /// Separable Gaussian blur on a row-major <c>float[]</c> (edge-clamped both axes). A plain flat-raster
     /// blur -- distinct from <c>MilkyWayTextureBaker.GaussianBlur</c>, which is spherical (RA-wrap,
-    /// dec-scaled sigma) and not applicable here.
+    /// dec-scaled sigma) and not applicable here. Also the low-pass of the denoiser's per-pixel noise plane
+    /// (<see cref="Degradation.StretchedNoise"/>), so the plane the exporter writes and the one the runner
+    /// computes are smoothed by the same code.
     /// </summary>
-    private static float[] SeparableGaussianBlur(float[] src, int w, int h, float sigma)
+    internal static float[] SeparableGaussianBlur(float[] src, int w, int h, float sigma)
     {
         var radius = Math.Max(1, (int)MathF.Ceiling(sigma * 3f));
         var kernel = new float[radius * 2 + 1];
