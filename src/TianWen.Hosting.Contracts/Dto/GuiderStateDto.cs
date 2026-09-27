@@ -1,5 +1,7 @@
 ﻿using System;
 using System.Collections.Immutable;
+using System.Linq;
+using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.Hosting.Dto;
@@ -39,6 +41,36 @@ public sealed class GuiderStateDto
     /// </summary>
     public required int GuideFrameNumber { get; init; }
 
+    /// <summary>
+    /// The last step's errors and pulses, which the guider tab's readouts show (P5b part 3). Null before a step, and
+    /// with no stats.
+    /// </summary>
+    public double? LastRaErr { get; init; }
+
+    /// <inheritdoc cref="LastRaErr"/>
+    public double? LastDecErr { get; init; }
+
+    /// <inheritdoc cref="LastRaErr"/>
+    public double? LastRaPulseMs { get; init; }
+
+    /// <inheritdoc cref="LastRaErr"/>
+    public double? LastDecPulseMs { get; init; }
+
+    /// <summary>The settle in progress, which a dither or a recovery waits on; null when none has been started.</summary>
+    public SettleProgressDto? Settle { get; init; }
+
+    /// <summary>
+    /// The guide star's horizontal and vertical profiles through its centroid, drawn beside the guide frame; empty when
+    /// nothing is being tracked.
+    /// </summary>
+    public ImmutableArray<float> StarProfileH { get; set; } = [];
+
+    /// <inheritdoc cref="StarProfileH"/>
+    public ImmutableArray<float> StarProfileV { get; set; } = [];
+
+    /// <summary>The last calibration's steps, drawn as the L over the guide frame; null before one.</summary>
+    public CalibrationOverlayDto? Calibration { get; init; }
+
     /// <summary>Projects the guider slice. <see cref="ISessionTelemetry"/> for the same reason as
     /// <see cref="SessionStateDto.FromSession"/>.</summary>
     public static GuiderStateDto FromSession(ISessionTelemetry session)
@@ -77,8 +109,91 @@ public sealed class GuiderStateDto
             GuideStarY = session.GuideStarPosition is { } q ? JsonNumber.OrNull(q.Y) : null,
             GuideStarSNR = session.GuideStarSNR is { } snr ? JsonNumber.OrNull(snr) : null,
             GuideFrameNumber = session.LastGuideFrameNumber,
+            LastRaErr = stats?.LastRaErr is { } raErr ? JsonNumber.OrNull(raErr) : null,
+            LastDecErr = stats?.LastDecErr is { } decErr ? JsonNumber.OrNull(decErr) : null,
+            LastRaPulseMs = stats?.LastRaPulseMs is { } raPulse ? JsonNumber.OrNull(raPulse) : null,
+            LastDecPulseMs = stats?.LastDecPulseMs is { } decPulse ? JsonNumber.OrNull(decPulse) : null,
+            Settle = session.GuiderSettleProgress is { } settle ? SettleProgressDto.From(settle) : null,
+            StarProfileH = session.GuideStarProfile is { } profile ? [.. profile.H] : [],
+            StarProfileV = session.GuideStarProfile is { } profileV ? [.. profileV.V] : [],
+            Calibration = session.CalibrationOverlay is { } overlay ? CalibrationOverlayDto.From(overlay) : null,
         };
     }
+}
+
+/// <summary>A guider's settle on the wire (<see cref="SettleProgress"/>).</summary>
+public sealed class SettleProgressDto
+{
+    public required bool Done { get; init; }
+    public double? Distance { get; init; }
+    public double? SettlePx { get; init; }
+    public double? Time { get; init; }
+    public double? SettleTime { get; init; }
+    public required int Status { get; init; }
+    public string? Error { get; init; }
+    public required bool StarLocked { get; init; }
+
+    public static SettleProgressDto From(SettleProgress settle) => new()
+    {
+        Done = settle.Done,
+        Distance = JsonNumber.OrNull(settle.Distance),
+        SettlePx = JsonNumber.OrNull(settle.SettlePx),
+        Time = JsonNumber.OrNull(settle.Time),
+        SettleTime = JsonNumber.OrNull(settle.SettleTime),
+        Status = settle.Status,
+        Error = settle.Error,
+        StarLocked = settle.StarLocked,
+    };
+
+    public SettleProgress ToSettle() => SettleProgress.Of(Done, JsonNumber.FromWire(Distance), JsonNumber.FromWire(SettlePx),
+        JsonNumber.FromWire(Time), JsonNumber.FromWire(SettleTime), Status, Error, StarLocked);
+}
+
+/// <summary>A guider calibration's overlay on the wire (<see cref="CalibrationOverlayData"/>): absolute image pixels.</summary>
+public sealed class CalibrationOverlayDto
+{
+    public required CalibrationPointDto RaOrigin { get; init; }
+    public required CalibrationPointDto DecOrigin { get; init; }
+    public ImmutableArray<CalibrationPointDto> RaSteps { get; set; } = [];
+    public ImmutableArray<CalibrationPointDto> DecSteps { get; set; } = [];
+    public double? PixelScaleArcsec { get; init; }
+    public double? CameraAngleRad { get; init; }
+    public double? RaRateArcsecPerSec { get; init; }
+    public double? DecRateArcsecPerSec { get; init; }
+    public int BacklashClearingStepsRa { get; init; }
+    public int BacklashClearingStepsDec { get; init; }
+
+    public static CalibrationOverlayDto From(CalibrationOverlayData overlay) => new()
+    {
+        RaOrigin = CalibrationPointDto.From(overlay.RaOrigin),
+        DecOrigin = CalibrationPointDto.From(overlay.DecOrigin),
+        RaSteps = [.. overlay.RaSteps.Select(CalibrationPointDto.From)],
+        DecSteps = [.. overlay.DecSteps.Select(CalibrationPointDto.From)],
+        PixelScaleArcsec = JsonNumber.OrNull(overlay.PixelScaleArcsec),
+        CameraAngleRad = JsonNumber.OrNull(overlay.CameraAngleRad),
+        RaRateArcsecPerSec = JsonNumber.OrNull(overlay.RaRateArcsecPerSec),
+        DecRateArcsecPerSec = JsonNumber.OrNull(overlay.DecRateArcsecPerSec),
+        BacklashClearingStepsRa = overlay.BacklashClearingStepsRa,
+        BacklashClearingStepsDec = overlay.BacklashClearingStepsDec,
+    };
+
+    public CalibrationOverlayData ToOverlay() => new CalibrationOverlayData(
+        RaOrigin.ToStep(), DecOrigin.ToStep(),
+        [.. RaSteps.Select(p => p.ToStep())], [.. DecSteps.Select(p => p.ToStep())],
+        JsonNumber.FromWire(PixelScaleArcsec), JsonNumber.FromWire(CameraAngleRad),
+        JsonNumber.FromWire(RaRateArcsecPerSec), JsonNumber.FromWire(DecRateArcsecPerSec),
+        BacklashClearingStepsRa, BacklashClearingStepsDec);
+}
+
+/// <summary>One position of a calibration's star, in absolute image pixels.</summary>
+public sealed class CalibrationPointDto
+{
+    public double? X { get; init; }
+    public double? Y { get; init; }
+
+    public static CalibrationPointDto From(CalibrationStep step) => new() { X = JsonNumber.OrNull(step.X), Y = JsonNumber.OrNull(step.Y) };
+
+    public CalibrationStep ToStep() => new CalibrationStep(JsonNumber.FromWire(X), JsonNumber.FromWire(Y));
 }
 
 public sealed class GuideStepDto

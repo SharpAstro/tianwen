@@ -12,7 +12,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Hosting.Api;
 using TianWen.Hosting.Dto;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Sequencing;
 using TianWen.RemoteClient;
 using Xunit;
@@ -728,6 +730,76 @@ public class RemoteSessionMirrorTests
         mirror.CameraStates[0].FilterName.ShouldBe("L");
         mirror.Observations.Count.ShouldBe(1);
         mirror.ActiveObservation.ShouldNotBeNull().Target.Name.ShouldBe("M42");
+    }
+
+    [Fact]
+    public async Task EveryFieldATabReadsCrossesWhole()
+    {
+        // What the mirror used to lose (P5b part 3): the observation rebuilt from its name with a guessed one-filter plan,
+        // the mount without its J2000 position, altitude and axis angle, frame metrics without what they were measured at,
+        // guide stats without the last step, and the settle, the star profile and the calibration as constant nulls.
+        var session = Observing(Substitute.For<ISessionTelemetry>());
+        var observation = new ScheduledObservation(new Target(5.588, -5.391, "M42", CatalogIndex.M042),
+            new DateTimeOffset(2026, 7, 26, 19, 45, 0, TimeSpan.Zero), TimeSpan.FromHours(1), AcrossMeridian: false,
+            FilterPlan: [new FilterExposure(0, TimeSpan.FromSeconds(20), 2), new FilterExposure(1, TimeSpan.FromSeconds(30), 3)],
+            Gain: 120, Offset: 10, Priority: ObservationPriority.High);
+        session.Observations.Returns(new ScheduledObservationTree([observation]));
+        session.MountState.Returns(new MountState(5.6, -5.4, -0.75, PointingState.Normal, false, true,
+            RaJ2000: 5.588, DecJ2000: -5.391, Altitude: 41.5, PrimaryAxisAngleDeg: 101.25));
+        session.LastFrameMetrics.Returns([new FrameMetrics(412, 3.1f, 2.4f, TimeSpan.FromSeconds(30), 120, FilterPosition: 1)]);
+        session.LastGuideStats.Returns(GuideStats.FromRms(0.8, 0.5, 0.6, 1.9, 2.1,
+            lastRaErr: 0.25, lastDecErr: -0.125, lastRaPulseMs: 140, lastDecPulseMs: -60));
+        session.GuiderSettleProgress.Returns(SettleProgress.Of(done: false, distance: 0.75, settlePx: 0.5, time: 3, settleTime: 10,
+            status: 0, error: null, starLocked: true));
+        session.GuideStarProfile.Returns(([0.1f, 0.9f, 0.2f], [0.15f, 0.85f, 0.25f]));
+        var overlay = new CalibrationOverlayData(new CalibrationStep(100, 200), new CalibrationStep(110, 190),
+            [new CalibrationStep(120, 200), new CalibrationStep(140, 201)], [new CalibrationStep(110, 170)],
+            PixelScaleArcsec: 2.4, CameraAngleRad: 0.5, RaRateArcsecPerSec: 7.5, DecRateArcsecPerSec: 7.4,
+            BacklashClearingStepsRa: 0, BacklashClearingStepsDec: 3);
+        session.CalibrationOverlay.Returns(overlay);
+
+        var (mirror, _) = BuildMirror(_ => Json(ResponseEnvelope<SessionStateDto>.Ok(SessionStateDto.FromSession(session))));
+        await using var _mirror = mirror;
+        await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+
+        mirror.LastError.ShouldBeNull();
+        var active = mirror.ActiveObservation.ShouldNotBeNull();
+        active.Target.CatalogIndex.ShouldBe(CatalogIndex.M042);
+        (active.Gain, active.Offset, active.Priority).ShouldBe(((int?)120, (int?)10, ObservationPriority.High));
+        active.FilterPlan.ShouldBe(observation.FilterPlan);
+        var mount = mirror.MountState;
+        (mount.RaJ2000, mount.DecJ2000, mount.Altitude, mount.PrimaryAxisAngleDeg).ShouldBe((5.588, -5.391, 41.5, 101.25));
+        mirror.LastFrameMetrics.ShouldHaveSingleItem().ShouldBe(new FrameMetrics(412, 3.1f, 2.4f, TimeSpan.FromSeconds(30), 120, 1));
+        var stats = mirror.LastGuideStats.ShouldNotBeNull();
+        (stats.LastRaErr, stats.LastDecErr, stats.LastRaPulseMs, stats.LastDecPulseMs).ShouldBe(((double?)0.25, (double?)-0.125, (double?)140, (double?)-60));
+        var settle = mirror.GuiderSettleProgress.ShouldNotBeNull();
+        (settle.Done, settle.Distance, settle.SettlePx, settle.Time, settle.SettleTime, settle.StarLocked).ShouldBe((false, 0.75, 0.5, 3.0, 10.0, true));
+        var profile = mirror.GuideStarProfile.ShouldNotBeNull();
+        profile.H.ShouldBe([0.1f, 0.9f, 0.2f]);
+        profile.V.ShouldBe([0.15f, 0.85f, 0.25f]);
+        var calibration = mirror.CalibrationOverlay.ShouldNotBeNull();
+        calibration.RaSteps.ShouldBe(overlay.RaSteps);
+        calibration.DecSteps.ShouldBe(overlay.DecSteps);
+        (calibration.RaOrigin, calibration.DecOrigin, calibration.PixelScaleArcsec, calibration.CameraAngleRad, calibration.BacklashClearingStepsDec)
+            .ShouldBe((overlay.RaOrigin, overlay.DecOrigin, 2.4, 0.5, 3));
+    }
+
+    [Fact]
+    public async Task AnExposureStartIsMeasuredOnTheNodesClock()
+    {
+        // A countdown subtracts the exposure's start from the viewer's clock, but the start is on the node's. A node ten
+        // minutes behind this computer reports an exposure it started a minute ago by its own clock: the mirror shows it
+        // started a minute ago by this one's (the fake clock BuildMirror gives it reads 20:00).
+        var nodeNow = new DateTimeOffset(2026, 7, 26, 19, 50, 0, TimeSpan.Zero);
+        var session = Observing(Substitute.For<ISessionTelemetry>());
+        session.CameraStates.Returns([new CameraExposureState(0, nodeNow - TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(120), 7, "L", 980,
+            CameraState.Exposing, 15.0, false)]);
+
+        var (mirror, _) = BuildMirror(_ => Json(ResponseEnvelope<SessionStateDto>.Ok(SessionStateDto.FromSession(session, nodeNow: nodeNow))));
+        await using var _mirror = mirror;
+        await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+
+        mirror.CameraStates.ShouldHaveSingleItem().ExposureStart.ShouldBe(new DateTimeOffset(2026, 7, 26, 19, 59, 0, TimeSpan.Zero));
     }
 
     [Fact]

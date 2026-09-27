@@ -12,8 +12,27 @@ public sealed class MountStateDto
     public required bool IsSlewing { get; init; }
     public required bool IsTracking { get; init; }
 
+    /// <summary>
+    /// The pointing in J2000, which the sky map draws the reticle in (the native epoch is about 22' off it), the
+    /// altitude, and the mechanical RA-axis angle a mount that has one reports (P5b part 3). Null where not known.
+    /// </summary>
+    public double? RaJ2000 { get; init; }
+
+    /// <inheritdoc cref="RaJ2000"/>
+    public double? DecJ2000 { get; init; }
+
+    /// <inheritdoc cref="RaJ2000"/>
+    public double? Altitude { get; init; }
+
+    /// <inheritdoc cref="RaJ2000"/>
+    public double? PrimaryAxisAngleDeg { get; init; }
+
     public static MountStateDto FromState(MountState state) => new()
     {
+        RaJ2000 = JsonNumber.OrNull(state.RaJ2000),
+        DecJ2000 = JsonNumber.OrNull(state.DecJ2000),
+        Altitude = JsonNumber.OrNull(state.Altitude),
+        PrimaryAxisAngleDeg = JsonNumber.OrNull(state.PrimaryAxisAngleDeg),
         // Before the session's first device poll MountState is all-NaN ("unknown"), which crosses as null: as 0 it
         // read as a mount pointing at RA 0, Dec 0, and a mirror snapped the reticle there.
         RightAscension = JsonNumber.OrNull(state.RightAscension),

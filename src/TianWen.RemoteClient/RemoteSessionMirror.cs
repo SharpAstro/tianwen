@@ -1,10 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TianWen.Hosting.Dto;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.Focus;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Guider;
@@ -198,6 +200,12 @@ namespace TianWen.RemoteClient
 
         private long _lastContactTicks;
 
+        /// <summary>
+        /// How far this computer's clock is ahead of the node's, measured as each state arrives (P5b part 3). A camera's
+        /// exposure start is on the node's clock and a countdown subtracts it from this one's, so the start is moved by it.
+        /// </summary>
+        private long _clockSkewTicks;
+
         private void StampContact() =>
             Interlocked.Exchange(ref _lastContactTicks, _timeProvider.GetUtcNow().UtcTicks);
 
@@ -383,6 +391,7 @@ namespace TianWen.RemoteClient
                 LastError = null;
                 _consecutiveFailures = 0;
                 StampContact();
+                Volatile.Write(ref _clockSkewTicks, state.NodeNowUtc is { } nodeNow ? (_timeProvider.GetUtcNow() - nodeNow).Ticks : 0);
                 Volatile.Write(ref _snapshot, state);
                 RaiseDerivedEvents(state);
                 await RefreshPreviewsAsync(state, cancellationToken).ConfigureAwait(false);
@@ -857,7 +866,11 @@ namespace TianWen.RemoteClient
                     JsonNumber.FromWire(m.HourAngle),
                     Enum.TryParse<PointingState>(m.PierSide, out var pier) ? pier : PointingState.Unknown,
                     m.IsSlewing,
-                    m.IsTracking);
+                    m.IsTracking,
+                    JsonNumber.FromWire(m.RaJ2000),
+                    JsonNumber.FromWire(m.DecJ2000),
+                    JsonNumber.FromWire(m.Altitude),
+                    JsonNumber.FromWire(m.PrimaryAxisAngleDeg));
             }
         }
 
@@ -904,12 +917,13 @@ namespace TianWen.RemoteClient
                     return [];
                 }
 
+                var skew = TimeSpan.FromTicks(Volatile.Read(ref _clockSkewTicks));
                 var builder = ImmutableArray.CreateBuilder<CameraExposureState>(cameras.Length);
                 foreach (var camera in cameras)
                 {
                     builder.Add(new CameraExposureState(
                         camera.OtaIndex,
-                        camera.ExposureStart,
+                        camera.ExposureStart + skew,
                         TimeSpan.FromSeconds(camera.SubExposureSeconds),
                         camera.FrameNumber,
                         camera.FilterName,
@@ -934,12 +948,9 @@ namespace TianWen.RemoteClient
                 var metrics = new FrameMetrics[cameras.Length];
                 for (var i = 0; i < cameras.Length; i++)
                 {
-                    // Exposure, gain and filter slot are not carried per-frame in the state DTO; the
-                    // countdown reads CameraStates.SubExposure instead, and the drift detector is a
-                    // node-side concern.
                     metrics[i] = new FrameMetrics(
                         cameras[i].StarCount, JsonNumber.FromWire(cameras[i].MedianHfd), JsonNumber.FromWire(cameras[i].MedianFwhm),
-                        TimeSpan.Zero, Gain: 0, FilterPosition: -1);
+                        TimeSpan.FromSeconds(cameras[i].MetricsExposureSeconds), cameras[i].MetricsGain, cameras[i].MetricsFilterPosition);
                 }
                 return metrics;
             }
@@ -1038,7 +1049,8 @@ namespace TianWen.RemoteClient
                 }
 
                 return GuideStats.FromRms(JsonNumber.FromWire(guider.TotalRMS), JsonNumber.FromWire(guider.RaRMS),
-                    JsonNumber.FromWire(guider.DecRMS), JsonNumber.FromWire(guider.PeakRa), JsonNumber.FromWire(guider.PeakDec));
+                    JsonNumber.FromWire(guider.DecRMS), JsonNumber.FromWire(guider.PeakRa), JsonNumber.FromWire(guider.PeakDec),
+                    guider.LastRaErr, guider.LastDecErr, guider.LastRaPulseMs, guider.LastDecPulseMs);
             }
         }
 
@@ -1152,11 +1164,7 @@ namespace TianWen.RemoteClient
             return builder.MoveToImmutable();
         }
 
-        // --- No wire representation yet. Empty, not guessed. -------------------------------------
-
-        /// <summary>Empty: the node does not expose settle progress (needs the guider telemetry of
-        /// remote-profile.md Part 2 item 3).</summary>
-        public SettleProgress? GuiderSettleProgress => null;
+        public SettleProgress? GuiderSettleProgress => Snapshot?.Guider?.Settle?.ToSettle();
 
         /// <summary>
         /// The node's per-OTA frames, linear and full-resolution, fetched by the poll loop.
@@ -1196,15 +1204,14 @@ namespace TianWen.RemoteClient
         public double? GuideStarSNR => Snapshot?.Guider?.GuideStarSNR;
 
         /// <summary>
-        /// Local-only. The profile is a per-poll pair of arrays feeding a panel that is often not even
-        /// visible, and it cannot be derived on this side: cross-sections taken from the stretched, lossy
-        /// preview would give a confidently wrong FWHM rather than no FWHM. It wants its own opt-in fetch,
-        /// like the frame itself got.
+        /// The node's own profile of the star, taken from its full guide frame: this side cannot derive one, since
+        /// cross-sections of the stretched, lossy preview would give a confidently wrong FWHM rather than none.
         /// </summary>
-        public (float[] H, float[] V)? GuideStarProfile => null;
+        public (float[] H, float[] V)? GuideStarProfile => Snapshot?.Guider is { StarProfileH: { IsDefaultOrEmpty: false } h, StarProfileV: { IsDefaultOrEmpty: false } v }
+            ? (h.ToArray(), v.ToArray())
+            : null;
 
-        /// <inheritdoc cref="GuideStarProfile"/>
-        public CalibrationOverlayData? CalibrationOverlay => null;
+        public CalibrationOverlayData? CalibrationOverlay => Snapshot?.Guider?.Calibration?.ToOverlay();
 
         /// <summary>Empty: backlash estimates are mirrored back onto the node's own focuser URIs at its
         /// session end, so they never need to cross the wire.</summary>
@@ -1276,24 +1283,17 @@ namespace TianWen.RemoteClient
         }
 
         private static ScheduledObservation ToScheduled(ObservationDto obs) => new ScheduledObservation(
-            new Target(JsonNumber.FromWire(obs.TargetRA), JsonNumber.FromWire(obs.TargetDec), obs.TargetName, null),
+            new Target(JsonNumber.FromWire(obs.TargetRA), JsonNumber.FromWire(obs.TargetDec), obs.TargetName,
+                obs.CatalogIndex is { } index ? (CatalogIndex)index : null),
             obs.Start,
             TimeSpan.FromMinutes(obs.DurationMinutes),
             obs.AcrossMeridian,
-            // The state DTO flattens the filter plan away (it is a scheduling input, not observed
-            // state); the schedule-fidelity DTO of Part 2 item 8 is what carries it back. What DOES cross
-            // is the frame ESTIMATE, so the plan is rebuilt as a single passthrough entry
-            // (FilterPosition -1) whose sub-exposure reproduces it -- FrameCountEstimate owns both the
-            // derivation and its inverse, so this cannot drift from what the node computed. The
-            // per-filter breakdown is genuinely not on the wire and is not invented here, but
-            // ScheduledObservation.PlannedFrameCount answers the same number locally and remotely, so a
-            // progress display has one path instead of a local branch and a wire branch.
-            FilterPlan: obs.PlannedFrameCount is { } planned and > 0
-                ? [new FilterExposure(-1, FrameCountEstimate.SubExposureForFrames(
-                    TimeSpan.FromMinutes(obs.DurationMinutes), planned))]
-                : [],
-            Gain: null,
-            Offset: null);
+            // The plan filter by filter, as the node scheduled it (P5b part 3). It used to be guessed from the frame
+            // estimate as one filter, and two filters of 20 s and 30 s came back as one of 26 s.
+            FilterPlan: [.. obs.FilterPlan.Select(fe => new FilterExposure(fe.FilterPosition, TimeSpan.FromSeconds(fe.SubExposureSeconds), fe.Count))],
+            Gain: obs.Gain,
+            Offset: obs.Offset,
+            Priority: obs.Priority);
 
         // The WS payload is a Dictionary<string, object?> (the AOT constraint on the event bag), so
         // values arrive as JsonElement. These readers keep that detail in one place.
