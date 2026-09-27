@@ -1205,7 +1205,10 @@ full native-AOT rules, and the reasoning behind each rule below:
    connection cancel the night. An abort ends the run through its `Finalise`, never disposing it
    underneath; a finished run never blocks the next; the host stopping aborts, awaits `Finalise`, then
    warms the hub's cameras inside `HostedSession.ShutdownBudget` (and systemd's `TimeoutStopSec` must allow
-   as long). **A run is of any kind** (`INodeRun`, P5: a dark library, polar alignment, a planetary capture),
+   as long). **A request that lasts (an event socket, a frame stream) ends as the host starts stopping**
+   (`ApplicationStopping`): the host waits for open requests out of that same budget, so one that ended only with its
+   client held every stop with a client attached for all 30 minutes, the `Finalise` and the warm-up after it (#985).
+   **A run is of any kind** (`INodeRun`, P5: a dark library, polar alignment, a planetary capture),
    started the same way, and a run that claims its devices as the request is answered starts only once it is the
    node's, on the node's token (`PlanetaryCapture.TryPrepare`, then `StartPrepared` in the run's body); a refused
    start NAMES the run going on (`NodeRuns.AlreadyGoingOn`), each kind stops

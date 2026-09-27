@@ -246,7 +246,12 @@ Pinned by `NodeSocketTests`, `NodeAddressTests`, `ExeBesideTests`, `NodeKeeperTe
      (`IDeviceHub.StopConnectedCamerasAsync`, the same tail the GUI's quit runs), inside
      `HostedSession.ShutdownBudget` (30 min, set as `HostOptions.ShutdownTimeout`; the default 30 s cut
      every warm-up off). **A service manager's own stop timeout must allow as long**: systemd
-     `TimeoutStopSec=35min`, or it kills the process mid-ramp.
+     `TimeoutStopSec=35min`, or it kills the process mid-ramp. **A request that lasts ends as the host starts
+     stopping** (`ApplicationStopping`), since the host waits for open requests out of that same budget, and the
+     server stops before the node's own services (`WebApplicationBuilder` registers it last): the event socket
+     read only until its client closed, so a stop with the GUI attached waited all 30 minutes and left the
+     `Finalise` and the warm-up none of the budget (#985, measured). A stopping node aborts the socket, as its
+     death would, and the client reconnects with its backoff.
    - **A run is of any KIND, not only a session** (P5 part 1 of
      [../plans/hardware-in-the-server.md](../plans/hardware-in-the-server.md), #934). A run that is not a session
      is an `INodeRun` (its `Kind`, a body, what it holds), started through the same `TryStartAsync` on the same
