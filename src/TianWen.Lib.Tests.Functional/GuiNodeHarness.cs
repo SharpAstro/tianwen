@@ -92,6 +92,9 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
     /// <summary>The profile the node runs, as it was saved.</summary>
     public Profile Profile { get; }
 
+    /// <summary>The planetary view the handler starts and stops: the node's capture, as this computer shows it.</summary>
+    public PlanetaryCaptureController Planetary => _services.GetRequiredService<PlanetaryCaptureController>();
+
     /// <summary>This computer's node as the handler reads it.</summary>
     public LocalNodeConnection Local => AppState.LocalNode.ShouldNotBeNull(AppState.LocalNodeProblem);
 
@@ -224,11 +227,16 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
 
     public bool Claimed(Uri deviceUri) => !DeviceOwnershipGate.Evaluate(Hub, deviceUri, DeviceAction.Actuate).Allowed;
 
-    /// <summary>Waits until <paramref name="condition"/> holds, draining the tracker as the host does.</summary>
+    /// <summary>
+    /// Waits until <paramref name="condition"/> holds, draining the tracker and beating presence as the host's loop does:
+    /// without the beat the node counts this window as gone and ends an interactive run after its grace, so a view that
+    /// never asked for a stop still sees its run end, and a test of the stop passes slowly on nothing.
+    /// </summary>
     public async Task UntilAsync(Func<bool> condition, CancellationToken ct)
     {
         while (!condition())
         {
+            Handler.BeatNodes();
             Tracker.ProcessCompletions(NullLogger.Instance);
             await Task.Delay(20, ct);
         }

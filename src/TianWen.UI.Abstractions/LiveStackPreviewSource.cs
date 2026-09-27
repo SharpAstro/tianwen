@@ -37,9 +37,8 @@ namespace TianWen.UI.Abstractions;
 /// </summary>
 public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsyncDisposable
 {
-    private readonly IPlanetaryFrameStream _stream;
-    private readonly bool _ownsStream;
-    private readonly RollingWindowStacker _stacker;
+    // Where the masters come from: a stack integrated here, or the node's (ILiveMasterSource).
+    private readonly ILiveMasterSource _masters;
     private readonly string _path;
     private readonly CancellationTokenSource _cts = new();
 
@@ -89,42 +88,25 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
     private readonly record struct Built(AstroImageDocument Doc, Image RawMaster, Image Display, int Playhead, bool Stacked);
 
     /// <summary>
-    /// Wraps <paramref name="stream"/>. Construct off the render thread -- it pre-warms the stream's
-    /// timestamp trailer so later render-thread timestamp reads do no disk I/O. <paramref name="timeProvider"/>
-    /// is required and bounds the <see cref="DisposeAsync"/> drain (never an implicit system clock). When
-    /// <paramref name="ownsStream"/> is <see langword="true"/> (the default, for a file-backed SER stream
-    /// scoped to this view) the stream is disposed with this source; pass <see langword="false"/> for a
-    /// live camera stream that the capture session owns and that outlives any one preview.
+    /// Shows the masters of <paramref name="masters"/>: a stack integrated here (<see cref="StackedMasters"/>, a SER file's
+    /// playback), or one a node integrates and streams (<see cref="NodeMasters"/>, the node's planetary run), published,
+    /// sharpened and stretched alike, and disposed with this. <paramref name="timeProvider"/> is required and bounds the
+    /// <see cref="DisposeAsync"/> drain (never an implicit system clock).
     /// </summary>
-    public LiveStackPreviewSource(
-        IPlanetaryFrameStream stream, string path, ITimeProvider timeProvider,
-        RollingWindowOptions? options = null, bool ownsStream = true, ILogger? logger = null)
+    public LiveStackPreviewSource(ILiveMasterSource masters, string path, ITimeProvider timeProvider, ILogger? logger = null)
     {
-        ArgumentNullException.ThrowIfNull(stream);
+        ArgumentNullException.ThrowIfNull(masters);
         ArgumentNullException.ThrowIfNull(timeProvider);
-        _stream = stream;
-        _ownsStream = ownsStream;
+        _masters = masters;
         _path = path;
         _timeProvider = timeProvider;
         _logger = logger;
-        _stacker = new RollingWindowStacker(stream, options);
-
-        // Master geometry once stacked: a split-CFA source demosaics back to the full mosaic resolution;
-        // mono / RGB stay at the stream's plane size. Channels: mono -> 1, everything else -> 3 (RGB).
-        var split = stream.Layout == PlanetaryFrameLayout.SplitCfa;
-        _expectedWidth = split ? stream.Width * 2 : stream.Width;
-        _expectedHeight = split ? stream.Height * 2 : stream.Height;
-        _expectedChannels = stream.Layout == PlanetaryFrameLayout.Mono ? 1 : 3;
-        _expectedSensor = _expectedChannels == 1 ? SensorType.Monochrome : SensorType.Color;
-
-        // Fault the lazy timestamp trailer once here (off the render thread) so the transport bar's
-        // per-frame TimestampOf reads hit the warm cache instead of a file-tail seek on the UI thread.
-        _ = _stream.HasTimestamps;
+        (_expectedWidth, _expectedHeight, _expectedChannels, _expectedSensor) = masters.ExpectedGeometry;
     }
 
     /// <summary>Opens <paramref name="path"/> as a live-stack source over its own SER reader.</summary>
     public static LiveStackPreviewSource Open(string path, ITimeProvider timeProvider, RollingWindowOptions? options = null, ILogger? logger = null)
-        => new LiveStackPreviewSource(SerFrameStream.Open(path), path, timeProvider, options, ownsStream: true, logger: logger);
+        => new LiveStackPreviewSource(new StackedMasters(SerFrameStream.Open(path), options, ownsStream: true), path, timeProvider, logger);
 
     /// <summary>True once at least one master has been built and is ready to display.</summary>
     public bool HasMaster => _doc is not null;
@@ -161,7 +143,7 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
     /// </summary>
     public void RequestFollowLatest()
     {
-        var count = _stream.FrameCount;
+        var count = _masters.FrameCount;
         if (count > 0)
         {
             RequestFollow(count - 1);
@@ -278,7 +260,7 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
         // A window stack needs at least one buffered frame; a live camera stream starts empty, so guard
         // against kicking a stack the RollingWindowStacker would reject (it throws on an empty stream). A
         // file-backed SER stream always reports a positive count, so this is a no-op for that path.
-        var hasFrames = _stream.FrameCount > 0;
+        var hasFrames = _masters.FrameCount > 0;
         var needStack = hasFrames && (_rawMaster is null || _target != _builtRaw); // master stale vs the requested playhead
         var needSharpen = _sharpenDirty && _rawMaster is not null;                 // re-sharpen only an existing master
         if (!needStack && !needSharpen)
@@ -320,7 +302,7 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
             // after all. Asserting it here would have handed the sharpen a null instead.
             var raw = !doStack && rawForSharpen is { } cachedMaster
                 ? cachedMaster
-                : await _stacker.StackToAsync(target, token).ConfigureAwait(false);
+                : await _masters.MasterAtAsync(target, token).ConfigureAwait(false);
 
             // Always produce a FRESH image to adopt (AdoptImageAsync normalises in place); identity gains
             // when sharpening is off, so the cached raw master is never consumed. WaveletSharpen.Sharpen
@@ -371,13 +353,13 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
 
     // --- IPreviewSource: sequence members come from the stream (so the transport tracks the raw playhead) ---
 
-    public int FrameCount => _stream.FrameCount;
+    public int FrameCount => _masters.FrameCount;
     public int FrameIndex => _built;
     public bool SelectFrame(int index) => false; // the live stack follows the raw playhead, not a direct seek
-    public bool HasTimestamps => _stream.HasTimestamps;
+    public bool HasTimestamps => _masters.HasTimestamps;
 
     public DateTimeOffset TimestampOf(int index)
-        => _stream.TimestampOf(index) ?? DateTimeOffset.MinValue;
+        => _masters.TimestampOf(index) ?? DateTimeOffset.MinValue;
 
     public void Dispose()
     {
@@ -450,9 +432,6 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
         _stackTask = null;
         _workCts?.Dispose();
         _cts.Dispose();
-        if (_ownsStream)
-        {
-            _stream.Dispose();
-        }
+        _masters.Dispose();
     }
 }
