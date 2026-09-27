@@ -350,6 +350,13 @@ What that means in practice:
   REST/WebSocket API and multi-rig remote mirroring, so running it as a hosted service is a likely
   way it gets used. Plain GPL treats network use as neither conveying nor distribution and would ask
   nothing of a hosted deployment.
+- **A runtime service keeps its own terms, which this licence cannot change.** The default weather
+  provider is Open-Meteo's keyless free API. Its data is CC BY 4.0, and the free tier is for
+  non-commercial use only; Open-Meteo counts subscriptions, advertising and integration into a
+  commercial product as commercial. TianWen itself qualifies: it is free, with no ads. A product
+  built on TianWen that charges or shows ads needs Open-Meteo's paid API plan, which the driver does
+  not support yet (it sends no API key), or the OpenWeatherMap provider with its own key. The
+  viewer's Store listing (Astro Photo Viewer) makes no weather call at all.
 
 Third-party methods, data and programs TianWen builds on are credited in [`NOTICE`](NOTICE).
 Releases before 2026-08-11 were made under LGPL-2.1 and remain available under those terms.

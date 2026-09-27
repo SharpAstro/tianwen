@@ -16,6 +16,15 @@ namespace TianWen.Lib.Devices.Weather;
 /// Built-in weather driver that fetches data from the Open-Meteo free API (no API key required).
 /// Implements <see cref="IWeatherDriver"/> with file-based caching (1-hour TTL).
 /// </summary>
+/// <remarks>
+/// <b>The free API binds its caller to Open-Meteo's terms</b> (#559): the data is CC BY 4.0, so it is
+/// credited wherever a forecast is shown, and the keyless tier is for non-commercial use only, at up to
+/// 10,000 calls a day, 5,000 an hour and 600 a minute. TianWen is free and shows no ads, so it
+/// qualifies. A caller that charges or advertises needs the paid plan, which is a different host
+/// (<c>customer-api.open-meteo.com</c>) plus an <c>apikey</c> parameter. This driver supports neither
+/// yet; add them here, with the key kept in <see cref="ICredentialStore"/> like OpenWeatherMap's, before
+/// anything built on it is sold. The README's licence section says the same to the library's users.
+/// </remarks>
 internal sealed class OpenMeteoDriver : IWeatherDriver
 {
     private const string BaseUrl = "https://api.open-meteo.com/v1/forecast";
