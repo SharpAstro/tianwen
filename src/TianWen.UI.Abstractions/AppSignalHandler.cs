@@ -85,6 +85,18 @@ namespace TianWen.UI.Abstractions
                 : null;
 
         /// <summary>
+        /// The profile of the view on show (P5b part 8): this computer's active profile, or a rig's own, read from the rig
+        /// (<see cref="ViewContext.RigProfile"/>; null until it has been). The planner plans with it, so a rig's nights are
+        /// planned at its site, and its clock, twilight and sky are drawn there; selecting a rig changes what you look at,
+        /// and the site is part of what you look at.
+        /// </summary>
+        internal Profile? ProfileOnShow => _contexts.Active is { IsLocal: false } rig ? rig.RigProfile : _appState.ActiveProfile;
+
+        // The view the planner last planned for. Read and written on the UI thread by CheckRecompute alone, which is how any
+        // switch of view (a rig selected, this computer's view, a rig forgotten, a quit) replans without each owing a step.
+        private ViewContext? _plannedFor;
+
+        /// <summary>
         /// The LOCAL node's session state. Every handler here drives or guards <i>this node's</i>
         /// equipment -- the preview telemetry poll reads local hub drivers, the session/flats/polar
         /// handlers start local runs, and the profile gate protects local device bindings -- so they all
@@ -210,7 +222,7 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private void RefreshSensorFovAndFraming()
         {
-            _plannerState.SensorFovDeg = _appState.ActiveProfile?.Data is { } pd ? pd.PrimarySensorFovDeg : null;
+            _plannerState.SensorFovDeg = ProfileOnShow?.Data is { } pd ? pd.PrimarySensorFovDeg : null;
             PlannerActions.ComputeFramingGroups(_plannerState);
         }
 
@@ -435,13 +447,18 @@ namespace TianWen.UI.Abstractions
         {
             foreach (var (_, connection) in _rigs.Connections)
             {
-                if (!connection.ProfileNameRefreshDue) continue;
+                if (!connection.ProfileRefreshDue) continue;
 
-                RunTracked("RefreshRigProfileName", $"Could not read which profile {connection.Binding.Alias} runs",
+                RunTracked("RefreshRigProfile", $"Could not read which profile {connection.Binding.Alias} runs",
                     async ct =>
                     {
-                        if (await connection.MaybeRefreshProfileNameAsync(ct).ConfigureAwait(false))
+                        if (await connection.MaybeRefreshProfileAsync(ct).ConfigureAwait(false))
                         {
+                            // The rig on show plans with its profile (ProfileOnShow): a new one is a new site or sensor.
+                            if (ReferenceEquals(_contexts.Active, connection.Context))
+                            {
+                                _plannerState.NeedsRecompute = true;
+                            }
                             _appState.NeedsRedraw = true;
                         }
                     });
@@ -698,11 +715,20 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public void CheckRecompute()
         {
-            if (!_plannerState.NeedsRecompute || _appState.ActiveProfile is null || _plannerState.IsRecomputing)
+            // Another view on show plans with another profile, and keeps its own pins: replan, in full.
+            var view = _contexts.Active;
+            if (!ReferenceEquals(view, _plannedFor))
+            {
+                _plannerState.NeedsRecompute = true;
+            }
+
+            if (!_plannerState.NeedsRecompute || ProfileOnShow is not { } profileOnShow || _plannerState.IsRecomputing)
             {
                 return;
             }
 
+            var viewChanged = !ReferenceEquals(view, _plannedFor);
+            _plannedFor = view;
             _plannerState.NeedsRecompute = false;
             _plannerState.IsRecomputing = true;
             _appState.StatusMessage = "Recomputing...";
@@ -712,7 +738,7 @@ namespace TianWen.UI.Abstractions
                 try
                 {
                     var objectDb = _sp.GetRequiredService<ICelestialObjectDB>();
-                    var transform = TransformFactory.FromProfile(_appState.ActiveProfile, _timeProvider, out _);
+                    var transform = TransformFactory.FromProfile(profileOnShow, _timeProvider, out _);
 
                     if (transform is not null)
                     {
@@ -730,7 +756,7 @@ namespace TianWen.UI.Abstractions
 
                         ApplySiteFromTransform(_plannerState, transform);
 
-                        if (_plannerState.TonightsBest.Length > 0 && !siteChanged)
+                        if (_plannerState.TonightsBest.Length > 0 && !siteChanged && !viewChanged)
                         {
                             PlannerActions.RecomputeForDate(_plannerState, transform);
                         }
@@ -739,10 +765,15 @@ namespace TianWen.UI.Abstractions
                             await PlannerActions.ComputeTonightsBestAsync(
                                 _plannerState, objectDb, transform,
                                 _plannerState.MinHeightAboveHorizon, _cts.Token, comets: _plannerState.Comets);
-                            if (_appState.ActiveProfile is { } profile)
+                            // The pins of the view on show: a rig's are its own, kept per binding. A load only replaces the
+                            // pins when the view has some saved, so another view's are dropped first: a rig with none of its
+                            // own showed this computer's, and the next save wrote them into the rig's file.
+                            if (viewChanged)
                             {
-                                await PlannerPersistence.TryLoadAsync(_plannerState, profile, _external, _logger, _timeProvider, ActiveRemoteBindingId, _cts.Token);
+                                _plannerState.Proposals = [];
+                                PlannerActions.RecomputeHandoffSliders(_plannerState);
                             }
+                            await PlannerPersistence.TryLoadAsync(_plannerState, profileOnShow, _external, _logger, _timeProvider, ActiveRemoteBindingId, _cts.Token);
                             SetAutoCompleteCache(PlannerActions.BuildAutoCompleteList(objectDb, _plannerState.Comets));
                         }
                         await FetchWeatherForecastAsync(_cts.Token);
@@ -773,7 +804,7 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private async Task FetchWeatherForecastAsync(CancellationToken ct)
         {
-            await NightCalendarActions.RefreshAsync(_plannerState, _appState.ActiveProfile, _sp, _timeProvider,
+            await NightCalendarActions.RefreshAsync(_plannerState, ProfileOnShow, _sp, _timeProvider,
                 _logger, ct);
             _appState.NeedsRedraw = true;
         }
@@ -820,6 +851,8 @@ namespace TianWen.UI.Abstractions
             // two states cannot drift apart (see PlannerState.AttachAppState).
             plannerState.AttachAppState(appState);
             contexts.AttachAppState(appState);
+            // The planner's first plan is this computer's own, which the host's planner start makes: not a switch of view.
+            _plannedFor = contexts.Local;
 
             _logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(AppSignalHandler));
             _timeProvider = sp.GetRequiredService<ITimeProvider>();

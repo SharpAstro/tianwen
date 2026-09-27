@@ -108,8 +108,12 @@ namespace TianWen.UI.Abstractions
                 appState.ActiveProfile = updatedSite;
                 eqState.IsEditingSite = false;
                 bus.Post(new DeactivateTextInputSignal());
-                plannerState.SiteLatitude = sLat;
-                plannerState.SiteLongitude = sLon;
+                // This computer's site: the planner's only while its own view is on show; a rig's view plans at the rig's.
+                if (_contexts.Active.IsLocal)
+                {
+                    plannerState.SiteLatitude = sLat;
+                    plannerState.SiteLongitude = sLon;
+                }
                 plannerState.NeedsRecompute = true;
                 appState.NeedsRedraw = true;
 
@@ -642,7 +646,8 @@ namespace TianWen.UI.Abstractions
                             await updated.SaveAsync(_external, cts.Token);
                             appState.ActiveProfile = updated;
                         }
-                        if (outcome.Data.SiteLatitude is { } rlat && outcome.Data.SiteLongitude is { } rlon)
+                        // This computer's site: the planner's only while its own view is on show (P5b part 8).
+                        if (outcome.Data.SiteLatitude is { } rlat && outcome.Data.SiteLongitude is { } rlon && _contexts.Active.IsLocal)
                         {
                             plannerState.SiteLatitude = rlat;
                             plannerState.SiteLongitude = rlon;

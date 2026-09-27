@@ -1471,22 +1471,44 @@ namespace TianWen.RemoteClient
             }
         }
 
+        /// <summary>
+        /// The node's schedule, mapped once per polled state (P5b part 8), so every read between two polls, a frame's
+        /// included, gets the same tree: the live view counts it each frame and the sky map keys its markers on it.
+        /// </summary>
         public ScheduledObservationTree Observations
         {
             get
             {
-                if (Snapshot?.Observations is not { IsDefaultOrEmpty: false } observations)
+                var snapshot = Snapshot;
+                if (Volatile.Read(ref _observations) is { } cached && ReferenceEquals(cached.Source, snapshot))
                 {
-                    return new ScheduledObservationTree([]);
+                    return cached.Tree;
                 }
 
-                var builder = ImmutableArray.CreateBuilder<ScheduledObservation>(observations.Length);
-                foreach (var obs in observations)
-                {
-                    builder.Add(ToScheduled(obs));
-                }
-                return new ScheduledObservationTree(builder.MoveToImmutable());
+                var tree = MapObservations(snapshot);
+                // A reference swap: two readers mapping the same state at once build the same tree, and either may stay.
+                Volatile.Write(ref _observations, new ObservationsCache(snapshot, tree));
+                return tree;
             }
+        }
+
+        private sealed record ObservationsCache(SessionStateDto? Source, ScheduledObservationTree Tree);
+
+        private ObservationsCache? _observations;
+
+        private static ScheduledObservationTree MapObservations(SessionStateDto? snapshot)
+        {
+            if (snapshot?.Observations is not { IsDefaultOrEmpty: false } observations)
+            {
+                return new ScheduledObservationTree([]);
+            }
+
+            var builder = ImmutableArray.CreateBuilder<ScheduledObservation>(observations.Length);
+            foreach (var obs in observations)
+            {
+                builder.Add(ToScheduled(obs));
+            }
+            return new ScheduledObservationTree(builder.MoveToImmutable());
         }
 
         public ScheduledObservation? ActiveObservation

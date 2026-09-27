@@ -96,6 +96,20 @@ namespace TianWen.UI.Abstractions
 
         private RemoteSessionMirror? _mirror;
 
+        /// <summary>
+        /// A rig's own profile, as the rig reads it (P5b part 8): the site its nights are planned at and its clock and
+        /// twilight drawn in, and the sensor drawn at its pointing. Null for the local context, whose profile is the app's
+        /// own (<see cref="GuiAppState.ActiveProfile"/>), and until a connected rig's has been read. Written by the rig's
+        /// connection on a background task, read on the render thread, by one reference.
+        /// </summary>
+        public TianWen.Lib.Devices.Profile? RigProfile
+        {
+            get => Volatile.Read(ref _rigProfile);
+            internal set => Volatile.Write(ref _rigProfile, value);
+        }
+
+        private TianWen.Lib.Devices.Profile? _rigProfile;
+
         private void OnMirrorChanged(object? sender, EventArgs e) => LiveSession.NeedsRedraw = true;
 
         /// <summary>

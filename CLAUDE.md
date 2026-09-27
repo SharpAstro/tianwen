@@ -1292,7 +1292,9 @@ full native-AOT rules, and the reasoning behind each rule below:
 12. **The node writes a profile through ONE writer, `NodeProfiles`, and never from a cached copy** (P3, #930): each
    write reads the file inside the writer's lock, an edit names the REVISION it was read at (the hash of the stored
    bytes) and a stale one is a 412, and every write pushes `PROFILE-CHANGED`. **A new place the node writes a profile
-   goes through it.** Changing a profile is for the socket only (decision 4); a LAN client reads.
+   goes through it, and so does a READ**: `GET /session/profile` looked the active profile up in the discovery registry
+   and answered "no longer exists" for one saved since, while `GET /profiles/{id}` read it whole (P5b part 8). Changing a
+   profile is for the socket only (decision 4); a LAN client reads.
 
 ### Remote Rigs (mirror another node's session "as if local")
 
@@ -1359,6 +1361,12 @@ DTOs + `HostingJsonContext`) and `TianWen.RemoteClient` (`TianWenNodeClient`, `T
   with the items in ONE read). **A history added to the state goes through the cursor too**, or it is back to crossing
   whole twice a second; a cursor naming another session gets everything whole, and a node or client from before part 7
   sends or asks for everything, so the wire version did not move.
+  **A rig's view is planned with the rig's own profile** (P5b part 8): the connection's two-minute refresh reads it whole
+  (the binding's choice, else the one the rig runs) onto `ViewContext.RigProfile`, and the planner plans with
+  `AppSignalHandler.ProfileOnShow`, so a rig's nights, clock, twilight and sky are its site's and its reticle carries its
+  own sensor. A switch of view replans in full and **drops the other view's pins first** (a load replaces them only when
+  the view has some saved, so a rig with none showed this computer's and the next save wrote them into the rig's file).
+  **A place that writes this computer's site into the planner does so only while its own view is on show.**
 - **Every request has a time budget** (state 5 s, preview 30 s, control 10 s; 60 s `HttpClient`
   backstop). Budget expiry and caller cancellation both surface as `OperationCanceledException` meaning
   opposite things: keep `when (...)` filters on the ORIGINAL token, never the linked one.
