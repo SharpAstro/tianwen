@@ -60,7 +60,6 @@ namespace TianWen.UI.Abstractions
             bus.Subscribe<StartSessionSignal>(async _ =>
             {
                 if (!EnsureLocalContext("A session")) return;
-                if (!EnsureSessionIdle("Session already running")) return;
 
                 if (appState.ActiveProfile is not { } profile)
                 {
@@ -73,21 +72,37 @@ namespace TianWen.UI.Abstractions
                     Notify(NotificationSeverity.Warning, "No targets \u2014 pin targets in the Planner first");
                     return;
                 }
+                if (LocalNodeOrSay() is not { } node) return;
 
-                // Everything past the preconditions -- schedule build, config injection,
-                // session create, event wiring, tracked RunAsync -- lives in
-                // SessionBootstrapper so this lambda routes only.
-                await SessionBootstrapper.BuildAndStartAsync(
-                    sp.GetRequiredService<ISessionFactory>(),
-                    appState, plannerState, sessionState, liveSessionState, profile,
-                    tracker, external, _timeProvider, logger, cts.Token);
+                // The plan is built here, where it is made (SessionStartPlan); the node runs it, so a window that dies or
+                // wedges takes none of the night with it. The node refuses a second run, naming the one going on, and its
+                // feed notes the run as it goes, in the words a rig's feed uses (SessionNotes).
+                if (SessionStartPlan.TryBuild(plannerState, sessionState, profile, _timeProvider, logger, out var problem) is not { } plan)
+                {
+                    Notify(NotificationSeverity.Error, problem ?? "Failed to build schedule from proposals");
+                    return;
+                }
+
+                liveSessionState.ShowAbortConfirm = false;
+                appState.ActiveTab = GuiTab.LiveSession;
+                appState.StatusMessage = "Starting the session\u2026";
+                appState.NeedsRedraw = true;
+                var started = await node.Mirror.StartAsync([.. plan.Schedule.Select(ScheduledObservationDto.FromScheduled)],
+                    profile.ProfileId, SessionConfigApiDto.FromConfiguration(plan.Configuration), cts.Token);
+                appState.StatusMessage = null;
+                if (!started.IsSuccess)
+                {
+                    Notify(NotificationSeverity.Warning, $"The session did not start: {started.Error}");
+                }
+                appState.NeedsRedraw = true;
             });
 
             bus.Subscribe<ConfirmAbortSessionSignal>(_ =>
             {
-                // The ABORT of the rig on screen: this computer's session, or a rig's through its own node (P5b part 5).
+                // The ABORT of the rig on screen, through its own node, this computer's included: the node ends the run
+                // through its Finalise (park, warm, close).
                 _contexts.Active.LiveSession.ShowAbortConfirm = false;
-                StopActiveRun("Aborting the session", () => liveSessionState.SessionCts?.Cancel());
+                StopActiveRun("Aborting the session");
                 _contexts.Active.LiveSession.NeedsRedraw = true;
                 appState.NeedsRedraw = true;
             });

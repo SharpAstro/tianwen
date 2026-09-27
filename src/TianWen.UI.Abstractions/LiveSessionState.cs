@@ -32,7 +32,7 @@ namespace TianWen.UI.Abstractions
         /// <summary>
         /// True while any session-like run owns the equipment: a full session
         /// (<see cref="IsRunning"/>) <i>or</i> an out-of-session run that sets
-        /// <see cref="ActiveSession"/> without it -- a flat run via <c>FlatsBootstrapper</c>
+        /// <see cref="ActiveSession"/> without it -- a flat run
         /// deliberately leaves <see cref="IsRunning"/> false so the tab keeps the preview layout.
         /// The single predicate for "is a run holding the hardware", fed to
         /// <see cref="TianWen.Lib.Devices.ProfileSwitchGate.Evaluate"/> by both the GUI and the TUI.
@@ -437,6 +437,19 @@ namespace TianWen.UI.Abstractions
         public CancellationTokenSource? FlatsCts { get; set; }
 
         /// <summary>
+        /// Whether the view's node runs a flat run now, as its mirror reports it (P6 of docs/plans/hardware-in-the-server.md,
+        /// #936): this computer's view and a rig's alike, since a flat run is the node's. The Flats panel shows its progress and
+        /// its Cancel while it does.
+        /// </summary>
+        public bool IsFlatRunGoingOn => ActiveSession?.Run is ReportedRun.Flats;
+
+        /// <summary>
+        /// The view asked its node to cancel the flat run, which has not ended yet: the panel's Cancel reads "Cancelling..."
+        /// meanwhile. Cleared once the run is no longer going on.
+        /// </summary>
+        public bool FlatCancelRequested { get; set; }
+
+        /// <summary>
         /// A pending session-driven user prompt ("switch on the panel, then Continue"), or null when none is
         /// open. Set from the session's <c>PromptRequested</c> event (via the bootstrapper); the render loop
         /// draws a confirm overlay while it is non-null, and <c>RespondSessionPromptSignal</c> calls
@@ -586,6 +599,10 @@ namespace TianWen.UI.Abstractions
                 if (run is ReportedRun.Flats && _reportedRun is not ReportedRun.Flats)
                 {
                     Mode = LiveSessionMode.Flats;
+                }
+                if (run is not ReportedRun.Flats)
+                {
+                    FlatCancelRequested = false;
                 }
                 _reportedRun = run;
             }

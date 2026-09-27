@@ -52,8 +52,8 @@ namespace TianWen.UI.Abstractions
             float fontSize, float pad, float rowH)
         {
             var fontPath = FontPath;
-            // A run is in flight iff a CTS is live (mirrors PolarAlignmentCts). Running -> phase/status/Cancel.
-            if (state.FlatsCts is not null)
+            // A run is in flight while the view's node runs one (the mirror's report). Running -> phase/status/Cancel.
+            if (state.IsFlatRunGoingOn)
             {
                 DrawText("Flat Capture", fontPath,
                     rect.X + pad, rect.Y, rect.Width - pad * 2, rowH, fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
@@ -180,7 +180,7 @@ namespace TianWen.UI.Abstractions
             // Cancel (bottom). A terminal phase disables it (nothing left to cancel).
             var buttonY = rect.Y + rect.Height - rowH * 1.6f - pad * 2;
             var terminal = state.Phase is SessionPhase.Complete or SessionPhase.Aborted or SessionPhase.Failed;
-            var cancelInFlight = state.FlatsCts is { IsCancellationRequested: true };
+            var cancelInFlight = state.FlatCancelRequested;
             var canCancel = !terminal && !cancelInFlight;
             var cancellingBg = GuiTheme.Palette.Warn;
             var (cancelLabel, cancelBg, cancelFg) = cancelInFlight

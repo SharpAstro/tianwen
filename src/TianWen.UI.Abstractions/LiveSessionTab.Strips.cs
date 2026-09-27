@@ -120,7 +120,7 @@ namespace TianWen.UI.Abstractions
 
                                 // Same guard for an in-flight flat run: cancel it and let the async
                                 // handler flip Mode back; the user re-picks once it has stopped.
-                                if (state.Mode == LiveSessionMode.Flats && state.FlatsCts is not null)
+                                if (state.Mode == LiveSessionMode.Flats && state.IsFlatRunGoingOn)
                                 {
                                     PostSignal(new CancelFlatsSignal());
                                     if (target != LiveSessionMode.Preview)

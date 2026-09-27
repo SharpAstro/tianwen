@@ -16,6 +16,7 @@ using Shouldly;
 using TianWen.Hosting.Api;
 using TianWen.Hosting.Dto;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.Comets;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
@@ -41,9 +42,10 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
 
     private GuiNodeHarness(NodeHarness node, ServiceProvider services, CancellationTokenSource cts, GuiAppState appState,
         ViewContexts contexts, SkyMapState skyMap, EquipmentTabState equipment, SignalBus bus, BackgroundTaskTracker tracker,
-        Uri mountUri, Uri cameraUri, Uri focuserUri, AppSignalHandler handler, PlannerState planner, Profile profile)
+        Uri mountUri, Uri cameraUri, Uri focuserUri, AppSignalHandler handler, PlannerState planner, SessionTabState session, Profile profile)
     {
         Node = node;
+        Session = session;
         _services = services;
         _cts = cts;
         Handler = handler;
@@ -74,6 +76,9 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
 
     public PlannerState Planner { get; }
 
+    /// <summary>The session tab's state: its configuration and each OTA's camera settings, which a start sends.</summary>
+    public SessionTabState Session { get; }
+
     /// <summary>The Equipment tab's state the handler writes, e.g. a disconnect's confirm strip.</summary>
     public EquipmentTabState Equipment { get; }
     public ViewContexts Contexts { get; }
@@ -97,6 +102,8 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
     {
         var socketPath = Path.Combine(Directory.CreateTempSubdirectory("tws").FullName, "node.sock");
         var node = await NodeHarness.StartAsync(output, ct, socketPath: socketPath);
+        // The view's mirror polls the node's state all along, so a session the node makes answers it as a real one does.
+        node.Factory.OnCreated = static controlled => RemoteSessionMirrorTests.Observing(controlled.Session);
         try
         {
             var mount = new FakeDevice(DeviceType.Mount, 1);
@@ -129,6 +136,8 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
                 .AddSingleton<IDeviceHub, DeviceHub>()
                 .AddSingleton<PlanetaryCaptureController>()
                 .AddSingleton(catalog)
+                // The planner's start loads the comets beside the catalogue: none, here.
+                .AddSingleton(Substitute.For<ICometRepository>())
                 .AddSingleton(Substitute.For<IPlateSolverFactory>())
                 .BuildServiceProvider();
 
@@ -140,7 +149,8 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
             var cts = new CancellationTokenSource();
             var equipment = new EquipmentTabState();
             var planner = new PlannerState();
-            var handler = new AppSignalHandler(services, appState, planner, new SessionTabState(), equipment,
+            var session = new SessionTabState();
+            var handler = new AppSignalHandler(services, appState, planner, session, equipment,
                 contexts, skyMap, bus, tracker, cts, cts.Token, external);
 
             await handler.ConnectLocalNodeAsync(new LocalNodeOptions { NamedSocket = socketPath, AnotherAccountProbe = null },
@@ -160,7 +170,7 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
             }
 
             return new GuiNodeHarness(node, services, cts, appState, contexts, skyMap, equipment, bus, tracker,
-                mount.DeviceUri, camera.DeviceUri, focuser.DeviceUri, handler, planner, profile);
+                mount.DeviceUri, camera.DeviceUri, focuser.DeviceUri, handler, planner, session, profile);
         }
         catch
         {
