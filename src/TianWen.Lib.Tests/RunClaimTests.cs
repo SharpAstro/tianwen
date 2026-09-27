@@ -2,37 +2,18 @@ using System.Threading.Tasks;
 using Shouldly;
 using TianWen.DAL;
 using TianWen.Lib.Devices;
-using TianWen.UI.Abstractions;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// Polar alignment and planetary capture claim what they drive, as a session and a flat run already did, and
-/// the preview capture asks the claim rather than a session flag (P0c item 2 of
-/// docs/plans/hardware-in-the-server.md, #788). Only <c>Session.RunAsync</c> and <c>RunFlatsOnlyAsync</c> took
-/// a lease, and the gate is lease-only, so nothing stopped a jog or a second run from moving a mount polar was
-/// rotating, or a capture from reconfiguring a camera planetary was streaming.
+/// A run's claim holds against the hub's own device operations (P0c item 2 of docs/plans/hardware-in-the-server.md, #788).
+/// Which runs claim what, and that the GUI's runs claim on its node, is the node's to answer and is tested there
+/// (<c>NodePlanetaryTests</c>, <c>NodePolarAlignmentTests</c>, and the GUI's own <c>RunsThroughTheNodeTests</c> and
+/// <c>PlanetaryThroughTheNodeTests</c> in the functional suite).
 /// </summary>
 public class RunClaimTests(ITestOutputHelper output)
 {
-
-    [Fact(Timeout = 60_000)]
-    public async Task WhilePlanetaryCaptureStreamsItsCameraIsClaimedAndStoppingGivesItBack()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        await using var h = await GuiSignalHarness.StartAsync(output, ct);
-
-        h.Post(new StartVideoCaptureSignal(OtaIndex: 0));
-
-        h.PlanetaryCapture.IsCapturing.ShouldBeTrue("premise: the capture started");
-        h.Claimed(h.CameraUri).ShouldBeTrue("planetary streams off the camera");
-        h.Claimed(h.MountUri).ShouldBeFalse("its own nudges drive the mount, and would refuse themselves");
-
-        h.Post(new StopVideoCaptureSignal());
-        await h.UntilAsync(() => !h.Claimed(h.CameraUri), ct);
-    }
-
     /// <summary>
     /// Warm-and-disconnect ramped a claimed camera's cooler all the way up, and only then had its disconnect
     /// refused by the claim: a run's cooled camera warmed under it. Both warm-ups refuse before the ramp now.

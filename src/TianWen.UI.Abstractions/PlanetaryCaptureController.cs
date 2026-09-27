@@ -1,166 +1,197 @@
-﻿using System;
-using System.Diagnostics.CodeAnalysis;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using TianWen.Hosting.Dto;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
-using TianWen.Lib.Imaging.Planetary;
+using TianWen.RemoteClient;
 
 namespace TianWen.UI.Abstractions;
 
 /// <summary>
-/// Shows a <b>live planetary capture</b>: the capture itself is <see cref="PlanetaryCapture"/> (the camera loop, the
-/// frame stream, the recenter and the live controls, which the node runs too), and this stacks what it streams into a
-/// <see cref="LiveStackPreviewSource"/> the 🪐 panel renders (the live rolling-window lucky-imaging stack). The
-/// capture-driven counterpart of <c>ViewerController</c>, which plays back a SER file; the stack / preview /
-/// wavelet-sharpen pipeline above the <see cref="IPlanetaryFrameStream"/> seam is the same.
+/// Shows this computer's <b>live planetary capture</b>, which its node runs (P6 of docs/plans/hardware-in-the-server.md,
+/// #936): the camera loop, the rolling-window stack, the recenter and a recording are the node's (<c>NodePlanetary</c>), so a
+/// window that dies or wedges ends none of them. This starts the node's run, sends the panel's live controls as they change
+/// (<see cref="Capture"/>), reads the node's telemetry, and shows the masters the node stacks (<c>planetary/master</c>)
+/// through the same <see cref="LiveStackPreviewSource"/> a SER playback is shown through, sharpened here as the panel says.
 /// <para>
-/// <b>Threading.</b> <see cref="Start"/>, <see cref="Tick"/> and the <see cref="LiveStackPreviewSource"/> it drives are
-/// render-thread-only (call <see cref="Tick"/> once per render frame). The capture loop runs in the background and meets
-/// this only at the frame stream, which is internally locked. The live controls are the capture's
-/// (<see cref="Capture"/>), which stages them for its loop.
+/// <b>Threading.</b> <see cref="Tick"/> and the preview source are render-thread-only (call <see cref="Tick"/> once per
+/// render frame). The run's loop (state and controls) and the master stream's reader run in the background and meet the
+/// render thread only through <see cref="NodeMasters"/> and a source handed over once per start.
 /// </para>
 /// </summary>
 public sealed class PlanetaryCaptureController : IAsyncDisposable
 {
+    /// <summary>How often the node's state of the run is read, and the staged controls sent.</summary>
+    private static readonly TimeSpan StatePollInterval = TimeSpan.FromMilliseconds(250);
+
     private readonly ViewerState _state;
     private readonly ITimeProvider _timeProvider;
     private readonly ILogger<PlanetaryCaptureController> _logger;
-    private readonly RollingWindowOptions _stackOptions;
 
-    private LiveStackPreviewSource? _source;       // created + driven on the render thread only
-    private LiveCameraFrameStream? _sourceStream;  // the stream _source wraps (render-thread); swap on rebuild
+    private LiveStackPreviewSource? _source;      // render thread only
+    private LiveStackPreviewSource? _nextSource;  // a start's source, handed to the render thread by Tick
+    private CancellationTokenSource? _runCts;
+    private Task? _run;
+    private int _stopAsked;
 
-    public PlanetaryCaptureController(ViewerState state, ITimeProvider timeProvider, ILogger<PlanetaryCaptureController> logger,
-        RollingWindowOptions? stackOptions = null)
+    public PlanetaryCaptureController(ViewerState state, ITimeProvider timeProvider, ILogger<PlanetaryCaptureController> logger)
     {
         _state = state;
         _timeProvider = timeProvider;
         _logger = logger;
-        _stackOptions = stackOptions ?? new RollingWindowOptions();
-        Capture = new PlanetaryCapture(timeProvider, logger, _stackOptions, onFrame: _ => state.NeedsRedraw = true);
     }
 
-    /// <summary>The capture: its camera loop, live controls, recenter and telemetry.</summary>
-    public PlanetaryCapture Capture { get; }
+    /// <summary>The panel's side of the capture: its live controls, and the node's telemetry.</summary>
+    public NodePlanetaryCapture Capture { get; } = new NodePlanetaryCapture();
 
-    /// <summary>True while a capture loop is running.</summary>
+    /// <summary>True from a start until the node says the run has ended.</summary>
     public bool IsCapturing => Capture.IsCapturing;
 
     /// <summary>
     /// The shared <see cref="ViewerState"/> the stack reads/writes (wavelet sharpen, stretch, RAW/STACK). Exposed so the
-    /// planetary view widget renders against the SAME state the controller drives, whether it's hosted as the standalone
-    /// tab or as the Live Session planetary mode.
+    /// planetary view widget renders against the SAME state the controller drives.
     /// </summary>
     public ViewerState ViewerState => _state;
 
-    /// <summary>The live-stack preview source for the tab to render, or null before the first frame.</summary>
+    /// <summary>The live-stack preview source for the tab to render, or null before the first start.</summary>
     public IPreviewSource? Source => _source;
 
-    /// <summary>
-    /// The latest display-ready ([0,1]) stacked master as an <see cref="Image"/> for a rect-bounded mini viewer to
-    /// display, or null before the first stack. Render-thread only (call from <see cref="Tick"/>'s thread).
-    /// </summary>
+    /// <summary>The latest display-ready ([0,1]) master, or null before the first. Render-thread only.</summary>
     public Image? CurrentMaster => _source?.DisplayMaster;
 
-    /// <summary>True once the live stack has built at least one master (something is displayable).</summary>
+    /// <summary>True once a master is displayable.</summary>
     public bool HasMaster => _source?.HasMaster ?? false;
 
     /// <summary>
-    /// Starts streaming from <paramref name="camera"/> (see <see cref="PlanetaryCapture.Start"/>). No-ops, giving the claim
-    /// back, if a capture is already running. <paramref name="appToken"/> ties the capture to the app lifetime.
+    /// Starts <paramref name="node"/>'s planetary run (it claims the camera, sets the ROI and streams; a camera a run holds
+    /// is refused, in the run's name) and shows it. Answers the node's refusal in its words, or null once it runs.
+    /// <paramref name="appToken"/> ties the watching to the app's lifetime; the node's run goes on without it.
     /// </summary>
-    /// <param name="claim">The claim on the camera, taken by the host; owned by the capture from here.</param>
-    public void Start(ICameraDriver camera, VideoCaptureOptions options, CancellationToken appToken, DeviceLeaseSet? claim = null)
+    public async Task<string?> StartAsync(LocalNodeConnection node, PlanetaryRequestDto request, CancellationToken appToken)
     {
-        if (Capture.IsCapturing)
+        if (IsCapturing)
         {
-            _logger.LogInformation("Planetary capture already running; ignoring Start.");
-            claim?.Dispose();
-            return;
+            return "A planetary capture is already running";
         }
 
-        DropSource();
-        if (Capture.Start(camera, options, appToken, claim))
+        var started = await node.Client.StartPlanetaryAsync(request, appToken).ConfigureAwait(false);
+        if (!started.IsSuccess)
         {
-            ShowSequence(options.Exposure);
-        }
-    }
-
-    /// <summary>
-    /// Starts a capture from <paramref name="profile"/>'s devices through <see cref="PlanetaryCapture.TryStart"/>, the one
-    /// start rule the node keeps too, or says why it cannot.
-    /// </summary>
-    public bool TryStart(in PlanetaryCaptureRequest request, ProfileData profile, IDeviceHub hub, CancellationToken appToken,
-        out (int Width, int Height) roi, [NotNullWhen(false)] out string? refusal)
-    {
-        if (Capture.IsCapturing)
-        {
-            roi = default;
-            refusal = "A planetary capture is already running";
-            return false;
+            return started.Error ?? "The node did not start the capture";
         }
 
-        DropSource();
-        if (!Capture.TryStart(request, profile, hub, appToken, out roi, out refusal))
+        Capture.Began();
+        if (started.Value is { } first)
         {
-            return false;
+            Capture.Update(first);
         }
-        ShowSequence(request.Exposure);
-        return true;
-    }
+        Volatile.Write(ref _stopAsked, 0);
+        var masters = new NodeMasters();
+        Interlocked.Exchange(ref _nextSource, new LiveStackPreviewSource(masters, "node://planetary/master", _timeProvider, _logger))?.Dispose();
 
-    // The previous capture's source goes before the capture replaces the stream it reads. A start runs on the render
-    // thread, which is the only one touching the source.
-    private void DropSource()
-    {
-        _source?.Dispose();
-        _source = null;
-        _sourceStream = null;
-    }
-
-    private void ShowSequence(TimeSpan exposure)
-    {
         _state.IsSequence = true;
-        _state.SourceFps = (float)(1.0 / Math.Max(exposure.TotalSeconds, 1e-3));
+        _state.SourceFps = (float)(1000.0 / Math.Max(request.ExposureMs, 1e-3));
         _state.NeedsTextureUpdate = true;
+
+        var runCts = CancellationTokenSource.CreateLinkedTokenSource(appToken);
+        Interlocked.Exchange(ref _runCts, runCts)?.Dispose();
+        _run = Task.Run(() => WatchAsync(node, masters, runCts.Token), CancellationToken.None);
+        return null;
+    }
+
+    // The run's loop: the staged controls sent, the node's state read, the stop asked for, until the node says it ended.
+    private async Task WatchAsync(LocalNodeConnection node, NodeMasters masters, CancellationToken cancellationToken)
+    {
+        using var reading = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var frames = ReadMastersAsync(node, masters, reading.Token);
+        try
+        {
+            var stopSent = false;
+            while (true)
+            {
+                if (Capture.TakeChanges() is { } controls)
+                {
+                    var set = await node.Client.SetPlanetaryControlsAsync(controls, cancellationToken).ConfigureAwait(false);
+                    if (!set.IsSuccess)
+                    {
+                        _logger.LogWarning("The node did not take the planetary controls: {Error}", set.Error);
+                    }
+                }
+                if (Volatile.Read(ref _stopAsked) == 1 && !stopSent)
+                {
+                    stopSent = true;
+                    await node.Client.StopPlanetaryAsync(cancellationToken).ConfigureAwait(false);
+                }
+
+                var now = await node.Client.GetPlanetaryAsync(cancellationToken).ConfigureAwait(false);
+                if (now is { IsSuccess: true, Value: { } state })
+                {
+                    Capture.Update(state);
+                    _state.NeedsRedraw = true;
+                    if (!state.Running)
+                    {
+                        return;
+                    }
+                }
+                else if (now.IsNotFound)
+                {
+                    return;
+                }
+                await _timeProvider.SleepAsync(StatePollInterval, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The app is going: the node's run goes on, as a node's runs do.
+        }
+        finally
+        {
+            await reading.CancelAsync().ConfigureAwait(false);
+            try
+            {
+                await frames.ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is OperationCanceledException || reading.IsCancellationRequested)
+            {
+                // The reader ends with the watching.
+            }
+            Capture.Ended();
+            _state.IsSequence = false;
+            _state.NeedsRedraw = true;
+        }
+    }
+
+    // The node's masters, the newest each time the last has been read (drop-to-latest, P5 part 5c), into the view.
+    private async Task ReadMastersAsync(LocalNodeConnection node, NodeMasters masters, CancellationToken cancellationToken)
+    {
+        await using var stream = await node.Transport.OpenFrameStreamAsync(FrameSources.PlanetaryMaster, cancellationToken).ConfigureAwait(false);
+        var reader = new FrameReader();
+        while (await stream.ReadAsync(reader, cancellationToken).ConfigureAwait(false) is { } next)
+        {
+            masters.Push(next.Frame);
+            _state.NeedsRedraw = true;
+        }
     }
 
     /// <summary>
-    /// Render-thread drive, mirroring <c>ViewerController.TickPlayback</c>'s live-stack steps: push changed
-    /// wavelet-sharpen params, publish a finished master, then follow the latest frame. Lazily creates the preview source
-    /// on the first frame. Returns true when a freshly-built master was published (the caller re-uploads the texture).
-    /// Call once per render frame.
+    /// Render-thread drive: takes a new start's source, pushes changed wavelet-sharpen params, publishes a finished master,
+    /// then follows the latest the node sent. Returns true when a master was published (the caller re-uploads the texture).
     /// </summary>
     public bool Tick()
     {
-        var stream = Capture.Stream;
-        if (stream is null)
+        if (Interlocked.Exchange(ref _nextSource, null) is { } next)
+        {
+            _source?.Dispose();
+            _source = next;
+            _state.WaveletDirty = true;
+        }
+        if (_source is not { } live)
         {
             return false;
         }
 
-        // The capture rebuilds the stream on a live ROI resize; drop the stale source so it's recreated against the new
-        // stream below (ownsStream:false, so disposing the source never touches the stream).
-        if (_source is not null && !ReferenceEquals(_sourceStream, stream))
-        {
-            _source.Dispose();
-            _source = null;
-        }
-
-        if (_source is null)
-        {
-            if (stream.FrameCount <= 0)
-            {
-                return false; // no frame buffered yet -> nothing to display
-            }
-
-            _source = new LiveStackPreviewSource(stream, "live://camera", _timeProvider, _stackOptions, ownsStream: false, logger: _logger);
-            _sourceStream = stream;
-        }
-
-        var live = _source;
         if (_state.WaveletDirty)
         {
             live.SetSharpen(_state.BuildWaveletOptions());
@@ -170,54 +201,61 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
         var published = live.TryPublishMaster();
         live.RequestFollowLatest();
 
-        _state.FrameCount = stream.FrameCount;
+        _state.FrameCount = Capture.FramesReceived;
         _state.FrameIndex = live.FrameIndex;
         if (published)
         {
             _state.NeedsTextureUpdate = true;
         }
-
         return published;
     }
 
-    /// <summary>
-    /// Render-thread stop: cancels the capture loop (it drains itself in the background) and clears the sequence flag.
-    /// Use from a UI signal where awaiting the drain isn't needed; use <see cref="StopAsync"/> when you must await (tests /
-    /// shutdown).
-    /// </summary>
-    public void Stop()
-    {
-        Capture.Stop();
-        _state.IsSequence = false;
-    }
+    /// <summary>Asks the node to stop the capture; the view follows it until the node says it has ended.</summary>
+    public void Stop() => Volatile.Write(ref _stopAsked, 1);
 
-    /// <summary>
-    /// Stops the capture loop and waits for it to drain, bounded by <paramref name="drainTimeout"/>
-    /// (<see cref="PlanetaryCapture.StopAsync"/>). Safe to call when not capturing.
-    /// </summary>
+    /// <summary>Asks the node to stop and waits for the view to have followed it to its end, bounded by <paramref name="drainTimeout"/>.</summary>
     public async Task StopAsync(CancellationToken drainTimeout)
     {
-        await Capture.StopAsync(drainTimeout).ConfigureAwait(false);
-        _state.IsSequence = false;
+        Stop();
+        if (_run is { } run)
+        {
+            try
+            {
+                await run.WaitAsync(drainTimeout).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // Bounded: the node's run ends on its own.
+            }
+        }
     }
 
     /// <inheritdoc/>
     public async ValueTask DisposeAsync()
     {
-        // Bound the capture-loop drain so a slow/stuck loop can't hang process shutdown (Not Responding). The CTS fires
-        // off the injected TimeProvider (FakeTimeProvider-controllable in tests), not the raw system clock.
-        using var drainTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(3), _timeProvider.System);
-        await StopAsync(drainTimeout.Token).ConfigureAwait(false);
-
-        // The source first -- DisposeAsync AWAITS any in-flight window stack to drain (bounded, no thread-blocking
-        // .Wait()) so it stops reading the stream -- then the capture, which releases the stream (ownsStream:false on
-        // the source means the source never disposes it).
+        // The watching ends with the app; the node's capture does not (a window that closes is not a stop).
+        if (Interlocked.Exchange(ref _runCts, null) is { } runCts)
+        {
+            await runCts.CancelAsync().ConfigureAwait(false);
+            if (_run is { } run)
+            {
+                using var drain = new CancellationTokenSource(TimeSpan.FromSeconds(3), _timeProvider.System);
+                try
+                {
+                    await run.WaitAsync(drain.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Bounded, so a stuck read cannot hang shutdown.
+                }
+            }
+            runCts.Dispose();
+        }
+        Interlocked.Exchange(ref _nextSource, null)?.Dispose();
         if (_source is { } source)
         {
             await source.DisposeAsync().ConfigureAwait(false);
         }
         _source = null;
-        _sourceStream = null;
-        await Capture.DisposeAsync().ConfigureAwait(false);
     }
 }

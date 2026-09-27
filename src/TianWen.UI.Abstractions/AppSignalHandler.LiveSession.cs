@@ -233,34 +233,45 @@ namespace TianWen.UI.Abstractions
                 }, onFinally: () => appState.NeedsRedraw = true);
             });
 
-            // Live planetary capture: route Start/Stop to the shared PlanetaryCaptureController, whose capture starts by
-            // the one rule the node keeps too (PlanetaryCapture.TryStart: the camera, its claim, the ROI, the mount).
+            // Live planetary capture: this computer's node runs it (its camera, its claim, the ROI, the stack, the recenter),
+            // and the shared PlanetaryCaptureController shows it and sends the panel's controls.
             var planetaryCapture = sp.GetRequiredService<PlanetaryCaptureController>();
 
             bus.Subscribe<StartVideoCaptureSignal>(sig =>
             {
                 // The remote mode pill offers Planetary too, and this streams THIS computer's camera.
                 if (!EnsureLocalContext("A planetary capture")) return;
-                if (appState.ActiveProfile?.Data is not { } profileData) return;
-                if (appState.DeviceHub is not { } hub) return;
+                if (LocalNodeOrSay() is not { } node) return;
 
-                // Bound to the app shutdown token: quitting cancels the capture (its loops poll the token), so the camera
-                // is released without an imperative Stop() in the quit path.
-                var request = new PlanetaryCaptureRequest(sig.OtaIndex, TimeSpan.FromMilliseconds(sig.ExposureMs), sig.Gain, sig.RoiWidth, sig.RoiHeight);
-                if (!planetaryCapture.TryStart(request, profileData, hub, shutdownToken, out var roi, out var refusal))
+                RunTracked("StartPlanetaryCapture", "Planetary capture failed to start", async ct =>
                 {
-                    Notify(NotificationSeverity.Warning, refusal);
-                    return;
-                }
+                    var request = new PlanetaryRequestDto
+                    {
+                        OtaIndex = sig.OtaIndex,
+                        ExposureMs = sig.ExposureMs,
+                        Gain = sig.Gain,
+                        RoiWidth = sig.RoiWidth,
+                        RoiHeight = sig.RoiHeight,
+                        Recenter = planetaryCapture.Capture.RecenterForStart,
+                    };
+                    // The watching ends with the app; the node's capture goes on until it is stopped, as a node's runs do.
+                    if (await planetaryCapture.StartAsync(node, request, shutdownToken) is { } refusal)
+                    {
+                        Notify(NotificationSeverity.Warning, refusal);
+                        return;
+                    }
 
-                // Planetary capture is now a Live Session mode (not a standalone tab): show it there.
-                liveSessionState.Mode = LiveSessionMode.Planetary;
-                appState.ActiveTab = GuiTab.LiveSession;
-                Notify(NotificationSeverity.Info, $"Planetary capture started ({roi.Width}x{roi.Height}, {sig.ExposureMs:F0} ms)");
+                    // Planetary capture is now a Live Session mode (not a standalone tab): show it there.
+                    liveSessionState.Mode = LiveSessionMode.Planetary;
+                    appState.ActiveTab = GuiTab.LiveSession;
+                    var (roiWidth, roiHeight) = planetaryCapture.Capture.Roi;
+                    Notify(NotificationSeverity.Info, $"Planetary capture started ({roiWidth}x{roiHeight}, {sig.ExposureMs:F0} ms)");
+                }, onFinally: () => appState.NeedsRedraw = true);
             });
 
             bus.Subscribe<StopVideoCaptureSignal>(_ =>
             {
+                if (!planetaryCapture.IsCapturing) return;
                 planetaryCapture.Stop();
                 Notify(NotificationSeverity.Info, "Planetary capture stopped");
             });
