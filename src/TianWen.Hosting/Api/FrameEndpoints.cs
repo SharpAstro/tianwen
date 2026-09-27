@@ -3,10 +3,13 @@ using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Net.WebSockets;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Hosting;
 using TianWen.Hosting.Dto;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
@@ -51,7 +54,131 @@ internal static class FrameEndpoints
         group.MapGet("/planetary/master/latest", (int? after, NodeFrames frames) =>
             Serve(frames.Named(FrameSources.PlanetaryMaster), after, "The planetary stack"));
 
+        // The same two as streams (P5 part 5c): drop-to-latest over a WebSocket, a live view at the rate its client takes.
+        routes.Map(FrameStreamWire.PathOf(FrameSources.PlanetaryLive), (HttpContext context, NodeFrames frames, IHostApplicationLifetime lifetime) =>
+            StreamAsync(context, frames, lifetime, FrameSources.PlanetaryLive));
+        routes.Map(FrameStreamWire.PathOf(FrameSources.PlanetaryMaster), (HttpContext context, NodeFrames frames, IHostApplicationLifetime lifetime) =>
+            StreamAsync(context, frames, lifetime, FrameSources.PlanetaryMaster));
+
         return group;
+    }
+
+    /// <summary>How long a stream's close waits for the client's answer before the socket is dropped.</summary>
+    private static readonly TimeSpan CloseBudget = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// A run's own source as a stream (<see cref="FrameStreamWire"/>): for each ask the client makes, the newest frame, or
+    /// the first newer than the last one sent, so a client that falls behind skips frames rather than queueing them. It
+    /// ends when the client closes it, and as the host starts stopping: the host waits for its open requests out of its
+    /// whole shutdown budget (#985), so the node closes it then and gives the client a moment to answer.
+    /// </summary>
+    private static async Task StreamAsync(HttpContext context, NodeFrames frames, IHostApplicationLifetime lifetime, string source)
+    {
+        if (!context.WebSockets.IsWebSocketRequest)
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            await context.Response.WriteAsync("WebSocket connections only");
+            return;
+        }
+
+        using var socket = await context.WebSockets.AcceptWebSocketAsync();
+        // Ends the sends: the client closing the stream, the request aborted, or the host stopping.
+        using var ending = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, lifetime.ApplicationStopping);
+        // Ends the reads, and only after the node's own close, so the client's answer to it can still arrive.
+        using var reading = new CancellationTokenSource();
+        using var asks = new SemaphoreSlim(0, 1);
+        var receiving = ReceiveAsksAsync(socket, asks, ending, reading.Token);
+        var sent = 0;
+        try
+        {
+            while (true)
+            {
+                await asks.WaitAsync(ending.Token);
+                while (true)
+                {
+                    // Taken before the source is read, so a frame published in between wakes this rather than being waited past.
+                    var next = frames.NextPublish;
+                    var shown = frames.Named(source);
+                    if (shown.Number == sent || shown.Frame is not { } frame)
+                    {
+                        await next.WaitAsync(ending.Token);
+                        continue;
+                    }
+                    if (!frame.TryLease(out var lease))
+                    {
+                        // Replaced while it was read: its successor is already out, and the next look finds it.
+                        await Task.Yield();
+                        continue;
+                    }
+                    using (lease)
+                    {
+                        await FrameStreamWire.WriteAsync(socket, shown.Number, lease.Image, ending.Token);
+                    }
+                    sent = shown.Number;
+                    break;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (ending.IsCancellationRequested)
+        {
+            // The client closed it, or the host is stopping.
+        }
+        catch (WebSocketException)
+        {
+            // The client went away mid-frame.
+        }
+        finally
+        {
+            // The node's close: its answer to the client's, or its own as the host stops.
+            if (socket.State is WebSocketState.Open or WebSocketState.CloseReceived)
+            {
+                try
+                {
+                    using var budget = new CancellationTokenSource(CloseBudget);
+                    await socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "Stream ended", budget.Token);
+                }
+                catch (Exception ex) when (ex is WebSocketException or OperationCanceledException)
+                {
+                    // Best effort: the client may already be gone.
+                }
+            }
+            reading.CancelAfter(CloseBudget);
+            await receiving;
+        }
+    }
+
+    // Reads the client's asks, holding one at a time, until it closes the stream, which ends the sends with it.
+    private static async Task ReceiveAsksAsync(System.Net.WebSockets.WebSocket socket, SemaphoreSlim asks, CancellationTokenSource ending,
+        CancellationToken cancellationToken)
+    {
+        var buffer = new byte[16];
+        try
+        {
+            while (socket.State is WebSocketState.Open or WebSocketState.CloseSent)
+            {
+                var result = await socket.ReceiveAsync(buffer.AsMemory(), cancellationToken);
+                if (result.MessageType is WebSocketMessageType.Close)
+                {
+                    break;
+                }
+                if (FrameStreamWire.IsAsk(result, buffer.AsSpan(0, result.Count)) && asks.CurrentCount == 0)
+                {
+                    asks.Release();
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // The client never answered the node's close within the budget: the socket is dropped.
+        }
+        catch (WebSocketException)
+        {
+            // The client went away without a close.
+        }
+        finally
+        {
+            await ending.CancelAsync();
+        }
     }
 
     private static IResult Serve(NodeFrames.Shown shown, int? after, string what)

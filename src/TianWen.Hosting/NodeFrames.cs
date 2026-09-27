@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
+using System.Threading.Tasks;
 using TianWen.Hosting.Dto;
 using TianWen.Lib.Imaging;
 
@@ -44,6 +45,15 @@ internal sealed class NodeFrames(IHostedSession hosted)
     // with the run it was published in: shown until the node's next run starts, released once replaced or superseded.
     private readonly ConcurrentDictionary<string, Preview> _named = new ConcurrentDictionary<string, Preview>(StringComparer.Ordinal);
 
+    // Completed and replaced on every publish to a run's own source: what a frame stream waits on for the next frame.
+    private TaskCompletionSource _published = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>
+    /// Completes on the next publish to any run's own source (P5 part 5c, the frame streams). Take it BEFORE reading the
+    /// source, so a frame published in between is never waited past.
+    /// </summary>
+    public Task NextPublish => Volatile.Read(ref _published).Task;
+
     /// <summary>The frame OTA <paramref name="index"/> shows now.</summary>
     public Shown Ota(int index) => Observe(FrameSources.Ota(index), ResolveOta(index));
 
@@ -67,15 +77,20 @@ internal sealed class NodeFrames(IHostedSession hosted)
                 if (_named.TryUpdate(source, next, replaced))
                 {
                     replaced.Frame.Release();
+                    Published();
                     return;
                 }
             }
             else if (_named.TryAdd(source, next))
             {
+                Published();
                 return;
             }
         }
     }
+
+    private void Published()
+        => Interlocked.Exchange(ref _published, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)).TrySetResult();
 
     private Image? ResolveNamed(string source)
     {

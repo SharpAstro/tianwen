@@ -141,6 +141,9 @@ releases). D and E are hardware/quality upgrades behind the same contract.
   rolling stack on the run's own task (`RollingWindowStacker`, the master published linear), and the live frame
   copied at display rate by `FrameSampler` (Lib), both served as frames (`planetary/live`, `planetary/master`).
   It stops once no client has watched it for the detach grace.
+- `TianWen.Hosting.Contracts/Api/FrameStreamWire.cs` -- both frames as streams (P5 part 5c): a WebSocket per source,
+  the client asking for each frame and the node answering with the newest, so a slow view skips frames instead of
+  falling behind; `NodeTransport.OpenFrameStreamAsync` on the client. The live frame is dated when it arrived.
 - `TianWen.UI.Abstractions/PlanetaryCaptureController.cs` -- owns a `PlanetaryCapture`; `Tick()` (render
   thread) follows latest + publishes the master + pushes wavelet-sharpen changes.
 - `ViewerState.BuildWaveletOptions()` -- the single source for live-stack wavelet options, now shared by

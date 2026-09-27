@@ -135,17 +135,7 @@ namespace TianWen.RemoteClient
         /// <c>http(s)://host:port/</c> -> <c>ws(s)://host:port/api/v1/events</c>. A separate method so
         /// the mapping is unit-testable without opening a socket.
         /// </summary>
-        internal static Uri BuildEventUri(Uri nodeBaseAddress)
-        {
-            var builder = new UriBuilder(nodeBaseAddress)
-            {
-                Scheme = nodeBaseAddress.Scheme is "https" or "wss" ? "wss" : "ws",
-                Path = "/api/v1/events",
-                Query = string.Empty,
-                Fragment = string.Empty,
-            };
-            return builder.Uri;
-        }
+        internal static Uri BuildEventUri(Uri nodeBaseAddress) => NodeTransport.WebSocketUri(nodeBaseAddress, "/api/v1/events");
 
         private async Task PumpAsync(CancellationToken cancellationToken)
         {

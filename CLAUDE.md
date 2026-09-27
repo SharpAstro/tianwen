@@ -1091,7 +1091,10 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
 - **The capture loop is `PlanetaryCapture` (Lib), ONE for the GUI and the node**: the camera, the stream, the
   live controls and the recenter. The GUI's `PlanetaryCaptureController` only stacks and shows what it streams;
   the node stacks it on its run's own task (`NodePlanetary`) and serves the live frame, copied at display rate by
-  `FrameSampler`, and the linear master as frames (`planetary/live`, `planetary/master`).
+  `FrameSampler`, and the linear master as frames (`planetary/live`, `planetary/master`). **A live view STREAMS them
+  and the client ASKS for each frame** (`FrameStreamWire`, drop-to-latest): a send is done once the kernel has the
+  bytes, and a loopback socket buffers dozens of planetary frames, so a node that sent on its own fed a reader that
+  paused every stale frame of the pause (measured).
   It claims only the camera, so **a recenter nudge asks `DeviceOwnershipGate` over the mount first**.
 
 ### AI Image Enhancement: SETI Astro (ONNX) + RC-Astro (CLI)
