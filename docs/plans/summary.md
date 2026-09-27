@@ -133,10 +133,10 @@ Written 2026-08-29, when the user referenced Frank FreeStar8n's MetaGuide. Two d
 
 - Phase 1 (plumbing / core types): **DONE**; `ISerialProbe`, `ISerialProbeService`, `SerialProbeService`, `SerialProbeMatch`, `ProbeExclusivity`, `ProbeFraming` under `src/TianWen.Lib/Devices/Discovery/`. `ProbeAllAsync` wired into `DeviceDiscovery.RunSerialProbesAsync` (`DeviceDiscovery.cs:164`).
 - Phase 2 (logger scopes): **DONE**; scope instrumentation lives in `SerialProbeService` itself; per-source migration made per-loop scopes moot.
-- Phase 3 (two-tier pinned-port discovery): **DONE**; `PinnedSerialPort`, `IPinnedSerialPortsProvider`, `ActiveProfilePinnedSerialPortsProvider` all present; `ISerialProbe.MatchesDeviceHosts` implemented; GUI composition root wires the active-profile provider.
+- Phase 3 (two-tier pinned-port discovery): **DONE**; `PinnedSerialPort`, `IPinnedSerialPortsProvider`, `ISerialProbe.MatchesDeviceHosts` implemented; the node pins the active profile's ports (`NodePinnedSerialPorts`, which replaced the GUI's `ActiveProfilePinnedSerialPortsProvider` when P6 of hardware-in-the-server moved discovery into the node).
 - Phase 4 (migrate all sources): **DONE**; `SkywatcherSerialProbe`, `OnStepSerialProbe`, `MeadeSerialProbe`, `IOptronSerialProbe`, `QhyCfw3SerialProbe`, `QfocSerialProbe` all migrated; each source's `DiscoverAsync` reads `probeService.ResultsFor(...)` with no per-port open.
 - Phase 5 (cleanup): **DONE**; `WaitForSerialPortEnumerationAsync` / `EnumerateAvailableSerialPorts` callers removed from individual sources.
-- Tests: **DONE**; `SerialProbeServiceTests`, `SkywatcherSerialProbeTests`, `OnStepQuirkProbeTests`, `ActiveProfilePinnedSerialPortsProviderTests`, `SerialPortNamesTests`.
+- Tests: **DONE**; `SerialProbeServiceTests`, `SkywatcherSerialProbeTests`, `OnStepQuirkProbeTests`, `SerialPortNamesTests`.
 - Evolution: `ISerialProbe` uses `ProbeFraming` (ordering within baud group) instead of the simpler `Exclusivity`-only model in the plan; beneficial addition, not a shortfall.
 
 ## skymap-milkyway: DONE ~75%

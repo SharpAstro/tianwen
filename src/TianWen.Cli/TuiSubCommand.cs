@@ -103,8 +103,7 @@ internal class TuiSubCommand(
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
         // Shared state
-        var registry = sp.GetService<IDeviceHub>();
-        var appState = new GuiAppState { ActiveProfile = profile, ActiveTab = GuiTab.Equipment, DeviceHub = registry };
+        var appState = new GuiAppState { ActiveProfile = profile, ActiveTab = GuiTab.Equipment };
         var eqState = new EquipmentTabState();
         var sessionState = new SessionTabState();
         sessionState.InitializeFromProfile(profile, appState.CameraCapabilitiesOf);
@@ -143,11 +142,6 @@ internal class TuiSubCommand(
         // session setup follow once it answers.
         tracker.Run(() => signalHandler.ConnectLocalNodeAsync(new LocalNodeOptions(), profile.ProfileId.ToString(), includeFake,
             backgroundCts.Token), "Connect to this computer's node");
-
-        // P3 of docs/plans/mount-safety-limits.md for this host too: a profile's mount safety limits apply to
-        // a manual slew with no session running, and only a session enforces them on the mount it leases.
-        // Same loop the server and the GUI drive; quitting cancels it, and it skips any mount a run owns.
-        tracker.Run(() => sp.GetRequiredService<MountLimitWatcher>().RunAsync(backgroundCts.Token), "Mount limit watcher");
 
         // Resolve location from profile
         var transform = Plan.LocationResolver.ResolveFromProfile(consoleHost, profile, consoleHost.TimeProvider);

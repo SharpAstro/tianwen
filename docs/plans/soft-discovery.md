@@ -66,7 +66,9 @@ entirely, and (b) extending the same idea to non-serial sources (Alpaca/ASCOM by
 Tracked by #897.
 
 1. **`device discover` (CLI) registers no pinned provider** (`0 pinned`) and forces a full scan; it's
-   a "find everything new" command. The GUI wires `ActiveProfilePinnedSerialPortsProvider`. Soft mode
+   a "find everything new" command. The node pins the active profile's ports (`NodePinnedSerialPorts`; the GUI
+   wired `ActiveProfilePinnedSerialPortsProvider` until P6 of `hardware-in-the-server.md` moved discovery into the
+   node). Soft mode
    would give the CLI/GUI a fast "refresh what I have" path.
 2. **Pinned-verify doesn't work for a DTR-only device (Gemini).** `VerifyPinnedPortsAsync` calls
    `ProbePortAsync` with `isolatePerProbe: false` (shared handle, no DTR), so the new DTR-skip means

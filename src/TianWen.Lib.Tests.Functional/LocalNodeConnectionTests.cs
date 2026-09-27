@@ -44,7 +44,6 @@ public class LocalNodeConnectionTests(ITestOutputHelper outputHelper)
                 .AddSingleton<ITimeProvider>(new SystemTimeProvider())
                 .AddLogging()
                 .AddSingleton<ViewerState>()
-                .AddSingleton<IDeviceHub, DeviceHub>()
                 .AddSingleton<PlanetaryCaptureController>()
                 .AddSingleton(catalog)
                 .BuildServiceProvider();

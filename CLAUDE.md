@@ -421,8 +421,9 @@ camera, focuser and filter-wheel drivers to the Store this way. **Namespaces sta
 `TianWen.Lib.Devices.*` / `TianWen.Lib.Extensions` on purpose** (a deployment split, not an API
 redesign), so the assembly name and the namespace root differ; the drivers stay `internal` and see
 Lib's internals through `InternalsVisibleTo` rather than the DAL abstraction being promoted to public
-API. An app that drives hardware references the project; `tianwen-fits` must NOT, and a new consumer
-that only reads files must not either.
+API. Only the process that drives hardware references the project, and since P6 (#936) that is `tianwen-server`
+alone: the GUI, the CLI (the TUI with it) and `tianwen-fits` must NOT, and neither must a new consumer, which reaches
+the rig through the node.
 
 **A profile scan never probes a COM port, and a port that will not TAKE bytes is given up, not retried.**
 `DiscoverOnlyDeviceType(type)` runs the serial probe pass only when a source for that type consumes it (it
@@ -882,8 +883,8 @@ verification and the wider GSServer sweep are in
 
 **`MountLimitWatcher` (`Sequencing/`) is the enforcement half with no session running**: host-agnostic,
 matches a connected mount by the hub's identity rule against every discovered profile's `Mount` each
-5 s, skips a mount a session already leases. Driven as a `BackgroundService` in `tianwen-server` and
-from `tianwen-gui`'s `Program.cs` (the GUI runs a bare `ServiceCollection`, so nothing else starts it).
+5 s, skips a mount a session already leases. Driven as a `BackgroundService` in `tianwen-server`, the one process
+that holds the rig since P6 (#936): the GUI and the TUI ran their own until then, over their own hub.
 
 Full derivations, the GSServer sweep and live verification: both docs linked above.
 
