@@ -25,9 +25,6 @@ namespace TianWen.UI.Abstractions
         // was written, and the second would always be refused.
         private readonly SemaphoreSlim _profileWrites = new SemaphoreSlim(1, 1);
 
-        /// <summary>How often an edit refused as stale is made again onto the profile as it is now, before giving up.</summary>
-        internal const int ProfileWriteAttempts = 3;
-
         /// <summary>This computer's node, or null with a note saying why there is none to act through.</summary>
         private LocalNodeConnection? LocalNodeOrSay()
         {
@@ -96,44 +93,20 @@ namespace TianWen.UI.Abstractions
             await _profileWrites.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                var madeOf = based.Data ?? ProfileData.Empty;
-                var data = edited;
-                var revision = node.ProfileRevision;
-                for (var attempt = 0; attempt < ProfileWriteAttempts; attempt++)
+                if (node.ProfileRevision is not { } revision)
                 {
-                    if (revision is null)
-                    {
-                        Notify(NotificationSeverity.Warning, "The profile has not been read from this computer's node yet; make the change again in a moment");
-                        return;
-                    }
-
-                    var written = await node.Client.UpdateProfileAsync(based.ProfileId, data, revision, name, cancellationToken).ConfigureAwait(false);
-                    if (written is { IsSuccess: true, Value: { } stored })
-                    {
-                        node.AdoptProfileWrite(stored);
-                        return;
-                    }
-                    if (written.StatusCode != 412)
-                    {
-                        Notify(NotificationSeverity.Error, $"Could not save the profile: {written.Error}");
-                        await node.RefreshProfileNowAsync(cancellationToken).ConfigureAwait(false);
-                        return;
-                    }
-
-                    // Moved on since the edit was read: made again onto the profile as the node holds it now.
-                    var latest = await node.Client.GetProfileAsync(based.ProfileId, cancellationToken).ConfigureAwait(false);
-                    if (latest is not { IsSuccess: true, Value: { Data: { } now, Revision: { } nowRevision } })
-                    {
-                        Notify(NotificationSeverity.Error, $"Could not read the profile again to save the change: {latest.Error}");
-                        return;
-                    }
-                    _logger.LogInformation("Profile {ProfileId} moved on since the edit was read; making it again onto revision {Revision}",
-                        based.ProfileId, nowRevision);
-                    data = data.RebasedOnto(madeOf, now);
-                    madeOf = now;
-                    revision = nowRevision;
+                    Notify(NotificationSeverity.Warning, "The profile has not been read from this computer's node yet; make the change again in a moment");
+                    return;
                 }
-                Notify(NotificationSeverity.Error, "Could not save the profile: it kept changing while the change was made");
+
+                var written = await NodeProfileWrites.WriteAsync(node.Client, based.ProfileId, based.Data ?? ProfileData.Empty, edited,
+                    revision, name, _logger, cancellationToken).ConfigureAwait(false);
+                if (written is { IsSuccess: true, Value: { } stored })
+                {
+                    node.AdoptProfileWrite(stored);
+                    return;
+                }
+                Notify(NotificationSeverity.Error, $"Could not save the profile: {written.Error}");
                 await node.RefreshProfileNowAsync(cancellationToken).ConfigureAwait(false);
             }
             finally

@@ -288,8 +288,11 @@ internal class ProfileSubCommand(
                             double? newElev = double.TryParse(elevStr, CultureInfo.InvariantCulture, out var e) ? e : null;
                             var pData = profile.Data ?? ProfileData.Empty;
                             var newData = EquipmentActions.SetSite(pData, newLat, newLon, newElev);
-                            profile = profile.WithData(newData);
-                            await profile.SaveAsync(consoleHost.External, ct);
+                            if (await consoleHost.SaveProfileAsync(profile.WithData(newData), ct) is not { } saved)
+                            {
+                                break;
+                            }
+                            profile = saved;
                             consoleHost.WriteScrollable($"Site set to {newLat:F4}, {newLon:F4}{(newElev.HasValue ? $", {newElev.Value:F0}m" : "")}");
                         }
                         else
@@ -319,8 +322,11 @@ internal class ProfileSubCommand(
     {
         var profileName = parseResult.GetRequiredValue(profileNameArg);
 
-        var newProfile = new Profile(Guid.NewGuid(), profileName, ProfileData.Empty);
-        await newProfile.SaveAsync(consoleHost.External, cancellationToken);
+        // The node makes the profile and names it: the id is the one it answers.
+        if (await consoleHost.SaveProfileAsync(new Profile(Guid.NewGuid(), profileName, ProfileData.Empty), cancellationToken) is not { } newProfile)
+        {
+            return;
+        }
 
         consoleHost.WriteScrollable($"Created new profile '{newProfile.DisplayName}' with ID {newProfile.ProfileId}");
     }
@@ -331,13 +337,17 @@ internal class ProfileSubCommand(
 
         var selectedProfile = parseResult.GetSelected(allProfiles, selectedProfileOption);
 
+        // Each device named as the node lists it; one it does not list is described by its URI.
+        var devices = await consoleHost.ListAllDevicesAsync(DeviceDiscoveryOption.IncludeFake, cancellationToken);
+        DeviceBase? Discovered(Uri uri) => devices.FirstOrDefault(d => DeviceBase.SameDevice(d.DeviceUri, uri));
+
         foreach (var profile in allProfiles)
         {
             var isSelected = profile.ProfileId == selectedProfile?.ProfileId;
 
             var selectedChar = isSelected ? ">" : " ";
 
-            consoleHost.WriteScrollable($"\n{selectedChar} {profile.Detailed(consoleHost.DeviceHub)}");
+            consoleHost.WriteScrollable($"\n{selectedChar} {profile.Detailed(Discovered)}");
         }
     }
 
@@ -881,7 +891,10 @@ internal class ProfileSubCommand(
             }
         }
 
-        profileToDelete.Delete(consoleHost.External);
+        if (!await consoleHost.DeleteProfileAsync(profileToDelete, cancellationToken))
+        {
+            return;
+        }
 
         consoleHost.WriteScrollable($"Deleted profile '{profileToDelete.DisplayName}' ({profileToDelete.ProfileId})");
 
@@ -921,7 +934,8 @@ internal class ProfileSubCommand(
 
     private async Task<Uri?> ResolveDeviceUriAsync(string deviceId, CancellationToken ct)
     {
-        var devices = await consoleHost.ListAllDevicesAsync(DeviceDiscoveryOption.None, ct);
+        // A device named by its id is meant, fake or not.
+        var devices = await consoleHost.ListAllDevicesAsync(DeviceDiscoveryOption.IncludeFake, ct);
         var matches = devices.Where(d => d.DeviceId == deviceId).ToList();
 
         if (matches.Count == 1)
@@ -947,9 +961,10 @@ internal class ProfileSubCommand(
 
     private async Task SaveAndListAsync(Profile profile, ProfileData newData, ParseResult parseResult, CancellationToken ct)
     {
-        var updatedProfile = profile.WithData(newData);
-        await updatedProfile.SaveAsync(consoleHost.External, ct);
-        await ListProfilesActionAsync(parseResult, ct);
+        if (await consoleHost.SaveProfileAsync(profile.WithData(newData), ct) is not null)
+        {
+            await ListProfilesActionAsync(parseResult, ct);
+        }
     }
 
     private Task<IReadOnlyCollection<Profile>> ListProfilesAsync(CancellationToken cancellationToken) =>

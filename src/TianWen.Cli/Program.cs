@@ -78,7 +78,6 @@ builder.Services
     // product is licensed, else TianWen's own model where the role has one.
     // AddRcAstroAi() calls AddTianWenAi() internally, so the in-house baseline stands.
     .AddRcAstroAi()
-    .AddSingleton<TianWen.Lib.Sequencing.DarkFrameRun>()
     .AddSingleton<IVirtualTerminal, VirtualTerminal>()
     .AddSingleton<DocumentCache>()
     .AddSingleton<IConsoleHost, ConsoleHost>();
@@ -156,14 +155,9 @@ var rootCommand = new RootCommand
             consoleHost,
             services.GetRequiredService<TianWen.Lib.Astrometry.PlateSolve.IPlateSolverFactory>(),
             services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>()).Build(),
-        new FlatsSubCommand(
-            consoleHost,
-            services.GetRequiredService<TianWen.Lib.Sequencing.ISessionFactory>(),
-            profileSelector).Build(),
-        new DarksSubCommand(
-            consoleHost,
-            services.GetRequiredService<TianWen.Lib.Devices.IDeviceHub>(),
-            services.GetRequiredService<TianWen.Lib.Sequencing.DarkFrameRun>()).Build(),
+        // The rig's verbs are this computer's node's clients (P6, #936): the node runs the flats and the darks.
+        new FlatsSubCommand(consoleHost, profileSelector).Build(),
+        new DarksSubCommand(consoleHost).Build(),
         new ImageSubCommand(
             consoleHost,
             services.GetRequiredService<SharpenPipeline>(),

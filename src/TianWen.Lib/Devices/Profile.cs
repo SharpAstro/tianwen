@@ -155,7 +155,15 @@ public record class Profile(Uri DeviceUri) : DeviceBase(DeviceUri)
         }
     }
 
+    /// <summary>The profile described in full, each device named as the hub it is registered with knows it.</summary>
     public string Detailed(IDeviceHub deviceUriRegistry)
+        => Detailed(uri => deviceUriRegistry.TryGetDeviceFromUri(uri, out var device) ? device : null);
+
+    /// <summary>
+    /// The profile described in full, each device named as <paramref name="discovered"/> knows it (a node's listing, for a
+    /// client), and one it does not know by what its URI carries.
+    /// </summary>
+    public string Detailed(Func<Uri, DeviceBase?> discovered)
     {
         var sb = new StringBuilder()
             .Append($"Profile: {DisplayName} ({ProfileId})");
@@ -198,7 +206,7 @@ public record class Profile(Uri DeviceUri) : DeviceBase(DeviceUri)
 
         string DeviceInfo(Uri deviceUri)
         {
-            if (deviceUriRegistry.TryGetDeviceFromUri(deviceUri, out var device))
+            if (discovered(deviceUri) is { } device)
             {
                 return NameAndId(device.DisplayName, device.DeviceId);
             }

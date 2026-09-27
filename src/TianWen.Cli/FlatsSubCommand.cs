@@ -2,8 +2,10 @@ using System;
 using System.CommandLine;
 using System.Globalization;
 using System.IO;
+using TianWen.Hosting.Dto;
 using TianWen.Lib.IO;
 using TianWen.Lib.Sequencing;
+using TianWen.RemoteClient;
 
 namespace TianWen.Cli;
 
@@ -18,12 +20,18 @@ namespace TianWen.Cli;
 /// flip-flat, a driver lightbox / panel, or a <c>ManualCoverDevice</c> hand-switched panel; the default) and
 /// <c>sky</c> (twilight sky-flats; <c>--period dawn|dusk</c> selects the ramp direction and needs the mount).
 /// A manual panel is selected by assigning a Manual Light Panel to the OTA cover slot, not by a source flag.</para>
+///
+/// <para>The flat run is this computer's node's (P6 of docs/plans/hardware-in-the-server.md, #936): this sends the profile,
+/// the source and the knobs, follows the run to its end phase by phase, and stops it on the node on Ctrl+C. The frames are
+/// written by the node, into the output folder this computer's user shares with it, which is how they are counted.</para>
 /// </summary>
 internal sealed class FlatsSubCommand(
     IConsoleHost consoleHost,
-    ISessionFactory sessionFactory,
     ProfileSelector profileSelector)
 {
+    /// <summary>How often the node's run is read for its phase.</summary>
+    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
+
     public Command Build()
     {
         var sourceOpt = new Option<string>("--source")
@@ -128,40 +136,46 @@ internal sealed class FlatsSubCommand(
             };
             consoleHost.WriteScrollable($"[flats] profile '{profile.DisplayName}', source={sourceLabel}, {config.FlatsPerFilter} frame(s)/filter, target {config.FlatTargetAduFraction:P0}.");
 
-            // Populate the device hub (discovery + solver support check) so Create can resolve profile URIs.
-            await sessionFactory.InitializeAsync(ct);
-
-            ISession session;
-            try
+            if (await consoleHost.NodeAsync(ct) is not { } node)
             {
-                session = sessionFactory.Create(profile.ProfileId, config, []);
-            }
-            catch (ArgumentException ex)
-            {
-                consoleHost.WriteError(ex.Message);
                 return 1;
             }
+
+            // The node's flats start from this configuration (the profile's site, and an operator's answer to a prompt) and
+            // lay the knobs over it, as the GUI's do.
+            var request = new FlatsRequestDto
+            {
+                Source = sourceStr,
+                Period = periodStr,
+                Count = config.FlatsPerFilter,
+                Target = config.FlatTargetAduFraction,
+                Tolerance = config.FlatAduTolerance,
+                MinExposureSeconds = config.FlatMinExposure?.TotalSeconds,
+                MaxExposureSeconds = config.FlatMaxExposure?.TotalSeconds,
+                InitialExposureSeconds = config.FlatInitialExposure?.TotalSeconds,
+                BrightnessPercent = config.FlatCalibratorBrightnessPercent,
+                MaxBrackets = config.FlatMaxBrackets,
+                Configuration = SessionConfigApiDto.FromConfiguration(config),
+            };
 
             // Count written flats by the output-folder delta -- flat frames don't flow through the
             // observation frame counter (TotalFramesWritten), which tracks light frames only.
             var flatsRoot = Path.Combine(consoleHost.External.ImageOutputFolder.FullName, "Flats");
             var before = CountFlats(flatsRoot);
 
-            session.PhaseChanged += (_, e) => consoleHost.WriteScrollable($"[flats] {e.NewPhase}");
+            var started = await node.StartFlatsAsync(request, profile.ProfileId, ct);
+            if (!started.IsSuccess)
+            {
+                consoleHost.WriteError($"[flats] the node did not start the flat run: {started.Error}");
+                return 1;
+            }
 
-            try
-            {
-                await session.RunFlatsOnlyAsync(period, ct);
-            }
-            finally
-            {
-                await session.DisposeAsync();
-            }
+            var ended = await FollowAsync(node, ct);
 
             var written = Math.Max(0, CountFlats(flatsRoot) - before);
-            var ok = session.Phase is SessionPhase.Complete;
-            consoleHost.WriteScrollable($"[flats] {(ok ? "complete" : session.Phase.ToString())}: {written} flat frame(s) written to {flatsRoot}.");
-            if (!ok && session.FailureReason is { } reason)
+            var ok = ended?.Phase is SessionPhase.Complete;
+            consoleHost.WriteScrollable($"[flats] {(ok ? "complete" : ended?.Phase.ToString() ?? "lost")}: {written} flat frame(s) written to {flatsRoot}.");
+            if (!ok && ended?.FailureReason is { } reason)
             {
                 consoleHost.WriteError($"[flats] {reason}");
             }
@@ -169,6 +183,48 @@ internal sealed class FlatsSubCommand(
         });
 
         return flatsCommand;
+    }
+
+    // The node's flat run followed to its end, each phase said as it is reached; a Ctrl+C aborts it on the node, where it
+    // still ends through its own Finalise (warm, close the covers, disconnect).
+    private async Task<SessionStateDto?> FollowAsync(TianWenNodeClient node, CancellationToken cancellationToken)
+    {
+        SessionStateDto? last = null;
+        try
+        {
+            while (true)
+            {
+                // Whether the run goes on is the node's run record, set as the start was answered; the phase is the
+                // session's, read after it, so the read that sees the run over also sees how it ended.
+                var nodeNow = await node.GetNodeAsync(cancellationToken);
+                if (nodeNow.Value is not { } info)
+                {
+                    consoleHost.WriteError($"[flats] the node did not answer: {nodeNow.Error}");
+                    return last;
+                }
+                if ((await node.GetSessionStateAsync(cancellationToken)).Value is { } state)
+                {
+                    if (last?.Phase != state.Phase)
+                    {
+                        consoleHost.WriteScrollable($"[flats] {state.Phase}");
+                    }
+                    last = state;
+                }
+                if (info.Run is not { Kind: NodeRunKind.Flats })
+                {
+                    return last;
+                }
+                await consoleHost.TimeProvider.SleepAsync(PollInterval, cancellationToken);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            var aborted = await node.AbortSessionAsync(CancellationToken.None);
+            consoleHost.WriteScrollable(aborted.IsSuccess
+                ? "[flats] stopping the flat run on the node; it finishes through its own ending"
+                : $"[flats] the node did not stop the flat run: {aborted.Error}");
+            throw;
+        }
     }
 
     private static int CountFlats(string flatsRoot)
