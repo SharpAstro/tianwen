@@ -109,7 +109,7 @@ public class SaveTargetExtensionTests
                 new BackgroundTaskTracker(), NullLogger<ViewerController>.Instance);
 
             dialog.SaveAsync(Arg.Any<System.Collections.Generic.IReadOnlyDictionary<string, System.Collections.Generic.IReadOnlyList<string>>>(),
-                    Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+                    Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>(), Arg.Any<string?>())
                 .Returns(Path.Combine(directory, typed));
 
             var fits = await SharedTestData.ExtractGZippedFitsFileAsync("PlateSolveTestFile",

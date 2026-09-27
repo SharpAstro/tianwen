@@ -36,9 +36,12 @@ public interface IFileDialogHelper
     /// <param name="suggestedFileName">Pre-filled file name, extension included.</param>
     /// <param name="title">Dialog title.</param>
     /// <param name="cancellationToken">Cancellation token (only effective on the process-based dialogs).</param>
+    /// <param name="initialDirectory">Folder the dialog opens in, or <c>null</c> for the platform's own
+    /// default (on Windows, the folder the dialog last saved to).</param>
     Task<string?> SaveAsync(
         IReadOnlyDictionary<string, IReadOnlyList<string>> filters,
         string? suggestedFileName = null,
         string title = "Save image",
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        string? initialDirectory = null);
 }

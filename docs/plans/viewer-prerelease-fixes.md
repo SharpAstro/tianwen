@@ -60,7 +60,7 @@ the 35 TIFF / import / codec tests pass against it.
 | P27 | Escape and an open panel: NOT a defect, and now pinned. My first diagnosis was wrong | **VERIFIED** 2026-09-08 |
 | P28 | The menu cannot name the object under the cursor, and the atlas link only copies | **FIXED** 2026-09-08 |
 | P29 | A touchscreen pinch does not zoom: the events were raised and dropped | **FIXED** 2026-09-09 |
-| P35 | Save opens to Explorer's last folder, not the currently-open file's folder | BACKLOG |
+| P35 | Save opens to Explorer's last folder, not the currently-open file's folder | **SHIPPED** 2026-09-27 (#904) |
 
 ---
 
@@ -1893,9 +1893,9 @@ to the identical `CatalogIndex` and cross-linked to each other. `Catalog.UGCA` i
 catalogue, probed before UGC; pinned by `UGCAndUGCAAreDistinctCatalogsDespiteSharingTheUGPrefix` and
 `GivenAUGCAIdentifierWhenLookingItUpThenTheCrossReferencedObjectIsReturnedNotTheUGCOne`.
 
-## P35. Save does not default to the opened file's folder  (BACKLOG, filed 2026-09-19)
+## P35. Save does not default to the opened file's folder  (SHIPPED 2026-09-27, filed 2026-09-19)
 
-Tracked by #904.
+Tracked by #904, closed by the PR that shipped it.
 
 *Filed as "P30" on 2026-09-19, which was already taken by the Auto-renders-a-flat-colour-field fix
 above; renumbered 2026-09-20. A reference to "P30" written between those dates means this entry.*
@@ -1909,4 +1909,29 @@ therefore opens the Save dialog on Explorer's own remembered last-used folder, n
 currently-open file came from. P18 (Save/Save-As/icons, FIXED 2026-09-04) shipped the button and the
 icon but never this default. Fix is to thread the open document's directory through
 `SaveAsync`/`lpstrInitialDir` so Save (and Save As) start where the file already lives.
+
+**What shipped (2026-09-27).** `IFileDialogHelper.SaveAsync` takes an `initialDirectory`, and
+`ViewerController.SaveImage` passes it from `ViewerController.SaveDialogDirectory(document.FilePath)`:
+the folder the open document was read from, or `null` (the platform's own default, i.e. what happened
+before) when the document came from no file (a live frame adopted with an empty path) or its folder has
+since gone. Both Save rows, clean and annotated, go through it, and it lives in the shared controller, so
+`StandaloneViewerHost` and every other host of the controller get it with no host step of their own.
+
+- **Windows**: the folder rides in `lpstrFile` as the folder part of the suggested path AND in
+  `lpstrInitialDir`. Windows 7+ prefers a path in `lpstrFile`, except when `lpstrInitialDir` repeats the
+  value the application passed the first time it ever showed the dialog, which it answers with the
+  folder last saved to. Left null, as it was, every call repeated that first value, which fits what was
+  reported; set, only a return to the very first folder still meets the rule. **Not yet checked on a
+  Windows box** (the change was made from a Linux runner); if that residue matters, `IFileSaveDialog`'s
+  `SetFolder` is the call that forces the folder outright.
+- **Linux**: zenity's `--filename` and kdialog's start path carry the full path. The save dialogs now
+  pass their arguments as a LIST: the old single string used single quotes that no shell ever read, so
+  .NET split every title, filter name and (now) folder containing a space into pieces.
+- **macOS**: `choose file name ... default location (POSIX file "...")`, with AppleScript string
+  escaping; the old string form lost its double quotes to .NET's argument parser too.
+
+Pinned by `SaveDialogFolderTests`: a real FITS opened through the controller with the dialog stubbed to
+record its arguments and answer "cancelled" (no window, nothing written), for both Save rows, plus the
+fallbacks (no path, blank path, a folder that has gone). The end-to-end pair fails with the controller
+passing `null`.
 

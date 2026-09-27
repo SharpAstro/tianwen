@@ -481,7 +481,8 @@ public sealed class ViewerController(
             var suggested = (withOverlays ? stem + "-annotated" : stem) + ".png";
             var title = withOverlays ? "Save image with overlays" : "Save image as displayed";
 
-            var target = await fileDialog.SaveAsync(filters, suggested, title, token).ConfigureAwait(false);
+            var target = await fileDialog.SaveAsync(filters, suggested, title, token,
+                initialDirectory: SaveDialogDirectory(saveDoc.FilePath)).ConfigureAwait(false);
             if (target is null)
             {
                 state.StatusMessage = null;
@@ -601,6 +602,35 @@ public sealed class ViewerController(
     /// </remarks>
     private static string RenamedToPng(string path) =>
         path.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ? path : Path.ChangeExtension(path, ".png");
+
+    /// <summary>
+    /// The folder a Save dialog opens in: the one the open document was read from, or <c>null</c> for
+    /// the platform's own default when the document came from no file (a live frame) or its folder is
+    /// no longer there.
+    /// </summary>
+    /// <remarks>
+    /// Where the file already lives is where its exports belong (P35): the suggested name is the
+    /// file's own stem, and the annotated variant's name is chosen so the two can sit beside it. A
+    /// folder that has gone is not offered, because the dialog would open on an error or on a
+    /// fallback of its own choosing instead of the platform's.
+    /// </remarks>
+    internal static string? SaveDialogDirectory(string? documentPath)
+    {
+        if (string.IsNullOrWhiteSpace(documentPath))
+        {
+            return null;
+        }
+
+        try
+        {
+            var directory = Path.GetDirectoryName(Path.GetFullPath(documentPath));
+            return directory is { Length: > 0 } && Directory.Exists(directory) ? directory : null;
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return null;
+        }
+    }
 
     /// <summary>
     /// Logs the statistics a document's auto-stretch is solved FROM, once per document rather than
