@@ -315,8 +315,13 @@ namespace TianWen.Lib.Tests
                 TestContext.Current.CancellationToken);
 
             var rows = ReadDegradationRows(outDir);
-            rows.ShouldAllBe(r => r.SigmaTile != null && r.SigmaTile.EndsWith(DatasetDegradationExporter.SigmaTileExtension));
+            rows.ShouldAllBe(r => r.SigmaTile == DatasetDegradationExporter.SigmaPathFor(r.Tile));
             var clean = ReadTileChannels(outDir, CleanTileOf(rows[0]));
+
+            // The clean master's own plane sits beside it by the same rule, at the master's depth, so it is
+            // quieter than every draw's (whose input carries the master's noise and the draw's).
+            var masterPlane = ReadTile(outDir, DatasetDegradationExporter.SigmaPathFor(CleanTileOf(rows[0])));
+            masterPlane.ShouldAllBe(v => float.IsFinite(v) && v > 0f);
             foreach (var row in rows)
             {
                 var path = Path.Combine(outDir, row.SigmaTile!.Replace('/', Path.DirectorySeparatorChar));
@@ -339,6 +344,9 @@ namespace TianWen.Lib.Tests
                 var predicted = plane.Average(v => (double)v) / StretchedNoise.PlaneScale;
                 output.WriteLine($"depth {row.DepthScale:F3} (master {row.MasterDepth:F3}): measured input noise {input:E3}, plane {predicted:E3}, ratio {predicted / input:F3}");
                 (predicted / input).ShouldBe(1.0, 0.12);
+                // The master's plane is the same model at the master's depth alone.
+                var masterPredicted = masterPlane.Average(v => (double)v) / StretchedNoise.PlaneScale;
+                (masterPredicted / predicted).ShouldBe(row.MasterDepth / Math.Sqrt((row.DepthScale * row.DepthScale) + (row.MasterDepth * row.MasterDepth)), 0.03);
             }
         }
 

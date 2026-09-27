@@ -214,8 +214,18 @@ namespace TianWen.AI.Imaging
             double? WarpSigma = null,
             string? SigmaTile = null);
 
-        /// <summary>The extension of a draw's conditioning-plane sidecar, beside its tile.</summary>
+        /// <summary>The extension of a tile's conditioning-plane sidecar, beside the tile.</summary>
         public const string SigmaTileExtension = ".sigma.f16";
+
+        /// <summary>
+        /// The one naming rule for a conditioning plane: beside its tile, the tile's extension replaced by
+        /// <see cref="SigmaTileExtension"/>. The trainer's <c>--prepare</c> finds every slot's plane (master, draws,
+        /// halves) by this rule, so a tile needs no manifest field to carry one.
+        /// </summary>
+        public static string SigmaPathFor(string tilePath)
+            => tilePath.EndsWith(DatasetTileExporter.TileExtension, StringComparison.Ordinal)
+                ? string.Concat(tilePath.AsSpan(0, tilePath.Length - DatasetTileExporter.TileExtension.Length), SigmaTileExtension)
+                : throw new ArgumentException($"{tilePath} is not a {DatasetTileExporter.TileExtension} tile", nameof(tilePath));
 
         /// <summary>What to export.</summary>
         /// <param name="BakeRoot">A dataset bake: it must hold <c>tiles-manifest.jsonl</c> and
@@ -806,6 +816,15 @@ namespace TianWen.AI.Imaging
 
             var cellImage = new Image(planes, BitDepth.Float32, 1f, 0f, unitMaster.Pedestal, unitMaster.ImageMeta);
 
+            if (draw == 0)
+            {
+                // The clean master's own plane, once per cell: slot 0 is also what the gate denoises (the
+                // deployment case), and its noise is the master's own depth. Named by the one rule every
+                // tile's plane follows (SigmaPathFor), so no manifest field is needed to find it.
+                WriteMasterSigmaTile(unitMaster, origin, size, origMin, balances, calibration, masterDepth,
+                    Path.Combine(tilesDir, SigmaPathFor($"x{cell.X}_y{cell.Y}_{FrameClean}{DatasetTileExporter.TileExtension}")));
+            }
+
             // H2's label, measured HERE and not from the kernel, on the LINEAR cell and not the
             // stretched one. Both halves matter. Inference has no kernel, only what the estimator reads
             // (OnnxNonStellarDeconvolver calls EstimateAsync on its input before the runner stretches),
@@ -943,7 +962,7 @@ namespace TianWen.AI.Imaging
                 // draw noisier than a master biases the plane up (18 percent at 1.26 subs of warped noise, the
                 // exporter test), while the runner's input is a master, whose own low-passed level is close to
                 // noise-free already. Train and inference then differ in the calibration alone.
-                var sigmaFile = $"x{cell.X}_y{cell.Y}_{frame}{SigmaTileExtension}";
+                var sigmaFile = SigmaPathFor(file);
                 levelCell = new Image(levelPlanes, BitDepth.Float32, 1f, 0f, unitMaster.Pedestal, unitMaster.ImageMeta);
                 levelStretched = levelCell.MtfStretchWith(origMin, balances);
                 WriteSigmaTile(levelStretched, origMin, balances, calibration,
@@ -995,6 +1014,43 @@ namespace TianWen.AI.Imaging
                 levelCell?.Release();
                 stretchedCell?.Release();
                 cellImage.Release();
+            }
+        }
+
+        /// <summary>
+        /// The clean master cell's conditioning plane: its own noise at the master's depth, the level read off the
+        /// cell itself.
+        /// </summary>
+        private static void WriteMasterSigmaTile(
+            Image unitMaster,
+            PixelPoint origin,
+            int size,
+            float[] origMin,
+            double[] balances,
+            in LinearDegradation.NoiseCalibration calibration,
+            double masterDepth,
+            string path)
+        {
+            var channels = unitMaster.ChannelCount;
+            var planes = new float[channels][,];
+            for (var c = 0; c < channels; c++)
+            {
+                var cut = CutClamped(unitMaster, c, origin.X, origin.Y, size, size);
+                var plane = new float[size, size];
+                Buffer.BlockCopy(cut, 0, plane, 0, cut.Length * sizeof(float));
+                planes[c] = plane;
+            }
+            var linear = new Image(planes, BitDepth.Float32, 1f, 0f, unitMaster.Pedestal, unitMaster.ImageMeta);
+            Image? stretched = null;
+            try
+            {
+                stretched = linear.MtfStretchWith(origMin, balances);
+                WriteSigmaTile(stretched, origMin, balances, calibration, masterDepth, path);
+            }
+            finally
+            {
+                stretched?.Release();
+                linear.Release();
             }
         }
 
