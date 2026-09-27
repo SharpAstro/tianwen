@@ -42,6 +42,11 @@ namespace TianWen.RemoteClient
         // The connection the socket's upgrade request goes over: the node's Unix socket for the local node, null
         // (the default TCP connection) for a remote rig. Owned: disposed with the stream.
         private readonly HttpMessageInvoker? _invoker;
+        // The control this client holds, presented on each upgrade: over TCP the node counts a client as able to answer a
+        // prompt only when its upgrade carried a grant (P6b, #1021). Null over the socket, which needs none.
+        private readonly NodeGrant? _grant;
+        // The socket open now, so Reconnect can end it.
+        private ClientWebSocket? _current;
 
         private CancellationTokenSource? _cts;
         private Task? _pump;
@@ -55,19 +60,28 @@ namespace TianWen.RemoteClient
         /// <see cref="ClientWebSocket"/> per connection attempt (they are single-use once closed).</param>
         /// <param name="invoker">What carries the upgrade request, when it is not a TCP connection to
         /// <paramref name="nodeBaseAddress"/>: the local node's socket (<see cref="NodeTransport"/>). The stream owns it.</param>
+        /// <param name="grant">The control this client holds, presented on each upgrade (<see cref="NodeTransport.Grant"/>).</param>
         public TianWenEventStream(
             Uri nodeBaseAddress,
             ITimeProvider timeProvider,
             ILogger logger,
             Func<ClientWebSocket>? socketFactory = null,
-            HttpMessageInvoker? invoker = null)
+            HttpMessageInvoker? invoker = null,
+            NodeGrant? grant = null)
         {
             _endpoint = BuildEventUri(nodeBaseAddress);
             _timeProvider = timeProvider;
             _logger = logger;
             _socketFactory = socketFactory ?? (static () => new ClientWebSocket());
             _invoker = invoker;
+            _grant = grant;
         }
+
+        /// <summary>
+        /// Ends the socket open now, so the stream connects again at once, presenting the grant as it stands: what a client
+        /// granted control after it connected calls, since the node judges a client by what its upgrade carried.
+        /// </summary>
+        public void Reconnect() => Volatile.Read(ref _current)?.Abort();
 
         /// <summary>
         /// Tells the node this client can SEE a prompt: call it from the loop that draws the client (every iteration is
@@ -184,7 +198,9 @@ namespace TianWen.RemoteClient
         private async Task ConnectAndReceiveAsync(CancellationToken cancellationToken)
         {
             using var socket = _socketFactory();
+            _grant?.Present(socket.Options);
             await socket.ConnectAsync(_endpoint, _invoker, cancellationToken).ConfigureAwait(false);
+            Volatile.Write(ref _current, socket);
             SetConnected(true);
             _logger.LogDebug("Event stream connected to {Endpoint}", _endpoint);
 
@@ -198,6 +214,7 @@ namespace TianWen.RemoteClient
             }
             finally
             {
+                Interlocked.CompareExchange(ref _current, null, socket);
                 await connection.CancelAsync().ConfigureAwait(false);
                 try
                 {
