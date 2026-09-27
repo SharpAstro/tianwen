@@ -27,6 +27,7 @@
        solved on one frame of a run reaches the rest. -->
   <ItemGroup>
     <InternalsVisibleTo Include="TianWen.Lib.Tests" />
+    <InternalsVisibleTo Include="TianWen.Lib.Tests.Functional" />
   </ItemGroup>
 
   <ItemGroup>

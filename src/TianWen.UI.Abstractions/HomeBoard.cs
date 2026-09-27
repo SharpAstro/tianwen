@@ -297,79 +297,105 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// The local node's card. Always online -- it is this machine, so "not answering" is not a state it
-        /// can be in -- and its profile is this app's active profile rather than anything fetched.
+        /// What a card says of the run on a view, read off the view's <see cref="LiveSessionState"/>: ONE rule for this
+        /// computer's card and a rig's (P5b part 9 of docs/plans/hardware-in-the-server.md), so a rig's card describes its
+        /// node's run exactly as this computer's would describe the same run, which <c>MirrorParityTests</c> compares. The
+        /// card's identity (its title, profile, devices, whether it is on show) and its note are the caller's.
         /// </summary>
-        private static RigCard LocalCard(ViewContext local, GuiAppState appState, DateTimeOffset now, bool isViewed)
-        {
-            var session = local.LiveSession;
-            return new RigCard(
-                Title: local.DisplayName,
-                Subtitle: appState.ActiveProfile?.DisplayName,
-                IsLocal: true,
+        internal static RigCard RunCard(LiveSessionState session, DateTimeOffset now) =>
+            new RigCard(
+                Title: "",
+                Subtitle: null,
+                IsLocal: false,
                 IsOnline: true,
                 Phase: session.Phase,
                 Status: DescribeActivity(session),
                 Target: session.ActiveObservation?.Target.Name,
                 FramesWritten: session.TotalFramesWritten,
                 GuideRmsArcsec: session.LastGuideStats?.TotalRMS,
-                // Aged from the same clock as every other card: a local prompt blocks a run just as long.
+                // Aged from the same clock as every other card: a prompt blocks a run just as long on either.
                 Prompt: DescribePrompt(session, now),
-                Devices: LocalDeviceLink(appState),
-                IsViewed: isViewed,
+                Devices: null,
+                IsViewed: false,
                 Progress: DescribeProgress(session),
                 Cooling: DescribeCooling(session, now),
                 MedianHfd: DescribeHfd(session),
                 MeridianFlipUtc: session.MeridianFlipUtc,
-                LastNote: LocalNote(appState, now),
                 MountLimit: LimitOf(session));
-        }
+
+        /// <summary>
+        /// The local node's card. Always online -- it is this machine, so "not answering" is not a state it
+        /// can be in -- and its profile is this app's active profile rather than anything fetched.
+        /// </summary>
+        private static RigCard LocalCard(ViewContext local, GuiAppState appState, DateTimeOffset now, bool isViewed) =>
+            RunCard(local.LiveSession, now) with
+            {
+                Title = local.DisplayName,
+                Subtitle = appState.ActiveProfile?.DisplayName,
+                IsLocal = true,
+                Devices = LocalDeviceLink(appState),
+                IsViewed = isViewed,
+                LastNote = LocalNote(appState, now),
+            };
 
         /// <summary>
         /// A bound rig with a live mirror. Still shown as offline when the node has stopped answering: the
         /// mirror keeps running and keeps its last snapshot, so without this check a rig that went dark
         /// would keep displaying the session it was running when it did.
         /// </summary>
-        private static RigCard RemoteCard(RemoteRigConnection connection, DateTimeOffset now, bool isViewed)
-        {
-            var session = connection.Context.LiveSession;
-            // The same rule, and the same words, as the rig's own tabs (RemoteRigActions.DescribeContact): only an
-            // answering node is online. A rig still connecting is neither live nor quiet yet, and says so.
-            var contact = connection.Mirror.Contact;
-            var online = contact.State is NodeContactState.Answering;
-
-            return new RigCard(
-                Title: connection.Binding.Alias,
-                Subtitle: connection.ProfileName,
-                IsLocal: false,
-                IsOnline: online,
-                Phase: session.Phase,
-                // The contact carries the mirror's own last-contact time, so a rig that answered this session reports
-                // minutes; the binding as reached is the fallback (the address in use, and a previous run's stamp) for
-                // one that has not answered since.
-                Status: RemoteRigActions.DescribeContact(contact, connection.BindingAsReached(), now) ?? DescribeActivity(session),
-                Target: online ? session.ActiveObservation?.Target.Name : null,
-                FramesWritten: session.TotalFramesWritten,
-                GuideRmsArcsec: online ? session.LastGuideStats?.TotalRMS : null,
-                // A prompt outlives the connection going dark -- it is still blocking that rig's run, and
-                // is arguably more urgent once nobody can answer it remotely.
-                Prompt: DescribePrompt(session, now),
-                // Not knowable from the snapshot -- see RigCard.Devices.
-                Devices: null,
-                IsViewed: isViewed,
-                // Suppressed while dark, for the same reason Target and the RMS are: these describe what the
-                // rig is doing NOW, and the mirror keeps its last snapshot, so showing them would present a
-                // frozen night as a live one. The prompt and the note are the deliberate exceptions -- a
-                // blocked run stays blocked, and the last thing a rig said before going quiet is often the
-                // reason it went quiet.
-                Progress: online ? DescribeProgress(session) : null,
-                Cooling: online ? DescribeCooling(session, now) : null,
-                MedianHfd: online ? DescribeHfd(session) : null,
-                MeridianFlipUtc: online ? session.MeridianFlipUtc : null,
+        private static RigCard RemoteCard(RemoteRigConnection connection, DateTimeOffset now, bool isViewed) =>
+            RemoteCard(
+                RunCard(connection.Context.LiveSession, now),
+                connection.Mirror.Contact,
+                // The address in use and a previous run's stamp: what a rig that has not answered this run is described by.
+                connection.BindingAsReached(),
+                connection.ProfileName,
                 // The newest of the node's feed (P5b part 6), which outlives its session: the state's own note went with
                 // the state when the node went idle, taking the "session ended" note off the card with it.
-                LastNote: RemoteNote(connection.Mirror.Notes is [.., var newest] ? newest : connection.Mirror.LastNotification, now),
-                MountLimit: online ? LimitOf(session) : null);
+                connection.Mirror.Notes is [.., var newest] ? newest : connection.Mirror.LastNotification,
+                now,
+                isViewed);
+
+        /// <summary>
+        /// A rig's card from its run (<see cref="RunCard"/>) and whether its node is answering: what the rig is doing now
+        /// only while it answers, since the mirror keeps its last snapshot.
+        /// </summary>
+        internal static RigCard RemoteCard(
+            RigCard run, NodeContact contact, RemoteRigBinding binding, string? profileName, NotificationDto? newestNote,
+            DateTimeOffset now, bool isViewed)
+        {
+            // The same rule, and the same words, as the rig's own tabs (RemoteRigActions.DescribeContact): only an
+            // answering node is online. A rig still connecting is neither live nor quiet yet, and says so.
+            var online = contact.State is NodeContactState.Answering;
+
+            var card = run with
+            {
+                Title = binding.Alias,
+                Subtitle = profileName,
+                IsOnline = online,
+                // The contact carries the mirror's own last-contact time, so a rig that answered this session reports
+                // minutes; the binding's stamp is the fallback for one that has not answered since.
+                Status = RemoteRigActions.DescribeContact(contact, binding, now) ?? run.Status,
+                // Not knowable from the snapshot -- see RigCard.Devices.
+                Devices = null,
+                IsViewed = isViewed,
+                LastNote = RemoteNote(newestNote, now),
+            };
+
+            // Suppressed while dark: these describe what the rig is doing NOW, and the mirror keeps its last snapshot, so
+            // showing them would present a frozen night as a live one. The prompt and the note are the deliberate
+            // exceptions -- a blocked run stays blocked, arguably more urgently once nobody can answer it remotely, and
+            // the last thing a rig said before going quiet is often the reason it went quiet.
+            return online ? card : card with
+            {
+                Target = null,
+                GuideRmsArcsec = null,
+                Progress = null,
+                Cooling = null,
+                MedianHfd = null,
+                MeridianFlipUtc = null,
+                MountLimit = null,
+            };
         }
 
         /// <summary>
