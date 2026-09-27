@@ -36,4 +36,18 @@ public class SettleProgress
     public int Status { get; internal set; }
     public string? Error { get; internal set; }
     public bool StarLocked { get; internal set; }
+
+    /// <summary>A settle read back from a node's wire: the guider that measured it is on the node.</summary>
+    public static SettleProgress Of(bool done, double distance, double settlePx, double time, double settleTime, int status,
+        string? error, bool starLocked) => new SettleProgress
+        {
+            Done = done,
+            Distance = distance,
+            SettlePx = settlePx,
+            Time = time,
+            SettleTime = settleTime,
+            Status = status,
+            Error = error,
+            StarLocked = starLocked,
+        };
 }

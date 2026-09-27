@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Immutable;
+using System.Linq;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.Hosting.Dto;
@@ -20,6 +21,13 @@ namespace TianWen.Hosting.Dto;
 /// </summary>
 public sealed class SessionStateDto
 {
+    /// <summary>
+    /// The node's clock as it answered (P5b part 3). A camera's <see cref="OtaCameraStateDto.ExposureStart"/> is on that
+    /// clock, and a countdown subtracts it from the viewer's own, so a mirror measures how far the two differ and moves
+    /// the start by it. Null from a node too old to send it.
+    /// </summary>
+    public DateTimeOffset? NodeNowUtc { get; init; }
+
     public required SessionPhase Phase { get; init; }
     public string? CurrentActivity { get; init; }
     /// <summary>User-facing reason when <see cref="Phase"/> is Failed (which device / what to check); null otherwise.</summary>
@@ -123,10 +131,12 @@ public sealed class SessionStateDto
     /// (the session hands it out as an event and then awaits the answer), so the caller supplies it.</param>
     /// <param name="lastNotification">Newest entry of the node's notification ring, which likewise lives on
     /// the host and not on the session -- the session raises events, the host records them.</param>
+    /// <param name="nodeNow">The node's clock now (<see cref="NodeNowUtc"/>).</param>
     public static SessionStateDto FromSession(
         ISessionTelemetry session,
         PendingPromptDto? pendingPrompt = null,
-        NotificationDto? lastNotification = null)
+        NotificationDto? lastNotification = null,
+        DateTimeOffset? nodeNow = null)
     {
         var displays = session.TelescopeDisplays;
         var coolingSamples = session.CoolingSamples;
@@ -227,6 +237,7 @@ public sealed class SessionStateDto
             MeridianFlipUtc = session.MeridianFlipUtc,
             MountLimit = MountLimitDto.FromVerdict(session.MountLimitVerdict),
             LastNotification = lastNotification,
+            NodeNowUtc = nodeNow,
             MountDisplayName = session.MountDisplayName,
             Guider = GuiderStateDto.FromSession(session),
             Cameras = cameraStates.MoveToImmutable(),
@@ -407,9 +418,38 @@ public sealed class ObservationDto
     /// </summary>
     public int? PlannedFrameCount { get; init; }
 
+    /// <summary>
+    /// The rest of the observation as it was scheduled (P5b part 3): the target's catalogue identity, the plan filter by
+    /// filter, the gain and offset, and the priority. A mirror used to rebuild the target from its name and guess a
+    /// one-filter plan from <see cref="PlannedFrameCount"/>; two filters of 20 s and 30 s came back as one of 26 s.
+    /// </summary>
+    public ulong? CatalogIndex { get; init; }
+
+    /// <inheritdoc cref="CatalogIndex"/>
+    public ImmutableArray<FilterExposureDto> FilterPlan { get; set; } = [];
+
+    /// <inheritdoc cref="CatalogIndex"/>
+    public int? Gain { get; init; }
+
+    /// <inheritdoc cref="CatalogIndex"/>
+    public int? Offset { get; init; }
+
+    /// <inheritdoc cref="CatalogIndex"/>
+    public ObservationPriority Priority { get; set; } = ObservationPriority.Normal;
+
     public static ObservationDto FromScheduled(ScheduledObservation obs) => new()
     {
         TargetName = obs.Target.Name,
+        CatalogIndex = obs.Target.CatalogIndex is { } index ? (ulong)index : null,
+        FilterPlan = [.. obs.FilterPlan.Select(fe => new FilterExposureDto
+        {
+            FilterPosition = fe.FilterPosition,
+            SubExposureSeconds = fe.SubExposure.TotalSeconds,
+            Count = fe.Count,
+        })],
+        Gain = obs.Gain,
+        Offset = obs.Offset,
+        Priority = obs.Priority,
         // A synthesized target (name known, coordinates not) carries NaN.
         TargetRA = JsonNumber.OrNull(obs.Target.RA),
         TargetDec = JsonNumber.OrNull(obs.Target.Dec),

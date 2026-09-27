@@ -23,7 +23,7 @@ internal static class SessionEndpoints
     {
         var group = routes.MapGroup("/api/v1/session");
 
-        group.MapGet("/state", (IHostedSession hosted) =>
+        group.MapGet("/state", (IHostedSession hosted, ITimeProvider timeProvider) =>
         {
             if (hosted.CurrentSession is not { } session)
             {
@@ -38,7 +38,8 @@ internal static class SessionEndpoints
             var dto = SessionStateDto.FromSession(
                 session,
                 ToPromptDto(hosted.PendingPrompt),
-                notifications.IsDefaultOrEmpty ? null : notifications[^1]);
+                notifications.IsDefaultOrEmpty ? null : notifications[^1],
+                timeProvider.GetUtcNow());
             return EnvelopeResults.Json(
                 ResponseEnvelope<SessionStateDto>.Ok(dto),
                 HostingJsonContext.Default.ResponseEnvelopeSessionStateDto);

@@ -61,4 +61,16 @@ public class GuideStats
             PeakRa = peakRa,
             PeakDec = peakDec,
         };
+
+    /// <summary>The figures and the last step's errors and pulses: a guider's stats read back from a node's wire whole.</summary>
+    public static GuideStats FromRms(double totalRms, double raRms, double decRms, double peakRa, double peakDec,
+        double? lastRaErr, double? lastDecErr, double? lastRaPulseMs, double? lastDecPulseMs)
+    {
+        var stats = FromRms(totalRms, raRms, decRms, peakRa, peakDec);
+        stats.LastRaErr = lastRaErr;
+        stats.LastDecErr = lastDecErr;
+        stats.LastRaPulseMs = lastRaPulseMs;
+        stats.LastDecPulseMs = lastDecPulseMs;
+        return stats;
+    }
 }

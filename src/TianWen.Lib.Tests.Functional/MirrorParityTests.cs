@@ -41,27 +41,6 @@ public class MirrorParityTests(ITestOutputHelper output)
     /// <summary>Every member a mirror renders differently today, with the P5b part that closes it.</summary>
     private static readonly IReadOnlyDictionary<string, string> KnownGaps = new Dictionary<string, string>
     {
-        // Part 3, lossless state: an observation rebuilt from its name, its plan flattened to one guessed filter.
-        ["ActiveObservation.Target.CatalogIndex"] = "P5b part 3",
-        ["ActiveObservation.Priority"] = "P5b part 3",
-        ["ActiveObservation.Gain"] = "P5b part 3",
-        ["ActiveObservation.Offset"] = "P5b part 3",
-        ["ActiveObservation.FilterPlan.Count"] = "P5b part 3",
-        ["ActiveObservation.FilterPlan[0]"] = "P5b part 3",
-        ["ActiveObservation.FilterPlan[1]"] = "P5b part 3",
-        // The mount without its J2000 position, altitude and axis angle.
-        ["MountState.RaJ2000"] = "P5b part 3",
-        ["MountState.DecJ2000"] = "P5b part 3",
-        ["MountState.Altitude"] = "P5b part 3",
-        ["MountState.PrimaryAxisAngleDeg"] = "P5b part 3",
-        // Frame metrics without their exposure and filter; guide stats without the last errors; no settle, no star profile.
-        ["LastFrameMetrics[0].Exposure"] = "P5b part 3",
-        ["LastFrameMetrics[0].FilterPosition"] = "P5b part 3",
-        ["LastGuideStats.LastRaErr"] = "P5b part 3",
-        ["LastGuideStats.LastDecErr"] = "P5b part 3",
-        ["GuiderSettleProgress"] = "P5b part 3",
-        ["GuideStarProfile"] = "P5b part 3",
-
         // Part 4, a run is on: only SessionBootstrapper sets it.
         ["IsRunning"] = "P5b part 4",
 

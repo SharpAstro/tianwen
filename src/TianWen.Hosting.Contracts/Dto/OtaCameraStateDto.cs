@@ -42,10 +42,23 @@ public sealed class OtaCameraStateDto
     public float? MedianHfd { get; init; }
     public float? MedianFwhm { get; init; }
 
+    /// <summary>
+    /// What the last frame's metrics were measured at: its exposure, gain and filter slot (P5b part 3). A frame is
+    /// compared with others of the same setting (<c>FrameMetrics.IsComparableTo</c>), so without them a mirror's
+    /// metrics were comparable with none. <see cref="MetricsFilterPosition"/> is -1 for no filter wheel.
+    /// </summary>
+    public double MetricsExposureSeconds { get; init; }
+
+    /// <inheritdoc cref="MetricsExposureSeconds"/>
+    public short MetricsGain { get; init; }
+
+    /// <inheritdoc cref="MetricsExposureSeconds"/>
+    public int MetricsFilterPosition { get; set; } = -1;
+
     // Cooling. Taken from the newest CoolingSample for this camera rather than added to
     // CameraExposureState: the session already records the ramp, so re-polling the driver for the state
     // projection would be a second source of the same fact that could disagree with the ramp chart drawn
-    // beside it. NaN (-> 0 on a strict wire) until the first cooling sample lands.
+    // beside it. Null until the first cooling sample lands.
     public double? SensorTemperatureC { get; init; }
     public double? SetpointTemperatureC { get; init; }
     public double? CoolerPowerPercent { get; init; }
@@ -70,6 +83,9 @@ public sealed class OtaCameraStateDto
         StarCount = metrics.StarCount,
         MedianHfd = JsonNumber.OrNull(metrics.MedianHfd),
         MedianFwhm = JsonNumber.OrNull(metrics.MedianFwhm),
+        MetricsExposureSeconds = metrics.Exposure.TotalSeconds,
+        MetricsGain = metrics.Gain,
+        MetricsFilterPosition = metrics.FilterPosition,
         SensorTemperatureC = JsonNumber.OrNull(cooling?.TemperatureC ?? double.NaN),
         SetpointTemperatureC = JsonNumber.OrNull(cooling?.SetpointTempC ?? double.NaN),
         CoolerPowerPercent = JsonNumber.OrNull(cooling?.CoolerPowerPercent ?? double.NaN),
