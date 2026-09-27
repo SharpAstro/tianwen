@@ -1092,9 +1092,14 @@ namespace TianWen.UI.Gui
 
             // Compute sensor FOV from profile focal length + connected camera's pixel
             // size and sensor dimensions. Falls back to null (reticle only, no rectangle)
-            // when any piece is unavailable.
+            // when any piece is unavailable. A rig's reticle carries the rig's own sensor, from its profile's captured
+            // geometry (P5b part 8): this computer's camera is not the one at that pointing.
             (double WidthDeg, double HeightDeg)? sensorFov = null;
-            if (appState.ActiveProfile?.Data is { OTAs: { Length: > 0 } otas }
+            if (ViewContexts.Active is { IsLocal: false } rig)
+            {
+                sensorFov = rig.RigProfile?.Data?.PrimarySensorFovDeg;
+            }
+            else if (appState.ActiveProfile?.Data is { OTAs: { Length: > 0 } otas }
                 && otas[0] is { FocalLength: > 0 } ota
                 && appState.DeviceHub is { } hub
                 && hub.TryGetConnectedDriver<ICameraDriver>(ota.Camera, out var camera)
@@ -1162,15 +1167,15 @@ namespace TianWen.UI.Gui
         }
 
         /// <summary>
-        /// Surfaces the committed observing plan's target(s) to the sky map so the user can
-        /// see where tonight's targets sit. Sourced from the built schedule
-        /// (<see cref="SessionTabState.Schedule"/>); the running session's
-        /// <see cref="LiveSessionState.ActiveObservation"/> is flagged so the renderer can
-        /// highlight the target currently being imaged / slewed to.
+        /// Surfaces the schedule of the view on show to the sky map so the user can see where tonight's targets sit
+        /// (P5b part 8): this computer's committed plan (<see cref="SessionTabState.Schedule"/>), or a rig's own. The run's
+        /// <see cref="LiveSessionState.ActiveObservation"/> is flagged so the renderer can highlight the target currently
+        /// being imaged / slewed to (<see cref="SkyMapScheduleMarkers"/>).
         /// </summary>
         private void PopulateSkyMapScheduleTargets()
         {
-            var schedule = SessionState.Schedule;
+            var view = ViewContexts.Active;
+            var schedule = view.IsLocal ? SessionState.Schedule : view.LiveSession.ActiveSession?.Observations;
             if (schedule is not { Count: > 0 })
             {
                 _skyMapTab.State.ScheduleTargets = [];
@@ -1182,30 +1187,19 @@ namespace TianWen.UI.Gui
             // Rebuild only when the schedule or active observation changes.
             // The schedule is static during a session; only the active target
             // changes as observations advance. Comparing the schedule identity
-            // and active target identity avoids a List+ImmutableArray allocation
-            // every render frame (~60 FPS).
-            // Local, to match its schedule source: the targets come from SessionState.Schedule (this
-            // node's committed plan), so the "currently imaging" highlight has to come from the run
-            // that is executing that plan.
-            var active = LocalLiveSession.ActiveObservation?.Target;
-            if (_cachedSchedule == schedule && _cachedActiveTarget == active)
+            // and active target identity avoids an allocation every render frame
+            // (~60 FPS); a rig's mirror maps its schedule once per polled state, so
+            // its identity holds between polls too.
+            // The view's own run, to match its schedule source: the run executing that plan.
+            var active = view.LiveSession.ActiveObservation?.Target;
+            if (ReferenceEquals(_cachedSchedule, schedule) && _cachedActiveTarget == active)
             {
                 return;
             }
             _cachedSchedule = schedule;
             _cachedActiveTarget = active;
 
-            var targets = new List<(double RA, double Dec, string Name, bool IsActive)>(schedule.Count);
-            foreach (var obs in schedule)
-            {
-                var t = obs.Target;
-                if (double.IsNaN(t.RA) || double.IsNaN(t.Dec))
-                {
-                    continue;
-                }
-                targets.Add((t.RA, t.Dec, t.Name, active is { } a && a == t));
-            }
-            _skyMapTab.State.ScheduleTargets = [.. targets];
+            _skyMapTab.State.ScheduleTargets = SkyMapScheduleMarkers.Build(schedule, active);
         }
 
         /// <summary>

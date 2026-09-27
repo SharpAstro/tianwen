@@ -31,11 +31,11 @@ namespace TianWen.UI.Abstractions
         public const string NodeServiceName = "tianwen-server";
 
         /// <summary>
-        /// How often the rig is re-asked which profile it runs. Slow on purpose: it changes when somebody
-        /// reconfigures the rig, not during a night, so this is two orders of magnitude rarer than the
-        /// state poll and its traffic is noise next to it.
+        /// How often the rig is re-asked which profile it runs, and for that profile. Slow on purpose: it changes when
+        /// somebody reconfigures the rig, not during a night, so this is two orders of magnitude rarer than the state poll
+        /// and its traffic is noise next to it.
         /// </summary>
-        public static readonly TimeSpan ProfileNameRefreshInterval = TimeSpan.FromMinutes(2);
+        public static readonly TimeSpan ProfileRefreshInterval = TimeSpan.FromMinutes(2);
 
         private readonly HttpClient _http;
         private readonly TianWenNodeClient _client;
@@ -45,8 +45,9 @@ namespace TianWen.UI.Abstractions
         private readonly ILogger _logger;
 
         private string? _profileName;
-        private DateTimeOffset? _profileNameCheckedUtc;
+        private DateTimeOffset? _profileCheckedUtc;
         private int _profileRefreshInFlight;
+        private string? _profileRevision;
 
         private RemoteRigConnection(
             RemoteRigBinding binding, ViewContext context, Uri address,
@@ -179,24 +180,26 @@ namespace TianWen.UI.Abstractions
         /// <summary>
         /// The profile the rig is set up to run, or <see langword="null"/> until it has been learned (and
         /// for a rig with no active profile, or one too old to report it). Written by
-        /// <see cref="MaybeRefreshProfileNameAsync"/> on a background task and read on the render thread,
+        /// <see cref="MaybeRefreshProfileAsync"/> on a background task and read on the render thread,
         /// hence the volatile reference read.
         /// </summary>
         public string? ProfileName => Volatile.Read(ref _profileName);
 
         /// <summary>
-        /// Whether <see cref="MaybeRefreshProfileNameAsync"/> would actually do anything. A synchronous
+        /// Whether <see cref="MaybeRefreshProfileAsync"/> would actually do anything. A synchronous
         /// predicate so a per-frame caller can skip the call entirely rather than allocating a completed
         /// task per connection per frame; the async path re-checks it, so this is one rule, not two.
         /// </summary>
-        public bool ProfileNameRefreshDue =>
-            _profileNameCheckedUtc is not { } last || _timeProvider.GetUtcNow() - last >= ProfileNameRefreshInterval;
+        public bool ProfileRefreshDue =>
+            _profileCheckedUtc is not { } last || _timeProvider.GetUtcNow() - last >= ProfileRefreshInterval;
 
         /// <summary>
-        /// Re-asks the rig which profile it runs, at most once every
-        /// <see cref="ProfileNameRefreshInterval"/> and never concurrently with itself. Returns
-        /// <see langword="true"/> only when the answer <i>changed</i>, so a caller can redraw on the
-        /// transition rather than every tick.
+        /// Re-asks the rig which profile it runs, and reads that profile whole onto the rig's view
+        /// (<see cref="ViewContext.RigProfile"/>, P5b part 8): the one the binding names, else the one the rig runs. Its site
+        /// is where the rig's nights are planned and its twilight and clock are drawn, and its sensor the rectangle drawn at
+        /// its pointing. At most once every <see cref="ProfileRefreshInterval"/> and never concurrently with itself. Returns
+        /// <see langword="true"/> only when the name or the profile <i>changed</i> (by the revision the node reads it at),
+        /// so a caller can redraw, and replan, on the transition rather than every tick.
         /// <para>
         /// Polled rather than pushed because the fact has no event: the rig's profile is changed through
         /// the rig, and the beacon it announces is not a second place to put this -- a rig reached through
@@ -209,9 +212,9 @@ namespace TianWen.UI.Abstractions
         /// the name, because that is the node stating it has no active profile.
         /// </para>
         /// </summary>
-        public async Task<bool> MaybeRefreshProfileNameAsync(CancellationToken cancellationToken)
+        public async Task<bool> MaybeRefreshProfileAsync(CancellationToken cancellationToken)
         {
-            if (!ProfileNameRefreshDue)
+            if (!ProfileRefreshDue)
             {
                 return false;
             }
@@ -225,7 +228,7 @@ namespace TianWen.UI.Abstractions
 
             try
             {
-                _profileNameCheckedUtc = _timeProvider.GetUtcNow();
+                _profileCheckedUtc = _timeProvider.GetUtcNow();
                 var result = await _client.GetActiveProfileAsync(cancellationToken).ConfigureAwait(false);
 
                 var resolved = result switch
@@ -236,39 +239,33 @@ namespace TianWen.UI.Abstractions
                     // Unreachable or errored: keep what we had rather than blanking a good label.
                     _ => ProfileName,
                 };
+                var changed = !string.Equals(resolved, ProfileName, StringComparison.Ordinal);
+                Volatile.Write(ref _profileName, resolved);
 
-                if (string.Equals(resolved, ProfileName, StringComparison.Ordinal))
+                // The profile the rig's view plans with, read whole: the binding's own choice, else the one the rig runs.
+                if ((Binding.RemoteProfileId ?? (result is { IsSuccess: true, Value: { } running } ? running.ProfileId : null)) is { } profileId)
                 {
-                    return false;
+                    var detail = await _client.GetProfileAsync(profileId, cancellationToken).ConfigureAwait(false);
+                    if (detail is { IsSuccess: true, Value: { Data: { } data } profile }
+                        && !string.Equals(profile.Revision, _profileRevision, StringComparison.Ordinal))
+                    {
+                        _profileRevision = profile.Revision;
+                        Context.RigProfile = new Profile(profile.ProfileId, profile.Name, data);
+                        changed = true;
+                    }
+                    else if (detail.Error is { } error && !detail.IsSuccess)
+                    {
+                        // A failure keeps the profile held, as a failed name keeps the name: most often the rig is off.
+                        _logger.LogDebug("Could not read profile {ProfileId} of rig '{Alias}': {Error}", profileId, Binding.Alias, error);
+                    }
                 }
 
-                Volatile.Write(ref _profileName, resolved);
-                return true;
+                return changed;
             }
             finally
             {
                 Volatile.Write(ref _profileRefreshInFlight, 0);
             }
-        }
-
-        /// <summary>Pushes the rig's own site onto the context, so the planner and sky map work against
-        /// the rig's horizon rather than this computer's.</summary>
-        public async Task<ProfileDetailDto?> TryFetchProfileAsync(CancellationToken cancellationToken)
-        {
-            if (Binding.RemoteProfileId is not { } profileId)
-            {
-                return null;
-            }
-
-            var result = await _client.GetProfileAsync(profileId, cancellationToken).ConfigureAwait(false);
-            if (result is { IsSuccess: true, Value: { } profile })
-            {
-                return profile;
-            }
-
-            _logger.LogWarning("Could not fetch profile {ProfileId} from rig '{Alias}': {Error}",
-                profileId, Binding.Alias, result.Error);
-            return null;
         }
 
         public async ValueTask DisposeAsync()
@@ -277,6 +274,7 @@ namespace TianWen.UI.Abstractions
             // a mirror whose poll loop has already stopped, and show a frozen session as though live.
             Context.LiveSession.ActiveSession = null;
             Context.Mirror = null;
+            Context.RigProfile = null;
             _prompts.Dispose();
             Context.LiveSession.PendingPrompt = null;
 

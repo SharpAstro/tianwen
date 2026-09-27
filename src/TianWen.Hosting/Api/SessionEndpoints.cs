@@ -467,7 +467,7 @@ internal static class SessionEndpoints
         // saying which one is live. A remote observer needs it to label a rig by the optical train it is
         // running rather than by address alone -- and unlike the session snapshot, it answers for an IDLE
         // rig too, which is most of them most of the time.
-        group.MapGet("/profile", (IHostedSession hosted, IDeviceDiscovery deviceDiscovery) =>
+        group.MapGet("/profile", async (IHostedSession hosted, NodeProfiles profiles, CancellationToken ct) =>
         {
             if (hosted.ActiveProfileId is not { } activeId)
             {
@@ -476,9 +476,9 @@ internal static class SessionEndpoints
                     HostingJsonContext.Default.ResponseEnvelopeProfileSummaryDto);
             }
 
-            var profile = deviceDiscovery.RegisteredDevices(DeviceType.Profile)
-                .OfType<Profile>()
-                .FirstOrDefault(p => p.ProfileId == activeId);
+            // Read from the file, as GET /profiles/{id} is (NodeProfiles), never the discovery registry: a profile saved
+            // since the last discovery read as gone here while that route read it whole (P5b part 8).
+            var profile = (await profiles.ReadAsync(activeId, ct))?.Profile;
 
             // Set but no longer present: report it as missing rather than inventing a name, so a client
             // shows "profile unknown" instead of a label for a profile that has been deleted.

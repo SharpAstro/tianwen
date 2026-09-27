@@ -38,10 +38,12 @@ internal sealed class GuiSignalHarness : IAsyncDisposable
 
     private GuiSignalHarness(ServiceProvider services, CancellationTokenSource cts, GuiAppState appState, ViewContexts contexts,
         SkyMapState skyMap, EquipmentTabState equipment, SignalBus bus, BackgroundTaskTracker tracker, IDeviceHub hub,
-        Uri mountUri, Uri cameraUri, Uri focuserUri)
+        Uri mountUri, Uri cameraUri, Uri focuserUri, AppSignalHandler handler, PlannerState planner)
     {
         _services = services;
         _cts = cts;
+        Handler = handler;
+        Planner = planner;
         AppState = appState;
         Equipment = equipment;
         Contexts = contexts;
@@ -57,6 +59,11 @@ internal sealed class GuiSignalHarness : IAsyncDisposable
     }
 
     public GuiAppState AppState { get; }
+
+    /// <summary>The handler under test, for what a signal does not reach (the planner's per-frame recompute).</summary>
+    public AppSignalHandler Handler { get; }
+
+    public PlannerState Planner { get; }
 
     /// <summary>The Equipment tab's state the handler writes, e.g. a disconnect's confirm strip.</summary>
     public EquipmentTabState Equipment { get; }
@@ -76,6 +83,11 @@ internal sealed class GuiSignalHarness : IAsyncDisposable
     public static async Task<GuiSignalHarness> StartAsync(ITestOutputHelper output, CancellationToken ct, bool remoteOnScreen = false)
     {
         var external = new FakeExternal(output);
+        // An empty sky for the planner: a full recompute walks every visible cell of the catalogue's grid, which through
+        // NSubstitute's recursive mocks took 37 s a walk. A real empty grid and no objects cost nothing.
+        var catalog = Substitute.For<ICelestialObjectDB>();
+        catalog.DeepSkyCoordinateGrid.Returns(new RaDecIndex());
+        catalog.AllObjectIndices.Returns(new HashSet<CatalogIndex>());
         var services = new ServiceCollection()
             .AddSingleton<IExternal>(external)
             .AddSingleton<ITimeProvider>(new SystemTimeProvider())
@@ -85,7 +97,7 @@ internal sealed class GuiSignalHarness : IAsyncDisposable
             .AddSingleton<PlanetaryCaptureController>()
             // Handed to the planner's and the sky map's search boxes as the handler wires them, and to a polar
             // run; no test here searches or solves anything.
-            .AddSingleton(Substitute.For<ICelestialObjectDB>())
+            .AddSingleton(catalog)
             .AddSingleton(Substitute.For<IPlateSolverFactory>())
             .BuildServiceProvider();
 
@@ -115,11 +127,12 @@ internal sealed class GuiSignalHarness : IAsyncDisposable
         var tracker = new BackgroundTaskTracker();
         var cts = new CancellationTokenSource();
         var equipment = new EquipmentTabState();
-        _ = new AppSignalHandler(services, appState, new PlannerState(), new SessionTabState(), equipment,
+        var planner = new PlannerState();
+        var handler = new AppSignalHandler(services, appState, planner, new SessionTabState(), equipment,
             contexts, skyMap, bus, tracker, cts, cts.Token, external);
 
         return new GuiSignalHarness(services, cts, appState, contexts, skyMap, equipment, bus, tracker, hub,
-            mount.DeviceUri, camera.DeviceUri, focuser.DeviceUri);
+            mount.DeviceUri, camera.DeviceUri, focuser.DeviceUri, handler, planner);
     }
 
     private readonly List<RemoteSessionMirror> _mirrors = [];

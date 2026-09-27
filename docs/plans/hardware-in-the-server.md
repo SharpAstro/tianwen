@@ -1230,6 +1230,28 @@ less; `MirrorParityTests`, polling with cursors at every phase, shows the copy b
 The site's time zone and twilight, the running configuration, the sensor rectangle and the schedule
 all follow the rig shown, and the sky map's active target matches by catalogue index.
 
+As built, the rig's own profile carries them, since `ProfileDetailDto` already holds the site and the whole
+`ProfileData` and the client derives the rest exactly as the local GUI does (the decision recorded on the DTO):
+- **The profile reaches the rig's view.** The connection's two-minute refresh, which only learned the profile's name, now
+  reads the profile whole (the binding's `RemoteProfileId`, else the one the rig runs) onto `ViewContext.RigProfile`.
+- **The planner plans with the profile on show** (`AppSignalHandler.ProfileOnShow`). A rig's nights, and so the
+  app's site time zone, the twilight bands on its Live Session timeline and the sky map's site, are its own; a rig whose
+  profile has not been read yet is not planned at all rather than at this computer's site. A switch of view is noticed
+  by the planner itself, whatever caused it, and replans in full, dropping the other view's pins first: a load replaces
+  the plan only when the view has pins saved, so a rig with none showed this computer's and the next save wrote them
+  into the rig's file. This computer's site edits reach the planner only while its own view is on show.
+- **The sensor rectangle** at a rig's reticle is the rig's profile's captured sensor, never this computer's camera.
+- **The schedule** on the sky map is the view's own (a rig's `Observations`, mapped once per polled state), and the one
+  being imaged is matched by `PlannerActions.IsSameObject`: by catalogue index for a planet, the Moon or a comet, whose
+  coordinates are an instant's, and by the whole target otherwise, since mosaic panels share an index.
+- **The running configuration** needs no wire of its own: no view reads a run's configuration (the survey of 2026-09-27
+  found none), and the profile carries what the views take from it.
+- A node fix on the way: `GET /session/profile` read the discovery registry and answered "no longer exists" for a profile
+  saved since, while `GET /profiles/{id}` read the file; it reads the file too (`NodeProfiles`).
+
+The TUI's preview rows for an idle rig, built from this computer's profile with this computer's controls, belong with
+part 9's idle layout.
+
 ### P5b part 9: the tabs lay out the same
 
 The Live Session, Guider and Home tabs lay out identically for the two states the harness compares.
