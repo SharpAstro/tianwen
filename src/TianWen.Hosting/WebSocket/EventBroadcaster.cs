@@ -56,6 +56,7 @@ internal sealed class EventBroadcaster(
     public override Task StartAsync(CancellationToken cancellationToken)
     {
         hostedSession.RunStarting += Attach;
+        hostedSession.RunEnded += OnRunEnded;
         jobs.Changed += OnJobChanged;
         return base.StartAsync(cancellationToken);
     }
@@ -77,6 +78,13 @@ internal sealed class EventBroadcaster(
 
         SubscribeToSession(session);
         logger.LogInformation("EventBroadcaster subscribed to session");
+
+        // The run's start, as the GUI notes the same start in-process (the node swaps its run record in before raising
+        // RunStarting, so the kind is the new run's).
+        if (hostedSession.RunningKind is NodeRunKind.Session or NodeRunKind.Flats)
+        {
+            Notify(SessionNotes.ForRunStart(flatRun: hostedSession.RunningKind is NodeRunKind.Flats));
+        }
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -129,6 +137,7 @@ internal sealed class EventBroadcaster(
         imageEnhancer.Progressed -= OnEnhanceProgress;
         imageEnhancer.Completed -= OnEnhanceCompleted;
         hostedSession.RunStarting -= Attach;
+        hostedSession.RunEnded -= OnRunEnded;
         jobs.Changed -= OnJobChanged;
 
         if (Interlocked.Exchange(ref _subscribedSession, null) is { } last)
@@ -252,20 +261,30 @@ internal sealed class EventBroadcaster(
         session.PromptRequested -= OnPromptRequested;
     }
 
-    private void OnPhaseChanged(object? sender, SessionPhaseChangedEventArgs e)
+    /// <summary>
+    /// A phase's note, in the words the GUI uses for the same run in-process (<see cref="SessionNotes"/>, the ONE mapping):
+    /// a session run's phases note where the night is, and a flat run's show only in its status. How a run ENDED is noted
+    /// once it has, its Finalise included (<see cref="OnRunEnded"/>), never at its terminal phase, which comes first.
+    /// </summary>
+    internal void OnPhaseChanged(object? sender, SessionPhaseChangedEventArgs e)
     {
-        if (e.NewPhase is SessionPhase.Failed)
+        if (hostedSession.RunningKind is NodeRunKind.Session)
         {
-            Notify("Error", hostedSession.CurrentSession?.FailureReason is { Length: > 0 } reason
-                ? $"Session failed: {reason}"
-                : "Session failed");
-        }
-        else
-        {
-            Notify("Info", $"{e.OldPhase} -> {e.NewPhase}");
+            Notify(SessionNotes.ForPhase(e.NewPhase));
         }
 
         BroadcastSafe(BroadcastEvents.PhaseChanged(e));
+    }
+
+    /// <summary>A session's or a flat run's end, once its body (Finalise included) is done.</summary>
+    internal void OnRunEnded(ISession session, NodeRunRecord record)
+    {
+        Notify(record.Kind switch
+        {
+            NodeRunKind.Session => SessionNotes.ForRunEnd(session.Phase, session.FailureReason),
+            NodeRunKind.Flats => SessionNotes.ForFlatRunEnd(session.Phase, session.FailureReason),
+            _ => null,
+        });
     }
 
     private void OnFrameWritten(object? sender, FrameWrittenEventArgs e)
@@ -285,22 +304,16 @@ internal sealed class EventBroadcaster(
         BroadcastSafe(BroadcastEvents.PlateSolveCompleted(record));
     }
 
-    private void OnScoutCompleted(object? sender, ScoutCompletedEventArgs e)
+    internal void OnScoutCompleted(object? sender, ScoutCompletedEventArgs e)
     {
-        if (e.Outcome is not ScoutOutcome.Proceed)
-        {
-            Notify("Warning", $"Scout on {e.Target.Name}: {e.Classification} -> {e.Outcome}");
-        }
+        Notify(SessionNotes.ForScout(e));
 
         BroadcastSafe(BroadcastEvents.ScoutCompleted(e));
     }
 
-    private void OnGuiderStateChanged(object? sender, GuiderStateChangedEventArgs e)
+    internal void OnGuiderStateChanged(object? sender, GuiderStateChangedEventArgs e)
     {
-        // A transition INTO "Guiding" is the recovery, anything else is a departure from it -- which is
-        // the case an operator wants surfaced (star loss, a dither that never settled).
-        var severity = string.Equals(e.NewState, "Guiding", StringComparison.OrdinalIgnoreCase) ? "Info" : "Warning";
-        Notify(severity, $"Guider: {e.OldState ?? "none"} -> {e.NewState ?? "none"}");
+        Notify(SessionNotes.ForGuiderTransition(e.OldState, e.NewState));
 
         BroadcastSafe(BroadcastEvents.GuiderStateChanged(e));
     }
@@ -415,6 +428,15 @@ internal sealed class EventBroadcaster(
     }
 
     /// <summary>Records a notification and pushes it to connected clients.</summary>
+    /// <summary>A run's note, as <see cref="SessionNotes"/> words it; nothing when it says there is nothing to note.</summary>
+    private void Notify(SessionNote? note)
+    {
+        if (note is { } n)
+        {
+            Notify(n.Severity.ToString(), n.Message);
+        }
+    }
+
     private void Notify(string severity, string message)
     {
         var dto = new NotificationDto

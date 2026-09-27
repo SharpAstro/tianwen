@@ -4,6 +4,7 @@ using DIR.Lib;
 using LAN.Lib;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Sequencing;
 
 namespace TianWen.UI.Abstractions;
 
@@ -17,13 +18,6 @@ public enum GuiTab
     LiveSession,
     Guider,
     Notifications
-}
-
-public enum NotificationSeverity
-{
-    Info,
-    Warning,
-    Error
 }
 
 /// <summary>

@@ -1332,6 +1332,10 @@ DTOs + `HostingJsonContext`) and `TianWen.RemoteClient` (`TianWenNodeClient`, `T
   Each divergence known today is listed with the P5b part (or P6) that closes it, so a new divergence fails and so
   does a listed one that has come to agree: delete its line. A member added to `LiveSessionState` goes into its
   snapshot (`docs/plans/hardware-in-the-server.md`, "P5b: mirror parity, part by part").
+- **A run's notes are worded ONCE, `SessionNotes` (Lib, with `NotificationSeverity`)**, for the GUI's and the TUI's
+  bootstrappers and a node's feed alike, and a run's END is noted once the run has ended (its Finalise included, the
+  node's `RunEnded`), never at its terminal phase. A new note goes there, never into one host: a rig's feed used to read
+  "Cooling -> RoughFocus" where the same run in-process read "Initial rough focus...".
 - **Polling is authoritative; the WebSocket is a latency hint** -- `NodeResult<T>` carries a status
   code because 404 is not unreachable.
 - **Every request has a time budget** (state 5 s, preview 30 s, control 10 s; 60 s `HttpClient`

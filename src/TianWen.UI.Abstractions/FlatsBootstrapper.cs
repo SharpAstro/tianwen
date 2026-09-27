@@ -101,15 +101,7 @@ namespace TianWen.UI.Abstractions
 
                 void OnPhaseChanged(object? _, SessionPhaseChangedEventArgs e)
                 {
-                    var msg = e.NewPhase switch
-                    {
-                        SessionPhase.Initialising => "Connecting devices…",
-                        SessionPhase.Cooling => "Cooling cameras to setpoint…",
-                        SessionPhase.Flats => "Capturing flats…",
-                        SessionPhase.Finalising => "Finalising flat run…",
-                        _ => null,
-                    };
-                    if (msg is not null)
+                    if (SessionNotes.FlatStatusForPhase(e.NewPhase) is { } msg)
                     {
                         liveSessionState.FlatStatusMessage = msg;
                         liveSessionState.NeedsRedraw = true;
@@ -145,7 +137,8 @@ namespace TianWen.UI.Abstractions
                 }
                 session.PromptRequested += OnPromptRequested;
 
-                appState.AppendNotification(timeProvider.GetUtcNow(), NotificationSeverity.Info, "Flat run started");
+                var started = SessionNotes.ForRunStart(flatRun: true);
+                appState.AppendNotification(timeProvider.GetUtcNow(), started.Severity, started.Message);
                 appState.NeedsRedraw = true;
 
                 handedToRun = true;
@@ -169,15 +162,9 @@ namespace TianWen.UI.Abstractions
                             // resolved it to "decline"; this just drops the stale overlay).
                             liveSessionState.PendingPrompt = null;
 
-                            var (msg, severity) = liveSessionState.Phase switch
-                            {
-                                SessionPhase.Complete => ("Flats complete", NotificationSeverity.Info),
-                                SessionPhase.Aborted => ("Flat run cancelled", NotificationSeverity.Warning),
-                                SessionPhase.Failed => (session.FailureReason is { } why ? $"Flats failed: {why}" : "Flats failed", NotificationSeverity.Error),
-                                _ => ("Flat run finished", NotificationSeverity.Info),
-                            };
-                            liveSessionState.FlatStatusMessage = msg;
-                            appState.AppendNotification(timeProvider.GetUtcNow(), severity, msg);
+                            var ended = SessionNotes.ForFlatRunEnd(liveSessionState.Phase, session.FailureReason);
+                            liveSessionState.FlatStatusMessage = ended.Message;
+                            appState.AppendNotification(timeProvider.GetUtcNow(), ended.Severity, ended.Message);
 
                             // Detach the session so the tab returns to normal preview polling. Leaving Mode ==
                             // Flats keeps the terminal status + Cancel(->Preview) visible until the user acts.

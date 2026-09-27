@@ -6,6 +6,7 @@ using System.Linq;
 using System.IO;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
 using Xunit;
 
