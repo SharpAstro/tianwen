@@ -67,6 +67,10 @@ public class WeatherUpperAirSupplementTests(ITestOutputHelper output)
         forecast.Select(h => h.BoundaryLayerHeight).ShouldBe([300.0, 290.0, 280.0], "the mixing height crosses with the winds");
         forecast.ShouldAllBe(h => h.CloudCover == 20, "OpenWeatherMap's own cloud cover stays");
         SeeingForecast.For(forecast[0]).Class.ShouldNotBe(SeeingClass.Unknown, "the seeing row now has an input");
+
+        var attributed = await owm.GetAttributedHourlyForecastWithUpperAirAsync(sp, Latitude, Longitude, Start, End, ct);
+        attributed.Provider.ShouldBe("OpenWeatherMap");
+        attributed.Credit.ShouldBe(ExtendedForecast.OpenMeteoCredit, "the seeing row is Open-Meteo's data, so it is credited");
     }
 
     [Fact]
@@ -82,6 +86,9 @@ public class WeatherUpperAirSupplementTests(ITestOutputHelper output)
 
         forecast.Select(h => h.WindSpeed250hPa).ShouldBe([30.0, 31.0, 32.0]);
         forecast.ShouldAllBe(h => h.CloudCover == 90);
+
+        (await openMeteo.GetAttributedHourlyForecastWithUpperAirAsync(sp, Latitude, Longitude, Start, End, ct))
+            .Credit.ShouldBe(ExtendedForecast.OpenMeteoCredit);
     }
 
     /// <summary>The night calendar's request: the whole range at once, cached under the range's own dates.</summary>
@@ -126,6 +133,7 @@ public class WeatherUpperAirSupplementTests(ITestOutputHelper output)
         forecast.Hours[^1].Time.ShouldBe(end, "to the last hour Open-Meteo answers");
         forecast.Hours.ShouldNotContain(h => h.Time < start.AddHours(owmFirst),
             "an hour before OpenWeatherMap's first is its to have dropped, not Open-Meteo's to fill");
+        forecast.Credit.ShouldBe(ExtendedForecast.OpenMeteoCredit, "days 3 to 16 are Open-Meteo's");
     }
 
     [Fact]
@@ -143,5 +151,20 @@ public class WeatherUpperAirSupplementTests(ITestOutputHelper output)
         forecast.Provider.ShouldBe("Open-Meteo");
         forecast.SupplementedFrom.ShouldBeNull();
         forecast.Hours.Count.ShouldBe(24);
+        forecast.Credit.ShouldBe(ExtendedForecast.OpenMeteoCredit);
+    }
+
+    /// <summary>
+    /// Open-Meteo is credited only where its data is shown: a forecast from any other provider alone says nothing,
+    /// and the flag is the driver's, never a display name (a renamed Open-Meteo device is still Open-Meteo, and a
+    /// device the user named "Open-Meteo" is not).
+    /// </summary>
+    [Fact]
+    public void OnlyAForecastHoldingOpenMeteoDataIsCredited()
+    {
+        new ExtendedForecast([], "OpenWeatherMap", null, null).Credit.ShouldBeNull();
+        new ExtendedForecast([], "Open-Meteo", null, null).Credit.ShouldBeNull("a name is not provenance");
+        new ExtendedForecast([], "My weather", null, null, IncludesOpenMeteo: true).Credit
+            .ShouldBe("Weather data by Open-Meteo.com (CC BY 4.0)");
     }
 }

@@ -27,16 +27,31 @@ public static class WeatherDriverExtensions
             double latitude, double longitude,
             DateTimeOffset start, DateTimeOffset end,
             CancellationToken cancellationToken = default)
+            => (await driver.GetAttributedHourlyForecastWithUpperAirAsync(serviceProvider, latitude, longitude, start,
+                end, cancellationToken)).Hours;
+
+        /// <summary>
+        /// <see cref="GetHourlyForecastWithUpperAirAsync"/>, saying where the hours came from: the driver, and whether
+        /// any of it is Open-Meteo's (<see cref="ExtendedForecast.IncludesOpenMeteo"/>), which a display must credit.
+        /// </summary>
+        public async Task<ExtendedForecast> GetAttributedHourlyForecastWithUpperAirAsync(
+            IServiceProvider serviceProvider,
+            double latitude, double longitude,
+            DateTimeOffset start, DateTimeOffset end,
+            CancellationToken cancellationToken = default)
         {
             var forecast = await driver.GetHourlyForecastAsync(latitude, longitude, start, end, cancellationToken);
             if (driver is not OpenWeatherMapDriver || forecast.Count == 0)
             {
-                return forecast;
+                return new ExtendedForecast(forecast, driver.Name, null, null, IncludesOpenMeteo: driver is OpenMeteoDriver);
             }
 
             using var openMeteo = new OpenMeteoDriver(new OpenMeteoDevice(), serviceProvider);
             var upperAir = await openMeteo.GetHourlyForecastAsync(latitude, longitude, start, end, cancellationToken);
-            return upperAir.Count > 0 ? WeatherForecastMerge.FillUpperAir(forecast, upperAir) : forecast;
+            return upperAir.Count > 0
+                ? new ExtendedForecast(WeatherForecastMerge.FillUpperAir(forecast, upperAir), driver.Name, null, null,
+                    IncludesOpenMeteo: true)
+                : new ExtendedForecast(forecast, driver.Name, null, null);
         }
 
         /// <summary>
@@ -58,7 +73,7 @@ public static class WeatherDriverExtensions
             var forecast = await driver.GetHourlyForecastAsync(latitude, longitude, start, end, cancellationToken);
             if (driver is not OpenWeatherMapDriver)
             {
-                return new ExtendedForecast(forecast, driver.Name, null, null);
+                return new ExtendedForecast(forecast, driver.Name, null, null, IncludesOpenMeteo: driver is OpenMeteoDriver);
             }
 
             using var openMeteo = new OpenMeteoDriver(new OpenMeteoDevice(), serviceProvider);
@@ -68,10 +83,13 @@ public static class WeatherDriverExtensions
                 return new ExtendedForecast(forecast, driver.Name, null, null);
             }
 
+            // Open-Meteo's hours are in the result either way: after OpenWeatherMap's last, and as every hour's
+            // upper-air fields (the seeing row), even where no hour is added.
             var extended = WeatherForecastMerge.Extend(forecast, supplement, out var supplementFrom);
             return forecast.Count == 0
-                ? new ExtendedForecast(extended, openMeteo.Name, null, null)
-                : new ExtendedForecast(extended, driver.Name, supplementFrom, supplementFrom is null ? null : openMeteo.Name);
+                ? new ExtendedForecast(extended, openMeteo.Name, null, null, IncludesOpenMeteo: true)
+                : new ExtendedForecast(extended, driver.Name, supplementFrom, supplementFrom is null ? null : openMeteo.Name,
+                    IncludesOpenMeteo: true);
         }
     }
 }
@@ -84,12 +102,23 @@ public static class WeatherDriverExtensions
 /// <param name="Provider">Who stated the hours before <see cref="SupplementedFrom"/> (all of them, when null).</param>
 /// <param name="SupplementedFrom">The first hour taken from <see cref="SupplementProvider"/>, or null.</param>
 /// <param name="SupplementProvider">Who stated the hours from <see cref="SupplementedFrom"/> on, or null.</param>
+/// <param name="IncludesOpenMeteo">Whether any of <see cref="Hours"/> is Open-Meteo's data: its own forecast, its
+/// hours after another provider's, or only the upper-air fields it filled in. Decided by the driver that fetched,
+/// never by a display name, which the user can change. Open-Meteo's data is CC BY 4.0, so every display of such a
+/// forecast shows <see cref="Credit"/> (NOTICE, "Data fetched at runtime"; #559).</param>
 public sealed record ExtendedForecast(
     IReadOnlyList<HourlyWeatherForecast> Hours,
     string Provider,
     DateTimeOffset? SupplementedFrom,
-    string? SupplementProvider)
+    string? SupplementProvider,
+    bool IncludesOpenMeteo = false)
 {
+    /// <summary>The attribution Open-Meteo's licence (CC BY 4.0) asks of a display of its data.</summary>
+    public const string OpenMeteoCredit = "Weather data by Open-Meteo.com (CC BY 4.0)";
+
+    /// <summary>What a display of this forecast must credit, or null when none of it is Open-Meteo's.</summary>
+    public string? Credit => IncludesOpenMeteo ? OpenMeteoCredit : null;
+
     /// <summary>
     /// Open-Meteo answers at most this many days after the current UTC date; one day more is a 400 ("out of
     /// allowed range"), measured 2026-09-19. It is the horizon of every forecast the calendar can show.

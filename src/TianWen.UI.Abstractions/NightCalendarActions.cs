@@ -413,10 +413,10 @@ public static class NightCalendarActions
             {
                 if ((driver ?? (TryCreateDriver(weatherUri, sp, out own) ? own : null)) is { } past)
                 {
-                    var hours = await past.GetHourlyForecastWithUpperAirAsync(sp, state.SiteLatitude,
+                    var night = await past.GetAttributedHourlyForecastWithUpperAirAsync(sp, state.SiteLatitude,
                         state.SiteLongitude, start, end, cancellationToken);
-                    state.WeatherForecast = hours;
-                    state.WeatherForecastOrigin = new ExtendedForecast(hours, past.Name, null, null);
+                    state.WeatherForecast = night.Hours;
+                    state.WeatherForecastOrigin = night;
                 }
                 else
                 {

@@ -27,10 +27,10 @@ internal sealed class TuiPlannerTab(
     ITimeProvider timeProvider,
     SignalBus bus) : TuiTabBase
 {
-    // The calendar's design size in design units (NightCalendarPopover's box with pins lines): the canvas is fitted
-    // to it, so the calendar scales with the terminal instead of overflowing a small one.
+    // The calendar's design size in design units (NightCalendarPopover's box with pins lines and the weather credit):
+    // the canvas is fitted to it, so the calendar scales with the terminal instead of overflowing a small one.
     private const float CalendarDesignWidth = 480f;
-    private const float CalendarDesignHeight = 480f;
+    private const float CalendarDesignHeight = 500f;
 
     private TextBar? _topBar;
     private TextBar? _statusBar;

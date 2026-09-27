@@ -167,6 +167,8 @@ public class NightCalendarTests(ITestOutputHelper output)
         band.ShouldAllBe(h => h.Time >= state.AstroDark.AddHours(-1) && h.Time <= state.AstroTwilight.AddHours(1),
             "the planner's band is tonight's slice of the same forecast");
         state.WeatherForecastOrigin.ShouldBeSameAs(data.Forecast);
+        AltitudeChartRenderer.WeatherCredit(state).ShouldBe(ExtendedForecast.OpenMeteoCredit,
+            "an Open-Meteo band credits Open-Meteo");
 
         // Ten minutes later, with the cache file gone: the forecast in memory is still inside the drivers' own
         // lifetime, so nothing is asked of them at all.
@@ -213,6 +215,8 @@ public class NightCalendarTests(ITestOutputHelper output)
         state.WeatherForecast.ShouldNotBeNull().ShouldNotBeEmpty();
         state.WeatherForecast.ShouldAllBe(h => h.CloudCover == 70, "that night's own request, not the range's");
         state.WeatherForecastOrigin.ShouldNotBeNull().Provider.ShouldBe("Open-Meteo");
+        AltitudeChartRenderer.WeatherCredit(state).ShouldBe(ExtendedForecast.OpenMeteoCredit,
+            "a night's own request is credited as the range's is");
     }
 
     [Fact]
@@ -230,6 +234,7 @@ public class NightCalendarTests(ITestOutputHelper output)
         state.Calendar.Data.Forecast.ShouldBeNull();
         state.Calendar.Data.Nights.Count.ShouldBe(NightCalendarActions.GridDays);
         state.Calendar.Data.Nights.Values.ShouldAllBe(n => n.Forecast == null);
+        AltitudeChartRenderer.WeatherCredit(state).ShouldBeNull("no forecast, nobody to credit");
     }
 
     /// <summary>A popover on a CPU surface over a planner whose September is summarised without a forecast.</summary>

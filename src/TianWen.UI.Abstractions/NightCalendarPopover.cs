@@ -202,11 +202,18 @@ public sealed class NightCalendarPopover<TSurface>(Renderer<TSurface> renderer) 
 
         var detail = BuildDetail(state, detailNight);
 
-        return Layout.Builder.VStack(
-                header,
-                weekdayRow,
-                Layout.Builder.VStack(rows).WithGap(Gap).WAuto(),
-                detail)
+        // Open-Meteo's data is CC BY 4.0: a calendar showing any of it says whose it is, and one without it
+        // (OpenWeatherMap alone, the Moon alone) says nothing.
+        var body = _painted.Forecast?.Credit is { } credit
+            ? new Layout.Node[]
+            {
+                header, weekdayRow, Layout.Builder.VStack(rows).WithGap(Gap).WAuto(), detail,
+                Layout.Builder.Text(credit, SmallFontSize, palette.DimText, TextAlign.Far, TextAlign.Center)
+                    .RowH(SmallFontSize + 5f),
+            }
+            : new Layout.Node[] { header, weekdayRow, Layout.Builder.VStack(rows).WithGap(Gap).WAuto(), detail };
+
+        return Layout.Builder.VStack(body)
             .WithGap(Gap * 2f)
             .WFixed(gridW + 16f)
             .Pad(8f)
