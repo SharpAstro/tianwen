@@ -297,7 +297,8 @@ public class RemoteSessionMirrorTests
     [Fact]
     public async Task GuideStatsAreNullBeforeTheGuiderHasProducedAny()
     {
-        // An all-zero guider block is "no stats yet", not a flawless 0.00" RMS.
+        // A guider with no stats yet sends none (null), which is "no stats", not a flawless 0.00" RMS. Before wire 2 it sent
+        // zeros and the mirror had to guess that five zeros meant none.
         var state = RunningState();
         var zeroed = new SessionStateDto
         {
@@ -307,8 +308,7 @@ public class RemoteSessionMirrorTests
             Mount = state.Mount, MountDisplayName = state.MountDisplayName,
             Guider = new GuiderStateDto
             {
-                State = "Looping", TotalRMS = 0, RaRMS = 0, DecRMS = 0, PeakRa = 0, PeakDec = 0,
-                GuideExposureSeconds = 2, RecentSteps = [], GuideFrameNumber = 0,
+                State = "Looping", GuideExposureSeconds = 2, RecentSteps = [], GuideFrameNumber = 0,
             },
             Cameras = [], Observations = [], PhaseTimeline = [],
             CoolingSamples = [], FocusHistory = [], ActiveFocusSamples = [], ExposureLog = [],
@@ -843,9 +843,14 @@ public class RemoteSessionMirrorTests
     }
 
     [Fact]
-    public void ANonFiniteExceededByIsMadeWireSafe()
-        => MountLimitDto.FromVerdict(new MountLimitVerdict(MountLimitKind.Horizon, MountLimitResponse.Warn, double.NaN))
-            .ExceededBy.ShouldBe(JsonNumber.ForWire(double.NaN));
+    public void AnUnknownExceededByCrossesAsNullAndReadsBackAsNaN()
+    {
+        // Wire-safe (a NaN reaching the writer is a bodiless 500) and never a real-looking 0 margin.
+        var dto = MountLimitDto.FromVerdict(new MountLimitVerdict(MountLimitKind.Horizon, MountLimitResponse.Warn, double.NaN));
+
+        dto.ExceededBy.ShouldBeNull();
+        double.IsNaN(dto.ToVerdict().ExceededBy).ShouldBeTrue();
+    }
 
     [Fact]
     public async Task TheFlipInstantAndTheLastNoteSurviveTheRoundTrip()
