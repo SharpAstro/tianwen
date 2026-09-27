@@ -25,13 +25,17 @@ namespace TianWen.Hosting;
 /// <param name="AfterCrashOf"><c>--after-crash &lt;pid&gt;</c>: the keeper started this node because the node with that
 /// process id crashed just now, so a journal THAT node wrote is seconds old however long ago it was written, and no
 /// boot can have come between (<see cref="NodeJournal"/>). Never on a command line a client builds.</param>
-public sealed record NodeArguments(string SocketPath, int Port, bool LocalOnly, bool Keeper, bool Spawned, bool FakeDevicesOnly, int? AfterCrashOf)
+/// <param name="DetachGrace"><c>--detach-grace &lt;seconds&gt;</c>: how long an interactive run goes on once no client is
+/// present (<see cref="NodeRunWatch"/>), in place of <see cref="NodeRunWatchOptions.Default"/>'s: a respawn that takes
+/// longer, or a test that cannot wait a minute for each detach.</param>
+public sealed record NodeArguments(string SocketPath, int Port, bool LocalOnly, bool Keeper, bool Spawned, bool FakeDevicesOnly, int? AfterCrashOf,
+    TimeSpan? DetachGrace = null)
 {
     /// <summary>The port a node run by hand listens on for the LAN.</summary>
     public const int DefaultPort = NodeWire.LanPort;
 
     /// <summary>The usage line an error ends with.</summary>
-    public const string Usage = "usage: tianwen-server [--socket <path>] [--port <n>] [--local-only] [--fake-devices] [--keeper]";
+    public const string Usage = "usage: tianwen-server [--socket <path>] [--port <n>] [--local-only] [--fake-devices] [--detach-grace <seconds>] [--keeper]";
 
     public static bool TryParse(ReadOnlySpan<string> args, [NotNullWhen(true)] out NodeArguments? parsed, [NotNullWhen(false)] out string? error)
     {
@@ -39,6 +43,7 @@ public sealed record NodeArguments(string SocketPath, int Port, bool LocalOnly, 
         var port = DefaultPort;
         bool localOnly = false, keeper = false, spawned = false, fakeDevicesOnly = false;
         int? afterCrashOf = null;
+        TimeSpan? detachGrace = null;
 
         for (var i = 0; i < args.Length; i++)
         {
@@ -72,6 +77,14 @@ public sealed record NodeArguments(string SocketPath, int Port, bool LocalOnly, 
                     afterCrashOf = crashed;
                     break;
 
+                case "--detach-grace" when i + 1 < args.Length:
+                    if (!double.TryParse(args[++i], NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var graceSeconds) || graceSeconds <= 0)
+                    {
+                        return Fail($"--detach-grace takes a number of seconds, more than 0, not {args[i]}", out parsed, out error);
+                    }
+                    detachGrace = TimeSpan.FromSeconds(graceSeconds);
+                    break;
+
                 case "--port" when i + 1 < args.Length:
                     if (!int.TryParse(args[++i], NumberStyles.None, CultureInfo.InvariantCulture, out port) || port is < 1 or > 65535)
                     {
@@ -90,7 +103,7 @@ public sealed record NodeArguments(string SocketPath, int Port, bool LocalOnly, 
             return Fail(invalid, out parsed, out error);
         }
 
-        parsed = new NodeArguments(socketPath, port, localOnly, keeper, spawned, fakeDevicesOnly, afterCrashOf);
+        parsed = new NodeArguments(socketPath, port, localOnly, keeper, spawned, fakeDevicesOnly, afterCrashOf, detachGrace);
         error = null;
         return true;
     }
@@ -109,6 +122,11 @@ public sealed record NodeArguments(string SocketPath, int Port, bool LocalOnly, 
         if (FakeDevicesOnly)
         {
             args.Add("--fake-devices");
+        }
+        if (DetachGrace is { } grace)
+        {
+            args.Add("--detach-grace");
+            args.Add(grace.TotalSeconds.ToString(CultureInfo.InvariantCulture));
         }
         return args;
     }

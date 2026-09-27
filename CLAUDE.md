@@ -1252,7 +1252,8 @@ full native-AOT rules, and the reasoning behind each rule below:
    client has been present for the detach grace** (`INodeRun.EndsUnwatched`, `NodeRunWatch`, presence being
    the fresh beat a prompt waits by); `EndsUnwatched` is asked at every look, so a planetary capture that is RECORDING
    is not interactive, finishes its recording, and its live view then gets a grace of its own. Pinned by `NodeRunLifecycleTests`, `NodeDarkLibraryTests`,
-   `NodePolarAlignmentTests`, `NodePlanetaryTests` and `NodeRunWatchTests`.
+   `NodePolarAlignmentTests`, `NodePlanetaryTests` and `NodeRunWatchTests`, and end to end over a spawned node's
+   socket, a client gone mid-run for every kind, by `NodeRunsProcessTests` (`--detach-grace`).
 8. **`new SessionConfiguration()` is the DECLARED defaults; `default(SessionConfiguration)` is all zeros.**
    A record struct whose primary constructor has required parameters zero-fills on `new()` unless it
    declares a parameterless constructor, and before one was added every API session synced the mount's

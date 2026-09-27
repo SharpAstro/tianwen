@@ -46,14 +46,27 @@ internal sealed class NodeWindow : IAsyncDisposable
     /// <summary>Opens a window on <paramref name="node"/> and waits until the node counts it as present.</summary>
     public static async Task<NodeWindow> OpenAsync(NodeHarness node, ITestOutputHelper outputHelper, CancellationToken ct)
     {
-        var stream = node.Transport.CreateEventStream(new SystemTimeProvider(), FakeExternal.CreateLogger(outputHelper));
-        stream.Start(ct);
-        var window = new NodeWindow(stream);
+        var window = Open(node.Transport, outputHelper, ct);
         var clients = node.App.Services.GetRequiredService<EventHub>();
         await UntilAsync<string>("the window to be present", _ => ValueTask.FromResult<(string?, string)>(
             (clients.PresentClientCount > 0 ? "present" : null, $"{clients.PresentClientCount} present")), ct);
         return window;
     }
+
+    /// <summary>
+    /// Opens a window on the node at <paramref name="transport"/>, a spawned one whose hub a test cannot ask: it beats from
+    /// the moment its stream connects (<see cref="UntilConnectedAsync"/>).
+    /// </summary>
+    public static NodeWindow Open(NodeTransport transport, ITestOutputHelper outputHelper, CancellationToken ct)
+    {
+        var stream = transport.CreateEventStream(new SystemTimeProvider(), FakeExternal.CreateLogger(outputHelper));
+        stream.Start(ct);
+        return new NodeWindow(stream);
+    }
+
+    /// <summary>Until the window's stream is connected, and so beating.</summary>
+    public Task UntilConnectedAsync(CancellationToken ct)
+        => UntilAsync("the window's stream to connect", _ => ValueTask.FromResult((_stream.IsConnected, "not yet")), ct);
 
     public async ValueTask DisposeAsync()
     {

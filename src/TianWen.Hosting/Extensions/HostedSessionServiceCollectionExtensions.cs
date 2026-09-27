@@ -21,6 +21,13 @@ namespace TianWen.Hosting.Extensions;
 public static class HostedSessionServiceCollectionExtensions
 {
     /// <summary>
+    /// How long an interactive run goes on once no client is present (<c>--detach-grace</c>), in place of the default minute:
+    /// registered after <see cref="AddHostedSession"/>, whose default it replaces.
+    /// </summary>
+    public static IServiceCollection AddNodeDetachGrace(this IServiceCollection services, TimeSpan grace)
+        => services.AddSingleton(new NodeRunWatchOptions(grace, NodeRunWatchOptions.Default.Poll));
+
+    /// <summary>
     /// Registers the hosted session service, WebSocket event hub, and event broadcaster.
     /// </summary>
     public static IServiceCollection AddHostedSession(this IServiceCollection services)
