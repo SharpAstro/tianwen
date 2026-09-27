@@ -1,8 +1,11 @@
 using Microsoft.Extensions.Logging;
 using System;
+using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Hosting.Dto;
 using TianWen.Lib.Devices;
 using TianWen.RemoteClient;
 
@@ -43,6 +46,7 @@ public abstract class NodeConnection : IAsyncDisposable
     private string? _profileRevision;
     private long _devicesCheckedTicks;
     private int _devicesRefreshInFlight;
+    private ImmutableDictionary<string, DeviceStateDto> _devices = ImmutableDictionary<string, DeviceStateDto>.Empty;
 
     /// <summary>
     /// Connects <paramref name="context"/> to the node at <paramref name="transport"/> and starts mirroring it. No request is
@@ -74,8 +78,50 @@ public abstract class NodeConnection : IAsyncDisposable
         context.Mirror = Mirror;
         // The node's prompts on its own view (and its Home card), answered back to it through the mirror.
         _prompts = LiveSessionPrompts.ShowOn(Mirror, context.LiveSession, promptsApp);
+        Mirror.NodeEventNotTheSessions += OnNodeEvent;
 
         Mirror.Start(cancellationToken);
+    }
+
+    /// <summary>
+    /// The devices the node holds, connected or leased by a run, as a view knows them between reads (P6): a full read
+    /// (<see cref="MaybeRefreshDevicesAsync"/>) replaces them, each <c>DEVICE-STATE</c> push replaces one. Every per-frame
+    /// question a view asks of a device (is it connected, does a run hold it, what did it last read) answers from here, never
+    /// with a request. Keyed by the hub's identity rule (scheme, host and path, <see cref="DeviceBase.SameDevice"/>).
+    /// </summary>
+    public ImmutableDictionary<string, DeviceStateDto> Devices => Volatile.Read(ref _devices);
+
+    /// <summary>What the node holds of the device <paramref name="deviceUri"/> names, or null when it holds nothing of it.</summary>
+    public DeviceStateDto? Device(Uri deviceUri) => Devices.TryGetValue(KeyOf(deviceUri), out var device) ? device : null;
+
+    /// <summary>Whether the node holds the device connected.</summary>
+    public bool IsConnected(Uri deviceUri) => Device(deviceUri) is { Connected: true };
+
+    /// <summary>The identity a device is keyed by: its URI's scheme, host and path, as <see cref="DeviceBase.SameDevice"/> compares.</summary>
+    internal static string KeyOf(Uri deviceUri) => deviceUri.GetLeftPart(UriPartial.Path);
+
+    private void OnNodeEvent(object? sender, WebSocketEventDto dto)
+    {
+        if (!DeviceStateDto.TryFromEvent(dto, out var device) || !Uri.TryCreate(device.DeviceUri, UriKind.Absolute, out var uri))
+        {
+            return;
+        }
+        ImmutableInterlocked.AddOrUpdate(ref _devices, KeyOf(uri), device, (_, _) => device);
+        LayOutIdleDevices();
+    }
+
+    /// <summary>
+    /// The view's OTA panels and mount from the devices held, while the node runs no session (a run's state carries its own
+    /// devices), and once the view's profile is known, since its OTAs are what the devices are laid out by.
+    /// </summary>
+    private void LayOutIdleDevices()
+    {
+        var view = Context.LiveSession;
+        if (!view.IsRunning && ProfileOnView?.Data is { } profile)
+        {
+            RigDevices.Apply(view, profile, [.. Devices.Values]);
+        }
+        view.NeedsRedraw = true;
     }
 
     /// <summary>The view context whose <see cref="ViewContext.LiveSession"/> this connection feeds.</summary>
@@ -216,15 +262,15 @@ public abstract class NodeConnection : IAsyncDisposable
     }
 
     /// <summary>
-    /// Reads the node's devices and puts them on its view (P5b part 9, <see cref="RigDevices"/>): the OTA panels and the mount
-    /// an idle Live Session lays out, and the mount its sky map draws. For the host to call while the view is on show and its
-    /// node runs nothing (a run's state carries its own devices), at most every <see cref="DevicesRefreshInterval"/> and never
-    /// concurrently with itself. Returns <see langword="true"/> when the view took a reading, so the caller redraws. Nothing is
-    /// read before the view's profile is, since its OTAs are what the readings are laid out by.
+    /// Reads every device the node holds (<see cref="Devices"/>, the authoritative read the pushes between are hints to) and
+    /// lays the view's idle panels out from them (P5b part 9, <see cref="RigDevices"/>): the OTA panels and the mount an idle
+    /// Live Session lays out, and the mount its sky map draws. For the host to call while the view needs them, at most every
+    /// <see cref="DevicesRefreshInterval"/> and never concurrently with itself. Returns <see langword="true"/> when it read, so
+    /// the caller redraws.
     /// </summary>
     public async Task<bool> MaybeRefreshDevicesAsync(CancellationToken cancellationToken)
     {
-        if (!DevicesRefreshDue || ProfileOnView?.Data is not { } profile)
+        if (!DevicesRefreshDue)
         {
             return false;
         }
@@ -243,13 +289,27 @@ public abstract class NodeConnection : IAsyncDisposable
                 Logger.LogDebug("Could not read the devices of {Name}: {Error}", Name, result.Error);
                 return false;
             }
-            RigDevices.Apply(Context.LiveSession, profile, devices);
+            Volatile.Write(ref _devices, Keyed(devices));
+            LayOutIdleDevices();
             return true;
         }
         finally
         {
             Volatile.Write(ref _devicesRefreshInFlight, 0);
         }
+    }
+
+    private static ImmutableDictionary<string, DeviceStateDto> Keyed(IEnumerable<DeviceStateDto> devices)
+    {
+        var keyed = ImmutableDictionary.CreateBuilder<string, DeviceStateDto>();
+        foreach (var device in devices)
+        {
+            if (Uri.TryCreate(device.DeviceUri, UriKind.Absolute, out var uri))
+            {
+                keyed[KeyOf(uri)] = device;
+            }
+        }
+        return keyed.ToImmutable();
     }
 
     /// <summary>What the view forgets of the node as the connection goes, beyond its session: a rig's view, its profile.</summary>
@@ -261,6 +321,7 @@ public abstract class NodeConnection : IAsyncDisposable
     {
         // Detach BEFORE tearing the mirror down: a render pass between dispose and detach would read a mirror whose poll loop
         // has already stopped, and show a frozen session as though live.
+        Mirror.NodeEventNotTheSessions -= OnNodeEvent;
         Context.LiveSession.ActiveSession = null;
         Context.Mirror = null;
         OnDetached();

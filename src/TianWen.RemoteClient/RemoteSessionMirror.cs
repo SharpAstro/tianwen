@@ -1198,6 +1198,7 @@ namespace TianWen.RemoteClient
                 case "ENHANCE-PROGRESS":
                 case "ENHANCE-COMPLETED":
                     // The device plane's, a profile's, a job's and an enhance's, each read by the client that asked for it.
+                    NodeEventNotTheSessions?.Invoke(this, dto);
                     return NodeEventKind.NotTheSessions;
 
                 default:
@@ -1696,6 +1697,13 @@ namespace TianWen.RemoteClient
         /// (<see cref="GetNotificationsAsync"/>) holds what came before.
         /// </summary>
         public event EventHandler<NotificationDto>? NoteReceived;
+
+        /// <summary>
+        /// An event from the node that is not its session's: a device's state, a profile, a job, an enhance, each handed to
+        /// the client that reads it (P6 of docs/plans/hardware-in-the-server.md, #936: a view's device model keeps the
+        /// devices a node holds from <c>DEVICE-STATE</c>). Raised on the socket's thread, as it arrived.
+        /// </summary>
+        public event EventHandler<WebSocketEventDto>? NodeEventNotTheSessions;
 
         /// <summary>
         /// Something a view draws changed (P5b part 6): a state polled, the node gone quiet or back, a session ended, a

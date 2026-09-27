@@ -125,6 +125,41 @@ public class IdleRigDevicesTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// A view learns what its node holds from the node's pushes alone (P6): a device the node connects reaches the
+    /// connection's device model as <c>DEVICE-STATE</c> arrives, with no read asked for, and so does its disconnect. Every
+    /// per-frame question the view asks of a device answers from that model, never with a request.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task WhatANodeHoldsReachesItsViewByItsPushesAlone()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var node = await NodeHarness.StartAsync(output, ct);
+        var camera = new FakeDevice(DeviceType.Camera, 1);
+        var binding = new RemoteRigBinding
+        {
+            BindingId = Guid.NewGuid(),
+            NodeId = "rig-device-pushes-test",
+            Alias = "Pushing rig",
+            LastAddress = node.Transport.BaseAddress.ToString(),
+        };
+        var contexts = new ViewContexts();
+        await using var rig = RemoteRigConnection.TryConnect(binding, contexts, peers: null, new SystemTimeProvider(), NullLogger.Instance, ct)
+            .ShouldNotBeNull();
+        await NodeWait.UntilAsync("the rig to answer", _ =>
+            ValueTask.FromResult((rig.Mirror.Contact.State is NodeContactState.Answering, rig.Mirror.Contact.State.ToString())), ct);
+
+        var hub = node.App.Services.GetRequiredService<IDeviceHub>();
+        await hub.ConnectAsync(camera, ct);
+        await NodeWait.UntilAsync("the camera's push to reach the rig's view", _ =>
+            ValueTask.FromResult((rig.IsConnected(camera.DeviceUri), $"{rig.Devices.Count} device(s)")), ct);
+        rig.Device(new UriBuilder(camera.DeviceUri) { Query = "gain=100" }.Uri).ShouldNotBeNull("a device is known by its identity, whatever its query");
+
+        await hub.DisconnectAsync(camera.DeviceUri, force: false, ct);
+        await NodeWait.UntilAsync("the camera's disconnect to reach the rig's view", _ =>
+            ValueTask.FromResult((!rig.IsConnected(camera.DeviceUri), rig.Device(camera.DeviceUri)?.Connected.ToString() ?? "gone")), ct);
+    }
+
+    /// <summary>
     /// A mount the rig's node holds reads on the rig's view as this computer reads it through the same readers: its pointing,
     /// J2000 by the site of the node's active profile, its name, and the node's limit verdict. The hour angle is read at two
     /// instants, so it is compared to the second.
