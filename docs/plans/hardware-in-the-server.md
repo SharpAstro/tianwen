@@ -1093,6 +1093,114 @@ What that takes, from the review:
   compares `Target` records, which a mirror breaks (its `CatalogIndex` is null). Both follow the rig
   shown (P5b).
 
+## P5b: mirror parity, part by part (#935)
+
+A survey of 2026-09-27, against `main` once P5 had landed, listed every place a session seen through
+`RemoteSessionMirror` renders differently from one run in-process. At the cut (P6) the local rig
+becomes a mirror too, so each of these becomes a gap on the user's own rig. The worst five:
+- **A mirror never sets `IsRunning`.** Its only writer is `SessionBootstrapper`. So a watched rig draws
+  the Live Session tab's idle layout (no phase strip, no exposure log, no ABORT), and the Guider tab
+  shows only its placeholder, although the mirror downloads the guide frame.
+- **A remote prompt holds the night with no way to answer it.** The GUI beats as present to every node
+  it watches, so the node holds a prompt for it (invariant 2), but nothing subscribes to the mirror's
+  `PromptRequested`. **A local full session never shows its prompt either**: `SessionBootstrapper`
+  subscribes nothing, so the one prompt a session raises (a manual flat panel at the end-of-session
+  flats) is declined unseen. Only `FlatsBootstrapper` wires prompts.
+- **No control reaches a rig's node.** Abort and a prompt answer act on the LOCAL session with no
+  context check. Only `IsRunning` being false keeps ABORT off a rig's panel today; once a mirror sets
+  it, ABORT on a rig would abort this computer's night.
+- **NaN crosses as 0** (`JsonNumber.ForWire` under the strict contract), so every unknown arrives as a
+  real-looking zero. A node's pre-poll mount arrives at RA 0, Dec 0 and snaps the reticle there.
+- **The sky map is this computer's** except for the mount's pointing: the sensor rectangle is the local
+  profile's and camera's, and the schedule and its active target are the local ones.
+
+The rest, grouped by the part that closes it:
+- **Lossy state.** A `Target` is rebuilt without its `CatalogIndex`, with the filter plan flattened to
+  one entry and gain, offset and priority lost. The mount has no J2000 position, altitude or axis angle.
+  Frame metrics lose their exposure, gain and filter. Guide stats lose the last errors and pulses. The
+  settle progress, the star profile and the calibration overlay are always null. Each camera's cooling
+  on the wire is ignored. A camera's `ExposureStart` is on the node's clock while the countdown runs on
+  this computer's.
+- **Two notification mappings.** The node words each phase, scout and guider change its own way
+  ("Initialising -> WaitingForDark") and the GUI its own ("Waiting for astronomical dark…", filtered),
+  and a mirror shows only the node's latest note.
+- **Events.** Of the thirteen the node sends the mirror acts on two (`FRAME-WRITTEN`,
+  `PLATE-SOLVE-COMPLETED`), and nothing subscribes to either. A remote context never sets
+  `NeedsRedraw`, so it repaints on the 1 s tick. The Live Session and Guider tabs have no sign that a
+  rig went stale.
+- **Polling.** Every 500 ms the state carries the whole night's histories (the exposure log is
+  unbounded: about 0.8 MB a poll at four OTAs over ten hours), and the frames are fetched on every tab.
+- **The rig's own context.** The site's time zone and the twilight are this computer's. The running
+  configuration is not on the wire. A flat run on a node has no run kind, so the Flats panel never shows.
+
+### P5b part 1: the parity harness
+
+The instrument before the fixes: ONE real session on fake devices, run by an in-process node on a
+pumped fake clock, is read at every phase through both paths the GUI has. The in-process path reads the
+`Session` directly. The mirror path polls that node over HTTP. The two `LiveSessionState`s are compared
+member by member. **The known gaps are an explicit list, each naming the part that closes it**. The
+test fails on a divergence the list does not name, and on a listed one that has come to agree, so every
+later part deletes its lines and the list reads as the work left. The last part leaves only P6's.
+
+`MirrorParityTests` runs a whole night (every phase and three frames) in about 12 s. The session's
+clock is an external pump, so a hold freezes every loop on it. Its first run named twenty members:
+- **part 2:** the mount's name adopted from the 0/0 pointing;
+- **part 3:** the whole observation, including a guessed filter plan (two filters of 20 s and 30 s
+  came back as one of 26 s); the mount's J2000 position, altitude and axis angle; frame metrics' exposure
+  and filter; the last guide errors; and the settle progress and star profile, which are null;
+- **part 4:** `IsRunning`;
+- **P6:** a frame the session let go that the mirror keeps. That is by design: `ReleaseCapturedImages`
+  leaves a client its picture. P6 decides it, since the frame on show from the node's own copy is P6's.
+
+The night it runs is set so a dropped field shows: a catalogued target, a priority, a gain and an offset,
+and two filters at different sub-exposures. Gaps the survey found that this night cannot show (a prompt,
+a focuser with no thermometer, a calibration overlay) are added to it by the part that closes them.
+
+### P5b part 2: NaN crosses as null
+
+An unknown number is `null` on the wire, never 0, and the mirror reads a null back as NaN. This is a
+contract change, so it bumps `NodeWire.Version`.
+
+### P5b part 3: lossless state
+
+The fields above cross whole: each observation's `CatalogIndex`, filter plan, gain, offset and
+priority; the mount's J2000 position, altitude and axis angle; frame metrics; guide stats; the settle
+progress, star profile and calibration overlay; each camera's cooling; and the exposure start measured
+against the node's clock.
+
+### P5b part 4: a run is on, and says so
+
+A mirror sets `IsRunning`, the run's kind and the mode from the node's run, and surfaces the failure
+reason. The notification words are ONE mapping in Lib, used by the node's feed and the local
+bootstrappers alike. A rig's feed is the node's ring, then its `NOTIFICATION` push.
+
+### P5b part 5: control goes to the rig's own node
+
+Abort, a prompt's answer and a flat run's cancel act on the Active context's own node: this computer's
+session for Local, the rig's node through its mirror for a rig. A prompt is shown and answered through
+ONE wiring for a local session, a flat run and a mirror, which also gives a local full session its
+prompt back.
+
+### P5b part 6: every event, and a redraw
+
+The mirror handles every event the node sends. A remote context redraws when its mirror changes.
+Frames are fetched on `FRAME-AVAILABLE`, only for a tab that shows them. A stale rig says so on the
+Live Session and Guider tabs.
+
+### P5b part 7: incremental polling
+
+The histories are fetched from a cursor, not whole every 500 ms.
+
+### P5b part 8: the rig's own site, configuration, camera and schedule
+
+The site's time zone and twilight, the running configuration, the sensor rectangle and the schedule
+all follow the rig shown, and the sky map's active target matches by catalogue index.
+
+### P5b part 9: the tabs lay out the same
+
+The Live Session, Guider and Home tabs lay out identically for the two states the harness compares.
+The known-gap list holds only what P6 decides (the frame on show).
+
 ## Phasing
 
 The cut is **one wave** ("cut an API in ONE wave"; "one path, designed first"). Two processes cannot

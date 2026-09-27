@@ -1325,6 +1325,11 @@ DTOs + `HostingJsonContext`) and `TianWen.RemoteClient` (`TianWenNodeClient`, `T
   property its TYPE'S default, so a request without a binning arrived at bin 0 and a schedule without a
   priority ran at High, the enum's 0 (`WireDefaultsTests`). A field whose absence means "keep what it was"
   is nullable instead (`SessionConfigApiDto`).
+- **A mirrored session must render as the same session in-process, and `MirrorParityTests` measures it**: one
+  real session, run by a node on a pumped clock, read both ways at every phase and compared member by member.
+  Each divergence known today is listed with the P5b part (or P6) that closes it, so a new divergence fails and so
+  does a listed one that has come to agree: delete its line. A member added to `LiveSessionState` goes into its
+  snapshot (`docs/plans/hardware-in-the-server.md`, "P5b: mirror parity, part by part").
 - **Polling is authoritative; the WebSocket is a latency hint** -- `NodeResult<T>` carries a status
   code because 404 is not unreachable.
 - **Every request has a time budget** (state 5 s, preview 30 s, control 10 s; 60 s `HttpClient`
