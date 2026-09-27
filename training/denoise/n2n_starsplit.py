@@ -173,6 +173,9 @@ def main():
     ap.add_argument('--models', nargs='+', default=None, help='slug=checkpoint.pt (required unless --audit-extended)')
     ap.add_argument('--blend', default='0.2,0.4,0.7,1.0')
     ap.add_argument('--match', default='4,10', help='noise-removal percentages to compare AT')
+    ap.add_argument('--detail-at', default='15',
+                    help='noise-removal percentages at which detail kept is ALSO read, beside full strength: a model '
+                         'that removes more noise loses more detail by construction, so recipes compare here')
     ap.add_argument('--mag-max', default='auto',
                     # Formatted twice: once here, and again by argparse when it renders help. A literal
                     # percent must therefore survive BOTH, so it is written %%%% and not %%.
@@ -398,7 +401,22 @@ def main():
         full_removed = pts['Gaia stars'][-1][0]
         full = f"{full_removed:5.1f}%: " + '/'.join(f'{pts[k][-1][1]:5.1f}' for k in pops)
         print(f'{slug:14s} ' + ' '.join(f'{r:>27}' for r in row) + f'{full:>36}')
-        print(detail_line('full', detail_kept(out.mean(axis=1), d_b, d_bins, d_ref)))
+        kept_full = detail_kept(out.mean(axis=1), d_b, d_bins, d_ref)
+        print(detail_line('full', kept_full))
+        # A blend raw + al (out - raw) keeps exactly 1 + al (kept - 1): the numerator is linear in the output.
+        # So detail kept at a matched removal needs only the blend factor that reaches it, read off the
+        # removal curve above (the same interpolation as the frontier columns).
+        curve = [(0.0, 0.0)] + [(pts['Gaia stars'][j + 1][0], al) for j, al in enumerate(alphas)]
+        for tgt in [float(x) for x in a.detail_at.split(',') if x.strip()]:
+            al_at = None
+            for (r0, a0), (r1, a1) in zip(curve, curve[1:]):
+                if r0 <= tgt <= r1 and r1 > r0:
+                    al_at = a0 + (a1 - a0) * (tgt - r0) / (r1 - r0)
+                    break
+            if al_at is None:
+                print(f'{"":14s} detail kept {f"@{tgt:g}%":>10s}: never reaches {tgt:g} percent removed')
+                continue
+            print(detail_line(f'@{tgt:g}%', [[None if v is None else 1.0 + al_at * (v - 1.0) for v in row] for row in kept_full]))
         if a.per_session:
             # The pooled "removed" is a mean over cells of several fields, and a model can denoise one
             # field while making another NOISIER (arm X: +4 percent pooled on eval4b, -13 to -25 on

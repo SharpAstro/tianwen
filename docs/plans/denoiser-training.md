@@ -2044,6 +2044,56 @@ dark bays that the independent half B shows**, the shipped one also turning the 
 tinting its core highlight a pale green-white. None of the scored columns measures bright extended
 structure, so no table above can see it; it is the open question before a ship.
 
+**Detail kept** (2026-09-28, the user: "removing the filaments is not acceptable"). The star, compact and
+extended columns score LOCAL MAXIMA, and a filament is a ridge, which is how every model's smoothing of the
+Orion core passed every table. `n2n_starsplit.py` now reports detail kept against the independent half,
+sum(Y*B)/sum(A*B), in the H2 bands (0-1, 1-2, 2-4 px) and four brightness levels (B's own low-pass), star-like
+peaks masked, at full strength and at a matched 15 percent removal, with a 1 px Gaussian of the input as a
+reference row. B's noise is independent of the input and the output, so 1.0 keeps the signal, below 1
+smooths it, and removing noise cannot move it. `run-detail-score.ps1` ran every model on the eleven
+ring-fixed fields.
+
+- **The eval set barely holds bright structure either.** The brightest level (>= 0.60) is readable on two
+  fields of eleven (V1045 Ori's Orion core and eta Car), the next (0.45 to 0.60) on four; eval cells are
+  placed like training cells. And training holds none: of `n2n-bb-ctl-rf`'s 630 cells not one has a tenth
+  of its pixels above 0.60 (its brightest cell's median is 0.317), and of the 78-session pool's 3510
+  cells, 16 (0.5 percent). The Orion cell has 35 percent.
+- **At full strength** (the operating point) the brightest level's 1-2 px band keeps 0.85 for `convrf` and
+  the shipped model, 0.78 for `conv`, 0.91 for `pool`; on the Orion field `conv` and `convrf` keep 0.63 to
+  0.65, less than the 1 px Gaussian (0.79). **At matched 15 percent removal the recipes are close**
+  (shipped 0.93, `convrf` 0.93, `conv` 0.91, `ctl4k` 0.91, `poolrf` 0.94): the recipes share one
+  detail-for-noise frontier, and a model that removes more loses more. No recipe tried so far moves it.
+
+**Why, and the probe** (`n2n_sigmamap_probe.py`, no retraining). Every model conditions on ONE number per
+tile (`with_sigma`: the MAD of the tile's darkest half, broadcast over the plane). Measured from each
+field's half pairs, the stretched noise FALLS with brightness: relative to the 0.25 level, 0.79 at 0.45,
+0.49 to 0.52 at 0.65, 0.22 to 0.41 at 0.85, so a bright core is told the sky's noise. Given a plane that
+follows that curve (anchored to the tile's own value, continuous, low-passed at 8 px), the same
+checkpoints keep far more bright detail at no cost in removal:
+
+| brightest level, 0-1 / 1-2 / 2-4 px | tile value | per-pixel plane | removed |
+|---|---|---|---|
+| `convrf_s1`, Orion | 0.43 / 0.58 / 0.82 | 0.75 / 0.88 / 0.97 | 37.4 to 39.0 percent |
+| `convrf_s1`, eta Car | 0.39 / 0.62 / 0.78 | 0.62 / 0.83 / 0.92 | 26.0 to 26.4 |
+| shipped, Orion | 0.71 / 0.77 / 0.92 | 0.89 / 0.93 / 0.99 | 30.7 to 33.6 |
+
+Three things the 1:1 sheets showed that the numbers did not. **A stepped plane draws contour lines**: the
+first version binned the curve at 0.05, and every model painted the bins' edges into the image, which the
+score counted as detail kept. **The shipped model grows magenta fringes** on the bright edges under a
+smooth plane; `convrf` shows none. **On eta Car `convrf` stays blurred** with or without the plane, and
+the reason is the second finding: the tile estimate there is TWICE the true noise (0.894 against 0.446 in
+plane units, where Orion's is 0.448 against 0.423), because a nebula-filled tile's darkest half is
+texture. Given the true noise instead (`--absolute`), the checkpoints keep all the detail and halve their
+removal (eta Car 26.0 to 12.7 percent): they were trained on the same inflated estimate, so an honest one
+reads to them as "barely noisy". Two defects, one cause: the conditioning plane is a texture statistic
+of the tile, not the noise at the pixel.
+
+**Next, E16:** condition on the NOISE, per pixel. In training the exporter already knows it (the injected
+draw's sigma, `LinearDegradation.SigmaAt`, through the stretch); at inference the runner holds the linear
+frame and the stretch it applied, so it can compute the same map; the ONNX graph then takes the plane as
+an input instead of computing a MAD inside. Train with it, and with cells sampled from bright structure,
+and add bright eval cells so the detail-kept levels are readable on more than two fields.
+
 **The other models share the budget.** Every deconvolver run (`run-e3-*.ps1`, including E3.4d's prior
 that met the star clauses) trained the same fixed 4000-step cosine; `--schedule plateau` does not yet
 cover the psf01 / operator path (it refuses rather than guess), which is the next thing to extend
