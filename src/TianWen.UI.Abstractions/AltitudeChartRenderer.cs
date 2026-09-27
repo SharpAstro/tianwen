@@ -272,8 +272,16 @@ public static class AltitudeChartRenderer
             .OrderByDescending(t => state.ScoredTargets.TryGetValue(t, out var s) ? s.CombinedScore : 0)
             .ToArray();
         DrawLegend(renderer, legendTargets, targetColorMap,
-            plotX, areaY + h - legendH - 4, legendH, fontFamily, h, areaX + w);
+            plotX, areaY + h - legendH - 4, legendH, fontFamily, h, areaX + w,
+            WeatherCredit(state), plotX + plotW);
     }
+
+    /// <summary>
+    /// What the weather band must credit, or null: only a band that is drawn, and only when Open-Meteo's data is
+    /// in it (<see cref="ExtendedForecast.Credit"/>), never for an OpenWeatherMap band with none of it.
+    /// </summary>
+    internal static string? WeatherCredit(PlannerState state)
+        => state.WeatherForecast is { Count: > 0 } ? state.WeatherForecastOrigin?.Credit : null;
 
     // -----------------------------------------------------------------------
     // Twilight zones
@@ -1244,15 +1252,26 @@ public static class AltitudeChartRenderer
         int legendH,
         string fontFamily,
         int rendererH,
-        int rendererW)
+        int rendererW,
+        string? credit,
+        int plotRight)
     {
         var fs       = FontSize(rendererH, 10);
         var cursorX  = plotX;
         var lineY    = legendY + legendH / 2;
         var availW   = rendererW - plotX * 2;
 
-        // Reserve space for Primary/Spare labels at the end
-        var suffixW  = 180;
+        // The weather source's credit, right-aligned under the plot's right edge; the targets give way to it.
+        var creditFs = FontSize(rendererH, 8);
+        var creditW  = credit is null ? 0 : (int)MathF.Ceiling(renderer.MeasureText(credit.AsSpan(), fontFamily, creditFs).Width) + 8;
+        if (credit is not null)
+        {
+            renderer.DrawText(credit, fontFamily, creditFs, GrayColor,
+                MakeRect(plotRight - creditW, legendY, creditW, legendH), TextAlign.Far, TextAlign.Center);
+        }
+
+        // Reserve space at the end: the credit's width, and never less than the old Primary/Spare labels'
+        var suffixW  = Math.Max(180, creditW);
         var targetW  = availW - suffixW;
 
         // Show top-scored targets that fit (max 6 for readability)

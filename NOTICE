@@ -90,6 +90,27 @@ Embedded data
   bundled Content file, and this file is attribution rather than licence text.
 
 
+Data fetched at runtime
+-----------------------
+
+Nothing below ships with TianWen; it is fetched from its source while TianWen runs.
+
+  Weather forecasts from Open-Meteo (`OpenMeteoDriver`): the Open-Meteo profile
+  weather device, and the Open-Meteo hours an OpenWeatherMap forecast is extended
+  and filled in with (days 3 to 16, and the upper-air winds behind the seeing
+  estimate). Weather data by Open-Meteo.com, under the Creative Commons
+  Attribution 4.0 International licence (CC BY 4.0).
+
+    https://open-meteo.com
+    https://creativecommons.org/licenses/by/4.0/
+
+  Every display of that data (the planner's weather band and the night calendar,
+  in the GUI, the TUI and the web build) says so beside it, and only when some of
+  what it shows is Open-Meteo's. TianWen uses the keyless free API, whose terms are
+  for non-commercial use; whether that still holds for a given distribution is
+  tracked in https://github.com/SharpAstro/tianwen/issues/559.
+
+
 SETI Astro Suite Pro
 --------------------
 
