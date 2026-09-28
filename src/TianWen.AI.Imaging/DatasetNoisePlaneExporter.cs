@@ -121,12 +121,7 @@ public static class DatasetNoisePlaneExporter
                     var plane = StretchedNoise.Plane(channels, row.TileSize, row.TileSize, stretches, calibration, depth);
                     var target = Path.Combine(options.OutRoot, DatasetDegradationExporter.SigmaPathFor(row.Tile).Replace('/', Path.DirectorySeparatorChar));
                     Directory.CreateDirectory(Path.GetDirectoryName(target) ?? options.OutRoot);
-                    var halfs = new Half[plane.Length];
-                    for (var i = 0; i < plane.Length; i++)
-                    {
-                        halfs[i] = (Half)plane[i];
-                    }
-                    await File.WriteAllBytesAsync(target, MemoryMarshal.AsBytes<Half>(halfs).ToArray(), cancellationToken);
+                    DatasetDegradationExporter.WritePlaneFile(plane, target);
                     written++;
                 }
 

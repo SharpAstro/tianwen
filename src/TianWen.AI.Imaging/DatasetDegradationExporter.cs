@@ -227,6 +227,21 @@ namespace TianWen.AI.Imaging
                 ? string.Concat(tilePath.AsSpan(0, tilePath.Length - DatasetTileExporter.TileExtension.Length), SigmaTileExtension)
                 : throw new ArgumentException($"{tilePath} is not a {DatasetTileExporter.TileExtension} tile", nameof(tilePath));
 
+        /// <summary>
+        /// The one writer of a plane file: one channel, raw little-endian fp16 like the tiles, in
+        /// <see cref="StretchedNoise.PlaneScale"/> units. Every exporter that writes a plane goes through it, so the
+        /// trainer's reader has one format to know.
+        /// </summary>
+        internal static void WritePlaneFile(ReadOnlySpan<float> plane, string path)
+        {
+            var halfs = new Half[plane.Length];
+            for (var i = 0; i < plane.Length; i++)
+            {
+                halfs[i] = (Half)plane[i];
+            }
+            File.WriteAllBytes(path, MemoryMarshal.AsBytes<Half>(halfs).ToArray());
+        }
+
         /// <summary>What to export.</summary>
         /// <param name="BakeRoot">A dataset bake: it must hold <c>tiles-manifest.jsonl</c> and
         /// <c>session-masters/</c>.</param>
@@ -1074,13 +1089,7 @@ namespace TianWen.AI.Imaging
                 planes[c] = stretchedCell.GetChannelSpan(c).ToArray();
                 stretches[c] = new StretchedNoise.ChannelStretch(balances[c], origMin[c]);
             }
-            var plane = StretchedNoise.Plane(planes, width, height, stretches, calibration, depthScale);
-            var halfs = new Half[plane.Length];
-            for (var i = 0; i < plane.Length; i++)
-            {
-                halfs[i] = (Half)plane[i];
-            }
-            File.WriteAllBytes(path, MemoryMarshal.AsBytes<Half>(halfs).ToArray());
+            WritePlaneFile(StretchedNoise.Plane(planes, width, height, stretches, calibration, depthScale), path);
         }
 
         /// <summary>

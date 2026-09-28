@@ -50,9 +50,10 @@ public static class DatasetSessionLedger
     /// The version of the bake's recipe. <b>Bump it when a bake's outputs change for identical inputs</b>
     /// (a new sidecar, a different default, a normalisation the strategy did not do before), and only
     /// then: every session in every store then reads as stale on the next resume, which is the point,
-    /// and the cost. Started at 1 on 2026-09-20 with the ledger itself.
+    /// and the cost. Started at 1 on 2026-09-20 with the ledger itself. 2 (2026-09-28): every tile carries a noise
+    /// plane and its manifest row the frame's own stretch and noise calibration.
     /// </summary>
-    public const int RecipeVersion = 1;
+    public const int RecipeVersion = 2;
 
     /// <summary>One completed session.</summary>
     /// <param name="Fingerprint">What the session was built from; see the class remarks.</param>

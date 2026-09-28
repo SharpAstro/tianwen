@@ -181,6 +181,23 @@ public static class DatasetBuildRunner
             }
         }
 
+        // A named subset (--session), taken AFTER the split so a subset store holds out the same sessions
+        // the full one does. A pattern that matches nothing is reported for the same reason as below.
+        if (!options.SessionPatterns.IsDefaultOrEmpty)
+        {
+            var patterns = options.SessionPatterns;
+            foreach (var pattern in patterns)
+            {
+                if (!sessions.Any(s => FileSystemName.MatchesSimpleExpression(pattern, s.Id, ignoreCase: true)))
+                {
+                    logger?.LogWarning("--session pattern matches no session in this archive: {Pattern}", pattern);
+                }
+            }
+            var before = sessions.Length;
+            sessions = [.. sessions.Where(s => patterns.Any(p => FileSystemName.MatchesSimpleExpression(p, s.Id, ignoreCase: true)))];
+            progress?.Report($"[dataset] --session: {sessions.Length} of {before} sessions built");
+        }
+
         // Named rebuilds, reported up front for the same reason: a pattern that matches nothing is a
         // typo, and a resume that silently rebuilds nothing looks exactly like one that had nothing to do.
         var rebuildPatterns = options.RebuildSessionPatterns.IsDefault ? [] : options.RebuildSessionPatterns;
@@ -1017,7 +1034,10 @@ public static class DatasetBuildRunner
                 checkpoint.SessionId, checkpoint.TileCount, checkpoint.TileDirRelative);
             return false;
         }
-        var onDisk = FileEnumeration.CountFiles(dir, DatasetTileExporter.TileExtension, recursive: false);
+        // A tile's noise plane shares the .f16 suffix (DatasetDegradationExporter.SigmaTileExtension), so the planes
+        // are counted out: counted in, a session that lost half its tiles and kept its planes would read as whole.
+        var onDisk = FileEnumeration.CountFiles(dir, DatasetTileExporter.TileExtension, recursive: false)
+            - FileEnumeration.CountFiles(dir, DatasetDegradationExporter.SigmaTileExtension, recursive: false);
         if (onDisk < checkpoint.TileCount)
         {
             logger?.LogWarning(
