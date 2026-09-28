@@ -114,7 +114,12 @@ public class LiveSessionThroughTheNodeTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         await using var h = await GuiNodeHarness.StartAsync(output, ct);
 
-        h.Post(new SkyMapSlewToObjectSignal("M 42", 5.588, -5.39, Index: null, ObjectType.Unknown));
+        // A goto the mount lands in seconds at any hour: beside where it points, near the pole, which is always up at the
+        // harness's 48.2 N. M 42 was a slew of up to 150 degrees at the fake mount's 1.5 a second once it had risen past the
+        // planner's floor, which outlasted the test's timeout at some hours of the day and not others.
+        h.Hub.TryGetConnectedDriver<IMountDriver>(h.MountUri, out var mount).ShouldBeTrue();
+        var ra = await mount.GetRightAscensionAsync(ct);
+        h.Post(new SkyMapSlewToObjectSignal("Near the pole", ra, 85, Index: null, ObjectType.Unknown));
         await h.UntilSettledAsync(ct);
 
         var jobs = (await new TianWenNodeClient(h.Node.Client).GetJobsAsync(ct)).Value.ShouldNotBeNull();
