@@ -837,6 +837,10 @@ internal sealed class TuiLiveSessionTab(
         {
             hint = " " + quit.OneLine;
         }
+        else if (LiveState.ControlRequest is { } request)
+        {
+            hint = " " + ControlRequestQuestion.OneLine(request);
+        }
         else if (LiveState.ShowAbortConfirm)
         {
             hint = " Press Enter to confirm ABORT, Escape to cancel";
@@ -964,6 +968,30 @@ internal sealed class TuiLiveSessionTab(
                 bus.Post(new AnswerQuitSignal(answer));
                 NeedsRedraw = true;
                 return;
+            }
+        }
+
+        // A request for control of this computer's rig (P6b), under the quit's question and before the tab's own keys (A
+        // is not one of them, and Enter captures in preview): Enter declines, A allows, Escape answers it later.
+        if (LiveState.ControlRequest is { } request)
+        {
+            object? signal = evt switch
+            {
+                InputEvent.KeyDown(InputKey.Enter, _) => new AnswerControlRequestSignal(request.Id, Allow: false),
+                InputEvent.KeyDown(ControlRequestQuestion.AllowKey, _) => new AnswerControlRequestSignal(request.Id, Allow: true),
+                InputEvent.KeyDown(InputKey.Escape, _) => new DismissControlRequestSignal(),
+                _ => null,
+            };
+            switch (signal)
+            {
+                case AnswerControlRequestSignal answer:
+                    bus.Post(answer);
+                    NeedsRedraw = true;
+                    return;
+                case DismissControlRequestSignal dismiss:
+                    bus.Post(dismiss);
+                    NeedsRedraw = true;
+                    return;
             }
         }
 
