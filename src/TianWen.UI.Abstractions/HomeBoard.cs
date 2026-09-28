@@ -335,20 +335,26 @@ namespace TianWen.UI.Abstractions
                 MountLimit: LimitOf(session));
 
         /// <summary>
-        /// The local node's card. Always online -- it is this machine, so "not answering" is not a state it
-        /// can be in -- and its profile is this app's active profile rather than anything fetched.
+        /// The local node's card. Online once this computer's node has been reached (P6: the node holds the rig, and takes
+        /// seconds to come up at start), and its profile is this app's active profile, which is the node's.
         /// </summary>
-        private static RigCard LocalCard(ViewContext local, GuiAppState appState, DateTimeOffset now, bool isViewed) =>
-            RunCard(local.LiveSession, now) with
+        private static RigCard LocalCard(ViewContext local, GuiAppState appState, DateTimeOffset now, bool isViewed)
+        {
+            var card = RunCard(local.LiveSession, now);
+            var node = appState.LocalNode;
+            return card with
             {
                 Title = local.DisplayName,
+                IsOnline = node is not null,
+                Status = node is null ? appState.WaitingForLocalNode : card.Status,
                 Subtitle = appState.ActiveProfile?.DisplayName,
                 IsLocal = true,
                 Devices = LocalDeviceLink(appState),
                 IsViewed = isViewed,
                 LastNote = LocalNote(appState, now),
-                Sharing = appState.LocalNode is { } node ? RigSharing.Of(node) : null,
+                Sharing = node is not null ? RigSharing.Of(node) : null,
             };
+        }
 
         /// <summary>
         /// A bound rig with a live mirror. Still shown as offline when the node has stopped answering: the

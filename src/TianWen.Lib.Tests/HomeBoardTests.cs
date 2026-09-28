@@ -69,8 +69,12 @@ namespace TianWen.Lib.Tests
             // looking like a remote-monitoring feature they do not use.
             cards.Length.ShouldBe(1);
             cards[0].IsLocal.ShouldBeTrue();
-            cards[0].IsOnline.ShouldBeTrue("it is this machine; 'not answering' is not a state it can be in");
-            cards[0].Status.ShouldBe("Idle");
+            // Its node holds the rig (P6) and takes seconds to come up, so until it answers the card says so, rather than
+            // "Idle" for a rig nothing has asked yet.
+            cards[0].IsOnline.ShouldBeFalse("this computer's node has not been reached yet");
+            cards[0].Status.ShouldBe("Connecting to this computer's rig...");
+            appState.LocalNodeProblem = "the node did not start";
+            HomeBoard.BuildCards(contexts, rigs, appState, Now)[0].Status.ShouldBe("This computer's rig cannot be used: the node did not start");
             // No driver is connected and none needs to be: the card reads LiveSessionState, so an idle
             // local scope is an accurate free card and the board performs no device I/O to draw it.
             cards[0].IsRunning.ShouldBeFalse();
