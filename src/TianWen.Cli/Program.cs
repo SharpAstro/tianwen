@@ -121,6 +121,7 @@ var rootCommand = new RootCommand
     {
         new ProfileSubCommand(consoleHost, selectedProfileOption, profileSelector).Build(),
         new DeviceSubCommand(consoleHost).Build(),
+        new NodeSubCommand(consoleHost).Build(),
         viewSubCommand.Build(),
         new PlanSubCommand(consoleHost, plannerState, services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(), services.GetRequiredService<TianWen.Lib.Astrometry.Comets.ICometRepository>(), profileSelector).Build(),
         new StackSubCommand(

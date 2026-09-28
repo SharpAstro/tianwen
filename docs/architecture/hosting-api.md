@@ -239,7 +239,12 @@ so an app finds a rig by its address.
 anyone else although it is a GET), revoking a grant, allowing or revoking an app or a host, and `PUT /api/v1/node/share`,
 which only the socket could set before. `ACCESS-CHANGED` is pushed on every change as a hint with no content, so a
 watcher learns nothing from it, and the read is authoritative. `GET /api/v1/node` answers whether the caller may
-command (`CallerMayCommand`).
+command (`CallerMayCommand`). **A terminal does the same over the socket** (`tianwen node requests`, `grants`, `allow
+[<address> [--always]]`, `decline`, `revoke <grant id, label, address or host>`, `ignore <address>`, `share on|off`), which
+is how a headless rig's owner answers a laptop over SSH. **Loopback TCP is the LAN too**, deliberately: a web page in a
+browser on the rig's machine can reach `localhost:1888`, and a bodiless POST (`/session/abort`) needs no preflight. So a
+client that reaches a node under another account (a service) on loopback (`LocalNodeLauncher`'s `AnotherAccount`) asks
+for control like a laptop, and is answered by `tianwen node allow` run as that account, over its socket.
 
 **Who counts on the event socket**: whether a client may command is asked at every count (the socket, or the grant its
 upgrade carried while the node still holds it: `EventHub.AddClient`'s `mayCommand`), so a grant revoked while its
