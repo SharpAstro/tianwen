@@ -2191,3 +2191,75 @@ computes from the linear frame and the stretch it applied (`StretchedNoise.Estim
 that met the star clauses) trained the same fixed 4000-step cosine; `--schedule plateau` does not yet
 cover the psf01 / operator path (it refuses rather than guess), which is the next thing to extend
 before any further deconvolver arm.
+
+### 2026-09-28: the noise estimator against the half pairs
+
+E16a's estimated planes missed their fields' truth by a factor, and "E16's machinery" named two suspects: a half's
+own stretch was not retained, and pattern noise both halves share cancels in the truth but not in a one-frame
+estimate. This entry takes them in order. The factor throughout is truth over estimate on each field's sky
+(`n2n_starsplit.py --anchor-only`), so below 1 is an over-read.
+
+**Each frame's own stretch and plane** ("every tile carries its own frame's stretch and noise plane"). The tile
+exporter now stretches every frame (master, both halves, each sub) as the runner will, estimates that frame's noise
+from its own pixels, writes each tile's plane beside it and records the stretch and calibration in the manifest
+row. The master's stretch is far steeper than a half's (synthetic fixture: balance 0.046 against 0.074), so
+borrowing it was wrong in stretched units, not approximately right. The eleven eval fields were re-baked with
+it (`2026-09-28-evalplanes`, `tianwen dataset build --session`, 2 h 40 min; `run-ownplanes.ps1`). Every scored cell
+is the cell `-rf` held. Six fields' tiles are identical byte for byte. The other five (SMC 2026, Lagoon, SMC 2023,
+HIP 34710, Rim) had been built by the 2026-09-24 binary where the six were rebuilt on 2026-09-27, with the same
+subs, gates and geometry, and their half-pair noise moved by 0.97 to 1.09.
+
+| | E16a (master's stretch, depth sqrt 2) | each frame's own |
+|---|---|---|
+| typical error, exp(mean abs ln) | x1.45 | **x1.22** |
+| bias, geometric mean | 0.725 | **0.848** |
+| spread, sd of ln | 0.31 | **0.21** |
+| range | 0.39 (Lagoon) to 1.28 (Horsehead) | 0.52 (Lagoon) to 1.18 (Horsehead) |
+
+Half the error was the stand-in stretch. Nine fields still over-read, by 1.08 to 1.94.
+
+**What the rest is, per channel.** On each field's sky (half B's low-passed luminance in 0.15-0.30, peaks masked,
+the 16 px rim out; this mask reproduces every field's anchor to within 0.03), against T, the half-pair truth per
+channel:
+
+- **The model misreads the other channels.** The estimator anchored every channel on channel 0, carrying red's
+  noise-per-level to green and blue at their own levels. The shot-noise ramp holds within a channel, not across
+  them: a Bayer drizzle builds green from twice the photosites, and the channels' skies differ (SMC 2026: 0.012,
+  0.047, 0.032). Green's truth over model is below red's on ten fields of eleven (0.43 to 1.25 against red's 0.55
+  to 1.07), lowest relative to red on Rim (0.62) and SMC 2023 (0.71), above it only on Horsehead. The ratio is not
+  a clean sqrt 2 on every field, so a per-channel anchor, not a constant, is the fix.
+- **Red's own anchor reads high too, by content both halves share.** Through the estimator's 4 px high-pass, a half
+  reads 1.03 to 2.0 times what the same filter reads on (A - B) / sqrt 2 over the same sky, and the 25th-percentile
+  block does not escape it: Lagoon's plate holds about one Gaia star per pixel, and no block of it is clean sky.
+- **The filter is not a cause.** The high-pass on pure half-pair noise reads 0.85 to 0.99 of it, low and not high.
+
+**Variants, re-run on the val tiles of half A** (32 px blocks inside each tile's rim, a sample of the frame; the
+shipped variant reproduces the recorded channel-0 anchor to within 4 percent and every field's factor):
+
+| variant | bias | typical error | sd ln | worst |
+|---|---|---|---|---|
+| shipped | 0.850 | x1.218 | 0.218 | 0.51 |
+| **each channel its own anchor and background** | **0.929** | **x1.127** | **0.160** | 0.64 |
+| per channel, 2 px high-pass | 1.025 | x1.116 | 0.145 | 0.73 |
+| per channel, 1 px high-pass | 1.336 | x1.336 | 0.140 | 1.02 (reads LOW: drizzle correlates the noise over a pixel) |
+| per channel, quantile 0.10 | 0.989 | x1.105 | 0.133 | 0.73 |
+
+The per-channel anchor is a correction of the model and is adopted ("the noise estimator anchors each channel on
+its own noise", recipe version 3, the manifest's background and sigma now one per channel). The high-pass and
+quantile variants gain another 1 to 2 percent of typical error, but they are knobs chosen on the same eleven
+fields they would be scored on, so they are not adopted. `EachChannelIsAnchoredOnItsOwnNoise` pins it on a frame
+with SMC's three skies and green at half the variance per unit signal: each channel's estimate within 2 percent,
+its plane within 5 percent of the injected noise, where channel 0's calibration carried to green reads 1.37x.
+
+**Pre-registered, the per-channel re-bake** of the same twelve sessions, scored with `--anchor-only` as above:
+(1) typical error x1.10 to x1.16; (2) bias 0.90 to 0.96; (3) Lagoon the lowest field, 0.58 to 0.70; (4) each
+field within 0.05 of its `perch` value above on at least nine of eleven. KILL: typical error no better than
+x1.20, which would say the tile sample misjudged the whole-frame estimator.
+
+**What no one-frame estimator will fix.** Content both halves share looks like noise to any statistic of one
+frame, and in a star field as dense as Lagoon's there is nothing else to read. For TianWen's own masters the
+stacker has the answer already in hand: the scatter of the frames at each pixel is the independent noise, the
+thing the half pairs measure, and a per-pixel standard-error sidecar written at integration would make the plane
+a measurement instead of an estimate. The degrade export's master-slot plane (`WriteMasterSigmaTile`) still
+carries channel 0's calibration to every channel, consistently with the noise it injects, which is one
+calibration; whether the injection itself should become per channel is a training question for E16b.
