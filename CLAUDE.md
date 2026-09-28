@@ -1117,8 +1117,13 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   ACTUAL frame, **NOT** the camera's `SensorType`; **no driver call crosses onto the render thread**
   (it stages, the capture loop drains + applies). Preview defaults to **linear** (`StretchMode.None`).
 - **Read the plan doc before touching the Canon path** -- it is a list of five things that fail
-  SILENTLY. Auto-recenter defaults ON (ROI-only, zero mount disturbance); mount jog is opt-in OFF and
-  its **sign is uncalibrated**.
+  SILENTLY. **Recentering is opt-in** (the user, 2026-09-28; it costs the loop about 15 ms a frame at full frame), and
+  so is the mount jog, whose **sign is uncalibrated**.
+- **A stream's depth, high-speed readout and USB bandwidth are its own** (`VideoCaptureOptions`), never the camera's
+  settings, so a planetary capture in 8 bits leaves the next deep-sky frame in 16; a DAL stream takes the whole
+  bandwidth while it runs (16 bits at the 50 a connect sets was 31.9 frames a second on an ASI462MC, 8 bits at 100 is
+  136). **A frame declares the full scale of the depth it was READ OUT in** (`DALCameraDriver.MaxAduFor`): the camera's
+  16-bit full scale on an 8-bit frame puts it at a sixteenth of its brightness in the live stack.
 - **The capture loop is `PlanetaryCapture` (Lib), ONE for the GUI and the node**: the camera, the stream, the
   live controls and the recenter. The GUI's `PlanetaryCaptureController` starts the node's run, sends the panel's
   controls only as they CHANGE (`NodePlanetaryCapture`: the panel pushes its recenter every frame) and shows the

@@ -401,6 +401,58 @@ free rect within hardware constraints, not a fixed list:
   origin stays driver-centred until the **Phase C** recenter loop pans it -- pan here positions the PiP/overlay
   SELECTION). `CurrentImageRect` was added to `ImageRendererBase` for the overlay.
 
+### Frame rate at full frame: the stream's depth, readout and bandwidth
+
+**Shipped 2026-09-28, #1044.** The ZWO ASI462MC gave SharpCap 136 frames a second at full frame (1936x1096, RAW8, High
+Speed Mode on, Turbo USB 100) and TianWen 8 to 17. Traced one layer at a time on the camera, starting from the raw SDK
+(the user: isolate it first through DAL alone):
+
+| Raw ZWOptical.SDK video, full frame | fps |
+|---|---|
+| RAW8, USB bandwidth 100, high-speed readout on | 136.0 |
+| RAW8, bandwidth 100, high speed off | 63.8 |
+| RAW8, bandwidth 50, high speed on | 68.0 |
+| RAW16, bandwidth 100 (the high-speed readout changes nothing in 16 bits) | 63.8 |
+| RAW16, bandwidth 50: what TianWen's stream asked for | 31.9 |
+
+The exposure made no difference between 32 us and 1 ms, and the rate follows the bandwidth, so the USB transfer is the
+limit at every setting.
+
+- **Two settings were the loss.** The stream read out in the camera's single-exposure depth (16 bits, the highest it
+  has) at the USB bandwidth of 50 a connect sets. A stream's depth, its high-speed readout and its bandwidth are now its
+  own (`VideoCaptureOptions`): it reads out in the depth it asks for, with the high-speed readout on unless asked
+  otherwise, and takes the body's whole bandwidth while it runs, giving back what it found as it ends. The camera's
+  single exposures keep their own depth, so a planetary capture in 8 bits leaves the next deep-sky frame in 16.
+- **The planetary panel switches both**: a Depth choice among the depths the camera streams in (its device state's
+  `VideoBitDepths`) and High speed where it has one (`CanFastReadout`), at the start and live. A change restarts the
+  stream inside the driver, as a new window size does. The wire carries them on `PlanetaryRequestDto` and
+  `PlanetaryControlsDto`, and `PlanetaryStateDto.BitDepth` says what the frames came in. The panel starts on the
+  camera's own depth.
+- **An 8-bit frame declares an 8-bit full scale** (`DALCameraDriver.MaxAduFor`, one rule for a single exposure and a
+  stream). The stream stamped the camera's full scale, which on an 8-bit frame is the 16-bit readout's (4095 on a
+  12-bit sensor), and the live stack would have divided samples of 0 to 255 by it.
+- **An 8-bit stream records an 8-bit SER** (`SerRecording`). A SER has one depth, so switching it mid-recording ends
+  the recording, as a new size does.
+- **Through TianWen, in process** (`ZwoVideoRateProbe`, Release, 8 s a layer, each layer added to the one before):
+
+  | Full frame | RAW16 | RAW8 |
+  |---|---|---|
+  | the driver's stream alone | 63.1 | 132.1 |
+  | + the frame ring's push | 63.0 (2.7 ms p50) | 135.2 (1.5 ms) |
+  | + a recording's append | 63.2 (3.5 ms), none dropped | 131.7 (3.6 ms), none dropped |
+  | the capture loop, recenter off | 63.8 | 132.8 |
+  | the capture loop, recenter on | 33.3 | 44.2 |
+  | + the node's live stack, recenter off | 63.0 | 133.0 |
+
+- **Recentering is opt-in** (the user, 2026-09-28: it needs a calibration phase, and the operator makes sure the rig is
+  ready for it). It was on by default, and it costs about 15 ms a frame at full frame in process (133 frames a second
+  to 44 in 8 bits) and more in a node (31.9 to 19.5 in 16 bits); making it cheaper, and why a node pays more, is #1045.
+- **A node keeps up.** A Release node measured before the switches existed captured every frame the camera sent with
+  recentering off (31.9 a second in 16 bits at bandwidth 50) with no client stream, a shared-memory stream or a byte
+  stream alike; a client read just under 30, the live frame being sampled at most every 33 ms.
+- **The live stack is slow at full frame**: a master took 0.4 to 6.4 s in process, on about one core, so the live
+  master updates once every few seconds. It does not slow the capture; #1046.
+
 ### Reframing on the full sensor
 
 **Open, #1033.** "Show ROI on image" outlines the frame on show, and during a capture that frame IS the ROI crop, so
@@ -542,8 +594,9 @@ mount actuation in the controller, and a RECENTER panel section on top.
   render thread) after each push on the still-alive frame -- `PlanetaryDisk.BoundingBox` + `CenterOfMass` ->
   `Decide` -> stage a ROI jog (drained by `ApplyPendingControlsAsync` the same iteration) and/or fire the mount
   pulse. Config (`auto`, `mountJog`, deadband, gain, flips) is staged by the render thread via
-  `ConfigureRecenter`; the mount + pixel scale are attached on Start (`AttachMount`). Auto-recenter defaults ON
-  (zero-disturbance, ROI-only; a no-disk frame yields a centred COM -> no jog); mount jog opt-in OFF.
+  `ConfigureRecenter`; the mount + pixel scale are attached on Start (`AttachMount`). Auto-recenter is opt-in OFF
+  since 2026-09-28 (it was ON: ROI-only and zero-disturbance, but it needs the operator ready for it and costs the loop
+  about 15 ms a frame at full frame; "Frame rate at full frame"); mount jog opt-in OFF.
 - **Mount actuation -- one shared actuator.** `MountNudge.PulseArcsecAsync` (Lib, was the GUI's
   `MountActions.PulseGuideArcsecAsync`) converts arcsec -> a guide-rate-sized, capped `StartPulseGuideAsync`;
   used by BOTH the auto loop (single-flight + cooldown, fired non-blocking so it never stalls the high-fps loop)
