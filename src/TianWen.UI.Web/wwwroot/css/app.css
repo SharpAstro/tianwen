@@ -101,17 +101,22 @@ html, body {
     text-overflow: ellipsis;
 }
 
-/* Toolbar - site entry + recompute, styled like a GUI panel row. */
+/* Toolbar - site entry + recompute, styled like a GUI panel row. Three columns so the date control sits
+   in the middle, over the canvas the calendar it opens is drawn on, as the desktop status bar centres it.
+   Where the site controls need more than their half, their column grows and the date moves right rather
+   than overlapping them: centred when there is room, never on top of anything. */
 .toolbar {
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     gap: 14px;
     align-items: center;
-    flex-wrap: wrap;
     background: var(--chrome);
     border-bottom: 1px solid var(--border);
     padding: 6px 14px;
     flex: none;
 }
+
+.toolbar .site { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; justify-self: start; }
 
 .toolbar label {
     color: var(--dim);
@@ -146,7 +151,7 @@ html, body {
 
 /* The night being planned: [<] date [>] verdict, the desktop status bar's date control. The label opens the
    night calendar drawn on the canvas; the verdict's colour comes from the shared palette, inline. */
-.toolbar .night { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.toolbar .night { display: flex; align-items: center; gap: 6px; justify-self: center; }
 .toolbar .night .night-step { padding: 4px 8px; }
 .toolbar .night .night-label { font-variant-numeric: tabular-nums; }
 .toolbar .night .night-verdict { font-size: 0.85rem; font-weight: 600; }

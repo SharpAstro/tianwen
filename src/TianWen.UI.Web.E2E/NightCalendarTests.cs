@@ -35,6 +35,7 @@ public sealed class NightCalendarTests(TianWenWebFixture fixture, ITestOutputHel
 
         await label.ClickAsync();
         await CaptureAsync(page, "night-calendar-open.png");
+        await TheCalendarIsCentredUnderTheLabelAsync(page, label);
 
         // Two nights on and plan it: the label leaves "Tonight" for that night's date.
         var canvas = page.Locator("#planner");
@@ -50,6 +51,33 @@ public sealed class NightCalendarTests(TianWenWebFixture fixture, ITestOutputHel
         await Expect(label).ToContainTextAsync("Tonight", new() { Timeout = CalendarTimeout });
 
         await page.Context.CloseAsync();
+    }
+
+    /// <summary>
+    /// The calendar opens under the label that opened it (reported 2026-09-28: it was painted centred on the
+    /// canvas while the label sat at the right of the toolbar, hundreds of pixels away). Its centre is held
+    /// to the label's, as the page measured the label from the DOM, unless the calendar had to be pushed
+    /// inward to stay on the canvas, in which case it must touch that edge.
+    /// </summary>
+    private async Task TheCalendarIsCentredUnderTheLabelAsync(IPage page, ILocator label)
+    {
+        var labelBox = await label.BoundingBoxAsync() ?? throw new InvalidOperationException("the date label has no box");
+        var canvasBox = await page.Locator("#planner").BoundingBoxAsync() ?? throw new InvalidOperationException("the canvas has no box");
+        var labelCentre = labelBox.X + (labelBox.Width / 2) - canvasBox.X;
+
+        var json = await page.EvaluateAsync<string>("() => window.__tianwenTest.getCalendarBox()");
+        Assert.NotEqual("null", json);
+        using var box = System.Text.Json.JsonDocument.Parse(json);
+        var x = box.RootElement.GetProperty("x").GetDouble();
+        var width = box.RootElement.GetProperty("width").GetDouble();
+        output.WriteLine($"label centre {labelCentre:F1}, calendar {x:F1}..{x + width:F1} on a {canvasBox.Width:F0} px canvas");
+
+        var clamped = x <= 0.5 || x + width >= canvasBox.Width - 0.5;
+        if (!clamped)
+        {
+            Assert.InRange(x + (width / 2), labelCentre - 1.0, labelCentre + 1.0);
+        }
+        Assert.InRange(labelCentre, x, x + width); // under the label whatever the clamp did
     }
 
     private async Task CaptureAsync(IPage page, string name)
