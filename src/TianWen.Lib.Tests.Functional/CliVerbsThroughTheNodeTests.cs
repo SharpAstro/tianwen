@@ -2,6 +2,7 @@ using System;
 using System.CommandLine;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using Console.Lib;
@@ -11,6 +12,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Shouldly;
 using TianWen.Cli;
+using TianWen.Hosting;
+using TianWen.Hosting.Dto;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Sequencing;
@@ -76,6 +79,7 @@ public class CliVerbsThroughTheNodeTests(ITestOutputHelper output)
                 {
                     new ProfileSubCommand(Host, active, selector).Build(),
                     new DeviceSubCommand(Host).Build(),
+                    new NodeSubCommand(Host).Build(),
                     new DarksSubCommand(Host).Build(),
                     new FlatsSubCommand(Host, selector).Build(),
                 },
@@ -270,5 +274,55 @@ public class CliVerbsThroughTheNodeTests(ITestOutputHelper output)
             // How a cancelled command ends is the command line's business; that the node's run was stopped is this test's.
         }
         cli.Written.ToString().ShouldContain("stopping the flat run on the node");
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task ALaptopsRequestForControlIsAnsweredAndRevokedFromATerminal()
+    {
+        // A headless rig's owner, over SSH: the request a laptop made (P6b, #1021), answered by the node verbs.
+        var ct = TestContext.Current.CancellationToken;
+        await using var cli = await Cli.StartAsync(output, ct);
+        var access = cli.Node.App.Services.GetRequiredService<NodeAccess>();
+
+        (await cli.RunAsync(ct, "node", "allow")).ShouldBe(1, "nothing is waiting");
+        var ticket = access.Request("Laptop, TianWen", IPAddress.Parse("192.168.1.20")).ShouldNotBeNull();
+        (await cli.RunAsync(ct, "node", "requests")).ShouldBe(0, cli.Errors.ToString());
+        cli.Written.ToString().ShouldContain("'Laptop, TianWen' (192.168.1.20) asks to control this rig");
+
+        (await cli.RunAsync(ct, "node", "allow")).ShouldBe(0, cli.Errors.ToString());
+        var granted = await access.PollAsync(ticket.Id, ticket.Secret, ct);
+        granted.State.ShouldBe(ControlRequestState.Granted);
+        granted.Token.ShouldNotBeNull();
+
+        (await cli.RunAsync(ct, "node", "grants")).ShouldBe(0, cli.Errors.ToString());
+        cli.Written.ToString().ShouldContain("Laptop, TianWen: granted control");
+        (await cli.RunAsync(ct, "node", "revoke", "laptop, tianwen")).ShouldBe(0, cli.Errors.ToString());
+        (await cli.Client.GetAccessAsync(ct)).Value.ShouldNotBeNull().Grants.ShouldBeEmpty("a grant is revoked by its label, as 'grants' shows it");
+
+        var second = access.Request("Tablet", IPAddress.Parse("192.168.1.21")).ShouldNotBeNull();
+        (await cli.RunAsync(ct, "node", "decline")).ShouldBe(0, cli.Errors.ToString());
+        (await access.PollAsync(second.Id, second.Secret, ct)).State.ShouldBe(ControlRequestState.Declined);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task AnApplicationTheRigRefusedIsAllowedAndRevokedFromATerminal()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var cli = await Cli.StartAsync(output, ct);
+        var access = cli.Node.App.Services.GetRequiredService<NodeAccess>();
+        var nina = IPAddress.Parse("192.168.1.30");
+        access.RecordRefusal(nina, AppProtocol.Alpaca, "NINA/3.1", "42", "PUT /api/v1/camera/0/connected");
+
+        (await cli.RunAsync(ct, "node", "requests")).ShouldBe(0, cli.Errors.ToString());
+        cli.Written.ToString().ShouldContain("NINA/3.1 at 192.168.1.30, client 42: PUT /api/v1/camera/0/connected, once");
+
+        (await cli.RunAsync(ct, "node", "allow", "192.168.1.30")).ShouldBe(0, cli.Errors.ToString());
+        (await access.AppMayCommandAsync(nina, ct)).ShouldBeTrue();
+        (await cli.RunAsync(ct, "node", "revoke", "192.168.1.30")).ShouldBe(0, cli.Errors.ToString());
+        (await access.AppMayCommandAsync(nina, ct)).ShouldBeFalse();
+
+        (await cli.RunAsync(ct, "node", "allow", "not-an-address")).ShouldBe(1);
+        (await cli.RunAsync(ct, "node", "revoke", "nobody")).ShouldBe(1);
+        cli.Errors.ToString().ShouldContain("Nothing called 'nobody' may command this rig");
     }
 }
