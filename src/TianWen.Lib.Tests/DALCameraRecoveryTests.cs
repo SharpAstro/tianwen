@@ -1,7 +1,9 @@
 using System;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 using Shouldly;
 using TianWen.DAL;
@@ -201,12 +203,19 @@ public class DALCameraRecoveryTests(ITestOutputHelper output)
 internal static class ScriptedDalCamera
 {
     internal static async Task<(TestDalCameraDriver Camera, FakeCmosState State, FakeTimeProviderWrapper Time)> ConnectAsync(
-        ITestOutputHelper output, bool canReset = false, IReadOnlyList<PixelDataFormat>? formats = null)
+        ITestOutputHelper output, bool canReset = false, IReadOnlyList<PixelDataFormat>? formats = null, bool canStream = false,
+        BayerPattern bayerPattern = BayerPattern.Monochrome)
     {
         var time = new FakeTimeProviderWrapper();
         var external = new FakeExternal(output, time);
         var device = new FakeDevice(DeviceType.Camera, 1);
-        var state = new FakeCmosState(device.DeviceId) { CanReset = canReset, Formats = formats ?? [PixelDataFormat.RAW16] };
+        var state = new FakeCmosState(device.DeviceId)
+        {
+            CanReset = canReset,
+            Formats = formats ?? [PixelDataFormat.RAW16],
+            CanStream = canStream,
+            BayerPattern = bayerPattern,
+        };
         var camera = new TestDalCameraDriver(device, external.BuildServiceProvider(), state);
         await camera.ConnectAsync(TestContext.Current.CancellationToken);
         camera.Connected.ShouldBeTrue();
@@ -280,9 +289,10 @@ internal sealed class FakeCmosState(string serial)
 
     public int StartY { get; set; }
 
-    public Dictionary<CMOSControlType, int> Controls { get; } = PowerOnDefaults();
+    // Concurrent: a stream's own thread writes controls while a test reads them.
+    public ConcurrentDictionary<CMOSControlType, int> Controls { get; } = PowerOnDefaults();
 
-    public static Dictionary<CMOSControlType, int> PowerOnDefaults() => new()
+    public static ConcurrentDictionary<CMOSControlType, int> PowerOnDefaults() => new()
     {
         [CMOSControlType.Exposure] = 1000,
         [CMOSControlType.Gain] = 0,
@@ -291,6 +301,52 @@ internal sealed class FakeCmosState(string serial)
         [CMOSControlType.TargetTemperature] = 20,
         [CMOSControlType.TemperatureDeci] = 200,
     };
+
+    /// <summary>Whether the body streams, as a ZWO does: width steps of 8, height of 2, and a window that pans mid-stream.</summary>
+    public bool CanStream { get; init; }
+
+    public BayerPattern BayerPattern { get; init; } = BayerPattern.Monochrome;
+
+    private volatile bool _streaming;
+
+    public bool Streaming { get => _streaming; set => _streaming = value; }
+
+    private int _videoStarts;
+    private int _videoStops;
+    private int _framesServed;
+    private int _frameCalls;
+
+    public int VideoStarts => Volatile.Read(ref _videoStarts);
+
+    public int VideoStops => Volatile.Read(ref _videoStops);
+
+    /// <summary>Frames the body has handed over; each frame's pixels are this count, so a test can tell frames apart.</summary>
+    public int FramesServed => Volatile.Read(ref _framesServed);
+
+    /// <summary>Every Nth frame call answers Timeout, as a body does when no frame arrived in the wait.</summary>
+    public int TimeoutEvery { get; set; }
+
+    /// <summary>The next frame call answers this instead of a frame (a body gone from the bus).</summary>
+    public CMOSErrorCode? FailNextFrameWith { get; set; }
+
+    /// <summary>A body closed while it was still streaming: what a disconnect must never do.</summary>
+    public bool ClosedWhileStreaming { get; set; }
+
+    public void StartedStreaming()
+    {
+        Interlocked.Increment(ref _videoStarts);
+        Streaming = true;
+    }
+
+    public void StoppedStreaming()
+    {
+        Interlocked.Increment(ref _videoStops);
+        Streaming = false;
+    }
+
+    public int NextFrameCall() => Interlocked.Increment(ref _frameCalls);
+
+    public int ServeFrame() => Interlocked.Increment(ref _framesServed);
 
     public void PowerCycle()
     {
@@ -340,7 +396,14 @@ internal readonly struct FakeCmosCamera(FakeCmosState state) : ICMOSNativeInterf
     public string Name => "Scripted CMOS";
     public string CustomId => state.Serial;
     public bool Open() => state.Present;
-    public bool Close() => true;
+    public bool Close()
+    {
+        if (state.Streaming)
+        {
+            state.ClosedWhileStreaming = true;
+        }
+        return true;
+    }
     public string? SerialNumber => state.Serial;
     public bool IsUSB3Device => false;
     public bool CanResetDevice => state.CanReset;
@@ -360,7 +423,7 @@ internal readonly struct FakeCmosCamera(FakeCmosState state) : ICMOSNativeInterf
     public int MaxWidth => 100;
     public int BitDepth => 16;
     public double PixelSize => 3.76;
-    public BayerPattern BayerPattern => BayerPattern.Monochrome;
+    public BayerPattern BayerPattern => state.BayerPattern;
     public IReadOnlyList<int> SupportedBins => Bins;
     public IReadOnlyList<PixelDataFormat> SupportedPixelDataFormats => state.Formats;
     public bool IsTriggerCamera => false;
@@ -459,7 +522,65 @@ internal readonly struct FakeCmosCamera(FakeCmosState state) : ICMOSNativeInterf
 
     public CMOSErrorCode SetROIFormat(int width, int height, int bin, PixelDataFormat pixelDataFormat)
     {
+        if (state.Streaming)
+        {
+            // As ASISetROIFormat: the stream must be stopped before its size changes.
+            return CMOSErrorCode.VideoModeActive;
+        }
         (state.Width, state.Height, state.Bin, state.Format) = (width, height, bin, pixelDataFormat);
+        return CMOSErrorCode.Success;
+    }
+
+    public void GetRoiSteps(out int widthStep, out int heightStep, out int originStepX, out int originStepY)
+    {
+        (widthStep, heightStep) = state.CanStream ? (8, 2) : (1, 1);
+        originStepX = originStepY = 1;
+    }
+
+    public bool CanVideoCapture => state.CanStream;
+
+    public bool CanPanRoiWhileStreaming => state.CanStream;
+
+    public CMOSErrorCode StartVideoCapture()
+    {
+        state.StartedStreaming();
+        return CMOSErrorCode.Success;
+    }
+
+    public CMOSErrorCode StopVideoCapture()
+    {
+        state.StoppedStreaming();
+        return CMOSErrorCode.Success;
+    }
+
+    public CMOSErrorCode GetVideoData(IntPtr buffer, int bufferSize, int waitMs)
+    {
+        if (!state.Streaming)
+        {
+            return CMOSErrorCode.InvalidSequence;
+        }
+        if (state.FailNextFrameWith is { } failure)
+        {
+            state.FailNextFrameWith = null;
+            return failure;
+        }
+        if (bufferSize != state.Width * state.Height * sizeof(ushort))
+        {
+            return CMOSErrorCode.BufferTooSmall;
+        }
+
+        // A body's frame cadence: the call blocks until a frame is there.
+        Thread.Sleep(1);
+        if (state.TimeoutEvery > 0 && state.NextFrameCall() % state.TimeoutEvery == 0)
+        {
+            return CMOSErrorCode.Timeout;
+        }
+
+        var value = (ushort)state.ServeFrame();
+        unsafe
+        {
+            new Span<ushort>((void*)buffer, state.Width * state.Height).Fill(value);
+        }
         return CMOSErrorCode.Success;
     }
 

@@ -881,25 +881,7 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
         // negative float. Invisible on a 12- or 14-bit ZWO or QHY sensor, whose native scale stays below
         // 32768; every bright star core on a 16-bit converter (IMX571, IMX455) or on Player One's
         // left-aligned 12-bit data (see RawPixelConversion, DALCameraDownloadTests).
-        var pixels = w * h;
-        var destination = MemoryMarshal.CreateSpan(ref Unsafe.As<byte, float>(ref MemoryMarshal.GetArrayDataReference(channel)), pixels);
-        float minValue, maxValue;
-        unsafe
-        {
-            switch (exposureSettings.BitDepth.BitSize)
-            {
-                case 8:
-                    (minValue, maxValue) = RawPixelConversion.WidenToSingle(new ReadOnlySpan<byte>((void*)nativeBuffer.Pointer, pixels), destination);
-                    break;
-
-                case 16:
-                    (minValue, maxValue) = RawPixelConversion.WidenToSingle(new ReadOnlySpan<ushort>((void*)nativeBuffer.Pointer, pixels), destination);
-                    break;
-
-                default:
-                    throw new InvalidOperationException($"Cannot handle bit depth {exposureSettings.BitDepth}");
-            }
-        }
+        var (minValue, maxValue) = WidenNativeFrame(nativeBuffer.Pointer, channel, exposureSettings.BitDepth);
 
         // Wrap in ChannelBuffer for ref-counted lifecycle; onRelease recycles the float[,];
         // the buffer travels ON the Channel into GetImageAsync's Image (which harvests the ref).
@@ -909,6 +891,23 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
         _camState = CameraState.Idle;
 
         return result;
+    }
+
+    /// <summary>
+    /// Reads an SDK frame of <paramref name="plane"/>'s shape at <paramref name="source"/> IN PLACE, as UNSIGNED samples,
+    /// straight into <paramref name="plane"/>, in one pass that also finds the range: a single exposure's download and a
+    /// video frame alike.
+    /// </summary>
+    private static unsafe (float Min, float Max) WidenNativeFrame(nint source, float[,] plane, BitDepth bitDepth)
+    {
+        var pixels = plane.Length;
+        var destination = MemoryMarshal.CreateSpan(ref Unsafe.As<byte, float>(ref MemoryMarshal.GetArrayDataReference(plane)), pixels);
+        return bitDepth.BitSize switch
+        {
+            8 => RawPixelConversion.WidenToSingle(new ReadOnlySpan<byte>((void*)source, pixels), destination),
+            16 => RawPixelConversion.WidenToSingle(new ReadOnlySpan<ushort>((void*)source, pixels), destination),
+            _ => throw new InvalidOperationException($"Cannot handle bit depth {bitDepth}"),
+        };
     }
 
     private void StopExposureInternal()
@@ -1009,16 +1008,12 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
         var settingsSnapshot = _cameraSettings;
 
         if (duration < TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(duration), duration, "0.0 upwards");
+        if (Volatile.Read(ref _videoActive) == 1)
+        {
+            throw new InvalidOperationException($"{Name} is streaming video, and a camera streams or exposes, never both");
+        }
 
-        int durationInNanoSecs;
-        if (_deviceInfo.TryGetControlRange(CMOSControlType.Exposure, out var min, out var max))
-        {
-            durationInNanoSecs = Math.Min(max, Math.Max(min, (int)Math.Round(duration.TotalMilliseconds * 1000)));
-        }
-        else
-        {
-            throw new ArgumentOutOfRangeException(nameof(duration), duration, "Could not find min,max");
-        }
+        var durationInNanoSecs = ExposureControlValue(duration);
 
         var getROIErrorCode = _deviceInfo.GetROIFormat(out var currentWidth, out var currentHeight, out var currentBin, out var currentImgType);
         var getStartXYErrorCode = _deviceInfo.GetStartPosition(out var currentStartX, out var currentStartY);
@@ -1120,6 +1115,15 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
             throw OperationalException(startExposureErrorCode, $"Failed to start exposure frame type={frameType} duration={durationInNanoSecs} ns");
         }
     }
+
+    /// <summary>
+    /// <paramref name="duration"/> as the exposure control's value, microseconds clamped to the range the camera
+    /// reports: for a single exposure and a video stream alike.
+    /// </summary>
+    private int ExposureControlValue(TimeSpan duration)
+        => _deviceInfo.TryGetControlRange(CMOSControlType.Exposure, out var min, out var max)
+            ? Math.Min(max, Math.Max(min, (int)Math.Round(duration.TotalMilliseconds * 1000)))
+            : throw new ArgumentOutOfRangeException(nameof(duration), duration, "Could not find min,max");
 
     public ValueTask StartPulseGuideAsync(GuideDirection guideDirection, TimeSpan duration, CancellationToken cancellationToken = default)
     {

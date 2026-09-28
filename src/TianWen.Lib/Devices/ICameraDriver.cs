@@ -317,6 +317,21 @@ public interface ICameraDriver : IDeviceDriver
     ValueTask StartPulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The full scale a frame of <paramref name="bitDepth"/> may declare (<see cref="ImageMeta.SensorFullScaleAdu"/>)
+    /// from a driver's <paramref name="maxAdu"/>, or null to fall back on the peak observed: for a single exposure's
+    /// frame and a video frame alike.
+    /// </summary>
+    /// <remarks>
+    /// Distrusts a contradictory claim: an 8-bit-or-less full scale is only plausible when the container itself is
+    /// 8-bit; otherwise stamping it would make the normalisation divide a genuinely near-black dark or bias frame by
+    /// 255 and stretch it to near-white. <c>AscomCameraDriver.MaxADU</c> corrects the known ASCOM QHYCCD 255-misreport
+    /// at the source (the SharpCap-ported FullWellCapacity workaround), so this is the generic backstop for paths
+    /// without such a correction, e.g. an Alpaca server wrapping that same QHY ASCOM driver reports the raw 255.
+    /// </remarks>
+    internal static float? DeclarableFullScale(int maxAdu, BitDepth bitDepth)
+        => maxAdu > 0 && (bitDepth.BitSize <= 8 || maxAdu > byte.MaxValue) ? maxAdu : null;
+
+    /// <summary>
     /// The exposure just taken, as an <see cref="Image"/> whose channels carry the driver's recycled
     /// buffer, or null while no complete frame is available.
     /// </summary>
@@ -341,19 +356,10 @@ public interface ICameraDriver : IDeviceDriver
         var setCCDTemp = CanSetCCDTemperature ? (float)await Logger.CatchAsync(GetSetCCDTemperatureAsync, cancellationToken, double.NaN) : float.NaN;
         float egain;
         try { egain = (float)ElectronsPerADU; } catch { egain = float.NaN; }
-        // Distrust a contradictory full-scale claim: an 8-bit-or-less full scale is only plausible
-        // when the container itself is 8-bit; otherwise stamping it would make the normalisation
-        // divide a genuinely near-black dark/bias frame by 255 and stretch it to near-white.
-        // AscomCameraDriver.MaxADU corrects the known ASCOM QHYCCD 255-misreport at the source
-        // (the SharpCap-ported FullWellCapacity workaround), so this is the generic backstop for
-        // paths without such a correction -- e.g. an Alpaca server wrapping that same QHY ASCOM
-        // driver reports the raw 255. Null -> the observed-peak fallback, which is always safe.
         float? sensorFullScaleAdu;
         try
         {
-            sensorFullScaleAdu = MaxADU is > 0 and var maxAdu && (bitDepth.BitSize <= 8 || maxAdu > byte.MaxValue)
-                ? maxAdu
-                : null;
+            sensorFullScaleAdu = DeclarableFullScale(MaxADU, bitDepth);
         }
         catch { sensorFullScaleAdu = null; }
 
