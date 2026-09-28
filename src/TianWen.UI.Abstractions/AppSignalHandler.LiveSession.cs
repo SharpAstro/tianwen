@@ -59,9 +59,10 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<StartSessionSignal>(async _ =>
             {
-                if (!EnsureLocalContext("A session")) return;
+                if (CommandTargetOrSay("A session") is not { } target) return;
+                var (node, view) = (target.Node, target.View);
 
-                if (appState.ActiveProfile is not { } profile)
+                if (target.Profile is not { } profile)
                 {
                     Notify(NotificationSeverity.Warning, "No profile selected");
                     return;
@@ -72,7 +73,6 @@ namespace TianWen.UI.Abstractions
                     Notify(NotificationSeverity.Warning, "No targets \u2014 pin targets in the Planner first");
                     return;
                 }
-                if (LocalNodeOrSay() is not { } node) return;
 
                 // The plan is built here, where it is made (SessionStartPlan); the node runs it, so a window that dies or
                 // wedges takes none of the night with it. The node refuses a second run, naming the one going on, and its
@@ -83,7 +83,7 @@ namespace TianWen.UI.Abstractions
                     return;
                 }
 
-                liveSessionState.ShowAbortConfirm = false;
+                view.ShowAbortConfirm = false;
                 appState.ActiveTab = GuiTab.LiveSession;
                 appState.StatusMessage = "Starting the session\u2026";
                 appState.NeedsRedraw = true;
@@ -126,20 +126,20 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<TakePreviewSignal>(sig =>
             {
-                if (!EnsureLocalContext("A preview")) return;
-                if (appState.ActiveProfile?.Data is not { } previewData || sig.OtaIndex >= previewData.OTAs.Length)
+                if (CommandTargetOrSay("A preview") is not { } target) return;
+                var (node, view) = (target.Node, target.View);
+                if (target.Profile?.Data is not { } previewData || sig.OtaIndex >= previewData.OTAs.Length)
                 {
                     Notify(NotificationSeverity.Warning, "Invalid OTA index");
                     return;
                 }
-                if (LocalNodeOrSay() is not { } node) return;
 
                 // Mark capturing
-                if (sig.OtaIndex < liveSessionState.PreviewCapturing.Length)
+                if (sig.OtaIndex < view.PreviewCapturing.Length)
                 {
-                    liveSessionState.PreviewCapturing[sig.OtaIndex] = true;
-                    liveSessionState.PreviewCaptureStart[sig.OtaIndex] = _timeProvider.GetUtcNow();
-                    liveSessionState.PreviewExposureDuration[sig.OtaIndex] = TimeSpan.FromSeconds(sig.ExposureSeconds);
+                    view.PreviewCapturing[sig.OtaIndex] = true;
+                    view.PreviewCaptureStart[sig.OtaIndex] = _timeProvider.GetUtcNow();
+                    view.PreviewExposureDuration[sig.OtaIndex] = TimeSpan.FromSeconds(sig.ExposureSeconds);
                 }
                 appState.NeedsRedraw = true;
 
@@ -155,9 +155,9 @@ namespace TianWen.UI.Abstractions
                     }
                 }, onFinally: () =>
                 {
-                    if (sig.OtaIndex < liveSessionState.PreviewCapturing.Length)
+                    if (sig.OtaIndex < view.PreviewCapturing.Length)
                     {
-                        liveSessionState.PreviewCapturing[sig.OtaIndex] = false;
+                        view.PreviewCapturing[sig.OtaIndex] = false;
                     }
                     appState.NeedsRedraw = true;
                 }, cancelMessage: "Preview cancelled");
@@ -165,8 +165,7 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<SaveSnapshotSignal>(sig =>
             {
-                if (!EnsureLocalContext("A snapshot")) return;
-                if (LocalNodeOrSay() is not { } node) return;
+                if (CommandTargetOrSay("A snapshot") is not { Node: var node }) return;
 
                 // Saved by the node, of the frame it shows: its own copy, where a session's subs are written.
                 RunTracked("SaveSnapshot", "Snapshot failed", async ct =>
@@ -180,22 +179,22 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<PlateSolvePreviewSignal>(sig =>
             {
-                if (!EnsureLocalContext("A plate solve")) return;
+                if (CommandTargetOrSay("A plate solve") is not { } target) return;
+                var (node, view) = (target.Node, target.View);
                 // Drop duplicate clicks: if a solve is already running for this OTA,
                 // ignore. The button is rendered as "Solving…" with no click handler,
                 // but a stray hit before the redraw could still fire the signal.
-                if (sig.OtaIndex < liveSessionState.PreviewPlateSolving.Length
-                    && liveSessionState.PreviewPlateSolving[sig.OtaIndex])
+                if (sig.OtaIndex < view.PreviewPlateSolving.Length
+                    && view.PreviewPlateSolving[sig.OtaIndex])
                 {
                     return;
                 }
-                if (LocalNodeOrSay() is not { } node) return;
 
-                if (sig.OtaIndex < liveSessionState.PreviewPlateSolving.Length)
+                if (sig.OtaIndex < view.PreviewPlateSolving.Length)
                 {
-                    liveSessionState.PreviewPlateSolving[sig.OtaIndex] = true;
+                    view.PreviewPlateSolving[sig.OtaIndex] = true;
                 }
-                liveSessionState.NeedsRedraw = true;
+                view.NeedsRedraw = true;
                 appState.NeedsRedraw = true;
 
                 RunTracked("PreviewPlateSolve", "Plate solve error", async ct =>
@@ -206,15 +205,15 @@ namespace TianWen.UI.Abstractions
                     // Solved by the node, of the frame it shows, with its solvers; the solution is the OTA's there.
                     if (await RunNodeJobAsync(node, node.Client.StartSolveAsync(sig.OtaIndex, ct), "Plate solve", ct) is not null)
                     {
-                        await ShowSolutionAsync(node, sig.OtaIndex, ct);
+                        await ShowSolutionAsync(node, view, sig.OtaIndex, ct);
                     }
                 }, onFinally: () =>
                 {
-                    if (sig.OtaIndex < liveSessionState.PreviewPlateSolving.Length)
+                    if (sig.OtaIndex < view.PreviewPlateSolving.Length)
                     {
-                        liveSessionState.PreviewPlateSolving[sig.OtaIndex] = false;
+                        view.PreviewPlateSolving[sig.OtaIndex] = false;
                     }
-                    liveSessionState.NeedsRedraw = true;
+                    view.NeedsRedraw = true;
                     appState.NeedsRedraw = true;
                 });
             });
@@ -233,15 +232,17 @@ namespace TianWen.UI.Abstractions
                 }, onFinally: () => appState.NeedsRedraw = true);
             });
 
-            // Live planetary capture: this computer's node runs it (its camera, its claim, the ROI, the stack, the recenter),
-            // and the shared PlanetaryCaptureController shows it and sends the panel's controls.
+            // Live planetary capture: the node on show runs it (its camera, its claim, the ROI, the stack, the recenter), this
+            // computer's or a rig's this client controls, and the shared PlanetaryCaptureController shows it and sends the
+            // panel's controls.
             var planetaryCapture = sp.GetRequiredService<PlanetaryCaptureController>();
 
             bus.Subscribe<StartVideoCaptureSignal>(sig =>
             {
-                // The remote mode pill offers Planetary too, and this streams THIS computer's camera.
-                if (!EnsureLocalContext("A planetary capture")) return;
-                if (LocalNodeOrSay() is not { } node) return;
+                // The remote mode pill offers Planetary too: it streams the camera of the rig on show, once this client
+                // controls it.
+                if (CommandTargetOrSay("A planetary capture") is not { } target) return;
+                var (node, view) = (target.Node, target.View);
 
                 RunTracked("StartPlanetaryCapture", "Planetary capture failed to start", async ct =>
                 {
@@ -262,7 +263,7 @@ namespace TianWen.UI.Abstractions
                     }
 
                     // Planetary capture is now a Live Session mode (not a standalone tab): show it there.
-                    liveSessionState.Mode = LiveSessionMode.Planetary;
+                    view.Mode = LiveSessionMode.Planetary;
                     appState.ActiveTab = GuiTab.LiveSession;
                     var (roiWidth, roiHeight) = planetaryCapture.Capture.Roi;
                     Notify(NotificationSeverity.Info, $"Planetary capture started ({roiWidth}x{roiHeight}, {sig.ExposureMs:F0} ms)");
@@ -280,10 +281,8 @@ namespace TianWen.UI.Abstractions
             // ends when the mount reports the pulse done and is refused on a mount a run holds, in the run's name.
             bus.Subscribe<JogMountSignal>(sig =>
             {
-                if (!EnsureLocalContext("A mount nudge")) return;
-                if (appState.ActiveProfile?.Data is not { } pdata) return;
+                if (CommandTargetOrSay("A mount nudge") is not { Node: var node, Profile.Data: { } pdata }) return;
                 if (pdata.Mount is not { Scheme: not "none" } mountUri) return;
-                if (LocalNodeOrSay() is not { } node) return;
 
                 RunTracked($"JogMount {sig.Direction}", "Mount jog failed", async ct =>
                 {

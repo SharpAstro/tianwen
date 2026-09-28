@@ -105,8 +105,7 @@ public class LiveSessionThroughTheNodeTests(ITestOutputHelper output)
 
     /// <summary>
     /// The control of <c>GuiContextGatingTests</c>: with this computer's rig on screen a Goto does drive it, as the node's
-    /// slew job, so a refusal there is the context's doing and not a rig the harness failed to wire. Whether the mount can
-    /// reach M 42 at the test's hour is the node's to answer; that it was asked is what this shows.
+    /// slew job, so a refusal there is the context's doing and not a rig the harness failed to wire.
     /// </summary>
     [Fact(Timeout = 60_000)]
     public async Task AGotoWithTheLocalRigOnScreenIsTheNodesSlew()
@@ -124,7 +123,7 @@ public class LiveSessionThroughTheNodeTests(ITestOutputHelper output)
 
         var jobs = (await new TianWenNodeClient(h.Node.Client).GetJobsAsync(ct)).Value.ShouldNotBeNull();
         jobs.ShouldContain(j => j.Kind == "slew" && DeviceBase.SameDevice(new Uri(j.DeviceUri!), h.MountUri));
-        h.AppState.Notifications.ShouldNotContain(n => n.Message.Contains("runs on this computer"));
+        h.AppState.Notifications.ShouldNotContain(n => n.Message.Contains("needs control") || n.Message.Contains("is not connected"));
         h.SkyMap.ActiveSlewTarget.ShouldBeNull("the marker goes once the slew has ended, however it ended");
     }
 }

@@ -39,6 +39,7 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
     private readonly ServiceProvider _services;
     private readonly CancellationTokenSource _cts;
     private readonly List<RemoteSessionMirror> _mirrors = [];
+    private readonly List<IAsyncDisposable> _rigs = [];
 
     private GuiNodeHarness(NodeHarness node, ServiceProvider services, CancellationTokenSource cts, GuiAppState appState,
         ViewContexts contexts, SkyMapState skyMap, EquipmentTabState equipment, SignalBus bus, BackgroundTaskTracker tracker,
@@ -211,6 +212,61 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
         return sent;
     }
 
+    /// <summary>
+    /// A real rig on the LAN (P6b): a node of its own over loopback TCP, which it treats as the LAN, holding a mount, a camera
+    /// and a focuser of its own under an active profile with a site; connected as <see cref="RemoteRigActions"/> connects a
+    /// bound rig (through the handler's grants, into its registry) and put on screen, its profile and access read once.
+    /// This client holds no grant on it until the test gives one (<see cref="GrantAsync"/>).
+    /// </summary>
+    public async Task<(NodeHarness Node, RemoteRigConnection Connection, Profile Profile)> ConnectRigAsync(ITestOutputHelper output,
+        CancellationToken ct)
+    {
+        var node = await NodeHarness.StartAsync(output, ct);
+        _rigs.Add(node);
+        var mount = new FakeDevice(DeviceType.Mount, 2);
+        var camera = new FakeDevice(DeviceType.Camera, 2);
+        var focuser = new FakeDevice(DeviceType.Focuser, 2);
+        var profile = new Profile(Guid.NewGuid(), "The observatory's rig", new ProfileData(
+            Mount: mount.DeviceUri,
+            Guider: new FakeDevice(DeviceType.Guider, 2).DeviceUri,
+            OTAs: [new OTAData("Observatory scope", 800, camera.DeviceUri, null, focuser.DeviceUri, null, null, null)],
+            SiteLatitude: 48.2,
+            SiteLongitude: 16.3));
+        await profile.SaveAsync(node.External, ct);
+        await node.Node.SetActiveProfileAsync(profile.ProfileId, ct);
+        var hub = node.App.Services.GetRequiredService<IDeviceHub>();
+        await hub.ConnectAsync(mount, ct);
+        await hub.ConnectAsync(camera, ct);
+        await hub.ConnectAsync(focuser, ct);
+
+        var nodeId = (await new TianWenNodeClient(node.Client).GetNodeAsync(ct)).Value.ShouldNotBeNull().NodeId;
+        var binding = new RemoteRigBinding
+        {
+            BindingId = Guid.NewGuid(),
+            NodeId = nodeId,
+            Alias = "Observatory",
+            LastAddress = node.Transport.BaseAddress.ToString(),
+        };
+        var rig = RemoteRigConnection.TryConnect(binding, Contexts, peers: null, AppState.NodeGrants, new SystemTimeProvider(),
+            NullLogger.Instance, _cts.Token).ShouldNotBeNull();
+        _rigs.Add(rig);
+        Handler.Rigs.Upsert(binding);
+        Handler.Rigs.Attach(rig);
+        Contexts.Activate(rig.Context);
+        (await rig.MaybeRefreshProfileAsync(ct)).ShouldBeTrue("the rig's view reads its profile");
+        await rig.RefreshAccessNowAsync(ct);
+        return (node, rig, profile);
+    }
+
+    /// <summary>Grants this client control of <paramref name="rig"/>, as the rig's owner would, and has its view learn it.</summary>
+    public static async Task GrantAsync(NodeHarness node, RemoteRigConnection rig, CancellationToken ct)
+    {
+        var issued = await node.App.Services.GetRequiredService<TianWen.Hosting.NodeAccess>().GrantAsync("This computer", ct);
+        rig.Transport.Grant.Token = issued.Token;
+        await rig.RefreshAccessNowAsync(ct);
+        rig.MayCommand.ShouldBeTrue();
+    }
+
     private sealed class RecordingNode(ConcurrentQueue<string> sent) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -272,6 +328,11 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
         foreach (var mirror in _mirrors)
         {
             await mirror.DisposeAsync();
+        }
+        // A rig's connection before its node, as a window goes before the rig does.
+        for (var i = _rigs.Count - 1; i >= 0; i--)
+        {
+            await _rigs[i].DisposeAsync();
         }
         if (AppState.LocalNode is { } local)
         {

@@ -1344,9 +1344,12 @@ DTOs + `HostingJsonContext`) and `TianWen.RemoteClient` (`TianWenNodeClient`, `T
 - **One `LiveSessionState` per view context**: Active (renders), Local (this node's own hardware --
   every quit/park/disconnect path belongs here), All (poll + redraw). Reaching for Active where Local
   is meant parks the local mount from a remote view. The reverse bites too: a button drawn over a
-  remote rig's panel posts the same signal as the local one, so **every handler that drives this
-  computer's rig asks `EnsureLocalContext` first** (runs, and since P0b item 9 the device actions:
-  planetary Start, nudges, Goto, Solve and Sync, the focuser), and a new one owes the same. **A control of
+  remote rig's panel posts the same signal as the local one, so **every handler that drives a rig resolves
+  its node with `CommandTargetOrSay` at post time** (runs, and the device actions: planetary Start, nudges,
+  Goto, Solve and Sync, the focuser): this computer's node for its own view, a rig's once this client holds
+  control of it (P6b, with the rig's own profile and view), and for a rig it only watches a refusal that
+  says how to ask. A new one owes the same, never `LocalNodeOrSay` with the local profile, which is what
+  once drove this computer's rig from a rig's panel. **A control of
   the RUN on screen goes to that run's own node instead** (P5b part 5): an abort and a flat run's cancel
   through `StopActiveRun` (a rig's through its `ViewContext.Mirror`), a prompt's answer to the Active
   view's prompt, and every run's prompts reach their view through the ONE wiring, `LiveSessionPrompts`.

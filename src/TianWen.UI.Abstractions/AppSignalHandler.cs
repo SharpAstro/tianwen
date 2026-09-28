@@ -716,16 +716,6 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// Guards a run that would drive THIS node's hardware while a remote rig is on screen. Every
-        /// handler here acts locally, so starting one from a remote view would silently run a local
-        /// session behind a remote overlay -- the failure the local/active split exists to prevent.
-        /// Applied to the three run-starting handlers (session, flats, polar alignment); starting a run
-        /// ON a rig routes through its API instead (docs/plans/remote-profile.md P4). Also applied to every
-        /// device action a remote view reaches (P0b item 9 of docs/plans/hardware-in-the-server.md, #752):
-        /// planetary Start, the mount nudges, Goto, Solve and Sync, and the focuser's jog and goto, each of
-        /// which drove THIS computer's rig from a remote rig's panel. P6 routes each to its context's node.
-        /// </summary>
-        /// <summary>
         /// Stops the run on the view on screen through its node (P5b part 5, P6): a rig's, and this computer's, whose runs are
         /// its node's since the cut. The node's abort ends a session's or a flat run's run alike through its own Finalise. A
         /// rig's ABORT and a flat run's Cancel used to act on THIS computer's run.
@@ -755,15 +745,53 @@ namespace TianWen.UI.Abstractions
             }, what);
         }
 
-        private bool EnsureLocalContext(string what)
+        /// <summary>Where a command from the view on show goes: the node it goes to, the view that shows it, and the profile it acts by.</summary>
+        private readonly record struct CommandTarget(NodeConnection Node, LiveSessionState View, Profile? Profile);
+
+        /// <summary>
+        /// The node the view on show commands, or null with a note saying why there is none (P6b of
+        /// docs/plans/hardware-in-the-server.md, decision 13, #1021). This computer's node for its own view, with the app's
+        /// active profile. A rig's node once this client holds control of it, with the rig's own profile and view, so a
+        /// run started, a device moved or a frame taken from a rig's panel happens on that rig, as its aborts and prompt
+        /// answers always did (P5b part 5). A rig this client only watches refuses, and says how to ask: every handler that
+        /// drives a rig resolves it here at post time, never a view captured at subscribe time, since the view can change
+        /// between the two. Until P6b each refused on any rig's view (<c>EnsureLocalContext</c>): P0b item 9 found them
+        /// driving THIS computer's rig from a rig's panel.
+        /// </summary>
+        private CommandTarget? CommandTargetOrSay(string what)
         {
             if (!_contexts.IsRemoteActive)
             {
-                return true;
+                return LocalNodeOrSay() is { } local ? new CommandTarget(local, LocalLiveSession, _appState.ActiveProfile) : null;
             }
-            Notify(NotificationSeverity.Warning,
-                $"{what} runs on this computer; switch back from '{_contexts.Active.DisplayName}' first");
-            return false;
+
+            var view = _contexts.Active;
+            if (RigConnectionOf(view) is not { } rig)
+            {
+                Notify(NotificationSeverity.Warning, $"{what}: '{view.DisplayName}' is not connected");
+                return null;
+            }
+            if (!rig.MayCommand)
+            {
+                Notify(NotificationSeverity.Warning, rig.Ask.State is ControlAskState.Asking
+                    ? $"{what} on '{view.DisplayName}' waits for its owner to grant this computer control"
+                    : $"{what} on '{view.DisplayName}' needs control of it: ask its owner for it, on its Home card");
+                return null;
+            }
+            return new CommandTarget(rig, view.LiveSession, view.RigProfile);
+        }
+
+        /// <summary>The connection that feeds <paramref name="view"/>, or null for a view no rig connection feeds.</summary>
+        private RemoteRigConnection? RigConnectionOf(ViewContext view)
+        {
+            foreach (var (_, connection) in _rigs.Connections)
+            {
+                if (ReferenceEquals(connection.Context, view))
+                {
+                    return connection;
+                }
+            }
+            return null;
         }
 
         /// <summary>
