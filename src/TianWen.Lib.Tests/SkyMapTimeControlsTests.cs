@@ -50,6 +50,48 @@ public class SkyMapTimeControlsTests
     private static void Press(ClickableRegion region)
         => region.OnClick.ShouldNotBeNull($"{region.Result} is a button").Invoke(InputModifier.None);
 
+    /// <summary>
+    /// The controls sit in the MIDDLE of the strip, level with the info text beside them (reported
+    /// 2026-09-28, a screenshot: the group measured to one line of text and hugged the strip's top). Each
+    /// button spans the strip, and the ink of its label is centred in it, read off the pixels, since a
+    /// region spanning the strip says nothing about where its text was drawn inside it.
+    /// </summary>
+    [Theory]
+    [InlineData("SkyTimeStep:-1d")]
+    [InlineData("SkyTimeMenu")]
+    [InlineData("SkyTimeStep:+1h")]
+    public async Task TheControlsAreCentredInTheStrip(string action)
+    {
+        using var renderer = new RgbaImageRenderer(1000, 600);
+        var (tab, _, _, content) = await RenderedAsync(renderer);
+        const float StripH = 24f; // DPI 1
+        var stripTop = content.Y + content.Height - StripH;
+
+        var button = Button(tab, action);
+        button.Y.ShouldBe(stripTop, 0.5f, "the button starts at the strip's top edge");
+        button.Height.ShouldBe(StripH, 0.5f, "and spans the strip");
+
+        // The label's ink: the pixels of the button's own rect far brighter than its dark fill, weighted by
+        // row. By brightness, not by colour, since the time is blue while shifted (as it is here, the
+        // planner's date being set) and grey while live.
+        var surface = renderer.Surface;
+        double rowSum = 0, count = 0;
+        for (var y = (int)button.Y; y < (int)(button.Y + button.Height); y++)
+        {
+            for (var x = (int)button.X; x < (int)(button.X + button.Width); x++)
+            {
+                var i = ((y * surface.Width) + x) * 4;
+                if (surface.Pixels[i] + surface.Pixels[i + 1] + surface.Pixels[i + 2] > 250)
+                {
+                    rowSum += y;
+                    count++;
+                }
+            }
+        }
+        count.ShouldBeGreaterThan(0, "the label drew");
+        (rowSum / count + 0.5).ShouldBe(stripTop + (StripH / 2f), 2.5, "the label's ink is centred in the strip");
+    }
+
     [Theory]
     [InlineData("SkyTimeStep:+10m", 10)]
     [InlineData("SkyTimeStep:+1h", 60)]

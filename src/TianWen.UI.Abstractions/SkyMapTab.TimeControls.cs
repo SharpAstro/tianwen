@@ -118,6 +118,7 @@ public partial class SkyMapTab<TSurface>
                 Layout.Builder.Text(timeText, fontSize, timeColor, TextAlign.Center, TextAlign.Center),
                 FormRowLayout.StepMark("▲", fontSize, timeColor))
             .WithGap(4f * dpiScale)
+            .CrossCenter()
             .PadX(padX)
             .HStar()
             .Bg(fill).BgHover(GuiTheme.Hover(fill))
@@ -137,7 +138,10 @@ public partial class SkyMapTab<TSurface>
                 .Clickable(new HitResult.ButtonHit("SkyTimeNow"), _ => ResetTimeOffset()));
         }
 
-        return Layout.Builder.HStack(children.ToImmutable().AsSpan()).WithGap(2f * dpiScale);
+        // The strip's full height, so each button's text centres in the strip as the info text beside it
+        // does, and its hover fill is the strip's height. Auto, the group measured to one line of text and
+        // sat at the strip's top (a stack places a child at the cross-axis START).
+        return Layout.Builder.HStack(children.ToImmutable().AsSpan()).WithGap(2f * dpiScale).HStar();
     }
 
     // Where the strip last laid the time out, device pixels: the drop-up opens above it. Remembered as
