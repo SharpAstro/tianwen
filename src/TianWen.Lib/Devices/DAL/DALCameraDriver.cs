@@ -635,8 +635,10 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
 
         foreach (var pair in initControlValues)
         {
-            // ignore
-            _ =_deviceInfo.SetControlValue(pair.Key, pair.Value);
+            // One list for every vendor, and each maps a different subset, so a refusal is expected
+            // and ignored. A vendor refuses by code (InvalidControlType), never by throwing, which would
+            // fail the connect: VendorControlContractTests.
+            _ = _deviceInfo.SetControlValue(pair.Key, pair.Value);
         }
 
         SetNeutralWhiteBalance();
