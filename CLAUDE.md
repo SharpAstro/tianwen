@@ -690,15 +690,18 @@ HIGHLIGHT, not hover selection: the click still selects (`docs/plans/in-app-sky-
   clock. Every resolve used to ask for one, so every pointer move repainted the whole atlas at
   display rate and a hover that changed nothing held the Adreno at up to 70 percent (2026-09-23).
   Assert with `HoverFrameRequests`, never `NeedsRedraw`, which a render sets for reasons of its own.
-  **Both interactive hosts settle a switch** (`HoverSettle = SkyMapTab.InteractiveHoverSettle`, 120 ms):
-  a new answer shows only once it has held, and one that returns first cancels it, which is what stops
-  the wash flickering across a crowded field; the host supplies `RequestFrameAfter` (desktop: the
-  per-iteration `TakeDueFrameRequest`; browser: a delayed coalesced repaint) and the frame commits it.
+  **A crowded field is settled by the RESOLVER, never by delaying the answer** (2026-09-28). An object
+  CONTAINS the pointer when the pointer is on what is drawn for it: within `MarkerHitRadiusPx` (12 px) of
+  its centre, or inside its drawn ellipse. The smallest drawn footprint that contains it wins, and only
+  when nothing does is the forgiving 20 px near tolerance used. A 120 ms settle once hid the flicker the
+  older nearest-centre rule caused (every cluster claimed a 20 px disc of the LMC around it), and it made
+  every hover on the atlas feel sluggish; it is gone, with its delayed-frame hooks on both hosts.
   **An object that fills the view is hovered but not washed.**
   The resolve cost itself, measured by
-  `SkyMapHoverResolveBenchmarks` (Release, win-arm64): over an OBJECT ~9 us at any zoom, over bare
-  STAR FIELD 157 us at 1 degree and 134 at 10, falling to ~1.7 us by 60, and **0 B on every row**
-  (389 us / 225 KB before the fixes below). **The 16x is entirely WHETHER THE STAR PASS RUNS, not a
+  `SkyMapHoverResolveBenchmarks` (Release, win-arm64, re-measured 2026-09-28): over an OBJECT ~27 us at
+  any zoom, over bare STAR FIELD 170 us at 1 degree and 153 at 10, falling to ~17 us by 60, and **0 B on
+  every row** (389 us / 225 KB before the fixes below; 9, 157, 134 and 1.7 us on 2026-09-20, the growth
+  since not yet attributed). **The gap is WHETHER THE STAR PASS RUNS, not a
   per-star cost that varies with zoom** -- the nine index cells come from the unprojected pointer
   and are identical at every zoom, holding 1094 candidates whatever the FOV. **The DSO pass
   short-circuits it and floors its hit test at a FIXED 20 SCREEN PX**, whose sky footprint runs
@@ -1757,14 +1760,12 @@ repaints were superseded inside their own 16.67 ms). `RequestRenderCoalesced()` 
 BEFORE painting and on the schedule-failure path**, or the canvas freezes for good. **A pointer move
 repaints only when the router or a tab handled it, a gesture owns it, or the atlas hover's
 `HoverFrameRequests` moved** (#339), never on `NeedsRedraw`, which a render sets for reasons of its own
-(it was true on 41 moves of 41, so a gate on it passed every move); and **the settle wake paints only when
-`SkyMapTab.PendingHoverDueIn` is zero** (waits out what is left when early, returns when null), or a pointer
-crossing a star field paints once per star it passes. Pinned by `CanvasRenderCostTests.AHoverThatChangesNothingDoesNotPaintPerMove`.
-**The wake is the tab's own loop, `WaitUntilHoverSettlesAsync`, and every wait in it is a whole millisecond or
-more**: `Task.Delay` truncates to whole milliseconds and completes a zero delay synchronously, so the host's
-old self re-arm never waited for a wake due in under a millisecond, and on the browser's coarsened clock it
-recursed until the WebAssembly stack overflowed and the runtime exited (#953). A new delayed step in this host
-waits at least 1 ms and loops, never calls itself. **A trackpad pinch
+(it was true on 41 moves of 41, so a gate on it passed every move). Pinned by
+`CanvasRenderCostTests.AHoverThatChangesNothingDoesNotPaintPerMove`. **A delayed step in this host waits at
+least 1 ms and loops, never calls itself**: `Task.Delay` truncates to whole milliseconds and completes a zero
+delay synchronously, so the atlas's former hover-settle wake, which re-armed itself with what was left, never
+waited for a wake due in under a millisecond, and on the browser's coarsened clock it recursed until the
+WebAssembly stack overflowed and the runtime exited (#953). **A trackpad pinch
 is `ctrl`+`wheel`** (Blazor `@onwheel`), a different path from the touch bridge and the densest gesture
 the app sees. Details: `docs/plans/web-host-carve-out.md`.
 

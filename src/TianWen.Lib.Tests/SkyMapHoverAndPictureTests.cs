@@ -423,172 +423,6 @@ public class SkyMapHoverAndPictureTests
         tab.HoverFrameRequests.ShouldBe(requests, "the re-test landed on the object already washed");
     }
 
-    // With a settle, a new answer waits before it replaces the wash, and the tab asks its host for the
-    // frame that will show it -- a pointer that has stopped sends nothing else that could.
-    [Fact]
-    public void ASettlingHostShowsANewAnswerOnlyOnceItHasHeld()
-    {
-        using var renderer = new RgbaImageRenderer(200, 200);
-        var (tab, plannerState, time, rect) = NewNebulaCentredTab(renderer);
-        var asked = new List<TimeSpan>();
-        tab.HoverSettle = TimeSpan.FromMilliseconds(120);
-        tab.RequestFrameAfter = asked.Add;
-        tab.Render(plannerState, rect, time);
-
-        tab.HandleInput(new InputEvent.MouseMove(100f, 100f));
-        tab.State.HoverTarget.ShouldBeNull("the nebula has not held for the settle yet");
-        asked.ShouldBe([TimeSpan.FromMilliseconds(120)], "the host is asked for the frame that will show it");
-
-        // The host's delayed frame, drawn once the settle has passed, is what puts it on screen.
-        time.Advance(TimeSpan.FromMilliseconds(130));
-        tab.Render(plannerState, rect, time);
-        tab.State.HoverTarget.ShouldNotBeNull().Index.ShouldBe(Nebula.Index);
-    }
-
-    // The flicker this exists for: a pointer that crosses something small and comes back before the
-    // settle is up never switches the wash at all.
-    [Fact]
-    public void AnAnswerThatReturnsBeforeItSettlesNeverSwitchesTheWash()
-    {
-        using var renderer = new RgbaImageRenderer(200, 200);
-        var (tab, plannerState, time, rect) = NewNebulaCentredTab(renderer);
-        tab.HoverSettle = TimeSpan.FromMilliseconds(120);
-        tab.Render(plannerState, rect, time);
-        tab.HandleInput(new InputEvent.MouseMove(100f, 100f));
-        time.Advance(TimeSpan.FromMilliseconds(130));
-        tab.Render(plannerState, rect, time);
-        tab.State.HoverTarget.ShouldNotBeNull().Index.ShouldBe(Nebula.Index);
-        var requests = tab.HoverFrameRequests;
-
-        // Off onto bare sky and straight back, inside the settle.
-        time.Advance(TimeSpan.FromMilliseconds(10));
-        tab.HandleInput(new InputEvent.MouseMove(5f, 5f));
-        time.Advance(TimeSpan.FromMilliseconds(10));
-        tab.HandleInput(new InputEvent.MouseMove(110f, 104f));
-
-        // Long after the settle would have run out, the wash is where it was all along.
-        time.Advance(TimeSpan.FromMilliseconds(500));
-        tab.Render(plannerState, rect, time);
-        tab.State.HoverTarget.ShouldNotBeNull().Index.ShouldBe(Nebula.Index);
-        tab.HoverFrameRequests.ShouldBe(requests, "the wash never switched");
-    }
-
-    // What a host's delayed wake asks before it paints (#339): how long until the settling answer is due,
-    // zero once it is, and nothing at all once the frame has shown it. The browser painted on EVERY wake,
-    // and a pointer crossing a star field schedules one per star.
-    [Fact]
-    public void TheSettlingAnswerSaysWhenItIsDueAndNothingOnceShown()
-    {
-        using var renderer = new RgbaImageRenderer(200, 200);
-        var (tab, plannerState, time, rect) = NewNebulaCentredTab(renderer);
-        tab.HoverSettle = TimeSpan.FromMilliseconds(120);
-        tab.Render(plannerState, rect, time);
-        tab.PendingHoverDueIn.ShouldBeNull("nothing is settling yet");
-
-        tab.HandleInput(new InputEvent.MouseMove(100f, 100f));
-        tab.PendingHoverDueIn.ShouldBe(TimeSpan.FromMilliseconds(120));
-
-        time.Advance(TimeSpan.FromMilliseconds(50));
-        tab.PendingHoverDueIn.ShouldBe(TimeSpan.FromMilliseconds(70), "a wake this early re-arms for what is left");
-
-        time.Advance(TimeSpan.FromMilliseconds(80));
-        tab.PendingHoverDueIn.ShouldBe(TimeSpan.Zero, "due: this wake paints");
-
-        tab.Render(plannerState, rect, time);
-        tab.PendingHoverDueIn.ShouldBeNull("the frame showed it, so a later wake has nothing to paint");
-    }
-
-    // A pointer that comes back before the settle is up cancels the switch, and the wake it scheduled must
-    // find nothing to show rather than paint an identical frame.
-    [Fact]
-    public void AnAnswerThatReturnsLeavesTheWakeNothingToPaint()
-    {
-        using var renderer = new RgbaImageRenderer(200, 200);
-        var (tab, plannerState, time, rect) = NewNebulaCentredTab(renderer);
-        tab.HoverSettle = TimeSpan.FromMilliseconds(120);
-        tab.Render(plannerState, rect, time);
-        tab.HandleInput(new InputEvent.MouseMove(100f, 100f));
-        time.Advance(TimeSpan.FromMilliseconds(130));
-        tab.Render(plannerState, rect, time);
-
-        time.Advance(TimeSpan.FromMilliseconds(10));
-        tab.HandleInput(new InputEvent.MouseMove(5f, 5f));
-        tab.PendingHoverDueIn.ShouldNotBeNull("off the nebula: a switch is settling");
-        time.Advance(TimeSpan.FromMilliseconds(10));
-        tab.HandleInput(new InputEvent.MouseMove(110f, 104f));
-
-        tab.PendingHoverDueIn.ShouldBeNull("back on the nebula before it settled: the switch is cancelled");
-    }
-
-    // #953: the browser's wake waited with Task.Delay, which truncates to whole milliseconds and completes a
-    // zero delay as it is asked, and re-armed by calling itself. A wake due in under a millisecond therefore
-    // never waited, and on the browser's coarse clock it recursed until the page's stack overflowed and the
-    // runtime exited. The tab's wake is a loop, and every wait in it is a real one.
-    [Fact]
-    public async Task AWakeDueInUnderAMillisecondWaitsAWholeOneAndThenPaints()
-    {
-        using var renderer = new RgbaImageRenderer(200, 200);
-        var (tab, plannerState, time, rect) = NewNebulaCentredTab(renderer);
-        tab.HoverSettle = TimeSpan.FromMilliseconds(120);
-        tab.Render(plannerState, rect, time);
-        tab.HandleInput(new InputEvent.MouseMove(100f, 100f));
-        time.Advance(TimeSpan.FromMilliseconds(119.6));
-        tab.PendingHoverDueIn.ShouldBe(TimeSpan.FromMilliseconds(0.4));
-
-        var before = time.GetUtcNow();
-        (await tab.WaitUntilHoverSettlesAsync(TimeSpan.FromMilliseconds(0.4), TestContext.Current.CancellationToken))
-            .ShouldBeTrue("due once it has waited");
-
-        (time.GetUtcNow() - before).ShouldBe(TimeSpan.FromMilliseconds(1), "a whole millisecond, never the fraction that was left");
-    }
-
-    // Woken early, the wake waits out what is left in the same call rather than scheduling another of itself.
-    [Fact]
-    public async Task AWakeTooEarlyWaitsOutWhatIsLeftAndPaintsOnce()
-    {
-        using var renderer = new RgbaImageRenderer(200, 200);
-        var (tab, plannerState, time, rect) = NewNebulaCentredTab(renderer);
-        tab.HoverSettle = TimeSpan.FromMilliseconds(120);
-        tab.Render(plannerState, rect, time);
-        tab.HandleInput(new InputEvent.MouseMove(100f, 100f));
-
-        var before = time.GetUtcNow();
-        (await tab.WaitUntilHoverSettlesAsync(TimeSpan.FromMilliseconds(50), TestContext.Current.CancellationToken)).ShouldBeTrue();
-
-        (time.GetUtcNow() - before).ShouldBe(TimeSpan.FromMilliseconds(120), "50 ms asked, then the 70 left");
-    }
-
-    [Fact]
-    public async Task AWakeWhoseSwitchWasCancelledPaintsNothing()
-    {
-        using var renderer = new RgbaImageRenderer(200, 200);
-        var (tab, plannerState, time, rect) = NewNebulaCentredTab(renderer);
-        tab.HoverSettle = TimeSpan.FromMilliseconds(120);
-        tab.Render(plannerState, rect, time);
-        tab.HandleInput(new InputEvent.MouseMove(100f, 100f));
-        time.Advance(TimeSpan.FromMilliseconds(130));
-        tab.Render(plannerState, rect, time);
-        tab.HandleInput(new InputEvent.MouseMove(5f, 5f));
-        time.Advance(TimeSpan.FromMilliseconds(10));
-        tab.HandleInput(new InputEvent.MouseMove(110f, 104f));
-
-        (await tab.WaitUntilHoverSettlesAsync(TimeSpan.FromMilliseconds(120), TestContext.Current.CancellationToken))
-            .ShouldBeFalse("the pointer came back before it settled");
-    }
-
-    [Theory]
-    [InlineData(0.0, 1.0)]
-    [InlineData(0.001, 1.0)]
-    [InlineData(0.4, 1.0)]
-    [InlineData(0.999, 1.0)]
-    [InlineData(1.0, 1.0)]
-    [InlineData(1.2, 2.0)]
-    [InlineData(70.0, 70.0)]
-    public void AWakeAlwaysWaitsWholeMillisecondsAndNeverNone(double askedMs, double waitedMs)
-    {
-        SkyMapTab<RgbaImage>.HoverWakeWait(TimeSpan.FromMilliseconds(askedMs)).ShouldBe(TimeSpan.FromMilliseconds(waitedMs));
-    }
-
     private static (HoverTestSkyMapTab Tab, PlannerState PlannerState, FakeTimeProviderWrapper Time, RectF32 Rect)
         NewNebulaCentredTab(RgbaImageRenderer renderer)
     {
@@ -888,6 +722,42 @@ public class SkyMapHoverAndPictureTests
         tab.HandleInput(new InputEvent.MouseMove(401f, 401f));
 
         tab.State.HoverTarget.ShouldNotBeNull().Index.ShouldBe(clusterIsDrawn ? ngc265 : CatalogIndex.NGC0292);
+    }
+
+    /// <summary>
+    /// <b>A small object inside a big one takes the pointer only where its marker is drawn</b>
+    /// (2026-09-28). NGC 265 sits inside the SMC. On its marker it wins, as the smaller drawn footprint;
+    /// 16 px off it, still inside the old 20 px click tolerance but off the marker, the pointer is on the
+    /// SMC. That second case was the flicker: every cluster claimed a 20 px disc of the galaxy around
+    /// it, so a sweep flipped between the galaxy and each cluster it passed, and a 120 ms settle hid it
+    /// by delaying every answer on the whole atlas.
+    /// </summary>
+    [Theory]
+    [InlineData(0f, true)]
+    [InlineData(8f, true)]
+    [InlineData(16f, false)]
+    public async System.Threading.Tasks.Task ASmallObjectInsideABigOneTakesThePointerOnlyOnItsMarker(float offsetPx, bool clusterWins)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var renderer = new RgbaImageRenderer(800, 800);
+        var (tab, planner, db, at) = await RealSkyAsync(renderer, SkyMapMode.Equatorial, ct);
+        CatalogUtils.TryGetCleanedUpCatalogName("NGC265", out var ngc265).ShouldBeTrue();
+        db.TryLookupByIndex(ngc265, out var cluster).ShouldBeTrue();
+        const double FovDeg = 1.0; // under a degree the overlay draws every cluster; NGC 265 (1.2 arcmin) is about 8 px here
+        ((double)cluster.V_Mag).ShouldBeLessThanOrEqualTo(OverlayEngine.GetExtendedMagCutoff(FovDeg * 60.0),
+            "the fixture needs the cluster DRAWN at this field");
+        var time = new FakeTimeProviderWrapper(at);
+        var rect = new RectF32(0, 0, 800, 800);
+        tab.Render(planner, rect, time); // the first frame with a site places the initial view
+        tab.State.CenterRA = cluster.RA;
+        tab.State.CenterDec = cluster.Dec;
+        tab.State.FieldOfViewDeg = FovDeg;
+        tab.Render(planner, rect, time);
+        tab.Render(planner, rect, time);
+
+        tab.HandleInput(new InputEvent.MouseMove(400f + offsetPx, 400f));
+
+        tab.State.HoverTarget.ShouldNotBeNull().Index.ShouldBe(clusterWins ? ngc265 : CatalogIndex.NGC0292);
     }
 
     /// <summary>
