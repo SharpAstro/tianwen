@@ -2267,6 +2267,30 @@ its plane within 5 percent of the injected noise, where channel 0's calibration 
 field within 0.05 of its `perch` value above on at least nine of eleven. KILL: typical error no better than
 x1.20, which would say the tile sample misjudged the whole-frame estimator.
 
+**The per-channel re-bake's result** (2026-09-29, `2026-09-28-evalplanes-pc`, the same twelve sessions and 54778
+tiles, parity OK; `run-ownplanes.ps1 -Tag perch`): **all four hold.** (1) Typical error x1.126; (2) bias 0.926;
+(3) Lagoon the lowest at 0.647; (4) all eleven fields within 0.05 of the tile prediction, the largest miss 0.021
+(eta Car). The whole-frame estimator is what the tile sample said it would be.
+
+| field | E16a | own stretch | per channel |
+|---|---|---|---|
+| SMC 2026 | 0.767 | 0.898 | **0.987** |
+| Lagoon | 0.394 | 0.516 | **0.647** |
+| SMC 2023 | 0.711 | 0.826 | **0.944** |
+| Carina | 0.795 | 0.909 | **0.960** |
+| HIP 34710 | 0.650 | 0.862 | **0.945** |
+| HIP 85088 | 0.624 | 0.925 | **1.036** |
+| V1045 Ori | 1.018 | 1.028 | **1.065** |
+| eta Car | 0.794 | 0.873 | **0.914** |
+| Rim | 0.527 | 0.693 | **0.837** |
+| Horsehead | 1.283 | 1.183 | **1.143** |
+| Skull | 0.764 | 0.799 | **0.816** |
+| typical error | x1.45 | x1.22 | **x1.13** |
+
+What is left over-reads where a field is dense in structure both halves share (Lagoon, the Skull, Rim), which the
+paragraph below says no one-frame estimate will separate. The full store is re-baked at recipe 3 on this code
+(`2026-09-29-full`, a fresh store beside `2026-09-25-full`), the data E16b is built from.
+
 **What no one-frame estimator will fix.** Content both halves share looks like noise to any statistic of one
 frame, and in a star field as dense as Lagoon's there is nothing else to read. For TianWen's own masters the
 stacker has the answer already in hand: the scatter of the frames at each pixel is the independent noise, the
