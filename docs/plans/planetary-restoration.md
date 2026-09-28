@@ -150,6 +150,20 @@ With no truth, two independent stacks of the same capture (disjoint frame sets, 
   - **Against WinJUPOS** (12.1.2, its `.ims.xml` beside each 2022 stack, 12 image times on two nights): all three systems within 0.019 degree and the Earth's declination within 0.007, WinJUPOS a consistent 0.013 below (about 1.4 s of rotation, its own timing convention). The only outside check of Systems I and II at the corpus's times.
   - **Meeus's central meridians are corrected for phase** (the middle of the lit disk, 57.3 sin^2(i/2) toward the Sun). Ours are the geometric meridian, as Horizons' and WinJUPOS's are: example 43.a agrees within 0.1 degree once his correction is added, and is 0.42 and 0.49 degree off without it.
 - **WinJUPOS's measurements** (decoded 2026-09-29): the binary `.ims` holds the image's JD, the site, the image size, the disk outline (centre and equatorial radius in pixels, the centre 0.5 px from the XML's by a pixel-centre convention) and the rotation angle in radians; its `.ims.xml` companion adds the central meridians in all three systems and the Earth's planetocentric declination, which checked the ephemeris above. The outline is the check of the LIMB FIT (part 2). Its own spread is the yardstick: the hand-set and the refined (`_opt`) outline of one image differ by 0.03 to 0.2 px in centre and 0.07 to 0.1 px in radius.
+- **Part 2, the limb fit** (`PlanetaryLimbFit`, `tianwen planetary-limb`, 2026-09-29). A forward model fitted to the pixels around the limb by Levenberg-Marquardt (`Stat/LevenbergMarquardt`, shared with R2 and R7): an oblate disk of the ephemeris' apparent axis ratio, Minnaert-darkened (brightness mu0^k mu^(k-1)), lit at the ephemeris' phase from either end of the equator (both fitted, the better kept), blurred by a Gaussian PSF, plus sky. Coarse to fine: a disk over 40 px in radius is fitted binned first. Its start is its own: the region a quarter of the way from sky to disk, its binary centroid and the radius its area gives. `PlanetaryDisk.BoundingBox`'s mean-plus-three-sigma threshold passes only a stack's bright middle (a disk filling a fifth of the frame) and started the real stacks at half the radius.
+  - **On synthetic truth** (rendered by the test's own code, pre-registered): the model's own PSF recovers centre, radius and axis exactly; under a Moffat PSF the model does not have, the centre is within 0.003 px and the radius 0.185 px (0.31 %) large; at a 10 degree phase the modelled centre is within 0.001 px, and **a fit that ignores the phase is 2.7 px off**. The phase's brightness asymmetry is first order in the angle, the terminator's bite only second, so the phase is always modelled.
+  - **Against WinJUPOS's outlines: the pre-registered test FAILED.** It asked for the centre within 0.2 px and the radius within 0.5 %.
+
+    | Session | Phase | Stacks | Centre (fit - WinJUPOS) | Radius | Axis vs 90 - rotation |
+    |---|---|---|---|---|---|
+    | 2022-09-03, R 74 px, sigma about 1 px | 5.06 | L, R, G, B | dx +0.03 to +0.38, dy +0.82 to +1.07 px | L -0.51, R +0.36, G +0.23, B -3.85 % | 1 to 2.5 degrees |
+    | 2022-09-29, R 183 px, sigma 7.7 px | 0.68 | five | dx +0.13 to +0.33, dy +0.32 to +0.47 px | +1.39 to +1.70 % | 0.5 to 1.2 degrees |
+  - **Why the miss is WinJUPOS's outline, not the model, as far as the data can tell** (the decision is left to T1, below):
+    - Scanning the phase angle from 0 to 10 degrees, the fit's residual is least at 5 to 6 degrees on L, R and G: the ephemeris' 5.06, found by the images alone. WinJUPOS's centre is where the fit lands at about 2 degrees, as if its outline under-corrected the phase by half. On 2022-09-29 the smaller phase leaves a smaller offset, again along the Sun's direction.
+    - The radius disagreement grows with the blur: within 0.5 % where the edge's sigma is about a pixel, 1.4 to 1.7 % larger where it is 7.7 px. An outline set by eye marks the visible edge, which lies inside the unblurred limb by a fraction of the blur; the Moffat-wing bias the synthetic test measured accounts for about 0.6 px of the 3 px there.
+    - About 0.4 to 0.5 px along the POLE direction on 2022-09-03 is not the phase's (the Sun lies along the equator). Jupiter's darker polar regions, which a uniform-albedo disk does not have, are the hypothesis.
+    - The blue stack (sigma 3.2 px, k 0.67) is the one radius outlier, 3.85 % small: blurrier, and fitted with a flatter limb darkening.
+  - **The decider is T1, and it is R2's first step** (#1050): render an OPAL map at 2022-09-03's geometry (belts and dark poles included), blur it with a Moffat PSF, and fit it with this same code. The rendered geometry is known exactly, so the fit's own error is measured without an outline set by eye. Until that passes (centre within 0.2 px, radius within 0.5 %, the plan's numbers), the fit's centre is trusted to about a pixel and its radius to about 2 %. R2 may render and degrade with that, but no later phase leans on the geometry below it.
 - **Which telescope, from the data:** the two apertures differ 2.5 times, and the sharpest frames show it.
   - The averaged power spectrum of a capture's best frames falls to its noise floor at the aperture's cutoff, `D / lambda`, and the cutoff times the measured scale gives `D`.
   - The Newtonian's spider vanes add a cross through the spectrum that the Maksutov lacks.
@@ -289,7 +303,21 @@ Each metric lives in Lib and is shared by the CLI verb and the stack itself (`ti
 - **How:** the deep-sky deconvolver's shape carries over. An unrolled Richardson-Lucy with the measured kernel as an input and a small learned prior between iterations (`deconvolver-training.md`, decided 2026-09-07), trained on R2's synthetic pairs.
 - **Judged:** by the same gate as R7. The deploy point has to lie inside the training range in every coordinate, the kernel's width included.
 - **Prior art:**
-  - ASTRA-SR (arXiv 2609.26731, submitted 2026-09-22) trains single-frame restoration on synthetic turbulence applied to spacecraft RAW frames.
+  - ASTRA-SR (arXiv 2609.26731, Ge, Cui and Liu, submitted 2026-09-22; read in full 2026-09-29, four pages) is a single-frame network, one channel, 256 px in and 512 px out.
+    - **Training data:** about 20,000 Cassini ISS frames, curated from 400,000. Each is blurred on the low-resolution grid by an exposure-averaged, spatially varying PSF: a mean kernel plus 12 PCA kernels with per-pixel coefficients.
+    - **The PSF:** six frozen-flow phase screens, propagated with HCIPy, with the layer strengths drawn from ESO Paranal's MASS records.
+    - **Noise:** Gaussian only, 2 DN.
+    - **Result:** 0.55 dB PSNR over NAFNet-class baselines on its own simulator's test set.
+    - **Not stated:**
+      - the telescope's aperture, wavelength or sampling, so no diffraction cutoff can be placed;
+      - the exposure's sample count and the winds;
+      - the source of the galaxy and nebula cases its test figure shows.
+    - **Also missing:** no classical baseline (Richardson-Lucy is cited, not run); its real Jupiter and Moon examples are judged by eye; no code, weights or data are released.
+    - **Its target is Cassini resampled to 2x**, so it is trained to put power above the telescope's cutoff, which R3 counts as invented.
+    - **What is taken:**
+      - R2's phase-screen model is the same physics, but per 4 ms frame rather than exposure-averaged, and with layer strengths fitted to the capture's own measured statistics, never to Paranal's.
+      - The mean-plus-PCA kernel field is a compact form for R7's spatially varying kernel.
+      - Its Fourier split is the case for R8's per-band gains: restoring a blurred image's Fourier MAGNITUDE gains 3.7 dB, restoring its phase 0.4 dB.
   - DIPLI combines a deep image prior with lucky imaging (code CC BY-NC-SA, so learn only).
   - Asensio Ramos et al. 2018 trained on MOMFBD-restored solar data.
 
