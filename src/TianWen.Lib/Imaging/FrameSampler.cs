@@ -20,14 +20,20 @@ namespace TianWen.Lib.Imaging;
 public sealed class FrameSampler(ITimeProvider timeProvider, TimeSpan interval, string owner)
 {
     private readonly PlaneRecycler _planes = new PlaneRecycler(owner);
-    private long _lastSample;
+
+    private long IntervalTimestamp { get; } = (long)(interval.Ticks * ((double)timeProvider.TimestampFrequency / TimeSpan.TicksPerSecond));
+
+    // When the next sample is due, on a fixed schedule of one per interval. Due-time pacing, not "an interval since the
+    // last": a stream slightly faster than the interval (an ASI462MC at 31.6 ms against 33) made every other frame fall
+    // just short of "an interval since the last", and the live view ran at 18 frames a second instead of 30.
+    private long _due;
     private bool _sampled;
 
     /// <summary>How many planes it has had to allocate, for the test that holds a steady stream to none.</summary>
     internal int PlanesAllocated => _planes.PlanesAllocated;
 
     /// <summary>
-    /// A copy of <paramref name="frame"/> the caller owns, when <c>interval</c> has passed since the last one (the first
+    /// A copy of <paramref name="frame"/> the caller owns, when the next of the samples due one per <c>interval</c> is due (the first
     /// frame always); false, copying nothing, otherwise. <paramref name="frame"/> is only read.
     /// </summary>
     /// <param name="arrived">When the frame arrived, which the copy carries as its start time when the frame has none: no
@@ -36,13 +42,15 @@ public sealed class FrameSampler(ITimeProvider timeProvider, TimeSpan interval, 
     public bool TrySample(Image frame, DateTimeOffset arrived, [NotNullWhen(true)] out Image? sample)
     {
         var now = timeProvider.GetTimestamp();
-        if (_sampled && timeProvider.GetElapsedTime(_lastSample, now) < interval)
+        if (_sampled && now < _due)
         {
             sample = null;
             return false;
         }
+        // On schedule when this is within an interval of the due time; a stream that paused starts a fresh schedule rather
+        // than catching up in a burst.
+        _due = _sampled && timeProvider.GetElapsedTime(_due, now) < interval ? _due + IntervalTimestamp : now + IntervalTimestamp;
         _sampled = true;
-        _lastSample = now;
 
         var channels = ImmutableArray.CreateBuilder<Channel>(frame.ChannelCount);
         for (var c = 0; c < frame.ChannelCount; c++)
