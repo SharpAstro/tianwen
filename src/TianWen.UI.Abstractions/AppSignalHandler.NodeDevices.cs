@@ -43,7 +43,7 @@ namespace TianWen.UI.Abstractions
         /// did. A refusal is the node's answer in its own words (a run holding the device, a cold camera); a failure and a
         /// cancel are noted. Answers the job as it succeeded, else null.
         /// </summary>
-        private async Task<JobDto?> RunNodeJobAsync(LocalNodeConnection node, Task<NodeResult<JobDto>> starting, string what,
+        private async Task<JobDto?> RunNodeJobAsync(NodeConnection node, Task<NodeResult<JobDto>> starting, string what,
             CancellationToken cancellationToken)
         {
             var started = await starting.ConfigureAwait(false);
@@ -176,36 +176,35 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// The focuser of OTA <paramref name="otaIndex"/>, and this computer's node to move it through. Silent when the OTA has
-        /// none (the jog is click-driven and self-explanatory); a panel of a rig on show acts on this computer's rig never.
+        /// The focuser of OTA <paramref name="otaIndex"/> of the view on show, and the node to move it through: this
+        /// computer's, or a rig's this client controls (<see cref="CommandTargetOrSay"/>). Silent when the OTA has none (the
+        /// jog is click-driven and self-explanatory).
         /// </summary>
-        private bool TryResolveOtaFocuser(int otaIndex, [NotNullWhen(true)] out LocalNodeConnection? node, [NotNullWhen(true)] out Uri? focuserUri)
+        private bool TryResolveOtaFocuser(int otaIndex, [NotNullWhen(true)] out NodeConnection? node, [NotNullWhen(true)] out Uri? focuserUri)
         {
             node = null;
             focuserUri = null;
-            // The planetary panel's jog, beside its mount nudges, reaches here from a remote view too.
-            if (!EnsureLocalContext("A focuser move")) return false;
-            if (_appState.ActiveProfile?.Data is not { OTAs: var otas } || otaIndex >= otas.Length) return false;
+            // The planetary panel's jog, beside its mount nudges, reaches here from a rig's view too.
+            if (CommandTargetOrSay("A focuser move") is not { Node: var target, Profile.Data.OTAs: var otas } || otaIndex >= otas.Length) return false;
             if (otas[otaIndex].Focuser is not { } focuser || focuser == NoneDevice.Instance.DeviceUri) return false;
-            if (LocalNodeOrSay() is not { } local) return false;
-            node = local;
+            node = target;
             focuserUri = focuser;
             return true;
         }
 
         /// <summary>
-        /// The node's solution of OTA <paramref name="otaIndex"/>'s frame, shown on this computer's view and said: from a
-        /// solve, or a solve and sync, whose frame is the one the view shows.
+        /// The node's solution of OTA <paramref name="otaIndex"/>'s frame, shown on <paramref name="view"/> (the node's own
+        /// view) and said: from a solve, or a solve and sync, whose frame is the one the view shows.
         /// </summary>
-        private async Task ShowSolutionAsync(LocalNodeConnection node, int otaIndex, CancellationToken cancellationToken)
+        private async Task ShowSolutionAsync(NodeConnection node, LiveSessionState view, int otaIndex, CancellationToken cancellationToken)
         {
             var solution = await node.Client.GetSolutionAsync(otaIndex, cancellationToken).ConfigureAwait(false);
             if (solution is not { IsSuccess: true, Value: { } solved })
             {
                 return;
             }
-            LocalLiveSession.PreviewPlateSolveResult = new PlateSolveResult(solved.Solution?.ToWcs(), TimeSpan.FromSeconds(solved.ElapsedSeconds));
-            LocalLiveSession.NeedsRedraw = true;
+            view.PreviewPlateSolveResult = new PlateSolveResult(solved.Solution?.ToWcs(), TimeSpan.FromSeconds(solved.ElapsedSeconds));
+            view.NeedsRedraw = true;
             Notify(solved.Solved ? NotificationSeverity.Info : NotificationSeverity.Warning, solved.Message);
         }
 

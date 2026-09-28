@@ -17,11 +17,11 @@ using Xunit;
 namespace TianWen.Lib.Tests.Functional;
 
 /// <summary>
-/// With a REMOTE rig on screen, the GUI's actions that drive THIS computer's rig refuse, as the session, flat and
-/// polar starts already did (<c>EnsureLocalContext</c>), until P6 routes each to its context's node (P0b item 9 of
-/// docs/plans/hardware-in-the-server.md, #752). Each drove the local rig from a remote view: planetary Start (the
+/// With a REMOTE rig on screen, the GUI's actions go to that rig's node or nowhere, never to THIS computer's rig (P0b
+/// item 9 of docs/plans/hardware-in-the-server.md, #752; since P6b a rig this client controls takes them, which
+/// <see cref="RigCommandRoutingTests"/> pins). Each once drove the local rig from a remote view: planetary Start (the
 /// remote mode pill offers Planetary), the planetary nudges, Goto from an object panel, and Solve and Sync, whose
-/// reticle is the Active mount's.
+/// reticle is the Active mount's. The rig here is not connected, so each refuses, saying so.
 /// <para>
 /// Each handler either starts its local work at once or hands it to the tracker, so "the tracker was handed
 /// nothing" is what shows the local rig was left alone, deterministically and without waiting on a slew.
@@ -30,7 +30,7 @@ namespace TianWen.Lib.Tests.Functional;
 [Collection("NodeProcesses")]
 public class GuiContextGatingTests(ITestOutputHelper output)
 {
-    private const string Refusal = "runs on this computer";
+    private const string Refusal = "'Observatory' is not connected";
 
     [Fact(Timeout = 30_000)]
     public async Task APlanetaryStartWithARemoteRigOnScreenLeavesTheLocalCameraAlone()

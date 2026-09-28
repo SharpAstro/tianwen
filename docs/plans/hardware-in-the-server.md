@@ -1427,7 +1427,8 @@ asker once, kept only as its hash in `node-grants.json`), and the asker keeps th
 by the rig's `NodeId`, and sends it as `Authorization: Bearer` on every request and on its event socket's upgrade. **A
 grant is remembered until revoked**, so a headless rig needs one acceptance per laptop, from the TUI or `tianwen node`
 over SSH. With it, the rig's view sends its device actions, run starts, aborts and prompt answers to the rig's node,
-which is where `EnsureLocalContext` stops refusing.
+which is where `EnsureLocalContext` stops refusing: it is gone, and every such handler resolves its node, its view and
+its profile through `CommandTargetOrSay`, which refuses a rig this client only watches and says how to ask.
 
 **Other apps are refused, and the refusal is their request.** The Alpaca device plane and the ninaAPI routes serve
 applications that cannot ask (N.I.N.A. over Alpaca, a ninaAPI client). A command from one of them over TCP, from an

@@ -53,18 +53,18 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<StartPolarAlignmentSignal>(sig =>
             {
-                if (!EnsureLocalContext("Polar alignment")) return;
-                if (liveSessionState.PolarAlignmentCts is not null)
+                if (CommandTargetOrSay("Polar alignment") is not { } target) return;
+                var (node, view) = (target.Node, target.View);
+                if (view.PolarAlignmentCts is not null)
                 {
                     Notify(NotificationSeverity.Warning, "Polar alignment already running");
                     return;
                 }
-                if (appState.ActiveProfile?.Data is null)
+                if (target.Profile?.Data is null)
                 {
                     Notify(NotificationSeverity.Warning, "No profile / OTA configured");
                     return;
                 }
-                if (LocalNodeOrSay() is not { } node) return;
 
                 // The setup panel supplies the full configuration; the toolbar and the TUI pin only the rotation. The run is
                 // the node's (PolarAlignmentRun, its claim on the mount and the camera, its restore however it ends); this
@@ -79,18 +79,18 @@ namespace TianWen.UI.Abstractions
 
                 // The view's handle on the run: cancelling it asks the node to stop, which restores the mount.
                 var polarCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
-                liveSessionState.PolarAlignmentCts = polarCts;
-                liveSessionState.Mode = LiveSessionMode.PolarAlign;
-                liveSessionState.PolarStatusMessage = "Starting polar alignment\u2026";
+                view.PolarAlignmentCts = polarCts;
+                view.Mode = LiveSessionMode.PolarAlign;
+                view.PolarStatusMessage = "Starting polar alignment\u2026";
                 appState.NeedsRedraw = true;
 
                 // Completed once the node's run has ended, its restore included, whatever it came to.
-                var ended = liveSessionState.BeginPolarRun();
+                var ended = view.BeginPolarRun();
                 tracker.Run(async () =>
                 {
                     try
                     {
-                        await WatchPolarRunAsync(node, request, polarCts, cts.Token);
+                        await WatchPolarRunAsync(node, view, request, polarCts, cts.Token);
                     }
                     catch (OperationCanceledException) when (cts.IsCancellationRequested)
                     {
@@ -102,14 +102,14 @@ namespace TianWen.UI.Abstractions
                     }
                     finally
                     {
-                        liveSessionState.PolarAlignmentCts = null;
+                        view.PolarAlignmentCts = null;
                         polarCts.Dispose();
                         // Drop back into preview mode unless the user already swapped tabs.
-                        if (liveSessionState.Mode == LiveSessionMode.PolarAlign)
+                        if (view.Mode == LiveSessionMode.PolarAlign)
                         {
-                            liveSessionState.Mode = LiveSessionMode.Preview;
+                            view.Mode = LiveSessionMode.Preview;
                         }
-                        liveSessionState.NeedsRedraw = true;
+                        view.NeedsRedraw = true;
                         appState.NeedsRedraw = true;
                         ended.TrySetResult();
                     }
@@ -121,9 +121,11 @@ namespace TianWen.UI.Abstractions
                 // The Cancel button itself flips to an amber "Cancelling..." state
                 // while PolarAlignmentCts.IsCancellationRequested is true, and the
                 // phase pill carries the technical "RESTORING" badge as the mount
-                // reverses, so a third copy on the status line would be redundant.
-                liveSessionState.PolarAlignmentCts?.Cancel();
-                liveSessionState.NeedsRedraw = true;
+                // reverses, so a third copy on the status line would be redundant. The run this view watches: this
+                // computer's, or a rig's this client started.
+                var view = _contexts.Active.LiveSession;
+                view.PolarAlignmentCts?.Cancel();
+                view.NeedsRedraw = true;
                 appState.NeedsRedraw = true;
             });
 
@@ -144,9 +146,10 @@ namespace TianWen.UI.Abstractions
             {
                 // Done is the same exit path as Cancel: the node stops the refine loop and applies the configured OnDone
                 // behaviour (ReverseAxisBack by default).
-                liveSessionState.PolarAlignmentCts?.Cancel();
-                liveSessionState.PolarStatusMessage = "Restoring mount\u2026";
-                liveSessionState.NeedsRedraw = true;
+                var view = _contexts.Active.LiveSession;
+                view.PolarAlignmentCts?.Cancel();
+                view.PolarStatusMessage = "Restoring mount\u2026";
+                view.NeedsRedraw = true;
                 appState.NeedsRedraw = true;
             });
         }
@@ -159,8 +162,8 @@ namespace TianWen.UI.Abstractions
         /// and status, Phase A's result, the refinement ticks and the latest solve. Asks the node to stop, once, when
         /// <paramref name="stop"/> is cancelled, and goes on reading until the node says the run is over, its restore done.
         /// </summary>
-        private async Task WatchPolarRunAsync(LocalNodeConnection node, PolarAlignmentRequestDto request, CancellationTokenSource stop,
-            CancellationToken appToken)
+        private async Task WatchPolarRunAsync(NodeConnection node, LiveSessionState view, PolarAlignmentRequestDto request,
+            CancellationTokenSource stop, CancellationToken appToken)
         {
             var started = await node.Client.StartPolarAlignmentAsync(request, appToken).ConfigureAwait(false);
             if (started is not { IsSuccess: true, Value: { } state })
@@ -168,7 +171,7 @@ namespace TianWen.UI.Abstractions
                 Notify(NotificationSeverity.Warning, started.Error ?? "Polar alignment did not start");
                 return;
             }
-            ShowPolarState(LocalLiveSession, state);
+            ShowPolarState(view, state);
 
             var stopAsked = false;
             while (true)
@@ -195,7 +198,7 @@ namespace TianWen.UI.Abstractions
                 var now = await node.Client.GetPolarAlignmentAsync(appToken).ConfigureAwait(false);
                 if (now is { IsSuccess: true, Value: { } current })
                 {
-                    ShowPolarState(LocalLiveSession, current);
+                    ShowPolarState(view, current);
                     if (!current.Running)
                     {
                         if (current.FailureReason is { } failure)

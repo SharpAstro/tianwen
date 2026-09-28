@@ -172,15 +172,15 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<SkyMapSlewToObjectSignal>(sig =>
             {
-                // Every object panel's Goto lands here, and it slews THIS computer's mount.
-                if (!EnsureLocalContext("A goto")) return;
-                if (appState.ActiveProfile is not { Data: { } pdata }
+                // Every object panel's Goto lands here, and it slews the mount of the rig on show: this computer's, or a
+                // rig's this client controls.
+                if (CommandTargetOrSay("A goto") is not { Node: var node } target) return;
+                if (target.Profile is not { Data: { } pdata }
                     || pdata.Mount is not { Scheme: not "none" } mountUri)
                 {
                     Notify(NotificationSeverity.Warning, "No mount configured in the active profile");
                     return;
                 }
-                if (LocalNodeOrSay() is not { } node) return;
 
                 // Two-click confirmation for Sun slew. First click arms, second click
                 // within the window proceeds. The arm/confirm state machine lives on
@@ -294,8 +294,10 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<SkyMapSolveSyncSignal>(sig =>
             {
-                // Its reticle is the Active mount's, while the solve and the sync are THIS computer's.
-                if (!EnsureLocalContext("Solve and sync")) return;
+                // Its reticle is the Active mount's, and so are the solve and the sync: this computer's, or a rig's this client
+                // controls.
+                if (CommandTargetOrSay("Solve and sync") is not { } target) return;
+                var (node, view) = (target.Node, target.View);
                 // Re-entrancy guard: ignore a second click while a solve is already in
                 // flight (the button also shows "Solving ..." and drops its handler, but
                 // a queued signal could still arrive). UI-thread-only read here.
@@ -303,7 +305,7 @@ namespace TianWen.UI.Abstractions
                 {
                     return;
                 }
-                if (appState.ActiveProfile is not { Data: { } pdata }
+                if (target.Profile is not { Data: { } pdata }
                     || pdata.Mount is not { Scheme: not "none" })
                 {
                     Notify(NotificationSeverity.Warning, "No mount configured in the active profile");
@@ -314,14 +316,13 @@ namespace TianWen.UI.Abstractions
                     Notify(NotificationSeverity.Warning, "No OTA configured in the active profile");
                     return;
                 }
-                if (LocalNodeOrSay() is not { } node) return;
 
                 // Mirror the preview-capture progress UI while the solve frame exposes.
-                if (sig.OtaIndex < liveSessionState.PreviewCapturing.Length)
+                if (sig.OtaIndex < view.PreviewCapturing.Length)
                 {
-                    liveSessionState.PreviewCapturing[sig.OtaIndex] = true;
-                    liveSessionState.PreviewCaptureStart[sig.OtaIndex] = _timeProvider.GetUtcNow();
-                    liveSessionState.PreviewExposureDuration[sig.OtaIndex] = TimeSpan.FromSeconds(sig.ExposureSeconds);
+                    view.PreviewCapturing[sig.OtaIndex] = true;
+                    view.PreviewCaptureStart[sig.OtaIndex] = _timeProvider.GetUtcNow();
+                    view.PreviewExposureDuration[sig.OtaIndex] = TimeSpan.FromSeconds(sig.ExposureSeconds);
                 }
                 appState.StatusMessage = "Solve & sync\u2026";
                 skyMapState.SolveSyncInProgress = true; // drives the "Solving ..." button label
@@ -337,16 +338,16 @@ namespace TianWen.UI.Abstractions
                     {
                         Notify(NotificationSeverity.Info, synced.Step ?? "Synced");
                     }
-                    await ShowSolutionAsync(node, capturedSig.OtaIndex, ct);
+                    await ShowSolutionAsync(node, view, capturedSig.OtaIndex, ct);
                 }, onFinally: () =>
                 {
-                    if (capturedSig.OtaIndex < liveSessionState.PreviewCapturing.Length)
+                    if (capturedSig.OtaIndex < view.PreviewCapturing.Length)
                     {
-                        liveSessionState.PreviewCapturing[capturedSig.OtaIndex] = false;
+                        view.PreviewCapturing[capturedSig.OtaIndex] = false;
                     }
                     skyMapState.SolveSyncInProgress = false; // re-enable the Solve & Sync button
                     skyMapState.NeedsRedraw = true;
-                    liveSessionState.NeedsRedraw = true;
+                    view.NeedsRedraw = true;
                     appState.NeedsRedraw = true;
                 });
             });

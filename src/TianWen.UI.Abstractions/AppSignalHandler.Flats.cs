@@ -52,13 +52,13 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<StartFlatsSignal>(async sig =>
             {
-                if (!EnsureLocalContext("A flat run")) return;
-                if (appState.ActiveProfile is not { Data: { } profileData } profile || profileData.OTAs.Length == 0)
+                if (CommandTargetOrSay("A flat run") is not { } target) return;
+                var (node, view) = (target.Node, target.View);
+                if (target.Profile is not { Data: { } profileData } profile || profileData.OTAs.Length == 0)
                 {
                     Notify(NotificationSeverity.Warning, "No profile / OTA configured");
                     return;
                 }
-                if (LocalNodeOrSay() is not { } node) return;
 
                 // Run by the node: connect, cool, capture, finalise, and its prompts (switch the panel on) on this view
                 // through the connection's one prompt wiring. It starts from the session tab's configuration, so the flats
@@ -77,20 +77,20 @@ namespace TianWen.UI.Abstractions
                     Configuration = SessionConfigApiDto.FromConfiguration(SessionStartPlan.ForFlats(sessionState, profileData)),
                 };
 
-                liveSessionState.Mode = LiveSessionMode.Flats;
-                liveSessionState.FlatStatusMessage = "Starting flat run\u2026";
-                liveSessionState.FlatCancelRequested = false;
-                liveSessionState.NeedsRedraw = true;
+                view.Mode = LiveSessionMode.Flats;
+                view.FlatStatusMessage = "Starting flat run\u2026";
+                view.FlatCancelRequested = false;
+                view.NeedsRedraw = true;
                 appState.ActiveTab = GuiTab.LiveSession;
                 appState.NeedsRedraw = true;
 
                 var started = await node.Mirror.StartFlatsAsync(request, profile.ProfileId, cts.Token);
                 if (!started.IsSuccess)
                 {
-                    liveSessionState.FlatStatusMessage = started.Error;
+                    view.FlatStatusMessage = started.Error;
                     Notify(NotificationSeverity.Warning, $"The flat run did not start: {started.Error}");
                 }
-                liveSessionState.NeedsRedraw = true;
+                view.NeedsRedraw = true;
                 appState.NeedsRedraw = true;
             });
 

@@ -69,7 +69,7 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
     /// is refused, in the run's name) and shows it. Answers the node's refusal in its words, or null once it runs.
     /// <paramref name="appToken"/> ties the watching to the app's lifetime; the node's run goes on without it.
     /// </summary>
-    public async Task<string?> StartAsync(LocalNodeConnection node, PlanetaryRequestDto request, CancellationToken appToken)
+    public async Task<string?> StartAsync(NodeConnection node, PlanetaryRequestDto request, CancellationToken appToken)
     {
         if (IsCapturing)
         {
@@ -102,7 +102,7 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
     }
 
     // The run's loop: the staged controls sent, the node's state read, the stop asked for, until the node says it ended.
-    private async Task WatchAsync(LocalNodeConnection node, NodeMasters masters, CancellationToken cancellationToken)
+    private async Task WatchAsync(NodeConnection node, NodeMasters masters, CancellationToken cancellationToken)
     {
         using var reading = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var frames = ReadMastersAsync(node, masters, reading.Token);
@@ -164,7 +164,7 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
     }
 
     // The node's masters, the newest each time the last has been read (drop-to-latest, P5 part 5c), into the view.
-    private async Task ReadMastersAsync(LocalNodeConnection node, NodeMasters masters, CancellationToken cancellationToken)
+    private async Task ReadMastersAsync(NodeConnection node, NodeMasters masters, CancellationToken cancellationToken)
     {
         await using var stream = await node.Transport.OpenFrameStreamAsync(FrameSources.PlanetaryMaster, cancellationToken).ConfigureAwait(false);
         var reader = new FrameReader();
