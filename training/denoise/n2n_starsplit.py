@@ -212,6 +212,9 @@ def main():
     ap.add_argument('--plane-truth-anchor', action='store_true',
                     help='E16 evaluation condition: scale each session\'s estimated half-A planes to the half pair\'s own '
                          'noise over its sky (an ORACLE anchor, shape kept); only a --cond-map checkpoint reads planes')
+    ap.add_argument('--anchor-only', action='store_true',
+                    help='score no model: print each session\'s truth-over-estimate factor (--plane-truth-anchor\'s, so '
+                         'its sky and star masks) and stop. How far the estimated planes are from their fields\' truth')
     ap.add_argument('--detail-at', default='15',
                     help='noise-removal percentages at which detail kept is ALSO read, beside full strength: a model '
                          'that removes more noise loses more detail by construction, so recipes compare here')
@@ -233,8 +236,10 @@ def main():
     ap.add_argument('--legacy-split', action='store_true',
                     help='the split before 2026-09-26 (no floor rule, no blend rule), to reproduce an older table')
     a = ap.parse_args()
-    if not a.models and not a.audit_extended:
-        ap.error('--models is required unless --audit-extended')
+    if a.anchor_only:
+        a.plane_truth_anchor = True
+    if not a.models and not a.audit_extended and not a.anchor_only:
+        ap.error('--models is required unless --audit-extended or --anchor-only')
 
     dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     mm, meta = S.open_cache(a.cache)
@@ -443,6 +448,10 @@ def main():
             factor = truth / est
             half_a_planes[ts] *= factor
             print(f'plane truth anchor: {sid.split("|")[0][-44:]}: estimated x{factor:.3f}')
+    if a.anchor_only:
+        if half_a_planes is None:
+            print(f'{a.cache} holds no half-A planes for these cells, so there is no anchor to read')
+        return
     for spec in a.models:
         slug, ckpt = spec.split('=', 1)
         cond_map = bool(torch.load(ckpt if os.path.isabs(ckpt) else os.path.join(a.cache, ckpt),
