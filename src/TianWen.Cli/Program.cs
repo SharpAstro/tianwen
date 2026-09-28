@@ -140,6 +140,7 @@ var rootCommand = new RootCommand
         new PlanetaryCorpusSubCommands(consoleHost, services.GetRequiredService<ILogger<PlanetaryCorpusSubCommands>>()).BuildSurvey(),
         new PlanetaryCorpusSubCommands(consoleHost, services.GetRequiredService<ILogger<PlanetaryCorpusSubCommands>>()).BuildCrop(),
         new PlanetaryCorpusSubCommands(consoleHost, services.GetRequiredService<ILogger<PlanetaryCorpusSubCommands>>()).BuildConvert(),
+        new PlanetaryGeometrySubCommands(consoleHost).BuildLimb(),
         new SolveSubCommand(
             consoleHost,
             services.GetRequiredService<TianWen.Lib.Astrometry.PlateSolve.IPlateSolverFactory>(),
