@@ -7,6 +7,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>tianwen-server</AssemblyName>
     <PublishAot>true</PublishAot>
+    <ApplicationManifest>../LongPathAware.manifest</ApplicationManifest>
     <Platforms>AnyCPU</Platforms>
     <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
   </PropertyGroup>

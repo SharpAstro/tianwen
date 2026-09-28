@@ -12,6 +12,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Platforms>AnyCPU</Platforms>
     <PublishAot>true</PublishAot>
+    <ApplicationManifest>../LongPathAware.manifest</ApplicationManifest>
     <!-- THE POINT OF THIS PROCESS. Disabling CET (Control-flow Enforcement Technology / hardware
          shadow stack) removes shadow-stack enforcement for this process only. The .NET Framework
          4.x CLR that legacy ASCOM COM drivers load in-proc (mscoree.dll, v4.0.30319) is not
