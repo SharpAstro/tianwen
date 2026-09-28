@@ -1,5 +1,6 @@
 using Meziantou.Extensions.Logging.Xunit.v3;
 using Microsoft.Extensions.Logging;
+using Shouldly;
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -7,7 +8,9 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Hosting;
+using TianWen.Hosting.Dto;
 using TianWen.Lib.IO;
+using TianWen.RemoteClient;
 using Xunit;
 using Xunit.v3;
 
@@ -55,6 +58,23 @@ internal static class NodeWait
             var (journal, seen) = await TryReadJournalAsync(path, token);
             return (journal is null && seen == NoJournal, seen);
         }, ct);
+
+    /// <summary>Waits until the node's job <paramref name="id"/> has ended, and returns it as it ended.</summary>
+    public static Task<JobDto> UntilTheJobEndsAsync(TianWenNodeClient client, string id, CancellationToken ct) =>
+        UntilAsync<JobDto>($"job {id} to end", async token =>
+        {
+            var job = (await client.GetJobAsync(id, token)).Value;
+            return (job is { State: not JobState.Running } ? job : null, job is null ? "not found" : $"{job.State}: {job.Step}");
+        }, ct);
+
+    /// <summary>Waits until the job <paramref name="started"/> began has ended, and asserts that it succeeded.</summary>
+    public static async Task<JobDto> UntilTheJobSucceedsAsync(TianWenNodeClient client, NodeResult<JobDto> started, CancellationToken ct)
+    {
+        var job = started.Value.ShouldNotBeNull(started.Error);
+        var ended = await UntilTheJobEndsAsync(client, job.Id, ct);
+        ended.State.ShouldBe(JobState.Succeeded, $"{ended.Kind}: {ended.Error}");
+        return ended;
+    }
 
     /// <summary>
     /// Waits until <paramref name="look"/> says it is <c>Done</c>; <c>Seen</c> is what it found, for the output.
