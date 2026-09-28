@@ -114,6 +114,8 @@
                 // properties of a continuous gesture (frames coalesce onto vsync; the overlay cache does
                 // not re-gather per event) without reading a Chrome trace by hand.
                 getRenderStats: function () { return ref.invokeMethodAsync('GetRenderStatsJson'); },
+                // The night calendar's painted box {x, width} (CSS px from the canvas's left), "null" closed.
+                getCalendarBox: function () { return ref.invokeMethodAsync('GetCalendarBoxJson'); },
                 // Pins/unpins a catalog object, so a test can reach the WITH-PINS configuration. That
                 // configuration is not a detail: the object-overlay pass runs on every frame whenever
                 // anything is pinned (a pinned target is a landmark and stays visible with [O] off), so

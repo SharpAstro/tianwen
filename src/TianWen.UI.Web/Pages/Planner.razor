@@ -81,11 +81,13 @@
     </div>
 
     <div class="toolbar">
-        <label>Lat <input type="number" step="0.1" @bind="_lat" /></label>
-        <label>Lon <input type="number" step="0.1" @bind="_lon" /></label>
-        <button @onclick="() => RecomputeAsync()" disabled="@_busy">Recompute</button>
-        <button @onclick="RelocateAsync" disabled="@_busy" title="Plan for my current location">📍 Locate</button>
-        <button @onclick="ToggleFullscreenAsync" title="Fullscreen (Esc to exit)">⛶</button>
+        <span class="site">
+            <label>Lat <input type="number" step="0.1" @bind="_lat" /></label>
+            <label>Lon <input type="number" step="0.1" @bind="_lon" /></label>
+            <button @onclick="() => RecomputeAsync()" disabled="@_busy">Recompute</button>
+            <button @onclick="RelocateAsync" disabled="@_busy" title="Plan for my current location">📍 Locate</button>
+            <button @onclick="ToggleFullscreenAsync" title="Fullscreen (Esc to exit)">⛶</button>
+        </span>
         @* The night being planned, and its verdict: the desktop status bar's date control. The label opens the
            night calendar, which is drawn on the canvas under it (docs/plans/night-calendar.md, P4). *@
         <span class="night">
@@ -147,6 +149,12 @@
     NightCalendarPopover<WebGlContext>? _calendar;
     // The calendar's design width in design units, to centre it under the toolbar's date control.
     const float CalendarDesignWidth = 480f;
+    // Where the date label's centre is over the canvas, in CSS pixels, measured from the DOM
+    // (element-anchor.js); null until measured, when the calendar centres on the canvas instead.
+    double? _calendarAnchorCssX;
+    IJSObjectReference? _anchorModule;
+    // The calendar's box as last painted, in backing pixels (x, width): what GetCalendarBoxJson reports.
+    (float X, float Width) _paintedCalendarBox;
     // Keyless, and it answers a browser origin (access-control-allow-origin: *, checked 2026-09-19), so the web
     // build has the calendar's forecast and the planner's weather band with no profile and no proxy.
     static readonly Uri OpenMeteoUri = new OpenMeteoDevice().DeviceUri;
@@ -442,6 +450,17 @@
         if (_webGl is null) return;
         _webGl.Resize(m.BackingWidth, m.BackingHeight);
         RenderFrame();
+        // A resize re-lays the toolbar out too, and an open calendar follows its label.
+        if (_state.Calendar.Popover.IsOpen)
+        {
+            _tracker.Run(async () =>
+            {
+                if (await MeasureCalendarAnchorAsync())
+                {
+                    RequestRenderCoalesced();
+                }
+            }, "Re-anchor the calendar");
+        }
     }
 
     async Task LoadFontAsync()
@@ -658,17 +677,57 @@
 
     static string Css(RGBAColor32 colour) => $"#{colour.Red:x2}{colour.Green:x2}{colour.Blue:x2}";
 
-    void ToggleCalendar()
+    async Task ToggleCalendar()
     {
         var calendar = _state.Calendar;
         if (!calendar.Popover.IsOpen)
         {
             NightCalendarActions.PrepareToOpen(calendar);
+            // Measured before the first paint, so the calendar opens under the label rather than jumping
+            // there a frame later.
+            await MeasureCalendarAnchorAsync();
         }
         calendar.Popover.Toggle();
         // The calendar's keys ride the canvas's focus, which the toolbar button just took.
         RestoreCanvasFocus();
         RenderFrame();
+    }
+
+    /// <summary>
+    /// Measures where the toolbar's date label sits over the canvas, for the calendar drawn under it.
+    /// Returns whether the answer changed. The label is an HTML control and the calendar a canvas painting,
+    /// so the page has to ask the DOM: it used to assume the label was centred over the canvas, and once the
+    /// toolbar laid it out elsewhere the calendar opened hundreds of pixels away from it.
+    /// </summary>
+    async Task<bool> MeasureCalendarAnchorAsync()
+    {
+        try
+        {
+            _anchorModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./element-anchor.js");
+            var x = await _anchorModule.InvokeAsync<double?>("centreXOverCanvas", "[data-night]", CanvasElementId);
+            if (x == _calendarAnchorCssX)
+            {
+                return false;
+            }
+            _calendarAnchorCssX = x;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            // The calendar then centres on the canvas, which is where the label is when the toolbar has room.
+            Logger.LogWarning(ex, "element-anchor.js did not answer; the calendar centres on the canvas");
+            return false;
+        }
+    }
+
+    // The label moves whenever the toolbar re-lays out: another night's label is another width, and so is a
+    // verdict appearing beside it. Blazor re-renders the toolbar for both, so this is where to re-measure.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_state.Calendar.Popover.IsOpen && await MeasureCalendarAnchorAsync())
+        {
+            RequestRenderCoalesced();
+        }
     }
 
     void ShiftNight(int days)
@@ -2061,15 +2120,20 @@
                 skyMs = Since(ref phase);
             }
 
-            // The night calendar over whichever view is on screen, centred under the toolbar's date control.
+            // The night calendar over whichever view is on screen, centred under the toolbar's date label where
+            // it was measured (MeasureCalendarAnchorAsync), else on the canvas, and kept inside it.
             // Painted every frame, open or not: closed, it only begins its frame, which retires its regions.
             // The bus is pumped again after it, since an open calendar asks for its pins AS it paints and this
             // host has no next frame coming to deliver that.
             if (_calendar is { } calendar)
             {
                 calendar.Pointer = _mouse;
-                var calendarWidth = CalendarDesignWidth * (float)_metrics.DevicePixelRatio;
-                calendar.Render(_state, new RectF32((content.Width - calendarWidth) / 2f, 0f, calendarWidth, 0f),
+                var dpr = (float)_metrics.DevicePixelRatio;
+                var calendarWidth = CalendarDesignWidth * dpr;
+                var centreX = _calendarAnchorCssX is { } cssX ? (float)cssX * dpr : content.Width / 2f;
+                var calendarX = Math.Clamp(centreX - (calendarWidth / 2f), 0f, Math.Max(0f, content.Width - calendarWidth));
+                _paintedCalendarBox = (calendarX, calendarWidth);
+                calendar.Render(_state, new RectF32(calendarX, 0f, calendarWidth, 0f),
                     content, Time, _bus, _skyTab?.State);
                 _bus.ProcessPending(_tracker);
             }
@@ -2501,6 +2565,22 @@
     //               the gather is skipped entirely when it is off: without this a test asserting
     //               "gathers stay bounded" passes on zero, i.e. passes while measuring nothing. The
     //               first version of the E2E did exactly that and passed with the fix reverted.
+    // Where the night calendar is painted, as {x, width} in CSS px from the canvas's left edge, or "null"
+    // while it is closed: the calendar is a canvas painting, so its place under the toolbar's HTML date
+    // label is not a DOM question. What NightCalendarTests holds against the label's own box.
+    [JSInvokable]
+    public string GetCalendarBoxJson()
+    {
+        if (!_state.Calendar.Popover.IsOpen || _paintedCalendarBox.Width <= 0f)
+        {
+            return "null";
+        }
+        var dpr = _metrics.DevicePixelRatio;
+        var ci = CultureInfo.InvariantCulture;
+        return "{\"x\":" + (_paintedCalendarBox.X / dpr).ToString(ci)
+            + ",\"width\":" + (_paintedCalendarBox.Width / dpr).ToString(ci) + "}";
+    }
+
     [JSInvokable]
     public string GetRenderStatsJson()
         => "{\"frames\":" + _renderFrames.ToString(CultureInfo.InvariantCulture)
@@ -2657,6 +2737,10 @@
         if (_docKeysModule is not null)
         {
             await DisposeJsAsync(_docKeysModule, "document-keys.js module", detach: false);
+        }
+        if (_anchorModule is not null)
+        {
+            await DisposeJsAsync(_anchorModule, "element-anchor.js module", detach: false);
         }
         if (_rafModule is not null)
         {
