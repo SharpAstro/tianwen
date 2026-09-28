@@ -1477,7 +1477,12 @@ It closes "anyone who can reach the port", not a hostile LAN, which is TLS's job
    [../architecture/hosting-api.md](../architecture/hosting-api.md), "Who may command the node over TCP".
 3. **The clients**: the Sharing panel on the Home card, "Ask to control" and the request drawn on the rig's machine,
    a granted view's commands sent to its rig's node, the token in the credential store, and `tianwen node requests`,
-   `allow`, `decline`, `grants`, `revoke` and `share` for a headless rig.
+   `allow`, `decline`, `grants`, `revoke` and `share` for a headless rig. **Done**: `NodeGrants` and the connection's
+   access (`NodeConnection.MayCommand`, `Access`, `AskForControlAsync`), `CommandTargetOrSay` in place of
+   `EnsureLocalContext`, `ControlRequestQuestion` over this computer's Live Session view, `RigSharing` and the Sharing
+   panel under the Home board, and `tianwen node` (with `ignore` beside the verbs named here). The Sharing panel sits under
+   the board for the rig on show rather than inside its card, whose line says who may command it, since a card is sized
+   to the busiest one and a list of grants and refusals would grow every card on the board.
 
 ## Phasing
 

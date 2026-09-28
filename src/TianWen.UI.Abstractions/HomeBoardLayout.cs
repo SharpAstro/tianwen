@@ -1,7 +1,9 @@
 using TianWen.Lib.Sequencing;
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using DIR.Lib;
+using TianWen.Hosting.Dto;
 
 namespace TianWen.UI.Abstractions
 {
@@ -256,6 +258,8 @@ namespace TianWen.UI.Abstractions
         /// before reaching for <see cref="ThemeControlStyle.IconOnly"/>.</param>
         /// <param name="onOpen">What a DOUBLE-click on a card or row does, beyond the single click's select:
         /// open the rig's tab. Null for none. See <see cref="WithOpenOnDoubleClick"/>.</param>
+        /// <param name="bus">Where the board's Sharing actions post (P6b): a card's Ask to control, and the Sharing panel
+        /// of the rig on show. Null draws neither control, only the card's line.</param>
         public static Layout.Node Build(
             ImmutableArray<RigCard> cards,
             HomeBoardStyle style,
@@ -268,10 +272,13 @@ namespace TianWen.UI.Abstractions
             UiThemeState theme = UiThemeState.Dark,
             Action<InputModifier>? onCycleTheme = null,
             ThemeControlStyle themeControl = ThemeControlStyle.IconAndLabel,
-            Func<RigCard, Action<InputModifier>?>? onOpen = null)
+            Func<RigCard, Action<InputModifier>?>? onOpen = null,
+            SignalBus? bus = null)
         {
             var cardArea = width - BodyPadding * 2f;
             var columns = ColumnsFor(cardArea, cards.Length);
+            var sharing = SharingPanel(cards, style, bus, out var sharingHeight);
+            height -= sharingHeight;
 
             Layout.Node body;
             var fellBack = false;
@@ -289,7 +296,7 @@ namespace TianWen.UI.Abstractions
                     : float.PositiveInfinity;
 
                 body = Body(cards, style, columns, now, DetailFor(ColumnWidth(cardArea, columns)), onSelect,
-                    cardsFitWithin, out fellBack, onOpen);
+                    cardsFitWithin, out fellBack, onOpen, bus);
 
                 if (fellBack)
                 {
@@ -297,10 +304,171 @@ namespace TianWen.UI.Abstractions
                 }
             }
 
-            return Layout.Builder.VStack(
-                    Header(cards, style, view, fellBack, onSelectView, theme, onCycleTheme, themeControl),
-                    body)
+            var header = Header(cards, style, view, fellBack, onSelectView, theme, onCycleTheme, themeControl);
+            return (sharing is null
+                    ? Layout.Builder.VStack(header, body)
+                    : Layout.Builder.VStack(header, body, sharing.RowH(sharingHeight)))
                 .Bg(style.ContentBg);
+        }
+
+        // -----------------------------------------------------------------------------------------------------------------
+        // Sharing (P6b of docs/plans/hardware-in-the-server.md, decision 13, #1021)
+        // -----------------------------------------------------------------------------------------------------------------
+
+        private const float SharingRowHeight = 20f;
+        private const float SharingRowGap = 3f;
+
+        /// <summary>At most this many entries (requests, grants, apps, hosts, refusals) in the panel; the rest are counted.</summary>
+        private const int SharingEntriesShown = 10;
+
+        /// <summary>
+        /// The Sharing panel of the rig on show, under the board, when this client may manage it (this computer's rig, or one
+        /// that granted this client control): the LAN share, the request waiting, the clients granted control, the other
+        /// applications allowed and refused, each with what can be done about it. Null for none, and for a rig this client
+        /// only watches, whose card offers to ask instead.
+        /// </summary>
+        private static Layout.Node? SharingPanel(ImmutableArray<RigCard> cards, HomeBoardStyle style, SignalBus? bus, out float height)
+        {
+            height = 0f;
+            if (bus is null || cards.IsDefaultOrEmpty)
+            {
+                return null;
+            }
+            RigCard? onShow = null;
+            foreach (var card in cards)
+            {
+                if (card.IsViewed)
+                {
+                    onShow = card;
+                    break;
+                }
+            }
+            if (onShow is not { Sharing: { MayCommand: true, Access: { } access } } shown)
+            {
+                return null;
+            }
+
+            var binding = shown.BindingId;
+            var font = BaseFontSize * 0.9f;
+            var rows = new List<Layout.Node>();
+            void Entry(string text, params Layout.Node[] actions) =>
+                rows.Add(Layout.Builder.HStack([Layout.Builder.Text(text, font, style.BodyText).WStar().HStar(), .. actions])
+                    .WithGap(6f).RowH(SharingRowHeight));
+
+            rows.Add(Layout.Builder.Text($"Sharing: {shown.Title}", BaseFontSize, style.BodyText).RowH(SharingRowHeight));
+            Entry(access.Shared
+                    ? access.Listening ? "Shared on the LAN" : "Shared on the LAN from the node's next start"
+                    : access.Listening ? "Not shared: the node stops listening on the LAN at its next start" : "Not shared on the LAN",
+                SharingButton(access.Shared ? "Stop sharing" : "Share on the LAN", $"Sharing:{shown.Title}:Share", style,
+                    () => bus.Post(new SetLanShareSignal(!access.Shared, binding))));
+
+            var entries = 0;
+            var more = 0;
+            bool Room()
+            {
+                if (entries < SharingEntriesShown)
+                {
+                    entries++;
+                    return true;
+                }
+                more++;
+                return false;
+            }
+
+            if (access.Pending is { } pending && Room())
+            {
+                Entry($"{ControlRequestQuestion.Who(pending)} asks to control this rig",
+                    SharingButton("Allow", $"Sharing:{shown.Title}:AllowRequest", style,
+                        () => bus.Post(new AnswerControlRequestSignal(pending.Id, Allow: true, binding)), warn: true),
+                    SharingButton("Decline", $"Sharing:{shown.Title}:DeclineRequest", style,
+                        () => bus.Post(new AnswerControlRequestSignal(pending.Id, Allow: false, binding))));
+            }
+            foreach (var grant in access.Grants)
+            {
+                if (Room())
+                {
+                    Entry($"{grant.Label} may command this rig",
+                        SharingButton("Revoke", $"Sharing:{shown.Title}:Revoke:{grant.Id}", style,
+                            () => bus.Post(new RevokeGrantSignal(grant.Id, binding))));
+                }
+            }
+            foreach (var app in access.AppsAllowed)
+            {
+                if (Room())
+                {
+                    Entry($"Applications at {AddressAndHost(app.Address, app.Host)} may command it until its node restarts",
+                        SharingButton("Revoke", $"Sharing:{shown.Title}:RevokeApp:{app.Address}", style,
+                            () => bus.Post(new RevokeAppSignal(app.Address, binding))));
+                }
+            }
+            foreach (var host in access.HostsAlwaysAllowed)
+            {
+                if (Room())
+                {
+                    Entry($"Applications on {host} may always command it",
+                        SharingButton("Forget", $"Sharing:{shown.Title}:RevokeHost:{host}", style,
+                            () => bus.Post(new RevokeHostSignal(host, binding))));
+                }
+            }
+            foreach (var refused in access.Refused)
+            {
+                if (!Room())
+                {
+                    continue;
+                }
+                var who = refused.UserAgent ?? (refused.Protocol is AppProtocol.Alpaca ? "An Alpaca application" : "A ninaAPI application");
+                var times = refused.Attempts == 1 ? "once" : $"{refused.Attempts} times";
+                var actions = new List<Layout.Node>(3)
+                {
+                    SharingButton("Allow", $"Sharing:{shown.Title}:AllowApp:{refused.Address}", style,
+                        () => bus.Post(new AllowAppSignal(refused.Address, Always: false, binding)), warn: true),
+                };
+                if (refused.Host is { } name)
+                {
+                    actions.Add(SharingButton($"Always allow {name}", $"Sharing:{shown.Title}:AlwaysAllowApp:{refused.Address}", style,
+                        () => bus.Post(new AllowAppSignal(refused.Address, Always: true, binding)), warn: true));
+                }
+                actions.Add(SharingButton("Ignore", $"Sharing:{shown.Title}:Ignore:{refused.Address}", style,
+                    () => bus.Post(new IgnoreRefusedAppSignal(refused.Address, binding))));
+                Entry($"{who} at {AddressAndHost(refused.Address, refused.Host)} was refused {refused.What}, {times}", [.. actions]);
+            }
+            if (more > 0)
+            {
+                rows.Add(Layout.Builder.Text($"and {more} more: 'tianwen node requests' and 'tianwen node grants' on the rig list them all",
+                    font, style.DimText).RowH(SharingRowHeight));
+            }
+            else if (entries == 0)
+            {
+                rows.Add(Layout.Builder.Text(shown.IsLocal
+                        ? "Only this computer may command this rig."
+                        : "Only its own computer and this one may command it.",
+                    font, style.DimText).RowH(SharingRowHeight));
+            }
+
+            // Inset by the board's own margin, so the panel lines up with the cards above it.
+            height = rows.Count * SharingRowHeight + (rows.Count - 1) * SharingRowGap + CardPadding * 2f + BodyPadding * 2f;
+            var panel = Layout.Builder.VStack([.. rows])
+                .WithGap(SharingRowGap)
+                .Pad(CardPadding)
+                .Bg(style.CardBg)
+                .Radius(CardRadius)
+                .WStar()
+                .HStar();
+            return Layout.Builder.VStack(panel).Pad(BodyPadding).WStar();
+        }
+
+        private static string AddressAndHost(string address, string? host) => host is { } name ? $"{address} ({name})" : address;
+
+        /// <summary>A Sharing action: a word on a pill sized to it, amber where it lets someone command the rig.</summary>
+        private static Layout.Node SharingButton(string label, string hit, HomeBoardStyle style, Action post, bool warn = false)
+        {
+            var fill = warn ? style.PromptBg : style.ViewedCardBg;
+            return Layout.Builder.Text(label, BaseFontSize * 0.85f, warn ? style.PromptText : style.BodyText, TextAlign.Center, TextAlign.Center)
+                .PadX(8f)
+                .HStar()
+                .Radius(4f)
+                .Bg(fill).BgHover(GuiTheme.Hover(fill))
+                .Clickable(new HitResult.ButtonHit(hit), _ => post());
         }
 
         /// <summary>
@@ -739,7 +907,8 @@ namespace TianWen.UI.Abstractions
             DateTimeOffset now, RigCardDetail detail,
             Func<RigCard, Action<InputModifier>?>? onSelect,
             float fitWithin, out bool fellBackToTable,
-            Func<RigCard, Action<InputModifier>?>? onOpen = null)
+            Func<RigCard, Action<InputModifier>?>? onOpen = null,
+            SignalBus? bus = null)
         {
             fellBackToTable = false;
 
@@ -762,7 +931,7 @@ namespace TianWen.UI.Abstractions
             var tallest = CardHeight;
             for (var i = 0; i < cards.Length; i++)
             {
-                built[i] = CardBody(cards[i], style, now, detail, onSelect, onOpen);
+                built[i] = CardBody(cards[i], style, now, detail, onSelect, onOpen, bus);
                 tallest = Math.Max(tallest, built[i].Height);
             }
 
@@ -828,10 +997,11 @@ namespace TianWen.UI.Abstractions
             DateTimeOffset now,
             RigCardDetail detail,
             Func<RigCard, Action<InputModifier>?>? onSelect,
-            Func<RigCard, Action<InputModifier>?>? onOpen = null)
+            Func<RigCard, Action<InputModifier>?>? onOpen = null,
+            SignalBus? bus = null)
         {
             var dot = !card.IsOnline ? style.OfflineDot : card.IsRunning ? style.RunningDot : style.OnlineDot;
-            var rows = ImmutableArray.CreateBuilder<Layout.Node>(11);
+            var rows = ImmutableArray.CreateBuilder<Layout.Node>(12);
             var contentHeight = 0f;
 
             void Row(Layout.Node node, float height)
@@ -918,6 +1088,20 @@ namespace TianWen.UI.Abstractions
                     _ => style.DimText
                 };
                 Row(Layout.Builder.Text(note.Describe(), BaseFontSize * 0.8f, noteColor), DetailRowHeight);
+            }
+
+            // Who may command the rig (P6b), and for a rig this client only watches, the way to ask: the one control on a
+            // card, registered after the card's own press, so it wins the press over it.
+            if (card.Sharing is { } sharing)
+            {
+                var line = Layout.Builder.Text(sharing.Describe(card.IsLocal), BaseFontSize * 0.85f, style.DimText).WStar().HStar();
+                Row(bus is not null && !sharing.MayCommand && card.IsOnline
+                    ? Layout.Builder.HStack(line, SharingButton(sharing.IsAsking ? "Stop asking" : "Ask to control",
+                            $"HomeAsk:{card.Title}", style, sharing.IsAsking
+                                ? () => bus.Post(new CancelControlAskSignal(card.BindingId))
+                                : () => bus.Post(new AskForControlSignal(card.BindingId))))
+                        .WithGap(6f)
+                    : line, DetailRowHeight);
             }
 
             if (card.Prompt is { } prompt)
