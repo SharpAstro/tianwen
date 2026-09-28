@@ -540,8 +540,8 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
                     }
                     else if (dataStr.StartsWith(":St", StringComparison.Ordinal))
                     {
-                        // Set site latitude: :StsDD*MM#, answered with a bare 1 (valid) or 0 (invalid), like :Sr / :Sd
-                        if (TryParseSiteAngle(dataStr, SiteLatitudeParser, 90) is { } latitude)
+                        // Set site latitude: :StsDD*MM# (sign required where RequiresExplicitSign), answered with a bare 1 (valid) or 0 (invalid), like :Sr / :Sd
+                        if (TryParseSiteAngle(dataStr, SiteLatitudeParser, 90, RequiresExplicitSign) is { } latitude)
                         {
                             _transform.SiteLatitude = latitude;
                             _responseBuffer.Append('1');
@@ -554,7 +554,7 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
                     else if (dataStr.StartsWith(":Sg", StringComparison.Ordinal))
                     {
                         // Set site longitude: :SgDDD*MM#, degrees WEST of Greenwich, 0 to 360, answered as :St
-                        if (TryParseSiteAngle(dataStr, SiteLongitudeParser, 360) is { } west and < 360)
+                        if (TryParseSiteAngle(dataStr, SiteLongitudeParser, 360, requiresSign: false) is { } west and < 360)
                         {
                             _transform.SiteLongitude = west > 180 ? 360 - west : -west;
                             _responseBuffer.Append('1');
@@ -664,8 +664,15 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
         return false;
     }
 
-    private static readonly Regex DMParser = new Regex(@"^([-]?\d{2})[\xdf*\xb0](\d{2})$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
-    private static readonly Regex DMSParser = new Regex(@"^([-]?\d{2})[\xdf*\xb0](\d{2}):(\d{2})$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex DMParser = new Regex(@"^([-+]?)(\d{2})[\xdf*\xb0](\d{2})$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex DMSParser = new Regex(@"^([-+]?)(\d{2})[\xdf*\xb0](\d{2}):(\d{2})$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    /// <summary>
+    /// Whether <c>:Sd</c> and <c>:St</c> must carry an explicit <c>+</c> or <c>-</c> (<c>sDD*MM</c>). This fake
+    /// accepts either form; OnStepX refuses an unsigned value with <c>0</c>, so <see cref="FakeOnStepSerialDevice"/>
+    /// overrides this to be as strict as the firmware it stands in for.
+    /// </summary>
+    protected virtual bool RequiresExplicitSign => false;
 
     private bool ParseTargetDec(string dataStr)
     {
@@ -677,33 +684,25 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
         var regex = _highPrecision ? DMSParser : DMParser;
         var match = regex.Match(dataStr[3..^1]);
         if (match.Success
-            && int.TryParse(match.Groups[1].ValueSpan, CultureInfo.InvariantCulture, out var deg)
-            && int.TryParse(match.Groups[2].ValueSpan, CultureInfo.InvariantCulture, out var min)
-            && Math.Abs(deg) <= 90
+            && (!RequiresExplicitSign || match.Groups[1].Length > 0)
+            && int.TryParse(match.Groups[2].ValueSpan, CultureInfo.InvariantCulture, out var deg)
+            && int.TryParse(match.Groups[3].ValueSpan, CultureInfo.InvariantCulture, out var min)
             && min is >= 0 and < 60
         )
         {
-            if (_highPrecision)
+            var sec = 0;
+            if (_highPrecision
+                && !(int.TryParse(match.Groups[4].ValueSpan, CultureInfo.InvariantCulture, out sec) && sec is >= 0 and < 60))
             {
-                if (match.Groups.Count == 4 && int.TryParse(match.Groups[3].ValueSpan, CultureInfo.InvariantCulture, out var sec)
-                    && sec is >= 0 and < 60)
-                {
-                    var dec = DMSToDegree($"{deg}:{min}:{sec}");
-                    if (!double.IsNaN(dec))
-                    {
-                        _targetDec = dec;
-                        return true;
-                    }
-                }
+                return false;
             }
-            else
+
+            // the sign is a field of its own, so -00*30 is south of the equator
+            var dec = (match.Groups[1].ValueSpan is "-" ? -1 : 1) * (deg + min / 60d + sec / 3600d);
+            if (Math.Abs(dec) <= 90)
             {
-                var dec = DMSToDegree($"{deg}:{min}");
-                if (!double.IsNaN(dec))
-                {
-                    _targetDec = dec;
-                    return true;
-                }
+                _targetDec = dec;
+                return true;
             }
         }
 
@@ -717,7 +716,7 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
     /// Parses the <c>sDD*MM</c> / <c>DDD*MM</c> body of <c>:St</c> / <c>:Sg</c>; null for anything a mount
     /// would refuse (a malformed body, 60 minutes or more, beyond <paramref name="maxDegrees"/>).
     /// </summary>
-    private static double? TryParseSiteAngle(string dataStr, Regex parser, int maxDegrees)
+    private static double? TryParseSiteAngle(string dataStr, Regex parser, int maxDegrees, bool requiresSign)
     {
         if (dataStr[^1] != '#')
         {
@@ -726,6 +725,7 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
 
         var match = parser.Match(dataStr[3..^1]);
         if (match.Success
+            && (!requiresSign || match.Groups[1].Length > 0)
             && int.TryParse(match.Groups[2].ValueSpan, CultureInfo.InvariantCulture, out var deg)
             && int.TryParse(match.Groups[3].ValueSpan, CultureInfo.InvariantCulture, out var min)
             && min is >= 0 and < 60

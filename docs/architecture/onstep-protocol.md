@@ -98,6 +98,21 @@ rejects is none at all (`null`, thrown as `InvalidOperationException`); there is
 | `:TQ#` `:TL#` `:TS#` `:TK#` | none read | | `SetTrackingSpeedAsync`: sidereal, lunar, solar, King | the base sends `:TQ#` for solar and has no King |
 | `:GX44#` / `:GX45#` | `#`-terminated integer | `long.TryParse` (invariant), else `null` | `GetAxisPositionAsync`, axis 1 / axis 2; the tertiary axis answers `null` with no query | the interface default `null` |
 
+### `:Sd` and `:St` need their sign
+
+The base sends both unchanged, but OnStepX is stricter than a Meade about them, which is why the base always
+signs them. It parses `:Sd` and `:St` with `signPresent = true`
+([Goto.command.cpp#L366-L368](https://github.com/hjd1964/OnStepX/blob/65a751825677a03a0b12b15546780b614a206435/src/telescope/mount/goto/Goto.command.cpp#L366-L368),
+[Site.command.cpp#L220-L222](https://github.com/hjd1964/OnStepX/blob/65a751825677a03a0b12b15546780b614a206435/src/telescope/mount/site/Site.command.cpp#L220-L222)),
+and `Convert::dmsToDouble` refuses a value whose first character is not `+` or `-`, taking exactly six
+characters (`sDD*MM`) in low precision
+([Convert.cpp#L142-L151](https://github.com/hjd1964/OnStepX/blob/65a751825677a03a0b12b15546780b614a206435/src/lib/convert/Convert.cpp#L142-L151)).
+An unsigned value is answered `0`: until the #837 review the driver sent a positive declination and latitude
+unsigned, so every goto or sync to a northern target, and a northern site's `:St`, failed on OnStep. `:Sg` is
+the exception: OnStepX strips an optional sign and reads three digits in -180 to 360
+([Site.command.cpp#L173-L177](https://github.com/hjd1964/OnStepX/blob/65a751825677a03a0b12b15546780b614a206435/src/telescope/mount/site/Site.command.cpp#L173-L177)).
+Read from the firmware sources, not yet from a controller.
+
 The code reads `:GX44#` / `:GX45#` as raw step counts per mechanical axis, meant (per its comment) to mirror
 SkyWatcher's `:j1` / `:j2` for the neural guider's periodic-error features. It assumes integer counts; a
 decimal reply reads `null`.
@@ -234,12 +249,17 @@ them as `OperationCanceledException`.
 - `:GX44#` / `:GX45#` answer the LX200 fake's axis angles times 11,378 steps per degree (HA hours x 15 for axis
   1): a TeeSeek-class harmonic mount, a 200-step NEMA 17 at 256 microsteps through 80:1, 4,096,000
   microsteps per turn, about 0.32 arcsec per step. At home (HA 6 h, Dec axis +90 in the north) both are positive.
+- `:Sd` and `:St` answer `0` to a value without its `+` or `-` (`RequiresExplicitSign`), as OnStepX does. It is
+  the one place the OnStep fake is STRICTER than the LX200 fake, and it must stay as strict as the firmware:
+  with no controller on the bench, the fake is the only thing standing in for one.
 
 Simpler than real firmware: park never fails (the `Failed` state is unreachable, so the `F` branch and the
 60 s timeout have no test), `:Te#` never refuses, there is no lost-reply knob (#810 asks for one), and `:GVP#`
 is the LX200 fake's `Fake LX200 Mount`, so the fake would fail the product regex and is reached only through
 `FakeDevice`, never through discovery. `OnStepMountTests` pins connect and alignment, tracking via `:Te#` and
-`n`, slewing via the absence of `N`, park `p` to `I` to `P`, unpark, the axis counts and the capabilities.
+`n`, slewing via the absence of `N`, park `p` to `I` to `P`, unpark, the axis counts and the capabilities, and
+the signed `:Sd` bytes of a northern, an equatorial and a southern target with the declination the fake parsed,
+and the `:St` / `:Sg` bytes of a northern and a southern site.
 
 ## Deliberately not replicated, and out of scope
 
