@@ -78,7 +78,17 @@ public static class DatasetBuildRunner
         int PsfRemeasured,
         int PsfRemeasuredFromMaster = 0,
         int PsfSubsRemeasured = 0,
-        int Redone = 0);
+        int Redone = 0,
+        bool Stopped = false);
+
+    /// <summary>
+    /// The stop file, in the output directory: create it and the run stops before its NEXT session, the one in
+    /// progress finished and recorded, so a <c>--resume</c> picks up exactly where it left off. The run deletes the
+    /// file as it honours it, and one left over from an earlier stop is cleared, with a warning, when a run starts.
+    /// </summary>
+    /// <remarks>It exists so a long bake can be ended without ending the process: a killed bake leaves its session
+    /// half written (tiles without their manifest rows, a scratch directory) and a restart has to clear it first.</remarks>
+    public const string StopFileName = "build.stop";
 
     /// <summary>Rendered PSF/noise report, written beside the store under <c>&lt;outDir&gt;/stats</c>.</summary>
     public const string ReportFileName = "psf-noise-report.md";
@@ -331,9 +341,27 @@ public static class DatasetBuildRunner
                 s => !(options.Resume && priorTiles.ContainsKey(s.Id)),
                 logger)
             : null;
+        var stopPath = Path.Combine(outDir, StopFileName);
+        if (File.Exists(stopPath))
+        {
+            File.Delete(stopPath);
+            logger?.LogWarning("A stop file from an earlier run was cleared: {Path}", stopPath);
+            progress?.Report($"[dataset] cleared a stop file left by an earlier run ({stopPath})");
+        }
+        var stopped = false;
         foreach (var listed in sessions)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            // Between sessions only: the session before this one has finished and been recorded, so stopping here
+            // leaves nothing half written for the next --resume to clear.
+            if (File.Exists(stopPath))
+            {
+                File.Delete(stopPath);
+                stopped = true;
+                logger?.LogInformation("Stop file found before session {Index}/{Count}; stopping", idx + 1, sessions.Length);
+                progress?.Report($"[dataset] {StopFileName} found: stopping before session {idx + 1}/{sessions.Length}; every session before it is complete");
+                break;
+            }
             idx++;
             var session = stager is null ? listed : await stager.EnterAsync(sessions, idx - 1, cancellationToken);
 
@@ -891,7 +919,7 @@ public static class DatasetBuildRunner
                 psfMissing, psfBySession.Count, sessions.Length);
         }
         progress?.Report(
-            $"[dataset] done: {registered}/{sessions.Length} sessions{(resumed > 0 ? $" (+{resumed} resumed)" : "")}" +
+            $"[dataset] {(stopped ? "STOPPED by the stop file" : "done")}: {registered}/{sessions.Length} sessions{(resumed > 0 ? $" (+{resumed} resumed)" : "")}" +
             $"{(migrated > 0 ? $" ({migrated} ledger entries re-recorded from the library-wide fingerprint)" : "")}" +
             $"{(psfRemeasured > 0 ? $" ({psfRemeasured} PSF re-measured, {psfRemeasuredFromMaster} from retained masters)" : "")}" +
             $"{(psfSubsRemeasured > 0 ? $" ({psfSubsRemeasured} sub sets re-measured, measure stage only)" : "")} -> {totalTiles} tiles " +
@@ -902,7 +930,7 @@ public static class DatasetBuildRunner
         return new RunResult(
             sessions.Length, registered, failed, skippedNoDark, resumed, totalTiles, testSessions.Length,
             parityChecked, parityMaxDiff, manifestPath, splitPath, reportPath, psfStorePath, psfMissing, psfRemeasured,
-            psfRemeasuredFromMaster, psfSubsRemeasured, Redone: redone);
+            psfRemeasuredFromMaster, psfSubsRemeasured, Redone: redone, Stopped: stopped);
     }
 
     /// <summary>
