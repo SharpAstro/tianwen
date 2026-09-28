@@ -120,6 +120,32 @@ public class SharedAppDataFileTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// A path past 260 characters, from a host that declares no long paths (a test's, like a machine without the
+    /// setting): a data root in a deep folder put every profile write there past it, and the rename's raw
+    /// <c>CreateFileW</c> refused them all with "path not found" while .NET wrote the staging file beside it.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task AWriteReplacesAFileWhosePathIsLongerThan260Characters()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var deep = Path.Combine(Directory.CreateTempSubdirectory("shared-appdata-").FullName, new string('d', 120), new string('e', 120));
+        Directory.CreateDirectory(deep);
+        var path = Path.Combine(deep, $"{Guid.NewGuid()}.json");
+        path.Length.ShouldBeGreaterThan(260);
+        await SharedFile.WriteAsync(path, (stream, token) => stream.WriteAsync("old"u8.ToArray(), token).AsTask(), ct);
+
+        await using (var held = await SharedFile.OpenReadAsync(path, ct))
+        {
+            await SharedFile.WriteAsync(path, (stream, token) => stream.WriteAsync("new"u8.ToArray(), token).AsTask(), ct);
+
+            using var reader = new StreamReader(held);
+            (await reader.ReadToEndAsync(ct)).ShouldBe("old", "the reader keeps the version it opened");
+        }
+
+        (await File.ReadAllTextAsync(path, ct)).ShouldBe("new");
+    }
+
+    /// <summary>
     /// Another program (a scanner, a backup, an older TianWen) may hold the file WITHOUT delete sharing, and even
     /// the POSIX rename is refused while it does. The write waits that out for a bounded time instead of failing.
     /// </summary>

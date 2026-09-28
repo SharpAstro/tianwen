@@ -7,6 +7,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>tianwen-mcp</AssemblyName>
     <PublishAot>true</PublishAot>
+    <ApplicationManifest>../LongPathAware.manifest</ApplicationManifest>
     <!-- Globalization (ICU) ON: catalog.lookup resolves the observing site's IANA timezone
          (GeoTimeZone -> TimeZoneInfo) to report rise/set + best-observing time in LOCAL time.
          Invariant mode cannot resolve IANA ids, which is why the GUI (same tz path) is not invariant. -->

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The console executables' manifest (tianwen-server, tianwen, tianwen-mcp, tianwen-ascomhost): long paths. Windows takes a
+  path past 260 characters from a raw Win32 call only when the process declares longPathAware AND the machine's
+  LongPathsEnabled is on; .NET's own file APIs need neither. The GUI's and the viewer's manifests say the same beside
+  their DPI settings. A test project carries none, so its tests see what a machine without the setting sees.
+-->
+<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <longPathAware xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">true</longPathAware>
+    </windowsSettings>
+  </application>
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <!-- Windows 10 / 11 -->
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}" />
+    </application>
+  </compatibility>
+</assembly>
