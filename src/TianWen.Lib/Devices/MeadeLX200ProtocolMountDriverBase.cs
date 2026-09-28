@@ -472,8 +472,8 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         // :SdsDD*MM:SS# for high precision
         var (dec, highPrecision) = await GetDeclinationWithPrecisionAsync(target: false, cancellationToken);
 
-        // a sign only when negative, as this driver has always sent it
-        var command = "Sd" + DegreesToDMS(targetDec, withPlus: false, degreeSign: '*',
+        // always signed: OnStepX refuses an unsigned value with 0 (signPresent = true), and Meade's field is sDD
+        var command = "Sd" + DegreesToDMS(targetDec, withPlus: true, degreeSign: '*',
             precision: highPrecision ? SexagesimalPrecision.Second : SexagesimalPrecision.Minute);
 
         var response = await SendAndReceiveExactlyAsync(_encoding.GetBytes(command), 1, cancellationToken);
@@ -603,8 +603,8 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
             throw new ArgumentException("Site latitude must be a number.", nameof(latitude));
         }
 
-        // :StsDD*MM#, a sign only when negative
-        var command = "St" + DegreesToDMS(latitude, withPlus: false, degreeSign: '*', precision: SexagesimalPrecision.Minute);
+        // :StsDD*MM#, always signed, as :Sd (OnStepX refuses an unsigned latitude with 0)
+        var command = "St" + DegreesToDMS(latitude, withPlus: true, degreeSign: '*', precision: SexagesimalPrecision.Minute);
 
         var response = await SendAndReceiveExactlyAsync(_encoding.GetBytes(command), 1, cancellationToken);
 

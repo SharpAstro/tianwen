@@ -71,7 +71,7 @@ adds or overrides in [`onstep-protocol.md`](onstep-protocol.md); everything it i
 | Command | Sent by | Reply read | Accepted when |
 |---|---|---|---|
 | `:SrHH:MM:SS#` / `:SrHH:MM.T#` | `SetTargetRightAscensionAsync` (private), after a `:GR#` to learn the precision; RA must be in [0, 24) | 1 byte | `1`; anything else throws `InvalidOperationException` |
-| `:SdsDD*MM#` / `:SdsDD*MM:SS#` | `SetTargetDeclinationAsync` (private), after a `:GD#`; a sign only when negative | 1 byte | `1`, as above |
+| `:SdsDD*MM#` / `:SdsDD*MM:SS#` | `SetTargetDeclinationAsync` (private), after a `:GD#`; ALWAYS signed (`:Sd+45*07:30#`, `:Sd-45*07:30#`, see "Angles on the wire") | 1 byte | `1`, as above |
 | `:MS#` | `BeginSlewRaDecAsync`, after `:Sr` and `:Sd` | 1 byte; after a digit other than `0`, a terminated message | `0` is slewing. `1` "below horizon limit", `2` "above hight limit" (sic), other digits "unknown reason", all thrown as `InvalidOperationException`; no byte, a non-digit or no message: "unrecognized response" |
 | `:CM#` | `SyncRaDecAsync`, after `:Sr` and `:Sd` | terminated | any non-empty reply; the content is not checked |
 | `:Q#` | `AbortSlewAsync`, only when `:D#` reads slewing | none | |
@@ -81,7 +81,7 @@ adds or overrides in [`onstep-protocol.md`](onstep-protocol.md); everything it i
 | `:hP#` | `ParkAsync` (virtual) | none | |
 | `:U#` | `TrySetHighPrecisionAsync` at connect | none | the code assumes it TOGGLES the precision, so it re-reads `:GR#` after each |
 | `:SLHH:mm:ss#`, then `:SCMM/dd/yy#` | `SetUTCDateAsync`: local time is UTC minus the `:GG#` offset | terminated, each | anything but exactly `1`, which throws `ArgumentException`. Two more terminated reads then discard what the code's comment calls "Updating Planetary Data#" and a blank line; `TimeIsSetByUs` is whether both arrived |
-| `:StsDD*MM#` | `SetSiteLatitudeAsync`; a sign only when negative, rounded to the minute (`:St48*12#`, `:St-37*54#`) | 1 byte | `1`; anything else throws `InvalidOperationException` |
+| `:StsDD*MM#` | `SetSiteLatitudeAsync`; ALWAYS signed, rounded to the minute (`:St+48*12#`, `:St-37*54#`) | 1 byte | `1`; anything else throws `InvalidOperationException` |
 | `:SgDDD*MM#` | `SetSiteLongitudeAsync`; degrees WEST in [0, 360): the east-positive longitude is negated, rounded to the minute, THEN folded, so 16 deg 18' east is `:Sg343*42#` and a hair east of Greenwich `:Sg000*00#` | 1 byte | `1`, as above |
 
 The code reads `1` as FAILURE for `:SL` and `:SC` (the fake answers `0` for success), and reads the ack of
@@ -100,6 +100,19 @@ precision is `11*00`, never `10*60`), and the degrees field is the whole number 
 Until #837 the four setters formatted `TimeSpan.FromHours(degrees).Hours`, the hour of the DAY, so Dec -45.125
 went out as `:Sd-21*07:30#` and 100.5 west as `:Sg004*30#`. RA and the low-precision `HH:MM.T` fold into 24 h
 after rounding, so 23:59:59.7 goes out as `00:00:00`.
+
+**`:Sd` and `:St` always carry a sign, `+` included** (#837 review). Meade's command set defines both fields
+as `sDD*MM` / `sDD*MM:SS`, and OnStepX REFUSES an unsigned one: it parses `:Sd` and `:St` with
+`signPresent = true` ([Goto.command.cpp#L366-L368](https://github.com/hjd1964/OnStepX/blob/65a751825677a03a0b12b15546780b614a206435/src/telescope/mount/goto/Goto.command.cpp#L366-L368),
+[Site.command.cpp#L220-L222](https://github.com/hjd1964/OnStepX/blob/65a751825677a03a0b12b15546780b614a206435/src/telescope/mount/site/Site.command.cpp#L220-L222)),
+and `Convert::dmsToDouble` then returns false unless the first character is `+` or `-`, and in low precision
+takes exactly six characters, `sDD*MM`
+([Convert.cpp#L142-L151](https://github.com/hjd1964/OnStepX/blob/65a751825677a03a0b12b15546780b614a206435/src/lib/convert/Convert.cpp#L142-L151)).
+Before this, a positive value went out unsigned, so on OnStep every goto or sync to a northern declination
+was answered `0`, and so was a northern site's latitude. A value that rounds to zero is `+00*00`, never
+`-00*00`. `:Sg` stays unsigned: OnStepX strips an optional sign and reads three digits in -180 to 360
+([Site.command.cpp#L173-L177](https://github.com/hjd1964/OnStepX/blob/65a751825677a03a0b12b15546780b614a206435/src/telescope/mount/site/Site.command.cpp#L173-L177)),
+and 0 to 360 west is what the driver sends.
 
 ## Connect handshake
 
@@ -227,7 +240,9 @@ which is also the serial device `FakeDevice` hands any mount port it has no othe
 - `:CM#` moves the axes onto the target on the current side (`Synced#`); `:Q#` stops a slew; `:D#` answers
   0x7F `#` while slewing, `#` otherwise; `:Mg` moves the axis at once by 2/3 sidereal times the duration.
 - `:U#` toggles the precision, starting LOW; coordinates answer in the current precision (Dec with 0xDF), and
-  `:Sr` / `:Sd` accept only its format (0xDF, `*` or 0xB0 as the degree mark), answering `1` or `0`.
+  `:Sr` / `:Sd` accept only its format (0xDF, `*` or 0xB0 as the degree mark), answering `1` or `0`. `:Sd` and
+  `:St` take a positive value with or without its `+`, as Meade's firmware is taken to; the OnStep fake
+  overrides `RequiresExplicitSign` and answers `0` to an unsigned one, as OnStepX does.
 - `:GS#` from SOFA for the URI's site; `:Gt#` / `:Gg#` from its `latitude` / `longitude` (`:Gg#` negated, the
   signed form), which `:St` / `:Sg` then replace (a bare `1`, or `0` for a malformed or out-of-range body);
   `:GG#` always `+00`; `:GL#` / `:GC#` from the injected `ITimeProvider`; `:GT#` 60.1 after `:TQ#`, 57.9 after

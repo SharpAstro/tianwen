@@ -77,8 +77,29 @@ public class OnStepMountTests(ITestOutputHelper outputHelper)
         (await mount.GetDeclinationAsync(ct)).ShouldBe(targetDec, 1 / 3600d);
     }
 
+    // OnStepX refuses an unsigned :Sd with 0 (signPresent = true), so a northern target is sent with its '+'.
     [Theory(Timeout = 60_000)]
-    [InlineData(48.2d, 16.3d, ":St48*12#", ":Sg343*42#")]
+    [InlineData(48.2, 16.3, 6.75, 45.125, ":Sd+45*07:30#")]
+    [InlineData(-37.8743502, 145.1668205, 11.11, 0.15, ":Sd+00*09:00#")]
+    [InlineData(-37.8743502, 145.1668205, 11.11, -45.125, ":Sd-45*07:30#")]
+    public async Task GivenOnStepMountWhenSlewingTheDeclinationIsSentSigned(double siteLat, double siteLong, double targetRa, double targetDec, string expectedSd)
+    {
+        // given
+        var ct = TestContext.Current.CancellationToken;
+        var timeProvider = new FakeTimeProviderWrapper();
+        await using var mount = new FakeOnStepMountDriver(MakeDevice(siteLat, siteLong), new FakeExternal(outputHelper, timeProvider).BuildServiceProvider());
+        await mount.ConnectAsync(ct);
+
+        // when
+        await mount.BeginSlewRaDecAsync(targetRa, targetDec, ct);
+
+        // then
+        mount.SerialDevice.ShouldNotBeNull().Commands.ShouldContain(expectedSd);
+        (await mount.GetTargetDeclinationAsync(ct)).ShouldBe(targetDec, 1 / 3600d);
+    }
+
+    [Theory(Timeout = 60_000)]
+    [InlineData(48.2d, 16.3d, ":St+48*12#", ":Sg343*42#")]
     [InlineData(-37.9d, 145.1668205d, ":St-37*54#", ":Sg214*50#")]
     public async Task GivenOnStepMountWhenSettingTheSiteItIsSentOnTheWire(double latitude, double longitude, string expectedSt, string expectedSg)
     {

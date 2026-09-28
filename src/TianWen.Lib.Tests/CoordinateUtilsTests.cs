@@ -123,6 +123,17 @@ public class CoordinateUtilsTests
     [InlineData(25.5d, SexagesimalPrecision.Second, false, "25:30:00")]
     [InlineData(5.5d, SexagesimalPrecision.Minute, false, "05:30")]
     [InlineData(5.99999d, SexagesimalPrecision.Millisecond, false, "05:59:59.964")]
+    // unfolded, a negative value (an hour angle) keeps its '-' and a positive one never gets a '+'
+    [InlineData(-1d, SexagesimalPrecision.Second, false, "-01:00:00")]
+    [InlineData(-0.5d, SexagesimalPrecision.Minute, false, "-00:30")]
+    [InlineData(-0.00001d, SexagesimalPrecision.Second, false, "00:00:00")]
+    [InlineData(-13.25d, SexagesimalPrecision.Second, false, "-13:15:00")]
+    // folded, a negative value lands in [0, 24), never at its absolute value
+    [InlineData(-1d, SexagesimalPrecision.Second, true, "23:00:00")]
+    [InlineData(-0.5d, SexagesimalPrecision.Minute, true, "23:30")]
+    [InlineData(-25d, SexagesimalPrecision.Second, true, "23:00:00")]
+    [InlineData(-0.00001d, SexagesimalPrecision.Second, true, "00:00:00")]
+    [InlineData(-24d, SexagesimalPrecision.Second, true, "00:00:00")]
     public void HoursToHMSRoundsToThePrecision(double hours, SexagesimalPrecision precision, bool modulo24, string expected)
     {
         CoordinateUtils.HoursToHMS(hours, precision: precision, modulo24: modulo24).ShouldBe(expected);
@@ -136,6 +147,7 @@ public class CoordinateUtilsTests
     // 59.97 minutes rounds to the next hour, and 23:59.97 folds to 00:00.0
     [InlineData(4.9995d, "05:00.0")]
     [InlineData(23.9995d, "00:00.0")]
+    [InlineData(-1d, "23:00.0")]
     public void HoursToHMTRoundsToATenthOfAMinuteAndFoldsInto24Hours(double hours, string expected)
     {
         CoordinateUtils.HoursToHMT(hours).ShouldBe(expected);

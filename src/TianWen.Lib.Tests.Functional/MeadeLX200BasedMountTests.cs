@@ -79,8 +79,8 @@ public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
 
     [Theory(Timeout = 60_000)]
     [InlineData(-37.8743502, 145.1668205, 11.11d, -45.125d, null, ":Sd-45*07:30#")]
-    [InlineData(25.28022, 110.29639, 15.58d, 0.15d, null, ":Sd00*09:00#")]
-    [InlineData(51.38333333d, 8.08333333d, 8.85d, 11.8d, "2024-10-29T06:58:00Z", ":Sd11*48:00#")]
+    [InlineData(25.28022, 110.29639, 15.58d, 0.15d, null, ":Sd+00*09:00#")]
+    [InlineData(51.38333333d, 8.08333333d, 8.85d, 11.8d, "2024-10-29T06:58:00Z", ":Sd+11*48:00#")]
     [InlineData(-37.8743502, 145.1668205, 10.75d, -59.7d, null, ":Sd-59*42:00#")]
     public async Task GivenTargetWhenSlewingItSlewsToTarget(double siteLat, double siteLong, double targetRa, double targetDec, string? utc, string expectedSd)
     {
@@ -132,10 +132,10 @@ public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
     }
 
     [Theory(Timeout = 60_000)]
-    [InlineData(48.2d, ":St48*12#")]
+    [InlineData(48.2d, ":St+48*12#")]
     [InlineData(-37.9d, ":St-37*54#")]
-    [InlineData(-0.0001d, ":St00*00#")]
-    [InlineData(89.9999d, ":St90*00#")]
+    [InlineData(-0.0001d, ":St+00*00#")]
+    [InlineData(89.9999d, ":St+90*00#")]
     public async Task GivenSiteLatitudeWhenSettingItIsSentOnTheWire(double latitude, string expected)
     {
         // given

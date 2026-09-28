@@ -315,11 +315,12 @@ public static class CoordinateUtils
     /// <summary>
     /// Formats hours as <c>HH:MM:SS[.fff]</c>, rounded to <paramref name="precision"/> with every carry
     /// taken through to the hours. The hours field is the whole number of hours, never a clock:
-    /// 25.5 is <c>25:30:00</c>, unless <paramref name="modulo24"/> folds it (a right ascension).
+    /// 25.5 is <c>25:30:00</c>, and a negative value (an hour angle) is <c>-01:00:00</c>, never with a <c>+</c>.
+    /// <paramref name="modulo24"/> folds the value into [0, 24) instead (a right ascension): -1 is <c>23:00:00</c>.
     /// </summary>
     public static string HoursToHMS(double hours, char hourSeparator = ':', SexagesimalPrecision precision = SexagesimalPrecision.Millisecond,
         char minuteSeparator = ':', string secondSuffix = "", bool modulo24 = false)
-        => FormatSexagesimal(hours, precision, hourSeparator, minuteSeparator, secondSuffix, wholeDigits: 2, modulo: modulo24 ? 24 : 0);
+        => FormatSexagesimal(hours, precision, hourSeparator, minuteSeparator, secondSuffix, wholeDigits: 2, modulo: modulo24 ? 24 : 0, signed: !modulo24);
 
     /// <summary>
     /// Hours to HH:MM.T (LX200 legacy format), where T is a tenth of a minute, folded into 24 h.
@@ -327,7 +328,7 @@ public static class CoordinateUtils
     /// <param name="hours">Hours in 24h format</param>
     /// <returns>HH:MM.T formatted string</returns>
     public static string HoursToHMT(double hours)
-        => FormatSexagesimal(Math.Abs(hours), SexagesimalPrecision.TenthMinute, ':', ':', "", wholeDigits: 2, modulo: 24);
+        => FormatSexagesimal(hours, SexagesimalPrecision.TenthMinute, ':', ':', "", wholeDigits: 2, modulo: 24);
 
     /// <summary>
     /// Formats degrees as <c>sDD:MM:SS[.fff]</c>, rounded to <paramref name="precision"/> with every carry
@@ -358,7 +359,9 @@ public static class CoordinateUtils
         var units = (long)Math.Round(Math.Abs(value) * unitsPerWhole, MidpointRounding.AwayFromZero);
         if (modulo > 0)
         {
-            units %= modulo * unitsPerWhole;
+            // fold the SIGNED value into [0, modulo): -1 h is 23 h, never 1 h. Rounded first, so -0.00001 h is 00:00
+            var period = modulo * unitsPerWhole;
+            units = ((value < 0 ? -units : units) % period + period) % period;
         }
 
         var whole = units / unitsPerWhole;

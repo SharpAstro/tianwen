@@ -39,6 +39,13 @@ internal sealed class FakeOnStepSerialDevice : FakeMeadeLX200SerialDevice
         _onStepTimeProvider = timeProvider;
     }
 
+    /// <summary>
+    /// OnStepX parses <c>:Sd</c> and <c>:St</c> with <c>signPresent = true</c>, and <c>Convert::dmsToDouble</c>
+    /// then refuses anything whose first character is not <c>+</c> or <c>-</c>: an unsigned northern value is
+    /// answered <c>0</c>. See <c>docs/architecture/onstep-protocol.md</c>.
+    /// </summary>
+    protected override bool RequiresExplicitSign => true;
+
     private ParkState CurrentParkState => (ParkState)Volatile.Read(ref _parkStateRaw);
 
     private void SetParkState(ParkState state) => Volatile.Write(ref _parkStateRaw, (int)state);
