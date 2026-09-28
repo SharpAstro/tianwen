@@ -1273,6 +1273,23 @@
             _tracker.Run(() => InvokeAsync(() => SwitchView(View.Planner)), "Switch to planner view");
         });
 
+        _bus.Subscribe<ViewInSkyMapSignal>(sig =>
+        {
+            // The planner's Show in atlas: select there through the shared path, record the selection as
+            // the URL's object (so the switch below carries it and LocationChanged does not re-resolve
+            // it), then switch, deferred for the same reason as ViewInPlannerSignal's.
+            var viewingUtc = (_state.PlanningDate?.ToUniversalTime() ?? Time.GetUtcNow()) + skyState.TimeOffset;
+            var site = SiteContext.Create(_state.SiteLatitude, _state.SiteLongitude, viewingUtc);
+            if (SkyMapSearchActions.SelectTarget(skyState.Search, skyState, Db,
+                    sig.Name, sig.RA, sig.Dec, sig.Index, sig.ObjectType, _focus,
+                    _state.SiteLatitude, _state.SiteLongitude, viewingUtc, site, _state.Comets)
+                && skyState.Search.InfoPanel is { } panel)
+            {
+                _urlObject = UrlTokenFor(panel);
+            }
+            _tracker.Run(() => InvokeAsync(() => SwitchView(View.SkyMap)), "Switch to atlas view");
+        });
+
         _bus.Subscribe<SkyMapSlewToObjectSignal>(sig =>
         {
             // Goto commands a connected mount - a desktop / hosted-server action. The browser has no

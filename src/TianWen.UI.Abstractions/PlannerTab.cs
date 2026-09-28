@@ -549,6 +549,9 @@ namespace TianWen.UI.Abstractions
         // Details panel
         // -----------------------------------------------------------------------
 
+        /// <summary>The details panel's Show in atlas button (<see cref="ViewInSkyMapSignal"/>).</summary>
+        internal const string ShowInAtlasAction = "ShowInAtlas";
+
         private void RenderDetailsPanel(
             PlannerState state,
             RectF32 rect,
@@ -571,6 +574,30 @@ namespace TianWen.UI.Abstractions
             }
 
             var lineH = rect.Height / lines.Count;
+
+            // Show in atlas, at the end of the name line: the mirror of the atlas panel's View in Planner,
+            // which had no way back (reported 2026-09-28). The name line gives up the width it takes.
+            var nameW = rect.Width - padding * 2f;
+            var shown = _lastFilteredTargets[state.SelectedTargetIndex].Target;
+            var shownType = shown.CatalogIndex is { } shownIdx && state.ObjectDb?.TryLookupByIndex(shownIdx, out var shownObj) == true
+                ? shownObj.ObjectType
+                : ObjectType.Unknown;
+            var atlasButton = Layout.Builder.HStack(
+                    Layout.Builder.Spacer().WStar(),
+                    Layout.Builder.Text("Show in atlas", BaseFontSize * 0.9f, FilterBtnText, TextAlign.Center, TextAlign.Center)
+                        .PadX(8f)
+                        .HFixed(BaseFontSize * 1.6f)
+                        .Bg(FilterBtnBg).BgHover(GuiTheme.Hover(FilterBtnBg))
+                        .Clickable(new HitResult.ButtonHit(ShowInAtlasAction), _ => PostSignal(
+                            new ViewInSkyMapSignal(shown.Name, shown.RA, shown.Dec, shown.CatalogIndex, shownType))))
+                .CrossCenter();
+            foreach (var node in RenderLayout(atlasButton, new RectF32(rect.X + padding, rect.Y, nameW, lineH)))
+            {
+                if (node.Node.Hit is HitResult.ButtonHit { Action: ShowInAtlasAction })
+                {
+                    nameW = node.Bounds.X - (rect.X + padding) - padding;
+                }
+            }
 
             // The name line links to the object's Wikipedia article, the one the object-imagery bake
             // verified. Web-only affordance: the DOM text layer renders it as a real <a href>; the
@@ -595,8 +622,9 @@ namespace TianWen.UI.Abstractions
                 // photometry). Rasters exactly like DrawText on desktop; on the web a DOM text layer
                 // renders them as real selectable text instead (Renderer.HostRendersSelectableText). The
                 // name line additionally carries the Wikipedia href -> a real <a> on the web host.
+                var lineW = i == 0 ? nameW : rect.Width - padding * 2f;
                 DrawSelectableText(line, fontPath,
-                    rect.X + padding, y, rect.Width - padding * 2f, lineH,
+                    rect.X + padding, y, lineW, lineH,
                     fs, color, TextAlign.Near, TextAlign.Center,
                     i == 0 ? nameHref : null);
 
@@ -612,7 +640,7 @@ namespace TianWen.UI.Abstractions
                 // DIR.Lib's CursorKind remarks); stating it beside the click binds the two together.
                 if (i == 0 && nameHref is { } href)
                 {
-                    RegisterClickable(rect.X + padding, y, rect.Width - padding * 2f, lineH,
+                    RegisterClickable(rect.X + padding, y, lineW, lineH,
                         new HitResult.LinkHit(href), cursor: CursorKind.Pointer);
                 }
             }

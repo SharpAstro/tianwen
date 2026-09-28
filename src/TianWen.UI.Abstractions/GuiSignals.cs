@@ -470,6 +470,18 @@ public readonly record struct ViewInPlannerSignal(
     TianWen.Lib.Astrometry.Catalogs.ObjectType ObjectType);
 
 /// <summary>
+/// Switch to the sky atlas with this object centred and selected, its info panel open: the planner's
+/// Show in atlas, the mirror of <see cref="ViewInPlannerSignal"/>. Selected through
+/// <c>SkyMapSearchActions.SelectTarget</c>, one path for every host.
+/// </summary>
+public readonly record struct ViewInSkyMapSignal(
+    string Name,
+    double RA,
+    double Dec,
+    TianWen.Lib.Astrometry.Catalogs.CatalogIndex? Index,
+    TianWen.Lib.Astrometry.Catalogs.ObjectType ObjectType);
+
+/// <summary>
 /// Goto: command the active profile's connected mount to slew to this object's
 /// J2000 coordinates. Handler picks Solar/Lunar tracking from <c>Index</c> with
 /// fallback to Sidereal, enforces <c>PlannerState.MinHeightAboveHorizon</c> (min 1),
