@@ -395,6 +395,13 @@ namespace TianWen.RemoteClient
         /// it, just up to one poll interval behind).</summary>
         public bool IsEventStreamConnected => _events.IsConnected;
 
+        /// <summary>
+        /// Opens the event socket again at once, presenting the grant as it stands now (<see cref="TianWenEventStream.Reconnect"/>):
+        /// for a client granted control after it connected, since the node counts a client as one that may answer a prompt by
+        /// what its socket's upgrade carried.
+        /// </summary>
+        public void ReconnectEvents() => _events.Reconnect();
+
         /// <summary>Tells the node this client can see a prompt; from the host's drawing loop (<see cref="TianWenEventStream.Beat"/>).</summary>
         public void Beat() => _events.Beat();
 

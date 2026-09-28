@@ -4,6 +4,7 @@ using System.Collections.Immutable;
 using System.Linq;
 using System.Threading;
 using DIR.Lib;
+using TianWen.Hosting.Dto;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Imaging;
@@ -446,6 +447,22 @@ namespace TianWen.UI.Abstractions
             set => Volatile.Write(ref _quitDialog, value);
         }
         private QuitDialog? _quitDialog;
+
+        /// <summary>
+        /// A request for control of this computer's rig, put to whoever is at it (P6b of docs/plans/hardware-in-the-server.md,
+        /// #1021), or null. Only ever set on this computer's view, by the handler's access poll, and drawn over everything by
+        /// the Live Session tab, as the quit question is. The node keeps the request while its asker polls; this is the question.
+        /// </summary>
+        public PendingControlRequestDto? ControlRequest
+        {
+            get => Volatile.Read(ref _controlRequest);
+            set
+            {
+                Volatile.Write(ref _controlRequest, value);
+                NeedsRedraw = true;
+            }
+        }
+        private PendingControlRequestDto? _controlRequest;
 
         /// <summary>
         /// OTA index currently targeted by keyboard shortcuts and mouse clicks in

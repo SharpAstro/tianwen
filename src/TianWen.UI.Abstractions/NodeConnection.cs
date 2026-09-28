@@ -5,6 +5,7 @@ using System.Collections.Immutable;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Hosting.Api;
 using TianWen.Hosting.Dto;
 using TianWen.Lib.Devices;
 using TianWen.RemoteClient;
@@ -36,6 +37,12 @@ public abstract class NodeConnection : IAsyncDisposable
     /// <inheritdoc cref="DevicesRefreshInterval"/>
     public static readonly TimeSpan DevicesRefreshIntervalMoving = TimeSpan.FromSeconds(1);
 
+    /// <summary>
+    /// How often who may command the node is read when nothing has been pushed (P6b): a backstop only, since every change
+    /// pushes <c>ACCESS-CHANGED</c>, which asks for a read at once.
+    /// </summary>
+    public static readonly TimeSpan AccessRefreshInterval = TimeSpan.FromSeconds(30);
+
     private readonly HttpClient _http;
     private readonly IDisposable _prompts;
     private readonly ITimeProvider _timeProvider;
@@ -51,16 +58,27 @@ public abstract class NodeConnection : IAsyncDisposable
     private ImmutableDictionary<string, DeviceStateDto> _devices = ImmutableDictionary<string, DeviceStateDto>.Empty;
     private ImmutableArray<NodeDevice> _listed = [];
 
+    private readonly NodeGrants? _grants;
+    // UTC ticks of the last read of who may command the node, 0 for none yet (or a push that asked for one now).
+    private long _accessCheckedUtcTicks;
+    private int _accessRefreshInFlight;
+    private int _mayCommand;
+    private NodeAccessDto? _access;
+    private ControlAsk _ask = ControlAsk.None;
+    private CancellationTokenSource? _asking;
+
     /// <summary>
     /// Connects <paramref name="context"/> to the node at <paramref name="transport"/> and starts mirroring it. No request is
     /// made here: the mirror's first poll is the first word, and <see cref="RemoteSessionMirror.Contact"/> says how it went.
     /// </summary>
     /// <param name="promptsApp">The app a prompt is brought to the front of, or null to leave it on its own view.</param>
-    private protected NodeConnection(ViewContext context, NodeTransport transport, GuiAppState? promptsApp,
+    /// <param name="grants">Where the control this client is granted on the node is kept, or null to keep none.</param>
+    private protected NodeConnection(ViewContext context, NodeTransport transport, GuiAppState? promptsApp, NodeGrants? grants,
         ITimeProvider timeProvider, ILogger logger, CancellationToken cancellationToken)
     {
         Context = context;
         Transport = transport;
+        _grants = grants;
         _timeProvider = timeProvider;
         Logger = logger;
 
@@ -155,6 +173,12 @@ public abstract class NodeConnection : IAsyncDisposable
 
     private void OnNodeEvent(object? sender, WebSocketEventDto dto)
     {
+        if (dto.Event is NodeWire.AccessChangedEvent)
+        {
+            // Who may command the node changed (a request, an answer, a grant revoked): read it at the next poll.
+            Volatile.Write(ref _accessCheckedUtcTicks, 0);
+            return;
+        }
         if (ProfileChangedDto.TryFromEvent(dto, out var change))
         {
             // A write the node made, whoever asked for it: the profile is read again at the next poll rather than in two
@@ -422,6 +446,182 @@ public abstract class NodeConnection : IAsyncDisposable
         return keyed.ToImmutable();
     }
 
+    // -----------------------------------------------------------------------------------------------------------------
+    // Control (P6b of docs/plans/hardware-in-the-server.md, decision 13, #1021)
+    // -----------------------------------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Whether this client may command the node: always over its socket; over TCP once the node has said this client holds
+    /// a grant it keeps (<see cref="NodeInfoDto.CallerMayCommand"/>), which is read at first contact and after every
+    /// <c>ACCESS-CHANGED</c> (<see cref="MaybeRefreshAccessAsync"/>). Until then a view of the node sees, and asks.
+    /// </summary>
+    public bool MayCommand => Transport.SocketPath is not null || Volatile.Read(ref _mayCommand) == 1;
+
+    /// <summary>
+    /// Who may command the node and who was refused, as it was last read, for the Sharing panel: read only while this client
+    /// may manage it (<see cref="MayCommand"/>), null otherwise and until the first read.
+    /// </summary>
+    public NodeAccessDto? Access => Volatile.Read(ref _access);
+
+    /// <summary>Where this client's own request for control stands (<see cref="AskForControlAsync"/>).</summary>
+    public ControlAsk Ask => Volatile.Read(ref _ask);
+
+    /// <summary>Whether <see cref="MaybeRefreshAccessAsync"/> would read now: a synchronous check, as <see cref="ProfileRefreshDue"/> is.</summary>
+    public bool AccessRefreshDue =>
+        Volatile.Read(ref _accessCheckedUtcTicks) is var last && (last == 0 || _timeProvider.GetUtcNow().UtcTicks - last >= AccessRefreshInterval.Ticks);
+
+    /// <summary>
+    /// Reads whether this client may command the node, and, if it may, who else may (<see cref="Access"/>). A grant the node
+    /// no longer holds (revoked, or lost with its file) is forgotten here, so the next request presents none and the view
+    /// says it sees. At most every <see cref="AccessRefreshInterval"/> unless a push asked for it, and never concurrently
+    /// with itself. Returns <see langword="true"/> when anything changed, so the caller redraws.
+    /// </summary>
+    public async Task<bool> MaybeRefreshAccessAsync(CancellationToken cancellationToken)
+    {
+        if (!AccessRefreshDue || Interlocked.CompareExchange(ref _accessRefreshInFlight, 1, 0) != 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            Volatile.Write(ref _accessCheckedUtcTicks, _timeProvider.GetUtcNow().UtcTicks);
+            var node = await Client.GetNodeAsync(cancellationToken).ConfigureAwait(false);
+            if (node is not { IsSuccess: true, Value: { } info })
+            {
+                // Most often the node is quiet, which the view already says: keep what was known.
+                Logger.LogDebug("Could not read who may command {Name}: {Error}", Name, node.Error);
+                return false;
+            }
+
+            var mayCommand = Transport.SocketPath is not null || info.CallerMayCommand;
+            if (!mayCommand && Transport.Grant is { IsHeld: true } grant)
+            {
+                grant.Token = null;
+                if (Context.NodeId is { } nodeId)
+                {
+                    _grants?.Forget(nodeId);
+                }
+                Logger.LogInformation("{Name} no longer holds this client's grant: it sees, and asks to command", Name);
+            }
+            var changed = Interlocked.Exchange(ref _mayCommand, mayCommand ? 1 : 0) != (mayCommand ? 1 : 0);
+
+            NodeAccessDto? access = null;
+            if (mayCommand)
+            {
+                var read = await Client.GetAccessAsync(cancellationToken).ConfigureAwait(false);
+                access = read is { IsSuccess: true, Value: { } value } ? value : Access;
+            }
+            var previous = Interlocked.Exchange(ref _access, access);
+            return changed || !ReferenceEquals(previous, access);
+        }
+        finally
+        {
+            Volatile.Write(ref _accessRefreshInFlight, 0);
+        }
+    }
+
+    /// <summary>Reads who may command the node now, whatever the cadence says: after this client changed it.</summary>
+    public Task<bool> RefreshAccessNowAsync(CancellationToken cancellationToken)
+    {
+        Volatile.Write(ref _accessCheckedUtcTicks, 0);
+        return MaybeRefreshAccessAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Asks the node's machine for control, as <paramref name="label"/> (P6b), and polls the request every
+    /// <see cref="NodeWire.ControlRequestPollInterval"/> until it is answered, which is also what keeps it alive: the
+    /// request lapses once this stops. Granted, the token is presented from the next request on, kept for the next start
+    /// (<see cref="NodeGrants"/>), and the event socket reopened with it, so the node counts this client as one that may
+    /// answer a prompt. <see cref="Ask"/> says where it stands; <see cref="CancelAsk"/> stops asking.
+    /// </summary>
+    public async Task AskForControlAsync(string label, CancellationToken cancellationToken)
+    {
+        if (MayCommand)
+        {
+            return;
+        }
+        var grant = Transport.Grant;
+        using var asking = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        if (Interlocked.CompareExchange(ref _asking, asking, null) is not null)
+        {
+            return;
+        }
+
+        try
+        {
+            SetAsk(ControlAskState.Asking, null);
+            var asked = await Client.RequestControlAsync(label, asking.Token).ConfigureAwait(false);
+            if (asked is not { IsSuccess: true, Value: { } ticket })
+            {
+                SetAsk(ControlAskState.Failed, asked.Error ?? "The rig did not take the request");
+                return;
+            }
+
+            var lastAnswered = _timeProvider.GetTimestamp();
+            while (true)
+            {
+                await _timeProvider.SleepAsync(NodeWire.ControlRequestPollInterval, asking.Token).ConfigureAwait(false);
+                var polled = await Client.PollControlRequestAsync(ticket, asking.Token).ConfigureAwait(false);
+                if (polled is not { IsSuccess: true, Value: { } outcome })
+                {
+                    // A node that stopped answering for as long as a request lives has let it lapse.
+                    if (_timeProvider.GetElapsedTime(lastAnswered) >= NodeWire.ControlRequestLapse)
+                    {
+                        SetAsk(ControlAskState.Failed, "The rig stopped answering, so the request lapsed");
+                        return;
+                    }
+                    continue;
+                }
+                lastAnswered = _timeProvider.GetTimestamp();
+
+                switch (outcome.State)
+                {
+                    case ControlRequestState.Pending:
+                        continue;
+                    case ControlRequestState.Granted when outcome.Token is { } token:
+                        grant.Token = token;
+                        if (Context.NodeId is { } nodeId)
+                        {
+                            _grants?.Keep(nodeId, token);
+                        }
+                        Logger.LogInformation("{Name} granted this client control", Name);
+                        SetAsk(ControlAskState.None, null);
+                        Mirror.ReconnectEvents();
+                        await RefreshAccessNowAsync(asking.Token).ConfigureAwait(false);
+                        return;
+                    case ControlRequestState.Declined:
+                        SetAsk(ControlAskState.Declined, "Its owner declined");
+                        return;
+                    case ControlRequestState.Withdrawn:
+                        SetAsk(ControlAskState.Failed, "The request lapsed before it was answered");
+                        return;
+                    default:
+                        SetAsk(ControlAskState.Failed, "The rig no longer knows the request");
+                        return;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (asking.IsCancellationRequested)
+        {
+            // Stopped asking, or the app is going: the request lapses on the node by itself.
+            SetAsk(ControlAskState.None, null);
+        }
+        finally
+        {
+            Interlocked.CompareExchange(ref _asking, null, asking);
+        }
+    }
+
+    /// <summary>Stops asking for control; the node lets the request lapse.</summary>
+    public void CancelAsk() => Volatile.Read(ref _asking)?.Cancel();
+
+    private void SetAsk(ControlAskState state, string? message)
+    {
+        Volatile.Write(ref _ask, new ControlAsk(state, message));
+        Context.LiveSession.NeedsRedraw = true;
+    }
+
     /// <summary>What the view forgets of the node as the connection goes, beyond its session: a rig's view, its profile.</summary>
     private protected virtual void OnDetached()
     {
@@ -432,6 +632,7 @@ public abstract class NodeConnection : IAsyncDisposable
         // Detach BEFORE tearing the mirror down: a render pass between dispose and detach would read a mirror whose poll loop
         // has already stopped, and show a frozen session as though live.
         Mirror.NodeEventNotTheSessions -= OnNodeEvent;
+        CancelAsk();
         Context.LiveSession.ActiveSession = null;
         Context.Mirror = null;
         OnDetached();

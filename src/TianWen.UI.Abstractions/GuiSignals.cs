@@ -60,6 +60,39 @@ public readonly record struct SelectLocalContextSignal(GuiTab? OpenTab = null);
 public readonly record struct ForgetRemoteRigSignal(Guid BindingId);
 
 /// <summary>
+/// Ask a node over TCP for control of it (P6b of docs/plans/hardware-in-the-server.md, #1021): a bound rig, or with no
+/// binding this computer's node when it runs under another account. The rig's machine answers; until then its view sees.
+/// </summary>
+public readonly record struct AskForControlSignal(Guid? BindingId = null);
+
+/// <summary>Stop asking for control; the node lets the request lapse.</summary>
+public readonly record struct CancelControlAskSignal(Guid? BindingId = null);
+
+/// <summary>
+/// Answer a request for control of a node this client manages: this computer's (no binding), or a rig it was granted
+/// control of, since who may command a rig is for its machine and the clients it granted control.
+/// </summary>
+public readonly record struct AnswerControlRequestSignal(string RequestId, bool Allow, Guid? BindingId = null);
+
+/// <summary>Revoke a grant: its holder is refused from its next command on, and sees.</summary>
+public readonly record struct RevokeGrantSignal(string GrantId, Guid? BindingId = null);
+
+/// <summary>Let another application at an address command the rig: until its node restarts, or always by its host name.</summary>
+public readonly record struct AllowAppSignal(string Address, bool Always, Guid? BindingId = null);
+
+/// <summary>End an address's allowance until restart.</summary>
+public readonly record struct RevokeAppSignal(string Address, Guid? BindingId = null);
+
+/// <summary>Forget a host name as always allowed.</summary>
+public readonly record struct RevokeHostSignal(string Host, Guid? BindingId = null);
+
+/// <summary>Forget another application's refused command (Ignore); its next refusal is recorded again.</summary>
+public readonly record struct IgnoreRefusedAppSignal(string Address, Guid? BindingId = null);
+
+/// <summary>Turn "Share this rig on the LAN" on or off, on this computer's node or a rig this client controls.</summary>
+public readonly record struct SetLanShareSignal(bool Shared, Guid? BindingId = null);
+
+/// <summary>
 /// Choose the home board's shape from its header selector. A display preference only -- it changes nothing
 /// about any rig, and <see cref="HomeBoardView.Auto"/> hands the choice back to the window size.
 /// </summary>

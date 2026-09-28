@@ -32,9 +32,9 @@ namespace TianWen.UI.Abstractions
         private int _firstContactClaimed;
 
         private RemoteRigConnection(RemoteRigBinding binding, ViewContext context, Uri address, NodeTransport transport,
-            ITimeProvider timeProvider, ILogger logger, CancellationToken cancellationToken)
+            NodeGrants? grants, ITimeProvider timeProvider, ILogger logger, CancellationToken cancellationToken)
             // A rig's question waits where the rig is shown: its prompts are not brought to the front.
-            : base(context, transport, promptsApp: null, timeProvider, logger, cancellationToken)
+            : base(context, transport, promptsApp: null, grants, timeProvider, logger, cancellationToken)
         {
             Binding = binding;
             Address = address;
@@ -61,10 +61,13 @@ namespace TianWen.UI.Abstractions
         /// Resolves <paramref name="binding"/> to an address and starts mirroring it, returning null when
         /// the rig is neither discoverable nor has a usable address hint (i.e. it is offline).
         /// </summary>
+        /// <param name="grants">Where this client keeps the control it was granted on the rig (P6b): a kept grant is
+        /// presented from the first request on, and one the rig grants later is kept there. Null keeps none.</param>
         public static RemoteRigConnection? TryConnect(
             RemoteRigBinding binding,
             ViewContexts contexts,
             IPeerTable? peers,
+            NodeGrants? grants,
             ITimeProvider timeProvider,
             ILogger logger,
             CancellationToken cancellationToken)
@@ -79,7 +82,7 @@ namespace TianWen.UI.Abstractions
             // A rig that is switched off does not refuse the connection (that fails instantly), it black-holes the packets,
             // so NodeTransport's explicit backstop, not the 100 s default, is what notices it has gone.
             var connection = new RemoteRigConnection(binding, contexts.GetOrAddRemote(binding.NodeId, binding.Alias), address,
-                NodeTransport.OverTcp(address), timeProvider, logger, cancellationToken);
+                NodeTransport.OverTcp(address, grants?.For(binding.NodeId)), grants, timeProvider, logger, cancellationToken);
             logger.LogInformation("Mirroring rig '{Alias}' at {Address}", binding.Alias, address);
             return connection;
         }

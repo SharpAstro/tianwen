@@ -77,7 +77,7 @@ public class IdleRigDevicesTests(ITestOutputHelper output)
             LastAddress = node.Transport.BaseAddress.ToString(),
         };
         var contexts = new ViewContexts();
-        await using var rig = RemoteRigConnection.TryConnect(binding, contexts, peers: null, new SystemTimeProvider(), NullLogger.Instance, ct)
+        await using var rig = RemoteRigConnection.TryConnect(binding, contexts, peers: null, grants: null, new SystemTimeProvider(), NullLogger.Instance, ct)
             .ShouldNotBeNull();
         (await rig.MaybeRefreshProfileAsync(ct)).ShouldBeTrue();
         var remote = rig.Context.LiveSession;
@@ -148,7 +148,7 @@ public class IdleRigDevicesTests(ITestOutputHelper output)
             LastAddress = node.Transport.BaseAddress.ToString(),
         };
         var contexts = new ViewContexts();
-        await using var rig = RemoteRigConnection.TryConnect(binding, contexts, peers: null, new SystemTimeProvider(), NullLogger.Instance, ct)
+        await using var rig = RemoteRigConnection.TryConnect(binding, contexts, peers: null, grants: null, new SystemTimeProvider(), NullLogger.Instance, ct)
             .ShouldNotBeNull();
         await NodeWait.UntilAsync("the rig to answer", _ =>
             ValueTask.FromResult((rig.Mirror.Contact.State is NodeContactState.Answering, rig.Mirror.Contact.State.ToString())), ct);
@@ -193,7 +193,7 @@ public class IdleRigDevicesTests(ITestOutputHelper output)
             LastAddress = node.Transport.BaseAddress.ToString(),
         };
         var contexts = new ViewContexts();
-        await using var rig = RemoteRigConnection.TryConnect(binding, contexts, peers: null, new SystemTimeProvider(), NullLogger.Instance, ct)
+        await using var rig = RemoteRigConnection.TryConnect(binding, contexts, peers: null, grants: null, new SystemTimeProvider(), NullLogger.Instance, ct)
             .ShouldNotBeNull();
         (await rig.MaybeRefreshProfileAsync(ct)).ShouldBeTrue();
         var remote = rig.Context.LiveSession;

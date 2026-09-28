@@ -56,7 +56,7 @@ public class RemoteRigLiveFrameTests(ITestOutputHelper output)
         var contexts = new ViewContexts();
         var app = new GuiAppState { ActiveTab = GuiTab.LiveSession };
         contexts.AttachAppState(app);
-        await using var rig = RemoteRigConnection.TryConnect(binding, contexts, peers: null, new SystemTimeProvider(),
+        await using var rig = RemoteRigConnection.TryConnect(binding, contexts, peers: null, grants: null, new SystemTimeProvider(),
             NullLogger.Instance, ct).ShouldNotBeNull();
         contexts.Activate(rig.Context).ShouldBeTrue();
 
