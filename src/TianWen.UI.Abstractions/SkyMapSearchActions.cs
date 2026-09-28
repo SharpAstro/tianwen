@@ -516,6 +516,51 @@ public static class SkyMapSearchActions
     }
 
     /// <summary>
+    /// Selects a planner target in the atlas: centred, its info panel open, as if it had been searched
+    /// for. What the planner's Show in atlas does (<see cref="ViewInSkyMapSignal"/>), on every host.
+    /// </summary>
+    /// <remarks>
+    /// A catalogued object goes through <see cref="CommitResult"/>, which places a comet and a planet at
+    /// the viewing instant rather than where the pin was made. A bare position, or an object the catalogue
+    /// cannot place, is centred at the target's own coordinates under a position panel. A view the atlas
+    /// has not homed yet is marked as placed (<see cref="SkyMapState.ExternalViewPending"/>), or its first
+    /// frame would turn it to the pole.
+    /// </remarks>
+    public static bool SelectTarget(
+        SkyMapSearchState search,
+        SkyMapState skyMap,
+        ICelestialObjectDB db,
+        string name, double raHours, double decDeg,
+        CatalogIndex? index, ObjectType objectType,
+        TextInputFocus focus,
+        double siteLat, double siteLon,
+        DateTimeOffset viewingUtc,
+        in SiteContext site,
+        ICometRepository? comets = null)
+    {
+        var selected = index is { } idx
+            && CommitResult(search, skyMap, db, new SkyMapSearchResult(name, idx, objectType, float.NaN),
+                focus, siteLat, siteLon, viewingUtc, site, comets);
+        if (!selected)
+        {
+            if (double.IsNaN(raHours) || double.IsNaN(decDeg))
+            {
+                return false;
+            }
+            SlewTo(skyMap, raHours, decDeg);
+            search.InfoPanel = SkyMapInfoPanelData.FromPosition(name, raHours, decDeg, siteLat, siteLon, viewingUtc, site);
+            CloseSearch(search, focus);
+        }
+
+        if (!skyMap.Initialized)
+        {
+            skyMap.ExternalViewPending = true;
+        }
+        skyMap.NeedsRedraw = true;
+        return true;
+    }
+
+    /// <summary>
     /// Resolve a sky-map click at a screen pixel to the nearest catalog object / planet / comet and
     /// populate <see cref="SkyMapSearchState.InfoPanel"/>, deriving the viewport projection
     /// (pixels-per-radian, centre) from the tab's <see cref="SkyMapState.LastContentRect"/> and the

@@ -156,6 +156,19 @@ namespace TianWen.UI.Abstractions
                 plannerState.NeedsRedraw = true;
             });
 
+            bus.Subscribe<ViewInSkyMapSignal>(sig =>
+            {
+                // The planner's Show in atlas: select there through the one shared path, then show it.
+                var db = sp.GetRequiredService<ICelestialObjectDB>();
+                var viewingUtc = SkyMapViewingUtc();
+                var site = SiteContext.Create(plannerState.SiteLatitude, plannerState.SiteLongitude, viewingUtc);
+                SkyMapSearchActions.SelectTarget(skySearch, skyMapState, db,
+                    sig.Name, sig.RA, sig.Dec, sig.Index, sig.ObjectType, appState.TextInputFocus,
+                    plannerState.SiteLatitude, plannerState.SiteLongitude, viewingUtc, site, plannerState.Comets);
+                appState.ActiveTab = GuiTab.SkyMap;
+                appState.NeedsRedraw = true;
+            });
+
             bus.Subscribe<SkyMapPinObjectSignal>(sig =>
             {
                 var target = new Target(sig.RA, sig.Dec, sig.Name, sig.Index);

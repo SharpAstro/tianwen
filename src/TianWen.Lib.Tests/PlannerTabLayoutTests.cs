@@ -490,5 +490,36 @@ namespace TianWen.Lib.Tests
             }
             changed.ShouldBeGreaterThan(80 * 52 / 2, "the detail box covers the chart under the band");
         }
+
+        /// <summary>
+        /// <b>The planner's details panel offers Show in atlas.</b> The atlas panel had View in Planner and
+        /// the planner had no way back (reported 2026-09-28). Pressed through the region the panel
+        /// registered, it posts the selected target, which every host selects in the atlas the same way.
+        /// </summary>
+        [Fact]
+        public void TheDetailsPanelsShowInAtlasPostsTheSelectedTarget()
+        {
+            var state = BuildState();
+            var bus = new SignalBus();
+            ViewInSkyMapSignal? posted = null;
+            bus.Subscribe<ViewInSkyMapSignal>(sig => posted = sig);
+
+            using var renderer = new RgbaImageRenderer(1600, 1000);
+            var tab = new PlannerTab<RgbaImage>(renderer) { FontPath = FontResolver.ResolveSystemFont(), Bus = bus };
+            tab.Render(state, new RectF32(0, 0, renderer.Width, renderer.Height),
+                new FakeTimeProviderWrapper(new DateTimeOffset(2025, 12, 15, 22, 0, 0, TimeSpan.Zero)));
+
+            var button = tab.GetRegisteredRegions()
+                .Single(r => r.Result is HitResult.ButtonHit { Action: PlannerTab<RgbaImage>.ShowInAtlasAction });
+            button.OnClick.ShouldNotBeNull().Invoke(InputModifier.None);
+            bus.ProcessPending(new BackgroundTaskTracker());
+
+            var selected = PlannerActions.GetFilteredTargets(state)[state.SelectedTargetIndex].Target;
+            var sig = posted.ShouldNotBeNull("the press posts the signal");
+            sig.Name.ShouldBe(selected.Name);
+            sig.RA.ShouldBe(selected.RA);
+            sig.Dec.ShouldBe(selected.Dec);
+            sig.Index.ShouldBe(selected.CatalogIndex);
+        }
     }
 }
