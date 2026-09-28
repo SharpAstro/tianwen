@@ -28,6 +28,14 @@ public static class SkyMapSearchActions
     private const float ClickToleranceScreenPx = 20f;
 
     /// <summary>
+    /// How far from its centre the pointer is ON a small object's marker: the 8 px circle the overlay
+    /// draws a shapeless object with (<c>OverlayCandidateMarker.Circle</c>), plus 4 px of slop. Also the
+    /// floor for a shaped object whose drawn ellipse is smaller than that, which at a wide field is most
+    /// of them. In the same unscaled screen pixels as <see cref="ClickToleranceScreenPx"/>.
+    /// </summary>
+    private const float MarkerHitRadiusPx = 12f;
+
+    /// <summary>
     /// Open the modal and lazily build the search index from the loaded catalog, merged with the comet set
     /// (designations + common names). Idempotent: repeat opens just re-focus the search box, but the index
     /// is rebuilt if the comet repository has since loaded (it loads in the background after startup, so the
@@ -729,17 +737,29 @@ public static class SkyMapSearchActions
             }
         }
 
-        // DSOs first. Hit test uses max(ClickTolerancePx, shape major-axis radius)
-        // so clicks inside a large nebula like Eta Carinae / NGC 7000 land on the
-        // nebula instead of a random Tycho star at its edge. Among overlapping DSO
-        // hits we pick the one whose centroid is closest to the click, that way
-        // a small nested object (e.g. M42 inside the Orion Molecular Cloud) wins
-        // over the surrounding extended shape.
+        // DSOs first, in two tiers (2026-09-28). An object CONTAINS the pointer when the pointer is on
+        // what the overlay draws for it: inside its ellipse, or within MarkerHitRadiusPx of a small
+        // marker. Among those the SMALLEST drawn footprint wins, so a cluster's ring beats the galaxy it
+        // sits in exactly where the ring is, and M42 beats the Orion Molecular Cloud. Only when nothing
+        // contains the pointer does the forgiving 20 px tolerance apply, nearest centre first, for an
+        // isolated object the pointer is merely near.
+        //
+        // It used to be one tier: anything within 20 px of its centre was a hit and the nearest centre
+        // won. Inside the LMC every cluster then claimed a 20 px disc of the galaxy around it, and a
+        // pointer crossing it flipped LMC, NGC 1850, LMC at every one; a 120 ms settle hid that by
+        // delaying every answer, which made the whole atlas feel sluggish (reported 2026-09-28).
         CatalogIndex? bestDsoIdx = null;
         var bestDsoDistSq = double.MaxValue;
         // The radius that CLAIMED the winner, carried out with it so the hover wash can be drawn at
         // the size of the region that actually resolves to this object rather than at a constant.
         var bestRadiusPx = (float)ClickToleranceScreenPx;
+        // The containing tier's best, and the near tier's; merged into the three above after the pass.
+        CatalogIndex? containedIdx = null;
+        var containedFootprint = double.MaxValue;
+        var containedDistSq = double.MaxValue;
+        var containedRadiusPx = (float)ClickToleranceScreenPx;
+        CatalogIndex? nearIdx = null;
+        var nearDistSq = double.MaxValue;
 
         // NO dedupe set, and that is a measured removal rather than an oversight. Two facts make one
         // unnecessary. An object is filed in exactly ONE cell (RaDecIndex.Add writes a single
@@ -802,21 +822,19 @@ public static class SkyMapSearchActions
             var dx = clickScreenX - sx;
             var dy = clickScreenY - sy;
             var distSq = dx * dx + dy * dy;
-            if (distSq >= bestDsoDistSq)
-            {
-                return;
-            }
 
-            // Inside the click tolerance of the centre is always a hit. Beyond it, an extended
-            // object is hit inside its DRAWN ellipse -- the axes the marker is drawn with -- rather
-            // than inside a circle of its major radius, which for the SMC (300 by 180 arcmin at 45
-            // degrees) claimed a band of empty sky beside the galaxy and lit the ellipse from
-            // outside it. Ctrl+click (preferPointSource) skips the shape entirely so the ellipse no
-            // longer swallows clicks meant for stars inside it; the DSO then only matches near its
-            // centroid.
+            // ON the marker: within MarkerHitRadiusPx of the centre, whatever the object's size. Beyond
+            // that, an extended object contains the pointer inside its DRAWN ellipse -- the axes the
+            // marker is drawn with -- rather than inside a circle of its major radius, which for the SMC
+            // (300 by 180 arcmin at 45 degrees) claimed a band of empty sky beside the galaxy and lit
+            // the ellipse from outside it. Ctrl+click (preferPointSource) skips the shape entirely so
+            // the ellipse no longer swallows clicks meant for stars inside it; the DSO then only matches
+            // on or near its centroid.
+            const double MarkerSq = (double)MarkerHitRadiusPx * MarkerHitRadiusPx;
             var hitRadiusPx = (double)ClickToleranceScreenPx;
-            var hit = distSq <= hitRadiusPx * hitRadiusPx;
-            if (!hit && !preferPointSource && db.TryGetShape(idx, out var shape)
+            var footprint = MarkerSq;
+            var hit = distSq <= MarkerSq;
+            if (!preferPointSource && db.TryGetShape(idx, out var shape)
                 && (double)shape.MajorAxis > 0)
             {
                 const double ArcminToRad = Math.PI / (180.0 * 60.0);
@@ -826,7 +844,12 @@ public static class SkyMapSearchActions
                     ? semiMajorPx
                     : minorArcmin * 0.5 * ArcminToRad * pixelsPerRadian;
 
-                if (distSq <= semiMajorPx * semiMajorPx)
+                // The drawn footprint, as the tier compares it: the ellipse's area over pi, floored at
+                // the marker's, so a galaxy drawn a pixel across is as easy to be on as a circle marker.
+                footprint = Math.Max(semiMajorPx * semiMinorPx, MarkerSq);
+                hitRadiusPx = Math.Max(hitRadiusPx, semiMajorPx);
+
+                if (!hit && distSq <= semiMajorPx * semiMajorPx)
                 {
                     // The screen direction of north at the object, as the marker finds its axes.
                     var paDeg = (double)shape.PositionAngle;
@@ -844,19 +867,24 @@ public static class SkyMapSearchActions
                         var across = ((dx * minorX) + (dy * minorY)) / semiMinorPx;
                         hit = (along * along) + (across * across) <= 1.0;
                     }
-
-                    if (hit)
-                    {
-                        hitRadiusPx = semiMajorPx;
-                    }
                 }
             }
 
             if (hit)
             {
-                bestDsoDistSq = distSq;
-                bestDsoIdx = idx;
-                bestRadiusPx = (float)hitRadiusPx;
+                // Contained: the smaller drawn footprint wins, the nearer centre between equals.
+                if (footprint < containedFootprint || (footprint == containedFootprint && distSq < containedDistSq))
+                {
+                    containedFootprint = footprint;
+                    containedDistSq = distSq;
+                    containedIdx = idx;
+                    containedRadiusPx = (float)hitRadiusPx;
+                }
+            }
+            else if (distSq <= (double)ClickToleranceScreenPx * ClickToleranceScreenPx && distSq < nearDistSq)
+            {
+                nearDistSq = distSq;
+                nearIdx = idx;
             }
         }
 
@@ -880,6 +908,20 @@ public static class SkyMapSearchActions
         foreach (var idx in LargeShapedObjects(db))
         {
             Consider(idx);
+        }
+
+        // A containing object beats one the pointer is merely near, whatever their distances.
+        if (containedIdx is { } contained)
+        {
+            bestDsoIdx = contained;
+            bestDsoDistSq = containedDistSq;
+            bestRadiusPx = containedRadiusPx;
+        }
+        else if (nearIdx is { } near)
+        {
+            bestDsoIdx = near;
+            bestDsoDistSq = nearDistSq;
+            bestRadiusPx = ClickToleranceScreenPx;
         }
 
         CatalogIndex? bestIdx = bestDsoIdx;

@@ -511,7 +511,14 @@ locking the release scope was *"as long as we track everything we skipped in a p
   budgets a resolve per four pixels of travel and repaints only when the answer changed, because it
   repaints only what a move changed; a declared region, the object panel and its links first, claims
   the pointer and no wash resolves through it. Pinned by `SkyMapHoverAndPictureTests` and
-  `ViewerObjectSelectionTests`.)* `FindObjectAt` (`ImageRendererBase.ContextMenu.cs`) already resolved the nearest
+  `ViewerObjectSelectionTests`.)* *(Amended 2026-09-28: the resolver picks in two tiers. An object
+  that CONTAINS the pointer -- on its drawn marker, 12 px from the centre, or inside its drawn ellipse --
+  beats one the pointer is only near, and the smallest drawn footprint wins among them; the 20 px
+  tolerance applies only when nothing contains the pointer. Nearest-centre-within-20-px let every
+  cluster in the LMC claim a disc of the galaxy around it, so a sweep flipped the wash at each one; a
+  120 ms settle hid that by delaying every answer, and the atlas felt sluggish for it. The settle is
+  gone. Pinned by `ASmallObjectInsideABigOneTakesThePointerOnlyOnItsMarker`, whose 16 px case fails
+  against the old rule.)* `FindObjectAt` (`ImageRendererBase.ContextMenu.cs`) already resolved the nearest
   catalogued object at a pixel from the frame's own WCS and `DeepSkyCoordinateGrid`, with an FOV-scaled
   tolerance, and had been wired to right-click ALONE for weeks: what was missing was downstream, since
   the viewer had no notion of a SELECTED object and so nowhere for a left click's answer to go. It

@@ -564,22 +564,21 @@ public sealed class CanvasRenderCostTests(TianWenWebFixture fixture, ITestOutput
         var y = (float)(box.Y + (box.Height * 0.4));
         var x0 = (float)(box.X + (box.Width * 0.4));
         await page.Mouse.MoveAsync(x0, y);
-        var before = await WaitForPaintingToStopAsync(page); // any settle from the first move has landed
+        var before = await WaitForPaintingToStopAsync(page); // the first move's frame has landed
         for (var i = 1; i <= moves; i++)
         {
             await page.Mouse.MoveAsync(x0 + i, y);
             await page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => r()))");
         }
-        var after = await WaitForPaintingToStopAsync(page); // and so has a settling hover's delayed frame
+        var after = await WaitForPaintingToStopAsync(page); // and so has the last move's
 
         var painted = after.Frames - before.Frames;
         var asked = after.HoverFrames - before.HoverFrames;
         Report($"hover: {moves} moves, one per animation frame, painted {painted} frames, the hover asked for {asked}");
 
         // Every paint must be explained by a changed answer. The slack is for a frame straddling either end
-        // of the window, not a per-change allowance: a settle wake that fires early or finds the switch
-        // cancelled re-arms or returns WITHOUT painting (SkyMapTab.PendingHoverDueIn). Before that it
-        // painted on every wake, 13 frames against 5 changes on a warm page; per move, 48 against 7.
+        // of the window, not a per-change allowance. A hover once painted per move (48 frames against 7
+        // changes), and while it settled its answers, per delayed wake (13 against 5).
         const int windowEdgeSlack = 2;
         Assert.True(painted <= asked + windowEdgeSlack,
             $"a {moves}-move hover painted {painted} frames but its answer changed only {asked} times: the "
