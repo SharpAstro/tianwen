@@ -1063,46 +1063,30 @@ public static class AltitudeChartRenderer
             return f;
         }
 
+        // The box is a tree the engine measures: the lines, padded, on the band's fill inside a 1 px outline.
         var fontSize = Math.Max(7f, 11f * areaH / 800f);
-        var lineH = fontSize * 1.35f;
-        const float Pad = 8f;
-
-        var maxW = 0f;
-        foreach (var line in lines)
+        var rows = new Layout.Node[lines.Count];
+        for (var i = 0; i < lines.Count; i++)
         {
-            var (w, _) = renderer.MeasureText(line.AsSpan(), fontFamily, fontSize);
-            maxW = Math.Max(maxW, w);
+            rows[i] = Layout.Builder.Text(lines[i], fontSize, i == 0 ? GuiTheme.SkyInk() : GuiTheme.SkyInk(205));
         }
+        var box = Layout.Builder.VStack(
+                Layout.Builder.VStack(rows).WithGap(fontSize * 0.35f).Pad(8f).Bg(GuiTheme.SkyBand(0.06f).WithAlpha(235)))
+            .Pad(1f).Bg(GuiTheme.Palette.Info.WithAlpha(200));
 
-        var boxW = maxW + (Pad * 2f);
-        var boxH = (lines.Count * lineH) + (Pad * 2f);
+        var painter = ChartLayout<TSurface>.For(renderer);
+        painter.FontPath = fontFamily;
+        var size = painter.Measure(box, new Layout.Size<float>(areaW, areaH));
 
         // Under the band by default, centred on the pointer and kept inside the chart; above the band
         // where it would run off the bottom.
-        var boxX = Math.Clamp(mx - (boxW / 2f), areaX + 2f, Math.Max(areaX + 2f, areaX + areaW - boxW - 2f));
+        var boxX = Math.Clamp(mx - (size.Width / 2f), areaX + 2f, Math.Max(areaX + 2f, areaX + areaW - size.Width - 2f));
         var boxY = bandY + bandH + 6f;
-        if (boxY + boxH > areaY + areaH)
+        if (boxY + size.Height > areaY + areaH)
         {
-            boxY = bandY - boxH - 6f;
+            boxY = bandY - size.Height - 6f;
         }
-
-        var (bx, by, bw, bh) = ((int)boxX, (int)boxY, (int)boxW, (int)boxH);
-        FillRect(renderer, bx, by, bw, bh, GuiTheme.SkyBand(0.06f).WithAlpha(235));
-        // A 1 px outline, as four filled edges.
-        var border = GuiTheme.Palette.Info.WithAlpha(200);
-        FillRect(renderer, bx, by, bw, 1, border);
-        FillRect(renderer, bx, by + bh - 1, bw, 1, border);
-        FillRect(renderer, bx, by, 1, bh, border);
-        FillRect(renderer, bx + bw - 1, by, 1, bh, border);
-
-        var ty = boxY + Pad;
-        for (var i = 0; i < lines.Count; i++)
-        {
-            renderer.DrawText(lines[i], fontFamily, fontSize, i == 0 ? GuiTheme.SkyInk() : GuiTheme.SkyInk(205),
-                MakeRect((int)(boxX + Pad), (int)ty, (int)(boxW - (Pad * 2f)), (int)lineH),
-                TextAlign.Near, TextAlign.Center);
-            ty += lineH;
-        }
+        painter.Paint(box, new RectF32(boxX, boxY, size.Width, size.Height));
 
         return f;
     }
@@ -1363,19 +1347,23 @@ public static class AltitudeChartRenderer
     private const string LegendTargetsKey = "legend-targets";
 
     /// <summary>
-    /// Lays out and paints the legend row through the engine, since this renderer is static and has no widget of its
-    /// own. One per renderer, so a frame allocates none. Sizes are device px, hence <see cref="DesignScale.One"/>.
+    /// Measures, lays out and paints the chart's layout-built parts (the legend row, the weather hover's box) through
+    /// the engine, since this renderer is static and has no widget of its own. One per renderer, so a frame allocates
+    /// none. Sizes are device px, hence <see cref="DesignScale.One"/>.
     /// </summary>
-    private sealed class LegendRow<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer)
+    private sealed class ChartLayout<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer)
     {
-        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Renderer<TSurface>, LegendRow<TSurface>> Rows = new();
+        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Renderer<TSurface>, ChartLayout<TSurface>> Painters = new();
 
-        public static LegendRow<TSurface> For(Renderer<TSurface> renderer)
-            => Rows.GetValue(renderer, static r => new LegendRow<TSurface>(r));
+        public static ChartLayout<TSurface> For(Renderer<TSurface> renderer)
+            => Painters.GetValue(renderer, static r => new ChartLayout<TSurface>(r));
+
+        public Layout.Size<float> Measure(Layout.Node tree, Layout.Size<float> available)
+            => MeasureLayout(tree, available, scale: DesignScale.One);
 
         public System.Collections.Immutable.ImmutableArray<Layout.ArrangedNode<float>> Paint(Layout.Node tree, RectF32 rect)
         {
-            // Each chart frame is a frame of this widget: drop what the previous one recorded, or it accumulates.
+            // Each call is a frame of this widget: drop what the previous one recorded, or it accumulates.
             BeginFrame();
             return RenderLayout(tree, rect, scale: DesignScale.One);
         }
@@ -1406,7 +1394,7 @@ public static class AltitudeChartRenderer
         // measures it, and the targets give way to the fill it leaves them.
         if (credit is not null)
         {
-            var row = LegendRow<TSurface>.For(renderer);
+            var row = ChartLayout<TSurface>.For(renderer);
             row.FontPath = fontFamily;
             var arranged = row.Paint(
                 Layout.Builder.HStack(
