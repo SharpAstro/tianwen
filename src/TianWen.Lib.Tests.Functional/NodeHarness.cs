@@ -74,6 +74,7 @@ internal sealed class NodeHarness : IAsyncDisposable
         {
             builder.WebHost.ConfigureKestrel(kestrel => kestrel.ListenOnNodeSocket(held));
             builder.Services.AddSingleton(new NodeListening(socketPath, LanPort: null));
+            builder.Services.AddNodeSharedMemory(held);
         }
         else
         {
