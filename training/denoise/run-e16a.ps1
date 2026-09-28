@@ -57,7 +57,11 @@ param(
     [string]$Export = (Join-Path ($env:TIANWEN_SCRATCH ?? 'C:\temp\tianwen-scratch') 'degraded\bb-ctl-sigma'),
     [string]$LogDir = 'C:\temp\e2',
     [string]$Tianwen = "$PSScriptRoot\..\..\src\TianWen.Cli\bin\Release\net10.0\tianwen.dll",
-    [int]$SeedCount = 4
+    [int]$SeedCount = 4,
+    # Which plane conditions to score; -Conditions orc re-scores one without repeating the other.
+    [string[]]$Conditions = @('orc', 'est'),
+    # The score files' prefix; a later pass with another scorer writes beside the pre-registered e16a-score-* files.
+    [string]$Prefix = 'e16a-score'
 )
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
@@ -169,10 +173,12 @@ try {
         'n2n-eval4-rfs'     = @('Rim-Nebula/2025-05-02', 'Horsehead-Nebula/2025-10-28', 'Skull-and-Crossbones-Nebula/2026-02-14')
     }
     $failed = @()
-    foreach ($cond in @('orc', 'est')) {
+    foreach ($cond in $Conditions) {
         # Only a --cond-map checkpoint reads a plane, so the other models are scored once, in orc.
         $models = if ($cond -eq 'orc') { $mapped + $others } else { $mapped }
-        $extra = if ($cond -eq 'orc') { @('--plane-truth-anchor') } else { @() }
+        # @() around the whole if: an if that yields one string yields the STRING, and splatting a string passes
+        # it one character per argument (the first E16a scoring run lost its orc condition that way).
+        $extra = @(if ($cond -eq 'orc') { '--plane-truth-anchor' })
         $n = 0
         foreach ($c in $fields.Keys) {
             if (-not (Test-Path (Join-Path $Scratch "$c\meta.json"))) { throw "no cache $c under $Scratch (run-evalrf-planes.ps1)" }
@@ -180,7 +186,7 @@ try {
                 $n++
                 Set-Status "score $cond $n/11 $c $f"
                 & python n2n_starsplit.py --cache (Join-Path $Scratch $c) --models @models --only $f --per-session @extra `
-                    *> (Join-Path $LogDir "e16a-score-$cond-$c-$($f -replace '[/\\ ]', '_').txt")
+                    *> (Join-Path $LogDir "$Prefix-$cond-$c-$($f -replace '[/\\ ]', '_').txt")
                 if ($LASTEXITCODE -ne 0) { $failed += "$cond $c $f (exit $LASTEXITCODE)" }
             }
         }
