@@ -160,13 +160,47 @@ def detail_kept(lum_out, b_bands, bins, ref):
     return out
 
 
-def detail_line(label, kept):
+def detail_line(label, kept, what='detail kept'):
     """One line per output: the levels left to right, the bands of each level comma-separated. No
     slash and no '%:' anywhere, so the model-row readers (e13_read / e14_read / e15_read) never match it."""
     cells = []
     for lvl in range(len(DETAIL_LEVELS) + 1):
         cells.append(','.join('   -' if kept[k][lvl] is None else f'{kept[k][lvl]:4.2f}' for k in range(len(DETAIL_BANDS))))
-    return f'{"":14s} detail kept {label:>10s}: ' + ' | '.join(cells)
+    return f'{"":14s} {what} {label:>10s}: ' + ' | '.join(cells)
+
+
+def error_terms(lum_out, a_bands, b_bands, bins, ref):
+    """Per (band, level), the three sums a blend's error against the truth needs, or None where the bin is
+    unreadable: sum (A-B)^2, sum (A-B)(Y-A), sum (Y-A)^2.
+
+    Detail kept cannot tell a model that keeps the signal AND removes the noise from one that leaves the level
+    alone: both keep 1.0 (E16a, 2026-09-28, where convmap kept 0.99 in the FINEST band above 0.30). The error
+    against the truth can, and half B measures it without the truth: B's noise is independent of Y (made from
+    A), so sum (Y-B)^2 = sum (Y-S)^2 + sum n_B^2, and with the two halves carrying equal noise (they split the
+    subs in two) sum n_B^2 = sum (A-B)^2 / 2. A blend Y_al = A + al (Y - A) then has
+        error left = [sum (Y_al - B)^2 - sum (A-B)^2 / 2] / [sum (A-B)^2 / 2]
+                   = 1 + (4 al sum (A-B)(Y-A) + 2 al^2 sum (Y-A)^2) / sum (A-B)^2,
+    1.0 for the input, 0 for the truth, and it charges lost signal and noise left alike."""
+    y_bands = detail_bands(lum_out)
+    out = []
+    for k in range(len(DETAIL_BANDS)):
+        d, e = a_bands[k] - b_bands[k], y_bands[k] - a_bands[k]
+        row = []
+        for lvl in range(len(DETAIL_LEVELS) + 1):
+            den, z, n = ref[k][lvl]
+            if n < DETAIL_MIN_PIXELS or z < DETAIL_MIN_Z or den <= 0:
+                row.append(None)
+                continue
+            sel = bins == lvl
+            dd, ee = d[sel].astype(np.float64), e[sel].astype(np.float64)
+            row.append((float((dd * dd).sum()), float((dd * ee).sum()), float((ee * ee).sum())))
+        out.append(row)
+    return out
+
+
+def error_left(terms, al):
+    """error_terms' ratio for the blend at al (1.0 is the model at full strength)."""
+    return [[None if t is None else 1.0 + (4.0 * al * t[1] + 2.0 * al * al * t[2]) / t[0] for t in row] for row in terms]
 
 
 def main():
@@ -369,7 +403,9 @@ def main():
         for lvl, e in enumerate(edges)))
     print(f'  each level shows bands {", ".join(f"{s1:g}-{s2:g} px" for s1, s2 in DETAIL_BANDS)}; star-like peaks masked '
           f'({int((d_bins < 0).sum()):,} px); "-" is a bin under {DETAIL_MIN_PIXELS} px or z {DETAIL_MIN_Z:g}')
-    print(detail_line('gauss1 ref', detail_kept(np.stack([gaussian_filter(x, 1.0) for x in raw_lum]), d_b, d_bins, d_ref)))
+    g1 = np.stack([gaussian_filter(x, 1.0) for x in raw_lum])
+    print(detail_line('gauss1 ref', detail_kept(g1, d_b, d_bins, d_ref)))
+    print(detail_line('gauss1 ref', error_left(error_terms(g1, d_a, d_b, d_bins, d_ref), 1.0), what='error left '))
     print()
 
     alphas = [float(x) for x in a.blend.split(',') if x.strip()]
@@ -436,6 +472,8 @@ def main():
         print(f'{slug:14s} ' + ' '.join(f'{r:>27}' for r in row) + f'{full:>36}')
         kept_full = detail_kept(out.mean(axis=1), d_b, d_bins, d_ref)
         print(detail_line('full', kept_full))
+        err_terms = error_terms(out.mean(axis=1), d_a, d_b, d_bins, d_ref)
+        print(detail_line('full', error_left(err_terms, 1.0), what='error left '))
         # A blend raw + al (out - raw) keeps exactly 1 + al (kept - 1): the numerator is linear in the output.
         # So detail kept at a matched removal needs only the blend factor that reaches it, read off the
         # removal curve above (the same interpolation as the frontier columns).
@@ -450,6 +488,7 @@ def main():
                 print(f'{"":14s} detail kept {f"@{tgt:g}%":>10s}: never reaches {tgt:g} percent removed')
                 continue
             print(detail_line(f'@{tgt:g}%', [[None if v is None else 1.0 + al_at * (v - 1.0) for v in row] for row in kept_full]))
+            print(detail_line(f'@{tgt:g}%', error_left(err_terms, al_at), what='error left '))
         if a.per_session:
             # The pooled "removed" is a mean over cells of several fields, and a model can denoise one
             # field while making another NOISIER (arm X: +4 percent pooled on eval4b, -13 to -25 on
