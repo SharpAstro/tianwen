@@ -1061,7 +1061,9 @@ profile, plate solve and snapshot save all assume linear floats in memory, and a
       rounds each, node in the test's process). Cross-process with the ZWO ASI462MC (`LiveFrameRateProbe`, a real node):
       every frame from a slot and none torn at 640x320, 1920x1080 and 1936x1096, and the client took every frame the node
       published through either carrier, so neither carrier limits this camera: its live frame is capped at display rate
-      (30 a second at 640x320) and its full 2 MP frame came at 8 to 17 a second from the camera itself.
+      (30 a second at 640x320). Its full 2 MP frame came at 8 to 17 a second, which was the capture loop's intake, not
+      the camera's: the camera read out 30 a second at the 16 bits and USB bandwidth 50 a stream then took, and the
+      recentering took the rest (live-planetary-capture.md, "Frame rate at full frame", #1044).
     - **Pinned by** `FrameSlotTests` (bit-exact through a slot, the bytes the socket carries, a slot written again is
       dropped without a copy, a stalled reader never holds the writer, a larger frame makes the section again),
       `NodeFrameStreamTests` (over a node's socket every frame from a slot and bit for bit the frame the node holds; a
