@@ -2,6 +2,20 @@
 
 Status: SHIPPED 2026-06-12 (branch `feat/top-5-todo`). Authored 2026-06-12; all file/line facts verified against main @ `ae85cd8`.
 
+## On-screen controls (added 2026-09-28)
+
+The keys were the only way to scrub, and the strip showed the time with nothing to press, so on a touch
+screen the atlas had no time control at all (reported on the web build). `SkyMapTab.TimeControls.cs` puts
+the controls in the strip beside the time:
+- `-1d -1h -10m` before it and `+10m +1h +1d` after, one press each;
+- the time itself, which opens a drop-up of the planned night's landmarks (Dusk, Midnight, Dawn, Now);
+- **Now**, shown only while scrubbed.
+
+The buttons and the arrow keys go through one `StepTime`, and `0` and Now through one
+`ResetTimeOffset`, so the two routes cannot drift. A landmark is converted to the scrub offset from the
+frame's own base (`PlanningDate` else now), the same derivation as `N`. The info text takes the width
+the controls leave, laid out in one row with them. Pinned by `SkyMapTimeControlsTests`.
+
 ## Implementation notes (as shipped)
 
 - `SkyMapState.TimeOffset` (TimeSpan, default Zero, not persisted) + two pure statics:
