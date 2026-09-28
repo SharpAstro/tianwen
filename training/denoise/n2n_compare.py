@@ -54,6 +54,12 @@ def main():
                     help="scale the estimated half-A planes a --cond-map checkpoint is given, e.g. by the factor "
                          "n2n_starsplit.py --plane-truth-anchor printed for the session (the ORACLE condition); "
                          "1 is the estimate as the product would compute it")
+    ap.add_argument("--input", default="half_a",
+                    help="what the models are given: half_a (default), or subN for sub slot N (0 to 7), ONE calibrated "
+                         "and registered exposure, pre-stretched on its own like any input. A sub's own stretch is not "
+                         "retained and it has no plane of its own, so a --cond-map checkpoint gets the MASTER's plane "
+                         "scaled to the sub's own sky noise (sub minus master over the sky; the master holds the sub "
+                         "at 1/N, which this ignores). An approximation, printed with its factor")
     a = ap.parse_args()
 
     import torch
@@ -84,15 +90,40 @@ def main():
         picked = sorted(rng.choice(val, size=min(a.cells, len(val)), replace=False).tolist())
         print(f"{len(picked)} cells of {len(val)} that carry a pair: {picked}")
 
-    half_a = np.asarray(mm[picked, S.SLOT_HALF_A], dtype=np.float32)
+    if a.input == "half_a":
+        slot, in_label = S.SLOT_HALF_A, "raw half A"
+    elif a.input.startswith("sub") and a.input[3:].isdigit() and int(a.input[3:]) < S.SUBS_PER_CELL:
+        slot, in_label = 1 + int(a.input[3:]), f"raw sub {a.input[3:]}"
+        if not meta.get("has_subs", False):
+            raise SystemExit(f"{a.cache} holds no sub tiles")
+    else:
+        raise SystemExit(f"--input {a.input!r}: half_a or sub0 to sub{S.SUBS_PER_CELL - 1}")
+    src = np.asarray(mm[picked, slot], dtype=np.float32)
     half_b = np.asarray(mm[picked, S.SLOT_HALF_B], dtype=np.float32)
     master = np.asarray(mm[picked, S.SLOT_MASTER], dtype=np.float32)
-    # A --cond-map checkpoint needs half A's per-pixel planes (S.denoise refuses one without them).
+    # A --cond-map checkpoint needs the input's per-pixel planes (S.denoise refuses one without them).
     sig, sig_has = S.open_sigma(a.cache, meta)
-    planes = (np.asarray(sig[picked, S.SLOT_HALF_A], dtype=np.float32)
-              if sig is not None and sig_has[picked, S.SLOT_HALF_A].all() else None)
+    planes = None
+    if sig is not None and slot == S.SLOT_HALF_A and sig_has[picked, slot].all():
+        planes = np.asarray(sig[picked, slot], dtype=np.float32)
+    elif sig is not None and slot != S.SLOT_HALF_A and sig_has[picked, S.SLOT_MASTER].all():
+        # The anchor is read over EVERY kept cell (all of --only's sessions), not just the picked ones: the
+        # brightest cells of a nebula field can hold no sky at all.
+        from scipy.ndimage import gaussian_filter
+        lum_in = S.crop(np.asarray(mm[val, slot], dtype=np.float32)).mean(axis=1)
+        lum_m = S.crop(np.asarray(mm[val, S.SLOT_MASTER], dtype=np.float32)).mean(axis=1)
+        lvl = np.stack([gaussian_filter(t, 2.0) for t in lum_m])
+        sky = (lvl >= 0.15) & (lvl < 0.30)
+        if sky.sum() < 3000:
+            raise SystemExit(f"under 3000 sky pixels in {len(val)} cells, so no sub anchor")
+        d = (lum_in - lum_m)[sky]
+        truth = 1.4826 * float(np.median(np.abs(d - np.median(d))))
+        est = float(np.mean(S.crop(np.asarray(sig[val, S.SLOT_MASTER], dtype=np.float32))[sky])) / S.PLANE_SCALE
+        planes = np.asarray(sig[picked, S.SLOT_MASTER], dtype=np.float32) * (truth / est)
+        print(f"sub plane: the master's scaled x{truth / est:.2f} to the sub's sky noise {truth:.4f} "
+              f"({int(sky.sum())} sky px over {len(val)} cells)")
 
-    columns = [("raw half A", S.crop(half_a))]
+    columns = [(in_label, S.crop(src))]
     for spec in a.models:
         slug, ckpt = spec.split("=", 1)
         # "slug=ckpt.pt@0.6" blends the output back toward the input at 0.6, which is the shipped
@@ -109,12 +140,12 @@ def main():
         if "*" in ckpt:
             ckpt, f_s = ckpt.rsplit("*", 1)
             factor = float(f_s)
-        raw_in = S.crop(half_a)
+        raw_in = S.crop(src)
         path = ckpt if os.path.isabs(ckpt) else os.path.join(a.cache, ckpt)
         cond_map = bool(torch.load(path, map_location="cpu").get("cond_map", False))
         if cond_map and planes is None:
             raise SystemExit(f"{slug} conditions on a per-pixel plane and {a.cache} holds none for these cells")
-        out = S.crop(S.denoise(a.cache, ckpt, half_a, dev,
+        out = S.crop(S.denoise(a.cache, ckpt, src, dev,
                                planes=planes * factor if cond_map else None))
         if cond_map and factor != 1.0:
             slug = f"{slug} plane x{factor:.2f}"
