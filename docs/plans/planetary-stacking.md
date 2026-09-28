@@ -495,6 +495,12 @@ So an AUTO mode should:
 - [`multi-source-previewer.md`](multi-source-previewer.md) - SER playback + `IPreviewSource`; the
   live stack displays through it, and `LiveStackPreviewSource` is the push-stream its follow-up
   note anticipated.
+- [`planetary-restoration.md`](planetary-restoration.md) - the truth and the measurements this
+  stacker's parameters are chosen on (2026-09-28): a Hubble or Cassini map rendered at a capture's
+  geometry and degraded with the capture's own measured seeing, metrics validated against it, the
+  blur measured twice and inverted, and the wavelet gains derived from it. Its R1 and R6 are
+  section E's disk fit and de-rotation (#815); its R4, R5 and R8 give the AUTO mode (#817) the
+  known truth it asks to be judged against.
 
 ## Live-capture drivers and the recenter loop (shipped)
 
