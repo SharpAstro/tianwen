@@ -52,6 +52,14 @@ internal static class SessionTestHelper
     ];
 
     /// <summary>
+    /// The folder a session's files go under: the test's own, and one per session. Every session used to write into one
+    /// folder named after this helper (<see cref="FakeExternal"/>'s caller name), which the unit and functional suites
+    /// share, so with both running a test that counted the lights it wrote read another suite's M42 frame as its own.
+    /// </summary>
+    private static string SessionFolderName() =>
+        System.IO.Path.Combine(TestContext.Current.TestMethod?.MethodName ?? nameof(CreateSessionAsync), Guid.NewGuid().ToString("N")[..8]);
+
+    /// <summary>
     /// Creates a minimal Session with fake devices suitable for Session integration tests.
     /// Camera, focuser, mount, and guider are connected and ready.
     /// </summary>
@@ -77,7 +85,7 @@ internal static class SessionTestHelper
         CancellationToken cancellationToken = default)
     {
         var timeProvider = new FakeTimeProviderWrapper(now ?? new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
-        var external = new FakeExternal(output, timeProvider);
+        var external = new FakeExternal(output, timeProvider, callerName: SessionFolderName());
         if (withCatalogStarField)
         {
             // FakeExternal THROWS from GetCelestialObjectDBAsync unless this is set, and
@@ -232,7 +240,7 @@ internal static class SessionTestHelper
         CancellationToken cancellationToken = default)
     {
         var timeProvider = new FakeTimeProviderWrapper(now ?? new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
-        var external = new FakeExternal(output, timeProvider);
+        var external = new FakeExternal(output, timeProvider, callerName: SessionFolderName());
         var sp = external.BuildServiceProvider();
 
         // OTA 1: OSC camera, no filter wheel (fixed L-Ultimate dual-band)
