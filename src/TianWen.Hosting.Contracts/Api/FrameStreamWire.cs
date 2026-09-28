@@ -47,6 +47,12 @@ public static class FrameStreamWire
     public const string SharedMemory = "shared-memory";
 
     /// <summary>
+    /// The media type of a frame's answer that names its shared-memory slot (<see cref="FrameSlotDto"/>) instead of carrying
+    /// its bytes: what <c>/frames/{source}/latest</c> answers a socket client that asked for the carrier.
+    /// </summary>
+    public const string SlotContentType = "application/x-tianwen-frame-slot+json";
+
+    /// <summary>
     /// Answers an ask with <paramref name="slot"/>, the frame waiting in shared memory: one text message. The frame stays
     /// the node's; the slot is overwritten only by a later answer.
     /// </summary>

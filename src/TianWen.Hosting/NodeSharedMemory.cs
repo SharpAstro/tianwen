@@ -38,6 +38,54 @@ public sealed class NodeSharedMemory
     public FrameSlotWriter CreateWriter() => new FrameSlotWriter(Prefix, UnixDirectory);
 }
 
+/// <summary>
+/// The sections the node serves a source's frames from on request (an OTA's, the guider's, a planetary capture's through
+/// <c>/frames/{source}/latest</c>), one per source, shared by every local client that asks for shared memory (P4b, #932).
+/// A stream's frames go through a section of the stream's own instead (<see cref="NodeSharedMemory.CreateWriter"/>). The
+/// sections live as long as the node, from the first client that asks for a source's frame this way.
+/// </summary>
+public sealed class NodeFrameSlots(NodeSharedMemory sharedMemory) : IDisposable
+{
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Source> _sources =
+        new System.Collections.Concurrent.ConcurrentDictionary<string, Source>(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Writes <paramref name="frame"/>, the source's frame <paramref name="number"/>, into one of the source's two slots and
+    /// answers where it is; a frame a slot holds already is answered from there. The caller keeps the frame, leased.
+    /// </summary>
+    public FrameSlot Write(string source, int number, Image frame)
+    {
+        var held = _sources.GetOrAdd(source, _ => new Source(sharedMemory.CreateWriter()));
+        // Two local clients asking for one source's frame at once would otherwise write the same two slots together. Not
+        // a CAS hand-off: a write moves the slot's generation, its length and its bytes as one. On a request's thread,
+        // never a render thread, and a copy long (milliseconds for a full frame), so a Lock rather than a spin.
+        lock (held.Gate)
+        {
+            ObjectDisposedException.ThrowIf(held.Disposed, this);
+            return held.Writer.Write(number, frame);
+        }
+    }
+
+    public void Dispose()
+    {
+        foreach (var source in _sources.Values)
+        {
+            lock (source.Gate)
+            {
+                source.Disposed = true;
+                source.Writer.Dispose();
+            }
+        }
+    }
+
+    private sealed class Source(FrameSlotWriter writer)
+    {
+        public readonly System.Threading.Lock Gate = new System.Threading.Lock();
+        public readonly FrameSlotWriter Writer = writer;
+        public bool Disposed;
+    }
+}
+
 public static class NodeSharedMemoryServiceCollectionExtensions
 {
     /// <summary>
@@ -49,6 +97,6 @@ public static class NodeSharedMemoryServiceCollectionExtensions
     {
         var sharedMemory = new NodeSharedMemory(held.SocketPath);
         SharedMemorySection.RemoveStale(sharedMemory.Prefix, sharedMemory.UnixDirectory);
-        return services.AddSingleton(sharedMemory);
+        return services.AddSingleton(sharedMemory).AddSingleton<NodeFrameSlots>();
     }
 }
