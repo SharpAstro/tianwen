@@ -169,13 +169,24 @@ public sealed class RollingWindowStacker
                     cancellationToken.ThrowIfCancellationRequested();
                     await AddAsync(i, cancellationToken).ConfigureAwait(false);
                 }
-                for (var i = _windowStart; i < windowStart; i++)
+                var subtracted = true;
+                for (var i = _windowStart; i < windowStart && subtracted; i++)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    await EvictAsync(i, cancellationToken).ConfigureAwait(false);
+                    subtracted = await EvictAsync(i, cancellationToken).ConfigureAwait(false);
                 }
-                _windowStart = windowStart;
-                _windowEnd = f;
+
+                if (subtracted)
+                {
+                    _windowStart = windowStart;
+                    _windowEnd = f;
+                }
+                else
+                {
+                    // A live ring dropped a frame the sum still holds, so the sum can no longer be undone: fold the
+                    // window again from the frames the ring does hold.
+                    await RebuildAsync(windowStart, f, cancellationToken).ConfigureAwait(false);
+                }
             }
         }
         catch (OperationCanceledException)
@@ -265,8 +276,13 @@ public sealed class RollingWindowStacker
             bestIndex = f; // every frame scored <= the seed; fall back to the playhead frame
         }
 
-        // 2. Build the aligner + zeroed accumulators sized to the reference frame.
-        var reference = await _stream.LoadAsync(bestIndex, cancellationToken).ConfigureAwait(false);
+        // 2. Build the aligner + zeroed accumulators sized to the reference frame. A live ring can drop the chosen
+        //    frame between the grading and here; the playhead frame is the newest, so the ring still holds it.
+        if (await _stream.TryLoadAsync(bestIndex, cancellationToken).ConfigureAwait(false) is not { } reference)
+        {
+            bestIndex = f;
+            reference = await _stream.LoadAsync(f, cancellationToken).ConfigureAwait(false);
+        }
         try
         {
             var refRegion = PlanetaryDisk.BoundingBox(reference);
@@ -302,7 +318,8 @@ public sealed class RollingWindowStacker
     }
 
     // Folds frame `index` into the running sum (loads once; grade is cache-aware). A non-positive score is
-    // recorded as a zero contribution so eviction is a no-op but window bookkeeping stays uniform.
+    // recorded as a zero contribution so eviction is a no-op but window bookkeeping stays uniform, and so is a
+    // frame a live ring has already dropped (a stacker that fell behind a fast camera, 92 frames a second).
     private async Task AddAsync(int index, CancellationToken cancellationToken)
     {
         if (_window.ContainsKey(index))
@@ -310,7 +327,11 @@ public sealed class RollingWindowStacker
             return;
         }
 
-        var frame = await _stream.LoadAsync(index, cancellationToken).ConfigureAwait(false);
+        if (await _stream.TryLoadAsync(index, cancellationToken).ConfigureAwait(false) is not { } frame)
+        {
+            _window[index] = default;
+            return;
+        }
         try
         {
             var score = GradeLoaded(index, frame);
@@ -333,15 +354,20 @@ public sealed class RollingWindowStacker
 
     // Removes frame `index` from the window, subtracting exactly what AddAsync folded (same shift, negated
     // weight). AccumulateTranslatedInto is linear in weight, so +w then -w cancels per pixel; the in-bounds
-    // set is identical (same frame, same shift), so it cancels exactly.
-    private async Task EvictAsync(int index, CancellationToken cancellationToken)
+    // set is identical (same frame, same shift), so it cancels exactly. False when the frame carried weight
+    // and a live ring has dropped it since: then what it added cannot be taken back, and the caller rebuilds.
+    private async Task<bool> EvictAsync(int index, CancellationToken cancellationToken)
     {
         if (!_window.Remove(index, out var c) || c.Weight <= 0f)
         {
-            return;
+            return true;
         }
 
-        var frame = await _stream.LoadAsync(index, cancellationToken).ConfigureAwait(false);
+        if (await _stream.TryLoadAsync(index, cancellationToken).ConfigureAwait(false) is not { } frame)
+        {
+            return false;
+        }
+
         try
         {
             var (sum, weight, _) = Accumulators;
@@ -351,10 +377,11 @@ public sealed class RollingWindowStacker
         {
             frame.Release();
         }
+        return true;
     }
 
     // Ensures frame `index` has a cached score, loading + grading it if needed. Used by the rebuild's
-    // reference pick before any folding.
+    // reference pick before any folding. A frame a live ring has dropped scores zero, so it is never picked.
     private async Task<float> EnsureScoreAsync(int index, CancellationToken cancellationToken)
     {
         if (_scoreCache.TryGetValue(index, out var cached))
@@ -362,7 +389,10 @@ public sealed class RollingWindowStacker
             return cached;
         }
 
-        var frame = await _stream.LoadAsync(index, cancellationToken).ConfigureAwait(false);
+        if (await _stream.TryLoadAsync(index, cancellationToken).ConfigureAwait(false) is not { } frame)
+        {
+            return 0f;
+        }
         try
         {
             return GradeLoaded(index, frame);
