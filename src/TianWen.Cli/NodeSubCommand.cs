@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Net;
 using TianWen.Hosting.Dto;
 using TianWen.RemoteClient;
+using TianWen.UI.Abstractions;
 
 namespace TianWen.Cli;
 
@@ -99,9 +100,7 @@ internal class NodeSubCommand(IConsoleHost consoleHost)
             return 1;
         }
 
-        consoleHost.WriteScrollable(access.Shared
-            ? access.Listening ? "Shared on the LAN." : "Shared on the LAN from the node's next start."
-            : access.Listening ? "Not shared: the node stops listening on the LAN at its next start." : "Not shared on the LAN.");
+        consoleHost.WriteScrollable($"{RigSharing.DescribeLan(access)}.");
         if (access.Grants.Length == 0 && access.AppsAllowed.Length == 0 && access.HostsAlwaysAllowed.Length == 0)
         {
             consoleHost.WriteScrollable("Only this computer may command the rig.");
