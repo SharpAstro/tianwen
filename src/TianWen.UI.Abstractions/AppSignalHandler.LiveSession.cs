@@ -253,6 +253,8 @@ namespace TianWen.UI.Abstractions
                         Gain = sig.Gain,
                         RoiWidth = sig.RoiWidth,
                         RoiHeight = sig.RoiHeight,
+                        BitDepth = sig.BitDepth,
+                        HighSpeed = sig.HighSpeed,
                         Recenter = planetaryCapture.Capture.RecenterForStart,
                     };
                     // The watching ends with the app; the node's capture goes on until it is stopped, as a node's runs do.

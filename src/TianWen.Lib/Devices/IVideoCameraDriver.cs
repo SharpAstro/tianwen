@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Imaging;
@@ -7,24 +8,32 @@ using TianWen.Lib.Imaging;
 namespace TianWen.Lib.Devices;
 
 /// <summary>
-/// Options for a live video / streaming capture (planetary lucky-imaging EAA). Kept deliberately small;
-/// vendor-specific knobs (USB bandwidth, high-speed readout) are derived from these or left at the
-/// driver default.
+/// Options for a live video / streaming capture (planetary lucky-imaging EAA), and, handed to
+/// <see cref="IVideoCameraDriver.ApplyVideoControlsAsync"/>, the changes to a running one: there every field left at its
+/// default is left as it is. Kept deliberately small; the USB bandwidth a stream asks for is the driver's (a DAL camera
+/// takes its maximum while it streams).
 /// </summary>
-/// <param name="Exposure">Per-frame exposure. Planetary capture runs very short (ms) exposures at high fps.</param>
+/// <param name="Exposure">Per-frame exposure. Planetary capture runs very short (ms) exposures at high fps; zero leaves a
+/// running stream's as it is.</param>
 /// <param name="Gain">Gain to apply for the stream, or <c>null</c> to leave the current gain unchanged.</param>
 /// <param name="HighSpeedMode">
-/// Request the sensor's high-speed readout mode when supported (ZWO <c>ASI_HIGH_SPEED_MODE</c>, etc.).
-/// Trades a little bit depth for frame rate; on by default for planetary work.
+/// The sensor's high-speed readout (ZWO <c>ASI_HIGH_SPEED_MODE</c>) where the camera has one
+/// (<see cref="ICameraDriver.CanFastReadout"/>): <c>null</c> starts a stream with it ON and leaves a running one's as it
+/// is. It doubles an ASI462MC's full-frame rate in 8 bits and changes nothing in 16 (measured 2026-09-28).
 /// </param>
-public sealed record VideoCaptureOptions(TimeSpan Exposure, short? Gain = null, bool HighSpeedMode = true);
+/// <param name="BitDepth">
+/// The depth the stream reads out in, one of <see cref="IVideoCameraDriver.VideoBitDepths"/>: <c>null</c> starts a stream
+/// in the camera's own depth (what its single exposures use) and leaves a running one's as it is. The stream's depth is
+/// its own, never the camera's setting, so a planetary capture in 8 bits leaves the next deep-sky exposure in 16.
+/// </param>
+public sealed record VideoCaptureOptions(TimeSpan Exposure, short? Gain = null, bool? HighSpeedMode = null, BitDepth? BitDepth = null);
 
 /// <summary>
 /// A camera that can stream frames continuously in <b>video mode</b>, for live planetary lucky-imaging.
-/// This is the single, vendor-neutral capture contract. Canon implements it over FC.SDK Live View, and the
-/// fake camera for tests. Native ZWO and QHY video through the shared <c>DALCameraDriver</c> is planned
-/// (docs/plans/planetary-native-video.md, Phase D) but not built, so every DAL camera is single-frame today;
-/// <c>PlanetaryCaptureController</c> streams a camera without this interface through its own short-exposure loop.
+/// This is the single, vendor-neutral capture contract. Canon implements it over FC.SDK Live View, the shared
+/// <c>DALCameraDriver</c> for a body whose SDK streams (ZWO first, #813, docs/plans/planetary-native-video.md Phase D),
+/// and the fake camera for tests; <c>PlanetaryCapture</c> streams a camera without it through its own short-exposure
+/// loop.
 /// The planetary live-stack pipeline (<c>LiveCameraFrameStream</c> -> <c>RollingWindowStacker</c> ->
 /// the preview) consumes only this interface, blind to vendor.
 /// <para>
@@ -61,6 +70,12 @@ public interface IVideoCameraDriver : ICameraDriver
     int DroppedFrames { get; }
 
     /// <summary>
+    /// The depths this camera can stream in (<see cref="VideoCaptureOptions.BitDepth"/>), shallowest first; empty when a
+    /// stream's depth is the camera's own and cannot be chosen (a Canon's live view).
+    /// </summary>
+    ImmutableArray<BitDepth> VideoBitDepths => [];
+
+    /// <summary>
     /// The current readout window (origin + size, unbinned sensor px) of the running stream -- the live
     /// position <see cref="JogRoiAsync"/> pans. The recenter loop reads this to know how much pan range is
     /// left before an edge (when the window is at the sensor edge it hands off to the mount). A snapshot;
@@ -85,10 +100,10 @@ public interface IVideoCameraDriver : ICameraDriver
     ValueTask JogRoiAsync(int dxPixels, int dyPixels, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Applies new per-frame controls to a <b>running</b> stream without restarting it -- the live-tuning
-    /// path for the planetary tab's exposure / gain steppers (a real planetary capture lets you tweak these
-    /// on the fly). Takes effect from the next frame; <see cref="VideoCaptureOptions.Gain"/> <c>null</c>
-    /// leaves the gain unchanged. The readout-window <b>size</b> is changed through the standard
+    /// Applies new per-frame controls to a <b>running</b> stream: the live-tuning path for the planetary
+    /// tab's exposure / gain steppers and its depth and high-speed switches (a real planetary capture lets you
+    /// tweak these on the fly). Takes effect from the next frame; a field left at its default is left as it is.
+    /// A new depth or readout mode may restart the stream inside the driver, as a new window size does. The readout-window <b>size</b> is changed through the standard
     /// <see cref="ICameraDriver.NumX"/> / <see cref="ICameraDriver.NumY"/> setters, which a streaming driver
     /// re-reads per frame (the consumer resizes its frame stream when the yielded frame dimensions change);
     /// the window <b>position</b> through <see cref="JogRoiAsync"/>. No-op when not streaming.

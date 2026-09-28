@@ -397,8 +397,11 @@ public readonly record struct GotoFocuserSignal(int OtaIndex, int TargetPosition
 /// exposure + a 0x0 (-> clamped 16x16) ROI. As a class, <c>new()</c> runs the primary ctor, so the defaults apply.
 /// </para>
 /// </summary>
+/// <param name="BitDepth">The depth the camera streams in, one of its <see cref="PreviewOTATelemetry.VideoBitDepths"/>; null for its own.</param>
+/// <param name="HighSpeed">Its high-speed readout, where it has one; null for on.</param>
 public sealed record StartVideoCaptureSignal(
-    int OtaIndex = 0, double ExposureMs = 10.0, short? Gain = null, int RoiWidth = 640, int RoiHeight = 320);
+    int OtaIndex = 0, double ExposureMs = 10.0, short? Gain = null, int RoiWidth = 640, int RoiHeight = 320,
+    BitDepth? BitDepth = null, bool? HighSpeed = null);
 
 /// <summary>Stop the live planetary video capture started by <see cref="StartVideoCaptureSignal"/>.</summary>
 public readonly record struct StopVideoCaptureSignal;

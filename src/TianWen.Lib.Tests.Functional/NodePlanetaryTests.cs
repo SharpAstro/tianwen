@@ -144,6 +144,34 @@ public class NodePlanetaryTests(ITestOutputHelper outputHelper)
     }
 
     [Fact(Timeout = 90_000)]
+    public async Task TheDepthAClientAsksForReachesTheFramesAndAControlSwitchesItMidStream()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var node = await PlanetaryNodeAsync(NodeRunWatchOptions.Default.DetachGrace, ct);
+        await node.ActivateRigAsync(Camera, mount: null, ct);
+        var client = ClientOf(node);
+        await using var window = await NodeWindow.OpenAsync(node, outputHelper, ct);
+
+        // The camera's device state says which depths the panel may offer.
+        await UntilAsync("the camera's depths in its device state", async token =>
+        {
+            var camera = (await client.GetDeviceStatesAsync(token)).Value?.FirstOrDefault(d => new Uri(d.DeviceUri).DeviceKey == Camera.DeviceUri.DeviceKey)?.Camera;
+            return (camera?.VideoBitDepths is [BitDepth.Int8, BitDepth.Int16], camera is null ? "no reading" : $"{camera.VideoBitDepths?.Length ?? 0} depths");
+        }, ct);
+
+        (await client.StartPlanetaryAsync(new PlanetaryRequestDto { BitDepth = BitDepth.Int8 }, ct)).IsSuccess.ShouldBeTrue();
+        await UntilStateAsync(client, "8-bit frames", s => s.BitDepth is BitDepth.Int8 && s.Masters > 0, ct);
+        var live = await FrameAsync(client, FrameSources.PlanetaryLive, ct);
+        live.BitDepth.ShouldBe(BitDepth.Int8, "the live frame is the camera's own 8-bit readout");
+        live.Release();
+
+        (await client.SetPlanetaryControlsAsync(new PlanetaryControlsDto { BitDepth = BitDepth.Int16 }, ct)).IsSuccess.ShouldBeTrue();
+        await UntilStateAsync(client, "16-bit frames", s => s.BitDepth is BitDepth.Int16, ct);
+
+        (await client.StopPlanetaryAsync(ct)).IsSuccess.ShouldBeTrue();
+    }
+
+    [Fact(Timeout = 90_000)]
     public async Task ACaptureNobodyWatchesStopsOnceTheGraceIsSpent()
     {
         var ct = TestContext.Current.CancellationToken;

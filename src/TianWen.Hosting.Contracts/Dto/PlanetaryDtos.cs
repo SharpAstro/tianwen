@@ -1,4 +1,5 @@
 using System;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
 
 namespace TianWen.Hosting.Dto;
@@ -32,20 +33,30 @@ public sealed class PlanetaryRequestDto
     // absent, dropping the initializer below (CLAUDE.md, Hosting API: the wire traps).
     public int RoiHeight { get; set; } = 320;
 
+    /// <summary>
+    /// The depth the camera streams in, one of its device state's <see cref="CameraDeviceStateDto.VideoBitDepths"/>; null
+    /// for the camera's own. A camera that cannot stream in it keeps its own, which <see cref="PlanetaryStateDto.BitDepth"/>
+    /// reports.
+    /// </summary>
+    public BitDepth? BitDepth { get; init; }
+
+    /// <summary>The camera's high-speed readout, where it has one (<see cref="CameraDeviceStateDto.CanFastReadout"/>); null for on.</summary>
+    public bool? HighSpeed { get; init; }
+
     /// <summary>The recenter, as it starts; null starts it on its defaults (<see cref="PlanetaryRecenterDto"/>).</summary>
     public PlanetaryRecenterDto? Recenter { get; init; }
 }
 
 /// <summary>
 /// The centre-of-mass recenter's settings (<see cref="PlanetaryCapture.ConfigureRecenter"/>), given WHOLE: a field left
-/// out takes its default, never the value it had. The defaults are the GUI's: auto-recenter ON through the readout
-/// window, the mount nudge OFF, since its sign is uncalibrated.
+/// out takes its default, never the value it had. The defaults are the GUI's: the recenter and the mount nudge both OFF.
+/// Recentering is opt-in (the user, 2026-09-28): the operator starts it once the rig is ready for it. It also costs the
+/// capture loop about 20 ms a frame at full frame, which took an ASI462MC's capture from 31.9 frames a second to 20.
 /// </summary>
 public sealed class PlanetaryRecenterDto
 {
-    // set, not init: the JSON source generator gives an init-only property its TYPE'S default when the field is
-    // absent, dropping the initializer below (CLAUDE.md, Hosting API: the wire traps).
-    public bool Auto { get; set; } = true;
+    /// <summary>Recenter the disk by panning the readout window.</summary>
+    public bool Auto { get; init; }
 
     /// <summary>Allow the coarse mount nudge when the window is at the sensor's edge.</summary>
     public bool MountJog { get; init; }
@@ -86,6 +97,12 @@ public sealed class PlanetaryControlsDto
 
     /// <summary>The recenter's settings, replaced whole.</summary>
     public PlanetaryRecenterDto? Recenter { get; init; }
+
+    /// <summary>A new depth to stream in (<see cref="PlanetaryRequestDto.BitDepth"/>): the camera restarts its stream in it.</summary>
+    public BitDepth? BitDepth { get; init; }
+
+    /// <summary>Switches the camera's high-speed readout (<see cref="PlanetaryRequestDto.HighSpeed"/>).</summary>
+    public bool? HighSpeed { get; init; }
 }
 
 /// <summary>
@@ -113,6 +130,9 @@ public sealed class PlanetaryStateDto
 
     /// <summary>The camera's measured rate; null until it can be measured.</summary>
     public double? FramesPerSecond { get; init; }
+
+    /// <summary>The depth the newest frame came in; null before the first.</summary>
+    public BitDepth? BitDepth { get; init; }
 
     /// <summary>Masters the node has stacked so far.</summary>
     public int Masters { get; init; }

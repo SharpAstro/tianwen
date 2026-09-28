@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -28,6 +30,11 @@ namespace TianWen.Lib.Devices.DAL;
 /// body's window with its settings before every exposure.</para>
 /// <para><b>A disconnect stops the stream first</b>, and waits for its thread to leave the SDK: closing the body under a
 /// frame call is the one thing a stream must never see.</para>
+/// <para><b>A stream's depth, readout mode and USB bandwidth are its own.</b> It reads out in the depth it was asked for
+/// (<see cref="VideoCaptureOptions.BitDepth"/>, else the camera's), with the high-speed readout on unless asked otherwise,
+/// and takes the body's whole USB bandwidth while it runs, giving back what it found when it ends. The raw SDK measured
+/// the difference on an ASI462MC at full frame (2026-09-28): 136 frames a second in 8 bits at bandwidth 100 with the
+/// high-speed readout, 31.9 in 16 bits at the 50 a connect sets.</para>
 /// </remarks>
 internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCameraDriver
 {
@@ -59,6 +66,9 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
     private int _stagedVideoGain = -1;
     private int _stagedJogX;
     private int _stagedJogY;
+    // 0 and -1 are "nothing staged": a depth is staged as its BitDepth value, the readout mode as 0 or 1.
+    private int _stagedVideoBitDepth;
+    private int _stagedHighSpeed = -1;
 
     private readonly PlaneRecycler _videoPlanes = new PlaneRecycler("DALCameraDriver.Video");
 
@@ -70,6 +80,11 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
 
     /// <inheritdoc/>
     public bool CanJogRoi => Volatile.Read(ref _videoActive) == 1 && _deviceInfo.CanPanRoiWhileStreaming;
+
+    /// <inheritdoc/>
+    public ImmutableArray<BitDepth> VideoBitDepths => Connected && _deviceInfo.CanVideoCapture
+        ? [.. _supportedBitDepth.Where(depth => depth.IsIntegral).OrderBy(depth => depth.BitSize)]
+        : [];
 
     /// <inheritdoc/>
     public int DroppedFrames => Volatile.Read(ref _videoActive) == 1 ? Volatile.Read(ref _videoDroppedFrames) : 0;
@@ -148,6 +163,8 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
         Interlocked.Exchange(ref _stagedVideoGain, -1);
         Interlocked.Exchange(ref _stagedJogX, 0);
         Interlocked.Exchange(ref _stagedJogY, 0);
+        Interlocked.Exchange(ref _stagedVideoBitDepth, 0);
+        Interlocked.Exchange(ref _stagedHighSpeed, -1);
         Interlocked.Exchange(ref _videoFramesRead, 0);
         Interlocked.Exchange(ref _videoFramesReplaced, 0);
         var threadStarted = false;
@@ -233,6 +250,14 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
         {
             Interlocked.Exchange(ref _stagedVideoGain, gain);
         }
+        if (controls.BitDepth is { } bitDepth)
+        {
+            Interlocked.Exchange(ref _stagedVideoBitDepth, (int)bitDepth);
+        }
+        if (controls.HighSpeedMode is { } highSpeedMode)
+        {
+            Interlocked.Exchange(ref _stagedHighSpeed, highSpeedMode ? 1 : 0);
+        }
         return ValueTask.CompletedTask;
     }
 
@@ -258,11 +283,12 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
         var bufferSize = 0;
         var streaming = false;
         var highSpeed = _deviceInfo.TryGetControlRange(CMOSControlType.HighSpeedMode, out _, out _);
+        int? bandwidthFound = null;
         Exception? failure = null;
         var streamStart = TimeProvider.GetTimestamp();
         try
         {
-            var bitDepth = _cameraSettings.BitDepth;
+            var bitDepth = StreamDepth(options.BitDepth);
             var exposure = options.Exposure;
             SetVideoControl(CMOSControlType.Exposure, ExposureControlValue(exposure), "set the exposure");
             if (options.Gain is { } startGain)
@@ -271,8 +297,9 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
             }
             if (highSpeed)
             {
-                SetVideoControl(CMOSControlType.HighSpeedMode, options.HighSpeedMode ? 1 : 0, "set the high-speed readout");
+                SetVideoControl(CMOSControlType.HighSpeedMode, options.HighSpeedMode ?? true ? 1 : 0, "set the high-speed readout");
             }
+            bandwidthFound = TakeWholeBandwidth();
             var gain = CurrentGain();
 
             var constraints = RoiConstraints;
@@ -302,11 +329,19 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
                     gain = CurrentGain();
                 }
 
-                // A new size needs the stream stopped on every body; the origin is kept where it fits.
-                if (constraints.SnapWidth(NumX) != window.Width || constraints.SnapHeight(NumY) != window.Height)
+                // A new size, depth or readout mode needs the stream stopped on every body; the origin is kept where it
+                // fits.
+                var depth = Interlocked.Exchange(ref _stagedVideoBitDepth, 0) is var stagedDepth and not 0 ? StreamDepth((BitDepth)stagedDepth) : bitDepth;
+                var mode = highSpeed ? Interlocked.Exchange(ref _stagedHighSpeed, -1) : -1;
+                if (constraints.SnapWidth(NumX) != window.Width || constraints.SnapHeight(NumY) != window.Height || depth != bitDepth || mode >= 0)
                 {
-                    Check(_deviceInfo.StopVideoCapture(), "stop the video stream to resize it");
+                    Check(_deviceInfo.StopVideoCapture(), "stop the video stream to change it");
                     streaming = false;
+                    if (mode >= 0)
+                    {
+                        SetVideoControl(CMOSControlType.HighSpeedMode, mode, "set the high-speed readout");
+                    }
+                    bitDepth = depth;
                     window = constraints.Snap(window with { Width = NumX, Height = NumY });
                     SetVideoWindow(window, bitDepth, resize: true);
                     if (FrameBytes(window, bitDepth) is var needed && needed > bufferSize)
@@ -316,9 +351,11 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
                         bufferSize = needed;
                         buffer = Marshal.AllocCoTaskMem(bufferSize);
                     }
-                    Check(_deviceInfo.StartVideoCapture(), "restart the video stream at its new size");
+                    Check(_deviceInfo.StartVideoCapture(), "restart the video stream");
                     streaming = true;
                     Volatile.Write(ref _videoWindow, new StrongBox<RoiRect>(window));
+                    Logger.LogInformation("{Camera} streaming video again: {Width}x{Height} at ({X}, {Y}), {Depth}", Name, window.Width, window.Height,
+                        window.X, window.Y, bitDepth);
                 }
 
                 var dx = Interlocked.Exchange(ref _stagedJogX, 0);
@@ -366,6 +403,10 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
                 // Back to what the camera's settings ask of a single exposure.
                 _ = _deviceInfo.SetControlValue(CMOSControlType.HighSpeedMode, Convert.ToInt32(_cameraSettings.FastReadout));
             }
+            if (bandwidthFound is { } bandwidth)
+            {
+                _ = _deviceInfo.SetControlValue(CMOSControlType.BandwidthOverload, bandwidth);
+            }
             Volatile.Write(ref _videoWindow, null);
             if (buffer != 0)
             {
@@ -389,6 +430,29 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
             frames.TryComplete(failure);
             ended.TrySetResult();
         }
+    }
+
+    /// <summary>The depth a stream asked for <paramref name="asked"/> reads out in: that one where the camera has it, else the camera's own.</summary>
+    private BitDepth StreamDepth(BitDepth? asked)
+        => asked is { } depth && depth.IsIntegral && _supportedBitDepth.Contains(depth) ? depth : _cameraSettings.BitDepth;
+
+    /// <summary>
+    /// Gives the stream the body's whole USB bandwidth, where it has the control, and answers what it was so the stream
+    /// gives it back as it ends; null when there is nothing to give back. A body that refuses streams on at what it had.
+    /// </summary>
+    private int? TakeWholeBandwidth()
+    {
+        if (!_deviceInfo.TryGetControlRange(CMOSControlType.BandwidthOverload, out _, out var most)
+            || _deviceInfo.GetControlValue(CMOSControlType.BandwidthOverload, out var found, out _) is not CMOSErrorCode.Success)
+        {
+            return null;
+        }
+        if (_deviceInfo.SetControlValue(CMOSControlType.BandwidthOverload, most) is var set and not CMOSErrorCode.Success)
+        {
+            Logger.LogWarning("{Camera} would not take USB bandwidth {Bandwidth} for its stream: {Code}", Name, most, set);
+            return null;
+        }
+        return found;
     }
 
     /// <summary>Sets the body's window: its size and format too when <paramref name="resize"/>, which needs the stream stopped.</summary>
@@ -449,7 +513,7 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
             SWCreator: External.SWCreator,
             Aperture: Aperture ?? -1,
             SensorModel: SensorModelName ?? "",
-            SensorFullScaleAdu: ICameraDriver.DeclarableFullScale(MaxADU, bitDepth),
+            SensorFullScaleAdu: ICameraDriver.DeclarableFullScale(MaxAduFor(bitDepth), bitDepth),
             SiteElevation: (float)(SiteElevation ?? double.NaN))
         {
             FrameSequence = Interlocked.Increment(ref _frameSequence),
