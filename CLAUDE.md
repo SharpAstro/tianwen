@@ -29,7 +29,7 @@ issue (`gh issue create --label area:...`). A plan keeps the design and the *why
 - The plan names the issue at that section.
 - A bold-lead paragraph cannot be linked, so give it a heading first.
 - A plan's open item with no issue is untracked work, whatever its status table says.
-- A plan with open work has a **milestone** of the same name, holding its issues. A new issue joins its plan's milestone, and **a PR carries the milestone of the plan it advances** (`gh pr create --milestone <plan>`). `tools/plan-issue-report.py` (the `plan-report` skill) checks all of it.
+- A plan with open work has a **milestone** of the same name, holding its issues. A new issue joins its plan's milestone, and **a PR carries the milestone of the plan it advances** (`gh pr create --milestone <plan>`). `tools/plan-issue-report.py` (the `plan-report` skill) checks all of it, and the `plan-report` workflow runs it `--strict` on every PR touching `docs/plans/` and weekly, so a renamed heading cannot leave an issue's link dead. What is happening is the repository's shared issue views and the Milestones page, not a generated report.
 
 Canonical project state otherwise lives in these markdown files; read the relevant ones before starting
 non-trivial work:
@@ -69,7 +69,7 @@ Available in `.claude/skills/<name>/SKILL.md`: auto-invocable when the request m
 | `digitize-filter` | Digitise a vendor filter chart into `FilterCurveDatabase` (three chart families, the validation gates, the matcher re-check) |
 | `curate-session` | File a capture session into `Astro-Organized` so a bake can use it: the four archive tiers, backfilling a filter identity by measurement, checking a calibration set against the pixels, and what to stop and report rather than guess |
 | `dataset-gallery` | Build a browsable gallery of a bake's session masters (enhanced beside raw) and publish it as an Artifact |
-| `plan-report` | Check docs/plans against the issues and the per-plan milestones (`tools/plan-issue-report.py`, no model involved) and publish the report as an Artifact |
+| `plan-report` | Check docs/plans against the issues and the per-plan milestones (`tools/plan-issue-report.py`, no model involved; also the `plan-report` CI workflow) |
 | `tick-todo` | Close a backlog ISSUE (preferably through its PR) and update CLAUDE.md, the plan files and memory |
 
 ## Project Overview

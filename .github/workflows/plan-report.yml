@@ -1,0 +1,48 @@
+# Checks that docs/plans, the GitHub issues and the per-plan milestones agree (tools/plan-issue-report.py,
+# no model involved): an issue linking a plan section that no longer exists, a closed milestone still
+# holding open issues, a plan with open issues and no milestone. ERRORs fail the job; WARNs only show in
+# the job summary. What each finding means: .claude/skills/plan-report/SKILL.md.
+#
+# On a PR that touches the plans, so a heading renamed there cannot leave an issue's link dead (eight were,
+# on 2026-09-28, each from a heading that carried a status or a date which then changed). Weekly, because
+# the other half of the check lives in issues and milestones, which change with no PR at all.
+name: plan-report
+
+on:
+  pull_request:
+    paths:
+      - 'docs/plans/**'
+      - 'tools/plan-issue-report.py'
+      - '.github/workflows/plan-report.yml'
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  plan-report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check plans against issues and milestones
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/plan-issue-report.py --html plan-report.html --json plan-report.json --markdown plan-report.md --strict
+
+      - name: Job summary
+        if: always()
+        run: if [ -f plan-report.md ]; then cat plan-report.md >> "$GITHUB_STEP_SUMMARY"; fi
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: plan-report
+          path: |
+            plan-report.html
+            plan-report.json
+          if-no-files-found: ignore
