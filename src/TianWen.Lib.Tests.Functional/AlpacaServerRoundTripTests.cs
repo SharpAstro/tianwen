@@ -55,6 +55,7 @@ namespace TianWen.Lib.Tests.Functional
             builder.Services.AddDevices();
             builder.Services.AddProfiles();
             builder.Services.AddSessionFactory();
+            builder.Services.AddSingleton<LAN.Lib.IHostNameResolver>(NodeAccessForTests.NoHostNames.Instance);
             builder.Services.AddHostedSession();
 
             _app = builder.Build();
@@ -64,7 +65,11 @@ namespace TianWen.Lib.Tests.Functional
             await _app.StartAsync(TestContext.Current.CancellationToken);
 
             _baseUrl = _app.Urls.First();
+            // Over TCP a node refuses a command without a grant, and another application's unless allowed (P6b, #1021):
+            // the test's clients are both.
+            var grant = await NodeAccessForTests.TrustTheTestAsync(_app, TestContext.Current.CancellationToken);
             _client = new HttpClient { BaseAddress = new Uri(_baseUrl) };
+            _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", grant.Token);
             _hub = _app.Services.GetRequiredService<IDeviceHub>();
 
             _mountUri = new Uri("Mount://FakeDevice/FakeMount1?latitude=48.2&longitude=16.3");

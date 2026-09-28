@@ -214,6 +214,72 @@ namespace TianWen.RemoteClient
             SendAsync(HttpMethod.Delete, "api/v1/node/recovery", content: null, HostingJsonContext.Default.ResponseEnvelopeString,
                 _timeouts.Control, cancellationToken);
 
+        /// <summary>
+        /// <c>PUT /node/share</c>: turns "Share this rig on the LAN" on or off, from this machine or a client granted control
+        /// (decisions 3 and 13 of docs/plans/hardware-in-the-server.md).
+        /// </summary>
+        public Task<NodeResult<NodeShareDto>> SetShareAsync(bool shared, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Put, "api/v1/node/share", new NodeShareRequest { Shared = shared },
+                HostingJsonContext.Default.NodeShareRequest, HostingJsonContext.Default.ResponseEnvelopeNodeShareDto, _timeouts.Control, cancellationToken);
+
+        // ---------------------------------------------------------------------------------
+        // Control over the LAN (P6b, decision 13, #1021)
+        // ---------------------------------------------------------------------------------
+
+        /// <summary>
+        /// <c>POST /node/control/requests</c>: asks the rig's machine for control, as <paramref name="label"/>. A 202 carries
+        /// the request's id and the secret to poll it with (<see cref="PollControlRequestAsync"/>); a 409 says another request
+        /// is being answered.
+        /// </summary>
+        public Task<NodeResult<ControlRequestTicketDto>> RequestControlAsync(string label, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/node/control/requests", new ControlRequestDto { Label = label },
+                HostingJsonContext.Default.ControlRequestDto, HostingJsonContext.Default.ResponseEnvelopeControlRequestTicketDto, _timeouts.Control, cancellationToken);
+
+        /// <summary>
+        /// <c>POST /node/control/requests/{id}/poll</c>: where the request stands, which also keeps it alive; poll it every
+        /// <see cref="NodeWire.ControlRequestPollInterval"/>. Once granted, the first answer after carries the token.
+        /// </summary>
+        public Task<NodeResult<ControlRequestOutcomeDto>> PollControlRequestAsync(ControlRequestTicketDto ticket, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, $"api/v1/node/control/requests/{Uri.EscapeDataString(ticket.Id)}/poll", new ControlRequestPollDto { Secret = ticket.Secret },
+                HostingJsonContext.Default.ControlRequestPollDto, HostingJsonContext.Default.ResponseEnvelopeControlRequestOutcomeDto, _timeouts.Control, cancellationToken);
+
+        /// <summary><c>POST /node/control/requests/{id}/answer</c>: allows or declines a request, from the rig's machine or a client granted control.</summary>
+        public Task<NodeResult<string>> AnswerControlRequestAsync(string id, bool allow, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, $"api/v1/node/control/requests/{Uri.EscapeDataString(id)}/answer", new ControlAnswerDto { Allow = allow },
+                HostingJsonContext.Default.ControlAnswerDto, HostingJsonContext.Default.ResponseEnvelopeString, _timeouts.Control, cancellationToken);
+
+        /// <summary><c>GET /node/access</c>: who may command the node and who was refused, for the Sharing panel.</summary>
+        public Task<NodeResult<NodeAccessDto>> GetAccessAsync(CancellationToken cancellationToken) =>
+            GetAsync("api/v1/node/access", HostingJsonContext.Default.ResponseEnvelopeNodeAccessDto, _timeouts.StatePoll, cancellationToken);
+
+        /// <summary><c>DELETE /node/access/grants/{id}</c>: revokes a grant; its holder is refused from its next command on.</summary>
+        public Task<NodeResult<string>> RevokeGrantAsync(string id, CancellationToken cancellationToken) =>
+            SendAsync(HttpMethod.Delete, $"api/v1/node/access/grants/{Uri.EscapeDataString(id)}", content: null,
+                HostingJsonContext.Default.ResponseEnvelopeString, _timeouts.Control, cancellationToken);
+
+        /// <summary>
+        /// <c>POST /node/access/apps</c>: lets another application at <paramref name="address"/> command, until the node
+        /// restarts, and with <paramref name="always"/> by its host name from then on too.
+        /// </summary>
+        public Task<NodeResult<string>> AllowAppAsync(string address, bool always, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/node/access/apps", new AppAllowDto { Address = address, Always = always },
+                HostingJsonContext.Default.AppAllowDto, HostingJsonContext.Default.ResponseEnvelopeString, _timeouts.Control, cancellationToken);
+
+        /// <summary><c>DELETE /node/access/apps/{address}</c>: ends an address's allowance until restart.</summary>
+        public Task<NodeResult<string>> RevokeAppAsync(string address, CancellationToken cancellationToken) =>
+            SendAsync(HttpMethod.Delete, $"api/v1/node/access/apps/{Uri.EscapeDataString(address)}", content: null,
+                HostingJsonContext.Default.ResponseEnvelopeString, _timeouts.Control, cancellationToken);
+
+        /// <summary><c>DELETE /node/access/hosts/{host}</c>: forgets a host as always allowed.</summary>
+        public Task<NodeResult<string>> RevokeHostAsync(string host, CancellationToken cancellationToken) =>
+            SendAsync(HttpMethod.Delete, $"api/v1/node/access/hosts/{Uri.EscapeDataString(host)}", content: null,
+                HostingJsonContext.Default.ResponseEnvelopeString, _timeouts.Control, cancellationToken);
+
+        /// <summary><c>DELETE /node/access/refused/{address}</c>: ignores an application's refused command; its next refusal records it again.</summary>
+        public Task<NodeResult<string>> IgnoreRefusedAppAsync(string address, CancellationToken cancellationToken) =>
+            SendAsync(HttpMethod.Delete, $"api/v1/node/access/refused/{Uri.EscapeDataString(address)}", content: null,
+                HostingJsonContext.Default.ResponseEnvelopeString, _timeouts.Control, cancellationToken);
+
         // ---------------------------------------------------------------------------------
         // Session
         // ---------------------------------------------------------------------------------

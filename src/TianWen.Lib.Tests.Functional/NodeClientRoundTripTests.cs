@@ -62,6 +62,7 @@ public class NodeClientRoundTripTests(ITestOutputHelper outputHelper) : IAsyncLi
         builder.Services.AddDevices();
         builder.Services.AddProfiles();
         builder.Services.AddSessionFactory();
+        builder.Services.AddSingleton<LAN.Lib.IHostNameResolver>(NodeAccessForTests.NoHostNames.Instance);
         builder.Services.AddHostedSession();
 
         _app = builder.Build();
@@ -70,7 +71,10 @@ public class NodeClientRoundTripTests(ITestOutputHelper outputHelper) : IAsyncLi
 
         await _app.StartAsync(TestContext.Current.CancellationToken);
 
+        // Over TCP a node refuses a command without a grant (P6b, #1021): the test's client holds one.
+        var grant = await NodeAccessForTests.TrustTheTestAsync(_app, TestContext.Current.CancellationToken);
         _http = new HttpClient { BaseAddress = new Uri(_app.Urls.First()) };
+        _http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", grant.Token);
         _client = new TianWenNodeClient(_http);
     }
 

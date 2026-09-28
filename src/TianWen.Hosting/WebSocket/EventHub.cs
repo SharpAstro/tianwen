@@ -73,21 +73,28 @@ internal sealed class EventHub
     /// that draws it, so one that stops drawing stops counting within a few seconds, and the prompt gets the
     /// session's unattended answer as if nobody were attached.
     /// </remarks>
-    public int PresentClientCount
+    public int PresentClientCount => CountPresent(answering: false);
+
+    /// <summary>
+    /// The clients present that could ANSWER a prompt: present (<see cref="PresentClientCount"/>) and able to command the
+    /// node, a client of this machine or one granted control (P6b of docs/plans/hardware-in-the-server.md, #1021). A
+    /// prompt waits only for one of these: a watcher over TCP without a grant sees it and can answer nothing, and
+    /// counted, it would hold the prompt, and the night, for an answer that cannot come.
+    /// </summary>
+    public int AnsweringClientCount => CountPresent(answering: true);
+
+    private int CountPresent(bool answering)
     {
-        get
+        var now = _timeProvider.GetUtcNow().UtcTicks;
+        var count = 0;
+        foreach (var (_, client) in _clients)
         {
-            var now = _timeProvider.GetUtcNow().UtcTicks;
-            var count = 0;
-            foreach (var (_, client) in _clients)
+            if (!client.NinaV2 && now - client.LastBeatTicks <= NodeWire.PresenceLapse.Ticks && (!answering || client.MayCommand()))
             {
-                if (!client.NinaV2 && now - client.LastBeatTicks <= NodeWire.PresenceLapse.Ticks)
-                {
-                    count++;
-                }
+                count++;
             }
-            return count;
         }
+        return count;
     }
 
     /// <summary>Records a presence beat from client <paramref name="id"/> (<see cref="NodeWire.PresenceBeat"/>).</summary>
@@ -100,17 +107,18 @@ internal sealed class EventHub
     }
 
     /// <summary>
-    /// The TianWen clients attached (<c>GET /api/v1/node</c>'s <c>ClientsAttached</c>): every socket but the
-    /// ninaAPI ones, which are other applications watching.
+    /// The TianWen clients attached that can command the node (<c>GET /api/v1/node</c>'s <c>ClientsAttached</c>): a client
+    /// of this machine, or one granted control (P6b, #1021). Only the last of these asks before its window closes; a
+    /// watcher cannot stop the rig anyway, and a ninaAPI socket is another application watching.
     /// </summary>
-    public int NativeClientCount
+    public int CommandingClientCount
     {
         get
         {
             var count = 0;
             foreach (var (_, client) in _clients)
             {
-                if (!client.NinaV2)
+                if (!client.NinaV2 && client.MayCommand())
                 {
                     count++;
                 }
@@ -119,11 +127,15 @@ internal sealed class EventHub
         }
     }
 
-    /// <summary>Registers a connected socket and starts its sender. The caller removes it when the socket closes.</summary>
-    public string AddClient(System.Net.WebSockets.WebSocket socket, bool ninaV2 = false)
+    /// <summary>
+    /// Registers a connected socket and starts its sender. The caller removes it when the socket closes.
+    /// <paramref name="mayCommand"/> says whether its client may command the node, asked at every count; a host that does
+    /// not say is taken to be this machine's.
+    /// </summary>
+    public string AddClient(System.Net.WebSockets.WebSocket socket, bool ninaV2 = false, Func<bool>? mayCommand = null)
     {
         var id = Guid.NewGuid().ToString("N");
-        var client = new EventClient(socket, ninaV2, _queueCapacity);
+        var client = new EventClient(socket, ninaV2, _queueCapacity, mayCommand ?? (static () => true));
         _clients[id] = client;
         _ = Task.Run(() => SendQueuedAsync(id, client), CancellationToken.None);
         return id;
@@ -223,8 +235,11 @@ internal sealed class EventHub
         client.Socket.Abort();
     }
 
-    private sealed class EventClient(System.Net.WebSockets.WebSocket socket, bool ninaV2, int queueCapacity)
+    private sealed class EventClient(System.Net.WebSockets.WebSocket socket, bool ninaV2, int queueCapacity, Func<bool> mayCommand)
     {
+        /// <summary>Whether the client may command the node now: its grant, if it came with one, still held.</summary>
+        public Func<bool> MayCommand { get; } = mayCommand;
+
         // Never disposed: it has no timer, so there is nothing for Dispose to release, and a send that reads
         // the token after a dispose would throw rather than end.
         private readonly CancellationTokenSource _stopping = new CancellationTokenSource();

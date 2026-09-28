@@ -835,10 +835,13 @@ its activity. If it lands, it wants gating in the same family as the lease.
 
 ### Auth / TLS
 
-Unchanged posture, stated once here so it is not mistaken for an omission: the server binds
-`0.0.0.0` plain HTTP with no auth, LAN-trust, and **every mutating endpoint was already
-unauthenticated before this plan** -- discovery makes nodes findable, not more privileged.
-Hardening is a separate plan that applies to the server as a whole.
+The posture this plan shipped with: the server binds `0.0.0.0` plain HTTP with no auth, LAN-trust, and **every
+mutating endpoint was already unauthenticated before this plan**, so discovery made nodes findable, not more
+privileged. **P6b of [hardware-in-the-server.md](hardware-in-the-server.md) (decision 13, #1021) changed the second
+half**: over TCP a client sees freely and commands only once the rig's machine has granted it control, and another
+application only from an address or host name the rig's owner allowed
+([../architecture/hosting-api.md](../architecture/hosting-api.md), "Who may command the node over TCP"). It is still
+plain HTTP, so TLS remains a separate plan for the server as a whole.
 
 One thing to be explicit about: **the device lease is coordination, not a security boundary.** It
 stops a second *well-behaved* client from stealing a rig mid-night; it does not stop anyone on the
@@ -911,12 +914,11 @@ Linux mini PCs (a plausible headless rig target) need the UFW/iptables/firewalld
 yet scripted anywhere. **Deferred:** a firewall-rule check/setup step in `release-tianwen` or a
 first-run helper -- not done as part of P1, noted here so it isn't lost.
 
-## Security (unchanged posture, stated once)
+## Security
 
-The server binds `0.0.0.0:1888` plain HTTP with no auth -- LAN-trust, as today. Discovery makes
-nodes *findable*, not more privileged: every mutating endpoint already exists unauthenticated.
-Any future hardening (shared token, TLS, bind-address config) is a separate plan and applies to
-the server as a whole, not to this feature.
+The server binds `0.0.0.0:1888` plain HTTP. Discovery makes nodes *findable*, not more privileged. Since P6b of
+[hardware-in-the-server.md](hardware-in-the-server.md) (#1021) a command over TCP needs control the rig's machine
+granted (see "Auth / TLS" above); TLS and a bind-address setting remain a separate plan for the server as a whole.
 
 ## Open questions
 

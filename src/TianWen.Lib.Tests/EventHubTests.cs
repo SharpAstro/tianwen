@@ -78,10 +78,32 @@ public class EventHubTests
 
         clock.Advance(TimeSpan.FromSeconds(1));
         hub.PresentClientCount.ShouldBe(0, "its window stopped drawing, though its socket is still open");
-        hub.NativeClientCount.ShouldBe(1, "it is still attached");
+        hub.CommandingClientCount.ShouldBe(1, "it is still attached");
 
         hub.RecordBeat(client);
         hub.PresentClientCount.ShouldBe(1, "it drew again");
+    }
+
+    [Fact]
+    public void AWatcherThatMayNotCommandIsPresentButNeitherAnswersAPromptNorIsTheLastClient()
+    {
+        // P6b of docs/plans/hardware-in-the-server.md (#1021): a client over TCP without a grant sees everything and can
+        // answer nothing, so counted for a prompt it would hold one for an answer that cannot come.
+        var hub = new EventHub(queueCapacity: 4, sendTimeout: TimeSpan.FromMinutes(5), new FakeTimeProviderWrapper());
+        var granted = true;
+        var watcher = hub.AddClient(Recording(new ConcurrentQueue<string>()), mayCommand: static () => false);
+        var laptop = hub.AddClient(Recording(new ConcurrentQueue<string>()), mayCommand: () => granted);
+        hub.RecordBeat(watcher);
+        hub.RecordBeat(laptop);
+
+        hub.PresentClientCount.ShouldBe(2, "both are watching, which keeps an interactive run going");
+        hub.AnsweringClientCount.ShouldBe(1, "only the granted one can answer a prompt");
+        hub.CommandingClientCount.ShouldBe(1, "only the granted one is asked before its window closes");
+
+        granted = false;
+        hub.AnsweringClientCount.ShouldBe(0, "a revoked grant stops counting at once, its socket still open");
+        hub.CommandingClientCount.ShouldBe(0);
+        hub.PresentClientCount.ShouldBe(2);
     }
 
     [Fact]

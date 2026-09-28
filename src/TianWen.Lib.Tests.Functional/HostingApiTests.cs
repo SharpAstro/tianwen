@@ -46,6 +46,7 @@ public class HostingApiTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         builder.Services.AddDevices();
         builder.Services.AddProfiles();
         builder.Services.AddSessionFactory();
+        builder.Services.AddSingleton<LAN.Lib.IHostNameResolver>(NodeAccessForTests.NoHostNames.Instance);
         builder.Services.AddHostedSession();
 
         _app = builder.Build();
@@ -55,7 +56,10 @@ public class HostingApiTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         await _app.StartAsync(TestContext.Current.CancellationToken);
 
         var baseUrl = _app.Urls.First();
+        // Over TCP a node refuses a command without a grant (P6b, #1021): the test's client holds one.
+        var grant = await NodeAccessForTests.TrustTheTestAsync(_app, TestContext.Current.CancellationToken);
         _client = new HttpClient { BaseAddress = new Uri(baseUrl) };
+        _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", grant.Token);
     }
 
     public async ValueTask DisposeAsync()

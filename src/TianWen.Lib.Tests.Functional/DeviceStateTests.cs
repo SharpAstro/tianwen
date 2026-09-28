@@ -110,9 +110,7 @@ public class DeviceStateTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         var ct = TestContext.Current.CancellationToken;
         var device = new FakeDevice(DeviceType.Focuser, 1);
         var pushed = new System.Collections.Concurrent.ConcurrentQueue<DeviceStateDto>();
-        await using var stream = new TianWenEventStream(
-            _node.Client.BaseAddress ?? throw new InvalidOperationException("the harness client has no base address"),
-            new SystemTimeProvider(), FakeExternal.CreateLogger(outputHelper));
+        await using var stream = _node.Transport.CreateEventStream(new SystemTimeProvider(), FakeExternal.CreateLogger(outputHelper));
         stream.EventReceived += (_, e) =>
         {
             if (DeviceStateDto.TryFromEvent(e, out var state) && new Uri(state.DeviceUri).DeviceKey == device.DeviceUri.DeviceKey)

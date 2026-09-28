@@ -52,7 +52,7 @@ internal static class NinaSequenceEndpoints
             return Results.Json(
                 ResponseEnvelope<string>.Ok(state),
                 NinaApiJsonContext.Default.ResponseEnvelopeString);
-        });
+        }).ReadsOnly();
 
         // GET /v2/api/sequence/start: start session using active profile + pending targets
         group.MapGet("/start", async (IHostedSession hosted, ISessionFactory factory, ILogger<HostedSession> logger, ITimeProvider timeProvider, CancellationToken ct) =>

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -16,10 +17,12 @@ namespace TianWen.Hosting;
 /// <item>"Share this rig on the LAN" (decision 3), a MACHINE setting, not a profile's or a session's, since it decides
 /// whether the machine can be reached;</item>
 /// <item>the node's active profile, which it used to hold in memory only, null after every start: a restarted node
-/// is the same rig, set up for the same equipment, and the pinned serial ports of discovery come from it.</item>
+/// is the same rig, set up for the same equipment, and the pinned serial ports of discovery come from it;</item>
+/// <item>the host names another application may always command from (P6b, decision 13, #1021): matched by a
+/// forward-confirmed reverse lookup of the caller's address, so a DHCP renewal does not undo an Always allow.</item>
 /// </list>
 /// </summary>
-public sealed record NodeSettings(bool ShareOnLan, Guid? ActiveProfileId = null)
+public sealed record NodeSettings(bool ShareOnLan, Guid? ActiveProfileId = null, IReadOnlyList<string>? AlwaysAllowedHosts = null)
 {
     public const string FileName = "node-settings.json";
 

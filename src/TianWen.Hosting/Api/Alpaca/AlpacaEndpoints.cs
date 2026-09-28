@@ -346,7 +346,7 @@ namespace TianWen.Hosting.Api.Alpaca
         /// statuses for malformed requests; a device that refuses is a successful exchange reporting a
         /// device-level error, and a client that saw a 4xx would treat the node as broken.
         /// </summary>
-        private static IResult Fault(int errorNumber, string message, HttpContext http) =>
+        internal static IResult Fault(int errorNumber, string message, HttpContext http) =>
             Results.Json(
                 new AlpacaMethodResponse
                 {

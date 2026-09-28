@@ -79,6 +79,16 @@ internal static class BroadcastEvents
     };
 
     /// <summary>
+    /// Who may command the node changed (P6b, #1021). It carries nothing: who may command a rig is not for every watcher,
+    /// so a client that may manage access reads <c>GET /api/v1/node/access</c>.
+    /// </summary>
+    public static WebSocketEventDto AccessChanged() => new WebSocketEventDto
+    {
+        Event = Api.NodeWire.AccessChangedEvent,
+        Data = new Dictionary<string, object?>()
+    };
+
+    /// <summary>
     /// A profile the node wrote or deleted, whoever asked for it. The latency hint: <c>GET /api/v1/profiles/{id}</c> is
     /// authoritative (P3 part 1, #930).
     /// </summary>

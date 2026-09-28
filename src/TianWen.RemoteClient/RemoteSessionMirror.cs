@@ -1217,10 +1217,12 @@ namespace TianWen.RemoteClient
 
                 case NodeWire.DeviceStateEvent:
                 case NodeWire.ProfileChangedEvent:
+                case NodeWire.AccessChangedEvent:
                 case "JOB-PROGRESS":
                 case "ENHANCE-PROGRESS":
                 case "ENHANCE-COMPLETED":
-                    // The device plane's, a profile's, a job's and an enhance's, each read by the client that asked for it.
+                    // The device plane's, a profile's, who may command the node (the Sharing panel's), a job's and an
+                    // enhance's, each read by the client that asked for it.
                     NodeEventNotTheSessions?.Invoke(this, dto);
                     return NodeEventKind.NotTheSessions;
 

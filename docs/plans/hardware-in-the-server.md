@@ -1419,8 +1419,9 @@ socket-only, decision 4). Over the node socket nothing changes: a client of this
 **A TianWen client asks, and the rig's machine answers.** The rules are chess's LAN invite, lifted into LAN.Lib 2.1
 as `LanInvites<T>` rather than copied: one request waits at a time, it lives only while its asker keeps polling (a
 presence lapse, so nothing is granted to a window that has gone), and an answer names the request it answers. A client
-without control shows "Ask to control" where a command would be, and a refusal offers it. The request is pushed to
-the clients that may answer it, and the rig's GUI and TUI draw it over everything, like the quit question: "'Laptop'
+without control shows "Ask to control" where a command would be, and a refusal offers it. Every client is told
+something changed (`ACCESS-CHANGED`, a hint with no content), only those that may answer can read the request, and the
+rig's GUI and TUI draw it over everything, like the quit question: "'Laptop'
 asks to control this rig: Allow / Decline". Allowed, the node mints a grant (`LanGrants`: a 256-bit token handed to the
 asker once, kept only as its hash in `node-grants.json`), and the asker keeps the token in its credential store, keyed
 by the rig's `NodeId`, and sends it as `Authorization: Bearer` on every request and on its event socket's upgrade. **A
@@ -1470,7 +1471,9 @@ It closes "anyone who can reach the port", not a hostile LAN, which is TLS's job
    onto `LanInvites` in chess's own change.
 2. **The node**: the gate over TCP (the refusal a client can tell from a socket-only one), the request, answer, grant
    and revoke routes, the refused-app record with Allow and Always allow, management over the socket or a grant, both
-   presence counts, and one read of all of it for the Sharing panel. The wire version moves.
+   presence counts, and one read of all of it for the Sharing panel. The wire version moves. **Done** (wire version
+   3): `NodeAccessGate`, `NodeAccess` and `AccessEndpoints`, described in
+   [../architecture/hosting-api.md](../architecture/hosting-api.md), "Who may command the node over TCP".
 3. **The clients**: the Sharing panel on the Home card, "Ask to control" and the request drawn on the rig's machine,
    a granted view's commands sent to its rig's node, the token in the credential store, and `tianwen node requests`,
    `allow`, `decline`, `grants`, `revoke` and `share` for a headless rig.

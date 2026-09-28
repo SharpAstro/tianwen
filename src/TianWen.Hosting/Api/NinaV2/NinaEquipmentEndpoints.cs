@@ -62,7 +62,7 @@ internal static class NinaEquipmentEndpoints
             return Results.Json(
                 ResponseEnvelope<NinaCameraInfoDto>.Ok(dto),
                 NinaApiJsonContext.Default.ResponseEnvelopeNinaCameraInfoDto);
-        });
+        }).ReadsOnly();
 
         // GET /v2/api/equipment/camera/abort-exposure
         group.MapGet("/camera/abort-exposure", async (IHostedSession hosted, IDeviceHub hub, CancellationToken ct) =>
@@ -175,7 +175,7 @@ internal static class NinaEquipmentEndpoints
             return Results.Json(
                 ResponseEnvelope<NinaMountInfoDto>.Ok(dto),
                 NinaApiJsonContext.Default.ResponseEnvelopeNinaMountInfoDto);
-        });
+        }).ReadsOnly();
 
         // GET /v2/api/equipment/mount/slew?ra=&dec=
         group.MapGet("/mount/slew", async (IHostedSession hosted, IDeviceHub hub, double ra, double dec, CancellationToken ct) =>
@@ -400,7 +400,7 @@ internal static class NinaEquipmentEndpoints
             return Results.Json(
                 ResponseEnvelope<NinaFocuserInfoDto>.Ok(dto),
                 NinaApiJsonContext.Default.ResponseEnvelopeNinaFocuserInfoDto);
-        });
+        }).ReadsOnly();
 
         // GET /v2/api/equipment/focuser/move?position=
         group.MapGet("/focuser/move", async (IHostedSession hosted, IDeviceHub hub, int position, CancellationToken ct) =>
@@ -449,7 +449,7 @@ internal static class NinaEquipmentEndpoints
             return Results.Json(
                 ResponseEnvelope<NinaFilterWheelInfoDto>.Ok(dto),
                 NinaApiJsonContext.Default.ResponseEnvelopeNinaFilterWheelInfoDto);
-        });
+        }).ReadsOnly();
 
         // GET /v2/api/equipment/filterwheel/change-filter?filterId=
         group.MapGet("/filterwheel/change-filter", async (IHostedSession hosted, IDeviceHub hub, int filterId, CancellationToken ct) =>
@@ -499,7 +499,7 @@ internal static class NinaEquipmentEndpoints
             return Results.Json(
                 ResponseEnvelope<NinaGuiderInfoDto>.Ok(dto),
                 NinaApiJsonContext.Default.ResponseEnvelopeNinaGuiderInfoDto);
-        });
+        }).ReadsOnly();
 
         // GET /v2/api/equipment/guider/start?calibrate=
         group.MapGet("/guider/start", async (IHostedSession hosted, IDeviceHub hub, bool? calibrate, CancellationToken ct) =>
@@ -576,7 +576,7 @@ internal static class NinaEquipmentEndpoints
             return Results.Json(
                 ResponseEnvelope<NinaGuideStepDto[]>.Ok(steps),
                 NinaApiJsonContext.Default.ResponseEnvelopeNinaGuideStepDtoArray);
-        });
+        }).ReadsOnly();
 
         // GET /v2/api/equipment/guider/clear-calibration
         group.MapGet("/guider/clear-calibration", async (IHostedSession hosted, IDeviceHub hub, CancellationToken ct) =>
@@ -609,7 +609,7 @@ internal static class NinaEquipmentEndpoints
             return Results.Json(
                 ResponseEnvelope<NinaWeatherInfoDto>.Ok(dto),
                 NinaApiJsonContext.Default.ResponseEnvelopeNinaWeatherInfoDto);
-        });
+        }).ReadsOnly();
     }
 
     /// <summary>
@@ -630,7 +630,7 @@ internal static class NinaEquipmentEndpoints
                 return Results.Json(
                     ResponseEnvelope<NinaDeviceListItemDto[]>.Ok(ListDevices(hosted, device)),
                     NinaApiJsonContext.Default.ResponseEnvelopeNinaDeviceListItemDtoArray);
-            });
+            }).ReadsOnly();
 
             group.MapGet($"/{device}/rescan", (IHostedSession hosted) =>
             {
@@ -683,7 +683,7 @@ internal static class NinaEquipmentEndpoints
         {
             group.MapGet($"/{device}/info", () => Results.Json(
                 disconnected,
-                NinaApiJsonContext.Default.ResponseEnvelopeNinaStubInfoDto));
+                NinaApiJsonContext.Default.ResponseEnvelopeNinaStubInfoDto)).ReadsOnly();
         }
     }
 
@@ -694,7 +694,7 @@ internal static class NinaEquipmentEndpoints
             NinaApiJsonContext.Default.ResponseEnvelopeString);
     }
 
-    private static IResult NinaFail(string error, int statusCode = 400)
+    internal static IResult NinaFail(string error, int statusCode = 400)
     {
         return Results.Json(
             ResponseEnvelope<string>.Fail(error, statusCode),

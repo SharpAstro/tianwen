@@ -115,8 +115,8 @@ does not take it down and it can never write over a TUI; a spawned node logs to 
 
 
 **"Share this rig on the LAN" is a MACHINE setting the node keeps** (`node-settings.json` in the data root,
-`NodeSettings`, decision 3), read at every start and changed only over the socket (`PUT /api/v1/node/share`, 403 over
-TCP):
+`NodeSettings`, decision 3), read at every start and changed over the socket or by a client granted control
+(`PUT /api/v1/node/share`, a 401 over TCP without control; see "Who may command the node over TCP"):
 - **Where a node listens** (`NodeListeningDecision`): the socket always. TCP 1888 and the LAN announcement unless
   `--local-only`, and for a node a client started only while the rig is shared, so a laptop's GUI opens no port and
   announces no rig nobody asked to share. A node run by hand keeps TCP, as a mini PC's does.
@@ -192,6 +192,67 @@ Pinned by `NodeSocketTests`, `NodeAddressTests`, `ExeBesideTests`, `NodeKeeperTe
 `LocalNodeLauncherTests`, `DetachedProcessTests`, `NodeShareTests`, `NodeShareSettingTests`,
 `NodeActiveProfileTests`, `NodeJournalTests`, `DeviceHubCoolerIntentTests`, `NodeJournalServiceTests` and
 `NodeJournalProcessTests` (a real keeper and node, killed holding a cooled camera, and killed twice for the loop).
+
+## Who may command the node over TCP: seeing is free, a command needs control
+
+P6b of [../plans/hardware-in-the-server.md](../plans/hardware-in-the-server.md), decision 13, #1021. Over TCP every
+read stays open and every command needs control; over the socket nothing changed, and a client of this machine never
+needs a grant. **One middleware decides it, `NodeAccessGate`**, installed first in `MapHostingApi`, so the server and
+every test's host go through it and a route added later is gated without remembering to be. It reads which surface a
+route is on from the metadata its group puts on it (`NodeProtocolMetadata`), and what is a command there:
+
+- **Native**: anything but GET, HEAD and OPTIONS, except the two routes by which control is asked for (`.OpenToAsk()`).
+- **Alpaca**: a PUT, `Connected = true` included, since it connects the hardware through the hub.
+- **ninaAPI**: every route, since its commands are GETs, unless it says it only reads (`.ReadsOnly()`). Deny by default.
+
+A route mapped outside the three groups would escape the gate, which `NodeAccessTests` fails on. **A new ninaAPI read
+owes `.ReadsOnly()`**, and a native route a client without control must be able to use owes `.OpenToAsk()`, which only
+asking and polling carry.
+
+**A command passes** when it came over the socket (`NodeEndpoints.CameOverTheSocket`), carries a grant the node holds
+(`Authorization: Bearer`), or, on the Alpaca and ninaAPI surfaces only, comes from an address allowed until the node
+restarts or from a host name always allowed. **A refusal is in each surface's own form**: the native API answers 401
+with `WWW-Authenticate: Bearer`, the Alpaca plane its error envelope with `InvalidOperation` (0x40B) inside a 200, the
+ninaAPI shim its envelope with status 403 inside a 200, and the last two say where the rig's owner allows them. A
+socket-only route (a profile's writes, a device's setting, decision 4) still refuses a granted client with its 403, so a
+client can tell "ask for control" from "do this on the rig's machine": a grant is control over TCP, never the socket.
+
+**A TianWen client asks** (`POST /api/v1/node/control/requests` with a label: 202 and a ticket, an id and a secret; 409
+while another request waits, since a person answers one at a time; 400 over the socket) and **polls**
+(`POST .../requests/{id}/poll` with the secret, every `NodeWire.ControlRequestPollInterval`), which keeps its request
+alive: one not polled for `ControlRequestLapse` is withdrawn (`LanInvites`, LAN.Lib 2.1). A poll without the right
+secret learns nothing. **The rig's machine, or a client granted control, answers** (`POST .../requests/{id}/answer`).
+After an Allow **the grant is minted at the asker's next poll** and its token handed over on that poll alone, so an
+asker gone by then leaves no grant behind. **A grant is remembered until revoked** (`LanGrants`, `node-grants.json` in
+the data root, through the atomic writer): only the token's SHA-256 is kept, so a copy of the file grants nothing, and
+a revoked token is refused from the next request on.
+
+**Another application cannot ask, so its refused command is its request**: one record per address (`RefusedAppDto`:
+its user agent, an Alpaca `ClientID`, what it tried, when, and how often), a retry updating it, and its
+forward-confirmed host name (`LanHostNames`) looked up once in the background, so a refusal never waits on a resolver.
+From it, **Allow** lets the address command until the node restarts; **Always allow** keeps the host name
+(`node-settings.json`, `AlwaysAllowedHosts`), and is a 409 for an address with no name that resolves back to it;
+**Ignore** drops the record, and the next refusal records it again. The node does not answer Alpaca's UDP discovery,
+so an app finds a rig by its address.
+
+**Managing it is for the socket or a grant**: `GET /api/v1/node/access` (everything the Sharing panel shows, a 401 to
+anyone else although it is a GET), revoking a grant, allowing or revoking an app or a host, and `PUT /api/v1/node/share`,
+which only the socket could set before. `ACCESS-CHANGED` is pushed on every change as a hint with no content, so a
+watcher learns nothing from it, and the read is authoritative. `GET /api/v1/node` answers whether the caller may
+command (`CallerMayCommand`).
+
+**Who counts on the event socket**: whether a client may command is asked at every count (the socket, or the grant its
+upgrade carried while the node still holds it: `EventHub.AddClient`'s `mayCommand`), so a grant revoked while its
+socket is open stops counting at once. A prompt waits only for a client present AND able to command
+(`AnsweringClientCount`), and the quit question's "last client" counts only clients able to command (`ClientsAttached`,
+`CommandingClientCount`): a watcher could answer neither. An interactive run's detach grace (`NodeRunWatch`) counts every
+client present, since a run someone watches is watched.
+
+**What it does not stop: plain HTTP.** A token can be read off the wire and an address or a host name spoofed. It
+closes "anyone who can reach the port", not a hostile LAN, which is TLS's job. The wire version moved to 3.
+
+Pinned by `NodeAccessTests` (the gate on each surface, asking and answering, a grant across a restart and revoked, the
+Alpaca and ninaAPI refusals, Allow and Always allow, the counts), `NodeShareTests` and `EventHubTests`.
 
 ## Six invariants on the session plane
 
@@ -799,7 +860,9 @@ consumes this node's devices with the existing `AddAlpaca()` and no new client c
   lifecycle, schedule, phase, prompts, notifications, autofocus or flats -- and no Guider device type
   at all. Native v1 stays the session plane by necessity.
 - **Ownership is the hub lease, not an Alpaca policy.** Actuation and `Connected=false` answer
-  `0x40B` with `DeviceOwnershipGate.Describe()`; reads and `Connected=true` always pass. Never make
+  `0x40B` with `DeviceOwnershipGate.Describe()`; reads and `Connected=true` always pass the lease.
+  (Over TCP an application must first be allowed to command at all, its connect included: "Who may
+  command the node over TCP" above. That is who may, not whose the device is.) Never make
   the plane read-only during a session -- every standard client PUTs `Connected=true` before reading,
   so that would make a running rig unreadable. The native and ninaAPI actuation routes ask the same
   lease (`ActuationGate`), as soon as they have the device and before anything touches its driver, and

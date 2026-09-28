@@ -27,12 +27,12 @@ internal static class NinaSystemEndpoints
         // GET /v2/api/version: connectivity check, returns version string
         group.MapGet("/version", () => Results.Json(
             ResponseEnvelope<string>.Ok(_version),
-            NinaApiJsonContext.Default.ResponseEnvelopeString));
+            NinaApiJsonContext.Default.ResponseEnvelopeString)).ReadsOnly();
 
         // GET /v2/api/time: current server time in ISO 8601 (UTC wire format, ninaAPI contract)
         group.MapGet("/time", (ITimeProvider timeProvider) => Results.Json(
             ResponseEnvelope<string>.Ok(timeProvider.GetUtcNow().ToString("o")),
-            NinaApiJsonContext.Default.ResponseEnvelopeString));
+            NinaApiJsonContext.Default.ResponseEnvelopeString)).ReadsOnly();
 
         // GET /v2/api/event-history: synthesized from session phase changes
         group.MapGet("/event-history", (IHostedSession hosted, ITimeProvider timeProvider) =>
@@ -71,7 +71,7 @@ internal static class NinaSystemEndpoints
             return Results.Json(
                 ResponseEnvelope<NinaEventDto[]>.Ok(events.ToArray()),
                 NinaApiJsonContext.Default.ResponseEnvelopeNinaEventDtoArray);
-        });
+        }).ReadsOnly();
 
         // GET /v2/api/profile/show: active profile (TNS passes ?active=true)
         group.MapGet("/profile/show", async (IHostedSession hosted, CancellationToken ct) =>
@@ -87,7 +87,7 @@ internal static class NinaSystemEndpoints
             return Results.Json(
                 ResponseEnvelope<NinaProfileDto>.Ok(dto),
                 NinaApiJsonContext.Default.ResponseEnvelopeNinaProfileDto);
-        });
+        }).ReadsOnly();
 
         // GET /v2/api/profile/switch?profileid=: set active profile
         group.MapGet("/profile/switch", async (string profileid, IHostedSession hosted, IDeviceHub hub, CancellationToken ct) =>
@@ -127,7 +127,7 @@ internal static class NinaSystemEndpoints
             return Results.Json(
                 ResponseEnvelope<ProfileSummaryDto[]>.Ok(profiles),
                 NinaApiJsonContext.Default.ResponseEnvelopeProfileSummaryDtoArray);
-        });
+        }).ReadsOnly();
 
         return group;
     }

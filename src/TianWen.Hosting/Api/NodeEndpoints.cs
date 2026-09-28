@@ -21,8 +21,8 @@ internal static class NodeEndpoints
 {
     public static void MapNodeApi(this IEndpointRouteBuilder routes)
     {
-        routes.MapGet("/api/v1/node", (NodeIdentity identity, NodeListening listening, NodeSettingsStore settings, EventHub events, IDeviceHub hub, HostedSession hosted,
-            NodeJournalService journal, ITimeProvider timeProvider) =>
+        routes.MapGet("/api/v1/node", async (NodeIdentity identity, NodeListening listening, NodeSettingsStore settings, EventHub events, IDeviceHub hub, HostedSession hosted,
+            NodeJournalService journal, ITimeProvider timeProvider, NodeAccess access, HttpContext context, CancellationToken ct) =>
             EnvelopeResults.Json(
                 ResponseEnvelope<NodeInfoDto>.Ok(new NodeInfoDto
                 {
@@ -32,7 +32,8 @@ internal static class NodeEndpoints
                     ProcessId = Environment.ProcessId,
                     IsShared = listening.IsShared,
                     ShareOnLan = settings.Current.ShareOnLan,
-                    ClientsAttached = events.NativeClientCount,
+                    ClientsAttached = events.CommandingClientCount,
+                    CallerMayCommand = await access.MayCommandAsync(context, ct),
                     HoldsHardware = hub.ConnectedDevices.Count > 0 || hosted.IsRunning,
                     NowUtc = timeProvider.GetUtcNow(),
                     Recovery = journal.Recovery,
@@ -75,19 +76,15 @@ internal static class NodeEndpoints
 
     /// <summary>
     /// Turns "Share this rig on the LAN" on or off (decision 3): the machine's setting, kept by the node, and the logon
-    /// entry that starts the node while it is on. Only over the socket, since only a user of this machine may expose
-    /// it. The listening follows at the node's next start; an idle node a client started restarts to apply it at
-    /// once (its keeper starts it again), while one holding hardware keeps running and applies it after.
+    /// entry that starts the node while it is on. A command like any other, so the gate lets it through for a client of
+    /// this machine or one granted control (decision 13, #1021): a laptop granted control of a headless rig manages its
+    /// sharing from its own window. The listening follows at the node's next start; an idle node a client started
+    /// restarts to apply it at once (its keeper starts it again), while one holding hardware keeps running and applies it
+    /// after.
     /// </summary>
     private static async Task<IResult> ShareAsync(HttpContext context, NodeShareRequest request, NodeSettingsStore settings, NodeListening listening,
         NodeRole role, IDeviceHub hub, IHostedSession hosted, IHostApplicationLifetime lifetime, CancellationToken cancellationToken)
     {
-        if (!CameOverTheSocket(context))
-        {
-            return EnvelopeResults.Json(
-                ResponseEnvelope<NodeShareDto>.Fail("Only a client on this machine's node socket may share the rig", 403),
-                HostingJsonContext.Default.ResponseEnvelopeNodeShareDto);
-        }
         if (context.RequestServices.GetService<INodeLogonStart>() is not { } logon)
         {
             return EnvelopeResults.Json(

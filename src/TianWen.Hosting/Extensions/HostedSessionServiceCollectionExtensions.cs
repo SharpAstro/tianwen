@@ -35,6 +35,11 @@ public static class HostedSessionServiceCollectionExtensions
         services.AddSingleton<HostedSession>();
         services.AddSingleton<IHostedSession>(sp => sp.GetRequiredService<HostedSession>());
         services.AddSingleton<EventHub>();
+        // Who may command the node over TCP (P6b of docs/plans/hardware-in-the-server.md, decision 13, #1021): grants,
+        // requests for control, and the other applications allowed. The machine's resolver names an address; a test
+        // registers its own first.
+        services.TryAddSingleton<LAN.Lib.IHostNameResolver, LAN.Lib.DnsHostNameResolver>();
+        services.AddSingleton<NodeAccess>();
         // The crash journal (P1 of docs/plans/hardware-in-the-server.md): kept only by a node that says where, which
         // tianwen-server does beside its socket. Registered FIRST of the hosted services so it stops LAST, after the
         // run and the hub's cameras have come down, and writes what is left of them.
@@ -135,34 +140,42 @@ public static class HostedSessionServiceCollectionExtensions
     /// </summary>
     public static WebApplication MapHostingApi(this WebApplication app)
     {
+        // Who may command the node over TCP (P6b, decision 13, #1021), the one place a command is let through or refused.
+        // It reads which surface a route belongs to from the metadata each group below puts on it.
+        app.Use(NodeAccessGate.GateAsync);
+
         // Native TianWen multi-OTA API (v1)
-        app.MapNodeApi();
-        app.MapProfileApi();
-        app.MapSessionApi();
-        app.MapOtaApi();
-        app.MapMountApi();
-        app.MapGuiderApi();
-        app.MapDeviceApi();
-        app.MapJobApi();
-        app.MapImageApi();
-        app.MapPreviewApi();
-        app.MapFrameApi();
-        app.MapDarkLibraryApi();
-        app.MapPolarAlignmentApi();
-        app.MapPlanetaryApi();
-        app.MapWebSocketEndpoint();
+        var native = app.MapGroup(string.Empty).WithMetadata(new NodeProtocolMetadata(NodeProtocol.Native));
+        native.MapNodeApi();
+        native.MapAccessApi();
+        native.MapProfileApi();
+        native.MapSessionApi();
+        native.MapOtaApi();
+        native.MapMountApi();
+        native.MapGuiderApi();
+        native.MapDeviceApi();
+        native.MapJobApi();
+        native.MapImageApi();
+        native.MapPreviewApi();
+        native.MapFrameApi();
+        native.MapDarkLibraryApi();
+        native.MapPolarAlignmentApi();
+        native.MapPlanetaryApi();
+        native.MapWebSocketEndpoint();
 
         // ASCOM Alpaca DEVICE plane (docs/plans/remote-profile.md P5). Shares the /api/v1 prefix, which
         // the Alpaca spec fixes -- no collision, because native v1 uses session/devices/profiles/preview/
         // image and none of those is an ASCOM device type.
-        app.MapAlpacaApi();
+        app.MapGroup(string.Empty).WithMetadata(new NodeProtocolMetadata(NodeProtocol.Alpaca)).MapAlpacaApi();
 
-        // ninaAPI v2 compatibility shim for Touch N Stars
-        app.MapNinaSystemApi();
-        app.MapNinaEquipmentApi();
-        app.MapNinaSequenceApi();
-        app.MapNinaImageApi();
-        app.MapNinaWebSocketEndpoint();
+        // ninaAPI v2 compatibility shim for Touch N Stars. Its commands are GETs, so a route of it is a command unless it
+        // says it only reads (ReadsOnly).
+        var nina = app.MapGroup(string.Empty).WithMetadata(new NodeProtocolMetadata(NodeProtocol.NinaV2));
+        nina.MapNinaSystemApi();
+        nina.MapNinaEquipmentApi();
+        nina.MapNinaSequenceApi();
+        nina.MapNinaImageApi();
+        nina.MapNinaWebSocketEndpoint();
 
         return app;
     }
@@ -182,7 +195,7 @@ public static class HostedSessionServiceCollectionExtensions
     {
         // TNS may send { action: "subscribe", eventType: "..." }; every event is broadcast regardless.
         routes.Map("/v2/socket", (HttpContext context, EventHub hub, IHostApplicationLifetime lifetime) =>
-            ServeEventSocketAsync(context, hub, lifetime, ninaV2: true));
+            ServeEventSocketAsync(context, hub, lifetime, ninaV2: true)).ReadsOnly();
     }
 
     /// <summary>
@@ -205,8 +218,14 @@ public static class HostedSessionServiceCollectionExtensions
             return;
         }
 
+        // Whether this client may command the node, asked again at every count: only one that may is someone a prompt waits
+        // for, or the last client a quit asks (P6b, #1021). A watcher over TCP without a grant sees everything, and counts
+        // only as present, which keeps an interactive run it is watching going.
+        var mayCommand = ninaV2
+            ? static () => false
+            : await context.RequestServices.GetRequiredService<NodeAccess>().MayCommandOverTimeAsync(context, context.RequestAborted);
         var ws = await context.WebSockets.AcceptWebSocketAsync();
-        var clientId = hub.AddClient(ws, ninaV2);
+        var clientId = hub.AddClient(ws, ninaV2, mayCommand);
         using var ending = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, lifetime.ApplicationStopping);
 
         try

@@ -111,7 +111,7 @@ public class NodeJobTests(ITestOutputHelper outputHelper)
 
         // A client of its own, closed once it has its answer: its connection, and every token tied to it, go.
         string id;
-        using (var client = new HttpClient { BaseAddress = node.Client.BaseAddress })
+        using (var client = node.Transport.CreateHttpClient())
         {
             (_, var job) = await SendAsync(client, HttpMethod.Post, "/api/v1/devices/discover", ct);
             id = job.GetProperty("id").GetString().ShouldNotBeNull();
@@ -223,9 +223,7 @@ public class NodeJobTests(ITestOutputHelper outputHelper)
         await using var host = node;
 
         var ended = new TaskCompletionSource<WebSocketEventDto>(TaskCreationOptions.RunContinuationsAsynchronously);
-        await using var stream = new TianWenEventStream(
-            node.Client.BaseAddress ?? throw new InvalidOperationException("the harness client has no base address"),
-            new SystemTimeProvider(), FakeExternal.CreateLogger(outputHelper));
+        await using var stream = node.Transport.CreateEventStream(new SystemTimeProvider(), FakeExternal.CreateLogger(outputHelper));
         stream.EventReceived += (_, e) =>
         {
             if (e.Event == "JOB-PROGRESS" && e.Data?["State"]?.ToString() == nameof(JobState.Succeeded))
