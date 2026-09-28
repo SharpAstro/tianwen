@@ -442,6 +442,34 @@ namespace TianWen.UI.Abstractions
                 contentRect.Y + contentRect.Height - ph - 32f * dpiScale);
             var fontSize = 12f * dpiScale;
 
+            // The selection's own marks on the map go down BEFORE the panel, so the panel covers them. They
+            // were drawn last, and a big object's ring (the SMC's, selected with its panel open) ran across
+            // the panel's text and picture, while every other ellipse, drawn in an earlier pass, went under it.
+
+            // Path across the sky for a selected solar-system body (planet / comet): a thin polyline of its
+            // motion over a body-appropriate window + labelled event markers (stations, elongation,
+            // perihelion), drawn UNDER the reticle so "now" stays on top.
+            DrawSelectedObjectPath(info, plannerState, viewingTime, pixelsPerRadian, cx, cy, contentRect);
+
+            // Selection marker on the map itself. For objects with a known shape
+            // (nebulae, galaxies, clusters) we trace the projected ellipse so the
+            // marker actually hugs the object; for stars and shapeless entries we
+            // fall back to the crosshair circle so there is still a clear indicator.
+            if (SkyMapProjection.ProjectWithMatrix(info.RA, info.Dec, State.CurrentViewMatrix,
+                pixelsPerRadian, cx, cy, out var sx, out var sy)
+                && sx >= contentRect.X && sx < contentRect.X + contentRect.Width
+                && sy >= contentRect.Y && sy < contentRect.Y + contentRect.Height)
+            {
+                if (!TryDrawShapeMarker(info, pixelsPerRadian, sx, sy))
+                {
+                    DrawCircle(sx, sy, 14f * dpiScale, SelectionMarker, 1.5f);
+                    DrawLine(sx - 18f * dpiScale, sy, sx - 8f * dpiScale, sy, SelectionMarker);
+                    DrawLine(sx + 8f * dpiScale, sy, sx + 18f * dpiScale, sy, SelectionMarker);
+                    DrawLine(sx, sy - 18f * dpiScale, sx, sy - 8f * dpiScale, SelectionMarker);
+                    DrawLine(sx, sy + 8f * dpiScale, sx, sy + 18f * dpiScale, SelectionMarker);
+                }
+            }
+
             // The border rect is the panel's whole visual extent, so ONE no-op Clickable there swallows
             // a press anywhere on the panel -- its blank area included, not just its buttons -- rather
             // than letting it fall through to the map's own click-select underneath. Registered on the
@@ -519,30 +547,6 @@ namespace TianWen.UI.Abstractions
             }
 
             // The large view is NOT drawn here: see RenderLargePicture, which Render calls last.
-
-            // Path across the sky for a selected solar-system body (planet / comet): a thin polyline of its
-            // motion over a body-appropriate window + labelled event markers (stations, elongation,
-            // perihelion), drawn UNDER the reticle so "now" stays on top.
-            DrawSelectedObjectPath(info, plannerState, viewingTime, pixelsPerRadian, cx, cy, contentRect);
-
-            // Selection marker on the map itself. For objects with a known shape
-            // (nebulae, galaxies, clusters) we trace the projected ellipse so the
-            // marker actually hugs the object; for stars and shapeless entries we
-            // fall back to the crosshair circle so there is still a clear indicator.
-            if (SkyMapProjection.ProjectWithMatrix(info.RA, info.Dec, State.CurrentViewMatrix,
-                pixelsPerRadian, cx, cy, out var sx, out var sy)
-                && sx >= contentRect.X && sx < contentRect.X + contentRect.Width
-                && sy >= contentRect.Y && sy < contentRect.Y + contentRect.Height)
-            {
-                if (!TryDrawShapeMarker(info, pixelsPerRadian, sx, sy))
-                {
-                    DrawCircle(sx, sy, 14f * dpiScale, SelectionMarker, 1.5f);
-                    DrawLine(sx - 18f * dpiScale, sy, sx - 8f * dpiScale, sy, SelectionMarker);
-                    DrawLine(sx + 8f * dpiScale, sy, sx + 18f * dpiScale, sy, SelectionMarker);
-                    DrawLine(sx, sy - 18f * dpiScale, sx, sy - 8f * dpiScale, SelectionMarker);
-                    DrawLine(sx, sy + 8f * dpiScale, sx, sy + 18f * dpiScale, SelectionMarker);
-                }
-            }
         }
 
         // Draw the selected solar-system body's sky path (planet or comet) as a thin polyline over its

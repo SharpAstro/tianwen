@@ -840,6 +840,65 @@ public class SkyMapHoverAndPictureTests
         }
     }
 
+    /// <summary>
+    /// <b>The selection ring goes under the info panel, as every other ellipse does.</b> Reported
+    /// 2026-09-28 on the web build, with the SMC selected: its ring ran across the panel's text and picture.
+    /// The marker was drawn at the END of the panel's own method, after the panel, and the shared tab is
+    /// what the desktop draws too. Read off the pixels: no ring-yellow inside the panel, where the ring's
+    /// own geometry says it would have crossed.
+    /// </summary>
+    [Fact]
+    public async System.Threading.Tasks.Task TheSelectionRingGoesUnderTheInfoPanel()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var renderer = new RgbaImageRenderer(800, 800);
+        var (tab, planner, db, at) = await RealSkyAsync(renderer, SkyMapMode.Equatorial, ct);
+        db.TryLookupByIndex(CatalogIndex.NGC0292, out var smc).ShouldBeTrue();
+        var time = new FakeTimeProviderWrapper(at);
+        var rect = new RectF32(0, 0, 800, 800);
+        tab.Render(planner, rect, time); // the first frame with a site places the initial view
+        tab.State.FieldOfViewDeg = 8.0;
+        SkyMapViewActions.CenterOn(tab.State, smc.RA, smc.Dec);
+        tab.Render(planner, rect, time);
+
+        SkyMapSearchActions.SelectAtScreenPoint(tab.State, db, planner.SiteLatitude, planner.SiteLongitude,
+            at, 400f, 400f, InputModifier.None, []).ShouldBeTrue();
+        var info = tab.State.Search.InfoPanel.ShouldNotBeNull();
+        info.Index.ShouldBe(CatalogIndex.NGC0292);
+        tab.Render(planner, rect, time);
+
+        var panel = tab.GetRegisteredRegions()
+            .Single(r => r.Result is HitResult.ButtonHit { Action: "InfoPanelBackground" });
+
+        // Precondition: the ring, as the tab solves it, crosses the panel's box.
+        var ppr = SkyMapProjection.PixelsPerRadian(rect.Height, tab.State.FieldOfViewDeg);
+        tab.TrySolveShapeEllipse(info, ppr, 400f, 400f, out var u, out var v).ShouldBeTrue("the SMC takes a ring, not a crosshair");
+        var crossings = Enumerable.Range(0, 360).Count(deg =>
+        {
+            var t = deg * Math.PI / 180.0;
+            var x = 400f + (u.X * Math.Cos(t)) + (v.X * Math.Sin(t));
+            var y = 400f + (u.Y * Math.Cos(t)) + (v.Y * Math.Sin(t));
+            return x > panel.X + 4 && x < panel.X + panel.Width - 4 && y > panel.Y + 4 && y < panel.Y + panel.Height - 4;
+        });
+        crossings.ShouldBeGreaterThan(0, "the fixture needs a ring that would cross the panel");
+
+        var surface = renderer.Surface;
+        var yellow = 0;
+        for (var y = (int)panel.Y + 4; y < (int)(panel.Y + panel.Height) - 4; y++)
+        {
+            for (var x = (int)panel.X + 4; x < (int)(panel.X + panel.Width) - 4; x++)
+            {
+                var i = ((y * surface.Width) + x) * 4;
+                // The ring's FFEE60: red and green high, blue low. The panel's text is grey, its fill dark.
+                if (surface.Pixels[i] > 200 && surface.Pixels[i + 1] > 190 && surface.Pixels[i + 2] < 140)
+                {
+                    yellow++;
+                }
+            }
+        }
+        yellow.ShouldBe(0, "the panel covers the ring");
+    }
+
     private sealed class HoverTestSkyMapTab(RgbaImageRenderer renderer) : SkyMapTab<RgbaImage>(renderer)
     {
         protected override void RenderSkyMap(
