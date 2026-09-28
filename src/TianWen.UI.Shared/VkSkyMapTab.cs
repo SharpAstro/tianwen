@@ -966,8 +966,8 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     // sky coordinate vs the default ':' which looked like a time.
     private static (string Name, string Coords) MountLabelLines(SkyMapMountOverlay mountOverlay) => (
         mountOverlay.DisplayName,
-        $"RA {CoordinateUtils.HoursToHMS(mountOverlay.RaJ2000, hourSeparator: 'h', withFrac: false, minuteSeparator: 'm', secondSuffix: "s")}"
-            + $"  Dec {CoordinateUtils.DegreesToDMS(mountOverlay.DecJ2000, withPlus: false, degreeSign: '°', withFrac: false, arcMinuteSign: '′', arcSecondSign: "″")}");
+        $"RA {CoordinateUtils.HoursToHMS(mountOverlay.RaJ2000, hourSeparator: 'h', precision: SexagesimalPrecision.Second, minuteSeparator: 'm', secondSuffix: "s")}"
+            + $"  Dec {CoordinateUtils.DegreesToDMS(mountOverlay.DecJ2000, withPlus: false, degreeSign: '°', precision: SexagesimalPrecision.Second, arcMinuteSign: '′', arcSecondSign: "″")}");
 
     /// <summary>
     /// Screen-space box occupied by the mount reticle's two-line label, or <c>null</c> when

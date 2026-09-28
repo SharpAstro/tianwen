@@ -1,10 +1,12 @@
 ﻿using Microsoft.Extensions.Logging;
 using System;
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Connections;
 using static TianWen.Lib.Astrometry.Constants;
@@ -101,6 +103,20 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
     }
 
     public bool IsOpen { get; private set; }
+
+    private ImmutableArray<string> _commands = [];
+
+    /// <summary>
+    /// Every command written to the fake, exactly as it arrived on the wire (<c>:</c> to <c>#</c>), oldest first.
+    /// Appended under <see cref="_lockObj"/>, read as one reference.
+    /// </summary>
+    internal ImmutableArray<string> Commands => _commands;
+
+    /// <summary>The site latitude, as the fake holds it (set by the URI, then by <c>:St</c>).</summary>
+    internal double SiteLatitude => _transform.SiteLatitude;
+
+    /// <summary>The site longitude, east positive, as the fake holds it (set by the URI, then by <c>:Sg</c>).</summary>
+    internal double SiteLongitude => _transform.SiteLongitude;
 
     /// <summary>
     /// Whether a pulse guide is currently active (timer-based tracking).
@@ -334,6 +350,8 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
 #endif
         lock (_lockObj)
         {
+            _commands = _commands.Add(dataStr);
+
             // Subclass extension hook: try OnStep / firmware-specific commands first,
             // fall through to the LX200 base command set if not handled.
             if (TryHandleExtensionCommand(dataStr))
@@ -369,8 +387,8 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
                     break;
 
                 case ":TL#":
-                    // Set tracking speed to lunar
-                    _trackingFrequency = 571;
+                    // Set tracking speed to lunar: 57.9 Hz, inside the driver's 57.3 to 58.9 band
+                    _trackingFrequency = 579;
                     break;
 
                 case ":Q#":
@@ -400,7 +418,7 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
                     break;
 
                 case ":GS#":
-                    _responseBuffer.AppendFormat("{0}#", HoursToHMS(SiderealTime, withFrac: false));
+                    _responseBuffer.AppendFormat("{0}#", HoursToHMS(SiderealTime, precision: SexagesimalPrecision.Second, modulo24: true));
                     break;
 
                 case ":Gt#":
@@ -520,6 +538,32 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
                     {
                         _responseBuffer.Append(ParseTargetDec(dataStr) ? '1' : '0');
                     }
+                    else if (dataStr.StartsWith(":St", StringComparison.Ordinal))
+                    {
+                        // Set site latitude: :StsDD*MM#, answered with a bare 1 (valid) or 0 (invalid), like :Sr / :Sd
+                        if (TryParseSiteAngle(dataStr, SiteLatitudeParser, 90) is { } latitude)
+                        {
+                            _transform.SiteLatitude = latitude;
+                            _responseBuffer.Append('1');
+                        }
+                        else
+                        {
+                            _responseBuffer.Append('0');
+                        }
+                    }
+                    else if (dataStr.StartsWith(":Sg", StringComparison.Ordinal))
+                    {
+                        // Set site longitude: :SgDDD*MM#, degrees WEST of Greenwich, 0 to 360, answered as :St
+                        if (TryParseSiteAngle(dataStr, SiteLongitudeParser, 360) is { } west and < 360)
+                        {
+                            _transform.SiteLongitude = west > 180 ? 360 - west : -west;
+                            _responseBuffer.Append('1');
+                        }
+                        else
+                        {
+                            _responseBuffer.Append('0');
+                        }
+                    }
                     else if (dataStr.StartsWith(":SL", StringComparison.Ordinal))
                     {
                         // Set local time: :SLHH:MM:SS#
@@ -556,10 +600,10 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
         return ValueTask.FromResult(true);
 
         void RespondHMS(double ra) => _responseBuffer.AppendFormat("{0}#",
-            _highPrecision ? HoursToHMS(ra, withFrac: false) : HoursToHMT(ra));
+            _highPrecision ? HoursToHMS(ra, precision: SexagesimalPrecision.Second, modulo24: true) : HoursToHMT(ra));
 
         void RespondDMS(double dec) => _responseBuffer.AppendFormat("{0}#",
-            _highPrecision ? DegreesToDMS(dec, withPlus: false, degreeSign: '\xdf', withFrac: false) : DegreesToDM(dec));
+            _highPrecision ? DegreesToDMS(dec, withPlus: false, degreeSign: '\xdf', precision: SexagesimalPrecision.Second) : DegreesToDM(dec));
     }
 
     private double SiderealTime
@@ -664,6 +708,34 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
         }
 
         return false;
+    }
+
+    private static readonly Regex SiteLatitudeParser = new Regex(@"^([-+]?)(\d{2})[\xdf*\xb0](\d{2})$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex SiteLongitudeParser = new Regex(@"^()(\d{3})[\xdf*\xb0](\d{2})$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    /// <summary>
+    /// Parses the <c>sDD*MM</c> / <c>DDD*MM</c> body of <c>:St</c> / <c>:Sg</c>; null for anything a mount
+    /// would refuse (a malformed body, 60 minutes or more, beyond <paramref name="maxDegrees"/>).
+    /// </summary>
+    private static double? TryParseSiteAngle(string dataStr, Regex parser, int maxDegrees)
+    {
+        if (dataStr[^1] != '#')
+        {
+            return null;
+        }
+
+        var match = parser.Match(dataStr[3..^1]);
+        if (match.Success
+            && int.TryParse(match.Groups[2].ValueSpan, CultureInfo.InvariantCulture, out var deg)
+            && int.TryParse(match.Groups[3].ValueSpan, CultureInfo.InvariantCulture, out var min)
+            && min is >= 0 and < 60
+            && deg + min / 60d <= maxDegrees
+        )
+        {
+            return (match.Groups[1].ValueSpan is "-" ? -1 : 1) * (deg + min / 60d);
+        }
+
+        return null;
     }
 
     private char SlewToTarget()
@@ -794,11 +866,7 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
     }
 
     private static string DegreesToDM(double degrees)
-    {
-        var dms = DegreesToDMS(degrees, degreeSign: '\xdf', withPlus: false);
-
-        return dms[..dms.LastIndexOf(':')];
-    }
+        => DegreesToDMS(degrees, withPlus: false, degreeSign: '\xdf', precision: SexagesimalPrecision.Minute);
 
     private record SlewState(double TargetHAAxis, double TargetDecAxis, double SlewRate, long LastTicks)
     {

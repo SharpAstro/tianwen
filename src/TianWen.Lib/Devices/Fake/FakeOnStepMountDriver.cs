@@ -14,4 +14,6 @@ namespace TianWen.Lib.Devices.Fake;
 /// </summary>
 internal class FakeOnStepMountDriver(FakeDevice device, IServiceProvider serviceProvider) : OnStepMountDriver<FakeDevice>(device, serviceProvider)
 {
+    /// <summary>The fake serial device while connected, for a test to read what went out on the wire.</summary>
+    internal FakeOnStepSerialDevice? SerialDevice => _deviceInfo.SerialDevice as FakeOnStepSerialDevice;
 }

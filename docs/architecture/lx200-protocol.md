@@ -42,7 +42,7 @@ adds or overrides in [`onstep-protocol.md`](onstep-protocol.md); everything it i
   terminator does not arrive within the buffer is refused (-1), never truncated, and its tail stays in the
   stream.
 - **Fixed-length reply:** `SendAndReceiveExactlyAsync` reads an exact count with no terminator: 3 bytes for
-  `:GW#`, 1 for `:Sr`, `:Sd` and `:MS#`. A `#` after such a reply would stay in the stream and be read by the
+  `:GW#`, 1 for `:Sr`, `:Sd`, `:St`, `:Sg` and `:MS#`. A `#` after such a reply would stay in the stream and be read by the
   next terminated read as an empty reply, and the TODO in `AlignmentDetailsAsync` ("LX800 fixed GW response
   not being terminated") says at least one firmware now sends it.
 - **No reply read:** `:AP#`, `:AL#`, `:TQ#`, `:TL#`, `:Q#`, `:U#`, `:hP#`, `:Mg`. The code assumes the mount
@@ -62,9 +62,9 @@ adds or overrides in [`onstep-protocol.md`](onstep-protocol.md); everything it i
 | `:GT#` | tracking frequency, Hz | invariant `double`: 59.9 to 60.1 is sidereal, 57.3 to 58.9 lunar, anything else `None` | `GetTrackingSpeedAsync` |
 | `:GC#` | `MM/dd/yy` | `DateTime.TryParseExact`, invariant | `TryGetUTCDateFromMountAsync` |
 | `:GL#` | `HH:MM:SS` | as `:GS#` | `TryGetUTCDateFromMountAsync` |
-| `:GG#` | `sHH` or `sHH.H`, the hours to add to local time for UTC (the code's comment) | `double.TryParse` in the CURRENT culture | `TryGetUTCDateFromMountAsync`, `SetUTCDateAsync` |
-| `:Gt#` | `sDD<sep>MM`, 5 bytes or more | `GetLatOrLongAsync`: degrees, skip exactly one separator byte of any value, minutes; a result below -180 gets 360 added | `GetSiteLatitudeAsync` |
-| `:Gg#` | as `:Gt#`, degrees WEST positive | as `:Gt#`, then negated | `GetSiteLongitudeAsync` |
+| `:GG#` | `sHH` or `sHH.H`, the hours to add to local time for UTC (the code's comment) | `TryParseUtcOffset`: a sign and a decimal point, invariant culture | `TryGetUTCDateFromMountAsync`, `SetUTCDateAsync` |
+| `:Gt#` | `sDD<sep>MM`, 5 bytes or more | `TryParseLatOrLong`: an optional sign, degrees, skip exactly one separator byte of any value, minutes | `GetSiteLatitudeAsync` |
+| `:Gg#` | as `:Gt#` with 3 degree digits, degrees WEST positive, signed (east negative) or 0 to 360 | as `:Gt#`, then `EastLongitudeFromWest`: negated, THEN folded into (-180, 180], so `214*00` reads back as 146 east | `GetSiteLongitudeAsync` |
 
 ## Set and action commands
 
@@ -81,12 +81,25 @@ adds or overrides in [`onstep-protocol.md`](onstep-protocol.md); everything it i
 | `:hP#` | `ParkAsync` (virtual) | none | |
 | `:U#` | `TrySetHighPrecisionAsync` at connect | none | the code assumes it TOGGLES the precision, so it re-reads `:GR#` after each |
 | `:SLHH:mm:ss#`, then `:SCMM/dd/yy#` | `SetUTCDateAsync`: local time is UTC minus the `:GG#` offset | terminated, each | anything but exactly `1`, which throws `ArgumentException`. Two more terminated reads then discard what the code's comment calls "Updating Planetary Data#" and a blank line; `TimeIsSetByUs` is whether both arrived |
-| `:StsDD*MM#` | `SetSiteLatitudeAsync` | terminated | `1`; but this command never leaves the driver (**Known issues**) |
-| `:SgDDD*MM#` | `SetSiteLongitudeAsync`; an east (positive) longitude is written as `360 - degrees` with the minutes unchanged | terminated | `1` |
+| `:StsDD*MM#` | `SetSiteLatitudeAsync`; a sign only when negative, rounded to the minute (`:St48*12#`, `:St-37*54#`) | 1 byte | `1`; anything else throws `InvalidOperationException` |
+| `:SgDDD*MM#` | `SetSiteLongitudeAsync`; degrees WEST in [0, 360): the east-positive longitude is negated, rounded to the minute, THEN folded, so 16 deg 18' east is `:Sg343*42#` and a hair east of Greenwich `:Sg000*00#` | 1 byte | `1`, as above |
 
-The code reads `1` as FAILURE for `:SL` and `:SC` (the fake answers `0` for success), and reads the acks of
-`:St`, `:Sg` and `:CM#` as terminated replies where `:Sr` and `:Sd` take one bare byte. Neither the polarity
-nor the termination is verified against a real mount.
+The code reads `1` as FAILURE for `:SL` and `:SC` (the fake answers `0` for success), and reads the ack of
+`:CM#` as a terminated reply where `:Sr`, `:Sd`, `:St` and `:Sg` take one bare byte. `:St` and `:Sg` were read
+terminated until #837; the site latitude never went out before then, so a terminated read there was never
+exercised, and a bare `0` / `1` is what Meade's and OnStep's command references give for all four set commands.
+Neither the polarity nor the termination is verified against a real mount.
+
+### Angles on the wire
+
+Every angle the driver writes goes through ONE sexagesimal formatter, `CoordinateUtils.HoursToHMS` /
+`DegreesToDMS` / `HoursToHMT` with a `SexagesimalPrecision` (`Minute`, `TenthMinute`, `Second`), and each
+command is built from the string it returns (`"Sd" + ...`), never from offsets into a rented buffer. The
+formatter rounds ONCE, in integer units of the last field, so a carry reaches the degrees (`10.99983` at minute
+precision is `11*00`, never `10*60`), and the degrees field is the whole number of degrees at any magnitude.
+Until #837 the four setters formatted `TimeSpan.FromHours(degrees).Hours`, the hour of the DAY, so Dec -45.125
+went out as `:Sd-21*07:30#` and 100.5 west as `:Sg004*30#`. RA and the low-precision `HH:MM.T` fold into 24 h
+after rounding, so 23:59:59.7 goes out as `00:00:00`.
 
 ## Connect handshake
 
@@ -158,8 +171,7 @@ violation; `InvalidOperation` is short for `InvalidOperationException`.
 | `DestinationSideOfPierAsync` (virtual) | `:GS#`, derived | `InvalidOperation` | `InvalidOperation` (**#810**, wrong type) | `InvalidOperation` (**#810**, wrong type) |
 | `PointingStateSource` (virtual) | `Computed` | | | |
 | `GetSiteLatitudeAsync`, `GetSiteLongitudeAsync` | `:Gt#` / `:Gg#` | `InvalidOperation` | `InvalidOperation` (**#810**, wrong type) | `InvalidOperation` (**#810**, wrong type) |
-| `SetSiteLatitudeAsync` | nothing is ever sent | `InvalidOperation`, "formatting error", before any I/O | the same | the same |
-| `SetSiteLongitudeAsync` | `:Sg` | `InvalidOperation` | `InvalidOperation` (**#810**, wrong type) | `InvalidOperation` for any reply but `1` |
+| `SetSiteLatitudeAsync`, `SetSiteLongitudeAsync` | `:St` / `:Sg` | `InvalidOperation` | `InvalidOperation` (**#810**, wrong type) | `InvalidOperation` for any reply but `1` |
 | `GetSiteElevationAsync` (`SetSiteElevationAsync` stores nothing), the two rate getters, the two guide-rate getters | none: `NaN`; `0`; 2/3 sidereal in degrees per second (`DEFAULT_GUIDE_RATE`) | | | |
 | `SetSideOfPierAsync`, `MoveAxisAsync`, `UnparkAsync` (virtual), the four rate setters | none: always `InvalidOperation` | | | |
 | `ParkAsync` (virtual) | `:hP#` | `InvalidOperation` | not read | n/a |
@@ -216,18 +228,25 @@ which is also the serial device `FakeDevice` hands any mount port it has no othe
   0x7F `#` while slewing, `#` otherwise; `:Mg` moves the axis at once by 2/3 sidereal times the duration.
 - `:U#` toggles the precision, starting LOW; coordinates answer in the current precision (Dec with 0xDF), and
   `:Sr` / `:Sd` accept only its format (0xDF, `*` or 0xB0 as the degree mark), answering `1` or `0`.
-- `:GS#` from SOFA for the URI's site; `:Gt#` / `:Gg#` from its `latitude` / `longitude` (`:Gg#` negated);
-  `:GG#` always `+00`; `:GL#` / `:GC#` from the injected `ITimeProvider`; `:GT#` 60.1 after `:TQ#`, 57.1 after
+- `:GS#` from SOFA for the URI's site; `:Gt#` / `:Gg#` from its `latitude` / `longitude` (`:Gg#` negated, the
+  signed form), which `:St` / `:Sg` then replace (a bare `1`, or `0` for a malformed or out-of-range body);
+  `:GG#` always `+00`; `:GL#` / `:GC#` from the injected `ITimeProvider`; `:GT#` 60.1 after `:TQ#`, 57.9 after
   `:TL#`; `:GVP#` `Fake LX200 Mount`, `:GVN#` `A4s4`, `:GW#` `GT0` or `GN0`.
+- `Commands` records every command as it arrived (`:` to `#`), and `SiteLatitude` / `SiteLongitude` what the fake
+  holds, so a test asserts the bytes that went out and what the mount made of them;
+  `FakeMeadeLX200ProtocolMountDriver.SerialDevice` (and OnStep's) hands the fake to a test.
 
 Simpler than a real mount: every reply is already in memory, so a read never waits and a missing reply returns
 at once rather than at the caller's token, and there is no lost-reply knob (#810 asks for one). `:SL` answers an
 unterminated `0`, which the fake's terminated read swallows as no reply; the date `:SL` / `:SC` set is never
 read back, and `TimeIsSetByUs` stays `false` (the ack read takes the first line of `:SC`'s block and the second
-discard read finds nothing). `:hP#`, `:St`, `:Sg` and the site-name commands are not implemented, so their write
-fails and `ParkAsync` / `SetSiteLongitudeAsync` throw "Failed to send raw message". `Fake LX200 Mount` fails the
-probe's regex, so the fake is reached only through `FakeDevice`. `MeadeLX200BasedMountTests` pins connect,
-alignment, tracking, a completed slew and disconnect; none of its slews checks where the mount ended up.
+discard read finds nothing). `:hP#` and the site-name commands are not implemented, so their write fails and
+`ParkAsync` throws "Failed to send raw message". `Fake LX200 Mount` fails the probe's regex, so the fake is
+reached only through `FakeDevice`. `MeadeLX200BasedMountTests` pins connect, alignment, tracking, disconnect, a
+slew that sends the declination asked for (the `:Sd` bytes, the target the fake parsed and where it ended up,
+down to -59.7), the `:St` and `:Sg` bytes with the site they read back as, and lunar tracking reading back as
+lunar; `OnStepMountTests` pins the same slew and site for OnStep. `MeadeLX200ReplyParsingTests` feeds the
+`:Gt#` / `:Gg#` / `:GG#` parsers the bytes a mount answers, `:GG#` under three cultures.
 
 ## Known issues
 
@@ -238,26 +257,7 @@ alignment, tracking, a completed slew and disconnect; none of its slews checks w
   `IOException`; a `NaN` from `HMSToHours` / `DMSToDegree` should throw `IOException`; `IsTrackingAsync` should
   throw on a byte other than `T` or `N` (the fake's two); a missing `:SL` / `:SC` ack should throw rather than
   pass. The session also reads `IsSlewingAsync` through `CatchAsync(..., false)` in three places (#810).
-- **`SetSiteLatitudeAsync` never sends anything.** Its buffer is `offset + 1 + 2` bytes (5, or 6 with a sign)
-  for a 7-byte body (`St`, `DD`, `*`, `MM`), so the minutes never fit and every latitude throws "formatting
-  error". A run whose request names a site reaches it through `Session.SettleSiteAsync` and
-  `MountSiteExtensions.SetSiteAsync`, in initialisation with no catch, so the run fails there (#837).
-- **Angles of 24 degrees or more are written modulo 24.** `SetTargetDeclinationAsync`, `SetSiteLatitudeAsync`
-  and `SetSiteLongitudeAsync` format the `Hours` component of `TimeSpan.FromHours(degrees)`, which is the hour
-  of the day, 0 to 23: Dec -45.125 goes out as `:Sd-21*08#`, so a goto or sync beyond 24 degrees either side of
-  the equator lands on the wrong declination. RA is folded into 24 h first and is unaffected.
-  `MeadeLX200BasedMountTests` slews to -45.125 and asserts only that the slew finishes. The root cause is the
-  `TimeSpan` itself, so the fix is one sexagesimal formatter for every angle (#837).
-- **Longitude does not round-trip.** `GetLatOrLongAsync` applies its 360-degree wrap BEFORE
-  `GetSiteLongitudeAsync` negates, so the case its own comment describes (214 from the mount meaning 146 east)
-  reads back as -214. `SetSiteLongitudeAsync` keeps the minutes when it writes `360 - degrees`, so 16 degrees
-  18 minutes east goes out as `:Sg344*18#` (344.3 west) where the read side would expect 343.7 (#837, to
-  re-verify during the fix).
-- **`:GG#` is parsed in the current culture** (`GetUtcCorrectionAsync`), unlike every other number here, so a
-  fractional offset such as `-05.5` misreads where `.` is a group separator. The fake answers whole hours only.
-- **The fake's lunar rate is outside the base's band** (57.1 Hz against 57.3 to 58.9), so lunar reads back
-  `None` on the fake and `EnsureTrackingAsync(TrackingSpeed.Lunar)` re-sends it every call. Solar goes out as
-  `:TQ#`, sidereal.
+- **Solar goes out as `:TQ#`, sidereal**, and reads back as sidereal.
 - **`AtParkAsync` is always `false`** while `CanPark` is `true`, so `Session.Finalise` polls it 1000 times at
   100 ms after `:hP#` before calling the park incomplete.
 - **A failed init leaves the driver `Connected`.** `InitDeviceAsync` catches everything and returns `false`;
@@ -272,5 +272,5 @@ alignment, tracking, a completed slew and disconnect; none of its slews checks w
   before `ProbeAsync` checks the product regex, so any device on the shared 9600 handle that answers
   `<AN UNUSED SITE>` gets a site name. `OnStepDeviceSource` carries a copy of the same writing code.
 - **Bench validation is outstanding** for every "the code assumes" above, above all the acks of `:SL`, `:SC`,
-  `:St`, `:Sg` and `:CM#`, the termination of `:GW#`, the bytes of `:D#`, the `:MS#` failure message, `:U#`
-  toggling, and whether any firmware answers `:GR#` with fractional seconds (one `.` reads as the low form).
+  `:St`, `:Sg` (a bare byte since #837) and `:CM#`, which form of `:Gg#` a given firmware answers, the
+  termination of `:GW#`, the bytes of `:D#`, the `:MS#` failure message, `:U#` toggling, and whether any firmware answers `:GR#` with fractional seconds (one `.` reads as the low form).

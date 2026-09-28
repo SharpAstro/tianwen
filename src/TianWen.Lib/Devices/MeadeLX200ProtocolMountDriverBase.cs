@@ -301,12 +301,25 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         // The number of decimal hours to add to local time to convert it to UTC. If the number is a whole number the
         // sHH# form is returned, otherwise the longer form is returned.
         var response = await SendAndReceiveAsync(GGCommand, cancellationToken);
-        if (double.TryParse(response, out var offsetHours))
+        if (TryParseUtcOffset(response, out var offset))
         {
-            return TimeSpan.FromHours(offsetHours);
+            return offset;
         }
 
         throw new InvalidOperationException($"Could not parse response {response} of GG (get UTC offset)");
+    }
+
+    /// <summary>Parses a <c>:GG#</c> reply, <c>sHH</c> or <c>sHH.H</c> decimal hours, in the invariant culture.</summary>
+    internal static bool TryParseUtcOffset(string? response, out TimeSpan offset)
+    {
+        if (double.TryParse(response, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var offsetHours))
+        {
+            offset = TimeSpan.FromHours(offsetHours);
+            return true;
+        }
+
+        offset = default;
+        return false;
     }
 
     public bool TimeIsSetByUs { get; private set; }
@@ -395,6 +408,11 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 
     private async ValueTask SetTargetRightAscensionAsync(double value, CancellationToken cancellationToken)
     {
+        if (double.IsNaN(value))
+        {
+            throw new ArgumentException("Target right ascension must be a number", nameof(value));
+        }
+
         if (value >= 24)
         {
             throw new ArgumentException("Target right ascension cannot greater or equal 24h", nameof(value));
@@ -409,49 +427,17 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         // :SrHH:MM:SS#  for high precision (24h)
         var (ra, highPrecision) = await GetRightAscensionWithPrecisionAsync(target: false, cancellationToken);
 
-        // convert decimal hours to HH:MM.T (classic LX200 RA Notation) if low precision. T is the decimal part of minutes which is converted into seconds
-        var targetHms = TimeSpan.FromHours(Math.Abs(value)).Round(highPrecision ? TimeSpanRoundingType.Second : TimeSpanRoundingType.TenthMinute).Modulo24h();
+        // HH:MM.T is the classic LX200 RA notation, T a tenth of a minute. Both forms fold into 24 h, so a value
+        // that rounds up to 24:00:00 goes out as 00:00:00.
+        var command = "Sr" + (highPrecision
+            ? HoursToHMS(value, precision: SexagesimalPrecision.Second, modulo24: true)
+            : HoursToHMT(value));
 
-        const int offset = 2;
-        using var buffer = ArrayPoolHelper.Rent<byte>(2 + 2 + 2 + 2 + 1 + (highPrecision ? 1 : 0));
-
-        "Sr"u8.CopyTo(buffer);
-
-        if (targetHms.Hours.TryFormat(buffer.AsSpan(offset), out int hoursWritten, "00", CultureInfo.InvariantCulture)
-            && offset + hoursWritten + 1 is int minOffset && minOffset < buffer.Length
-            && targetHms.Minutes.TryFormat(buffer.AsSpan(minOffset), out int minutesWritten, "00", CultureInfo.InvariantCulture)
-        )
-        {
-            buffer[offset + hoursWritten] = (byte)':';
-        }
-        else
-        {
-            throw new ArgumentException($"Failed to convert value {value} to HM", nameof(value));
-        }
-
-        var secOffset = minOffset + minutesWritten + 1;
-        if (highPrecision)
-        {
-            buffer[secOffset - 1] = (byte)':';
-            if (!targetHms.Seconds.TryFormat(buffer.AsSpan(secOffset), out _, "00", CultureInfo.InvariantCulture))
-            {
-                throw new ArgumentException($"Failed to convert {value} to high precision seconds", nameof(value));
-            }
-        }
-        else
-        {
-            buffer[secOffset - 1] = (byte)'.';
-            if (!(targetHms.Seconds / 6).TryFormat(buffer.AsSpan(secOffset), out _, "0", CultureInfo.InvariantCulture))
-            {
-                throw new ArgumentException($"Failed to convert {value} to low precision tenth of minute", nameof(value));
-            }
-        }
-
-        var response = await SendAndReceiveExactlyAsync(buffer, 1, cancellationToken);
+        var response = await SendAndReceiveExactlyAsync(_encoding.GetBytes(command), 1, cancellationToken);
 
         if (response != "1")
         {
-            throw new InvalidOperationException($"Failed to set target right ascension to {HoursToHMS(value)}, using command {_encoding.GetString(buffer)}, response={response}");
+            throw new InvalidOperationException($"Failed to set target right ascension to {HoursToHMS(value)}, using command {command}, response={response}");
         }
 #if TRACE
         Logger.LogTrace("Set target right ascension to {TargetRightAscension}, current right ascension is {RightAscension}, high precision={HighPrecision}",
@@ -467,6 +453,11 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 
     private async ValueTask SetTargetDeclinationAsync(double targetDec, CancellationToken cancellationToken)
     {
+        if (double.IsNaN(targetDec))
+        {
+            throw new ArgumentException("Target declination must be a number", nameof(targetDec));
+        }
+
         if (targetDec > 90)
         {
             throw new ArgumentException("Target declination cannot be greater than 90 degrees.", nameof(targetDec));
@@ -481,50 +472,15 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         // :SdsDD*MM:SS# for high precision
         var (dec, highPrecision) = await GetDeclinationWithPrecisionAsync(target: false, cancellationToken);
 
-        var sign = Math.Sign(targetDec);
-        var signLength = sign is -1 ? 1 : 0;
-        var degOffset = 2 + signLength;
-        var minOffset = degOffset + 2 + 1;
-        var targetDms = TimeSpan.FromHours(Math.Abs(targetDec))
-            .Round(highPrecision ? TimeSpanRoundingType.Second : TimeSpanRoundingType.Minute)
-            .EnsureMax(TimeSpan.FromHours(90));
+        // a sign only when negative, as this driver has always sent it
+        var command = "Sd" + DegreesToDMS(targetDec, withPlus: false, degreeSign: '*',
+            precision: highPrecision ? SexagesimalPrecision.Second : SexagesimalPrecision.Minute);
 
-        using var buffer = ArrayPoolHelper.Rent<byte>(minOffset + 2 +(highPrecision ? 3 : 0));
-
-        "Sd"u8.CopyTo(buffer);
-
-        if (sign is -1)
-        {
-            buffer[degOffset - 1] = (byte)'-';
-        }
-
-        buffer[minOffset - 1] = (byte)'*';
-
-        if (targetDms.Hours.TryFormat(buffer.AsSpan(degOffset), out _, "00", CultureInfo.InvariantCulture)
-            && targetDms.Minutes.TryFormat(buffer.AsSpan(minOffset), out _, "00", CultureInfo.InvariantCulture)
-        )
-        {
-            if (highPrecision)
-            {
-                var secOffset = minOffset + 2 + 1;
-                buffer[secOffset - 1] = (byte)':';
-
-                if (!targetDms.Seconds.TryFormat(buffer.AsSpan(secOffset), out _, "00", CultureInfo.InvariantCulture))
-                {
-                    throw new ArgumentException($"Failed to convert value {targetDec} to DMS (high precision)", nameof(targetDec));
-                }
-            }
-        }
-        else
-        {
-            throw new ArgumentException($"Failed to convert value {targetDec} to DM", nameof(targetDec));
-        }
-
-        var response = await SendAndReceiveExactlyAsync(buffer, 1, cancellationToken);
+        var response = await SendAndReceiveExactlyAsync(_encoding.GetBytes(command), 1, cancellationToken);
 
         if (response is not "1")
         {
-            throw new InvalidOperationException($"Failed to set target declination to {DegreesToDMS(targetDec)}, using command {_encoding.GetString(buffer)}, response={response}");
+            throw new InvalidOperationException($"Failed to set target declination to {DegreesToDMS(targetDec)}, using command {command}, response={response}");
         }
 
 #if TRACE
@@ -642,49 +598,30 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
             throw new ArgumentException("Site latitude cannot be lower than -90 degrees.", nameof(latitude));
         }
 
-        var abs = Math.Abs(latitude);
-        var dms = TimeSpan.FromHours(abs).Round(TimeSpanRoundingType.Minute).EnsureMax(TimeSpan.FromHours(90));
-
-        var needsSign = latitude < 0;
-        const int cmdLength = 2;
-        var offset = cmdLength + (needsSign ? 1 : 0);
-
-        using var buffer = ArrayPoolHelper.Rent<byte>(offset + 1 + 2);
-
-        "St"u8.CopyTo(buffer);
-
-        if (needsSign)
+        if (double.IsNaN(latitude))
         {
-            buffer[cmdLength] = (byte)'-';
+            throw new ArgumentException("Site latitude must be a number.", nameof(latitude));
         }
 
-        if (dms.Hours.TryFormat(buffer.AsSpan(offset), out var degWritten, format: "00", provider: CultureInfo.InvariantCulture)
-            && dms.Minutes.TryFormat(buffer.AsSpan(offset + degWritten + 1), out _, format: "00", provider: CultureInfo.InvariantCulture)
-        )
+        // :StsDD*MM#, a sign only when negative
+        var command = "St" + DegreesToDMS(latitude, withPlus: false, degreeSign: '*', precision: SexagesimalPrecision.Minute);
+
+        var response = await SendAndReceiveExactlyAsync(_encoding.GetBytes(command), 1, cancellationToken);
+
+        if (response is "1")
         {
-            buffer[offset + degWritten] = (byte)'*';
-
-            var response = await SendAndReceiveAsync(buffer, cancellationToken);
-
-            if (response is "1")
-            {
-                Logger.LogInformation("Updated site latitude to {Degrees}", latitude);
-            }
-            else
-            {
-                throw new InvalidOperationException($"Cannot update site latitude to {latitude} due to connectivity issue/command invalid: {response}");
-            }
+            Logger.LogInformation("Updated site latitude to {Degrees}", latitude);
         }
         else
         {
-            throw new InvalidOperationException($"Cannot update site latitude to {latitude} due to formatting error");
+            throw new InvalidOperationException($"Cannot update site latitude to {latitude} using command {command} due to connectivity issue/command invalid: {response}");
         }
     }
 
     private static readonly ReadOnlyMemory<byte> GgCommand = "Gg"u8.ToArray();
     public async ValueTask<double> GetSiteLongitudeAsync(CancellationToken cancellationToken)
     {
-        return -1 * await GetLatOrLongAsync(GgCommand, cancellationToken);
+        return EastLongitudeFromWest(await GetLatOrLongAsync(GgCommand, cancellationToken));
     }
 
     public async ValueTask SetSiteLongitudeAsync(double value, CancellationToken cancellationToken)
@@ -699,37 +636,28 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
             throw new ArgumentException("Site longitude cannot be lower than -180 degrees.", nameof(value));
         }
 
-        var abs = Math.Abs(value);
-        var dms = TimeSpan.FromHours(abs)
-            .Round(TimeSpanRoundingType.Minute)
-            .EnsureRange(TimeSpan.FromHours(-180), TimeSpan.FromHours(+180));
-
-        var adjustedDegrees = value > 0 ? 360 - dms.Hours : dms.Hours;
-
-        const int offset = 2;
-        using var buffer = ArrayPoolHelper.Rent<byte>(offset + 3 + 1 + 2);
-        "Sg"u8.CopyTo(buffer);
-
-        if (adjustedDegrees.TryFormat(buffer.AsSpan(offset), out var degWritten, format: "000", provider: CultureInfo.InvariantCulture)
-            && dms.Minutes.TryFormat(buffer.AsSpan(offset + degWritten + 1), out _, format: "00", provider: CultureInfo.InvariantCulture)
-        )
+        if (double.IsNaN(value))
         {
-            buffer[offset + degWritten] = (byte)'*';
+            throw new ArgumentException("Site longitude must be a number.", nameof(value));
+        }
 
-            var response = await SendAndReceiveAsync(buffer, cancellationToken);
+        // :SgDDD*MM#, degrees WEST of Greenwich in [0, 360): 16 deg 18' east is 343 deg 42' west. Rounded to the
+        // minute BEFORE folding, so a longitude a hair east of Greenwich goes out as 000*00, never 360*00.
+        const double MinutesPerTurn = 360 * 60;
+        var westMinutes = Math.Round(-value * 60, MidpointRounding.AwayFromZero);
+        westMinutes -= Math.Floor(westMinutes / MinutesPerTurn) * MinutesPerTurn;
 
-            if (response is "1")
-            {
-                Logger.LogInformation("Updated site longitude to {Degrees}", value);
-            }
-            else
-            {
-                throw new InvalidOperationException($"Cannot update site longitude to {value} due to connectivity issue/command invalid: {response}");
-            }
+        var command = "Sg" + DegreesToDMS(westMinutes / 60, withPlus: false, degreeSign: '*', precision: SexagesimalPrecision.Minute, degreeDigits: 3);
+
+        var response = await SendAndReceiveExactlyAsync(_encoding.GetBytes(command), 1, cancellationToken);
+
+        if (response is "1")
+        {
+            Logger.LogInformation("Updated site longitude to {Degrees}", value);
         }
         else
         {
-            throw new InvalidOperationException($"Cannot update site longitude to {value} due to formatting error");
+            throw new InvalidOperationException($"Cannot update site longitude to {value} using command {command} due to connectivity issue/command invalid: {response}");
         }
     }
 
@@ -737,23 +665,45 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     {
         using var response = ArrayPoolHelper.Rent<byte>(10);
         var bytesRead = await SendAndReceiveRawAsync(command, response, cancellationToken);
-        if (bytesRead >= 5)
+        if (bytesRead >= 5 && TryParseLatOrLong(response.AsSpan(0, bytesRead), out var latOrLong))
         {
-            var data = response.AsSpan(0, bytesRead);
-            var isNegative = data[0] is (byte)'-';
-            var offset = isNegative ? 1 : 0;
-
-            if (Utf8Parser.TryParse(data[offset..], out int degrees, out var consumed)
-                && Utf8Parser.TryParse(data[(offset + consumed + 1)..], out int minutes, out _)
-            )
-            {
-                var latOrLongNotAdjusted = (isNegative ? -1 : 1) * (degrees + minutes / 60d);
-                // adjust s.th. 214 from mount becomes -214 and then becomes 146
-                return latOrLongNotAdjusted >= -180 ? latOrLongNotAdjusted : latOrLongNotAdjusted + 360;
-            }
+            return latOrLong;
         }
 
         throw new InvalidOperationException($"Failed to parse response of {_encoding.GetString(command.Span)}");
+    }
+
+    /// <summary>
+    /// Parses a <c>:Gt#</c> / <c>:Gg#</c> reply, <c>sDD*MM</c> / <c>sDDD*MM</c>: degrees, exactly one separator
+    /// byte of any value, minutes.
+    /// </summary>
+    internal static bool TryParseLatOrLong(ReadOnlySpan<byte> data, out double latOrLong)
+    {
+        var isNegative = data.Length > 0 && data[0] is (byte)'-';
+        var offset = isNegative || data.Length > 0 && data[0] is (byte)'+' ? 1 : 0;
+
+        if (Utf8Parser.TryParse(data[offset..], out int degrees, out var consumed)
+            && offset + consumed + 1 < data.Length
+            && Utf8Parser.TryParse(data[(offset + consumed + 1)..], out int minutes, out _)
+        )
+        {
+            latOrLong = (isNegative ? -1 : 1) * (degrees + minutes / 60d);
+            return true;
+        }
+
+        latOrLong = double.NaN;
+        return false;
+    }
+
+    /// <summary>
+    /// Turns a parsed <c>:Gg#</c> reply, degrees WEST positive in either the signed form or 0 to 360, into an
+    /// east-positive longitude in (-180, 180]: 214 west is 146 east. The wrap comes AFTER the negation, or a
+    /// 0 to 360 reply reads back as -214.
+    /// </summary>
+    internal static double EastLongitudeFromWest(double west)
+    {
+        var east = -west;
+        return east - 360 * Math.Ceiling((east - 180) / 360);
     }
 
     public override string? DriverInfo => $"{_telescopeName} ({_telescopeFW})";

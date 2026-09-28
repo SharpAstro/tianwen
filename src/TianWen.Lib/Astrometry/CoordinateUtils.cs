@@ -312,49 +312,77 @@ public static class CoordinateUtils
         }
     }
 
-    public static string HoursToHMS(double hours, char hourSeparator = ':', bool withFrac = true,
-        char minuteSeparator = ':', string secondSuffix = "")
-    {
-        var hoursInt = (int)Math.Floor(hours);
-        var min = (hours - hoursInt) * 60d;
-        var minInt = (int)Math.Floor(min);
-        var sec = (min - minInt) * 60d;
-        var secInt = (int)Math.Floor(sec);
-        var secFrac = (int)Math.Round((sec - secInt) * 1000d);
-        if (secFrac >= 1000)
-        {
-            secFrac -= 1000;
-            secInt += 1;
-        }
-        if (secInt >= 60)
-        {
-            secInt -= 60;
-            minInt += 1;
-        }
-        if (minInt >= 60)
-        {
-            minInt -= 60;
-            hoursInt += 1;
-        }
-        var hasMS = secFrac > 0;
-        return $"{hoursInt:D2}{hourSeparator}{minInt:D2}{minuteSeparator}{secInt:D2}{(hasMS && withFrac ? $".{secFrac:D3}" : "")}{secondSuffix}";
-    }
+    /// <summary>
+    /// Formats hours as <c>HH:MM:SS[.fff]</c>, rounded to <paramref name="precision"/> with every carry
+    /// taken through to the hours. The hours field is the whole number of hours, never a clock:
+    /// 25.5 is <c>25:30:00</c>, unless <paramref name="modulo24"/> folds it (a right ascension).
+    /// </summary>
+    public static string HoursToHMS(double hours, char hourSeparator = ':', SexagesimalPrecision precision = SexagesimalPrecision.Millisecond,
+        char minuteSeparator = ':', string secondSuffix = "", bool modulo24 = false)
+        => FormatSexagesimal(hours, precision, hourSeparator, minuteSeparator, secondSuffix, wholeDigits: 2, modulo: modulo24 ? 24 : 0);
 
     /// <summary>
-    /// Hours to HH:MM.T (LX200 legacy format), where T is a tenth of a minute.
+    /// Hours to HH:MM.T (LX200 legacy format), where T is a tenth of a minute, folded into 24 h.
     /// </summary>
     /// <param name="hours">Hours in 24h format</param>
     /// <returns>HH:MM.T formatted string</returns>
     public static string HoursToHMT(double hours)
+        => FormatSexagesimal(Math.Abs(hours), SexagesimalPrecision.TenthMinute, ':', ':', "", wholeDigits: 2, modulo: 24);
+
+    /// <summary>
+    /// Formats degrees as <c>sDD:MM:SS[.fff]</c>, rounded to <paramref name="precision"/> with every carry
+    /// taken through to the degrees; the degrees field is the whole number of degrees at any magnitude.
+    /// The sign is decided on the ROUNDED value, so a value that rounds to zero is never <c>-00</c>.
+    /// </summary>
+    /// <param name="degreeDigits">minimum width of the degrees field (3 for an LX200 longitude)</param>
+    public static string DegreesToDMS(double degrees, bool withPlus = true, char degreeSign = ':', SexagesimalPrecision precision = SexagesimalPrecision.Millisecond,
+        char arcMinuteSign = ':', string arcSecondSign = "", int degreeDigits = 2)
+        => FormatSexagesimal(degrees, precision, degreeSign, arcMinuteSign, arcSecondSign, degreeDigits, modulo: 0, signed: true, withPlus: withPlus);
+
+    /// <summary>
+    /// The one sexagesimal formatter: the value is rounded ONCE, in integer units of the last field, and the
+    /// fields are then split off that integer, so a carry (59.99 minutes to the next whole) cannot be lost and
+    /// no field can reach 60.
+    /// </summary>
+    private static string FormatSexagesimal(double value, SexagesimalPrecision precision, char firstSeparator, char secondSeparator,
+        string suffix, int wholeDigits, int modulo, bool signed = false, bool withPlus = false)
     {
-        var span = TimeSpan.FromHours(Math.Abs(hours)).Round(TimeSpanRoundingType.TenthMinute).Modulo24h();
+        // Answered, never thrown: these format log lines and ToString()s, where an unknown is a value to print.
+        // A caller that WRITES an angle to hardware checks for one first.
+        if (!double.IsFinite(value))
+        {
+            return value.ToString(CultureInfo.InvariantCulture);
+        }
 
-        return $"{span.Hours:D2}:{span.Minutes:D2}.{span.Seconds / 6:0}";
+        var unitsPerWhole = (long)precision;
+        var units = (long)Math.Round(Math.Abs(value) * unitsPerWhole, MidpointRounding.AwayFromZero);
+        if (modulo > 0)
+        {
+            units %= modulo * unitsPerWhole;
+        }
+
+        var whole = units / unitsPerWhole;
+        var rest = units % unitsPerWhole;
+        var unitsPerMinute = unitsPerWhole / 60;
+        var minutes = rest / unitsPerMinute;
+        var belowMinute = rest % unitsPerMinute;
+
+        var sign = !signed ? "" : value < 0 && units > 0 ? "-" : withPlus ? "+" : "";
+        var head = string.Create(CultureInfo.InvariantCulture, $"{sign}{whole.ToString(CultureInfo.InvariantCulture).PadLeft(wholeDigits, '0')}{firstSeparator}{minutes:D2}");
+
+        return precision switch
+        {
+            SexagesimalPrecision.Minute => head,
+            SexagesimalPrecision.TenthMinute => string.Create(CultureInfo.InvariantCulture, $"{head}.{belowMinute:D1}"),
+            SexagesimalPrecision.Second => string.Create(CultureInfo.InvariantCulture, $"{head}{secondSeparator}{belowMinute:D2}{suffix}"),
+            SexagesimalPrecision.Millisecond => (belowMinute / 1000, belowMinute % 1000) switch
+            {
+                (var sec, 0) => string.Create(CultureInfo.InvariantCulture, $"{head}{secondSeparator}{sec:D2}{suffix}"),
+                (var sec, var ms) => string.Create(CultureInfo.InvariantCulture, $"{head}{secondSeparator}{sec:D2}.{ms:D3}{suffix}")
+            },
+            _ => throw new ArgumentOutOfRangeException(nameof(precision), precision, null)
+        };
     }
-
-    public static string DegreesToDMS(double degrees, bool withPlus = true, char degreeSign = ':', bool withFrac = true,
-        char arcMinuteSign = ':', string arcSecondSign = "")
-        => $"{(Math.Sign(degrees) >= 0 ? (withPlus ? "+" : "") : "-")}{HoursToHMS(Math.Abs(degrees), degreeSign, withFrac, arcMinuteSign, arcSecondSign)}";
 
     public static double DMSToDegree(string dms)
     {

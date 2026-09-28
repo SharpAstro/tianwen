@@ -44,6 +44,7 @@ public class OnStepMountTests(ITestOutputHelper outputHelper)
 
     [Theory(Timeout = 60_000)]
     [InlineData(48.2, 16.3, 6.75, 16.7)]
+    [InlineData(-37.8743502, 145.1668205, 11.11, -45.125)]
     public async Task GivenOnStepMountWhenSlewingItReportsNotSlewingAfterCompletion(double siteLat, double siteLong, double targetRa, double targetDec)
     {
         // given
@@ -70,6 +71,32 @@ public class OnStepMountTests(ITestOutputHelper outputHelper)
         // then
         (await mount.IsSlewingAsync(ct)).ShouldBe(false);
         (await mount.IsTrackingAsync(ct)).ShouldBe(true);
+
+        // #837: OnStep inherits the LX200 formatter; the declination the fake parsed is the one asked for
+        (await mount.GetTargetDeclinationAsync(ct)).ShouldBe(targetDec, 1 / 3600d);
+        (await mount.GetDeclinationAsync(ct)).ShouldBe(targetDec, 1 / 3600d);
+    }
+
+    [Theory(Timeout = 60_000)]
+    [InlineData(48.2d, 16.3d, ":St48*12#", ":Sg343*42#")]
+    [InlineData(-37.9d, 145.1668205d, ":St-37*54#", ":Sg214*50#")]
+    public async Task GivenOnStepMountWhenSettingTheSiteItIsSentOnTheWire(double latitude, double longitude, string expectedSt, string expectedSg)
+    {
+        // given
+        var ct = TestContext.Current.CancellationToken;
+        await using var mount = new FakeOnStepMountDriver(MakeDevice(10, 10), new FakeExternal(outputHelper).BuildServiceProvider());
+        await mount.ConnectAsync(ct);
+
+        // when
+        await mount.SetSiteLatitudeAsync(latitude, ct);
+        await mount.SetSiteLongitudeAsync(longitude, ct);
+
+        // then
+        var commands = mount.SerialDevice.ShouldNotBeNull().Commands;
+        commands[^2].ShouldBe(expectedSt);
+        commands[^1].ShouldBe(expectedSg);
+        (await mount.GetSiteLatitudeAsync(ct)).ShouldBe(latitude, 1 / 120d);
+        (await mount.GetSiteLongitudeAsync(ct)).ShouldBe(longitude, 1 / 120d);
     }
 
     [Theory(Timeout = 60_000)]
