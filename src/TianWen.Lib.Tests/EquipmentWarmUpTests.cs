@@ -27,6 +27,7 @@ public class EquipmentWarmUpTests(ITestOutputHelper output)
         // A sensor that settles on whatever setpoint it is given, so each step is one read and one sleep.
         var ccd = -10.0;
         var camera = Substitute.For<ICameraDriver>();
+        camera.CanSetCCDTemperature.Returns(true);
         camera.CanGetCoolerOn.Returns(true);
         camera.CanGetHeatsinkTemperature.Returns(true);
         camera.GetCoolerOnAsync(Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(true));
@@ -51,6 +52,35 @@ public class EquipmentWarmUpTests(ITestOutputHelper output)
         // then the 2 s settle after the cooler goes off.
         sleeps.ShouldBe([.. Enumerable.Repeat(TimeSpan.FromSeconds(30), 5), TimeSpan.FromSeconds(2)]);
         await camera.Received(1).SetCoolerOnAsync(false, Arg.Any<CancellationToken>());
+        await hub.Received(1).DisconnectAsync(CameraUri, false, Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// A camera with no cooler (an ASI462MC) disconnects at once. It reads a sensor temperature and ignores a setpoint, so
+    /// the ramp used to step toward the +25 °C fallback from a 20 °C room for its whole 15 minute cap, and a quit after a
+    /// planetary capture waited for all of it (the ZWO live check, 2026-09-28).
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task ACameraWithNoCoolerDisconnectsWithoutARamp()
+    {
+        var camera = Substitute.For<ICameraDriver>();
+        camera.CanGetCCDTemperature.Returns(true);
+        camera.GetCCDTemperatureAsync(Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(20.0));
+
+        var hub = Substitute.For<IDeviceHub>();
+        hub.TryGetConnectedDriver<ICameraDriver>(CameraUri, out Arg.Any<ICameraDriver?>())
+            .Returns(call => { call[1] = camera; return true; });
+
+        var sleeps = new List<TimeSpan>();
+        var clock = Substitute.For<ITimeProvider>();
+        clock.SleepAsync(Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(call => { sleeps.Add(call.ArgAt<TimeSpan>(0)); return ValueTask.CompletedTask; });
+
+        await hub.WarmAndDisconnectAsync(CameraUri, clock, FakeExternal.CreateLogger(output),
+            force: false, TestContext.Current.CancellationToken);
+
+        sleeps.ShouldBeEmpty("there is no cooler to step, so nothing to wait for");
+        await camera.DidNotReceive().SetSetCCDTemperatureAsync(Arg.Any<double>(), Arg.Any<CancellationToken>());
         await hub.Received(1).DisconnectAsync(CameraUri, false, Arg.Any<CancellationToken>());
     }
 }

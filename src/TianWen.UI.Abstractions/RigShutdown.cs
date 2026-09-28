@@ -93,7 +93,7 @@ public sealed class RigShutdown(ITimeProvider timeProvider, ILogger logger)
 
         foreach (var (job, device) in jobs)
         {
-            progress?.Invoke(device.Camera is { CoolerOn: true } ? $"Warming {NameOf(device)}" : $"Disconnecting {NameOf(device)}");
+            progress?.Invoke(device.Camera is { } camera && camera.ToReading().NeedsWarmUp ? $"Warming {NameOf(device)}" : $"Disconnecting {NameOf(device)}");
             var ended = await client.UntilEndedAsync(job, timeProvider, cancellationToken).ConfigureAwait(false);
             if (ended.Value is { State: not JobState.Succeeded } failed)
             {

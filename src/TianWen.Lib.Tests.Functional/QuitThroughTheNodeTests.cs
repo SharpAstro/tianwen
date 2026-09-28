@@ -15,8 +15,9 @@ namespace TianWen.Lib.Tests.Functional;
 /// <summary>
 /// Quitting while this computer's node holds the rig (decision 1 of docs/plans/hardware-in-the-server.md, #936): only the
 /// last client asks; with a run going on it is left running unless the user stops the rig, which ends the run through its
-/// own ending and only then warms up and disconnects every device; with devices connected and no run they are warmed up
-/// and disconnected by the node after the window has gone, unless the user leaves them connected. Through the GUI's real
+/// own ending and only then warms up and disconnects every device; with devices connected and no run they are disconnected
+/// by the node after the window has gone (a cooled camera warmed up first, and only then is a warm-up spoken of), unless the
+/// user leaves them connected. Through the GUI's real
 /// signal handler and <see cref="AppQuit"/> over a real node on its socket.
 /// </summary>
 [Collection("NodeProcesses")]
@@ -64,20 +65,50 @@ public class QuitThroughTheNodeTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 60_000)]
-    public async Task WithDevicesConnectedItAsksAndTheNodeWarmsThemUpAndDisconnectsThemAfterTheWindowHasGone()
+    public async Task WithDevicesConnectedItAsksAndTheNodeDisconnectsThemAfterTheWindowHasGone()
     {
         var ct = TestContext.Current.CancellationToken;
         await using var h = await GuiNodeHarness.StartAsync(output, ct);
         var quit = h.Quit();
 
         var asked = await AskedAsync(h, quit);
-        (asked.Default, asked.Other).ShouldBe((QuitAction.WarmUpAndDisconnect, QuitAction.LeaveConnected));
-        asked.Message.ShouldStartWith("3 devices are connected");
+        (asked.Default, asked.Other).ShouldBe((QuitAction.Disconnect, QuitAction.LeaveConnected), "no camera is cooling, so nothing to warm");
+        asked.Message.ShouldBe("3 devices are connected on this computer.");
 
         quit.Answer(asked.Default);
 
         await h.UntilAsync(() => quit.IsComplete, ct);
         // The node finishes what it was asked, whatever became of the window.
+        await h.UntilAsync(() => !AnyConnected(h), ct);
+    }
+
+    /// <summary>
+    /// A camera the node is cooling is the one case a quit speaks of a warm-up. The fake cools a degree a read, so the node's
+    /// poll carries it below the heat sink.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task WithACameraCoolingItOffersToWarmItUpAndTheNodeDoes()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var h = await GuiNodeHarness.StartAsync(output, ct);
+        h.Hub.TryGetConnectedDriver<ICameraDriver>(h.CameraUri, out var camera).ShouldBeTrue();
+        await camera.SetCoolerOnAsync(true, ct);
+        await camera.SetSetCCDTemperatureAsync(-10, ct);
+        await NodeWait.UntilAsync("the node to read the camera below its heat sink", async token =>
+        {
+            await h.Local.RefreshDevicesNowAsync(token);
+            var reading = h.Local.Device(h.CameraUri)?.Camera?.ToReading();
+            return (reading?.NeedsWarmUp == true, $"{reading?.CcdTemperatureC} C, heat sink {reading?.HeatsinkTemperatureC} C, cooler {reading?.CoolerOn}");
+        }, ct);
+        var quit = h.Quit();
+
+        var asked = await AskedAsync(h, quit);
+        (asked.Default, asked.Other).ShouldBe((QuitAction.WarmUpAndDisconnect, QuitAction.LeaveConnected));
+        asked.Message.ShouldEndWith("A warm-up goes on after this window has closed.");
+
+        quit.Answer(asked.Default);
+
+        await h.UntilAsync(() => quit.IsComplete, ct);
         await h.UntilAsync(() => !AnyConnected(h), ct);
     }
 
@@ -119,7 +150,7 @@ public class QuitThroughTheNodeTests(ITestOutputHelper output)
 
         h.Contexts.Local.LiveSession.QuitDialog.ShouldBeNull();
         h.AppState.ShuttingDown.ShouldBeFalse("staying is staying");
-        (await AskedAsync(h, quit)).Default.ShouldBe(QuitAction.WarmUpAndDisconnect, "a later quit asks again");
+        (await AskedAsync(h, quit)).Default.ShouldBe(QuitAction.Disconnect, "a later quit asks again");
     }
 
     [Fact(Timeout = 60_000)]

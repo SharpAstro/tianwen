@@ -26,12 +26,42 @@ public class QuitDialogTests
     [Theory]
     [InlineData(1, "A device is connected on this computer.")]
     [InlineData(3, "3 devices are connected on this computer.")]
-    public void WithDevicesConnectedWarmingThemUpIsTheDefaultAndLLeavesThemConnected(int count, string message)
+    public void WithACameraToWarmWarmingThemUpIsTheDefaultAndLLeavesThemConnected(int count, string message)
     {
-        var dialog = QuitDialog.DevicesConnected(count);
+        var dialog = QuitDialog.DevicesConnected(count, aCameraNeedsWarming: true);
 
         (dialog.Default, dialog.Other, dialog.OtherKey).ShouldBe((QuitAction.WarmUpAndDisconnect, QuitAction.LeaveConnected, InputKey.L));
         dialog.Message.ShouldStartWith(message);
         dialog.KeyHint.ShouldBe("Enter: Warm up and disconnect   L: Leave connected   Escape: stay");
+    }
+
+    /// <summary>
+    /// With nothing cooled, the question says nothing of a warm-up: it once offered to warm an uncooled ASI462MC (the ZWO
+    /// live check, 2026-09-28).
+    /// </summary>
+    [Fact]
+    public void WithNoCameraToWarmDisconnectingIsTheDefaultAndNothingIsSaidOfAWarmUp()
+    {
+        var dialog = QuitDialog.DevicesConnected(3, aCameraNeedsWarming: false);
+
+        (dialog.Default, dialog.Other, dialog.OtherKey).ShouldBe((QuitAction.Disconnect, QuitAction.LeaveConnected, InputKey.L));
+        dialog.Message.ShouldBe("3 devices are connected on this computer.");
+        dialog.KeyHint.ShouldBe("Enter: Disconnect   L: Leave connected   Escape: stay");
+    }
+
+    /// <summary>
+    /// Only a camera whose cooler is on and whose sensor is below where the warm-up takes it (the heat sink, else +25 °C)
+    /// has anything to warm; the node's ramp and the quit question ask the same rule.
+    /// </summary>
+    [Theory]
+    [InlineData(true, -10.0, 18.0, true)]            // cooling, well below the heat sink
+    [InlineData(true, 17.5, 18.0, false)]            // cooler on, sensor already at the heat sink
+    [InlineData(true, 20.0, double.NaN, true)]       // no heat sink: warmed toward +25 °C
+    [InlineData(true, double.NaN, double.NaN, true)] // no sensor reading: taken as cold
+    [InlineData(false, -10.0, 18.0, false)]          // cooler off: the ramp leaves it
+    [InlineData(false, 20.0, double.NaN, false)]     // no cooler at all (an ASI462MC)
+    public void ACameraNeedsWarmingOnlyWhileItsCoolerIsOnAndItsSensorIsBelowAmbient(bool coolerOn, double ccdC, double heatsinkC, bool needs)
+    {
+        TianWen.Lib.Devices.CameraReading.NeedsWarmUpFrom(coolerOn, ccdC, heatsinkC).ShouldBe(needs);
     }
 }
