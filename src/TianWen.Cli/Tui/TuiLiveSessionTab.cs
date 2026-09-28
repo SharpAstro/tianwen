@@ -697,8 +697,8 @@ internal sealed class TuiLiveSessionTab(
         _rows.Add(new HeadingRow($"{session.MountDisplayName}  {mountStatus}  {pier}"));
 
         // Unknown until the session's first poll (MountState.Unknown): dashes, never NaN, which the formatters refuse.
-        var raStr = double.IsNaN(ms.RightAscension) ? "--" : CoordinateUtils.HoursToHMS(ms.RightAscension, withFrac: false);
-        var decStr = double.IsNaN(ms.Declination) ? "--" : CoordinateUtils.DegreesToDMS(ms.Declination, withFrac: false);
+        var raStr = double.IsNaN(ms.RightAscension) ? "--" : CoordinateUtils.HoursToHMS(ms.RightAscension, precision: SexagesimalPrecision.Second);
+        var decStr = double.IsNaN(ms.Declination) ? "--" : CoordinateUtils.DegreesToDMS(ms.Declination, precision: SexagesimalPrecision.Second);
         var haStr = double.IsNaN(ms.HourAngle) ? "--" : $"{ms.HourAngle:+0.00;-0.00}h";
         _rows.Add(new TextRow($"RA {raStr}  HA {haStr}"));
         _rows.Add(new TextRow($"Dec {decStr}"));

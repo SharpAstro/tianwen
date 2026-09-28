@@ -72,6 +72,84 @@ public class CoordinateUtilsTests
         CoordinateUtils.DegreesToDMS(degrees).ShouldBe(expectedDMS);
     }
 
+    // #837: one formatter for every angle. The degrees field is the whole number of degrees at ANY magnitude
+    // (a TimeSpan's Hours is the hour of the day, which wrapped 45 to 21), and a rounding carry reaches it.
+    [Theory]
+    [InlineData(0d, SexagesimalPrecision.Minute, "+00*00")]
+    [InlineData(23.99d, SexagesimalPrecision.Minute, "+23*59")]
+    [InlineData(24d, SexagesimalPrecision.Minute, "+24*00")]
+    [InlineData(45.125d, SexagesimalPrecision.Minute, "+45*08")]
+    [InlineData(-45.125d, SexagesimalPrecision.Minute, "-45*08")]
+    [InlineData(-45.125d, SexagesimalPrecision.Second, "-45*07:30")]
+    [InlineData(89.99d, SexagesimalPrecision.Minute, "+89*59")]
+    [InlineData(89.99d, SexagesimalPrecision.Second, "+89*59:24")]
+    [InlineData(90d, SexagesimalPrecision.Second, "+90*00:00")]
+    [InlineData(-90d, SexagesimalPrecision.Minute, "-90*00")]
+    [InlineData(-69.1d, SexagesimalPrecision.Second, "-69*06:00")]
+    [InlineData(48.2d, SexagesimalPrecision.Minute, "+48*12")]
+    [InlineData(-37.9d, SexagesimalPrecision.Minute, "-37*54")]
+    // carries: 59.99 minutes rounds to the next whole degree, 59.6 seconds to the next minute
+    [InlineData(10.99983333d, SexagesimalPrecision.Minute, "+11*00")]
+    [InlineData(-10.99983333d, SexagesimalPrecision.Minute, "-11*00")]
+    [InlineData(23.99999d, SexagesimalPrecision.Second, "+24*00:00")]
+    [InlineData(12.0165555d, SexagesimalPrecision.Second, "+12*01:00")]
+    [InlineData(89.9999d, SexagesimalPrecision.Minute, "+90*00")]
+    // a value that rounds to zero is never negative
+    [InlineData(-0.0001d, SexagesimalPrecision.Minute, "+00*00")]
+    [InlineData(-0.5d, SexagesimalPrecision.Millisecond, "-00*30:00")]
+    [InlineData(-31.314123299999999d, SexagesimalPrecision.Millisecond, "-31*18:50.844")]
+    [InlineData(123.5d, SexagesimalPrecision.Millisecond, "+123*30:00")]
+    public void DegreesToDMSRoundsToThePrecisionAndCarriesIntoTheDegrees(double degrees, SexagesimalPrecision precision, string expected)
+    {
+        CoordinateUtils.DegreesToDMS(degrees, degreeSign: '*', precision: precision).ShouldBe(expected);
+    }
+
+    [Theory]
+    [InlineData(16.3d, 3, "016*18")]
+    [InlineData(343.7d, 3, "343*42")]
+    [InlineData(5d, 3, "005*00")]
+    [InlineData(5d, 2, "05*00")]
+    public void DegreesToDMSPadsTheDegreesToTheRequestedWidth(double degrees, int digits, string expected)
+    {
+        CoordinateUtils.DegreesToDMS(degrees, withPlus: false, degreeSign: '*', precision: SexagesimalPrecision.Minute, degreeDigits: digits)
+            .ShouldBe(expected);
+    }
+
+    [Theory]
+    [InlineData(0d, SexagesimalPrecision.Second, false, "00:00:00")]
+    [InlineData(11.11d, SexagesimalPrecision.Second, false, "11:06:36")]
+    [InlineData(23.9999d, SexagesimalPrecision.Second, false, "24:00:00")]
+    [InlineData(23.9999d, SexagesimalPrecision.Second, true, "00:00:00")]
+    [InlineData(25.5d, SexagesimalPrecision.Second, false, "25:30:00")]
+    [InlineData(5.5d, SexagesimalPrecision.Minute, false, "05:30")]
+    [InlineData(5.99999d, SexagesimalPrecision.Millisecond, false, "05:59:59.964")]
+    public void HoursToHMSRoundsToThePrecision(double hours, SexagesimalPrecision precision, bool modulo24, string expected)
+    {
+        CoordinateUtils.HoursToHMS(hours, precision: precision, modulo24: modulo24).ShouldBe(expected);
+    }
+
+    [Theory]
+    [InlineData(0d, "00:00.0")]
+    [InlineData(11.11d, "11:06.6")]
+    [InlineData(15.58d, "15:34.8")]
+    [InlineData(5.99d, "05:59.4")]
+    // 59.97 minutes rounds to the next hour, and 23:59.97 folds to 00:00.0
+    [InlineData(4.9995d, "05:00.0")]
+    [InlineData(23.9995d, "00:00.0")]
+    public void HoursToHMTRoundsToATenthOfAMinuteAndFoldsInto24Hours(double hours, string expected)
+    {
+        CoordinateUtils.HoursToHMT(hours).ShouldBe(expected);
+    }
+
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    public void ANonFiniteAngleIsPrintedNotThrown(double value)
+    {
+        CoordinateUtils.DegreesToDMS(value).ShouldBe(value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        CoordinateUtils.HoursToHMS(value).ShouldBe(value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+    }
+
     // Reference cases: known sensor/scope pairs from current TianWen fixtures.
     //  - IMX533 (3.76 μm) on a 600 mm scope -> ~1.293 "/px
     //  - IMX585 (2.9 μm) bin 2 on a 540 mm scope -> ~2.215 "/px (effective 5.8 μm)
