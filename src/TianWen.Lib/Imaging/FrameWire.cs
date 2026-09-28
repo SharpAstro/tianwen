@@ -55,16 +55,12 @@ public static class FrameWire
     /// <summary>Writes <paramref name="image"/> to <paramref name="stream"/>. The caller keeps the image, leased for the call.</summary>
     public static async Task WriteAsync(Image image, Stream stream, CancellationToken cancellationToken)
     {
-        var format = PacksAsUInt16(image) ? FrameSampleFormat.UInt16 : FrameSampleFormat.Single;
-        var header = JsonSerializer.SerializeToUtf8Bytes(FrameHeader.Of(image), FrameWireJsonContext.Default.FrameHeader);
-
+        var prepared = Prepare(image);
+        var format = prepared.Format;
         var preamble = new byte[PreambleLength];
-        Magic.CopyTo(preamble);
-        BinaryPrimitives.WriteUInt16LittleEndian(preamble.AsSpan(4), Version);
-        preamble[6] = (byte)format;
-        BinaryPrimitives.WriteInt32LittleEndian(preamble.AsSpan(8), header.Length);
+        WritePreamble(prepared, preamble);
         await stream.WriteAsync(preamble, cancellationToken);
-        await stream.WriteAsync(header, cancellationToken);
+        await stream.WriteAsync(prepared.Header, cancellationToken);
 
         var band = ArrayPool<byte>.Shared.Rent(BandBytes);
         try
@@ -84,6 +80,58 @@ public static class FrameWire
         {
             ArrayPool<byte>.Shared.Return(band);
         }
+    }
+
+    /// <summary>
+    /// How <paramref name="image"/> will cross: its sample format, its header, and its whole length on the wire, which a
+    /// writer into a fixed block (a shared-memory slot, P4b) needs before it writes.
+    /// </summary>
+    internal static PreparedFrame Prepare(Image image)
+    {
+        var format = PacksAsUInt16(image) ? FrameSampleFormat.UInt16 : FrameSampleFormat.Single;
+        var header = JsonSerializer.SerializeToUtf8Bytes(FrameHeader.Of(image), FrameWireJsonContext.Default.FrameHeader);
+        var length = PreambleLength + header.Length + (long)image.ChannelCount * image.Width * image.Height * BytesPerSample(format);
+        return new PreparedFrame(format, header, length);
+    }
+
+    /// <summary>
+    /// Writes <paramref name="image"/>, as <paramref name="prepared"/> describes it, into <paramref name="destination"/>:
+    /// the bytes <see cref="WriteAsync"/> sends, with no band in between. The caller keeps the image, leased for the call.
+    /// </summary>
+    internal static void Write(Image image, PreparedFrame prepared, Span<byte> destination)
+    {
+        if (destination.Length < prepared.Length)
+        {
+            throw new ArgumentException($"A frame of {prepared.Length} bytes does not fit in {destination.Length}", nameof(destination));
+        }
+
+        WritePreamble(prepared, destination);
+        prepared.Header.CopyTo(destination[PreambleLength..]);
+        var offset = PreambleLength + prepared.Header.Length;
+        for (var c = 0; c < image.ChannelCount; c++)
+        {
+            var plane = image.GetChannelArray(c);
+            var flat = MemoryMarshal.CreateReadOnlySpan(ref plane[0, 0], plane.Length);
+            if (prepared.Format is FrameSampleFormat.Single)
+            {
+                MemoryMarshal.AsBytes(flat).CopyTo(destination[offset..]);
+                offset += flat.Length * sizeof(float);
+            }
+            else
+            {
+                Narrow(flat, MemoryMarshal.Cast<byte, ushort>(destination.Slice(offset, flat.Length * sizeof(ushort))));
+                offset += flat.Length * sizeof(ushort);
+            }
+        }
+    }
+
+    private static void WritePreamble(PreparedFrame prepared, Span<byte> preamble)
+    {
+        Magic.CopyTo(preamble);
+        BinaryPrimitives.WriteUInt16LittleEndian(preamble[4..], Version);
+        preamble[6] = (byte)prepared.Format;
+        preamble[7] = 0;
+        BinaryPrimitives.WriteInt32LittleEndian(preamble[8..], prepared.Header.Length);
     }
 
     /// <summary>
@@ -143,8 +191,14 @@ public static class FrameWire
         }
 
         var packed = Math.Min(flat.Length - start, band.Length / sizeof(ushort));
-        var destination = MemoryMarshal.Cast<byte, ushort>(band.AsSpan(0, packed * sizeof(ushort)));
-        var source = flat.Slice(start, packed);
+        Narrow(flat.Slice(start, packed), MemoryMarshal.Cast<byte, ushort>(band.AsSpan(0, packed * sizeof(ushort))));
+        return (packed, packed * sizeof(ushort));
+    }
+
+    /// <summary>Narrows samples that <see cref="PacksAsUInt16(ReadOnlySpan{float})"/> let through into 16 bits, exactly.</summary>
+    private static void Narrow(ReadOnlySpan<float> source, Span<ushort> destination)
+    {
+        var packed = source.Length;
         var i = 0;
         if (Vector.IsHardwareAccelerated)
         {
@@ -166,7 +220,6 @@ public static class FrameWire
         {
             destination[i] = (ushort)source[i];
         }
-        return (packed, packed * sizeof(ushort));
     }
 
     /// <summary>Reads a frame's preamble: its sample format and header length, or throws naming what was wrong.</summary>
@@ -235,6 +288,53 @@ public sealed class FrameReader
     }
 
     /// <summary>
+    /// Reads one frame out of <paramref name="source"/>, the bytes <see cref="FrameWire"/> writes, with no band in between:
+    /// a shared-memory slot (P4b). The image is the caller's: releasing it gives its planes back to this reader. Throws
+    /// <see cref="InvalidDataException"/> for bytes that are not a whole frame, which a slot overwritten mid-read can be.
+    /// </summary>
+    public Image Read(ReadOnlySpan<byte> source)
+    {
+        if (source.Length < FrameWire.PreambleLength)
+        {
+            throw new InvalidDataException("Too few bytes for a frame's preamble");
+        }
+        var (format, headerLength) = FrameWire.ReadPreamble(source);
+        if (headerLength <= 0 || headerLength > source.Length - FrameWire.PreambleLength)
+        {
+            throw new InvalidDataException($"A frame header of {headerLength} bytes in {source.Length}");
+        }
+        var header = JsonSerializer.Deserialize(source.Slice(FrameWire.PreambleLength, headerLength), FrameWireJsonContext.Default.FrameHeader)
+            ?? throw new InvalidDataException("A frame with no header");
+
+        var bytesPerSample = FrameWire.BytesPerSample(format);
+        var samples = (long)header.Height * header.Width;
+        var offset = (long)FrameWire.PreambleLength + headerLength;
+        if (header.Width <= 0 || header.Height <= 0 || header.Channels.IsDefaultOrEmpty
+            || offset + header.Channels.Length * samples * bytesPerSample > source.Length)
+        {
+            throw new InvalidDataException($"A frame of {header.Channels.Length} x {header.Width} x {header.Height} does not fit in {source.Length} bytes");
+        }
+
+        var planes = new float[header.Channels.Length][,];
+        try
+        {
+            for (var c = 0; c < planes.Length; c++)
+            {
+                planes[c] = Rent(header.Height, header.Width);
+                var bytes = (int)(samples * bytesPerSample);
+                FrameWire.DrainBand(source.Slice((int)offset, bytes), planes[c], 0, format);
+                offset += bytes;
+            }
+        }
+        catch
+        {
+            ReturnAll(planes);
+            throw;
+        }
+        return Assemble(header, planes);
+    }
+
+    /// <summary>
     /// Reads one frame from <paramref name="stream"/>. The image is the caller's: releasing it gives its planes back to
     /// this reader.
     /// </summary>
@@ -267,20 +367,19 @@ public sealed class FrameReader
         }
         catch
         {
-            foreach (var plane in planes)
-            {
-                if (plane is not null)
-                {
-                    Return(plane);
-                }
-            }
+            ReturnAll(planes);
             throw;
         }
         finally
         {
             ArrayPool<byte>.Shared.Return(band);
         }
+        return Assemble(header, planes);
+    }
 
+    // The image of a header and its planes, each plane coming back to this reader when the image is released.
+    private Image Assemble(FrameHeader header, float[][,] planes)
+    {
         var channels = ImmutableArray.CreateBuilder<Channel>(planes.Length);
         for (var c = 0; c < planes.Length; c++)
         {
@@ -293,12 +392,26 @@ public sealed class FrameReader
         return new Image(channels.MoveToImmutable(), header.BitDepth, header.Pedestal, header.Meta, header.SamplesAreUnitReferred);
     }
 
+    private void ReturnAll(float[][,] planes)
+    {
+        foreach (var plane in planes)
+        {
+            if (plane is not null)
+            {
+                Return(plane);
+            }
+        }
+    }
+
     private float[,] Rent(int height, int width)
         => _free.TryGetValue((height, width), out var bag) && bag.TryTake(out var plane) ? plane : new float[height, width];
 
     private void Return(float[,] plane)
         => _free.GetOrAdd((plane.GetLength(0), plane.GetLength(1)), static _ => new ConcurrentBag<float[,]>()).Add(plane);
 }
+
+/// <summary>How a frame crosses (<see cref="FrameWire.Prepare"/>): its sample format, its header's bytes and its whole length.</summary>
+internal readonly record struct PreparedFrame(FrameSampleFormat Format, byte[] Header, long Length);
 
 /// <summary>What a frame's JSON header carries besides its planes.</summary>
 internal sealed record FrameHeader(int Width, int Height, BitDepth BitDepth, float Pedestal, bool SamplesAreUnitReferred,
