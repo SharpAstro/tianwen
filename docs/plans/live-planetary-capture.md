@@ -401,6 +401,16 @@ free rect within hardware constraints, not a fixed list:
   origin stays driver-centred until the **Phase C** recenter loop pans it -- pan here positions the PiP/overlay
   SELECTION). `CurrentImageRect` was added to `ImageRendererBase` for the overlay.
 
+### Reframing on the full sensor
+
+**Open, #1033.** "Show ROI on image" outlines the frame on show, and during a capture that frame IS the ROI crop, so
+the outline is the whole image and says nothing (the ZWO ASI462MC live check, 2026-09-28). What the user wants
+instead: while an ROI capture runs, an option to take one full-sensor frame, show it with the current ROI and a
+proposed one moved and resized on the image, and a confirm card that commits the proposal (a pan of the running
+window when the size is unchanged, else a restart at the new size) or cancels. It replaces the checkbox, and the
+drag deferred above stops conflicting with the viewer's pan and zoom once it happens on a still frame in a mode of
+its own.
+
 ### Image-based Jupiter simulation (started 2026-06-25)
 
 P2 to P4 are **tracked by #818**. Pointed at a star, with a coma term added, the same PSF chain is the test rig for
