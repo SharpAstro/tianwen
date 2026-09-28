@@ -55,7 +55,11 @@ public class LiveFrameRateProbe(ITestOutputHelper output)
         await NodeWait.UntilTheJobSucceedsAsync(client, await client.ConnectDeviceAsync(camera, ct), ct);
         try
         {
-            await MeasureAsync(transport, client, roiWidth, roiHeight, ct);
+            // Each carrier in turn, twice, so neither is only ever measured first (P4b, #932).
+            foreach (var sharedMemory in new[] { true, false, true, false })
+            {
+                await MeasureAsync(transport, client, roiWidth, roiHeight, sharedMemory, ct);
+            }
         }
         finally
         {
@@ -68,14 +72,15 @@ public class LiveFrameRateProbe(ITestOutputHelper output)
         }
     }
 
-    private async Task MeasureAsync(NodeTransport transport, TianWenNodeClient client, int roiWidth, int roiHeight, CancellationToken ct)
+    private async Task MeasureAsync(NodeTransport transport, TianWenNodeClient client, int roiWidth, int roiHeight, bool sharedMemory,
+        CancellationToken ct)
     {
         // A 1 ms exposure: the camera runs at its readout's rate, which is what a focus loop in daylight asks of it.
         var started = await client.StartPlanetaryAsync(new PlanetaryRequestDto { ExposureMs = 1, RoiWidth = roiWidth, RoiHeight = roiHeight }, ct);
         started.IsSuccess.ShouldBeTrue(started.Error);
         try
         {
-            await using var stream = await transport.OpenFrameStreamAsync(FrameSources.PlanetaryLive, ct);
+            await using var stream = await transport.OpenFrameStreamAsync(FrameSources.PlanetaryLive, sharedMemory, ct);
             var reader = new FrameReader();
 
             // Warm-up: the first frames pay for the camera's start, the node's first planes and the JIT.
@@ -118,6 +123,7 @@ public class LiveFrameRateProbe(ITestOutputHelper output)
             var bytesPerSample = shape.Packed ? 2 : 4;
             var megabytes = shape.Width * (double)shape.Height * shape.Channels * bytesPerSample / 1e6;
 
+            output.WriteLine($"=== {(sharedMemory ? "shared memory" : "socket")}: {stream.FramesFromSharedMemory} frames from slots, {stream.TornFrames} torn");
             output.WriteLine($"ROI asked {roiWidth}x{roiHeight}, got {shape.Width}x{shape.Height}x{shape.Channels} {shape.Depth}, "
                 + $"{(shape.Packed ? "packed to 16 bits" : "float")}, about {megabytes:F1} MB a frame on the wire");
             output.WriteLine($"camera        {delivered,7:F1} fps (the node's own count; it reports {after?.FramesPerSecond:F1})");
