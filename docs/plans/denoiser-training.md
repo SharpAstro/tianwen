@@ -2216,7 +2216,18 @@ subs, gates and geometry, and their half-pair noise moved by 0.97 to 1.09.
 | spread, sd of ln | 0.31 | **0.21** |
 | range | 0.39 (Lagoon) to 1.28 (Horsehead) | 0.52 (Lagoon) to 1.18 (Horsehead) |
 
-Half the error was the stand-in stretch. Nine fields still over-read, by 1.08 to 1.94.
+Half the error was the stand-in stretch. Nine fields still over-read, by 1.08 to 1.94. `convmap` (four seeds,
+per-field full-strength removal and error left in the 1-2 px band, mean of the eleven fields) moves about half way
+to the oracle, whose condition reproduces E16a's on every field:
+
+| | E16a, estimate | each frame's own, estimate | oracle (E16a / own) |
+|---|---|---|---|
+| removal at full strength | 47.6 percent | **43.9** | 39.0 / 38.6 |
+| error left, sky | 0.65 | **0.55** | 0.43 / 0.44 |
+| error left, 0.30-0.45 | 0.99 | **0.92** | 0.89 / 0.89 |
+
+Lagoon still leaves 2.33 in the sky against the oracle's 0.88, and Horsehead, the one field that reads low, removes
+40.9 percent against 52.4.
 
 **What the rest is, per channel.** On each field's sky (half B's low-passed luminance in 0.15-0.30, peaks masked,
 the 16 px rim out; this mask reproduces every field's anchor to within 0.03), against T, the half-pair truth per
