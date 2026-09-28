@@ -132,7 +132,8 @@ public sealed class AppQuit(
         }
 
         var connected = node.Devices.Values.Count(static d => d.Connected);
-        return connected > 0 ? QuitDialog.DevicesConnected(connected) : null;
+        var aCameraNeedsWarming = node.Devices.Values.Any(static d => d.Connected && d.Camera is { } camera && camera.ToReading().NeedsWarmUp);
+        return connected > 0 ? QuitDialog.DevicesConnected(connected, aCameraNeedsWarming) : null;
     }
 
     // The question is drawn by the Live Session tab, which renders the ACTIVE context: with a remote rig on screen it would
@@ -166,10 +167,10 @@ public sealed class AppQuit(
                 GoAhead(ct => rig.StopAsync(node.Client, p => Volatile.Write(ref _progress, p), ct), "Stopping the rig");
                 return;
 
-            case QuitAction.WarmUpAndDisconnect when appState.LocalNode is { } node:
-                // Taken by the node, which finishes the warm-ups after this window has gone.
+            case QuitAction.WarmUpAndDisconnect or QuitAction.Disconnect when appState.LocalNode is { } node:
+                // Taken by the node, which finishes the warm-ups after this window has gone (warming only a camera that needs it).
                 GoAhead(ct => rig.WarmUpAndDisconnectAsync(node.Client, p => Volatile.Write(ref _progress, p), untilDone: false, ct),
-                    "Warming up and disconnecting");
+                    action is QuitAction.Disconnect ? "Disconnecting" : "Warming up and disconnecting");
                 return;
 
             default:

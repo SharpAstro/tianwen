@@ -1517,7 +1517,10 @@ and 10.0 ships it (P9).
    flats, polar or planetary), the dialog offers "Leave the rig running" (the default) and "Stop the rig
    and quit" (abort, `Finalise`, warm-up, disconnect, with progress). With devices connected and no run,
    it offers "Warm up and disconnect" (the default, today's behaviour, finished in the server after the
-   window has gone) and "Leave connected". A client that is not the last one attached detaches without
+   window has gone) and "Leave connected". **Refined 2026-09-28 (user): it speaks of a warm-up only while a
+   camera is actively cooled, below ambient** (`CameraReading.NeedsWarmUp`, the rule the node's ramp asks
+   too); otherwise the default is "Disconnect". Found quitting after a planetary capture with an uncooled
+   ASI462MC, which the node's ramp then stepped toward +25 °C for its whole 15 minute cap. A client that is not the last one attached detaches without
    asking, so closing the RDP window never warms a rig the laptop is watching.
 2. **When a spawned server exits: DECIDED, it stays until logoff** (the recommendation was 10 minutes
    idle). It still never exits while it holds hardware, and one started by hand never exits by itself.

@@ -487,8 +487,10 @@ releasing it only after restoring the mount. Every new kind of run owes the same
   `docs/plans/hardware-in-the-server.md`): only the LAST client attached to the node asks (the node's
   `ClientsAttached`, less this one's own stream, which counts only clients that may command: a watcher over the LAN is
   nobody to leave the rig to); with a run going on, "Leave the rig running" (the default) or
-  "Stop the rig and quit"; with devices connected and no run, "Warm up and disconnect" (the default, which the
-  node finishes after the window has gone) or "Leave connected". The question is `LiveSessionState.QuitDialog`
+  "Stop the rig and quit"; with devices connected and no run, "Disconnect" (the default, which the node finishes
+  after the window has gone) or "Leave connected", and it says "Warm up and disconnect" only while a camera needs it
+  (`CameraReading.NeedsWarmUp`: its cooler on and its sensor below the heat sink, the rule the node's ramp asks too, so
+  an uncooled camera is never ramped). The question is `LiveSessionState.QuitDialog`
   on this computer's view, drawn by both Live Session tabs over everything (Enter the default, its letter the
   other, Escape stays). Every quit cancels the host's OWN background work first (a separate token from the
   loop's); the TUI once hung on Q, draining a tracker whose limit watcher nothing cancelled (P0c).

@@ -252,6 +252,17 @@ public static class DeviceHubCameraSafetyExtensions
             return;
         }
 
+        // The ramp's one action is a setpoint, so a camera that takes none (an uncooled planetary camera) has nothing
+        // to warm. It used to ramp anyway: a DAL camera without a cooler ignores the setpoint, so the loop waited out
+        // its 15 minute cap on a sensor below the +25 °C fallback, and quitting after a planetary capture with an
+        // ASI462MC held the window for all of it (the ZWO live check, 2026-09-28).
+        if (!camera.CanSetCCDTemperature)
+        {
+            logger.LogInformation("Camera {Uri} has no cooler; nothing to warm", deviceUri);
+            if (disconnectAfter) await hub.DisconnectAsync(deviceUri, force, cancellationToken);
+            return;
+        }
+
         // Skip the ramp entirely when the cooler was never on -- the whole
         // point of the ramp is condensation-mitigation as the sensor returns
         // to ambient, and a never-cooled camera has nothing to mitigate. The
@@ -283,17 +294,18 @@ public static class DeviceHubCameraSafetyExtensions
         // cool-down back to the setpoint this ramp is leaving.
         hub.SetCoolerIntent(deviceUri, CoolerIntent.Warm);
 
-        // Determine target temperature: heat-sink if available, else +25°C.
-        double target = 25.0;
+        // Determine target temperature: heat-sink if available, else +25°C (CameraReading's rule, which a client's quit
+        // question asks too, so it says "warm up" only where this ramp has something to do).
+        var heatsink = double.NaN;
         if (camera.CanGetHeatsinkTemperature)
         {
-            try { target = await camera.GetHeatSinkTemperatureAsync(cancellationToken); }
+            try { heatsink = await camera.GetHeatSinkTemperatureAsync(cancellationToken); }
             catch (Exception ex) { logger.LogWarning(ex, "GetHeatSinkTemperatureAsync failed for {Uri}", deviceUri); }
         }
+        var target = CameraReading.WarmUpTargetC(heatsink);
 
         var stepInterval = TimeSpan.FromSeconds(30);
         var stepSize = 2.0;
-        var stallThreshold = 1.0;
         var maxSteps = 30;
 
         for (var i = 0; i < maxSteps && !cancellationToken.IsCancellationRequested; i++)
@@ -302,7 +314,7 @@ public static class DeviceHubCameraSafetyExtensions
             try { current = await camera.GetCCDTemperatureAsync(cancellationToken); }
             catch { break; }
 
-            if (current >= target - stallThreshold) break;
+            if (!CameraReading.NeedsWarmUpFrom(coolerOn: true, current, heatsink)) break;
 
             var nextSetpoint = Math.Min(current + stepSize, target);
             try { await camera.SetSetCCDTemperatureAsync(nextSetpoint, cancellationToken); }
