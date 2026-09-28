@@ -147,6 +147,17 @@ public static class StretchedNoise
     /// <param name="absent">The canvas ring (<see cref="Image.AbsentPixels"/>): a block touching it is skipped.</param>
     public static LinearDegradation.NoiseCalibration EstimateCalibration(
         Image unitLinear, IReadOnlyList<ChannelStretch> stretches, BitMatrix? absent = null)
+        => TryEstimateCalibration(unitLinear, stretches, absent, out var calibration)
+            ? calibration
+            : throw new ArgumentException($"no {EstimateBlockPx} px block of the frame is free of the canvas ring and NaN", nameof(unitLinear));
+
+    /// <summary>
+    /// <see cref="EstimateCalibration"/> for a caller that has a use for the frame without it: false when no
+    /// <see cref="EstimateBlockPx"/> px block is free of the canvas ring and NaN (a frame smaller than one block,
+    /// or one that is all ring), which leaves nothing to estimate from.
+    /// </summary>
+    public static bool TryEstimateCalibration(
+        Image unitLinear, IReadOnlyList<ChannelStretch> stretches, BitMatrix? absent, out LinearDegradation.NoiseCalibration calibration)
     {
         var (_, width, height) = unitLinear.Shape;
         var stretch = stretches[0];
@@ -212,7 +223,8 @@ public static class StretchedNoise
         }
         if (levels.Count == 0)
         {
-            throw new ArgumentException($"no {EstimateBlockPx} px block of the frame is free of the canvas ring and NaN", nameof(unitLinear));
+            calibration = default;
+            return false;
         }
 
         // The sky: the darkest 30 percent of blocks, whose median level fixes the background the ramp anchors at.
@@ -234,7 +246,8 @@ public static class StretchedNoise
         }
         anchors.Sort();
         var anchor = anchors.Count > 0 ? anchors[(int)Math.Clamp(anchors.Count * EstimateQuantile, 0, anchors.Count - 1)] : 0.0;
-        return new LinearDegradation.NoiseCalibration(unitLinear.Pedestal, background, anchor, 1);
+        calibration = new LinearDegradation.NoiseCalibration(unitLinear.Pedestal, background, anchor, 1);
+        return true;
     }
 
     /// <summary>A copy with every NaN replaced by the finite median, so a blur cannot spread one. A plane over a

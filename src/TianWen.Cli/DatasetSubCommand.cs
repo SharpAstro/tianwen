@@ -90,6 +90,15 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             AllowMultipleArgumentsPerToken = true,
         };
 
+        var sessionOpt = new Option<string[]>("--session")
+        {
+            Description = "Case-insensitive wildcard(s) on the session id (repeatable): build ONLY matching sessions. " +
+                          "For a store of a few named sessions from the same roots, so calibration resolves as it does " +
+                          "in a full bake; the pinned split is still written over every session the archive holds. A " +
+                          "pattern matching no session is reported.",
+            AllowMultipleArgumentsPerToken = true,
+        };
+
         var excludePathOpt = new Option<string[]>("--exclude-path")
         {
             Description = "Case-insensitive wildcard(s) matched against each PATH SEGMENT; a frame " +
@@ -275,7 +284,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             Options =
             {
                 archiveRootOpt, outOpt,
-                minExposureOpt, maxExposureOpt, excludeInstrumeOpt, excludeObjectOpt, excludePathOpt, holdOutOpt, rebuildSessionOpt, parametersOpt, minSubsOpt,
+                minExposureOpt, maxExposureOpt, excludeInstrumeOpt, excludeObjectOpt, excludePathOpt, holdOutOpt, rebuildSessionOpt, sessionOpt, parametersOpt, minSubsOpt,
                 tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, requireDarkOpt, requireGainMatchOpt, maxDarkDeltaTOpt, hotPixelSigmaOpt, warpInterpolationOpt, softwareOpt, discoverOnlyOpt, resumeOpt, fillMissingPsfOpt, forcePsfOpt, remeasureSubsOpt, siteOpt, scratchRootOpt,
                 noStageLightsOpt, noHeaderIndexOpt,
             },
@@ -365,6 +374,11 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             if (parseResult.GetValue(rebuildSessionOpt) is { Length: > 0 } rebuild)
             {
                 options = options with { RebuildSessionPatterns = [.. rebuild] };
+            }
+
+            if (parseResult.GetValue(sessionOpt) is { Length: > 0 } only)
+            {
+                options = options with { SessionPatterns = [.. only] };
             }
 
             consoleHost.WriteScrollable($"[dataset] scanning {roots.Length} root(s) for raw lights ...");

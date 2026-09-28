@@ -66,6 +66,11 @@ namespace TianWen.Lib.Tests
             patched.ShouldBeGreaterThan(0, $"'{find}' not found -- fixture DATE-OBS format changed?");
         }
 
+        /// <summary>The tiles under <paramref name="dir"/>, without their noise planes, which share the .f16 suffix.</summary>
+        private static string[] TileFiles(string dir) =>
+            [.. Directory.GetFiles(dir, "*" + DatasetTileExporter.TileExtension, SearchOption.AllDirectories)
+                .Where(f => !f.EndsWith(DatasetDegradationExporter.SigmaTileExtension, StringComparison.Ordinal))];
+
         /// <summary>Byte offset of the end of the primary header (the 2880-block containing END).</summary>
         private static int HeaderEnd(byte[] bytes)
         {
@@ -153,9 +158,13 @@ namespace TianWen.Lib.Tests
             var manifestLines = File.ReadAllLines(result.ManifestPath).Count(l => l.Trim().Length > 0);
             manifestLines.ShouldBe(result.TotalTiles);
 
-            // Tiles on disk.
-            var tileFiles = Directory.GetFiles(Path.Combine(outDir, "tiles"), "*" + DatasetTileExporter.TileExtension, SearchOption.AllDirectories);
+            // Tiles on disk, and beside every one its noise plane (which shares the .f16 suffix, so is counted apart).
+            var tileFiles = TileFiles(Path.Combine(outDir, "tiles"));
             tileFiles.Length.ShouldBe(result.TotalTiles);
+            foreach (var tile in tileFiles)
+            {
+                File.Exists(DatasetDegradationExporter.SigmaPathFor(tile)).ShouldBeTrue($"{tile} has no plane");
+            }
 
             // Calibration was resolved archive-wide and the dark master cached (build-once).
             var mastersDir = Path.Combine(outDir, "masters");
@@ -486,6 +495,47 @@ namespace TianWen.Lib.Tests
                 options with { OutputDir = optOutDir, RetainSessionMasters = false }, cancellationToken: ct);
             third.Registered.ShouldBe(1);
             Directory.Exists(Path.Combine(optOutDir, "session-masters")).ShouldBeFalse();
+        }
+
+        /// <summary>
+        /// <c>--session</c> builds only the named sessions, and the split it writes is the one the whole archive
+        /// gets: a store of a few eval fields must hold out exactly what the full bake holds out, or a subset
+        /// store silently trains on a test session.
+        /// </summary>
+        [Fact]
+        public async Task Run_WithSessionPatterns_BuildsOnlyTheNamedSessions_AndSplitsOverTheWholeArchive()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var root = Path.Combine(_dir, "archive");
+            var m42 = Path.Combine(root, "M42", "LIGHT");
+            Directory.CreateDirectory(m42);
+            Directory.CreateDirectory(Path.Combine(root, "DARK"));
+            RgbBayerSyntheticFixture.WriteSyntheticLights(m42);
+            RgbBayerSyntheticFixture.WriteSyntheticDarks(Path.Combine(root, "DARK"));
+            WriteShiftedCopies(m42, Path.Combine(root, "N43", "LIGHT"));
+            var options = new DatasetBuildOptions
+            {
+                ArchiveRoots = [root],
+                OutputDir = Path.Combine(_dir, "all"),
+                MinExposure = TimeSpan.FromSeconds(0.5),
+                MaxExposure = TimeSpan.FromMinutes(5),
+                MinSubsPerSession = 4,
+                TileSize = 64,
+                CellsPerSession = 20,
+                SubsPerCell = 3,
+                TestFraction = 0.5,
+            };
+
+            var all = await DatasetBuildRunner.RunAsync(options, cancellationToken: ct);
+            all.Registered.ShouldBe(2);
+            var subset = await DatasetBuildRunner.RunAsync(
+                options with { OutputDir = Path.Combine(_dir, "subset"), SessionPatterns = ["*M42*"] }, cancellationToken: ct);
+
+            subset.Registered.ShouldBe(1);
+            var rows = File.ReadAllLines(subset.ManifestPath).Where(l => l.Trim().Length > 0).ToArray();
+            rows.Length.ShouldBeGreaterThan(0);
+            rows.ShouldAllBe(l => l.Contains("M42", StringComparison.OrdinalIgnoreCase));
+            File.ReadAllText(subset.SplitPath).ShouldBe(File.ReadAllText(all.SplitPath));
         }
 
         /// <summary>
@@ -947,7 +997,7 @@ namespace TianWen.Lib.Tests
             var first = await DatasetBuildRunner.RunAsync(options, cancellationToken: ct);
             first.Registered.ShouldBe(1);
             var tilesDir = Path.Combine(options.OutputDir, "tiles");
-            var tilesAfterFirst = Directory.GetFiles(tilesDir, "*.f16", SearchOption.AllDirectories).Length;
+            var tilesAfterFirst = TileFiles(tilesDir).Length;
 
             // Gap-fill has no gap to fill, so it resumes without measuring anything.
             var regen = await DatasetBuildRunner.RunAsync(
@@ -969,7 +1019,7 @@ namespace TianWen.Lib.Tests
             forced.PsfRemeasuredFromMaster.ShouldBe(1);
 
             // Tiles are untouched by a re-measure, and the tile count is still banked.
-            Directory.GetFiles(tilesDir, "*.f16", SearchOption.AllDirectories).Length.ShouldBe(tilesAfterFirst);
+            TileFiles(tilesDir).Length.ShouldBe(tilesAfterFirst);
             forced.TotalTiles.ShouldBe(first.TotalTiles);
 
             // Last-wins by id, so the store gained a line but the report still covers one session.
@@ -1023,7 +1073,7 @@ namespace TianWen.Lib.Tests
             resumed.Resumed.ShouldBe(0);        // NOT treated as already done
             resumed.Registered.ShouldBe(1);     // re-registered instead
             resumed.TotalTiles.ShouldBe(first.TotalTiles);
-            Directory.EnumerateFiles(tileDir, "*.f16").Count().ShouldBe(first.TotalTiles);
+            TileFiles(tileDir).Length.ShouldBe(first.TotalTiles);
         }
 
         /// <summary>A fresh (non-resume) run over an output dir that already has a manifest rotates it
