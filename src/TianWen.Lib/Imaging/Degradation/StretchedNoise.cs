@@ -1,6 +1,8 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.InteropServices;
 using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.Degradation;
@@ -221,14 +223,18 @@ public static class StretchedNoise
             }
         }
 
+        // The channels are independent estimates, so they run side by side; each answer is the same as serially.
         var result = new LinearDegradation.NoiseCalibration[channels];
-        for (var c = 0; c < channels; c++)
+        var found = new bool[channels];
+        ParallelFor.Run(channels, c =>
         {
-            if (!TryEstimateChannel(unitLinear, c, stretches[c], skip, out result[c]))
-            {
-                calibrations = null;
-                return false;
-            }
+            found[c] = TryEstimateChannel(unitLinear, c, stretches[c], skip, out var calibration);
+            result[c] = calibration;
+        });
+        if (Array.IndexOf(found, false) >= 0)
+        {
+            calibrations = null;
+            return false;
         }
         calibrations = result;
         return true;
@@ -238,23 +244,38 @@ public static class StretchedNoise
     private static bool TryEstimateChannel(Image unitLinear, int channel, in ChannelStretch stretch, bool[] skip, out LinearDegradation.NoiseCalibration calibration)
     {
         var (_, width, height) = unitLinear.Shape;
-        var linear = unitLinear.GetChannelSpan(channel);
         var y = new float[width * height];
-        for (var i = 0; i < y.Length; i++)
+        var stretchBalance = stretch.MidtonesBalance;
+        var stretchFloor = stretch.OrigMin;
+        var plane = unitLinear.GetChannelArray(channel); // resolved once for the whole operation, not per row
+        ParallelFor.Run(height, row =>
         {
-            var v = linear[i];
-            y[i] = float.IsNaN(v) ? float.NaN : (float)Image.MidtonesTransferFunction(stretch.MidtonesBalance, Math.Max(0.0, v - stretch.OrigMin));
-        }
+            var linear = MemoryMarshal.CreateReadOnlySpan(ref plane[0, 0], plane.Length).Slice(row * width, width);
+            var yRow = y.AsSpan(row * width, width);
+            for (var x = 0; x < width; x++)
+            {
+                var v = linear[x];
+                yRow[x] = float.IsNaN(v) ? float.NaN : (float)Image.MidtonesTransferFunction(stretchBalance, Math.Max(0.0, v - stretchFloor));
+            }
+        });
         var low = Image.SeparableGaussianBlur(WithoutNaN(y), width, height, EstimateHighPassSigmaPx);
 
-        var levels = new List<double>();
-        var mads = new List<double>();
-        var block = new float[EstimateBlockPx * EstimateBlockPx];
-        var hp = new float[EstimateBlockPx * EstimateBlockPx];
-        for (var by = 0; by + EstimateBlockPx <= height; by += EstimateBlockPx)
+        // Each block is read on its own, so block rows run in parallel into fixed slots, which keeps the readings
+        // in the serial loop's order (the answer sorts them anyway). A block's level is its median alone: the MAD
+        // beside it was computed and never read.
+        var blocksX = width / EstimateBlockPx;
+        var blocksY = height / EstimateBlockPx;
+        var blockLevel = new double[blocksX * blocksY];
+        var blockMad = new double[blocksX * blocksY];
+        var blockOk = new bool[blocksX * blocksY];
+        ParallelFor.Run(blocksY, bRow =>
         {
-            for (var bx = 0; bx + EstimateBlockPx <= width; bx += EstimateBlockPx)
+            var block = new float[EstimateBlockPx * EstimateBlockPx];
+            var hp = new float[EstimateBlockPx * EstimateBlockPx];
+            var by = bRow * EstimateBlockPx;
+            for (var bCol = 0; bCol < blocksX; bCol++)
             {
+                var bx = bCol * EstimateBlockPx;
                 var ok = true;
                 var k = 0;
                 for (var yy = by; yy < by + EstimateBlockPx && ok; yy++)
@@ -276,10 +297,20 @@ public static class StretchedNoise
                 {
                     continue;
                 }
-                var (median, _) = StatisticsHelper.MedianAndMad(block.AsSpan());
-                var (_, mad) = StatisticsHelper.MedianAndMad(hp.AsSpan());
-                levels.Add(median);
-                mads.Add(1.4826 * mad);
+                var slot = (bRow * blocksX) + bCol;
+                blockLevel[slot] = StatisticsHelper.MedianFast(block.AsSpan());
+                blockMad[slot] = 1.4826 * StatisticsHelper.MedianAndMad(hp.AsSpan()).Mad;
+                blockOk[slot] = true;
+            }
+        });
+        var levels = new List<double>();
+        var mads = new List<double>();
+        for (var slot = 0; slot < blockOk.Length; slot++)
+        {
+            if (blockOk[slot])
+            {
+                levels.Add(blockLevel[slot]);
+                mads.Add(blockMad[slot]);
             }
         }
         if (levels.Count == 0)
@@ -329,16 +360,19 @@ public static class StretchedNoise
             return src;
         }
 
-        var finite = new List<float>(src.Length);
-        foreach (var v in src)
+        // The fill is the finite values' sorted[n / 2]; a selection finds that value without sorting the frame, which
+        // on a warped sub (its NaN canvas edge makes every channel take this path) was a full sort of every pixel.
+        var finite = ArrayPool<float>.Shared.Rent(src.Length);
+        float fill;
+        try
         {
-            if (!float.IsNaN(v))
-            {
-                finite.Add(v);
-            }
+            var n = StatisticsHelper.CompactFinite(src, finite);
+            fill = n > 0 ? StatisticsHelper.NthSmallest(finite.AsSpan(0, n), n / 2) : 0f;
         }
-        finite.Sort();
-        var fill = finite.Count > 0 ? finite[finite.Count / 2] : 0f;
+        finally
+        {
+            ArrayPool<float>.Shared.Return(finite);
+        }
         var copy = (float[])src.Clone();
         for (var i = 0; i < copy.Length; i++)
         {
