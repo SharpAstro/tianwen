@@ -82,6 +82,20 @@ public class HomeSharingTests
             .ShouldBe("Watching: its owner declined control");
     }
 
+    /// <summary>
+    /// The setting against what the node does now, stated in the present only. It used to promise the node would
+    /// stop listening "at its next start", which a node run by hand with a LAN address on its command line never does.
+    /// </summary>
+    [Theory]
+    [InlineData(true, true, "Shared on the LAN")]
+    [InlineData(true, false, "Shared, but not listening on the LAN now")]
+    [InlineData(false, true, "Not shared, but listening on the LAN now")]
+    [InlineData(false, false, "Not shared on the LAN")]
+    public void TheSharingLineSaysWhatTheNodeDoesNow(bool shared, bool listening, string expected)
+    {
+        RigSharing.DescribeLan(new NodeAccessDto { Shared = shared, Listening = listening }).ShouldBe(expected);
+    }
+
     [Fact]
     public void ARigThisComputerOnlyWatchesOffersToAskAndToStopAsking()
     {

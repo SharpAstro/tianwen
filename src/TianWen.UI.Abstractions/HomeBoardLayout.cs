@@ -356,9 +356,7 @@ namespace TianWen.UI.Abstractions
                     .WithGap(6f).RowH(SharingRowHeight));
 
             rows.Add(Layout.Builder.Text($"Sharing: {shown.Title}", BaseFontSize, style.BodyText).RowH(SharingRowHeight));
-            Entry(access.Shared
-                    ? access.Listening ? "Shared on the LAN" : "Shared on the LAN from the node's next start"
-                    : access.Listening ? "Not shared: the node stops listening on the LAN at its next start" : "Not shared on the LAN",
+            Entry(RigSharing.DescribeLan(access),
                 SharingButton(access.Shared ? "Stop sharing" : "Share on the LAN", $"Sharing:{shown.Title}:Share", style,
                     () => bus.Post(new SetLanShareSignal(!access.Shared, binding))));
 
