@@ -201,7 +201,8 @@ public static class PlannerDetails
         }
         if (!Half.IsNaN(obj.SurfaceBrightness))
         {
-            var sb = $"SB {(double)obj.SurfaceBrightness:F2} mag/arcsec²";
+            // One decimal, as the object panel shows it: the stored Half cannot hold a second (ObjectInfoPanel.BrightnessLine).
+            var sb = $"SB {(double)obj.SurfaceBrightness:F1} mag/arcsec²";
             photometry = photometry.Length > 0 ? $"{photometry}   {sb}" : sb;
         }
         if (!Half.IsNaN(obj.BMinusV))
