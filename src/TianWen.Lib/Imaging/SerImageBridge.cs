@@ -45,6 +45,54 @@ public static class SerImageBridge
          };
 
     /// <summary>
+    /// The SER sample depth <paramref name="frame"/> is written in: 8 for a frame read out in 8 bits (its samples 0 to 255),
+    /// else 16, which a colour frame already in [0, 1] and a 16-bit readout both keep. One rule for a recording and a
+    /// conversion.
+    /// </summary>
+    public static int SerDepthOf(Image frame) => frame.BitDepth is BitDepth.Int8 && !frame.SamplesAreUnitReferred ? 8 : 16;
+
+    /// <summary>
+    /// Writes <paramref name="frame"/>'s samples into <paramref name="destination"/> as a SER frame: whole numbers in
+    /// <paramref name="depth"/> bits (<see cref="SerDepthOf"/>), host order, interleaved per pixel for RGB, and the top row
+    /// first, so a frame whose rows are stored bottom-up (<see cref="RowOrder.BottomUp"/>) is turned over.
+    /// <paramref name="destination"/> is exactly the frame: width x height x planes x depth / 8 bytes.
+    /// </summary>
+    public static void FillSerFrame(Image frame, int depth, Span<byte> destination)
+    {
+        var channels = frame.ChannelCount >= 3 ? 3 : 1;
+        var (width, height) = (frame.Width, frame.Height);
+        var bottomUp = frame.ImageMeta.RowOrder == RowOrder.BottomUp;
+        if (depth == 8)
+        {
+            Fill(frame, channels, width, height, bottomUp, destination, byte.MaxValue);
+        }
+        else
+        {
+            Fill(frame, channels, width, height, bottomUp, MemoryMarshal.Cast<byte, ushort>(destination), ushort.MaxValue);
+        }
+    }
+
+    // The samples as the camera gave them, whole numbers 0 to the depth's maximum ([0, 1] frames scaled up to it).
+    private static void Fill<T>(Image frame, int channels, int width, int height, bool bottomUp, Span<T> samples, float max)
+        where T : unmanaged, System.Numerics.INumberBase<T>
+    {
+        var scale = frame.SamplesAreUnitReferred ? max : 1f;
+        for (var c = 0; c < channels; c++)
+        {
+            var plane = frame.GetChannelSpan(c);
+            for (var y = 0; y < height; y++)
+            {
+                var from = plane.Slice((bottomUp ? height - 1 - y : y) * width, width);
+                var to = y * width * channels;
+                for (var x = 0; x < width; x++)
+                {
+                    samples[to + (x * channels) + c] = T.CreateTruncating(Math.Clamp(MathF.Round(from[x] * scale), 0f, max));
+                }
+            }
+        }
+    }
+
+    /// <summary>
     /// Decodes frame <paramref name="index"/> into unit-range [0,1] float channels, filling the
     /// caller-supplied buffers with no allocation. Bayer/mono write ONE channel (the raw mosaic, left
     /// for the debayer); RGB/BGR write THREE de-interleaved channels in R,G,B order (BGR is swapped).

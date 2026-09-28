@@ -1,6 +1,6 @@
 # Planetary restoration by measurement
 
-**Status: NOT STARTED** (written 2026-09-28, the user's request). Milestone `planetary-restoration`: R0 #1048, R1 #1049, R2 #1050, R3 #1051, R4 #1052, R5 #1053, R6 #815, R7 #1054, R8 #1055, R9 #1056 (conditional).
+**Status: PARTIAL: R0 done** (written 2026-09-28, the user's request; R0 2026-09-29: the survey, the FITS video conversion and the tracked lossless crop). Milestone `planetary-restoration`: R0 #1048, R1 #1049, R2 #1050, R3 #1051, R4 #1052, R5 #1053, R6 #815, R7 #1054, R8 #1055, R9 #1056 (conditional).
 
 The user asked for what the deep-sky training effort does, done for planetary lucky imaging:
 - which frames are usable;
@@ -94,12 +94,12 @@ With no truth, two independent stacks of the same capture (disjoint frame sets, 
 
 **Issue:** #1048.
 
-- **What:** a `tianwen planetary survey` verb.
+- **What:** a `tianwen planetary-survey` verb.
   - It records every capture's header: size, frames, colour, depth, timestamps, camera, the SharpCap settings.
   - It adds the disk scale from R1, the exclusions above, and a stable identifier per capture.
   - It writes one manifest in the scratch root. It never writes beside the source.
 - **Why a verb:** the rule is one job, one tool. The survey's numbers feed every later phase, and a Python parser beside the C# SER reader would be a second answer to "how many frames".
-- **A crop of our own** (`tianwen planetary crop`), because several raw captures are the whole sensor with a small disk in it:
+- **A crop of our own** (`tianwen planetary-crop`), because several raw captures are the whole sensor with a small disk in it:
   - Jupiter 2021-08-19: 1936x1096, 16.3 GB.
   - Saturn 2021: 1936x1096, about 47 GB plus a 29.8 GB AVI.
   - Venus 2021-11-08: 4232x4232, 53.7 GB.
@@ -110,11 +110,27 @@ With no truth, two independent stacks of the same capture (disjoint frame sets, 
   - keeps the timestamps;
   - records each frame's window origin beside the SER, so the absolute image motion R2 measures survives the crop.
 
-  The crop happens in scratch and the source is never touched. Freeing space on `D:/` by replacing an original with its crop is the user's decision, taken only once the crop has been proven to lose nothing inside the window.
+  The crop happens in scratch and the source is never touched. **The originals are kept** (the user, 2026-09-29, a terabyte having been freed on `D:`): a crop is a WORKING copy, and what it buys is speed. `D:` is a USB hard disk (WD Elements, 4.6 TB), `C:` an NVMe SSD (Samsung 970 EVO Plus, 1 TB, 265 GB free), and every later phase reads its captures many times over, so the crops live on the SSD, under `C:/temp/tianwen-scratch/planetary/crops`, beside the training scratch.
+  - **Verbatim, because a working copy must say what its source said.** The crop is `SerReader.CropTo` (SER.Lib 1.2): the source's own header bytes with only the width and height changed, and the trailer, plus anything after the frames, byte for byte. The first crop went through `SerWriter`, which writes a new header: its pixels and decoded timestamps matched, but the header's local start time had become the first frame's UTC, so a 2021 Sydney capture had lost its time zone, and a trailer in local time would have been re-encoded. The verify compares the header and the trailer as bytes, never as the timestamps they decode to.
 - **Archives:** a 7z member is unpacked one at a time into scratch, cropped, and its unpacked copy deleted.
-- **Space:** the scratch root is `D:/Astro-Dataset/planetary` (the user, 2026-09-28: wherever there is more space). Every writing verb keeps **109 GB free on `D:`**. It checks before each unpack and each write, refuses in words rather than filling the disk, and never carries a budget as a constant: it asks the drive.
+- **FITS videos become SERs** (`tianwen planetary-convert`). SharpCap saved the 2022-09-03 Jupiter LRGB captures one FITS file a frame, which was an accident (the user, 2026-09-29), so each is converted into the SER it should have been, and every later phase reads one format. The samples are the files' own, the trailer holds each frame's DATE-OBS (its exposure start) to the tick, and a sidecar keeps what a SER header cannot: the file of every frame and the first frame's cards. The SER is compared with the files' BYTES and their DATE-OBS text, not with what TianWen's FITS reader made of them, before it is kept.
+  - **The check found a FITS.Lib bug on the way:** its DATE-OBS writer dropped a millisecond's leading zeros (43 ms written `.43`, read as 430) and its parser cut the fraction to the millisecond. Fixed in FITS.Lib 6.3; `docs/known-limitations.md` has the files already written.
+- **Which FITS folders are videos:** a count of files cannot tell one from a night of deep-sky subs, since both come in hundreds. Lucky imaging is short exposures at a high rate, so the survey takes a folder of 500 or more frames only when its DATE-OBS span shows at least 5 frames a second, or, with no times, its frames say they are sub-second exposures. Measured on the corpus (2026-09-29):
+
+  | Folder | Frames | Rate | Exposure | |
+  |---|---|---|---|---|
+  | 2022-09-03 Jupiter L, R, G, B (SharpCap) | 12,951 to 13,554 each | 216 to 226 fps | 4 ms | video |
+  | 2021-05-26 Moon (PIPP) | 2,000 and 3,059 | 17.2 fps | | video, flagged `pipp` |
+  | 2021-02-11 ASI462 bias | 1,001 | 44.9 fps | 32 us | video, flagged `calibration` |
+  | 2022 Saturn Nebula flats | 600 | 2.1 fps | 150 ms | not a video |
+  | 2021 NGC 3521, 2024 eta Car subs | 646, 861 | 0.12, 0.09 fps | 8 s, 10 s | not a video |
+  | 2021 M42 processed | 1,205 | no times | none stated | not a video |
+
+  A bias or dark video is KEPT and flagged `calibration` (by its frame type, or a folder named for one: SharpCap's bias frames carry no type), because it is the camera's own noise, which R2's camera model measures read noise from.
+- **Space:** the scratch root is `D:/Astro-Dataset/planetary` (the user, 2026-09-28: wherever there is more space), which holds the manifest and each archive member while it is unpacked; the crops go to the SSD (above). Every writing verb keeps **109 GB free** on the drive it writes (`--keep-free`). It checks before each unpack and each write, refuses in words rather than filling the disk, and never carries a budget as a constant: it asks the drive.
 - **Done when:**
   - The manifest lists every capture in the corpus table with the same counts, and a re-run on unchanged files is byte-identical.
+  - Every FITS video is a SER whose samples and times are its files', read back from the files.
   - A crop, read back, equals the source's window pixel for pixel on every frame, and has the source's frame count and timestamps.
 
 ## R1 Geometry: the disk fit and the ephemeris
@@ -144,7 +160,7 @@ With no truth, two independent stacks of the same capture (disjoint frame sets, 
 
 **Issue:** #1050.
 
-- **What:** `tianwen planetary render-truth` produces T1 for a capture's geometry. `tianwen planetary degrade` then turns it into a synthetic SER with the capture's own seeing, optics and camera:
+- **What:** `tianwen planetary-render-truth` produces T1 for a capture's geometry. `tianwen planetary-degrade` then turns it into a synthetic SER with the capture's own seeing, optics and camera:
   - **Tip-tilt:** the global shift series, measured by `GlobalAligner` on the real capture (plus R0's crop origins), with its spectrum and frame-to-frame correlation. At 445 fps, frames 2.2 ms apart share seeing.
     - The series is two motions: the mount's, smooth and slow (tracking error, or drift), and the seeing's, fast. The smooth part is fitted and removed before the seeing's is measured, and reported as the mount's.
     - The mount changed between sessions: the 10 inch was used on its Dobsonian base and later taken off it (the user, 2026-09-28; 2024-12-15 is after). The measured drift says which mount each session had, rather than assuming it.
@@ -160,7 +176,7 @@ With no truth, two independent stacks of the same capture (disjoint frame sets, 
 
 **Issue:** #1051.
 
-Each metric lives in Lib and is shared by the CLI verb and the stack itself (`tianwen planetary measure`).
+Each metric lives in Lib and is shared by the CLI verb and the stack itself (`tianwen planetary-measure`).
 
 - **Fidelity against T1, per wavelet band:** the transfer the pipeline recovered in each band (recovered over true amplitude) and the error it left. This is the MTF of the whole pipeline, and what every parameter is chosen on.
 - **Ringing:**
@@ -293,7 +309,7 @@ Each metric lives in Lib and is shared by the CLI verb and the stack itself (`ti
    - the Uranus-C Jupiter run of 2024-12-15 (the longest, timestamped, raw);
    - the ASI462MC Jupiter and Saturn of 2021-12-16 (raw);
    - the 2022-10-09 Jupiter, for its AutoStakkert and WinJUPOS references.
-3. ~~The scratch root~~ **answered 2026-09-28:** `D:/Astro-Dataset/planetary`, keeping 109 GB free on `D:`. The 7z archives are unpacked one member at a time and cropped (R0).
+3. ~~The scratch root~~ **answered 2026-09-28:** `D:/Astro-Dataset/planetary`, keeping 109 GB free on `D:`. The 7z archives are unpacked one member at a time and cropped (R0). **2026-09-29:** the originals are kept, and the crops are working copies on the SSD.
 
 ## Sources
 

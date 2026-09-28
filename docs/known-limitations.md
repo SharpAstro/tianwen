@@ -852,6 +852,22 @@ build (the profile's site, or a `--site lat,lon` switch) so the computed value e
 sessions too; sixty minutes of measure stage once built. Check the header inventory of every capture
 software in an archive before pre-registering a per-sub computed quantity.
 
+### A FITS written before FITS.Lib 6.3 may carry a DATE-OBS up to 0.89 s late (FIXED 2026-09-29)
+
+FITS.Lib's `FitsDate.GetFitsDateString`, through which every DATE-OBS TianWen writes goes, appended the BARE millisecond
+count: a frame 43 ms past its second was written `.43`, which every reader, FITS.Lib and TianWen included, takes for
+430 ms. So a frame that started 1 to 99 ms past its second (about one in ten) reads back 90 to 891 ms late. Six of 157
+darks in the uranus dark A/B scratch carried it (`DATE-OBS = '2026-09-26T16:19:22.43'` for a frame at 22.043). The
+parse had its own loss: the fraction went through a double into a millisecond count, so SharpCap's stamps to the tick
+(`'2022-09-03T12:09:53.0352280'`) came back to the millisecond. FITS.Lib 6.3 writes the milliseconds with their zeros
+(and more digits when the ticks need them) and reads the fraction to the tick.
+
+**Files already written are not repaired, and cannot be told apart by their text alone**: a `.43` is either a 430 ms
+stamp or a 43 ms one written by the old code. A file's two-digit or one-digit fraction is the tell only for files
+TianWen wrote (`SWCREATE`), since the old writer never wrote fewer than three digits for 100 ms or more. Nothing that
+reads DATE-OBS today needs better than a second (calibration epochs, sessions, a comet's motion over an exposure), so
+the old files stand; a quantity that needs sub-second times must read a file written since.
+
 ### A night whose cooler drifts across a degree stacks as several masters, and two filters of one target share a master file name
 
 `LightGroupKey` wraps `MasterGroupKey`, whose temperature is `CCD-TEMP` rounded to the degree, so

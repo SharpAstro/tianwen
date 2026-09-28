@@ -577,9 +577,9 @@ slower fallback). Every measurement, the dataset rationale and the quad-seed/par
   from a transform the test already knows.
 - **A ctor with a non-generic `ILogger` parameter silently gets `null` from DI.** Take `ILogger<TSelf>`
   or register with a factory lambda: `docs/architecture/dependency-injection.md`.
-- **An external solver's tool never outlives the call that started it** (`WaitForExitOrKillAsync`: the
-  probe and a path translation are bounded by `ProbeTimeout`, a solve by the caller's token, and either way
-  the whole process tree is killed). `PlateSolverFactory` awaits EVERY solver's probe before solving, so an
+- **An external tool never outlives the call that started it** (`BoundedProcess.WaitForExitOrKillAsync`, ONE rule
+  for the plate solvers and the planetary corpus's 7-Zip: the probe and a path translation are bounded by `ProbeTimeout`,
+  a solve by the caller's token, and either way the whole process tree is killed). `PlateSolverFactory` awaits EVERY solver's probe before solving, so an
   unbounded `wsl solve-field -h` against a wedged WSL blocked all plate solving, the built-in solver
   included, and every process that probed stranded its `wsl.exe` pair (2,444 of them on 2026-09-27; an
   orphan also holds its caller's output pipe). `tools/restart-wsl.ps1` clears a wedged service.
@@ -1116,6 +1116,16 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   a colour sensor's video frame is a 1-channel Bayer mosaic, and the stream layout derives from the
   ACTUAL frame, **NOT** the camera's `SensorType`; **no driver call crosses onto the render thread**
   (it stages, the capture loop drains + applies). Preview defaults to **linear** (`StretchMode.None`).
+- **The planetary corpus is read, never written** (`docs/plans/planetary-restoration.md`, R0): `planetary-survey`
+  registers every capture into one manifest (a content id per capture, so a copy shows as a duplicate; a FITS folder
+  only when its DATE-OBS span says VIDEO, at 5 fps or more, since a file count cannot tell it from deep-sky subs),
+  `planetary-convert` makes a video SharpCap saved one FITS a frame the SER it should have been (checked against the
+  files' bytes and DATE-OBS text, which is how FITS.Lib's dropped millisecond zeros were found), and
+  `planetary-crop` cuts a window tracked on the disk that keeps EVERY frame (a PIPP crop does not), the Bayer phase (an
+  even origin), each frame's origin, and the source's header and trailer BYTE FOR BYTE (`SerReader.CropTo`: a `SerWriter`
+  copy writes a new header, which lost a capture's time zone), verified before it is kept. The originals stay (the
+  user, 2026-09-29); a crop is a working copy on the SSD. Every write goes through `ScratchSpace`, which asks the drive
+  and keeps its reserve (109 GB) free.
 - **Read the plan doc before touching the Canon path** -- it is a list of five things that fail
   SILENTLY. **Recentering is opt-in** (the user, 2026-09-28; it costs the loop about 15 ms a frame at full frame), and
   so is the mount jog, whose **sign is uncalibrated**.
