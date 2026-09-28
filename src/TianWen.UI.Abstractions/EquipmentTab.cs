@@ -241,7 +241,20 @@ namespace TianWen.UI.Abstractions
 
             if (appState.ActiveProfile is null && !State.IsCreatingProfile)
             {
-                RenderNoProfile(contentRect);
+                if (appState.NeedsAProfile)
+                {
+                    RenderNoProfile(contentRect);
+                }
+                else
+                {
+                    // Not asked yet, which is not the same as none: no Create button until the node has said.
+                    RenderLayout(Layout.Builder.VStack(
+                            Layout.Builder.Spacer().Stretch(),
+                            Layout.Builder.Text(appState.WaitingForLocalNode, BaseFontSize, DimText, TextAlign.Center, TextAlign.Center)
+                                .RowH(BaseItemHeight * 1.5f),
+                            Layout.Builder.Spacer().Stretch()),
+                        contentRect);
+                }
                 return;
             }
 

@@ -48,6 +48,8 @@ namespace TianWen.UI.Abstractions
 
             await ChooseLocalProfileAsync(connection.Client, requestedProfile, cancellationToken).ConfigureAwait(false);
             await connection.MaybeRefreshProfileAsync(cancellationToken).ConfigureAwait(false);
+            _appState.LocalProfileKnown = true;
+            _appState.NeedsRedraw = true;
 
             // The first discovery, so the Equipment tab lists what the node can reach, and the profile's devices resolve.
             _bus.Post(new DiscoverDevicesSignal(IncludeFake: includeFake || _appState.ActiveProfile?.Data is { ReferencesAnyFakeDevice: true }));

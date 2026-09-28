@@ -108,6 +108,31 @@ public class GuiAppState
     private string? _localNodeProblem;
 
     /// <summary>
+    /// Whether this computer's node has said which profile it runs (P6). Until it has, a null <see cref="ActiveProfile"/>
+    /// means "not asked yet", not "none": the window says it is connecting, where it used to ask for a profile to be
+    /// created for the seconds a node takes to come up, and opened on the Equipment tab for it. Written once on a background
+    /// task, read on the render thread.
+    /// </summary>
+    public bool LocalProfileKnown
+    {
+        get => System.Threading.Volatile.Read(ref _localProfileKnown);
+        internal set => System.Threading.Volatile.Write(ref _localProfileKnown, value);
+    }
+
+    private bool _localProfileKnown;
+
+    /// <summary>Whether this computer has no profile, by its node's word: the one state that asks for one to be created.</summary>
+    public bool NeedsAProfile => ActiveProfile is null && LocalProfileKnown;
+
+    /// <summary>
+    /// What the window says while this computer's profile is not known yet: why its node cannot be used, or that it is still
+    /// being reached. One wording for the Equipment tab and the rail's locked tabs.
+    /// </summary>
+    public string WaitingForLocalNode => LocalNodeProblem is { } problem
+        ? $"This computer's rig cannot be used: {problem}"
+        : "Connecting to this computer's rig...";
+
+    /// <summary>
     /// Whether <paramref name="nodeId"/> is this computer's own node (P6): never a rig of its own, so the rig picker, the
     /// Home board and the rig sweep leave it out, even where it shares itself on the LAN or was bound as a rig before its
     /// view became the local one ("Which rig the GUI shows", docs/plans/hardware-in-the-server.md).

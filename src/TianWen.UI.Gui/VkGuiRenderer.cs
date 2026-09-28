@@ -519,8 +519,9 @@ namespace TianWen.UI.Gui
             ViewerState viewerState,
             ITimeProvider timeProvider)
         {
-            // Force Equipment tab when no profile exists
-            if (appState.ActiveProfile is null && appState.ActiveTab is not GuiTab.Equipment)
+            // Force Equipment tab when no profile exists, by the node's word: before it has answered the window stays where
+            // it opened, and the Equipment tab says it is connecting.
+            if (appState.NeedsAProfile && appState.ActiveTab is not GuiTab.Equipment)
             {
                 appState.ActiveTab = GuiTab.Equipment;
             }
@@ -655,14 +656,15 @@ namespace TianWen.UI.Gui
                 // One path with the window title: the mode-following Live Session glyph is resolved
                 // inside TabTitleChrome (see LiveSessionIcon), never re-derived here.
                 var (icon, label) = TabTitleChrome(tab);
-                var locked = (noProfile && tab is not GuiTab.Equipment)
+                // Home, where the window opens, stays open while this computer's node is still answering which profile it runs.
+                var locked = (noProfile && tab is not GuiTab.Equipment && (appState.NeedsAProfile || tab is not GuiTab.Home))
                           || (LocalLiveSession.IsRunning && tab is GuiTab.Equipment);
 
                 // The tooltip carries the shortcut, and for a LOCKED tab it is the only place the reason
                 // can be said at all -- the rail has room for a glyph and nothing else.
                 var shortcut = ChordLabel(TabChrome[tab].Shortcut);
                 var tooltip = locked
-                    ? $"{label} — {(noProfile ? "create a profile first" : "not while a session is running")}"
+                    ? $"{label} — {(!noProfile ? "not while a session is running" : appState.NeedsAProfile ? "create a profile first" : appState.WaitingForLocalNode)}"
                     : $"{label} ({shortcut})";
 
                 _sidebarItems.Add(new TabItem<GuiTab>(label, tab)
@@ -856,7 +858,7 @@ namespace TianWen.UI.Gui
             {
                 var ca = EquipmentActions.ComputeConnectAllStatus(
                     connectAllProfile, appState.LocalNode,
-                    EquipmentState.DiscoveredDevices, EquipmentState.PendingTransitions,
+                    appState.LocalNode?.Listed ?? [], EquipmentState.PendingTransitions,
                     EquipmentState.IsDiscovering);
                 if (ca.Visible)
                 {
