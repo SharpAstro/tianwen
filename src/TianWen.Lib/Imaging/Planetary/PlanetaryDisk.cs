@@ -17,7 +17,15 @@ public static class PlanetaryDisk
     /// clamped to the frame. Falls back to the whole frame when too few bright pixels are found (a safe
     /// default for a low-contrast or empty capture, so grading still runs).
     /// </summary>
-    public static PixelRect BoundingBox(Image frame, double sigmaAboveBackground = 3.0, int pad = 4)
+    /// <param name="minNeighbours">
+    /// When above 0, a bright pixel counts only when at least this many of its 8 neighbours are bright too: a disk is a
+    /// blob, and a sensor's noise is not. Needed where a frame can be EMPTY (the planet drifted out of the field): the
+    /// threshold of pure noise falls to about one ADU, and a thousand scattered noise pixels then box the whole frame,
+    /// which a planetary capture off a Dobsonian did in 25 of 200 sampled frames (the corpus crop, 2026-09-29). 0 keeps the
+    /// plain threshold.
+    /// </param>
+    /// <param name="minPixels">The counted pixels a disk needs; fewer and the frame has none (the whole frame answers).</param>
+    public static PixelRect BoundingBox(Image frame, double sigmaAboveBackground = 3.0, int pad = 4, int minNeighbours = 0, int minPixels = 16)
     {
         var full = new PixelRect(0, 0, frame.Width, frame.Height);
         int w = frame.Width, h = frame.Height;
@@ -51,7 +59,7 @@ public static class PlanetaryDisk
             var row = y * w;
             for (var x = 0; x < w; x++)
             {
-                if (luma[row + x] > threshold)
+                if (luma[row + x] > threshold && (minNeighbours <= 0 || BrightNeighbours(luma, w, h, x, y, threshold) >= minNeighbours))
                 {
                     if (x < minX) minX = x;
                     if (x > maxX) maxX = x;
@@ -63,7 +71,7 @@ public static class PlanetaryDisk
         }
 
         // Too few bright pixels to be a disk -- score the whole frame rather than a noise speck.
-        if (bright < 16 || maxX < minX || maxY < minY)
+        if (bright < minPixels || maxX < minX || maxY < minY)
         {
             return full;
         }
@@ -73,6 +81,29 @@ public static class PlanetaryDisk
         maxX = Math.Min(w - 1, maxX + pad);
         maxY = Math.Min(h - 1, maxY + pad);
         return PixelRect.FromLTRB(minX, minY, maxX + 1, maxY + 1);
+    }
+
+    // How many of the 8 neighbours of (x, y) are above the threshold; a neighbour off the frame is not.
+    private static int BrightNeighbours(ReadOnlySpan<float> luma, int w, int h, int x, int y, float threshold)
+    {
+        var count = 0;
+        for (var dy = -1; dy <= 1; dy++)
+        {
+            var ny = y + dy;
+            if (ny < 0 || ny >= h)
+            {
+                continue;
+            }
+            for (var dx = -1; dx <= 1; dx++)
+            {
+                var nx = x + dx;
+                if ((dx != 0 || dy != 0) && nx >= 0 && nx < w && luma[(ny * w) + nx] > threshold)
+                {
+                    count++;
+                }
+            }
+        }
+        return count;
     }
 
     /// <summary>

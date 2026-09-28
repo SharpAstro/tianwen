@@ -8,6 +8,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.IO;
 
 namespace TianWen.Lib.Astrometry.PlateSolve;
 
@@ -60,42 +61,9 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
         }
     }
 
-    /// <summary>
-    /// Waits for <paramref name="proc"/> to exit, and never lets it outlive the wait: on the timeout or on
-    /// cancellation the whole process TREE is killed. <c>wsl.exe</c> and <c>bash -l -c</c> each put the tool
-    /// one process further down, so killing only the direct child leaves the tool running.
-    /// </summary>
-    /// <returns><see langword="true"/> when the process exited on its own; <see langword="false"/> when it
-    /// ran past <paramref name="timeout"/> and was killed.</returns>
-    /// <exception cref="OperationCanceledException">The caller cancelled; the tree is killed first.</exception>
-    private protected static async Task<bool> WaitForExitOrKillAsync(Process proc, TimeSpan? timeout, CancellationToken cancellationToken)
-    {
-        using var timeoutCts = timeout is { } t ? new CancellationTokenSource(t, TimeProvider.System) : null;
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts?.Token ?? CancellationToken.None);
-        try
-        {
-            await proc.WaitForExitAsync(linked.Token).ConfigureAwait(false);
-            return true;
-        }
-        catch (OperationCanceledException)
-        {
-            KillTree(proc);
-            cancellationToken.ThrowIfCancellationRequested();
-            return false;
-        }
-    }
-
-    private static void KillTree(Process proc)
-    {
-        try
-        {
-            proc.Kill(entireProcessTree: true);
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
-        {
-            // Already exited, or not ours to kill: either way there is nothing left to stop.
-        }
-    }
+    /// <summary>The one rule for every external tool (<see cref="BoundedProcess"/>): it never outlives the wait.</summary>
+    private protected static Task<bool> WaitForExitOrKillAsync(Process proc, TimeSpan? timeout, CancellationToken cancellationToken)
+        => BoundedProcess.WaitForExitOrKillAsync(proc, timeout, cancellationToken);
 
     /// <inheritdoc/>
     public async Task<PlateSolveResult> SolveFileAsync(

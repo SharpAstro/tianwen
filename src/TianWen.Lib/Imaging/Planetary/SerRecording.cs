@@ -1,7 +1,6 @@
 using System;
 using System.Buffers;
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -102,7 +101,7 @@ public sealed class SerRecording
 
         var color = SerImageBridge.SerColorOf(frame.ImageMeta, frame.ChannelCount);
         var channels = color.PlaneCount;
-        var depth = DepthOf(frame);
+        var depth = SerImageBridge.SerDepthOf(frame);
         if (!_shaped)
         {
             (_width, _height, _channels, _color, _depth, _shaped) = (frame.Width, frame.Height, channels, color, depth, true);
@@ -120,14 +119,7 @@ public sealed class SerRecording
 
         var samples = _width * _height * _channels;
         var bytes = ArrayPool<byte>.Shared.Rent(samples * (_depth / 8));
-        if (_depth == 8)
-        {
-            Fill(frame, bytes.AsSpan(0, samples));
-        }
-        else
-        {
-            Fill(frame, MemoryMarshal.Cast<byte, ushort>(bytes.AsSpan(0, samples * sizeof(ushort))));
-        }
+        SerImageBridge.FillSerFrame(frame, _depth, bytes.AsSpan(0, samples * (_depth / 8)));
         if (!_queue.Writer.TryWrite((bytes, arrived)))
         {
             ArrayPool<byte>.Shared.Return(bytes);
@@ -143,40 +135,6 @@ public sealed class SerRecording
         {
             _endReason = reason;
             _queue.Writer.TryComplete();
-        }
-    }
-
-    // 8 for a frame the camera read out in 8 bits (its samples 0 to 255), else 16: a colour frame already in [0, 1] and a
-    // 16-bit readout both keep the 16 bits a recording always had.
-    private static int DepthOf(Image frame) => frame.BitDepth is BitDepth.Int8 && !frame.SamplesAreUnitReferred ? 8 : 16;
-
-    // The samples as the camera gave them, whole numbers 0 to 255, interleaved per pixel for RGB (SER's layout).
-    private static void Fill(Image frame, Span<byte> samples)
-    {
-        var scale = frame.SamplesAreUnitReferred ? byte.MaxValue : 1f;
-        var channels = frame.ChannelCount >= 3 ? 3 : 1;
-        for (var c = 0; c < channels; c++)
-        {
-            var plane = frame.GetChannelSpan(c);
-            for (var i = 0; i < plane.Length; i++)
-            {
-                samples[i * channels + c] = (byte)Math.Clamp(MathF.Round(plane[i] * scale), 0f, byte.MaxValue);
-            }
-        }
-    }
-
-    // The samples as the camera gave them, whole numbers 0 to 65535, interleaved per pixel for RGB (SER's layout).
-    private static void Fill(Image frame, Span<ushort> samples)
-    {
-        var scale = frame.SamplesAreUnitReferred ? ushort.MaxValue : 1f;
-        var channels = frame.ChannelCount >= 3 ? 3 : 1;
-        for (var c = 0; c < channels; c++)
-        {
-            var plane = frame.GetChannelSpan(c);
-            for (var i = 0; i < plane.Length; i++)
-            {
-                samples[i * channels + c] = (ushort)Math.Clamp(MathF.Round(plane[i] * scale), 0f, ushort.MaxValue);
-            }
         }
     }
 
