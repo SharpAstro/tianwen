@@ -1127,10 +1127,11 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   `FrameSampler`, and the linear master as frames (`planetary/live`, `planetary/master`). **A live view STREAMS them
   and the client ASKS for each frame** (`FrameStreamWire`, drop-to-latest): a send is done once the kernel has the
   bytes, and a loopback socket buffers dozens of planetary frames, so a node that sent on its own fed a reader that
-  paused every stale frame of the pause (measured). **Over this machine's socket a stream's frames go through shared
-  memory** (P4b, #932): the node answers each ask with the slot the frame waits in (`FrameSlotDto`), a section per
-  stream and a seqlock per slot, the slot holding `FrameWire`'s own bytes so one reader serves both carriers; a TCP
-  client, a host without `AddNodeSharedMemory`, or a section the system refuses streams bytes.
+  paused every stale frame of the pause (measured). **Over this machine's socket every frame goes through shared
+  memory** (P4b, #932), a stream's and a `/frames/{source}/latest` fetch's alike: the node answers with the slot the
+  frame waits in (`FrameSlotDto`), a section per stream or per fetched source (`NodeFrameSlots`) and a seqlock per slot,
+  the slot holding `FrameWire`'s own bytes so one reader serves both carriers; a TCP client, a host without
+  `AddNodeSharedMemory`, or a section the system refuses gets bytes, and `FRAME-AVAILABLE` stays a hint.
   **A recording to disk (`SerRecording`) never slows the capture**:
   the loop converts and queues, a writer task of its own does the disk, and a frame the disk cannot take is dropped
   and counted. It finishes its duration unwatched.
