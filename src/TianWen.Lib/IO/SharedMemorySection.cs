@@ -40,6 +40,28 @@ public sealed unsafe partial class SharedMemorySection : IDisposable
         _unlinkOnDispose = unlinkOnDispose;
     }
 
+    // A mapped file's section (Linux and macOS), which owns the map from here: a view that cannot be made disposes it.
+    private SharedMemorySection(string name, long capacity, MemoryMappedFile map, MemoryMappedFileAccess access, bool unlinkOnDispose)
+    {
+        Name = name;
+        Capacity = capacity;
+        _map = map;
+        _unlinkOnDispose = unlinkOnDispose;
+        try
+        {
+            _view = map.CreateViewAccessor(0, capacity, access);
+            byte* pointer = null;
+            _view.SafeMemoryMappedViewHandle.AcquirePointer(ref pointer);
+            _pointer = pointer + _view.PointerOffset;
+        }
+        catch
+        {
+            _view?.Dispose();
+            map.Dispose();
+            throw;
+        }
+    }
+
     /// <summary>What a client opens the section by: a Windows section's name, or a file's path elsewhere.</summary>
     public string Name { get; }
 
@@ -60,24 +82,35 @@ public sealed unsafe partial class SharedMemorySection : IDisposable
         }
 
         var path = Path.Combine(UnixDirectory(unixDirectory), unique);
-        var file = new FileStream(path, new FileStreamOptions
+        FileStream? file = new FileStream(path, new FileStreamOptions
         {
             Mode = FileMode.CreateNew,
             Access = FileAccess.ReadWrite,
             Share = FileShare.ReadWrite | FileShare.Delete,
             UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite,
         });
+        MemoryMappedFile? map = null;
+        var made = false;
         try
         {
             file.SetLength(capacity);
-            return Mapped(path, capacity, MemoryMappedFile.CreateFromFile(file, mapName: null, capacity, MemoryMappedFileAccess.ReadWrite,
-                HandleInheritability.None, leaveOpen: false), MemoryMappedFileAccess.ReadWrite, unlinkOnDispose: true);
+            map = MemoryMappedFile.CreateFromFile(file, mapName: null, capacity, MemoryMappedFileAccess.ReadWrite,
+                HandleInheritability.None, leaveOpen: false);
+            // The map owns the file from here, and the section the map: each nulled once handed on, the form CA2000 can follow.
+            file = null;
+            var section = new SharedMemorySection(path, capacity, map, MemoryMappedFileAccess.ReadWrite, unlinkOnDispose: true);
+            map = null;
+            made = true;
+            return section;
         }
-        catch
+        finally
         {
-            file.Dispose();
-            File.Delete(path);
-            throw;
+            map?.Dispose();
+            file?.Dispose();
+            if (!made)
+            {
+                File.Delete(path);
+            }
         }
     }
 
@@ -90,8 +123,9 @@ public sealed unsafe partial class SharedMemorySection : IDisposable
             return OpenWindows(name, capacity);
         }
 
-        var map = MemoryMappedFile.CreateFromFile(name, FileMode.Open, mapName: null, capacity: 0, MemoryMappedFileAccess.Read);
-        return Mapped(name, capacity, map, MemoryMappedFileAccess.Read, unlinkOnDispose: false);
+        return new SharedMemorySection(name, capacity,
+            MemoryMappedFile.CreateFromFile(name, FileMode.Open, mapName: null, capacity: 0, MemoryMappedFileAccess.Read),
+            MemoryMappedFileAccess.Read, unlinkOnDispose: false);
     }
 
     /// <summary>
@@ -191,24 +225,4 @@ public sealed unsafe partial class SharedMemorySection : IDisposable
     }
 
     private static string UnixDirectory(string fallback) => Directory.Exists("/dev/shm") ? "/dev/shm" : fallback;
-
-    private static SharedMemorySection Mapped(string name, long capacity, MemoryMappedFile map, MemoryMappedFileAccess access, bool unlinkOnDispose)
-    {
-        MemoryMappedViewAccessor? view = null;
-        try
-        {
-            view = map.CreateViewAccessor(0, capacity, access);
-            byte* pointer = null;
-            view.SafeMemoryMappedViewHandle.AcquirePointer(ref pointer);
-            var section = new SharedMemorySection(name, capacity, pointer + view.PointerOffset, map, view, section: null, unlinkOnDispose);
-            view = null;
-            return section;
-        }
-        catch
-        {
-            view?.Dispose();
-            map.Dispose();
-            throw;
-        }
-    }
 }
