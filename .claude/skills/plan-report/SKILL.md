@@ -22,8 +22,9 @@ this skill ran, and one was lost outright). It lives in the repository:
   `--strict` on every PR that touches `docs/plans/`, weekly on Monday for drift on the issues' side, and on
   demand. ERRORs fail it; the job summary lists every ERROR and WARN, and the HTML page is the run's
   `plan-report` artifact (a workflow upload, not a claude.ai Artifact).
-- **What is happening** is the repository's shared issue views (Issues > Views, created in the web UI; neither
-  `gh` nor the API can create them), and per plan, the Milestones page.
+- **What is happening** is the repository's shared issue views (https://github.com/SharpAstro/tianwen/issues/views,
+  created in the web UI on 2026-09-28: up next, the bench queue, the triage inbox, open issues in no plan, recently
+  closed; neither `gh` nor the API can create or list them), and per plan, the Milestones page.
 
 ## Run
 
