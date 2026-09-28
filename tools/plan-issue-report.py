@@ -2,12 +2,14 @@
 
 The backlog is GitHub issues; a plan keeps the design and names its issues section by section; an issue
 links its plan's section; every plan with open work has a milestone of the same name holding its issues.
-This checks all four mechanically (no model involved) and writes a JSON result and a self-contained HTML
-page. Needs `gh` (authenticated) and Python 3.
+This checks all four mechanically (no model involved) and writes a JSON result, a self-contained HTML
+page and a Markdown summary. Needs `gh` (authenticated) and Python 3.
 
-    python tools/plan-issue-report.py --html out.html [--json out.json] [--strict]
+    python tools/plan-issue-report.py --html out.html [--json out.json] [--markdown out.md] [--strict]
 
---strict exits 1 when any ERROR-level finding exists (for CI).
+--strict exits 1 when any ERROR-level finding exists: the plan-report workflow runs it on every PR that
+touches docs/plans/, and weekly for drift on the issues' side. --markdown is what that workflow writes to
+the job summary.
 """
 import argparse
 import html
@@ -87,7 +89,9 @@ def build():
     issues = gh("issue", "list", "--repo", GH_REPO, "--state", "all", "--limit", "3000",
                 "--json", "number,title,state,body,milestone,labels,url")
     by_num = {i["number"]: i for i in issues}
-    milestones = gh("api", f"repos/{GH_REPO}/milestones?state=all&per_page=100")
+    # Paged: the repo passed 80 milestones on 2026-09-28, and one page holds 100.
+    milestones = [m for page in gh("api", "--paginate", "--slurp", f"repos/{GH_REPO}/milestones?state=all&per_page=100")
+                  for m in page]
     ms_by_title = {m["title"]: m for m in milestones}
 
     findings = []
@@ -259,10 +263,32 @@ def render(r):
 """
 
 
+def render_markdown(r):
+    """The counts and every ERROR and WARN, as the CI job summary shows them."""
+    c = r["counts"]
+    out = [f"### Plan tracking: {c['ERROR']} errors, {c['WARN']} warnings",
+           "",
+           f"{c['plans']} plans, {c['open_issues']} open issues ({c['open_linked']} link a plan), "
+           f"{c['milestones_open']} open milestones.",
+           ""]
+    shown = [f for f in r["findings"] if f["level"] != "INFO"]
+    if shown:
+        out += ["| Level | Kind | Plan | Issue | Finding |", "|---|---|---|---|---|"]
+        for f in sorted(shown, key=lambda f: ("ERROR", "WARN").index(f["level"])):
+            issue = f"#{f['issue']}" if f["issue"] else ""
+            msg = f["msg"].replace("|", "\\|")
+            out.append(f"| {f['level']} | {f['kind']} | {f['plan'] or ''} | {issue} | {msg} |")
+    else:
+        out.append("Nothing to fix.")
+    out += ["", "What each kind means and how to fix it: `.claude/skills/plan-report/SKILL.md`."]
+    return "\n".join(out) + "\n"
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--html")
     ap.add_argument("--json")
+    ap.add_argument("--markdown")
     ap.add_argument("--strict", action="store_true")
     a = ap.parse_args()
     r = build()
@@ -270,6 +296,8 @@ def main():
         json.dump(r, open(a.json, "w", encoding="utf-8"), indent=1)
     if a.html:
         open(a.html, "w", encoding="utf-8", newline="\n").write(render(r))
+    if a.markdown:
+        open(a.markdown, "w", encoding="utf-8", newline="\n").write(render_markdown(r))
     c = r["counts"]
     print(f"{c['plans']} plans, {c['open_issues']} open issues ({c['open_linked']} linked), "
           f"{c['milestones_open']} milestones; {c['ERROR']} errors, {c['WARN']} warnings, {c['INFO']} info")
