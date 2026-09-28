@@ -274,6 +274,12 @@ public static class AltitudeChartRenderer
         DrawLegend(renderer, legendTargets, targetColorMap,
             plotX, areaY + h - legendH - 4, legendH, fontFamily, h, areaX + w,
             WeatherCredit(state), plotX + plotW);
+
+        // --- Weather hover, last so its box lies over the plot and the legend ---
+        if (mouseScreenPosition is { } mouse)
+        {
+            DrawWeatherTooltip(renderer, state, fontFamily, mouse, areaX, areaY, areaW, areaH);
+        }
     }
 
     /// <summary>
@@ -660,8 +666,8 @@ public static class AltitudeChartRenderer
 
     /// <summary>
     /// Returns the hover-able weather band rectangle (icon row + humidity row) in the same pixel
-    /// space as the plot, or null when there is no forecast / no twilight data. The GUI uses this
-    /// to hit-test the hovered hour and position the weather tooltip; X/Width match the plot
+    /// space as the plot, or null when there is no forecast / no twilight data.
+    /// <see cref="DrawWeatherTooltip"/> uses it to hit-test the hovered hour and place its box; X/Width match the plot
     /// column (see <see cref="GetChartPlotLayout"/>).
     /// </summary>
     public static (int BandX, int BandY, int BandW, int BandH)? GetWeatherBandLayout(
@@ -987,8 +993,119 @@ public static class AltitudeChartRenderer
     }
 
     // -----------------------------------------------------------------------
-    // Weather tooltip (hover detail): pure formatting, drawn natively by the GUI
+    // Weather tooltip (hover detail): the lines, and the box every host draws them in
     // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// The weather band's hover: when <paramref name="mouse"/> is on the band, highlights the nearest
+    /// forecast hour's column and draws its detail box (condition, cloud, chance of rain, temperature and
+    /// dew point, humidity, wind, visibility) under the band, or over it where the chart has no room below.
+    /// Returns the hour it showed, or null with nothing drawn.
+    /// </summary>
+    /// <remarks>
+    /// One drawing for every host (<see cref="Render"/> calls it when handed a pointer, which is the web's
+    /// and any other uncached host's path; the desktop, which caches the chart as a texture, calls it as an
+    /// overlay). It lived in the desktop's planner tab alone, so the web's RH and seeing row had no hover at
+    /// all (reported 2026-09-28).
+    /// </remarks>
+    public static HourlyWeatherForecast? DrawWeatherTooltip<TSurface>(
+        Renderer<TSurface> renderer, PlannerState state, string fontFamily,
+        (float X, float Y) mouse, int areaX, int areaY, int areaW, int areaH)
+    {
+        var (mx, my) = mouse;
+        if (state.AstroDark == default || state.WeatherForecast is not { Count: > 0 } forecast
+            || GetWeatherBandLayout(state, areaX, areaY, areaW, areaH) is not { } band)
+        {
+            return null;
+        }
+        var (bandX, bandY, bandW, bandH) = band;
+
+        // Only while the pointer is on the band.
+        if (mx < bandX || mx > bandX + bandW || my < bandY || my > bandY + bandH)
+        {
+            return null;
+        }
+
+        var (tStart, tEnd, plotX, _, plotW, _) = GetChartPlotLayout(state, areaX, areaY, areaW, areaH);
+        var tRange = (tEnd - tStart).TotalHours;
+        if (tRange <= 0)
+        {
+            return null;
+        }
+
+        // The forecast hour nearest the pointer, within a slot of it.
+        var slotW = Math.Max(8.0, plotW / tRange);
+        HourlyWeatherForecast? best = null;
+        var bestDx = double.MaxValue;
+        var bestX = 0.0;
+        foreach (var entry in forecast)
+        {
+            var ex = plotX + ((entry.Time - tStart).TotalHours / tRange * plotW);
+            var dx = Math.Abs(ex - mx);
+            if (dx < bestDx)
+            {
+                bestDx = dx;
+                best = entry;
+                bestX = ex;
+            }
+        }
+        if (best is not { } f || bestDx > slotW)
+        {
+            return null;
+        }
+
+        // The hovered hour's column, for feedback.
+        FillRect(renderer, (int)(bestX - (slotW / 2)), bandY, (int)slotW, bandH, SkyInkAlpha(30));
+
+        var lines = BuildWeatherTooltipLines(f, state.SiteTimeZone, state.WeatherForecastOrigin);
+        if (lines.Count == 0)
+        {
+            return f;
+        }
+
+        var fontSize = Math.Max(7f, 11f * areaH / 800f);
+        var lineH = fontSize * 1.35f;
+        const float Pad = 8f;
+
+        var maxW = 0f;
+        foreach (var line in lines)
+        {
+            var (w, _) = renderer.MeasureText(line.AsSpan(), fontFamily, fontSize);
+            maxW = Math.Max(maxW, w);
+        }
+
+        var boxW = maxW + (Pad * 2f);
+        var boxH = (lines.Count * lineH) + (Pad * 2f);
+
+        // Under the band by default, centred on the pointer and kept inside the chart; above the band
+        // where it would run off the bottom.
+        var boxX = Math.Clamp(mx - (boxW / 2f), areaX + 2f, Math.Max(areaX + 2f, areaX + areaW - boxW - 2f));
+        var boxY = bandY + bandH + 6f;
+        if (boxY + boxH > areaY + areaH)
+        {
+            boxY = bandY - boxH - 6f;
+        }
+
+        var (bx, by, bw, bh) = ((int)boxX, (int)boxY, (int)boxW, (int)boxH);
+        FillRect(renderer, bx, by, bw, bh, GuiTheme.SkyBand(0.06f).WithAlpha(235));
+        // A 1 px outline, as four filled edges.
+        var border = GuiTheme.Palette.Info.WithAlpha(200);
+        FillRect(renderer, bx, by, bw, 1, border);
+        FillRect(renderer, bx, by + bh - 1, bw, 1, border);
+        FillRect(renderer, bx, by, 1, bh, border);
+        FillRect(renderer, bx + bw - 1, by, 1, bh, border);
+
+        var ty = boxY + Pad;
+        for (var i = 0; i < lines.Count; i++)
+        {
+            renderer.DrawText(lines[i], fontFamily, fontSize, i == 0 ? GuiTheme.SkyInk() : GuiTheme.SkyInk(205),
+                MakeRect((int)(boxX + Pad), (int)ty, (int)(boxW - (Pad * 2f)), (int)lineH),
+                TextAlign.Near, TextAlign.Center);
+            ty += lineH;
+        }
+
+        return f;
+    }
 
     private static readonly string[] CompassPoints =
         ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];

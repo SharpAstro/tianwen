@@ -10,6 +10,7 @@ using Shouldly;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Weather;
 using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
 using Xunit;
@@ -432,6 +433,62 @@ namespace TianWen.Lib.Tests
             tab.Render(BuildState(CatalogIndex.IC1000, db), new RectF32(0, 0, 1600, 1000), time);
 
             tab.GetRegisteredRegions().ShouldNotContain(r => r.Result is HitResult.LinkHit);
+        }
+
+        /// <summary>
+        /// <b>The weather band has its hover on every host.</b> Reported 2026-09-28: on the web, the RH and
+        /// seeing row had none, because the detail box was drawn by the desktop's planner tab alone. This is
+        /// the tab the web runs, the base <see cref="PlannerTab{TSurface}"/>, with a pointer on the band: it
+        /// names the hour under the pointer and draws the box under the band, where the frame without the
+        /// pointer has none.
+        /// </summary>
+        [Fact]
+        public void APointerOnTheWeatherBandShowsThatHoursDetailOnTheBaseTab()
+        {
+            var state = BuildState();
+            var hours = Enumerable.Range(-1, 14).Select(h => new HourlyWeatherForecast(NightStart.AddHours(h),
+                CloudCover: 20, Precipitation: 0, Temperature: 12, Humidity: 85, DewPoint: 9,
+                WindSpeed: 3, WindGust: 5, WindDirection: 270, Visibility: 20000, WeatherCode: 1)).ToList();
+            state.WeatherForecast = hours;
+
+            using var renderer = new RgbaImageRenderer(1600, 1000);
+            var tab = new PlannerTab<RgbaImage>(renderer) { FontPath = FontResolver.ResolveSystemFont() };
+            var time = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 12, 15, 22, 0, 0, TimeSpan.Zero));
+            var content = new RectF32(0, 0, renderer.Width, renderer.Height);
+            tab.Render(state, content, time);
+            var without = renderer.Surface.Pixels.ToArray();
+
+            var chart = tab.ChartRect;
+            var (cx, cy, cw, ch) = ((int)chart.X, (int)chart.Y, (int)chart.Width, (int)chart.Height);
+            var (bandX, bandY, bandW, bandH) = AltitudeChartRenderer.GetWeatherBandLayout(state, cx, cy, cw, ch).ShouldNotBeNull();
+            var (tStart, tEnd, plotX, _, plotW, _) = AltitudeChartRenderer.GetChartPlotLayout(state, cx, cy, cw, ch);
+            var midnight = NightStart.AddHours(6);
+            var pointer = ((float)(plotX + ((midnight - tStart).TotalHours / (tEnd - tStart).TotalHours * plotW)), bandY + (bandH / 2f));
+
+            // The hour it shows is the one under the pointer.
+            using (var probe = new RgbaImageRenderer(1600, 1000))
+            {
+                AltitudeChartRenderer.DrawWeatherTooltip(probe, state, FontResolver.ResolveSystemFont(), pointer, cx, cy, cw, ch)
+                    .ShouldNotBeNull().Time.ShouldBe(midnight);
+            }
+
+            tab.Render(state, content, time, pointer);
+            var with = renderer.Surface.Pixels;
+
+            // The box: under the band, around the pointer. Count what changed there.
+            var changed = 0;
+            for (var y = bandY + bandH + 8; y < bandY + bandH + 60; y++)
+            {
+                for (var x = (int)pointer.Item1 - 40; x < (int)pointer.Item1 + 40; x++)
+                {
+                    var i = ((y * renderer.Surface.Width) + x) * 4;
+                    if (with[i] != without[i] || with[i + 1] != without[i + 1] || with[i + 2] != without[i + 2])
+                    {
+                        changed++;
+                    }
+                }
+            }
+            changed.ShouldBeGreaterThan(80 * 52 / 2, "the detail box covers the chart under the band");
         }
     }
 }
