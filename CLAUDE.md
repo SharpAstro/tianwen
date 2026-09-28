@@ -1126,6 +1126,10 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   copy writes a new header, which lost a capture's time zone), verified before it is kept. The originals stay (the
   user, 2026-09-29); a crop is a working copy on the SSD. Every write goes through `ScratchSpace`, which asks the drive
   and keeps its reserve (109 GB) free.
+- **A planet's orientation comes from `PhysicalEphemeris`, never from an image** (R1): the IAU pole and System III,
+  checked against Horizons to 0.0025 degree. Two traps it found: **the pole angle is referred to the pole of DATE** (to
+  the ICRF's it is 0.15 degree off by 2024), and **Meeus's central meridians are corrected for phase** (his example is
+  0.43 degree from the geometric meridian Horizons and WinJUPOS give).
 - **Read the plan doc before touching the Canon path** -- it is a list of five things that fail
   SILENTLY. **Recentering is opt-in** (the user, 2026-09-28; it costs the loop about 15 ms a frame at full frame), and
   so is the mount jog, whose **sign is uncalibrated**.
