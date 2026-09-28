@@ -57,7 +57,9 @@ public class MirrorParityTests(ITestOutputHelper output)
         // a catalogued target, a priority, a gain and an offset, and a plan of two filters at different sub-exposures.
         ScheduledObservation[] observations =
         [
-            new ScheduledObservation(new Target(3.7886, 24.1167, "M45", CatalogIndex.M045), WinterNight, TimeSpan.FromMinutes(3),
+            // Ten minutes, when the plan's four frames need about five: how many frames an observation fits depends on how far
+            // the pump below moves the clock per frame, and at three minutes a slow runner fitted two, one short of FramesHeld.
+            new ScheduledObservation(new Target(3.7886, 24.1167, "M45", CatalogIndex.M045), WinterNight, TimeSpan.FromMinutes(10),
                 AcrossMeridian: false,
                 FilterPlan: [new FilterExposure(0, TimeSpan.FromSeconds(20), 2), new FilterExposure(1, TimeSpan.FromSeconds(30), 2)],
                 Gain: 120, Offset: 10, Priority: ObservationPriority.High),
