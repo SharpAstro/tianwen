@@ -182,6 +182,65 @@ public static class DatasetTileExporter
             : row;
     }
 
+    /// <summary>Subs prepared ahead of the one whose tiles are being written. One is enough to hide a load behind
+    /// the writes; more would only hold more full-canvas frames.</summary>
+    internal const int SubPrefetchDepth = 1;
+
+    /// <summary>
+    /// Each sub of <paramref name="order"/>, loaded through the session's own source (a drizzled session wrote no
+    /// warped scratch, so there the sub is warped again from its raw light with the warp pass's arguments) and
+    /// prepared, on a background task <see cref="SubPrefetchDepth"/> ahead of the consumer. A fault in the producer
+    /// surfaces at the consumer's next read; the consumer leaving early cancels the producer and waits for it, so no
+    /// sub is being prepared after the export ends. The shape of <c>DrizzleStrategy</c>'s frame prefetch.
+    /// </summary>
+    private static async IAsyncEnumerable<(int SubIdx, List<int> Cells, PreparedFrame Prepared)> PrepareSubsAhead(
+        Dictionary<int, List<int>> order,
+        SessionRegistrar.RegisteredSession session,
+        WarpedSubSource warpedSubs,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var channel = System.Threading.Channels.Channel.CreateBounded<(int, List<int>, PreparedFrame)>(
+            new System.Threading.Channels.BoundedChannelOptions(SubPrefetchDepth)
+            {
+                SingleReader = true,
+                SingleWriter = true,
+                FullMode = System.Threading.Channels.BoundedChannelFullMode.Wait,
+            });
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var producer = Task.Run(async () =>
+        {
+            try
+            {
+                foreach (var (subIdx, cells) in order)
+                {
+                    cts.Token.ThrowIfCancellationRequested();
+                    var warped = await warpedSubs.LoadAsync(session.Subs[subIdx], cts.Token);
+                    await channel.Writer.WriteAsync((subIdx, cells, Prepare(warped)), cts.Token);
+                }
+                channel.Writer.TryComplete();
+            }
+            catch (Exception ex)
+            {
+                // Handed to the reader, which rethrows it: nothing here is swallowed.
+                channel.Writer.TryComplete(ex);
+            }
+        }, CancellationToken.None);
+
+        try
+        {
+            await foreach (var item in channel.Reader.ReadAllAsync(cancellationToken))
+            {
+                yield return item;
+            }
+        }
+        finally
+        {
+            cts.Cancel();
+            // The producer catches everything and completes the channel with it, so this only waits for it to stop.
+            await producer;
+        }
+    }
+
     /// <summary>
     /// Stretches one frame exactly as <see cref="ChunkedNafnetRunner"/> will at inference and estimates the frame's
     /// own noise from its own linear pixels, as the runner will too: every plane a bake writes is then the plane the
@@ -372,16 +431,15 @@ public static class DatasetTileExporter
             ?? throw new InvalidOperationException(
                 $"Session {imaging.Id} carries no WarpedSubs, so its subs cannot be read back for tiling.");
         var subTiles = 0;
-        foreach (var (subIdx, cellsForSub) in subToCells)
+        // The next sub is loaded and prepared while this one's tiles are written: the load is a debayer plus a warp
+        // on a drizzled session (it uses every core) and the writes are one file after another onto the archive
+        // disk (they use one), so taking them in turn left most of the machine idle (a profile of the 2026-09-29
+        // bake: 63 percent of thread time in an idle pool). Every sub is prepared from the same inputs and every
+        // tile written under its own name, and the rows are sorted before the manifest is written, so the
+        // overlap changes no byte of the output.
+        await foreach (var (subIdx, cellsForSub, preparedSub) in PrepareSubsAhead(subToCells, session, warpedSubs, cancellationToken))
         {
-            cancellationToken.ThrowIfCancellationRequested();
             var sub = session.Subs[subIdx];
-            // Through the session's own source, because a drizzled session wrote no warped scratch:
-            // there the sub is warped again here, from the raw light, with the warp pass's arguments
-            // (WarpedSubSource). Still off the calling thread -- it is a file read on a staged
-            // session and a debayer plus a warp on a drizzled one, and neither belongs inline.
-            var warped = await Task.Run(async () => await warpedSubs.LoadAsync(sub, cancellationToken), cancellationToken);
-            var preparedSub = Prepare(warped);
             var sourceName = Path.GetFileName(sub.Source.Path);
             var subMeta = sub.Source.Meta;
             foreach (var cellIndex in cellsForSub)

@@ -447,8 +447,9 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             // file again. Null when no solver is configured, which simply retains masters as before.
             var result = await DatasetBuildRunner.RunAsync(options, scan, logger, progress, plateSolverFactory, ct);
 
+            // A stopped run says so in its summary line, so no wrapper reading that line can take it for a finished one.
             consoleHost.WriteScrollable(
-                $"[dataset] {result.Registered}/{result.Sessions} sessions" +
+                $"[dataset] {(result.Stopped ? $"STOPPED by {DatasetBuildRunner.StopFileName} after " : "")}{result.Registered}/{result.Sessions} sessions" +
                 $"{(result.Resumed > 0 ? $" (+{result.Resumed} resumed)" : "")} -> {result.TotalTiles} tiles" +
                 $"{(result.Failed > 0 ? $" ({result.Failed} FAILED, see log)" : "")}" +
                 $"{(result.SkippedNoDark > 0 ? $" ({result.SkippedNoDark} skipped: no dark calibration)" : "")}" +

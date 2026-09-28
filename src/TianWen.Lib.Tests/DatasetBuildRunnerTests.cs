@@ -539,6 +539,69 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// The stop file ends a bake between sessions: the one in progress finishes and is recorded, the next never
+        /// starts, the file is consumed, and a resume builds only what is left. A stop file left from an earlier run
+        /// is cleared at the start rather than obeyed, or every run after a stop would end before its first session.
+        /// </summary>
+        [Fact]
+        public async Task Run_StopFile_StopsBetweenSessions_AndAResumeBuildsOnlyTheRest()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var root = Path.Combine(_dir, "archive");
+            var m42 = Path.Combine(root, "M42", "LIGHT");
+            Directory.CreateDirectory(m42);
+            Directory.CreateDirectory(Path.Combine(root, "DARK"));
+            RgbBayerSyntheticFixture.WriteSyntheticLights(m42);
+            RgbBayerSyntheticFixture.WriteSyntheticDarks(Path.Combine(root, "DARK"));
+            WriteShiftedCopies(m42, Path.Combine(root, "N43", "LIGHT"));
+            var outDir = Path.Combine(_dir, "out");
+            var options = new DatasetBuildOptions
+            {
+                ArchiveRoots = [root],
+                OutputDir = outDir,
+                MinExposure = TimeSpan.FromSeconds(0.5),
+                MaxExposure = TimeSpan.FromMinutes(5),
+                MinSubsPerSession = 4,
+                TileSize = 64,
+                CellsPerSession = 20,
+                SubsPerCell = 3,
+                TestFraction = 0.5,
+                Resume = true,
+            };
+            var stopPath = Path.Combine(outDir, DatasetBuildRunner.StopFileName);
+            Directory.CreateDirectory(outDir);
+            File.WriteAllText(stopPath, "left by an earlier run");
+
+            // Raised while the FIRST session builds, synchronously, so the stop is in place before the loop looks.
+            var lines = new List<string>();
+            var progress = new SyncProgress(line =>
+            {
+                lines.Add(line);
+                if (line.StartsWith("[dataset] (1/2)", StringComparison.Ordinal) && !File.Exists(stopPath))
+                {
+                    File.WriteAllText(stopPath, "stop");
+                }
+            });
+            var stoppedRun = await DatasetBuildRunner.RunAsync(options, logger: null, progress: progress, cancellationToken: ct);
+
+            lines.ShouldContain(l => l.Contains("cleared a stop file", StringComparison.Ordinal));
+            stoppedRun.Stopped.ShouldBeTrue();
+            stoppedRun.Registered.ShouldBe(1);
+            File.Exists(stopPath).ShouldBeFalse();
+
+            var resumed = await DatasetBuildRunner.RunAsync(options, cancellationToken: ct);
+            resumed.Stopped.ShouldBeFalse();
+            resumed.Resumed.ShouldBe(1);
+            resumed.Registered.ShouldBe(1);
+            resumed.TotalTiles.ShouldBeGreaterThan(stoppedRun.TotalTiles);
+        }
+
+        private sealed class SyncProgress(Action<string> report) : IProgress<string>
+        {
+            public void Report(string value) => report(value);
+        }
+
+        /// <summary>
         /// A resume re-does a session whose INPUTS changed or whose retained master lacks what the
         /// recipe now writes beside it, and leaves the rest alone. "Are the files there" answered
         /// neither: on the 2026-09-19 store, 37 staged masters lacked the coverage plane every staged
