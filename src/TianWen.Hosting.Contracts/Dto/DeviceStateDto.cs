@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.Hosting.Dto;
@@ -103,6 +104,15 @@ public sealed record CameraDeviceStateDto
     /// </summary>
     public CameraRoiDto? Roi { get; init; }
 
+    /// <summary>
+    /// The depths the camera streams in, shallowest first; null when it does not stream or cannot choose, and from a node
+    /// before the planetary depth switch, which a client reads as a camera offering none.
+    /// </summary>
+    public BitDepth[]? VideoBitDepths { get; init; }
+
+    /// <summary>Whether the camera has a high-speed readout a planetary capture can switch; false from an older node.</summary>
+    public bool CanFastReadout { get; init; }
+
     public static CameraDeviceStateDto FromReading(CameraReading reading, CoolerIntent? intent) => new CameraDeviceStateDto
     {
         CcdTemperatureC = DeviceStateDto.Known(reading.CcdTemperatureC),
@@ -122,6 +132,8 @@ public sealed record CameraDeviceStateDto
         CoolerIntent = intent?.Kind,
         CoolerIntentSetpointC = intent is { Kind: CoolerIntentKind.Cool } cool ? DeviceStateDto.Known(cool.SetpointC) : null,
         Roi = reading.RoiConstraints == default ? null : CameraRoiDto.FromConstraints(reading.RoiConstraints),
+        VideoBitDepths = reading.VideoBitDepths.IsDefaultOrEmpty ? null : [.. reading.VideoBitDepths],
+        CanFastReadout = reading.CanFastReadout,
     };
 
     /// <summary>
@@ -143,7 +155,9 @@ public sealed record CameraDeviceStateDto
         GainModes: GainModes is { } modes ? [.. modes] : [],
         SensorWidth: SensorWidth,
         SensorHeight: SensorHeight,
-        RoiConstraints: Roi?.ToConstraints() ?? default);
+        RoiConstraints: Roi?.ToConstraints() ?? default,
+        VideoBitDepths: VideoBitDepths is { } depths ? [.. depths] : [],
+        CanFastReadout: CanFastReadout);
 }
 
 /// <summary>A camera's region-of-interest rules (<see cref="RoiConstraints"/>), in pixels.</summary>

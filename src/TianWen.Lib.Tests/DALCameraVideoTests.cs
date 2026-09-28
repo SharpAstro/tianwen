@@ -240,6 +240,93 @@ public class DALCameraVideoTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 30_000)]
+    public async Task AStreamReadsOutInTheDepthItAskedForAndDeclaresThatDepthsFullScale()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (camera, state, _) = await ScriptedDalCamera.ConnectAsync(output, formats: [PixelDataFormat.RAW8, PixelDataFormat.RAW16], canStream: true);
+        camera.NumX = 64;
+        camera.NumY = 32;
+        camera.VideoBitDepths.ShouldBe([BitDepth.Int8, BitDepth.Int16]);
+
+        await using (var frames = camera.CaptureVideoAsync(OneMillisecond with { BitDepth = BitDepth.Int8 }, ct).GetAsyncEnumerator(ct))
+        {
+            var frame = await NextAsync(frames);
+            state.Format.ShouldBe(PixelDataFormat.RAW8);
+            frame.BitDepth.ShouldBe(BitDepth.Int8);
+            // The camera's own 16-bit full scale on an 8-bit frame made the live stack divide it down to nothing.
+            frame.ImageMeta.SensorFullScaleAdu.ShouldBe(255f, "an 8-bit frame declares an 8-bit full scale");
+            frame.Release();
+        }
+
+        (await camera.GetBitDepthAsync(ct)).ShouldBe(BitDepth.Int16, "the stream's depth is its own: the camera's single exposures stay in 16 bits");
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task AStreamAskingForADepthTheBodyHasNotStreamsInItsOwn()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (camera, state) = await StreamingCameraAsync();
+        camera.VideoBitDepths.ShouldBe([BitDepth.Int16]);
+
+        await using var frames = camera.CaptureVideoAsync(OneMillisecond with { BitDepth = BitDepth.Int8 }, ct).GetAsyncEnumerator(ct);
+        var frame = await NextAsync(frames);
+        frame.BitDepth.ShouldBe(BitDepth.Int16);
+        state.Format.ShouldBe(PixelDataFormat.RAW16);
+        frame.Release();
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task AStreamTakesTheWholeUsbBandwidthAndTheHighSpeedReadoutAndGivesBothBack()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (camera, state, _) = await ScriptedDalCamera.ConnectAsync(output, canStream: true, hasHighSpeed: true, bandwidthMax: 100);
+        camera.NumX = 64;
+        camera.NumY = 32;
+        camera.CanFastReadout.ShouldBeTrue();
+        state.Controls[CMOSControlType.BandwidthOverload].ShouldBe(50, "what a connect sets");
+
+        await using (var frames = camera.CaptureVideoAsync(OneMillisecond, ct).GetAsyncEnumerator(ct))
+        {
+            (await NextAsync(frames)).Release();
+            state.Controls[CMOSControlType.BandwidthOverload].ShouldBe(100, "a stream takes the whole bandwidth: half of it halves the frame rate");
+            state.Controls[CMOSControlType.HighSpeedMode].ShouldBe(1, "a stream runs the high-speed readout unless asked otherwise");
+        }
+
+        state.Controls[CMOSControlType.BandwidthOverload].ShouldBe(50, "given back as the stream ends");
+        state.Controls[CMOSControlType.HighSpeedMode].ShouldBe(0, "back to what the camera's single exposures ask");
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task ANewDepthOrReadoutModeRestartsTheStreamInIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (camera, state, _) = await ScriptedDalCamera.ConnectAsync(output, formats: [PixelDataFormat.RAW8, PixelDataFormat.RAW16], canStream: true,
+            hasHighSpeed: true);
+        camera.NumX = 64;
+        camera.NumY = 32;
+
+        await using var frames = camera.CaptureVideoAsync(OneMillisecond, ct).GetAsyncEnumerator(ct);
+        var first = await NextAsync(frames);
+        first.BitDepth.ShouldBe(BitDepth.Int16, "the camera's own depth when the stream names none");
+        first.Release();
+
+        await camera.ApplyVideoControlsAsync(new VideoCaptureOptions(TimeSpan.Zero, HighSpeedMode: false, BitDepth: BitDepth.Int8), ct);
+        Image frame;
+        while ((frame = await NextAsync(frames)).BitDepth != BitDepth.Int8)
+        {
+            frame.Release();
+        }
+        frame.ImageMeta.SensorFullScaleAdu.ShouldBe(255f);
+        frame.Release();
+
+        // The body refuses a new format while it streams, as ZWO's does, so the stream stops, changes and starts.
+        state.Format.ShouldBe(PixelDataFormat.RAW8);
+        state.Controls[CMOSControlType.HighSpeedMode].ShouldBe(0);
+        state.VideoStarts.ShouldBe(2);
+        state.VideoStops.ShouldBe(1);
+    }
+
+    [Fact(Timeout = 30_000)]
     public async Task ABodyThatDoesNotStreamStaysOnSingleExposures()
     {
         var ct = TestContext.Current.CancellationToken;

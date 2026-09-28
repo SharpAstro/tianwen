@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Imaging;
 
 namespace TianWen.UI.Abstractions
 {
@@ -33,7 +34,11 @@ namespace TianWen.UI.Abstractions
         // SensorWidth <= 0 means "no camera connected / not yet sampled" -> the picker uses a fallback.
         int SensorWidth = 0,
         int SensorHeight = 0,
-        RoiConstraints RoiConstraints = default)
+        RoiConstraints RoiConstraints = default,
+        // What the planetary panel may switch: the depths the camera streams in (empty: no choice) and its high-speed
+        // readout.
+        ImmutableArray<BitDepth> VideoBitDepths = default,
+        bool CanFastReadout = false)
     {
         /// <summary>Default instance with NaN temperatures and no connections.</summary>
         public static readonly PreviewOTATelemetry Unknown = new PreviewOTATelemetry(
@@ -70,6 +75,8 @@ namespace TianWen.UI.Abstractions
                 GainModes: camera?.GainModes ?? ImmutableArray<string>.Empty,
                 SensorWidth: camera?.SensorWidth ?? 0,
                 SensorHeight: camera?.SensorHeight ?? 0,
-                RoiConstraints: camera?.RoiConstraints ?? default);
+                RoiConstraints: camera?.RoiConstraints ?? default,
+                VideoBitDepths: camera?.VideoBitDepths ?? [],
+                CanFastReadout: camera?.CanFastReadout ?? false);
     }
 }

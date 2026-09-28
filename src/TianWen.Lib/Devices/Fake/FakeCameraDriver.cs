@@ -1517,6 +1517,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     private int _videoRoiHeight;
     private long _videoStartTimestamp;    // capture start, for deterministic drift phase
     private long _videoExposureTicks;     // current per-frame exposure; live-tunable via ApplyVideoControlsAsync
+    private int _videoBitDepth = (int)Imaging.BitDepth.Int16; // the stream's depth, re-read each frame; live-tunable too
 
     /// <summary>Planet drift across the virtual sensor in X (px/s) -- the residual the recenter loop chases.</summary>
     internal double PlanetDriftPixelsPerSecX { get; set; } = 0.9;
@@ -1569,6 +1570,10 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     public bool CanJogRoi => Volatile.Read(ref _videoActive) == 1;
 
     /// <inheritdoc/>
+    /// <remarks>Both depths a ZWO body streams in, so a stream's choice reaches its frames end to end.</remarks>
+    public System.Collections.Immutable.ImmutableArray<Imaging.BitDepth> VideoBitDepths { get; } = [Imaging.BitDepth.Int8, Imaging.BitDepth.Int16];
+
+    /// <inheritdoc/>
     public int DroppedFrames => Volatile.Read(ref _droppedFrames);
 
     /// <inheritdoc/>
@@ -1604,6 +1609,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
 
             Interlocked.Exchange(ref _droppedFrames, 0);
             Volatile.Write(ref _videoExposureTicks, options.Exposure.Ticks);
+            Volatile.Write(ref _videoBitDepth, (int)VideoDepth(options.BitDepth));
             _videoStartTimestamp = TimeProvider.GetTimestamp();
 
             // Initial ROI window = the configured sub-frame (NumX/NumY), centred on the virtual sensor; the
@@ -1702,11 +1708,20 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
             Volatile.Write(ref _videoExposureTicks, controls.Exposure.Ticks);
         }
 
+        if (controls.BitDepth is { } bitDepth)
+        {
+            Volatile.Write(ref _videoBitDepth, (int)VideoDepth(bitDepth));
+        }
+
         if (controls.Gain is { } gain)
         {
             await SetGainAsync(gain, cancellationToken).ConfigureAwait(false);
         }
     }
+
+    // The depth a stream asked for streams in: one of VideoBitDepths, else the fake's own 16 bits.
+    private Imaging.BitDepth VideoDepth(Imaging.BitDepth? asked)
+        => asked is { } depth && VideoBitDepths.Contains(depth) ? depth : Imaging.BitDepth.Int16;
 
     // The current ROI (frame) size = NumX/NumY clamped to a sane planetary window [16, sensor]. Reads
     // _cameraSettings under _lock (its guard); the ROI-window fields it feeds are the capture loop's own.
@@ -1760,6 +1775,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
         // Into a recycled plane: the frame's release hands it back (the capture loop releases each frame
         // before the next), so this is a recycled camera frame like a real driver's.
         var output = _videoPlanes.Take(roiH, roiW);
+        var depth = (Imaging.BitDepth)Volatile.Read(ref _videoBitDepth);
         float[,] array;
         Imaging.ImageMeta meta;
         if (SensorType is Imaging.SensorType.RGGB)
@@ -1798,6 +1814,20 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
             meta = new Imaging.ImageMeta { SensorType = Imaging.SensorType.Monochrome };
         }
 
+        // An 8-bit stream reads out the same light on a 255 scale, as a real body's 8-bit mode keeps the top bits of the
+        // same readout. Rendered at the full scale first, since the renderer's sky and noise are in whole ADU.
+        float fullScale = MaxADU;
+        if (depth is Imaging.BitDepth.Int8)
+        {
+            fullScale = byte.MaxValue;
+            var toEight = (float)byte.MaxValue / MaxADU;
+            var samples = System.Runtime.InteropServices.MemoryMarshal.CreateSpan(ref array[0, 0], array.Length);
+            for (var i = 0; i < samples.Length; i++)
+            {
+                samples[i] = MathF.Round(samples[i] * toEight);
+            }
+        }
+
         // MaxValue is the peak pixel actually observed in this frame (mirrors what a real driver
         // reports: see DALCameraDriver.DownloadImage), NOT the sensor's fixed ADC full-scale: bodyLevel
         // is clamped well below 1.0 for a realistic short-exposure preview, so the true max is usually
@@ -1807,8 +1837,8 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
         var maxValue = 0f;
         foreach (var v in array) maxValue = MathF.Max(maxValue, v);
 
-        return new Image([_videoPlanes.Wrap(array, minValue: 0f, maxValue, 0)], Imaging.BitDepth.Int16, pedestal: 0f,
-            meta with { SensorFullScaleAdu = MaxADU });
+        return new Image([_videoPlanes.Wrap(array, minValue: 0f, maxValue, 0)], depth, pedestal: 0f,
+            meta with { SensorFullScaleAdu = fullScale });
     }
 
     private static double NextGaussian(Random rng)

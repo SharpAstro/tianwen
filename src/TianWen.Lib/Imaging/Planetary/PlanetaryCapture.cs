@@ -16,7 +16,10 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// per frame, <paramref name="Gain"/> (null keeps the camera's), through a readout window of
 /// <paramref name="RoiWidth"/> x <paramref name="RoiHeight"/>, snapped to the camera's ROI rule.
 /// </summary>
-public readonly record struct PlanetaryCaptureRequest(int OtaIndex, TimeSpan Exposure, short? Gain, int RoiWidth, int RoiHeight);
+/// <param name="BitDepth">The depth the camera streams in (<see cref="VideoCaptureOptions.BitDepth"/>); null for its own.</param>
+/// <param name="HighSpeed">The camera's high-speed readout (<see cref="VideoCaptureOptions.HighSpeedMode"/>); null for on.</param>
+public readonly record struct PlanetaryCaptureRequest(int OtaIndex, TimeSpan Exposure, short? Gain, int RoiWidth, int RoiHeight,
+    BitDepth? BitDepth = null, bool? HighSpeed = null);
 
 /// <summary>
 /// A <b>live planetary capture</b>: streams frames from a camera in video mode into a <see cref="LiveCameraFrameStream"/>,
@@ -73,6 +76,10 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
     private int _pendingRoiH;
     private int _pendingJogX;
     private int _pendingJogY;
+    // 0 and -1 are "nothing pending": a depth is staged as its BitDepth value, the readout mode as 0 or 1.
+    private int _pendingBitDepth;
+    private int _pendingHighSpeed = -1;
+    private int _lastFrameBitDepth;
 
     // ── COM recenter ─────────────────────────────────────────────────────────────────────────────────
     // Recenter config staged by a host and read by the capture loop each frame. Individual Volatile reads/writes: a
@@ -188,6 +195,9 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
     /// <summary>Total frames pushed into the stream since the current capture started.</summary>
     public int FramesReceived => Volatile.Read(ref _framesReceived);
 
+    /// <summary>The depth the newest frame came in; null before the first.</summary>
+    public BitDepth? FrameBitDepth => Volatile.Read(ref _lastFrameBitDepth) is not 0 and var depth ? (BitDepth)depth : null;
+
     /// <summary>Frames the camera/SDK reported dropped (buffer starvation), 0 for cameras that can't report it.</summary>
     public int DroppedFrames => (_camera as IVideoCameraDriver)?.DroppedFrames ?? 0;
 
@@ -294,7 +304,8 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
             {
                 AttachMount(null, null, hub, double.NaN);
             }
-            handedOver = Interlocked.CompareExchange(ref _prepared, new Prepared(camera, new VideoCaptureOptions(request.Exposure, request.Gain), claim), null) is null;
+            var options = new VideoCaptureOptions(request.Exposure, request.Gain, request.HighSpeed, request.BitDepth);
+            handedOver = Interlocked.CompareExchange(ref _prepared, new Prepared(camera, options, claim), null) is null;
         }
         finally
         {
@@ -378,6 +389,9 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         Volatile.Write(ref _pendingRoiH, 0);
         Interlocked.Exchange(ref _pendingJogX, 0);
         Interlocked.Exchange(ref _pendingJogY, 0);
+        Volatile.Write(ref _pendingBitDepth, 0);
+        Volatile.Write(ref _pendingHighSpeed, -1);
+        Volatile.Write(ref _lastFrameBitDepth, 0);
 
         // Clear stale recenter telemetry / pulse gate (the toggles + deadband persist across runs).
         Interlocked.Exchange(ref _mountPulseBusy, 0);
@@ -455,6 +469,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
                 var arrived = timeProvider.GetUtcNow();
                 stream.Push(frame, arrived);
                 var received = Interlocked.Increment(ref _framesReceived);
+                Volatile.Write(ref _lastFrameBitDepth, (int)frame.BitDepth);
 
                 // A recording converts and queues the frame; its own writer does the disk (SerRecording).
                 _recording?.TryAppend(frame, arrived);
@@ -625,6 +640,15 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
 
     /// <summary>Sets the gain for the running stream (takes effect on the next frame).</summary>
     public void SetGain(int gain) => Volatile.Write(ref _pendingGain, Math.Max(0, gain));
+
+    /// <summary>
+    /// Changes the depth the running stream reads out in (<see cref="VideoCaptureOptions.BitDepth"/>): a camera restarts
+    /// its stream in the new one after the next frame, and one that cannot stream in it keeps its own.
+    /// </summary>
+    public void SetBitDepth(BitDepth bitDepth) => Volatile.Write(ref _pendingBitDepth, (int)bitDepth);
+
+    /// <summary>Switches the running stream's high-speed readout (<see cref="VideoCaptureOptions.HighSpeedMode"/>).</summary>
+    public void SetHighSpeed(bool on) => Volatile.Write(ref _pendingHighSpeed, on ? 1 : 0);
 
     /// <summary>Resizes the readout window (ROI) of the running stream, snapped to the camera's ROI rule; the frame stream
     /// rebuilds at the new size on the next frame (the live stack restarts cleanly at the new framing).</summary>
@@ -816,8 +840,10 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         var gain = Interlocked.Exchange(ref _pendingGain, NoGain);
         var jx = Interlocked.Exchange(ref _pendingJogX, 0);
         var jy = Interlocked.Exchange(ref _pendingJogY, 0);
+        var depth = Interlocked.Exchange(ref _pendingBitDepth, 0);
+        var highSpeed = Interlocked.Exchange(ref _pendingHighSpeed, -1);
 
-        if (rw <= 0 && rh <= 0 && expTicks <= 0 && gain < 0 && jx == 0 && jy == 0)
+        if (rw <= 0 && rh <= 0 && expTicks <= 0 && gain < 0 && jx == 0 && jy == 0 && depth == 0 && highSpeed < 0)
         {
             return; // nothing staged
         }
@@ -833,10 +859,14 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
                 camera.NumY = snapped.Height;
             }
 
-            if (video is not null && (expTicks > 0 || gain >= 0))
+            if (video is not null && (expTicks > 0 || gain >= 0 || depth != 0 || highSpeed >= 0))
             {
                 await video.ApplyVideoControlsAsync(
-                    new VideoCaptureOptions(expTicks > 0 ? new TimeSpan(expTicks) : TimeSpan.Zero, gain >= 0 ? (short)gain : null),
+                    new VideoCaptureOptions(
+                        expTicks > 0 ? new TimeSpan(expTicks) : TimeSpan.Zero,
+                        gain >= 0 ? (short)gain : null,
+                        highSpeed >= 0 ? highSpeed == 1 : null,
+                        depth != 0 ? (BitDepth)depth : null),
                     token).ConfigureAwait(false);
             }
             else if (gain >= 0)
@@ -853,8 +883,8 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
             // Defensive breadcrumb: these live-control changes are the actions that correlate with a stall, so log
             // exactly what was applied -- the last such line before a freeze pinpoints the trigger.
             logger.LogDebug(
-                "Planetary live control applied: roi={RoiW}x{RoiH} exposureTicks={ExpTicks} gain={Gain} jog=({Jx},{Jy}).",
-                rw, rh, expTicks, gain, jx, jy);
+                "Planetary live control applied: roi={RoiW}x{RoiH} exposureTicks={ExpTicks} gain={Gain} jog=({Jx},{Jy}) depth={Depth} highSpeed={HighSpeed}.",
+                rw, rh, expTicks, gain, jx, jy, depth, highSpeed);
         }
         catch (OperationCanceledException)
         {

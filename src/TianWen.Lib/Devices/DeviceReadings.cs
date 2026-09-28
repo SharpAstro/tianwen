@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Devices;
 
@@ -6,6 +7,10 @@ namespace TianWen.Lib.Devices;
 /// What a connected camera reads now, as <see cref="DeviceHubReadingExtensions.ReadCameraAsync"/> takes it. A
 /// value the camera does not give is NaN, never 0: a cooler at 0 °C is a real reading.
 /// </summary>
+/// <param name="VideoBitDepths">The depths it streams in (<see cref="IVideoCameraDriver.VideoBitDepths"/>); empty when it
+/// does not stream, or cannot choose.</param>
+/// <param name="CanFastReadout">Whether it has a high-speed readout (<see cref="ICameraDriver.CanFastReadout"/>), which a
+/// planetary capture switches.</param>
 public readonly record struct CameraReading(
     double CcdTemperatureC,
     double HeatsinkTemperatureC,
@@ -21,7 +26,9 @@ public readonly record struct CameraReading(
     ImmutableArray<string> GainModes,
     int SensorWidth,
     int SensorHeight,
-    RoiConstraints RoiConstraints)
+    RoiConstraints RoiConstraints,
+    ImmutableArray<BitDepth> VideoBitDepths = default,
+    bool CanFastReadout = false)
 {
     /// <summary>Exposing, downloading or otherwise at work: what a disconnect or a new exposure has to wait for.</summary>
     public bool IsBusy => State is not (CameraState.Idle or CameraState.NotConnected);

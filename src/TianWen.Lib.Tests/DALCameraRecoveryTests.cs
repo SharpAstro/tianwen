@@ -204,7 +204,7 @@ internal static class ScriptedDalCamera
 {
     internal static async Task<(TestDalCameraDriver Camera, FakeCmosState State, FakeTimeProviderWrapper Time)> ConnectAsync(
         ITestOutputHelper output, bool canReset = false, IReadOnlyList<PixelDataFormat>? formats = null, bool canStream = false,
-        BayerPattern bayerPattern = BayerPattern.Monochrome)
+        BayerPattern bayerPattern = BayerPattern.Monochrome, bool hasHighSpeed = false, int bandwidthMax = 0)
     {
         var time = new FakeTimeProviderWrapper();
         var external = new FakeExternal(output, time);
@@ -215,6 +215,8 @@ internal static class ScriptedDalCamera
             Formats = formats ?? [PixelDataFormat.RAW16],
             CanStream = canStream,
             BayerPattern = bayerPattern,
+            HasHighSpeed = hasHighSpeed,
+            BandwidthMax = bandwidthMax,
         };
         var camera = new TestDalCameraDriver(device, external.BuildServiceProvider(), state);
         await camera.ConnectAsync(TestContext.Current.CancellationToken);
@@ -306,6 +308,12 @@ internal sealed class FakeCmosState(string serial)
     public bool CanStream { get; init; }
 
     public BayerPattern BayerPattern { get; init; } = BayerPattern.Monochrome;
+
+    /// <summary>Whether the body has a high-speed readout (ZWO's <c>ASI_HIGH_SPEED_MODE</c>), a control of range 0 to 1.</summary>
+    public bool HasHighSpeed { get; init; }
+
+    /// <summary>The top of the body's USB bandwidth control (ZWO's runs 40 to 100); 0 for a body without one.</summary>
+    public int BandwidthMax { get; init; }
 
     private volatile bool _streaming;
 
@@ -440,6 +448,8 @@ internal readonly struct FakeCmosCamera(FakeCmosState state) : ICMOSNativeInterf
             CMOSControlType.Gain => (0, 100),
             CMOSControlType.Brightness => (0, 100),
             CMOSControlType.TargetTemperature => (-40, 30),
+            CMOSControlType.HighSpeedMode when state.HasHighSpeed => (0, 1),
+            CMOSControlType.BandwidthOverload when state.BandwidthMax > 0 => (40, state.BandwidthMax),
             _ => (0, 0),
         };
         return max > min;
@@ -564,7 +574,8 @@ internal readonly struct FakeCmosCamera(FakeCmosState state) : ICMOSNativeInterf
             state.FailNextFrameWith = null;
             return failure;
         }
-        if (bufferSize != state.Width * state.Height * sizeof(ushort))
+        var bytesPerPixel = state.Format is PixelDataFormat.RAW8 ? 1 : sizeof(ushort);
+        if (bufferSize != state.Width * state.Height * bytesPerPixel)
         {
             return CMOSErrorCode.BufferTooSmall;
         }
@@ -576,10 +587,17 @@ internal readonly struct FakeCmosCamera(FakeCmosState state) : ICMOSNativeInterf
             return CMOSErrorCode.Timeout;
         }
 
-        var value = (ushort)state.ServeFrame();
+        var value = state.ServeFrame();
         unsafe
         {
-            new Span<ushort>((void*)buffer, state.Width * state.Height).Fill(value);
+            if (bytesPerPixel == 1)
+            {
+                new Span<byte>((void*)buffer, state.Width * state.Height).Fill((byte)value);
+            }
+            else
+            {
+                new Span<ushort>((void*)buffer, state.Width * state.Height).Fill((ushort)value);
+            }
         }
         return CMOSErrorCode.Success;
     }

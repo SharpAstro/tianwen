@@ -2,6 +2,7 @@ using System;
 using System.Collections.Immutable;
 using System.Threading;
 using TianWen.Hosting.Dto;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
 
 namespace TianWen.UI.Abstractions;
@@ -15,9 +16,10 @@ namespace TianWen.UI.Abstractions;
 /// </summary>
 public sealed class NodePlanetaryCapture
 {
-    private sealed record Pending(double? ExposureMs, short? Gain, int? RoiWidth, int? RoiHeight, int JogX, int JogY, PlanetaryRecenterDto? Recenter)
+    private sealed record Pending(double? ExposureMs, short? Gain, int? RoiWidth, int? RoiHeight, int JogX, int JogY, PlanetaryRecenterDto? Recenter,
+        BitDepth? BitDepth, bool? HighSpeed)
     {
-        public static readonly Pending None = new Pending(null, null, null, null, 0, 0, null);
+        public static readonly Pending None = new Pending(null, null, null, null, 0, 0, null, null, null);
 
         public bool IsEmpty => this == None;
     }
@@ -52,6 +54,15 @@ public sealed class NodePlanetaryCapture
     public void SetGain(int gain) => Stage(p => p with { Gain = (short)Math.Clamp(gain, 0, short.MaxValue) });
 
     public void SetRoiSize(int width, int height) => Stage(p => p with { RoiWidth = width, RoiHeight = height });
+
+    /// <summary>A new depth for the stream going on (<see cref="PlanetaryControlsDto.BitDepth"/>).</summary>
+    public void SetBitDepth(BitDepth bitDepth) => Stage(p => p with { BitDepth = bitDepth });
+
+    /// <summary>Switches the stream's high-speed readout (<see cref="PlanetaryControlsDto.HighSpeed"/>).</summary>
+    public void SetHighSpeed(bool on) => Stage(p => p with { HighSpeed = on });
+
+    /// <summary>The depth the newest frame came in, as the node reports it; null before the first.</summary>
+    public BitDepth? FrameBitDepth => Volatile.Read(ref _state)?.BitDepth;
 
     /// <summary>Pans the ROI by a step; steps taken between two sends add up.</summary>
     public void JogRoi(int dxPixels, int dyPixels) => Stage(p => p with { JogX = p.JogX + dxPixels, JogY = p.JogY + dyPixels });
@@ -105,6 +116,8 @@ public sealed class NodePlanetaryCapture
             JogX = pending.JogX == 0 ? null : pending.JogX,
             JogY = pending.JogY == 0 ? null : pending.JogY,
             Recenter = pending.Recenter,
+            BitDepth = pending.BitDepth,
+            HighSpeed = pending.HighSpeed,
         };
     }
 

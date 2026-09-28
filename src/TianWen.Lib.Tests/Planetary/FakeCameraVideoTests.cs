@@ -240,6 +240,36 @@ public class FakeCameraVideoTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task AnEightBitStreamReadsTheSameLightOutOnAn8BitScale()
+    {
+        // A stream's depth is its own: the same disk comes out 0..255 in 8 bits, declared so, and the live stack's
+        // normalisation (by SensorFullScaleAdu) puts it where the 16-bit frame was.
+        var ct = TestContext.Current.CancellationToken;
+        var (camera, _) = await CreateCameraAsync();
+        camera.NumX = 200;
+        camera.NumY = 200;
+        camera.PlanetRadiusPixels = 60;
+        camera.VideoBitDepths.ShouldBe([BitDepth.Int8, BitDepth.Int16]);
+
+        await using var e = camera.CaptureVideoAsync(new VideoCaptureOptions(TimeSpan.FromMilliseconds(5)), ct).GetAsyncEnumerator(ct);
+        (await e.MoveNextAsync()).ShouldBeTrue();
+        e.Current.BitDepth.ShouldBe(BitDepth.Int16, "the fake's own depth when the stream names none");
+        var sixteen = FrameMean(e.Current) / e.Current.ImageMeta.SensorFullScaleAdu.ShouldNotBeNull();
+        e.Current.Release();
+
+        await camera.ApplyVideoControlsAsync(new VideoCaptureOptions(TimeSpan.Zero, BitDepth: BitDepth.Int8), ct);
+        (await e.MoveNextAsync()).ShouldBeTrue();
+        e.Current.BitDepth.ShouldBe(BitDepth.Int8);
+        e.Current.ImageMeta.SensorFullScaleAdu.ShouldBe(255f);
+        e.Current.MaxValue.ShouldBeLessThanOrEqualTo(255f);
+        var eight = FrameMean(e.Current) / 255f;
+        e.Current.Release();
+
+        output.WriteLine($"mean as a fraction of full scale: 16 bit {sixteen:F4}, 8 bit {eight:F4}");
+        eight.ShouldBe(sixteen, sixteen * 0.1, "the same light, on the other scale");
+    }
+
+    [Fact]
     public async Task Live_ROI_resize_changes_frame_dimensions_on_the_next_frame()
     {
         // Live ROI size: the streaming loop re-reads NumX/NumY each frame, so resizing mid-stream takes effect

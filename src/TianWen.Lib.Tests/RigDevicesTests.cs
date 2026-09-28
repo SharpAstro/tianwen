@@ -6,6 +6,7 @@ using System.Text.Json;
 using TianWen.Hosting.Dto;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
 using Xunit;
@@ -27,7 +28,8 @@ public class RigDevicesTests
     {
         var camera = new CameraReading(-10.5, double.NaN, -10, 42, CoolerOn: true, CameraState.Idle, UsesGainValue: true,
             UsesGainMode: false, GainMin: 0, GainMax: 300, Gain: 120, GainModes: ["Low", "High"], SensorWidth: 4144,
-            SensorHeight: 2822, new RoiConstraints(4144, 2822, 64, 64, 8, 2, 4, 2));
+            SensorHeight: 2822, new RoiConstraints(4144, 2822, 64, 64, 8, 2, 4, 2),
+            VideoBitDepths: [BitDepth.Int8, BitDepth.Int16], CanFastReadout: true);
         var focuser = new FocuserReading(12345, double.NaN, IsMoving: true);
         var filterWheel = new FilterWheelReading(2, "Ha");
         var mount = new MountState(5.5, 20.25, -0.75, PointingState.ThroughThePole, IsSlewing: false, IsTracking: true, 5.49, 20.2);
@@ -45,7 +47,9 @@ public class RigDevicesTests
 
         var cameraBack = device.Camera.ShouldNotBeNull().ToReading();
         cameraBack.GainModes.ShouldBe(["Low", "High"]);
-        (cameraBack with { GainModes = camera.GainModes }).ShouldBe(camera, "every field, a NaN heatsink and the ROI rules included");
+        cameraBack.VideoBitDepths.ShouldBe([BitDepth.Int8, BitDepth.Int16], "what the planetary panel may offer");
+        (cameraBack with { GainModes = camera.GainModes, VideoBitDepths = camera.VideoBitDepths }).ShouldBe(camera,
+            "every field, a NaN heatsink, the ROI rules and the high-speed readout included");
         device.Focuser.ShouldNotBeNull().ToReading().ShouldBe(focuser);
         device.FilterWheel.ShouldNotBeNull().ToReading().ShouldBe(filterWheel);
         device.Mount.ShouldNotBeNull().ToState().ShouldBe(mount);

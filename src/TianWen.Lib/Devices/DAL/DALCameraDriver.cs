@@ -376,41 +376,46 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
         return ValueTask.CompletedTask;
     }
 
-    public int MaxADU
+    public int MaxADU => Connected ? MaxAduFor(_cameraSettings.BitDepth) : int.MinValue;
+
+    /// <summary>
+    /// The full scale a frame read out in <paramref name="bitDepth"/> declares: ONE rule for a single exposure, whose depth
+    /// is the camera's setting, and a video stream, whose depth is its own (<see cref="VideoCaptureOptions.BitDepth"/>). A
+    /// stream stamping the camera's full scale instead declared a 12-bit sensor's 4095 on an 8-bit frame, which the live
+    /// stack then divided down to a sixteenth of its brightness.
+    /// </summary>
+    private int MaxAduFor(BitDepth bitDepth)
     {
-        get
+        if (bitDepth.IsIntegral && bitDepth.BitSize is { } bitSize and > 0)
         {
-            if (Connected && _cameraSettings.BitDepth.IsIntegral && _cameraSettings.BitDepth.BitSize is { } bitSize and > 0)
+            return bitSize switch
             {
-                return bitSize switch
-                {
-                    8 => byte.MaxValue,
-                    // WHERE the converter's levels sit in the 16-bit word, which the ADC depth does
-                    // not say and the two vendors do not agree on. TianWen never shifts a delivered
-                    // buffer either way, so this only decides what saturation is DECLARED.
-                    //
-                    // Native scale (16383 for the 14-bit ASI533MC Pro) is the ZWO and QHY answer: the
-                    // SDK hands over the converter's own values. Player One hands over the same bits
-                    // LEFT-ALIGNED, so a 12-bit Uranus-C spans 0..65520 in steps of 16 and the native
-                    // reading is 16x too small; measured over the archive 2026-09-23, and SharpCap's
-                    // own Uranus-C captures carry the same quantum, so it is the SDK's doing rather
-                    // than any one consumer's. ICMOSNativeInterface.DeliversContainerScaledPixels is
-                    // the SDK saying which it is, defaulting to native so a binding that has not been
-                    // taught it behaves as before.
-                    //
-                    // (N.I.N.A.'s FITS files from the same cameras span [0, 65532] only because
-                    // N.I.N.A. multiplies on recording; do not infer the SDK's delivered scale from
-                    // N.I.N.A. files -- for those, the container full-scale
-                    // BitDepthEx.UnsignedFullScale is the right divisor, see the dataset builder.)
-                    // Bits <= 16 also guards the (int) cast against a nonsense >16-bit ADC report.
-                    16 => _deviceInfo.DeliversContainerScaledPixels
-                        ? ushort.MaxValue
-                        : AdcDepth is { Bits: <= 16 } adcDepth ? (int)adcDepth.FullScaleAdu : ushort.MaxValue,
-                    _ => int.MinValue
-                };
-            }
-            return int.MinValue;
+                8 => byte.MaxValue,
+                // WHERE the converter's levels sit in the 16-bit word, which the ADC depth does
+                // not say and the two vendors do not agree on. TianWen never shifts a delivered
+                // buffer either way, so this only decides what saturation is DECLARED.
+                //
+                // Native scale (16383 for the 14-bit ASI533MC Pro) is the ZWO and QHY answer: the
+                // SDK hands over the converter's own values. Player One hands over the same bits
+                // LEFT-ALIGNED, so a 12-bit Uranus-C spans 0..65520 in steps of 16 and the native
+                // reading is 16x too small; measured over the archive 2026-09-23, and SharpCap's
+                // own Uranus-C captures carry the same quantum, so it is the SDK's doing rather
+                // than any one consumer's. ICMOSNativeInterface.DeliversContainerScaledPixels is
+                // the SDK saying which it is, defaulting to native so a binding that has not been
+                // taught it behaves as before.
+                //
+                // (N.I.N.A.'s FITS files from the same cameras span [0, 65532] only because
+                // N.I.N.A. multiplies on recording; do not infer the SDK's delivered scale from
+                // N.I.N.A. files -- for those, the container full-scale
+                // BitDepthEx.UnsignedFullScale is the right divisor, see the dataset builder.)
+                // Bits <= 16 also guards the (int) cast against a nonsense >16-bit ADC report.
+                16 => _deviceInfo.DeliversContainerScaledPixels
+                    ? ushort.MaxValue
+                    : AdcDepth is { Bits: <= 16 } adcDepth ? (int)adcDepth.FullScaleAdu : ushort.MaxValue,
+                _ => int.MinValue
+            };
         }
+        return int.MinValue;
     }
 
     public double ElectronsPerADU { get; private set; } = double.NaN;

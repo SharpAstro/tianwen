@@ -49,7 +49,7 @@ internal sealed class NodePlanetary(IDeviceHub hub, NodeJobs jobs, IHostedSessio
 
         var run = new NodePlanetaryRun(frames, timeProvider, logger);
         var capture = new PlanetaryCaptureRequest(request.OtaIndex, TimeSpan.FromMilliseconds(request.ExposureMs), request.Gain,
-            request.RoiWidth, request.RoiHeight);
+            request.RoiWidth, request.RoiHeight, request.BitDepth, request.HighSpeed);
         if (!run.TryPrepare(capture, data, hub, out var refusal))
         {
             await run.DisposeAsync();
@@ -226,6 +226,7 @@ internal sealed class NodePlanetaryRun : INodeRun
                 FramesReceived = Capture.FramesReceived,
                 DroppedFrames = Capture.DroppedFrames,
                 FramesPerSecond = JsonNumber.OrNull(Capture.MeasuredFps),
+                BitDepth = Capture.FrameBitDepth,
                 Masters = Volatile.Read(ref _masters),
                 StackedFrames = Volatile.Read(ref _stackedFrames),
                 OffsetX = JsonNumber.OrNull(offsetX),
@@ -276,6 +277,14 @@ internal sealed class NodePlanetaryRun : INodeRun
         if (controls.Recenter is { } recenter)
         {
             Configure(recenter);
+        }
+        if (controls.BitDepth is { } bitDepth)
+        {
+            Capture.SetBitDepth(bitDepth);
+        }
+        if (controls.HighSpeed is { } highSpeed)
+        {
+            Capture.SetHighSpeed(highSpeed);
         }
     }
 
