@@ -289,74 +289,29 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// Session-driven user prompt overlay ("switch on the panel, then Continue"). A centred card with
-        /// the title, message, and clickable [Continue] / [Cancel] buttons; Enter = Continue, Escape =
-        /// Cancel (handled in <c>.Input</c>). Rendered whenever <see cref="LiveSessionState.PendingPrompt"/>
-        /// is non-null, in any mode, so a future dark-frame cover-close prompt reuses it unchanged.
+        /// Session-driven user prompt overlay ("switch on the panel, then Continue"): a centred card with the
+        /// title, message, and clickable [Continue] / [Cancel] buttons; Enter = Continue, Escape = Cancel (handled in
+        /// <c>.Input</c>). Rendered whenever <see cref="LiveSessionState.PendingPrompt"/> is non-null, in any mode, so a
+        /// future dark-frame cover-close prompt reuses it unchanged.
         /// </summary>
-        private void RenderSessionPrompt(RectF32 contentRect, SessionPromptEventArgs prompt,
-            float fontSize)
+        private void RenderSessionPrompt(RectF32 contentRect, SessionPromptEventArgs prompt)
         {
-            var fontPath = FontPath;
-            var dpiScale = DpiScale;
-            var pad = BasePadding * dpiScale;
-            var rowH = BaseRowHeight * dpiScale;
-            var cardW = MathF.Min(contentRect.Width * 0.7f, 520f * dpiScale);
-
-            // A prompt that gates a PHYSICAL act ("switch the panel on", "cap the scope") gets an extra
-            // warning row and loses its neutral green Continue. Answering one asserts that somebody did
-            // something at the rig -- if nobody did, the session proceeds on a false premise, and for
-            // flats it only survives because the exposure solver fails the metering. A dark-frame prompt
-            // would have no such backstop. So the UI must not present Continue as the obvious default.
+            // A prompt that gates a PHYSICAL act ("switch the panel on", "cap the scope") gets an extra warning row
+            // and loses its neutral green Continue. Answering one asserts that somebody did something at the rig --
+            // if nobody did, the session proceeds on a false premise, and for flats it only survives because the
+            // exposure solver fails the metering. A dark-frame prompt would have no such backstop. So the UI must not
+            // present Continue as the obvious default: amber, not green, since green reads as "the safe, expected
+            // choice", exactly the wrong signal for a claim the person clicking may not be in a position to make.
             var warning = PhysicalPresenceWarning(prompt);
-            var cardH = rowH * (warning is null ? 5f : 6.2f) + pad * 2f;
-            var cardX = contentRect.X + (contentRect.Width - cardW) / 2f;
-            var cardY = contentRect.Y + (contentRect.Height - cardH) / 2f;
+            var continueBg = warning is null ? GuiTheme.GoButtonBg : GuiTheme.Palette.Warn;
 
-            // Dim backdrop + card (layout-DSL nodes, not hand-drawn FillRects).
-            RenderLayout(Layout.Builder.Spacer().Bg(new RGBAColor32(0x00, 0x00, 0x00, 0xaa)), contentRect);
-            RenderLayout(Layout.Builder.Spacer().Bg(PanelBg), new RectF32(cardX, cardY, cardW, cardH));
-            RenderLayout(Layout.Builder.Spacer().Bg(StatusSlewing), new RectF32(cardX, cardY, cardW, 2f)); // accent bar
-
-            var innerX = cardX + pad;
-            var innerW = cardW - pad * 2f;
-
-            DrawText(prompt.Title, fontPath,
-                innerX, cardY + pad, innerW, rowH,
-                fontSize * 1.1f, BrightText, TextAlign.Near, TextAlign.Center);
-
-            DrawText(prompt.Message, fontPath,
-                innerX, cardY + pad + rowH, innerW, rowH * 2.4f,
-                fontSize, BodyText, TextAlign.Near, TextAlign.Near);
-
-            if (warning is not null)
-            {
-                DrawText(warning, fontPath,
-                    innerX, cardY + pad + rowH * 3.4f, innerW, rowH * 1.6f,
-                    fontSize * 0.92f, StatusSlewing, TextAlign.Near, TextAlign.Near);
-            }
-
-            // Buttons: [Cancel] left, [Continue] right (primary in the muscle-memory spot). One HStack of
-            // two equal Star cells (was two RenderButton calls placed by hand); device-px -> DesignScale.One.
-            //
-            // Continue is amber rather than green when the prompt gates a physical act: green reads as
-            // "the safe, expected choice", which is exactly the wrong signal for a claim the person
-            // clicking may not be in a position to make.
-            var continueBg = warning is null
-                ? GuiTheme.GoButtonBg
-                : GuiTheme.Palette.Warn;
-
-            var btnH = rowH * 1.3f;
-            var btnY = cardY + cardH - btnH - pad;
-            var btnRow = Layout.Builder.HStack(
-                    Layout.Builder.Text(prompt.CancelLabel, fontSize, BodyText, TextAlign.Center, TextAlign.Center)
-                        .WStar().HStar().Bg(GuiTheme.NeutralButtonBg).BgHover(GuiTheme.Hover(GuiTheme.NeutralButtonBg))
-                        .Clickable(new HitResult.ButtonHit("SessionPromptCancel"), _ => PostSignal(new RespondSessionPromptSignal(false))),
-                    Layout.Builder.Text(prompt.ContinueLabel, fontSize, BrightText, TextAlign.Center, TextAlign.Center)
-                        .WStar().HStar().Bg(continueBg).BgHover(GuiTheme.Hover(continueBg))
-                        .Clickable(new HitResult.ButtonHit("SessionPromptContinue"), _ => PostSignal(new RespondSessionPromptSignal(true))))
-                .WithGap(pad);
-            RenderLayout(btnRow, new RectF32(innerX, btnY, innerW, btnH), scale: DesignScale.One);
+            // [Cancel] left, [Continue] right (primary in the muscle-memory spot).
+            RenderQuestionCard(contentRect, "SessionPromptBackdrop", prompt.Title, prompt.Message,
+                warning is null ? null : (warning, StatusSlewing),
+                QuestionButton(prompt.CancelLabel, GuiTheme.NeutralButtonBg, BodyText, "SessionPromptCancel",
+                    () => PostSignal(new RespondSessionPromptSignal(false))),
+                QuestionButton(prompt.ContinueLabel, continueBg, BrightText, "SessionPromptContinue",
+                    () => PostSignal(new RespondSessionPromptSignal(true))));
         }
 
         /// <summary>
@@ -364,44 +319,14 @@ namespace TianWen.UI.Abstractions
         /// and its two choices, the default on the right in the muscle-memory spot. Enter takes the default, its letter the
         /// other and Escape stays (handled in <c>.Input</c>). Stopping the rig is amber, since it ends a night.
         /// </summary>
-        private void RenderQuitDialog(RectF32 contentRect, QuitDialog dialog, float fontSize)
+        private void RenderQuitDialog(RectF32 contentRect, QuitDialog dialog)
         {
-            var fontPath = FontPath;
-            var dpiScale = DpiScale;
-            var pad = BasePadding * dpiScale;
-            var rowH = BaseRowHeight * dpiScale;
-            var cardW = MathF.Min(contentRect.Width * 0.7f, 560f * dpiScale);
-            var cardH = rowH * 6f + pad * 2f;
-            var cardX = contentRect.X + (contentRect.Width - cardW) / 2f;
-            var cardY = contentRect.Y + (contentRect.Height - cardH) / 2f;
-
-            // The backdrop takes a press itself, so nothing under the question (an ABORT, a jog) is pressed through it.
-            RenderLayout(Layout.Builder.Spacer().Bg(new RGBAColor32(0x00, 0x00, 0x00, 0xaa))
-                .Clickable(new HitResult.ButtonHit("QuitBackdrop"), _ => { }, CursorKind.Default), contentRect);
-            RenderLayout(Layout.Builder.Spacer().Bg(PanelBg), new RectF32(cardX, cardY, cardW, cardH));
-            RenderLayout(Layout.Builder.Spacer().Bg(StatusSlewing), new RectF32(cardX, cardY, cardW, 2f)); // accent bar
-
-            var innerX = cardX + pad;
-            var innerW = cardW - pad * 2f;
-            DrawText(dialog.Title, fontPath, innerX, cardY + pad, innerW, rowH,
-                fontSize * 1.1f, BrightText, TextAlign.Near, TextAlign.Center);
-            DrawText(dialog.Message, fontPath, innerX, cardY + pad + rowH, innerW, rowH * 2.4f,
-                fontSize, BodyText, TextAlign.Near, TextAlign.Near);
-            DrawText(dialog.KeyHint, fontPath, innerX, cardY + pad + rowH * 3.4f, innerW, rowH,
-                fontSize * 0.92f, BodyText, TextAlign.Near, TextAlign.Center);
-
             var otherBg = dialog.Other is QuitAction.StopTheRig ? GuiTheme.Palette.Warn : GuiTheme.NeutralButtonBg;
-            var btnH = rowH * 1.3f;
-            var btnY = cardY + cardH - btnH - pad;
-            var btnRow = Layout.Builder.HStack(
-                    Layout.Builder.Text(QuitDialog.LabelOf(dialog.Other), fontSize, BrightText, TextAlign.Center, TextAlign.Center)
-                        .WStar().HStar().Bg(otherBg).BgHover(GuiTheme.Hover(otherBg))
-                        .Clickable(new HitResult.ButtonHit("QuitOther"), _ => PostSignal(new AnswerQuitSignal(dialog.Other))),
-                    Layout.Builder.Text(QuitDialog.LabelOf(dialog.Default), fontSize, BrightText, TextAlign.Center, TextAlign.Center)
-                        .WStar().HStar().Bg(GuiTheme.GoButtonBg).BgHover(GuiTheme.Hover(GuiTheme.GoButtonBg))
-                        .Clickable(new HitResult.ButtonHit("QuitDefault"), _ => PostSignal(new AnswerQuitSignal(dialog.Default))))
-                .WithGap(pad);
-            RenderLayout(btnRow, new RectF32(innerX, btnY, innerW, btnH), scale: DesignScale.One);
+            RenderQuestionCard(contentRect, "QuitBackdrop", dialog.Title, dialog.Message, (dialog.KeyHint, BodyText),
+                QuestionButton(QuitDialog.LabelOf(dialog.Other), otherBg, BrightText, "QuitOther",
+                    () => PostSignal(new AnswerQuitSignal(dialog.Other))),
+                QuestionButton(QuitDialog.LabelOf(dialog.Default), GuiTheme.GoButtonBg, BrightText, "QuitDefault",
+                    () => PostSignal(new AnswerQuitSignal(dialog.Default))));
         }
 
         /// <summary>
@@ -409,45 +334,59 @@ namespace TianWen.UI.Abstractions
         /// everything but the quit's question, Decline the default on the right, Allow amber on the left, since it hands
         /// the rig to another computer. Enter declines, A allows and Escape answers later (handled in <c>.Input</c>).
         /// </summary>
-        private void RenderControlRequest(RectF32 contentRect, PendingControlRequestDto request, float fontSize)
+        private void RenderControlRequest(RectF32 contentRect, PendingControlRequestDto request)
         {
-            var fontPath = FontPath;
-            var dpiScale = DpiScale;
-            var pad = BasePadding * dpiScale;
-            var rowH = BaseRowHeight * dpiScale;
-            var cardW = MathF.Min(contentRect.Width * 0.7f, 560f * dpiScale);
-            var cardH = rowH * 6f + pad * 2f;
-            var cardX = contentRect.X + (contentRect.Width - cardW) / 2f;
-            var cardY = contentRect.Y + (contentRect.Height - cardH) / 2f;
-
-            // The backdrop takes a press itself, so nothing under the question is pressed through it.
-            RenderLayout(Layout.Builder.Spacer().Bg(new RGBAColor32(0x00, 0x00, 0x00, 0xaa))
-                .Clickable(new HitResult.ButtonHit("ControlRequestBackdrop"), _ => { }, CursorKind.Default), contentRect);
-            RenderLayout(Layout.Builder.Spacer().Bg(PanelBg), new RectF32(cardX, cardY, cardW, cardH));
-            RenderLayout(Layout.Builder.Spacer().Bg(StatusSlewing), new RectF32(cardX, cardY, cardW, 2f)); // accent bar
-
-            var innerX = cardX + pad;
-            var innerW = cardW - pad * 2f;
-            DrawText(ControlRequestQuestion.Title, fontPath, innerX, cardY + pad, innerW, rowH,
-                fontSize * 1.1f, BrightText, TextAlign.Near, TextAlign.Center);
-            DrawText(ControlRequestQuestion.Message(request), fontPath, innerX, cardY + pad + rowH, innerW, rowH * 2.4f,
-                fontSize, BodyText, TextAlign.Near, TextAlign.Near);
-            DrawText(ControlRequestQuestion.KeyHint, fontPath, innerX, cardY + pad + rowH * 3.4f, innerW, rowH,
-                fontSize * 0.92f, BodyText, TextAlign.Near, TextAlign.Center);
-
-            var allowBg = GuiTheme.Palette.Warn;
-            var btnH = rowH * 1.3f;
-            var btnY = cardY + cardH - btnH - pad;
-            var btnRow = Layout.Builder.HStack(
-                    Layout.Builder.Text("Allow", fontSize, BrightText, TextAlign.Center, TextAlign.Center)
-                        .WStar().HStar().Bg(allowBg).BgHover(GuiTheme.Hover(allowBg))
-                        .Clickable(new HitResult.ButtonHit("ControlRequestAllow"), _ => PostSignal(new AnswerControlRequestSignal(request.Id, Allow: true))),
-                    Layout.Builder.Text("Decline", fontSize, BrightText, TextAlign.Center, TextAlign.Center)
-                        .WStar().HStar().Bg(GuiTheme.NeutralButtonBg).BgHover(GuiTheme.Hover(GuiTheme.NeutralButtonBg))
-                        .Clickable(new HitResult.ButtonHit("ControlRequestDecline"), _ => PostSignal(new AnswerControlRequestSignal(request.Id, Allow: false))))
-                .WithGap(pad);
-            RenderLayout(btnRow, new RectF32(innerX, btnY, innerW, btnH), scale: DesignScale.One);
+            RenderQuestionCard(contentRect, "ControlRequestBackdrop", ControlRequestQuestion.Title,
+                ControlRequestQuestion.Message(request), (ControlRequestQuestion.KeyHint, BodyText),
+                QuestionButton("Allow", GuiTheme.Palette.Warn, BrightText, "ControlRequestAllow",
+                    () => PostSignal(new AnswerControlRequestSignal(request.Id, Allow: true))),
+                QuestionButton("Decline", GuiTheme.NeutralButtonBg, BrightText, "ControlRequestDecline",
+                    () => PostSignal(new AnswerControlRequestSignal(request.Id, Allow: false))));
         }
+
+        /// <summary>
+        /// One question over everything (a session's prompt, a request for control, the quit's), as ONE layout tree: a
+        /// dimmed backdrop that takes a press itself, so nothing under the question is pressed through it, and a card
+        /// centred on it holding the title, the message, an optional note and the two answers.
+        /// </summary>
+        /// <remarks>
+        /// The card is as wide as the engine MEASURES its widest line, never a width stated here. The three cards used to
+        /// be placed by hand at a fixed 520 or 560 units with each line drawn into that box, and a line does not wrap, so
+        /// the quit's message ran out of its card (found live, 2026-09-28). A line wider than the whole tab is trimmed by
+        /// the engine rather than drawn past the edge.
+        /// </remarks>
+        private void RenderQuestionCard(RectF32 contentRect, string backdropHit, string title, string message,
+            (string Text, RGBAColor32 Color)? note, Layout.Node left, Layout.Node right)
+        {
+            RenderLayout(Layout.Builder.Spacer().Bg(new RGBAColor32(0x00, 0x00, 0x00, 0xaa))
+                .Clickable(new HitResult.ButtonHit(backdropHit), _ => { }, CursorKind.Default), contentRect);
+
+            var lines = new List<Layout.Node>
+            {
+                Layout.Builder.Text(title, BaseFontSize * 1.1f, BrightText).HFixed(BaseRowHeight),
+                Layout.Builder.Text(message, BaseFontSize, BodyText).HFixed(BaseRowHeight),
+            };
+            if (note is var (noteText, noteColor))
+            {
+                lines.Add(Layout.Builder.Text(noteText, BaseFontSize * 0.92f, noteColor).HFixed(BaseRowHeight));
+            }
+            lines.Add(Layout.Builder.Spacer().HFixed(BasePadding));
+            lines.Add(Layout.Builder.HStack(left, right).WithGap(BasePadding).RowH(BaseRowHeight * 1.3f));
+
+            var card = Layout.Builder.VStack(
+                    Layout.Builder.Spacer().RowH(2f).Bg(StatusSlewing), // accent bar
+                    Layout.Builder.VStack([.. lines]).Pad(BasePadding))
+                .Bg(PanelBg);
+
+            RenderLayout(Layout.Builder.VStack(Layout.Builder.Spacer().HStar(), card, Layout.Builder.Spacer().HStar())
+                .CrossCenter(), contentRect);
+        }
+
+        /// <summary>One answer on a question's card: half the card's width, lit on hover, and a press that answers.</summary>
+        private static Layout.Node QuestionButton(string label, RGBAColor32 bg, RGBAColor32 ink, string hit, Action answer)
+            => Layout.Builder.Text(label, BaseFontSize, ink, TextAlign.Center, TextAlign.Center)
+                .WStar().HStar().Bg(bg).BgHover(GuiTheme.Hover(bg))
+                .Clickable(new HitResult.ButtonHit(hit), _ => answer());
 
         /// <summary>
         /// The caution line for a prompt that gates a physical act, or null when none is needed.

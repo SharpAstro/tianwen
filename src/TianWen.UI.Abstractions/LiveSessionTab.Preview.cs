@@ -223,7 +223,11 @@ namespace TianWen.UI.Abstractions
             if (!double.IsNaN(tel.CcdTempC))
             {
                 var tempColor = CameraTempColors[i % CameraTempColors.Length];
-                var tempText = $"{tel.CcdTempC:F0}\u00b0C  {tel.CoolerPowerPct:F0}%";
+                // An uncooled camera (an ASI462MC) reports no cooler power, which reads back as NaN: say nothing
+                // rather than "NaN%", as the TUI row does.
+                var tempText = double.IsNaN(tel.CoolerPowerPct)
+                    ? $"{tel.CcdTempC:F0}\u00b0C"
+                    : $"{tel.CcdTempC:F0}\u00b0C  {tel.CoolerPowerPct:F0}%";
                 if (!double.IsNaN(tel.SetpointC))
                 {
                     tempText += $"  \u2192 {tel.SetpointC:F0}\u00b0C";

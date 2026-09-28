@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Threading.Tasks;
 using DIR.Lib;
@@ -23,8 +24,22 @@ namespace TianWen.UI.Abstractions
     /// Add a new concern as a new partial; don't grow this file back into a monolith.
     /// </para>
     /// </summary>
-    public partial class LiveSessionTab<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer)
+    public partial class LiveSessionTab<TSurface>(Renderer<TSurface> renderer) : CompositeWidget<TSurface>(renderer)
     {
+        /// <summary>
+        /// The widgets this tab painted this frame, rebuilt as it paints: the planetary view in
+        /// <see cref="LiveSessionMode.Planetary"/>, else none. The view registers its controls on itself, so a router
+        /// asking only this tab missed every one of them: Start did nothing and a button lit only when some other
+        /// change drew a frame (found in the ZWO live check, 2026-09-28). The tab's own regions are asked first, which
+        /// is right because everything it paints over the view (the mode menu, a prompt, the quit's question) is its
+        /// own. The chromeless <see cref="PreviewView"/> is not listed: it registers no control, and the tab draws its
+        /// toolbar and takes its gestures itself.
+        /// </summary>
+        private readonly List<PixelWidgetBase<TSurface>> _children = [];
+
+        /// <inheritdoc/>
+        protected override IReadOnlyList<PixelWidgetBase<TSurface>> Children => _children;
+
         /// <summary>The live session state for keyboard handling. Set during Render.</summary>
         public LiveSessionState? State { get; set; }
 
@@ -60,7 +75,7 @@ namespace TianWen.UI.Abstractions
         };
 
         /// <summary>Full planetary capture view (viewer + control strip), shown in <see cref="LiveSessionMode.Planetary"/>. Set by the host.</summary>
-        public IPlanetaryViewWidget? PlanetaryView { get; set; }
+        public IPlanetaryViewWidget<TSurface>? PlanetaryView { get; set; }
 
         /// <summary>The live planetary capture controller driving <see cref="LiveSessionMode.Planetary"/>. Set by the host (DI singleton).</summary>
         public PlanetaryCaptureController? PlanetaryCapture { get; set; }
@@ -161,6 +176,7 @@ namespace TianWen.UI.Abstractions
         {
             State = state;
             BeginFrame();
+            _children.Clear();
 
             var fontPath = FontPath;
             var dpiScale = DpiScale;
@@ -195,6 +211,7 @@ namespace TianWen.UI.Abstractions
                         ? state.PreviewOTATelemetry[0]
                         : PreviewOTATelemetry.Unknown;
                     planetaryView.RenderPlanetary(PlanetaryCapture, focuser, planetaryRect);
+                    _children.Add(planetaryView.Widget);
                 }
                 else
                 {
@@ -213,15 +230,15 @@ namespace TianWen.UI.Abstractions
                 // path doesn't swallow it (future dark-frame flows).
                 if (state.PendingPrompt is { } planetaryPrompt)
                 {
-                    RenderSessionPrompt(contentRect, planetaryPrompt, fs);
+                    RenderSessionPrompt(contentRect, planetaryPrompt);
                 }
                 if (state.ControlRequest is { } planetaryRequest)
                 {
-                    RenderControlRequest(contentRect, planetaryRequest, fs);
+                    RenderControlRequest(contentRect, planetaryRequest);
                 }
                 if (state.QuitDialog is { } planetaryQuit)
                 {
-                    RenderQuitDialog(contentRect, planetaryQuit, fs);
+                    RenderQuitDialog(contentRect, planetaryQuit);
                 }
                 return;
             }
@@ -396,19 +413,19 @@ namespace TianWen.UI.Abstractions
             // buttons win paint-order hit testing over everything below.
             if (state.PendingPrompt is { } pendingPrompt)
             {
-                RenderSessionPrompt(contentRect, pendingPrompt, fs);
+                RenderSessionPrompt(contentRect, pendingPrompt);
             }
 
             // A request for control of this computer's rig is the app's too (P6b): over a run's prompt, under the quit's.
             if (state.ControlRequest is { } controlRequest)
             {
-                RenderControlRequest(contentRect, controlRequest, fs);
+                RenderControlRequest(contentRect, controlRequest);
             }
 
             // The quit's question is the app's, not the run's: over everything, a prompt included.
             if (state.QuitDialog is { } quit)
             {
-                RenderQuitDialog(contentRect, quit, fs);
+                RenderQuitDialog(contentRect, quit);
             }
         }
 

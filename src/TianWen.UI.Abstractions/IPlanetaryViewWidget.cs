@@ -7,16 +7,20 @@ namespace TianWen.UI.Abstractions
     /// inside the renderer-agnostic <c>LiveSessionTab</c>, the same way the chromeless preview viewer
     /// (<see cref="ImageRendererBase{TSurface}"/>) is injected for the preview/polar modes. In
     /// <see cref="LiveSessionMode.Planetary"/> the Live Session screen renders this instead of the preview
-    /// viewer and forwards mouse input to it.
+    /// viewer.
     /// <para>
-    /// The Vulkan implementation (<c>VkPlanetaryTab</c>) is the full <c>VkImageRenderer</c> + capture strip;
-    /// it does its own position-aware hit dispatch (toolbar / wavelet + WB sliders / Start-Stop), so the host
-    /// forwards raw mouse events to <see cref="DIR.Lib.IWidget.HandleInput"/> rather than going through the
-    /// host's per-region OnClick path.
+    /// The Vulkan implementation (<c>VkPlanetaryTab</c>) is the full <c>VkImageRenderer</c> + capture strip, and
+    /// its controls (the toolbar, the sliders, Start/Stop, the steppers) are regions it registers on ITSELF. The
+    /// window's router reaches them only through a composite that lists the view as a child, which is why the view
+    /// is handed over as a <see cref="Widget"/>: the Live Session tab lists it (see its <c>Children</c>), and only a
+    /// press no region claimed is forwarded to the view's own <see cref="IWidget.HandleInput"/> (a pan, the PiP drag).
     /// </para>
     /// </summary>
-    public interface IPlanetaryViewWidget
+    public interface IPlanetaryViewWidget<TSurface>
     {
+        /// <summary>The view as the widget it is, so the tab hosting it can list it as a child.</summary>
+        PixelWidgetBase<TSurface> Widget { get; }
+
         /// <summary>
         /// Renders the planetary capture view (left control panel + the shared image viewer) into
         /// <paramref name="contentRect"/>. The <see cref="ViewerState"/> is taken from
@@ -29,8 +33,5 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         void RenderPlanetary(PlanetaryCaptureController? controller, PreviewOTATelemetry focuser,
             RectF32 contentRect);
-
-        /// <summary>Forwards a raw input event to the view's own hit dispatch (toolbar / sliders / strip).</summary>
-        bool HandleInput(InputEvent evt);
     }
 }
