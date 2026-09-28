@@ -326,7 +326,10 @@ namespace TianWen.UI.Abstractions
         public static string BrightnessLine(in SkyMapInfoPanelData info)
         {
             var magPart = float.IsNaN(info.VMag) ? "mag -" : $"mag {info.VMag:F2}";
-            var sbPart = float.IsNaN(info.SurfaceBrightness) ? "" : $"   SB {info.SurfaceBrightness:F2}";
+            // One decimal: the catalogue keeps surface brightness as a Half, whose step between 16 and 32 is
+            // 1/64, so a second decimal is noise (OpenNGC's 23.60 read back as 23.59, 35 percent of its values
+            // printed wrong that way). A tenth of a magnitude per square arcsecond is all a planner needs.
+            var sbPart = float.IsNaN(info.SurfaceBrightness) ? "" : $"   SB {info.SurfaceBrightness:F1}";
             var bvPart = float.IsNaN(info.BMinusV) ? "" : $"   B-V {info.BMinusV:F2}";
             var sizePart = info.AngularSizeDeg is { } s ? $"   size {s * 60:F1}'" : "";
 

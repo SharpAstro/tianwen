@@ -80,9 +80,26 @@ namespace TianWen.Lib.Tests
             var line = ObjectInfoPanel.BrightnessLine(Galaxy());
 
             line.ShouldContain("mag 8.40");
-            line.ShouldContain("SB 22.10");
+            line.ShouldContain("SB 22.1");
             line.ShouldContain("B-V 0.60");
             line.ShouldContain("size 11.2'");
+        }
+
+        /// <summary>
+        /// Surface brightness is shown to the precision the catalogue keeps it at. It is stored as a Half,
+        /// which steps in 1/64 between 16 and 32, so OpenNGC's 23.60 read back as 23.59375 and was printed
+        /// "SB 23.59" (reported 2026-09-28 on IC 5247); a tenth is what the stored value can carry.
+        /// </summary>
+        [Fact]
+        public void SurfaceBrightnessIsShownToOneDecimal()
+        {
+            var stored = (float)(Half)23.60f;
+            stored.ShouldNotBe(23.60f, "the fixture needs a value the Half cannot hold exactly");
+
+            var line = ObjectInfoPanel.BrightnessLine(Galaxy() with { SurfaceBrightness = stored });
+
+            line.ShouldContain("SB 23.6");
+            line.ShouldNotContain("23.59");
         }
 
         /// <summary>
