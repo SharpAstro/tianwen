@@ -48,16 +48,21 @@ public static class EquipmentActions
     /// <list type="bullet">
     ///   <item>hidden when the profile has no assigned devices;</item>
     ///   <item>enabled only once discovery has <b>finished</b> (<paramref name="isDiscovering"/> is
-    ///   false), every assigned URI is resolvable (hub-connected, hub-known, or freshly discovered),
-    ///   at least one assigned URI is not yet connected, and no connect/disconnect transition is in
-    ///   flight;</item>
+    ///   false), every assigned URI is one the node can reach (it holds it, or <paramref name="reachable"/>, its listing
+    ///   at the last discovery, has it), at least one assigned URI is not yet connected, and no connect/disconnect
+    ///   transition is in flight;</item>
     ///   <item>otherwise shown disabled with a status label ("Discovering...", "All Connected",
     ///   "Connecting...", "Discover first").</item>
     /// </list>
     /// </summary>
+    /// <remarks>
+    /// Reachable is the NODE's listing, never the Equipment tab's list. The tab leaves the fake devices out unless asked
+    /// (Shift+Discover), which is a choice of what to SHOW; asked of the tab's list, a profile of fake devices read "Discover
+    /// first" after every plain Discover, while the node listed each of them (found in the ZWO live check, 2026-09-28).
+    /// </remarks>
     public static ConnectAllStatus ComputeConnectAllStatus(
         ProfileData pd, NodeConnection? node,
-        IReadOnlyList<DeviceBase> discoveredDevices,
+        ImmutableArray<NodeDevice> reachable,
         IReadOnlyDictionary<Uri, byte> pendingTransitions,
         bool isDiscovering)
     {
@@ -74,7 +79,7 @@ public static class EquipmentActions
 
             var resolvable = node?.Device(u) is not null
                 || connected
-                || discoveredDevices.Any(d => DeviceBase.SameDevice(d.DeviceUri, u));
+                || reachable.Any(d => DeviceBase.SameDevice(d.DeviceUri, u));
             if (!resolvable) allDiscoverable = false;
         }
 
