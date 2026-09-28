@@ -205,6 +205,9 @@ namespace TianWen.UI.Abstractions
     /// nothing.</param>
     /// <param name="MountLimit">The mount safety-limit verdict when the rig is inside one (warning, acted,
     /// or a driver-enforced stop); null when clear or unknown. See <see cref="HomeBoard.LimitOf"/>.</param>
+    /// <param name="BindingId">The rig's binding, or null for this computer's card: what the card's Sharing actions
+    /// name, so a signal reaches the rig the card is of.</param>
+    /// <param name="Sharing">Who may command the rig (P6b), or null for a rig with no connection this run.</param>
     public readonly record struct RigCard(
         string Title,
         string? Subtitle,
@@ -223,7 +226,9 @@ namespace TianWen.UI.Abstractions
         double? MedianHfd = null,
         DateTimeOffset? MeridianFlipUtc = null,
         RigCardNote? LastNote = null,
-        MountLimitVerdict? MountLimit = null)
+        MountLimitVerdict? MountLimit = null,
+        Guid? BindingId = null,
+        RigSharing? Sharing = null)
     {
         /// <summary>
         /// How long until the flip, against <paramref name="now"/>, or <see langword="null"/> when no flip is
@@ -342,6 +347,7 @@ namespace TianWen.UI.Abstractions
                 Devices = LocalDeviceLink(appState),
                 IsViewed = isViewed,
                 LastNote = LocalNote(appState, now),
+                Sharing = appState.LocalNode is { } node ? RigSharing.Of(node) : null,
             };
 
         /// <summary>
@@ -360,7 +366,11 @@ namespace TianWen.UI.Abstractions
                 // the state when the node went idle, taking the "session ended" note off the card with it.
                 connection.Mirror.Notes is [.., var newest] ? newest : connection.Mirror.LastNotification,
                 now,
-                isViewed);
+                isViewed) with
+            {
+                BindingId = connection.Binding.BindingId,
+                Sharing = RigSharing.Of(connection),
+            };
 
         /// <summary>
         /// A rig's card from its run (<see cref="RunCard"/>) and whether its node is answering: what the rig is doing now
@@ -422,7 +432,8 @@ namespace TianWen.UI.Abstractions
                 GuideRmsArcsec: null,
                 Prompt: null,
                 Devices: null,
-                IsViewed: isViewed);
+                IsViewed: isViewed,
+                BindingId: binding.BindingId);
 
         /// <summary>
         /// This node's connected-device count, or null when the active profile assigns none (a fresh profile

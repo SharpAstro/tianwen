@@ -1414,7 +1414,14 @@ DTOs + `HostingJsonContext`) and `TianWen.RemoteClient` (`TianWenNodeClient`, `T
 - **Profile switching is gated** (`ProfileSwitchGate`) while connected/running or where drivers would
   strand in the hub.
 - **The Home tab** (`Ctrl+H`) is a read-only PROJECTION: `HomeBoard.BuildCards` draws only from the
-  `ImmutableArray<RigCard>` snapshot, never a live state.
+  `ImmutableArray<RigCard>` snapshot, never a live state. It commands no hardware; since P6b its cards say who may
+  command each rig (`RigSharing`), a rig this client watches offers Ask to control, and the rig on show has its
+  Sharing panel under the board, whose every action is an access signal naming the card's binding.
+- **Control of a rig is its connection's** (P6b, #1021): a token lives in the credential store by node id (`NodeGrants`),
+  never a binding file; `NodeConnection` reads `MayCommand` and `Access` at first contact, on `ACCESS-CHANGED` and every
+  30 s, and forgets a token the node no longer holds; `AskForControlAsync` polls its request alive and, granted, reopens
+  the event socket so the node counts it. A request to this computer's rig is put to whoever is at it over everything, as
+  the quit's question is (`ControlRequestQuestion`): Enter declines, A allows, Escape answers later.
 
 ### Colour Theme (`GuiTheme`, four states incl. Night)
 

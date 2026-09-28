@@ -11,7 +11,8 @@ namespace TianWen.UI.Abstractions
     /// <b>Read-only with respect to hardware.</b> A card click changes which rig you are LOOKING at, through
     /// the same two signals the profile picker posts, which is the same act as picking a rig there. It never
     /// connects local drivers, commands anything, or takes a device lease; driving a rig still means
-    /// selecting it and using its tabs, so this is not a second way to command hardware.
+    /// selecting it and using its tabs, so this is not a second way to command hardware. What it does change
+    /// is who may (P6b): a card's Ask to control and the Sharing panel of the rig on show post access signals.
     /// </para>
     /// <para>
     /// The whole screen is <see cref="HomeBoardLayout"/>'s single tree, rendered in ONE pass rooted at the
@@ -46,7 +47,8 @@ namespace TianWen.UI.Abstractions
                     contentRect.Width / scale, now, contentRect.Height / scale,
                     appState.HomeBoardView, card => SelectAction(card, open: false), SelectViewAction,
                     GuiTheme.State, CycleThemeAction,
-                    onOpen: card => SelectAction(card, open: true)),
+                    onOpen: card => SelectAction(card, open: true),
+                    bus: Bus),
                 contentRect);
         }
 

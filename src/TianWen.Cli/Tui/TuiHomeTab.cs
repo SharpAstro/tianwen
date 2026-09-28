@@ -60,7 +60,7 @@ internal sealed class TuiHomeTab(
             Content.Width * PixelAuthoredCellWidth, timeProvider.GetUtcNow(),
             Content.Height * PixelAuthoredCellHeight,
             appState.HomeBoardView, SelectAction, SelectViewAction,
-            GuiTheme.State, CycleThemeAction);
+            GuiTheme.State, CycleThemeAction, bus: bus);
     }
 
     /// <summary>Design units per character cell, matching <see cref="CellMeasureContext.PixelAuthored"/>'s 8x16.</summary>

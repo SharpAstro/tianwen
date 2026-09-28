@@ -256,6 +256,15 @@ client present, since a run someone watches is watched.
 **What it does not stop: plain HTTP.** A token can be read off the wire and an address or a host name spoofed. It
 closes "anyone who can reach the port", not a hostile LAN, which is TLS's job. The wire version moved to 3.
 
+**The clients** (P6b part 3). A connection over TCP keeps its token in the credential store by the node's id
+(`NodeGrants`) and presents it from its first request; it reads whether it may command (`CallerMayCommand`) and, when it
+may, the Sharing panel's read, at first contact, on `ACCESS-CHANGED` and every 30 s, and forgets a token the node no
+longer holds. It asks with `AskForControlAsync`, which polls the request alive and, granted, keeps the token and reopens
+the event socket with it (`TianWenEventStream.Reconnect`). A view's runs and device actions go to the node on show
+through `CommandTargetOrSay`: this computer's, or a rig's once granted, never a rig only watched. A request to this
+computer's rig is drawn over its Live Session view, and the Home board shows who may command each rig, with the Sharing
+panel of the rig on show under it.
+
 Pinned by `NodeAccessTests` (the gate on each surface, asking and answering, a grant across a restart and revoked, the
 Alpaca and ninaAPI refusals, Allow and Always allow, the counts), `NodeShareTests` and `EventHubTests`.
 
