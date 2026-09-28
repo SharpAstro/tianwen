@@ -215,6 +215,10 @@ namespace TianWen.UI.Abstractions
                 {
                     RenderSessionPrompt(contentRect, planetaryPrompt, fs);
                 }
+                if (state.ControlRequest is { } planetaryRequest)
+                {
+                    RenderControlRequest(contentRect, planetaryRequest, fs);
+                }
                 if (state.QuitDialog is { } planetaryQuit)
                 {
                     RenderQuitDialog(contentRect, planetaryQuit, fs);
@@ -393,6 +397,12 @@ namespace TianWen.UI.Abstractions
             if (state.PendingPrompt is { } pendingPrompt)
             {
                 RenderSessionPrompt(contentRect, pendingPrompt, fs);
+            }
+
+            // A request for control of this computer's rig is the app's too (P6b): over a run's prompt, under the quit's.
+            if (state.ControlRequest is { } controlRequest)
+            {
+                RenderControlRequest(contentRect, controlRequest, fs);
             }
 
             // The quit's question is the app's, not the run's: over everything, a prompt included.

@@ -65,6 +65,9 @@ namespace TianWen.UI.Abstractions
                 }, onFinally: () => _appState.NeedsRedraw = true);
             });
 
+            // Answered later, from the Sharing panel: the question goes, and does not come back for this request.
+            bus.Subscribe<DismissControlRequestSignal>(_ => LocalLiveSession.ControlRequest = null);
+
             bus.Subscribe<RevokeGrantSignal>(sig => Manage(sig.BindingId, "RevokeGrant", "Revoked: it sees, and asks to command",
                 (client, ct) => client.RevokeGrantAsync(sig.GrantId, ct)));
 

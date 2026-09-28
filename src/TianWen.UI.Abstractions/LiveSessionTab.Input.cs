@@ -49,6 +49,20 @@ namespace TianWen.UI.Abstractions
                     PostSignal(new AnswerQuitSignal(quit.Other));
                     return true;
 
+                // A request for control of this computer's rig, under the quit's question: Enter declines (the default,
+                // so an Enter meant for something else hands the rig to nobody), A allows, Escape answers it later.
+                case InputEvent.KeyDown(InputKey.Enter, _) when state.QuitDialog is null && state.ControlRequest is { } request:
+                    PostSignal(new AnswerControlRequestSignal(request.Id, Allow: false));
+                    return true;
+
+                case InputEvent.KeyDown(ControlRequestQuestion.AllowKey, _) when state.QuitDialog is null && state.ControlRequest is { } request:
+                    PostSignal(new AnswerControlRequestSignal(request.Id, Allow: true));
+                    return true;
+
+                case InputEvent.KeyDown(InputKey.Escape, _) when state.QuitDialog is null && state.ControlRequest is not null:
+                    PostSignal(new DismissControlRequestSignal());
+                    return true;
+
                 // A session prompt is modal-ish: Enter = Continue, Escape = Cancel. Handled first so it
                 // wins over abort-confirm / mode shortcuts while open. Mouse clicks reach the [Continue] /
                 // [Cancel] buttons via their registered clickable regions.

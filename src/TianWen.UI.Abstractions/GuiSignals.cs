@@ -74,6 +74,12 @@ public readonly record struct CancelControlAskSignal(Guid? BindingId = null);
 /// </summary>
 public readonly record struct AnswerControlRequestSignal(string RequestId, bool Allow, Guid? BindingId = null);
 
+/// <summary>
+/// Put the request for control drawn over this computer's view away, to answer later (Escape): it waits in the Home card's
+/// Sharing panel while its asker still asks.
+/// </summary>
+public readonly record struct DismissControlRequestSignal;
+
 /// <summary>Revoke a grant: its holder is refused from its next command on, and sees.</summary>
 public readonly record struct RevokeGrantSignal(string GrantId, Guid? BindingId = null);
 

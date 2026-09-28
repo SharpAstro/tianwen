@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Threading.Tasks;
 using DIR.Lib;
+using TianWen.Hosting.Dto;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
@@ -399,6 +400,51 @@ namespace TianWen.UI.Abstractions
                     Layout.Builder.Text(QuitDialog.LabelOf(dialog.Default), fontSize, BrightText, TextAlign.Center, TextAlign.Center)
                         .WStar().HStar().Bg(GuiTheme.GoButtonBg).BgHover(GuiTheme.Hover(GuiTheme.GoButtonBg))
                         .Clickable(new HitResult.ButtonHit("QuitDefault"), _ => PostSignal(new AnswerQuitSignal(dialog.Default))))
+                .WithGap(pad);
+            RenderLayout(btnRow, new RectF32(innerX, btnY, innerW, btnH), scale: DesignScale.One);
+        }
+
+        /// <summary>
+        /// A request for control of this computer's rig (P6b, <see cref="ControlRequestQuestion"/>): a centred card over
+        /// everything but the quit's question, Decline the default on the right, Allow amber on the left, since it hands
+        /// the rig to another computer. Enter declines, A allows and Escape answers later (handled in <c>.Input</c>).
+        /// </summary>
+        private void RenderControlRequest(RectF32 contentRect, PendingControlRequestDto request, float fontSize)
+        {
+            var fontPath = FontPath;
+            var dpiScale = DpiScale;
+            var pad = BasePadding * dpiScale;
+            var rowH = BaseRowHeight * dpiScale;
+            var cardW = MathF.Min(contentRect.Width * 0.7f, 560f * dpiScale);
+            var cardH = rowH * 6f + pad * 2f;
+            var cardX = contentRect.X + (contentRect.Width - cardW) / 2f;
+            var cardY = contentRect.Y + (contentRect.Height - cardH) / 2f;
+
+            // The backdrop takes a press itself, so nothing under the question is pressed through it.
+            RenderLayout(Layout.Builder.Spacer().Bg(new RGBAColor32(0x00, 0x00, 0x00, 0xaa))
+                .Clickable(new HitResult.ButtonHit("ControlRequestBackdrop"), _ => { }, CursorKind.Default), contentRect);
+            RenderLayout(Layout.Builder.Spacer().Bg(PanelBg), new RectF32(cardX, cardY, cardW, cardH));
+            RenderLayout(Layout.Builder.Spacer().Bg(StatusSlewing), new RectF32(cardX, cardY, cardW, 2f)); // accent bar
+
+            var innerX = cardX + pad;
+            var innerW = cardW - pad * 2f;
+            DrawText(ControlRequestQuestion.Title, fontPath, innerX, cardY + pad, innerW, rowH,
+                fontSize * 1.1f, BrightText, TextAlign.Near, TextAlign.Center);
+            DrawText(ControlRequestQuestion.Message(request), fontPath, innerX, cardY + pad + rowH, innerW, rowH * 2.4f,
+                fontSize, BodyText, TextAlign.Near, TextAlign.Near);
+            DrawText(ControlRequestQuestion.KeyHint, fontPath, innerX, cardY + pad + rowH * 3.4f, innerW, rowH,
+                fontSize * 0.92f, BodyText, TextAlign.Near, TextAlign.Center);
+
+            var allowBg = GuiTheme.Palette.Warn;
+            var btnH = rowH * 1.3f;
+            var btnY = cardY + cardH - btnH - pad;
+            var btnRow = Layout.Builder.HStack(
+                    Layout.Builder.Text("Allow", fontSize, BrightText, TextAlign.Center, TextAlign.Center)
+                        .WStar().HStar().Bg(allowBg).BgHover(GuiTheme.Hover(allowBg))
+                        .Clickable(new HitResult.ButtonHit("ControlRequestAllow"), _ => PostSignal(new AnswerControlRequestSignal(request.Id, Allow: true))),
+                    Layout.Builder.Text("Decline", fontSize, BrightText, TextAlign.Center, TextAlign.Center)
+                        .WStar().HStar().Bg(GuiTheme.NeutralButtonBg).BgHover(GuiTheme.Hover(GuiTheme.NeutralButtonBg))
+                        .Clickable(new HitResult.ButtonHit("ControlRequestDecline"), _ => PostSignal(new AnswerControlRequestSignal(request.Id, Allow: false))))
                 .WithGap(pad);
             RenderLayout(btnRow, new RectF32(innerX, btnY, innerW, btnH), scale: DesignScale.One);
         }
