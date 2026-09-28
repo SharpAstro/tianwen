@@ -11,11 +11,16 @@
 #   4. score convmap_s0..3 as the product would condition it (no anchor) and under the oracle anchor, with convrf_s0..3
 #      and the shipped model, into ownplanes-score-{est,orc}-*.txt.
 #
-# Run DETACHED; read the status file, never the log. To stop between steps, create C:\temp\e2\ownplanes.stop.
+# Run DETACHED; read the status file, never the log. To stop between steps, create C:\temp\e2\<Tag>.stop.
 #   $s = (Resolve-Path .\run-ownplanes.ps1).Path
 #   Start-Process pwsh -ArgumentList '-NoProfile','-File',$s -WindowStyle Hidden
+# The per-channel re-bake ("the noise estimator anchors each channel on its own noise") is the same run on another
+# bake, into other caches and files:
+#   ... -ArgumentList '-NoProfile','-File',$s,'-Bake','D:/Astro-Dataset/2026-09-28-evalplanes-pc','-CacheSuffix','-rfpc','-Tag','perch'
 param(
     [string]$Bake = 'D:/Astro-Dataset/2026-09-28-evalplanes',
+    [string]$CacheSuffix = '-rfp',
+    [string]$Tag = 'ownplanes',
     [string]$Scratch = ($env:TIANWEN_SCRATCH ?? 'C:\temp\tianwen-scratch'),
     [string]$LogDir = 'C:\temp\e2',
     [string]$Tianwen = "$PSScriptRoot\..\..\src\TianWen.Cli\bin\Release\net10.0\tianwen.exe"
@@ -23,10 +28,10 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 
-$status = Join-Path $LogDir 'ownplanes.status'
-$log = Join-Path $LogDir 'ownplanes.log'
-$stopFile = Join-Path $LogDir 'ownplanes.stop'
-$PID | Out-File (Join-Path $LogDir 'ownplanes.pid') -Encoding ascii
+$status = Join-Path $LogDir "$Tag.status"
+$log = Join-Path $LogDir "$Tag.log"
+$stopFile = Join-Path $LogDir "$Tag.stop"
+$PID | Out-File (Join-Path $LogDir "$Tag.pid") -Encoding ascii
 function Set-Status([string]$what) { "running $(Get-Date -Format o): $what" | Out-File $status -Encoding utf8 }
 function Stop-Requested([string]$before) {
     if (Test-Path $stopFile) {
@@ -40,7 +45,7 @@ Set-Status 'starting'
 
 try {
     if (-not (Test-Path (Join-Path $Bake 'tiles-manifest.jsonl'))) { throw "no bake at $Bake" }
-    "ownplanes at $(git -C $PSScriptRoot rev-parse --short HEAD) on $Bake" | Tee-Object -FilePath $log -Append
+    "$Tag at $(git -C $PSScriptRoot rev-parse --short HEAD) on $Bake" | Tee-Object -FilePath $log -Append
     $caches = @(
         @{ Name = 'n2n-bb-eval4'; Train = 'arms\bb-eval-train-2.txt'; Val = 'arms\bb-eval-4.txt'; Cells = 60
            Fields = @('Small-Magellanic-Cloud/2026-08-01', 'Lagoon-and-Trifid/2023-08-03', 'Small-Magellanic-Cloud/2023-07-29', 'Carina-Wide/2025-03-19') },
@@ -51,29 +56,29 @@ try {
 
     # 1 and 2. Prepare, then compare with the -rf cache every earlier model was scored on.
     foreach ($c in $caches) {
-        $cache = Join-Path $Scratch "$($c.Name)-rfp"
+        $cache = Join-Path $Scratch "$($c.Name)$CacheSuffix"
         if (-not (Test-Path (Join-Path $cache 'meta.json'))) {
-            if (Stop-Requested "prepare $($c.Name)-rfp") { return }
-            Set-Status "prepare $($c.Name)-rfp"
+            if (Stop-Requested "prepare $($c.Name)$CacheSuffix") { return }
+            Set-Status "prepare $($c.Name)$CacheSuffix"
             & python n2n_smoke.py --prepare --root $Bake --cache $cache --train-from-list $c.Train `
                 --val-from-list $c.Val --cells-per-session 5 --val-cells-per-session $c.Cells *>> $log
-            if ($LASTEXITCODE -ne 0) { throw "prepare $($c.Name)-rfp failed (exit $LASTEXITCODE)" }
+            if ($LASTEXITCODE -ne 0) { throw "prepare $($c.Name)$CacheSuffix failed (exit $LASTEXITCODE)" }
         }
         $same = & python -c "import sys, numpy as np, n2n_smoke as S; a, ma = S.open_cache(sys.argv[1]); b, mb = S.open_cache(sys.argv[2]); k = ma['keys'] == mb['keys']; print(k, k and bool(np.array_equal(a[:, S.SLOT_HALF_A], b[:, S.SLOT_HALF_A])), mb.get('sigma_planes', 0))" `
             (Join-Path $Scratch "$($c.Name)-rf") $cache
-        "$($c.Name)-rfp against -rf: same cell keys, same half-A tiles, planes: $same" | Tee-Object -FilePath $log -Append
+        "$($c.Name)$CacheSuffix against -rf: same cell keys, same half-A tiles, planes: $same" | Tee-Object -FilePath $log -Append
     }
 
     # 3. The estimate against the truth, per field.
     $env:TIANWEN_CLI = (Resolve-Path $Tianwen).Path
     $env:TIANWEN_BAKES = $Bake
-    $env:TIANWEN_SOLVED_MASTERS = Join-Path $LogDir 'gaia\solved-2026-09-28-evalplanes'
+    $env:TIANWEN_SOLVED_MASTERS = Join-Path $LogDir "gaia\solved-$(Split-Path -Leaf $Bake)"
     foreach ($c in $caches) {
-        $out = Join-Path $LogDir "ownplanes-anchor-$($c.Name).txt"
+        $out = Join-Path $LogDir "$Tag-anchor-$($c.Name).txt"
         if (Test-Path $out) { continue }
         if (Stop-Requested "anchor $($c.Name)") { return }
         Set-Status "anchor $($c.Name)"
-        & python n2n_starsplit.py --cache (Join-Path $Scratch "$($c.Name)-rfp") --anchor-only *> $out
+        & python n2n_starsplit.py --cache (Join-Path $Scratch "$($c.Name)$CacheSuffix") --anchor-only *> $out
         if ($LASTEXITCODE -ne 0) { throw "anchor $($c.Name) failed (exit $LASTEXITCODE)" }
         Get-Content $out | Select-String 'plane truth anchor' | ForEach-Object { $_.Line } | Tee-Object -FilePath $log -Append
     }
@@ -90,11 +95,11 @@ try {
         $extra = @(if ($cond -eq 'orc') { '--plane-truth-anchor' })
         foreach ($c in $caches) {
             foreach ($f in $c.Fields) {
-                $out = Join-Path $LogDir "ownplanes-score-$cond-$($c.Name)-$($f -replace '[/\\ ]', '_').txt"
+                $out = Join-Path $LogDir "$Tag-score-$cond-$($c.Name)-$($f -replace '[/\\ ]', '_').txt"
                 if (Test-Path $out) { continue }
                 if (Stop-Requested "score $cond $f") { return }
                 Set-Status "score $cond $($c.Name) $f"
-                & python n2n_starsplit.py --cache (Join-Path $Scratch "$($c.Name)-rfp") --models @models --only $f --per-session @extra *> $out
+                & python n2n_starsplit.py --cache (Join-Path $Scratch "$($c.Name)$CacheSuffix") --models @models --only $f --per-session @extra *> $out
                 if ($LASTEXITCODE -ne 0) { $failed += "$cond $f (exit $LASTEXITCODE)" }
             }
         }
