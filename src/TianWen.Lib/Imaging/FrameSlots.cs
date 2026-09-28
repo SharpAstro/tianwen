@@ -45,8 +45,9 @@ internal static class FrameSlotLayout
 /// <summary>
 /// The node's side of a stream's shared-memory carrier (P4b): two slots, each behind a seqlock. A write makes the slot's
 /// generation odd, writes the frame, and makes it even again; nothing a client does can hold it up, so a dead or stalled
-/// client never blocks the node, which is the reason there is no acknowledgement. One writer per stream: the stream's
-/// own loop, which writes only when its client asks.
+/// client never blocks the node, which is the reason there is no acknowledgement. Not safe for two writers at once: a
+/// stream's own loop is the one writer of its section, and a source's frames served on request take a lock around it
+/// (the node's <c>NodeFrameSlots</c>).
 /// </summary>
 /// <remarks>
 /// The section is made on the first frame and made again, larger, for a frame that does not fit (a larger window, a
@@ -224,5 +225,62 @@ public sealed class FrameSlotReader : IDisposable
         _section?.Dispose();
         _section = section;
         return section;
+    }
+}
+
+/// <summary>
+/// A client's slot readers, one per frame source (P4b): the node keeps a section per source for the frames it serves on
+/// request (an OTA's, the guider's), so a reader per source keeps each one mapped from frame to frame instead of mapping
+/// it again for every fetch. Safe to call from several threads.
+/// </summary>
+public sealed class FrameSlotReaders : IDisposable
+{
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Source> _sources =
+        new System.Collections.Concurrent.ConcurrentDictionary<string, Source>(StringComparer.Ordinal);
+
+    /// <summary>Frames read out of a slot, every source together.</summary>
+    public int FramesRead => Volatile.Read(ref _framesRead);
+
+    private int _framesRead;
+
+    /// <summary>
+    /// The frame <paramref name="slot"/> names, from <paramref name="source"/>'s section, read through
+    /// <paramref name="reader"/>; null when its slot was written again before or while it was copied.
+    /// </summary>
+    public Image? TryRead(string source, FrameSlot slot, FrameReader reader)
+    {
+        var held = _sources.GetOrAdd(source, static _ => new Source());
+        // Two fetches of one source at once (a state poll's and a push's) must not swap its section under each other's
+        // copy, which would unmap memory being read. Not a CAS hand-off: the reader's section and its copy go together.
+        // Never on a render thread: a client fetches frames on its own tasks and hands the images on.
+        lock (held.Gate)
+        {
+            ObjectDisposedException.ThrowIf(held.Disposed, this);
+            if (held.Reader.TryRead(slot, reader) is not { } frame)
+            {
+                return null;
+            }
+            Interlocked.Increment(ref _framesRead);
+            return frame;
+        }
+    }
+
+    public void Dispose()
+    {
+        foreach (var source in _sources.Values)
+        {
+            lock (source.Gate)
+            {
+                source.Disposed = true;
+                source.Reader.Dispose();
+            }
+        }
+    }
+
+    private sealed class Source
+    {
+        public readonly Lock Gate = new Lock();
+        public readonly FrameSlotReader Reader = new FrameSlotReader();
+        public bool Disposed;
     }
 }

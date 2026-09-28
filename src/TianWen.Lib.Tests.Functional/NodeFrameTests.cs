@@ -19,7 +19,8 @@ namespace TianWen.Lib.Tests.Functional;
 /// <summary>
 /// Linear frames over the node's socket (P4 part 2 of docs/plans/hardware-in-the-server.md, #931): an OTA's frame and the
 /// guider's served bit for bit, nothing sent while the client holds the frame shown, a push when a source shows a new one,
-/// and a 26 MP frame's transfer measured.
+/// and a 26 MP frame's transfer measured; and the same frames through shared memory, as a client on the socket takes them
+/// (P4b, #932).
 /// </summary>
 [Collection("Hosting")]
 #pragma warning disable CS8774 // MemberNotNull on InitializeAsync; xUnit guarantees init before tests
@@ -109,6 +110,34 @@ public class NodeFrameTests(ITestOutputHelper output) : IAsyncLifetime
         got.FrameNumber.ShouldNotBeNull().ShouldBeGreaterThan(0);
         ShouldBeBitExact(got.Image.ShouldNotBeNull(), sent);
         got.Image.Release();
+    }
+
+    /// <summary>
+    /// Asked for shared memory over the socket, an OTA's frame and the guider's come out of the node's slots, bit for bit
+    /// the frames the node shows, and nothing is sent while the client holds the frame shown (P4b, #932).
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task AnOtasAndTheGuidersFramesComeThroughSharedMemoryBitExact()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var ota = Frame(97, 61, (x, y) => x * 7 + y);
+        var guide = Frame(64, 48, (x, y) => 1000 + x + 0.5f); // fractional: floats in the slot
+        await RunningAsync(ota, otaNumber: 3, guide, guideNumber: 12);
+        using var slots = new FrameSlotReaders();
+        var reader = new FrameReader();
+
+        var got = await Client.GetLatestFrameAsync(FrameSources.Ota(0), after: null, reader, slots, ct);
+        ShouldBeBitExact(got.Image.ShouldNotBeNull(got.Error), ota);
+        got.Image.Release();
+        var guided = await Client.GetLatestFrameAsync(FrameSources.Guider, after: null, reader, slots, ct);
+        ShouldBeBitExact(guided.Image.ShouldNotBeNull(guided.Error), guide);
+        guided.Image.Release();
+        slots.FramesRead.ShouldBe(2, "both came out of a slot");
+
+        (await Client.GetLatestFrameAsync(FrameSources.Ota(0), after: got.FrameNumber, reader, slots, ct)).IsUnchanged
+            .ShouldBeTrue("the frame the client holds is not sent again, through either carrier");
+        ota.TryLease(out var stillShown).ShouldBeTrue("writing the slot took nothing from the node's own slot");
+        stillShown.Dispose();
     }
 
     [Fact(Timeout = 30_000)]
@@ -204,9 +233,25 @@ public class NodeFrameTests(ITestOutputHelper output) : IAsyncLifetime
         clock.Stop();
 
         var image = got.Image.ShouldNotBeNull(got.Error);
-        output.WriteLine($"26 MP {(wholeAdu ? "whole-ADU (16-bit on the wire)" : "fractional (float on the wire)")}: {clock.Elapsed.TotalMilliseconds:F0} ms "
-            + $"over the socket, into a recycled plane");
         ShouldBeBitExact(image, sent);
         image.Release();
+
+        // Through shared memory (P4b): the first fetch makes the section and writes the slot, pages faulting in; the second
+        // is the same frame from its slot, the copy out alone.
+        using var slots = new FrameSlotReaders();
+        var viaSlot = Stopwatch.StartNew();
+        var first = await Client.GetLatestFrameAsync(FrameSources.Ota(0), after: null, reader, slots, ct);
+        viaSlot.Stop();
+        ShouldBeBitExact(first.Image.ShouldNotBeNull(first.Error), sent);
+        first.Image.Release();
+        var fromSlot = Stopwatch.StartNew();
+        var again = await Client.GetLatestFrameAsync(FrameSources.Ota(0), after: null, reader, slots, ct);
+        fromSlot.Stop();
+        again.Image.ShouldNotBeNull(again.Error).Release();
+        slots.FramesRead.ShouldBe(2);
+
+        output.WriteLine($"26 MP {(wholeAdu ? "whole-ADU (16-bit on the wire)" : "fractional (float on the wire)")}: {clock.Elapsed.TotalMilliseconds:F0} ms "
+            + $"over the socket, into a recycled plane; through shared memory {viaSlot.Elapsed.TotalMilliseconds:F0} ms written and read, "
+            + $"{fromSlot.Elapsed.TotalMilliseconds:F0} ms from the slot");
     }
 }

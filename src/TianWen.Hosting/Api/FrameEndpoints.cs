@@ -31,6 +31,10 @@ namespace TianWen.Hosting.Api;
 /// difference, not order.</para>
 /// <para><b>The frame is LEASED for the write</b> and released once it is on the wire: the slot keeps it for whoever asks
 /// next, and a refused lease means it was replaced mid-read, so the next ask finds its successor.</para>
+/// <para><b>Over this machine's socket a client may take the frame through shared memory</b> (P4b, #932): asked with
+/// <c>?carrier=</c><see cref="FrameStreamWire.SharedMemory"/>, the node writes it into one of the source's two slots
+/// (<see cref="NodeFrameSlots"/>) and answers with the slot (<see cref="FrameSlotDto"/>, JSON) instead of its bytes. A node
+/// that cannot make the section answers with the bytes, and a client reads either.</para>
 /// <para><b>Compressed over TCP only, and only when the client asks</b> (P4 part 3; <c>Accept-Encoding</c>: Brotli at its
 /// fastest, else gzip at its fastest). A sky frame's noise floor does not compress much (about 2x at best, measured in the
 /// plan), so the local socket, where a copy moves a whole frame in about 40 ms, never compresses: a codec would cost more
@@ -42,19 +46,19 @@ internal static class FrameEndpoints
     {
         var group = routes.MapGroup("/api/v1/frames");
 
-        group.MapGet("/ota/{index:int}/latest", (int index, int? after, NodeFrames frames) =>
-            Serve(frames.Ota(index), after, $"OTA {index}"));
+        group.MapGet("/ota/{index:int}/latest", (int index, int? after, NodeFrames frames, HttpContext context) =>
+            Serve(frames.Ota(index), after, $"OTA {index}", FrameSources.Ota(index), context));
 
         // One guider serves the whole rig, at guiding cadence, so it is its own source rather than an OTA index.
-        group.MapGet("/guider/latest", (int? after, NodeFrames frames) =>
-            Serve(frames.Guider(), after, "The guider"));
+        group.MapGet("/guider/latest", (int? after, NodeFrames frames, HttpContext context) =>
+            Serve(frames.Guider(), after, "The guider", FrameSources.Guider, context));
 
         // A planetary capture's own (P5 part 5, #934): the live frame as the camera gave it, and the rolling master.
-        group.MapGet("/planetary/live/latest", (int? after, NodeFrames frames) =>
-            Serve(frames.Named(FrameSources.PlanetaryLive), after, "The planetary live view"));
+        group.MapGet("/planetary/live/latest", (int? after, NodeFrames frames, HttpContext context) =>
+            Serve(frames.Named(FrameSources.PlanetaryLive), after, "The planetary live view", FrameSources.PlanetaryLive, context));
 
-        group.MapGet("/planetary/master/latest", (int? after, NodeFrames frames) =>
-            Serve(frames.Named(FrameSources.PlanetaryMaster), after, "The planetary stack"));
+        group.MapGet("/planetary/master/latest", (int? after, NodeFrames frames, HttpContext context) =>
+            Serve(frames.Named(FrameSources.PlanetaryMaster), after, "The planetary stack", FrameSources.PlanetaryMaster, context));
 
         // The same two as streams (P5 part 5c): drop-to-latest over a WebSocket, a live view at the rate its client takes.
         routes.Map(FrameStreamWire.PathOf(FrameSources.PlanetaryLive), (HttpContext context, NodeFrames frames, IHostApplicationLifetime lifetime) =>
@@ -89,9 +93,7 @@ internal static class FrameEndpoints
             return;
         }
 
-        var slots = context.Request.Query[FrameStreamWire.CarrierQuery] == FrameStreamWire.SharedMemory && NodeEndpoints.CameOverTheSocket(context)
-            ? context.RequestServices.GetService<NodeSharedMemory>()?.CreateWriter()
-            : null;
+        var slots = WantsSharedMemory(context) ? context.RequestServices.GetService<NodeSharedMemory>()?.CreateWriter() : null;
         using var socket = await context.WebSockets.AcceptWebSocketAsync();
         // Ends the sends: the client closing the stream, the request aborted, or the host stopping.
         using var ending = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, lifetime.ApplicationStopping);
@@ -123,7 +125,9 @@ internal static class FrameEndpoints
                     }
                     using (lease)
                     {
-                        if (slots is not null && TryWriteSlot(slots, shown.Number, lease.Image, source, context) is { } slot)
+                        var image = lease.Image;
+                        var number = shown.Number;
+                        if (slots is { } writer && TrySlot(() => writer.Write(number, image), source, context) is { } slot)
                         {
                             await FrameStreamWire.WriteSlotAsync(socket, FrameSlotDto.Of(shown.Number, slot), ending.Token);
                         }
@@ -171,12 +175,16 @@ internal static class FrameEndpoints
         }
     }
 
-    // The frame in a slot, or null when the system would not give the section its memory: the stream goes on as bytes.
-    private static FrameSlot? TryWriteSlot(FrameSlotWriter slots, int number, Image frame, string source, HttpContext context)
+    // A client on this machine's socket asking for shared memory (P4b); over TCP the ask is ignored.
+    private static bool WantsSharedMemory(HttpContext context)
+        => context.Request.Query[FrameStreamWire.CarrierQuery] == FrameStreamWire.SharedMemory && NodeEndpoints.CameOverTheSocket(context);
+
+    // The frame in a slot, or null when the system would not give the section its memory: the frame goes as bytes.
+    private static FrameSlot? TrySlot(Func<FrameSlot> write, string source, HttpContext context)
     {
         try
         {
-            return slots.Write(number, frame);
+            return write();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or InvalidOperationException)
         {
@@ -220,7 +228,7 @@ internal static class FrameEndpoints
         }
     }
 
-    private static IResult Serve(NodeFrames.Shown shown, int? after, string what)
+    private static IResult Serve(NodeFrames.Shown shown, int? after, string what, string source, HttpContext context)
     {
         if (after == shown.Number && shown.Number != 0)
         {
@@ -234,7 +242,44 @@ internal static class FrameEndpoints
         {
             return Missing($"{what}'s frame was replaced while it was read; ask again", 404);
         }
+        if (WantsSharedMemory(context) && context.RequestServices.GetService<NodeFrameSlots>() is { } slots)
+        {
+            // The copy into the slot is the lease's last use; the bytes' answer, should the section fail, takes it on.
+            var handedOn = false;
+            try
+            {
+                var image = lease.Image;
+                if (TrySlot(() => slots.Write(source, shown.Number, image), source, context) is { } slot)
+                {
+                    return new SlotResult(shown.Number, FrameSlotDto.Of(shown.Number, slot));
+                }
+                handedOn = true;
+                return new FrameResult(shown.Number, lease);
+            }
+            finally
+            {
+                if (!handedOn)
+                {
+                    lease.Dispose();
+                }
+            }
+        }
         return new FrameResult(shown.Number, lease);
+    }
+
+    /// <summary>A frame waiting in shared memory: its slot as JSON, with the frame's number in <see cref="PreviewHeaders.FrameNumber"/>.</summary>
+    private sealed class SlotResult(int number, FrameSlotDto slot) : IResult
+    {
+        public Task ExecuteAsync(HttpContext httpContext)
+        {
+            var response = httpContext.Response;
+            response.StatusCode = StatusCodes.Status200OK;
+            response.Headers[PreviewHeaders.FrameNumber] = number.ToString(CultureInfo.InvariantCulture);
+            response.Headers.CacheControl = "no-store";
+            response.ContentType = FrameStreamWire.SlotContentType;
+            return response.Body.WriteAsync(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(slot, HostingJsonContext.Default.FrameSlotDto),
+                httpContext.RequestAborted).AsTask();
+        }
     }
 
     private static IResult Missing(string error, int status) => EnvelopeResults.Json(

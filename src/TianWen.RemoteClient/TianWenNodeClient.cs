@@ -807,29 +807,83 @@ namespace TianWen.RemoteClient
         /// </summary>
         /// <param name="source">A <see cref="FrameSources"/> name: <c>ota/{index}</c>, <c>guider</c>, <c>planetary/live</c> or
         /// <c>planetary/master</c>.</param>
-        public async Task<FrameResult> GetLatestFrameAsync(string source, int? after, FrameReader reader, CancellationToken cancellationToken)
+        public Task<FrameResult> GetLatestFrameAsync(string source, int? after, FrameReader reader, CancellationToken cancellationToken)
+            => GetLatestFrameAsync(source, after, reader, sharedMemory: null, cancellationToken);
+
+        /// <summary>
+        /// The frame <paramref name="source"/> shows, as <see cref="GetLatestFrameAsync(string, int?, FrameReader, CancellationToken)"/>
+        /// fetches it, asking for it through shared memory with <paramref name="sharedMemory"/>, the caller's readers of the
+        /// node's sections (P4b of docs/plans/hardware-in-the-server.md, #932). The node honours the ask over this machine's
+        /// socket only, so a client may always make it: over TCP the frame comes as its bytes, as it does from a node that
+        /// cannot make the section. A slot written again before it was copied is asked for again.
+        /// </summary>
+        public async Task<FrameResult> GetLatestFrameAsync(string source, int? after, FrameReader reader, FrameSlotReaders? sharedMemory,
+            CancellationToken cancellationToken)
         {
-            var path = $"api/v1/frames/{source}/latest{(after is { } held ? $"?after={held.ToString(CultureInfo.InvariantCulture)}" : "")}";
-            using var request = new HttpRequestMessage(HttpMethod.Get, path);
+            string PathAsking(bool slot)
+            {
+                var query = new List<string>(2);
+                if (after is { } held)
+                {
+                    query.Add($"after={held.ToString(CultureInfo.InvariantCulture)}");
+                }
+                if (slot)
+                {
+                    query.Add($"{FrameStreamWire.CarrierQuery}={FrameStreamWire.SharedMemory}");
+                }
+                return $"api/v1/frames/{source}/latest{(query.Count > 0 ? "?" + string.Join('&', query) : "")}";
+            }
+
+            var path = PathAsking(sharedMemory is not null);
             using var budgeted = WithBudget(_timeouts.Preview, cancellationToken);
             try
             {
-                using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, budgeted.Token).ConfigureAwait(false);
-                var number = TryReadFrameNumber(response) is { } n ? (int?)n : null;
-                if (response.StatusCode is HttpStatusCode.NoContent)
+                while (true)
                 {
-                    return FrameResult.Unchanged(number);
-                }
-                if (!response.IsSuccessStatusCode)
-                {
-                    // 404 is the ordinary "no frame to show" answer, not a fault to report.
-                    return response.StatusCode is HttpStatusCode.NotFound
-                        ? FrameResult.None
-                        : FrameResult.Fail($"{(int)response.StatusCode} {response.ReasonPhrase}");
-                }
+                    using var request = new HttpRequestMessage(HttpMethod.Get, path);
+                    using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, budgeted.Token).ConfigureAwait(false);
+                    var number = TryReadFrameNumber(response) is { } n ? (int?)n : null;
+                    if (response.StatusCode is HttpStatusCode.NoContent)
+                    {
+                        return FrameResult.Unchanged(number);
+                    }
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        // 404 is the ordinary "no frame to show" answer, not a fault to report.
+                        return response.StatusCode is HttpStatusCode.NotFound
+                            ? FrameResult.None
+                            : FrameResult.Fail($"{(int)response.StatusCode} {response.ReasonPhrase}");
+                    }
 
-                await using var body = await response.Content.ReadAsStreamAsync(budgeted.Token).ConfigureAwait(false);
-                return FrameResult.Ok(await reader.ReadAsync(body, budgeted.Token).ConfigureAwait(false), number);
+                    if (sharedMemory is not null && response.Content.Headers.ContentType?.MediaType == FrameStreamWire.SlotContentType)
+                    {
+                        var slot = await response.Content.ReadFromJsonAsync(HostingJsonContext.Default.FrameSlotDto, budgeted.Token).ConfigureAwait(false)
+                            ?? throw new InvalidDataException("A frame slot answer with nothing in it");
+                        Image? copied;
+                        try
+                        {
+                            copied = sharedMemory.TryRead(source, slot.ToSlot(), reader);
+                        }
+                        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException or UnauthorizedAccessException or InvalidDataException
+                            or ObjectDisposedException)
+                        {
+                            // A section this client cannot open (gone with a node that restarted, or not this user's), or readers
+                            // disposed under a fetch still in flight: the frame as its bytes instead, this once.
+                            sharedMemory = null;
+                            path = PathAsking(slot: false);
+                            continue;
+                        }
+                        if (copied is not null)
+                        {
+                            return FrameResult.Ok(copied, number);
+                        }
+                        // Written again before it was copied: a newer frame is on show, and the next ask names it.
+                        continue;
+                    }
+
+                    await using var body = await response.Content.ReadAsStreamAsync(budgeted.Token).ConfigureAwait(false);
+                    return FrameResult.Ok(await reader.ReadAsync(body, budgeted.Token).ConfigureAwait(false), number);
+                }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
