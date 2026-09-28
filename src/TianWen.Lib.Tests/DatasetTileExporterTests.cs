@@ -232,7 +232,10 @@ namespace TianWen.Lib.Tests
                 {
                     row.StretchOrigMin.ShouldBe(expectedMin);
                     row.StretchBalance.ShouldBe(expectedBalance);
-                    row.NoiseSigma.ShouldNotBeNull().ShouldBeGreaterThan(0.0);
+                    // One calibration per channel, each the channel's own.
+                    row.NoiseSigma.ShouldNotBeNull().Length.ShouldBe(row.Channels);
+                    row.NoiseSigma.ShouldAllBe(s => s > 0.0);
+                    row.NoiseBackground.ShouldNotBeNull().Length.ShouldBe(row.Channels);
                 }
                 balanceOf[frame] = expectedBalance;
             }

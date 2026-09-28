@@ -1073,7 +1073,8 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             foreach (var r in results)
             {
                 consoleHost.WriteScrollable(
-                    $"[noise-planes] {r.SessionId}: {r.Tiles} planes; master sigma {r.MasterSigma:E3} at background {r.Background:E3}; " +
+                    $"[noise-planes] {r.SessionId}: {r.Tiles} planes; master sigma {DatasetNoisePlaneExporter.PerChannel(r.MasterSigma)} " +
+                    $"at background {DatasetNoisePlaneExporter.PerChannel(r.Background)}; " +
                     $"sky plane master {r.SkyPlaneMaster:F3}, half {r.SkyPlaneHalf:F3}");
             }
             consoleHost.WriteScrollable($"[noise-planes] {results.Length} sessions, {results.Sum(r => r.Tiles)} planes under {outRoot}");

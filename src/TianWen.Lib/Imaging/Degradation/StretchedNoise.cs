@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.Degradation;
@@ -74,7 +75,8 @@ public static class StretchedNoise
     /// <param name="width">Tile width.</param>
     /// <param name="height">Tile height.</param>
     /// <param name="stretches">Each channel's stretch; one per channel.</param>
-    /// <param name="calibration">The linear noise model.</param>
+    /// <param name="calibration">The linear noise model, one for every channel: the injected noise's, which the
+    /// degrade export adds to each channel from this one calibration.</param>
     /// <param name="depthScale">The noise's depth as a multiple of one sub's.</param>
     /// <param name="levelSigmaPx">Low-pass of the level (<see cref="DefaultLevelSigmaPx"/>).</param>
     /// <param name="planeSigmaPx">Low-pass of the plane (<see cref="DefaultPlaneSigmaPx"/>).</param>
@@ -88,9 +90,37 @@ public static class StretchedNoise
         float levelSigmaPx = DefaultLevelSigmaPx,
         float planeSigmaPx = DefaultPlaneSigmaPx)
     {
+        var each = new LinearDegradation.NoiseCalibration[stretchedChannels.Count];
+        Array.Fill(each, calibration);
+        return Plane(stretchedChannels, width, height, stretches, each, depthScale, levelSigmaPx, planeSigmaPx);
+    }
+
+    /// <summary>
+    /// <see cref="Plane(IReadOnlyList{float[]}, int, int, IReadOnlyList{ChannelStretch}, in LinearDegradation.NoiseCalibration, double, float, float)"/>
+    /// with each channel's OWN calibration, as a real frame needs (<see cref="TryEstimateCalibration"/>).
+    /// </summary>
+    /// <param name="stretchedChannels">The tile's stretched channels.</param>
+    /// <param name="width">Tile width.</param>
+    /// <param name="height">Tile height.</param>
+    /// <param name="stretches">Each channel's stretch; one per channel.</param>
+    /// <param name="calibrations">Each channel's linear noise model; one per channel.</param>
+    /// <param name="depthScale">The noise's depth as a multiple of one sub's.</param>
+    /// <param name="levelSigmaPx">Low-pass of the level (<see cref="DefaultLevelSigmaPx"/>).</param>
+    /// <param name="planeSigmaPx">Low-pass of the plane (<see cref="DefaultPlaneSigmaPx"/>).</param>
+    public static float[] Plane(
+        IReadOnlyList<float[]> stretchedChannels,
+        int width,
+        int height,
+        IReadOnlyList<ChannelStretch> stretches,
+        IReadOnlyList<LinearDegradation.NoiseCalibration> calibrations,
+        double depthScale,
+        float levelSigmaPx = DefaultLevelSigmaPx,
+        float planeSigmaPx = DefaultPlaneSigmaPx)
+    {
         var channels = stretchedChannels.Count;
         ArgumentOutOfRangeException.ThrowIfZero(channels);
         ArgumentOutOfRangeException.ThrowIfNotEqual(stretches.Count, channels);
+        ArgumentOutOfRangeException.ThrowIfNotEqual(calibrations.Count, channels);
         var n = width * height;
         var sumSq = new double[n];
         for (var c = 0; c < channels; c++)
@@ -99,6 +129,7 @@ public static class StretchedNoise
             ArgumentOutOfRangeException.ThrowIfNotEqual(src.Length, n);
             var level = levelSigmaPx > 0 ? Image.SeparableGaussianBlur(WithoutNaN(src), width, height, levelSigmaPx) : WithoutNaN(src);
             var stretch = stretches[c];
+            var calibration = calibrations[c];
             for (var i = 0; i < n; i++)
             {
                 var s = SigmaAt(level[i], stretch, calibration, depthScale);
@@ -127,8 +158,8 @@ public static class StretchedNoise
     public const double EstimateQuantile = 0.25;
 
     /// <summary>
-    /// A frame's OWN noise calibration, estimated from the frame alone: what a runner has at inference, and what an
-    /// eval plane has for a half-master (at a depth of sqrt 2 against its master). The result is in the units of
+    /// A frame's OWN noise calibration, estimated from the frame alone, one per CHANNEL: what a runner has at
+    /// inference, and what an eval plane has for a half-master. Each is in the units of
     /// <see cref="LinearDegradation.NoiseCalibration"/> with <c>StackedFrames</c> 1, so a depth of 1 is this
     /// frame's own noise.
     /// </summary>
@@ -140,39 +171,44 @@ public static class StretchedNoise
     /// so every block estimates the same anchor. Texture only adds to a block's reading, so a low quantile of the
     /// anchors is the honest one, and the model's level dependence is what lets bright smooth blocks vote at all
     /// instead of reading as quiet sky.</para>
-    /// <para>Channel 0 anchors every channel, as the exporter's calibration does.</para>
+    /// <para><b>Why each channel on its own.</b> The model's shot-noise ramp (variance linear in signal) holds
+    /// WITHIN a channel, not across them: a colour sensor's channels are built from different numbers of
+    /// photosites (a Bayer drizzle gives green twice red's or blue's) and sit at different sky levels, so one
+    /// channel's anchor carried to another at its own level misreads it. Anchoring every channel on channel 0 did
+    /// exactly that, and against the half-pair truth of the eleven eval fields it over-read green by up to 1.6x
+    /// and the luminance plane by 1.15x typical; each channel anchored on its own cut the typical error from
+    /// x1.22 to x1.13 (docs/plans/denoiser-training.md, "E16's machinery").</para>
     /// </remarks>
     /// <param name="unitLinear">The linear frame, in the units the stretch was measured in.</param>
-    /// <param name="stretches">The frame's stretch, one per channel (only channel 0 is read).</param>
+    /// <param name="stretches">The frame's stretch, one per channel.</param>
     /// <param name="absent">The canvas ring (<see cref="Image.AbsentPixels"/>): a block touching it is skipped.</param>
-    public static LinearDegradation.NoiseCalibration EstimateCalibration(
+    public static LinearDegradation.NoiseCalibration[] EstimateCalibration(
         Image unitLinear, IReadOnlyList<ChannelStretch> stretches, BitMatrix? absent = null)
-        => TryEstimateCalibration(unitLinear, stretches, absent, out var calibration)
-            ? calibration
+        => TryEstimateCalibration(unitLinear, stretches, absent, out var calibrations)
+            ? calibrations
             : throw new ArgumentException($"no {EstimateBlockPx} px block of the frame is free of the canvas ring and NaN", nameof(unitLinear));
 
     /// <summary>
     /// <see cref="EstimateCalibration"/> for a caller that has a use for the frame without it: false when no
-    /// <see cref="EstimateBlockPx"/> px block is free of the canvas ring and NaN (a frame smaller than one block,
-    /// or one that is all ring), which leaves nothing to estimate from.
+    /// <see cref="EstimateBlockPx"/> px block is free of the canvas ring and NaN in every channel (a frame smaller
+    /// than one block, or one that is all ring), which leaves nothing to estimate from.
     /// </summary>
     public static bool TryEstimateCalibration(
-        Image unitLinear, IReadOnlyList<ChannelStretch> stretches, BitMatrix? absent, out LinearDegradation.NoiseCalibration calibration)
+        Image unitLinear, IReadOnlyList<ChannelStretch> stretches, BitMatrix? absent,
+        [NotNullWhen(true)] out LinearDegradation.NoiseCalibration[]? calibrations)
     {
-        var (_, width, height) = unitLinear.Shape;
-        var stretch = stretches[0];
-        var linear = unitLinear.GetChannelSpan(0);
-        var y = new float[width * height];
+        var (channels, width, height) = unitLinear.Shape;
+        ArgumentOutOfRangeException.ThrowIfNotEqual(stretches.Count, channels);
+
+        // One block set for every channel: a block is read only where no channel is absent or NaN there.
         var skip = new bool[width * height];
-        for (var i = 0; i < y.Length; i++)
+        for (var c = 0; c < channels; c++)
         {
-            var v = linear[i];
-            if (float.IsNaN(v))
+            var linear = unitLinear.GetChannelSpan(c);
+            for (var i = 0; i < skip.Length; i++)
             {
-                skip[i] = true;
-                continue;
+                skip[i] |= float.IsNaN(linear[i]);
             }
-            y[i] = (float)Image.MidtonesTransferFunction(stretch.MidtonesBalance, Math.Max(0.0, v - stretch.OrigMin));
         }
         if (absent is { } ring)
         {
@@ -183,6 +219,31 @@ public static class StretchedNoise
                     skip[(row * width) + x] = true;
                 }
             }
+        }
+
+        var result = new LinearDegradation.NoiseCalibration[channels];
+        for (var c = 0; c < channels; c++)
+        {
+            if (!TryEstimateChannel(unitLinear, c, stretches[c], skip, out result[c]))
+            {
+                calibrations = null;
+                return false;
+            }
+        }
+        calibrations = result;
+        return true;
+    }
+
+    /// <summary>One channel of <see cref="TryEstimateCalibration"/>: its own background and its own anchor.</summary>
+    private static bool TryEstimateChannel(Image unitLinear, int channel, in ChannelStretch stretch, bool[] skip, out LinearDegradation.NoiseCalibration calibration)
+    {
+        var (_, width, height) = unitLinear.Shape;
+        var linear = unitLinear.GetChannelSpan(channel);
+        var y = new float[width * height];
+        for (var i = 0; i < y.Length; i++)
+        {
+            var v = linear[i];
+            y[i] = float.IsNaN(v) ? float.NaN : (float)Image.MidtonesTransferFunction(stretch.MidtonesBalance, Math.Max(0.0, v - stretch.OrigMin));
         }
         var low = Image.SeparableGaussianBlur(WithoutNaN(y), width, height, EstimateHighPassSigmaPx);
 

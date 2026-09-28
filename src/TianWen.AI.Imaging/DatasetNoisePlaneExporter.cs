@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -47,12 +48,12 @@ public static class DatasetNoisePlaneExporter
     /// <summary>One session's estimate and what was written.</summary>
     /// <param name="SessionId">The session.</param>
     /// <param name="Tiles">Planes written.</param>
-    /// <param name="MasterSigma">The master's estimated noise at the background, linear, unit range.</param>
-    /// <param name="Background">The background level the estimate anchored at, linear, unit range.</param>
+    /// <param name="MasterSigma">The master's estimated noise at the background per channel, linear, unit range.</param>
+    /// <param name="Background">The background level each channel's estimate anchored at, linear, unit range.</param>
     /// <param name="SkyPlaneMaster">The plane's value, in its own units, over a flat sky at the stretch's target
     /// median, for the master: the number to hold against a measured one.</param>
     /// <param name="SkyPlaneHalf">The same for a half-master.</param>
-    public sealed record SessionResult(string SessionId, int Tiles, double MasterSigma, double Background, double SkyPlaneMaster, double SkyPlaneHalf);
+    public sealed record SessionResult(string SessionId, int Tiles, ImmutableArray<double> MasterSigma, ImmutableArray<double> Background, double SkyPlaneMaster, double SkyPlaneHalf);
 
     /// <summary>Writes the planes, one session at a time.</summary>
     public static async Task<ImmutableArray<SessionResult>> RunAsync(Options options, ILogger? logger, CancellationToken cancellationToken)
@@ -111,25 +112,25 @@ public static class DatasetNoisePlaneExporter
                 {
                     stretches[c] = new StretchedNoise.ChannelStretch(balances[c], origMin[c]);
                 }
-                var calibration = StretchedNoise.EstimateCalibration(unit, stretches, absent);
+                var calibrations = StretchedNoise.EstimateCalibration(unit, stretches, absent);
 
                 var written = 0;
                 foreach (var row in rows)
                 {
                     var depth = row.Frame == DatasetTileExporter.FrameMaster ? 1.0 : Math.Sqrt(2.0);
                     var channels = ReadTile(Path.Combine(options.BakeRoot, row.Tile.Replace('/', Path.DirectorySeparatorChar)), row.Channels, row.TileSize);
-                    var plane = StretchedNoise.Plane(channels, row.TileSize, row.TileSize, stretches, calibration, depth);
+                    var plane = StretchedNoise.Plane(channels, row.TileSize, row.TileSize, stretches, calibrations, depth);
                     var target = Path.Combine(options.OutRoot, DatasetDegradationExporter.SigmaPathFor(row.Tile).Replace('/', Path.DirectorySeparatorChar));
                     Directory.CreateDirectory(Path.GetDirectoryName(target) ?? options.OutRoot);
                     DatasetDegradationExporter.WritePlaneFile(plane, target);
                     written++;
                 }
 
-                var result = new SessionResult(sessionId, written, calibration.OneSubSigmaAdu, calibration.BackgroundAdu,
-                    SkyPlane(stretches, calibration, 1.0), SkyPlane(stretches, calibration, Math.Sqrt(2.0)));
+                var result = new SessionResult(sessionId, written, [.. calibrations.Select(c => c.OneSubSigmaAdu)], [.. calibrations.Select(c => c.BackgroundAdu)],
+                    SkyPlane(stretches, calibrations, 1.0), SkyPlane(stretches, calibrations, Math.Sqrt(2.0)));
                 logger?.LogInformation(
-                    "[noise-planes] {Session}: {Tiles} planes; master sigma {Sigma:E3} at background {Background:E3}; sky plane master {Master:F3}, half {Half:F3}",
-                    sessionId, written, result.MasterSigma, result.Background, result.SkyPlaneMaster, result.SkyPlaneHalf);
+                    "[noise-planes] {Session}: {Tiles} planes; master sigma {Sigma} at background {Background}; sky plane master {Master:F3}, half {Half:F3}",
+                    sessionId, written, PerChannel(result.MasterSigma), PerChannel(result.Background), result.SkyPlaneMaster, result.SkyPlaneHalf);
                 results.Add(result);
             }
             finally
@@ -144,13 +145,17 @@ public static class DatasetNoisePlaneExporter
         return results.ToImmutable();
     }
 
+    /// <summary>One value per channel, as the log and the CLI print it.</summary>
+    public static string PerChannel(ImmutableArray<double> values)
+        => string.Join('/', values.Select(v => v.ToString("E3", CultureInfo.InvariantCulture)));
+
     /// <summary>The plane over a flat sky at the stretch's target median in every channel, in plane units.</summary>
-    private static double SkyPlane(IReadOnlyList<StretchedNoise.ChannelStretch> stretches, in LinearDegradation.NoiseCalibration calibration, double depth)
+    private static double SkyPlane(IReadOnlyList<StretchedNoise.ChannelStretch> stretches, IReadOnlyList<LinearDegradation.NoiseCalibration> calibrations, double depth)
     {
         var sumSq = 0.0;
-        foreach (var s in stretches)
+        for (var c = 0; c < stretches.Count; c++)
         {
-            var v = StretchedNoise.SigmaAt(AiNafnetInputs.TargetMedian, s, calibration, depth);
+            var v = StretchedNoise.SigmaAt(AiNafnetInputs.TargetMedian, stretches[c], calibrations[c], depth);
             sumSq += v * v;
         }
         return StretchedNoise.PlaneScale * Math.Sqrt(sumSq) / stretches.Count;

@@ -51,9 +51,10 @@ public static class DatasetSessionLedger
     /// (a new sidecar, a different default, a normalisation the strategy did not do before), and only
     /// then: every session in every store then reads as stale on the next resume, which is the point,
     /// and the cost. Started at 1 on 2026-09-20 with the ledger itself. 2 (2026-09-28): every tile carries a noise
-    /// plane and its manifest row the frame's own stretch and noise calibration.
+    /// plane and its manifest row the frame's own stretch and noise calibration. 3 (2026-09-28): that calibration is
+    /// per channel, so a plane is each channel's own noise and the row's background and sigma are arrays.
     /// </summary>
-    public const int RecipeVersion = 2;
+    public const int RecipeVersion = 3;
 
     /// <summary>One completed session.</summary>
     /// <param name="Fingerprint">What the session was built from; see the class remarks.</param>
