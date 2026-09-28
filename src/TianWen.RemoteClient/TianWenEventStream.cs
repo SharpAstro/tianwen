@@ -55,6 +55,9 @@ namespace TianWen.RemoteClient
         // 1 once the host's loop has beaten since the last beat was sent (Beat).
         private int _beatAsked;
 
+        // Set by Reconnect: the connection it ends is to be opened again at once, not after a backoff.
+        private int _reconnectAsked;
+
         /// <param name="nodeBaseAddress">The node's HTTP root; the <c>ws(s)</c> event URI is derived from it.</param>
         /// <param name="socketFactory">Injectable so tests can substitute a fake socket. Defaults to a real
         /// <see cref="ClientWebSocket"/> per connection attempt (they are single-use once closed).</param>
@@ -81,7 +84,11 @@ namespace TianWen.RemoteClient
         /// Ends the socket open now, so the stream connects again at once, presenting the grant as it stands: what a client
         /// granted control after it connected calls, since the node judges a client by what its upgrade carried.
         /// </summary>
-        public void Reconnect() => Volatile.Read(ref _current)?.Abort();
+        public void Reconnect()
+        {
+            Volatile.Write(ref _reconnectAsked, 1);
+            Volatile.Read(ref _current)?.Abort();
+        }
 
         /// <summary>
         /// Tells the node this client can SEE a prompt: call it from the loop that draws the client (every iteration is
@@ -172,6 +179,12 @@ namespace TianWen.RemoteClient
                     _logger.LogDebug("Event stream to {Endpoint} cancelled", _endpoint);
                     break;
                 }
+                catch (OperationCanceledException ex)
+                {
+                    // An aborted socket (Reconnect, or the runtime giving up on it) fails its receive as a cancellation that
+                    // is not this pump's; without this the pump ended there, and the stream with it.
+                    _logger.LogDebug(ex, "Event stream to {Endpoint} was aborted, reconnecting", _endpoint);
+                }
                 catch (Exception ex) when (ex is WebSocketException or System.Net.Http.HttpRequestException or IOException)
                 {
                     _logger.LogDebug(ex, "Event stream to {Endpoint} dropped, retrying in {Backoff}", _endpoint, backoff);
@@ -184,6 +197,12 @@ namespace TianWen.RemoteClient
                 if (cancellationToken.IsCancellationRequested)
                 {
                     break;
+                }
+                if (Interlocked.Exchange(ref _reconnectAsked, 0) == 1)
+                {
+                    // Asked for (a grant arrived): the node is there, so open the socket again now.
+                    backoff = TimeSpan.FromSeconds(1);
+                    continue;
                 }
 
                 await _timeProvider.SleepAsync(backoff, cancellationToken).ConfigureAwait(false);

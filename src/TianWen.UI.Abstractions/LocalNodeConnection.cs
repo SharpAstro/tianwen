@@ -20,8 +20,8 @@ public sealed class LocalNodeConnection : NodeConnection
     private readonly GuiAppState _app;
 
     private LocalNodeConnection(ViewContext local, NodeTransport transport, NodeInfoDto node, LocalNodeOutcome outcome,
-        GuiAppState app, ITimeProvider timeProvider, ILogger logger, CancellationToken cancellationToken)
-        : base(local, transport, promptsApp: app, timeProvider, logger, cancellationToken)
+        GuiAppState app, NodeGrants? grants, ITimeProvider timeProvider, ILogger logger, CancellationToken cancellationToken)
+        : base(local, transport, promptsApp: app, grants, timeProvider, logger, cancellationToken)
     {
         _app = app;
         Node = node;
@@ -49,9 +49,11 @@ public sealed class LocalNodeConnection : NodeConnection
     /// the launcher's reason, in words a user can act on, when there is no node to reach (a broken install, a node that
     /// did not come up).
     /// </summary>
+    /// <param name="grants">Where this client keeps the control it was granted on a node it reaches over TCP: a node
+    /// under another account, on loopback, which is the LAN to it (P6b). Null keeps none.</param>
     public static async Task<(LocalNodeConnection? Connection, string Message)> FindOrStartAsync(
-        ViewContexts contexts, GuiAppState app, LocalNodeOptions options, ITimeProvider timeProvider, ILogger logger,
-        CancellationToken cancellationToken)
+        ViewContexts contexts, GuiAppState app, LocalNodeOptions options, NodeGrants? grants, ITimeProvider timeProvider,
+        ILogger logger, CancellationToken cancellationToken)
     {
         var found = await new LocalNodeLauncher(options, logger).FindOrStartAsync(cancellationToken).ConfigureAwait(false);
         if (found is not { Transport: { } transport, Node: { } node })
@@ -61,8 +63,12 @@ public sealed class LocalNodeConnection : NodeConnection
         }
 
         contexts.Local.NodeId = node.NodeId;
+        if (transport.SocketPath is null && grants?.TokenOf(node.NodeId) is { } token)
+        {
+            transport.Grant.Token = token;
+        }
         logger.LogInformation("This computer's node {NodeId} ({Outcome}): {Message}", node.NodeId, found.Outcome, found.Message);
-        return (new LocalNodeConnection(contexts.Local, transport, node, found.Outcome, app, timeProvider, logger, cancellationToken),
+        return (new LocalNodeConnection(contexts.Local, transport, node, found.Outcome, app, grants, timeProvider, logger, cancellationToken),
             found.Message);
     }
 }

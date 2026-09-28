@@ -31,7 +31,7 @@ namespace TianWen.UI.Abstractions
             CancellationToken cancellationToken)
         {
             var (connection, message) = await LocalNodeConnection.FindOrStartAsync(
-                _contexts, _appState, options, _timeProvider, _logger, cancellationToken).ConfigureAwait(false);
+                _contexts, _appState, options, _appState.NodeGrants, _timeProvider, _logger, cancellationToken).ConfigureAwait(false);
             if (connection is null)
             {
                 _appState.LocalNodeProblem = message;

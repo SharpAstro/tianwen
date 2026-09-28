@@ -127,6 +127,12 @@ public class GuiAppState
     /// separate caching/polling needed at a render call site.</summary>
     public IPeerTable? PeerTable { get; init; }
 
+    /// <summary>
+    /// Where this client keeps the control each node granted it (P6b of docs/plans/hardware-in-the-server.md, #1021), in
+    /// the credential store by the node's id. Set once, by <see cref="AppSignalHandler"/>, before any node is connected.
+    /// </summary>
+    public NodeGrants? NodeGrants { get; set; }
+
     public GuiTab ActiveTab { get; set; } = GuiTab.Home;
     public Profile? ActiveProfile { get; set; }
 

@@ -455,6 +455,7 @@ namespace TianWen.UI.Abstractions
             NotifyLimitTransitions(); // first: it also refreshes the local verdict the cards below read
             _appState.HomeCards = HomeBoard.BuildCards(_contexts, _rigs, _appState, _timeProvider.GetUtcNow());
             RefreshNodeProfiles();
+            RefreshNodeAccess();
             PollNodeDevices();
         }
 
@@ -607,6 +608,8 @@ namespace TianWen.UI.Abstractions
 
             _logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(AppSignalHandler));
             _timeProvider = sp.GetRequiredService<ITimeProvider>();
+            // A host without a credential store (a test's) keeps grants for the process only.
+            appState.NodeGrants ??= new NodeGrants(sp.GetService<ICredentialStore>(), _logger);
 
             // Subscription groups live in the by-area partials (AppSignalHandler.Planner.cs /
             // .SkyMap.cs / .Equipment.cs / .LiveSession.cs / .Polar.cs / .Flats.cs). Order is
@@ -618,6 +621,7 @@ namespace TianWen.UI.Abstractions
             SubscribeEquipmentActions(bus);
             SubscribeScheduleBuilding(bus);
             SubscribeLiveSession(bus);
+            SubscribeAccess(bus);
             SubscribePolarAlignment(bus);
             SubscribeFlats(bus);
             SubscribePreview(bus, shutdownToken);

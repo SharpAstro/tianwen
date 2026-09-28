@@ -263,7 +263,7 @@ namespace TianWen.UI.Abstractions
             CancellationToken cancellationToken)
         {
             var connection = RemoteRigConnection.TryConnect(
-                binding, contexts, appState.PeerTable, timeProvider, logger, cancellationToken);
+                binding, contexts, appState.PeerTable, appState.NodeGrants, timeProvider, logger, cancellationToken);
 
             if (connection is not null)
             {

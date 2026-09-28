@@ -120,7 +120,7 @@ public class RigContactAndFeedTests
             var contexts = new ViewContexts();
             var rigs = new RemoteRigRegistry();
             rigs.Upsert(binding);
-            await using var rig = RemoteRigConnection.TryConnect(binding, contexts, peers: null, new SystemTimeProvider(),
+            await using var rig = RemoteRigConnection.TryConnect(binding, contexts, peers: null, grants: null, new SystemTimeProvider(),
                 NullLogger.Instance, ct).ShouldNotBeNull();
             rigs.Attach(rig);
 

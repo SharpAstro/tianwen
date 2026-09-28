@@ -39,7 +39,7 @@ public class RemoteRigProfileTests(ITestOutputHelper output)
             LastAddress = node.Transport.BaseAddress.ToString(),
         };
         var contexts = new ViewContexts();
-        await using (var rig = RemoteRigConnection.TryConnect(binding, contexts, peers: null, new SystemTimeProvider(), NullLogger.Instance, ct)
+        await using (var rig = RemoteRigConnection.TryConnect(binding, contexts, peers: null, grants: null, new SystemTimeProvider(), NullLogger.Instance, ct)
             .ShouldNotBeNull())
         {
             (await rig.MaybeRefreshProfileAsync(ct)).ShouldBeTrue();
@@ -53,7 +53,7 @@ public class RemoteRigProfileTests(ITestOutputHelper output)
         contexts.All[1].RigProfile.ShouldBeNull("a rig let go leaves no profile on its view");
 
         // A binding that names a profile is planned with that one, whichever the rig runs.
-        await using var bound = RemoteRigConnection.TryConnect(binding with { RemoteProfileId = named.ProfileId }, contexts, peers: null,
+        await using var bound = RemoteRigConnection.TryConnect(binding with { RemoteProfileId = named.ProfileId }, contexts, peers: null, grants: null,
             new SystemTimeProvider(), NullLogger.Instance, ct).ShouldNotBeNull();
         (await bound.MaybeRefreshProfileAsync(ct)).ShouldBeTrue();
         bound.Context.RigProfile.ShouldNotBeNull().Data.ShouldNotBeNull().SiteLatitude.ShouldBe(-31.27);
