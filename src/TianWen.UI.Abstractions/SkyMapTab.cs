@@ -406,6 +406,12 @@ namespace TianWen.UI.Abstractions
             DrawSearchAndInfoPanel(plannerState, contentRect, db,
                 siteLat, siteLon, viewingTime, site, ppr, cx, cy);
             SearchPanelMs += LayerElapsed(ref layerMark);
+
+            // The strip's time landmarks drop up over everything above, the search panel included.
+            if (!State.ViewDrivenExternally)
+            {
+                RenderTimeMenu(contentRect, fontSize * 0.85f);
+            }
         }
 
         /// <summary>
@@ -1242,17 +1248,26 @@ namespace TianWen.UI.Abstractions
             // MODE, not one of its layers, so it is not in the table the panel renders.
             var info = $"RA: {State.CenterRA:F2}h  Dec: {State.CenterDec:F1}\u00B0    {fovText}    {magText}    [{modeLabel}]  [P]roj{layerHints}{levelHint}";
 
-            DrawText(info.AsSpan(), fontPath,
-                rect.X + 8, stripY, rect.Width - 16, stripH,
-                fontSize * 0.85f, InfoText, TextAlign.Near, TextAlign.Center);
-
-            // Time display on the right side of the strip -- blue when time-shifted. The box is
-            // wide enough for the shifted "yyyy-MM-dd HH:mm  (+2d 03h)" form, not just HH:mm:ss.
+            // The time on the right, blue when time-shifted, inside its controls (SkyMapTab.TimeControls): the
+            // steps the arrow keys take either side of it, a press on the time for the night's landmarks, and
+            // Now while scrubbed. The info text takes what they leave, so the two can no longer overlap.
             var timeColor = isTimeShifted ? TimeShiftColor : InfoText;
-            DrawText(timeText.AsSpan(), fontPath,
-                rect.X + rect.Width - 300, stripY, 292, stripH,
-                fontSize * 0.85f, timeColor, TextAlign.Far, TextAlign.Center);
+            var arranged = RenderLayout(
+                Layout.Builder.HStack(
+                    Layout.Builder.Fill(key: InfoStripTextKey).WStar(),
+                    BuildTimeControls(timeText, timeColor, fontSize * 0.85f, dpiScale)),
+                new RectF32(rect.X + 8, stripY, rect.Width - 16, stripH),
+                // Device pixels, like the rest of the strip.
+                scale: DesignScale.One);
+            RememberTimeButton(arranged);
+
+            var infoRect = ArrangedFills.RectOf(arranged, InfoStripTextKey);
+            DrawText(info.AsSpan(), fontPath,
+                infoRect.X, stripY, infoRect.Width, stripH,
+                fontSize * 0.85f, InfoText, TextAlign.Near, TextAlign.Center);
         }
+
+        private const string InfoStripTextKey = "skymap-info-text";
 
         // ── Milky Way texture loading ──
 
@@ -1784,21 +1799,18 @@ namespace TianWen.UI.Abstractions
                 // TimeOffset, NOT the planner's PlanningDate. The sky map is purely visual --
                 // scrubbing never triggers a planner recompute. The planner tab keeps its own
                 // date controls. OS key-repeat drives hold-to-repeat (no custom repeat logic).
+                // The strip's step buttons (SkyMapTab.TimeControls) go through the same StepTime.
                 case InputKey.Up:
-                    State.TimeOffset += fineStep ? TimeSpan.FromMinutes(10) : TimeSpan.FromHours(1);
-                    State.NeedsRedraw = true;
+                    StepTime(fineStep ? TimeSpan.FromMinutes(10) : TimeSpan.FromHours(1));
                     return true;
                 case InputKey.Down:
-                    State.TimeOffset -= fineStep ? TimeSpan.FromMinutes(10) : TimeSpan.FromHours(1);
-                    State.NeedsRedraw = true;
+                    StepTime(fineStep ? TimeSpan.FromMinutes(-10) : TimeSpan.FromHours(-1));
                     return true;
                 case InputKey.Right:
-                    State.TimeOffset += TimeSpan.FromDays(1);
-                    State.NeedsRedraw = true;
+                    StepTime(TimeSpan.FromDays(1));
                     return true;
                 case InputKey.Left:
-                    State.TimeOffset -= TimeSpan.FromDays(1);
-                    State.NeedsRedraw = true;
+                    StepTime(TimeSpan.FromDays(-1));
                     return true;
                 // PgUp/PgDn move the planning DATE by a day -- the keyboard twin of the on-screen
                 // [<] [>] buttons (PlannerActions.ShiftPlanningDate), which recompute the night.
@@ -1820,9 +1832,8 @@ namespace TianWen.UI.Abstractions
                     State.NeedsRedraw = true;
                     return true;
                 case InputKey.D0:
-                    // Reset only the scrub offset -- a PlanningDate set in the planner is preserved.
-                    State.TimeOffset = TimeSpan.Zero;
-                    State.NeedsRedraw = true;
+                    // Reset only the scrub offset -- a PlanningDate set in the planner is preserved (Now).
+                    ResetTimeOffset();
                     return true;
                 case InputKey.T when _plannerState is not null:
                     // Full "back to live": clear both the planner date and the scrub offset.
