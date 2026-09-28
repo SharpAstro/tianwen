@@ -9,7 +9,9 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using TianWen.Hosting.Dto;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
@@ -72,6 +74,12 @@ internal static class FrameEndpoints
     /// ends when the client closes it, and as the host starts stopping: the host waits for its open requests out of its
     /// whole shutdown budget (#985), so the node closes it then and gives the client a moment to answer.
     /// </summary>
+    /// <remarks>
+    /// A client on this machine's socket that asks for the shared-memory carrier (P4b, #932) gets each frame in a slot of
+    /// the stream's own section instead, and the slot's name (<see cref="FrameSlotDto"/>). The section is the stream's and
+    /// goes with it. A node that cannot make one (no <see cref="NodeSharedMemory"/>, or the system refused the memory) says
+    /// so once and sends that stream's frames as bytes: a live view is never refused for its carrier.
+    /// </remarks>
     private static async Task StreamAsync(HttpContext context, NodeFrames frames, IHostApplicationLifetime lifetime, string source)
     {
         if (!context.WebSockets.IsWebSocketRequest)
@@ -81,6 +89,9 @@ internal static class FrameEndpoints
             return;
         }
 
+        var slots = context.Request.Query[FrameStreamWire.CarrierQuery] == FrameStreamWire.SharedMemory && NodeEndpoints.CameOverTheSocket(context)
+            ? context.RequestServices.GetService<NodeSharedMemory>()?.CreateWriter()
+            : null;
         using var socket = await context.WebSockets.AcceptWebSocketAsync();
         // Ends the sends: the client closing the stream, the request aborted, or the host stopping.
         using var ending = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, lifetime.ApplicationStopping);
@@ -112,7 +123,19 @@ internal static class FrameEndpoints
                     }
                     using (lease)
                     {
-                        await FrameStreamWire.WriteAsync(socket, shown.Number, lease.Image, ending.Token);
+                        if (slots is not null && TryWriteSlot(slots, shown.Number, lease.Image, source, context) is { } slot)
+                        {
+                            await FrameStreamWire.WriteSlotAsync(socket, FrameSlotDto.Of(shown.Number, slot), ending.Token);
+                        }
+                        else
+                        {
+                            if (slots is not null)
+                            {
+                                slots.Dispose();
+                                slots = null;
+                            }
+                            await FrameStreamWire.WriteAsync(socket, shown.Number, lease.Image, ending.Token);
+                        }
                     }
                     sent = shown.Number;
                     break;
@@ -144,6 +167,22 @@ internal static class FrameEndpoints
             }
             reading.CancelAfter(CloseBudget);
             await receiving;
+            slots?.Dispose();
+        }
+    }
+
+    // The frame in a slot, or null when the system would not give the section its memory: the stream goes on as bytes.
+    private static FrameSlot? TryWriteSlot(FrameSlotWriter slots, int number, Image frame, string source, HttpContext context)
+    {
+        try
+        {
+            return slots.Write(number, frame);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(FrameEndpoints))
+                .LogWarning(ex, "The {Source} stream could not use shared memory, and sends its frames over the socket", source);
+            return null;
         }
     }
 

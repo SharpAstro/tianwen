@@ -113,11 +113,21 @@ namespace TianWen.RemoteClient
 
         /// <summary>
         /// Opens <paramref name="source"/> (a <see cref="Hosting.Dto.FrameSources"/> name the node streams) as a
-        /// <see cref="NodeFrameStream"/>, over the same transport; the caller's to dispose.
+        /// <see cref="NodeFrameStream"/>, over the same transport; the caller's to dispose. Over this machine's socket it asks
+        /// for the frames in shared memory (P4b of docs/plans/hardware-in-the-server.md, #932), which the node may decline.
         /// </summary>
-        public async Task<NodeFrameStream> OpenFrameStreamAsync(string source, CancellationToken cancellationToken)
+        public Task<NodeFrameStream> OpenFrameStreamAsync(string source, CancellationToken cancellationToken)
+            => OpenFrameStreamAsync(source, sharedMemory: SocketPath is not null, cancellationToken);
+
+        /// <summary>
+        /// Opens <paramref name="source"/> as <see cref="OpenFrameStreamAsync(string, CancellationToken)"/> does, asking for
+        /// shared memory only when <paramref name="sharedMemory"/> says so (a measurement of either carrier). A node reached
+        /// over TCP never offers it.
+        /// </summary>
+        public async Task<NodeFrameStream> OpenFrameStreamAsync(string source, bool sharedMemory, CancellationToken cancellationToken)
         {
-            var endpoint = WebSocketUri(BaseAddress, FrameStreamWire.PathOf(source));
+            var endpoint = WebSocketUri(BaseAddress, FrameStreamWire.PathOf(source),
+                sharedMemory && SocketPath is not null ? $"{FrameStreamWire.CarrierQuery}={FrameStreamWire.SharedMemory}" : null);
             HttpMessageInvoker? invoker = SocketPath is null ? null : new HttpMessageInvoker(NodeSocket.CreateHandler(SocketPath));
             ClientWebSocket? socket = new ClientWebSocket();
             try
@@ -140,12 +150,12 @@ namespace TianWen.RemoteClient
         }
 
         /// <summary>The <c>ws://</c> (or <c>wss://</c>) form of <paramref name="path"/> on the node at <paramref name="baseAddress"/>.</summary>
-        internal static Uri WebSocketUri(Uri baseAddress, string path)
+        internal static Uri WebSocketUri(Uri baseAddress, string path, string? query = null)
             => new UriBuilder(baseAddress)
             {
                 Scheme = baseAddress.Scheme is "https" or "wss" ? "wss" : "ws",
                 Path = path,
-                Query = string.Empty,
+                Query = query ?? string.Empty,
                 Fragment = string.Empty,
             }.Uri;
 

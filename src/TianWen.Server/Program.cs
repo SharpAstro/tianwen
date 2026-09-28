@@ -106,6 +106,9 @@ using (held)
         builder.Services.AddNodeDetachGrace(grace);
     }
 
+    // A local client may take a stream's frames through shared memory (P4b): sections named after the socket this node holds.
+    builder.Services.AddNodeSharedMemory(held);
+
     // Every source that reaches hardware or the network, left out of a node told --fake-devices: a test's node, or a
     // demonstration's, must not probe the serial ports and cameras of the machine it runs on.
     if (!node.FakeDevicesOnly)
