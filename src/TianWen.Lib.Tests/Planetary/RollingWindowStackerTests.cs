@@ -148,6 +148,70 @@ public class RollingWindowStackerTests
         stacker.ScoreCacheCount.ShouldBeLessThanOrEqualTo(2 * window, "the window and one window before it, of 60 frames seen");
     }
 
+    // A live ring of `capacity` frames holding frames 0..count-1, of which it keeps the last `capacity`. Frame i is a disk
+    // blurred `blur(i)` times (i % 3 unless given), so the sharpest frame, which the stack aligns to, is chosen by the test.
+    private static LiveCameraFrameStream LiveRing(int capacity, int count, Func<int, int>? blur = null)
+    {
+        var ring = new LiveCameraFrameStream(N, N, PlanetaryFrameLayout.Mono, capacity, hasTimestamps: false);
+        PushInto(ring, 0, count, blur);
+        return ring;
+    }
+
+    private static void PushInto(LiveCameraFrameStream ring, int from, int to, Func<int, int>? blur = null)
+    {
+        for (var i = from; i < to; i++)
+        {
+            ring.Push(Image.FromChannel(Disk(N, blur?.Invoke(i) ?? i % 3), 1f, 0f));
+        }
+    }
+
+    /// <summary>
+    /// A stacker behind a fast camera: the ring has dropped frames its window still holds. It used to throw for the first
+    /// one, drop the stack and start again, over and over, so an ASI462MC at 92 frames a second never had a live stack
+    /// (the ZWO live check, 2026-09-28). What a dropped frame added can no longer be taken back, so the stacker folds the
+    /// window again from what the ring holds, which is exactly the stack a fresh stacker gives.
+    /// </summary>
+    [Fact]
+    public async Task AStackerThatFellBehindALiveRingStacksWhatTheRingStillHolds()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var options = new RollingWindowOptions { FallbackWindowFrames = 6, MaxWindowFrames = 6 };
+        // Frame 5 is the sharpest, so the stack aligns to it before and after the slide and nothing but the drop can
+        // send the stacker back to a rebuild.
+        static int FrameFiveSharpest(int i) => i == 5 ? 0 : 2;
+        using var ring = LiveRing(capacity: 8, count: 6, FrameFiveSharpest);
+        var behind = new RollingWindowStacker(ring, options);
+        (await behind.StackToAsync(5, ct)).Release();
+
+        // A slide, not a jump: the window moves to [4, 9], so frames 0 to 3 must be taken out of the sum, and the ring,
+        // now holding [2, 9], has dropped 0 and 1.
+        PushInto(ring, 6, 10, FrameFiveSharpest);
+        var caughtUp = await behind.StackToAsync(9, ct);
+        var fresh = await new RollingWindowStacker(ring, options).StackToAsync(9, ct);
+
+        (behind.WindowStart, behind.WindowEnd, behind.ReferenceIndex).ShouldBe((4, 9, 5));
+        MeanAbsDiff(caughtUp, fresh, new PixelRect(6, 6, 28, 28)).ShouldBeLessThan(1e-6, "the same frames, folded again");
+        caughtUp.Release();
+        fresh.Release();
+    }
+
+    [Fact]
+    public async Task AWindowReachingPastTheRingIsStackedFromTheFramesTheRingHolds()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var ring = LiveRing(capacity: 8, count: 16); // holds [8, 15]
+
+        // A window of 12 reaches back to frame 4; frames 4 to 7 are gone and add nothing.
+        var wide = await new RollingWindowStacker(ring, new RollingWindowOptions { FallbackWindowFrames = 12, MaxWindowFrames = 12 })
+            .StackToAsync(15, ct);
+        var held = await new RollingWindowStacker(ring, new RollingWindowOptions { FallbackWindowFrames = 8, MaxWindowFrames = 8 })
+            .StackToAsync(15, ct);
+
+        MeanAbsDiff(wide, held, new PixelRect(6, 6, 28, 28)).ShouldBeLessThan(1e-6, "only the frames the ring holds are in either stack");
+        wide.Release();
+        held.Release();
+    }
+
     [Fact]
     public async Task Incremental_slide_matches_a_fresh_rebuild_of_the_same_window()
     {

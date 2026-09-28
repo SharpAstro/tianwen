@@ -45,4 +45,13 @@ public interface IPlanetaryFrameStream : IDisposable
     /// <see cref="Image.Release"/> it) once done. Must be called off the render / UI thread.
     /// </summary>
     ValueTask<Image> LoadAsync(int index, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Loads frame <paramref name="index"/> as <see cref="LoadAsync"/> does, or answers null when the stream no longer
+    /// holds it. A live stream keeps only its latest frames and drops the oldest as new ones arrive, so a reader that
+    /// fell behind asks this rather than catching the refusal. A stream that keeps every frame (a file) answers null
+    /// for no frame in range.
+    /// </summary>
+    async ValueTask<Image?> TryLoadAsync(int index, CancellationToken cancellationToken = default)
+        => await LoadAsync(index, cancellationToken).ConfigureAwait(false);
 }

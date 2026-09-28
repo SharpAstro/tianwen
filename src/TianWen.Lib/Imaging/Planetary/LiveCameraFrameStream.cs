@@ -177,6 +177,28 @@ public sealed class LiveCameraFrameStream : IPlanetaryFrameStream
     /// <inheritdoc/>
     public ValueTask<Image> LoadAsync(int index, CancellationToken cancellationToken = default)
     {
+        if (Lease(index, cancellationToken) is { } image)
+        {
+            return ValueTask.FromResult(image);
+        }
+
+        int oldest, count;
+        lock (_gate)
+        {
+            (oldest, count) = (Math.Max(0, _count - _ring.Length), _count);
+        }
+        throw new ArgumentOutOfRangeException(nameof(index),
+            $"Frame {index} is not in the live ring (retained [{oldest}, {count - 1}], capacity {_ring.Length}).");
+    }
+
+    /// <inheritdoc/>
+    public ValueTask<Image?> TryLoadAsync(int index, CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(Lease(index, cancellationToken));
+
+    // The frame at `index` as a lease, or null once it has rolled out of the ring. Asked and leased in one hold of the
+    // gate, so a frame cannot roll out between the two.
+    private Image? Lease(int index, CancellationToken cancellationToken)
+    {
         cancellationToken.ThrowIfCancellationRequested();
 
         ImageLease lease;
@@ -185,9 +207,7 @@ public sealed class LiveCameraFrameStream : IPlanetaryFrameStream
             ObjectDisposedException.ThrowIf(_disposed, this);
             if (!IsRetained(index) || _ring[index % _ring.Length] is not { } slot)
             {
-                var oldest = Math.Max(0, _count - _ring.Length);
-                throw new ArgumentOutOfRangeException(nameof(index),
-                    $"Frame {index} is not in the live ring (retained [{oldest}, {_count - 1}], capacity {_ring.Length}).");
+                return null;
             }
 
             // Under the gate the ring still holds its reference to this slot (eviction swaps the slot here
@@ -201,7 +221,7 @@ public sealed class LiveCameraFrameStream : IPlanetaryFrameStream
         // A lease, not the ring's own image: the loader's Release() spends only the reference taken here,
         // and the planes stay out of the pool until it does, however many pushes overwrite the slot. No
         // pixel is copied.
-        return ValueTask.FromResult(lease.Image);
+        return lease.Image;
     }
 
     // A frame index is loadable iff it has been pushed and has not yet rolled out of the ring.
