@@ -118,9 +118,9 @@ public static class DatasetTileExporter
     /// <param name="StretchBalance">The frame's own midtones balance per channel, likewise.</param>
     /// <param name="NoisePedestal">The frame's own noise calibration
     /// (<see cref="StretchedNoise.EstimateCalibration"/> on this frame, at a depth of 1): its pedestal,</param>
-    /// <param name="NoiseBackground">its background level, and</param>
-    /// <param name="NoiseSigma">its noise sigma at that background, all linear in unit range. With the stretch
-    /// they reproduce <see cref="SigmaTile"/> through <see cref="StretchedNoise.Plane"/>.</param>
+    /// <param name="NoiseBackground">each channel's background level, and</param>
+    /// <param name="NoiseSigma">each channel's noise sigma at that background, all linear in unit range. With the
+    /// stretch they reproduce <see cref="SigmaTile"/> through <see cref="StretchedNoise.Plane"/>.</param>
     /// <remarks>
     /// There is deliberately no session median FWHM here, and re-adding one would reintroduce a bug
     /// that already happened. This row is written once, at export time, and a session that resumes
@@ -159,25 +159,25 @@ public static class DatasetTileExporter
         double[]? StretchOrigMin = null,
         double[]? StretchBalance = null,
         double? NoisePedestal = null,
-        double? NoiseBackground = null,
-        double? NoiseSigma = null);
+        double[]? NoiseBackground = null,
+        double[]? NoiseSigma = null);
 
     /// <summary>
     /// One frame as the runner would prepare it: the stretched frame the tiles are cut from and, when it was
-    /// stretched, the stretch and the frame's OWN noise calibration its planes are computed with.
+    /// stretched, the stretch and the frame's OWN noise calibration its planes are computed with, one per channel.
     /// </summary>
-    private sealed record PreparedFrame(Image Stretched, StretchedNoise.ChannelStretch[]? Stretches, LinearDegradation.NoiseCalibration? Calibration)
+    private sealed record PreparedFrame(Image Stretched, StretchedNoise.ChannelStretch[]? Stretches, LinearDegradation.NoiseCalibration[]? Calibrations)
     {
         /// <summary>The manifest columns this frame contributes to each of its rows.</summary>
-        public TileManifestRow Stamp(TileManifestRow row, string? sigmaTile) => Stretches is { } s && Calibration is { } cal
+        public TileManifestRow Stamp(TileManifestRow row, string? sigmaTile) => Stretches is { } s && Calibrations is { Length: > 0 } cal
             ? row with
             {
                 SigmaTile = sigmaTile,
                 StretchOrigMin = [.. s.Select(x => x.OrigMin)],
                 StretchBalance = [.. s.Select(x => x.MidtonesBalance)],
-                NoisePedestal = cal.PedestalAdu,
-                NoiseBackground = cal.BackgroundAdu,
-                NoiseSigma = cal.OneSubSigmaAdu,
+                NoisePedestal = cal[0].PedestalAdu,
+                NoiseBackground = [.. cal.Select(x => x.BackgroundAdu)],
+                NoiseSigma = [.. cal.Select(x => x.OneSubSigmaAdu)],
             }
             : row;
     }
@@ -203,8 +203,8 @@ public static class DatasetTileExporter
         }
         // A frame with no block to estimate from gets no plane; if it is degenerate (all ring, or blank), the tile
         // guards below say so with the message that names the real fault.
-        return StretchedNoise.TryEstimateCalibration(unit, stretches, absent, out var calibration)
-            ? new PreparedFrame(stretched, stretches, calibration)
+        return StretchedNoise.TryEstimateCalibration(unit, stretches, absent, out var calibrations)
+            ? new PreparedFrame(stretched, stretches, calibrations)
             : new PreparedFrame(stretched, null, null);
     }
 
@@ -575,7 +575,7 @@ public static class DatasetTileExporter
     /// </summary>
     private static string? WritePlane(PreparedFrame frame, Half[] stored, int tileSize, string tilePath, string tileRelative)
     {
-        if (frame.Stretches is not { } stretches || frame.Calibration is not { } calibration)
+        if (frame.Stretches is not { } stretches || frame.Calibrations is not { } calibrations)
         {
             return null;
         }
@@ -590,7 +590,7 @@ public static class DatasetTileExporter
             }
             channels[c] = p;
         }
-        var plane = StretchedNoise.Plane(channels, tileSize, tileSize, stretches, calibration, 1.0);
+        var plane = StretchedNoise.Plane(channels, tileSize, tileSize, stretches, calibrations, 1.0);
         DatasetDegradationExporter.WritePlaneFile(plane, DatasetDegradationExporter.SigmaPathFor(tilePath));
         return DatasetDegradationExporter.SigmaPathFor(tileRelative);
     }

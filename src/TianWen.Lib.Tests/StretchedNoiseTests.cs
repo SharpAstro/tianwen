@@ -36,12 +36,12 @@ public class StretchedNoiseTests(ITestOutputHelper output)
         return [.. Enumerable.Range(0, Channels).Select(_ => (float[])plane.Clone())];
     }
 
-    private static Image ToImage(float[][] channels)
+    private static Image ToImage(float[][] channels, int size = Size)
     {
         var data = new float[channels.Length][,];
         for (var c = 0; c < channels.Length; c++)
         {
-            var p = new float[Size, Size];
+            var p = new float[size, size];
             Buffer.BlockCopy(channels[c], 0, p, 0, channels[c].Length * sizeof(float));
             data[c] = p;
         }
@@ -169,10 +169,115 @@ public class StretchedNoiseTests(ITestOutputHelper output)
 
         var estimated = StretchedNoise.EstimateCalibration(image, stretches);
 
-        output.WriteLine($"warped {warped}: estimated one-sub sigma {estimated.OneSubSigmaAdu:E3} against {truth.OneSubSigmaAdu:E3} " +
-                         $"({estimated.OneSubSigmaAdu / truth.OneSubSigmaAdu:F3}x), background {estimated.BackgroundAdu:F4} against {truth.BackgroundAdu:F4}");
-        (estimated.OneSubSigmaAdu / truth.OneSubSigmaAdu).ShouldBe(1.0, 0.12);
-        estimated.BackgroundAdu.ShouldBe(truth.BackgroundAdu, 0.004);
+        // Each channel is its own noise draw under the same texture, so the three readings scatter about the
+        // estimator's answer: their mean is held to what one channel was held to before each had its own estimate,
+        // and each to a little more.
+        estimated.Length.ShouldBe(Channels);
+        var ratios = new double[Channels];
+        for (var c = 0; c < Channels; c++)
+        {
+            ratios[c] = estimated[c].OneSubSigmaAdu / truth.OneSubSigmaAdu;
+            output.WriteLine($"warped {warped}, channel {c}: estimated one-sub sigma {estimated[c].OneSubSigmaAdu:E3} against {truth.OneSubSigmaAdu:E3} " +
+                             $"({ratios[c]:F3}x), background {estimated[c].BackgroundAdu:F4} against {truth.BackgroundAdu:F4}");
+            ratios[c].ShouldBe(1.0, 0.15, $"channel {c}");
+            estimated[c].BackgroundAdu.ShouldBe(truth.BackgroundAdu, 0.004, $"channel {c}");
+        }
+        ratios.Average().ShouldBe(1.0, 0.12);
+    }
+
+    /// <summary>
+    /// A colour frame whose channels do NOT share one noise-per-level, as a real one does not: the sky sits at a
+    /// different level in each (SMC 2026's measured floors, red lowest), and green, built from twice the photosites
+    /// by a Bayer drizzle, carries half the variance per unit of signal. Each channel's own estimate has to find its
+    /// own noise, and each channel's plane has to match the noise that was injected into it. Channel 0's calibration
+    /// carried to every channel, which the estimator did before, reads green high by sqrt 2, so this test fails on
+    /// the old estimator rather than passing on a frame that cannot tell. (It is asserted per channel, not on the
+    /// luminance: after the stretch the darkest channel's noise dominates the luminance, and on this frame green's
+    /// error moves it by only a few percent.)
+    /// </summary>
+    [Fact]
+    public void EachChannelIsAnchoredOnItsOwnNoise()
+    {
+        const int size = 512;
+        var skies = new[] { 0.012, 0.046, 0.032 };
+        var photosites = new[] { 1.0, 2.0, 1.0 };
+        // Red's sky at a signal-to-noise of 30, the rest following shot noise from the same collection rate.
+        const double perUnitVariance = 4e-4 * 4e-4 / 0.012;
+        var truths = new LinearDegradation.NoiseCalibration[Channels];
+        var clean = new float[Channels][];
+        var noisy = new float[Channels][];
+        var rng = new Random(5);
+        for (var c = 0; c < Channels; c++)
+        {
+            truths[c] = new LinearDegradation.NoiseCalibration(0.0, skies[c], Math.Sqrt(perUnitVariance * skies[c] / photosites[c]), 1);
+            var p = new float[size * size];
+            for (var y = 0; y < size; y++)
+            {
+                for (var x = 0; x < size; x++)
+                {
+                    var dx = x - (size / 2.0);
+                    var dy = y - (size / 2.0);
+                    p[(y * size) + x] = (float)(skies[c] * (1.0 + (4.0 * Math.Exp(-((dx * dx) + (dy * dy)) / (2 * 90.0 * 90.0)))));
+                }
+            }
+            clean[c] = p;
+            noisy[c] = (float[])p.Clone();
+            LinearDegradation.AddNoiseInPlace(noisy[c], NoiseField.White(size, size, rng), truths[c], 1.0);
+        }
+        var noisyImage = ToImage(noisy, size);
+        var (origMin, balances) = noisyImage.MtfStretchParameters(0.25);
+        var stretches = Enumerable.Range(0, Channels).Select(c => new StretchedNoise.ChannelStretch(balances[c], origMin[c])).ToArray();
+
+        var estimated = StretchedNoise.EstimateCalibration(noisyImage, stretches);
+
+        for (var c = 0; c < Channels; c++)
+        {
+            output.WriteLine($"channel {c}: sigma {estimated[c].OneSubSigmaAdu:E3} against {truths[c].OneSubSigmaAdu:E3} " +
+                             $"({estimated[c].OneSubSigmaAdu / truths[c].OneSubSigmaAdu:F3}x), background {estimated[c].BackgroundAdu:F4} against {skies[c]:F4}");
+            (estimated[c].OneSubSigmaAdu / truths[c].OneSubSigmaAdu).ShouldBe(1.0, 0.08, $"channel {c}");
+            estimated[c].BackgroundAdu.ShouldBe(skies[c], skies[c] * 0.1, $"channel {c}");
+        }
+
+        // Each channel's plane over the sky, from its own estimate and from channel 0's carried to it.
+        var cleanStretched = ToImage(clean, size).MtfStretchWith(origMin, balances);
+        var noisyStretched = noisyImage.MtfStretchWith(origMin, balances);
+        for (var c = 0; c < Channels; c++)
+        {
+            var channel = new[] { noisyStretched.GetChannelSpan(c).ToArray() };
+            var own = StretchedNoise.Plane(channel, size, size, [stretches[c]], [estimated[c]], 1.0);
+            var carried = StretchedNoise.Plane(channel, size, size, [stretches[c]], [estimated[0]], 1.0);
+            var diff = new List<double>();
+            var ownSky = new List<double>();
+            var carriedSky = new List<double>();
+            var ns = noisyStretched.GetChannelSpan(c);
+            var cs = cleanStretched.GetChannelSpan(c);
+            for (var y = 16; y < size - 16; y++)
+            {
+                for (var x = 16; x < size - 16; x++)
+                {
+                    var dx = x - (size / 2.0);
+                    var dy = y - (size / 2.0);
+                    if ((dx * dx) + (dy * dy) < 240.0 * 240.0)
+                    {
+                        continue;
+                    }
+                    var i = (y * size) + x;
+                    diff.Add(ns[i] - cs[i]);
+                    ownSky.Add(own[i] / StretchedNoise.PlaneScale);
+                    carriedSky.Add(carried[i] / StretchedNoise.PlaneScale);
+                }
+            }
+            var mean = diff.Average();
+            var measured = Math.Sqrt(diff.Sum(v => (v - mean) * (v - mean)) / (diff.Count - 1));
+            var ownRatio = ownSky.Average() / measured;
+            var carriedRatio = carriedSky.Average() / measured;
+            output.WriteLine($"channel {c} sky: measured {measured:E3}, own plane {ownRatio:F3}x, channel 0's carried {carriedRatio:F3}x");
+            ownRatio.ShouldBe(1.0, 0.08, $"channel {c}");
+            if (c == 1)
+            {
+                carriedRatio.ShouldBeGreaterThan(1.25, "green carried channel 0's calibration");
+            }
+        }
     }
 
     [Fact]
