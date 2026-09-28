@@ -347,13 +347,27 @@ public class NodeAccessTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         var issued = await Access.GrantAsync("Laptop", ct);
         await using var laptop = NodeTransport.OverTcp(_harness.Transport.BaseAddress, new NodeGrant(issued.Token))
             .CreateEventStream(new SystemTimeProvider(), NullLogger.Instance);
+        var drops = 0;
+        laptop.ConnectedChanged += (_, connected) =>
+        {
+            if (!connected)
+            {
+                Interlocked.Increment(ref drops);
+            }
+        };
         laptop.Start(ct);
-        await NodeWait.UntilAsync("the laptop attached", _ => ValueTask.FromResult((hub.CommandingClientCount == 1, $"{hub.CommandingClientCount} commanding")), ct);
+
+        // Attached on BOTH sides: the node counts the laptop once it has accepted the socket, and the laptop says so only
+        // once its own connect has returned, a moment later. Waiting on the node's count alone let a loaded run revoke
+        // inside that moment and then read the laptop as not connected, which it had never yet been.
+        await NodeWait.UntilAsync("the laptop attached", _ => ValueTask.FromResult((hub.CommandingClientCount == 1 && laptop.IsConnected,
+            $"{hub.CommandingClientCount} commanding, laptop connected {laptop.IsConnected}")), ct);
 
         (await Access.RevokeAsync(issued.Grant.Id, ct)).ShouldBeTrue();
 
         hub.CommandingClientCount.ShouldBe(0, "its socket was upgraded with a grant it no longer holds");
         laptop.IsConnected.ShouldBeTrue("revoking a grant closes nothing; the laptop goes on seeing");
+        Volatile.Read(ref drops).ShouldBe(0, "nor did the socket drop and come back");
     }
 
     [Fact(Timeout = 60_000)]
