@@ -24,13 +24,14 @@ namespace TianWen.UI.Abstractions
                 return false;
             }
 
-            // Planetary mode: the planetary view does its own position-aware hit dispatch (toolbar / sliders /
-            // Start-Stop), so forward raw MOUSE events straight to it. Keys are NOT forwarded so global
-            // shortcuts (Esc, mode switching) stay free.
+            // Planetary mode: the router has already dispatched a press on any of the view's controls (the view is
+            // one of this tab's Children), so what reaches here is what no region claimed: a pan, the PiP drag, a
+            // wheel zoom. Forward those MOUSE events to the view. Keys are NOT forwarded so global shortcuts (Esc,
+            // mode switching) stay free.
             if (state.Mode == LiveSessionMode.Planetary && PlanetaryView is { } planetaryView
                 && evt is InputEvent.MouseDown or InputEvent.MouseMove or InputEvent.MouseUp or InputEvent.Scroll)
             {
-                return planetaryView.HandleInput(evt);
+                return planetaryView.Widget.HandleInput(evt);
             }
 
             switch (evt)
@@ -192,37 +193,47 @@ namespace TianWen.UI.Abstractions
                     }
                     return false;
 
-                // Preview viewer keyboard shortcuts
-                case InputEvent.KeyDown(InputKey.F, _) when PreviewView is not null:
-                    _previewState.ZoomToFit = true;
-                    state.NeedsRedraw = true;
-                    return true;
+                // The viewer keys, for the viewer ON SCREEN: the planetary view in Planetary mode, else the preview. They
+                // used to act on the preview's state whatever the mode, so in Planetary mode F and R zoomed a viewer nobody
+                // could see (found in the ZWO live check, 2026-09-28). Keys are not forwarded to the view itself, whose own
+                // handler takes Escape as quit and Tab as a field cycle.
+                case InputEvent.KeyDown(InputKey.F, _) when OnScreenViewer() is { } viewer:
+                    viewer.ZoomToFit = true;
+                    return Redrawn(state, viewer);
 
-                case InputEvent.KeyDown(InputKey.R, _) when PreviewView is not null:
-                    _previewState.ZoomToFit = false;
-                    _previewState.Zoom = 1f;
-                    _previewState.PanOffset = (0, 0);
-                    state.NeedsRedraw = true;
-                    return true;
+                case InputEvent.KeyDown(InputKey.R, _) when OnScreenViewer() is { } viewer:
+                    viewer.ZoomToFit = false;
+                    viewer.Zoom = 1f;
+                    viewer.PanOffset = (0, 0);
+                    return Redrawn(state, viewer);
 
-                case InputEvent.KeyDown(InputKey.T, _) when PreviewView is not null:
-                    CyclePreviewStretch(_previewState);
-                    state.NeedsRedraw = true;
-                    return true;
+                case InputEvent.KeyDown(InputKey.T, _) when OnScreenViewer() is { } viewer:
+                    CyclePreviewStretch(viewer);
+                    return Redrawn(state, viewer);
 
-                case InputEvent.KeyDown(InputKey.B, _) when PreviewView is not null:
-                    ViewerActions.CycleCurvesBoost(_previewState);
-                    state.NeedsRedraw = true;
-                    return true;
+                case InputEvent.KeyDown(InputKey.B, _) when OnScreenViewer() is { } viewer:
+                    ViewerActions.CycleCurvesBoost(viewer);
+                    return Redrawn(state, viewer);
 
-                case InputEvent.KeyDown(InputKey.S, _) when PreviewView is not null:
-                    ViewerActions.CycleStretchPreset(_previewState);
-                    state.NeedsRedraw = true;
-                    return true;
+                case InputEvent.KeyDown(InputKey.S, _) when OnScreenViewer() is { } viewer:
+                    ViewerActions.CycleStretchPreset(viewer);
+                    return Redrawn(state, viewer);
 
                 default:
                     return false;
             }
+        }
+
+        /// <summary>The state of the viewer on screen: the planetary view's in Planetary mode, else the preview's.</summary>
+        private ViewerState? OnScreenViewer() => State?.Mode == LiveSessionMode.Planetary
+            ? PlanetaryView is not null ? PlanetaryCapture?.ViewerState : null
+            : PreviewView is not null ? _previewState : null;
+
+        private static bool Redrawn(LiveSessionState state, ViewerState viewer)
+        {
+            viewer.NeedsRedraw = true;
+            state.NeedsRedraw = true;
+            return true;
         }
 
         // -----------------------------------------------------------------------
