@@ -145,7 +145,9 @@ With no truth, two independent stacks of the same capture (disjoint frame sets, 
 **Issue:** #1050.
 
 - **What:** `tianwen planetary render-truth` produces T1 for a capture's geometry. `tianwen planetary degrade` then turns it into a synthetic SER with the capture's own seeing, optics and camera:
-  - **Tip-tilt:** the global shift series, measured by `GlobalAligner` on the real capture, with its spectrum and frame-to-frame correlation. At 445 fps, frames 2.2 ms apart share seeing.
+  - **Tip-tilt:** the global shift series, measured by `GlobalAligner` on the real capture (plus R0's crop origins), with its spectrum and frame-to-frame correlation. At 445 fps, frames 2.2 ms apart share seeing.
+    - The series is two motions: the mount's, smooth and slow (tracking error, or drift), and the seeing's, fast. The smooth part is fitted and removed before the seeing's is measured, and reported as the mount's.
+    - The mount changed between sessions: the 10 inch was used on its Dobsonian base and later taken off it (the user, 2026-09-28; 2024-12-15 is after). The measured drift says which mount each session had, rather than assuming it.
   - **Local warp:** the field's amplitude, spatial correlation length and temporal correlation, measured from alignment-point tracks (R5).
   - **Blur:** a per-frame blur distribution fitted to the real capture's quality distribution, as Kolmogorov phase screens through the aperture (aotools and HCIPy are the reference implementations to learn from).
   - **Camera:** the Bayer mosaic, the 8-bit or 16-bit quantisation, read noise and shot noise at the measured gain.
@@ -287,7 +289,7 @@ Each metric lives in Lib and is shared by the CLI verb and the stack itself (`ti
 ## Open questions for the user
 
 1. ~~The telescope and aperture~~ **answered 2026-09-28:** a Skywatcher 10 inch f/5 Newtonian with a Celestron Omni 2.5x Barlow for most sessions, and possibly a Skymax 102 Maksutov for some. R1 tells them apart from the data.
-2. **Which captures first.** Suggested, and the order R1 onwards follows unless the user reorders it:
+2. **Which captures first:** agreed 2026-09-28, the Uranus-C Jupiter run of 2024-12-15 first. It was taken with the 10 inch after it came off its Dobsonian base. The order R1 onwards follows:
    - the Uranus-C Jupiter run of 2024-12-15 (the longest, timestamped, raw);
    - the ASI462MC Jupiter and Saturn of 2021-12-16 (raw);
    - the 2022-10-09 Jupiter, for its AutoStakkert and WinJUPOS references.
