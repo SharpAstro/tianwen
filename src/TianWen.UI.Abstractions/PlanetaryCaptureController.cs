@@ -32,6 +32,12 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
 
     private LiveStackPreviewSource? _source;      // render thread only
     private LiveStackPreviewSource? _nextSource;  // a start's source, handed to the render thread by Tick
+
+    // The camera's live frame (planetary/live), for RAW: the newest one read, handed to the render thread by Tick, which
+    // copies it into _liveFrame and gives it back. Render thread only, but for the hand-off.
+    private readonly LiveFramePreviewSource _liveFrame = new LiveFramePreviewSource();
+    private Image? _pendingLiveFrame;
+    private bool _hasLiveFrame;
     private CancellationTokenSource? _runCts;
     private Task? _run;
     private int _stopAsked;
@@ -55,8 +61,16 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
     /// </summary>
     public ViewerState ViewerState => _state;
 
-    /// <summary>The live-stack preview source for the tab to render, or null before the first start.</summary>
-    public IPreviewSource? Source => _source;
+    /// <summary>
+    /// What the tab renders: the camera's live frame on RAW, the node's rolling stack on STACK (<see cref="ViewerState.ShowStacked"/>),
+    /// or null before the first start.
+    /// </summary>
+    /// <remarks>
+    /// RAW is the camera now, at the node's display rate; the stack trails it by its window (500 frames, five seconds at
+    /// 92 a second) and by however long a master takes to build. Until 2026-09-28 the view had only the stack: this
+    /// computer read planetary/master alone, so RAW showed the stack too and a live view for focusing lagged by seconds.
+    /// </remarks>
+    public IPreviewSource? Source => !_state.ShowStacked && _hasLiveFrame ? _liveFrame : _source;
 
     /// <summary>The latest display-ready ([0,1]) master, or null before the first. Render-thread only.</summary>
     public Image? CurrentMaster => _source?.DisplayMaster;
@@ -106,6 +120,7 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
     {
         using var reading = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var frames = ReadMastersAsync(node, masters, reading.Token);
+        var live = ReadLiveFramesAsync(node, reading.Token);
         try
         {
             var stopSent = false;
@@ -157,6 +172,17 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
             {
                 // The reader ends with the watching.
             }
+            finally
+            {
+                try
+                {
+                    await live.ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is OperationCanceledException || reading.IsCancellationRequested)
+                {
+                    // So does the live frame's.
+                }
+            }
             Capture.Ended();
             _state.IsSequence = false;
             _state.NeedsRedraw = true;
@@ -175,6 +201,31 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
         }
     }
 
+    // How often the live frame's reader looks again while STACK is on show, when it asks for nothing.
+    private static readonly TimeSpan LiveFrameIdlePoll = TimeSpan.FromMilliseconds(100);
+
+    // The camera's live frame, the newest each time the last has been read (drop-to-latest), and only while RAW is on show:
+    // a frame nobody sees is one the node need not send. Each is handed to the render thread, the one it replaces given back.
+    private async Task ReadLiveFramesAsync(NodeConnection node, CancellationToken cancellationToken)
+    {
+        await using var stream = await node.Transport.OpenFrameStreamAsync(FrameSources.PlanetaryLive, cancellationToken).ConfigureAwait(false);
+        var reader = new FrameReader();
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            if (_state.ShowStacked)
+            {
+                await _timeProvider.SleepAsync(LiveFrameIdlePoll, cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+            if (await stream.ReadAsync(reader, cancellationToken).ConfigureAwait(false) is not { } next)
+            {
+                return;
+            }
+            Interlocked.Exchange(ref _pendingLiveFrame, next.Frame)?.Release();
+            _state.NeedsRedraw = true;
+        }
+    }
+
     /// <summary>
     /// Render-thread drive: takes a new start's source, pushes changed wavelet-sharpen params, publishes a finished master,
     /// then follows the latest the node sent. Returns true when a master was published (the caller re-uploads the texture).
@@ -186,6 +237,27 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
             _source?.Dispose();
             _source = next;
             _state.WaveletDirty = true;
+            _hasLiveFrame = false; // the last capture's frame is not this one's
+        }
+
+        // The newest live frame, copied into the RAW source and given back at once (AcceptFrame leases it for the copy).
+        if (Interlocked.Exchange(ref _pendingLiveFrame, null) is { } frame)
+        {
+            try
+            {
+                if (_liveFrame.AcceptFrame(frame, freezeStats: false))
+                {
+                    _hasLiveFrame = true;
+                    if (!_state.ShowStacked)
+                    {
+                        _state.NeedsTextureUpdate = true;
+                    }
+                }
+            }
+            finally
+            {
+                frame.Release();
+            }
         }
         if (_source is not { } live)
         {
@@ -252,6 +324,7 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
             runCts.Dispose();
         }
         Interlocked.Exchange(ref _nextSource, null)?.Dispose();
+        Interlocked.Exchange(ref _pendingLiveFrame, null)?.Release();
         if (_source is { } source)
         {
             await source.DisposeAsync().ConfigureAwait(false);

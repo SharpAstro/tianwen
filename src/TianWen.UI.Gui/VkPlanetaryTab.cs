@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Immutable;
 using DIR.Lib;
 using SdlVulkan.Renderer;
@@ -30,7 +30,7 @@ namespace TianWen.UI.Gui;
 /// rows), not pixel arithmetic -- placement is weights + spacers, and draw == hit by construction.
 /// </para>
 /// </summary>
-public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
+public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget<VulkanContext>
 {
     // Panel text follows the GUI's standard metrics (design units; RenderLayout scales by DpiScale) so it
     // matches the other tabs' chrome. Named to avoid hiding the inherited ImageRendererBase.BaseFontSize.
@@ -144,6 +144,9 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
     {
     }
 
+    /// <inheritdoc/>
+    public PixelWidgetBase<VulkanContext> Widget => this;
+
     /// <summary>
     /// <see cref="IPlanetaryViewWidget"/> entry point: renders the left control panel + the live
     /// rolling-window stack (via the shared viewer). Drives <paramref name="controller"/> off the shared
@@ -179,7 +182,7 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
 
         if (!_configured)
         {
-            state.ShowStacked = true;     // RAW/STACK starts on STACK (the live lucky-imaging stack)
+            state.ShowStacked = false;    // RAW/STACK starts on RAW: the camera now, which focusing needs; the stack trails it
             state.ShowInfoPanel = true;   // wavelet-sharpen + WB sliders live in the info panel
             state.ShowFileList = false;   // a live capture has no file list
             // Planets are bright: a linear preview shows the disk + belts at their true relative brightness,
