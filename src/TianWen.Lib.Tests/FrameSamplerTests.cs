@@ -51,6 +51,53 @@ public class FrameSamplerTests
         sample.Release();
     }
 
+    /// <summary>
+    /// A stream a little faster than the interval, as an ASI462MC streams at full frame (31.6 ms against the node's 33):
+    /// sampled against "an interval since the last sample", every other frame fell just short of it and the live view
+    /// ran at 18 frames a second. Paced by due time, it keeps to one per interval.
+    /// </summary>
+    [Fact]
+    public void AStreamJustFasterThanTheIntervalIsSampledOncePerIntervalNotEveryOtherFrame()
+    {
+        var time = new FakeTimeProviderWrapper();
+        var interval = TimeSpan.FromMilliseconds(33);
+        var sampler = new FrameSampler(time, interval, nameof(FrameSamplerTests));
+        var frame = TestFrames.BufferedMono(out _);
+        var framePeriod = TimeSpan.FromMilliseconds(31.6);
+
+        var sampled = 0;
+        var frames = (int)(TimeSpan.FromSeconds(10) / framePeriod);
+        for (var i = 0; i < frames; i++)
+        {
+            if (sampler.TrySample(frame, Arrived, out var sample))
+            {
+                sampled++;
+                sample.Release();
+            }
+            time.Advance(framePeriod);
+        }
+
+        // Ten seconds at one per 33 ms is 303 due; the frames only land on the 31.6 ms grid, so a sample waits for the
+        // next frame after its due time, which drops about one due time in 23.
+        sampled.ShouldBeGreaterThan(280, $"{sampled} of {frames} frames sampled in ten seconds");
+    }
+
+    [Fact]
+    public void AStreamThatPausedStartsAFreshScheduleRatherThanCatchingUpInABurst()
+    {
+        var time = new FakeTimeProviderWrapper();
+        var sampler = new FrameSampler(time, Interval, nameof(FrameSamplerTests));
+        var frame = TestFrames.BufferedMono(out _);
+
+        sampler.TrySample(frame, Arrived, out var first).ShouldBeTrue();
+        first.Release();
+        time.Advance(Interval * 10);
+        sampler.TrySample(frame, Arrived, out var afterPause).ShouldBeTrue();
+        afterPause.Release();
+        time.Advance(TimeSpan.FromMilliseconds(1));
+        sampler.TrySample(frame, Arrived, out _).ShouldBeFalse("a paused stream's missed samples are not owed");
+    }
+
     [Fact]
     public void ASteadyStreamRecyclesItsPlanes()
     {
