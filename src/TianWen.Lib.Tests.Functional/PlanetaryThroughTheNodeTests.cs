@@ -60,6 +60,39 @@ public class PlanetaryThroughTheNodeTests(ITestOutputHelper output)
         (await h.Local.Client.GetPlanetaryAsync(ct)).Value?.Running.ShouldNotBe(true, "the node's capture ended");
     }
 
+    /// <summary>
+    /// RAW is the camera NOW: the live frame the node samples at display rate, read from planetary/live. The view used to
+    /// read the stack alone, so RAW showed the stack too and a live view for focusing trailed the camera by seconds (the
+    /// ZWO live check, 2026-09-28).
+    /// </summary>
+    [Fact(Timeout = 90_000)]
+    public async Task RawShowsTheCamerasLiveFrameAndStackShowsTheStack()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var h = await GuiNodeHarness.StartAsync(output, ct);
+        var planetary = await StartedAsync(h);
+        planetary.ViewerState.ShowStacked = false;
+
+        await h.UntilAsync(() =>
+        {
+            planetary.Tick();
+            return planetary.Source is LiveFramePreviewSource;
+        }, ct);
+        var raw = planetary.Source.ShouldBeOfType<LiveFramePreviewSource>();
+        (raw.Width, raw.Height).ShouldBe((320, 200), "the camera's frame at the window's size, not the stack");
+
+        planetary.ViewerState.ShowStacked = true;
+        await h.UntilAsync(() =>
+        {
+            planetary.Tick();
+            return planetary.HasMaster;
+        }, ct);
+        planetary.Source.ShouldBeOfType<LiveStackPreviewSource>("STACK shows the node's rolling stack");
+
+        h.Post(new StopVideoCaptureSignal());
+        await h.UntilAsync(() => !planetary.IsCapturing, ct);
+    }
+
     [Fact(Timeout = 90_000)]
     public async Task AControlOnThePanelReachesTheNodesCapture()
     {
