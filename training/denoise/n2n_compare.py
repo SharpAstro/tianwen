@@ -45,6 +45,15 @@ def main():
     ap.add_argument("--cells", type=int, default=4)
     ap.add_argument("--out", default="compare.png")
     ap.add_argument("--seed", type=int, default=0, help="which cells are drawn, so a re-run shows the same ones")
+    ap.add_argument("--only", default=None, help="keep the cells of sessions whose id contains one of these "
+                                                 "comma-separated strings (n2n_starsplit.py's --only)")
+    ap.add_argument("--pick", choices=("random", "bright"), default="random",
+                    help="bright: the cells with the most of half B's low-pass at 0.45 or above, the levels where "
+                         "a denoiser loses filaments; random: a seeded draw")
+    ap.add_argument("--plane-factor", type=float, default=1.0,
+                    help="scale the estimated half-A planes a --cond-map checkpoint is given, e.g. by the factor "
+                         "n2n_starsplit.py --plane-truth-anchor printed for the session (the ORACLE condition); "
+                         "1 is the estimate as the product would compute it")
     a = ap.parse_args()
 
     import torch
@@ -55,15 +64,33 @@ def main():
 
     halves = meta["has_halves"]
     val = [i for i in range(meta["train_cells"], meta["cells"]) if halves[i]]
+    if a.only:
+        wanted = [t.strip().lower() for t in a.only.split(",") if t.strip()]
+        val = [i for i in val if any(t in meta["keys"][i][0].lower() for t in wanted)]
     if not val:
         raise SystemExit("no val cell carries a half-master pair")
-    rng = np.random.default_rng(a.seed)
-    picked = sorted(rng.choice(val, size=min(a.cells, len(val)), replace=False).tolist())
-    print(f"{len(picked)} cells of {len(val)} that carry a pair: {picked}")
+    if a.pick == "bright":
+        from scipy.ndimage import gaussian_filter
+        frac = []
+        for i in val:
+            lb = S.crop(np.asarray(mm[i:i + 1, S.SLOT_HALF_B], dtype=np.float32))[0].mean(axis=0)
+            frac.append(float((gaussian_filter(lb, 2.0) >= 0.45).mean()))
+        order = np.argsort(frac)[::-1][:a.cells]
+        picked = sorted(val[k] for k in order)
+        print(f"{len(picked)} brightest cells of {len(val)}: {picked} (fraction at 0.45 or above: "
+              + ", ".join(f"{frac[k]:.2f}" for k in sorted(order, key=lambda k: val[k])) + ")")
+    else:
+        rng = np.random.default_rng(a.seed)
+        picked = sorted(rng.choice(val, size=min(a.cells, len(val)), replace=False).tolist())
+        print(f"{len(picked)} cells of {len(val)} that carry a pair: {picked}")
 
     half_a = np.asarray(mm[picked, S.SLOT_HALF_A], dtype=np.float32)
     half_b = np.asarray(mm[picked, S.SLOT_HALF_B], dtype=np.float32)
     master = np.asarray(mm[picked, S.SLOT_MASTER], dtype=np.float32)
+    # A --cond-map checkpoint needs half A's per-pixel planes (S.denoise refuses one without them).
+    sig, sig_has = S.open_sigma(a.cache, meta)
+    planes = (np.asarray(sig[picked, S.SLOT_HALF_A], dtype=np.float32)
+              if sig is not None and sig_has[picked, S.SLOT_HALF_A].all() else None)
 
     columns = [("raw half A", S.crop(half_a))]
     for spec in a.models:
@@ -76,8 +103,21 @@ def main():
         if "@" in ckpt:
             ckpt, a_s = ckpt.rsplit("@", 1)
             alpha = float(a_s)
+        # "slug=ckpt.pt*0.53" gives that model its own plane factor, so the estimate and the oracle
+        # anchor of one --cond-map checkpoint can stand side by side.
+        factor = a.plane_factor
+        if "*" in ckpt:
+            ckpt, f_s = ckpt.rsplit("*", 1)
+            factor = float(f_s)
         raw_in = S.crop(half_a)
-        out = S.crop(S.denoise(a.cache, ckpt, half_a, dev))
+        path = ckpt if os.path.isabs(ckpt) else os.path.join(a.cache, ckpt)
+        cond_map = bool(torch.load(path, map_location="cpu").get("cond_map", False))
+        if cond_map and planes is None:
+            raise SystemExit(f"{slug} conditions on a per-pixel plane and {a.cache} holds none for these cells")
+        out = S.crop(S.denoise(a.cache, ckpt, half_a, dev,
+                               planes=planes * factor if cond_map else None))
+        if cond_map and factor != 1.0:
+            slug = f"{slug} plane x{factor:.2f}"
         if alpha != 1.0:
             out = raw_in + alpha * (out - raw_in)
             slug = f"{slug}@{alpha:g}"
