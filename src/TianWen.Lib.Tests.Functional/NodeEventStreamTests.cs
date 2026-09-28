@@ -46,9 +46,7 @@ public class NodeEventStreamTests(ITestOutputHelper outputHelper) : IAsyncLifeti
         var session = await _harness.StartSessionAsync(ct);
 
         var received = new TaskCompletionSource<WebSocketEventDto>(TaskCreationOptions.RunContinuationsAsynchronously);
-        await using var stream = new TianWenEventStream(
-            _harness.Client.BaseAddress ?? throw new InvalidOperationException("the harness client has no base address"),
-            new SystemTimeProvider(), FakeExternal.CreateLogger(outputHelper));
+        await using var stream = _harness.Transport.CreateEventStream(new SystemTimeProvider(), FakeExternal.CreateLogger(outputHelper));
         stream.EventReceived += (_, e) =>
         {
             if (e.Event == "SESSION-PHASE-CHANGED")
@@ -84,9 +82,7 @@ public class NodeEventStreamTests(ITestOutputHelper outputHelper) : IAsyncLifeti
                 new SessionPhaseChangedEventArgs(SessionPhase.NotStarted, SessionPhase.Initialising));
 
         var received = new TaskCompletionSource<WebSocketEventDto>(TaskCreationOptions.RunContinuationsAsynchronously);
-        await using var stream = new TianWenEventStream(
-            _harness.Client.BaseAddress ?? throw new InvalidOperationException("the harness client has no base address"),
-            new SystemTimeProvider(), FakeExternal.CreateLogger(outputHelper));
+        await using var stream = _harness.Transport.CreateEventStream(new SystemTimeProvider(), FakeExternal.CreateLogger(outputHelper));
         stream.EventReceived += (_, e) =>
         {
             if (e.Event == "SESSION-PHASE-CHANGED")

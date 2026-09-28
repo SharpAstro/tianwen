@@ -345,8 +345,9 @@ internal sealed class EventBroadcaster(
     /// </summary>
     internal void OnPromptRequested(object? sender, SessionPromptEventArgs e)
     {
-        // Only a client that can answer counts: a ninaAPI v2 socket has no prompt route (EventHub.PresentClientCount).
-        if (eventHub.PresentClientCount == 0)
+        // Only a client that can answer counts: a ninaAPI v2 socket has no prompt route, and a watcher over TCP without a
+        // grant may not answer (EventHub.AnsweringClientCount).
+        if (eventHub.AnsweringClientCount == 0)
         {
             AnswerUnattended(e, "no observer attached");
             return;
@@ -387,7 +388,7 @@ internal sealed class EventBroadcaster(
     /// </summary>
     internal void ResolveOrphanedPrompt()
     {
-        if (eventHub.PresentClientCount > 0 || hostedSession.PendingPrompt is not { } prompt)
+        if (eventHub.AnsweringClientCount > 0 || hostedSession.PendingPrompt is not { } prompt)
         {
             return;
         }

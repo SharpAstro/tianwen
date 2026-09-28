@@ -99,6 +99,7 @@ internal sealed class NodeHarness : IAsyncDisposable
         builder.Services.AddDevices();
         builder.Services.AddProfiles();
         builder.Services.AddSessionFactory();
+        builder.Services.AddSingleton<LAN.Lib.IHostNameResolver>(NodeAccessForTests.NoHostNames.Instance);
         builder.Services.AddHostedSession();
         // Registered last, so it is the factory every endpoint resolves.
         builder.Services.AddSingleton<ISessionFactory>(factory);
@@ -121,7 +122,10 @@ internal sealed class NodeHarness : IAsyncDisposable
             throw;
         }
 
-        var transport = held is not null ? NodeTransport.OverSocket(held.SocketPath) : NodeTransport.OverTcp(new Uri(app.Urls.First()));
+        // Over TCP a node refuses a command without a grant (P6b, #1021): the test's client holds one.
+        var transport = held is not null
+            ? NodeTransport.OverSocket(held.SocketPath)
+            : NodeTransport.OverTcp(new Uri(app.Urls.First()), await NodeAccessForTests.TrustTheTestAsync(app, cancellationToken));
         return new NodeHarness(app, transport, factory, external, held);
     }
 

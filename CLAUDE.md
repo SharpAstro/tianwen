@@ -485,7 +485,8 @@ releasing it only after restoring the mount. Every new kind of run owes the same
   the node's, so the window leaves (P7 starts a successor).
   **Quitting is ONE rule too, `AppQuit`, for the GUI and the TUI** (decision 1 of
   `docs/plans/hardware-in-the-server.md`): only the LAST client attached to the node asks (the node's
-  `ClientsAttached`, less this one's own stream); with a run going on, "Leave the rig running" (the default) or
+  `ClientsAttached`, less this one's own stream, which counts only clients that may command: a watcher over the LAN is
+  nobody to leave the rig to); with a run going on, "Leave the rig running" (the default) or
   "Stop the rig and quit"; with devices connected and no run, "Warm up and disconnect" (the default, which the
   node finishes after the window has gone) or "Leave connected". The question is `LiveSessionState.QuitDialog`
   on this computer's view, drawn by both Live Session tabs over everything (Enter the default, its letter the
@@ -1219,9 +1220,9 @@ full native-AOT rules, and the reasoning behind each rule below:
    the planner's `Start` and `AcrossMeridian`; `PendingTarget` carries none and `/session/start` stamps
    `Start = now`. Never route a real schedule through `/targets`.
 2. **Subscribing to `PromptRequested` takes over the session's unattended answer.** `EventBroadcaster`
-   restores the guarantee (no NATIVE WebSocket client -> `SessionPromptEventArgs.DefaultIfUnanswerable` at
-   once, since a ninaAPI socket cannot answer; one attached -> hold with no timer, liveness is the only
-   bound), and it attaches as the node starts a run, never from its poll. **Liveness is the client's
+   restores the guarantee (no NATIVE WebSocket client that may command -> `SessionPromptEventArgs.DefaultIfUnanswerable`
+   at once, since a ninaAPI socket and a watcher without control cannot answer; one attached -> hold with no timer,
+   liveness is the only bound), and it attaches as the node starts a run, never from its poll. **Liveness is the client's
    presence BEAT, never its socket** (a frozen window keeps its socket): a client beats from the loop that
    DRAWS it (`TianWenEventStream.Beat()`; the GUI from `SdlEventLoop.OnLoopIteration`, never a timer), and
    one whose beat is older than `NodeWire.PresenceLapse` is nobody to wait for. **Any new subscriber on a
@@ -1243,7 +1244,8 @@ full native-AOT rules, and the reasoning behind each rule below:
    (`Session.PublishCapturedImage`), which costs one camera array per OTA.
 5. **The Alpaca plane is a DEVICE plane and cannot become the session plane.** Ownership there is the
    hub lease, not an Alpaca policy: actuation and `Connected=false` answer `0x40B`, reads and
-   `Connected=true` always pass; never make the plane read-only during a session. Device numbers come
+   `Connected=true` always pass the lease (over TCP an app must be allowed first, rule 13); never make the plane
+   read-only during a session. Device numbers come
    from the **ACTIVE PROFILE, in profile order**, never from discovery. **The native and ninaAPI
    actuation routes ask the same lease (`ActuationGate`, 409 naming the run) before touching a driver**,
    and a new actuation route owes the same.
@@ -1311,6 +1313,18 @@ full native-AOT rules, and the reasoning behind each rule below:
    goes through it, and so does a READ**: `GET /session/profile` looked the active profile up in the discovery registry
    and answered "no longer exists" for one saved since, while `GET /profiles/{id}` read it whole (P5b part 8). Changing a
    profile is for the socket only (decision 4); a LAN client reads.
+13. **Over TCP, seeing is free and a command needs control** (P6b, decision 13, #1021), decided in ONE middleware,
+   `NodeAccessGate`, by the surface a route's GROUP declares (`NodeProtocolMetadata`): a native route that is not a
+   GET, an Alpaca PUT (`Connected = true` included) and any ninaAPI route not tagged `.ReadsOnly()` is a command. It
+   passes over the socket, with a grant the node holds (`Authorization: Bearer`, `LanGrants`, only the token's hash
+   kept), or for another app from an address allowed until restart or a host name always allowed (forward-confirmed).
+   **A new route goes in its surface's group**, a new ninaAPI read owes `.ReadsOnly()`, and only asking for control is
+   `.OpenToAsk()`; `NodeAccessTests` fails on a route outside the groups. The refusal is each surface's own (a native
+   401, never the 403 a socket-only route keeps). A client gets control by asking (`LanInvites`: one waits at a time,
+   alive while it polls, the grant minted at its next poll after an Allow); an app's refused command IS its request.
+   Managing who may (answering, revoking, allowing, the LAN share) is for the socket or a grant, and prompts and the
+   quit question count only clients that may command. It is plain HTTP still: `docs/architecture/hosting-api.md`,
+   "Who may command the node over TCP".
 
 ### Remote Rigs (mirror another node's session "as if local")
 

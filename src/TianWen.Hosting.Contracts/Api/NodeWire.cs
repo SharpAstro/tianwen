@@ -13,10 +13,11 @@ namespace TianWen.Hosting.Api;
 public static class NodeWire
 {
     /// <summary>
-    /// 2: the native state plane sends an unknown number as null, never 0 (P5b part 2), so a client of wire 1, whose
-    /// fields are required numbers, cannot read it.
+    /// 3: over TCP a command needs a grant (P6b, decision 13, #1021), so a client of wire 2 sees a rig and every command
+    /// it sends is refused. 2: the native state plane sends an unknown number as null, never 0 (P5b part 2), so a client
+    /// of wire 1, whose fields are required numbers, cannot read it.
     /// </summary>
-    public const int Version = 2;
+    public const int Version = 3;
 
     /// <summary>The TCP port a node listens on for the LAN: a node run by hand, or one whose rig is shared.</summary>
     public const int LanPort = 1888;
@@ -54,6 +55,19 @@ public static class NodeWire
     /// authoritative.
     /// </summary>
     public const string FrameAvailableEvent = "FRAME-AVAILABLE";
+
+    /// <summary>
+    /// The event a node pushes when who may command it changes: a request for control made, answered or withdrawn, a
+    /// grant revoked, an application refused for the first time, allowed or revoked. It carries nothing, since who may
+    /// command the rig is not for every watcher: a client that may manage access reads <c>GET /api/v1/node/access</c>.
+    /// </summary>
+    public const string AccessChangedEvent = "ACCESS-CHANGED";
+
+    /// <summary>How often a client asking for control polls its request, which is what keeps the request alive.</summary>
+    public static readonly System.TimeSpan ControlRequestPollInterval = System.TimeSpan.FromSeconds(2);
+
+    /// <summary>How long a request for control waits without a poll before it is withdrawn: its asker has gone.</summary>
+    public static readonly System.TimeSpan ControlRequestLapse = System.TimeSpan.FromSeconds(15);
 
     /// <summary>
     /// How long a mount's axis keeps moving after the last <c>POST /api/v1/devices/mount/move-axis</c> that asked for it:

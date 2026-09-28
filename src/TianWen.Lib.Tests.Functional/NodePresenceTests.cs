@@ -46,9 +46,7 @@ public class NodePresenceTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         var run = await _harness.StartSessionAsync(ct);
         var hub = _harness.App.Services.GetRequiredService<EventHub>();
 
-        await using var stream = new TianWenEventStream(
-            _harness.Client.BaseAddress ?? throw new InvalidOperationException("the harness client has no base address"),
-            new SystemTimeProvider(), FakeExternal.CreateLogger(outputHelper));
+        await using var stream = _harness.Transport.CreateEventStream(new SystemTimeProvider(), FakeExternal.CreateLogger(outputHelper));
         stream.Start(ct);
 
         // The window's loop: a beat every iteration, as the GUI and the TUI do, until it freezes.
@@ -102,15 +100,13 @@ public class NodePresenceTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         var run = await _harness.StartSessionAsync(ct);
         var hub = _harness.App.Services.GetRequiredService<EventHub>();
 
-        await using var stream = new TianWenEventStream(
-            _harness.Client.BaseAddress ?? throw new InvalidOperationException("the harness client has no base address"),
-            new SystemTimeProvider(), FakeExternal.CreateLogger(outputHelper));
+        await using var stream = _harness.Transport.CreateEventStream(new SystemTimeProvider(), FakeExternal.CreateLogger(outputHelper));
         stream.Start(ct);
-        for (var i = 0; i < 250 && hub.NativeClientCount == 0; i++)
+        for (var i = 0; i < 250 && hub.CommandingClientCount == 0; i++)
         {
             await Task.Delay(20, ct);
         }
-        hub.NativeClientCount.ShouldBe(1, "it is attached");
+        hub.CommandingClientCount.ShouldBe(1, "it is attached");
 
         var answer = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         run.Session.PromptRequested += Raise.EventWith(run.Session, new SessionPromptEventArgs(

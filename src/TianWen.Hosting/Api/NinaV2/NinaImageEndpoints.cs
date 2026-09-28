@@ -38,7 +38,7 @@ internal static class NinaImageEndpoints
             return Results.Json(
                 ResponseEnvelope<NinaImageHistoryDto[]>.Ok(dtos),
                 NinaApiJsonContext.Default.ResponseEnvelopeNinaImageHistoryDtoArray);
-        });
+        }).ReadsOnly();
 
         // GET /v2/api/prepared-image: last captured image as JPEG
         // Params: quality (int, 1-100), resize (bool), scale (double)
@@ -70,7 +70,7 @@ internal static class NinaImageEndpoints
                 ct);
 
             return render.Jpeg is { } jpegBytes ? Results.Bytes(jpegBytes, "image/jpeg") : Results.NotFound();
-        });
+        }).ReadsOnly();
 
         return group;
     }

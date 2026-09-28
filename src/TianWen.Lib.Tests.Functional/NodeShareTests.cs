@@ -16,7 +16,8 @@ namespace TianWen.Lib.Tests.Functional;
 
 /// <summary>
 /// "Share this rig on the LAN" (P1 of docs/plans/hardware-in-the-server.md, #917, decision 3): a machine setting the
-/// node keeps, changed only over its socket, with the logon entry that starts the node while it is on. An idle node a
+/// node keeps, changed over its socket or by a client granted control (decision 13, P6b), with the logon entry that
+/// starts the node while it is on. An idle node a
 /// client started restarts to apply it; one holding the rig applies it at its next start. The logon entry here is a
 /// stand-in that records, so no test writes the user's real one.
 /// </summary>
@@ -66,17 +67,28 @@ public class NodeShareTests(ITestOutputHelper outputHelper)
     }
 
     [Fact(Timeout = 30_000)]
-    public async Task SharingIsRefusedOverTcp()
+    public async Task OverTcpOnlyAClientGrantedControlMayShare()
     {
-        // Only a user of this machine may expose it: a LAN client keeps today's rights (decision 4's rule).
+        // Exposing the machine is a command (decision 13): a LAN client nobody granted control is refused and nothing
+        // changes, while one the rig's owner granted it may switch sharing as a user of this machine may.
         var ct = TestContext.Current.CancellationToken;
         var logon = new RecordedLogonStart();
         await using var node = await NodeHarness.StartAsync(outputHelper, ct, services => services.AddSingleton<INodeLogonStart>(logon));
+        var settingsFile = NodeSettings.PathIn(node.External.AppDataFolder);
 
-        (await ShareAsync(node.Client, shared: true)).Status.ShouldBe(403);
-
+        using (var stranger = new HttpClient { BaseAddress = node.Transport.BaseAddress })
+        {
+            (await ShareAsync(stranger, shared: true)).Status.ShouldBe(401);
+        }
         logon.IsSet.ShouldBeFalse();
-        File.Exists(NodeSettings.PathIn(node.External.AppDataFolder)).ShouldBeFalse();
+        File.Exists(settingsFile).ShouldBeFalse();
+
+        var (status, share) = await ShareAsync(node.Client, shared: true);
+
+        status.ShouldBe(200);
+        share.ShouldNotBeNull().Shared.ShouldBeTrue();
+        logon.IsSet.ShouldBeTrue();
+        JsonDocument.Parse(await File.ReadAllTextAsync(settingsFile, ct)).RootElement.GetProperty("shareOnLan").GetBoolean().ShouldBeTrue();
     }
 
     [Fact(Timeout = 30_000)]

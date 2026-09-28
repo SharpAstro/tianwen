@@ -80,6 +80,13 @@ namespace TianWen.Hosting.Dto;
 [JsonSerializable(typeof(ResponseEnvelope<NodeInfoDto>))]
 [JsonSerializable(typeof(ResponseEnvelope<NodeShareDto>))]
 [JsonSerializable(typeof(NodeShareRequest))]
+[JsonSerializable(typeof(ControlRequestDto))]
+[JsonSerializable(typeof(ControlRequestPollDto))]
+[JsonSerializable(typeof(ControlAnswerDto))]
+[JsonSerializable(typeof(AppAllowDto))]
+[JsonSerializable(typeof(ResponseEnvelope<ControlRequestTicketDto>))]
+[JsonSerializable(typeof(ResponseEnvelope<ControlRequestOutcomeDto>))]
+[JsonSerializable(typeof(ResponseEnvelope<NodeAccessDto>))]
 [JsonSerializable(typeof(Dictionary<string, object?>))]
 // The RUNTIME types of the values in an event payload (a Dictionary<string, object?>). The source generator
 // emits metadata only for types a registered root mentions, and an object value of any other type fails at

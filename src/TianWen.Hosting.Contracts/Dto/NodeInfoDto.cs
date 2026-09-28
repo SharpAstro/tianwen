@@ -33,8 +33,17 @@ public sealed class NodeInfoDto
     /// </summary>
     public bool ShareOnLan { get; init; }
 
-    /// <summary>TianWen clients attached to the event stream now. Only the last one asks before a window closes.</summary>
+    /// <summary>
+    /// TianWen clients attached to the event stream now that can command the node: this machine's, and any granted
+    /// control (P6b). Only the last one asks before a window closes, and a client that only watches is not asked.
+    /// </summary>
     public int ClientsAttached { get; init; }
+
+    /// <summary>
+    /// Whether the client asking may command the node: it came over the node's socket, or presented a grant the node
+    /// holds. False over TCP until the rig's machine grants control (P6b, decision 13, #1021).
+    /// </summary>
+    public bool CallerMayCommand { get; init; }
 
     /// <summary>
     /// Whether the node holds hardware now: a device connected, or a run going on. A node that does is never stopped
