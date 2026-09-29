@@ -28,11 +28,52 @@ public sealed class LuckyImagingStacker
         var channelAccum = Image.CreateChannelData(ctx.Channels, ctx.Height, ctx.Width);
         var weightAccum = new float[ctx.Height, ctx.Width];
 
+        var used = await AccumulateGlobalAsync(stream, ctx.Selected, ctx.Aligner, index => ctx.ScoreByIndex[index], channelAccum, weightAccum, cancellationToken).ConfigureAwait(false);
+
+        var stacked = Normalize(channelAccum, weightAccum, ctx);
+        var master = await FinalizeAsync(stacked, stream.Layout, options, cancellationToken).ConfigureAwait(false);
+        return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length);
+    }
+
+    /// <summary>
+    /// Stacks exactly <paramref name="frames"/>, equally weighted and globally aligned to frame <paramref name="referenceIndex"/>'s
+    /// disk, into the stream's OWN planes: a split Bayer stack stays its four CFA sub-planes, never demosaiced. It is what the
+    /// split-half test compares (docs/plans/planetary-restoration.md, T2), two such stacks from disjoint frames against one
+    /// reference, and a demosaic would put the same interpolated detail into both halves.
+    /// </summary>
+    public async Task<Image> StackPlanesAsync(IPlanetaryFrameStream stream, ImmutableArray<int> frames, int referenceIndex, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        var reference = await stream.LoadAsync(referenceIndex, cancellationToken).ConfigureAwait(false);
+        GlobalAligner aligner;
+        int width, height, channels;
+        ImageMeta meta;
+        try
+        {
+            aligner = AlignerFor(reference, PlanetaryDisk.BoundingBox(reference), alignTileSize: 0);
+            (width, height, channels, meta) = (reference.Width, reference.Height, reference.ChannelCount, reference.ImageMeta);
+        }
+        finally
+        {
+            reference.Release();
+        }
+
+        var channelAccum = Image.CreateChannelData(channels, height, width);
+        var weightAccum = new float[height, width];
+        await AccumulateGlobalAsync(stream, frames, aligner, _ => 1f, channelAccum, weightAccum, cancellationToken).ConfigureAwait(false);
+        return PlanetaryMaster.NormalizeInPlace(channelAccum, weightAccum, meta);
+    }
+
+    // The global path's integration, shared: each frame aligned to the reference's disk and added with its weight (a frame
+    // weighted zero or less is skipped). Returns how many were added.
+    private static async Task<int> AccumulateGlobalAsync(IPlanetaryFrameStream stream, ImmutableArray<int> frames, GlobalAligner aligner, Func<int, float> weightOf,
+        float[][,] channelAccum, float[,] weightAccum, CancellationToken cancellationToken)
+    {
         var used = 0;
-        foreach (var index in ctx.Selected)
+        foreach (var index in frames)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var weight = ctx.ScoreByIndex[index];
+            var weight = weightOf(index);
             if (weight <= 0f)
             {
                 continue;
@@ -41,7 +82,7 @@ public sealed class LuckyImagingStacker
             var frame = await stream.LoadAsync(index, cancellationToken).ConfigureAwait(false);
             try
             {
-                var shift = ctx.Aligner.Estimate(frame, PlanetaryDisk.BoundingBox(frame));
+                var shift = aligner.Estimate(frame, PlanetaryDisk.BoundingBox(frame));
                 frame.AccumulateTranslatedInto(channelAccum, weightAccum, (float)shift.Dx, (float)shift.Dy, weight);
                 used++;
             }
@@ -50,10 +91,16 @@ public sealed class LuckyImagingStacker
                 frame.Release();
             }
         }
+        return used;
+    }
 
-        var stacked = Normalize(channelAccum, weightAccum, ctx);
-        var master = await FinalizeAsync(stacked, stream.Layout, options, cancellationToken).ConfigureAwait(false);
-        return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length);
+    // The global aligner on a reference's disk, its tile auto-sized to the disk (clamped to [64, 512]) unless one is set.
+    private static GlobalAligner AlignerFor(Image reference, PixelRect refRegion, int alignTileSize)
+    {
+        var tileSize = alignTileSize > 0
+            ? NextPowerOfTwo(alignTileSize)
+            : Math.Clamp(NextPowerOfTwo(Math.Max(refRegion.Width, refRegion.Height)), 64, 512);
+        return GlobalAligner.FromReference(reference, refRegion, tileSize);
     }
 
     /// <summary>
@@ -282,10 +329,7 @@ public sealed class LuckyImagingStacker
         try
         {
             var refRegion = PlanetaryDisk.BoundingBox(reference);
-            var tileSize = options.AlignTileSize > 0
-                ? NextPowerOfTwo(options.AlignTileSize)
-                : Math.Clamp(NextPowerOfTwo(Math.Max(refRegion.Width, refRegion.Height)), 64, 512);
-            var aligner = GlobalAligner.FromReference(reference, refRegion, tileSize);
+            var aligner = AlignerFor(reference, refRegion, options.AlignTileSize);
 
             AlignmentPointMatcher? matcher = null;
             float[,]? signalConfidence = null;

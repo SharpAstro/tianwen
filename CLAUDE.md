@@ -934,6 +934,11 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   `PlanetaryLimbFit.Start`, never `PlanetaryDisk.BoundingBox`, whose mean-plus-three-sigma threshold halves a stack's disk.
   It missed WinJUPOS's hand-set outlines by up to 1 px and 1.7 %; the evidence points at the outlines, and R2's rendered
   truth decides.
+- **Which telescope took a capture is read off its frames, one-sided** (R1, `tianwen planetary-aperture`): **a measured
+  cutoff is only a LOWER bound** on the aperture, and **spikes say Newtonian, their absence says nothing** (a Blue read 2.4
+  minutes after its Red read 18.3 through one Newtonian), least of all over a halo clipped at black. `Imaging/Optics` is R2's
+  too: **a plain FFT screen is 28 % short of Kolmogorov** without subharmonics, and **a small render grid prints a four-fold
+  halo** of its own.
 - **Read the plan doc before touching the Canon path** -- it is a list of five things that fail
   SILENTLY. **Recentering is opt-in** (the user, 2026-09-28; it costs the loop about 15 ms a frame at full frame), and
   so is the mount jog, whose **sign is uncalibrated**.

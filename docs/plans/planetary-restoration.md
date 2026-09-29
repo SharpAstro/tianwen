@@ -52,7 +52,7 @@ Read header-only from `D:/SharpCap Captures` and `D:/Astro-Pics`. Nothing is eve
 
 - **Image scale** comes from the Jupiter disk in the stacks: 0.21 to 0.52 arcsec a pixel, an effective focal length of 1.16 to 2.8 m. **No capture records the telescope.** The user, 2026-09-28:
   - Most sessions are a **Skywatcher 10 inch f/5 Newtonian** (254 mm aperture, about 1250 mm focal length), often with a **Celestron Omni 4-element 2.5x Barlow at a varying working distance**.
-  - Some may be a **Skywatcher Skymax 102 Maksutov** (102 mm, about 1300 mm, f/12.7).
+  - Some are the **Skywatcher Skymax 102 Maksutov** (102 mm, 1300 mm, f/12.74), bought November 2021, never with a Barlow and always on a driven equatorial mount (the owner, 2026-09-29).
   - A Barlow's magnification changes with its distance to the sensor, so each session's effective focal length is MEASURED by the disk fit (R1), never taken from the nominal 2.5x.
   - At 1.16 to 1.45 m the disk size cannot tell the 10 inch at prime focus from the Maksutov, which R1 settles from the data.
 - **References already on disk, for comparison and geometry, never as truth:**
@@ -165,16 +165,54 @@ With no truth, two independent stacks of the same capture (disjoint frame sets, 
     - The blue stack (sigma 3.2 px, k 0.67) is the one radius outlier, 3.85 % small: blurrier, and fitted with a flatter limb darkening.
   - **The decider is T1, and it is R2's first step** (#1050): render an OPAL map at 2022-09-03's geometry (belts and dark poles included), blur it with a Moffat PSF, and fit it with this same code. The rendered geometry is known exactly, so the fit's own error is measured without an outline set by eye. Until that passes (centre within 0.2 px, radius within 0.5 %, the plan's numbers), the fit's centre is trusted to about a pixel and its radius to about 2 %. R2 may render and degrade with that, but no later phase leans on the geometry below it.
 - **Which telescope, from the data:** the two apertures differ 2.5 times, and the sharpest frames show it.
-  - The averaged power spectrum of a capture's best frames falls to its noise floor at the aperture's cutoff, `D / lambda`, and the cutoff times the measured scale gives `D`.
-  - The Newtonian's spider vanes add a cross through the spectrum that the Maksutov lacks.
+  - The averaged power spectrum of a capture's best frames falls to its noise floor at the aperture's cutoff, `D / lambda`, or before it, and the cutoff times the measured scale gives `D` or a bound on it (`PlanetaryPowerSpectrum`, `ApertureCutoff`).
+  - The Newtonian's spider vanes add diffraction spikes, a four-fold pattern in the stack's halo, that the Maksutov lacks (`SpiderSignature`).
   - The pupil the T1 render uses follows from this. The Newtonian is 254 mm with its secondary obstruction and a four-vane spider. The Maksutov is 102 mm with its secondary spot. Both obstruction sizes are to be confirmed from the specifications, and against the transfer function's mid-frequency dip.
+  - **What the spectrum can decide, from the optics alone** (worked out 2026-09-29, before any capture's spectrum was read). The cutoff is `D / lambda`, at the short edge of the passband, where the last power comes from. For ruling the Maksutov out it is reckoned at **400 nm in every plane**: the shortest any plane passes behind a UV/IR cut, since a Bayer dye leaks a little short light and a cutoff reckoned at the dye's nominal edge would let a Maksutov look larger than it is. A Bayer capture's colour planes are sampled at twice the sensor pitch, and the floor is read in each plane's corners, from 0.6 cycles a pixel outwards. So the Maksutov can be ruled out only where 1.15 times its 400 nm cutoff falls short of the corners: a mono capture up to **0.42 arcsec a pixel**, a Bayer one up to **0.21**. At prime focus (0.41 to 0.52) that leaves only mono captures, and a colour capture there, the very case the disk size cannot settle, is left to the spider.
+  - **The method, checked on synthetic captures first** (`ApertureFromSpectrumTests`, `OpticsPrimitiveTests`; Kolmogorov phase screens with subharmonics through each pupil, 1,500 frames, r0 8 cm at 550 nm):
+
+    | Capture | Measured cutoff (truth) | Lower bound on D | Maksutov |
+    |---|---|---|---|
+    | Maksutov, 0.4"/px | 0.297 (0.360) c/px | 84 mm | not ruled out |
+    | Newtonian, 0.4"/px | 0.484 (0.896, past the corners) | 137 mm | ruled out |
+    | Newtonian, 0.15"/px | 0.281 (0.336) | 213 mm | ruled out; the Newtonian never |
+
+    - **A measured cutoff is where the signal sinks into the noise**, a matter of the capture's signal to noise before it is one of the pupil. At 150 frames both pupils came back at the same 0.25 cycles a pixel. So it is a LOWER bound, never above the pupil's, and "within 15 % of the pupil" was the wrong thing to pre-register: the Maksutov came back 18 % low even at 1,500 frames.
+    - **Pooling the rings past the Maksutov's cutoff** was tried instead and is weaker (3.2 and 4.5 standard errors where the bound says plainly 137 and 213 mm): the noise-only rings near the corners carry the smallest errors and swamp the few with signal.
+    - **The spider at a real disk's size is unmistakable:** 794 for a Newtonian (at 34.9 degrees, its vanes at 35), 0.67 for its obstruction without the vanes and 0.96 for the Maksutov, with Jupiter's 23" radius at 0.4"/px in a 256 px frame. At a 6" disk the same statistic read 0.6: the halo that close to the disk swamps the spikes.
+    - **Two traps the synthetic check found in itself.** A plain FFT phase screen was 28 % short of Kolmogorov's structure function at 4 cm, since scales larger than the screen tilt every separation; subharmonics bring it within 15 %. A small render grid wraps the disk's halo around its edges, and the four periodic copies print a four-fold pattern aligned with the grid (a Maksutov read 73). The stack is therefore rendered once as the ensemble mean (the pupil under Fried's tilt-removed long-exposure transfer function) on a grid four times the frame.
+  - **The spider, from the stack's halo:** the azimuthal harmonics of the stack in a full annulus from 1.3 disk radii to the nearest frame edge (a full annulus, since a rectangle's corners reach farther out along its diagonals and would print a four-fold pattern of their own). The statistic is the mean power of harmonics 4 and 8 over the mean power of 3, 5, 6, 7, 9, 10 and 11. Harmonics 1 and 2 are left out: an off-centre disk and its oblateness make them. Saturn is left out altogether, for its rings.
 - **Measured against T3:**
   - WinJUPOS's `.ims` outlines and central meridians for the same 2022 Jupiter stacks.
   - Belt-edge latitudes on the projected map against OPAL's, in planetographic latitude as JUPOS uses: `tan(phi_g) = (a/b)^2 tan(phi_c)`, about 3.8 degrees apart at 45 degrees.
 - **Pre-registered:**
   - The disk centre agrees with WinJUPOS within 0.2 px, the equatorial radius within 0.5 % and the central meridian within 1 degree.
-  - The belt-edge latitudes agree with OPAL's within 1 degree.
+  - The belt-edge latitudes agree with OPAL's within 1 degree. **Moved to R6** (#815), which builds the projection onto the spheroid that the latitudes are read on.
   - Every session's measured cutoff falls within 15 % of 254 mm or of 102 mm, which classifies it, and the spider cross appears in exactly the sessions classified as the Newtonian.
+  - **Revised 2026-09-29, after the synthetic check and before any real capture was read** (the cutoff criterion above failed it):
+    - The measured cutoff is the highest frequency at which two neighbouring rings each stand 3 standard errors above the corner floor, the errors taken over frames. Read as a lower bound on D at 400 nm, a bound above 117 mm (102 plus 15 %) rules the Maksutov out. Nothing in the spectrum confirms the Maksutov: a bound below 117 mm may be a Newtonian whose power sank into the noise.
+    - The spider: a statistic above 10 is a spider (the Newtonian), below 3 is none (the Maksutov), and in between, or with no full annulus in the frame, is inconclusive.
+    - A session is the Newtonian if either says so and the other does not contradict it, and the Maksutov only if the spider is absent and no plane rules it out. A spectrum ruling the Maksutov out beside a spider-less halo is a CONFLICT, reported rather than settled.
+    - Only Jupiter: the ephemeris covers Jupiter and Saturn, and Saturn's rings defeat both the limb fit and the annulus.
+    - **Added after the FIRST real session, and able only to withhold a verdict:** a spider-less halo is evidence only where fewer than half of the annulus' raw samples sit at their frame's black level. The first session read (2021-12-16 11:11, ASI462MC at offset 0 and gain 130 in RAW8, the disk peaking at 73 ADU) had 90 % of its annulus at exactly 0, and 98 % from 1.9 to 2.2 radii: a clipped sky, where a spike worth a fraction of an 8-bit step never registers. The synthetic check had no quantisation, which is how the rule came to have the blind spot. The gate can turn a "Maksutov" into "undecided" and nothing else.
+  - **What the real captures said, and the revisions they forced (2026-09-29).** Fourteen Jupiter captures, the best 2,000 frames of each (`tianwen planetary-aperture`):
+
+    | Night | Camera | Scale | Spider (annulus width) | Verdict |
+    |---|---|---|---|---|
+    | 2021-12-16, 3 captures | ASI462MC | 0.415 to 0.427"/px | 11:11 clipped (94 % at black); 11:37 0.8 (56 px); 11:43 0.0 (23 px) | undecided; the Maksutov by the owner's dates |
+    | 2022-09-03, L R G B | ASI290MM | 0.482 to 0.499"/px | L 9.6, R 18.3, G 10.6, B 2.4 (29 px) | Newtonian |
+    | 2022-09-29 ("2x" folder) | ASI462MC | 0.403"/px | 0.1 (18 px, a PIPP crop) | undecided; the Newtonian by the Barlow |
+    | 2022-10-09 | ASI462MC | 0.312"/px | no full annulus in the frame | undecided; the Newtonian by the Barlow |
+    | 2024-12-15, 3 captures | Uranus-C | 0.493 to 0.511"/px | 16.5, 30.9, 34.3 | Newtonian |
+    | 2025-01-02, 2 captures | Uranus-C | 0.192"/px (the Barlow) | 18.2, 11.5 | Newtonian |
+
+    - **The Maksutov verdict is withdrawn: "below 3 is none" failed on a capture of known telescope.** 2022-09-03's four captures came minutes apart through one Newtonian, and its Blue read 2.4 with Jupiter near the frame's edge, an annulus only 29 px wide. The user adds that the ASI462MC was on the Newtonian too, and that most sessions are. So the verdict is one-sided: a spider above 10, or a frames' cutoff past 117 mm, says Newtonian, and nothing in these data says Maksutov. A capture with neither is undecided, and the CONFLICT case goes with the Maksutov verdict. What would confirm the Maksutov lies outside the data: the dates the user owned it.
+    - **The misses have narrow annuli.** Every spider-less capture on an unclipped sky but one had an annulus under 30 px wide (a disk near the frame's edge, or a PIPP crop). The exception is 2021-12-16 11:37, 56 px wide on a sky at 9 ADU, and that night was the Maksutov (below).
+    - **The image scale is a fingerprint only at prime focus.** The 10 inch alone is about 1.2 m, 0.498"/px at the three cameras' common 2.9 um pitch, and both nights with a spider sit there. Other sessions used the 2.5x Barlow at a varying working distance, whose magnification varies with it.
+    - **What the owner knows settles two more (2026-09-29): the Maksutov never had a Barlow and was always on a driven equatorial mount**, while the Newtonian before 2023 was on its Dobsonian base, untracked or on an equatorial platform that is not precise. So a session taken through the Barlow is the Newtonian: 2022-09-29 (its folder is "Jupiter 4ms 2x RGB") and 2022-10-09 (1.92 m, half again the Maksutov's 1.3 m). The two columns above keep the data's own verdict apart from the owner's.
+    - **2021-12-16 is the Maksutov: the owner bought it in November 2021**, a month before, and the data agree on every count below. It was tracked (the disk creeps about 0.5 px/s through the 88 s of 11:11, with one 6 s bump of 50 px; untracked it would cross the 320 px window in about 9 s), which either mount could do. Its 1.40 to 1.44 m is 8 to 11 % past the Maksutov's nominal 1300 mm (f/12.74), which back focus gives a Maksutov, since it focuses by moving its primary, and which is well past the limb fit's 2 % on the scale. And 11:37's annulus is 56 px wide on a sky at 9 ADU, where every Newtonian night reads 10 to 34, and it reads 0.8. The field's rotation cannot help: Jupiter was 5 hours west and 14 to 20 degrees up, where an alt-az field turns only 0.6 degree over the three captures, and the limb fit's axis moved 4.4 degrees between two captures of 2024-12-15 tracked to 5 px. So the spider test's one negative on a wide annulus over an unclipped sky was right, and its misses are all narrow annuli, which is the power the next revision of the statistic has to state.
+    - **The spider statistic was made robust after the real halos were LOOKED at, before the verdicts were read.** Three moons in 2022-09-03's annulus put power into every harmonic and read 0.4 beside a four-armed pattern plain to the eye. The z-score per ring, the median per angle bin, the profile read at each pixel's own radius (the square grid's own four-fold) and elliptical rings in the disk's shape (an oblate disk's own four-fold) came out of that, each pinned by a synthetic test. Its thresholds stay those of the synthetic check, never tuned to the real statistics.
+    - **The halves' shared detail (T2) is reported, never decided on.** The two half-stacks share the sensor's fixed pattern, which reads as detail both hold: 2022-09-03's luminance "ruled the Maksutov out" by the detail alone, at 118 mm against a 117 mm line.
   - Kill line: a miss means the limb model is wrong (limb darkening, the flattening, or the sky background), and no later phase uses the geometry until it is fixed. A cutoff matching neither aperture means the scale is wrong, or a third telescope, which the user is asked about.
 
 ## R2 Rendered truth and a seeing model calibrated on the capture
@@ -260,6 +298,7 @@ Each metric lives in Lib and is shared by the CLI verb and the stack itself (`ti
   - What remains after derotation is physics, not error: zonal winds against System III, and the Great Red Spot's drift. It is measured and reported, never fitted away.
 - **The user's "measure the bands":** belts are the check on the geometry (R1). The rotation itself comes from the ephemeris, since belts move with their own winds and would bias a rotation fitted to them.
 - **Pre-registered:**
+  - R1's belt check, moved here with the projection it needs: the belt-edge latitudes on the projected map of the 2022 Jupiter stacks agree with OPAL's within 1 degree, in planetographic latitude.
   - Derotation cuts the half-to-half belt difference RMS by at least half on the 16-minute run.
   - The residual drift profile matches the known zonal wind profile's shape.
 
@@ -281,6 +320,32 @@ Each metric lives in Lib and is shared by the CLI verb and the stack itself (`ti
   - The two kernel estimates agree within 10 % in FWHM on the real captures, and each lies within 10 % of the true kernel on the synthetic ones.
   - RL with the measured kernel reaches at least 80 % of the oracle's per-band gain without failing the ringing gate.
   - Kill line: estimates that disagree mean the model of one probe is wrong. The deep-sky deconvolver's tolerance was measured at about 10 % (E7.1), which is why the kernel must be measured, not guessed.
+
+### R7a A ghost in the camera train, fitted and subtracted
+
+**Issues:** #1061; the check at the telescope, #1062 (bench).
+
+- **Found 2026-09-29** in the halos R1's spider test was measured in: the ASI290MM mono stacks of 2022-09-03 carry a faint, sharp-edged, lopsided shell around Jupiter, not aligned with the belts. What is known:
+  - **It is in the raw frames, not the stacking.** Re-stacked on each frame's disk centroid it is unchanged, and the user has seen such shells in AutoStakkert's stacks.
+  - **It rides with Jupiter.** The planet drifted about 100 px across the sensor during the luminance capture and the shell stays sharp in a stack aligned on the planet. So it is Jupiter's own light, not stray light through the open truss, which would stay put on the sensor.
+  - **It depends on the filter:** strongest in L, clear in R, faint in G and B. A collimation error in the mirrors would look the same through every filter.
+  - **Only this camera has shown it so far.** The ASI462MC and Uranus-C Jupiter stacks have round halos. The same ASI290MM's Venus of 2023-06-12 shows an offset copy of the planet. Nothing permanent in the telescope is the difference: the Uranus-C night of 2024-12-15 is the same Newtonian at the same prime focus (its spider reads 16 to 34 in R1, at 0.49 to 0.51"/px), and shows no shell. What changes from night to night, its collimation, remains (below). The fit decides, since a median of the sky by distance from the limb cannot, the seeing halo and the image scale changing from night to night.
+  - **Its size:** the shell reaches 20 to 25 px past the limb, a blur circle about 130 um across. In the f/4.7 beam that is a focus error of about 0.6 mm, which a reflection between surfaces about 0.3 mm apart gives (the sensor and its cover glass). A hypothesis, which #1062 tests at the telescope.
+  - **Or collimation** (the user, 2026-09-29). A tilted mirror gives coma, a flare fanning out to one side with a bounded end, which laid over a disk is a lopsided halo with an edge. It rides with the planet, and it belongs to a NIGHT, since a truss Newtonian's collimation changes each time it is set up, which would explain the clean Uranus-C night on the same telescope as well as the camera would. Two things tell it from a reflection. Coma is part of the blur, so it smears the planet's own limb on the flare's side, where a reflection leaves the limb sharp; the unexplained 0.4 to 0.5 px of R1's limb fit on this night is the lead to follow. And it is removed differently: a reflection is ADDED light, subtracted as a fitted copy, while coma is an asymmetric KERNEL, removed by R7's deconvolution with the kernel measured, never by a subtraction. The fit therefore tries both, the copy and an asymmetric kernel, and the residual beyond and at the limb decides. The filter ranking weighs against coma (a mirror's geometry is the same through every filter) but was read by eye, and the fit measures it.
+  - **Saturn on the same camera, 2022-08-27, has a glow but not a shell.** Beyond the rings the sky is the same in L, R, G and B to within 15 % at every distance out (about 0.16 % of the planet's peak at 20 to 40 px), it falls smoothly with no edge, and so it does not rank by filter as the Jupiter shell does. It is the "second ring" the user has seen in stretched Saturn stacks. A glow the same through every filter is neither the filters nor the atmosphere (a seeing halo shrinks toward the red), which leaves scatter in the optics. So two things can be present at once, a sharp shell that depends on the filter and a broad glow that does not, and the model needs a term for each.
+  - **A sky clipped at black proves no absence here either**, the spider test's lesson again. The ASI462MC Saturn of 2021-12-16 peaks at 9 ADU of 255 with 97.5 % of its pixels at 0, so it cannot show a glow, and it was the wrong comparison. The fit is gated the way the spider is, on the share of the annulus at black.
+- **The model, as the comet work separated a comet from its stars:** the ghost is a copy of the planet itself, scaled, shifted, and blurred by a defocus disk: three or four numbers per channel.
+  - Beside it, a broad glow: the planet convolved with a smooth, round, falling kernel (a power law in distance is the usual shape of scatter off dust and micro-roughness). Without that term the copy absorbs the glow and reads a ghost where there is only scatter.
+  - They are fitted beyond the limb, where the ghost and the glow are alone.
+  - The fitted copy is subtracted everywhere, the disk included. Masking beyond the limb alone would hide the shell and leave its copy on the disk.
+  - It precedes the blur measurement above, whose kernel would otherwise carry the ghost.
+- **Pre-registered:**
+  - On a synthetic stack with a ghost of known strength, offset and defocus injected, each comes back within 10 %, and the subtraction leaves no shell above the halo's noise.
+  - On the real 2022-09-03 stacks the residual beyond the limb shows no shell, and the fitted strength ranks L above R above G and B.
+  - On the Saturn stacks of 2022-08-27 the glow term is the same in the four filters within 15 %, and the copy's strength is small beside it.
+  - On the Uranus-C stacks of 2024-12-15, the same Newtonian at the same focus, the copy's strength is small beside the ASI290MM's: the shell is not a permanent feature of the telescope (the camera train's, or that night's collimation).
+  - Coma or reflection: the model that leaves the smaller residual at the limb and beyond it on 2022-09-03 names the cause, and that cause decides whether the shell is subtracted (a copy) or handed to R7's kernel (coma).
+  - Kill line: a ghost whose fit changes across a capture (a reflection that moves) is not one copy, and the model is revised before anything is subtracted.
 
 ## R8 Wavelet gains from the measured blur and noise
 
