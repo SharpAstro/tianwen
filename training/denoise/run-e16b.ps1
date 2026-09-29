@@ -1,18 +1,21 @@
-# E16b (docs/plans/denoiser-training.md, run log, "E16b, pre-registered" and its amendment): E16a's recipe with the
-# noise injected per channel from each session's half pairs (the control, convmap3), and the same plus bright cells
-# (the arm, convmapb). The plan's entry is the record; this header is its copy.
+# E16b (docs/plans/denoiser-training.md, run log, "E16b, pre-registered" and its amendments): E16a's recipe with the
+# noise injected per channel from each cell's subs' own recorded calibrations (the control, convmap3), and the same plus
+# bright cells (the arm, convmapb). The plan's entry is the record; this header is its copy.
 #
 # ---------------------------------------------------------------------------------------------------
 # PRE-REGISTERED 2026-09-29, before the recipe-3 store finished baking and before any cell of it was looked at;
-# AMENDED the same evening, before any export, cache or model of E16b existed (the plan's amendment has the reasons).
+# AMENDED twice (the plan's amendments have the reasons): the same evening, before any export, cache or model existed;
+# and on 2026-09-30, after the first export failed on the sessions the bake never halved, before any cache or model.
 #
 # ARMS. convmap3: bb-ctl-14 / bb-val-2, degrade --cells 120 --seed 1, prepare 45 per session, --cond-map, run-e16a's
-#   training line, seeds 0..3, the noise injected per channel from each session's half pairs (tianwen dataset degrade
-#   --noise-anchor half-pairs). convmapb: the same plus bright cells (tianwen dataset bright-cells: at least 10 percent of
+#   training line, seeds 0..3, the noise injected per channel from each cell's subs' own recorded calibrations (tianwen
+#   dataset degrade --noise-anchor sub-calibrations; the half pairs, which only some sessions have, are D2's truth for it).
+#   convmapb: the same plus bright cells (tianwen dataset bright-cells: at least 10 percent of
 #   a cell's level in [0.45, 0.95), the scorer's low-pass; up to 45 per session). The fourteen sessions hold 4 bright
 #   cells in one session, under the rule's 150 over three, so the pool widens to arms\e16b-widen.txt (the store's other
 #   sessions ranked by bright count, test sessions and eval-field plates out), their bright cells only (--listed-only).
-#   It ran out at 41 more, 45 in all: the arm waits on the owner, and -Arms control runs the rest as registered.
+#   It ran out at 41 more, 45 in all; the owner chose (2026-09-30) to run the arm on them, labelled a third of the
+#   registered dose: -MinArmCells 45.
 #   The seeds are interleaved (control 0, arm 0, ...). Both caches are cut from ONE export: the control leaves the
 #   listed cells out of the pick (--exclude-cells), the arm leaves them out and adds them after (--extra-cells).
 #
@@ -23,8 +26,9 @@
 # CHECKS, before any training; a failure stops the run.
 #   D1 (amended) the control's keys equal n2n-bb-ctl-rfm's outside the Pleiades and Triangulum (whose P0 samples the
 #      recipe-3 store moved by 2 of 300 cells), and its clean (slot 0) tiles are E16a's within 2 fp16 steps.
-#   D2 tianwen dataset noise-check: the half-pair anchor's measured-over-predicted within 10 percent on quiet cells and
-#      15 percent on bright ones, per channel (the sub-MAD anchor's direction on bright cells reported, not gated).
+#   D2 tianwen dataset noise-check --anchor sub-calibrations: against the half pairs of every session the bake halved,
+#      the sub anchor's measured-over-predicted within 10 percent on quiet cells and 15 percent on bright ones, per
+#      channel (the half-pair and sub-MAD anchors printed beside it, not gated).
 #   D3 the bright eval cells make the level at 0.60 and up readable on at least four fields and 0.45-0.60 on six.
 #
 # PREDICTIONS (orc, full strength, convmapb against convmap3, fields readable for both; bands 0-1 / 1-2 / 2-4 px):
@@ -57,7 +61,10 @@ param(
     # the bright pool: the widening fell short of the pre-registered 150 cells (the plan's amendment). 'both' is the
     # design as registered; a re-launch with it resumes, every finished stage skipped.
     [ValidateSet('both', 'control')]
-    [string]$Arms = 'both'
+    [string]$Arms = 'both',
+    # The fewest bright cells the arm runs on. 150 is the design as registered; the owner chose on 2026-09-30 to run the
+    # arm on the 45 the store holds (a third of the dose, labelled so), which is -MinArmCells 45.
+    [int]$MinArmCells = 150
 )
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
@@ -92,8 +99,8 @@ Set-Status 'starting'
 
 try {
     if (-not (Test-Path $Tianwen)) { throw "no CLI at $Tianwen; build TianWen.Cli in Release first" }
-    $anchor = git -C $PSScriptRoot log -1 --format=%cI --grep 'the injected noise is anchored per channel on the half pairs'
-    if (-not $anchor) { throw 'the half-pair anchor is not in this checkout' }
+    $anchor = git -C $PSScriptRoot log -1 --format=%cI --grep "the injected noise is anchored per channel on each cell's subs"
+    if (-not $anchor) { throw 'the sub-calibration anchor is not in this checkout' }
     $head = git -C $PSScriptRoot log -1 --format=%cI
     $built = (Get-Item $Tianwen).LastWriteTime
     foreach ($t in @($anchor, $head)) {
@@ -128,8 +135,11 @@ try {
     $armCells = @(Get-Content $armList | Where-Object { $_ -and -not $_.StartsWith('#') })
     $armSessions = @($armCells | ForEach-Object { ($_ -split "`t", 3)[2] } | Sort-Object -Unique)
     "bright cells for the arm: $($armCells.Count) over $($armSessions.Count) sessions (arms: $Arms)" | Tee-Object -FilePath $log -Append
-    if ($Arms -eq 'both' -and ($armCells.Count -lt 150 -or $armSessions.Count -lt 3)) {
-        throw "the widened pool holds $($armCells.Count) bright cells over $($armSessions.Count) sessions, under the pre-registered 150 over three; the arm waits on the owner (run -Arms control meanwhile)"
+    if ($Arms -eq 'both' -and ($armCells.Count -lt $MinArmCells -or $armSessions.Count -lt 3)) {
+        throw "the widened pool holds $($armCells.Count) bright cells over $($armSessions.Count) sessions, under $MinArmCells over three; the arm waits on the owner (run -Arms control meanwhile)"
+    }
+    if ($Arms -eq 'both' -and $MinArmCells -lt 150) {
+        "the arm runs on $($armCells.Count) bright cells, under the registered 150, by the owner's decision of 2026-09-30" | Tee-Object -FilePath $log -Append
     }
 
     # 2. One export: the control's sessions with their sample and the fourteen's bright cells, then the widened sessions'
@@ -142,7 +152,7 @@ try {
         New-Item -ItemType Directory -Force $Export | Out-Null
         "running $(Get-Date -Format o)" | Out-File $exportStatus -Encoding utf8
         $common = @('dataset', 'degrade', '--bake', $Bake, '--out', $Export, '--mode', 'noise', '--shape', 'warped',
-            '--warp-sigma', '0.5', '--draws', '8', '--seed', '1', '--noise-anchor', 'half-pairs')
+            '--warp-sigma', '0.5', '--draws', '8', '--seed', '1', '--noise-anchor', 'sub-calibrations')
         try {
             Invoke-Tianwen 'export (control sessions)' ($common + @('--cells', '120', '--extra-cells', $trainList) + @(Session-Args ($train + $val))) (Join-Path $Export 'degrade.log')
             Invoke-Tianwen 'export (widened sessions)' ($common + @('--cells', '120', '--extra-cells', $widenList, '--listed-only') + @(Session-Args $widen)) (Join-Path $Export 'degrade.log')
@@ -185,7 +195,7 @@ try {
     if (-not (Test-Path $d2)) {
         if (Stop-Requested 'D2') { return }
         Set-Status 'D2 noise-check'
-        & $Tianwen dataset noise-check --bake $Bake --cells 120 --seed 1 --extra-cells $armList @(Session-Args ($train + $val + $armSessions | Sort-Object -Unique)) *> "$d2.partial"
+        & $Tianwen dataset noise-check --bake $Bake --cells 120 --seed 1 --extra-cells $armList --anchor sub-calibrations @(Session-Args ($train + $val + $armSessions | Sort-Object -Unique)) *> "$d2.partial"
         $d2Exit = $LASTEXITCODE
         Move-Item "$d2.partial" $d2 -Force
         Get-Content $d2 | Select-String '^\[noise-check\] (quiet|bright|PASS|FAIL)' | ForEach-Object { $_.Line } | Tee-Object -FilePath $log -Append

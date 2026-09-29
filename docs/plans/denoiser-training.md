@@ -2454,6 +2454,28 @@ target) is a decision for the owner, not for the run. The control depends on non
 control-only scoring pass under its own file names (`e16b-ctl-score-*`), so a full pass once the arm exists is never
 skipped as done.
 
+#### E16b, amended again after its first export failed, before any cache or model existed (2026-09-30)
+
+**The first bullet above was wrong, and the anchor is back to the pre-registered one.** The dataset bake integrates the
+session master UNNORMALISED, on the subs' own scale (the tile exporter's own documentation says so), so a sub's
+recorded calibration is the master's too; the "stacker normalises every sub" reason given above was the deep-sky
+stacker's, not this bake's, and was not checked. And the half-pair anchor cannot serve E16b: the bake writes half-masters
+only for some sessions, and the first export (`--noise-anchor half-pairs`) failed on 15 of the control's 22 session ids
+("0 quiet half-pair pixels"), every Vela SNR panel, HD 77566, the fourteen's Tarantula and Triangulum among them. So
+each cell is anchored, as the entry first registered, on the median over its subs of each sub's recorded per-channel
+calibration (`--noise-anchor sub-calibrations`, "the injected noise is anchored per channel on each cell's subs"), which
+every recipe-3 session has. The half pairs become D2's truth for it wherever the bake halved a session (nine of the
+twenty-two E16b sessions, two Tarantula nights with bright cells among them): `noise-check --anchor sub-calibrations`
+gates the sub anchor and prints the half-pair and sub-MAD anchors beside it. On the synthetic bake the sub anchor reads
+1.02 / 1.01 / 1.00 against the half pairs and recovers each channel's own noise, green at half red's
+(`TheSubCalibrationAnchorInjectsEachChannelOnItsSubsOwnNoise`); the half-pair anchor stays, for a bake that halves
+every session. The failed export's output was deleted before the re-export.
+
+**The owner's decision on the bright pool** (2026-09-30): the arm runs on the 45 bright cells the store holds, labelled a
+third of the registered dose, predictions and kill lines unchanged (`run-e16b.ps1 -MinArmCells 45`). If it moves the
+bright error at all, a redesign that brings more bright structure in is justified; if it does not, a small dose cannot
+be told from a failed idea, and the read will say so.
+
 **How it is run** (`training/denoise/run-e16b.ps1`, this entry in its header). One export into
 `degraded/e16b`: the control's sessions with their 120-cell sample and the fourteen's bright cells, then each
 widened session's bright cells alone (`--listed-only`). Both caches are cut from it: the control leaves every listed
