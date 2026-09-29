@@ -54,10 +54,10 @@ public class NodeActuationGateTests(ITestOutputHelper outputHelper) : IAsyncLife
     /// A running session with a rig of fake devices, none connected. A route that asks the gate first refuses
     /// before it touches a driver; one that does not finds a disconnected driver and answers something else.
     /// </summary>
-    private async Task<ControlledSession> RunningSessionAsync(bool owningItsRig)
+    private async Task<ControlledSession> RunningSessionAsync(bool owningItsRig, CancellationToken ct)
     {
         _harness.Factory.Initialised.SetResult();
-        var controlled = await _harness.StartSessionAsync(TestContext.Current.CancellationToken);
+        var controlled = await _harness.StartSessionAsync(ct);
 
         var sp = _harness.App.Services;
         var setup = new Setup(
@@ -85,9 +85,8 @@ public class NodeActuationGateTests(ITestOutputHelper outputHelper) : IAsyncLife
     }
 
     /// <summary>The envelope's status and error, native (camelCase) or ninaAPI (PascalCase) alike.</summary>
-    private async Task<(int Status, string Error)> SendAsync(string method, string path)
+    private async Task<(int Status, string Error)> SendAsync(string method, string path, CancellationToken ct)
     {
-        var ct = TestContext.Current.CancellationToken;
         using var response = await _harness.Client.SendAsync(new HttpRequestMessage(new HttpMethod(method), path), ct);
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
 
@@ -138,9 +137,10 @@ public class NodeActuationGateTests(ITestOutputHelper outputHelper) : IAsyncLife
     [MemberData(nameof(ActuationRoutes))]
     public async Task ADeviceARunIsDrivingIsNotCommandedOverTheApi(string method, string path)
     {
-        await RunningSessionAsync(owningItsRig: true);
+        var ct = TestContext.Current.CancellationToken;
+        await RunningSessionAsync(owningItsRig: true, ct);
 
-        var (status, error) = await SendAsync(method, path);
+        var (status, error) = await SendAsync(method, path, ct);
 
         status.ShouldBe(409, $"{method} {path} answered: {error}");
         error.ShouldContain("Session", Case.Sensitive, "the refusal names the run that owns the device");
@@ -151,9 +151,10 @@ public class NodeActuationGateTests(ITestOutputHelper outputHelper) : IAsyncLife
     {
         // The control: the same route over the same rig, with no lease, gets past the gate to the driver
         // (which is not connected here, so it is refused for that instead).
-        await RunningSessionAsync(owningItsRig: false);
+        var ct = TestContext.Current.CancellationToken;
+        await RunningSessionAsync(owningItsRig: false, ct);
 
-        var (status, _) = await SendAsync("POST", "/api/v1/mount/slew?ra=1&dec=2");
+        var (status, _) = await SendAsync("POST", "/api/v1/mount/slew?ra=1&dec=2", ct);
 
         status.ShouldNotBe(409);
     }
@@ -163,18 +164,18 @@ public class NodeActuationGateTests(ITestOutputHelper outputHelper) : IAsyncLife
     {
         // The native PUT /session/profile asks ProfileSwitchGate; the ninaAPI switch did not, so Touch N
         // Stars could re-point the node's profile under a running night.
-        await RunningSessionAsync(owningItsRig: true);
+        var ct = TestContext.Current.CancellationToken;
+        await RunningSessionAsync(owningItsRig: true, ct);
         var before = _harness.Node.ActiveProfileId;
 
-        var (status, _) = await SendAsync("GET", $"/v2/api/profile/switch?profileid={Guid.NewGuid()}");
+        var (status, _) = await SendAsync("GET", $"/v2/api/profile/switch?profileid={Guid.NewGuid()}", ct);
 
         status.ShouldBe(409);
         _harness.Node.ActiveProfileId.ShouldBe(before);
     }
 
-    private async Task<Guid> CreateProfileAsync(string name)
+    private async Task<Guid> CreateProfileAsync(string name, CancellationToken ct)
     {
-        var ct = TestContext.Current.CancellationToken;
         using var response = await _harness.Client.PostAsJsonAsync("/api/v1/profiles", new { name }, ct);
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
         return body.RootElement.GetProperty("response").GetProperty("profileId").GetGuid();
@@ -184,11 +185,11 @@ public class NodeActuationGateTests(ITestOutputHelper outputHelper) : IAsyncLife
     public async Task TheNodesActiveProfileCannotBeDeleted()
     {
         var ct = TestContext.Current.CancellationToken;
-        var id = await CreateProfileAsync("Active rig");
+        var id = await CreateProfileAsync("Active rig", ct);
         (await NodeHarness.EnvelopeStatusAsync(
             _harness.Client.PutAsJsonAsync("/api/v1/session/profile", new { profileId = id }, ct), ct)).ShouldBe(200);
 
-        var (status, _) = await SendAsync("DELETE", $"/api/v1/profiles/{id}");
+        var (status, _) = await SendAsync("DELETE", $"/api/v1/profiles/{id}", ct);
 
         status.ShouldBe(409);
     }
@@ -198,22 +199,24 @@ public class NodeActuationGateTests(ITestOutputHelper outputHelper) : IAsyncLife
     {
         // A start makes its profile the active one, which is refused, and the run writes back into it as it ends; any
         // other profile may go while the run is going.
-        var another = await CreateProfileAsync("Another rig");
-        await RunningSessionAsync(owningItsRig: true);
+        var ct = TestContext.Current.CancellationToken;
+        var another = await CreateProfileAsync("Another rig", ct);
+        await RunningSessionAsync(owningItsRig: true, ct);
 
-        var (status, _) = await SendAsync("DELETE", $"/api/v1/profiles/{NodeHarness.ProfileId}");
+        var (status, _) = await SendAsync("DELETE", $"/api/v1/profiles/{NodeHarness.ProfileId}", ct);
         status.ShouldBe(409);
 
-        var (deleted, error) = await SendAsync("DELETE", $"/api/v1/profiles/{another}");
+        var (deleted, error) = await SendAsync("DELETE", $"/api/v1/profiles/{another}", ct);
         deleted.ShouldBe(200, error);
     }
 
     [Fact(Timeout = 30_000)]
     public async Task AProfileNothingUsesCanBeDeleted()
     {
-        var id = await CreateProfileAsync("Spare rig");
+        var ct = TestContext.Current.CancellationToken;
+        var id = await CreateProfileAsync("Spare rig", ct);
 
-        var (status, error) = await SendAsync("DELETE", $"/api/v1/profiles/{id}");
+        var (status, error) = await SendAsync("DELETE", $"/api/v1/profiles/{id}", ct);
 
         status.ShouldBe(200, error);
     }

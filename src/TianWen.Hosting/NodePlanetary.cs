@@ -28,6 +28,10 @@ namespace TianWen.Hosting;
 internal sealed class NodePlanetary(IDeviceHub hub, NodeJobs jobs, IHostedSession hosted, NodeFrames frames, IExternal external,
     ITimeProvider timeProvider, ILogger<NodePlanetary> logger)
 {
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope",
+        Justification = "The run passes to the node once IHostedSession.TryStartAsync accepts it, and the node disposes it when "
+            + "the next run replaces it or as the host stops: a hand-off through a method call, which CA2000 cannot follow. "
+            + "Every other way out, a throw included, disposes it in the finally.")]
     public async Task<ResponseEnvelope<PlanetaryStateDto>> StartAsync(PlanetaryRequestDto request, CancellationToken cancellationToken)
     {
         if (Invalid(request.ExposureMs, request.Gain, request.RoiWidth, request.RoiHeight) is { } invalid)
@@ -47,25 +51,38 @@ internal sealed class NodePlanetary(IDeviceHub hub, NodeJobs jobs, IHostedSessio
             return ResponseEnvelope<PlanetaryStateDto>.Fail($"The camera is busy: a {job.Kind} of it is running (job {job.Id})", 409);
         }
 
-        var run = new NodePlanetaryRun(frames, timeProvider, logger);
-        var capture = new PlanetaryCaptureRequest(request.OtaIndex, TimeSpan.FromMilliseconds(request.ExposureMs), request.Gain,
-            request.RoiWidth, request.RoiHeight, request.BitDepth, request.HighSpeed);
-        if (!run.TryPrepare(capture, data, hub, out var refusal))
+        // The run, and the camera it claims as it prepares, are this start's until the node owns them, and go back on every
+        // other way out, a throw included. Nulled once handed on, the form CA2000 can follow.
+        NodePlanetaryRun? run = new NodePlanetaryRun(frames, timeProvider, logger);
+        try
         {
-            await run.DisposeAsync();
-            return ResponseEnvelope<PlanetaryStateDto>.Fail(refusal, 409);
-        }
-        run.Configure(request.Recenter ?? new PlanetaryRecenterDto());
+            var capture = new PlanetaryCaptureRequest(request.OtaIndex, TimeSpan.FromMilliseconds(request.ExposureMs), request.Gain,
+                request.RoiWidth, request.RoiHeight, request.BitDepth, request.HighSpeed);
+            if (!run.TryPrepare(capture, data, hub, out var refusal))
+            {
+                return ResponseEnvelope<PlanetaryStateDto>.Fail(refusal, 409);
+            }
+            run.Configure(request.Recenter ?? new PlanetaryRecenterDto());
 
-        if (!await hosted.TryStartAsync(run, profileId))
+            if (!await hosted.TryStartAsync(run, profileId))
+            {
+                // Another run won the node between the check above and the start: the claim goes back with this one.
+                return ResponseEnvelope<PlanetaryStateDto>.Fail(NodeRuns.AlreadyGoingOn(hosted.RunningKind), 409);
+            }
+
+            // The node's from here: it disposes the run when the next one replaces it, or as the host stops.
+            var started = run;
+            run = null;
+            logger.LogInformation("Planetary capture with {Camera} at {Exposure} ms", started.State.Camera, request.ExposureMs);
+            return ResponseEnvelope<PlanetaryStateDto>.Accepted(started.State);
+        }
+        finally
         {
-            // Another run won the node between the check above and the start: the claim goes back with this one.
-            await run.DisposeAsync();
-            return ResponseEnvelope<PlanetaryStateDto>.Fail(NodeRuns.AlreadyGoingOn(hosted.RunningKind), 409);
+            if (run is not null)
+            {
+                await run.DisposeAsync();
+            }
         }
-
-        logger.LogInformation("Planetary capture with {Camera} at {Exposure} ms", run.State.Camera, request.ExposureMs);
-        return ResponseEnvelope<PlanetaryStateDto>.Accepted(run.State);
     }
 
     /// <summary>The planetary capture going on, or the last one to end until the node's next run replaces it.</summary>

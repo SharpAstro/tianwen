@@ -30,6 +30,10 @@ namespace TianWen.Hosting;
 internal sealed class NodePolarAlignment(IDeviceHub hub, NodeJobs jobs, IHostedSession hosted, NodeFrames frames, IExternal external,
     ICelestialObjectDB catalog, IPlateSolverFactory solver, ITimeProvider timeProvider, ILogger<NodePolarAlignment> logger)
 {
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope",
+        Justification = "The run passes to the node once IHostedSession.TryStartAsync accepts it, and the node disposes it when "
+            + "the next run replaces it or as the host stops: a hand-off through a method call, which CA2000 cannot follow. "
+            + "Every other way out, a throw included, disposes it in the finally.")]
     public async Task<ResponseEnvelope<PolarStateDto>> StartAsync(PolarAlignmentRequestDto request, CancellationToken cancellationToken)
     {
         if (hosted.RunningKind is { } running)
@@ -44,34 +48,56 @@ internal sealed class NodePolarAlignment(IDeviceHub hub, NodeJobs jobs, IHostedS
         var configuration = request.Configuration?.ToConfiguration() ?? PolarAlignmentConfiguration.Default;
         var shown = new PolarFrames(frames);
         if (!PolarAlignmentRun.TryCreate(new PolarAlignmentRequest(request.OtaIndex, request.UseGuider, configuration), data, hub, external,
-            catalog, solver, timeProvider, logger, shown.Captured, shown.Solved, out var alignment, out var refusal))
+            catalog, solver, timeProvider, logger, shown.Captured, shown.Solved, out var created, out var refusal))
         {
             return ResponseEnvelope<PolarStateDto>.Fail(refusal, 409);
         }
 
-        // A job working on a device the run claimed (a slew, a park, a cool-down) holds it in the node's jobs, not through
-        // the lease, and would go on driving it under the rotation: the claim goes back and the start is refused, as the
-        // other runs' are (#981). A run that never began restores nothing, so giving it back never moves the mount.
-        foreach (var device in alignment.Devices)
+        // The claim is this start's until the node's run owns it, and goes back on every other way out, a throw included.
+        // Each is nulled once handed on, the form CA2000 can follow.
+        PolarAlignmentRun? alignment = created;
+        NodePolarRun? run = null;
+        try
         {
-            if (jobs.TryGetRunningOn(device, out var job))
+            // A job working on a device the run claimed (a slew, a park, a cool-down) holds it in the node's jobs, not
+            // through the lease, and would go on driving it under the rotation: the claim goes back and the start is
+            // refused, as the other runs' are (#981). A run that never began restores nothing, so giving it back never
+            // moves the mount.
+            foreach (var device in alignment.Devices)
+            {
+                if (jobs.TryGetRunningOn(device, out var job))
+                {
+                    var name = hub.TryGetDeviceFromUri(device, out var busy) ? busy.DisplayName : device.ToString();
+                    return ResponseEnvelope<PolarStateDto>.Fail($"{name} is busy: a {job.Kind} of it is running (job {job.Id})", 409);
+                }
+            }
+
+            var source = alignment.SourceName;
+            run = new NodePolarRun(alignment, shown);
+            alignment = null;
+            if (!await hosted.TryStartAsync(run, profileId))
+            {
+                // Another run won the node between the check above and the start: the claim goes back with this one.
+                return ResponseEnvelope<PolarStateDto>.Fail(NodeRuns.AlreadyGoingOn(hosted.RunningKind), 409);
+            }
+
+            // The node's from here: it disposes the run when the next one replaces it, or as the host stops.
+            var started = run;
+            run = null;
+            logger.LogInformation("Polar alignment through {Source}, rotating {Rotation} deg", source, configuration.RotationDeg);
+            return ResponseEnvelope<PolarStateDto>.Accepted(started.State);
+        }
+        finally
+        {
+            if (run is not null)
+            {
+                await run.DisposeAsync();
+            }
+            if (alignment is not null)
             {
                 await alignment.DisposeAsync();
-                var name = hub.TryGetDeviceFromUri(device, out var busy) ? busy.DisplayName : device.ToString();
-                return ResponseEnvelope<PolarStateDto>.Fail($"{name} is busy: a {job.Kind} of it is running (job {job.Id})", 409);
             }
         }
-
-        var run = new NodePolarRun(alignment, shown);
-        if (!await hosted.TryStartAsync(run, profileId))
-        {
-            // Another run won the node between the check above and the start: the claim goes back with this one.
-            await run.DisposeAsync();
-            return ResponseEnvelope<PolarStateDto>.Fail(NodeRuns.AlreadyGoingOn(hosted.RunningKind), 409);
-        }
-
-        logger.LogInformation("Polar alignment through {Source}, rotating {Rotation} deg", alignment.SourceName, configuration.RotationDeg);
-        return ResponseEnvelope<PolarStateDto>.Accepted(run.State);
     }
 
     /// <summary>The polar alignment going on, or the last one to end until the node's next run replaces it.</summary>

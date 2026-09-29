@@ -4,6 +4,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Hosting.Dto;
 using TianWen.Lib.Imaging;
@@ -34,27 +35,27 @@ public class NodeFrameCompressionTests(ITestOutputHelper output)
         return new Image([plane], BitDepth.Int16, maxValue: 65535, minValue: 0, pedestal: 0, default);
     }
 
-    private static async Task<NodeHarness> RunningAsync(ITestOutputHelper output, Image frame, string? socketPath)
+    private static async Task<NodeHarness> RunningAsync(ITestOutputHelper output, Image frame, string? socketPath, CancellationToken ct)
     {
-        var node = await NodeHarness.StartAsync(output, TestContext.Current.CancellationToken, socketPath: socketPath);
+        var node = await NodeHarness.StartAsync(output, ct, socketPath: socketPath);
         node.Factory.OnCreated = controlled =>
         {
             controlled.Session.LastCapturedImages.Returns([frame]);
             controlled.Session.LastCapturedImageNumber(0).Returns(1);
         };
         node.Factory.Initialised.TrySetResult();
-        await node.StartSessionAsync(TestContext.Current.CancellationToken);
+        await node.StartSessionAsync(ct);
         return node;
     }
 
     /// <summary>The frame route asked directly, with <paramref name="acceptEncoding"/>, by a client that decompresses nothing.</summary>
-    private static async Task<(string? Encoding, long Bytes)> AskAsync(HttpClient http, string acceptEncoding)
+    private static async Task<(string? Encoding, long Bytes)> AskAsync(HttpClient http, string acceptEncoding, CancellationToken ct)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/frames/{FrameSources.Ota(0)}/latest");
         request.Headers.TryAddWithoutValidation("Accept-Encoding", acceptEncoding);
-        using var response = await http.SendAsync(request, TestContext.Current.CancellationToken);
+        using var response = await http.SendAsync(request, ct);
         response.EnsureSuccessStatusCode();
-        var body = await response.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken);
+        var body = await response.Content.ReadAsByteArrayAsync(ct);
         return (response.Content.Headers.ContentEncoding.SingleOrDefault(), body.Length);
     }
 
@@ -65,11 +66,12 @@ public class NodeFrameCompressionTests(ITestOutputHelper output)
     [InlineData("identity", null)]
     public async Task OverTcpAFrameIsCompressedOnlyAsAsked(string acceptEncoding, string? expected)
     {
+        var ct = TestContext.Current.CancellationToken;
         var frame = Frame();
-        await using var node = await RunningAsync(output, frame, socketPath: null);
+        await using var node = await RunningAsync(output, frame, socketPath: null, ct);
         using var plain = new HttpClient { BaseAddress = node.Transport.BaseAddress };
 
-        var (encoding, bytes) = await AskAsync(plain, acceptEncoding);
+        var (encoding, bytes) = await AskAsync(plain, acceptEncoding, ct);
 
         encoding.ShouldBe(expected);
         var uncompressed = 640 * 480 * sizeof(ushort);
@@ -86,11 +88,11 @@ public class NodeFrameCompressionTests(ITestOutputHelper output)
     [Fact(Timeout = 30_000)]
     public async Task TheNodesClientAsksOverTcpAndReadsTheFrameBitExact()
     {
+        var ct = TestContext.Current.CancellationToken;
         var frame = Frame();
-        await using var node = await RunningAsync(output, frame, socketPath: null);
+        await using var node = await RunningAsync(output, frame, socketPath: null, ct);
 
-        var got = await new TianWenNodeClient(node.Client).GetLatestFrameAsync(FrameSources.Ota(0), after: null, new FrameReader(),
-            TestContext.Current.CancellationToken);
+        var got = await new TianWenNodeClient(node.Client).GetLatestFrameAsync(FrameSources.Ota(0), after: null, new FrameReader(), ct);
 
         var image = got.Image.ShouldNotBeNull(got.Error);
         image.GetChannelSpan(0).SequenceEqual(frame.GetChannelSpan(0)).ShouldBeTrue();
@@ -100,10 +102,11 @@ public class NodeFrameCompressionTests(ITestOutputHelper output)
     [Fact(Timeout = 30_000)]
     public async Task OverTheSocketAFrameIsNeverCompressed()
     {
-        await using var node = await RunningAsync(output, Frame(), Path.Combine(Directory.CreateTempSubdirectory("tws").FullName, "node.sock"));
+        var ct = TestContext.Current.CancellationToken;
+        await using var node = await RunningAsync(output, Frame(), Path.Combine(Directory.CreateTempSubdirectory("tws").FullName, "node.sock"), ct);
         using var plain = NodeTransport.OverSocket(node.Transport.SocketPath!).CreateHttpClient();
 
-        var (encoding, _) = await AskAsync(plain, "br, gzip");
+        var (encoding, _) = await AskAsync(plain, "br, gzip", ct);
 
         encoding.ShouldBeNull("the socket compressed a frame, where a copy is cheaper than any codec");
     }
