@@ -961,6 +961,10 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   `CaptureStatisticsOptions.WhitenedCorrelation` switch the global aligner and the alignment points (whitened by default until
   #1074). **A warp statistic read whitened is the matching's noise** (1 px injected moved it 0.04): read it with
   `--plain-correlation`, and with the one alignment-point default both verbs take (`CaptureStatisticsOptions.DefaultAlignmentPatchSize`).
+- **A dewarp is judged against the TRUE warp, at the mesh the stack applies, never at the points alone** (R5 part 2): `planetary-degrade`
+  writes `<capture>.warp`, `tianwen planetary-dewarp` scores against it. On 2022-09-03 the points read 11 to 19 % of the warp and
+  the mesh (48 px reach) applies 0 to 3 %, so the stacks never moved; pooling (`WarpPoolFrames`) and the median geometry
+  (`MedianGeometry`) change neither. A warp that varies over less than a patch cannot be followed by that patch.
 - **Read the plan doc before touching the Canon path** -- it is a list of five things that fail
   SILENTLY. **Recentering is opt-in** (the user, 2026-09-28; it costs the loop about 15 ms a frame at full frame), and
   so is the mount jog, whose **sign is uncalibrated**.
