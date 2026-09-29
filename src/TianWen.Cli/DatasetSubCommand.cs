@@ -954,8 +954,9 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
         var noiseAnchorOpt = new Option<string>("--noise-anchor")
         {
             Description = "What the injected noise is anchored on: sub-mad (each cell on its own subs' tile MAD, channel " +
-                          "0's calibration for every channel; every export up to E16a) or half-pairs (each session on its " +
-                          "half pairs' scatter over quiet sky, one calibration per channel; E16b).",
+                          "0's calibration for every channel; every export up to E16a), sub-calibrations (each cell on its " +
+                          "subs' own recorded per-channel calibrations; E16b) or half-pairs (each session on its half pairs' " +
+                          "scatter over quiet sky, one calibration per channel; only sessions the bake halved).",
             DefaultValueFactory = _ => "sub-mad",
         };
         var extraCellsOpt = new Option<string>("--extra-cells")
@@ -1005,7 +1006,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             var anchorText = (parseResult.GetValue(noiseAnchorOpt) ?? "sub-mad").Replace("-", "", StringComparison.Ordinal);
             if (!Enum.TryParse<DatasetDegradationExporter.NoiseAnchorKind>(anchorText, ignoreCase: true, out var noiseAnchor))
             {
-                consoleHost.WriteError($"--noise-anchor must be sub-mad or half-pairs, got '{parseResult.GetValue(noiseAnchorOpt)}'");
+                consoleHost.WriteError($"--noise-anchor must be sub-mad, sub-calibrations or half-pairs, got '{parseResult.GetValue(noiseAnchorOpt)}'");
                 return 1;
             }
             var extraCells = parseResult.GetValue(extraCellsOpt);
@@ -1146,11 +1147,16 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
         var seedOpt = new Option<int>("--seed") { Description = "The export's --seed.", DefaultValueFactory = _ => 1 };
         var extraCellsOpt = new Option<string>("--extra-cells") { Description = "The export's --extra-cells list." };
         var quietTolOpt = new Option<double>("--quiet-tolerance") { Description = "Largest miss of the half-pair anchor on quiet cells.", DefaultValueFactory = _ => 0.10 };
-        var brightTolOpt = new Option<double>("--bright-tolerance") { Description = "Largest miss of the half-pair anchor on bright cells.", DefaultValueFactory = _ => 0.15 };
+        var brightTolOpt = new Option<double>("--bright-tolerance") { Description = "Largest miss of the gated anchor on bright cells.", DefaultValueFactory = _ => 0.15 };
+        var anchorOpt = new Option<string>("--anchor")
+        {
+            Description = "The anchor the tolerances gate: sub-calibrations (the one E16b injects with) or half-pairs. All three are printed.",
+            DefaultValueFactory = _ => "sub-calibrations",
+        };
         var command = new Command("noise-check",
             "Check the injected noise's model against the half pairs, per channel, on quiet and bright cells (E16b's D2).")
         {
-            Options = { bakeOpt, sessionFilterOpt, cellsOpt, seedOpt, extraCellsOpt, quietTolOpt, brightTolOpt },
+            Options = { bakeOpt, sessionFilterOpt, cellsOpt, seedOpt, extraCellsOpt, quietTolOpt, brightTolOpt, anchorOpt },
         };
         command.SetAction(async (parseResult, ct) =>
         {
@@ -1164,6 +1170,13 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             }
             var quietTol = parseResult.GetValue(quietTolOpt);
             var brightTol = parseResult.GetValue(brightTolOpt);
+            var anchorName = parseResult.GetValue(anchorOpt) ?? "sub-calibrations";
+            if (anchorName is not ("sub-calibrations" or "half-pairs"))
+            {
+                consoleHost.WriteError($"--anchor must be sub-calibrations or half-pairs, got '{anchorName}'");
+                return 1;
+            }
+            Func<DatasetDegradationExporter.InjectionCheckRow, double[]> gated = anchorName == "half-pairs" ? static r => r.HalfPairs : static r => r.SubCalibrations;
             var channels = rows[0].HalfPairs.Length;
             var pass = true;
             foreach (var bright in new[] { false, true })
@@ -1178,24 +1191,28 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 var tol = bright ? brightTol : quietTol;
                 var pairs = Enumerable.Range(0, channels).Select(c => Median(group.Select(r => r.HalfPairs[c]))).ToArray();
                 var subMad = Enumerable.Range(0, channels).Select(c => Median(group.Select(r => r.SubMad[c]))).ToArray();
-                var ok = pairs.All(v => Math.Abs(v - 1.0) <= tol);
+                var subCal = Enumerable.Range(0, channels).Select(c => Median(group.Select(r => r.SubCalibrations[c]))).ToArray();
+                var gatedValues = Enumerable.Range(0, channels).Select(c => Median(group.Select(r => gated(r)[c]))).ToArray();
+                var ok = gatedValues.All(v => Math.Abs(v - 1.0) <= tol);
                 pass &= ok;
                 consoleHost.WriteScrollable(
-                    $"[noise-check] {(bright ? "bright" : "quiet"),-6} {group.Count,5} cells over {group.Select(r => r.SessionId).Distinct().Count()} sessions: " +
-                    $"measured / predicted per channel, half-pairs {string.Join(" / ", pairs.Select(v => v.ToString("F3", CultureInfo.InvariantCulture)))} " +
-                    $"({(ok ? "within" : "OUTSIDE")} {tol:P0}), sub-mad {string.Join(" / ", subMad.Select(v => v.ToString("F3", CultureInfo.InvariantCulture)))}");
+                    $"[noise-check] {(bright ? "bright" : "quiet"),-6} {group.Count,5} cells over {group.Select(r => r.SessionId).Distinct().Count()} sessions, " +
+                    $"measured / predicted per channel: sub-calibrations {Join(subCal)}, half-pairs {Join(pairs)}, sub-mad {Join(subMad)}; " +
+                    $"{anchorName} {(ok ? "within" : "OUTSIDE")} {tol:P0}");
             }
             foreach (var session in rows.GroupBy(static r => r.SessionId).OrderBy(static g => g.Key, StringComparer.Ordinal))
             {
                 var q = session.Where(static r => !r.Bright).ToList();
                 var b = session.Where(static r => r.Bright).ToList();
                 consoleHost.WriteScrollable(
-                    $"[noise-check]   {session.Key}: quiet {q.Count} " +
-                    $"{(q.Count > 0 ? string.Join("/", Enumerable.Range(0, channels).Select(c => Median(q.Select(r => r.HalfPairs[c])).ToString("F2", CultureInfo.InvariantCulture))) : "-")}, " +
-                    $"bright {b.Count} {(b.Count > 0 ? string.Join("/", Enumerable.Range(0, channels).Select(c => Median(b.Select(r => r.HalfPairs[c])).ToString("F2", CultureInfo.InvariantCulture))) : "-")}");
+                    $"[noise-check]   {session.Key}: {anchorName} quiet {q.Count} " +
+                    $"{(q.Count > 0 ? string.Join("/", Enumerable.Range(0, channels).Select(c => Median(q.Select(r => gated(r)[c])).ToString("F2", CultureInfo.InvariantCulture))) : "-")}, " +
+                    $"bright {b.Count} {(b.Count > 0 ? string.Join("/", Enumerable.Range(0, channels).Select(c => Median(b.Select(r => gated(r)[c])).ToString("F2", CultureInfo.InvariantCulture))) : "-")}");
             }
             consoleHost.WriteScrollable($"[noise-check] {(pass ? "PASS" : "FAIL")}");
             return pass ? 0 : 1;
+
+            static string Join(double[] values) => string.Join(" / ", values.Select(v => v.ToString("F3", CultureInfo.InvariantCulture)));
 
             static double Median(IEnumerable<double> values)
             {

@@ -262,8 +262,6 @@ namespace TianWen.Lib.Tests
                 (DatasetTileExporter.FrameHalfMasterA, halves[0]),
                 (DatasetTileExporter.FrameHalfMasterB, halves[1]),
             };
-            float[]? masterOrigMin = null;
-            double[]? masterBalances = null;
             Image? masterUnit = null;
             foreach (var (frame, image) in frames)
             {
@@ -274,7 +272,7 @@ namespace TianWen.Lib.Tests
                 balances.ShouldNotBeNull();
                 if (frame == DatasetTileExporter.FrameMaster)
                 {
-                    (masterOrigMin, masterBalances, masterUnit) = (origMin, balances, unit);
+                    masterUnit = unit;
                 }
                 foreach (var cell in new[] { new PixelPoint(0, 0), new PixelPoint(W - TileSize, H - TileSize) })
                 {
@@ -294,18 +292,43 @@ namespace TianWen.Lib.Tests
                 }
             }
             masterUnit.ShouldNotBeNull();
-            foreach (var cell in new[] { new PixelPoint(0, 0), new PixelPoint(W - TileSize, H - TileSize) })
+            // Two subs, each the scene plus one sub's noise per channel (the halves' own noise model), stretched by its OWN
+            // stretch and its calibration estimated from its own linear frame, as recipe 3's tile export records a sub.
+            for (var s = 0; s < 2; s++)
             {
-                for (var s = 0; s < 2; s++)
+                var subRng = new Random(200 + s);
+                var subPlanes = new float[3][,];
+                for (var c = 0; c < 3; c++)
+                {
+                    var flat = masterUnit.GetChannelSpan(c).ToArray();
+                    LinearDegradation.AddNoiseInPlace(flat, NoiseField.White(W, H, subRng),
+                        new LinearDegradation.NoiseCalibration(0.0, OneSubBackgroundUnit, HalfOneSubAdu[c] / 65535.0, 1), 1.0);
+                    subPlanes[c] = ToPlane(flat);
+                }
+                var sub = new Image(subPlanes, BitDepth.Float32, 1f, 0f, 0f, masterUnit.ImageMeta);
+                var (subStretched, subApplied, subMin, subBalance) = ChunkedNafnetRunner.ApplyInputStretch(sub);
+                subApplied.ShouldBeTrue();
+                subMin.ShouldNotBeNull();
+                subBalance.ShouldNotBeNull();
+                var stretches = subMin.Zip(subBalance, static (m, b) => new StretchedNoise.ChannelStretch(b, m)).ToArray();
+                StretchedNoise.TryEstimateCalibration(sub, stretches, sub.AbsentPixels(), out var subCalibrations).ShouldBeTrue();
+                foreach (var cell in new[] { new PixelPoint(0, 0), new PixelPoint(W - TileSize, H - TileSize) })
                 {
                     var subFile = $"x{cell.X}_y{cell.Y}_s{s:D3}.f16";
-                    var noisy = OneSubCopy(masterUnit, masterOrigMin!, masterBalances!, s);
-                    var subMad = DatasetTileExporter.WriteTile(noisy, cell, TileSize, Path.Combine(tilesDir, subFile), SessionId);
-                    noisy.Release();
+                    var subMad = DatasetTileExporter.WriteTile(subStretched, cell, TileSize, Path.Combine(tilesDir, subFile), SessionId);
                     rows.Add(new DatasetTileExporter.TileManifestRow(
                         $"tiles/{slug}/{subFile}", SessionId, "TestCam", DatasetTileExporter.FrameSub, $"sub{s}.fits",
-                        cell.X, cell.Y, TileSize, 3, 100, 120.0, subMad));
+                        cell.X, cell.Y, TileSize, 3, 100, 120.0, subMad,
+                        StretchOrigMin: [.. subMin.Select(static v => (double)v)], StretchBalance: subBalance,
+                        NoisePedestal: subCalibrations[0].PedestalAdu,
+                        NoiseBackground: [.. subCalibrations.Select(static k => k.BackgroundAdu)],
+                        NoiseSigma: [.. subCalibrations.Select(static k => k.OneSubSigmaAdu)]));
                 }
+                if (!ReferenceEquals(subStretched, sub))
+                {
+                    subStretched.Release();
+                }
+                sub.Release();
             }
             File.WriteAllLines(Path.Combine(bake, DatasetTileExporter.ManifestFileName), rows.Select(static r => JsonSerializer.Serialize(r)));
             if (!ReferenceEquals(masterUnit, master))
@@ -444,9 +467,9 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
-        /// Check D2's machinery: on the halves fixture, whose half pairs hold exactly the noise the anchor models, the
-        /// half-pair anchor's measured-over-predicted ratio is 1 in every channel, and the sub-MAD anchor's is not
-        /// (it carries channel 0's noise to green, which holds half of it).
+        /// Check D2's machinery: on the halves fixture, whose half pairs and subs hold exactly the noise the anchors model,
+        /// the half-pair and sub-calibration anchors' measured-over-predicted ratios are 1 in every channel, and the
+        /// sub-MAD anchor's are not (it carries channel 0's noise to green, which holds half of it).
         /// </summary>
         [Fact]
         public async Task TheInjectionCheckReadsTheHalfPairAnchorAsAMatch()
@@ -456,10 +479,46 @@ namespace TianWen.Lib.Tests
             rows.Length.ShouldBeGreaterThan(0);
             foreach (var row in rows)
             {
-                output.WriteLine($"x{row.X} y{row.Y} bright {row.Bright}: half-pairs {string.Join(" / ", row.HalfPairs.Select(v => v.ToString("F3")))}, sub-mad {string.Join(" / ", row.SubMad.Select(v => v.ToString("F3")))}");
+                output.WriteLine($"x{row.X} y{row.Y} bright {row.Bright}: half-pairs {string.Join(" / ", row.HalfPairs.Select(v => v.ToString("F3")))}, " +
+                    $"sub-calibrations {string.Join(" / ", row.SubCalibrations.Select(v => v.ToString("F3")))}, sub-mad {string.Join(" / ", row.SubMad.Select(v => v.ToString("F3")))}");
                 row.HalfPairs.ShouldAllBe(v => Math.Abs(v - 1.0) < 0.06);
-                // Green holds half of red's noise, so the carried calibration over-predicts it by about two.
-                row.SubMad[1].ShouldBeLessThan(0.7);
+                // The subs' own recorded calibrations are the estimator's reading of each sub, so they carry its error.
+                row.SubCalibrations.ShouldAllBe(v => Math.Abs(v - 1.0) < 0.10);
+                // Green holds half of red's noise and the sub-MAD anchor carries red's calibration to it, so green reads half of
+                // red's ratio whatever the anchor's overall level (which the subs' own stretch now moves as well).
+                (row.SubMad[1] / row.SubMad[0]).ShouldBe(0.5, 0.08);
+            }
+        }
+
+        /// <summary>
+        /// E16b's anchor as run: each cell on its subs' own recorded calibrations, one per channel. The export injects each
+        /// channel's own noise with them, and every channel's one-sub sigma on the row is the subs' reading of it.
+        /// </summary>
+        [Fact]
+        public async Task TheSubCalibrationAnchorInjectsEachChannelOnItsSubsOwnNoise()
+        {
+            var bake = BuildBakeWithHalves();
+            var outDir = Path.Combine(_root, "degraded-subcal");
+            var result = await DatasetDegradationExporter.RunAsync(
+                new DatasetDegradationExporter.Options(bake, outDir, Draws: 2, CellsPerSession: 0, Seed: 5, MinDepthScale: 0.1, MaxDepthScale: 0.2,
+                    NoiseAnchor: DatasetDegradationExporter.NoiseAnchorKind.SubCalibrations),
+                logger: null,
+                TestContext.Current.CancellationToken);
+            result.Failed.ShouldBe(0);
+
+            var rows = ReadDegradationRows(outDir);
+            rows.ShouldAllBe(r => r.NoiseAnchor == "sub-calibrations");
+            foreach (var row in rows)
+            {
+                var sigma = row.OneSubSigmaPerChannel.ShouldNotBeNull();
+                var background = row.BackgroundPerChannel.ShouldNotBeNull();
+                for (var c = 0; c < 3; c++)
+                {
+                    var expected = HalfOneSubAdu[c] / 65535.0 * Math.Sqrt(Math.Max(0.25, background[c] / OneSubBackgroundUnit));
+                    output.WriteLine($"x{row.CellX} draw {row.Draw} channel {c}: one sub {sigma[c]:E4} against {expected:E4} at background {background[c] * 65535.0:F0} ADU");
+                    sigma[c].ShouldBe(expected, expected * 0.15);
+                }
+                (row.OneSubSigmaPerChannel![1] / row.OneSubSigmaPerChannel[0]).ShouldBe(0.5, 0.08, "green's own noise, not red's carried to it");
             }
         }
 
