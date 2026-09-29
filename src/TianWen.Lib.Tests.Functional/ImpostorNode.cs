@@ -17,13 +17,15 @@ namespace TianWen.Lib.Tests.Functional;
 /// <summary>
 /// Something that answers <c>GET /api/v1/node</c> as a node would, but is not this build's node: a node of another
 /// wire version (an older install still running), or a node under another account on TCP. It holds the socket's lock
-/// like a real node, lets it go when it stops, and counts the times it was asked to stop.
+/// like a real node, lets it go when it stops, and counts the times it was asked to stop. It can also be slow to answer
+/// its first ask, as a node on a loaded machine is (#1070).
 /// </summary>
 internal sealed class ImpostorNode : IAsyncDisposable
 {
     private readonly WebApplication _app;
     private readonly NodeLock? _held;
     private int _shutdownRequests;
+    private int _answers;
 
     private ImpostorNode(WebApplication app, NodeLock? held)
     {
@@ -33,10 +35,16 @@ internal sealed class ImpostorNode : IAsyncDisposable
 
     public int ShutdownRequests => Volatile.Read(ref _shutdownRequests);
 
+    /// <summary>How many times it was asked <c>GET /api/v1/node</c>, the slow first ask included.</summary>
+    public int Answers => Volatile.Read(ref _answers);
+
     /// <summary>Where it listens on TCP, when it is not on a socket.</summary>
     public Uri TcpAddress => new Uri(_app.Urls.First().TrimEnd('/') + "/");
 
-    public static async Task<ImpostorNode> StartAsync(string? socketPath, int wireVersion, bool holdsHardware, CancellationToken cancellationToken)
+    /// <param name="firstAnswerDelay">How long its first answer to <c>GET /api/v1/node</c> takes; every later one is at once.
+    /// Real time, since what it stands in for is a real socket whose first request outruns a client's real budget.</param>
+    public static async Task<ImpostorNode> StartAsync(string? socketPath, int wireVersion, bool holdsHardware, CancellationToken cancellationToken,
+        TimeSpan firstAnswerDelay = default)
     {
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
@@ -56,17 +64,24 @@ internal sealed class ImpostorNode : IAsyncDisposable
 
         var app = builder.Build();
         var impostor = new ImpostorNode(app, held);
-        app.MapGet("/api/v1/node", () => Results.Json(
-            ResponseEnvelope<NodeInfoDto>.Ok(new NodeInfoDto
+        app.MapGet("/api/v1/node", async () =>
+        {
+            if (Interlocked.Increment(ref impostor._answers) == 1 && firstAnswerDelay > TimeSpan.Zero)
             {
-                NodeId = "impostor",
-                Version = "0.0-impostor",
-                WireVersion = wireVersion,
-                ProcessId = Environment.ProcessId,
-                HoldsHardware = holdsHardware,
-                NowUtc = DateTimeOffset.UtcNow,
-            }),
-            HostingJsonContext.Default.ResponseEnvelopeNodeInfoDto));
+                await Task.Delay(firstAnswerDelay);
+            }
+            return Results.Json(
+                ResponseEnvelope<NodeInfoDto>.Ok(new NodeInfoDto
+                {
+                    NodeId = "impostor",
+                    Version = "0.0-impostor",
+                    WireVersion = wireVersion,
+                    ProcessId = Environment.ProcessId,
+                    HoldsHardware = holdsHardware,
+                    NowUtc = DateTimeOffset.UtcNow,
+                }),
+                HostingJsonContext.Default.ResponseEnvelopeNodeInfoDto);
+        });
         app.MapPost("/api/v1/node/shutdown", () =>
         {
             Interlocked.Increment(ref impostor._shutdownRequests);
