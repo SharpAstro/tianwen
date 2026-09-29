@@ -284,6 +284,30 @@ Each metric lives in Lib and is shared by the CLI verb and the stack itself (`ti
   - The median reference cuts the residual warp RMS by at least 20 % against the best-frame reference.
   - Kill line: if not, the parameter study's finding that AP count barely matters stands, now with a measurement behind it.
 
+### R5a Drizzle, where the sampling calls for it
+
+**Issue:** #1064.
+
+- **First principles** (the user's question, 2026-09-29). The 10 inch passes detail up to `D / lambda`, 2.24 cycles a pixel per arcsecond of pixel scale at 550 nm, and a grid samples only to 0.5 cycles a pixel; past that the detail aliases, and only drizzle, fed by the frames' sub-pixel shifts, can win it back. A Bayer plane samples at twice the pitch.
+
+  | Capture | Scale | Pupil's cutoff on the sensor grid | On a Bayer plane |
+  |---|---|---|---|
+  | 2022-09-03, ASI290MM, prime focus | 0.49"/px | 1.10 c/px | (mono) |
+  | 2024-12-15, Uranus-C, prime focus | 0.51"/px | 1.14 c/px | 2.3 c/px |
+  | 2022-09-29, ASI462MC, Barlow | 0.40"/px | 0.90 c/px | 1.8 c/px |
+  | 2022-10-09, ASI462MC, Barlow | 0.31"/px | 0.70 c/px | 1.4 c/px |
+  | 2025-01-02, Uranus-C, Barlow | 0.19"/px | 0.43 c/px (sampled) | 0.86 c/px |
+  | 2021-12-16, Maksutov | 0.42"/px | 0.37 c/px (sampled) | 0.75 c/px |
+
+  In ordinary seeing the pupil is not what limits, the frames are: R1 measured the best frames' averaged spectrum reaching 0.4 to 0.6 cycles a plane pixel on the colour nights and about 0.5 a pixel on the 2022 mono night, which is at the grid's limit and so aliased. The predictions: Bayer drizzle to the sensor grid pays on every colour capture; 1.5x past the sensor grid pays only at prime focus, where the pupil reaches 1.1 cycles a pixel, and only on nights whose frames carry signal past 0.5 cycles a pixel of the sensor grid; 3x would need signal past 0.75 and, in ordinary seeing, only costs noise; at 0.19"/px nothing past the Bayer drizzle pays.
+- **The truth for a drizzled stack is rendered at its output scale** (`tianwen planetary-render-truth --upsample 1.5`), never a resampled copy of the capture-scale truth, so a drizzle is scored on the grid it produced.
+- **Measured on R2's synthetic captures:** a plain stack resampled to the output grid (Lanczos-3), Bayer drizzle to the sensor grid, and drizzle at 1.5x and 3x, each against the truth at its output scale, per band and at matched noise (R3's metrics); on the real captures, the split-half detail (T2) per band.
+- **Pre-registered:**
+  - Bayer drizzle to the sensor grid beats the demosaic above a plane's Nyquist on every colour capture.
+  - 1.5x beats the sensor grid only where the frames' measured cutoff passes 0.5 cycles a pixel of the sensor grid.
+  - 3x does not beat 1.5x at matched noise in ordinary seeing.
+  - Kill line: a drizzle that wins where the frames' cutoff stays under the input grid's Nyquist is fabricating detail, the RL oracle's rule, and the metric is checked before anything is concluded.
+
 ## R6 De-rotation
 
 **Issue:** #815 (planetary-stacking.md's phases 10 and 11, measured here).
