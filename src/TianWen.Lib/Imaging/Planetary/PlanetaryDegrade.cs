@@ -194,6 +194,12 @@ public static class PlanetaryDegrade
         return (bestLevel, bestNoise);
     }
 
+    /// <summary>The probability that round(level + noise z), z standard normal, reads <paramref name="value"/>.</summary>
+    internal static double RoundedProbability(int value, double level, double noise)
+    {
+        return NormalCdf((value + 0.5 - level) / noise) - NormalCdf((value - 0.5 - level) / noise);
+    }
+
     // The log-likelihood of `counts` under round(level + noise z), z standard normal.
     private static double RoundedLogLikelihood(ReadOnlySpan<long> counts, int first, double level, double noise)
     {

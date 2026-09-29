@@ -4,6 +4,7 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -100,17 +101,21 @@ public sealed record WarpStatistics(int Points, double Rms, double CorrelationLe
 /// scattered light together.</param>
 /// <param name="SkyNoise">A pixel's noise there as recorded (quantisation included), from consecutive frames: the camera's and the
 /// scattered light's shot noise together.</param>
-/// <param name="DiskLevel">The disk's mean level over the far sky's inside 0.8 radii of the reference, which blur barely moves.</param>
-/// <param name="FarSkyLevel">The sky's level three radii and more from the disk, where only the camera speaks, as it was before the
-/// camera rounded it (<see cref="PlanetaryDegrade.RoundedGaussianFit"/>): its offset.</param>
-/// <param name="FarSkyNoise">A pixel's noise there before rounding: the camera's read noise, which a synthetic capture takes. Read in
-/// the ring instead, it carried the real capture's scattered light and the synthetic capture added its own on top; read off the
-/// rounded values' spread, it was the rounding's (2022-09-03's far sky: 0.27 recorded, 0.21 before rounding).</param>
+/// <param name="DiskLevel">The disk's mean level over the local sky's (<paramref name="LocalSkyLevel"/>) inside 0.8 radii of the
+/// reference, which blur barely moves.</param>
+/// <param name="FarSkyLevel">The sky's level three radii and more from the disk, before the camera rounded it.</param>
+/// <param name="FarSkyNoise">A pixel's noise there before rounding, frame to frame: the camera's read noise, which a synthetic capture
+/// takes. Fitted with a level of each pixel's own (<see cref="PlanetaryCaptureStatistics.SkyByPixels"/>), since a sky's level can
+/// slope over the frame: 2022-09-03's falls 0.17 ADU from right to left, which widened a pooled fit to 0.21. Read in the ring beside the disk instead, it carried the planet's scattered light; read off the rounded
+/// values' spread, it was the rounding's.</param>
+/// <param name="LocalSkyLevel">The sky's level 2.5 to 3.5 radii from the disk, past its halo and beside it, before rounding: the
+/// camera's offset where the disk is, which a synthetic capture takes, and what <see cref="CaptureStatistics.Halo"/> stands on.</param>
 /// <remarks>
 /// No gain: a photon transfer from consecutive frames' differences read the seeing's changes, not the shot noise
 /// (2022-09-03's Red gave no slope at all), so a synthetic capture's gain is set by the finest band's noise on the disk.
 /// </remarks>
-public readonly record struct CameraEstimate(double FullScaleAdu, double SkyLevel, double SkyNoise, double DiskLevel, double FarSkyLevel, double FarSkyNoise);
+public readonly record struct CameraEstimate(double FullScaleAdu, double SkyLevel, double SkyNoise, double DiskLevel, double FarSkyLevel, double FarSkyNoise,
+    double LocalSkyLevel);
 
 /// <summary>A capture's statistics (<see cref="PlanetaryCaptureStatistics.MeasureAsync"/>).</summary>
 /// <param name="Frames">Frames measured.</param>
@@ -147,7 +152,7 @@ public readonly record struct CameraEstimate(double FullScaleAdu, double SkyLeve
 /// median absolute deviation).</param>
 /// <param name="LimbRadiusRms">The single frames' fitted radius, its RMS about its median (robust).</param>
 /// <param name="Halo">The planet's scattered light in the sky around it, annulus by annulus (<see cref="PlanetaryCaptureStatistics.HaloAnnuli"/>):
-/// each one's level before rounding over the far sky's, in ADU. An 8-bit ring's noise hangs on it, a sky just over a whole ADU
+/// each one's level before rounding over the local sky's (<see cref="CameraEstimate.LocalSkyLevel"/>), in ADU. An 8-bit ring's noise hangs on it, a sky just over a whole ADU
 /// hardly ever flipping and one just under it often.</param>
 /// <param name="LimbOutliers">Fits more than five robust sigmas from the aligner on either axis, left out of the three above: a
 /// fit that settled in a wrong minimum.</param>
@@ -259,13 +264,7 @@ public static class PlanetaryCaptureStatistics
             // Every frame's shift against the sharpest, and its light over the sky around its disk.
             var seconds = Seconds(stream, n, options.FramesPerSecond);
             var skyLevel = SkyLevel(plane, width, height, disk, options.FullScaleAdu);
-            var farSkyBright = FarSkyBright(plane, width, height, disk, options.FullScaleAdu);
-            var farSkyCounts = new long[(int)Math.Ceiling(options.FullScaleAdu) + 1];
-            var haloCounts = new long[HaloAnnuli.Length - 1][];
-            for (var j = 0; j < haloCounts.Length; j++)
-            {
-                haloCounts[j] = new long[farSkyCounts.Length];
-            }
+            var (farSkyBright, farSkySpread) = FarSkyBright(plane, width, height, disk, options.FullScaleAdu);
             var shiftX = new double[n];
             var shiftY = new double[n];
             var flux = new double[n];
@@ -369,8 +368,6 @@ public static class PlanetaryCaptureStatistics
                 {
                     (noise[k], skyNoise[k]) = PairNoise(frameA, frameB, shiftX[a + 1] - shiftX[a], shiftY[a + 1] - shiftY[a],
                         disk.X + shiftX[a], disk.Y + shiftY[a], disk.Radius, options);
-                    CountSky(frameA, disk.X + shiftX[a], disk.Y + shiftY[a], disk.Radius, farSkyBright, options.FullScaleAdu, farSkyCounts, haloCounts);
-                    CountSky(frameB, disk.X + shiftX[a + 1], disk.Y + shiftY[a + 1], disk.Radius, farSkyBright, options.FullScaleAdu, farSkyCounts, haloCounts);
                 }
                 finally
                 {
@@ -382,10 +379,10 @@ public static class PlanetaryCaptureStatistics
 
             var warp = Warp(aps, residuals, options.AlignmentPatchSize, options.AlignmentPointSpacing);
             var bandNoise = MedianNoise(noise, options.Bands);
-            var (farSkyLevel, farSkyNoise) = PlanetaryDegrade.RoundedGaussianFit(farSkyCounts, 0);
-            var halo = haloCounts.Select(counts => PlanetaryDegrade.RoundedGaussianFit(counts, 0).Level - farSkyLevel).ToImmutableArray();
-            var diskLevel = DiskLevel(plane, width, height, disk, options.FullScaleAdu) - farSkyLevel;
-            var camera = new CameraEstimate(options.FullScaleAdu, skyLevel, Median(skyNoise), diskLevel, farSkyLevel, farSkyNoise);
+            var sky = await MeasureSkyAsync(stream, n, shiftX, shiftY, disk, farSkyBright, farSkySpread, options.FullScaleAdu, cancellationToken).ConfigureAwait(false);
+            var diskLevel = DiskLevel(plane, width, height, disk, options.FullScaleAdu) - sky.LocalLevel;
+            var camera = new CameraEstimate(options.FullScaleAdu, skyLevel, Median(skyNoise), diskLevel, sky.FarLevel, sky.FarNoise, sky.LocalLevel);
+            var halo = sky.Halo;
 
             return new CaptureStatistics(n, fps, referenceIndex, disk.X, disk.Y, disk.Radius, [.. shiftX], [.. shiftY], [.. mountX], [.. mountY], seeingRms, mountRate, mountWander, [.. flux], fluxSlow, fluxFast, limbWidthAll, limbWidthBest,
                 limbAll, limbBest, [.. frameLimbs], limbSeeingRms, alignerErrorRms, limbRadiusRms, limbOutliers, halo, warp, [.. quality], QualityPercentilesOf(quality), Lag1(quality), bandNoise, camera);
@@ -421,7 +418,7 @@ public static class PlanetaryCaptureStatistics
     /// The version a saved file's statistics must carry to be read back (<see cref="TryLoadAsync"/>): raised whenever what is
     /// measured, or how, changes, so a file from before is measured again rather than compared as if it were current.
     /// </summary>
-    public const int FileVersion = 4;
+    public const int FileVersion = 5;
 
     /// <summary>
     /// Saves <paramref name="statistics"/> to <paramref name="path"/> under <paramref name="key"/> (the capture, its frames and the
@@ -1171,8 +1168,9 @@ public static class PlanetaryCaptureStatistics
     private const double FarSkyBrightAdu = 2;
 
     // The value, in ADU, above which a far-sky pixel is taken as lit by something: its median plus FarSkyBrightAdu or five robust
-    // sigmas, whichever is more (an 8-bit sky's is zero). Infinite when the frame reaches no far sky.
-    private static double FarSkyBright(float[] plane, int width, int height, (double X, double Y, double Radius) disk, double scale)
+    // sigmas, whichever is more (an 8-bit sky's robust sigma is zero); and that robust sigma. Infinite and NaN when the frame
+    // reaches no far sky.
+    private static (double Bright, double Spread) FarSkyBright(float[] plane, int width, int height, (double X, double Y, double Radius) disk, double scale)
     {
         var values = new List<double>();
         for (var y = 0; y < height; y++)
@@ -1185,67 +1183,285 @@ public static class PlanetaryCaptureStatistics
                 }
             }
         }
-        return values.Count == 0 ? double.PositiveInfinity : Median([.. values]) + Math.Max(FarSkyBrightAdu, 5 * RobustSigma([.. values]));
+        if (values.Count == 0)
+        {
+            return (double.PositiveInfinity, double.NaN);
+        }
+        var spread = RobustSigma([.. values]);
+        return (Median([.. values]) + Math.Max(FarSkyBrightAdu, 5 * spread), spread);
     }
 
-    // Counts a frame's sky pixels by the whole ADU each read: the far sky's into `far`, and each halo annulus's into its own
-    // (all shared between the pairs, so added to atomically), leaving out what lies past `bright` over the far sky's median.
-    private static void CountSky(Image frame, double cx, double cy, double radius, double bright, double scale, long[] far, long[][] halo)
+    // How many frames the sky's per-pixel pass reads, from the capture's first, and how many whole-ADU values either side of the
+    // sky's median each pixel keeps count of; the annulus the local sky is read in.
+    private const int SkyFrames = 300;
+    private const int SkyBinsEachSide = 4;
+    private static readonly (double Inner, double Outer) LocalSkyAnnulus = (2.5, 3.5);
+
+    // The sky, from each pixel's own values over the first SkyFrames frames, around the disk where it stood on average meanwhile:
+    // the far sky's level and read noise, the local sky's level, and each halo annulus's level over the local sky's. A pixel that
+    // ever reads past `bright`, or outside the bins kept, is left out (a moon, a star, a hot pixel). A sky whose noise spans more
+    // than an ADU (16 bits) is read by each pixel's own moments instead, where rounding no longer matters.
+    private static async Task<(double FarLevel, double FarNoise, double LocalLevel, ImmutableArray<double> Halo)> MeasureSkyAsync(IPlanetaryFrameStream stream, int n,
+        double[] shiftX, double[] shiftY, (double X, double Y, double Radius) disk, double bright, double spread, double scale, CancellationToken cancellationToken)
     {
-        var (width, height) = (frame.Width, frame.Height);
-        var plane = frame.GetChannelSpan(0);
-        var ownFar = new long[far.Length];
-        var ownHalo = new long[halo.Length][];
-        for (var j = 0; j < halo.Length; j++)
+        if (!(spread <= 1))
         {
-            ownHalo[j] = new long[far.Length];
+            return await MeasureWideSkyAsync(stream, n, shiftX, shiftY, disk, bright, scale, cancellationToken).ConfigureAwait(false);
         }
-        for (var y = 0; y < height; y++)
+        var frames = Math.Min(n, SkyFrames);
+        var (cx, cy) = (disk.X + shiftX.AsSpan(0, frames).ToArray().Average(), disk.Y + shiftY.AsSpan(0, frames).ToArray().Average());
+        const int bins = (2 * SkyBinsEachSide) + 1;
+        short[]? counts = null;
+        bool[]? left = null;
+        var (width, height, first) = (0, 0, 0);
+        for (var f = 0; f < frames; f++)
         {
-            for (var x = 0; x < width; x++)
+            var frame = await stream.LoadAsync(f, cancellationToken).ConfigureAwait(false);
+            try
             {
-                var r = Math.Sqrt(((x - cx) * (x - cx)) + ((y - cy) * (y - cy))) / radius;
-                if (r < HaloAnnuli[0])
+                var plane = frame.GetChannelSpan(0);
+                if (counts is null)
                 {
-                    continue;
+                    (width, height) = (frame.Width, frame.Height);
+                    counts = new short[width * height * bins];
+                    left = new bool[width * height];
+                    first = (int)Math.Round(bright - FarSkyBrightAdu) - SkyBinsEachSide;
                 }
-                var v = plane[(y * width) + x] * scale;
-                if (v > bright)
+                for (var p = 0; p < width * height; p++)
                 {
-                    continue;
-                }
-                var bin = Math.Clamp((int)Math.Round(v), 0, far.Length - 1);
-                if (r >= FarSkyRadii)
-                {
-                    ownFar[bin]++;
-                    continue;
-                }
-                for (var j = 0; j < halo.Length; j++)
-                {
-                    if (r >= HaloAnnuli[j] && r < HaloAnnuli[j + 1])
+                    var v = (int)Math.Round(plane[p] * scale);
+                    var bin = v - first;
+                    if (bin < 0 || bin >= bins || v > bright)
                     {
-                        ownHalo[j][bin]++;
-                        break;
+                        left![p] = true;
+                    }
+                    else
+                    {
+                        counts[(p * bins) + bin]++;
                     }
                 }
             }
-        }
-        Add(ownFar, far);
-        for (var j = 0; j < halo.Length; j++)
-        {
-            Add(ownHalo[j], halo[j]);
-        }
-
-        static void Add(long[] own, long[] shared)
-        {
-            for (var k = 0; k < own.Length; k++)
+            finally
             {
-                if (own[k] != 0)
-                {
-                    Interlocked.Add(ref shared[k], own[k]);
-                }
+                frame.Release();
             }
         }
+        if (counts is null || left is null)
+        {
+            return (double.NaN, double.NaN, double.NaN, [.. Enumerable.Repeat(double.NaN, HaloAnnuli.Length - 1)]);
+        }
+
+        // The pixels of each region, by their distance from the disk's mean place in radii.
+        List<int> Region(double inner, double outer)
+        {
+            var pixels = new List<int>();
+            for (var y = 0; y < height; y++)
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    var r = Math.Sqrt(((x - cx) * (x - cx)) + ((y - cy) * (y - cy))) / disk.Radius;
+                    if (r >= inner && r < outer && !left[(y * width) + x])
+                    {
+                        pixels.Add((y * width) + x);
+                    }
+                }
+            }
+            return pixels;
+        }
+        var (farLevel, farNoise) = SkyByPixels(counts, bins, first, Region(FarSkyRadii, double.PositiveInfinity));
+        var (localLevel, _) = SkyByPixels(counts, bins, first, Region(LocalSkyAnnulus.Inner, LocalSkyAnnulus.Outer));
+        var halo = ImmutableArray.CreateBuilder<double>(HaloAnnuli.Length - 1);
+        for (var j = 0; j + 1 < HaloAnnuli.Length; j++)
+        {
+            halo.Add(SkyByPixels(counts, bins, first, Region(HaloAnnuli[j], HaloAnnuli[j + 1])).Level - localLevel);
+        }
+        return (farLevel, farNoise, localLevel, halo.MoveToImmutable());
+    }
+
+    // MeasureSkyAsync for a sky whose noise spans ADU: each pixel's own mean and frame-to-frame variance, averaged over each region
+    // (less the rounding's twelfth); a pixel's own variance holds no gradient over the frame.
+    private static async Task<(double FarLevel, double FarNoise, double LocalLevel, ImmutableArray<double> Halo)> MeasureWideSkyAsync(IPlanetaryFrameStream stream, int n,
+        double[] shiftX, double[] shiftY, (double X, double Y, double Radius) disk, double bright, double scale, CancellationToken cancellationToken)
+    {
+        var frames = Math.Min(n, SkyFrames);
+        var (cx, cy) = (disk.X + shiftX.AsSpan(0, frames).ToArray().Average(), disk.Y + shiftY.AsSpan(0, frames).ToArray().Average());
+        double[]? sum = null, squares = null;
+        bool[]? left = null;
+        var (width, height) = (0, 0);
+        for (var f = 0; f < frames; f++)
+        {
+            var frame = await stream.LoadAsync(f, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                var plane = frame.GetChannelSpan(0);
+                if (sum is null)
+                {
+                    (width, height) = (frame.Width, frame.Height);
+                    (sum, squares, left) = (new double[width * height], new double[width * height], new bool[width * height]);
+                }
+                for (var p = 0; p < width * height; p++)
+                {
+                    var v = plane[p] * scale;
+                    if (v > bright)
+                    {
+                        left![p] = true;
+                    }
+                    sum[p] += v;
+                    squares![p] += v * v;
+                }
+            }
+            finally
+            {
+                frame.Release();
+            }
+        }
+        if (sum is null || squares is null || left is null)
+        {
+            return (double.NaN, double.NaN, double.NaN, [.. Enumerable.Repeat(double.NaN, HaloAnnuli.Length - 1)]);
+        }
+        (double Level, double Noise) Region(double inner, double outer)
+        {
+            double level = 0, variance = 0;
+            var count = 0;
+            for (var y = 0; y < height; y++)
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    var p = (y * width) + x;
+                    var r = Math.Sqrt(((x - cx) * (x - cx)) + ((y - cy) * (y - cy))) / disk.Radius;
+                    if (r >= inner && r < outer && !left[p])
+                    {
+                        var mean = sum[p] / frames;
+                        level += mean;
+                        variance += Math.Max(0, (squares[p] / frames) - (mean * mean));
+                        count++;
+                    }
+                }
+            }
+            return count > 0 ? (level / count, Math.Sqrt(Math.Max(0, (variance / count * frames / Math.Max(1, frames - 1)) - (1.0 / 12)))) : (double.NaN, double.NaN);
+        }
+        var (farLevel, farNoise) = Region(FarSkyRadii, double.PositiveInfinity);
+        var (localLevel, _) = Region(LocalSkyAnnulus.Inner, LocalSkyAnnulus.Outer);
+        var halo = ImmutableArray.CreateBuilder<double>(HaloAnnuli.Length - 1);
+        for (var j = 0; j + 1 < HaloAnnuli.Length; j++)
+        {
+            halo.Add(Region(HaloAnnuli[j], HaloAnnuli[j + 1]).Level - localLevel);
+        }
+        return (farLevel, farNoise, localLevel, halo.MoveToImmutable());
+    }
+
+    /// <summary>
+    /// A patch of sky's level and noise before the camera rounded them, from each pixel's own values: <paramref name="counts"/> holds,
+    /// for every pixel, how many frames read each of <paramref name="bins"/> whole values from <paramref name="first"/> on. The noise is
+    /// the joint maximum likelihood with a level of each pixel's own, profiled out, so a level that slopes over the patch widens
+    /// nothing (2022-09-03's sky falls 0.2 ADU across the frame): pooling the pixels widened it, and grouping them by their own mean
+    /// narrowed it, each group being pixels whose noise happened to land their mean in it (0.151 for 0.17). The level is the pixels'
+    /// mean level at that noise. Pixels with like histograms are fitted once. NaN for no pixels.
+    /// </summary>
+    internal static (double Level, double Noise) SkyByPixels(ReadOnlySpan<short> counts, int bins, int first, IReadOnlyList<int> pixels)
+    {
+        var distinct = new Dictionary<string, (double[] Counts, int Pixels)>();
+        var key = new StringBuilder();
+        foreach (var p in pixels)
+        {
+            key.Clear();
+            double total = 0;
+            for (var b = 0; b < bins; b++)
+            {
+                key.Append(counts[(p * bins) + b]).Append(',');
+                total += counts[(p * bins) + b];
+            }
+            if (total == 0)
+            {
+                continue;
+            }
+            var k = key.ToString();
+            if (distinct.TryGetValue(k, out var entry))
+            {
+                distinct[k] = (entry.Counts, entry.Pixels + 1);
+            }
+            else
+            {
+                var histogram = new double[bins];
+                for (var b = 0; b < bins; b++)
+                {
+                    histogram[b] = counts[(p * bins) + b];
+                }
+                distinct[k] = (histogram, 1);
+            }
+        }
+        if (distinct.Count == 0)
+        {
+            return (double.NaN, double.NaN);
+        }
+        var histograms = distinct.Values.ToArray();
+
+        // A histogram's best level at a noise, and its log-likelihood there, by golden section over a step either side of its mean.
+        (double Level, double Likelihood) BestLevel(double[] histogram, double noise)
+        {
+            double total = 0, sum = 0;
+            for (var b = 0; b < bins; b++)
+            {
+                total += histogram[b];
+                sum += histogram[b] * (first + b);
+            }
+            double Likelihood(double level)
+            {
+                double ll = 0;
+                for (var b = 0; b < bins; b++)
+                {
+                    if (histogram[b] > 0)
+                    {
+                        ll += histogram[b] * Math.Log(Math.Max(PlanetaryDegrade.RoundedProbability(first + b, level, noise), 1e-300));
+                    }
+                }
+                return ll;
+            }
+            return GoldenMax(Likelihood, (sum / total) - 1, (sum / total) + 1, 40);
+        }
+        double Profile(double noise)
+        {
+            double sum = 0;
+            foreach (var (histogram, count) in histograms)
+            {
+                sum += count * BestLevel(histogram, noise).Likelihood;
+            }
+            return sum;
+        }
+        var (best, _) = GoldenMax(Profile, 0.01, 2.0, 40);
+        double levelSum = 0, weight = 0;
+        foreach (var (histogram, count) in histograms)
+        {
+            levelSum += count * BestLevel(histogram, best).Level;
+            weight += count;
+        }
+        return (levelSum / weight, best);
+    }
+
+    // The maximum of a unimodal `f` on [lo, hi] by golden section: where, and its value.
+    private static (double At, double Value) GoldenMax(Func<double, double> f, double lo, double hi, int iterations)
+    {
+        var ratio = (Math.Sqrt(5) - 1) / 2;
+        var (a, b) = (hi - (ratio * (hi - lo)), lo + (ratio * (hi - lo)));
+        var (fa, fb) = (f(a), f(b));
+        for (var i = 0; i < iterations; i++)
+        {
+            if (fa < fb)
+            {
+                lo = a;
+                (a, fa) = (b, fb);
+                b = lo + (ratio * (hi - lo));
+                fb = f(b);
+            }
+            else
+            {
+                hi = b;
+                (b, fb) = (a, fa);
+                a = hi - (ratio * (hi - lo));
+                fa = f(a);
+            }
+        }
+        return fa > fb ? (a, fa) : (b, fb);
     }
 
     private static double DiskLevel(float[] plane, int width, int height, (double X, double Y, double Radius) disk, double scale)
