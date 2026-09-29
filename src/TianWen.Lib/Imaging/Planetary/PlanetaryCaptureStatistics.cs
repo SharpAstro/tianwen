@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Geometry;
+using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.Planetary;
 
@@ -545,9 +546,7 @@ public static class PlanetaryCaptureStatistics
     // The value at `percentile` of `values`, the nearest rank.
     private static double QualityPercentile(double[] values, double percentile)
     {
-        var sorted = (double[])values.Clone();
-        Array.Sort(sorted);
-        return sorted[(int)Math.Round(percentile / 100 * (sorted.Length - 1))];
+        return StatisticsHelper.NthSmallest((double[])values.Clone(), (int)Math.Round(percentile / 100 * (values.Length - 1)));
     }
 
     // The limb's edge width: along 72 rays from the disk's centre, the level just inside the limb (0.85 radii) over the sky,
@@ -1066,14 +1065,8 @@ public static class PlanetaryCaptureStatistics
 
     private static double Median(double[] values)
     {
-        var finite = Array.FindAll(values, v => !double.IsNaN(v));
-        if (finite.Length == 0)
-        {
-            return double.NaN;
-        }
-        Array.Sort(finite);
-        var mid = finite.Length / 2;
-        return finite.Length % 2 == 1 ? finite[mid] : (finite[mid - 1] + finite[mid]) / 2;
+        // MedianFast averages the two middle values of an even count, as this always has; the copy FindAll makes is its to permute.
+        return StatisticsHelper.MedianFast(Array.FindAll(values, v => !double.IsNaN(v)));
     }
 
     // A frame's light over `sky` within `radius` of (cx, cy), in the frame's own units.
