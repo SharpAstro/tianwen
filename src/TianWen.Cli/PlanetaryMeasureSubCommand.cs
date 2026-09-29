@@ -191,7 +191,7 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
             consoleHost.WriteScrollable(string.Create(inv, $"    limb profile against the truth: {row.LimbError:0.0000} RMS"));
         }
         consoleHost.WriteScrollable("    halves' correlation by band: " + string.Join("  ", row.Halves.Select(h => string.Create(inv, $"{h.Band}: {h.Correlation:0.000}"))));
-        consoleHost.WriteScrollable(string.Create(inv, $"    limb undershoot: {row.Undershoot:0.00} sky sigmas{(double.IsFinite(row.PowerPastCutoff) ? $"; power past the cutoff: {row.PowerPastCutoff:E2}" : "")}"));
+        consoleHost.WriteScrollable(string.Create(inv, $"    limb undershoot: {row.Undershoot:0.0000} of the disk{(double.IsFinite(row.PowerPastCutoff) ? $"; power past the cutoff: {row.PowerPastCutoff:E2}" : "")}"));
     }
 
     // How each truth-free metric ranks the candidates against its truth-based counterpart, each signed so agreement is positive.

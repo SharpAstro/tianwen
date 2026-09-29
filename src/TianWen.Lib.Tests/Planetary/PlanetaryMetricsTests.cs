@@ -100,8 +100,10 @@ public class PlanetaryMetricsTests
         var (plain, rung) = (Noisy(soft, 0.01, random), Noisy(sharpened, 0.01, random));
         var (plainUnder, rungUnder) = (PlanetaryMetrics.LimbUndershoot(plain, Size, Size, Disk), PlanetaryMetrics.LimbUndershoot(rung, Size, Size, Disk));
         var (plainError, rungError) = (PlanetaryMetrics.LimbProfileError(plain, truth, Size, Size, Disk), PlanetaryMetrics.LimbProfileError(rung, truth, Size, Size, Disk));
-        TestContext.Current.TestOutputHelper?.WriteLine($"undershoot: plain {plainUnder:0.00}, sharpened {rungUnder:0.00} sky sigmas; limb profile error: plain {plainError:0.0000}, sharpened {rungError:0.0000}");
-        rungUnder.ShouldBeGreaterThan(plainUnder + 1);
+        TestContext.Current.TestOutputHelper?.WriteLine($"undershoot: plain {plainUnder:0.0000}, sharpened {rungUnder:0.0000} of the disk; limb profile error: plain {plainError:0.0000}, sharpened {rungError:0.0000}");
+        // The ring is a few percent of the disk deep; the blur's profile only touches the noise.
+        rungUnder.ShouldBeGreaterThan(0.02);
+        plainUnder.ShouldBeLessThan(0.01);
         PlanetaryMetrics.LimbProfileError(truth, truth, Size, Size, Disk).ShouldBe(0, 1e-12);
         rungError.ShouldBeGreaterThan(0);
     }
