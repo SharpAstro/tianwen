@@ -172,14 +172,33 @@ public static class PlanetaryLimbFit
             // A pixel's centre at (x, y) lies at ((x + 0.5) / bin - 0.5) in the binned frame.
             if (FitAt(binned, bw, bh, ((startX + 0.5) / bin) - 0.5, ((startY + 0.5) / bin) - 0.5, startRadius / bin, options, null, 200) is { } coarse)
             {
-                var seed = new double[] { ((coarse.CenterX + 0.5) * bin) - 0.5, ((coarse.CenterY + 0.5) * bin) - 0.5, coarse.EquatorialRadius * bin,
-                    coarse.NorthAngleDeg * Math.PI / 180, coarse.LimbDarkening, Math.Sqrt(Math.Max((coarse.PsfSigma * coarse.PsfSigma * bin * bin) - ((bin * bin) - 1) / 12.0, 0.25)),
-                    coarse.Brightness, coarse.Sky, coarse.ZonalAlbedo2, coarse.ZonalAlbedo4, coarse.ZonalAlbedo1,
-                    coarse.HaloFraction, coarse.PsfSigma > 0 ? coarse.HaloWidth / coarse.PsfSigma : 3 };
+                var seed = SeedFrom(coarse, ((coarse.CenterX + 0.5) * bin) - 0.5, ((coarse.CenterY + 0.5) * bin) - 0.5, coarse.EquatorialRadius * bin,
+                    Math.Sqrt(Math.Max((coarse.PsfSigma * coarse.PsfSigma * bin * bin) - ((bin * bin) - 1) / 12.0, 0.25)));
                 return FitAt(plane, width, height, seed[0], seed[1], seed[2], options, (seed, coarse.SunSide), 30);
             }
         }
         return FitAt(plane, width, height, startX, startY, startRadius, options, null, 200);
+    }
+
+    /// <summary>
+    /// Fits the disk in <paramref name="plane"/> from a fit of a like image, a capture's aligned mean for one of its frames: every
+    /// parameter starts at <paramref name="like"/>'s but the centre, which starts at (<paramref name="startX"/>,
+    /// <paramref name="startY"/>), so the search begins beside its answer. A cold start on a single frame of 2022-09-03 took most
+    /// of a minute of processor time (#1050). Null when too few pixels around the limb lie in the frame.
+    /// </summary>
+    public static LimbFit? Fit(ReadOnlySpan<float> plane, int width, int height, double startX, double startY, in LimbFit like, LimbFitOptions options)
+    {
+        var seed = SeedFrom(like, startX, startY, like.EquatorialRadius, like.PsfSigma);
+        return FitAt(plane, width, height, startX, startY, like.EquatorialRadius, options, (seed, like.SunSide), 30);
+    }
+
+    // A fit's parameters as the search holds them, with the centre, radius and core sigma given: how one fit seeds another. The
+    // halo's share and width are held through their bounds (DiskModel.HaloFraction, HaloRatio), so they go back through them:
+    // passing the share as it reads started the next search at a quarter of it.
+    private static double[] SeedFrom(in LimbFit fit, double centerX, double centerY, double radius, double sigma)
+    {
+        return [centerX, centerY, radius, fit.NorthAngleDeg * Math.PI / 180, fit.LimbDarkening, sigma, fit.Brightness, fit.Sky,
+            fit.ZonalAlbedo2, fit.ZonalAlbedo4, fit.ZonalAlbedo1, 2 * fit.HaloFraction, fit.PsfSigma > 0 ? fit.HaloWidth / fit.PsfSigma : 3];
     }
 
     // The radius a coarse fit works at: enough pixels around the limb for the model's eight parameters, few enough to be quick.

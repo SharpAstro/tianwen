@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Immutable;
+using System.Linq;
 using System.Numerics;
 using System.Threading.Tasks;
 using Shouldly;
@@ -259,6 +260,18 @@ public class PlanetaryDegradeTests
         s.FramesPerSecond.ShouldBe(fps, 0.5);
         // The running mean over a second keeps a little of the seeing, 1/sqrt(200) of its RMS, so it reads a hair low.
         s.SeeingRms.ShouldBe(Math.Sqrt(seeingSquares / (2 * frames)), 0.05);
+
+        // The single frames' limb fits follow each disk where it was drawn, closer than the aligner does, and read the same
+        // seeing from it.
+        var fits = s.FrameLimbs.Where(f => f.Fit is not null).Select(f => (f.Frame, Fit: f.Fit.GetValueOrDefault())).ToArray();
+        var (meanX, meanY) = (fits.Average(f => f.Fit.CenterX - shiftX[f.Frame]), fits.Average(f => f.Fit.CenterY - shiftY[f.Frame]));
+        var limbError = Math.Sqrt(fits.Average(f => Math.Pow(f.Fit.CenterX - shiftX[f.Frame] - meanX, 2) + Math.Pow(f.Fit.CenterY - shiftY[f.Frame] - meanY, 2)) / 2);
+        TestContext.Current.TestOutputHelper?.WriteLine(
+            $"{fits.Length} limb fits: {limbError:0.000} px RMS from where each disk was drawn; seeing by the limb {s.LimbSeeingRms:0.000} px RMS; the aligner off by {s.AlignerErrorRms:0.000} px; {s.LimbOutliers} left out");
+        fits.Length.ShouldBe(frames / 4);
+        limbError.ShouldBeLessThan(0.05);
+        s.LimbOutliers.ShouldBe(0);
+        s.LimbSeeingRms.ShouldBe(Math.Sqrt(seeingSquares / (2 * frames)), 0.05);
     }
 
     [Fact]
@@ -340,6 +353,32 @@ public class PlanetaryDegradeTests
         var (jumpRms, trendRms) = (Math.Sqrt(steps / count), Math.Sqrt(trend / count));
         TestContext.Current.TestOutputHelper?.WriteLine($"the ratio's pixel steps depart from their neighbours' by {jumpRms:0.00000} RMS; its smooth trend steps {trendRms:0.00000} a pixel");
         jumpRms.ShouldBeLessThan(0.001);
+    }
+
+    [Fact]
+    public async Task ALayerAtTheTelescopeBlursWithoutMovingTheDisk()
+    {
+        // Turbulence whose outer scale is a fifth of the pupil (the tube's air) against the free atmosphere's, their r0 chosen for
+        // a like loss of peak: the tilt, which only scales past the outer scale carry, is a small part of the free air's. The
+        // free air is held still between frames' draws by its own r0 alone; each frame's tilt is read off its truth.
+        const int frames = 48;
+        ImmutableArray<double> none = [.. Enumerable.Repeat(0.0, frames)];
+        var (local, free) = (ImmutableArray<SyntheticFrame>.Empty, ImmutableArray<SyntheticFrame>.Empty);
+        await MakeAsync(none, none, size: 64, radius: 12, r0M: 100, keepTilt: true, made: t => local = t, localR0M: 0.008, localOuterScaleM: 0.05);
+        await MakeAsync(none, none, size: 64, radius: 12, r0M: 0.05, keepTilt: true, made: t => free = t);
+
+        static (double Tilt, double Strehl) Measure(ImmutableArray<SyntheticFrame> made)
+        {
+            var (mx, my) = (made.Average(f => f.ShiftX), made.Average(f => f.ShiftY));
+            return (Math.Sqrt(made.Average(f => ((f.ShiftX - mx) * (f.ShiftX - mx)) + ((f.ShiftY - my) * (f.ShiftY - my))) / 2), made.Average(f => f.Strehl));
+        }
+        var (localTilt, localStrehl) = Measure(local);
+        var (freeTilt, freeStrehl) = Measure(free);
+        TestContext.Current.TestOutputHelper?.WriteLine(
+            $"local layer: tilt {localTilt:0.000} px RMS, Strehl {localStrehl:0.000}; free atmosphere: tilt {freeTilt:0.000} px RMS, Strehl {freeStrehl:0.000}");
+        localStrehl.ShouldBeLessThan(0.5);
+        freeStrehl.ShouldBeLessThan(0.5);
+        localTilt.ShouldBeLessThan(0.3 * freeTilt);
     }
 
     [Fact]
@@ -459,7 +498,7 @@ public class PlanetaryDegradeTests
     // read noise, 16 bits), under seeing of `r0M`.
     private static async Task<ushort[][]> MakeAsync(ImmutableArray<double> shiftX, ImmutableArray<double> shiftY, int size, double radius, double r0M,
         bool keepTilt = false, Action<ImmutableArray<SyntheticFrame>>? made = null, double warpRms = 0, bool flat = false, double defocusNm = 0,
-        Pupil? pupil = null)
+        Pupil? pupil = null, double localR0M = double.PositiveInfinity, double localOuterScaleM = 0.25)
     {
         var values = new float[360 * 180];
         for (var row = 0; row < 180; row++)
@@ -488,6 +527,8 @@ public class PlanetaryDegradeTests
             ScreenSamples = 128,
             KeepScreenTilt = keepTilt,
             DefocusNm = defocusNm,
+            LocalR0M = localR0M,
+            LocalOuterScaleM = localOuterScaleM,
             WarpRmsPx = warpRms,
             WarpLengthPx = 10,
             WarpLag1 = 0.5,

@@ -246,6 +246,9 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         var r0Opt = new Option<double>("--r0") { Description = "The Fried parameter at 500 nm, cm.", DefaultValueFactory = _ => 5 };
         var windOpt = new Option<double>("--wind") { Description = "The wind carrying the screen, m/s.", DefaultValueFactory = _ => 10 };
         var outerScaleOpt = new Option<double?>("--outer-scale") { Description = "The turbulence's outer scale, m (von Karman; none for Kolmogorov)." };
+        var localR0Opt = new Option<double?>("--local-r0") { Description = "A layer of turbulence at the telescope (tube, mirror), its Fried parameter at 500 nm, cm (none by default)." };
+        var localOuterScaleOpt = new Option<double>("--local-outer-scale") { Description = "The local layer's outer scale, m.", DefaultValueFactory = _ => 0.25 };
+        var localWindOpt = new Option<double>("--local-wind") { Description = "The local layer's drift across the pupil, m/s.", DefaultValueFactory = _ => 1 };
         var defocusOpt = new Option<double>("--defocus-nm") { Description = "The telescope's own defocus, RMS wavefront error in nm.", DefaultValueFactory = _ => 0 };
         var exposureOpt = new Option<double>("--exposure-ms") { Description = "Each frame's exposure, ms, over which the wind moves the air (0 for an instant).", DefaultValueFactory = _ => 0 };
         var gainOpt = new Option<double?>("--gain") { Description = "Electrons an ADU (else from the finest band's noise on the disk)." };
@@ -264,7 +267,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             "A synthetic capture from a global map with a real capture's own seeing, motion and camera (R2): measure the real one, make the synthetic one, measure it the same way, and compare.")
         {
             Arguments = { inputArg },
-            Options = { mapOpt, outputOpt, planetOpt, kOpt, telescopeOpt, wavelengthOpt, r0Opt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, replayOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, framesOpt },
+            Options = { mapOpt, outputOpt, planetOpt, kOpt, telescopeOpt, wavelengthOpt, r0Opt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, localR0Opt, localOuterScaleOpt, localWindOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, replayOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, framesOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -334,6 +337,9 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                 OuterScaleM = parseResult.GetValue(outerScaleOpt) ?? double.PositiveInfinity,
                 ExposureSeconds = parseResult.GetValue(exposureOpt) / 1000,
                 DefocusNm = parseResult.GetValue(defocusOpt),
+                LocalR0M = parseResult.GetValue(localR0Opt) / 100 ?? double.PositiveInfinity,
+                LocalOuterScaleM = parseResult.GetValue(localOuterScaleOpt),
+                LocalWindMps = parseResult.GetValue(localWindOpt),
                 MinnaertK = parseResult.GetValue(kOpt),
                 FullScaleAdu = camera.FullScaleAdu,
                 OffsetAdu = camera.SkyLevel,
@@ -350,7 +356,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             var (moveX, moveY) = options.KeepScreenTilt ? (truth.MountX, truth.MountY) : (truth.ShiftX, truth.ShiftY);
             consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
                 $"making {Path.GetFileName(output)}: disk at {reference.CenterX:0.00}, {reference.CenterY:0.00}, R {reference.EquatorialRadius:0.00} px ({scale:0.0000}\"/px), north {reference.NorthAngleDeg:0.0} deg; " +
-                $"r0 {options.R0M * 100:0.0} cm at 500 nm, outer scale {(double.IsPositiveInfinity(options.OuterScaleM) ? "none" : $"{options.OuterScaleM:0.#} m")}, wind {options.WindMps:0} m/s, exposure {options.ExposureSeconds * 1000:0.#} ms, defocus {options.DefocusNm:0} nm RMS, {options.WavelengthM * 1e9:0} nm, oversampled {PlanetaryDegrade.OversampleFor(scale, pupil.DiameterM, options.WavelengthM)}x; " +
+                $"r0 {options.R0M * 100:0.0} cm at 500 nm, outer scale {(double.IsPositiveInfinity(options.OuterScaleM) ? "none" : $"{options.OuterScaleM:0.#} m")}, wind {options.WindMps:0} m/s, exposure {options.ExposureSeconds * 1000:0.#} ms, defocus {options.DefocusNm:0} nm RMS, {(double.IsFinite(options.LocalR0M) ? $"a local layer of r0 {options.LocalR0M * 100:0.0} cm, outer scale {options.LocalOuterScaleM:0.00} m, drifting {options.LocalWindMps:0.#} m/s, " : "")}{options.WavelengthM * 1e9:0} nm, oversampled {PlanetaryDegrade.OversampleFor(scale, pupil.DiameterM, options.WavelengthM)}x; " +
                 $"camera offset {options.OffsetAdu:0.00}, read noise {options.ReadNoiseAdu:0.000} ADU, {options.ElectronsPerAdu:0.0} e-/ADU, disk {options.DiskLevelAdu:0.0} ADU; warp {options.WarpRmsPx:0.00} px; " +
                 $"{(options.KeepScreenTilt ? "the screen's tilt on the mount's drift" : "the real shifts replayed")}"));
 
@@ -463,6 +469,9 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             $"    {name,-34} real {a,10:0.0000}  synthetic {b,10:0.0000}  ratio {b / a,6:0.000}{(Math.Abs((b / a) - 1) <= 0.1 ? "" : "  OUTSIDE 10 %")}"));
         consoleHost.WriteScrollable("comparison (synthetic over real):");
         Row("shift RMS, seeing part (px)", real.SeeingRms, synthetic.SeeingRms);
+        Row("the same by the limb (px)", real.LimbSeeingRms, synthetic.LimbSeeingRms);
+        Row("aligner's error against the limb (px)", real.AlignerErrorRms, synthetic.AlignerErrorRms);
+        Row("single frames' radius RMS (px)", real.LimbRadiusRms, synthetic.LimbRadiusRms);
         Row("limb edge width, every frame (px)", real.LimbWidthAll, synthetic.LimbWidthAll);
         Row("limb edge width, best tenth (px)", real.LimbWidthBest, synthetic.LimbWidthBest);
         if (real.LimbAll is { } ra && synthetic.LimbAll is { } sa)
@@ -474,6 +483,16 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         if (real.LimbBest is { } rb && synthetic.LimbBest is { } sb)
         {
             Row("limb blur sigma, best tenth (px)", rb.PsfSigma, sb.PsfSigma);
+        }
+        var (realFrames, syntheticFrames) = (FrameLimbPercentiles(real), FrameLimbPercentiles(synthetic));
+        if (realFrames is { } rf && syntheticFrames is { } sf)
+        {
+            Row("single frames' edge width, p10 (px)", rf.Width[0], sf.Width[0]);
+            Row("single frames' edge width, p50 (px)", rf.Width[1], sf.Width[1]);
+            Row("single frames' edge width, p90 (px)", rf.Width[2], sf.Width[2]);
+            Row("single frames' blur sigma, p10 (px)", rf.Sigma[0], sf.Sigma[0]);
+            Row("single frames' blur sigma, p50 (px)", rf.Sigma[1], sf.Sigma[1]);
+            Row("single frames' blur sigma, p90 (px)", rf.Sigma[2], sf.Sigma[2]);
         }
         Row("flux, quarter-second RMS", real.FluxSlowRms, synthetic.FluxSlowRms);
         Row("flux, frame to frame RMS", real.FluxFastRms, synthetic.FluxFastRms);
@@ -504,6 +523,20 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         }
     }
 
+    // The single frames' limb edge widths and fitted blur sigmas at their 10th, 50th and 90th percentiles; null with no frames.
+    private static (ImmutableArray<double> Width, ImmutableArray<double> Sigma, double K)? FrameLimbPercentiles(CaptureStatistics s)
+    {
+        var widths = s.FrameLimbs.Select(f => f.EdgeWidth).Where(double.IsFinite).ToArray();
+        var fits = s.FrameLimbs.Select(f => f.Fit).OfType<LimbFit>().ToArray();
+        if (widths.Length == 0 || fits.Length == 0)
+        {
+            return null;
+        }
+        ImmutableArray<double> tenths = [10, 50, 90];
+        return (PlanetaryCaptureStatistics.PercentilesOf(widths, tenths), PlanetaryCaptureStatistics.PercentilesOf(fits.Select(f => f.PsfSigma).ToArray(), tenths),
+            PlanetaryCaptureStatistics.PercentilesOf(fits.Select(f => f.LimbDarkening).ToArray(), [50])[0]);
+    }
+
     private void WriteStatistics(string name, CaptureStatistics s)
     {
         var inv = CultureInfo.InvariantCulture;
@@ -520,6 +553,15 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             consoleHost.WriteScrollable(fit is { } f
                 ? string.Create(inv, $"    limb fit, {which}: R {f.EquatorialRadius:0.000} px, k {f.LimbDarkening:0.000}, blur sigma {f.PsfSigma:0.000} px with {100 * f.HaloFraction:0} % in a wing of {f.HaloWidth:0.0} px, rms {f.RmsResidual:0.00000}")
                 : $"    limb fit, {which}: no disk");
+        }
+        if (FrameLimbPercentiles(s) is { } frames)
+        {
+            consoleHost.WriteScrollable(string.Create(inv,
+                $"    single frames' limbs ({s.FrameLimbs.Length}): edge width p10 {frames.Width[0]:0.000}, p50 {frames.Width[1]:0.000}, p90 {frames.Width[2]:0.000} px; " +
+                $"blur sigma p10 {frames.Sigma[0]:0.000}, p50 {frames.Sigma[1]:0.000}, p90 {frames.Sigma[2]:0.000} px; k {frames.K:0.000}"));
+            consoleHost.WriteScrollable(string.Create(inv,
+                $"    by the single frames' limbs: seeing {s.LimbSeeingRms:0.000} px RMS per axis; the aligner off by {s.AlignerErrorRms:0.000} px RMS per axis; " +
+                $"radius {s.LimbRadiusRms:0.000} px RMS; {s.LimbOutliers} fits left out"));
         }
         var w = s.Warp;
         consoleHost.WriteScrollable(string.Create(inv,
