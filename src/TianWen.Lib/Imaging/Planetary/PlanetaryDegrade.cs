@@ -21,6 +21,20 @@ public sealed record DegradeOptions(Pupil Pupil, double WavelengthM)
     /// <summary>The turbulence's outer scale, in metres (infinite for Kolmogorov's): what bounds the disk's seeing motion.</summary>
     public double OuterScaleM { get; init; } = double.PositiveInfinity;
 
+    /// <summary>
+    /// Each frame's exposure, in seconds (zero for an instant). The wind carries the air across the pupil while the shutter is
+    /// open, 9 cm in 4 ms at 22 m/s, which smooths a frame's speckle: an instantaneous PSF's full-contrast speckle jittered the
+    /// aligner and every frame-to-frame statistic of 2022-09-03's synthetic Red capture.
+    /// </summary>
+    public double ExposureSeconds { get; init; }
+
+    /// <summary>
+    /// The telescope's own defocus, its RMS wavefront error in nanometres (Zernike's, over the clear aperture): a blur every frame
+    /// shares, which widens the limb without moving the disk. 2022-09-03's real limb was barely sharper in its best tenth of frames
+    /// (7.28 px) than in all (7.37), where seeing alone made the best tenth 4 to 5 % sharper.
+    /// </summary>
+    public double DefocusNm { get; init; }
+
     /// <summary>The wind that carries the phase screen across the pupil, in metres a second.</summary>
     public double WindMps { get; init; } = 10;
 
@@ -238,7 +252,9 @@ public static class PlanetaryDegrade
         var sampleRadians = arcsecPerPixel / os / ShortExposurePsf.ArcsecPerRadian;
         var spacing = options.WavelengthM / (PsfGrid * sampleRadians);
         var pupil = options.Pupil.Rasterise(PsfGrid, spacing);
+        var defocus = DefocusPhase(PsfGrid, spacing, options.Pupil.DiameterM, options.DefocusNm * 1e-9, options.WavelengthM);
         var diffraction = new double[PsfGrid * PsfGrid];
+        // The diffraction limit the Strehl ratio is taken against is the perfect telescope's, so a defocused one scores below 1.
         ShortExposurePsf.Compute(pupil, ReadOnlySpan<double>.Empty, PsfGrid, diffraction);
         var diffractionPeak = Max(diffraction);
         var screenSamples = Math.Max(options.ScreenSamples, PsfGrid);
@@ -262,6 +278,16 @@ public static class PlanetaryDegrade
         }
         var phase = new double[PsfGrid * PsfGrid];
         var psfScratch = new Complex[PsfGrid * PsfGrid];
+        var subPsf = new double[PsfGrid * PsfGrid];
+        // The exposure in frozen-flow steps of at most a centimetre: the pupil's window slides across the same screen, the air
+        // being the same air within a frame.
+        var sweepM = options.WindMps * options.ExposureSeconds;
+        var subSteps = Math.Max(1, (int)Math.Ceiling(sweepM / 0.01));
+        var screenMargin = (screenSamples - PsfGrid) / 2;
+        if (sweepM / spacing > screenMargin)
+        {
+            throw new ArgumentException($"The exposure sweeps {sweepM:0.000} m of air, more than the screen's margin of {screenMargin * spacing:0.000} m: use a larger screen.", nameof(options));
+        }
 
         Complex[]? objectSpectrum = null;
         var objectEpoch = double.NaN;
@@ -292,15 +318,26 @@ public static class PlanetaryDegrade
                     warp.Step();
                 }
                 screen.Fill(screenPhase);
-                var offset = (screenSamples - PsfGrid) / 2;
-                for (var y = 0; y < PsfGrid; y++)
+                // The PSF over the exposure: the pupil's window stepped upwind across the screen, as the air moves past it.
+                Array.Clear(blockPsfs[k]);
+                for (var step = 0; step < subSteps; step++)
                 {
-                    for (var x = 0; x < PsfGrid; x++)
+                    var along = subSteps == 1 ? 0 : (sweepM * ((step + 0.5) / subSteps - 0.5)) / spacing;
+                    var offsetX = screenMargin - (int)Math.Round(along * Math.Cos(options.WindAngleDeg * Math.PI / 180));
+                    var offsetY = screenMargin - (int)Math.Round(along * Math.Sin(options.WindAngleDeg * Math.PI / 180));
+                    for (var y = 0; y < PsfGrid; y++)
                     {
-                        phase[(y * PsfGrid) + x] = screenPhase[((y + offset) * screenSamples) + x + offset] * phaseScale;
+                        for (var x = 0; x < PsfGrid; x++)
+                        {
+                            phase[(y * PsfGrid) + x] = (screenPhase[((y + offsetY) * screenSamples) + x + offsetX] * phaseScale) + defocus[(y * PsfGrid) + x];
+                        }
+                    }
+                    ShortExposurePsf.Compute(pupil, phase, PsfGrid, subPsf, psfScratch);
+                    for (var i = 0; i < subPsf.Length; i++)
+                    {
+                        blockPsfs[k][i] += subPsf[i] / subSteps;
                     }
                 }
-                ShortExposurePsf.Compute(pupil, phase, PsfGrid, blockPsfs[k], psfScratch);
                 blockWarps[k] = warp.Current();
                 // The PSF's tilt in pixels: kept as the seeing's motion, or taken out where the shift given is the whole of it.
                 var (cx, cy) = Centroid(blockPsfs[k]);
@@ -435,6 +472,29 @@ public static class PlanetaryDegrade
             }
         }
         return frame;
+    }
+
+    // Zernike's defocus, sqrt(3) (2 rho^2 - 1), scaled to `rmsM` of wavefront over the unit disk of the aperture, in radians at
+    // `wavelengthM`, on the pupil grid (centred on sample n/2, n/2).
+    private static double[] DefocusPhase(int n, double spacingM, double diameterM, double rmsM, double wavelengthM)
+    {
+        var phase = new double[n * n];
+        if (rmsM == 0)
+        {
+            return phase;
+        }
+        var radius = diameterM / 2;
+        var scale = 2 * Math.PI * rmsM / wavelengthM * Math.Sqrt(3);
+        for (var y = 0; y < n; y++)
+        {
+            for (var x = 0; x < n; x++)
+            {
+                var (px, py) = ((x - (n / 2)) * spacingM, (y - (n / 2)) * spacingM);
+                var rho2 = ((px * px) + (py * py)) / (radius * radius);
+                phase[(y * n) + x] = rho2 <= 1 ? scale * ((2 * rho2) - 1) : 0;
+            }
+        }
+        return phase;
     }
 
     // A PSF's centroid over its centre sample, in fine samples.
