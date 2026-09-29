@@ -965,6 +965,14 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   writes `<capture>.warp`, `tianwen planetary-dewarp` scores against it. On 2022-09-03 the points read 11 to 19 % of the warp and
   the mesh (48 px reach) applies 0 to 3 %, so the stacks never moved; pooling (`WarpPoolFrames`) and the median geometry
   (`MedianGeometry`) change neither. A warp that varies over less than a patch cannot be followed by that patch.
+- **A stack's resampling kernel is its own blur, and a correlation's peak is CLIMBED** (R5 part 3). Bilinear at sub-pixel phases
+  spread evenly averages to its triangle, sinc^2 an axis in transfer (0.81 at 0.25 cycles a pixel): `PlanetaryStackOptions.Interpolation`
+  (Lanczos-3 lifts band 1 10 to 12 %; adopting it, and a stacked reference, is #1086), pinned by `PlanetaryResamplingTests`. A disk's correlation peaks in a
+  cone, and a parabola through it locked frames 0.2 px off along the belts, so the unwhitened path climbs the Fourier-interpolated
+  surface (`PhaseCorrelation.ClimbPeak`, the one climb; never a second). **The three-cornered hat (`tianwen planetary-registration`)
+  credits two estimators that share an error with too little, SILENTLY**: rank registrations with no truth only in a triple the
+  twin's recorded motion clears (a limb fit and AutoStakkert's track both read the outline). The literature behind all of R4 to
+  R9: `docs/architecture/planetary-literature.md`.
 - **Read the plan doc before touching the Canon path** -- it is a list of five things that fail
   SILENTLY. **Recentering is opt-in** (the user, 2026-09-28; it costs the loop about 15 ms a frame at full frame), and
   so is the mount jog, whose **sign is uncalibrated**.
