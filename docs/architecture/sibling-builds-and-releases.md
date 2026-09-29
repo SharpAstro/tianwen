@@ -166,3 +166,53 @@ every sibling uses `src/<Lib>/<Lib>.csproj`.
 | `WebGl.Renderer` | `../WebGl.Renderer` | `src/WebGl.Renderer/WebGl.Renderer.csproj` | ✅ |
 | `SharpAstro.AppShell` | `../AppShell` | `src/SharpAstro.AppShell/SharpAstro.AppShell.csproj` | ✅ |
 | `TianWen.DAL` | `../TianWen.DAL` | `TianWen.DAL.csproj` (repo root) | ✅ |
+
+## Sibling libraries and auto-detection, the CLAUDE.md text in full (moved 2026-09-29)
+
+TianWen depends on in-house libraries published to nuget.org under the **SharpAstro** org.
+Siblings, each at `../<repo>` (csproj layout varies; the full table with paths and the auto-detect
+column: `docs/architecture/sibling-builds-and-releases.md`): `DIR.Lib`, `SdlVulkan.Renderer`,
+`Console.Lib`, `FITS.Lib` (`../FITS.Lib`, csproj `CSharpFITS/CSharpFITS.csproj`), `FC.SDK` (no
+auto-detect), `ZWOptical.SDK` (`../ZWOptical.SDK`, csproj at the repo root),
+`QHYCCD.SDK` (csproj at the repo root), `SharpAstro.Fonts` (`../Fonts.Lib`, transitive), `SER.Lib`,
+`Lzip.Lib`, `Serial.Lib`, `LAN.Lib`, `WebGl.Renderer`, `SharpAstro.AppShell` (`../AppShell`), `TianWen.DAL` (csproj at
+the repo root).
+
+**Auto-detection** (`Directory.Build.props`): a **single** property `UseLocalSiblings` gates them all.
+The build switches to ProjectReference when **every** sibling working copy exists; `DIR.Lib`,
+`Console.Lib`, `SdlVulkan.Renderer`, `WebGl.Renderer`, the `Codecs`-repo codec family (`SharpAstro.Tiff`,
+`SharpAstro.Exif`, `SharpAstro.Png`, `SharpAstro.Color.Icc`, `SharpAstro.Jxr`,
+`SharpAstro.Jpeg.IccInjector`, `SharpAstro.Exr`, `SharpAstro.Codecs`), `QHYCCD.SDK`, `TianWen.DAL`,
+`ZWOptical.SDK`, `FITS.Lib`, `SER.Lib`, `Lzip.Lib`, `Serial.Lib`, `LAN.Lib` and `SharpAstro.AppShell`; otherwise it falls
+through to PackageReference. **A sibling's FOLDER must carry its repo's current name**: the check is a
+path, so a clone still under a renamed repo's old name (`zwo-sdk-nuget` for `ZWOptical.SDK`, found
+2026-09-19) is a missing sibling, and one missing sibling silently puts EVERY library back on the
+published package. `dotnet msbuild src/TianWen.Lib/TianWen.Lib.csproj -getProperty:UseLocalSiblings`
+answers `true` or nothing. Override: `dotnet build -p:UseLocalSiblings=false`. CI always uses
+PackageReference. `Fonts.Lib` is transitive via DIR.Lib's own `UseLocalFontsLib` switch. There is **no**
+per-library switch anymore, so a missing checkout of *any* listed sibling flips the whole set back to
+packages (all-or-nothing), which is fine on a dev box that has them all.
+
+**The history behind the rules below -- the CPM drift, the web projects in CI, the `open-vs.ps1` /
+`Exists(...)` divergence and the release traps -- is in
+`docs/architecture/sibling-builds-and-releases.md`.**
+The rules:
+
+- **No CPM opt-outs left in `src/`**, and a new one needs a real technical justification, not "this
+  project is not in the solution" (being outside a solution never had any bearing on CPM).
+- **A sibling gated on `UseLocalSiblings` must also be in that property's own `Exists(...)` list**, and
+  `open-vs.ps1`'s project list must match the same conjunction -- nothing enforces either, and a
+  generated solution with unresolvable entries loads with them silently unloaded.
+- **`TianWen.UI.Web` is IN `TianWen.slnx`; only `.E2E` stays out** (`IsTestProject` + Playwright, so a
+  solution-wide `dotnet test` would sweep a suite needing a browser) and `dotnet.yml` compiles it. The
+  web host consumes `UI.Abstractions` from `.razor`, which no `--include=*.cs` grep sees and no
+  out-of-solution project compiles: a rename passed both and broke CI. Run E2E explicitly:
+  `dotnet test TianWen.UI.Web.E2E`.
+
+For a library without auto-detection (`FC.SDK`, the one left),
+prefer to extend the `UseLocalSiblings` switch in
+`Directory.Build.props` + add a conditional `ProjectReference` in the consuming `.csproj`
+rather than reaching for local nupkg feeds. When that's not viable (e.g. cross-team release
+cadence forces a version bump), commit + push + wait for NuGet publish; **do not** create
+local nupkg feeds or run `dotnet pack` to short-circuit the release dance, since CI builds
+will still pull from nuget.org and a local-only nupkg will mask version-skew bugs.

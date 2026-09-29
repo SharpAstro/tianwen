@@ -1053,3 +1053,100 @@ Layout DSL section, and the measured detail is here.
   never reached. The engine also prunes every under-threshold child in ONE pass rather than shedding the
   least important first, so a column that must survive takes **no** threshold rather than a small one.
 
+
+## Rules in full (moved from CLAUDE.md)
+
+`docs/plans/remote-profile.md` (complete P1-P5) holds the design, the Home-tab decisions, the sidebar
+tab-registration mechanism, and every measurement; the pieces are `TianWen.Hosting.Contracts` (wire
+DTOs + `HostingJsonContext`) and `TianWen.RemoteClient` (`TianWenNodeClient`, `TianWenEventStream`,
+`RemoteSessionMirror`). Rules:
+
+- **The overlay model is the whole design: selecting a rig changes what you look at, never what this
+  node owns.** A remote connect is a read-only HTTP mirror (no lease, no hardware); the single-session
+  invariant is per NODE; `RemoteRigBinding` persists on a stable `NodeId`, never an address.
+- **A rig's frames are LINEAR and follow the SCREEN.** The mirror's slots hold the node's own frames
+  (`GET /frames/{source}/latest`, never the preview JPEG) under a local session's contract: publish the
+  successor, THEN release the frame it replaces, and a reader leases. `ViewContexts.PollAll` asks only the
+  rig on screen; a mirror asked for none gives its frames back. A `LastFramePath` is a file here only over
+  the local socket (`SavedFramePathOnThisMachine`). `docs/architecture/hosting-api.md`, "Linear frames".
+- **One `LiveSessionState` per view context**: Active (renders), Local (this node's own hardware --
+  every quit/park/disconnect path belongs here), All (poll + redraw). Reaching for Active where Local
+  is meant parks the local mount from a remote view. The reverse bites too: a button drawn over a
+  remote rig's panel posts the same signal as the local one, so **every handler that drives a rig resolves
+  its node with `CommandTargetOrSay` at post time** (runs, and the device actions: planetary Start, nudges,
+  Goto, Solve and Sync, the focuser): this computer's node for its own view, a rig's once this client holds
+  control of it (P6b, with the rig's own profile and view), and for a rig it only watches a refusal that
+  says how to ask. A new one owes the same, never `LocalNodeOrSay` with the local profile, which is what
+  once drove this computer's rig from a rig's panel. **A control of
+  the RUN on screen goes to that run's own node instead** (P5b part 5): an abort and a flat run's cancel
+  through `StopActiveRun` (a rig's through its `ViewContext.Mirror`), a prompt's answer to the Active
+  view's prompt, and every run's prompts reach their view through the ONE wiring, `LiveSessionPrompts`.
+- **`ISession`/`ISessionTelemetry` split**: telemetry is the wire-crossable read surface, `Setup` stays
+  local, so a remote rig renders with no tab knowing it is remote.
+- **Three wire traps:** never `required` on a nullable wire property (`WhenWritingNull` omits it), nor on one
+  whose SOURCE is null at run time whatever it declares (a default struct's string: a session's camera states
+  before their first frame, which made its whole state unreadable until then); a non-finite double unguarded is a
+  bodiless 500 for the WHOLE endpoint, so **an unknown crosses the native wire as null through `JsonNumber.OrNull`
+  and reads back as NaN through `FromWire`, never as 0** (a 0 pointing snapped a mirror's reticle to RA 0, Dec 0), while
+  the ninaAPI shim, the Alpaca plane and the broadcast events keep `ForWire`'s 0, which other applications read; and **a serialised
+  property with a declared default is `set`, never `init`**: the source generator gives an absent init-only
+  property its TYPE'S default, so a request without a binning arrived at bin 0 and a schedule without a
+  priority ran at High, the enum's 0 (`WireDefaultsTests`). A field whose absence means "keep what it was"
+  is nullable instead (`SessionConfigApiDto`).
+- **A mirrored session must render as the same session in-process, and `MirrorParityTests` measures it**: one
+  real session, run by a node on a pumped clock, read both ways at every phase and compared member by member, and
+  its Live Session and Guider tabs and Home card DRAWN both ways and compared by text, regions and pixels
+  (`TabPictures`), since a tab also reads the session itself (the mount's name, the OTAs, the schedule's length).
+  Each divergence known today is listed with the P5b part (or P6) that closes it, so a new divergence fails and so
+  does a listed one that has come to agree: delete its line. A member added to `LiveSessionState` goes into its
+  snapshot (`docs/plans/hardware-in-the-server.md`, "P5b: mirror parity, part by part").
+- **A run's notes are worded ONCE, `SessionNotes` (Lib, with `NotificationSeverity`)**, for the GUI's and the TUI's
+  bootstrappers and a node's feed alike, and a run's END is noted once the run has ended (its Finalise included, the
+  node's `RunEnded`), never at its terminal phase. A new note goes there, never into one host: a rig's feed used to read
+  "Cooling -> RoughFocus" where the same run in-process read "Initial rough focus...".
+- **Polling is authoritative; the WebSocket is a latency hint** -- `NodeResult<T>` carries a status
+  code because 404 is not unreachable. **Every event the node broadcasts is one the mirror handles**
+  (`RemoteSessionMirror.Dispatch`, P5b part 6): a state change polls now, `FRAME-AVAILABLE` fetches that frame
+  alone, an occurrence the state lacks is raised as its event, and the rest is named as another client's. An event
+  added to `BroadcastEvents` goes into `BroadcastEventSerializationTests.EveryEvent`, which then fails
+  `RemoteSessionMirrorEventTests` until `Dispatch` says what it is. **A frame is fetched only once its source's
+  token moved** (the state's `Frames` or the push), and a view redraws on the mirror's `Changed`, never on a tick.
+  **Whether a rig is answering is ONE rule, `ISessionTelemetry.Contact`** (Connecting until the first poll comes back,
+  then as the latest poll found it), **said in ONE wording, `RemoteRigActions.DescribeContact`**, by the rig's Home card
+  and its Live Session and Guider tabs alike (P5b part 6b): a view of a quiet rig otherwise goes on showing the last thing
+  its node said as though it were live. **A rig's notes are its node's feed** (`RemoteSessionMirror.Notes`: the ring, read
+  at the first answer and after the socket reconnects, then each push, one of each note), shown by the Notifications tab
+  while the rig is on screen (`NotificationFeed`, one description for the GUI's tab and the TUI's).
+  **A session's histories cross once** (P5b part 7): a poll names where the client's copy ends (`SessionStateCursor`:
+  the session, by the id the node gives it, `SessionStateDto.SessionId`, and a count per history), the node sends each
+  history from there (`HistoryFrom` says where each part starts), and the mirror appends it (`RemoteSessionMirror.Histories`,
+  mapped once). The guide steps are a ring, so their cursor counts every step ever taken (`CircularBuffer.Window`, read
+  with the items in ONE read). **A history added to the state goes through the cursor too**, or it is back to crossing
+  whole twice a second; a cursor naming another session gets everything whole, and a node or client from before part 7
+  sends or asks for everything, so the wire version did not move.
+  **A rig's view is planned with the rig's own profile** (P5b part 8): the connection's two-minute refresh reads it whole
+  (the binding's choice, else the one the rig runs) onto `ViewContext.RigProfile`, and the planner plans with
+  `AppSignalHandler.ProfileOnShow`, so a rig's nights, clock, twilight and sky are its site's and its reticle carries its
+  own sensor. A switch of view replans in full and **drops the other view's pins first** (a load replaces them only when
+  the view has some saved, so a rig with none showed this computer's and the next save wrote them into the rig's file).
+  **A place that writes this computer's site into the planner does so only while its own view is on show.**
+  **An idle rig's devices are its node's** (P5b part 9): the connection reads `GET /devices/state` while the rig is on
+  show and runs nothing, and `RigDevices` lays them out by the rig's own profile through `PreviewOTATelemetry.From`, the
+  ONE builder this computer's hub readings go through too. **A mount no one holds is `MountState.Unknown` (NaN), never
+  `default`**, which reads as RA 0, Dec 0; print an unknown pointing as dashes, since the sexagesimal formatters throw on
+  NaN. **A rig's view always holds its mirror, so `HasActiveRun` asks whether its node serves a session**
+  (`ReportedRun.NoSession`), never whether a session is held.
+- **Every request has a time budget** (state 5 s, preview 30 s, control 10 s; 60 s `HttpClient`
+  backstop). Budget expiry and caller cancellation both surface as `OperationCanceledException` meaning
+  opposite things: keep `when (...)` filters on the ORIGINAL token, never the linked one.
+- **Profile switching is gated** (`ProfileSwitchGate`) while connected/running or where drivers would
+  strand in the hub.
+- **The Home tab** (`Ctrl+H`) is a read-only PROJECTION: `HomeBoard.BuildCards` draws only from the
+  `ImmutableArray<RigCard>` snapshot, never a live state. It commands no hardware; since P6b its cards say who may
+  command each rig (`RigSharing`), a rig this client watches offers Ask to control, and the rig on show has its
+  Sharing panel under the board, whose every action is an access signal naming the card's binding.
+- **Control of a rig is its connection's** (P6b, #1021): a token lives in the credential store by node id (`NodeGrants`),
+  never a binding file; `NodeConnection` reads `MayCommand` and `Access` at first contact, on `ACCESS-CHANGED` and every
+  30 s, and forgets a token the node no longer holds; `AskForControlAsync` polls its request alive and, granted, reopens
+  the event socket so the node counts it. A request to this computer's rig is put to whoever is at it over everything, as
+  the quit's question is (`ControlRequestQuestion`): Enter declines, A allows, Escape answers later.

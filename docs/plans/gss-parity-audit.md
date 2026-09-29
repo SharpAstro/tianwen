@@ -527,3 +527,31 @@ advanced (`X`) command set.
 behaviour for anything in the table above. Regenerating against `origin/master` may legitimately
 turn `SkywatcherGssOracleTests` red where GSS has since changed; that is a decision, not a
 regression, and the transcripts should record which upstream revision produced them.
+
+## Moved from CLAUDE.md, 2026-09-29
+
+**A guide pulse is TWO methods, and picking the wrong one is silent.** `StartPulseGuideAsync`
+(`IMountDriver` / `ICameraDriver` / `IPulseGuideTarget`) is the primitive: it commands the hardware
+and RETURNS, with `IsPulseGuidingAsync` required to be true by then. `PulseGuideAsync`
+(`PulseGuideTargetExtensions`, internal to the guider) is the composite: start AND wait, which is
+what a caller almost always means. **Awaiting a start is not waiting for the pulse** -- reach for the
+composite, and keep the primitive only for a caller doing something else meanwhile, which today
+means driving the other axis. It stays off the public driver interfaces because the Alpaca plane and
+the planetary recenter nudge genuinely want start-and-return.
+
+**Every driver honours the primitive, SkyWatcher included.** Synta boards have no "pulse for N ms",
+so the driver holds the duration in a background task split from the caller at *commanded*. Two
+rules ride on it. **The in-flight count rises BEFORE the first write and falls only when the hold
+ends** (GSS #109): a caller must never observe "no pulse running" for a pulse already issued, and it
+is a counter so an overlapping RA+Dec pair clears only when both finish. And **a failed restore has
+no caller to throw to**, so it parks in `_pendingPulseFault` and is re-thrown from the next
+`StartPulseGuideAsync` *and from `IsPulseGuidingAsync`* -- a read that throws on purpose, so the
+fault lands in the guide frame that caused it. Ordering makes that deterministic: the hold parks the
+fault BEFORE lowering the count, and `IsPulseGuidingAsync` checks the fault BEFORE reading it.
+Rationale in `docs/plans/gss-parity-audit.md`.
+
+**A test for the non-blocking starter needs `ExternalTimePump` and a `[Fact(Timeout=…)]`**: under an
+auto-advancing clock the hold can finish before the assertion runs, so the test passes against a
+blocking driver too -- and the regression does not fail, it HANGS, because a blocking driver awaits
+its own hold, which parks in the pumped clock's sleep waiting for an advance that comes after the
+starter returns.

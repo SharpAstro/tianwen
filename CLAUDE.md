@@ -51,26 +51,14 @@ quotes, a release tag (`v6.3.1352`), or a PR or issue number (`#227`), all of wh
 
 ## Custom Skills
 
-Available in `.claude/skills/<name>/SKILL.md`: auto-invocable when the request matches the skill's description, or explicitly via `/<name>`.
-
-| Skill | Purpose |
-|-------|---------|
-| `release-lib` | Release a SharpAstro sibling library to NuGet with full dependency chain |
-| `release-tianwen` | Cut a TianWen binary release (workflow_dispatch + GitHub Release with .tar.gz assets) |
-| `sibling-status` | Git status + version across all SharpAstro repos |
-| `check-ci` | GitHub Actions CI status across all repos |
-| `bump-version` | Bump TianWen's version: the one `<VersionMajorMinor>` in `src/Directory.Build.props` |
-| `run-gui` / `run-tui` / `run-fits` | Build and launch the GUI / CLI TUI / FITS viewer DETACHED via `tools/start-app.ps1` (pid + redirected stdout/stderr paths; survives a reaped background shell) |
-| `test-run` | Run a suite so a failure is always identifiable (TRX + no truncation), and hunt flakes |
-| `test-filter` | Run tests matching a name pattern |
-| `test-image-diff` | Diff test-output PNGs across run folders to flag visual regressions |
-| `test-output-prune` | Delete old `yyyyMMdd` test-output folders, keeping the N most recent |
-| `stack` | Run `tianwen stack` against a folder of FITS lights + calibration |
-| `digitize-filter` | Digitise a vendor filter chart into `FilterCurveDatabase` (three chart families, the validation gates, the matcher re-check) |
-| `curate-session` | File a capture session into `Astro-Organized` so a bake can use it: the four archive tiers, backfilling a filter identity by measurement, checking a calibration set against the pixels, and what to stop and report rather than guess |
-| `dataset-gallery` | Build a browsable gallery of a bake's session masters (enhanced beside raw) and publish it as an Artifact |
-| `plan-report` | Check docs/plans against the issues and the per-plan milestones (`tools/plan-issue-report.py`, no model involved; also the `plan-report` CI workflow) |
-| `tick-todo` | Close a backlog ISSUE (preferably through its PR) and update CLAUDE.md, the plan files and memory |
+Available in `.claude/skills/<name>/SKILL.md` (each carries its own description, which the session lists;
+auto-invocable when the request matches, or via `/<name>`): `release-lib`, `release-tianwen`, `sibling-status`,
+`check-ci`, `bump-version`, `run-gui` / `run-tui` / `run-fits` (build and launch DETACHED via
+`tools/start-app.ps1`: pid + redirected stdout/stderr paths; survives a reaped background shell), `test-run`
+(TRX + no truncation; hunts flakes), `test-filter`, `test-image-diff`, `test-output-prune`, `stack`,
+`digitize-filter`, `curate-session`, `dataset-gallery`, `plan-report` (`tools/plan-issue-report.py`, also the
+`plan-report` workflow), `tick-todo` (close a backlog ISSUE, preferably through its PR, and update CLAUDE.md,
+the plan files and memory).
 
 ## Project Overview
 
@@ -89,31 +77,21 @@ Repository: https://github.com/SharpAstro/tianwen
 
 ```
 src/
-├── TianWen.slnx                   # Solution file (XML format)
-├── Directory.Build.props          # Auto-detect sibling repos (ProjectReference vs PackageReference)
-├── (Directory.Packages.props)     # Centralized package versions: at the REPO ROOT, not in src/
-├── TianWen.Lib/                   # Core library (net10.0)
-├── TianWen.Devices.Native/        # ZWO + QHYCCD drivers, split out so Lib carries no vendor natives
-├── TianWen.Lib.SourceGenerators/  # Roslyn generators for Lib (DispatchInterfaceGenerator)
-├── TianWen.Lib.Tests/             # Unit tests (xUnit v3)
-├── TianWen.Lib.Tests.Functional/  # Functional/integration tests (Session loops with FakeTimeProvider)
-├── TianWen.Lib.Tests.Simulators/  # On-demand tests vs LIVE Alpaca/ASCOM simulators (gated; skip by default)
-├── TianWen.Cli/                   # CLI (AOT-published → `tianwen`)
-├── TianWen.Hosting.Contracts/     # Wire DTOs + the shared HostingJsonContext (host AND client reference it)
-├── TianWen.Hosting/               # ASP.NET Core Minimal API (REST + WebSocket + Alpaca device plane)
-├── TianWen.Server/                # Headless server (AOT-published → `tianwen-server`)
-├── TianWen.RemoteClient/          # Client for a remote node (TianWenNodeClient / EventStream / SessionMirror)
-├── TianWen.AscomHost/             # Windows-only out-of-proc host for in-proc COM ASCOM drivers
-├── TianWen.UI.Abstractions/       # Widget system, layout, state, shared types
-├── TianWen.UI.Shared/             # Vulkan FITS pipeline, VkSkyMap pipeline + tab (the SDL→InputKey map is SdlVulkan.Renderer's `SdlInputMapping`)
-├── TianWen.UI.Gui/                # N.I.N.A.-style integrated GUI (AOT-published → `tianwen-gui`)
-├── TianWen.UI.FitsViewer/         # Standalone FITS viewer (AOT-published → `tianwen-fits`)
-├── TianWen.UI.Web/                # WebAssembly showcase build (WebGl renderer)
-├── TianWen.UI.Web.E2E/            # Playwright end-to-end tests for the web build
-├── TianWen.UI.Benchmarks/         # BenchmarkDotNet performance tests
-├── TianWen.AI/                    # ORT facade (EP resolver + session-options helpers)
-├── TianWen.AI.Imaging/            # Image ↔ tensor bridge + concrete enhancer wrappers
-└── TianWen.AI.MCP/                # MCP (Model Context Protocol) stdio server (AOT-published → `tianwen-mcp`)
+├── TianWen.slnx, Directory.Build.props (sibling auto-detect); Directory.Packages.props is at the REPO ROOT
+├── TianWen.Lib/ (core, net10.0)   TianWen.Devices.Native/ (ZWO + QHYCCD drivers, so Lib carries no vendor natives)
+├── TianWen.Lib.SourceGenerators/ (Roslyn: DispatchInterfaceGenerator)
+├── TianWen.Lib.Tests/ (unit, xUnit v3)   .Tests.Functional/ (Session loops with FakeTimeProvider)
+├── TianWen.Lib.Tests.Simulators/ (on-demand tests vs LIVE Alpaca/ASCOM simulators; gated, skip by default)
+├── TianWen.Cli/ (AOT → `tianwen`)   TianWen.Server/ (headless, AOT → `tianwen-server`)
+├── TianWen.AscomHost/ (Windows-only out-of-proc host for in-proc COM ASCOM drivers)
+├── TianWen.Hosting.Contracts/ (wire DTOs + the shared HostingJsonContext, host AND client reference it)
+├── TianWen.Hosting/ (ASP.NET Core Minimal API: REST + WebSocket + Alpaca device plane)
+├── TianWen.RemoteClient/ (TianWenNodeClient / EventStream / SessionMirror)
+├── TianWen.UI.Abstractions/ (widget system, layout, state, shared types)
+├── TianWen.UI.Shared/ (Vulkan FITS pipeline, VkSkyMap pipeline + tab; the SDL→InputKey map is SdlVulkan.Renderer's `SdlInputMapping`)
+├── TianWen.UI.Gui/ (N.I.N.A.-style GUI, AOT → `tianwen-gui`)   TianWen.UI.FitsViewer/ (AOT → `tianwen-fits`)
+├── TianWen.UI.Web/ (WebAssembly showcase, WebGl renderer)   .Web.E2E/ (Playwright)   TianWen.UI.Benchmarks/ (BenchmarkDotNet)
+└── TianWen.AI/ (ORT facade)   TianWen.AI.Imaging/ (image ↔ tensor bridge + enhancer wrappers)   TianWen.AI.MCP/ (MCP stdio server, AOT → `tianwen-mcp`)
 ```
 
 Six projects set `PublishAot` + an `<AssemblyName>` short lower-case name: `tianwen`,
@@ -160,53 +138,37 @@ come from `Microsoft.Testing.Extensions.CrashDump` / `.HangDump` / `.TrxReport`,
 
 ## SharpAstro Sibling Libraries
 
-TianWen depends on in-house libraries published to nuget.org under the **SharpAstro** org.
-Siblings, each at `../<repo>` (csproj layout varies; the full table with paths and the auto-detect
-column: `docs/architecture/sibling-builds-and-releases.md`): `DIR.Lib`, `SdlVulkan.Renderer`,
-`Console.Lib`, `FITS.Lib` (`../FITS.Lib`, csproj `CSharpFITS/CSharpFITS.csproj`), `FC.SDK` (no
-auto-detect), `ZWOptical.SDK` (`../ZWOptical.SDK`, csproj at the repo root),
-`QHYCCD.SDK` (csproj at the repo root), `SharpAstro.Fonts` (`../Fonts.Lib`, transitive), `SER.Lib`,
-`Lzip.Lib`, `Serial.Lib`, `LAN.Lib`, `WebGl.Renderer`, `SharpAstro.AppShell` (`../AppShell`), `TianWen.DAL` (csproj at
-the repo root).
+TianWen depends on in-house libraries published to nuget.org under the **SharpAstro** org, each a sibling clone
+at `../<repo>` (csproj layout varies; the full table with paths and the auto-detect column:
+`docs/architecture/sibling-builds-and-releases.md`): `DIR.Lib`, `SdlVulkan.Renderer`, `Console.Lib`, `FITS.Lib`
+(csproj `CSharpFITS/CSharpFITS.csproj`), `FC.SDK` (no auto-detect), `ZWOptical.SDK`, `QHYCCD.SDK`,
+`SharpAstro.Fonts` (`../Fonts.Lib`, transitive), `SER.Lib`, `Lzip.Lib`, `Serial.Lib`, `LAN.Lib`, `WebGl.Renderer`,
+`SharpAstro.AppShell` (`../AppShell`), `TianWen.DAL` and the `Codecs`-repo codec family.
 
-**Auto-detection** (`Directory.Build.props`): a **single** property `UseLocalSiblings` gates them all.
-The build switches to ProjectReference when **every** sibling working copy exists; `DIR.Lib`,
-`Console.Lib`, `SdlVulkan.Renderer`, `WebGl.Renderer`, the `Codecs`-repo codec family (`SharpAstro.Tiff`,
-`SharpAstro.Exif`, `SharpAstro.Png`, `SharpAstro.Color.Icc`, `SharpAstro.Jxr`,
-`SharpAstro.Jpeg.IccInjector`, `SharpAstro.Exr`, `SharpAstro.Codecs`), `QHYCCD.SDK`, `TianWen.DAL`,
-`ZWOptical.SDK`, `FITS.Lib`, `SER.Lib`, `Lzip.Lib`, `Serial.Lib`, `LAN.Lib` and `SharpAstro.AppShell`; otherwise it falls
-through to PackageReference. **A sibling's FOLDER must carry its repo's current name**: the check is a
-path, so a clone still under a renamed repo's old name (`zwo-sdk-nuget` for `ZWOptical.SDK`, found
-2026-09-19) is a missing sibling, and one missing sibling silently puts EVERY library back on the
-published package. `dotnet msbuild src/TianWen.Lib/TianWen.Lib.csproj -getProperty:UseLocalSiblings`
-answers `true` or nothing. Override: `dotnet build -p:UseLocalSiblings=false`. CI always uses
-PackageReference. `Fonts.Lib` is transitive via DIR.Lib's own `UseLocalFontsLib` switch. There is **no**
-per-library switch anymore, so a missing checkout of *any* listed sibling flips the whole set back to
-packages (all-or-nothing), which is fine on a dev box that has them all.
+**Auto-detection** (`Directory.Build.props`): a **single** property `UseLocalSiblings` gates them all. The build
+switches to ProjectReference when **every** sibling working copy exists, otherwise it falls through to
+PackageReference (all-or-nothing: one missing checkout puts EVERY library back on the package; CI always uses
+PackageReference). **A sibling's FOLDER must carry its repo's current name** (the check is a path: a clone still
+under `zwo-sdk-nuget` for the renamed `ZWOptical.SDK` was a missing sibling, 2026-09-19).
+`dotnet msbuild src/TianWen.Lib/TianWen.Lib.csproj -getProperty:UseLocalSiblings` answers `true` or nothing;
+override with `dotnet build -p:UseLocalSiblings=false`. `Fonts.Lib` is transitive via DIR.Lib's own
+`UseLocalFontsLib`. The history behind the rules (CPM drift, web projects in CI, the `open-vs.ps1` /
+`Exists(...)` divergence, release traps) is in `docs/architecture/sibling-builds-and-releases.md`. The rules:
 
-**The history behind the rules below -- the CPM drift, the web projects in CI, the `open-vs.ps1` /
-`Exists(...)` divergence and the release traps -- is in
-`docs/architecture/sibling-builds-and-releases.md`.**
-The rules:
-
-- **No CPM opt-outs left in `src/`**, and a new one needs a real technical justification, not "this
-  project is not in the solution" (being outside a solution never had any bearing on CPM).
+- **No CPM opt-outs left in `src/`**, and a new one needs a real technical justification (being outside a
+  solution never had any bearing on CPM).
 - **A sibling gated on `UseLocalSiblings` must also be in that property's own `Exists(...)` list**, and
-  `open-vs.ps1`'s project list must match the same conjunction -- nothing enforces either, and a
-  generated solution with unresolvable entries loads with them silently unloaded.
+  `open-vs.ps1`'s project list must match the same conjunction -- nothing enforces either, and a generated
+  solution with unresolvable entries loads with them silently unloaded.
 - **`TianWen.UI.Web` is IN `TianWen.slnx`; only `.E2E` stays out** (`IsTestProject` + Playwright, so a
-  solution-wide `dotnet test` would sweep a suite needing a browser) and `dotnet.yml` compiles it. The
-  web host consumes `UI.Abstractions` from `.razor`, which no `--include=*.cs` grep sees and no
-  out-of-solution project compiles: a rename passed both and broke CI. Run E2E explicitly:
-  `dotnet test TianWen.UI.Web.E2E`.
+  solution-wide `dotnet test` would need a browser) and `dotnet.yml` compiles it. The web host consumes
+  `UI.Abstractions` from `.razor`, which no `--include=*.cs` grep sees: a rename passed both and broke CI. Run
+  E2E explicitly: `dotnet test TianWen.UI.Web.E2E`.
 
-For a library without auto-detection (`FC.SDK`, the one left),
-prefer to extend the `UseLocalSiblings` switch in
-`Directory.Build.props` + add a conditional `ProjectReference` in the consuming `.csproj`
-rather than reaching for local nupkg feeds. When that's not viable (e.g. cross-team release
-cadence forces a version bump), commit + push + wait for NuGet publish; **do not** create
-local nupkg feeds or run `dotnet pack` to short-circuit the release dance, since CI builds
-will still pull from nuget.org and a local-only nupkg will mask version-skew bugs.
+For a library without auto-detection (`FC.SDK`, the one left), extend the `UseLocalSiblings` switch in
+`Directory.Build.props` + add a conditional `ProjectReference` rather than local nupkg feeds. When that's not
+viable, commit + push + wait for NuGet publish; **do not** create local nupkg feeds or run `dotnet pack` to
+short-circuit the release dance (CI pulls from nuget.org, and a local-only nupkg masks version-skew bugs).
 
 ### Releasing a sibling, and TianWen's own version
 
@@ -398,129 +360,93 @@ Absent/unparseable → real system clock (previous behaviour). Pinned by `Startu
 
 ### Device Management
 
-URI-addressed: `DeviceBase` (URI identity), `IDeviceSource<T>` (driver backends),
-`ICombinedDeviceManager` (coordinates sources), `IDeviceUriRegistry` (URI → instance map).
-Each subclass reads query keys (`?key=value`) defined in `DeviceQueryKey`. See class XML doc comments
-for supported keys. Full driver hierarchy (ASCOM / Alpaca / ZWO / QHY / native-serial subgraphs):
-`docs/architecture/device-architecture.md`.
+URI-addressed: `DeviceBase` (URI identity), `IDeviceSource<T>` (driver backends), `ICombinedDeviceManager`
+(coordinates sources), `IDeviceUriRegistry` (URI → instance map). Each subclass reads query keys (`?key=value`)
+defined in `DeviceQueryKey` (see the class XML docs). Full driver hierarchy (ASCOM / Alpaca / ZWO / QHY /
+native-serial subgraphs): `docs/architecture/device-architecture.md`, which also holds the rules below in full
+("Device management rules (moved from CLAUDE.md, 2026-09-29)").
 
-**Every native serial protocol has ONE architecture document** (LX200, OnStep, Skywatcher, SGP and
-both Gemini devices, indexed under "Native serial protocols" in that file), and a new native driver
-ships with its document in its first commit: OnStep went without one for five months and its wire
-notes survived only in a commit message. Each maps every driver member to the wire, including what
-it does when the device is connected and does not answer, which must be a transient THROW (#810).
-
-**A vendor's native binaries reach an app through the REFERENCE GRAPH, and nothing downstream can
-filter them out.** The ZWO and QHYCCD drivers therefore live in `TianWen.Devices.Native`, not in
-`TianWen.Lib`: an SDK project marks its natives `CopyToOutputDirectory` deliberately (a
-`runtimes/<rid>/native` layout is a NuGet mechanism a `ProjectReference` does not honour), MSBuild
-propagates that to every transitive consumer, and trimming cannot undo it because it reasons about
-MANAGED reachability while a native library is an opaque blob a `DllImport` may resolve by name at run
-time. Not calling `AddZWO()` changes nothing; only not referencing does. The viewer shipped 8.2 MB of
-camera, focuser and filter-wheel drivers to the Store this way. **Namespaces stayed
-`TianWen.Lib.Devices.*` / `TianWen.Lib.Extensions` on purpose** (a deployment split, not an API
-redesign), so the assembly name and the namespace root differ; the drivers stay `internal` and see
-Lib's internals through `InternalsVisibleTo` rather than the DAL abstraction being promoted to public
-API. Only the process that drives hardware references the project, and since P6 (#936) that is `tianwen-server`
-alone: the GUI, the CLI (the TUI with it) and `tianwen-fits` must NOT, and neither must a new consumer, which reaches
-the rig through the node.
-
-**A profile scan never probes a COM port, and a port that will not TAKE bytes is given up, not retried.**
-`DiscoverOnlyDeviceType(type)` runs the serial probe pass only when a source for that type consumes it (it
-used to run for `Profile` -- at GUI start-up on the main thread and from `MountLimitWatcher` every 5 s).
-Serial.Lib (the sibling `SerialConnection` adapts to `ISerialConnection`) bounds every write twice (port
-`WriteTimeout` + task deadline) and the close, because a Windows Bluetooth SPP listener port (`bthmodem.sys`, created for any paired
-device advertising SPP) accepts an open and then never completes a write, and `SerialStream` ignores its
-token. Only a write the driver never completed raises `ISerialConnection.HasAbandonedIo`, on which the pass
-drops the port for the rest of the discovery; a READ timeout never does -- a device at the wrong baud or
-awaiting another protocol completes the write and stays silent, and still gets every probe and baud. Found
-and measured live 2026-08-30: `docs/plans/mount-safety-limits.md`,
-"Live verification".
-
-**Serial I/O is the Serial.Lib sibling's, and closing a connection is asynchronous.** `SerialConnection` only
-adapts it to `ISerialConnection`: the library's typed failures become the `Try*` null / -1 / false, and reads are
-bounded by the caller's token alone (`Timeout.InfiniteTimeSpan`), as they always were. `ISerialConnection` is
-`IAsyncDisposable` and closes through `TryCloseAsync`; a synchronous `Dispose` that cannot await starts the close
-with `CloseInBackground` and never waits on it. A new transport guarantee goes into Serial.Lib with a test there,
-never into the adapter: `docs/plans/serial-lib.md`.
+- **Every native serial protocol has ONE architecture document** (LX200, OnStep, Skywatcher, SGP and both
+  Gemini devices, indexed under "Native serial protocols" there), and a new native driver ships with its
+  document in its first commit (OnStep went without one for five months). Each maps every driver member to the
+  wire, including what it does when the device is connected and does not answer: a transient THROW (#810).
+- **A vendor's native binaries reach an app through the REFERENCE GRAPH, and nothing downstream can filter them
+  out**: an SDK project marks its natives `CopyToOutputDirectory`, MSBuild propagates that to every transitive
+  consumer, and trimming cannot undo it. The ZWO and QHYCCD drivers therefore live in
+  `TianWen.Devices.Native`, not `TianWen.Lib`; not calling `AddZWO()` changes nothing, only not referencing
+  does. Namespaces stayed `TianWen.Lib.Devices.*` / `TianWen.Lib.Extensions` on purpose (a deployment split);
+  the drivers stay `internal` behind `InternalsVisibleTo`. Since P6 (#936) only `tianwen-server` references
+  the project: the GUI, the CLI (the TUI with it) and `tianwen-fits` must NOT, nor a new consumer, which
+  reaches the rig through the node.
+- **A profile scan never probes a COM port, and a port that will not TAKE bytes is given up, not retried.**
+  `DiscoverOnlyDeviceType(type)` runs the serial probe pass only when a source for that type consumes it.
+  Serial.Lib bounds every write twice and the close (a Windows Bluetooth SPP port accepts an open and never
+  completes a write); only a write the driver never completed raises `ISerialConnection.HasAbandonedIo`, on
+  which the pass drops the port for the rest of the discovery; a READ timeout never does (a device at the wrong
+  baud completes the write and stays silent). `docs/plans/mount-safety-limits.md`, "Live verification".
+- **Serial I/O is the Serial.Lib sibling's, and closing a connection is asynchronous.** `SerialConnection` only
+  adapts it to `ISerialConnection` (typed failures become the `Try*` null / -1 / false; reads bounded by the
+  caller's token alone). `ISerialConnection` is `IAsyncDisposable` and closes through `TryCloseAsync`; a
+  synchronous `Dispose` starts the close with `CloseInBackground` and never waits. A new transport guarantee
+  goes into Serial.Lib with a test there, never into the adapter: `docs/plans/serial-lib.md`.
 
 ### Device Ownership (the hub lease)
 
-A run that is driving hardware **claims it from the hub**, and nothing else may disconnect or command a
-claimed device. `IDeviceHub.TryAcquireLease` / `DeviceLeaseSet.Acquire` (all-or-nothing over a rig) /
-`DeviceOwnershipGate.Evaluate` (the one shared verdict + `Describe()` message, mirroring
-`ProfileSwitchGate`). `Session.RunAsync` and `RunFlatsOnlyAsync` claim `Setup.DeviceUris()` for the
-whole run, released in the `finally` so a claim survives `Finalise` (parking + warming is exactly when a
-stray disconnect hurts most). **Polar alignment claims the mount and its capture devices, and a
-planetary capture its camera** (P0c item 2): the host takes the claim with `DeviceLeaseSet.TryAcquire`
-(a refused start is an answer, not an exception) and the run OWNS it from there, the polar session
-releasing it only after restoring the mount. Every new kind of run owes the same.
+A run that is driving hardware **claims it from the hub**, and nothing else may disconnect or command a claimed
+device. `IDeviceHub.TryAcquireLease` / `DeviceLeaseSet.Acquire` (all-or-nothing over a rig) /
+`DeviceOwnershipGate.Evaluate` (the one shared verdict + `Describe()` message, mirroring `ProfileSwitchGate`).
+`Session.RunAsync` and `RunFlatsOnlyAsync` claim `Setup.DeviceUris()` for the whole run, released in the
+`finally` (a claim survives `Finalise`). **Polar alignment claims the mount and its capture devices, and a
+planetary capture its camera**: the host takes the claim with `DeviceLeaseSet.TryAcquire` (a refused start is an
+answer, not an exception) and the run OWNS it from there. Every new kind of run owes the same. Write-up:
+`docs/architecture/device-ownership.md`. What bites:
 
-- **A run's drivers ARE the hub's, so a node holds ONE driver per device.** A session connects each
-  device through the hub (`ControllableDeviceBase.ConnectAsync(hub)`, which calls `IDeviceHub.AdoptAsync`),
-  and **reads `Driver` only after that connect**, which can switch it to the hub's instance. Every run
-  leaves the mount and guider as entries whose driver is down, which is why `ConnectedDevices` lists only
-  drivers that are up. `docs/architecture/hosting-api.md`, invariant 6.
-- **Reads are never leased.** Telemetry, status and previews stay free for every observer; watching a
-  rig must cost it nothing. A lease only refuses *taking the driver away* and *commanding it*.
-- **Never guard hardware access on a UI flag.** The guards used to be five ad-hoc
-  `LiveSessionState.IsRunning` checks, every one wrong the same way: `IsRunning` is **false during a flat
-  run** (which is why `HasActiveRun` exists), so mid-flat-run the focuser could be jogged, the mount
-  pulsed and slewed, and a planetary capture started on the camera being metered. A UI flag also cannot
-  work for the hosted API or the Alpaca plane, which never see one. Ask `DeviceOwnershipGate`, which the
-  node does: a client (the GUI, the TUI, the CLI) holds no hub since P6 (#936), so it asks the node and shows
-  the node's refusal, which names the run.
-- **Enforcement is asymmetric, deliberately.** Disconnect has one choke point, so `DisconnectAsync`
-  throws `DeviceLeasedException` unless `force: true`; a caller that skips the gate gets an exception,
-  not a stolen driver. Actuation has no choke point short of proxying every driver (an interception layer
-  on the imaging hot path), so actuation call sites ask the gate. Both evaluate the same rule.
-- **`force: true` is for process shutdown only.** Note that GUI "Force Off" does **not** force past
-  ownership: it means "skip the warm-up", which is what the user confirmed; consenting to a cold
-  disconnect is not consenting to kill the night.
-- **Stopping the rig is ONE order, `RigShutdown`** (`TianWen.UI.Abstractions`, a node client since P6):
-  the node's run first, through its own ending (a session's and a flat run's `Finalise`, polar's mount
-  restore), and the devices warmed up and disconnected, as the node's jobs, only once the node says the run
-  has ENDED (`RigShutdownOrderTests`). **Never queue a camera warm-up beside a run's cancel**: that is how
-  `Finalise` and the quit once ramped one camera at the same time. A dead display stops nothing: the runs are
-  the node's, so the window leaves (P7 starts a successor).
-  **Quitting is ONE rule too, `AppQuit`, for the GUI and the TUI** (decision 1 of
-  `docs/plans/hardware-in-the-server.md`): only the LAST client attached to the node asks (the node's
-  `ClientsAttached`, less this one's own stream, which counts only clients that may command: a watcher over the LAN is
-  nobody to leave the rig to); with a run going on, "Leave the rig running" (the default) or
-  "Stop the rig and quit"; with devices connected and no run, "Disconnect" (the default, which the node finishes
-  after the window has gone) or "Leave connected", and it says "Warm up and disconnect" only while a camera needs it
-  (`CameraReading.NeedsWarmUp`: its cooler on and its sensor below the heat sink, the rule the node's ramp asks too, so
-  an uncooled camera is never ramped). The question is `LiveSessionState.QuitDialog`
-  on this computer's view, drawn by both Live Session tabs over everything (Enter the default, its letter the
-  other, Escape stays). Every quit cancels the host's OWN background work first (a separate token from the
-  loop's); the TUI once hung on Q, draining a tracker whose limit watcher nothing cancelled (P0c).
-- **Escalation is explicit:** stop the run (abort the session / cancel the flat run) and the lease frees.
-  There is no override on the actuation path by design.
-- `GetDisconnectSafetyAsync` is a **hardware**-safety check (cooler on / mid-exposure) and returns `Safe`
-  for anything that is not a camera; it is not, and never was, an ownership check. Ask the gate first.
+- **A run's drivers ARE the hub's, so a node holds ONE driver per device.** A session connects each device
+  through the hub (`ControllableDeviceBase.ConnectAsync(hub)`, `IDeviceHub.AdoptAsync`) and **reads `Driver`
+  only after that connect**, which can switch it to the hub's instance. `docs/architecture/hosting-api.md`,
+  invariant 6.
+- **Reads are never leased**; a lease only refuses *taking the driver away* and *commanding it*.
+- **Never guard hardware access on a UI flag** (`LiveSessionState.IsRunning` is false during a flat run, which
+  is why `HasActiveRun` exists; a UI flag cannot work for the hosted API or the Alpaca plane). Ask
+  `DeviceOwnershipGate`, which the node does; a client holds no hub since P6 (#936), asks the node and shows
+  its refusal, which names the run.
+- **Enforcement is asymmetric, deliberately**: `DisconnectAsync` throws `DeviceLeasedException` unless
+  `force: true` (one choke point); actuation call sites ask the gate (no choke point short of proxying every
+  driver). **`force: true` is for process shutdown only**; GUI "Force Off" means "skip the warm-up", never
+  forcing past ownership. There is no override on the actuation path by design: stop the run and the lease
+  frees.
+- **Stopping the rig is ONE order, `RigShutdown`**: the node's run first, through its own ending (`Finalise`,
+  polar's mount restore), and the devices warmed up and disconnected, as the node's jobs, only once the run has
+  ENDED (`RigShutdownOrderTests`). **Never queue a camera warm-up beside a run's cancel.**
+- **Quitting is ONE rule, `AppQuit`**, for the GUI and the TUI (decision 1 of
+  `docs/plans/hardware-in-the-server.md`): only the LAST client attached asks (the node's `ClientsAttached`,
+  counting only clients that may command); with a run going on, "Leave the rig running" (default) or "Stop the
+  rig and quit"; with devices and no run, "Disconnect" (default) or "Leave connected", saying "Warm up and
+  disconnect" only while a camera needs it (`CameraReading.NeedsWarmUp`). The question is
+  `LiveSessionState.QuitDialog` on this computer's view. Every quit cancels the host's OWN background work first
+  (a separate token from the loop's).
+- `GetDisconnectSafetyAsync` is a **hardware**-safety check (cooler on / mid-exposure), `Safe` for anything that
+  is not a camera; it is not an ownership check. Ask the gate first.
 
 Pinned by `DeviceOwnershipTests`, including three that drive a real `Session`/flat run end to end.
 
 ### Alpaca Backend (ASCOM Remote / Alpaca HTTP)
 
-`AddAlpaca()` is a **fully functional** device source (camera, telescope, focuser, filter wheel,
-switch, cover-calibrator) over the ASCOM Alpaca REST API; wired into CLI / Server / GUI alongside
-`AddAscom()`. It is the primary cross-platform path for a headless Linux / Raspberry Pi host, where
-the Windows-only native ASCOM COM bridge is unavailable.
+`AddAlpaca()` is a **fully functional** device source (camera, telescope, focuser, filter wheel, switch,
+cover-calibrator) over the ASCOM Alpaca REST API, wired into CLI / Server / GUI alongside `AddAscom()`: the
+primary cross-platform path for a headless Linux / Raspberry Pi host, where the Windows-only COM bridge is
+unavailable. Write-up: `docs/architecture/device-architecture.md`, "Alpaca camera image transfer".
 
-**Camera image transfer goes through the binary `application/imagebytes` protocol, NOT the legacy
-JSON `imagearray`.** JSON encodes every pixel as a decimal-ASCII integer (an order of magnitude
-slower for full frames); ImageBytes sends a 44-byte little-endian `ArrayMetadataV1` header followed
-by raw pixels. `AlpacaImageBytes.DecodeChannel` is the pure decoder;
-`AlpacaClient.GetImageArrayBytesAsync` negotiates it via `Accept: application/imagebytes,
-application/json` and verifies the response `Content-Type`. **Wire-order gotcha:** ImageBytes is laid
-out `[Dimension1 = Width(X), Dimension2 = Height(Y)]` row-major, i.e. column-major in image terms, so
-the flat index of `(x, y)` is `y + x*Height`; `DecodeChannel` transposes that into `Channel`'s `[y, x]`
-layout. `AlpacaCameraDriver` downloads + decodes **once** when the server first reports `imageready`,
-populating `ImageData` / `ChannelBuffer`, and `StartExposureAsync` clears them so the next frame
-re-downloads. **The HTTP round-trip is validated against a live OmniSim** by
-`AlpacaSimulatorTests.Camera_ExposesAndDownloadsViaImageBytes`; the decoder stays separately byte-pinned
-by `AlpacaImageBytesTests`.
+**Camera image transfer goes through the binary `application/imagebytes` protocol, NOT the legacy JSON
+`imagearray`** (an order of magnitude slower for full frames): `AlpacaImageBytes.DecodeChannel` is the pure
+decoder, `AlpacaClient.GetImageArrayBytesAsync` negotiates it via `Accept: application/imagebytes,
+application/json` and verifies the response `Content-Type`. **Wire-order gotcha:** ImageBytes is
+`[Dimension1 = Width(X), Dimension2 = Height(Y)]` row-major, i.e. column-major in image terms, so the flat index
+of `(x, y)` is `y + x*Height`; `DecodeChannel` transposes into `Channel`'s `[y, x]`. `AlpacaCameraDriver`
+downloads + decodes **once** when the server first reports `imageready`; `StartExposureAsync` clears the
+buffers so the next frame re-downloads. Validated against a live OmniSim by
+`AlpacaSimulatorTests.Camera_ExposesAndDownloadsViaImageBytes`; the decoder is byte-pinned by
+`AlpacaImageBytesTests`.
 
 ### Device Secrets (Credential Store)
 
@@ -673,67 +599,32 @@ viewer narrows a move's damage to the pixel readout.
 ### The atlas's hover highlight, and what a click would take
 
 **A hover highlight and the click MUST come from one resolver, or they will disagree.**
-`SkyMapSearchActions.TryResolveHit` is the search; `SelectObjectByClick` turns it into an info panel
-and `ResolveHoverAtScreenPoint` into a `SkyMapHoverTarget` (`SkyMapTab.Hover.cs`). Two hit tests
-written the same way is how a wash over one object and a panel about another happens, which is worse
-than no wash. **Hover does not honour Ctrl** -- the modifier is read at the press, and a hover carries
-none, so guessing is wrong exactly where it matters (picking a star out of a nebula). This is a
-HIGHLIGHT, not hover selection: the click still selects (`docs/plans/in-app-sky-atlas.md`, 2026-09-10).
+`SkyMapSearchActions.TryResolveHit` is the search; `SelectObjectByClick` turns it into an info panel and
+`ResolveHoverAtScreenPoint` into a `SkyMapHoverTarget` (`SkyMapTab.Hover.cs`). **Hover does not honour Ctrl**
+(the modifier is read at the press). This is a HIGHLIGHT, not hover selection. The rules in full, with the
+measurements: `docs/plans/in-app-sky-atlas.md`, "Hover highlight: rules in full (moved from CLAUDE.md)".
 
-- **The wash is one `Renderer.FillEllipse`**, which all three renderers implement natively, so it needs
-  no instance stream, no cache key and no shader. **It is the object's OWN ellipse** (since 2026-09-22,
-  the same solver as the selection ring; a disc only for a shapeless object or a star), and **the FITS
-  viewer has the same wash** through its click resolver (`ViewerState.HoverObject`, budgeted by pointer
-  travel, never through a declared region). **Drawn FIRST of the annotation layers**, which is
-  what makes a pointer resting over the search modal or the layer palette harmless with none of them
-  claiming the pointer: the sky behind resolves, the wash paints under the panel covering it.
-- **Only a CHANGED answer asks for a frame** (another object, or onto or off one), and resolves are
-  bounded by the pending frame or, with none pending, by `HoverResolveMinInterval` (8 ms) on the app
-  clock. Every resolve used to ask for one, so every pointer move repainted the whole atlas at
-  display rate and a hover that changed nothing held the Adreno at up to 70 percent (2026-09-23).
-  Assert with `HoverFrameRequests`, never `NeedsRedraw`, which a render sets for reasons of its own.
-  **A crowded field is settled by the RESOLVER, never by delaying the answer** (2026-09-28). An object
-  CONTAINS the pointer when the pointer is on what is drawn for it: within `MarkerHitRadiusPx` (12 px) of
-  its centre, or inside its drawn ellipse. The smallest drawn footprint that contains it wins, and only
-  when nothing does is the forgiving 20 px near tolerance used. A 120 ms settle once hid the flicker the
-  older nearest-centre rule caused (every cluster claimed a 20 px disc of the LMC around it), and it made
-  every hover on the atlas feel sluggish; it is gone, with its delayed-frame hooks on both hosts.
-  **An object that fills the view is hovered but not washed.**
-  The resolve cost itself, measured by
-  `SkyMapHoverResolveBenchmarks` (Release, win-arm64, re-measured 2026-09-28): over an OBJECT ~27 us at
-  any zoom, over bare STAR FIELD 170 us at 1 degree and 153 at 10, falling to ~17 us by 60, and **0 B on
-  every row** (389 us / 225 KB before the fixes below; 9, 157, 134 and 1.7 us on 2026-09-20, the growth
-  since not yet attributed). **The gap is WHETHER THE STAR PASS RUNS, not a
-  per-star cost that varies with zoom** -- the nine index cells come from the unprojected pointer
-  and are identical at every zoom, holding 1094 candidates whatever the FOV. **The DSO pass
-  short-circuits it and floors its hit test at a FIXED 20 SCREEN PX**, whose sky footprint runs
-  0.020 deg at 1 degree FOV to 4.200 at 170, so it reaches something catalogued only when zoomed
-  out. `EffectiveMagnitudeLimit` is the minor term and runs the OTHER way (1 degree is dearer than
-  10 over the same cells). **The star pass reads a Tycho-2 candidate through `TryGetTycho2Star` and
-  looks up only the WINNER in full**: a `CelestialObject` names its constellation by precessing the
-  star to B1875, which a hit test never reads, and that plus `ToCatalogAndValue`'s base91 decode
-  was 320 of the 389 us and 197 of the 225 KB. Both are allocation-free now (`PrecessRadians`, the
-  span `Base91.DecodeBytes`), which every catalogue lookup in the program inherits;
-  `Tycho2LiteLookupParityTests` walks the whole catalogue to pin that the two lookups read the same
-  star. **A cell is walked through `IRaDecIndex.EnumerateCell`, never the indexer, on a per-frame
-  path**: the indexer built a `List` of the cell's Tycho-2 stars, a wrapper and an iterator per cell
-  (the last 27.6 KB of a resolve), the struct (`RaDecCell`) scans the same regions as the caller
-  advances and allocates nothing, and `RaDecCellEnumerationTests` holds the two equal for every
-  cell of the sky against the catalogue bucketed independently, which is how the blob's 254
-  duplicate identifiers and its one unaddressable star were found (`docs/known-limitations.md`).
-  **Three corrections worth keeping: a Debug timing was
-  ~5x pessimistic and blended the two paths; the cliff was attributed to the magnitude limit by
-  reading the code; and a test-host Stopwatch ranked terms by JIT order. Attribute with
-  `SkyMapHoverResolveCostProbe` (`TIANWEN_HOVER_PROBE=1 DOTNET_TieredCompilation=0`).**
-- **The target is dropped when the view moved**, compared at DRAW time against the view it was
-  resolved for, never cleared at each of the five call sites that move the view.
-- **`ShowOnlyObjectsWithPicture` ([O]'s `I` sub-setting) goes through `OverlayEngine.PassesLayerFilter`,
-  and so do the [O]/[D] gates.** Three callers: the desktop's background gather, the browser / offline
-  primitive path, and the CLICK resolver -- the last must ask it or a filtered-out object stays
-  selectable through apparently-empty sky. It does NOT reach the dark-nebula layer, which [O] does not
-  govern (the predicate's [D] branch says why; four comments said the opposite until 2026-09-20), a
-  pinned landmark survives it, and **it is in BOTH gather cache keys** because it strips the CACHED
-  list.
+- **The wash is one `Renderer.FillEllipse`**, the object's OWN ellipse (a disc only for a shapeless object or
+  a star); the FITS viewer has the same wash through its click resolver (`ViewerState.HoverObject`). **Drawn
+  FIRST of the annotation layers**, so a pointer over the search modal or layer palette is harmless.
+- **Only a CHANGED answer asks for a frame**; resolves are bounded by the pending frame or
+  `HoverResolveMinInterval` (8 ms). Assert with `HoverFrameRequests`, never `NeedsRedraw`.
+- **A crowded field is settled by the RESOLVER, never by delaying the answer**: an object CONTAINS the
+  pointer within `MarkerHitRadiusPx` (12 px) of its centre or inside its drawn ellipse; the smallest drawn
+  footprint containing it wins, and only when none does is the 20 px near tolerance used. An object that
+  fills the view is hovered but not washed.
+- **Resolve cost** (`SkyMapHoverResolveBenchmarks`, Release, win-arm64, 2026-09-28): ~27 us over an object at
+  any zoom, ~170 us over bare star field at 1 degree FOV falling to ~17 us by 60, 0 B on every row. The gap
+  is WHETHER THE STAR PASS RUNS (the DSO pass short-circuits it, at a FIXED 20 screen px floor), not a
+  per-star cost. The star pass reads a candidate through `TryGetTycho2Star` and looks up only the WINNER in
+  full; **a cell is walked through `IRaDecIndex.EnumerateCell`, never the indexer, on a per-frame path**.
+  Attribute with `SkyMapHoverResolveCostProbe` (`TIANWEN_HOVER_PROBE=1 DOTNET_TieredCompilation=0`): a Debug
+  timing is ~5x pessimistic and a test-host Stopwatch ranks terms by JIT order.
+- **The target is dropped when the view moved**, compared at DRAW time against the view it was resolved for.
+- **`ShowOnlyObjectsWithPicture` ([O]'s `I` sub-setting) goes through `OverlayEngine.PassesLayerFilter`, and
+  so do the [O]/[D] gates** (desktop gather, browser primitive path, and the CLICK resolver, or a
+  filtered-out object stays selectable). It does NOT reach the dark-nebula layer, a pinned landmark survives
+  it, and **it is in BOTH gather cache keys**.
 
 ### Smart Framing (planner co-framing groups)
 
@@ -793,17 +684,13 @@ or "re-order" logic must operate on the OTA set as a single unit.
 `InitialRoughFocusAsync` → `AutoFocusAllTelescopesAsync` → `CalibrateGuiderAsync` → `ObservationLoopAsync`.
 See the class XML doc + the relevant `docs/plans/*.md` for details on each phase.
 
-**Session failure surfacing (`ISession.FailureReason`):** when a run ends `SessionPhase.Failed`, the
-session carries a plain-language, user-actionable reason (which device to check, what to do), surfaced
-verbatim by the GUI notification feed, the hosted `/state` endpoint (`SessionStateDto.FailureReason`)
-and the CLI. Throw `SessionFailedException(userMessage, inner)` for failures with a clear user
-explanation (the inner exception carries the technical cause to the log); anything unhandled falls to
-the generic catch ("Unexpected error: …"). Init device connects go through `ConnectOrFailAsync`
-(`Session.Lifecycle.cs`), which names the device + telescope and is **deliberately fail-fast** -- a
-device that cannot connect at init makes the night pointless (a flip-flat we cannot open leaves the OTA
-blind), so fail there rather than discover it at dawn. The END-of-session flat block is the opposite:
-best-effort, so a flats failure after a successful night never flips the session to Failed. Pinned by
-`SessionFailureReasonTests`.
+**Session failure surfacing (`ISession.FailureReason`):** a run that ends `SessionPhase.Failed` carries a
+plain-language, user-actionable reason, surfaced verbatim by the GUI notification feed, `/state`
+(`SessionStateDto.FailureReason`) and the CLI. Throw `SessionFailedException(userMessage, inner)` for failures
+with a clear user explanation; anything unhandled falls to "Unexpected error: …". Init device connects go
+through `ConnectOrFailAsync` (`Session.Lifecycle.cs`), **deliberately fail-fast** (a flip-flat we cannot open
+leaves the OTA blind); the END-of-session flat block is the opposite, best-effort, so a flats failure never
+flips a good night to Failed. Pinned by `SessionFailureReasonTests`.
 
 **Guider calibration pier-side invariant:** `CalibrateGuiderAsync` (`Session.Lifecycle.cs`) slews to
 HA **−0.5h** (30 min *east* of the meridian, target still approaching transit) before calibrating, NOT
@@ -832,60 +719,39 @@ the state it was slewed in and a naive "flip when HA > 0" is trivially true fore
 zero exposures. **Never re-introduce an HA-only flip check**; gate on the *destination* side + the
 `hasFlipped` memory. Pinned by `MeridianFlipDecisionTests` + a `mountPort:"SkyWatcher"` loop test.
 
-**Whether a flip HAPPENED is read off the IMAGE wherever the pointing state is `Computed`** (LX200 base,
-SGP: derived from HA, so it turns over as the POINTING crosses whether or not the tube moved -- the
-flip-SUCCESS twin of the trap above). `WCS.RotationDeg` measures it against the recentre's own solve,
-which already happens; `MeridianFlipVerification.FromSolves` judges. **The likelier failure is
-`AlreadyFlipped`, not the commanded flip**: such a mount reports the flipped side at the crossing, so the
-loop skips the slew and images on upside down with the guider's Dec inverted; a field that did not turn
-now makes the session COMMAND the flip. `Inconclusive` falls back to the mount's report, or every rig on
-a coordinates-only solver fails every flip. `FakeMountDriver` has a mechanical tube state only MOTION
-changes (**a sync must not touch it**) and `FakeCameraDriver` rolls off that, never off the report.
-`docs/plans/meridian-flip-verification.md`
+**Whether a flip HAPPENED is read off the IMAGE wherever the pointing state is `Computed`** (LX200 base, SGP:
+derived from HA, so it turns over as the POINTING crosses whether or not the tube moved -- the flip-SUCCESS twin
+of the trap above). `WCS.RotationDeg` measures it against the recentre's own solve, `MeridianFlipVerification.FromSolves`
+judges, and `Inconclusive` falls back to the mount's report. The likelier failure is `AlreadyFlipped`: the loop
+skips the slew and images on upside down with the guider's Dec inverted. `FakeMountDriver` has a mechanical tube
+state only MOTION changes (**a sync must not touch it**) and `FakeCameraDriver` rolls off that, never off the
+report. `docs/plans/meridian-flip-verification.md`
 
 **Mount safety limits are NOT the meridian flip.** `MountLimits.Evaluate` (`Sequencing/MountLimits.cs`,
 pure, beside `MeridianFlipDecision`) is the mechanical bound -- where the TUBE meets the pier or the
-ground -- while a flip is a *scheduling* choice about a target still imaged from the other side. A rig
-can have one, both or neither. Ported from GSServer's `CheckAxisLimits`; the derivations, phasing, live
-verification and the wider GSServer sweep are in
-`docs/plans/mount-safety-limits.md` and
-`docs/plans/gss-parity-audit.md`. The rules that bite:
+ground -- while a flip is a *scheduling* choice; a rig can have one, both or neither. Derivations, phasing,
+live verification: `docs/plans/mount-safety-limits.md`, `docs/plans/gss-parity-audit.md`. What bites:
 
-- **The HORIZON test keys on HOUR ANGLE, not pier side** (`HA > 0` IS descending); **the MERIDIAN test
-  is the opposite, an RA-AXIS test where the pointing state is load-bearing** (`Evaluate` reads the
-  offset as `Normal ? -HA : HA`). Reading HA alone stopped every rig ~30 min after a flip.
-- **`IMountDriver.GetAxisAngleAsync` is the MECHANICAL tier and WINS when present** (SkyWatcher only):
-  fallback, never cross-check; `MountLimitVerdict.Basis` says which tier answered.
-- **Only a MEASURED pointing state may drive it -- or one the SESSION verified.**
-  `MountLimits.TrustedPointingState` hands `Evaluate` `Unknown` for a `Computed` driver; its
-  three-argument overload takes `Session._verifiedPointingState` instead (latched, image-confirmed).
-  `MountLimitWatcher` has no session and no latch, so it keeps the two-argument form.
-- **Warn and act are a threshold plus a non-negative EXTRA**, never two absolute numbers (the two
-  limits run in opposite directions), so warn-before-action holds by construction both ways.
-- **`alreadyActed` is a latch and must downgrade to `Warn`, never clear**, or a park is re-commanded
-  every poll tick and the slew restarts forever.
-- **The meridian limit is in MINUTES and is the ULTIMATE CLAMP on the flip** (shares its unit with
-  `MeridianFlipEarliestMinutesAfter`/`LatestMinutesAfter`, applied INSIDE `MeridianFlipDecision`).
-  Horizon stays in degrees. Deriving the limit from the flip instead would let a preference walk a
-  safety bound into the pier.
-- **It is the TUBE that collides, not the counterweight**, so the threshold approximates a
-  three-variable envelope (optics length x declination) set for the worst case the rig images.
-- **Config lives on `ProfileData.MountLimits`**, projected onto `Setup`, never the per-run
-  `SessionConfiguration` (must hold for a manual slew with no session). **Enforcement is in
-  `PollDeviceStatesAsync`, not the imaging tick.** Breaching routes to `ImageLoopNextAction.LimitReached`,
-  NOT `DeviceUnrecoverable`.
-- **Parking is opt-in for both limits**: a park is MOTION across a path nothing has checked.
+- **HORIZON keys on HOUR ANGLE, not pier side** (`HA > 0` IS descending); **MERIDIAN is an RA-AXIS test where
+  the pointing state is load-bearing** (`Normal ? -HA : HA`). Reading HA alone stopped every rig ~30 min after a flip.
+- **`IMountDriver.GetAxisAngleAsync` (MECHANICAL, SkyWatcher only) WINS when present** (`MountLimitVerdict.Basis`).
+  **Only a MEASURED pointing state, or one the SESSION verified, may drive it** (`MountLimits.TrustedPointingState`
+  hands `Evaluate` `Unknown` for a `Computed` driver; the three-argument overload takes
+  `Session._verifiedPointingState`; `MountLimitWatcher` keeps the two-argument form).
+- **Warn and act are a threshold plus a non-negative EXTRA**; **`alreadyActed` is a latch that downgrades to
+  `Warn`, never clears** (or a park is re-commanded every poll).
+- **The meridian limit is in MINUTES and is the ULTIMATE CLAMP on the flip** (applied INSIDE
+  `MeridianFlipDecision`); horizon stays in degrees; never derive the limit from the flip. It is the TUBE that
+  collides, not the counterweight.
+- **Config lives on `ProfileData.MountLimits`**, never the per-run `SessionConfiguration`; **enforcement is in
+  `PollDeviceStatesAsync`** and routes to `ImageLoopNextAction.LimitReached`, NOT `DeviceUnrecoverable`;
+  **parking is opt-in for both limits**.
 - **A mount that stops tracking without being asked is a LIMIT EVENT, not a fault**
-  (`Session.DetectDriverEnforcedStop`), gated on not-slewing and debounced over two polls; an RA pulse
-  on a STOPPED SkyWatcher axis runs constant-speed (`_raPulseOnStoppedAxis` masks it).
-- **Two test traps:** `default(PointingState)` is `Normal`, which is SILENT for the meridian test, so
-  an unconfigured mock passes with enforcement deleted; a test must place the mount by SYNC, not slew.
-- **A run's site is `Session.Site`, settled at initialisation, never the configured site alone** (#798):
-  the request's, else the mount's reconciled with the profile's (`MountSiteExtensions`, one rule for
-  every host). The poll read the configured site, NaN for a request naming none, and a NaN altitude
-  switches the HORIZON test off: every such server run went without one. `SessionTestHelper`'s default
-  configuration names no site, so no session test had evaluated it.
-- **The verdict is telemetry** all the way to the Home card's Flip column, on CLASS transitions only.
+  (`Session.DetectDriverEnforcedStop`; `_raPulseOnStoppedAxis` masks an RA pulse on a STOPPED SkyWatcher axis).
+- **Test traps:** `default(PointingState)` is `Normal`, SILENT for the meridian test, so place the mount by
+  SYNC, not slew. **A run's site is `Session.Site`** (#798; `MountSiteExtensions`), never the configured site
+  alone: a NaN altitude switches the HORIZON test off.
+- **The verdict is telemetry** to the Home card's Flip column, on CLASS transitions only.
 
 **`MountLimitWatcher` (`Sequencing/`) is the enforcement half with no session running**: host-agnostic,
 matches a connected mount by the hub's identity rule against every discovered profile's `Mount` each
@@ -894,31 +760,15 @@ that holds the rig since P6 (#936): the GUI and the TUI ran their own until then
 
 Full derivations, the GSServer sweep and live verification: both docs linked above.
 
-**A guide pulse is TWO methods, and picking the wrong one is silent.** `StartPulseGuideAsync`
-(`IMountDriver` / `ICameraDriver` / `IPulseGuideTarget`) is the primitive: it commands the hardware
-and RETURNS, with `IsPulseGuidingAsync` required to be true by then. `PulseGuideAsync`
-(`PulseGuideTargetExtensions`, internal to the guider) is the composite: start AND wait, which is
-what a caller almost always means. **Awaiting a start is not waiting for the pulse** -- reach for the
-composite, and keep the primitive only for a caller doing something else meanwhile, which today
-means driving the other axis. It stays off the public driver interfaces because the Alpaca plane and
-the planetary recenter nudge genuinely want start-and-return.
-
-**Every driver honours the primitive, SkyWatcher included.** Synta boards have no "pulse for N ms",
-so the driver holds the duration in a background task split from the caller at *commanded*. Two
-rules ride on it. **The in-flight count rises BEFORE the first write and falls only when the hold
-ends** (GSS #109): a caller must never observe "no pulse running" for a pulse already issued, and it
-is a counter so an overlapping RA+Dec pair clears only when both finish. And **a failed restore has
-no caller to throw to**, so it parks in `_pendingPulseFault` and is re-thrown from the next
-`StartPulseGuideAsync` *and from `IsPulseGuidingAsync`* -- a read that throws on purpose, so the
-fault lands in the guide frame that caused it. Ordering makes that deterministic: the hold parks the
-fault BEFORE lowering the count, and `IsPulseGuidingAsync` checks the fault BEFORE reading it.
-Rationale in `docs/plans/gss-parity-audit.md`.
-
-**A test for the non-blocking starter needs `ExternalTimePump` and a `[Fact(Timeout=…)]`**: under an
-auto-advancing clock the hold can finish before the assertion runs, so the test passes against a
-blocking driver too -- and the regression does not fail, it HANGS, because a blocking driver awaits
-its own hold, which parks in the pumped clock's sleep waiting for an advance that comes after the
-starter returns.
+**A guide pulse is TWO methods, and picking the wrong one is silent.** `StartPulseGuideAsync` (`IMountDriver` /
+`ICameraDriver` / `IPulseGuideTarget`) is the primitive: it commands the hardware and RETURNS.
+`PulseGuideAsync` (`PulseGuideTargetExtensions`, internal to the guider) is the composite, start AND wait,
+which a caller almost always means. **Every driver honours the primitive, SkyWatcher included**: **the
+in-flight count rises BEFORE the first write and falls only when the hold ends** (GSS #109), and **a failed
+restore parks in `_pendingPulseFault`** and is re-thrown from the next `StartPulseGuideAsync` *and from
+`IsPulseGuidingAsync`*. **A test for the non-blocking starter needs `ExternalTimePump` and a
+`[Fact(Timeout=…)]`** (else it passes against a blocking driver, and the regression HANGS).
+`docs/plans/gss-parity-audit.md`.
 **No-astro-dark night-window fallback:** `SessionEndTimeAsync` (`Session.Timing.cs`) derives the dark
 window via `ObservationScheduler.CalculateNightWindow`, which has a fallback chain (astronomical −18° →
 amateur-astro −15° → nautical −12° → polar-night 24h). It must **never** demand `EventTimes(...).Count == 1`
@@ -927,28 +777,14 @@ the sun never reaches −18°, and the old strict read threw, killing the sessio
 no astro-dark. Pinned by a no-dark German-solstice test in `SessionLifecycleTests`.
 
 **Focus-drift refocus trigger (trend, not single-frame):** the imaging loop compares
-`FocusDriftDetector.EstimateTrendHfd` -- a least-squares fit of median HFD over the last
-`SessionConfiguration.FocusDriftSampleSize` frames (default 30; only samples comparable to the
-baseline participate -- same exposure, gain AND filter position (`FrameMetrics.IsComparableTo`, so a
-filter ladder never compares one filter's chromatic focus shift against another's baseline), enough
-stars -- and below `FocusDriftMinSamples` of them
-it falls back to the newest frame's raw HFD) -- against the per-target baseline at
-`FocusDriftThreshold` (the NINA `AutofocusAfterHFRIncreaseTrigger` analogue), so one bloated frame
-(wind gust, passing haze) cannot trigger a spurious refocus. Two invariants: **the LSQ divisor is the
-INCLUDED-sample count, not the window length** (dividing by the window length biases slope and
-intercept whenever a sample is skipped -- the bug in the original inline implementation); and **the
-history window is cleared on a drift-triggered refocus and on target change**, so the fit never sees
-frames from a different focus position (a stale high-HFD window fitted against the fresh post-refocus
-baseline re-triggers immediately -- refocus oscillation). The window is a `CircularBuffer<T>`, the
-lock-free most-recent-N ring (torn-free `Snapshot`; the GUI render thread polls `Session.GuideSamples`
-off the same type every frame). Pinned by `FocusDriftDetectorTests` + `CircularBufferTests`.
-**There is one baseline per ACQUISITION SETTING, not per telescope** (`AcquisitionSetting`, exactly what
-`IsComparableTo` compares, keyed with the telescope and observation): a frame is compared with its own
-setting's baseline, and a setting with none collects one from its first `BaselineHfdFrameCount` frames
-without disturbing the others. One per telescope switched the trigger off after every AutoFocus (its 2 s
-verification frame is never comparable to a science sub) and never finished a baseline under a ladder
-changing slot every frame (#820). A drift refocus and a target change drop EVERY setting's baseline for
-the telescope. Assert a refocus through `Session.DriftRefocusCount`, never through a baseline existing.
+`FocusDriftDetector.EstimateTrendHfd` (least-squares fit of median HFD over the last
+`SessionConfiguration.FocusDriftSampleSize` frames that are comparable, `FrameMetrics.IsComparableTo`: same
+exposure, gain AND filter position) against the baseline at `FocusDriftThreshold`. **The LSQ divisor is the
+INCLUDED-sample count**; **the window is cleared on a drift-triggered refocus and on target change** (else
+refocus oscillation); it is the lock-free `CircularBuffer<T>`. **One baseline per ACQUISITION SETTING, not per
+telescope** (`AcquisitionSetting`, #820); a drift refocus and a target change drop EVERY setting's baseline for
+the telescope. Assert through `Session.DriftRefocusCount`. Pinned by `FocusDriftDetectorTests` +
+`CircularBufferTests`; detail: `docs/plans/focus-tolerance.md`.
 
 ### Driver Resilience on the Hot Path
 
@@ -1024,84 +860,46 @@ exposure solvers, the cover-capability model, the GUI mode, config knobs and eve
 
 ### Deep-Sky Stacking + Enhance Pipeline (`TianWen.Lib.Imaging.Stacking`)
 
-`StackingPipeline.RunAsync` (CLI `tianwen stack`) runs these steps in order:
-1. scan DataRoot;
-2. build the bias, dark and flat masters;
-3. register each light group (star-quad match);
-4. integrate. The strategy is auto-picked: Bayer drizzle on RGGB with at least `DrizzleOptions.MinFrameCount`
-   frames, else AHD plus sigma-clip rejection;
-5. `MasterPostProcessor.WriteMasterAsync`: plate-solve, SPCC white balance, FITS, autocrop, optional enhance,
-   previews.
+`StackingPipeline.RunAsync` (CLI `tianwen stack`): scan DataRoot; build the bias, dark and flat masters;
+register each light group (star-quad match); integrate (auto-picked: Bayer drizzle on RGGB with at least
+`DrizzleOptions.MinFrameCount` frames, else AHD plus sigma-clip rejection); `MasterPostProcessor.WriteMasterAsync`
+(plate-solve, SPCC white balance, FITS, autocrop, optional enhance, previews). Completely separate from the
+Planetary stacker below.
 
-It is completely separate from the Planetary stacker below.
+**Flowcharts, the render model, and every rule below with its measurements:
+`docs/architecture/stacking-render-pipeline.md`** ("The rules in full"). Comet integration: read
+`docs/plans/comet-integration.md` first (thirteen silent traps). The rules that bite:
 
-**Flowcharts, the render model, and every rule below with the measurements behind it:
-`docs/architecture/stacking-render-pipeline.md`** (see "The rules in full", moved there from this file on 2026-09-25).
-Comet integration: read `docs/plans/comet-integration.md` first, since it lists thirteen silent traps.
-The rules that bite:
-
-- **Output contract by data type:**
-  - Linear (canonical) is FITS: the full-frame `master_<slug>.fits` AND the cropped `_autocrop.fits`
-    (`--output-format exr` mirrors both).
-  - The display outputs (PNG, `--split-plates` TIFFs) are ALWAYS the autocrop, rendered by
-    `MasterPostProcessor`, never the CLI.
-- **A written master is [0, 1] with true labels.**
-  - Every strategy goes through `IntegratedMaster.Labelled`: observed peak as `MaxValue`, no
-    `SensorFullScaleAdu`, and `MinValue` as the BLACK POINT.
-  - `MasterPostProcessor` scales with `ScaleFloatValuesToUnitCeiling` into NEW planes. Not
-    `ScaleFloatValuesToUnit`, which leaves any peak up to 2.0 alone.
-- **Never take a whole-frame statistic over a CFA mosaic.** Split by photosite before any median, MAD, sigma
-  or gain, and keep subsample strides ODD. A threshold flagging more than
-  `BadPixelDetection.DefaultMaxMaskedFraction` is degenerate, so it masks nothing.
-- **A NaN in a rejection sample column disables rejection in every rejector.** Mark absence with
-  `PixelRejection.MarkAbsent`.
-- **Per-pixel sidecars (coverage, rejection, bad pixels) are QUANTISED, then gzipped:** one rule,
-  `IntegrationFitsWriter.MapStorage`.
-  - Address a sidecar by its logical path, resolve it with `ExistingSidecarPath`, and ask `IsMapSidecarPath`
-    before treating a `.fits` as a master.
-  - The bad pixel map is APP's format, on the SENSOR geometry.
-- **Drizzle rejects per deposited sample, at the stack's thresholds** (#93).
-  - It judges each sample leave-one-out, and allows the cell's local slope (`DrizzleClip.SlopeScale`).
-  - A rejecting drizzle streams `RawBayerFrames` twice, so a producer must be re-enumerable.
-  - Its parallel strips (`DrizzleKernel.ForEachStrip`) and `RunSubsetsAsync` are BIT-IDENTICAL to the serial
-    code, as `DrizzleParallelBitIdentityTests` pins.
-- **Never re-ingest our own outputs.** The scan drops any TianWen-produced FITS (`STACK_N > 0` or our
-  `SWCREATE`), unless `--include-integrations` is given.
-- **Calibration is grouped by temperature RUN, and a session is matched on its lights' MEDIAN temperature**
-  (`CalibrationEpochs.SetGroupKey`, `SplitSets`, `CalibrationResolver.SessionKey`). Flats rank by filter,
-  then proof tier, then days; temperature only breaks ties.
-- **The archive scan is ONE function, `SessionDiscovery.ScanAsync`, and it never excludes before reading.**
-  - An unchanged header replays from `FitsHeaderIndex`.
-  - A resume fingerprints the calibration a session CHOSE, never the whole library.
-  - `--rebuild-session <wildcard>` rebuilds named sessions.
-- **A master's width is its subs', plus the warp kernel's, plus any misregistration.**
-  - `Lanczos3Clamped` is the default since 7.1. The clamp, at a measured 0.7 threshold, is mandatory on OSC.
-  - The unmoved rule (`UnmovedTolerancePx`) and `Image.SinglePhotositeFractionMax` keep warm pixels out of
-    registration and star lists.
-- **A captured non-light says so in `IMAGETYP`.** AutoFocus rungs are `FrameType.Focus`, and scouts are
-  `FrameType.Scout`. Never widen a consumer's filter to admit them.
-- **`--enhance`** runs `SharpenPipeline` ONCE, into `_sharpened.fits`; `--split-plates` exports the same pass.
-  The program is `SharpenPipeline.CanonicalProgram`, shaped by what SERVES: BlurX-first where a deblurrer serves,
-  the split with a star remover, whole-frame (gradient + denoise) with neither, and then there are no plates and
-  the log says so.
-- **Render model:**
-  - ONE SPCC white balance, then each plate self-stretches.
-  - SPCC's clip test reads the OBSERVED peak.
-  - The normaliser anchors on `Image.Pedestal`.
-- **SPCC is broadband-only as a MODEL, not a gate.** Narrowband SPCC is blocked on Gaia data, and naive HOO
-  is rank-deficient (`docs/plans/narrowband-colour.md`). The stretch's `ResolveAuto` is what refuses to
-  assert the fit as colour.
-- **The filter-curve matcher never answers with a brand, nor a more specific product.** Re-run
-  `ReportKnownLightPollutionFilters` after adding a curve.
-- **A QE curve keys on the DIE (`_cameraToSensorAliases`); a crop's geometry keys on the CAMERA.** A wrong
-  alias is worse than a missing one.
-- **Enhanced masters render with `MasterPreviewRenderer.WithZeroPedestal`.**
-- **The CLI renders nothing.** The display-only stages (`--saturation`/`--contrast-boost`, `uhdr`) never
-  touch a linear master.
-- **Stellar-sharpen is opt-in, served by nothing today** (the SETI Astro sharpener went with that tier on
-  2026-09-26), **and skipped while a deblurrer is live.**
-- **Enhance options parse once, in `EnhanceOptions.TryParse`**, for the CLI and the server endpoint alike;
-  `--ai-backend auto|rc|n2n` (`sas` fails, saying why).
+- **Output contract:** linear (canonical) is FITS, the full-frame `master_<slug>.fits` AND the cropped
+  `_autocrop.fits`; the display outputs (PNG, `--split-plates` TIFFs) are ALWAYS the autocrop, rendered by
+  `MasterPostProcessor`, never the CLI (which renders nothing).
+- **A written master is [0, 1] with true labels** (`IntegratedMaster.Labelled`); scale with
+  `ScaleFloatValuesToUnitCeiling` into NEW planes, not `ScaleFloatValuesToUnit`.
+- **Never take a whole-frame statistic over a CFA mosaic** (split by photosite, keep strides ODD;
+  `BadPixelDetection.DefaultMaxMaskedFraction`). **A NaN in a rejection sample column disables rejection in
+  every rejector** (`PixelRejection.MarkAbsent`).
+- **Per-pixel sidecars are QUANTISED, then gzipped** (`IntegrationFitsWriter.MapStorage`, `ExistingSidecarPath`,
+  `IsMapSidecarPath`); the bad pixel map is APP's format, on SENSOR geometry.
+- **Drizzle rejects per deposited sample** (#93, `DrizzleClip.SlopeScale`); a rejecting drizzle streams
+  `RawBayerFrames` twice; its parallel strips are BIT-IDENTICAL to serial (`DrizzleParallelBitIdentityTests`).
+- **Never re-ingest our own outputs** (`STACK_N > 0` or `SWCREATE`, unless `--include-integrations`).
+- **Calibration is grouped by temperature RUN; a session is matched on its lights' MEDIAN temperature**
+  (`CalibrationEpochs.SetGroupKey`, `SplitSets`, `CalibrationResolver.SessionKey`).
+- **The archive scan is ONE function, `SessionDiscovery.ScanAsync`, and never excludes before reading**
+  (`FitsHeaderIndex`; `--rebuild-session <wildcard>`).
+- **A master's width is its subs', plus the warp kernel's, plus misregistration** (`Lanczos3Clamped` is the
+  default, its clamp mandatory on OSC; `UnmovedTolerancePx`, `Image.SinglePhotositeFractionMax`).
+- **A captured non-light says so in `IMAGETYP`** (`FrameType.Focus`, `FrameType.Scout`); never widen a
+  consumer's filter to admit them.
+- **`--enhance`** runs `SharpenPipeline` ONCE (`CanonicalProgram`, shaped by what SERVES); options parse once in
+  `EnhanceOptions.TryParse`; `--ai-backend auto|rc|n2n`. Stellar-sharpen is opt-in and served by nothing today.
+- **Render model:** ONE SPCC white balance, then each plate self-stretches; SPCC's clip test reads the OBSERVED
+  peak; the normaliser anchors on `Image.Pedestal`; enhanced masters use `MasterPreviewRenderer.WithZeroPedestal`.
+  **SPCC is broadband-only as a MODEL, not a gate** (`docs/plans/narrowband-colour.md`; `ResolveAuto` refuses to
+  assert the fit as colour).
+- **The filter-curve matcher never answers with a brand, nor a more specific product** (re-run
+  `ReportKnownLightPollutionFilters`); **a QE curve keys on the DIE (`_cameraToSensorAliases`), a crop's
+  geometry on the CAMERA.**
 
 ### Planetary Lucky-Imaging Stack (`TianWen.Lib.Imaging.Planetary`)
 
@@ -1254,29 +1052,28 @@ full native-AOT rules, and the reasoning behind each rule below:
 1. **A pushed schedule beats the target queue.** `POST /session/schedule` preserves per-filter plans,
    the planner's `Start` and `AcrossMeridian`; `PendingTarget` carries none and `/session/start` stamps
    `Start = now`. Never route a real schedule through `/targets`.
-2. **Subscribing to `PromptRequested` takes over the session's unattended answer.** `EventBroadcaster`
-   restores the guarantee (no NATIVE WebSocket client that may command -> `SessionPromptEventArgs.DefaultIfUnanswerable`
-   at once, since a ninaAPI socket and a watcher without control cannot answer; one attached -> hold with no timer,
-   liveness is the only bound), and it attaches as the node starts a run, never from its poll. **Liveness is the client's
-   presence BEAT, never its socket** (a frozen window keeps its socket): a client beats from the loop that
-   DRAWS it (`TianWenEventStream.Beat()`; the GUI from `SdlEventLoop.OnLoopIteration`, never a timer), and
-   one whose beat is older than `NodeWire.PresenceLapse` is nobody to wait for. **Any new subscriber on a
-   headless path owes the same**, and **whoever holds a prompt drops it on `Settled`**: the session
-   withdraws one it stops waiting on. **A broadcast only queues** (`EventHub`, a bounded queue and one
-   sender per client); a client that falls behind is dropped to resync by polling.
+2. **Subscribing to `PromptRequested` takes over the session's unattended answer.** `EventBroadcaster` restores
+   the guarantee (no NATIVE WebSocket client that may command -> `SessionPromptEventArgs.DefaultIfUnanswerable`
+   at once, since a ninaAPI socket and a watcher without control cannot answer; one attached -> hold with no
+   timer, liveness is the only bound), attaching as the node starts a run, never from its poll. **Liveness is
+   the client's presence BEAT, never its socket** (a frozen window keeps its socket): a client beats from the
+   loop that DRAWS it (`TianWenEventStream.Beat()`; the GUI from `SdlEventLoop.OnLoopIteration`, never a timer),
+   and one whose beat is older than `NodeWire.PresenceLapse` is nobody to wait for. **Any new subscriber on a
+   headless path owes the same**, and **whoever holds a prompt drops it on `Settled`**. **A broadcast only
+   queues** (`EventHub`: a bounded queue and one sender per client); a client that falls behind is dropped to
+   resync by polling.
 3. **Numeric enums on the wire** (no `JsonStringEnumConverter` on `HostingJsonContext`): a `required`
    enum on a request DTO is hostile to hand-written callers, default it.
-4. **Previews go through the shared stretch, never a private one.** `PreviewEncoder` runs
-   `StretchSolver` + `Image.RenderStretchedRgba`, the same pipeline as the GPU viewer and the TUI, and
-   resolves `Auto` as the live pane does. The shim once divided by `Image.MaxValue` and called it an
-   auto-stretch, which renders a linear sub near-black. **A preview LEASES the frame and answers
-   `If-None-Match` with a 304 before touching it**. **Every route that serves a frame reads `NodeFrames`**
-   (the JPEG previews, the linear frames, `FRAME-AVAILABLE`): the frame each source shows, whoever took it (the
-   node's own preview when taken since the latest run started, else the session's slot), and ONE token per source,
-   the node's, bumped when the frame on show changes. Never a producer's own number (a preview and a session
-   would collide), never the camera's `FrameNumber` (it names the exposure in progress, a sub behind). A
-   session's preview slot holds a lease of its own until the next frame replaces it
-   (`Session.PublishCapturedImage`), which costs one camera array per OTA.
+4. **Previews go through the shared stretch, never a private one.** `PreviewEncoder` runs `StretchSolver` +
+   `Image.RenderStretchedRgba` (the GPU viewer's and the TUI's pipeline) and resolves `Auto` as the live pane
+   does; the shim once divided by `Image.MaxValue` and called it an auto-stretch, which renders a linear sub
+   near-black. **A preview LEASES the frame and answers `If-None-Match` with a 304 before touching it.**
+   **Every route that serves a frame reads `NodeFrames`** (JPEG previews, linear frames, `FRAME-AVAILABLE`): the
+   frame each source shows, whoever took it (the node's own preview when taken since the latest run started,
+   else the session's slot), and ONE token per source, the node's, bumped when the frame on show changes --
+   never a producer's own number (a preview and a session would collide), never the camera's `FrameNumber` (it
+   names the exposure in progress, a sub behind). A session's preview slot holds a lease of its own until the
+   next frame replaces it (`Session.PublishCapturedImage`): one camera array per OTA.
 5. **The Alpaca plane is a DEVICE plane and cannot become the session plane.** Ownership there is the
    hub lease, not an Alpaca policy: actuation and `Connected=false` answer `0x40B`, reads and
    `Connected=true` always pass the lease (over TCP an app must be allowed first, rule 13); never make the plane
@@ -1287,176 +1084,106 @@ full native-AOT rules, and the reasoning behind each rule below:
 6. **AOT is verified by `dotnet publish -r <rid>`, not `dotnet build`.** RDG stays enabled in the
    **`TianWen.Hosting` library**, both JSON contexts stay registered via `ConfigureHttpJsonOptions`,
    and **never reintroduce a `ResponseEnvelope<object>` or an anonymous-type payload**.
-7. **A run is the NODE's, never a request's.** Every start goes through `IHostedSession.TryStartAsync`
-   (the node's token, a compare-and-swapped run record) and only `TryAbort` cancels it: Kestrel reuses a
-   connection's cancellation source, so a request token let a later abandoned request on the same
-   connection cancel the night. An abort ends the run through its `Finalise`, never disposing it
-   underneath; a finished run never blocks the next; the host stopping aborts, awaits `Finalise`, then
-   warms the hub's cameras inside `HostedSession.ShutdownBudget` (and systemd's `TimeoutStopSec` must allow
-   as long). **A request that lasts (an event socket, a frame stream) ends as the host starts stopping**
-   (`ApplicationStopping`): the host waits for open requests out of that same budget, so one that ended only with its
-   client held every stop with a client attached for all 30 minutes, the `Finalise` and the warm-up after it (#985).
-   **A run is of any kind** (`INodeRun`, P5: a dark library, polar alignment, a planetary capture),
-   started the same way, and a run that claims its devices as the request is answered starts only once it is the
-   node's, on the node's token (`PlanetaryCapture.TryPrepare`, then `StartPrepared` in the run's body); a refused
-   start NAMES the run going on (`NodeRuns.AlreadyGoingOn`), each kind stops
-   through its own route, a stop NAMES the run it means (`TryAbort(INodeRun)`, so a run that replaced it is
-   never the one stopped), and a run releases its lease as its body ends. **An interactive run stops once no
-   client has been present for the detach grace** (`INodeRun.EndsUnwatched`, `NodeRunWatch`, presence being
-   the fresh beat a prompt waits by); `EndsUnwatched` is asked at every look, so a planetary capture that is RECORDING
-   is not interactive, finishes its recording, and its live view then gets a grace of its own. Pinned by `NodeRunLifecycleTests`, `NodeDarkLibraryTests`,
-   `NodePolarAlignmentTests`, `NodePlanetaryTests` and `NodeRunWatchTests`, and end to end over a spawned node's
-   socket, a client gone mid-run for every kind, by `NodeRunsProcessTests` (`--detach-grace`).
+7. **A run is the NODE's, never a request's.** Every start goes through `IHostedSession.TryStartAsync` (the node's
+   token, a compare-and-swapped run record) and only `TryAbort` cancels it (Kestrel reuses a connection's
+   cancellation source, so a request token let an abandoned request cancel the night). An abort ends through
+   `Finalise`; the host stopping aborts, awaits `Finalise`, then warms cameras inside
+   `HostedSession.ShutdownBudget`; **a request that lasts ends at `ApplicationStopping`** (#985). **A run is of
+   any kind** (`INodeRun`; one claiming devices starts only once it is the node's: `PlanetaryCapture.TryPrepare`,
+   then `StartPrepared`): a refused start NAMES the run going on (`NodeRuns.AlreadyGoingOn`), a stop NAMES the run
+   it means (`TryAbort(INodeRun)`), and an interactive run stops once no client has been present for the detach
+   grace (`INodeRun.EndsUnwatched`, `NodeRunWatch`). Pinned by `NodeRunLifecycleTests`, `NodeRunWatchTests`,
+   `NodeRunsProcessTests` (`--detach-grace`).
 8. **`new SessionConfiguration()` is the DECLARED defaults; `default(SessionConfiguration)` is all zeros.**
-   A record struct whose primary constructor has required parameters zero-fills on `new()` unless it
-   declares a parameterless constructor, and before one was added every API session synced the mount's
-   site to 0, 0. `SessionConfigApiDto` carries every field: **a field added to the configuration is added
-   there and to `SessionConfigApiDtoTests`'s round trip**, or it silently cannot cross the wire.
-9. **A slow operation is a JOB, never an inline request.** Its endpoint starts it through
-   `NodeJobs.StartOrJoin` and answers 202 with a `JobDto`; the node runs it on its own token (invariant 7's
-   rule, for the same reason), `GET /jobs/{id}` is authoritative, `DELETE /jobs/{id}` cancels, and
-   `JOB-PROGRESS` is the hint. `/devices/discover` ran inline on the request's token, so a client's 10 s
-   budget cut a serial sweep off mid-probe (P0b item 17). One of a kind at a time; a second start joins it.
-   **A job on a device holds the DEVICE** (`NodeJobs.TryStartOrJoin`): the same kind joins, another kind is a 409
-   naming the holder, and two devices run side by side. A device-plane refusal (a lease, a cold camera) is an
-   answer before the job, never a failed job (`DeviceOperations`, P2 part 2), and a command that is NOT a job
-   (a cooler off, a camera's settings) is refused while a job holds the device, whose ramp it would fight. **So is
-   a run's start, for every device it would claim**: a job holds its device in `NodeJobs`, not through the lease, so
-   the claim alone let polar alignment rotate a mount a slew job was still driving (#981). A new run owes the same.
-10. **The machine's node is found on its SOCKET, and one lock admits it** (`NodeSocket`, `NodeLock`): every node
-   takes `node.lock` however it was started, only the lock's holder clears a stale socket (never probe-then-delete),
-   and the lock file is never deleted. A client reaches a node through `NodeTransport` (`OverSocket` / `OverTcp`)
-   and asks `GET /api/v1/node` first; compatibility is `NodeWire.Version`, never the build (P1, #917). A client
-   finds or starts the machine's node through `LocalNodeLauncher`, which starts the KEEPER (`--keeper`) from the
-   client's own directory, never the node and never a spawn of its own. **A node that dies leaves a crash journal**
-   (`node.journal`, `NodeJournalService`) of its devices, its run and each camera's cooler INTENT, which the hub keeps
-   (`IDeviceHub.SetCoolerIntent`): a ramp records its TARGET, never the step it reached, and **a new place that
-   commands a cooler owes the same**. A journal is believed only from the node its keeper saw crash
-   (`--after-crash <pid>`) or when younger than the machine's boot (`MachineBoot`, never the tick count). A believed
-   journal is ACTED on (the devices reconnected, the mount first, each named in the journal BEFORE its connect; each
-   camera re-cooled from its intent), never a run resumed, and two crashes within `NodeKeeper.CrashLoopWindow` reconnect
-   nothing. **There is ONE cooling ramp, `CameraCoolingRamp`**, which the session delegates to and the hub drives
-   without one (`CoolToSetpointAsync`): a second copy is a second answer to how fast a sensor may be cooled.
-11. **A device is read through ONE set of readers, `DeviceHubReadingExtensions`**, by the GUI's telemetry polls and
-   the node's `DeviceStatePoller` alike, and **the node never reads a device a run holds** (it keeps the last reading
-   and names the run): two readers on one serial port race. `DEVICE-STATE` is pushed on a change compared at the
-   resolution a reader is shown, or a thermometer pushes on every read. The read side (P2 part 1, #929):
-   `docs/architecture/hosting-api.md`.
-12. **The node writes a profile through ONE writer, `NodeProfiles`, and never from a cached copy** (P3, #930): each
-   write reads the file inside the writer's lock, an edit names the REVISION it was read at (the hash of the stored
-   bytes) and a stale one is a 412, and every write pushes `PROFILE-CHANGED`. **A new place the node writes a profile
-   goes through it, and so does a READ**: `GET /session/profile` looked the active profile up in the discovery registry
-   and answered "no longer exists" for one saved since, while `GET /profiles/{id}` read it whole (P5b part 8). Changing a
-   profile is for the socket only (decision 4); a LAN client reads.
-13. **Over TCP, seeing is free and a command needs control** (P6b, decision 13, #1021), decided in ONE middleware,
-   `NodeAccessGate`, by the surface a route's GROUP declares (`NodeProtocolMetadata`): a native route that is not a
-   GET, an Alpaca PUT (`Connected = true` included) and any ninaAPI route not tagged `.ReadsOnly()` is a command. It
-   passes over the socket, with a grant the node holds (`Authorization: Bearer`, `LanGrants`, only the token's hash
-   kept), or for another app from an address allowed until restart or a host name always allowed (forward-confirmed).
-   **A new route goes in its surface's group**, a new ninaAPI read owes `.ReadsOnly()`, and only asking for control is
-   `.OpenToAsk()`; `NodeAccessTests` fails on a route outside the groups. The refusal is each surface's own (a native
-   401, never the 403 a socket-only route keeps). A client gets control by asking (`LanInvites`: one waits at a time,
-   alive while it polls, the grant minted at its next poll after an Allow); an app's refused command IS its request.
-   Managing who may (answering, revoking, allowing, the LAN share) is for the socket or a grant, and prompts and the
-   quit question count only clients that may command. It is plain HTTP still: `docs/architecture/hosting-api.md`,
-   "Who may command the node over TCP".
+   `SessionConfigApiDto` carries every field: **a field added to the configuration goes there and into
+   `SessionConfigApiDtoTests`'s round trip**, or it silently cannot cross the wire.
+9. **A slow operation is a JOB** (`NodeJobs.StartOrJoin`, 202 + `JobDto`, on the node's own token; `GET
+   /jobs/{id}` is authoritative, `DELETE` cancels, `JOB-PROGRESS` is a hint). **A job on a device holds the
+   DEVICE** (`NodeJobs.TryStartOrJoin`: the same kind joins, another is a 409 naming the holder), and **so does a
+   run's start for every device it would claim** (#981); a device-plane refusal is an answer before the job
+   (`DeviceOperations`).
+10. **The machine's node is found on its SOCKET, and one lock admits it** (`NodeSocket`, `NodeLock`: only the
+   holder clears a stale socket, never probe-then-delete; `node.lock` is never deleted). A client uses
+   `NodeTransport`, asks `GET /api/v1/node` first (compatibility is `NodeWire.Version`) and starts the KEEPER
+   (`--keeper`) through `LocalNodeLauncher`. **A node that dies leaves a crash journal** (`node.journal`,
+   `NodeJournalService`; each camera's cooler INTENT via `IDeviceHub.SetCoolerIntent`: **a new place that
+   commands a cooler owes the same**), believed only from the node its keeper saw crash (`--after-crash <pid>`)
+   or when younger than `MachineBoot`, and ACTED on (mount first, cameras re-cooled), never a run resumed; two
+   crashes within `NodeKeeper.CrashLoopWindow` reconnect nothing. **ONE cooling ramp, `CameraCoolingRamp`.**
+11. **A device is read through ONE set of readers, `DeviceHubReadingExtensions`** (GUI polls and
+   `DeviceStatePoller`), and **the node never reads a device a run holds**. `DEVICE-STATE` is pushed on a
+   change at the resolution a reader is shown.
+12. **The node writes a profile through ONE writer, `NodeProfiles`, and never from a cached copy** (#930): read
+   inside the lock, an edit names the REVISION it was read at (stale = 412), every write pushes
+   `PROFILE-CHANGED`; **a READ goes through it too**. Changing a profile is socket-only.
+13. **Over TCP, seeing is free and a command needs control** (#1021), decided in ONE middleware,
+   `NodeAccessGate`, by the surface a route's GROUP declares (`NodeProtocolMetadata`): a native non-GET, an
+   Alpaca PUT and any ninaAPI route not `.ReadsOnly()` is a command (over the socket, with a grant via
+   `Authorization: Bearer`/`LanGrants`, or from an allowed address/host for another app). **A new route goes in
+   its surface's group** (`.ReadsOnly()`, `.OpenToAsk()`); `NodeAccessTests` fails on a route outside the
+   groups. Refusals are each surface's own (a native 401, never a socket-only route's 403). Control is asked
+   through `LanInvites`. `docs/architecture/hosting-api.md`, "Who may command the node over TCP".
 
 ### Remote Rigs (mirror another node's session "as if local")
 
 `docs/plans/remote-profile.md` (complete P1-P5) holds the design, the Home-tab decisions, the sidebar
-tab-registration mechanism, and every measurement; the pieces are `TianWen.Hosting.Contracts` (wire
-DTOs + `HostingJsonContext`) and `TianWen.RemoteClient` (`TianWenNodeClient`, `TianWenEventStream`,
-`RemoteSessionMirror`). Rules:
+tab-registration mechanism and every measurement; the pieces are `TianWen.Hosting.Contracts` (wire DTOs +
+`HostingJsonContext`) and `TianWen.RemoteClient` (`TianWenNodeClient`, `TianWenEventStream`,
+`RemoteSessionMirror`). The rules in full (P5b parts 1-9, P6b) are in that doc, "Rules in full (moved from
+CLAUDE.md)". What bites:
 
-- **The overlay model is the whole design: selecting a rig changes what you look at, never what this
-  node owns.** A remote connect is a read-only HTTP mirror (no lease, no hardware); the single-session
-  invariant is per NODE; `RemoteRigBinding` persists on a stable `NodeId`, never an address.
-- **A rig's frames are LINEAR and follow the SCREEN.** The mirror's slots hold the node's own frames
-  (`GET /frames/{source}/latest`, never the preview JPEG) under a local session's contract: publish the
-  successor, THEN release the frame it replaces, and a reader leases. `ViewContexts.PollAll` asks only the
-  rig on screen; a mirror asked for none gives its frames back. A `LastFramePath` is a file here only over
-  the local socket (`SavedFramePathOnThisMachine`). `docs/architecture/hosting-api.md`, "Linear frames".
-- **One `LiveSessionState` per view context**: Active (renders), Local (this node's own hardware --
-  every quit/park/disconnect path belongs here), All (poll + redraw). Reaching for Active where Local
-  is meant parks the local mount from a remote view. The reverse bites too: a button drawn over a
-  remote rig's panel posts the same signal as the local one, so **every handler that drives a rig resolves
-  its node with `CommandTargetOrSay` at post time** (runs, and the device actions: planetary Start, nudges,
-  Goto, Solve and Sync, the focuser): this computer's node for its own view, a rig's once this client holds
-  control of it (P6b, with the rig's own profile and view), and for a rig it only watches a refusal that
-  says how to ask. A new one owes the same, never `LocalNodeOrSay` with the local profile, which is what
-  once drove this computer's rig from a rig's panel. **A control of
-  the RUN on screen goes to that run's own node instead** (P5b part 5): an abort and a flat run's cancel
-  through `StopActiveRun` (a rig's through its `ViewContext.Mirror`), a prompt's answer to the Active
-  view's prompt, and every run's prompts reach their view through the ONE wiring, `LiveSessionPrompts`.
-- **`ISession`/`ISessionTelemetry` split**: telemetry is the wire-crossable read surface, `Setup` stays
-  local, so a remote rig renders with no tab knowing it is remote.
-- **Three wire traps:** never `required` on a nullable wire property (`WhenWritingNull` omits it), nor on one
-  whose SOURCE is null at run time whatever it declares (a default struct's string: a session's camera states
-  before their first frame, which made its whole state unreadable until then); a non-finite double unguarded is a
-  bodiless 500 for the WHOLE endpoint, so **an unknown crosses the native wire as null through `JsonNumber.OrNull`
-  and reads back as NaN through `FromWire`, never as 0** (a 0 pointing snapped a mirror's reticle to RA 0, Dec 0), while
-  the ninaAPI shim, the Alpaca plane and the broadcast events keep `ForWire`'s 0, which other applications read; and **a serialised
-  property with a declared default is `set`, never `init`**: the source generator gives an absent init-only
-  property its TYPE'S default, so a request without a binning arrived at bin 0 and a schedule without a
-  priority ran at High, the enum's 0 (`WireDefaultsTests`). A field whose absence means "keep what it was"
-  is nullable instead (`SessionConfigApiDto`).
-- **A mirrored session must render as the same session in-process, and `MirrorParityTests` measures it**: one
-  real session, run by a node on a pumped clock, read both ways at every phase and compared member by member, and
-  its Live Session and Guider tabs and Home card DRAWN both ways and compared by text, regions and pixels
-  (`TabPictures`), since a tab also reads the session itself (the mount's name, the OTAs, the schedule's length).
-  Each divergence known today is listed with the P5b part (or P6) that closes it, so a new divergence fails and so
-  does a listed one that has come to agree: delete its line. A member added to `LiveSessionState` goes into its
-  snapshot (`docs/plans/hardware-in-the-server.md`, "P5b: mirror parity, part by part").
-- **A run's notes are worded ONCE, `SessionNotes` (Lib, with `NotificationSeverity`)**, for the GUI's and the TUI's
-  bootstrappers and a node's feed alike, and a run's END is noted once the run has ended (its Finalise included, the
-  node's `RunEnded`), never at its terminal phase. A new note goes there, never into one host: a rig's feed used to read
-  "Cooling -> RoughFocus" where the same run in-process read "Initial rough focus...".
-- **Polling is authoritative; the WebSocket is a latency hint** -- `NodeResult<T>` carries a status
-  code because 404 is not unreachable. **Every event the node broadcasts is one the mirror handles**
-  (`RemoteSessionMirror.Dispatch`, P5b part 6): a state change polls now, `FRAME-AVAILABLE` fetches that frame
-  alone, an occurrence the state lacks is raised as its event, and the rest is named as another client's. An event
-  added to `BroadcastEvents` goes into `BroadcastEventSerializationTests.EveryEvent`, which then fails
-  `RemoteSessionMirrorEventTests` until `Dispatch` says what it is. **A frame is fetched only once its source's
-  token moved** (the state's `Frames` or the push), and a view redraws on the mirror's `Changed`, never on a tick.
-  **Whether a rig is answering is ONE rule, `ISessionTelemetry.Contact`** (Connecting until the first poll comes back,
-  then as the latest poll found it), **said in ONE wording, `RemoteRigActions.DescribeContact`**, by the rig's Home card
-  and its Live Session and Guider tabs alike (P5b part 6b): a view of a quiet rig otherwise goes on showing the last thing
-  its node said as though it were live. **A rig's notes are its node's feed** (`RemoteSessionMirror.Notes`: the ring, read
-  at the first answer and after the socket reconnects, then each push, one of each note), shown by the Notifications tab
-  while the rig is on screen (`NotificationFeed`, one description for the GUI's tab and the TUI's).
-  **A session's histories cross once** (P5b part 7): a poll names where the client's copy ends (`SessionStateCursor`:
-  the session, by the id the node gives it, `SessionStateDto.SessionId`, and a count per history), the node sends each
-  history from there (`HistoryFrom` says where each part starts), and the mirror appends it (`RemoteSessionMirror.Histories`,
-  mapped once). The guide steps are a ring, so their cursor counts every step ever taken (`CircularBuffer.Window`, read
-  with the items in ONE read). **A history added to the state goes through the cursor too**, or it is back to crossing
-  whole twice a second; a cursor naming another session gets everything whole, and a node or client from before part 7
-  sends or asks for everything, so the wire version did not move.
-  **A rig's view is planned with the rig's own profile** (P5b part 8): the connection's two-minute refresh reads it whole
-  (the binding's choice, else the one the rig runs) onto `ViewContext.RigProfile`, and the planner plans with
-  `AppSignalHandler.ProfileOnShow`, so a rig's nights, clock, twilight and sky are its site's and its reticle carries its
-  own sensor. A switch of view replans in full and **drops the other view's pins first** (a load replaces them only when
-  the view has some saved, so a rig with none showed this computer's and the next save wrote them into the rig's file).
-  **A place that writes this computer's site into the planner does so only while its own view is on show.**
-  **An idle rig's devices are its node's** (P5b part 9): the connection reads `GET /devices/state` while the rig is on
-  show and runs nothing, and `RigDevices` lays them out by the rig's own profile through `PreviewOTATelemetry.From`, the
-  ONE builder this computer's hub readings go through too. **A mount no one holds is `MountState.Unknown` (NaN), never
-  `default`**, which reads as RA 0, Dec 0; print an unknown pointing as dashes, since the sexagesimal formatters throw on
-  NaN. **A rig's view always holds its mirror, so `HasActiveRun` asks whether its node serves a session**
-  (`ReportedRun.NoSession`), never whether a session is held.
-- **Every request has a time budget** (state 5 s, preview 30 s, control 10 s; 60 s `HttpClient`
-  backstop). Budget expiry and caller cancellation both surface as `OperationCanceledException` meaning
-  opposite things: keep `when (...)` filters on the ORIGINAL token, never the linked one.
-- **Profile switching is gated** (`ProfileSwitchGate`) while connected/running or where drivers would
-  strand in the hub.
-- **The Home tab** (`Ctrl+H`) is a read-only PROJECTION: `HomeBoard.BuildCards` draws only from the
-  `ImmutableArray<RigCard>` snapshot, never a live state. It commands no hardware; since P6b its cards say who may
-  command each rig (`RigSharing`), a rig this client watches offers Ask to control, and the rig on show has its
-  Sharing panel under the board, whose every action is an access signal naming the card's binding.
-- **Control of a rig is its connection's** (P6b, #1021): a token lives in the credential store by node id (`NodeGrants`),
-  never a binding file; `NodeConnection` reads `MayCommand` and `Access` at first contact, on `ACCESS-CHANGED` and every
-  30 s, and forgets a token the node no longer holds; `AskForControlAsync` polls its request alive and, granted, reopens
-  the event socket so the node counts it. A request to this computer's rig is put to whoever is at it over everything, as
-  the quit's question is (`ControlRequestQuestion`): Enter declines, A allows, Escape answers later.
+- **Selecting a rig changes what you look at, never what this node owns.** A remote connect is a read-only
+  HTTP mirror (no lease, no hardware); the single-session invariant is per NODE; `RemoteRigBinding` persists
+  on a stable `NodeId`, never an address.
+- **A rig's frames are LINEAR and follow the SCREEN**: `GET /frames/{source}/latest`, never the preview JPEG;
+  publish the successor, THEN release the frame it replaces; `ViewContexts.PollAll` asks only the rig on
+  screen. A `LastFramePath` is a file only over the local socket (`SavedFramePathOnThisMachine`).
+- **One `LiveSessionState` per view context**: Active (renders), Local (this node's own hardware: every
+  quit/park/disconnect path), All (poll + redraw). Active where Local is meant parks the local mount from a
+  remote view. **Every handler that drives a rig resolves its node with `CommandTargetOrSay` at post time**
+  (never `LocalNodeOrSay` with the local profile), and a control of the RUN on screen goes to that run's own
+  node (`StopActiveRun`, the Active view's prompt; every run's prompts reach their view through
+  `LiveSessionPrompts`).
+- **`ISession`/`ISessionTelemetry` split**: telemetry is the wire-crossable read surface, `Setup` stays local.
+- **Three wire traps:** never `required` on a nullable wire property, nor on one whose SOURCE is null at run
+  time; a non-finite double unguarded is a bodiless 500 for the WHOLE endpoint, so **an unknown crosses the
+  native wire as null through `JsonNumber.OrNull` and reads back NaN through `FromWire`, never 0** (the
+  ninaAPI shim, Alpaca plane and broadcasts keep `ForWire`'s 0); **a serialised property with a declared
+  default is `set`, never `init`** (`WireDefaultsTests`), and a field whose absence means "keep what it was"
+  is nullable (`SessionConfigApiDto`).
+- **`MirrorParityTests` measures that a mirrored session renders as the same session in-process** (member by
+  member; Live Session, Guider and Home DRAWN both ways, `TabPictures`). Each known divergence is listed with
+  the part that closes it, so a new one fails and so does a listed one that has come to agree: delete its
+  line. A member added to `LiveSessionState` goes into its snapshot.
+- **A run's notes are worded ONCE, `SessionNotes` (Lib)**, and a run's END is noted once it has ended
+  (`RunEnded`, its Finalise included). A new note goes there, never into one host.
+- **Polling is authoritative; the WebSocket is a latency hint** (`NodeResult<T>` carries a status code because
+  404 is not unreachable). **Every event the node broadcasts is one the mirror handles**
+  (`RemoteSessionMirror.Dispatch`; an event added to `BroadcastEvents` goes into
+  `BroadcastEventSerializationTests.EveryEvent`). **Whether a rig is answering is ONE rule,
+  `ISessionTelemetry.Contact`, worded ONCE by `RemoteRigActions.DescribeContact`.** A rig's notes are its
+  node's feed (`RemoteSessionMirror.Notes`, `NotificationFeed`). **A session's histories cross once**
+  (`SessionStateCursor`, `HistoryFrom`, `RemoteSessionMirror.Histories`): a history added to the state goes
+  through the cursor too, or it crosses whole twice a second.
+- **A rig's view is planned with the rig's own profile** (`ViewContext.RigProfile`,
+  `AppSignalHandler.ProfileOnShow`); a switch of view replans in full and **drops the other view's pins first**;
+  this computer's site enters the planner only while its own view is on show. **An idle rig's devices are its
+  node's** (`GET /devices/state`, `RigDevices`, `PreviewOTATelemetry.From`); **a mount no one holds is
+  `MountState.Unknown` (NaN), never `default`** (print dashes; sexagesimal formatters throw on NaN);
+  `HasActiveRun` asks whether the node serves a session (`ReportedRun.NoSession`).
+- **Every request has a time budget** (state 5 s, preview 30 s, control 10 s; 60 s `HttpClient` backstop);
+  budget expiry and caller cancellation both surface as `OperationCanceledException`: keep `when (...)`
+  filters on the ORIGINAL token, never the linked one.
+- **Profile switching is gated** (`ProfileSwitchGate`) while connected/running or where drivers would strand
+  in the hub.
+- **The Home tab** (`Ctrl+H`) is a read-only PROJECTION (`HomeBoard.BuildCards` from the
+  `ImmutableArray<RigCard>` snapshot, never a live state); it commands no hardware, its cards say who may
+  command each rig (`RigSharing`).
+- **Control of a rig is its connection's** (P6b, #1021): the token lives in the credential store by node id
+  (`NodeGrants`), never a binding file; `NodeConnection` reads `MayCommand` and `Access` at first contact, on
+  `ACCESS-CHANGED` and every 30 s; `AskForControlAsync` polls its request alive; a request to this
+  computer's rig is put to whoever is at it (`ControlRequestQuestion`: Enter declines, A allows, Escape
+  answers later).
 
 ### Colour Theme (`GuiTheme`, four states incl. Night)
 
@@ -1892,56 +1619,46 @@ rule: `docs/architecture/widgets-and-controls.md`, read it before any layout wor
 
 ### UI Primitives: the cursor, a text field, and who holds focus
 
-Full reasoning: `docs/architecture/widgets-and-controls.md`
-(cursor) and `docs/plans/automatic-text-input.md` (field, focus,
-key routing). **Where this is GOING is `docs/plans/dir-lib-10.md` (HIGH PRIORITY, 2026-09-15)**: the engine
-already ships the pointer rule (click places the caret, a second click selects the word, a drag extends;
-DIR.Lib 9.1 `TextInputInteraction.HandlePointer`) and every tianwen host still hand-rolls `clicks >= 2 ->
-SelectAll()` instead, a node cannot declare a shortcut, and a popover or a slider costs a dispatcher line
-per host. Until that lands, a new field, popover or drag follows the rules below; do not add a fourth
-key router. The rules that bite:
+Full reasoning: `docs/architecture/widgets-and-controls.md` (cursor) and `docs/plans/automatic-text-input.md`
+(field, focus, key routing). **Where this is GOING is `docs/plans/dir-lib-10.md` (HIGH PRIORITY,
+2026-09-15)**: the engine already ships the pointer rule (click places the caret, a second click selects the
+word, a drag extends; DIR.Lib 9.1 `TextInputInteraction.HandlePointer`) and every tianwen host still
+hand-rolls `clicks >= 2 -> SelectAll()`, a node cannot declare a shortcut, and a popover or a slider costs a
+dispatcher line per host. Until that lands, a new field, popover or drag follows the rules below; do not add a
+fourth key router.
 
-- **The pointer's appearance is a property of a REGION, never a host predicate**: declare it beside the
-  click (`RegisterClickable(..., cursor:)` / `.Clickable(hit, onClick, cursor)` / `.WithCursor(kind)`);
-  the host asks `guiRenderer.CursorAt(x, y) ?? CursorKind.Default`; a region stating nothing is
-  transparent (`null`, not Default), so a row inherits its card's cursor. The `CursorKind` -> SDL
-  mapping lives in SdlVulkan.Renderer.
-- **HOVER needs a z-order answer, `ViewerState.OverlayOwnsPointer`**, because hover is decided at PAINT
-  time; add an overlay to that ONE property, never a call site. **It is NOT
-  `WindowUiSettings.PointerOwner`, which an open `Popover` sets as it paints**: that one is a RECORD and
-  confines hover for whatever paints AFTER it, which is free for a `PaintLayout` tree; this one is a
-  PREDICTION, for hand-painted chrome that resolves its hover BEFORE any overlay has drawn. The viewer's
-  toolbar, histogram and file list are all of the second kind, so the flag stays until they are trees.
-- **Every host routes through `DIR.Lib.InputRouter`, and the ORDER is the engine's**: an open popover,
-  then any PAINTED node whose declared `Shortcut` matches, then the focused field, then the widget. The
-  desktop (`GuiEventHandlerBase`) and the browser (`Planner.razor`) each keep only what is theirs -- the
-  platform binding, the pointer position, the rail's hover repaint, the rAF coalescing -- and each calls
-  `AfterPaint()` once the frame is drawn. **A key binding is a `.WithShortcut(key, mods)` on a node, not
-  an arm in a switch**, and whether it beats a focused field is `KeyChord.BeatsFocusedField` (Ctrl, Alt
-  or F1..F12 do; a bare letter does not), so there is nowhere left to write `if (key == F3) return
-  false;`. Matching against the PAINTED tree is what makes a binding inside a closed panel inert, and
-  what makes a chord for a locked tab inert, with no guard beside the key.
-  - **Two bindings have no node to sit on and stay in the host**: Ctrl+Tab / Ctrl+Shift+Tab name the
-    NEXT tab rather than a tab, so they are answered before the router in `GuiEventHandlerBase`.
-  - **A press on a region is CONSUMED there**, so anything that used to run after a hit test runs
-    before the router instead, off a non-dispatching `HitTest` (the planner's handoff-divider drag, the
-    one such site left; a `Content.Slider` deletes it when that divider becomes one).
-- **A text field is a declaration**, `Layout.Builder.TextInput(state, fontSize)` and nothing else
-  (`TextInputRenderer`, `TextInputHit`, `CursorKind.Text`; `CellLayout` on a terminal). `fontSize` is in
-  DESIGN units (the painter crosses `ctx.FontScale`); intrinsic width comes from the placeholder.
-- **Focus is global but not settable, and there is ONE owner per window**: `DIR.Lib.TextInputFocus`
-  owns the transition, the host binds `FocusChanged` ONCE (SDL `StartTextInput`/`StopTextInput`, web
-  `CanvasTextOverlay`); `Focus` is idempotent and SELECTS its seed, so `Focus(input, value)` is the
-  whole of "open an editor on this value" and a following `SelectAll` is a second mechanism (there are
-  none left). The instance is the window's `WindowUiSettings.Focus`: `GuiAppState.AdoptWindowSettings`
-  points the desktop app state at the chrome's, and `WebSkyMapTab.ShareWindowWith` gives the browser's
-  two sibling canvas widgets one context. **Two owners is the bug class**, not a tidiness point.
-- **`BlurIfUnpainted` is the router's `AfterPaint()`**, called once per frame after the paint, with
-  everything painted; calling it before, or with one surface's fields when the frame draws several,
-  does the opposite of what it is for.
+- **The pointer's appearance is a property of a REGION, never a host predicate**: declare it beside the click
+  (`RegisterClickable(..., cursor:)` / `.Clickable(hit, onClick, cursor)` / `.WithCursor(kind)`); the host asks
+  `guiRenderer.CursorAt(x, y) ?? CursorKind.Default`; a region stating nothing is transparent (`null`, not
+  Default), so a row inherits its card's cursor.
+- **HOVER needs a z-order answer, `ViewerState.OverlayOwnsPointer`** (hover is decided at PAINT time): add an
+  overlay to that ONE property, never a call site. **It is NOT `WindowUiSettings.PointerOwner`**, which an
+  open `Popover` sets as it paints (a RECORD, free for a `PaintLayout` tree); this one is a PREDICTION for
+  hand-painted chrome (toolbar, histogram, file list) that resolves hover BEFORE any overlay has drawn.
+- **Every host routes through `DIR.Lib.InputRouter`, and the ORDER is the engine's**: an open popover, then
+  any PAINTED node whose declared `Shortcut` matches, then the focused field, then the widget. The desktop
+  (`GuiEventHandlerBase`) and the browser (`Planner.razor`) keep only what is theirs (platform binding,
+  pointer position, the rail's hover repaint, rAF coalescing) and call `AfterPaint()` once the frame is
+  drawn. **A key binding is a `.WithShortcut(key, mods)` on a node, not an arm in a switch**; whether it beats
+  a focused field is `KeyChord.BeatsFocusedField` (Ctrl, Alt or F1..F12 do; a bare letter does not). Matching
+  against the PAINTED tree makes a binding inside a closed panel, or a chord for a locked tab, inert.
+  - Ctrl+Tab / Ctrl+Shift+Tab name the NEXT tab rather than a tab, so they are answered before the router in
+    `GuiEventHandlerBase`.
+  - **A press on a region is CONSUMED there**, so anything that used to run after a hit test runs before the
+    router, off a non-dispatching `HitTest` (the planner's handoff-divider drag, the last such site).
+- **A text field is a declaration**, `Layout.Builder.TextInput(state, fontSize)` (`TextInputRenderer`,
+  `TextInputHit`, `CursorKind.Text`; `CellLayout` on a terminal); `fontSize` is in DESIGN units; intrinsic
+  width comes from the placeholder.
+- **Focus is global but not settable, and there is ONE owner per window**: `DIR.Lib.TextInputFocus` owns the
+  transition, the host binds `FocusChanged` ONCE (SDL `StartTextInput`/`StopTextInput`, web
+  `CanvasTextOverlay`); `Focus` is idempotent and SELECTS its seed, so `Focus(input, value)` is the whole of
+  "open an editor on this value". The instance is `WindowUiSettings.Focus` (`GuiAppState.AdoptWindowSettings`,
+  `WebSkyMapTab.ShareWindowWith`). **Two owners is the bug class.**
+- **`BlurIfUnpainted` is the router's `AfterPaint()`**, once per frame after the paint, with everything
+  painted.
 - **`TextInputInteraction` reads `ctx.Focus.Current`**, takes `KeyContext.TabFields` as a callback, and
-  **swallows every key while a field is focused** -- which is exactly why a binding that must survive a
-  focused field is a `.Shortcut` and not a case in the host's key switch.
+  **swallows every key while a field is focused** -- which is why a binding that must survive one is a
+  `.Shortcut`, not a case in the host's key switch.
 
 ### Per-Window Widget State: `DpiScale` / `FontPath` / `EmojiFontPath` are properties, not parameters
 
@@ -2092,24 +1809,7 @@ is **no** single choke point that creates these: `IExternal.CreateSubDirectoryIn
 four of them, `Planner`/`Session` are built from `AppDataFolder` directly, `Profiles`/`Logs` off
 `SharedStaticData.CommonDataRoot`, and `models` + `lan-node-id.txt` + the node's socket and lock are resolved by
 their own owners. Add a directory here when you add one there.
-```
-TianWen/
-├── Logs/<date>/        # <appName>_<timestamp>.log per process and day: GUI_*, Server_*, Keeper_*, ... (FileLoggerProvider; rolls at local midnight)
-├── Profiles/           # Per-profile data (*.json + NeuralGuider/*.ngm + BacklashHistory/*.json)
-├── Planner/            # Pinned targets: <profileId>/<date>.json, remote rigs under rigs/<bindingId>/
-├── Session/            # Session-setup state, <profileId>.json (SessionPersistence)
-├── Guider/             # Guider frames dumped for plate solving (guider_*.fits + .ini)
-├── Weather/            # OpenMeteo / OpenWeatherMap forecast cache
-├── ObjectImages/       # Wikimedia object pictures, one file per (image, standard width) (ObjectPictureStore)
-├── SmallBodies/        # JPL SBDB comet cache: comets.json + apparitions.json
-├── models/             # AI ONNX models (ModelResolver; also finds GraXpert's model in GraXpert's own cache)
-├── Secrets/            # 0600 file per device secret, non-Windows or a TIANWEN_DATA_ROOT tree (else Credential Manager)
-├── node.sock           # The machine's node's socket (NodeSocket), owner-only on Unix
-├── node.lock           # One node per socket: held for the node's life, never deleted (NodeLock)
-├── node-settings.json  # The node's own state: "Share this rig on the LAN" and its active profile (NodeSettings)
-├── node.journal        # The node's crash journal: what it holds, gone once it holds nothing (NodeJournal)
-└── lan-node-id.txt     # tianwen-server's stable LAN NodeId, the key remote-rig bindings persist against
-```
+Folders (annotated tree: `docs/architecture/runtime-data.md`, **add a directory there when you add one**): `Logs/<date>/` (`<appName>_<timestamp>.log` per process and day, rolls at local midnight), `Profiles/` (`*.json`, `NeuralGuider/*.ngm`, `BacklashHistory/*.json`), `Planner/` (`<profileId>/<date>.json`, remote rigs under `rigs/<bindingId>/`), `Session/` (`<profileId>.json`), `Guider/`, `Weather/`, `ObjectImages/`, `SmallBodies/` (`comets.json` + `apparitions.json`), `models/` (AI ONNX; also finds GraXpert's model in its own cache), `Secrets/` (0600 file per device secret, non-Windows or under `TIANWEN_DATA_ROOT`), and the node's own files: `node.sock`, `node.lock` (held for the node's life, never deleted), `node-settings.json`, `node.journal` (its crash journal, gone once it holds nothing), `lan-node-id.txt` (`tianwen-server`'s stable LAN NodeId, the key remote-rig bindings persist against).
 
 **Every file here has more than one PROCESS on it** (the GUI, the TUI, the CLI, the server, the viewer, MCP), so it
 is written with `IExternal.AtomicWriteJsonAsync` and read with `TryReadJsonAsync`, or `SharedFile` (`TianWen.Lib/IO`)

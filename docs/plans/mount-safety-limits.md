@@ -815,3 +815,49 @@ applies it internally so no caller can classify against an unclamped window by f
 
 Pinned by `MountLimitClampsFlipTests`, including that the limit does NOT move when the flip
 preference does, and one sabotage (clamp removed).
+
+## Moved from CLAUDE.md, 2026-09-29
+
+**Mount safety limits are NOT the meridian flip.** `MountLimits.Evaluate` (`Sequencing/MountLimits.cs`,
+pure, beside `MeridianFlipDecision`) is the mechanical bound -- where the TUBE meets the pier or the
+ground -- while a flip is a *scheduling* choice about a target still imaged from the other side. A rig
+can have one, both or neither. Ported from GSServer's `CheckAxisLimits`; the derivations, phasing, live
+verification and the wider GSServer sweep are in
+`docs/plans/mount-safety-limits.md` and
+`docs/plans/gss-parity-audit.md`. The rules that bite:
+
+- **The HORIZON test keys on HOUR ANGLE, not pier side** (`HA > 0` IS descending); **the MERIDIAN test
+  is the opposite, an RA-AXIS test where the pointing state is load-bearing** (`Evaluate` reads the
+  offset as `Normal ? -HA : HA`). Reading HA alone stopped every rig ~30 min after a flip.
+- **`IMountDriver.GetAxisAngleAsync` is the MECHANICAL tier and WINS when present** (SkyWatcher only):
+  fallback, never cross-check; `MountLimitVerdict.Basis` says which tier answered.
+- **Only a MEASURED pointing state may drive it -- or one the SESSION verified.**
+  `MountLimits.TrustedPointingState` hands `Evaluate` `Unknown` for a `Computed` driver; its
+  three-argument overload takes `Session._verifiedPointingState` instead (latched, image-confirmed).
+  `MountLimitWatcher` has no session and no latch, so it keeps the two-argument form.
+- **Warn and act are a threshold plus a non-negative EXTRA**, never two absolute numbers (the two
+  limits run in opposite directions), so warn-before-action holds by construction both ways.
+- **`alreadyActed` is a latch and must downgrade to `Warn`, never clear**, or a park is re-commanded
+  every poll tick and the slew restarts forever.
+- **The meridian limit is in MINUTES and is the ULTIMATE CLAMP on the flip** (shares its unit with
+  `MeridianFlipEarliestMinutesAfter`/`LatestMinutesAfter`, applied INSIDE `MeridianFlipDecision`).
+  Horizon stays in degrees. Deriving the limit from the flip instead would let a preference walk a
+  safety bound into the pier.
+- **It is the TUBE that collides, not the counterweight**, so the threshold approximates a
+  three-variable envelope (optics length x declination) set for the worst case the rig images.
+- **Config lives on `ProfileData.MountLimits`**, projected onto `Setup`, never the per-run
+  `SessionConfiguration` (must hold for a manual slew with no session). **Enforcement is in
+  `PollDeviceStatesAsync`, not the imaging tick.** Breaching routes to `ImageLoopNextAction.LimitReached`,
+  NOT `DeviceUnrecoverable`.
+- **Parking is opt-in for both limits**: a park is MOTION across a path nothing has checked.
+- **A mount that stops tracking without being asked is a LIMIT EVENT, not a fault**
+  (`Session.DetectDriverEnforcedStop`), gated on not-slewing and debounced over two polls; an RA pulse
+  on a STOPPED SkyWatcher axis runs constant-speed (`_raPulseOnStoppedAxis` masks it).
+- **Two test traps:** `default(PointingState)` is `Normal`, which is SILENT for the meridian test, so
+  an unconfigured mock passes with enforcement deleted; a test must place the mount by SYNC, not slew.
+- **A run's site is `Session.Site`, settled at initialisation, never the configured site alone** (#798):
+  the request's, else the mount's reconciled with the profile's (`MountSiteExtensions`, one rule for
+  every host). The poll read the configured site, NaN for a request naming none, and a NaN altitude
+  switches the HORIZON test off: every such server run went without one. `SessionTestHelper`'s default
+  configuration names no site, so no session test had evaluated it.
+- **The verdict is telemetry** all the way to the Home card's Flip column, on CLASS transitions only.

@@ -950,3 +950,62 @@ Verify after any endpoint change by *publishing* (not just building) and smoke-t
 `curl` a GET, a complex-body POST, and a previously-`object` endpoint. The only expected publish
 warnings are 2 third-party rollups (IL2104/IL3053) from `LibUsbDotNet` (optional Canon-over-USB
 discovery; the lib ships no AOT annotations and we do not mask the warning).
+
+## Invariants 7-13 in full (moved from CLAUDE.md, 2026-09-29)
+
+7. **A run is the NODE's, never a request's.** Every start goes through `IHostedSession.TryStartAsync`
+   (the node's token, a compare-and-swapped run record) and only `TryAbort` cancels it: Kestrel reuses a
+   connection's cancellation source, so a request token let a later abandoned request cancel the night. An
+   abort ends the run through its `Finalise`, never disposing it underneath; the host stopping aborts, awaits
+   `Finalise`, then warms the hub's cameras inside `HostedSession.ShutdownBudget` (and systemd's
+   `TimeoutStopSec` must allow as long). **A request that lasts (an event socket, a frame stream) ends at
+   `ApplicationStopping`**, or one that ended only with its client held every stop for 30 minutes (#985).
+   **A run is of any kind** (`INodeRun`: a dark library, polar alignment, a planetary capture; one that claims devices as the request is
+   answered starts only once it is the node's: `PlanetaryCapture.TryPrepare`, then `StartPrepared` in its body): a refused
+   start NAMES the run going on (`NodeRuns.AlreadyGoingOn`), a stop NAMES the run it means
+   (`TryAbort(INodeRun)`), a run releases its lease as its body ends, and an interactive run stops once no
+   client has been present for the detach grace (`INodeRun.EndsUnwatched`, `NodeRunWatch`; a RECORDING
+   planetary capture is not interactive). Pinned by `NodeRunLifecycleTests`, `NodeRunWatchTests` and, over a
+   spawned node's socket, `NodeRunsProcessTests` (`--detach-grace`).
+8. **`new SessionConfiguration()` is the DECLARED defaults; `default(SessionConfiguration)` is all zeros**
+   (a record struct with required primary-constructor parameters zero-fills on `new()` unless it declares a
+   parameterless constructor; every API session once synced the mount to site 0, 0). `SessionConfigApiDto`
+   carries every field: **a field added to the configuration is added there and to
+   `SessionConfigApiDtoTests`'s round trip**, or it silently cannot cross the wire.
+9. **A slow operation is a JOB, never an inline request.** Start it through `NodeJobs.StartOrJoin`, answer
+   202 with a `JobDto`; the node runs it on its own token, `GET /jobs/{id}` is authoritative, `DELETE`
+   cancels, `JOB-PROGRESS` is the hint (`/devices/discover` inline had a client's 10 s budget cut a serial
+   sweep off mid-probe). **A job on a device holds the DEVICE** (`NodeJobs.TryStartOrJoin`): the same kind
+   joins, another is a 409 naming the holder. A device-plane refusal (a lease, a cold camera) is an answer
+   before the job (`DeviceOperations`), a non-job command is refused while a job holds the device, and **so
+   is a run's start for every device it would claim** (a job holds its device in `NodeJobs`, not through
+   the lease, which let polar alignment rotate a mount a slew job was driving, #981).
+10. **The machine's node is found on its SOCKET, and one lock admits it** (`NodeSocket`, `NodeLock`): every
+   node takes `node.lock`, only its holder clears a stale socket (never probe-then-delete), and the lock
+   file is never deleted. A client reaches a node through `NodeTransport` (`OverSocket` / `OverTcp`), asks
+   `GET /api/v1/node` first (compatibility is `NodeWire.Version`, never the build) and finds or starts it
+   through `LocalNodeLauncher`, which starts the KEEPER (`--keeper`). **A node that dies leaves a crash
+   journal** (`node.journal`, `NodeJournalService`) of its devices, its run and each camera's cooler INTENT
+   (`IDeviceHub.SetCoolerIntent`; a ramp records its TARGET, and **a new place that commands a cooler owes
+   the same**). It is believed only from the node its keeper saw crash (`--after-crash <pid>`) or when
+   younger than `MachineBoot`, and ACTED on (devices reconnected mount first, cameras re-cooled), never a
+   run resumed; two crashes within `NodeKeeper.CrashLoopWindow` reconnect nothing. **There is ONE cooling
+   ramp, `CameraCoolingRamp`**: a second copy is a second answer to how fast a sensor may be cooled.
+11. **A device is read through ONE set of readers, `DeviceHubReadingExtensions`** (GUI polls and the node's
+   `DeviceStatePoller` alike), and **the node never reads a device a run holds** (two readers on one
+   serial port race). `DEVICE-STATE` is pushed on a change compared at the resolution a reader is shown.
+12. **The node writes a profile through ONE writer, `NodeProfiles`, and never from a cached copy** (#930):
+   each write reads the file inside the writer's lock, an edit names the REVISION it was read at (stale =
+   412), every write pushes `PROFILE-CHANGED`. **A new write goes through it, and so does a READ**
+   (`GET /session/profile` on the discovery registry answered "no longer exists" for a profile saved since).
+   Changing a profile is socket-only; a LAN client reads.
+13. **Over TCP, seeing is free and a command needs control** (#1021), decided in ONE middleware,
+   `NodeAccessGate`, by the surface a route's GROUP declares (`NodeProtocolMetadata`): a native route that is
+   not a GET, an Alpaca PUT (`Connected = true` included) and any ninaAPI route not `.ReadsOnly()` is a
+   command, passing over the socket, with a grant (`Authorization: Bearer`, `LanGrants`) or, for another
+   app, from an allowed address or host. **A new route goes in its surface's group** (a new ninaAPI read owes
+   `.ReadsOnly()`, only asking for control is `.OpenToAsk()`); `NodeAccessTests` fails on a route outside
+   the groups. Refusals are each surface's own (a native 401, never the 403 a socket-only route keeps).
+   Control is asked through `LanInvites`; managing who may is socket-or-grant, and prompts and the quit
+   question count only clients that may command. Plain HTTP still: `docs/architecture/hosting-api.md`,
+   "Who may command the node over TCP".

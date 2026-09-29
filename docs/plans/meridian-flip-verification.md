@@ -277,3 +277,16 @@ across-meridian flip case) and touched by `mount-safety-limits.md` as the limit'
 `docs/todo/drivers.md` "post-meridian-flip re-rotate" (driving a physical rotator to preserve framing,
 not verifying the flip) and `docs/todo/sequencing.md` "audit that every exit path leaves a sane flip
 state".
+
+## Moved from CLAUDE.md, 2026-09-29
+
+**Whether a flip HAPPENED is read off the IMAGE wherever the pointing state is `Computed`** (LX200 base,
+SGP: derived from HA, so it turns over as the POINTING crosses whether or not the tube moved -- the
+flip-SUCCESS twin of the trap above). `WCS.RotationDeg` measures it against the recentre's own solve,
+which already happens; `MeridianFlipVerification.FromSolves` judges. **The likelier failure is
+`AlreadyFlipped`, not the commanded flip**: such a mount reports the flipped side at the crossing, so the
+loop skips the slew and images on upside down with the guider's Dec inverted; a field that did not turn
+now makes the session COMMAND the flip. `Inconclusive` falls back to the mount's report, or every rig on
+a coordinates-only solver fails every flip. `FakeMountDriver` has a mechanical tube state only MOTION
+changes (**a sync must not touch it**) and `FakeCameraDriver` rolls off that, never off the report.
+`docs/plans/meridian-flip-verification.md`
