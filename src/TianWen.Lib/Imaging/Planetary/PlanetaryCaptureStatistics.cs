@@ -101,10 +101,11 @@ public sealed record WarpStatistics(int Points, double Rms, double CorrelationLe
 /// <param name="SkyNoise">A pixel's noise there as recorded (quantisation included), from consecutive frames: the camera's and the
 /// scattered light's shot noise together.</param>
 /// <param name="DiskLevel">The disk's mean level over the far sky's inside 0.8 radii of the reference, which blur barely moves.</param>
-/// <param name="FarSkyLevel">The sky's level three radii and more from the disk, where only the camera speaks: its offset.</param>
-/// <param name="FarSkyNoise">A pixel's noise there, from consecutive frames (quantisation included): the camera's alone, which a
-/// synthetic capture's read noise is solved from. Solved from the ring's instead, the read noise carried the real capture's scattered
-/// light and the synthetic capture then added its own on top (2022-09-03: the ring 0.088 ADU real, 0.110 synthetic).</param>
+/// <param name="FarSkyLevel">The sky's level three radii and more from the disk, where only the camera speaks, as it was before the
+/// camera rounded it (<see cref="PlanetaryDegrade.RoundedGaussianFit"/>): its offset.</param>
+/// <param name="FarSkyNoise">A pixel's noise there before rounding: the camera's read noise, which a synthetic capture takes. Read in
+/// the ring instead, it carried the real capture's scattered light and the synthetic capture added its own on top; read off the
+/// rounded values' spread, it was the rounding's (2022-09-03's far sky: 0.27 recorded, 0.21 before rounding).</param>
 /// <remarks>
 /// No gain: a photon transfer from consecutive frames' differences read the seeing's changes, not the shot noise
 /// (2022-09-03's Red gave no slope at all), so a synthetic capture's gain is set by the finest band's noise on the disk.
@@ -251,7 +252,8 @@ public static class PlanetaryCaptureStatistics
             // Every frame's shift against the sharpest, and its light over the sky around its disk.
             var seconds = Seconds(stream, n, options.FramesPerSecond);
             var skyLevel = SkyLevel(plane, width, height, disk, options.FullScaleAdu);
-            var farSkyLevel = FarSkyLevel(plane, width, height, disk, options.FullScaleAdu);
+            var farSkyBright = FarSkyBright(plane, width, height, disk, options.FullScaleAdu);
+            var farSkyCounts = new long[(int)Math.Ceiling(options.FullScaleAdu) + 1];
             var shiftX = new double[n];
             var shiftY = new double[n];
             var flux = new double[n];
@@ -326,7 +328,6 @@ public static class PlanetaryCaptureStatistics
             var residuals = new AlignmentPointShift[pairs * 2][];
             var noise = new BandNoise[pairs][];
             var skyNoise = new double[pairs];
-            var farSkyNoise = new double[pairs];
             await Parallel.ForAsync(0, pairs, new ParallelOptions { CancellationToken = cancellationToken }, async (k, token) =>
             {
                 var a = firsts[k];
@@ -356,7 +357,8 @@ public static class PlanetaryCaptureStatistics
                 {
                     (noise[k], skyNoise[k]) = PairNoise(frameA, frameB, shiftX[a + 1] - shiftX[a], shiftY[a + 1] - shiftY[a],
                         disk.X + shiftX[a], disk.Y + shiftY[a], disk.Radius, options);
-                    farSkyNoise[k] = FarSkyNoise(frameA, frameB, disk.X + shiftX[a], disk.Y + shiftY[a], disk.Radius, farSkyLevel, options.FullScaleAdu);
+                    CountFarSky(frameA, disk.X + shiftX[a], disk.Y + shiftY[a], disk.Radius, farSkyBright, options.FullScaleAdu, farSkyCounts);
+                    CountFarSky(frameB, disk.X + shiftX[a + 1], disk.Y + shiftY[a + 1], disk.Radius, farSkyBright, options.FullScaleAdu, farSkyCounts);
                 }
                 finally
                 {
@@ -368,8 +370,9 @@ public static class PlanetaryCaptureStatistics
 
             var warp = Warp(aps, residuals, options.AlignmentPatchSize, options.AlignmentPointSpacing);
             var bandNoise = MedianNoise(noise, options.Bands);
+            var (farSkyLevel, farSkyNoise) = PlanetaryDegrade.RoundedGaussianFit(farSkyCounts, 0);
             var diskLevel = DiskLevel(plane, width, height, disk, options.FullScaleAdu) - farSkyLevel;
-            var camera = new CameraEstimate(options.FullScaleAdu, skyLevel, Median(skyNoise), diskLevel, farSkyLevel, Median(farSkyNoise));
+            var camera = new CameraEstimate(options.FullScaleAdu, skyLevel, Median(skyNoise), diskLevel, farSkyLevel, farSkyNoise);
 
             return new CaptureStatistics(n, fps, referenceIndex, disk.X, disk.Y, disk.Radius, [.. shiftX], [.. shiftY], [.. mountX], [.. mountY], seeingRms, mountRate, mountWander, [.. flux], fluxSlow, fluxFast, limbWidthAll, limbWidthBest,
                 limbAll, limbBest, [.. frameLimbs], limbSeeingRms, alignerErrorRms, limbRadiusRms, limbOutliers, warp, [.. quality], QualityPercentilesOf(quality), Lag1(quality), bandNoise, camera);
@@ -405,7 +408,7 @@ public static class PlanetaryCaptureStatistics
     /// The version a saved file's statistics must carry to be read back (<see cref="TryLoadAsync"/>): raised whenever what is
     /// measured, or how, changes, so a file from before is measured again rather than compared as if it were current.
     /// </summary>
-    public const int FileVersion = 2;
+    public const int FileVersion = 3;
 
     /// <summary>
     /// Saves <paramref name="statistics"/> to <paramref name="path"/> under <paramref name="key"/> (the capture, its frames and the
@@ -1150,12 +1153,13 @@ public static class PlanetaryCaptureStatistics
 
     // The mean inside 0.8 radii of the reference's disk, in ADU.
     // The far sky: three radii and more from the disk, where the planet's scattered light has gone, and nothing a moon or a star
-    // lights (more than two ADU over the median, which is the camera's offset in an 8-bit frame to within its rounding).
+    // lights (more than two ADU, or five of its robust sigmas, over its median).
     private const double FarSkyRadii = 3;
     private const double FarSkyBrightAdu = 2;
 
-    // The far sky's mean level, in ADU: the median first, then the mean of what lies within FarSkyBrightAdu of it.
-    private static double FarSkyLevel(float[] plane, int width, int height, (double X, double Y, double Radius) disk, double scale)
+    // The value, in ADU, above which a far-sky pixel is taken as lit by something: its median plus FarSkyBrightAdu or five robust
+    // sigmas, whichever is more (an 8-bit sky's is zero). Infinite when the frame reaches no far sky.
+    private static double FarSkyBright(float[] plane, int width, int height, (double X, double Y, double Radius) disk, double scale)
     {
         var values = new List<double>();
         for (var y = 0; y < height; y++)
@@ -1168,34 +1172,16 @@ public static class PlanetaryCaptureStatistics
                 }
             }
         }
-        if (values.Count == 0)
-        {
-            return double.NaN;
-        }
-        var median = Median([.. values]);
-        double sum = 0;
-        var count = 0;
-        foreach (var v in values)
-        {
-            if (Math.Abs(v - median) <= FarSkyBrightAdu)
-            {
-                sum += v;
-                count++;
-            }
-        }
-        return sum / count;
+        return values.Count == 0 ? double.PositiveInfinity : Median([.. values]) + Math.Max(FarSkyBrightAdu, 5 * RobustSigma([.. values]));
     }
 
-    // A far-sky pixel's noise from two frames, in ADU: their difference pixel by pixel (no shift: the far sky has nothing to
-    // align), RMS over the square root of two, leaving out what either frame lights past FarSkyBrightAdu over the level. NaN when
-    // the frame reaches no far sky.
-    private static double FarSkyNoise(Image a, Image b, double cx, double cy, double radius, double level, double scale)
+    // Counts a frame's far-sky pixels by the whole ADU each read into `counts` (shared between the pairs, so added to atomically),
+    // leaving out what lies past `bright`.
+    private static void CountFarSky(Image frame, double cx, double cy, double radius, double bright, double scale, long[] counts)
     {
-        var (width, height) = (a.Width, a.Height);
-        var planeA = a.GetChannelSpan(0);
-        var planeB = b.GetChannelSpan(0);
-        double squares = 0;
-        var count = 0;
+        var (width, height) = (frame.Width, frame.Height);
+        var plane = frame.GetChannelSpan(0);
+        var own = new long[counts.Length];
         for (var y = 0; y < height; y++)
         {
             for (var x = 0; x < width; x++)
@@ -1204,16 +1190,20 @@ public static class PlanetaryCaptureStatistics
                 {
                     continue;
                 }
-                var (va, vb) = (planeA[(y * width) + x] * scale, planeB[(y * width) + x] * scale);
-                if (va - level > FarSkyBrightAdu || vb - level > FarSkyBrightAdu)
+                var v = plane[(y * width) + x] * scale;
+                if (v <= bright)
                 {
-                    continue;
+                    own[Math.Clamp((int)Math.Round(v), 0, own.Length - 1)]++;
                 }
-                squares += (vb - va) * (vb - va);
-                count++;
             }
         }
-        return count > 0 ? Math.Sqrt(squares / count / 2) : double.NaN;
+        for (var k = 0; k < own.Length; k++)
+        {
+            if (own[k] != 0)
+            {
+                Interlocked.Add(ref counts[k], own[k]);
+            }
+        }
     }
 
     private static double DiskLevel(float[] plane, int width, int height, (double X, double Y, double Radius) disk, double scale)
