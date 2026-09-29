@@ -28,6 +28,16 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
     private static FakeDevice CreateFocuserDevice(int id = 1) => new FakeDevice(DeviceType.Focuser, id);
     private static FakeDevice CreateGuiderDevice() => new FakeDevice(DeviceType.Guider, 1);
 
+    /// <summary>A device whose driver refuses its own configuration, as OpenWeatherMap does with no API key in the store.</summary>
+    private sealed record RefusingDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
+    {
+        protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) =>
+            throw new InvalidOperationException("API key not set; open the device's settings in the Equipment tab and enter your key.");
+    }
+
+    /// <summary>A device this computer has no driver for.</summary>
+    private sealed record DriverlessDevice(Uri DeviceUri) : DeviceBase(DeviceUri);
+
     private (SessionFactory Factory, FakeExternal External) CreateFactory(ProfileData profileData)
     {
         var external = new FakeExternal(outputHelper, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
@@ -49,6 +59,8 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
                     DeviceType.Guider => new FakeDevice(uri),
                     DeviceType.FilterWheel => new FakeDevice(uri),
                     DeviceType.CoverCalibrator => new FakeDevice(uri),
+                    DeviceType.Weather when string.Equals(uri.Host, nameof(DriverlessDevice), StringComparison.OrdinalIgnoreCase) => new DriverlessDevice(uri),
+                    DeviceType.Weather => new RefusingDevice(uri),
                     _ => null
                 };
 
@@ -229,6 +241,50 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         // then
         session.Setup.GuiderSetup.HasFocuser.ShouldBeTrue();
         session.Setup.GuiderSetup.Focuser.ShouldNotBeNull();
+    }
+
+    /// <summary>
+    /// A device whose driver cannot be built is the profile's fault, refused in the driver's words (#1076). The throw came
+    /// out of the wrapper's constructor as a bare InvalidOperationException, which a start answered with a bodiless 500 and
+    /// the GUI showed as a JSON parse error, the words that say what to do in the node's log alone.
+    /// </summary>
+    [Fact]
+    public void GivenADeviceWhoseDriverRefusesItsConfigurationWhenCreateThenTheSessionIsRefusedInTheDriversWords()
+    {
+        var profileData = new ProfileData(
+            Mount: CreateMountDevice().DeviceUri,
+            Guider: CreateGuiderDevice().DeviceUri,
+            OTAs: [new OTAData("Scope", 1000, CreateCameraDevice().DeviceUri, null, null, null, null, null)],
+            Weather: new Uri("Weather://Refusing/weather#My%20Weather")
+        );
+        var (factory, _) = CreateFactory(profileData);
+        var observations = new[] { CreateDefaultObservation() };
+
+        var refused = Should.Throw<SessionRefusedException>(() =>
+            factory.Create(TestProfileId, SessionTestHelper.DefaultConfiguration, new ReadOnlySpan<ScheduledObservation>(observations)));
+
+        refused.Message.ShouldStartWith("Weather ");
+        refused.Message.ShouldContain("cannot be used");
+        refused.Message.ShouldContain("API key not set; open the device's settings", customMessage: "the driver's own words say what to do");
+    }
+
+    [Fact]
+    public void GivenADeviceThisComputerHasNoDriverForWhenCreateThenTheSessionIsRefusedNotMistakenForAMissingProfile()
+    {
+        // Left to escape, the ArgumentException from the wrapper was answered as a 404, which reads as "no such profile".
+        var profileData = new ProfileData(
+            Mount: CreateMountDevice().DeviceUri,
+            Guider: CreateGuiderDevice().DeviceUri,
+            OTAs: [new OTAData("Scope", 1000, CreateCameraDevice().DeviceUri, null, null, null, null, null)],
+            Weather: new Uri("Weather://DriverlessDevice/weather#My%20Weather")
+        );
+        var (factory, _) = CreateFactory(profileData);
+        var observations = new[] { CreateDefaultObservation() };
+
+        var refused = Should.Throw<SessionRefusedException>(() =>
+            factory.Create(TestProfileId, SessionTestHelper.DefaultConfiguration, new ReadOnlySpan<ScheduledObservation>(observations)));
+
+        refused.Message.ShouldBe("Weather My Weather has no driver this computer can start.");
     }
 
     [Fact]

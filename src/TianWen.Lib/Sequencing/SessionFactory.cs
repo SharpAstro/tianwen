@@ -42,6 +42,29 @@ internal class SessionFactory(
         return new Session(CreateSetup(profileId), configuration, plateSolverFactory, external, serviceProvider, new ScheduledObservationTree(observations));
     }
 
+    /// <summary>
+    /// Builds the wrapper of one profile device, whose constructor builds the device's driver. A driver can refuse its own
+    /// configuration (OpenWeatherMap with no key in the credential store throws <see cref="InvalidOperationException"/>
+    /// saying what to do) or be one this computer has none of (an <see cref="ArgumentException"/>), and both are the
+    /// PROFILE's fault, so they are refused in words naming the role and the device (#1076). Left to escape, the first
+    /// answered a start with a bodiless 500 and the second with a 404 that reads as a missing profile.
+    /// </summary>
+    private static TWrapper Wrapped<TWrapper>(string role, DeviceBase device, Func<DeviceBase, TWrapper> build)
+    {
+        try
+        {
+            return build(device);
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new SessionRefusedException($"{role} {device.DisplayName} cannot be used: {ex.Message}");
+        }
+        catch (ArgumentException ex) when (ex is not SessionRefusedException)
+        {
+            throw new SessionRefusedException($"{role} {device.DisplayName} has no driver this computer can start.");
+        }
+    }
+
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope",
         Justification = "The wrappers are IAsyncDisposable-only and this factory is synchronous, so disposing on "
             + "a mid-assembly throw would mean sync-over-async -- and there is nothing to dispose: a wrapper "
@@ -80,10 +103,10 @@ internal class SessionFactory(
         {
             var otaData = profileData.OTAs[i];
 
-            var camera = new Camera(DeviceFromUri(otaData.Camera, i), serviceProvider);
-            var cover = otaData.Cover is { } coverUri ? new Cover(DeviceFromUri(coverUri, i), serviceProvider) : null;
-            var focuser = otaData.Focuser is { } focuserUri ? new Focuser(DeviceFromUri(focuserUri, i), serviceProvider) : null;
-            var filterWheel = otaData.FilterWheel is { } filterWheelUri ? new FilterWheel(DeviceFromUri(filterWheelUri, i), serviceProvider) : null;
+            var camera = Wrapped("Camera", DeviceFromUri(otaData.Camera, i), d => new Camera(d, serviceProvider));
+            var cover = otaData.Cover is { } coverUri ? Wrapped("Cover", DeviceFromUri(coverUri, i), d => new Cover(d, serviceProvider)) : null;
+            var focuser = otaData.Focuser is { } focuserUri ? Wrapped("Focuser", DeviceFromUri(focuserUri, i), d => new Focuser(d, serviceProvider)) : null;
+            var filterWheel = otaData.FilterWheel is { } filterWheelUri ? Wrapped("Filter wheel", DeviceFromUri(filterWheelUri, i), d => new FilterWheel(d, serviceProvider)) : null;
 
             var focusDirection = new FocusDirection(otaData.PreferOutwardFocus ?? true, otaData.OutwardIsPositive ?? true);
             var ota = new OTA(otaData.Name, otaData.FocalLength, camera, cover, focuser, focusDirection, filterWheel, Switches: null, otaData.Aperture, otaData.OpticalDesign);
@@ -95,10 +118,10 @@ internal class SessionFactory(
             }
         }
 
-        var mount = new Mount(DeviceFromUri(profileData.Mount), serviceProvider);
-        var guider = new Guider(guiderDevice, serviceProvider);
-        var guiderCamera = profileData.GuiderCamera is { } guiderCameraUri ? new Camera(DeviceFromUri(guiderCameraUri), serviceProvider) : null;
-        var guiderFocuser = profileData.GuiderFocuser is { } guiderFocuserUri ? new Focuser(DeviceFromUri(guiderFocuserUri), serviceProvider) : null;
+        var mount = Wrapped("Mount", DeviceFromUri(profileData.Mount), d => new Mount(d, serviceProvider));
+        var guider = Wrapped("Guider", guiderDevice, d => new Guider(d, serviceProvider));
+        var guiderCamera = profileData.GuiderCamera is { } guiderCameraUri ? Wrapped("Guide camera", DeviceFromUri(guiderCameraUri), d => new Camera(d, serviceProvider)) : null;
+        var guiderFocuser = profileData.GuiderFocuser is { } guiderFocuserUri ? Wrapped("Guide focuser", DeviceFromUri(guiderFocuserUri), d => new Focuser(d, serviceProvider)) : null;
 
         // Wire mount and camera into guiders that need device access.
         if (guider.Driver is IDeviceDependentGuider deviceDependentGuider)
@@ -108,7 +131,7 @@ internal class SessionFactory(
 
         var guiderSetup = new GuiderSetup(guiderCamera, guiderFocuser, guiderIsOAGOfOTA, profileData.GuiderFocalLength);
 
-        var weather = profileData.Weather is { } weatherUri ? new Weather(DeviceFromUri(weatherUri), serviceProvider) : null;
+        var weather = profileData.Weather is { } weatherUri ? Wrapped("Weather", DeviceFromUri(weatherUri), d => new Weather(d, serviceProvider)) : null;
 
         var setup = new Setup(mount, guider, guiderSetup, [.. otas], weather, profileData.MountLimits, profileData.Site, profileData.SiteTieBreaker);
 
