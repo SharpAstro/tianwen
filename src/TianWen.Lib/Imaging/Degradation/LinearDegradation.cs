@@ -54,9 +54,10 @@ namespace TianWen.Lib.Imaging.Degradation
             /// <remarks>
             /// Two conversions make it usable. The manifest's number is a STRETCHED-domain MAD, so it is
             /// divided by the MTF's local slope at the background to land in linear units
-            /// (<see cref="Image.MidtonesTransferFunctionSlope"/>); the master and its subs are on one
-            /// linear scale by construction (the master is integrated unnormalised), so they share a
-            /// midtones balance and one slope serves both.
+            /// (<see cref="Image.MidtonesTransferFunctionSlope"/>), the TARGET frame's slope. That assumes
+            /// the master and its subs are on one linear scale, and E16b's D2 measured that they are not:
+            /// each frame is unit-scaled by its own divisor (1.08 to 8.3 apart), and a Bayer-drizzled
+            /// master's colours are not sqrt(N) deep. Every export up to E16a used it as it stands.
             /// <para>Why not measure the master instead: a MAD over a cell reads structure as noise, and
             /// on a MASTER the noise is small enough that a modest gradient dominates it. Measured on
             /// this project's own synthetic fixture the master-MAD anchor overstated one sub's noise by

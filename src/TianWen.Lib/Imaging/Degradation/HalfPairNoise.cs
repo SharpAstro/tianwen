@@ -12,10 +12,10 @@ namespace TianWen.Lib.Imaging.Degradation;
 /// <para><b>Why the half pairs.</b> Half A and half B integrate disjoint halves of one session's subs onto the
 /// master's canvas and through the master's own unit division, so their difference holds no structure (both carry
 /// the same sky) and its scatter is the independent noise the master is made of, on the master's scale. It is the
-/// truth the whole E16 estimator campaign was checked against. A sub's own calibration cannot stand in for it: the
-/// stacker normalises every sub before integrating it and the manifest does not record by how much, so a sub's
-/// sigma has no known way onto the master's scale. A MAD of a cell (the older anchor) reads a bright cell's
-/// structure as noise.</para>
+/// truth the whole E16 estimator campaign was checked against, and E16b's D2 gates every anchor on it. A sub's own
+/// calibration does not carry to the master by sqrt(N), measured there: each frame is unit-scaled by its own divisor,
+/// so a sub is 1.08 to 8.3 times off the master's scale, and a Bayer drizzle integrates a quarter of the photosites
+/// into red and blue. A MAD of a cell (the older anchor) reads a bright cell's structure as noise.</para>
 ///
 /// <para><b>What is measured.</b> The bake keeps only the stretched half tiles, each stretched by its OWN stretch,
 /// which its manifest row records; each is taken back to linear through that stretch's inverse

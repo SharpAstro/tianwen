@@ -885,6 +885,12 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "the bake's own real pairs; 0 is bilinear alone.",
             DefaultValueFactory = _ => 0d,
         };
+        var warpSigmaDrizzleOpt = new Option<double?>("--warp-sigma-drizzle")
+        {
+            Description = "Warped shape only: the smoothing for a session whose master is a Bayer drizzle (its STRATEGY " +
+                          "card), in place of --warp-sigma. A drizzled master's noise is less correlated than a demosaiced " +
+                          "one's (half pairs 0.31-0.33 against 0.45 band1/band0, E16b): 0 matches it where 0.5 matches the other.",
+        };
         var warpSigmaMaxOpt = new Option<double>("--warp-sigma-max")
         {
             Description = "Warped shape only: when above --warp-sigma, each draw takes its smoothing uniform " +
@@ -954,9 +960,10 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
         var noiseAnchorOpt = new Option<string>("--noise-anchor")
         {
             Description = "What the injected noise is anchored on: sub-mad (each cell on its own subs' tile MAD, channel " +
-                          "0's calibration for every channel; every export up to E16a), sub-calibrations (each cell on its " +
-                          "subs' own recorded per-channel calibrations; E16b) or half-pairs (each session on its half pairs' " +
-                          "scatter over quiet sky, one calibration per channel; only sessions the bake halved).",
+                          "0's calibration for every channel; every export up to E16a), master-calibration (each session on " +
+                          "its master's own recorded per-channel calibration; E16b), sub-calibrations (each cell on its subs' " +
+                          "recorded calibrations, which misses a master's scale and a drizzle's depth) or half-pairs (each " +
+                          "session on its half pairs' scatter over quiet sky; only sessions the bake halved).",
             DefaultValueFactory = _ => "sub-mad",
         };
         var extraCellsOpt = new Option<string>("--extra-cells")
@@ -974,7 +981,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -1006,7 +1013,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             var anchorText = (parseResult.GetValue(noiseAnchorOpt) ?? "sub-mad").Replace("-", "", StringComparison.Ordinal);
             if (!Enum.TryParse<DatasetDegradationExporter.NoiseAnchorKind>(anchorText, ignoreCase: true, out var noiseAnchor))
             {
-                consoleHost.WriteError($"--noise-anchor must be sub-mad, sub-calibrations or half-pairs, got '{parseResult.GetValue(noiseAnchorOpt)}'");
+                consoleHost.WriteError($"--noise-anchor must be sub-mad, master-calibration, sub-calibrations or half-pairs, got '{parseResult.GetValue(noiseAnchorOpt)}'");
                 return 1;
             }
             var extraCells = parseResult.GetValue(extraCellsOpt);
@@ -1043,7 +1050,8 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 WhiteFraction: whiteFraction,
                 NoiseAnchor: noiseAnchor,
                 ExtraCellsPath: extraCells,
-                ListedCellsOnly: listedOnly);
+                ListedCellsOnly: listedOnly,
+                DrizzleWarpResampleSigma: parseResult.GetValue(warpSigmaDrizzleOpt));
 
             var result = await DatasetDegradationExporter.RunAsync(options, logger, ct);
             var degraded = result.Sessions.Sum(s => s.DegradedTiles);
@@ -1150,13 +1158,22 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
         var brightTolOpt = new Option<double>("--bright-tolerance") { Description = "Largest miss of the gated anchor on bright cells.", DefaultValueFactory = _ => 0.15 };
         var anchorOpt = new Option<string>("--anchor")
         {
-            Description = "The anchor the tolerances gate: sub-calibrations (the one E16b injects with) or half-pairs. All three are printed.",
-            DefaultValueFactory = _ => "sub-calibrations",
+            Description = "The anchor the tolerances gate: master-calibration (the one E16b injects with), sub-calibrations, " +
+                          "sub-mad or half-pairs. All four are printed.",
+            DefaultValueFactory = _ => "master-calibration",
+        };
+        var brightGateOpt = new Option<string>("--bright-gate")
+        {
+            Description = "How bright cells are gated: absolute (their pooled ratio within --bright-tolerance of 1, D2 as " +
+                          "registered) or relative (in every session with both, the bright cells' ratio within --bright-tolerance " +
+                          "of its quiet cells', which tests the noise model's LEVEL dependence apart from a session's anchor; " +
+                          "E16b's third amendment).",
+            DefaultValueFactory = _ => "absolute",
         };
         var command = new Command("noise-check",
             "Check the injected noise's model against the half pairs, per channel, on quiet and bright cells (E16b's D2).")
         {
-            Options = { bakeOpt, sessionFilterOpt, cellsOpt, seedOpt, extraCellsOpt, quietTolOpt, brightTolOpt, anchorOpt },
+            Options = { bakeOpt, sessionFilterOpt, cellsOpt, seedOpt, extraCellsOpt, quietTolOpt, brightTolOpt, anchorOpt, brightGateOpt },
         };
         command.SetAction(async (parseResult, ct) =>
         {
@@ -1170,13 +1187,27 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             }
             var quietTol = parseResult.GetValue(quietTolOpt);
             var brightTol = parseResult.GetValue(brightTolOpt);
-            var anchorName = parseResult.GetValue(anchorOpt) ?? "sub-calibrations";
-            if (anchorName is not ("sub-calibrations" or "half-pairs"))
+            var anchorName = parseResult.GetValue(anchorOpt) ?? "master-calibration";
+            Func<DatasetDegradationExporter.InjectionCheckRow, double[]>? gated = anchorName switch
             {
-                consoleHost.WriteError($"--anchor must be sub-calibrations or half-pairs, got '{anchorName}'");
+                "master-calibration" => static r => r.MasterCalibration,
+                "sub-calibrations" => static r => r.SubCalibrations,
+                "sub-mad" => static r => r.SubMad,
+                "half-pairs" => static r => r.HalfPairs,
+                _ => null,
+            };
+            if (gated is null)
+            {
+                consoleHost.WriteError($"--anchor must be master-calibration, sub-calibrations, sub-mad or half-pairs, got '{anchorName}'");
                 return 1;
             }
-            Func<DatasetDegradationExporter.InjectionCheckRow, double[]> gated = anchorName == "half-pairs" ? static r => r.HalfPairs : static r => r.SubCalibrations;
+            var brightGate = parseResult.GetValue(brightGateOpt) ?? "absolute";
+            if (brightGate is not ("absolute" or "relative"))
+            {
+                consoleHost.WriteError($"--bright-gate must be absolute or relative, got '{brightGate}'");
+                return 1;
+            }
+            var relativeBright = brightGate == "relative";
             var channels = rows[0].HalfPairs.Length;
             var pass = true;
             foreach (var bright in new[] { false, true })
@@ -1192,13 +1223,24 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 var pairs = Enumerable.Range(0, channels).Select(c => Median(group.Select(r => r.HalfPairs[c]))).ToArray();
                 var subMad = Enumerable.Range(0, channels).Select(c => Median(group.Select(r => r.SubMad[c]))).ToArray();
                 var subCal = Enumerable.Range(0, channels).Select(c => Median(group.Select(r => r.SubCalibrations[c]))).ToArray();
+                var masterCal = Enumerable.Range(0, channels).Select(c => Median(group.Select(r => r.MasterCalibration[c]))).ToArray();
                 var gatedValues = Enumerable.Range(0, channels).Select(c => Median(group.Select(r => gated(r)[c]))).ToArray();
-                var ok = gatedValues.All(v => Math.Abs(v - 1.0) <= tol);
+                // Relative: each session's bright cells against its OWN quiet cells, so the level model is tested apart
+                // from how well the anchor reads that session's sky; the worst session and channel decide.
+                var relative = bright && relativeBright ? BrightOverQuiet(rows, gated, channels).ToList() : null;
+                var ok = relative is null
+                    ? gatedValues.All(v => Math.Abs(v - 1.0) <= tol)
+                    : relative.Count > 0 && relative.All(s => s.Ratios.All(v => Math.Abs(v - 1.0) <= tol));
                 pass &= ok;
+                var gateText = relative is null
+                    ? $"{anchorName} {(ok ? "within" : "OUTSIDE")} {tol:P0}"
+                    : $"{anchorName} bright over quiet in {relative.Count} sessions, worst " +
+                      $"{(relative.Count > 0 ? relative.SelectMany(static s => s.Ratios).MaxBy(static v => Math.Abs(v - 1.0)).ToString("F3", CultureInfo.InvariantCulture) : "-")}, " +
+                      $"{(ok ? "within" : "OUTSIDE")} {tol:P0}";
                 consoleHost.WriteScrollable(
                     $"[noise-check] {(bright ? "bright" : "quiet"),-6} {group.Count,5} cells over {group.Select(r => r.SessionId).Distinct().Count()} sessions, " +
-                    $"measured / predicted per channel: sub-calibrations {Join(subCal)}, half-pairs {Join(pairs)}, sub-mad {Join(subMad)}; " +
-                    $"{anchorName} {(ok ? "within" : "OUTSIDE")} {tol:P0}");
+                    $"measured / predicted per channel: master-calibration {Join(masterCal)}, sub-calibrations {Join(subCal)}, " +
+                    $"half-pairs {Join(pairs)}, sub-mad {Join(subMad)}; {gateText}");
             }
             foreach (var session in rows.GroupBy(static r => r.SessionId).OrderBy(static g => g.Key, StringComparer.Ordinal))
             {
@@ -1213,6 +1255,23 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             return pass ? 0 : 1;
 
             static string Join(double[] values) => string.Join(" / ", values.Select(v => v.ToString("F3", CultureInfo.InvariantCulture)));
+
+            static IEnumerable<(string Session, double[] Ratios)> BrightOverQuiet(
+                IEnumerable<DatasetDegradationExporter.InjectionCheckRow> all,
+                Func<DatasetDegradationExporter.InjectionCheckRow, double[]> gate,
+                int channels)
+            {
+                foreach (var session in all.GroupBy(static r => r.SessionId).OrderBy(static g => g.Key, StringComparer.Ordinal))
+                {
+                    var quiet = session.Where(static r => !r.Bright).ToList();
+                    var brightCells = session.Where(static r => r.Bright).ToList();
+                    if (quiet.Count > 0 && brightCells.Count > 0)
+                    {
+                        yield return (session.Key, [.. Enumerable.Range(0, channels)
+                            .Select(c => Median(brightCells.Select(r => gate(r)[c])) / Median(quiet.Select(r => gate(r)[c])))]);
+                    }
+                }
+            }
 
             static double Median(IEnumerable<double> values)
             {

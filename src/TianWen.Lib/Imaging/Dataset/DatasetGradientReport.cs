@@ -708,7 +708,7 @@ namespace TianWen.Lib.Imaging.Dataset
         }
 
         /// <summary>The integration cards the master carries about itself: <c>STRATEGY</c> and <c>STACK_N</c>.</summary>
-        internal static (string Strategy, int StackedFrames) ReadMasterCards(string path)
+        public static (string Strategy, int StackedFrames) ReadMasterCards(string path)
         {
             using var fits = Image.OpenFitsHeader(path);
             var header = fits.ReadFirstImageHduHeaderOnly()?.Header;
