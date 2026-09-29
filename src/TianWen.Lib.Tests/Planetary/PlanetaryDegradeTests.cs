@@ -166,6 +166,35 @@ public class PlanetaryDegradeTests
     }
 
     [Fact]
+    public void ASkysNoiseIsItsPixelsOwnWhereItsLevelSlopes()
+    {
+        // 2022-09-03's sky: a read noise of 0.17 ADU on a level that falls 0.2 ADU across the frame, 300 frames rounded to whole
+        // ADU. Pooled, the slope widens the fitted noise; with a level of each pixel's own, it does not.
+        const int pixels = 20_000, frames = 300, bins = 9, first = 13;
+        var random = new Random(17);
+        var counts = new short[pixels * bins];
+        var pooled = new long[bins];
+        for (var p = 0; p < pixels; p++)
+        {
+            var level = 16.65 + (0.2 * p / pixels);
+            for (var f = 0; f < frames; f++)
+            {
+                var bin = (int)Math.Round(level + (0.17 * PhaseScreen.Gaussian(random))) - first;
+                counts[(p * bins) + bin]++;
+                pooled[bin]++;
+            }
+        }
+
+        var (level1, noise1) = PlanetaryDegrade.RoundedGaussianFit(pooled, first);
+        var (level2, noise2) = PlanetaryCaptureStatistics.SkyByPixels(counts, bins, first, [.. Enumerable.Range(0, pixels)]);
+
+        TestContext.Current.TestOutputHelper?.WriteLine($"pooled: level {level1:0.000}, noise {noise1:0.000}; by pixels: level {level2:0.000}, noise {noise2:0.000}");
+        noise2.ShouldBe(0.17, 0.01);
+        level2.ShouldBe(16.75, 0.01);
+        noise1.ShouldBeGreaterThan(noise2);
+    }
+
+    [Fact]
     public async Task ASyntheticFramesDiskLandsWhereItsShiftPutsItAtTheLevelAsked()
     {
         ImmutableArray<double> shiftX = [0, 3.4, -2.25];

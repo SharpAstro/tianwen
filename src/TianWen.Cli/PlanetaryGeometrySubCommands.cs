@@ -365,7 +365,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                 ScatterCoreArcsec = parseResult.GetValue(scatterCoreOpt),
                 MinnaertK = parseResult.GetValue(kOpt),
                 FullScaleAdu = camera.FullScaleAdu,
-                OffsetAdu = camera.FarSkyLevel,
+                OffsetAdu = camera.LocalSkyLevel,
                 ReadNoiseAdu = readNoise,
                 ElectronsPerAdu = electronsPerAdu,
                 DiskLevelAdu = camera.DiskLevel,
@@ -599,10 +599,10 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             $"    quality: median {p50:0.000000}; p5 {s.QualityPercentiles[0] / p50:0.000}, p25 {s.QualityPercentiles[1] / p50:0.000}, p75 {s.QualityPercentiles[3] / p50:0.000}, p95 {s.QualityPercentiles[4] / p50:0.000} of it; lag-1 {s.QualityLag1:0.000}"));
         consoleHost.WriteScrollable("    noise (ADU, one frame): " + string.Join("  ", s.Noise.Select(b => string.Create(inv, $"band {b.Band} sky {b.Sky:0.000} disk {b.Disk:0.000}"))));
         var c = s.Camera;
-        consoleHost.WriteScrollable("    halo over the far sky: " + string.Join(", ", s.Halo.Select((h, j) =>
+        consoleHost.WriteScrollable("    halo over the local sky: " + string.Join(", ", s.Halo.Select((h, j) =>
             string.Create(inv, $"{h:+0.000;-0.000} ADU at {PlanetaryCaptureStatistics.HaloAnnuli[j]:0.0#} to {PlanetaryCaptureStatistics.HaloAnnuli[j + 1]:0.0#} radii"))));
         consoleHost.WriteScrollable(string.Create(inv,
-            $"    camera: sky {c.SkyLevel:0.000} ADU with {c.SkyNoise:0.000} noise at 1.3 to 1.6 radii, {c.FarSkyLevel:0.000} with {c.FarSkyNoise:0.000} beyond 3 before rounding; disk {c.DiskLevel:0.0} over the far sky, full scale {c.FullScaleAdu:0}"));
+            $"    camera: sky {c.SkyLevel:0.000} ADU with {c.SkyNoise:0.000} noise at 1.3 to 1.6 radii, {c.FarSkyLevel:0.000} with {c.FarSkyNoise:0.000} beyond 3 and {c.LocalSkyLevel:0.000} at 2.5 to 3.5 before rounding; disk {c.DiskLevel:0.0} over the local sky, full scale {c.FullScaleAdu:0}"));
     }
 
     // The corpus' pupils: the Newtonian's 58 mm secondary is its specification's; the Maksutov's spot is not confirmed.
