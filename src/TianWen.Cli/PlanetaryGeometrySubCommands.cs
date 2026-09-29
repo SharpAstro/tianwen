@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.CommandLine;
 using System.Globalization;
 using System.IO;
@@ -6,6 +7,8 @@ using System.Threading.Tasks;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Degradation;
+using TianWen.Lib.Imaging.Optics;
 using TianWen.Lib.Imaging.Planetary;
 
 namespace TianWen.Cli;
@@ -14,6 +17,7 @@ namespace TianWen.Cli;
 /// <c>planetary-limb</c> (docs/plans/planetary-restoration.md, R1): fits a planet's disk at its limb, with the shape and
 /// lighting its ephemeris gives, and, handed WinJUPOS's measurement of an image, compares the two. <c>planetary-aperture</c>
 /// says which of the corpus' two telescopes took a Jupiter capture, by the rules the plan pre-registered.
+/// <c>planetary-render-truth</c> renders a global map at a capture's geometry through its telescope (T1, R2).
 /// </summary>
 internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
 {
@@ -169,6 +173,157 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             return failed == 0 ? 0 : 1;
         });
         return command;
+    }
+
+    // The corpus' pupils: the Newtonian's 58 mm secondary is its specification's; the Maksutov's spot is not confirmed.
+    private static readonly Pupil NewtonianPupil = new Pupil(0.254, ObstructionRatio: 58.0 / 254, Vanes: 4, VaneWidthM: 0.001);
+    private static readonly Pupil MaksutovPupil = new Pupil(MaksutovApertureM, ObstructionRatio: 0.3);
+
+    public Command BuildRenderTruth()
+    {
+        var mapOpt = new Option<string>("--map") { Description = "The global map (FITS; OPAL's, planetographic latitude, west longitude, north first).", Required = true };
+        var utcOpt = new Option<string>("--utc") { Description = "The instant to render (ISO 8601, UTC).", Required = true };
+        var planetOpt = new Option<string>("--planet") { Description = "jupiter or saturn.", DefaultValueFactory = _ => "jupiter" };
+        var likeOpt = new Option<string?>("--like") { Description = "An image whose disk to render at: its size, and the limb fit's centre, radius and north end." };
+        var centerOpt = new Option<string?>("--center") { Description = "The disk's centre, x,y in pixels (without --like)." };
+        var radiusOpt = new Option<double?>("--radius") { Description = "The equatorial radius in pixels (without --like)." };
+        var northOpt = new Option<double?>("--north") { Description = "The direction to the north pole, degrees from +x toward +y (overrides --like's)." };
+        var sizeOpt = new Option<string?>("--size") { Description = "The frame, WxH (without --like)." };
+        var mirroredOpt = new Option<bool>("--mirrored") { Description = "The image is the sky's mirror image (east to the right of north)." };
+        var kOpt = new Option<double>("--k") { Description = "Minnaert's exponent for the map's filter (OPAL's readme lists it).", DefaultValueFactory = _ => 0.95 };
+        var telescopeOpt = new Option<string>("--telescope") { Description = "newtonian, maksutov or none (no diffraction).", DefaultValueFactory = _ => "newtonian" };
+        var wavelengthOpt = new Option<double>("--wavelength") { Description = "The filter's wavelength in nm, for the diffraction.", DefaultValueFactory = _ => 550 };
+        var seeingFwhmOpt = new Option<double?>("--seeing-fwhm") { Description = "Blur the truth by a Moffat of this FWHM in pixels, as seeing would." };
+        var seeingBetaOpt = new Option<double>("--seeing-beta") { Description = "The seeing Moffat's beta.", DefaultValueFactory = _ => 3 };
+        var fitOpt = new Option<bool>("--fit") { Description = "Fit the render's limb and say how far the fit lands from the geometry rendered (T1)." };
+        var outputOpt = new Option<string?>("--output", "-o") { Description = "Where to write the render (FITS)." };
+
+        var command = new Command("planetary-render-truth",
+            "Render a planet's global map at an instant and a disk's geometry, through the telescope's pupil: the truth the limb fit and the restoration are measured against (T1).")
+        {
+            Options = { mapOpt, utcOpt, planetOpt, likeOpt, centerOpt, radiusOpt, northOpt, sizeOpt, mirroredOpt, kOpt, telescopeOpt, wavelengthOpt, seeingFwhmOpt, seeingBetaOpt, fitOpt, outputOpt },
+        };
+
+        command.SetAction((parseResult, ct) =>
+        {
+            var mapPath = parseResult.GetValue(mapOpt) ?? "";
+            if (PlanetMap.ReadFits(mapPath) is not { } map)
+            {
+                consoleHost.WriteError($"{mapPath}: no map");
+                return Task.FromResult(1);
+            }
+            if (ParseUtc(parseResult.GetValue(utcOpt)) is not { } utc)
+            {
+                consoleHost.WriteError("--utc is not an ISO 8601 time");
+                return Task.FromResult(1);
+            }
+            var planet = (parseResult.GetValue(planetOpt) ?? "jupiter").ToLowerInvariant() == "saturn" ? CatalogIndex.Saturn : CatalogIndex.Jupiter;
+            var aspect = PhysicalEphemeris.Compute(planet, utc);
+
+            int width, height;
+            DiskPlacement placement;
+            if (parseResult.GetValue(likeOpt) is { } like)
+            {
+                if (!Image.TryReadImageFile(like, out var image) || PlanetaryLimbFit.Fit(image, PlanetaryLimbFit.OptionsFor(aspect)) is not { } fit)
+                {
+                    consoleHost.WriteError($"{like}: no disk to render like");
+                    return Task.FromResult(1);
+                }
+                (width, height) = (image.Width, image.Height);
+                placement = new DiskPlacement(fit.CenterX, fit.CenterY, fit.EquatorialRadius, fit.NorthAngleDeg, parseResult.GetValue(mirroredOpt));
+            }
+            else if (ParsePair(parseResult.GetValue(centerOpt)) is { } center && parseResult.GetValue(radiusOpt) is { } radius
+                && ParsePair(parseResult.GetValue(sizeOpt), 'x') is { } size)
+            {
+                (width, height) = ((int)size.A, (int)size.B);
+                placement = new DiskPlacement(center.A, center.B, radius, parseResult.GetValue(northOpt) ?? -90, parseResult.GetValue(mirroredOpt));
+            }
+            else
+            {
+                consoleHost.WriteError("give --like, or --center, --radius and --size");
+                return Task.FromResult(1);
+            }
+            if (parseResult.GetValue(northOpt) is { } north)
+            {
+                placement = placement with { NorthAngleDeg = north };
+            }
+
+            var scale = aspect.AngularDiameterArcsec / 2 / placement.EquatorialRadius;
+            var k = parseResult.GetValue(kOpt);
+            var wavelength = parseResult.GetValue(wavelengthOpt) * 1e-9;
+            var truth = (parseResult.GetValue(telescopeOpt) ?? "newtonian").ToLowerInvariant() switch
+            {
+                "none" => PlanetaryRender.Render(map, aspect, placement, width, height, k),
+                "maksutov" => PlanetaryRender.RenderDiffracted(map, aspect, placement, width, height, k, MaksutovPupil, wavelength, scale),
+                _ => PlanetaryRender.RenderDiffracted(map, aspect, placement, width, height, k, NewtonianPupil, wavelength, scale),
+            };
+            var fwhm = parseResult.GetValue(seeingFwhmOpt);
+            var seen = fwhm is { } f ? PsfKernel.Moffat(f, parseResult.GetValue(seeingBetaOpt)).Convolve(truth, width, height) : truth;
+
+            consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                $"{planet} at {utc:yyyy-MM-dd HH:mm:ss} UTC: CM III {aspect.CentralMeridianIII:0.00}, sub-observer latitude {aspect.SubObserverLatitude:0.00}, phase {aspect.PhaseAngle:0.00}; " +
+                $"disk at {placement.CenterX:0.000}, {placement.CenterY:0.000}, R {placement.EquatorialRadius:0.000} px ({scale:0.0000}\"/px), north at {placement.NorthAngleDeg:0.00} deg{(placement.Mirrored ? ", mirrored" : "")}"));
+
+            if (parseResult.GetValue(fitOpt))
+            {
+                var plane = new float[height, width];
+                for (var y = 0; y < height; y++)
+                {
+                    for (var x = 0; x < width; x++)
+                    {
+                        plane[y, x] = seen[(y * width) + x];
+                    }
+                }
+                if (PlanetaryLimbFit.Fit(Image.FromChannel(plane), PlanetaryLimbFit.OptionsFor(aspect)) is { } fitted)
+                {
+                    consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                        $"the limb fit: centre off {fitted.CenterX - placement.CenterX:+0.000;-0.000}, {fitted.CenterY - placement.CenterY:+0.000;-0.000} px, " +
+                        $"radius {100 * (fitted.EquatorialRadius - placement.EquatorialRadius) / placement.EquatorialRadius:+0.00;-0.00} %, axis {fitted.AxisAngleDeg:0.00} deg, " +
+                        $"k {fitted.LimbDarkening:0.00}, sigma {fitted.PsfSigma:0.00}, albedo at the poles {1 + fitted.ZonalAlbedo1 + fitted.ZonalAlbedo2 + fitted.ZonalAlbedo4:0.00} and {1 - fitted.ZonalAlbedo1 + fitted.ZonalAlbedo2 + fitted.ZonalAlbedo4:0.00}"));
+                }
+                else
+                {
+                    consoleHost.WriteError("the limb fit found no disk in the render");
+                }
+            }
+
+            if (parseResult.GetValue(outputOpt) is { } output)
+            {
+                var plane = new float[height, width];
+                for (var y = 0; y < height; y++)
+                {
+                    for (var x = 0; x < width; x++)
+                    {
+                        plane[y, x] = seen[(y * width) + x];
+                    }
+                }
+                var headers = new Dictionary<string, (object Value, string Comment)>
+                {
+                    ["DATE-OBS"] = (utc.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fff", CultureInfo.InvariantCulture), "the instant rendered"),
+                    ["CM3"] = (aspect.CentralMeridianIII, "central meridian, System III, deg"),
+                    ["DISKX"] = (placement.CenterX, "disk centre x, px (0-based)"),
+                    ["DISKY"] = (placement.CenterY, "disk centre y, px (0-based)"),
+                    ["DISKR"] = (placement.EquatorialRadius, "equatorial radius, px"),
+                    ["NORTHANG"] = (placement.NorthAngleDeg, "direction to the north pole, deg from +x toward +y"),
+                    ["MINNAERT"] = (k, "Minnaert k put back"),
+                    ["SRCMAP"] = (Path.GetFileName(mapPath), "the global map rendered"),
+                };
+                Image.FromChannel(plane).WriteToFitsFile(output, null, headers);
+                consoleHost.WriteScrollable($"wrote {output}. OPAL maps are CC BY 4.0: credit the OPAL program (PI Simon, GO13937), doi 10.17909/T9G593.");
+            }
+            return Task.FromResult(0);
+        });
+        return command;
+    }
+
+    private static (double A, double B)? ParsePair(string? text, char separator = ',')
+    {
+        var parts = text?.Split(separator);
+        return parts is [var a, var b]
+            && double.TryParse(a, NumberStyles.Float, CultureInfo.InvariantCulture, out var x)
+            && double.TryParse(b, NumberStyles.Float, CultureInfo.InvariantCulture, out var y)
+            ? (x, y)
+            : null;
     }
 
     private static DateTimeOffset? MidCapture(SerFrameStream stream)

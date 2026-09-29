@@ -131,6 +131,27 @@ public static class PhysicalEphemeris
             Flattening: flattening);
     }
 
+    /// <summary>
+    /// The direction to the Sun in the disk frame of <paramref name="aspect"/>, a unit vector: its component toward the sky's
+    /// west, toward the projected north pole, and toward the observer (whose angle from the last is the phase angle). The lit
+    /// side lies along (West, North) on the disk, off the equator by <c>atan2(North, |West|)</c> whenever the Sun and the
+    /// observer stand at different latitudes of the planet: 5.2 degrees on 2022-09-03, which a limb fit lighting the disk
+    /// along its equator read as a centre 0.14 px off along the axis (#1050).
+    /// </summary>
+    public static (double West, double North, double Toward) SunOnTheDisk(in PlanetAspect aspect)
+    {
+        var q = 1 - aspect.Flattening;
+        var (sinD, cosD) = Math.SinCos(aspect.SubObserverLatitudeCentric * Constants.DEGREES2RADIANS);
+        // The sub-solar latitude is stated planetographic; the direction to the Sun has the planetocentric one.
+        var sunCentric = Math.Atan(q * q * Math.Tan(aspect.SubSolarLatitude * Constants.DEGREES2RADIANS));
+        var offset = (aspect.CentralMeridianIII - aspect.SubSolarLongitudeIII) * Constants.DEGREES2RADIANS;
+        // In the body frame: e1 along the sky's west (it lies in the equator, the pole being in the north-toward plane), e2 the
+        // equator's direction nearest the observer, and the pole; a point west of the central meridian has the smaller west
+        // longitude. e2 = (0, -sin D, cos D) and the pole (0, cos D, sin D) in (west, north, toward).
+        var (s1, s2, s3) = (Math.Cos(sunCentric) * Math.Sin(offset), Math.Cos(sunCentric) * Math.Cos(offset), Math.Sin(sunCentric));
+        return (s1, (-sinD * s2) + (cosD * s3), (cosD * s2) + (sinD * s3));
+    }
+
     // IAU equatorial and polar radii, km (Archinal et al. 2018, table 5).
     private static (double Equatorial, double Polar) Radii(CatalogIndex planet) => planet switch
     {
