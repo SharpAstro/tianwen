@@ -246,6 +246,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         var r0Opt = new Option<double>("--r0") { Description = "The Fried parameter at 500 nm, cm.", DefaultValueFactory = _ => 5 };
         var windOpt = new Option<double>("--wind") { Description = "The wind carrying the screen, m/s.", DefaultValueFactory = _ => 10 };
         var outerScaleOpt = new Option<double?>("--outer-scale") { Description = "The turbulence's outer scale, m (von Karman; none for Kolmogorov)." };
+        var realStatisticsOpt = new Option<string?>("--real-statistics") { Description = "A file the real capture's statistics are read from when it holds them for this capture, frames and options, and saved to otherwise." };
         var localR0Opt = new Option<double?>("--local-r0") { Description = "A layer of turbulence at the telescope (tube, mirror), its Fried parameter at 500 nm, cm (none by default)." };
         var localOuterScaleOpt = new Option<double>("--local-outer-scale") { Description = "The local layer's outer scale, m.", DefaultValueFactory = _ => 0.25 };
         var localWindOpt = new Option<double>("--local-wind") { Description = "The local layer's drift across the pupil, m/s.", DefaultValueFactory = _ => 1 };
@@ -267,7 +268,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             "A synthetic capture from a global map with a real capture's own seeing, motion and camera (R2): measure the real one, make the synthetic one, measure it the same way, and compare.")
         {
             Arguments = { inputArg },
-            Options = { mapOpt, outputOpt, planetOpt, kOpt, telescopeOpt, wavelengthOpt, r0Opt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, localR0Opt, localOuterScaleOpt, localWindOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, replayOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, framesOpt },
+            Options = { mapOpt, outputOpt, planetOpt, kOpt, telescopeOpt, wavelengthOpt, r0Opt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, localR0Opt, localOuterScaleOpt, localWindOpt, realStatisticsOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, replayOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, framesOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -302,11 +303,27 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                 AlignmentPatchSize = parseResult.GetValue(patchOpt),
                 AlignmentPointSpacing = parseResult.GetValue(spacingOpt),
             };
-            consoleHost.WriteScrollable($"measuring {Path.GetFileName(input)}");
-            if (await PlanetaryCaptureStatistics.MeasureAsync(real, measure, progress, ct) is not { } truth)
+            // A real capture measured once serves every synthetic one compared with it.
+            var statisticsPath = parseResult.GetValue(realStatisticsOpt);
+            var key = $"{Path.GetFullPath(input)} | {real.FrameCount} frames | {measure}";
+            var truth = statisticsPath is null ? null : await PlanetaryCaptureStatistics.TryLoadAsync(statisticsPath, key, ct);
+            if (truth is not null)
             {
-                consoleHost.WriteError($"{input}: no disk found");
-                return 1;
+                consoleHost.WriteScrollable($"{Path.GetFileName(input)}: statistics read from {statisticsPath}");
+            }
+            else
+            {
+                consoleHost.WriteScrollable($"measuring {Path.GetFileName(input)}");
+                truth = await PlanetaryCaptureStatistics.MeasureAsync(real, measure, progress, ct);
+                if (truth is null)
+                {
+                    consoleHost.WriteError($"{input}: no disk found");
+                    return 1;
+                }
+                if (statisticsPath is not null)
+                {
+                    await PlanetaryCaptureStatistics.SaveAsync(truth, key, statisticsPath, ct);
+                }
             }
 
             // The disk's placement at the reference frame: the limb of a stack of the best frames, which the stacker aligns to
