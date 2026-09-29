@@ -939,6 +939,12 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   minutes after its Red read 18.3 through one Newtonian), least of all over a halo clipped at black. `Imaging/Optics` is R2's
   too: **a plain FFT screen is 28 % short of Kolmogorov** without subharmonics, and **a small render grid prints a four-fold
   halo** of its own.
+- **A synthetic capture is compared through `PlanetaryCaptureStatistics`, one routine for it and the real one** (R2, `tianwen
+  planetary-degrade`), and three things in it bite. **The disk's motion is the limb fit's** (single frames, `LimbSeeingRms`): the
+  global aligner's shift carries its own error, larger than the seeing on 2022-09-03 (0.71 px of a 0.96 px reading). **An 8-bit
+  sky's camera terms are fitted through the rounding, pixel by pixel** (`SkyByPixels`): its rounded mean is not its level, its
+  spread is set by the mean alone, and a sky that slopes over the frame widens any pooled fit. **A statistic is read against its
+  spread over seeds** (`--seed`): at 3,000 frames the quality's lag-1 wanders 67 % between seeds, so a 10 % band on it tests nothing.
 - **Read the plan doc before touching the Canon path** -- it is a list of five things that fail
   SILENTLY. **Recentering is opt-in** (the user, 2026-09-28; it costs the loop about 15 ms a frame at full frame), and
   so is the mount jog, whose **sign is uncalibrated**.
