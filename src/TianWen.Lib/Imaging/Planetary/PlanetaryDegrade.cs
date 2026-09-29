@@ -73,6 +73,17 @@ public sealed record DegradeOptions(Pupil Pupil, double WavelengthM)
     /// <summary>The disk's mean over the sky inside 0.8 radii, in ADU, which the render is scaled to.</summary>
     public double DiskLevelAdu { get; init; } = 100;
 
+    /// <summary>
+    /// The share of the light the telescope scatters wide (its mirrors' roughness and dust), zero for none: spread over the whole
+    /// window by a kernel of <see cref="ScatterCoreArcsec"/>, (1 + (r / core)^2)^(-3/2), past the PSF grid's reach. 2022-09-03's
+    /// real frames hold 0.2 to 0.4 % of the disk's brightness 15 to 75 px beyond its limb, where seeing and the layer at the
+    /// telescope, cut at the PSF grid's 32 px, leave none.
+    /// </summary>
+    public double ScatterFraction { get; init; }
+
+    /// <summary>The scatter kernel's core, in arcseconds.</summary>
+    public double ScatterCoreArcsec { get; init; } = 5;
+
     /// <summary>The local warp's RMS per axis, in pixels (zero for none).</summary>
     public double WarpRmsPx { get; init; }
 
@@ -309,6 +320,7 @@ public static class PlanetaryDegrade
         var (localWindX, localWindY) = (options.LocalWindMps * Math.Cos((options.WindAngleDeg + 90) * Math.PI / 180), options.LocalWindMps * Math.Sin((options.WindAngleDeg + 90) * Math.PI / 180));
 
         var warp = new WarpField(windowPx, options.WarpRmsPx, options.WarpLengthPx, options.WarpLag1, options.Seed + 1);
+        var scatter = options.ScatterFraction > 0 ? ScatterSpectrum(fine, options.ScatterCoreArcsec / (arcsecPerPixel / os)) : null;
 
         var truths = new SyntheticFrame[n];
         var screenPhase = new double[screenSamples * screenSamples];
@@ -398,7 +410,7 @@ public static class PlanetaryDegrade
             await Parallel.ForAsync(0, count, new ParallelOptions { CancellationToken = cancellationToken }, (k, _) =>
             {
                 var t = first + k;
-                frames[k] = MakeFrame(spectrum, blockPsfs[k], blockWarps[k], fine, os, windowX, windowY, shiftX[t] + blockTilts[k].X, shiftY[t] + blockTilts[k].Y, brightness.IsDefaultOrEmpty ? 1 : brightness[t], width, height, options,
+                frames[k] = MakeFrame(spectrum, blockPsfs[k], scatter, blockWarps[k], fine, os, windowX, windowY, shiftX[t] + blockTilts[k].X, shiftY[t] + blockTilts[k].Y, brightness.IsDefaultOrEmpty ? 1 : brightness[t], width, height, options,
                     new Random(unchecked((options.Seed * 1_000_003) + t)));
                 return ValueTask.CompletedTask;
             }).ConfigureAwait(false);
@@ -443,7 +455,7 @@ public static class PlanetaryDegrade
 
     // One frame: the object through this frame's PSF, moved by `shiftX`, `shiftY` (the fraction of a pixel in the Fourier
     // domain, the whole pixels in where the window lands), warped, binned, and read out.
-    private static ushort[] MakeFrame(Complex[] objectSpectrum, double[] psf, WarpFrame warp, int fine, int os, int windowX, int windowY,
+    private static ushort[] MakeFrame(Complex[] objectSpectrum, double[] psf, Complex[]? scatter, WarpFrame warp, int fine, int os, int windowX, int windowY,
         double shiftX, double shiftY, double brightness, int width, int height, DegradeOptions options, Random random)
     {
         var (ix, iy) = ((int)Math.Round(shiftX), (int)Math.Round(shiftY));
@@ -462,6 +474,8 @@ public static class PlanetaryDegrade
             }
         }
         Fft2D.Forward(field, fine, fine);
+        // The telescope's wide scatter takes its share of the light from the frame's PSF, both unit-sum.
+        var kept = scatter is null ? 1 : 1 - options.ScatterFraction;
         for (var ky = 0; ky < fine; ky++)
         {
             var fy = (ky < fine / 2 ? ky : ky - fine) / (double)fine;
@@ -469,7 +483,8 @@ public static class PlanetaryDegrade
             {
                 var fx = (kx < fine / 2 ? kx : kx - fine) / (double)fine;
                 var i = (ky * fine) + kx;
-                field[i] *= objectSpectrum[i] * Complex.FromPolarCoordinates(1, -2 * Math.PI * ((fx * dx) + (fy * dy)));
+                var transfer = scatter is null ? field[i] : (kept * field[i]) + (options.ScatterFraction * scatter[i]);
+                field[i] = transfer * objectSpectrum[i] * Complex.FromPolarCoordinates(1, -2 * Math.PI * ((fx * dx) + (fy * dy)));
             }
         }
         Fft2D.Inverse(field, fine, fine);
@@ -541,6 +556,31 @@ public static class PlanetaryDegrade
             }
         }
         return phase;
+    }
+
+    // The scatter kernel, (1 + (r / core)^2)^(-3/2) with r and core in fine samples, periodic over the fine grid, unit-sum, as its
+    // spectrum (centred on the origin, as the frame's PSF is).
+    private static Complex[] ScatterSpectrum(int fine, double core)
+    {
+        var kernel = new Complex[fine * fine];
+        double sum = 0;
+        for (var y = 0; y < fine; y++)
+        {
+            var ry = Math.Min(y, fine - y);
+            for (var x = 0; x < fine; x++)
+            {
+                var rx = Math.Min(x, fine - x);
+                var v = Math.Pow(1 + (((rx * rx) + (ry * ry)) / (core * core)), -1.5);
+                kernel[(y * fine) + x] = v;
+                sum += v;
+            }
+        }
+        for (var i = 0; i < kernel.Length; i++)
+        {
+            kernel[i] /= sum;
+        }
+        Fft2D.Forward(kernel, fine, fine);
+        return kernel;
     }
 
     // A PSF's centroid over its centre sample, in fine samples.

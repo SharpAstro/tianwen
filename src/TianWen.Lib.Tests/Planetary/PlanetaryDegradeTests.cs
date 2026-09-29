@@ -413,6 +413,47 @@ public class PlanetaryDegradeTests
     }
 
     [Fact]
+    public async Task ScatteredLightLeavesTheDiskForTheSkyAndIsNotLost()
+    {
+        // A tenth of the light scattered wide: the frame's light is the same, the disk's inside 0.8 radii a tenth less, less its
+        // own share of the scatter back, and the sky beyond the PSF grid's 32 px reach is lit where without it there is nothing.
+        ImmutableArray<double> none = [0, 0];
+        var still = await MakeAsync(none, none, size: 96, radius: 12, r0M: 10);
+        var scattered = await MakeAsync(none, none, size: 96, radius: 12, r0M: 10, scatter: 0.1);
+        static (double Total, double Disk, double FarSky) Light(ushort[] frame)
+        {
+            double total = 0, disk = 0, far = 0;
+            var farCount = 0;
+            for (var y = 0; y < 96; y++)
+            {
+                for (var x = 0; x < 96; x++)
+                {
+                    var v = frame[(y * 96) + x] - 100.0;
+                    var r = Math.Sqrt(((x - 47.7) * (x - 47.7)) + ((y - 48.2) * (y - 48.2)));
+                    total += v;
+                    if (r < 0.8 * 12)
+                    {
+                        disk += v;
+                    }
+                    else if (r > 12 + 34)
+                    {
+                        far += v;
+                        farCount++;
+                    }
+                }
+            }
+            return (total, disk, far / farCount);
+        }
+        var (a, b) = (Light(still[0]), Light(scattered[0]));
+        TestContext.Current.TestOutputHelper?.WriteLine(
+            $"light {b.Total / a.Total:0.0000} of the unscattered frame's; disk {b.Disk / a.Disk:0.0000}; sky past the PSF grid's reach {a.FarSky:0.000} ADU unscattered, {b.FarSky:0.000} scattered");
+        (b.Total / a.Total).ShouldBe(1, 0.01);
+        (b.Disk / a.Disk).ShouldBeInRange(0.9, 0.95);
+        a.FarSky.ShouldBeLessThan(0.5);
+        b.FarSky.ShouldBeGreaterThan(5);
+    }
+
+    [Fact]
     public async Task ATelescopesDefocusCostsTheStrehlMarechalSays()
     {
         // With the air all but still (r0 of 10 m), 50 nm RMS of defocus at 650 nm leaves exp(-(2 pi W / lambda)^2) of the peak:
@@ -529,7 +570,7 @@ public class PlanetaryDegradeTests
     // read noise, 16 bits), under seeing of `r0M`.
     private static async Task<ushort[][]> MakeAsync(ImmutableArray<double> shiftX, ImmutableArray<double> shiftY, int size, double radius, double r0M,
         bool keepTilt = false, Action<ImmutableArray<SyntheticFrame>>? made = null, double warpRms = 0, bool flat = false, double defocusNm = 0,
-        Pupil? pupil = null, double localR0M = double.PositiveInfinity, double localOuterScaleM = 0.25)
+        Pupil? pupil = null, double localR0M = double.PositiveInfinity, double localOuterScaleM = 0.25, double scatter = 0)
     {
         var values = new float[360 * 180];
         for (var row = 0; row < 180; row++)
@@ -560,6 +601,7 @@ public class PlanetaryDegradeTests
             DefocusNm = defocusNm,
             LocalR0M = localR0M,
             LocalOuterScaleM = localOuterScaleM,
+            ScatterFraction = scatter,
             WarpRmsPx = warpRms,
             WarpLengthPx = 10,
             WarpLag1 = 0.5,

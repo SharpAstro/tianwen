@@ -146,6 +146,9 @@ public readonly record struct CameraEstimate(double FullScaleAdu, double SkyLeve
 /// <param name="AlignerErrorRms">The aligner's shift against the limb fit's centre, RMS per axis about its mean (robust, from the
 /// median absolute deviation).</param>
 /// <param name="LimbRadiusRms">The single frames' fitted radius, its RMS about its median (robust).</param>
+/// <param name="Halo">The planet's scattered light in the sky around it, annulus by annulus (<see cref="PlanetaryCaptureStatistics.HaloAnnuli"/>):
+/// each one's level before rounding over the far sky's, in ADU. An 8-bit ring's noise hangs on it, a sky just over a whole ADU
+/// hardly ever flipping and one just under it often.</param>
 /// <param name="LimbOutliers">Fits more than five robust sigmas from the aligner on either axis, left out of the three above: a
 /// fit that settled in a wrong minimum.</param>
 /// <param name="Warp">The local warp.</param>
@@ -180,6 +183,7 @@ public sealed record CaptureStatistics(
     double AlignerErrorRms,
     double LimbRadiusRms,
     int LimbOutliers,
+    ImmutableArray<double> Halo,
     WarpStatistics Warp,
     ImmutableArray<double> Quality,
     ImmutableArray<double> QualityPercentiles,
@@ -200,6 +204,9 @@ public static class PlanetaryCaptureStatistics
 {
     /// <summary>The quality percentiles reported.</summary>
     public static readonly ImmutableArray<double> Percentiles = [5, 25, 50, 75, 95];
+
+    /// <summary>The annuli <see cref="CaptureStatistics.Halo"/> is measured in, their edges in radii of the disk.</summary>
+    public static readonly ImmutableArray<double> HaloAnnuli = [1.15, 1.3, 1.6, 2.0, 2.5];
 
     /// <summary>
     /// Measures <paramref name="stream"/>, a mono capture of a planet. Null when the sharpest frame shows no disk. Frames are
@@ -254,6 +261,11 @@ public static class PlanetaryCaptureStatistics
             var skyLevel = SkyLevel(plane, width, height, disk, options.FullScaleAdu);
             var farSkyBright = FarSkyBright(plane, width, height, disk, options.FullScaleAdu);
             var farSkyCounts = new long[(int)Math.Ceiling(options.FullScaleAdu) + 1];
+            var haloCounts = new long[HaloAnnuli.Length - 1][];
+            for (var j = 0; j < haloCounts.Length; j++)
+            {
+                haloCounts[j] = new long[farSkyCounts.Length];
+            }
             var shiftX = new double[n];
             var shiftY = new double[n];
             var flux = new double[n];
@@ -357,8 +369,8 @@ public static class PlanetaryCaptureStatistics
                 {
                     (noise[k], skyNoise[k]) = PairNoise(frameA, frameB, shiftX[a + 1] - shiftX[a], shiftY[a + 1] - shiftY[a],
                         disk.X + shiftX[a], disk.Y + shiftY[a], disk.Radius, options);
-                    CountFarSky(frameA, disk.X + shiftX[a], disk.Y + shiftY[a], disk.Radius, farSkyBright, options.FullScaleAdu, farSkyCounts);
-                    CountFarSky(frameB, disk.X + shiftX[a + 1], disk.Y + shiftY[a + 1], disk.Radius, farSkyBright, options.FullScaleAdu, farSkyCounts);
+                    CountSky(frameA, disk.X + shiftX[a], disk.Y + shiftY[a], disk.Radius, farSkyBright, options.FullScaleAdu, farSkyCounts, haloCounts);
+                    CountSky(frameB, disk.X + shiftX[a + 1], disk.Y + shiftY[a + 1], disk.Radius, farSkyBright, options.FullScaleAdu, farSkyCounts, haloCounts);
                 }
                 finally
                 {
@@ -371,11 +383,12 @@ public static class PlanetaryCaptureStatistics
             var warp = Warp(aps, residuals, options.AlignmentPatchSize, options.AlignmentPointSpacing);
             var bandNoise = MedianNoise(noise, options.Bands);
             var (farSkyLevel, farSkyNoise) = PlanetaryDegrade.RoundedGaussianFit(farSkyCounts, 0);
+            var halo = haloCounts.Select(counts => PlanetaryDegrade.RoundedGaussianFit(counts, 0).Level - farSkyLevel).ToImmutableArray();
             var diskLevel = DiskLevel(plane, width, height, disk, options.FullScaleAdu) - farSkyLevel;
             var camera = new CameraEstimate(options.FullScaleAdu, skyLevel, Median(skyNoise), diskLevel, farSkyLevel, farSkyNoise);
 
             return new CaptureStatistics(n, fps, referenceIndex, disk.X, disk.Y, disk.Radius, [.. shiftX], [.. shiftY], [.. mountX], [.. mountY], seeingRms, mountRate, mountWander, [.. flux], fluxSlow, fluxFast, limbWidthAll, limbWidthBest,
-                limbAll, limbBest, [.. frameLimbs], limbSeeingRms, alignerErrorRms, limbRadiusRms, limbOutliers, warp, [.. quality], QualityPercentilesOf(quality), Lag1(quality), bandNoise, camera);
+                limbAll, limbBest, [.. frameLimbs], limbSeeingRms, alignerErrorRms, limbRadiusRms, limbOutliers, halo, warp, [.. quality], QualityPercentilesOf(quality), Lag1(quality), bandNoise, camera);
         }
         finally
         {
@@ -408,7 +421,7 @@ public static class PlanetaryCaptureStatistics
     /// The version a saved file's statistics must carry to be read back (<see cref="TryLoadAsync"/>): raised whenever what is
     /// measured, or how, changes, so a file from before is measured again rather than compared as if it were current.
     /// </summary>
-    public const int FileVersion = 3;
+    public const int FileVersion = 4;
 
     /// <summary>
     /// Saves <paramref name="statistics"/> to <paramref name="path"/> under <paramref name="key"/> (the capture, its frames and the
@@ -1175,33 +1188,62 @@ public static class PlanetaryCaptureStatistics
         return values.Count == 0 ? double.PositiveInfinity : Median([.. values]) + Math.Max(FarSkyBrightAdu, 5 * RobustSigma([.. values]));
     }
 
-    // Counts a frame's far-sky pixels by the whole ADU each read into `counts` (shared between the pairs, so added to atomically),
-    // leaving out what lies past `bright`.
-    private static void CountFarSky(Image frame, double cx, double cy, double radius, double bright, double scale, long[] counts)
+    // Counts a frame's sky pixels by the whole ADU each read: the far sky's into `far`, and each halo annulus's into its own
+    // (all shared between the pairs, so added to atomically), leaving out what lies past `bright` over the far sky's median.
+    private static void CountSky(Image frame, double cx, double cy, double radius, double bright, double scale, long[] far, long[][] halo)
     {
         var (width, height) = (frame.Width, frame.Height);
         var plane = frame.GetChannelSpan(0);
-        var own = new long[counts.Length];
+        var ownFar = new long[far.Length];
+        var ownHalo = new long[halo.Length][];
+        for (var j = 0; j < halo.Length; j++)
+        {
+            ownHalo[j] = new long[far.Length];
+        }
         for (var y = 0; y < height; y++)
         {
             for (var x = 0; x < width; x++)
             {
-                if (Math.Sqrt(((x - cx) * (x - cx)) + ((y - cy) * (y - cy))) < FarSkyRadii * radius)
+                var r = Math.Sqrt(((x - cx) * (x - cx)) + ((y - cy) * (y - cy))) / radius;
+                if (r < HaloAnnuli[0])
                 {
                     continue;
                 }
                 var v = plane[(y * width) + x] * scale;
-                if (v <= bright)
+                if (v > bright)
                 {
-                    own[Math.Clamp((int)Math.Round(v), 0, own.Length - 1)]++;
+                    continue;
+                }
+                var bin = Math.Clamp((int)Math.Round(v), 0, far.Length - 1);
+                if (r >= FarSkyRadii)
+                {
+                    ownFar[bin]++;
+                    continue;
+                }
+                for (var j = 0; j < halo.Length; j++)
+                {
+                    if (r >= HaloAnnuli[j] && r < HaloAnnuli[j + 1])
+                    {
+                        ownHalo[j][bin]++;
+                        break;
+                    }
                 }
             }
         }
-        for (var k = 0; k < own.Length; k++)
+        Add(ownFar, far);
+        for (var j = 0; j < halo.Length; j++)
         {
-            if (own[k] != 0)
+            Add(ownHalo[j], halo[j]);
+        }
+
+        static void Add(long[] own, long[] shared)
+        {
+            for (var k = 0; k < own.Length; k++)
             {
-                Interlocked.Add(ref counts[k], own[k]);
+                if (own[k] != 0)
+                {
+                    Interlocked.Add(ref shared[k], own[k]);
+                }
             }
         }
     }
