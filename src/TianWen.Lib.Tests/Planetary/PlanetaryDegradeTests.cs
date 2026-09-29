@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Immutable;
+using System.IO;
 using System.Linq;
 using System.Numerics;
 using System.Threading.Tasks;
@@ -272,6 +273,26 @@ public class PlanetaryDegradeTests
         limbError.ShouldBeLessThan(0.05);
         s.LimbOutliers.ShouldBe(0);
         s.LimbSeeingRms.ShouldBe(Math.Sqrt(seeingSquares / (2 * frames)), 0.05);
+
+        // Saved and read back whole, and only under the key it was saved with.
+        var path = Path.Combine(Path.GetTempPath(), $"capture-statistics-{Guid.NewGuid():N}.json");
+        try
+        {
+            await PlanetaryCaptureStatistics.SaveAsync(s, "this capture", path, TestContext.Current.CancellationToken);
+            var back = await PlanetaryCaptureStatistics.TryLoadAsync(path, "this capture", TestContext.Current.CancellationToken);
+            back.ShouldNotBeNull();
+            back.SeeingRms.ShouldBe(s.SeeingRms);
+            back.LimbSeeingRms.ShouldBe(s.LimbSeeingRms);
+            back.ShiftX.ShouldBe(s.ShiftX);
+            back.Noise.ShouldBe(s.Noise);
+            back.Warp.Curve.ShouldBe(s.Warp.Curve);
+            back.FrameLimbs.Select(f => f.Fit?.CenterX).ShouldBe(s.FrameLimbs.Select(f => f.Fit?.CenterX));
+            (await PlanetaryCaptureStatistics.TryLoadAsync(path, "another capture", TestContext.Current.CancellationToken)).ShouldBeNull();
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]

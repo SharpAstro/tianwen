@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Geometry;
@@ -388,6 +390,35 @@ public static class PlanetaryCaptureStatistics
             }
         }
         return PlanetaryMaster.NormalizeInPlace(channelAccum, weightAccum, reference.ImageMeta);
+    }
+
+    /// <summary>
+    /// The version a saved file's statistics must carry to be read back (<see cref="TryLoadAsync"/>): raised whenever what is
+    /// measured, or how, changes, so a file from before is measured again rather than compared as if it were current.
+    /// </summary>
+    public const int FileVersion = 1;
+
+    /// <summary>
+    /// Saves <paramref name="statistics"/> to <paramref name="path"/> under <paramref name="key"/> (the capture, its frames and the
+    /// options they were measured with), so a real capture measured once is compared with many synthetic ones.
+    /// </summary>
+    public static async Task SaveAsync(CaptureStatistics statistics, string key, string path, CancellationToken cancellationToken)
+    {
+        var file = new CaptureStatisticsFile(FileVersion, key, statistics);
+        await using var stream = File.Create(path);
+        await JsonSerializer.SerializeAsync(stream, file, PlanetaryStatisticsJsonContext.Default.CaptureStatisticsFile, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>The statistics saved at <paramref name="path"/> when they are this version's, under <paramref name="key"/>; else null.</summary>
+    public static async Task<CaptureStatistics?> TryLoadAsync(string path, string key, CancellationToken cancellationToken)
+    {
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+        await using var stream = File.OpenRead(path);
+        var file = await JsonSerializer.DeserializeAsync(stream, PlanetaryStatisticsJsonContext.Default.CaptureStatisticsFile, cancellationToken).ConfigureAwait(false);
+        return file is { Version: FileVersion } && file.Key == key ? file.Statistics : null;
     }
 
     /// <summary>The percentiles of <see cref="Percentiles"/> of <paramref name="values"/>, linearly interpolated.</summary>
