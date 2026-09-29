@@ -254,7 +254,7 @@ public static class PlanetaryDegrade
         var truths = new SyntheticFrame[n];
         var screenPhase = new double[screenSamples * screenSamples];
         var blockPsfs = new double[Block][];
-        var blockWarps = new (float[] X, float[] Y)[Block];
+        var blockWarps = new WarpFrame[Block];
         var blockTilts = new (double X, double Y)[Block];
         for (var i = 0; i < Block; i++)
         {
@@ -360,7 +360,7 @@ public static class PlanetaryDegrade
 
     // One frame: the object through this frame's PSF, moved by `shiftX`, `shiftY` (the fraction of a pixel in the Fourier
     // domain, the whole pixels in where the window lands), warped, binned, and read out.
-    private static ushort[] MakeFrame(Complex[] objectSpectrum, double[] psf, (float[] X, float[] Y) warp, int fine, int os, int windowX, int windowY,
+    private static ushort[] MakeFrame(Complex[] objectSpectrum, double[] psf, WarpFrame warp, int fine, int os, int windowX, int windowY,
         double shiftX, double shiftY, double brightness, int width, int height, DegradeOptions options, Random random)
     {
         var (ix, iy) = ((int)Math.Round(shiftX), (int)Math.Round(shiftY));
@@ -394,7 +394,7 @@ public static class PlanetaryDegrade
         // Warped (each fine sample takes the value the field moved onto it) and binned to the detector's pixels.
         var windowPx = fine / os;
         var binned = new double[windowPx * windowPx];
-        var hasWarp = warp.X.Length > 0;
+        var hasWarp = !warp.IsEmpty;
         for (var y = 0; y < fine; y++)
         {
             for (var x = 0; x < fine; x++)
@@ -402,17 +402,14 @@ public static class PlanetaryDegrade
                 double value;
                 if (hasWarp)
                 {
-                    // Light is moved, never made: the value is the field's at the point the warp brought here, times the
-                    // Jacobian of that map, det(I - grad w). Without it a warp of 0.35 px put 0.35 % of frame-to-frame jitter
-                    // into the disk's light, three times the real capture's.
+                    // The value is the field's at the point the warp brought here, with no Jacobian: a lossless screen that
+                    // bends the rays keeps the radiance, the surface brightness, as a gravitational lens does, the screen's
+                    // focusing (scintillation) making up exactly what the map's squeeze would. Multiplying by det(I - grad w)
+                    // was tried and was wrong twice: unphysical, and, taken from the interpolated displacement, a gradient
+                    // that jumps at every node line printed the grid into the frames (the coarse bands five times the real).
                     var (px, py) = (((x + 0.5) / os) - 0.5, ((y + 0.5) / os) - 0.5);
-                    var (wx, wy) = WarpField.Sample(warp, windowPx, px, py);
-                    var (xPlus, xMinus) = (WarpField.Sample(warp, windowPx, px + 0.5, py), WarpField.Sample(warp, windowPx, px - 0.5, py));
-                    var (yPlus, yMinus) = (WarpField.Sample(warp, windowPx, px, py + 0.5), WarpField.Sample(warp, windowPx, px, py - 0.5));
-                    var (dxdx, dydx) = (xPlus.X - xMinus.X, xPlus.Y - xMinus.Y);
-                    var (dxdy, dydy) = (yPlus.X - yMinus.X, yPlus.Y - yMinus.Y);
-                    var jacobian = ((1 - dxdx) * (1 - dydy)) - (dxdy * dydx);
-                    value = Bilinear(field, fine, x - (wx * os), y - (wy * os)) * jacobian;
+                    var (wx, wy) = warp.At(px, py);
+                    value = Bilinear(field, fine, x - (wx * os), y - (wy * os));
                 }
                 else
                 {
@@ -519,7 +516,7 @@ public static class PlanetaryDegrade
     /// </summary>
     private sealed class WarpField
     {
-        private const int GridStep = 4;
+        public const int GridStep = 4;
         private readonly int _nodes;
         private readonly double _rms;
         private readonly double _rho;
@@ -584,11 +581,11 @@ public static class PlanetaryDegrade
         }
 
         // The field now, in pixels, as float copies the parallel frames read; empty when there is no warp.
-        public (float[] X, float[] Y) Current()
+        public WarpFrame Current()
         {
             if (_rms <= 0)
             {
-                return ([], []);
+                return WarpFrame.Empty;
             }
             var (x, y) = (new float[_x.Length], new float[_y.Length]);
             for (var i = 0; i < x.Length; i++)
@@ -596,21 +593,7 @@ public static class PlanetaryDegrade
                 x[i] = (float)_x[i];
                 y[i] = (float)_y[i];
             }
-            return (x, y);
-        }
-
-        // The displacement at detector position (px, py) of the window, bilinear between the grid's nodes.
-        public static (double X, double Y) Sample((float[] X, float[] Y) field, int windowPx, double px, double py)
-        {
-            var nodes = (windowPx / GridStep) + 2;
-            var gx = Math.Clamp(px / GridStep, 0, nodes - 1.001);
-            var gy = Math.Clamp(py / GridStep, 0, nodes - 1.001);
-            var (x0, y0) = ((int)gx, (int)gy);
-            var (tx, ty) = (gx - x0, gy - y0);
-            var i = (y0 * nodes) + x0;
-            var wx = (((field.X[i] * (1 - tx)) + (field.X[i + 1] * tx)) * (1 - ty)) + (((field.X[i + nodes] * (1 - tx)) + (field.X[i + nodes + 1] * tx)) * ty);
-            var wy = (((field.Y[i] * (1 - tx)) + (field.Y[i + 1] * tx)) * (1 - ty)) + (((field.Y[i + nodes] * (1 - tx)) + (field.Y[i + nodes + 1] * tx)) * ty);
-            return (wx, wy);
+            return new WarpFrame(_nodes, x, y);
         }
 
         // Unit-variance smoothed noise scaled to the RMS, into `into`.
@@ -646,6 +629,26 @@ public static class PlanetaryDegrade
                     into[(y * _nodes) + x] = s * scale;
                 }
             }
+        }
+    }
+
+    /// <summary>One frame's warp on the node grid, read between the nodes bilinearly.</summary>
+    private sealed record WarpFrame(int Nodes, float[] X, float[] Y)
+    {
+        public static readonly WarpFrame Empty = new WarpFrame(0, [], []);
+
+        public bool IsEmpty => Nodes == 0;
+
+        // The displacement at detector position (px, py) of the window, in pixels.
+        public (double X, double Y) At(double px, double py)
+        {
+            var gx = Math.Clamp(px / WarpField.GridStep, 0, Nodes - 1.001);
+            var gy = Math.Clamp(py / WarpField.GridStep, 0, Nodes - 1.001);
+            var (x0, y0) = ((int)gx, (int)gy);
+            var (tx, ty) = (gx - x0, gy - y0);
+            var i = (y0 * Nodes) + x0;
+            double Read(float[] f) => (((f[i] * (1 - tx)) + (f[i + 1] * tx)) * (1 - ty)) + (((f[i + Nodes] * (1 - tx)) + (f[i + Nodes + 1] * tx)) * ty);
+            return (Read(X), Read(Y));
         }
     }
 }

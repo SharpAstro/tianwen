@@ -262,27 +262,84 @@ public class PlanetaryDegradeTests
     }
 
     [Fact]
-    public async Task AWarpMovesLightAndMakesNone()
+    public async Task AWarpMovesSurfaceBrightnessWithoutChangingIt()
     {
-        // The same seeing with and without a warp of half a pixel: the frames' light over the offset must agree, frame by frame.
-        ImmutableArray<double> none = [0, 0, 0, 0, 0, 0];
-        var still = await MakeAsync(none, none, size: 96, radius: 20, r0M: 0.1);
-        var warped = await MakeAsync(none, none, size: 96, radius: 20, r0M: 0.1, warpRms: 0.5);
+        // A lossless screen keeps the radiance: a warp moves the disk's surface brightness about and makes it neither brighter
+        // nor dimmer, so the levels of the disk's flat middle, sorted, are the unwarped twin's; a flux-conserving Jacobian would
+        // spread them by its few percent. A map without belts, since a belt carried across the region's edge moves the levels
+        // too (0.8 % on the banded map), and only the quartiles of the middle, where the limb darkening is gentle.
+        ImmutableArray<double> none = [0, 0, 0, 0];
+        var still = await MakeAsync(none, none, size: 96, radius: 30, r0M: 0.1, flat: true);
+        var warped = await MakeAsync(none, none, size: 96, radius: 30, r0M: 0.1, warpRms: 0.5, flat: true);
         var moved = 0.0;
         for (var i = 0; i < still.Length; i++)
         {
-            double a = 0, b = 0;
+            var (a, b) = (Interior(still[i]), Interior(warped[i]));
+            Array.Sort(a);
+            Array.Sort(b);
+            foreach (var q in new[] { 0.25, 0.5, 0.75 })
+            {
+                var k = (int)(q * (a.Length - 1));
+                TestContext.Current.TestOutputHelper?.WriteLine($"frame {i}, quantile {q}: {b[k] / a[k] - 1:+0.00000;-0.00000} of the unwarped level");
+                // Up to the edge's trade (0.35 % measured); a Jacobian at this warp, 0.5 px over 10 px, ripples by about 14 %.
+                (b[k] / a[k]).ShouldBe(1, 5e-3);
+            }
             for (var p = 0; p < still[i].Length; p++)
             {
-                a += still[i][p] - 100.0;
-                b += warped[i][p] - 100.0;
                 moved = Math.Max(moved, Math.Abs(still[i][p] - warped[i][p]));
             }
-            TestContext.Current.TestOutputHelper?.WriteLine($"frame {i}: light {b / a - 1:+0.00000;-0.00000} of the unwarped frame's");
-            (b / a).ShouldBe(1, 2e-4);
         }
         // The warp did move something: a pixel changed by more than the rounding.
-        moved.ShouldBeGreaterThan(50);
+        moved.ShouldBeGreaterThan(20);
+
+        static double[] Interior(ushort[] frame)
+        {
+            var values = new System.Collections.Generic.List<double>();
+            for (var y = 0; y < 96; y++)
+            {
+                for (var x = 0; x < 96; x++)
+                {
+                    var (dx, dy) = (x - 47.7, y - 48.2);
+                    if ((dx * dx) + (dy * dy) < 12 * 12)
+                    {
+                        values.Add(frame[(y * 96) + x] - 100.0);
+                    }
+                }
+            }
+            return [.. values];
+        }
+    }
+
+    [Fact]
+    public async Task AWarpedFrameHoldsNoGridOfItsOwn()
+    {
+        // A warp stretches and squeezes the disk smoothly, so a warped frame over its unwarped twin varies smoothly too. The
+        // warp is kept on a grid of nodes 4 px apart, and a Jacobian taken from the interpolated displacement jumped at every
+        // node line: pixel-to-pixel steps of the ratio well above its smooth trend.
+        ImmutableArray<double> none = [0, 0, 0, 0];
+        var still = await MakeAsync(none, none, size: 96, radius: 30, r0M: 0.1);
+        var warped = await MakeAsync(none, none, size: 96, radius: 30, r0M: 0.1, warpRms: 0.35);
+        double steps = 0, trend = 0;
+        var count = 0;
+        for (var i = 0; i < still.Length; i++)
+        {
+            for (var y = 30; y < 66; y++)
+            {
+                for (var x = 30; x < 65; x++)
+                {
+                    double Ratio(int px) => (warped[i][(y * 96) + px] - 100.0) / (still[i][(y * 96) + px] - 100.0);
+                    // The step to the next pixel against the mean of the steps either side: a jump stands out of its neighbours.
+                    var step = Ratio(x + 1) - Ratio(x);
+                    var around = (Ratio(x + 2) - Ratio(x - 1)) / 3;
+                    steps += (step - around) * (step - around);
+                    trend += around * around;
+                    count++;
+                }
+            }
+        }
+        var (jumpRms, trendRms) = (Math.Sqrt(steps / count), Math.Sqrt(trend / count));
+        TestContext.Current.TestOutputHelper?.WriteLine($"the ratio's pixel steps depart from their neighbours' by {jumpRms:0.00000} RMS; its smooth trend steps {trendRms:0.00000} a pixel");
+        jumpRms.ShouldBeLessThan(0.001);
     }
 
     [Fact]
@@ -383,7 +440,7 @@ public class PlanetaryDegradeTests
     // Frames of a banded Jupiter (the aligners want texture, as a real one has), bright and nearly noiseless (a large gain, no
     // read noise, 16 bits), under seeing of `r0M`.
     private static async Task<ushort[][]> MakeAsync(ImmutableArray<double> shiftX, ImmutableArray<double> shiftY, int size, double radius, double r0M,
-        bool keepTilt = false, Action<ImmutableArray<SyntheticFrame>>? made = null, double warpRms = 0)
+        bool keepTilt = false, Action<ImmutableArray<SyntheticFrame>>? made = null, double warpRms = 0, bool flat = false)
     {
         var values = new float[360 * 180];
         for (var row = 0; row < 180; row++)
@@ -391,7 +448,8 @@ public class PlanetaryDegradeTests
             var latitude = (89.5 - row) * Math.PI / 180;
             for (var column = 0; column < 360; column++)
             {
-                values[(row * 360) + column] = (float)(1 - (0.3 * Math.Pow(Math.Sin(4 * latitude), 2)) - (0.2 * Math.Exp(-Math.Pow((column - 90) / 15.0, 2) - Math.Pow((row - 112) / 6.0, 2))));
+                values[(row * 360) + column] = flat ? 1f
+                    : (float)(1 - (0.3 * Math.Pow(Math.Sin(4 * latitude), 2)) - (0.2 * Math.Exp(-Math.Pow((column - 90) / 15.0, 2) - Math.Pow((row - 112) / 6.0, 2))));
             }
         }
         var map = new PlanetMap(values, 360, 180);
