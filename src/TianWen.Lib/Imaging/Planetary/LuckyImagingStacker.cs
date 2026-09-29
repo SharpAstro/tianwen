@@ -95,7 +95,7 @@ public sealed class LuckyImagingStacker
     }
 
     // The global aligner on a reference's disk, its tile auto-sized to the disk (clamped to [64, 512]) unless one is set.
-    private static GlobalAligner AlignerFor(Image reference, PixelRect refRegion, int alignTileSize)
+    internal static GlobalAligner AlignerFor(Image reference, PixelRect refRegion, int alignTileSize)
     {
         var tileSize = alignTileSize > 0
             ? NextPowerOfTwo(alignTileSize)

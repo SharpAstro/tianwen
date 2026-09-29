@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.CommandLine;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
@@ -10,6 +12,7 @@ using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Degradation;
 using TianWen.Lib.Imaging.Optics;
 using TianWen.Lib.Imaging.Planetary;
+using SharpAstro.Ser;
 
 namespace TianWen.Cli;
 
@@ -175,6 +178,316 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         return command;
     }
 
+    public Command BuildSeeing()
+    {
+        var inputsArg = new Argument<string[]>("inputs") { Description = "Mono SER captures of a planet.", Arity = ArgumentArity.OneOrMore };
+        var planetOpt = new Option<string>("--planet") { Description = "jupiter or saturn.", DefaultValueFactory = _ => "jupiter" };
+        var utcOpt = new Option<string?>("--utc") { Description = "The capture's time (ISO 8601, UTC), for a SER without timestamps." };
+        var fpsOpt = new Option<double?>("--fps") { Description = "The frame rate, for a SER without timestamps." };
+        var pairsOpt = new Option<int>("--pairs") { Description = "Pairs of consecutive frames to read the warp and the noise from.", DefaultValueFactory = _ => 500 };
+        var warpFramesOpt = new Option<int>("--warp-frames") { Description = "Consecutive frames averaged (aligned) before the warp is read: one frame of a faint capture cannot place a patch.", DefaultValueFactory = _ => 1 };
+        var patchOpt = new Option<int>("--ap-patch") { Description = "The alignment points' patch, a power of two.", DefaultValueFactory = _ => 32 };
+        var spacingOpt = new Option<int>("--ap-spacing") { Description = "The alignment points' spacing.", DefaultValueFactory = _ => 24 };
+
+        var command = new Command("planetary-seeing",
+            "A capture's statistics, measured as a synthetic capture's are (R2): the shift's seeing and mount parts, the warp, the quality distribution, each band's noise, the camera's levels and gain.")
+        {
+            Arguments = { inputsArg },
+            Options = { planetOpt, utcOpt, fpsOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt },
+        };
+
+        command.SetAction(async (parseResult, ct) =>
+        {
+            var failed = 0;
+            var planet = parseResult.GetValue(planetOpt)?.ToLowerInvariant() == "saturn" ? CatalogIndex.Saturn : CatalogIndex.Jupiter;
+            foreach (var input in parseResult.GetValue(inputsArg) ?? [])
+            {
+                ct.ThrowIfCancellationRequested();
+                using var reader = SerReader.Open(input);
+                using var stream = new SerFrameStream(reader, ownsReader: false);
+                if ((MidCapture(stream) ?? ParseUtc(parseResult.GetValue(utcOpt))) is not { } when)
+                {
+                    consoleHost.WriteError($"{input}: no timestamps (pass --utc)");
+                    failed++;
+                    continue;
+                }
+                var options = new CaptureStatisticsOptions(PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(planet, when)).AxisRatio)
+                {
+                    FullScaleAdu = reader.MaxSampleValue,
+                    FramesPerSecond = parseResult.GetValue(fpsOpt),
+                    Pairs = parseResult.GetValue(pairsOpt),
+                    WarpFrames = parseResult.GetValue(warpFramesOpt),
+                    AlignmentPatchSize = parseResult.GetValue(patchOpt),
+                    AlignmentPointSpacing = parseResult.GetValue(spacingOpt),
+                };
+                var progress = new Progress<string>(line => consoleHost.WriteScrollable("    " + line));
+                if (await PlanetaryCaptureStatistics.MeasureAsync(stream, options, progress, ct) is not { } statistics)
+                {
+                    consoleHost.WriteError($"{input}: no disk found");
+                    failed++;
+                    continue;
+                }
+                WriteStatistics(Path.GetFileName(input), statistics);
+            }
+            return failed == 0 ? 0 : 1;
+        });
+        return command;
+    }
+
+    public Command BuildDegrade()
+    {
+        var inputArg = new Argument<string>("capture") { Description = "The real mono SER capture whose seeing, motion and camera the synthetic one takes." };
+        var mapOpt = new Option<string>("--map") { Description = "The global map (FITS; OPAL's).", Required = true };
+        var outputOpt = new Option<string>("--output", "-o") { Description = "The synthetic SER to write; its truth and record go beside it.", Required = true };
+        var planetOpt = new Option<string>("--planet") { Description = "jupiter or saturn.", DefaultValueFactory = _ => "jupiter" };
+        var kOpt = new Option<double>("--k") { Description = "Minnaert's exponent for the map's filter.", DefaultValueFactory = _ => 0.95 };
+        var telescopeOpt = new Option<string>("--telescope") { Description = "newtonian or maksutov.", DefaultValueFactory = _ => "newtonian" };
+        var wavelengthOpt = new Option<double>("--wavelength") { Description = "The filter's effective wavelength, nm.", DefaultValueFactory = _ => 650 };
+        var r0Opt = new Option<double>("--r0") { Description = "The Fried parameter at 500 nm, cm.", DefaultValueFactory = _ => 5 };
+        var windOpt = new Option<double>("--wind") { Description = "The wind carrying the screen, m/s.", DefaultValueFactory = _ => 10 };
+        var gainOpt = new Option<double?>("--gain") { Description = "Electrons an ADU (else from the finest band's noise on the disk)." };
+        var warpRmsOpt = new Option<double>("--warp-rms") { Description = "The local warp's RMS per axis, px (0 for none).", DefaultValueFactory = _ => 0 };
+        var warpLengthOpt = new Option<double>("--warp-length") { Description = "The warp's correlation length, px.", DefaultValueFactory = _ => 20 };
+        var warpLagOpt = new Option<double>("--warp-lag1") { Description = "The warp's correlation a frame later.", DefaultValueFactory = _ => 0.9 };
+        var seedOpt = new Option<int>("--seed") { Description = "The draws' seed.", DefaultValueFactory = _ => 1 };
+        var pairsOpt = new Option<int>("--pairs") { Description = "Pairs of consecutive frames the statistics read the warp and the noise from.", DefaultValueFactory = _ => 500 };
+        var warpFramesOpt = new Option<int>("--warp-frames") { Description = "Frames averaged before the warp is read.", DefaultValueFactory = _ => 1 };
+        var patchOpt = new Option<int>("--ap-patch") { Description = "The statistics' alignment-point patch.", DefaultValueFactory = _ => 16 };
+        var spacingOpt = new Option<int>("--ap-spacing") { Description = "The statistics' alignment-point spacing.", DefaultValueFactory = _ => 12 };
+
+        var command = new Command("planetary-degrade",
+            "A synthetic capture from a global map with a real capture's own seeing, motion and camera (R2): measure the real one, make the synthetic one, measure it the same way, and compare.")
+        {
+            Arguments = { inputArg },
+            Options = { mapOpt, outputOpt, planetOpt, kOpt, telescopeOpt, wavelengthOpt, r0Opt, windOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt },
+        };
+
+        command.SetAction(async (parseResult, ct) =>
+        {
+            var input = parseResult.GetValue(inputArg) ?? "";
+            var output = parseResult.GetValue(outputOpt) ?? "";
+            var mapPath = parseResult.GetValue(mapOpt) ?? "";
+            if (PlanetMap.ReadFits(mapPath) is not { } map)
+            {
+                consoleHost.WriteError($"{mapPath}: no map");
+                return 1;
+            }
+            var planet = parseResult.GetValue(planetOpt)?.ToLowerInvariant() == "saturn" ? CatalogIndex.Saturn : CatalogIndex.Jupiter;
+            var progress = new Progress<string>(line => consoleHost.WriteScrollable("    " + line));
+
+            using var reader = SerReader.Open(input);
+            using var real = new SerFrameStream(reader, ownsReader: false);
+            if (MidCapture(real) is not { } mid || reader.Timestamps is not { IsDefaultOrEmpty: false } times)
+            {
+                consoleHost.WriteError($"{input}: no timestamps");
+                return 1;
+            }
+            var aspect = PhysicalEphemeris.Compute(planet, mid);
+            var measure = new CaptureStatisticsOptions(PlanetaryLimbFit.OptionsFor(aspect).AxisRatio)
+            {
+                FullScaleAdu = reader.MaxSampleValue,
+                Pairs = parseResult.GetValue(pairsOpt),
+                WarpFrames = parseResult.GetValue(warpFramesOpt),
+                AlignmentPatchSize = parseResult.GetValue(patchOpt),
+                AlignmentPointSpacing = parseResult.GetValue(spacingOpt),
+            };
+            consoleHost.WriteScrollable($"measuring {Path.GetFileName(input)}");
+            if (await PlanetaryCaptureStatistics.MeasureAsync(real, measure, progress, ct) is not { } truth)
+            {
+                consoleHost.WriteError($"{input}: no disk found");
+                return 1;
+            }
+
+            // The disk's placement at the reference frame: the limb of a stack of the best frames, which the stacker aligns to
+            // its own sharpest frame, carried onto the statistics' reference by that frame's shift.
+            var stacked = await new LuckyImagingStacker().StackGlobalAsync(real, new PlanetaryStackOptions { KeepFraction = 0.05 }, ct);
+            if (PlanetaryLimbFit.Fit(stacked.Master, PlanetaryLimbFit.OptionsFor(aspect)) is not { } limb)
+            {
+                consoleHost.WriteError($"{input}: the stack's limb could not be fitted");
+                return 1;
+            }
+            var reference = new DiskPlacement(limb.CenterX - truth.ShiftX[stacked.ReferenceIndex], limb.CenterY - truth.ShiftY[stacked.ReferenceIndex],
+                limb.EquatorialRadius, limb.NorthAngleDeg);
+            var scale = aspect.AngularDiameterArcsec / 2 / limb.EquatorialRadius;
+
+            var camera = truth.Camera;
+            var readNoise = PlanetaryDegrade.ReadNoiseFor(camera.SkyLevel, camera.SkyNoise);
+            var gain = parseResult.GetValue(gainOpt) ?? PlanetaryDegrade.GainFor(camera.DiskLevel, truth.Noise[0].Disk, readNoise);
+            if (gain is not { } electronsPerAdu)
+            {
+                consoleHost.WriteError("the disk's finest band leaves no room for shot noise: pass --gain");
+                return 1;
+            }
+            var pupil = (parseResult.GetValue(telescopeOpt) ?? "newtonian").ToLowerInvariant() == "maksutov" ? MaksutovPupil : NewtonianPupil;
+            var options = new DegradeOptions(pupil, parseResult.GetValue(wavelengthOpt) * 1e-9)
+            {
+                R0M = parseResult.GetValue(r0Opt) / 100,
+                WindMps = parseResult.GetValue(windOpt),
+                MinnaertK = parseResult.GetValue(kOpt),
+                FullScaleAdu = camera.FullScaleAdu,
+                OffsetAdu = camera.SkyLevel,
+                ReadNoiseAdu = readNoise,
+                ElectronsPerAdu = electronsPerAdu,
+                DiskLevelAdu = camera.DiskLevel,
+                WarpRmsPx = parseResult.GetValue(warpRmsOpt),
+                WarpLengthPx = parseResult.GetValue(warpLengthOpt),
+                WarpLag1 = parseResult.GetValue(warpLagOpt),
+                Seed = parseResult.GetValue(seedOpt),
+            };
+            consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                $"making {Path.GetFileName(output)}: disk at {reference.CenterX:0.00}, {reference.CenterY:0.00}, R {reference.EquatorialRadius:0.00} px ({scale:0.0000}\"/px), north {reference.NorthAngleDeg:0.0} deg; " +
+                $"r0 {options.R0M * 100:0.0} cm at 500 nm, wind {options.WindMps:0} m/s, {options.WavelengthM * 1e9:0} nm, oversampled {PlanetaryDegrade.OversampleFor(scale, pupil.DiameterM, options.WavelengthM)}x; " +
+                $"camera offset {options.OffsetAdu:0.00}, read noise {options.ReadNoiseAdu:0.000} ADU, {options.ElectronsPerAdu:0.0} e-/ADU, disk {options.DiskLevelAdu:0.0} ADU; warp {options.WarpRmsPx:0.00} px"));
+
+            var depth = camera.FullScaleAdu <= 255 ? 8 : 16;
+            var partial = output + ".partial";
+            var bytesPerSample = depth == 8 ? 1 : 2;
+            ImmutableArray<SyntheticFrame> made;
+            using (var writer = new SerWriter(partial, reader.Width, reader.Height, SerColorId.Mono, depth, instrument: "TianWen planetary-degrade"))
+            {
+                var buffer = new byte[reader.Width * reader.Height * bytesPerSample];
+                var done = new Progress<int>(frames => { if (frames % 2048 < 64) { consoleHost.WriteScrollable($"    {frames} of {times.Length} frames"); } });
+                made = await PlanetaryDegrade.MakeAsync(map, planet, times, reference, scale, truth.ShiftX, truth.ShiftY, reader.Width, reader.Height, options, (index, samples) =>
+                {
+                    for (var i = 0; i < samples.Length; i++)
+                    {
+                        if (depth == 8)
+                        {
+                            buffer[i] = (byte)samples[i];
+                        }
+                        else
+                        {
+                            BitConverter.TryWriteBytes(buffer.AsSpan(2 * i, 2), samples[i]);
+                        }
+                    }
+                    writer.AppendFrame(buffer, times[index]);
+                }, done, ct);
+            }
+            File.Move(partial, output, overwrite: true);
+
+            // The truth the synthetic capture is scored against: the same map at the reference frame's time through the pupil
+            // alone, in ADU over the sky.
+            var referenceTime = times[truth.ReferenceIndex];
+            var referenceAspect = PhysicalEphemeris.Compute(planet, referenceTime);
+            var truthImage = PlanetaryRender.RenderDiffracted(map, referenceAspect, reference, reader.Width, reader.Height, options.MinnaertK, pupil, options.WavelengthM, scale);
+            WriteTruth(Path.ChangeExtension(output, ".truth.fits"), truthImage, reader.Width, reader.Height, reference, options, referenceTime, mapPath);
+            WriteRecord(Path.ChangeExtension(output, ".frames.csv"), made);
+
+            consoleHost.WriteScrollable($"measuring {Path.GetFileName(output)}");
+            using var synthetic = SerFrameStream.Open(output);
+            if (await PlanetaryCaptureStatistics.MeasureAsync(synthetic, measure, progress, ct) is not { } made2)
+            {
+                consoleHost.WriteError($"{output}: no disk found");
+                return 1;
+            }
+            WriteStatistics(Path.GetFileName(input), truth);
+            WriteStatistics(Path.GetFileName(output), made2);
+            WriteComparison(truth, made2);
+            return 0;
+        });
+        return command;
+    }
+
+    // The truth, scaled as the frames are (ADU over the sky), with the geometry it was rendered at in its header.
+    private static void WriteTruth(string path, float[] render, int width, int height, DiskPlacement placement, DegradeOptions options, DateTimeOffset utc, string mapPath)
+    {
+        double sum = 0;
+        var count = 0;
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var dx = x - placement.CenterX;
+                var dy = y - placement.CenterY;
+                if ((dx * dx) + (dy * dy) < 0.64 * placement.EquatorialRadius * placement.EquatorialRadius)
+                {
+                    sum += render[(y * width) + x];
+                    count++;
+                }
+            }
+        }
+        var gain = count > 0 && sum > 0 ? options.DiskLevelAdu / (sum / count) : 1;
+        var plane = new float[height, width];
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                plane[y, x] = (float)(render[(y * width) + x] * gain);
+            }
+        }
+        var headers = new Dictionary<string, (object Value, string Comment)>
+        {
+            ["DATE-OBS"] = (utc.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fff", CultureInfo.InvariantCulture), "the reference frame's time"),
+            ["DISKX"] = (placement.CenterX, "disk centre x, px (0-based)"),
+            ["DISKY"] = (placement.CenterY, "disk centre y, px (0-based)"),
+            ["DISKR"] = (placement.EquatorialRadius, "equatorial radius, px"),
+            ["NORTHANG"] = (placement.NorthAngleDeg, "direction to the north pole, deg from +x toward +y"),
+            ["WAVELEN"] = (options.WavelengthM * 1e9, "the wavelength imaged, nm"),
+            ["SRCMAP"] = (Path.GetFileName(mapPath), "the global map rendered"),
+        };
+        Image.FromChannel(plane).WriteToFitsFile(path, null, headers);
+    }
+
+    // Each frame's shift and Strehl ratio, the truth frame selection is judged against.
+    private static void WriteRecord(string path, ImmutableArray<SyntheticFrame> frames)
+    {
+        using var writer = new StreamWriter(path);
+        writer.WriteLine("frame,shift_x,shift_y,strehl");
+        for (var i = 0; i < frames.Length; i++)
+        {
+            var f = frames[i];
+            writer.WriteLine(string.Create(CultureInfo.InvariantCulture, $"{i},{f.ShiftX:0.0000},{f.ShiftY:0.0000},{f.Strehl:0.00000}"));
+        }
+    }
+
+    // The plan's five statistics side by side, each as the synthetic's over the real's (R2's pre-registration: within 10 %).
+    private void WriteComparison(CaptureStatistics real, CaptureStatistics synthetic)
+    {
+        var inv = CultureInfo.InvariantCulture;
+        void Row(string name, double a, double b) => consoleHost.WriteScrollable(string.Create(inv,
+            $"    {name,-34} real {a,10:0.0000}  synthetic {b,10:0.0000}  ratio {b / a,6:0.000}{(Math.Abs((b / a) - 1) <= 0.1 ? "" : "  OUTSIDE 10 %")}"));
+        consoleHost.WriteScrollable("comparison (synthetic over real):");
+        Row("shift RMS, seeing part (px)", real.SeeingRms, synthetic.SeeingRms);
+        Row("warp correlation length (px)", real.Warp.CorrelationLength, synthetic.Warp.CorrelationLength);
+        Row("warp RMS (px)", real.Warp.Rms, synthetic.Warp.Rms);
+        for (var i = 0; i < PlanetaryCaptureStatistics.Percentiles.Length; i++)
+        {
+            if (i == 2)
+            {
+                continue;
+            }
+            Row($"quality p{PlanetaryCaptureStatistics.Percentiles[i]:0} over median", real.QualityPercentiles[i] / real.QualityPercentiles[2], synthetic.QualityPercentiles[i] / synthetic.QualityPercentiles[2]);
+        }
+        Row("quality median (absolute)", real.QualityPercentiles[2], synthetic.QualityPercentiles[2]);
+        Row("quality lag-1", real.QualityLag1, synthetic.QualityLag1);
+        for (var j = 0; j < real.Noise.Length; j++)
+        {
+            Row($"noise band {j + 1}, sky (ADU)", real.Noise[j].Sky, synthetic.Noise[j].Sky);
+            Row($"noise band {j + 1}, disk (ADU)", real.Noise[j].Disk, synthetic.Noise[j].Disk);
+        }
+    }
+
+    private void WriteStatistics(string name, CaptureStatistics s)
+    {
+        var inv = CultureInfo.InvariantCulture;
+        var seconds = (s.Frames - 1) / s.FramesPerSecond;
+        consoleHost.WriteScrollable(string.Create(inv,
+            $"{name}: {s.Frames} frames over {seconds:0.0} s ({s.FramesPerSecond:0.0} fps), the sharpest {s.ReferenceIndex}, disk at {s.DiskX:0.0}, {s.DiskY:0.0}, R {s.DiskRadius:0.0} px"));
+        consoleHost.WriteScrollable(string.Create(inv,
+            $"    shift: seeing {s.SeeingRms:0.000} px RMS per axis; mount {s.MountRate:0.000} px/s, wandering {s.MountWander:0.000} px about its line"));
+        var w = s.Warp;
+        consoleHost.WriteScrollable(string.Create(inv,
+            $"    warp: {w.Points} points, {w.Rms:0.000} px RMS per axis, correlation length {(w.LengthIsLowerBound ? ">= " : "")}{w.CorrelationLength:0.0} px, lag-1 {w.Lag1:0.000}"));
+        consoleHost.WriteScrollable("    warp correlation: " + string.Join("  ", w.Curve.Select(b => string.Create(inv, $"{b.Separation:0}px {b.Correlation:+0.00;-0.00} ({b.Pairs})"))));
+        var p50 = s.QualityPercentiles[2];
+        consoleHost.WriteScrollable(string.Create(inv,
+            $"    quality: median {p50:0.000000}; p5 {s.QualityPercentiles[0] / p50:0.000}, p25 {s.QualityPercentiles[1] / p50:0.000}, p75 {s.QualityPercentiles[3] / p50:0.000}, p95 {s.QualityPercentiles[4] / p50:0.000} of it; lag-1 {s.QualityLag1:0.000}"));
+        consoleHost.WriteScrollable("    noise (ADU, one frame): " + string.Join("  ", s.Noise.Select(b => string.Create(inv, $"band {b.Band} sky {b.Sky:0.000} disk {b.Disk:0.000}"))));
+        var c = s.Camera;
+        consoleHost.WriteScrollable(string.Create(inv,
+            $"    camera: sky {c.SkyLevel:0.00} ADU with {c.SkyNoise:0.000} noise, disk {c.DiskLevel:0.0} over it, full scale {c.FullScaleAdu:0}"));
+    }
+
     // The corpus' pupils: the Newtonian's 58 mm secondary is its specification's; the Maksutov's spot is not confirmed.
     private static readonly Pupil NewtonianPupil = new Pupil(0.254, ObstructionRatio: 58.0 / 254, Vanes: 4, VaneWidthM: 0.001);
     private static readonly Pupil MaksutovPupil = new Pupil(MaksutovApertureM, ObstructionRatio: 0.3);
@@ -196,12 +509,17 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         var seeingFwhmOpt = new Option<double?>("--seeing-fwhm") { Description = "Blur the truth by a Moffat of this FWHM in pixels, as seeing would." };
         var seeingBetaOpt = new Option<double>("--seeing-beta") { Description = "The seeing Moffat's beta.", DefaultValueFactory = _ => 3 };
         var fitOpt = new Option<bool>("--fit") { Description = "Fit the render's limb and say how far the fit lands from the geometry rendered (T1)." };
+        var upsampleOpt = new Option<double>("--upsample")
+        {
+            Description = "Render at this many pixels for each of the geometry's: the truth for a stack drizzled by the same factor (R5a).",
+            DefaultValueFactory = _ => 1,
+        };
         var outputOpt = new Option<string?>("--output", "-o") { Description = "Where to write the render (FITS)." };
 
         var command = new Command("planetary-render-truth",
             "Render a planet's global map at an instant and a disk's geometry, through the telescope's pupil: the truth the limb fit and the restoration are measured against (T1).")
         {
-            Options = { mapOpt, utcOpt, planetOpt, likeOpt, centerOpt, radiusOpt, northOpt, sizeOpt, mirroredOpt, kOpt, telescopeOpt, wavelengthOpt, seeingFwhmOpt, seeingBetaOpt, fitOpt, outputOpt },
+            Options = { mapOpt, utcOpt, planetOpt, likeOpt, centerOpt, radiusOpt, northOpt, sizeOpt, mirroredOpt, kOpt, telescopeOpt, wavelengthOpt, seeingFwhmOpt, seeingBetaOpt, fitOpt, upsampleOpt, outputOpt },
         };
 
         command.SetAction((parseResult, ct) =>
@@ -246,6 +564,23 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             if (parseResult.GetValue(northOpt) is { } north)
             {
                 placement = placement with { NorthAngleDeg = north };
+            }
+            // A finer grid over the same sky: pixel x spans [x - 0.5, x + 0.5], so its centre maps to (x + 0.5) f - 0.5.
+            var upsample = parseResult.GetValue(upsampleOpt);
+            if (upsample <= 0)
+            {
+                consoleHost.WriteError("--upsample must be positive");
+                return Task.FromResult(1);
+            }
+            if (upsample != 1)
+            {
+                (width, height) = ((int)Math.Round(width * upsample), (int)Math.Round(height * upsample));
+                placement = placement with
+                {
+                    CenterX = ((placement.CenterX + 0.5) * upsample) - 0.5,
+                    CenterY = ((placement.CenterY + 0.5) * upsample) - 0.5,
+                    EquatorialRadius = placement.EquatorialRadius * upsample,
+                };
             }
 
             var scale = aspect.AngularDiameterArcsec / 2 / placement.EquatorialRadius;

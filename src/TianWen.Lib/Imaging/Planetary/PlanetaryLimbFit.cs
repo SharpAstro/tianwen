@@ -387,11 +387,18 @@ public static class PlanetaryLimbFit
         private readonly double[] _scratch;
         private readonly double[] _sharp;
         private readonly double[] _wing;
+        private readonly double[] _coarse;
+        private readonly double[] _coarseScratch;
 
-        // The wing's share, kept in [0, 0.5), and its width over the core's, kept above one, whatever the search tries.
+        // The wing is blurred on a grid coarser by up to this: it is smooth by construction, at least twice the core.
+        private const int MaxWingBin = 16;
+
+        // The wing's share, kept in [0, 0.5), and its width over the core's, kept in [1, 64], whatever the search tries: an
+        // unbounded width once asked for a kernel wider than the stack could hold. A bound of 8 was too tight: a Moffat of
+        // beta 2 (T1's heaviest seeing) held the wing at both bounds and moved the radius 0.6 %.
         public static double HaloFraction(double raw) => 0.5 * Math.Clamp(raw, 0, 0.999);
 
-        public static double HaloRatio(double raw) => 1 + Math.Abs(raw - 1);
+        public static double HaloRatio(double raw) => 1 + Math.Min(Math.Abs(raw - 1), 63);
 
         public DiskModel(List<int> pixels, int width, int height, LimbFitOptions options, int sunSide, double x0, double y0, double radius)
         {
@@ -409,6 +416,9 @@ public static class PlanetaryLimbFit
             _scratch = new double[_gridWidth * _gridHeight];
             _sharp = new double[_gridWidth * _gridHeight];
             _wing = new double[_gridWidth * _gridHeight];
+            // Sized for the finest coarse grid, a bin of two.
+            _coarse = new double[((_gridWidth + 1) / 2) * ((_gridHeight + 1) / 2)];
+            _coarseScratch = new double[_coarse.Length];
         }
 
         public void Evaluate(ReadOnlySpan<double> p, Span<double> destination)
@@ -456,7 +466,7 @@ public static class PlanetaryLimbFit
                             var z = Math.Clamp((v * cosD) + (mu * sinD), -1, 1);
                             var z2 = z * z;
                             var albedo = 1 + (c1 * z) + (c2 * z2) + (c4 * z2 * z2);
-                            value = coverage * albedo * Math.Pow(mu0, k) * Math.Pow(Math.Max(mu, 1e-3), k - 1);
+                            value = coverage * albedo * Math.Exp((k * Math.Log(mu0)) + ((k - 1) * Math.Log(Math.Max(mu, 1e-3))));
                         }
                     }
                     _grid[(gy * _gridWidth) + gx] = value;
@@ -465,11 +475,10 @@ public static class PlanetaryLimbFit
 
             // The core and the wing, each a separable Gaussian over the same sharp model.
             Array.Copy(_grid, _sharp, _grid.Length);
-            Blur(_grid, sigma * Supersample);
+            Blur(_grid, _scratch, _gridWidth, _gridHeight, sigma * Supersample);
             if (halo > 0)
             {
-                Array.Copy(_sharp, _wing, _sharp.Length);
-                Blur(_wing, ratio * sigma * Supersample);
+                Wing(ratio * sigma * Supersample);
                 for (var i = 0; i < _grid.Length; i++)
                 {
                     _grid[i] = ((1 - halo) * _grid[i]) + (halo * _wing[i]);
@@ -496,15 +505,71 @@ public static class PlanetaryLimbFit
             }
         }
 
-        // A separable Gaussian of `sigma` cells, in place on `grid`.
-        private void Blur(double[] grid, double sigma)
+        // The sharp model blurred by the wing's Gaussian of `sigma` cells, into the wing grid. A wing of a few cells is blurred
+        // where it is; a wider one is binned by up to MaxWingBin first, blurred there, and read back bilinearly (the bin's own
+        // box adds a twelfth of its square to a variance many times larger). With the brightness taken as one Exp of two logs
+        // instead of two Pows, measured together: a fit of the 2022-09-03 Red stack (a 49 px disk, Release) went from 61.5 to
+        // 16.8 s, its centre moving 0.002 px and its radius 0.07 %.
+        private void Wing(double sigma)
+        {
+            var bin = Math.Clamp((int)(sigma / 2), 1, MaxWingBin);
+            if (bin == 1)
+            {
+                Array.Copy(_sharp, _wing, _sharp.Length);
+                Blur(_wing, _scratch, _gridWidth, _gridHeight, sigma);
+                return;
+            }
+            var (cw, ch) = ((_gridWidth + bin - 1) / bin, (_gridHeight + bin - 1) / bin);
+            for (var cy = 0; cy < ch; cy++)
+            {
+                var y1 = Math.Min((cy + 1) * bin, _gridHeight);
+                for (var cx = 0; cx < cw; cx++)
+                {
+                    var x1 = Math.Min((cx + 1) * bin, _gridWidth);
+                    double sum = 0;
+                    var count = 0;
+                    for (var y = cy * bin; y < y1; y++)
+                    {
+                        for (var x = cx * bin; x < x1; x++)
+                        {
+                            sum += _sharp[(y * _gridWidth) + x];
+                            count++;
+                        }
+                    }
+                    _coarse[(cy * cw) + cx] = sum / count;
+                }
+            }
+            Blur(_coarse, _coarseScratch, cw, ch, sigma / bin);
+            // A cell's centre (x + 0.5) lies at (x + 0.5) / bin - 0.5 on the coarse grid.
+            for (var y = 0; y < _gridHeight; y++)
+            {
+                var fy = Math.Clamp(((y + 0.5) / bin) - 0.5, 0, ch - 1);
+                var y0 = Math.Min((int)fy, ch - 2 < 0 ? 0 : ch - 2);
+                var ty = ch > 1 ? fy - y0 : 0;
+                for (var x = 0; x < _gridWidth; x++)
+                {
+                    var fx = Math.Clamp(((x + 0.5) / bin) - 0.5, 0, cw - 1);
+                    var x0 = Math.Min((int)fx, cw - 2 < 0 ? 0 : cw - 2);
+                    var tx = cw > 1 ? fx - x0 : 0;
+                    var x1 = Math.Min(x0 + 1, cw - 1);
+                    var y1 = Math.Min(y0 + 1, ch - 1);
+                    var top = (_coarse[(y0 * cw) + x0] * (1 - tx)) + (_coarse[(y0 * cw) + x1] * tx);
+                    var bottom = (_coarse[(y1 * cw) + x0] * (1 - tx)) + (_coarse[(y1 * cw) + x1] * tx);
+                    _wing[(y * _gridWidth) + x] = (top * (1 - ty)) + (bottom * ty);
+                }
+            }
+        }
+
+        // A separable Gaussian of `sigma` cells, in place on `grid` (`width` by `height`), through `scratch`.
+        private static void Blur(double[] grid, double[] scratch, int width, int height, double sigma)
         {
             if (sigma < 0.05)
             {
                 return;
             }
-            var radius = (int)Math.Ceiling(3.5 * sigma);
-            Span<double> kernel = stackalloc double[(2 * radius) + 1];
+            var radius = Math.Min((int)Math.Ceiling(3.5 * sigma), Math.Max(width, height));
+            var size = (2 * radius) + 1;
+            Span<double> kernel = size <= 257 ? stackalloc double[size] : new double[size];
             double total = 0;
             for (var t = -radius; t <= radius; t++)
             {
@@ -516,31 +581,31 @@ public static class PlanetaryLimbFit
                 kernel[t] /= total;
             }
             // Rows into the scratch, then columns back.
-            for (var y = 0; y < _gridHeight; y++)
+            for (var y = 0; y < height; y++)
             {
-                var row = y * _gridWidth;
-                for (var x = 0; x < _gridWidth; x++)
+                var row = y * width;
+                for (var x = 0; x < width; x++)
                 {
                     double s = 0;
                     for (var t = -radius; t <= radius; t++)
                     {
-                        var xx = Math.Clamp(x + t, 0, _gridWidth - 1);
+                        var xx = Math.Clamp(x + t, 0, width - 1);
                         s += kernel[t + radius] * grid[row + xx];
                     }
-                    _scratch[row + x] = s;
+                    scratch[row + x] = s;
                 }
             }
-            for (var y = 0; y < _gridHeight; y++)
+            for (var y = 0; y < height; y++)
             {
-                for (var x = 0; x < _gridWidth; x++)
+                for (var x = 0; x < width; x++)
                 {
                     double s = 0;
                     for (var t = -radius; t <= radius; t++)
                     {
-                        var yy = Math.Clamp(y + t, 0, _gridHeight - 1);
-                        s += kernel[t + radius] * _scratch[(yy * _gridWidth) + x];
+                        var yy = Math.Clamp(y + t, 0, height - 1);
+                        s += kernel[t + radius] * scratch[(yy * width) + x];
                     }
-                    grid[(y * _gridWidth) + x] = s;
+                    grid[(y * width) + x] = s;
                 }
             }
         }
