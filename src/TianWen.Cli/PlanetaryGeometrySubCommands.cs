@@ -211,7 +211,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                     failed++;
                     continue;
                 }
-                var options = new CaptureStatisticsOptions(PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(planet, when)).AxisRatio)
+                var options = new CaptureStatisticsOptions(PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(planet, when)))
                 {
                     FullScaleAdu = reader.MaxSampleValue,
                     FramesPerSecond = parseResult.GetValue(fpsOpt),
@@ -291,7 +291,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             }
             var times = allTimes[..frames];
             var aspect = PhysicalEphemeris.Compute(planet, mid);
-            var measure = new CaptureStatisticsOptions(PlanetaryLimbFit.OptionsFor(aspect).AxisRatio)
+            var measure = new CaptureStatisticsOptions(PlanetaryLimbFit.OptionsFor(aspect))
             {
                 FullScaleAdu = reader.MaxSampleValue,
                 Pairs = parseResult.GetValue(pairsOpt),
@@ -465,6 +465,16 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         Row("shift RMS, seeing part (px)", real.SeeingRms, synthetic.SeeingRms);
         Row("limb edge width, every frame (px)", real.LimbWidthAll, synthetic.LimbWidthAll);
         Row("limb edge width, best tenth (px)", real.LimbWidthBest, synthetic.LimbWidthBest);
+        if (real.LimbAll is { } ra && synthetic.LimbAll is { } sa)
+        {
+            Row("limb darkening k, every frame", ra.LimbDarkening, sa.LimbDarkening);
+            Row("limb blur sigma, every frame (px)", ra.PsfSigma, sa.PsfSigma);
+            Row("limb blur wing's share, every frame", ra.HaloFraction, sa.HaloFraction);
+        }
+        if (real.LimbBest is { } rb && synthetic.LimbBest is { } sb)
+        {
+            Row("limb blur sigma, best tenth (px)", rb.PsfSigma, sb.PsfSigma);
+        }
         Row("flux, quarter-second RMS", real.FluxSlowRms, synthetic.FluxSlowRms);
         Row("flux, frame to frame RMS", real.FluxFastRms, synthetic.FluxFastRms);
         if (real.Warp.Bound == WarpLengthBound.Measured && synthetic.Warp.Bound == WarpLengthBound.Measured)
@@ -505,6 +515,12 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             $"flux {100 * s.FluxSlowRms:0.00} % RMS over quarter seconds, {100 * s.FluxFastRms:0.000} % frame to frame"));
         consoleHost.WriteScrollable(string.Create(inv,
             $"    limb edge width: {s.LimbWidthAll:0.000} px in the mean of every frame aligned, {s.LimbWidthBest:0.000} px in the best tenth's"));
+        foreach (var (which, fit) in new[] { ("every frame", s.LimbAll), ("best tenth", s.LimbBest) })
+        {
+            consoleHost.WriteScrollable(fit is { } f
+                ? string.Create(inv, $"    limb fit, {which}: R {f.EquatorialRadius:0.000} px, k {f.LimbDarkening:0.000}, blur sigma {f.PsfSigma:0.000} px with {100 * f.HaloFraction:0} % in a wing of {f.HaloWidth:0.0} px, rms {f.RmsResidual:0.00000}")
+                : $"    limb fit, {which}: no disk");
+        }
         var w = s.Warp;
         consoleHost.WriteScrollable(string.Create(inv,
             $"    warp: {w.Points} points, {w.Rms:0.000} px RMS per axis, correlation length {(w.Bound switch { WarpLengthBound.AtLeast => ">= ", WarpLengthBound.AtMost => "<= ", _ => "" })}{w.CorrelationLength:0.0} px, lag-1 {w.Lag1:0.000}"));

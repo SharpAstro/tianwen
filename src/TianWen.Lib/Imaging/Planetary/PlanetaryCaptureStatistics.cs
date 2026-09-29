@@ -8,8 +8,9 @@ using TianWen.Lib.Geometry;
 namespace TianWen.Lib.Imaging.Planetary;
 
 /// <summary>What to measure a capture with (<see cref="PlanetaryCaptureStatistics.MeasureAsync"/>).</summary>
-/// <param name="AxisRatio">The planet's apparent polar over equatorial radius, from the ephemeris.</param>
-public sealed record CaptureStatisticsOptions(double AxisRatio)
+/// <param name="Limb">The planet's disk as the ephemeris has it (<see cref="PlanetaryLimbFit.OptionsFor"/>): its apparent axis
+/// ratio, which places the alignment points, and its phase, which the limb fit on the aligned means needs.</param>
+public sealed record CaptureStatisticsOptions(LimbFitOptions Limb)
 {
     /// <summary>A sample's full scale in ADU (255 for an 8-bit capture): the frames arrive in [0, 1].</summary>
     public double FullScaleAdu { get; init; } = 255;
@@ -108,6 +109,10 @@ public readonly record struct CameraEstimate(double FullScaleAdu, double SkyLeve
 /// <param name="LimbWidthAll">The limb's edge width in the mean of every frame aligned, in pixels: the seeing's blur with its
 /// motion taken out, which pins the Fried parameter where the Laplacian, mostly noise in a faint capture, cannot.</param>
 /// <param name="LimbWidthBest">The same in the mean of the best tenth by quality: the lucky frames' blur.</param>
+/// <param name="LimbAll">The limb fit on the mean of every frame aligned: its Minnaert k is the planet's limb darkening, its blur
+/// (core and wing) the capture's. The edge width alone cannot tell the two apart, since a limb that darkens more gently reads
+/// wider under any blur. Null where the fit found no disk.</param>
+/// <param name="LimbBest">The same on the best tenth's mean.</param>
 /// <param name="Warp">The local warp.</param>
 /// <param name="Quality">Every frame's Laplacian score (the grader's), in frame order.</param>
 /// <param name="QualityPercentiles">Its 5th, 25th, 50th, 75th and 95th percentiles.</param>
@@ -133,6 +138,8 @@ public sealed record CaptureStatistics(
     double FluxFastRms,
     double LimbWidthAll,
     double LimbWidthBest,
+    LimbFit? LimbAll,
+    LimbFit? LimbBest,
     WarpStatistics Warp,
     ImmutableArray<double> Quality,
     ImmutableArray<double> QualityPercentiles,
@@ -196,7 +203,7 @@ public static class PlanetaryCaptureStatistics
         {
             var (width, height) = (reference.Width, reference.Height);
             var plane = reference.GetChannelSpan(0).ToArray();
-            if (PlanetaryLimbFit.Start(plane, width, height, options.AxisRatio) is not { } disk)
+            if (PlanetaryLimbFit.Start(plane, width, height, options.Limb.AxisRatio) is not { } disk)
             {
                 return null;
             }
@@ -222,8 +229,11 @@ public static class PlanetaryCaptureStatistics
                         frame.AccumulateTranslatedInto(worker.Best, worker.BestWeight, (float)shift.Dx, (float)shift.Dy, 1f);
                     }
                 }, cancellationToken).ConfigureAwait(false);
-            var limbWidthAll = LimbWidth(ShiftWorker.Mean(workers, best: false), disk.X, disk.Y, disk.Radius, skyLevel / options.FullScaleAdu);
-            var limbWidthBest = LimbWidth(ShiftWorker.Mean(workers, best: true), disk.X, disk.Y, disk.Radius, skyLevel / options.FullScaleAdu);
+            var (meanAll, meanBest) = (ShiftWorker.Mean(workers, best: false), ShiftWorker.Mean(workers, best: true));
+            var limbWidthAll = LimbWidth(meanAll, disk.X, disk.Y, disk.Radius, skyLevel / options.FullScaleAdu);
+            var limbWidthBest = LimbWidth(meanBest, disk.X, disk.Y, disk.Radius, skyLevel / options.FullScaleAdu);
+            var limbAll = PlanetaryLimbFit.Fit(meanAll.Plane, meanAll.Width, meanAll.Height, disk.X, disk.Y, disk.Radius, options.Limb);
+            var limbBest = PlanetaryLimbFit.Fit(meanBest.Plane, meanBest.Width, meanBest.Height, disk.X, disk.Y, disk.Radius, options.Limb);
             var (fluxSlow, fluxFast) = FluxVariation(flux, seconds);
             progress?.Report("aligned every frame");
 
@@ -243,7 +253,7 @@ public static class PlanetaryCaptureStatistics
             // Only points whose whole patch lies on the disk: a patch across the limb locks onto the edge and floats along it, and
             // one on a moon follows the moon (2022-09-03's Red, all of whose first 19 points read noise, reached 222 px apart
             // over a disk 98 px across).
-            var reach = (disk.Radius * options.AxisRatio) - (options.AlignmentPatchSize / Math.Sqrt(2));
+            var reach = (disk.Radius * options.Limb.AxisRatio) - (options.AlignmentPatchSize / Math.Sqrt(2));
             var aps = FeatureDetector.DetectAlignmentPoints(reference, region, options.AlignmentPointSpacing, options.MaxAlignmentPoints)
                 .RemoveAll(p => Math.Sqrt(((p.X - disk.X) * (p.X - disk.X)) + ((p.Y - disk.Y) * (p.Y - disk.Y))) > reach);
             var residuals = new AlignmentPointShift[pairs * 2][];
@@ -293,7 +303,7 @@ public static class PlanetaryCaptureStatistics
             var camera = new CameraEstimate(options.FullScaleAdu, skyLevel, Median(skyNoise), diskLevel);
 
             return new CaptureStatistics(n, fps, referenceIndex, disk.X, disk.Y, disk.Radius, [.. shiftX], [.. shiftY], [.. mountX], [.. mountY], seeingRms, mountRate, mountWander, [.. flux], fluxSlow, fluxFast, limbWidthAll, limbWidthBest,
-                warp, [.. quality], QualityPercentilesOf(quality), Lag1(quality), bandNoise, camera);
+                limbAll, limbBest, warp, [.. quality], QualityPercentilesOf(quality), Lag1(quality), bandNoise, camera);
         }
         finally
         {

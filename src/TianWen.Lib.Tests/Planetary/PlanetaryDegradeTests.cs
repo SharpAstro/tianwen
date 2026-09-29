@@ -236,7 +236,7 @@ public class PlanetaryDegradeTests
         }
 
         using var stream = new InMemoryFrameStream(planes, times);
-        var statistics = await PlanetaryCaptureStatistics.MeasureAsync(stream, new CaptureStatisticsOptions(0.935) { FullScaleAdu = FullScale, Pairs = 50 },
+        var statistics = await PlanetaryCaptureStatistics.MeasureAsync(stream, new CaptureStatisticsOptions(new LimbFitOptions(0.935)) { FullScaleAdu = FullScale, Pairs = 50 },
             cancellationToken: TestContext.Current.CancellationToken);
 
         statistics.ShouldNotBeNull();
@@ -404,7 +404,7 @@ public class PlanetaryDegradeTests
         }
 
         using var stream = new InMemoryFrameStream(frames, times);
-        var statistics = await PlanetaryCaptureStatistics.MeasureAsync(stream, new CaptureStatisticsOptions(1) { FullScaleAdu = 1000, Pairs = 5 },
+        var statistics = await PlanetaryCaptureStatistics.MeasureAsync(stream, new CaptureStatisticsOptions(new LimbFitOptions(1)) { FullScaleAdu = 1000, Pairs = 5 },
             cancellationToken: TestContext.Current.CancellationToken);
 
         statistics.ShouldNotBeNull();
