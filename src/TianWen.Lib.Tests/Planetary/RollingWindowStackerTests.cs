@@ -104,27 +104,6 @@ public class RollingWindowStackerTests
         return cnt > 0 ? sum / cnt : double.MaxValue;
     }
 
-    private sealed class FakeFrameStream(float[][,] frames, DateTimeOffset[]? timestamps = null) : IPlanetaryFrameStream
-    {
-        public int LoadCount { get; private set; }
-        public int FrameCount => frames.Length;
-        public int Width => frames[0].GetLength(1);
-        public int Height => frames[0].GetLength(0);
-        public PlanetaryFrameLayout Layout => PlanetaryFrameLayout.Mono;
-        public bool HasTimestamps => timestamps is not null;
-        public DateTimeOffset? TimestampOf(int index)
-            => timestamps is { } ts && (uint)index < (uint)ts.Length ? ts[index] : null;
-
-        public ValueTask<Image> LoadAsync(int index, CancellationToken cancellationToken = default)
-        {
-            LoadCount++;
-            // Clone so the stacker's Release()/recycle never touches our backing frame data.
-            return ValueTask.FromResult(Image.FromChannel((float[,])frames[index].Clone(), 1f, 0f));
-        }
-
-        public void Dispose() { }
-    }
-
     [Fact]
     public async Task TheScoreCacheIsBoundedByTheWindowNotByTheCapture()
     {
@@ -138,7 +117,7 @@ public class RollingWindowStackerTests
         }
 
         var stacker = new RollingWindowStacker(
-            new FakeFrameStream(frames), new RollingWindowOptions { FallbackWindowFrames = window, MaxWindowFrames = window });
+            new InMemoryFrameStream(frames), new RollingWindowOptions { FallbackWindowFrames = window, MaxWindowFrames = window });
         for (var f = 0; f < frames.Length; f++)
         {
             (await stacker.StackToAsync(f, TestContext.Current.CancellationToken)).Release();
@@ -220,12 +199,12 @@ public class RollingWindowStackerTests
         // so the running sum A reconstructs by add+evict must match B's fresh integral to FP rounding.
         var opts = new RollingWindowOptions { FallbackWindowFrames = 6 };
 
-        var streamA = new FakeFrameStream(SharpestAtFive());
+        var streamA = new InMemoryFrameStream(SharpestAtFive());
         var a = new RollingWindowStacker(streamA, opts);
         await a.StackToAsync(5, TestContext.Current.CancellationToken);
         var masterA = await a.StackToAsync(8, TestContext.Current.CancellationToken);
 
-        var streamB = new FakeFrameStream(SharpestAtFive());
+        var streamB = new InMemoryFrameStream(SharpestAtFive());
         var b = new RollingWindowStacker(streamB, opts);
         var masterB = await b.StackToAsync(8, TestContext.Current.CancellationToken);
 
@@ -246,7 +225,7 @@ public class RollingWindowStackerTests
         var ts = new DateTimeOffset[10];
         for (var i = 0; i < 10; i++) ts[i] = t0.AddSeconds(i);
 
-        var stacker = new RollingWindowStacker(new FakeFrameStream(SharpestAtFive(), ts),
+        var stacker = new RollingWindowStacker(new InMemoryFrameStream(SharpestAtFive(), ts),
             new RollingWindowOptions { WindowDuration = TimeSpan.FromSeconds(5) });
 
         stacker.ComputeWindowStart(8).ShouldBe(3);
@@ -256,7 +235,7 @@ public class RollingWindowStackerTests
     [Fact]
     public void Frame_count_fallback_applies_when_untimed()
     {
-        var stacker = new RollingWindowStacker(new FakeFrameStream(SharpestAtFive()),
+        var stacker = new RollingWindowStacker(new InMemoryFrameStream(SharpestAtFive()),
             new RollingWindowOptions { FallbackWindowFrames = 4 });
 
         stacker.ComputeWindowStart(8).ShouldBe(5); // 8 - 4 + 1
@@ -266,7 +245,7 @@ public class RollingWindowStackerTests
     [Fact]
     public async Task Master_reconstructs_the_bright_disk()
     {
-        var stacker = new RollingWindowStacker(new FakeFrameStream(SharpestAtFive()),
+        var stacker = new RollingWindowStacker(new InMemoryFrameStream(SharpestAtFive()),
             new RollingWindowOptions { FallbackWindowFrames = 6 });
 
         var master = await stacker.StackToAsync(8, TestContext.Current.CancellationToken);
@@ -280,7 +259,7 @@ public class RollingWindowStackerTests
     [Fact]
     public async Task Backward_jump_rebuilds_the_window()
     {
-        var stacker = new RollingWindowStacker(new FakeFrameStream(SharpestAtFive()),
+        var stacker = new RollingWindowStacker(new InMemoryFrameStream(SharpestAtFive()),
             new RollingWindowOptions { FallbackWindowFrames = 6 });
 
         await stacker.StackToAsync(8, TestContext.Current.CancellationToken);
@@ -299,7 +278,7 @@ public class RollingWindowStackerTests
         // INDEPENDENT arrays -- the viewer / wavelet re-sharpen may still hold the previous master while
         // the next one is built. Routing mono through the split-CFA _sumScratch would make masterA alias
         // masterB's build and this test would see masterA's pixels change under it.
-        var stacker = new RollingWindowStacker(new FakeFrameStream(SharpestAtFive()),
+        var stacker = new RollingWindowStacker(new InMemoryFrameStream(SharpestAtFive()),
             new RollingWindowOptions { FallbackWindowFrames = 6 });
 
         var masterA = await stacker.StackToAsync(5, TestContext.Current.CancellationToken);

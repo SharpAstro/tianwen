@@ -78,19 +78,31 @@ public sealed class AlignmentPointMatcher
     {
         ArgumentNullException.ThrowIfNull(frame);
 
+        var shifts = _apCenters.Length == 0 ? [] : new AlignmentPointShift[_apCenters.Length];
+        Match(frame, globalDx, globalDy, shifts);
+        return DisplacementMesh.Build(_width, _height, MathF.Round(globalDx), MathF.Round(globalDy), shifts, nodeSpacing, influence);
+    }
+
+    /// <summary>
+    /// Matches every alignment point of <paramref name="frame"/> given its whole-disk shift, writing each point's residual
+    /// over the integer-rounded global shift into <paramref name="destination"/> (one per point, in
+    /// <see cref="AlignmentPoints"/> order): what <see cref="BuildMesh"/> interpolates, and what the capture statistics read
+    /// the warp from (docs/plans/planetary-restoration.md, R2).
+    /// </summary>
+    public void Match(Image frame, float globalDx, float globalDy, Span<AlignmentPointShift> destination)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+        ArgumentOutOfRangeException.ThrowIfLessThan(destination.Length, _apCenters.Length);
+
         var rgx = MathF.Round(globalDx);
         var rgy = MathF.Round(globalDy);
-
-        var shifts = _apCenters.Length == 0 ? [] : new AlignmentPointShift[_apCenters.Length];
         for (var i = 0; i < _apCenters.Length; i++)
         {
             var p = _apCenters[i];
             // ExtractLuma writes every sample, so the reused patch carries nothing from the last point.
             PlanetaryTile.ExtractLuma(frame, p.X + rgx, p.Y + rgy, _patchSize, _patch);
             var residual = PhaseCorrelation.Estimate(_referenceSpectra[i], _patch, _patchSize, _patchSize, _spectrumScratch, applyWindow: true);
-            shifts[i] = new AlignmentPointShift(p.X, p.Y, (float)residual.Dx, (float)residual.Dy);
+            destination[i] = new AlignmentPointShift(p.X, p.Y, (float)residual.Dx, (float)residual.Dy);
         }
-
-        return DisplacementMesh.Build(_width, _height, rgx, rgy, shifts, nodeSpacing, influence);
     }
 }

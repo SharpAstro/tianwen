@@ -197,150 +197,27 @@ public class PlanetaryRenderTests
             $"phase {Math.Acos(sun.Toward) * 180 / Math.PI:0.000} deg (ephemeris {aspect.PhaseAngle:0.000}); the lit side {Math.Atan2(sun.North, Math.Abs(sun.West)) * 180 / Math.PI:+0.0;-0.0} deg off the equator");
         TestContext.Current.TestOutputHelper?.WriteLine(
             $"seeing FWHM {seeingFwhm} px, beta {beta}: centre off {f.CenterX - placement.CenterX:+0.000;-0.000}, {f.CenterY - placement.CenterY:+0.000;-0.000} px, " +
-            $"radius {f.EquatorialRadius:0.000} against {radius:0.000} ({radiusError:+0.00%;-0.00%}), axis {f.AxisAngleDeg:0.00} deg, k {f.LimbDarkening:0.00}, sigma {f.PsfSigma:0.00}, side {f.SunSide}");
+            $"radius {f.EquatorialRadius:0.000} against {radius:0.000} ({radiusError:+0.00%;-0.00%}), axis {f.AxisAngleDeg:0.00} deg, k {f.LimbDarkening:0.00}, sigma {f.PsfSigma:0.00}, " +
+            $"wing {f.HaloFraction:0.000} at {f.HaloWidth:0.00} px, side {f.SunSide}");
         Math.Abs(f.CenterX - placement.CenterX).ShouldBeLessThan(0.2);
         Math.Abs(f.CenterY - placement.CenterY).ShouldBeLessThan(0.2);
         Math.Abs(radiusError).ShouldBeLessThan(0.005);
     }
 
-    public enum SceneParts { Uniform, Belts, Poles, Jupiter }
-
-    /// <summary>Diagnostic for T1: the uniform disk through each blur, with and without phase.</summary>
-    [Theory]
-    [InlineData(double.PositiveInfinity, false)]
-    [InlineData(double.PositiveInfinity, true)]
-    [InlineData(4.765, false)]
-    [InlineData(4.765, true)]
-    [InlineData(3.0, false)]
-    [InlineData(3.0, true)]
-    [InlineData(2.0, true)]
-    public void WhichBlurMovesTheFit(double beta, bool phase)
-    {
-        var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night);
-        if (!phase)
-        {
-            aspect = FullyLit(aspect);
-        }
-        var scale = 0.487;
-        var radius = aspect.AngularDiameterArcsec / 2 / scale;
-        var placement = new DiskPlacement(160.37, 120.62, radius, NorthAngleDeg: 112.3);
-        var truth = PlanetaryRender.Render(Uniform(), aspect, placement, 320, 240, minnaertK: 0.95);
-        var kernel = double.IsPositiveInfinity(beta) ? PsfKernel.Gaussian(6) : PsfKernel.Moffat(6, beta);
-        var seen = kernel.Convolve(truth, 320, 240);
-        var image = new float[240, 320];
-        for (var y = 0; y < 240; y++)
-        {
-            for (var x = 0; x < 320; x++)
-            {
-                image[y, x] = seen[(y * 320) + x];
-            }
-        }
-        var fit = PlanetaryLimbFit.Fit(Image.FromChannel(image), PlanetaryLimbFit.OptionsFor(aspect));
-        fit.ShouldNotBeNull();
-        var f = fit.Value;
-        TestContext.Current.TestOutputHelper?.WriteLine(
-            $"beta {beta}, phase {phase}: centre off {f.CenterX - placement.CenterX:+0.000;-0.000}, {f.CenterY - placement.CenterY:+0.000;-0.000} px, " +
-            $"radius {(f.EquatorialRadius - radius) / radius:+0.00%;-0.00%}, k {f.LimbDarkening:0.00}, sigma {f.PsfSigma:0.00}, side {f.SunSide}, rms {f.RmsResidual:0.00000}");
-    }
-
-    /// <summary>Diagnostic for T1: the fit on each part of the synthetic Jupiter alone, through the same optics.</summary>
-    [Theory]
-    [InlineData(SceneParts.Uniform, false)]
-    [InlineData(SceneParts.Uniform, true)]
-    [InlineData(SceneParts.Belts, true)]
-    [InlineData(SceneParts.Poles, true)]
-    [InlineData(SceneParts.Jupiter, true)]
-    [InlineData(SceneParts.Uniform, true, 1.6)]
-    [InlineData(SceneParts.Uniform, true, 1.2, false)]
-    public void WhichPartOfTheSceneMovesTheFit(SceneParts parts, bool phase, double annulusOuter = 1.2, bool diffraction = true)
-    {
-        var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night);
-        if (!phase)
-        {
-            aspect = FullyLit(aspect);
-        }
-        var scale = 0.487;
-        var radius = aspect.AngularDiameterArcsec / 2 / scale;
-        var placement = new DiskPlacement(160.37, 120.62, radius, NorthAngleDeg: 112.3);
-        var newtonian = new Pupil(0.254, ObstructionRatio: 58.0 / 254, Vanes: 4, VaneWidthM: 0.001, VaneAngleDeg: 28);
-        var map = parts switch
-        {
-            SceneParts.Uniform => Uniform(),
-            SceneParts.Belts => SyntheticJupiter(belts: true, poles: false, spot: false),
-            SceneParts.Poles => SyntheticJupiter(belts: false, poles: true, spot: false),
-            _ => SyntheticJupiter(),
-        };
-        var truth = diffraction
-            ? PlanetaryRender.RenderDiffracted(map, aspect, placement, 320, 240, minnaertK: 0.95, newtonian, 550e-9, scale)
-            : PlanetaryRender.Render(map, aspect, placement, 320, 240, minnaertK: 0.95);
-        var seen = PsfKernel.Moffat(6, 3).Convolve(truth, 320, 240);
-        var image = new float[240, 320];
-        for (var y = 0; y < 240; y++)
-        {
-            for (var x = 0; x < 320; x++)
-            {
-                image[y, x] = seen[(y * 320) + x];
-            }
-        }
-        var fit = PlanetaryLimbFit.Fit(Image.FromChannel(image), PlanetaryLimbFit.OptionsFor(aspect) with { AnnulusOuter = annulusOuter });
-        fit.ShouldNotBeNull();
-        var f = fit.Value;
-        // The sky beside the disk: what the halo leaves at 1.1 to 1.2 equatorial radii, as a fraction of the disk's peak.
-        double near = 0, peak = 0;
-        var count = 0;
-        for (var y = 0; y < 240; y++)
-        {
-            for (var x = 0; x < 320; x++)
-            {
-                peak = Math.Max(peak, seen[(y * 320) + x]);
-                var r = Math.Sqrt(((x - placement.CenterX) * (x - placement.CenterX)) + ((y - placement.CenterY) * (y - placement.CenterY))) / radius;
-                if (r > 1.1 && r < 1.2)
-                {
-                    near += seen[(y * 320) + x];
-                    count++;
-                }
-            }
-        }
-        // From the truth instead of the fit's own start: a lower residual there would be a search that failed, a higher one a
-        // model that prefers the wrong answer.
-        var flat = new float[320 * 240];
-        Buffer.BlockCopy(seen, 0, flat, 0, flat.Length * sizeof(float));
-        var fromTruth = PlanetaryLimbFit.Fit(flat, 320, 240, placement.CenterX, placement.CenterY, radius,
-            PlanetaryLimbFit.OptionsFor(aspect) with { AnnulusOuter = annulusOuter });
-        if (fromTruth is { } t)
-        {
-            TestContext.Current.TestOutputHelper?.WriteLine(
-                $"    from the truth: radius {(t.EquatorialRadius - radius) / radius:+0.00%;-0.00%}, k {t.LimbDarkening:0.00}, sigma {t.PsfSigma:0.00}, rms {t.RmsResidual:0.000000} (from its own start {f.RmsResidual:0.000000}), iterations {t.Iterations}/{f.Iterations}, converged {t.Converged}/{f.Converged}");
-        }
-        TestContext.Current.TestOutputHelper?.WriteLine(
-            $"{parts}, phase {phase}, annulus to {annulusOuter}, diffraction {diffraction}: centre off {f.CenterX - placement.CenterX:+0.000;-0.000}, {f.CenterY - placement.CenterY:+0.000;-0.000} px, " +
-            $"radius {(f.EquatorialRadius - radius) / radius:+0.00%;-0.00%}, k {f.LimbDarkening:0.00}, sigma {f.PsfSigma:0.00}, sky {f.Sky / f.Brightness:+0.0000;-0.0000} of the disk, " +
-            $"the halo at 1.1-1.2 R {near / count / peak:0.0000} of the peak");
-    }
-
     // A Jupiter to measure against: belts where Jupiter's are (planetographic), the polar regions darker from 50 degrees, and
     // a red spot at 22 degrees south. Not a likeness; what matters is that the disk is not uniform where the fit assumes it is.
-    private static PlanetMap SyntheticJupiter(bool belts = true, bool poles = true, bool spot = true)
+    private static PlanetMap SyntheticJupiter()
         => new PlanetMap(Fill(1440, 720, (latitude, west) =>
         {
             var albedo = 1.0;
-            if (belts)
-            {
-                albedo -= Band(latitude, 7, 17, 0.35);   // North Equatorial Belt
-                albedo -= Band(latitude, -20, -7, 0.3);  // South Equatorial Belt
-                albedo -= Band(latitude, 24, 30, 0.2);   // North Temperate Belt
-                albedo -= Band(latitude, -30, -26, 0.15);
-            }
-            if (poles)
-            {
-                albedo *= 1 - (0.45 * Smooth((Math.Abs(latitude) - 50) / 25));
-            }
-            if (spot)
-            {
-                var dLat = (latitude + 22) / 5;
-                var dLon = Math.IEEERemainder(west - 60, 360) / 9;
-                albedo -= 0.3 * Math.Exp(-((dLat * dLat) + (dLon * dLon)));
-            }
+            albedo -= Band(latitude, 7, 17, 0.35);   // North Equatorial Belt
+            albedo -= Band(latitude, -20, -7, 0.3);  // South Equatorial Belt
+            albedo -= Band(latitude, 24, 30, 0.2);   // North Temperate Belt
+            albedo -= Band(latitude, -30, -26, 0.15);
+            albedo *= 1 - (0.45 * Smooth((Math.Abs(latitude) - 50) / 25));
+            var dLat = (latitude + 22) / 5;
+            var dLon = Math.IEEERemainder(west - 60, 360) / 9;
+            albedo -= 0.3 * Math.Exp(-((dLat * dLat) + (dLon * dLon)));
             return (float)albedo;
         }), 1440, 720);
 
