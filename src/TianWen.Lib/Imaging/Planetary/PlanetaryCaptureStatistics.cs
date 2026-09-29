@@ -46,6 +46,22 @@ public sealed record CaptureStatisticsOptions(double AxisRatio)
 public readonly record struct BandNoise(int Band, double Sky, double Disk);
 
 /// <summary>One bin of the warp's spatial correlation: point pairs this far apart, and how alike their displacements are.</summary>
+/// <summary>What a warp's correlation length is: read where the correlation crossed 1/e, or only bounded.</summary>
+public enum WarpLengthBound
+{
+    /// <summary>The correlation fell through 1/e between two bins with enough pairs.</summary>
+    Measured,
+
+    /// <summary>The correlation never fell to 1/e within the disk: the length is at least the widest separation.</summary>
+    AtLeast,
+
+    /// <summary>
+    /// The correlation was below 1/e already at the closest separation with enough pairs: the length is at most that, and a
+    /// warp too fine or too faint for the points is indistinguishable from their noise.
+    /// </summary>
+    AtMost,
+}
+
 public readonly record struct CorrelationBin(double Separation, double Correlation, int Pairs);
 
 /// <summary>
@@ -55,10 +71,10 @@ public readonly record struct CorrelationBin(double Separation, double Correlati
 /// <param name="Points">Alignment points tracked.</param>
 /// <param name="Rms">The displacement's RMS per axis, in pixels.</param>
 /// <param name="CorrelationLength">Where the correlation between two points' displacements falls to 1/e, in pixels.</param>
-/// <param name="LengthIsLowerBound">True when the correlation never fell that far within the disk.</param>
+/// <param name="Bound">Whether the length was read, or only bounded.</param>
 /// <param name="Lag1">The correlation of a point's displacement with its own a block of frames later.</param>
 /// <param name="Curve">The correlation against separation.</param>
-public sealed record WarpStatistics(int Points, double Rms, double CorrelationLength, bool LengthIsLowerBound, double Lag1, ImmutableArray<CorrelationBin> Curve);
+public sealed record WarpStatistics(int Points, double Rms, double CorrelationLength, WarpLengthBound Bound, double Lag1, ImmutableArray<CorrelationBin> Curve);
 
 /// <summary>What the frames say about the camera, in ADU.</summary>
 /// <param name="FullScaleAdu">A sample's full scale.</param>
@@ -80,9 +96,15 @@ public readonly record struct CameraEstimate(double FullScaleAdu, double SkyLeve
 /// <param name="DiskRadius">The reference frame's equatorial radius, from the disk's area.</param>
 /// <param name="ShiftX">Each frame's disk over the reference's, x: its disk lies at the reference's plus this.</param>
 /// <param name="ShiftY">The same in y.</param>
+/// <param name="MountX">The shift's running mean, x: the mount's slow part, which a synthetic capture moves its disk by.</param>
+/// <param name="MountY">The same in y.</param>
 /// <param name="SeeingRms">The shift's RMS per axis once the running mean (the mount's part) is taken out.</param>
 /// <param name="MountRate">The running mean's straight-line rate, in pixels a second: the mount's drift.</param>
 /// <param name="MountWander">The running mean's RMS about that line, per axis: the mount's own wander.</param>
+/// <param name="Flux">Each frame's light over the sky within 1.3 radii of its disk, over the capture's mean: scintillation and
+/// transparency, which a synthetic capture replays.</param>
+/// <param name="FluxSlowRms">The flux's RMS over the capture once each quarter second is averaged: its slow part.</param>
+/// <param name="FluxFastRms">Consecutive frames' flux difference over the square root of two, RMS: its fast part and the noise.</param>
 /// <param name="Warp">The local warp.</param>
 /// <param name="Quality">Every frame's Laplacian score (the grader's), in frame order.</param>
 /// <param name="QualityPercentiles">Its 5th, 25th, 50th, 75th and 95th percentiles.</param>
@@ -98,9 +120,14 @@ public sealed record CaptureStatistics(
     double DiskRadius,
     ImmutableArray<double> ShiftX,
     ImmutableArray<double> ShiftY,
+    ImmutableArray<double> MountX,
+    ImmutableArray<double> MountY,
     double SeeingRms,
     double MountRate,
     double MountWander,
+    ImmutableArray<double> Flux,
+    double FluxSlowRms,
+    double FluxFastRms,
     WarpStatistics Warp,
     ImmutableArray<double> Quality,
     ImmutableArray<double> QualityPercentiles,
@@ -170,20 +197,24 @@ public static class PlanetaryCaptureStatistics
             }
             var region = PlanetaryDisk.BoundingBox(reference);
 
-            // Every frame's shift against the sharpest.
+            // Every frame's shift against the sharpest, and its light over the sky around its disk.
+            var seconds = Seconds(stream, n, options.FramesPerSecond);
+            var skyLevel = SkyLevel(plane, width, height, disk, options.FullScaleAdu);
             var shiftX = new double[n];
             var shiftY = new double[n];
+            var flux = new double[n];
             await ForEachFrameAsync(stream, all, () => LuckyImagingStacker.AlignerFor(reference, region, alignTileSize: 0), (aligner, index, frame) =>
             {
                 var shift = aligner.Estimate(frame, PlanetaryDisk.BoundingBox(frame));
                 shiftX[index] = shift.Dx;
                 shiftY[index] = shift.Dy;
+                flux[index] = LightAround(frame, disk.X + shift.Dx, disk.Y + shift.Dy, 1.3 * disk.Radius, skyLevel / options.FullScaleAdu);
             }, cancellationToken).ConfigureAwait(false);
+            var (fluxSlow, fluxFast) = FluxVariation(flux, seconds);
             progress?.Report("aligned every frame");
 
-            var seconds = Seconds(stream, n, options.FramesPerSecond);
             var fps = (n - 1) / (seconds[n - 1] - seconds[0]);
-            var (seeingRms, mountRate, mountWander) = SplitMotion(seconds, shiftX, shiftY, options.MountWindowSeconds);
+            var (mountX, mountY, seeingRms, mountRate, mountWander) = SplitMotion(seconds, shiftX, shiftY, options.MountWindowSeconds);
 
             // Pairs of consecutive frames, spread evenly over the capture.
             // Pairs of blocks of consecutive frames for the warp, each block's first two frames a pair for the noise.
@@ -203,7 +234,6 @@ public static class PlanetaryCaptureStatistics
                 .RemoveAll(p => Math.Sqrt(((p.X - disk.X) * (p.X - disk.X)) + ((p.Y - disk.Y) * (p.Y - disk.Y))) > reach);
             var residuals = new AlignmentPointShift[pairs * 2][];
             var noise = new BandNoise[pairs][];
-            var skyLevel = SkyLevel(plane, width, height, disk, options.FullScaleAdu);
             var skyNoise = new double[pairs];
             await Parallel.ForAsync(0, pairs, new ParallelOptions { CancellationToken = cancellationToken }, async (k, token) =>
             {
@@ -248,7 +278,7 @@ public static class PlanetaryCaptureStatistics
             var diskLevel = DiskLevel(plane, width, height, disk, options.FullScaleAdu) - skyLevel;
             var camera = new CameraEstimate(options.FullScaleAdu, skyLevel, Median(skyNoise), diskLevel);
 
-            return new CaptureStatistics(n, fps, referenceIndex, disk.X, disk.Y, disk.Radius, [.. shiftX], [.. shiftY], seeingRms, mountRate, mountWander,
+            return new CaptureStatistics(n, fps, referenceIndex, disk.X, disk.Y, disk.Radius, [.. shiftX], [.. shiftY], [.. mountX], [.. mountY], seeingRms, mountRate, mountWander, [.. flux], fluxSlow, fluxFast,
                 warp, [.. quality], QualityPercentilesOf(quality), Lag1(quality), bandNoise, camera);
         }
         finally
@@ -372,7 +402,7 @@ public static class PlanetaryCaptureStatistics
 
     // The shift series split into the mount's slow part (a centred running mean over `window` seconds) and the seeing's
     // (what is left): the seeing's RMS per axis, the mount's straight-line rate and its RMS about that line per axis.
-    private static (double SeeingRms, double MountRate, double MountWander) SplitMotion(double[] seconds, double[] x, double[] y, double window)
+    private static (double[] MountX, double[] MountY, double SeeingRms, double MountRate, double MountWander) SplitMotion(double[] seconds, double[] x, double[] y, double window)
     {
         var n = x.Length;
         var smoothX = new double[n];
@@ -411,7 +441,7 @@ public static class PlanetaryCaptureStatistics
             var dy = smoothY[i] - (ay + (by * seconds[i]));
             wander += (dx * dx) + (dy * dy);
         }
-        return (Math.Sqrt(seeing / (2 * n)), Math.Sqrt((bx * bx) + (by * by)), Math.Sqrt(wander / (2 * n)));
+        return (smoothX, smoothY, Math.Sqrt(seeing / (2 * n)), Math.Sqrt((bx * bx) + (by * by)), Math.Sqrt(wander / (2 * n)));
     }
 
     private static (double Intercept, double Slope) Line(double[] t, double[] v)
@@ -437,7 +467,7 @@ public static class PlanetaryCaptureStatistics
         var points = aps.Length;
         if (points < 2)
         {
-            return new WarpStatistics(points, double.NaN, double.NaN, true, double.NaN, []);
+            return new WarpStatistics(points, double.NaN, double.NaN, WarpLengthBound.AtLeast, double.NaN, []);
         }
         var f = frames.Length;
         var rx = new double[f, points];
@@ -555,10 +585,13 @@ public static class PlanetaryCaptureStatistics
             curve.Add(new CorrelationBin((key + 0.5) * binWidth, sum / pairs, pairs));
         }
 
-        // Where the correlation first falls below 1/e, interpolated from the bin before it (or from one at no separation).
+        // Where the correlation first falls below 1/e, interpolated between two bins with enough pairs. Below 1/e already at the
+        // first such bin is only an upper bound: interpolating from an assumed 1 at no separation read 2.2 px on one capture and
+        // 5.4 on its synthetic twin from the same flat noise, as the first bin had enough pairs in one and not the other.
         var threshold = 1 / Math.E;
-        var (lastSeparation, lastCorrelation) = (0.0, 1.0);
+        (double Separation, double Correlation)? last = null;
         var length = double.NaN;
+        var bound = WarpLengthBound.AtLeast;
         foreach (var bin in curve)
         {
             if (bin.Pairs < 5)
@@ -567,15 +600,16 @@ public static class PlanetaryCaptureStatistics
             }
             if (bin.Correlation < threshold)
             {
-                length = lastSeparation + ((bin.Separation - lastSeparation) * (lastCorrelation - threshold) / (lastCorrelation - bin.Correlation));
+                (length, bound) = last is { } l
+                    ? (l.Separation + ((bin.Separation - l.Separation) * (l.Correlation - threshold) / (l.Correlation - bin.Correlation)), WarpLengthBound.Measured)
+                    : (bin.Separation, WarpLengthBound.AtMost);
                 break;
             }
-            (lastSeparation, lastCorrelation) = (bin.Separation, bin.Correlation);
+            last = (bin.Separation, bin.Correlation);
         }
-        var lowerBound = double.IsNaN(length);
-        if (lowerBound)
+        if (bound == WarpLengthBound.AtLeast)
         {
-            length = lastSeparation;
+            length = last?.Separation ?? double.NaN;
         }
 
         // A point's displacement against its own a block later: blocks 2k and 2k + 1 are consecutive.
@@ -593,7 +627,7 @@ public static class PlanetaryCaptureStatistics
             }
         }
         var lag1 = lagA > 0 && lagB > 0 ? lagDot / Math.Sqrt(lagA * lagB) : double.NaN;
-        return new WarpStatistics(points, rms, length, lowerBound, lag1, curve.MoveToImmutable());
+        return new WarpStatistics(points, rms, length, bound, lag1, curve.MoveToImmutable());
     }
 
     // One pair's noise: frame B moved onto A by their relative shift rounded to whole pixels (a sub-pixel shift would
@@ -768,6 +802,71 @@ public static class PlanetaryCaptureStatistics
         Array.Sort(finite);
         var mid = finite.Length / 2;
         return finite.Length % 2 == 1 ? finite[mid] : (finite[mid - 1] + finite[mid]) / 2;
+    }
+
+    // A frame's light over `sky` within `radius` of (cx, cy), in the frame's own units.
+    private static double LightAround(Image frame, double cx, double cy, double radius, double sky)
+    {
+        var plane = frame.GetChannelSpan(0);
+        var (width, height) = (frame.Width, frame.Height);
+        double sum = 0;
+        var y0 = Math.Max(0, (int)Math.Floor(cy - radius));
+        var y1 = Math.Min(height - 1, (int)Math.Ceiling(cy + radius));
+        var x0 = Math.Max(0, (int)Math.Floor(cx - radius));
+        var x1 = Math.Min(width - 1, (int)Math.Ceiling(cx + radius));
+        for (var y = y0; y <= y1; y++)
+        {
+            for (var x = x0; x <= x1; x++)
+            {
+                if (((x - cx) * (x - cx)) + ((y - cy) * (y - cy)) <= radius * radius)
+                {
+                    sum += plane[(y * width) + x] - sky;
+                }
+            }
+        }
+        return sum;
+    }
+
+    // The flux series made relative to its mean, in place, and its slow (quarter-second means) and fast (consecutive
+    // differences) variation.
+    private static (double Slow, double Fast) FluxVariation(double[] flux, double[] seconds)
+    {
+        double mean = 0;
+        foreach (var f in flux)
+        {
+            mean += f;
+        }
+        mean /= flux.Length;
+        for (var i = 0; i < flux.Length; i++)
+        {
+            flux[i] = mean != 0 ? flux[i] / mean : 1;
+        }
+        double fast = 0;
+        for (var i = 1; i < flux.Length; i++)
+        {
+            fast += (flux[i] - flux[i - 1]) * (flux[i] - flux[i - 1]);
+        }
+        fast = Math.Sqrt(fast / (2 * Math.Max(1, flux.Length - 1)));
+        // Quarter-second means, their spread about 1.
+        double slow = 0;
+        var blocks = 0;
+        var start = 0;
+        for (var i = 1; i <= flux.Length; i++)
+        {
+            if (i == flux.Length || seconds[i] - seconds[start] >= 0.25)
+            {
+                double sum = 0;
+                for (var j = start; j < i; j++)
+                {
+                    sum += flux[j];
+                }
+                var m = sum / (i - start);
+                slow += (m - 1) * (m - 1);
+                blocks++;
+                start = i;
+            }
+        }
+        return (Math.Sqrt(slow / Math.Max(1, blocks)), fast);
     }
 
     // The sky's mean over 1.3 to 1.6 radii of the reference's disk, in ADU.

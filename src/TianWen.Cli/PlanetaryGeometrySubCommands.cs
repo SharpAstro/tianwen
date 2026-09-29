@@ -250,16 +250,18 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         var warpLengthOpt = new Option<double>("--warp-length") { Description = "The warp's correlation length, px.", DefaultValueFactory = _ => 20 };
         var warpLagOpt = new Option<double>("--warp-lag1") { Description = "The warp's correlation a frame later.", DefaultValueFactory = _ => 0.9 };
         var seedOpt = new Option<int>("--seed") { Description = "The draws' seed.", DefaultValueFactory = _ => 1 };
+        var replayOpt = new Option<bool>("--replay-shifts") { Description = "Move each disk by the real capture's measured shift (its tilt taken out), not by the screen's tilt on the mount's drift." };
         var pairsOpt = new Option<int>("--pairs") { Description = "Pairs of consecutive frames the statistics read the warp and the noise from.", DefaultValueFactory = _ => 500 };
         var warpFramesOpt = new Option<int>("--warp-frames") { Description = "Frames averaged before the warp is read.", DefaultValueFactory = _ => 1 };
         var patchOpt = new Option<int>("--ap-patch") { Description = "The statistics' alignment-point patch.", DefaultValueFactory = _ => 16 };
         var spacingOpt = new Option<int>("--ap-spacing") { Description = "The statistics' alignment-point spacing.", DefaultValueFactory = _ => 12 };
+        var framesOpt = new Option<int?>("--frames") { Description = "Only the capture's first frames, measured and made (a quicker trial)." };
 
         var command = new Command("planetary-degrade",
             "A synthetic capture from a global map with a real capture's own seeing, motion and camera (R2): measure the real one, make the synthetic one, measure it the same way, and compare.")
         {
             Arguments = { inputArg },
-            Options = { mapOpt, outputOpt, planetOpt, kOpt, telescopeOpt, wavelengthOpt, r0Opt, windOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt },
+            Options = { mapOpt, outputOpt, planetOpt, kOpt, telescopeOpt, wavelengthOpt, r0Opt, windOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, replayOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, framesOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -276,12 +278,15 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             var progress = new Progress<string>(line => consoleHost.WriteScrollable("    " + line));
 
             using var reader = SerReader.Open(input);
-            using var real = new SerFrameStream(reader, ownsReader: false);
-            if (MidCapture(real) is not { } mid || reader.Timestamps is not { IsDefaultOrEmpty: false } times)
+            using var whole = new SerFrameStream(reader, ownsReader: false);
+            var frames = Math.Min(parseResult.GetValue(framesOpt) ?? whole.FrameCount, whole.FrameCount);
+            using var real = new PlanetaryFrameWindow(whole, 0, frames);
+            if (MidCapture(real) is not { } mid || reader.Timestamps is not { IsDefaultOrEmpty: false } allTimes)
             {
                 consoleHost.WriteError($"{input}: no timestamps");
                 return 1;
             }
+            var times = allTimes[..frames];
             var aspect = PhysicalEphemeris.Compute(planet, mid);
             var measure = new CaptureStatisticsOptions(PlanetaryLimbFit.OptionsFor(aspect).AxisRatio)
             {
@@ -333,11 +338,15 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                 WarpLengthPx = parseResult.GetValue(warpLengthOpt),
                 WarpLag1 = parseResult.GetValue(warpLagOpt),
                 Seed = parseResult.GetValue(seedOpt),
+                KeepScreenTilt = !parseResult.GetValue(replayOpt),
             };
+            // The seeing's motion is the screen's own tilt, on the mount's slow drift; or the real shifts, replayed whole.
+            var (moveX, moveY) = options.KeepScreenTilt ? (truth.MountX, truth.MountY) : (truth.ShiftX, truth.ShiftY);
             consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
                 $"making {Path.GetFileName(output)}: disk at {reference.CenterX:0.00}, {reference.CenterY:0.00}, R {reference.EquatorialRadius:0.00} px ({scale:0.0000}\"/px), north {reference.NorthAngleDeg:0.0} deg; " +
                 $"r0 {options.R0M * 100:0.0} cm at 500 nm, wind {options.WindMps:0} m/s, {options.WavelengthM * 1e9:0} nm, oversampled {PlanetaryDegrade.OversampleFor(scale, pupil.DiameterM, options.WavelengthM)}x; " +
-                $"camera offset {options.OffsetAdu:0.00}, read noise {options.ReadNoiseAdu:0.000} ADU, {options.ElectronsPerAdu:0.0} e-/ADU, disk {options.DiskLevelAdu:0.0} ADU; warp {options.WarpRmsPx:0.00} px"));
+                $"camera offset {options.OffsetAdu:0.00}, read noise {options.ReadNoiseAdu:0.000} ADU, {options.ElectronsPerAdu:0.0} e-/ADU, disk {options.DiskLevelAdu:0.0} ADU; warp {options.WarpRmsPx:0.00} px; " +
+                $"{(options.KeepScreenTilt ? "the screen's tilt on the mount's drift" : "the real shifts replayed")}"));
 
             var depth = camera.FullScaleAdu <= 255 ? 8 : 16;
             var partial = output + ".partial";
@@ -347,7 +356,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             {
                 var buffer = new byte[reader.Width * reader.Height * bytesPerSample];
                 var done = new Progress<int>(frames => { if (frames % 2048 < 64) { consoleHost.WriteScrollable($"    {frames} of {times.Length} frames"); } });
-                made = await PlanetaryDegrade.MakeAsync(map, planet, times, reference, scale, truth.ShiftX, truth.ShiftY, reader.Width, reader.Height, options, (index, samples) =>
+                made = await PlanetaryDegrade.MakeAsync(map, planet, times, reference, scale, moveX, moveY, truth.Flux, reader.Width, reader.Height, options, (index, samples) =>
                 {
                     for (var i = 0; i < samples.Length; i++)
                     {
@@ -448,7 +457,17 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             $"    {name,-34} real {a,10:0.0000}  synthetic {b,10:0.0000}  ratio {b / a,6:0.000}{(Math.Abs((b / a) - 1) <= 0.1 ? "" : "  OUTSIDE 10 %")}"));
         consoleHost.WriteScrollable("comparison (synthetic over real):");
         Row("shift RMS, seeing part (px)", real.SeeingRms, synthetic.SeeingRms);
-        Row("warp correlation length (px)", real.Warp.CorrelationLength, synthetic.Warp.CorrelationLength);
+        Row("flux, quarter-second RMS", real.FluxSlowRms, synthetic.FluxSlowRms);
+        Row("flux, frame to frame RMS", real.FluxFastRms, synthetic.FluxFastRms);
+        if (real.Warp.Bound == WarpLengthBound.Measured && synthetic.Warp.Bound == WarpLengthBound.Measured)
+        {
+            Row("warp correlation length (px)", real.Warp.CorrelationLength, synthetic.Warp.CorrelationLength);
+        }
+        else
+        {
+            consoleHost.WriteScrollable(string.Create(inv,
+                $"    {"warp correlation length (px)",-34} not measured: real {real.Warp.Bound} {real.Warp.CorrelationLength:0.0}, synthetic {synthetic.Warp.Bound} {synthetic.Warp.CorrelationLength:0.0}"));
+        }
         Row("warp RMS (px)", real.Warp.Rms, synthetic.Warp.Rms);
         for (var i = 0; i < PlanetaryCaptureStatistics.Percentiles.Length; i++)
         {
@@ -474,10 +493,11 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         consoleHost.WriteScrollable(string.Create(inv,
             $"{name}: {s.Frames} frames over {seconds:0.0} s ({s.FramesPerSecond:0.0} fps), the sharpest {s.ReferenceIndex}, disk at {s.DiskX:0.0}, {s.DiskY:0.0}, R {s.DiskRadius:0.0} px"));
         consoleHost.WriteScrollable(string.Create(inv,
-            $"    shift: seeing {s.SeeingRms:0.000} px RMS per axis; mount {s.MountRate:0.000} px/s, wandering {s.MountWander:0.000} px about its line"));
+            $"    shift: seeing {s.SeeingRms:0.000} px RMS per axis; mount {s.MountRate:0.000} px/s, wandering {s.MountWander:0.000} px about its line; " +
+            $"flux {100 * s.FluxSlowRms:0.00} % RMS over quarter seconds, {100 * s.FluxFastRms:0.000} % frame to frame"));
         var w = s.Warp;
         consoleHost.WriteScrollable(string.Create(inv,
-            $"    warp: {w.Points} points, {w.Rms:0.000} px RMS per axis, correlation length {(w.LengthIsLowerBound ? ">= " : "")}{w.CorrelationLength:0.0} px, lag-1 {w.Lag1:0.000}"));
+            $"    warp: {w.Points} points, {w.Rms:0.000} px RMS per axis, correlation length {(w.Bound switch { WarpLengthBound.AtLeast => ">= ", WarpLengthBound.AtMost => "<= ", _ => "" })}{w.CorrelationLength:0.0} px, lag-1 {w.Lag1:0.000}"));
         consoleHost.WriteScrollable("    warp correlation: " + string.Join("  ", w.Curve.Select(b => string.Create(inv, $"{b.Separation:0}px {b.Correlation:+0.00;-0.00} ({b.Pairs})"))));
         var p50 = s.QualityPercentiles[2];
         consoleHost.WriteScrollable(string.Create(inv,
@@ -661,7 +681,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             : null;
     }
 
-    private static DateTimeOffset? MidCapture(SerFrameStream stream)
+    private static DateTimeOffset? MidCapture(IPlanetaryFrameStream stream)
         => stream.HasTimestamps && stream.TimestampOf(0) is { } first && stream.TimestampOf(stream.FrameCount - 1) is { } last
             ? first + ((last - first) / 2)
             : null;

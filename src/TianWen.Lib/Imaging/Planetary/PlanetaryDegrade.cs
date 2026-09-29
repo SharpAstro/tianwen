@@ -57,12 +57,20 @@ public sealed record DegradeOptions(Pupil Pupil, double WavelengthM)
     /// <summary>The phase screen's side in samples, a power of two at least the PSF grid's: the air the wind carries.</summary>
     public int ScreenSamples { get; init; } = 512;
 
+    /// <summary>
+    /// Whether each frame keeps its phase screen's own tilt, the seeing's motion of the disk, on top of the shift it is given
+    /// (then the mount's slow part alone). Otherwise the tilt is taken out and the shift given is the whole motion: a real
+    /// capture's measured shifts replayed carry its aligner's own error, which the synthetic capture's measurement then adds a
+    /// second time (2022-09-03's first 3,000 Red frames read 0.96 px and their replay 1.16).
+    /// </summary>
+    public bool KeepScreenTilt { get; init; } = true;
+
     /// <summary>The seed every draw comes from: the same seed, the same capture.</summary>
     public int Seed { get; init; } = 1;
 }
 
 /// <summary>What one synthetic frame was made with: the truth a later phase measures itself against.</summary>
-/// <param name="ShiftX">The disk's shift over the reference placement, x, in pixels.</param>
+/// <param name="ShiftX">The disk's shift over the reference placement, x, in pixels: the shift given, plus the screen's tilt where it is kept.</param>
 /// <param name="ShiftY">The same in y.</param>
 /// <param name="Strehl">The frame's PSF peak over the diffraction-limited peak.</param>
 public readonly record struct SyntheticFrame(double ShiftX, double ShiftY, double Strehl);
@@ -71,8 +79,9 @@ public readonly record struct SyntheticFrame(double ShiftX, double ShiftY, doubl
 /// A synthetic lucky-imaging capture made from a global map (docs/plans/planetary-restoration.md, R2). The map is rendered on
 /// the ephemeris' spheroid at the capture's geometry, sampled finely enough for the pupil's cutoff and rendered afresh as the
 /// planet turns. Each frame is that disk through the pupil and a phase screen that evolves from the last frame's
-/// (<see cref="EvolvingPhaseScreen"/>), its tilt taken out and the real capture's measured shift put in instead, warped by a
-/// smooth random field correlated in space and time, binned to the detector's pixels, and read out as the camera does:
+/// (<see cref="EvolvingPhaseScreen"/>), whose tilt is the seeing's motion of the disk, moved on by the mount's slow drift as
+/// the real capture measured it, as bright as the real frame was, warped by a smooth random field correlated in space and time, binned to the detector's
+/// pixels, and read out as the camera does:
 /// Poisson electrons, read noise, the offset, rounded and clipped to the ADC's range.
 /// <para>
 /// Not modelled: the blur varying over the disk (one PSF per frame; only the warp varies), the camera's fixed pattern, and
@@ -187,6 +196,7 @@ public static class PlanetaryDegrade
     /// <param name="arcsecPerPixel">The detector's scale.</param>
     /// <param name="shiftX">Each frame's shift of the disk over <paramref name="reference"/>, x.</param>
     /// <param name="shiftY">The same in y.</param>
+    /// <param name="brightness">Each frame's light over the capture's mean (scintillation and transparency), or empty for none.</param>
     /// <param name="width">The frame's width.</param>
     /// <param name="height">The frame's height.</param>
     /// <param name="options">The seeing, the warp and the camera.</param>
@@ -194,7 +204,7 @@ public static class PlanetaryDegrade
     /// <param name="progress">Told the frames done.</param>
     /// <param name="cancellationToken">Stops the making.</param>
     public static async Task<ImmutableArray<SyntheticFrame>> MakeAsync(PlanetMap map, CatalogIndex planet, ImmutableArray<DateTimeOffset> times, DiskPlacement reference,
-        double arcsecPerPixel, ImmutableArray<double> shiftX, ImmutableArray<double> shiftY, int width, int height, DegradeOptions options,
+        double arcsecPerPixel, ImmutableArray<double> shiftX, ImmutableArray<double> shiftY, ImmutableArray<double> brightness, int width, int height, DegradeOptions options,
         Action<int, ushort[]> write, IProgress<int>? progress = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(map);
@@ -203,6 +213,10 @@ public static class PlanetaryDegrade
         var n = times.Length;
         ArgumentOutOfRangeException.ThrowIfNotEqual(shiftX.Length, n);
         ArgumentOutOfRangeException.ThrowIfNotEqual(shiftY.Length, n);
+        if (!brightness.IsDefaultOrEmpty)
+        {
+            ArgumentOutOfRangeException.ThrowIfNotEqual(brightness.Length, n);
+        }
 
         // The fine grid: a window of the detector around the reference disk, sampled `os` times finer, big enough for the
         // disk, its halo, the PSF's reach and the warp.
@@ -238,6 +252,7 @@ public static class PlanetaryDegrade
         var screenPhase = new double[screenSamples * screenSamples];
         var blockPsfs = new double[Block][];
         var blockWarps = new (float[] X, float[] Y)[Block];
+        var blockTilts = new (double X, double Y)[Block];
         for (var i = 0; i < Block; i++)
         {
             blockPsfs[i] = new double[PsfGrid * PsfGrid];
@@ -284,7 +299,11 @@ public static class PlanetaryDegrade
                 }
                 ShortExposurePsf.Compute(pupil, phase, PsfGrid, blockPsfs[k], psfScratch);
                 blockWarps[k] = warp.Current();
-                truths[t] = new SyntheticFrame(shiftX[t], shiftY[t], Max(blockPsfs[k]) / diffractionPeak);
+                // The PSF's tilt in pixels: kept as the seeing's motion, or taken out where the shift given is the whole of it.
+                var (cx, cy) = Centroid(blockPsfs[k]);
+                blockTilts[k] = options.KeepScreenTilt ? (0, 0) : (-cx / os, -cy / os);
+                var (tiltX, tiltY) = options.KeepScreenTilt ? (cx / os, cy / os) : (0, 0);
+                truths[t] = new SyntheticFrame(shiftX[t] + tiltX, shiftY[t] + tiltY, Max(blockPsfs[k]) / diffractionPeak);
             }
 
             // The frames themselves, in parallel, each from its own draws.
@@ -293,7 +312,7 @@ public static class PlanetaryDegrade
             await Parallel.ForAsync(0, count, new ParallelOptions { CancellationToken = cancellationToken }, (k, _) =>
             {
                 var t = first + k;
-                frames[k] = MakeFrame(spectrum, blockPsfs[k], blockWarps[k], fine, os, windowX, windowY, shiftX[t], shiftY[t], width, height, options,
+                frames[k] = MakeFrame(spectrum, blockPsfs[k], blockWarps[k], fine, os, windowX, windowY, shiftX[t] + blockTilts[k].X, shiftY[t] + blockTilts[k].Y, brightness.IsDefaultOrEmpty ? 1 : brightness[t], width, height, options,
                     new Random(unchecked((options.Seed * 1_000_003) + t)));
                 return ValueTask.CompletedTask;
             }).ConfigureAwait(false);
@@ -336,25 +355,14 @@ public static class PlanetaryDegrade
         return spectrum;
     }
 
-    // One frame: the object through this frame's PSF, its own tilt taken out and the capture's shift put in (the fraction of a
-    // pixel in the Fourier domain, the whole pixels in where the window lands), warped, binned, and read out.
+    // One frame: the object through this frame's PSF, moved by `shiftX`, `shiftY` (the fraction of a pixel in the Fourier
+    // domain, the whole pixels in where the window lands), warped, binned, and read out.
     private static ushort[] MakeFrame(Complex[] objectSpectrum, double[] psf, (float[] X, float[] Y) warp, int fine, int os, int windowX, int windowY,
-        double shiftX, double shiftY, int width, int height, DegradeOptions options, Random random)
+        double shiftX, double shiftY, double brightness, int width, int height, DegradeOptions options, Random random)
     {
-        // The PSF's centroid, taken out, so the shift is the capture's alone.
-        double cx = 0, cy = 0;
-        for (var y = 0; y < PsfGrid; y++)
-        {
-            for (var x = 0; x < PsfGrid; x++)
-            {
-                var v = psf[(y * PsfGrid) + x];
-                cx += v * (x - (PsfGrid / 2));
-                cy += v * (y - (PsfGrid / 2));
-            }
-        }
         var (ix, iy) = ((int)Math.Round(shiftX), (int)Math.Round(shiftY));
-        var dx = ((shiftX - ix) * os) - cx;
-        var dy = ((shiftY - iy) * os) - cy;
+        var dx = (shiftX - ix) * os;
+        var dy = (shiftY - iy) * os;
 
         // The PSF on the fine grid with its centre at the origin, times the object, moved by (dx, dy) fine samples.
         var field = new Complex[fine * fine];
@@ -404,7 +412,7 @@ public static class PlanetaryDegrade
 
         // Read out: electrons (Poisson), read noise, the offset, rounded and clipped.
         var frame = new ushort[width * height];
-        var perPixel = 1.0 / (os * os);
+        var perPixel = brightness / (os * os);
         var (originX, originY) = (windowX + ix, windowY + iy);
         for (var y = 0; y < height; y++)
         {
@@ -418,6 +426,22 @@ public static class PlanetaryDegrade
             }
         }
         return frame;
+    }
+
+    // A PSF's centroid over its centre sample, in fine samples.
+    private static (double X, double Y) Centroid(double[] psf)
+    {
+        double cx = 0, cy = 0;
+        for (var y = 0; y < PsfGrid; y++)
+        {
+            for (var x = 0; x < PsfGrid; x++)
+            {
+                var v = psf[(y * PsfGrid) + x];
+                cx += v * (x - (PsfGrid / 2));
+                cy += v * (y - (PsfGrid / 2));
+            }
+        }
+        return (cx, cy);
     }
 
     private static double Bilinear(Complex[] field, int size, double x, double y)
