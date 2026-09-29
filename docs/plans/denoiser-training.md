@@ -459,7 +459,7 @@ Settled by the campaign; restated so no run re-derives them.
 | **E14** | The ring fix alone (run log, E14): E13's `pool` arm byte for byte on `n2n-pool-rf`, the same pool re-exported after the canvas-ring fix, three seeds; scored on the old eval caches AND on ring-fixed ones built from 2026-09-25-full. `run-poolrf.ps1` (training), `run-poolrf-score.ps1`, `run-poolrf-evalrf.ps1`. Trained 2026-09-27, ~54 min a seed. **DONE 2026-09-27: not killed** (run log, "E14 on the ring-fixed caches"). Ring-fixed, the primary read: R poolrf 22.52 (seed sd 4.91) against pool 23.75 (sd 0.89), -1.23 inside the 2.04 threshold; the frontier is worse on eta Car and the Skull, better on Horsehead. Old caches: 18.83 against 21.74 (prediction 2 holds). E13's redistribution survives the fix (prediction 3). E12's `conv` leads both domains (29.18 ring-fixed). | ~3 h GPU, ~2 h bake | stretch |
 | **E15** | E12's recipe on data that matches inference (run log, E15): the E10 control cache re-exported after the ring fix (`n2n-bb-ctl-rf`, the same 16 sessions and cells, 9 of them with a stretch the fix moves), then `run-converge.ps1`'s training line exactly, four seeds; every model re-scored in one pass on E14's ring-fixed caches, the shipped `e2_wide_s2` as a reference. `run-e15.ps1`, pre-registered in its header. The ship candidate. **DONE 2026-09-28: not killed, four of five predictions hold** (run log, "E15's result"): R `convrf` 29.78 against `conv` 29.18, and its seed sd 0.58 against 4.53; the frontier against `conv` is worse on one field of ten readable, against the shipped model better on seven. Prediction 5 (the moves concentrate on broadband) fails. Every model, the shipped one included, smooths away real structure in a bright emission core. | 1 h 28 min export and prepare, 2 h 57 min for four seeds and the scoring | stretch, ship |
 | **E16a** | The per-pixel noise plane alone (run log, "Detail kept" and E16a): E15's cells and recipe exactly, `--cond-map` in place of `--cond`, the tiles proved byte-identical to `n2n-bb-ctl-rf`'s so the plane is the only difference. Scored on the `-rfs` eval caches in two conditions: the half-A planes as estimated (`tianwen dataset noise-planes`) and with each field's anchor taken from its half pairs (`--plane-truth-anchor`, the primary). `run-e16a.ps1`, pre-registered in its header. **DONE 2026-09-28: predictions 1, 2 and 4 hold, 3 misses toward more removal, 5 holds for removal only** (run log, "E16a's result"). Brightest-level detail kept 0.995 against `convrf`'s 0.849, R 33.22 against 29.78. By the error left per level (added after the pre-registration), `convmap` is the first model that leaves less error than its input in the sky and the middle levels, and that leaves the bright levels at about the input's own error, where every earlier model is 1.3 to 34 times worse. It does not yet denoise a bright level, and under today's estimate it over-reads the noise on nine fields and spends stars (R 41.21, frontier worse on five). | 1 h 17 min export and prepare, 4 h 49 min for four seeds, 16 to 20 min per scoring pass | conditioning |
-| **E16b** | PRE-REGISTERED 2026-09-29 and amended before any of its data existed (run log, "E16b, pre-registered" and its amendment); `run-e16b.ps1`. Two arms on the recipe-3 store, seeds interleaved so a stop leaves matched pairs: `convmap3`, E16a's cells with the noise injected per channel from each session's half pairs (the control), and `convmapb`, the same plus bright cells, from E16a's sessions and a widened pool. Bright eval cells are added so the bright levels read on more than two fields. E16a's error left says what it is for: above 0.45 `convmap` keeps a bright level exactly as it came (0.97 to 1.04), so the arm should LOWER that error, not just hold detail kept. | one export, eight seeds at about 70 min each, three scoring passes | data |
+| **E16b** | PRE-REGISTERED 2026-09-29 and amended three times before any model existed (run log, "E16b, pre-registered" and its amendments; the third after D2 failed the sub anchor); `run-e16b.ps1`. Two arms on the recipe-3 store, seeds interleaved so a stop leaves matched pairs: `convmap3`, E16a's cells with the noise injected per channel on each master's own recorded calibration and shaped by its integration (the control), and `convmapb`, the same plus bright cells, from E16a's sessions and a widened pool. Bright eval cells are added so the bright levels read on more than two fields. E16a's error left says what it is for: above 0.45 `convmap` keeps a bright level exactly as it came (0.97 to 1.04), so the arm should LOWER that error, not just hold detail kept. | one export, eight seeds at about 70 min each, three scoring passes | data |
 
 Every arm: pre-register predictions in the run script header; three seeds; one prepared cache per
 arm, never edited between runs; launch multi-hour jobs detached (`Start-Process`), never through the
@@ -2471,6 +2471,11 @@ gates the sub anchor and prints the half-pair and sub-MAD anchors beside it. On 
 (`TheSubCalibrationAnchorInjectsEachChannelOnItsSubsOwnNoise`); the half-pair anchor stays, for a bake that halves
 every session. The failed export's output was deleted before the re-export.
 
+**The eval caches stand as registered.** The full store's copies of the eleven eval sessions and the Pleiades filler
+session match `2026-09-28-evalplanes-pc` byte for byte, every tile, plane and manifest row (`compare_identity.py`; the
+Carina-Wide session by its exact id, since three more sessions share its prefix), so the `-rfpc` caches are the
+recipe-3 store's own and the bright eval cells are added to them from that bake.
+
 **The owner's decision on the bright pool** (2026-09-30): the arm runs on the 45 bright cells the store holds, labelled a
 third of the registered dose, predictions and kill lines unchanged (`run-e16b.ps1 -MinArmCells 45`). If it moves the
 bright error at all, a redesign that brings more bright structure in is justified; if it does not, a small dose cannot
@@ -2481,3 +2486,68 @@ be told from a failed idea, and the read will say so.
 widened session's bright cells alone (`--listed-only`). Both caches are cut from it: the control leaves every listed
 cell out of the seeded pick (`--exclude-cells`), so it picks exactly E16a's cells, and the arm leaves them out and then
 adds them (`--extra-cells`). D1 to D3 run before the first seed, and the run stops on a failure.
+
+#### E16b, amended a third time after D2 failed the sub anchor, with caches but before any model (2026-09-30)
+
+**D2 failed, which is what it was for.** Against the half pairs of the ten sessions the bake halved, 1,156 quiet cells
+read the sub anchor at 1.942 / 1.376 / 1.971 (measured over predicted, red / green / blue; the gate is 10 percent) and 11
+bright cells at 1.890 / 1.353 / 1.976, with three narrowband ASI533 nights at 3.3 to 4.9. The half-pair anchor read
+1.000 / 1.001 / 1.002 (it is calibrated on those pixels) and E16a's sub-MAD anchor 1.706 / 1.142 / 1.640. The run stopped
+before D3; D1 had passed exactly (the control's clean tiles E16a's to 0, only the Pleiades and Triangulum differing).
+
+**The second amendment's reason was wrong in its conclusion.** Each manifest row records its own frame's calibration,
+and the subs, halves and master of one session put side by side (`e16b_depth_ladder.py`) show two causes, each measured. Every frame of the bake
+is unit-scaled by its OWN divisor (`DatasetTileExporter.UnitDivisor`), so a sub's calibration is on the sub's scale: the
+master's background over the subs' median is 1.08 on the Pleiades and 8.33 on HD 77683. And 12 of the export's 22
+sessions are Bayer-drizzled (60 frames or more), whose red and blue integrate a quarter of the photosites and green half,
+so sqrt(N) is not their depth. Corrected for both, the sub anchor comes to 1.03 to 1.24 of the master's own estimate on
+every drizzled session, and to 0.92 to 0.96 on the demosaiced Pleiades by the scale alone. The halves and the master agree
+with each other (half over master 1.35 to 1.40, against sqrt 2) and with the pairs. **E16a's anchor missed the same
+way**: it injected about 0.6 of the pairs' noise in red and blue and 0.9 in green at each labelled depth. Its plane came
+from the same calibration, so it was self-consistent, but its depth axis was not a physical one.
+
+**The anchor is each master's own recorded calibration** (`--noise-anchor master-calibration`, "the injected noise is
+anchored on each master's own calibration and shaped by its integration"): the per-channel calibration the tile export
+records on the master's rows, which is the block estimator a runner calls at inference, read as the master's own noise, so
+one sub is its sigma times sqrt(N). It is on the master's scale and at its depth by construction, and the plane's master
+term is exactly what the runner computes. D2 on the real bake: quiet cells 0.913 / 0.915 / 0.964, within 10 percent;
+bright cells 0.725 / 0.677 / 0.865 pooled, outside 15 percent, because 6 of the 11 come from LMC (0.57 / 0.48 / 0.65) and
+Tarantula on the ASI585 (0.72 / 0.66 / 0.85). Those are dense broadband fields whose master estimate reads unresolved
+stars as noise, which their half-over-master ratio (1.14 to 1.26) shows independently of the pairs. Within every session
+with both, bright and quiet cells agree to 0.02, and eight of the ten sessions read 0.88 to 1.20.
+
+**D2 amended, by the owner's decision** (2026-09-30): quiet cells as registered; bright cells within 15 percent of the
+same session's quiet cells (`noise-check --anchor master-calibration --bright-gate relative`), which tests the level model
+apart from how well the anchor reads a session's sky. Two caveats go with the read: on LMC and Tarantula (ASI585) the
+injected noise and its plane run 1.5 to 2 times the pairs', and 28 of the arm's 45 bright cells are Omega Cen, which has
+no half pairs to check it and is the same kind of dense field.
+
+**What ASTRA-SR and its ref [29] changed** (the owner asked for both to be considered, 2026-09-30). ASTRA-SR itself
+injects one Gaussian sigma after the blur (`y = [b + n]+`) and supervises a denoised, blur-retaining intermediate, the
+order and target our pairs already have. Its ref [29] (Liu et al., "Denoising the deep sky: Physics-based CCD noise
+formation for astronomical imaging", ECCV 2026, arXiv:2601.23276) models a raw CCD frame and ranks shot noise (9.0 dB
+lost without it) and read noise (9.5 dB) far above PRNU (5.7), dark current (2.9) and hot pixels (0.3). A calibrated,
+rejected, registered master has lost the fixed pattern, the PRNU and the impulses, and keeps the two dominant terms plus
+the correlation its integration adds. Both were measured on the half pairs in linear, each half through its own stretch (`e16b_noise_physics.py`):
+
+- **Shape, corrected here.** Every drizzled master's pairs read band1/band0 0.31 to 0.33 in all three channels, the
+  demosaiced Pleiades 0.45 in red and blue and 0.36 in green, and the injected draws at `--warp-sigma 0.5` 0.44
+  everywhere. The 0.5 was matched on 2026-09-03 to a bake whose half-masters read 0.463; this one drizzles 12 of its 22
+  sessions. A replica of `NoiseField.Warped` (`e16b_warp_shape.py`) gives 0.314 at sigma 0 and 0.434 at 0.5 (the export itself: 0.44). So each
+  session's noise now takes its master's integration, by its `STRATEGY` card: `--warp-sigma 0.5` for a demosaiced master
+  and `--warp-sigma-drizzle 0` for a drizzled one (`ADrizzledMastersDrawsTakeTheDrizzleShape`). A demosaiced master's
+  green (0.36, one session) keeps the shared 0.44, since a draw has one shape across its channels.
+- **Level, recorded and not changed here.** Our model is all shot noise: variance = sigma_bg^2 * clamp(L / bg, 0.25,
+  1000). On the four narrowband nights with diffuse signal (Helix, COO 71, HD 76360, HD 77683), a two-term fit
+  `var = a * L / bg + b` puts the signal-independent share at the background at 0.26 to 0.65. At four times the
+  background the pairs read sigma 1.39 to 1.74 times sigma_bg, against the model's 1.97, so bright narrowband structure
+  is over-injected by up to 30 percent in sigma, with its plane saying so. In the star fields the bright bins are star
+  cores, where the halves' different seeing adds structure (the fits go negative), and nothing can be read. The two-term
+  model needs its read share from a single frame, since the runner's plane uses the same model at inference and only
+  nine sessions have halves. That estimator, validated on the half pairs, is its own experiment (E16c). E16b's control
+  and arm carry the same model, so their contrast is unaffected. D2's bright gate is weak on exactly this: a bright cell
+  is mostly background, so its spread barely sees the level model, and the binned fit is the check.
+
+The control against E16a now reads the whole correction (per-channel noise, the anchor's level and the shape), not the
+per-channel injection alone. The failed export and its caches were moved aside, not deleted (`degraded/e16b-subcal`,
+`n2n-e16b-ctl-subcal`, `n2n-e16b-arm-subcal`, D2's output as `e16b-d2-subcal.txt`), and the export re-runs.

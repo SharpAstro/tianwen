@@ -91,6 +91,9 @@ namespace TianWen.AI.Imaging
             Warped = 1,
         }
 
+        /// <summary>The <c>STRATEGY</c> card of a Bayer-drizzled master, as the integration writes it.</summary>
+        private const string DrizzleStrategy = nameof(Lib.Imaging.Stacking.IntegrationStrategyKind.BayerDrizzle);
+
         /// <summary>What the injected noise is anchored on.</summary>
         public enum NoiseAnchorKind
         {
@@ -105,9 +108,20 @@ namespace TianWen.AI.Imaging
 
             /// <summary>Each cell on its subs' own recorded calibrations, one per channel: the median over the cell's
             /// subs of what each sub's manifest row records (<see cref="StretchedNoise.TryEstimateCalibration"/> on the
-            /// sub's own frame, its quiet blocks, never the cell). The session master is integrated unnormalised, on the
-            /// subs' own scale, so a sub's calibration is the master's too. Every recipe-3 session has it (E16b).</summary>
+            /// sub's own frame, its quiet blocks, never the cell), carried to the master by sqrt(N). <b>It misses the
+            /// master's noise</b>, which E16b's D2 measured: every frame of a bake is unit-scaled by its OWN divisor
+            /// (<see cref="DatasetTileExporter.UnitDivisor"/>), so a sub's calibration is on the sub's scale, 1.08 to 8.3
+            /// times off the master's; and a Bayer-drizzled master's red and blue integrate a quarter of the photosites
+            /// and its green half, so sqrt(N) is not its depth. Kept for the record of that check.</summary>
             SubCalibrations = 2,
+
+            /// <summary>Each session on its master's own recorded calibration, one per channel: what the master's
+            /// manifest rows record (<see cref="StretchedNoise.TryEstimateCalibration"/> on the master itself, the
+            /// estimator a runner calls on its input), read as the master's own noise, so one sub is that sigma times
+            /// sqrt(N). On the master's scale and at its depth by construction, whatever integrated it, and the
+            /// conditioning plane's master term is then exactly what the runner would estimate. E16b, third
+            /// amendment.</summary>
+            MasterCalibration = 3,
         }
 
         /// <summary>
@@ -345,6 +359,11 @@ namespace TianWen.AI.Imaging
         /// an export with a list holds every cell of the same export without one, byte for byte.</param>
         /// <param name="ListedCellsOnly">Export a session's LISTED cells and no sample: how a session joins an arm for
         /// its bright cells alone (E16b's widened pool). A session with none listed is skipped.</param>
+        /// <param name="DrizzleWarpResampleSigma">Warped shape only: the smoothing for a session whose master is a Bayer
+        /// drizzle (its <c>STRATEGY</c> card), in place of <see cref="WarpResampleSigma"/>; null keeps one value for
+        /// every session. A bake mixes the two integrations and their noise has two shapes: a drizzled master's half
+        /// pairs read band1/band0 0.31 to 0.33 in every channel, which bilinear alone (0) makes, and a demosaiced
+        /// one's 0.45, which 0.5 makes (E16b, third amendment).</param>
         public sealed record Options(
             string BakeRoot,
             string OutDir,
@@ -371,7 +390,8 @@ namespace TianWen.AI.Imaging
             double WhiteFraction = 0.0,
             NoiseAnchorKind NoiseAnchor = NoiseAnchorKind.SubMad,
             string? ExtraCellsPath = null,
-            bool ListedCellsOnly = false);
+            bool ListedCellsOnly = false,
+            double? DrizzleWarpResampleSigma = null);
 
         /// <summary>What one session's export produced. <paramref name="Estimator"/> is the estimator step's
         /// own cost, null unless <see cref="Options.EstimateKernels"/>.</summary>
@@ -567,6 +587,16 @@ namespace TianWen.AI.Imaging
             Directory.CreateDirectory(tilesDir);
 
             var stackedFrames = ReadStackCount(RetainedMasterStore.PathFor(options.BakeRoot, sessionId));
+            // The injected noise takes the shape of THIS master's integration: a drizzle's and a demosaic's differ.
+            var strategy = DatasetGradientReport.ReadMasterCards(RetainedMasterStore.PathFor(options.BakeRoot, sessionId)).Strategy;
+            var sessionOptions = options.DrizzleWarpResampleSigma is { } drizzleSigma && strategy == DrizzleStrategy
+                ? options with { WarpResampleSigma = drizzleSigma }
+                : options;
+            if (options.Shape == NoiseShape.Warped)
+            {
+                logger?.LogInformation("[degrade] {Session}: {Strategy} master, warp sigma {Sigma}",
+                    sessionId, strategy.Length > 0 ? strategy : "unlabelled", sessionOptions.WarpResampleSigma.ToString("G3", CultureInfo.InvariantCulture));
+            }
             // Nullable rather than asserted-non-null: they ARE null until the try assigns them, which
             // is exactly what the `?.Release()` in the finally below was already written for.
             Image? unitMaster = null;
@@ -659,12 +689,14 @@ namespace TianWen.AI.Imaging
                         NoiseAnchorKind.HalfPairs => sessionCalibrations,
                         NoiseAnchorKind.SubCalibrations => CellSubCalibration(cell, channels, stackedFrames)
                             ?? throw new InvalidOperationException($"{sessionId}: cell x{cell.X} y{cell.Y} has no sub with a recorded calibration; the sub anchor cannot serve it"),
+                        NoiseAnchorKind.MasterCalibration => CellMasterCalibration(cell, channels, stackedFrames)
+                            ?? throw new InvalidOperationException($"{sessionId}: cell x{cell.X} y{cell.Y} has no master row with a recorded calibration; the master anchor cannot serve it"),
                         _ => null,
                     };
                     for (var draw = 0; draw < options.Draws; draw++)
                     {
                         var seed = DrawSeed(options.Seed, sessionId, cell.X, cell.Y, draw);
-                        var row = await DegradeCellAsync(options, unitMaster, cell, origin, draw, seed, stackedFrames, fieldRadius, origMin, balances, cellCalibrations, tilesDir, slug, sessionId, cleanFwhmPx, cleanFit, estimatorClock, cancellationToken);
+                        var row = await DegradeCellAsync(sessionOptions, unitMaster, cell, origin, draw, seed, stackedFrames, fieldRadius, origMin, balances, cellCalibrations, tilesDir, slug, sessionId, cleanFwhmPx, cleanFit, estimatorClock, cancellationToken);
                         degRows.Add(row);
                         tileRows.Add(new DatasetTileExporter.TileManifestRow(
                             Tile: row.Tile, SessionId: sessionId, Camera: cell.Camera, Frame: row.Frame,
@@ -809,7 +841,8 @@ namespace TianWen.AI.Imaging
         /// the noise each anchor predicts for a half, as the robust spread of <c>(A - B) / sqrt 2</c> divided pixel by
         /// pixel by the predicted sigma. 1 is a match; below 1 the anchor predicts more noise than the pair holds.
         /// </summary>
-        public sealed record InjectionCheckRow(string SessionId, int X, int Y, bool Bright, double[] HalfPairs, double[] SubMad, double[] SubCalibrations);
+        public sealed record InjectionCheckRow(
+            string SessionId, int X, int Y, bool Bright, double[] HalfPairs, double[] SubMad, double[] SubCalibrations, double[] MasterCalibration);
 
         /// <summary>The largest bright share a QUIET cell of <see cref="CheckInjectionAsync"/> may have: star cores
         /// reach the bright level after the low-pass, so none at all would leave almost no real cell quiet.</summary>
@@ -906,15 +939,18 @@ namespace TianWen.AI.Imaging
                                 inner, unitMaster.Pedestal, MedianOf(cell.SubNoiseMads), balances[0], origMin[0], stackedFrames)
                             : LinearDegradation.NoiseCalibration.Measure(inner, unitMaster.Pedestal, stackedFrames);
                         var subCalibrations = CellSubCalibration(cell, channels, stackedFrames);
+                        var masterCalibrations = CellMasterCalibration(cell, channels, stackedFrames);
                         var level = HalfPairNoise.Level(masterStretched, channels, size);
                         var ratioPairs = new double[channels];
                         var ratioSubMad = new double[channels];
                         var ratioSubCal = new double[channels];
+                        var ratioMasterCal = new double[channels];
                         for (var c = 0; c < channels; c++)
                         {
                             var zPairs = new List<float>(n);
                             var zSubMad = new List<float>(n);
                             var zSubCal = new List<float>(n);
+                            var zMasterCal = new List<float>(n);
                             for (var y = HalfPairNoise.RimPx; y < size - HalfPairNoise.RimPx; y++)
                             {
                                 for (var x = HalfPairNoise.RimPx; x < size - HalfPairNoise.RimPx; x++)
@@ -937,13 +973,18 @@ namespace TianWen.AI.Imaging
                                     {
                                         zSubCal.Add((float)(d / predictedSubCal));
                                     }
+                                    if (masterCalibrations is { } mc && mc[c].SigmaAt(masterLinear[j], halfDepth) is var predictedMasterCal and > 0)
+                                    {
+                                        zMasterCal.Add((float)(d / predictedMasterCal));
+                                    }
                                 }
                             }
-                            ratioPairs[c] = zPairs.Count == 0 ? double.NaN : 1.4826 * StatisticsHelper.MedianAndMad(zPairs.ToArray().AsSpan()).Mad;
-                            ratioSubMad[c] = zSubMad.Count == 0 ? double.NaN : 1.4826 * StatisticsHelper.MedianAndMad(zSubMad.ToArray().AsSpan()).Mad;
-                            ratioSubCal[c] = zSubCal.Count == 0 ? double.NaN : 1.4826 * StatisticsHelper.MedianAndMad(zSubCal.ToArray().AsSpan()).Mad;
+                            ratioPairs[c] = RobustSpread(zPairs);
+                            ratioSubMad[c] = RobustSpread(zSubMad);
+                            ratioSubCal[c] = RobustSpread(zSubCal);
+                            ratioMasterCal[c] = RobustSpread(zMasterCal);
                         }
-                        rows.Add(new InjectionCheckRow(sessionId, cell.X, cell.Y, bright, ratioPairs, ratioSubMad, ratioSubCal));
+                        rows.Add(new InjectionCheckRow(sessionId, cell.X, cell.Y, bright, ratioPairs, ratioSubMad, ratioSubCal, ratioMasterCal));
                     }
                 }
                 finally
@@ -960,6 +1001,9 @@ namespace TianWen.AI.Imaging
                 }
             }
             return rows.ToImmutable();
+
+            static double RobustSpread(List<float> z)
+                => z.Count == 0 ? double.NaN : 1.4826 * StatisticsHelper.MedianAndMad(z.ToArray().AsSpan()).Mad;
         }
 
         /// <summary>A stored tile's channel count, from its size: a tile is CHW fp16 with no header.</summary>
@@ -1138,7 +1182,12 @@ namespace TianWen.AI.Imaging
                     if (channelCalibrations is { } perChannelAnchor)
                     {
                         // The anchor's own calibration, one per channel (below).
-                        anchor = options.NoiseAnchor == NoiseAnchorKind.SubCalibrations ? "sub-calibrations" : "half-pairs";
+                        anchor = options.NoiseAnchor switch
+                        {
+                            NoiseAnchorKind.SubCalibrations => "sub-calibrations",
+                            NoiseAnchorKind.MasterCalibration => "master-calibration",
+                            _ => "half-pairs",
+                        };
                         calibration = perChannelAnchor[0];
                     }
                     else
@@ -1714,10 +1763,38 @@ namespace TianWen.AI.Imaging
             string? HalfBTile,
             StretchedNoise.ChannelStretch[]? HalfAStretch = null,
             StretchedNoise.ChannelStretch[]? HalfBStretch = null,
-            List<SubCalibration>? SubCalibrations = null);
+            List<RecordedCalibration>? SubCalibrations = null,
+            RecordedCalibration? MasterCalibration = null);
 
-        /// <summary>One sub's own recorded calibration, per channel, as its manifest row carries it.</summary>
-        private sealed record SubCalibration(double Pedestal, double[] Background, double[] Sigma);
+        /// <summary>One frame's own recorded calibration, per channel, as its manifest row carries it: the frame's
+        /// noise at its own depth, on its own unit scale.</summary>
+        private sealed record RecordedCalibration(double Pedestal, double[] Background, double[] Sigma);
+
+        /// <summary>A row's recorded calibration, or null when it records none.</summary>
+        private static RecordedCalibration? RecordedOf(DatasetTileExporter.TileManifestRow row)
+            => row.NoiseBackground is { } background && row.NoiseSigma is { } sigma && row.NoisePedestal is { } pedestal
+                ? new RecordedCalibration(pedestal, background, sigma)
+                : null;
+
+        /// <summary>
+        /// A cell's calibration per channel under <see cref="NoiseAnchorKind.MasterCalibration"/>: its master row's
+        /// recorded calibration, which is the master's own noise, so one sub is that sigma times sqrt(N); null when the
+        /// row records none.
+        /// </summary>
+        private static LinearDegradation.NoiseCalibration[]? CellMasterCalibration(CellSpec cell, int channels, int stackedFrames)
+        {
+            if (cell.MasterCalibration is not { } m || m.Background.Length != channels || m.Sigma.Length != channels)
+            {
+                return null;
+            }
+            var calibrations = new LinearDegradation.NoiseCalibration[channels];
+            var oneSub = Math.Sqrt(Math.Max(1, stackedFrames));
+            for (var c = 0; c < channels; c++)
+            {
+                calibrations[c] = new LinearDegradation.NoiseCalibration(m.Pedestal, m.Background[c], m.Sigma[c] * oneSub, stackedFrames);
+            }
+            return calibrations;
+        }
 
         /// <summary>
         /// A cell's calibration per channel under <see cref="NoiseAnchorKind.SubCalibrations"/>: the median over its subs
@@ -1780,7 +1857,7 @@ namespace TianWen.AI.Imaging
                 }
                 cells[key] = row.Frame switch
                 {
-                    DatasetTileExporter.FrameMaster => spec with { MasterTileRelative = row.Tile },
+                    DatasetTileExporter.FrameMaster => spec with { MasterTileRelative = row.Tile, MasterCalibration = RecordedOf(row) },
                     DatasetTileExporter.FrameHalfMasterA => spec with { HalfATile = row.Tile, HalfAStretch = StretchOf(row) },
                     DatasetTileExporter.FrameHalfMasterB => spec with { HalfBTile = row.Tile, HalfBStretch = StretchOf(row) },
                     _ => Add(spec, row),
@@ -1798,10 +1875,10 @@ namespace TianWen.AI.Imaging
                     return spec;
                 }
                 spec.SubNoiseMads.Add(row.NoiseMad);
-                if (row.NoiseBackground is { } background && row.NoiseSigma is { } sigma && row.NoisePedestal is { } pedestal)
+                if (RecordedOf(row) is { } recorded)
                 {
                     var subs = spec.SubCalibrations ?? [];
-                    subs.Add(new SubCalibration(pedestal, background, sigma));
+                    subs.Add(recorded);
                     return spec with { SubCalibrations = subs };
                 }
                 return spec;

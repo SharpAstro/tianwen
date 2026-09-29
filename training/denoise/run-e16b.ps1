@@ -1,15 +1,18 @@
 # E16b (docs/plans/denoiser-training.md, run log, "E16b, pre-registered" and its amendments): E16a's recipe with the
-# noise injected per channel from each cell's subs' own recorded calibrations (the control, convmap3), and the same plus
-# bright cells (the arm, convmapb). The plan's entry is the record; this header is its copy.
+# noise injected per channel on each master's own recorded calibration, shaped by the master's integration (the control,
+# convmap3), and the same plus bright cells (the arm, convmapb). The plan's entry is the record; this header is its copy.
 #
 # ---------------------------------------------------------------------------------------------------
 # PRE-REGISTERED 2026-09-29, before the recipe-3 store finished baking and before any cell of it was looked at;
-# AMENDED twice (the plan's amendments have the reasons): the same evening, before any export, cache or model existed;
-# and on 2026-09-30, after the first export failed on the sessions the bake never halved, before any cache or model.
+# AMENDED three times (the plan's amendments have the reasons): the same evening, before any export, cache or model
+# existed; on 2026-09-30, after the first export failed on the sessions the bake never halved, before any cache or model;
+# and on 2026-09-30 again, after D2 failed the sub anchor (a sub is on its own unit scale, and a drizzle's colours are not
+# sqrt(N) deep), with caches but no model: the owner chose the master anchor and D2's bright half amended as below.
 #
 # ARMS. convmap3: bb-ctl-14 / bb-val-2, degrade --cells 120 --seed 1, prepare 45 per session, --cond-map, run-e16a's
-#   training line, seeds 0..3, the noise injected per channel from each cell's subs' own recorded calibrations (tianwen
-#   dataset degrade --noise-anchor sub-calibrations; the half pairs, which only some sessions have, are D2's truth for it).
+#   training line, seeds 0..3, the noise injected per channel from each master's own recorded calibration (tianwen
+#   dataset degrade --noise-anchor master-calibration), shaped as the master's integration shapes its noise (--warp-sigma
+#   0.5 for a demosaiced master, --warp-sigma-drizzle 0 for a Bayer-drizzled one: half pairs 0.45 and 0.31-0.33 band1/band0).
 #   convmapb: the same plus bright cells (tianwen dataset bright-cells: at least 10 percent of
 #   a cell's level in [0.45, 0.95), the scorer's low-pass; up to 45 per session). The fourteen sessions hold 4 bright
 #   cells in one session, under the rule's 150 over three, so the pool widens to arms\e16b-widen.txt (the store's other
@@ -26,9 +29,10 @@
 # CHECKS, before any training; a failure stops the run.
 #   D1 (amended) the control's keys equal n2n-bb-ctl-rfm's outside the Pleiades and Triangulum (whose P0 samples the
 #      recipe-3 store moved by 2 of 300 cells), and its clean (slot 0) tiles are E16a's within 2 fp16 steps.
-#   D2 tianwen dataset noise-check --anchor sub-calibrations: against the half pairs of every session the bake halved,
-#      the sub anchor's measured-over-predicted within 10 percent on quiet cells and 15 percent on bright ones, per
-#      channel (the half-pair and sub-MAD anchors printed beside it, not gated).
+#   D2 (amended) tianwen dataset noise-check --anchor master-calibration --bright-gate relative: against the half pairs
+#      of every session the bake halved, the master anchor's measured-over-predicted within 10 percent on quiet cells,
+#      per channel; and in every session with both, its bright cells' within 15 percent of its quiet cells' (the level
+#      model apart from the session's anchor). The sub-calibration, half-pair and sub-MAD anchors printed beside it.
 #   D3 the bright eval cells make the level at 0.60 and up readable on at least four fields and 0.45-0.60 on six.
 #
 # PREDICTIONS (orc, full strength, convmapb against convmap3, fields readable for both; bands 0-1 / 1-2 / 2-4 px):
@@ -99,8 +103,8 @@ Set-Status 'starting'
 
 try {
     if (-not (Test-Path $Tianwen)) { throw "no CLI at $Tianwen; build TianWen.Cli in Release first" }
-    $anchor = git -C $PSScriptRoot log -1 --format=%cI --grep "the injected noise is anchored per channel on each cell's subs"
-    if (-not $anchor) { throw 'the sub-calibration anchor is not in this checkout' }
+    $anchor = git -C $PSScriptRoot log -1 --format=%cI --grep "the injected noise is anchored on each master's own calibration"
+    if (-not $anchor) { throw 'the master-calibration anchor is not in this checkout' }
     $head = git -C $PSScriptRoot log -1 --format=%cI
     $built = (Get-Item $Tianwen).LastWriteTime
     foreach ($t in @($anchor, $head)) {
@@ -143,7 +147,7 @@ try {
     }
 
     # 2. One export: the control's sessions with their sample and the fourteen's bright cells, then the widened sessions'
-    #    bright cells alone. Half-pair anchor throughout.
+    #    bright cells alone. The master anchor throughout, each session's noise shaped by its master's integration.
     $exportStatus = Join-Path $Export 'degrade.status'
     $state = if (Test-Path $exportStatus) { (Get-Content $exportStatus -Raw).Trim() } else { 'missing' }
     if ($state -ne 'done') {
@@ -152,7 +156,7 @@ try {
         New-Item -ItemType Directory -Force $Export | Out-Null
         "running $(Get-Date -Format o)" | Out-File $exportStatus -Encoding utf8
         $common = @('dataset', 'degrade', '--bake', $Bake, '--out', $Export, '--mode', 'noise', '--shape', 'warped',
-            '--warp-sigma', '0.5', '--draws', '8', '--seed', '1', '--noise-anchor', 'sub-calibrations')
+            '--warp-sigma', '0.5', '--warp-sigma-drizzle', '0', '--draws', '8', '--seed', '1', '--noise-anchor', 'master-calibration')
         try {
             Invoke-Tianwen 'export (control sessions)' ($common + @('--cells', '120', '--extra-cells', $trainList) + @(Session-Args ($train + $val))) (Join-Path $Export 'degrade.log')
             Invoke-Tianwen 'export (widened sessions)' ($common + @('--cells', '120', '--extra-cells', $widenList, '--listed-only') + @(Session-Args $widen)) (Join-Path $Export 'degrade.log')
@@ -195,7 +199,7 @@ try {
     if (-not (Test-Path $d2)) {
         if (Stop-Requested 'D2') { return }
         Set-Status 'D2 noise-check'
-        & $Tianwen dataset noise-check --bake $Bake --cells 120 --seed 1 --extra-cells $armList --anchor sub-calibrations @(Session-Args ($train + $val + $armSessions | Sort-Object -Unique)) *> "$d2.partial"
+        & $Tianwen dataset noise-check --bake $Bake --cells 120 --seed 1 --extra-cells $armList --anchor master-calibration --bright-gate relative @(Session-Args ($train + $val + $armSessions | Sort-Object -Unique)) *> "$d2.partial"
         $d2Exit = $LASTEXITCODE
         Move-Item "$d2.partial" $d2 -Force
         Get-Content $d2 | Select-String '^\[noise-check\] (quiet|bright|PASS|FAIL)' | ForEach-Object { $_.Line } | Tee-Object -FilePath $log -Append

@@ -10,6 +10,7 @@ using TianWen.AI.Imaging;
 using TianWen.AI.Imaging.Onnx;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Degradation;
+using TianWen.Lib.Imaging.Stacking;
 using Xunit;
 
 namespace TianWen.Lib.Tests
@@ -111,12 +112,12 @@ namespace TianWen.Lib.Tests
         /// Builds the bake this exporter reads: the retained master, the P0 tiles for two cells, and the
         /// manifest rows describing them, all through the same helpers the real P0 path uses.
         /// </summary>
-        private string BuildBake(int stackedFrames = 64)
+        private string BuildBake(int stackedFrames = 64, IntegrationStrategyKind? strategy = null, string name = "bake")
         {
-            var bake = Path.Combine(_root, "bake");
+            var bake = Path.Combine(_root, name);
             Directory.CreateDirectory(bake);
             var master = SyntheticMaster(stackedFrames);
-            RetainedMasterStore.Write(bake, SessionId, master, frameCount: stackedFrames);
+            RetainedMasterStore.Write(bake, SessionId, master, frameCount: stackedFrames, strategy: strategy);
 
             var slug = DatasetTileExporter.Sanitize(SessionId);
             var tilesDir = Path.Combine(bake, "tiles", slug);
@@ -213,10 +214,12 @@ namespace TianWen.Lib.Tests
         /// <summary>
         /// A bake as recipe 3 writes one, with the half pair: a noise-free scene, two halves of it each carrying half
         /// the session's frames of noise (per channel, <see cref="HalfOneSubAdu"/>), the master their mean, and every
-        /// tile stretched by its OWN frame's stretch with that stretch on its row, as <c>DatasetTileExporter</c> stores
-        /// them. Sub rows as <see cref="BuildBake"/> writes them, so the sub-MAD anchor still has its input.
+        /// tile stretched by its OWN frame's stretch with that stretch and its own estimated calibration on its row, as
+        /// <c>DatasetTileExporter</c> stores them. Sub rows as <see cref="BuildBake"/> writes them, so the sub-MAD anchor
+        /// still has its input. <paramref name="subScale"/> puts the subs on a unit scale that many times smaller than the
+        /// master's, as a real bake does when each frame is divided by its own unit divisor (1.08 to 8.3, E16b's D2).
         /// </summary>
-        private string BuildBakeWithHalves(int stackedFrames = 64)
+        private string BuildBakeWithHalves(int stackedFrames = 64, double subScale = 1.0)
         {
             var bake = Path.Combine(_root, "bake-halves");
             Directory.CreateDirectory(bake);
@@ -274,13 +277,18 @@ namespace TianWen.Lib.Tests
                 {
                     masterUnit = unit;
                 }
+                var frameStretches = origMin.Zip(balances, static (m, b) => new StretchedNoise.ChannelStretch(b, m)).ToArray();
+                StretchedNoise.TryEstimateCalibration(unit, frameStretches, unit.AbsentPixels(), out var frameCalibrations).ShouldBeTrue();
                 foreach (var cell in new[] { new PixelPoint(0, 0), new PixelPoint(W - TileSize, H - TileSize) })
                 {
                     var file = $"x{cell.X}_y{cell.Y}_{frame}.f16";
                     var mad = DatasetTileExporter.WriteTile(stretched, cell, TileSize, Path.Combine(tilesDir, file), SessionId);
                     rows.Add(new DatasetTileExporter.TileManifestRow(
                         $"tiles/{slug}/{file}", SessionId, "TestCam", frame, "", cell.X, cell.Y, TileSize, 3, 100, 120.0, mad,
-                        StretchOrigMin: [.. origMin.Select(static v => (double)v)], StretchBalance: balances));
+                        StretchOrigMin: [.. origMin.Select(static v => (double)v)], StretchBalance: balances,
+                        NoisePedestal: frameCalibrations[0].PedestalAdu,
+                        NoiseBackground: [.. frameCalibrations.Select(static k => k.BackgroundAdu)],
+                        NoiseSigma: [.. frameCalibrations.Select(static k => k.OneSubSigmaAdu)]));
                 }
                 if (!ReferenceEquals(stretched, unit))
                 {
@@ -301,8 +309,13 @@ namespace TianWen.Lib.Tests
                 for (var c = 0; c < 3; c++)
                 {
                     var flat = masterUnit.GetChannelSpan(c).ToArray();
+                    var inv = (float)(1.0 / subScale);
+                    for (var i = 0; i < flat.Length; i++)
+                    {
+                        flat[i] *= inv;
+                    }
                     LinearDegradation.AddNoiseInPlace(flat, NoiseField.White(W, H, subRng),
-                        new LinearDegradation.NoiseCalibration(0.0, OneSubBackgroundUnit, HalfOneSubAdu[c] / 65535.0, 1), 1.0);
+                        new LinearDegradation.NoiseCalibration(0.0, OneSubBackgroundUnit / subScale, HalfOneSubAdu[c] / 65535.0 / subScale, 1), 1.0);
                     subPlanes[c] = ToPlane(flat);
                 }
                 var sub = new Image(subPlanes, BitDepth.Float32, 1f, 0f, 0f, masterUnit.ImageMeta);
@@ -480,9 +493,11 @@ namespace TianWen.Lib.Tests
             foreach (var row in rows)
             {
                 output.WriteLine($"x{row.X} y{row.Y} bright {row.Bright}: half-pairs {string.Join(" / ", row.HalfPairs.Select(v => v.ToString("F3")))}, " +
+                    $"master-calibration {string.Join(" / ", row.MasterCalibration.Select(v => v.ToString("F3")))}, " +
                     $"sub-calibrations {string.Join(" / ", row.SubCalibrations.Select(v => v.ToString("F3")))}, sub-mad {string.Join(" / ", row.SubMad.Select(v => v.ToString("F3")))}");
                 row.HalfPairs.ShouldAllBe(v => Math.Abs(v - 1.0) < 0.06);
-                // The subs' own recorded calibrations are the estimator's reading of each sub, so they carry its error.
+                // The recorded calibrations are the estimator's reading of each frame, so they carry its error.
+                row.MasterCalibration.ShouldAllBe(v => Math.Abs(v - 1.0) < 0.10);
                 row.SubCalibrations.ShouldAllBe(v => Math.Abs(v - 1.0) < 0.10);
                 // Green holds half of red's noise and the sub-MAD anchor carries red's calibration to it, so green reads half of
                 // red's ratio whatever the anchor's overall level (which the subs' own stretch now moves as well).
@@ -491,8 +506,65 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
-        /// E16b's anchor as run: each cell on its subs' own recorded calibrations, one per channel. The export injects each
-        /// channel's own noise with them, and every channel's one-sub sigma on the row is the subs' reading of it.
+        /// What failed E16b's D2: subs on a unit scale four times smaller than the master's (each frame divided by its own
+        /// divisor) read the sub anchor at sqrt(4) of the pair's noise, while the master's own calibration still matches.
+        /// </summary>
+        [Fact]
+        public async Task ASubOffTheMastersScaleMissesAndTheMastersOwnCalibrationDoesNot()
+        {
+            var bake = BuildBakeWithHalves(subScale: 4.0);
+            var rows = await DatasetDegradationExporter.CheckInjectionAsync(bake, [], 0, 1, null, cancellationToken: TestContext.Current.CancellationToken);
+            rows.Length.ShouldBeGreaterThan(0);
+            foreach (var row in rows)
+            {
+                output.WriteLine($"x{row.X} y{row.Y}: master-calibration {string.Join(" / ", row.MasterCalibration.Select(v => v.ToString("F3")))}, " +
+                    $"sub-calibrations {string.Join(" / ", row.SubCalibrations.Select(v => v.ToString("F3")))}");
+                row.MasterCalibration.ShouldAllBe(v => Math.Abs(v - 1.0) < 0.10);
+                // One sub's sigma a quarter of the master-scale truth, read at a background a quarter of the master's: the
+                // shot-noise model gives back a square root of the four, so the pair holds twice what the anchor predicts.
+                row.SubCalibrations.ShouldAllBe(v => Math.Abs(v - 2.0) < 0.2);
+            }
+        }
+
+        /// <summary>
+        /// E16b's anchor as run (third amendment): each session on its master's own recorded calibration, one per channel,
+        /// carried to one sub by sqrt(N). The export injects each channel's own noise with it, on the master's scale
+        /// whatever the subs' scale is.
+        /// </summary>
+        [Fact]
+        public async Task TheMasterCalibrationAnchorInjectsEachChannelOnTheMastersOwnNoise()
+        {
+            const int stackedFrames = 64;
+            var bake = BuildBakeWithHalves(stackedFrames, subScale: 4.0);
+            var outDir = Path.Combine(_root, "degraded-mastercal");
+            var result = await DatasetDegradationExporter.RunAsync(
+                new DatasetDegradationExporter.Options(bake, outDir, Draws: 2, CellsPerSession: 0, Seed: 5, MinDepthScale: 0.1, MaxDepthScale: 0.2,
+                    NoiseAnchor: DatasetDegradationExporter.NoiseAnchorKind.MasterCalibration),
+                logger: null,
+                TestContext.Current.CancellationToken);
+            result.Failed.ShouldBe(0);
+
+            var rows = ReadDegradationRows(outDir);
+            rows.ShouldAllBe(r => r.NoiseAnchor == "master-calibration");
+            foreach (var row in rows)
+            {
+                row.StackedFrames.ShouldBe(stackedFrames);
+                var sigma = row.OneSubSigmaPerChannel.ShouldNotBeNull();
+                var background = row.BackgroundPerChannel.ShouldNotBeNull();
+                for (var c = 0; c < 3; c++)
+                {
+                    var expected = HalfOneSubAdu[c] / 65535.0 * Math.Sqrt(Math.Max(0.25, background[c] / OneSubBackgroundUnit));
+                    output.WriteLine($"x{row.CellX} draw {row.Draw} channel {c}: one sub {sigma[c]:E4} against {expected:E4} at background {background[c] * 65535.0:F0} ADU");
+                    sigma[c].ShouldBe(expected, expected * 0.15);
+                }
+                (sigma[1] / sigma[0]).ShouldBe(0.5, 0.08, "green's own noise, not red's carried to it");
+            }
+        }
+
+        /// <summary>
+        /// The sub-calibration anchor, E16b's second amendment: each cell on its subs' own recorded calibrations, one per
+        /// channel. On a fixture whose subs share the master's scale it injects each channel's own noise; D2 found a real
+        /// bake's subs do not (<see cref="ASubOffTheMastersScaleMissesAndTheMastersOwnCalibrationDoesNot"/>).
         /// </summary>
         [Fact]
         public async Task TheSubCalibrationAnchorInjectsEachChannelOnItsSubsOwnNoise()
@@ -1142,6 +1214,28 @@ namespace TianWen.Lib.Tests
             {
                 var f = byKey[(r.SessionId, r.CellX, r.CellY, r.Draw)];
                 r.DepthScale.ShouldBe(f.DepthScale, $"draw {r.Draw} of cell ({r.CellX}, {r.CellY}) must sit at the same depth under both exports");
+            }
+        }
+
+        /// <summary>
+        /// A drizzled master's draws take the drizzle smoothing and a demosaiced (unlabelled) one's the ordinary one, by
+        /// the master's own STRATEGY card: the two integrations leave their noise in two shapes (E16b, third amendment).
+        /// </summary>
+        [Fact]
+        public async Task ADrizzledMastersDrawsTakeTheDrizzleShape()
+        {
+            var drizzled = BuildBake(strategy: IntegrationStrategyKind.BayerDrizzle, name: "bake-drizzle");
+            var demosaiced = BuildBake(name: "bake-ahd");
+            foreach (var (bake, expected) in new[] { (drizzled, 0.0), (demosaiced, 0.5) })
+            {
+                var outDir = Path.Combine(_root, "shape-" + Path.GetFileName(bake));
+                var result = await DatasetDegradationExporter.RunAsync(
+                    new DatasetDegradationExporter.Options(bake, outDir, Draws: 2, CellsPerSession: 0, Seed: 5,
+                        Shape: DatasetDegradationExporter.NoiseShape.Warped, WarpResampleSigma: 0.5, DrizzleWarpResampleSigma: 0.0),
+                    logger: null,
+                    TestContext.Current.CancellationToken);
+                result.Failed.ShouldBe(0);
+                ReadDegradationRows(outDir).ShouldAllBe(r => r.Shape == "Warped" && r.WarpSigma == expected, Path.GetFileName(bake));
             }
         }
 
