@@ -14,8 +14,14 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// <param name="AnnulusOuter">The fitted pixels' outer bound, in equatorial radii.</param>
 /// <param name="SunSide">Which end of the equator the sun lights (+1 or -1), when it is known; null fits both and keeps the
 /// better.</param>
+/// <param name="SunTiltDeg">How far the lit side lies off the equator, toward the north pole
+/// (<see cref="PhysicalEphemeris.SunOnTheDisk"/>): 5.2 degrees on 2022-09-03. Which end of the fitted axis is north is not
+/// known from the image, so both are fitted and the better kept.</param>
+/// <param name="SubObserverLatitudeDeg">The planetocentric latitude the observer sees the disk from, which the zonal albedo's
+/// latitude counts in: without it one pole's dark cap reads larger than the other's, and the centre moves along the axis
+/// (0.15 px with Jupiter's poles alone, #1050).</param>
 public sealed record LimbFitOptions(double AxisRatio, double PhaseAngleDeg = 0, double AnnulusInner = 0.8, double AnnulusOuter = 1.2,
-    int? SunSide = null);
+    int? SunSide = null, double SunTiltDeg = 0, double SubObserverLatitudeDeg = 0);
 
 /// <summary>
 /// A disk fitted at its limb: where the planet is, how big, and how it lies in the image. Angles in degrees, image
@@ -25,10 +31,21 @@ public sealed record LimbFitOptions(double AxisRatio, double PhaseAngleDeg = 0, 
 /// planet's own edge, which WinJUPOS's outline marks, never the blurred image's steepest point, which lies inside it.</param>
 /// <param name="AxisAngleDeg">The direction of the planet's axis in the image (modulo 180).</param>
 /// <param name="LimbDarkening">The Minnaert exponent k (brightness mu0^k mu^(k-1)).</param>
-/// <param name="PsfSigma">The Gaussian blur the edge shows, in pixels.</param>
+/// <param name="PsfSigma">The core of the blur the edge shows, a Gaussian's sigma in pixels.</param>
 /// <param name="SunSide">+1 or -1: which end of the equator the sun lights (0 when no phase was modelled).</param>
 /// <param name="StandardErrors">The fit's standard errors, in the order centre x, centre y, radius, axis angle (degrees),
-/// limb darkening, PSF sigma, brightness, sky.</param>
+/// limb darkening, PSF sigma, brightness, sky, and the zonal albedo's two terms.</param>
+/// <param name="ZonalAlbedo2">The albedo's term in the square of the sine of latitude z: <c>A = 1 + c1 z + c2 z^2 + c4 z^4</c>.</param>
+/// <param name="ZonalAlbedo4">The albedo's term in its fourth power. At the poles the albedo is <c>1 +- c1 + c2 + c4</c> of the
+/// equator's.</param>
+/// <param name="ZonalAlbedo1">The albedo's odd term, one hemisphere against the other, z counted toward
+/// <paramref name="NorthAngleDeg"/>.</param>
+/// <param name="NorthAngleDeg">The axis's end the model took as north (from +x toward +y): the one the sun's tilt off the
+/// equator points to. Meaningful only when <see cref="LimbFitOptions.SunTiltDeg"/> was not zero; otherwise one of the axis's
+/// two ends.</param>
+/// <param name="HaloFraction">The share of the blur in its wide wing, a second Gaussian: seeing's Moffat wings and the
+/// telescope's diffraction rings, which a single Gaussian cannot follow (#1050).</param>
+/// <param name="HaloWidth">The wing's sigma, in pixels.</param>
 public readonly record struct LimbFit(
     double CenterX,
     double CenterY,
@@ -43,12 +60,18 @@ public readonly record struct LimbFit(
     int Pixels,
     double[] StandardErrors,
     int Iterations,
-    bool Converged);
+    bool Converged,
+    double ZonalAlbedo2 = 0,
+    double ZonalAlbedo4 = 0,
+    double ZonalAlbedo1 = 0,
+    double NorthAngleDeg = 0,
+    double HaloFraction = 0,
+    double HaloWidth = 0);
 
 /// <summary>
 /// Fits a planet's disk at its limb with a forward model (docs/plans/planetary-restoration.md, R1): an oblate disk of the
-/// ephemeris' axis ratio, limb-darkened by Minnaert's law and lit at the ephemeris' phase, blurred by a Gaussian PSF,
-/// over the pixels around the limb. Never the centre of mass, which a bright belt or the Great Red Spot moves, and never
+/// ephemeris' axis ratio, limb-darkened by Minnaert's law and lit at the ephemeris' phase, its albedo a smooth function of
+/// latitude, blurred by a Gaussian PSF, over the pixels around the limb. Never the centre of mass, which a bright belt or the Great Red Spot moves, and never
 /// an edge detector: Jupiter darkens to its limb, so the blurred image's steepest point lies a couple of pixels inside it
 /// (measured on the 2022 stacks WinJUPOS measured).
 /// </summary>
@@ -69,7 +92,11 @@ public static class PlanetaryLimbFit
 
     /// <summary>The options the ephemeris gives for <paramref name="aspect"/>.</summary>
     public static LimbFitOptions OptionsFor(in PlanetAspect aspect)
-        => new LimbFitOptions(ApparentAxisRatio(aspect.Flattening, aspect.SubObserverLatitudeCentric), aspect.PhaseAngle);
+    {
+        var (west, north, _) = PhysicalEphemeris.SunOnTheDisk(aspect);
+        return new LimbFitOptions(ApparentAxisRatio(aspect.Flattening, aspect.SubObserverLatitudeCentric), aspect.PhaseAngle,
+            SunTiltDeg: Math.Atan2(north, Math.Abs(west)) * 180 / Math.PI, SubObserverLatitudeDeg: aspect.SubObserverLatitudeCentric);
+    }
 
     /// <summary>
     /// Fits the disk in <paramref name="image"/>: its luminance (the mean of its channels), started from <see cref="Start"/>.
@@ -146,8 +173,9 @@ public static class PlanetaryLimbFit
             if (FitAt(binned, bw, bh, ((startX + 0.5) / bin) - 0.5, ((startY + 0.5) / bin) - 0.5, startRadius / bin, options, null, 200) is { } coarse)
             {
                 var seed = new double[] { ((coarse.CenterX + 0.5) * bin) - 0.5, ((coarse.CenterY + 0.5) * bin) - 0.5, coarse.EquatorialRadius * bin,
-                    coarse.AxisAngleDeg * Math.PI / 180, coarse.LimbDarkening, Math.Sqrt(Math.Max((coarse.PsfSigma * coarse.PsfSigma * bin * bin) - ((bin * bin) - 1) / 12.0, 0.25)),
-                    coarse.Brightness, coarse.Sky };
+                    coarse.NorthAngleDeg * Math.PI / 180, coarse.LimbDarkening, Math.Sqrt(Math.Max((coarse.PsfSigma * coarse.PsfSigma * bin * bin) - ((bin * bin) - 1) / 12.0, 0.25)),
+                    coarse.Brightness, coarse.Sky, coarse.ZonalAlbedo2, coarse.ZonalAlbedo4, coarse.ZonalAlbedo1,
+                    coarse.HaloFraction, coarse.PsfSigma > 0 ? coarse.HaloWidth / coarse.PsfSigma : 3 };
                 return FitAt(plane, width, height, seed[0], seed[1], seed[2], options, (seed, coarse.SunSide), 30);
             }
         }
@@ -198,19 +226,23 @@ public static class PlanetaryLimbFit
         var (sky, peak) = SkyAndPeak(observed);
 
         // Which end of the equator the sun lights is not known without the image's orientation on the sky, so both are
-        // fitted and the better kept (a seed carries the side its coarse fit chose); with no phase there is one fit.
+        // fitted and the better kept (a seed carries the side its coarse fit chose); with no phase there is one fit. Nor is
+        // which end of the axis is north, which matters once the lit side is tilted off the equator: the model counts the
+        // tilt toward the end the axis angle points to, so both ends are started.
         var sides = seed is { } given ? [given.SunSide]
             : options.PhaseAngleDeg <= 0 ? [0]
             : options.SunSide is { } known ? [known]
             : new[] { 1, -1 };
         var startAxisAngleDeg = seed is null ? AxisFromShape(plane, width, height, startX, startY, startRadius, (sky + peak) / 2) : 0;
+        var ends = seed is not null || options.PhaseAngleDeg <= 0 || options.SunTiltDeg == 0 ? [0.0] : new[] { 0.0, Math.PI };
 
         LimbFit? best = null;
-        foreach (var side in sides)
+        foreach (var (side, end) in Combinations(sides, ends))
         {
             var model = new DiskModel(pixels, width, height, options, side, startX, startY, startRadius);
-            Span<double> start = seed is { } s ? s.Parameters : [startX, startY, startRadius, startAxisAngleDeg * Math.PI / 180, 0.9, 1.5, peak - sky, sky];
-            Span<double> step = [1e-3, 1e-3, 1e-3, 1e-5, 1e-4, 1e-4, 1e-4 * Math.Max(peak - sky, 1e-6), 1e-4 * Math.Max(peak - sky, 1e-6)];
+            Span<double> start = seed is { } s ? s.Parameters
+                : [startX, startY, startRadius, (startAxisAngleDeg * Math.PI / 180) + end, 0.9, 1.5, peak - sky, sky, 0, 0, 0, 0.05, 3];
+            Span<double> step = [1e-3, 1e-3, 1e-3, 1e-5, 1e-4, 1e-4, 1e-4 * Math.Max(peak - sky, 1e-6), 1e-4 * Math.Max(peak - sky, 1e-6), 1e-4, 1e-4, 1e-4, 1e-4, 1e-3];
             var fit = LevenbergMarquardt.Fit(start, observed.Length, (p, r) =>
             {
                 model.Evaluate(p, r);
@@ -223,14 +255,27 @@ public static class PlanetaryLimbFit
             var q = fit.Parameters;
             var errors = fit.StandardErrors;
             errors[3] *= 180 / Math.PI;
-            var candidate = new LimbFit(q[0], q[1], Math.Abs(q[2]), Normalise(q[3] * 180 / Math.PI), q[4], Math.Abs(q[5]), q[6], q[7],
-                side, Math.Sqrt(2 * fit.Cost / observed.Length), observed.Length, errors, fit.Iterations, fit.Converged);
+            var north = ((q[3] * 180 / Math.PI % 360) + 360) % 360;
+            var candidate = new LimbFit(q[0], q[1], Math.Abs(q[2]), Normalise(north), q[4], Math.Abs(q[5]), q[6], q[7],
+                side, Math.Sqrt(2 * fit.Cost / observed.Length), observed.Length, errors, fit.Iterations, fit.Converged, q[8], q[9], q[10], north,
+                DiskModel.HaloFraction(q[11]), DiskModel.HaloRatio(q[12]) * Math.Abs(q[5]));
             if (best is not { } current || candidate.RmsResidual < current.RmsResidual)
             {
                 best = candidate;
             }
         }
         return best;
+    }
+
+    private static IEnumerable<(int Side, double End)> Combinations(int[] sides, double[] ends)
+    {
+        foreach (var side in sides)
+        {
+            foreach (var end in ends)
+            {
+                yield return (side, end);
+            }
+        }
     }
 
     // The axis's direction from the disk's SHAPE: the second moments of the pixels above half the limb's level, within 1.3
@@ -313,7 +358,20 @@ public static class PlanetaryLimbFit
     /// <summary>
     /// The model, rendered supersampled on a grid covering the annulus, blurred by a separable Gaussian, and read at the
     /// fitted pixels. Parameters: centre x, centre y, equatorial radius, axis angle (radians), Minnaert k, PSF sigma,
-    /// brightness, sky.
+    /// brightness, sky, the zonal albedo's terms in the squared, fourth and first powers of the sine of latitude, and the
+    /// blur's wing: its share and its width over the core's.
+    /// <para>
+    /// Measured against a rendered Jupiter (T1, #1050), two things the model lacked moved the fit. A cell the limb crosses
+    /// was lit or dark by its centre alone, so the model jumped as the limb crossed a cell centre; on the sunlit limb of a
+    /// phased disk, whose brightness does not fall to zero at the edge, those jumps stalled the search in a worse minimum
+    /// (2.4 % small on a uniform disk the truth fitted to 0.2 %). A cell is now lit by the fraction of it inside the limb.
+    /// And a uniform albedo read Jupiter's darker polar regions as a smaller disk (2.5 % small even started from the
+    /// truth), which the zonal albedo absorbs, its odd term the difference between the hemispheres. The sun is where the
+    /// ephemeris puts it, off the equator (<see cref="LimbFitOptions.SunTiltDeg"/>), with its latitude counted from the
+    /// observer's (<see cref="LimbFitOptions.SubObserverLatitudeDeg"/>). And a single Gaussian blur, against seeing's Moffat
+    /// wings and the telescope's diffraction rings, left the radius 0.4 to 0.7 % large; the blur has a second, wider
+    /// Gaussian for its wing.
+    /// </para>
     /// </summary>
     private sealed class DiskModel
     {
@@ -327,6 +385,13 @@ public static class PlanetaryLimbFit
         private readonly int _gridHeight;
         private readonly double[] _grid;
         private readonly double[] _scratch;
+        private readonly double[] _sharp;
+        private readonly double[] _wing;
+
+        // The wing's share, kept in [0, 0.5), and its width over the core's, kept above one, whatever the search tries.
+        public static double HaloFraction(double raw) => 0.5 * Math.Clamp(raw, 0, 0.999);
+
+        public static double HaloRatio(double raw) => 1 + Math.Abs(raw - 1);
 
         public DiskModel(List<int> pixels, int width, int height, LimbFitOptions options, int sunSide, double x0, double y0, double radius)
         {
@@ -342,16 +407,23 @@ public static class PlanetaryLimbFit
             _gridHeight = (int)(Math.Ceiling(2 * reach) * Supersample);
             _grid = new double[_gridWidth * _gridHeight];
             _scratch = new double[_gridWidth * _gridHeight];
+            _sharp = new double[_gridWidth * _gridHeight];
+            _wing = new double[_gridWidth * _gridHeight];
         }
 
         public void Evaluate(ReadOnlySpan<double> p, Span<double> destination)
         {
             var (x0, y0, a, theta, k, sigma, brightness, sky) = (p[0], p[1], Math.Abs(p[2]), p[3], p[4], Math.Abs(p[5]), p[6], p[7]);
+            var (c2, c4, c1) = (p[8], p[9], p[10]);
+            var (halo, ratio) = (HaloFraction(p[11]), HaloRatio(p[12]));
             var b = a * _options.AxisRatio;
             var (cos, sin) = (Math.Cos(theta), Math.Sin(theta));
             var phase = _sunSide == 0 ? 0 : _options.PhaseAngleDeg * Math.PI / 180;
-            // The sun in the disk frame (u along the equator, v along the axis, w toward the observer), near the equator.
-            var (su, sw) = (_sunSide * Math.Sin(phase), Math.Cos(phase));
+            var tilt = _options.SunTiltDeg * Math.PI / 180;
+            var (sinD, cosD) = Math.SinCos(_options.SubObserverLatitudeDeg * Math.PI / 180);
+            // The sun in the disk frame (u along the equator, v along the axis toward the end the axis angle points to, which
+            // the model takes as north, w toward the observer).
+            var (su, sv, sw) = (_sunSide * Math.Sin(phase) * Math.Cos(tilt), Math.Sin(phase) * Math.Sin(tilt), Math.Cos(phase));
             var cell = 1 / Supersample;
 
             for (var gy = 0; gy < _gridHeight; gy++)
@@ -366,21 +438,43 @@ public static class PlanetaryLimbFit
                     var v = ((dx * cos) + (dy * sin)) / b;
                     var u = ((-dx * sin) + (dy * cos)) / a;
                     var rho2 = (u * u) + (v * v);
+                    // The fraction of the cell inside the limb, from the signed distance to it (to first order, (1 - rho^2)
+                    // over the gradient of rho^2, in pixels): a cell the limb crosses is lit in part, so the model moves
+                    // smoothly with the limb instead of jumping as it crosses a cell's centre.
+                    var gradient = 2 * Math.Sqrt((u * u / (a * a)) + (v * v / (b * b)));
+                    var coverage = gradient > 0 ? Math.Clamp(((1 - rho2) / gradient / cell) + 0.5, 0, 1) : 1;
                     double value = 0;
-                    if (rho2 < 1)
+                    if (coverage > 0)
                     {
-                        var mu = Math.Sqrt(1 - rho2);
-                        var mu0 = (u * su) + (mu * sw);
+                        // A cell the limb crosses takes the brightness just inside it.
+                        var mu = Math.Sqrt(Math.Max(1 - rho2, 0));
+                        var mu0 = (u * su) + (v * sv) + (mu * sw);
                         if (mu0 > 0)
                         {
-                            value = Math.Pow(mu0, k) * Math.Pow(Math.Max(mu, 1e-3), k - 1);
+                            // The sine of the point's latitude on the unit sphere: its along-axis coordinate turned by the
+                            // latitude the observer looks from.
+                            var z = Math.Clamp((v * cosD) + (mu * sinD), -1, 1);
+                            var z2 = z * z;
+                            var albedo = 1 + (c1 * z) + (c2 * z2) + (c4 * z2 * z2);
+                            value = coverage * albedo * Math.Pow(mu0, k) * Math.Pow(Math.Max(mu, 1e-3), k - 1);
                         }
                     }
                     _grid[(gy * _gridWidth) + gx] = value;
                 }
             }
 
-            Blur(sigma * Supersample);
+            // The core and the wing, each a separable Gaussian over the same sharp model.
+            Array.Copy(_grid, _sharp, _grid.Length);
+            Blur(_grid, sigma * Supersample);
+            if (halo > 0)
+            {
+                Array.Copy(_sharp, _wing, _sharp.Length);
+                Blur(_wing, ratio * sigma * Supersample);
+                for (var i = 0; i < _grid.Length; i++)
+                {
+                    _grid[i] = ((1 - halo) * _grid[i]) + (halo * _wing[i]);
+                }
+            }
 
             for (var i = 0; i < _pixels.Count; i++)
             {
@@ -402,8 +496,8 @@ public static class PlanetaryLimbFit
             }
         }
 
-        // A separable Gaussian of `sigma` cells, in place on the grid.
-        private void Blur(double sigma)
+        // A separable Gaussian of `sigma` cells, in place on `grid`.
+        private void Blur(double[] grid, double sigma)
         {
             if (sigma < 0.05)
             {
@@ -431,7 +525,7 @@ public static class PlanetaryLimbFit
                     for (var t = -radius; t <= radius; t++)
                     {
                         var xx = Math.Clamp(x + t, 0, _gridWidth - 1);
-                        s += kernel[t + radius] * _grid[row + xx];
+                        s += kernel[t + radius] * grid[row + xx];
                     }
                     _scratch[row + x] = s;
                 }
@@ -446,7 +540,7 @@ public static class PlanetaryLimbFit
                         var yy = Math.Clamp(y + t, 0, _gridHeight - 1);
                         s += kernel[t + radius] * _scratch[(yy * _gridWidth) + x];
                     }
-                    _grid[(y * _gridWidth) + x] = s;
+                    grid[(y * _gridWidth) + x] = s;
                 }
             }
         }

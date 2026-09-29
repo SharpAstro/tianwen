@@ -95,4 +95,44 @@ public class OpticsPrimitiveTests
         otf[37].Magnitude.ShouldBeGreaterThan(1e-4, "inside the cutoff");
         otf[43].Magnitude.ShouldBeLessThan(1e-9, "past the cutoff there is nothing, whatever the pupil's shape inside it");
     }
+
+    [Theory]
+    [InlineData(32)]
+    [InlineData(64)]
+    public void AClearPupilsPsfHoldsAirysEncircledEnergy(int samplesAcross)
+    {
+        // Airy's encircled energy inside the first three dark rings (1.22, 2.23 and 3.24 lambda / D): 83.8, 91.0 and 93.8 %.
+        // A pupil drawn on a grid has a staircase edge, which scatters light wide; this bounds how much, at the sampling a
+        // render uses (about 46 samples across the Newtonian's pupil).
+        const int n = 256;
+        var pupil = new Pupil(samplesAcross).Rasterise(n, 1.0);
+        var psf = new double[n * n];
+        ShortExposurePsf.Compute(pupil, ReadOnlySpan<double>.Empty, n, psf);
+        // One PSF sample is lambda / (n spacing) radians, so lambda / D is n / samplesAcross samples.
+        var lambdaOverD = (double)n / samplesAcross;
+        double[] rings = [1.22, 2.23, 3.24];
+        double[] airy = [0.838, 0.910, 0.938];
+        for (var r = 0; r < rings.Length; r++)
+        {
+            var radius = rings[r] * lambdaOverD;
+            var inside = 0.0;
+            for (var y = 0; y < n; y++)
+            {
+                for (var x = 0; x < n; x++)
+                {
+                    var dx = x - (n / 2);
+                    var dy = y - (n / 2);
+                    if ((dx * dx) + (dy * dy) <= radius * radius)
+                    {
+                        inside += psf[(y * n) + x];
+                    }
+                }
+            }
+            TestContext.Current.TestOutputHelper?.WriteLine($"{samplesAcross} samples across: inside {rings[r]} lambda/D {inside:0.0000} (Airy {airy[r]:0.000})");
+            // Never short of Airy's (light scattered wide would be), and over it by at most what summing samples instead of
+            // integrating a peaked profile adds: 1.7 % at 8 samples a lambda / D, 0.9 % at 4.
+            inside.ShouldBeGreaterThan(airy[r] - 0.003);
+            inside.ShouldBeLessThan(airy[r] + 0.02);
+        }
+    }
 }
