@@ -1,6 +1,6 @@
 # Planetary restoration by measurement
 
-**Status: PARTIAL: R0 to R3 done** (written 2026-09-28, the user's request; R0 2026-09-29: the survey, the FITS video conversion and the tracked lossless crop; R1 2026-09-29: the ephemeris, the limb fit, which telescope; R2 2026-09-29: rendered truth, T1 passed, and a synthetic capture that matches the real one on the disk, its kill line firing on the sky's finest bands; R3 2026-09-30: the metrics, the limb's undershoot validated, the halves' agreement not, pending R7's blur). Milestone `planetary-restoration`: R0 #1048, R1 #1049, R2 #1050, R3 #1051, R4 #1052, R5 #1053, R6 #815, R7 #1054, R8 #1055, R9 #1056 (conditional).
+**Status: PARTIAL: R0 to R4 done** (written 2026-09-28, the user's request; R0 2026-09-29: the survey, the FITS video conversion and the tracked lossless crop; R1 2026-09-29: the ephemeris, the limb fit, which telescope; R2 2026-09-29: rendered truth, T1 passed, and a synthetic capture that matches the real one on the disk, its kill line firing on the sky's finest bands; R3 2026-09-30: the metrics, the limb's undershoot validated, the halves' agreement not, pending R7's blur; R4 2026-09-30: per frame, the Laplacian ranks an 8-bit capture's frames near chance and the mid bands rank them well, on the twin and truth-free on the real capture, the choice waiting on open question 4 and the per-point half on #1071). Milestone `planetary-restoration`: R0 #1048, R1 #1049, R2 #1050, R3 #1051, R4 #1052, R5 #1053, R6 #815, R7 #1054, R8 #1055, R9 #1056 (conditional).
 
 The user asked for what the deep-sky training effort does, done for planetary lucky imaging:
 - which frames are usable;
@@ -395,6 +395,81 @@ Each metric lives in Lib and is shared by the CLI verb and the stack itself (`ti
   - The measured optimal keep fraction lands inside the parameter study's flat 5 to 25 % region.
   - Kill line: if the gap is not there, the Laplacian stays and the plan says so.
 
+### R4 results
+
+**Adopting it:** #1072, waiting on open question 4. **Measured per frame** (2026-09-30): the Laplacian ranks an 8-bit capture's frames barely better than chance, the mid bands rank them well, and a good ranking reaches the stack. The per-point half waits on a twin whose blur varies over the disk (below). Nothing is adopted on the twin until open question 4 is answered.
+
+- **The tool** (`tianwen planetary-grade`):
+  - **Every frame is scored by each estimator** on the disk's box, as `FrameGrader` does:
+    - the Laplacian and the gradient;
+    - `FftHighBandEstimator` in four bands matched to the a trous bands 1 to 4 (fft1 0.25 to 0.5 cycles a pixel, down to fft4 0.03 to 0.06), each raw and debiased by the noise read off the frequency plane's corners;
+    - the **reference gain**: the frame's least-squares gain in each a trous band on the stack of every frame.
+  - **With a truth, every frame is also scored by its true transfer** in each band, and by the Strehl `planetary-degrade` recorded. The frame is registered onto the truth by `CorrelationRegistrar`: a cross-correlation that is not whitened, its peak climbed by Newton's method, 0.002 px on a test disk.
+  - **A transfer is a least-squares gain, so the frame's noise does not bias it.** That is what makes it a per-frame truth on an 8-bit frame, and the reference gain its truth-free twin.
+  - **Each selection is then stacked at the same frame counts.** Registered onto the truth by the correlation, only the selection differs; stacked by the stacker's own aligner, the pipeline's loss shows too.
+- **Ranking the twin's 3,000 frames**, Spearman against the true transfer, and each score against itself one frame on. In brackets, the range over its three 1,000-frame segments:
+
+  | Estimator | Transfer, band 1 | Transfer, band 2 | Transfer, band 3 | Strehl | Lag 1 |
+  |---|---|---|---|---|---|
+  | Laplacian | +0.21 (0.16 to 0.25) | +0.19 (0.15 to 0.22) | +0.16 (0.10 to 0.20) | +0.18 | +0.01 |
+  | fft1, debiased | +0.08 | +0.07 | +0.06 | +0.08 | 0.00 |
+  | Gradient | +0.83 (0.81 to 0.85) | +0.87 (0.86 to 0.88) | +0.86 (0.83 to 0.87) | +0.80 | +0.31 |
+  | fft3, raw or debiased | +0.78 | +0.89 (0.88 to 0.89) | +0.89 (0.88 to 0.90) | +0.66 | +0.27 |
+  | Reference gain, band 2 | +0.90 | +0.99 | +0.94 | +0.75 | +0.31 |
+  | The true transfer, band 2 | +0.92 | 1 | +0.92 | +0.78 | +0.30 |
+
+- **The real capture, with no truth** (2022-09-03 Red, the same first 3,000 frames), each estimator against the reference gain:
+
+  | Estimator | Ref. gain, band 1 | Ref. gain, band 2 | Ref. gain, band 3 | Lag 1 | Lag 10 |
+  |---|---|---|---|---|---|
+  | Laplacian | +0.12 | +0.11 | +0.09 | +0.08 | +0.01 |
+  | Gradient | +0.71 | +0.86 | +0.91 | +0.91 | +0.42 |
+  | fft3, debiased | +0.77 | +0.92 | +0.85 | +0.89 | +0.27 |
+  | Reference gain, band 2 | +0.88 | 1 | +0.92 | +0.94 | +0.35 |
+
+- **What ranks and what does not:**
+  - **The Laplacian ranks the frames barely better than chance**, on the twin and on the real capture alike, and its score is white from one frame to the next where every measure of the seeing is coherent. At 8 bits a frame's finest scale is its noise, and so is a score read there: fft1, the finest FFT band, behaves the same.
+  - **The mid bands rank.** The gradient (Sobel is a smoothed derivative) and fft3 (0.06 to 0.12 cycles a pixel) reach +0.87 to +0.89 against the true transfer in bands 2 and 3. The reference gain ranks best, +0.99 in its own band, and needs no truth: it is the true transfer read against the stack instead.
+  - **Debiasing changes nothing here.** Raw and debiased FFT bands rank alike (fft3 +0.89 both), because the twin's brightness and noise are steady and the corners take the same from every frame. It can matter only where a frame's noise changes against its brightness: transparency, a gain change.
+  - **The real capture agrees, with no truth at all.** The gradient, fft3 and the reference gain rank its frames alike (0.85 to 0.92 in band 2), and each is coherent over about ten frames (lag 1 0.89 to 0.94), as the seeing is at 250 frames a second. The Laplacian agrees with none of them (at most +0.12), and its lag 1 is 0.08.
+- **The stacks**, registered onto the truth so only the selection differs. The fidelity error by band, at the keep that minimises it among 2, 5, 10, 20, 50 and 100 %:
+
+  | Selection | Band 1 | Band 2 | Band 3 | Best keep, band 1 |
+  |---|---|---|---|---|
+  | Every frame (3,000) | 0.746 | 0.512 | 0.251 | |
+  | Every n-th frame, any count (no selection) | 0.746 | 0.506 | 0.249 | 100 % |
+  | Laplacian | 0.723 | 0.496 | 0.246 | 20 % |
+  | Gradient | 0.649 | 0.433 | 0.225 | 5 % |
+  | fft3, debiased | 0.660 | 0.435 | 0.224 | 5 % |
+  | Reference gain, band 2 | 0.645 | 0.422 | 0.223 | 5 % |
+  | The true transfer, band 2 (the oracle) | 0.640 | 0.420 | 0.224 | 5 % |
+
+  - **A good selection reaches the stack.** At 5 %, band 1's transfer rises over no selection by +0.118 ± 0.012 with the gradient and +0.120 ± 0.013 with the reference gain (the three segments' spread), about 40 % of its value; band 2's by +0.064 ± 0.005 and +0.073 ± 0.008. The Laplacian's rises by +0.028 ± 0.011 and +0.014 ± 0.009.
+  - **This is why R3 found that selection barely moves the fidelity**: its selections were the Laplacian's. What R3 read as a static blur was mostly a selector near chance.
+  - **The stacker's own aligner costs as much again.** Every frame stacked by it leaves band 1's error at 0.805 against 0.746 registered onto the truth (band 2: 0.549 against 0.512). That is R5's.
+  - **The optimal keep differs by band**, measured from 0.33 % to 100 % (10 to 3,000 frames) with the reference gain's selection:
+    - band 1, the finest and the one the noise limits, is best from 5 to 10 % (150 to 300 frames), a flat bottom (0.645, 0.648), rising to 0.700 at 1 % and 0.692 at 50 %;
+    - band 2 is flat from the best 10 frames to the best 60 (0.419 to 0.422) and rises slowly beyond (0.430 at 5 %, 0.451 at 20 %);
+    - bands 3 and 4 are best from the fewest frames and move by less than 0.01 anywhere below 20 %.
+  - **So one keep is a compromise.** At 5 % band 1 is at its best and band 2 gives up 0.011 of error. A stack whose coarse bands came from fewer frames than its finest would take each band's best: for R8, which sets the gains per band (#1055).
+  - **A keep is a count of frames, not a fraction.** The noise that sets band 1's optimum falls with the frames stacked, so a longer capture keeps a smaller fraction.
+- **The pre-registered claims:**
+  - **A noise-debiased high-band estimator ranks the frames closer to their true quality than the Laplacian, by at least 0.1: it does, by 0.7** (fft3-debiased +0.89 against +0.19 in band 2, every segment above +0.88 against every one below +0.23). The debiasing is not why; the band is.
+  - **The optimal keep lands inside 5 to 25 %: for the band that decides it, at its lower edge.** Band 1's is 5 to 10 %; the coarser bands' lie below 1 % but hardly depend on it. The twin's frames also differ less than the real capture's (below), which moves the real optimum toward fewer frames, not more.
+  - **The kill line does not fire**, so the Laplacian does not stay by default. Which estimator replaces it, and at what keep, is chosen on the twin, so it waits on open question 4 (#1072); the real capture's agreement above is the evidence that does not.
+- **Found for R2:** the twin was calibrated on the quality's spread and its lag 1 as the Laplacian read them, and both runs now show that reading to be noise (0.082 real, 0.013 synthetic). Read by the reference gain instead, the twin matches the real capture on neither:
+  - **The real frames differ more.** Band 2's reference gain, p5 to p95 over its median, spans 0.87 to 1.10 on the real capture and 0.91 to 1.06 on the twin. The twin therefore understates what selection can gain on the real capture, not overstates it.
+  - **The real quality is coherent for about ten frames** (lag 1 0.94, lag 10 0.35), the twin's for one or two (lag 1 0.31). Its free air, at 22 m/s, turns the quality over far faster than the sky did. A ranking of single frames does not care; anything that follows the seeing from frame to frame does.
+  - Both are tracked with the per-point twin (#1071).
+
+#### R4 per-point quality needs a twin whose blur varies over the disk
+
+**Issue:** #1071.
+
+`PlanetaryDegrade` applies one PSF to a whole frame, and the calibrated twin has no warp. On it, a point's quality is its frame's up to noise, and no per-point estimator can be ranked. The alignment-point stack weights each pixel by `FrameSharpnessMap`, a smoothed Sobel energy (the family that ranks frames well), and each frame by the Laplacian's score (which does not). Measuring the per-point half needs:
+- the free air at an altitude, so points a few arcseconds apart look through different parts of it, calibrated against the real capture's warp (R2: 0.787 px RMS a point, its correlation length at most 9 px);
+- the quality's spread over the frames and its coherence from one to the next matched to the real capture's, both read by the reference gain.
+
 ## R5 Alignment points and the dewarp
 
 **Issue:** #1053 (feeds #817).
@@ -567,7 +642,7 @@ Each metric lives in Lib and is shared by the CLI verb and the stack itself (`ti
    - the ASI462MC Jupiter and Saturn of 2021-12-16 (raw);
    - the 2022-10-09 Jupiter, for its AutoStakkert and WinJUPOS references.
 3. ~~The scratch root~~ **answered 2026-09-28:** `D:/Astro-Dataset/planetary`, keeping 109 GB free on `D:`. The 7z archives are unpacked one member at a time and cropped (R0). **2026-09-29:** the originals are kept, and the crops are working copies on the SSD.
-4. **May the synthetic capture choose a parameter measured on the disk alone, while its sky's finest bands stay unmatched?** R2's kill line fired on the sky ring's bands 1 to 3 (1.4 to 1.5 times the real, beyond their sampling noise) and on nothing measured on the disk (R2 part 2, the verdict). Every parameter R3 to R8 names is measured on the disk. Until this is answered, R3 builds its metrics on the synthetic capture but chooses nothing on it.
+4. **May the synthetic capture choose a parameter measured on the disk alone, while its sky's finest bands stay unmatched?** R2's kill line fired on the sky ring's bands 1 to 3 (1.4 to 1.5 times the real, beyond their sampling noise) and on nothing measured on the disk (R2 part 2, the verdict). Every parameter R3 to R8 names is measured on the disk. Until this is answered, R3 builds its metrics on the synthetic capture but chooses nothing on it. **R4 asks it first:** which estimator replaces the Laplacian, and at what keep. On the twin the gradient, fft3 and the reference gain rank frames at +0.87 to +0.99 against the Laplacian's +0.19, and on the real capture the same three agree with each other truth-free while the Laplacian agrees with none, so the estimator's choice does not rest on the twin alone; the keep does.
 
 ## Sources
 

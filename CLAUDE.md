@@ -949,6 +949,13 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   capture only once it ranks candidate stacks as its truth-based twin does on a synthetic one** (Spearman at least 0.8). The limb's
   undershoot does (+0.95); the two halves' agreement does not (it sees noise, never a per-band gain or the blur), and waits on R7's
   measured PSF.
+- **A frame's quality is read in the MID bands, never the finest, and `tianwen planetary-grade` measures an estimator** (R4). At
+  8 bits a frame's finest scale is its noise: the Laplacian (the stack's default today) ranks the twin's frames at +0.19 against their
+  true transfer, its score is white from frame to frame (lag 1 0.01, the real capture 0.08) where the seeing is coherent, and its
+  selection stacks no better than none. The gradient, `FftHighBandEstimator` at 0.06 to 0.12 cycles a pixel and the **reference
+  gain** (a frame's least-squares gain per a trous band on the stack of every frame, noise-unbiased) rank at +0.87 to +0.99. **Never
+  judge a quality statistic read by the Laplacian**: R2's quality spread and lag 1 were noise. **Register onto a truth with
+  `CorrelationRegistrar`** (not whitened, peak climbed by Newton's method), never a phase correlation, which follows the noise.
 - **Read the plan doc before touching the Canon path** -- it is a list of five things that fail
   SILENTLY. **Recentering is opt-in** (the user, 2026-09-28; it costs the loop about 15 ms a frame at full frame), and
   so is the mount jog, whose **sign is uncalibrated**.
