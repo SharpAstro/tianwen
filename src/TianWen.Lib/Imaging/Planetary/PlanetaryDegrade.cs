@@ -18,6 +18,9 @@ public sealed record DegradeOptions(Pupil Pupil, double WavelengthM)
     /// <summary>The Fried parameter at 500 nm.</summary>
     public double R0M { get; init; } = 0.05;
 
+    /// <summary>The turbulence's outer scale, in metres (infinite for Kolmogorov's): what bounds the disk's seeing motion.</summary>
+    public double OuterScaleM { get; init; } = double.PositiveInfinity;
+
     /// <summary>The wind that carries the phase screen across the pupil, in metres a second.</summary>
     public double WindMps { get; init; } = 10;
 
@@ -239,7 +242,7 @@ public static class PlanetaryDegrade
         ShortExposurePsf.Compute(pupil, ReadOnlySpan<double>.Empty, PsfGrid, diffraction);
         var diffractionPeak = Max(diffraction);
         var screenSamples = Math.Max(options.ScreenSamples, PsfGrid);
-        var screen = new EvolvingPhaseScreen(screenSamples, spacing, options.R0M, new Random(options.Seed));
+        var screen = new EvolvingPhaseScreen(screenSamples, spacing, options.R0M, new Random(options.Seed), options.OuterScaleM);
         // Phase in radians at 500 nm, where r0 is stated, scaled to the imaging wavelength (the path difference is achromatic).
         var phaseScale = 500e-9 / options.WavelengthM;
         var (windX, windY) = (options.WindMps * Math.Cos(options.WindAngleDeg * Math.PI / 180), options.WindMps * Math.Sin(options.WindAngleDeg * Math.PI / 180));
@@ -399,8 +402,17 @@ public static class PlanetaryDegrade
                 double value;
                 if (hasWarp)
                 {
-                    var (wx, wy) = WarpField.Sample(warp, windowPx, ((x + 0.5) / os) - 0.5, ((y + 0.5) / os) - 0.5);
-                    value = Bilinear(field, fine, x - (wx * os), y - (wy * os));
+                    // Light is moved, never made: the value is the field's at the point the warp brought here, times the
+                    // Jacobian of that map, det(I - grad w). Without it a warp of 0.35 px put 0.35 % of frame-to-frame jitter
+                    // into the disk's light, three times the real capture's.
+                    var (px, py) = (((x + 0.5) / os) - 0.5, ((y + 0.5) / os) - 0.5);
+                    var (wx, wy) = WarpField.Sample(warp, windowPx, px, py);
+                    var (xPlus, xMinus) = (WarpField.Sample(warp, windowPx, px + 0.5, py), WarpField.Sample(warp, windowPx, px - 0.5, py));
+                    var (yPlus, yMinus) = (WarpField.Sample(warp, windowPx, px, py + 0.5), WarpField.Sample(warp, windowPx, px, py - 0.5));
+                    var (dxdx, dydx) = (xPlus.X - xMinus.X, xPlus.Y - xMinus.Y);
+                    var (dxdy, dydy) = (yPlus.X - yMinus.X, yPlus.Y - yMinus.Y);
+                    var jacobian = ((1 - dxdx) * (1 - dydy)) - (dxdy * dydx);
+                    value = Bilinear(field, fine, x - (wx * os), y - (wy * os)) * jacobian;
                 }
                 else
                 {
