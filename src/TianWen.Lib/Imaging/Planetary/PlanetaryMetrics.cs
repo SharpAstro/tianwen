@@ -192,8 +192,11 @@ public static class PlanetaryMetrics
     }
 
     /// <summary>
-    /// How far below the sky the limb's profile falls just outside it (1 to 1.3 radii), in the sky's robust sigmas (per pixel,
-    /// beyond 2.5 radii), zero when it never does: the dark ring a sharpener or a deconvolution leaves outside a bright edge.
+    /// How far below the sky the limb's profile falls just outside it (1 to 1.3 radii), in the disk's brightness (a normalised
+    /// plane's units), zero when it never does: the dark ring a sharpener or a deconvolution leaves outside a bright edge.
+    /// Measured against the sky's median beyond 2.5 radii. Counted in the sky's noise instead, as the plan first had it, it
+    /// read the stack's noise as much as its ringing: one sharpening on 2022-09-03's synthetic twin went from 840 to 5,700
+    /// sky sigmas as the frames stacked went from 60 to 3,000, because the sky's noise fell and the ring did not.
     /// </summary>
     public static double LimbUndershoot(ReadOnlySpan<float> plane, int width, int height, MetricDisk disk)
     {
@@ -213,8 +216,7 @@ public static class PlanetaryMetrics
         {
             return double.NaN;
         }
-        var (median, mad) = StatisticsHelper.MedianAndMad(sky.ToArray());
-        var sigma = 1.4826 * mad;
+        var median = StatisticsHelper.MedianFast(sky.ToArray());
         var lowest = double.PositiveInfinity;
         foreach (var v in profile)
         {
@@ -223,7 +225,7 @@ public static class PlanetaryMetrics
                 lowest = Math.Min(lowest, v);
             }
         }
-        return sigma > 0 && double.IsFinite(lowest) ? Math.Max(0, median - lowest) / sigma : double.NaN;
+        return double.IsFinite(lowest) ? Math.Max(0, median - lowest) : double.NaN;
     }
 
     /// <summary>
