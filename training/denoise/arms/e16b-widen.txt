@@ -1,0 +1,10 @@
+# E16b's widened sessions (training/denoise/e16b_widen_select.py over the 2026-09-29-full bright-cell count):
+# ranked by bright cells, E16a's own, flip halves, the test split, the eval fields and their overlapping plates out,
+# taken until the arm holds 150 bright cells over three sessions. The pool ran out first: these six give 41 cells, 45
+# with E16a's own 4, under the 150 (denoiser-training.md, E16b's amendment); the arm waits on the owner.
+QHYCCD-QHY294C/IDAS-LPS-D3/Omega-Cen-Cluster/2026-02-20|QHY294PROC|ome Cen Cluster
+ZWO-ASI533MC-Pro/IDAS-LPS-D3/Omega-Cen-Cluster/2024-02-16|ZWO ASI533MC Pro|Omega Cen 120s
+SVBONY-SV605CC/Optolong-L-Ultimate-3nm/Tarantula-Nebula/2025-11-01|SVBONY SV605CC|Tarantula Nebula|Optolong L-Ultimate 3nm
+ZWO-ASI585MC-Pro/Unidentified-Broadband/Tarantula-Nebula/2024-10-02|ZWO ASI585MC Pro|Tarantula Neb  ZS61 ASI585 0x8 120s 7o 252g -10deg 66rb
+ZWO-ASI533MC-Pro/IDAS-LPS-D3/Large-Magellanic-Cloud/2023-09-15|ZWO ASI533MC Pro|LMCSamyang RGB ASI533mc
+ZWO-ASI533MC-Pro/UV-IR-Cut/Tarantula-Nebula/2022-12-01|ZWO ASI533MC Pro|Tarantula Neb

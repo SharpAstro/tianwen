@@ -459,7 +459,7 @@ Settled by the campaign; restated so no run re-derives them.
 | **E14** | The ring fix alone (run log, E14): E13's `pool` arm byte for byte on `n2n-pool-rf`, the same pool re-exported after the canvas-ring fix, three seeds; scored on the old eval caches AND on ring-fixed ones built from 2026-09-25-full. `run-poolrf.ps1` (training), `run-poolrf-score.ps1`, `run-poolrf-evalrf.ps1`. Trained 2026-09-27, ~54 min a seed. **DONE 2026-09-27: not killed** (run log, "E14 on the ring-fixed caches"). Ring-fixed, the primary read: R poolrf 22.52 (seed sd 4.91) against pool 23.75 (sd 0.89), -1.23 inside the 2.04 threshold; the frontier is worse on eta Car and the Skull, better on Horsehead. Old caches: 18.83 against 21.74 (prediction 2 holds). E13's redistribution survives the fix (prediction 3). E12's `conv` leads both domains (29.18 ring-fixed). | ~3 h GPU, ~2 h bake | stretch |
 | **E15** | E12's recipe on data that matches inference (run log, E15): the E10 control cache re-exported after the ring fix (`n2n-bb-ctl-rf`, the same 16 sessions and cells, 9 of them with a stretch the fix moves), then `run-converge.ps1`'s training line exactly, four seeds; every model re-scored in one pass on E14's ring-fixed caches, the shipped `e2_wide_s2` as a reference. `run-e15.ps1`, pre-registered in its header. The ship candidate. **DONE 2026-09-28: not killed, four of five predictions hold** (run log, "E15's result"): R `convrf` 29.78 against `conv` 29.18, and its seed sd 0.58 against 4.53; the frontier against `conv` is worse on one field of ten readable, against the shipped model better on seven. Prediction 5 (the moves concentrate on broadband) fails. Every model, the shipped one included, smooths away real structure in a bright emission core. | 1 h 28 min export and prepare, 2 h 57 min for four seeds and the scoring | stretch, ship |
 | **E16a** | The per-pixel noise plane alone (run log, "Detail kept" and E16a): E15's cells and recipe exactly, `--cond-map` in place of `--cond`, the tiles proved byte-identical to `n2n-bb-ctl-rf`'s so the plane is the only difference. Scored on the `-rfs` eval caches in two conditions: the half-A planes as estimated (`tianwen dataset noise-planes`) and with each field's anchor taken from its half pairs (`--plane-truth-anchor`, the primary). `run-e16a.ps1`, pre-registered in its header. **DONE 2026-09-28: predictions 1, 2 and 4 hold, 3 misses toward more removal, 5 holds for removal only** (run log, "E16a's result"). Brightest-level detail kept 0.995 against `convrf`'s 0.849, R 33.22 against 29.78. By the error left per level (added after the pre-registration), `convmap` is the first model that leaves less error than its input in the sky and the middle levels, and that leaves the bright levels at about the input's own error, where every earlier model is 1.3 to 34 times worse. It does not yet denoise a bright level, and under today's estimate it over-reads the noise on nine fields and spends stars (R 41.21, frontier worse on five). | 1 h 17 min export and prepare, 4 h 49 min for four seeds, 16 to 20 min per scoring pass | conditioning |
-| **E16b** | PRE-REGISTERED 2026-09-29, not started (run log, "E16b, pre-registered"). Two arms on the recipe-3 store, seeds interleaved so a stop leaves matched pairs: `convmap3`, E16a's cells with the noise injected per channel from each session's quiet-block calibration (the control), and `convmapb`, the same plus bright cells. Bright eval cells are added so the bright levels read on more than two fields. E16a's error left says what it is for: above 0.45 `convmap` keeps a bright level exactly as it came (0.97 to 1.04), so the arm should LOWER that error, not just hold detail kept. | two exports, eight seeds at about 70 min each, three scoring passes | data |
+| **E16b** | PRE-REGISTERED 2026-09-29 and amended before any of its data existed (run log, "E16b, pre-registered" and its amendment); `run-e16b.ps1`. Two arms on the recipe-3 store, seeds interleaved so a stop leaves matched pairs: `convmap3`, E16a's cells with the noise injected per channel from each session's half pairs (the control), and `convmapb`, the same plus bright cells, from E16a's sessions and a widened pool. Bright eval cells are added so the bright levels read on more than two fields. E16a's error left says what it is for: above 0.45 `convmap` keeps a bright level exactly as it came (0.97 to 1.04), so the arm should LOWER that error, not just hold detail kept. | one export, eight seeds at about 70 min each, three scoring passes | data |
 
 Every arm: pre-register predictions in the run script header; three seeds; one prepared cache per
 arm, never edited between runs; launch multi-hour jobs detached (`Start-Process`), never through the
@@ -2400,3 +2400,62 @@ for the deconvolver, where the magnitude is 3.7 dB of 4. The per-band transfer t
 already in the scorer: detail kept is that transfer against half B, and error left is the other half. One lead to
 read before the injection model is revised again is its reference [29], "Denoising the deep sky: physics-based
 CCD noise formation for astronomical imaging" (ECCV 2026, arXiv 2601.23276).
+
+#### E16b, amended before any export, cache or model of it existed (2026-09-29, evening)
+
+Building what the entry above describes found four things it had wrong or left open. Each change was made before any
+E16b data was produced, and none touches a prediction or a kill line.
+
+- **The anchor is the session's HALF PAIRS, not its subs' recorded calibrations** ("the injected noise is anchored per
+  channel on the half pairs"). A sub's calibration is in the sub's own units, and the stacker normalises every sub
+  before integrating it without the manifest recording by how much, so there is no known way onto the master's scale.
+  The two half-masters are on it by construction (the master's own unit division), their difference holds no
+  structure, and it is the truth the whole estimator campaign was scored against. `HalfPairNoise` takes each stored
+  half tile back to linear through its own recorded stretch, differences the two over the quiet pixels of every cell
+  the bake has (master level in [0.15, 0.30), the 16 px rim out, the mask the per-channel anchor was validated on) and
+  gives one calibration per channel for the session: sigma of a half is 1.4826 MAD(A - B) / sqrt 2, one sub's is that
+  times sqrt(N / 2), so at the master's own depth the plane reads the master's own noise whatever N is. On a synthetic
+  bake with green at half red's noise it recovers every channel within 1 percent, and each channel's injected noise
+  matches its own prediction at 1.000 (`TheHalfPairAnchorCalibratesAndInjectsEachChannelOnItsOwnNoise`).
+- **D2 is read against the half pairs, pixel by pixel** (`tianwen dataset noise-check`): per channel, the robust spread
+  of (A - B) / sqrt 2 divided by the sigma the anchor predicts for a half at the master's level, on the cells the
+  export writes. On quiet cells it tests the implementation, since the anchor was calibrated on the same sky; on
+  bright cells it tests the shot-noise ramp, which is the part that is extrapolated. A quiet cell is one with under
+  1 percent of its level at 0.45 or more: star cores alone reach that after the low-pass, so "none" would have left
+  almost no real cell quiet. On the synthetic bake the half-pair anchor reads 0.99 to 1.01 and the old sub-MAD anchor
+  0.76 / 0.38 / 0.56, green's the worst because channel 0's noise was carried to it.
+- **The eval cells' level is read off half B, the training cells' off the master.** The scorer bins every pixel by
+  half B's level and the model sees a training draw at the master's stretch, so each list reads the frame its consumer
+  reads; the rule itself is the one `DatasetBrightCells` rule.
+- **D3's "readable"** is the scorer's own test on the two bands the predictions read: numbers, not dashes, in the 0-1 px
+  and 1-2 px bands of the field's reference line.
+- **D1 as written would have failed on rounding, so it now says what equality the stores allow.** Compared before the
+  export, the recipe-3 store and `2026-09-25-full` hold the same 300 P0 cells in fourteen of the sixteen control
+  sessions, but not one master tile is the same byte for byte: they differ by at most two fp16 steps (4.9e-4 stretched,
+  mean 0). COO-71's retained master is itself a different file (re-stacked), while the Pleiades' is byte-identical and its
+  tiles still differ in the last bit, so both the stack and the tile stretch moved at rounding level. In the Pleiades
+  (train) and Triangulum (val) 2 of 300 P0 cells moved, which reshuffles their seeded pick. D1 is therefore: E16a's cells
+  in every session but those two, and on every shared cell a clean tile within 2 fp16 steps of E16a's, mean under 1e-5
+  (`e16b_d1.py`). Its purpose, attributing the control's difference from E16a to the noise model, holds on the fourteen.
+
+**The widening ran and fell short, so the arm waits on the owner and the control runs alone.** E16a's fourteen sessions
+hold 4 bright cells, all on the Tarantula (`tianwen dataset bright-cells`, the export's 120-cell sample left out), under
+the rule's 150 over three sessions. Ranked over the whole store (190 session ids, `bright-all.log`) the bright cells are
+where the eval fields are: eta Car (39, 31, 16, 11 cells on four nights besides the eval one), the Lagoon (31, 24, 16,
+10), Orion (26, 17, 9), whose plate overlaps V1045 Ori and the Horsehead. The rule's exclusions (the test split, the eval
+fields, plates overlapping an eval field's, each taken as a circle of its half-diagonal, masters with no position, and
+flip halves as the same sky twice; `training/denoise/e16b_widen_select.py` over `e16b_master_fields.py`'s plates) leave
+six sessions: Omega Cen twice (22 and 6, a globular core,
+which is bright starlight rather than nebulosity), the Tarantula three more times (5, 4, 2) and the LMC (2), 41 cells
+(`arms/e16b-widen.txt`). With E16a's 4 that is 45 over seven sessions, a third of the 150 the design registered. The
+rule cannot be met, and changing it (a lower level, cells beyond P0's 300 per session, or other nights of an eval
+target) is a decision for the owner, not for the run. The control depends on none of it and is launched with
+`run-e16b.ps1 -Arms control`: the export, D1 to D3 and the eval caches as registered, the control's four seeds, and a
+control-only scoring pass under its own file names (`e16b-ctl-score-*`), so a full pass once the arm exists is never
+skipped as done.
+
+**How it is run** (`training/denoise/run-e16b.ps1`, this entry in its header). One export into
+`degraded/e16b`: the control's sessions with their 120-cell sample and the fourteen's bright cells, then each
+widened session's bright cells alone (`--listed-only`). Both caches are cut from it: the control leaves every listed
+cell out of the seeded pick (`--exclude-cells`), so it picks exactly E16a's cells, and the arm leaves them out and then
+adds them (`--extra-cells`). D1 to D3 run before the first seed, and the run stops on a failure.
