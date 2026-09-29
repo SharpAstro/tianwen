@@ -17,6 +17,11 @@
     itself records no provenance: a master carries no STACK_N and inherits the capture software's
     SWCREATE, so after the fact there is no way to ask a bake which code produced it.
 
+    To END a running bake, create `build.stop` in its output directory: the session in progress
+    finishes and is recorded, the run exits and says STOPPED, and the same command with `--resume`
+    picks up where it left off. That is also how a bake moves to a newer binary. Never stop the
+    process instead: a killed bake leaves a session half written.
+
 .PARAMETER Out
     Dataset output directory. A bake-provenance.json is written here.
 
