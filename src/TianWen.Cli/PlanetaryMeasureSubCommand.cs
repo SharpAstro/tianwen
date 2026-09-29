@@ -35,14 +35,17 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
         var framesOpt = new Option<int?>("--frames") { Description = "Only the capture's first frames." };
         var keepOpt = new Option<string>("--keep") { Description = "The keep fractions to stack at, a comma list.", DefaultValueFactory = _ => "0.02,0.05,0.2,0.5" };
         var sharpenOpt = new Option<string>("--sharpen") { Description = "The sharpening presets to stack with, a comma list of none, default, bandpass and combo.", DefaultValueFactory = _ => "none,default,combo" };
-        var methodOpt = new Option<string>("--method") { Description = "ap (alignment points, the full lucky-imaging path) or global.", DefaultValueFactory = _ => "ap" };
+        var methodOpt = new Option<string>("--method") { Description = "The stacking methods, a comma list of ap (alignment points with the per-point best-of weighting, the full lucky-imaging path), ap-flat (alignment points, each frame weighted as a whole) and global.", DefaultValueFactory = _ => "ap" };
+        var spacingOpt = new Option<string>("--ap-spacing") { Description = "The alignment points' spacings to stack at, a comma list (ap methods only).", DefaultValueFactory = _ => "24" };
+        var patchOpt = new Option<int>("--ap-patch") { Description = "The alignment points' patch, a power of two.", DefaultValueFactory = _ => 32 };
+        var noHalvesOpt = new Option<bool>("--no-halves") { Description = "Stack each candidate only, not its two halves: no halves' agreement, in a third of the time." };
         var cutoffOpt = new Option<double?>("--cutoff") { Description = "The telescope's cutoff in cycles a pixel, for the power past it (fabrication); none past Nyquist." };
 
         var command = new Command("planetary-measure",
             "Stacks a capture as each candidate asks, and its two halves, and measures every stack (R3): fidelity per wavelet band and the limb against a truth, the halves' agreement per band, the limb's undershoot; with a truth, how the truth-free metrics rank the candidates against the truth-based ones.")
         {
             Arguments = { captureArg },
-            Options = { truthOpt, planetOpt, utcOpt, framesOpt, keepOpt, sharpenOpt, methodOpt, cutoffOpt },
+            Options = { truthOpt, planetOpt, utcOpt, framesOpt, keepOpt, sharpenOpt, methodOpt, spacingOpt, patchOpt, noHalvesOpt, cutoffOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -82,43 +85,73 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
 
             var keeps = ParseList(parseResult.GetValue(keepOpt), double.Parse);
             var presets = ParseList(parseResult.GetValue(sharpenOpt), name => name);
-            var global = parseResult.GetValue(methodOpt)?.ToLowerInvariant() == "global";
+            var methods = ParseList(parseResult.GetValue(methodOpt), name => name.ToLowerInvariant());
+            if (methods.FirstOrDefault(m => m is not ("ap" or "ap-flat" or "global")) is { } unknown)
+            {
+                consoleHost.WriteError($"--method {unknown}: ap, ap-flat or global");
+                return 1;
+            }
+            var spacings = ParseList(parseResult.GetValue(spacingOpt), int.Parse);
+            var patch = parseResult.GetValue(patchOpt);
+            var halves = !parseResult.GetValue(noHalvesOpt);
             var cutoff = parseResult.GetValue(cutoffOpt);
             var stacker = new LuckyImagingStacker();
             MetricDisk? reference = truthDisk;
             var rows = new List<Row>();
-            consoleHost.WriteScrollable($"{Path.GetFileName(input)}: {frames} frames, {keeps.Length * presets.Length} candidates by {(global ? "global" : "alignment-point")} stacking, each with its two halves");
-            foreach (var preset in presets)
+            // A global stack has no alignment points, so it is stacked once, whatever the spacings.
+            var candidates = methods.SelectMany(m => m == "global" ? [(Method: m, Spacing: 0)] : spacings.Select(s => (Method: m, Spacing: s))).ToArray();
+            consoleHost.WriteScrollable($"{Path.GetFileName(input)}: {frames} frames, {candidates.Length * keeps.Length * presets.Length} candidates{(halves ? ", each with its two halves" : "")}");
+            foreach (var (method, spacing) in candidates)
             {
-                foreach (var keep in keeps)
+                foreach (var preset in presets)
                 {
-                    ct.ThrowIfCancellationRequested();
-                    var options = new PlanetaryStackOptions { KeepFraction = keep, Sharpen = SharpenFor(preset) };
-                    var full = await StackAsync(stacker, stream, options, global, ct);
-                    using var halfA = PlanetaryFrameSubset.Half(stream, 0);
-                    using var halfB = PlanetaryFrameSubset.Half(stream, 1);
-                    var a = await StackAsync(stacker, halfA, options, global, ct);
-                    var b = await StackAsync(stacker, halfB, options, global, ct);
-                    // Every stack onto one disk: the truth's, or the first stack's own.
-                    if (Register(full.Master, limbOptions, reference) is not { } fullPlane
-                        || Register(a.Master, limbOptions, reference ??= fullPlane.Disk) is not { } aPlane
-                        || Register(b.Master, limbOptions, reference) is not { } bPlane)
+                    foreach (var keep in keeps)
                     {
-                        consoleHost.WriteError($"keep {keep}, {preset}: a stack's limb could not be fitted");
-                        continue;
+                        ct.ThrowIfCancellationRequested();
+                        var options = new PlanetaryStackOptions
+                        {
+                            KeepFraction = keep,
+                            Sharpen = SharpenFor(preset),
+                            AlignmentPointSpacing = spacing > 0 ? spacing : new PlanetaryStackOptions().AlignmentPointSpacing,
+                            AlignmentPatchSize = patch,
+                            PerPointQualityWeighting = method == "ap",
+                        };
+                        var name = method == "global" ? "global" : $"{method} {spacing} px";
+                        var full = await StackAsync(stacker, stream, options, method, ct);
+                        // Every stack onto one disk: the truth's, or the first stack's own.
+                        if (Register(full.Master, limbOptions, reference) is not { } fullPlane)
+                        {
+                            consoleHost.WriteError($"keep {keep}, {preset}, {name}: the stack's limb could not be fitted");
+                            continue;
+                        }
+                        reference ??= fullPlane.Disk;
+                        var agreement = ImmutableArray<BandAgreement>.Empty;
+                        if (halves)
+                        {
+                            using var halfA = PlanetaryFrameSubset.Half(stream, 0);
+                            using var halfB = PlanetaryFrameSubset.Half(stream, 1);
+                            var a = await StackAsync(stacker, halfA, options, method, ct);
+                            var b = await StackAsync(stacker, halfB, options, method, ct);
+                            if (Register(a.Master, limbOptions, reference) is not { } aPlane || Register(b.Master, limbOptions, reference) is not { } bPlane)
+                            {
+                                consoleHost.WriteError($"keep {keep}, {preset}, {name}: a half's limb could not be fitted");
+                                continue;
+                            }
+                            agreement = PlanetaryMetrics.SplitHalf(aPlane.Plane, bPlane.Plane, width, height, reference.Value);
+                        }
+                        var disk = reference.Value;
+                        var row = new Row(keep, preset, name, full.FramesUsed,
+                            truth is null ? [] : PlanetaryMetrics.Fidelity(fullPlane.Plane, truth, width, height, disk),
+                            truth is null ? double.NaN : PlanetaryMetrics.LimbProfileError(fullPlane.Plane, truth, width, height, disk),
+                            agreement,
+                            PlanetaryMetrics.LimbUndershoot(fullPlane.Plane, width, height, disk),
+                            cutoff is { } c ? PlanetaryMetrics.PowerAbove(fullPlane.Plane, width, height, disk, c) : double.NaN);
+                        rows.Add(row);
+                        WriteRow(row);
                     }
-                    var disk = reference ?? fullPlane.Disk;
-                    var row = new Row(keep, preset, full.FramesUsed,
-                        truth is null ? [] : PlanetaryMetrics.Fidelity(fullPlane.Plane, truth, width, height, disk),
-                        truth is null ? double.NaN : PlanetaryMetrics.LimbProfileError(fullPlane.Plane, truth, width, height, disk),
-                        PlanetaryMetrics.SplitHalf(aPlane.Plane, bPlane.Plane, width, height, disk),
-                        PlanetaryMetrics.LimbUndershoot(fullPlane.Plane, width, height, disk),
-                        cutoff is { } c ? PlanetaryMetrics.PowerAbove(fullPlane.Plane, width, height, disk, c) : double.NaN);
-                    rows.Add(row);
-                    WriteRow(row);
                 }
             }
-            if (truth is not null && rows.Count >= 3)
+            if (truth is not null && halves && rows.Count >= 3)
             {
                 WriteRanking(rows);
             }
@@ -151,12 +184,12 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
     }
 
     // One candidate's stack and its metrics.
-    private sealed record Row(double Keep, string Preset, int FramesUsed, ImmutableArray<BandFidelity> Fidelity, double LimbError,
+    private sealed record Row(double Keep, string Preset, string Method, int FramesUsed, ImmutableArray<BandFidelity> Fidelity, double LimbError,
         ImmutableArray<BandAgreement> Halves, double Undershoot, double PowerPastCutoff);
 
-    private static async Task<PlanetaryStackResult> StackAsync(LuckyImagingStacker stacker, IPlanetaryFrameStream stream, PlanetaryStackOptions options, bool global, CancellationToken ct)
+    private static async Task<PlanetaryStackResult> StackAsync(LuckyImagingStacker stacker, IPlanetaryFrameStream stream, PlanetaryStackOptions options, string method, CancellationToken ct)
     {
-        return global ? await stacker.StackGlobalAsync(stream, options, ct) : await stacker.StackAsync(stream, options, ct);
+        return method == "global" ? await stacker.StackGlobalAsync(stream, options, ct) : await stacker.StackAsync(stream, options, ct);
     }
 
     // A stack's plane normalised on its own fitted disk and moved onto `onto`'s centre (or left where it is), with that disk.
@@ -194,13 +227,16 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
     private void WriteRow(Row row)
     {
         var inv = CultureInfo.InvariantCulture;
-        consoleHost.WriteScrollable(string.Create(inv, $"keep {row.Keep:0.###}, {row.Preset}: {row.FramesUsed} frames"));
+        consoleHost.WriteScrollable(string.Create(inv, $"keep {row.Keep:0.###}, {row.Preset}, {row.Method}: {row.FramesUsed} frames"));
         if (!row.Fidelity.IsDefaultOrEmpty)
         {
             consoleHost.WriteScrollable("    fidelity (transfer / error) by band: " + string.Join("  ", row.Fidelity.Select(f => string.Create(inv, $"{f.Band}: {f.Transfer:0.000} / {f.Error:0.000}"))));
             consoleHost.WriteScrollable(string.Create(inv, $"    limb profile against the truth: {row.LimbError:0.0000} RMS"));
         }
-        consoleHost.WriteScrollable("    halves' correlation by band: " + string.Join("  ", row.Halves.Select(h => string.Create(inv, $"{h.Band}: {h.Correlation:0.000}"))));
+        if (!row.Halves.IsDefaultOrEmpty)
+        {
+            consoleHost.WriteScrollable("    halves' correlation by band: " + string.Join("  ", row.Halves.Select(h => string.Create(inv, $"{h.Band}: {h.Correlation:0.000}"))));
+        }
         consoleHost.WriteScrollable(string.Create(inv, $"    limb undershoot: {row.Undershoot:0.0000} of the disk{(double.IsFinite(row.PowerPastCutoff) ? $"; power past the cutoff: {row.PowerPastCutoff:E2}" : "")}"));
     }
 
