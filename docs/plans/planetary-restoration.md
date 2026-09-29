@@ -1,6 +1,6 @@
 # Planetary restoration by measurement
 
-**Status: PARTIAL: R0, R1 and R2 done** (written 2026-09-28, the user's request; R0 2026-09-29: the survey, the FITS video conversion and the tracked lossless crop; R1 2026-09-29: the ephemeris, the limb fit, which telescope; R2 2026-09-29: rendered truth, T1 passed, and a synthetic capture that matches the real one on the disk, its kill line firing on the sky's finest bands). Milestone `planetary-restoration`: R0 #1048, R1 #1049, R2 #1050, R3 #1051, R4 #1052, R5 #1053, R6 #815, R7 #1054, R8 #1055, R9 #1056 (conditional).
+**Status: PARTIAL: R0 to R3 done** (written 2026-09-28, the user's request; R0 2026-09-29: the survey, the FITS video conversion and the tracked lossless crop; R1 2026-09-29: the ephemeris, the limb fit, which telescope; R2 2026-09-29: rendered truth, T1 passed, and a synthetic capture that matches the real one on the disk, its kill line firing on the sky's finest bands; R3 2026-09-30: the metrics, the limb's undershoot validated, the halves' agreement not, pending R7's blur). Milestone `planetary-restoration`: R0 #1048, R1 #1049, R2 #1050, R3 #1051, R4 #1052, R5 #1053, R6 #815, R7 #1054, R8 #1055, R9 #1056 (conditional).
 
 The user asked for what the deep-sky training effort does, done for planetary lucky imaging:
 - which frames are usable;
@@ -349,6 +349,37 @@ Each metric lives in Lib and is shared by the CLI verb and the stack itself (`ti
 - **Fabrication:** power above the diffraction cutoff against the input's. A restoration may not raise it.
 - **Truth-free versions for real captures:** split-half agreement per band (T2), the limb undershoot, and cutoff power where the capture samples the cutoff.
 - **Pre-registered:** each truth-free metric must rank candidate stacks as the truth-based metric does on the synthetic captures (Spearman at least 0.8) before any conclusion on a real capture rests on it. The Laplacian score, which rises with noise, is not a metric of the result anywhere in this plan.
+
+### R3 results
+
+**Done** (2026-09-30): the limb's undershoot passes; the halves' agreement fails and waits on R7's measured blur.
+
+- **The metrics** (`PlanetaryMetrics`; `tianwen planetary-measure <capture> --truth`):
+  - Every plane is normalised to a sky of 0 and a disk mean of 1. It is registered onto one disk (the truth's) by the limb fit, and moved by the Fourier shift theorem, exact for a band-limited plane where interpolating blurs the finest band. Distances are counted in radii of the ellipse (`MetricDisk`), so Jupiter's polar limb, 6.5 % inside its equatorial one, is limb and not sky.
+  - **Fidelity** per a trous band inside 0.9 radii: the transfer (the least-squares gain of the stack's band on the truth's) and the error left (the difference's RMS over the truth band's).
+  - **The halves' agreement** per band: two stacks by the same method from every other frame (`PlanetaryFrameSubset.Half`), their correlation, the power both hold, and the noise.
+  - **Ringing:** the limb profile's undershoot below the sky just outside it, and the profile's RMS against the truth's over 0.8 to 1.2 radii. The undershoot is counted in the disk's brightness. Counted in the sky's noise, as this section first had it, one sharpening read 840 to 5,700 sky sigmas as the frames stacked went from 60 to 3,000, because the sky's noise fell while the ring stayed.
+  - **Fabrication:** the power past the cutoff, where the grid samples it. It does not at 2022-09-03's prime focus, whose cutoff of 1.1 cycles a pixel lies past Nyquist.
+- **The validation**, on 2022-09-03's calibrated twin (R2, the first 3,000 frames): 18 candidates, keeping 2, 5, 10, 20, 50 and 100 % of the frames, each with no sharpening, `PlanetaryDefault` and `Combo`, stacked with alignment points, each with its two halves.
+
+  | Preset | Fidelity error, bands 1 to 5 (keep 5 %) | Transfer, band 3 | Limb undershoot | Limb profile error |
+  |---|---|---|---|---|
+  | None | 0.80, 0.54, 0.27, 0.11, 0.03 | 0.78 | 0 | 0.037 |
+  | `PlanetaryDefault` | 0.93, 0.71, 0.64, 0.52, 0.20 | 1.52 | 0.21 of the disk | 0.143 |
+  | `Combo` | 0.92, 0.65, 0.40, 0.31, 0.12 | 1.30 | 0.15 of the disk | 0.104 |
+
+  | Truth-free metric against its truth-based one | Spearman over the 18 |
+  |---|---|
+  | The limb's undershoot against the limb profile's error | **+0.95** |
+  | The halves' correlation against the fidelity error, bands 1 to 5 | -0.65, -0.40, +0.21, +0.32, +0.42 |
+
+- **The limb's undershoot passes** the pre-registration, and may judge ringing on a real capture.
+- **The halves' agreement fails it**, and no conclusion on a real capture rests on it (the kill line).
+  - Its correlation measures noise and nothing else. It rises with the frames stacked (0.60 to 0.98 in band 1) and is blind to a per-band gain, which scales both halves alike. What separates the candidates here is the sharpening, which it cannot see.
+  - A truth-free fidelity needs the blur the pipeline left. With R7's measured PSF, the truth's power in a band follows from the power both halves hold, and the error from the noise between them. The halves' agreement is revisited there.
+- **Found for R4 and R8:**
+  - **R4:** frame selection barely moves the fidelity on this twin. From 2 % of the frames to all of them, band 1's error goes from 0.806 to 0.813 and band 4's transfer from 0.930 to 0.928, because its blur is mostly static (R2: a still layer at the telescope and a wide scatter).
+  - **R8:** both presets over-sharpen this capture. `PlanetaryDefault` returns 1.5 times the truth in band 3, leaves more than twice the error of no sharpening there, and rings a fifth of the disk's brightness below the sky; `Combo` does less of each. R8 derives the gains from the measured blur and noise instead.
 
 ## R4 Which frames to keep
 
