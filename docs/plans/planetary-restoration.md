@@ -1,6 +1,6 @@
 # Planetary restoration by measurement
 
-**Status: PARTIAL: R0 to R4 done** (written 2026-09-28, the user's request; R0 2026-09-29: the survey, the FITS video conversion and the tracked lossless crop; R1 2026-09-29: the ephemeris, the limb fit, which telescope; R2 2026-09-29: rendered truth, T1 passed, and a synthetic capture that matches the real one on the disk, its kill line firing on the sky's finest bands; R3 2026-09-30: the metrics, the limb's undershoot validated, the halves' agreement not, pending R7's blur; R4 2026-09-30: per frame, the Laplacian ranks an 8-bit capture's frames near chance and the mid bands rank them well, on the twin and truth-free on the real capture, the choice waiting on open question 4 and the per-point half on #1071; R5 part 1 2026-09-30: phase correlation places 8-bit frames and points three times worse than a plain one, every stack better plain (#1074), and the real capture's warp visible only plain; part 2, the dewarp, under way). Milestone `planetary-restoration`: R0 #1048, R1 #1049, R2 #1050, R3 #1051, R4 #1052, R5 #1053, R6 #815, R7 #1054, R8 #1055, R9 #1056 (conditional).
+**Status: PARTIAL: R0 to R4 done** (written 2026-09-28, the user's request; R0 2026-09-29: the survey, the FITS video conversion and the tracked lossless crop; R1 2026-09-29: the ephemeris, the limb fit, which telescope; R2 2026-09-29: rendered truth, T1 passed, and a synthetic capture that matches the real one on the disk, its kill line firing on the sky's finest bands; R3 2026-09-30: the metrics, the limb's undershoot validated, the halves' agreement not, pending R7's blur; R4 2026-09-30: per frame, the Laplacian ranks an 8-bit capture's frames near chance and the mid bands rank them well, on the twin and truth-free on the real capture, the choice waiting on open question 4 and the per-point half on #1071; R5 part 1 2026-09-30: phase correlation places 8-bit frames and points three times worse than a plain one, every stack better plain (#1074), and the real capture's warp visible only plain; part 2 2026-09-30: the dewarp cannot follow this capture's warp, 0.6 px over 10 px, the mesh the stack applies recovering 0 to 3 % of it, and the kill line fires; part 3, the resampling and AutoStakkert, to come). Milestone `planetary-restoration`: R0 #1048, R1 #1049, R2 #1050, R3 #1051, R4 #1052, R5 #1053, R6 #815, R7 #1054, R8 #1055, R9 #1056 (conditional).
 
 The user asked for what the deep-sky training effort does, done for planetary lucky imaging:
 - which frames are usable;
@@ -524,6 +524,47 @@ Each metric lives in Lib and is shared by the CLI verb and the stack itself (`ti
   - Plain, the warp shows, and **the real capture has one**: coherent from one frame to the next (lag 1 0.173, where the no-warp twin reads 0.012), between the 0.5 and 1 px twins. Part 2 calibrates the twin's warp on this reading.
   - Plain, the statistic reads about 0.4 of the warp injected (0.39 px over the no-warp twin's in quadrature at 1 px), what the frame's mean over its points and a 16 px patch's averaging leave of a field 20 px long.
 - **For R4:** R4's pipeline stacks lost against the stacks registered onto the truth by the global aligner's error, and a global stack registered plain gains 0.02 to 0.10 of band 2's error back (above). Its error in pixels, plain, is part 2's to measure.
+
+### R5 results, part 2: the dewarp cannot follow this capture's warp
+
+**Measured** (2026-09-30) on 2022-09-03's twin with its warp calibrated plain, against the true warp `planetary-degrade` now records beside a capture (`<capture>.warp`). **The kill line fires for this capture:** the alignment points, their spacing, pooling and the reference geometry make no measurable difference; the parameter study's finding stands, now with a measurement behind it. Bilinear against Lanczos-3 resampling and the comparison with AutoStakkert's alignment are part 3, still #1053's.
+
+- **The twin's warp, calibrated on the plain statistic** (read plain, R5 part 1), one parameter at a time:
+
+  | | Real | 0.65 px, 20 px long | **0.65 px, 10 px long** |
+  |---|---|---|---|
+  | RMS a axis | 0.372 | 0.355 | 0.364 |
+  | Lag 1 | 0.173 | 0.194 | 0.215 |
+  | Correlation at 9 px | +0.01 | +0.13 | +0.05 |
+
+  The 10 px twin is the calibrated one. Its lag 1 reads a little high: the real warp turns over a little faster from frame to frame than the twin's (its correlation 0.9 a frame).
+- **The tools:**
+  - **Pooling** (`PlanetaryStackOptions.WarpPoolFrames`): every frame's points are read first, in capture order (`AlignmentPointTracks`). A frame's warp is each point's averaged over the frames either side, since a warp stays coherent for a few frames while one frame's match is as uncertain as the warp is large.
+  - **The median geometry** (`MedianGeometry`, the user's centroid idea): each point's median warp over the capture is taken out, so the stack lands where a feature lies on average, not where the reference frame's own warp put it.
+  - **The mesh's reach** (`MeshInfluence`) and `planetary-measure --pool --geometry --mesh-spacing --mesh-influence`.
+  - **`tianwen planetary-dewarp`**: the points read as the stacker reads them, against the recorded warp. It reports both the points' reading and the mesh the stack applies, sampled every 4 px over the disk they cover.
+- **What the dewarp recovers of the calibrated twin's warp** (3,000 frames, px RMS a axis; the warp left undewarped is 0.83 over the disk on the reference geometry, 0.60 on the median):
+
+  | Grid | The points' reading | The mesh the stack applies | Pooled over 1 to 4 frames |
+  |---|---|---|---|
+  | 32 px patches, 12 px apart; 24 px nodes, 48 px reach | 16 % of the warp (0.67, 0.72) | **1 %** (0.82, 0.83) | at most 3 % more at the points, nothing in the mesh |
+  | 16 px patches, 8 px apart; 8 px nodes, 12 px reach | 11 % (0.82, 0.79) | **3 %** (0.79, 0.82) | nothing |
+
+  - The 1 px twin: the points read 15 to 19 %, the finer grid 8 to 9 %.
+  - **Two limits, one for each patch size.** A 32 px patch averages over a warp that varies over 10 px; a 16 px patch is too noisy to place, and pooling does not rescue it, so noise is not the only limit. The mesh then blends the points over its reach and keeps almost nothing.
+- **The stacks agree**, keep 5 %, plain, band 1's error:
+
+  | Warp | Global | Points 12 px | Pooled 1, 2, 4 | Median geometry | Fine grid, pooled 0 to 4 |
+  |---|---|---|---|---|---|
+  | Calibrated | 0.832 | 0.825 | 0.826 (pooled 2) | 0.820 to 0.822 (the 20 px twin) | 0.827 to 0.828 |
+  | 1 px | 0.877 | 0.872 | 0.871 to 0.872 | 0.871 to 0.872 | |
+  | None | 0.764 | 0.751 | 0.756 to 0.757 | 0.753 | 0.756 to 0.757 |
+
+  - Every dewarp is within 0.005 of every other. The points beat a global stack by 0.005 to 0.013 only by refining the global aligner's own error; pooling costs a little with no warp, averaging away corrections that were real.
+- **The pre-registered claims:**
+  - **The warp's correlation length is shorter than twice the default 24 px spacing:** at 0.49"/px as well, not only 0.31"/px and finer. It is 9 px or less on the real capture, read plain, the twin's calibrated at 10.
+  - **The median reference cuts the residual warp by at least 20 % against the best-frame reference: it does not.** Against the truth's own geometry the points' reading is 0.513, 0.555 px on the median geometry and 0.570, 0.592 on the reference frame's, 8 % less; the mesh the stack applies moves neither.
+  - **The kill line fires.** The warp, 0.6 px RMS over 10 px, stays in every stack as blur, which R7's measured PSF has to carry. A capture whose warp varies over more than a patch, finer scales and larger disks, is where the dewarp would be tested again.
 
 ### R5a Drizzle, where the sampling calls for it
 
