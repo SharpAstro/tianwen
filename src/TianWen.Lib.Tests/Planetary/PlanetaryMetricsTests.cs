@@ -14,8 +14,8 @@ namespace TianWen.Lib.Tests;
 /// </summary>
 public class PlanetaryMetricsTests
 {
-    private const int Size = 128;
-    private static readonly MetricDisk Disk = new MetricDisk(63.7, 64.2, 30);
+    internal const int Size = 128;
+    internal static readonly MetricDisk Disk = new MetricDisk(63.7, 64.2, 30);
 
     [Fact]
     public void AStackIsItsOwnTruthInEveryBand()
@@ -150,7 +150,7 @@ public class PlanetaryMetricsTests
     }
 
     // A disk darkened to its limb (mu^0.8), crossed by belts at two angles, on a sky of zero.
-    private static float[] Banded()
+    internal static float[] Banded()
     {
         var plane = new float[Size * Size];
         for (var y = 0; y < Size; y++)
@@ -169,7 +169,7 @@ public class PlanetaryMetricsTests
     }
 
     // A separable Gaussian blur of sigma pixels, the edges held.
-    private static float[] Blur(float[] plane, double sigma)
+    internal static float[] Blur(float[] plane, double sigma)
     {
         var reach = (int)Math.Ceiling(4 * sigma);
         var kernel = Enumerable.Range(-reach, (2 * reach) + 1).Select(k => Math.Exp(-k * k / (2 * sigma * sigma))).ToArray();
@@ -203,7 +203,7 @@ public class PlanetaryMetricsTests
         return result;
     }
 
-    private static float[] Noisy(float[] plane, double sigma, Random random)
+    internal static float[] Noisy(float[] plane, double sigma, Random random)
     {
         return [.. plane.Select(v => (float)(v + (sigma * PhaseScreen.Gaussian(random))))];
     }
