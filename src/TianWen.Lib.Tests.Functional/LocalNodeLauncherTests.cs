@@ -142,6 +142,26 @@ public class LocalNodeLauncherTests
         File.Exists(options.SocketPath).ShouldBeFalse("nor anywhere else");
     }
 
+    /// <summary>
+    /// A node on a named socket that is up but slow to answer its first ask, as a loaded machine makes one, is waited for
+    /// rather than reported gone. #1070: a test's own node, serving, was reported as "No node answers" after one 2 s ask.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task ANamedNodeSlowToAnswerItsFirstAskIsWaitedFor()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (options, folder) = Isolated();
+        var named = Path.Combine(folder, "named.sock");
+        await using var node = await ImpostorNode.StartAsync(named, NodeWire.Version, holdsHardware: false, ct,
+            firstAnswerDelay: TimeSpan.FromSeconds(3));
+
+        var found = await Launcher(options with { NamedSocket = named }).FindOrStartAsync(ct);
+
+        found.Outcome.ShouldBe(LocalNodeOutcome.Found, found.Message);
+        found.Node.ShouldNotBeNull().NodeId.ShouldBe("impostor");
+        node.Answers.ShouldBeGreaterThan(1, "the first ask outran its budget, and a later one found the node");
+    }
+
     [Fact(Timeout = 60_000)]
     public async Task AMissingServerIsReportedWithWhereItWasLookedFor()
     {
