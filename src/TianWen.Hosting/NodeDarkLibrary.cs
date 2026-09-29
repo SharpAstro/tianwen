@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -27,10 +28,7 @@ internal sealed class NodeDarkLibrary(IDeviceHub hub, NodeJobs jobs, IHostedSess
     /// <summary>What the lease on the camera is called, which a refusal names.</summary>
     internal const string LeaseOwner = "dark library";
 
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope",
-        Justification = "The run passes to the node once IHostedSession.TryStartAsync accepts it, and the node disposes it when "
-            + "the next run replaces it or as the host stops: a hand-off through a method call, which CA2000 cannot follow. "
-            + "Every other way out, a throw included, disposes it in the finally.")]
+    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = NodeRuns.HandedToTheNode)]
     public async Task<ResponseEnvelope<DarkLibraryStateDto>> StartAsync(DarkLibraryRequestDto request)
     {
         if (request.Count < 1 || !double.IsFinite(request.ExposureSeconds) || request.ExposureSeconds <= 0 || request.Bin < 1)

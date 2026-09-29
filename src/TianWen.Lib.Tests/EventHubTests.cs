@@ -51,11 +51,21 @@ public class EventHubTests
         return socket;
     }
 
-    /// <summary>Waits until <paramref name="condition"/> holds, bounded by the test's own timeout (its token) and nothing shorter.</summary>
-    private static async Task UntilAsync(Func<bool> condition, CancellationToken ct)
+    /// <summary>
+    /// Waits until <paramref name="condition"/> holds, bounded by the test's own timeout (its token) and nothing shorter.
+    /// What it sees (<paramref name="seen"/>) goes to the test's output as it changes, as <c>NodeWait</c>'s does, so a test that
+    /// times out says how far it got: at the timeout xunit abandons the body, and an exception thrown then says nothing.
+    /// </summary>
+    private static async Task UntilAsync(Func<bool> condition, Func<string> seen, CancellationToken ct)
     {
+        string? last = null;
         while (!condition())
         {
+            if (seen() is var now && now != last)
+            {
+                TestContext.Current.TestOutputHelper?.WriteLine($"Waiting: {now}");
+                last = now;
+            }
             await Task.Delay(10, ct);
         }
     }
@@ -132,7 +142,7 @@ public class EventHubTests
             hub.Broadcast(Event(n));
         }
 
-        await UntilAsync(() => received.Count == 5, ct);
+        await UntilAsync(() => received.Count == 5, () => $"{received.Count} of 5 received", ct);
     }
 
     [Fact(Timeout = 10_000)]
@@ -150,7 +160,7 @@ public class EventHubTests
             hub.Broadcast(Event(n));
         }
 
-        await UntilAsync(() => first.Count == 100 && second.Count == 100, ct);
+        await UntilAsync(() => first.Count == 100 && second.Count == 100, () => $"{first.Count} and {second.Count} of 100 received", ct);
         var index = 0;
         foreach (var message in first)
         {
@@ -177,7 +187,7 @@ public class EventHubTests
             hub.Broadcast(Event(n));
         }
 
-        await UntilAsync(() => hub.ClientCount == 0, ct);
+        await UntilAsync(() => hub.ClientCount == 0, () => $"{hub.ClientCount} client(s) still attached", ct);
         stalled.Received(1).Abort();
     }
 
@@ -191,7 +201,7 @@ public class EventHubTests
 
         hub.Broadcast(Event(0));
 
-        await UntilAsync(() => hub.ClientCount == 0, ct);
+        await UntilAsync(() => hub.ClientCount == 0, () => $"{hub.ClientCount} client(s) still attached", ct);
         stalled.Received(1).Abort();
     }
 

@@ -28,10 +28,7 @@ namespace TianWen.Hosting;
 internal sealed class NodePlanetary(IDeviceHub hub, NodeJobs jobs, IHostedSession hosted, NodeFrames frames, IExternal external,
     ITimeProvider timeProvider, ILogger<NodePlanetary> logger)
 {
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope",
-        Justification = "The run passes to the node once IHostedSession.TryStartAsync accepts it, and the node disposes it when "
-            + "the next run replaces it or as the host stops: a hand-off through a method call, which CA2000 cannot follow. "
-            + "Every other way out, a throw included, disposes it in the finally.")]
+    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = NodeRuns.HandedToTheNode)]
     public async Task<ResponseEnvelope<PlanetaryStateDto>> StartAsync(PlanetaryRequestDto request, CancellationToken cancellationToken)
     {
         if (Invalid(request.ExposureMs, request.Gain, request.RoiWidth, request.RoiHeight) is { } invalid)

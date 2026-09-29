@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -30,10 +31,7 @@ namespace TianWen.Hosting;
 internal sealed class NodePolarAlignment(IDeviceHub hub, NodeJobs jobs, IHostedSession hosted, NodeFrames frames, IExternal external,
     ICelestialObjectDB catalog, IPlateSolverFactory solver, ITimeProvider timeProvider, ILogger<NodePolarAlignment> logger)
 {
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope",
-        Justification = "The run passes to the node once IHostedSession.TryStartAsync accepts it, and the node disposes it when "
-            + "the next run replaces it or as the host stops: a hand-off through a method call, which CA2000 cannot follow. "
-            + "Every other way out, a throw included, disposes it in the finally.")]
+    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = NodeRuns.HandedToTheNode)]
     public async Task<ResponseEnvelope<PolarStateDto>> StartAsync(PolarAlignmentRequestDto request, CancellationToken cancellationToken)
     {
         if (hosted.RunningKind is { } running)

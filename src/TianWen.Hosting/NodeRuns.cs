@@ -18,4 +18,14 @@ internal static class NodeRuns
         NodeRunKind.Planetary => "A planetary capture is running",
         _ => "A run is already going on",
     };
+
+    /// <summary>
+    /// Why a start path suppresses CA2000: the justification for every <c>StartAsync</c> that builds a run and hands it to
+    /// <see cref="IHostedSession.TryStartAsync(INodeRun, System.Guid)"/>, stated once. The attribute stays on each method,
+    /// since CA2000 reports where the run is created.
+    /// </summary>
+    internal const string HandedToTheNode =
+        "The run passes to the node once IHostedSession.TryStartAsync accepts it, and the node disposes it when the next run "
+        + "replaces it or as the host stops: a hand-off through a method call, which CA2000 cannot follow. Every other way "
+        + "out, a throw included, disposes it in the finally.";
 }
