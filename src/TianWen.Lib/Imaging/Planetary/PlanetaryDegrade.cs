@@ -35,6 +35,20 @@ public sealed record DegradeOptions(Pupil Pupil, double WavelengthM)
     /// </summary>
     public double DefocusNm { get; init; }
 
+    /// <summary>
+    /// A second layer of turbulence at the telescope (the tube's air, the mirror's boundary layer, the dome), its Fried parameter
+    /// at 500 nm; infinite for none. It sits in the pupil, so every point of the disk sees it alike (no warp), and with an outer
+    /// scale about the tube's it blurs every frame while barely moving the disk: on 2022-09-03 the real frames were blurrier than
+    /// the synthetic ones whose seeing moved the disk as much, and their lucky tenth barely sharper.
+    /// </summary>
+    public double LocalR0M { get; init; } = double.PositiveInfinity;
+
+    /// <summary>The local layer's outer scale, in metres: about the tube's width.</summary>
+    public double LocalOuterScaleM { get; init; } = 0.25;
+
+    /// <summary>How fast the local layer's air drifts across the pupil, in metres a second (zero holds it still).</summary>
+    public double LocalWindMps { get; init; } = 1;
+
     /// <summary>The wind that carries the phase screen across the pupil, in metres a second.</summary>
     public double WindMps { get; init; } = 10;
 
@@ -264,6 +278,14 @@ public static class PlanetaryDegrade
         var (windX, windY) = (options.WindMps * Math.Cos(options.WindAngleDeg * Math.PI / 180), options.WindMps * Math.Sin(options.WindAngleDeg * Math.PI / 180));
         // The periodic screen comes round again after its side over the wind; it is renewed three e-folds in that time.
         var renewSeconds = screen.SizeM / Math.Max(options.WindMps, 1e-3) / 3;
+        // The layer at the telescope, on a screen of its own, the same size (its outer scale is well inside it); the same rule
+        // for its renewal, so a still one is the same air throughout.
+        var local = double.IsFinite(options.LocalR0M)
+            ? new EvolvingPhaseScreen(screenSamples, spacing, options.LocalR0M, new Random(options.Seed + 2), options.LocalOuterScaleM)
+            : null;
+        var localPhase = local is null ? [] : new double[screenSamples * screenSamples];
+        var localRenewSeconds = local is null ? double.PositiveInfinity : local.SizeM / Math.Max(options.LocalWindMps, 1e-3) / 3;
+        var (localWindX, localWindY) = (options.LocalWindMps * Math.Cos((options.WindAngleDeg + 90) * Math.PI / 180), options.LocalWindMps * Math.Sin((options.WindAngleDeg + 90) * Math.PI / 180));
 
         var warp = new WarpField(windowPx, options.WarpRmsPx, options.WarpLengthPx, options.WarpLag1, options.Seed + 1);
 
@@ -315,9 +337,11 @@ public static class PlanetaryDegrade
                 {
                     var dt = (times[t] - times[t - 1]).TotalSeconds;
                     screen.Step(windX, windY, dt, Math.Exp(-dt / renewSeconds));
+                    local?.Step(localWindX, localWindY, dt, Math.Exp(-dt / localRenewSeconds));
                     warp.Step();
                 }
                 screen.Fill(screenPhase);
+                local?.Fill(localPhase);
                 // The PSF over the exposure: the pupil's window stepped upwind across the screen, as the air moves past it.
                 Array.Clear(blockPsfs[k]);
                 for (var step = 0; step < subSteps; step++)
@@ -329,7 +353,8 @@ public static class PlanetaryDegrade
                     {
                         for (var x = 0; x < PsfGrid; x++)
                         {
-                            phase[(y * PsfGrid) + x] = (screenPhase[((y + offsetY) * screenSamples) + x + offsetX] * phaseScale) + defocus[(y * PsfGrid) + x];
+                            phase[(y * PsfGrid) + x] = (screenPhase[((y + offsetY) * screenSamples) + x + offsetX] * phaseScale) + defocus[(y * PsfGrid) + x]
+                                + (local is null ? 0 : localPhase[((y + screenMargin) * screenSamples) + x + screenMargin] * phaseScale);
                         }
                     }
                     ShortExposurePsf.Compute(pupil, phase, PsfGrid, subPsf, psfScratch);

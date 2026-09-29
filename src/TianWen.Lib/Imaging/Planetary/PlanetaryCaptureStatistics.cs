@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Geometry;
@@ -41,7 +43,20 @@ public sealed record CaptureStatisticsOptions(LimbFitOptions Limb)
 
     /// <summary>How many a trous wavelet bands the noise is measured in, finest first.</summary>
     public int Bands { get; init; } = 4;
+
+    /// <summary>
+    /// Every how many frames the limb is fitted on a single frame, where its own shift put its disk: the disk's own motion,
+    /// which the aligner's shift measures with an error of its own, and each frame's blur, with no alignment in it.
+    /// </summary>
+    public int LimbStride { get; init; } = 4;
 }
+
+/// <summary>One frame's limb, fitted alone (<see cref="CaptureStatisticsOptions.LimbStride"/>).</summary>
+/// <param name="Frame">The frame's index.</param>
+/// <param name="Quality">Its Laplacian score.</param>
+/// <param name="EdgeWidth">Its limb's edge width, in pixels (<see cref="CaptureStatistics.LimbWidthAll"/>'s rule).</param>
+/// <param name="Fit">The limb fit on it; null where it found no disk.</param>
+public readonly record struct FrameLimb(int Frame, double Quality, double EdgeWidth, LimbFit? Fit);
 
 /// <summary>One a trous band's noise in one frame, in ADU: over the sky (1.3 to 1.6 radii) and over the disk (inside 0.8).</summary>
 public readonly record struct BandNoise(int Band, double Sky, double Disk);
@@ -113,6 +128,17 @@ public readonly record struct CameraEstimate(double FullScaleAdu, double SkyLeve
 /// (core and wing) the capture's. The edge width alone cannot tell the two apart, since a limb that darkens more gently reads
 /// wider under any blur. Null where the fit found no disk.</param>
 /// <param name="LimbBest">The same on the best tenth's mean.</param>
+/// <param name="FrameLimbs">The limb fitted on single frames (<see cref="CaptureStatisticsOptions.LimbStride"/>), in frame order:
+/// the blur of a frame, where the means' is the frames' and their misregistration's together.</param>
+/// <param name="LimbSeeingRms">The seeing's part of the disk's motion as the single frames' limb fits place it, per axis
+/// (<see cref="SeeingRms"/>'s rule). On a synthetic capture the fit follows the truth to a few hundredths of a pixel, where the
+/// aligner is off by about half a pixel, so this is the disk's motion and <see cref="SeeingRms"/> is that and the aligner's error
+/// together.</param>
+/// <param name="AlignerErrorRms">The aligner's shift against the limb fit's centre, RMS per axis about its mean (robust, from the
+/// median absolute deviation).</param>
+/// <param name="LimbRadiusRms">The single frames' fitted radius, its RMS about its median (robust).</param>
+/// <param name="LimbOutliers">Fits more than five robust sigmas from the aligner on either axis, left out of the three above: a
+/// fit that settled in a wrong minimum.</param>
 /// <param name="Warp">The local warp.</param>
 /// <param name="Quality">Every frame's Laplacian score (the grader's), in frame order.</param>
 /// <param name="QualityPercentiles">Its 5th, 25th, 50th, 75th and 95th percentiles.</param>
@@ -140,6 +166,11 @@ public sealed record CaptureStatistics(
     double LimbWidthBest,
     LimbFit? LimbAll,
     LimbFit? LimbBest,
+    ImmutableArray<FrameLimb> FrameLimbs,
+    double LimbSeeingRms,
+    double AlignerErrorRms,
+    double LimbRadiusRms,
+    int LimbOutliers,
     WarpStatistics Warp,
     ImmutableArray<double> Quality,
     ImmutableArray<double> QualityPercentiles,
@@ -237,6 +268,33 @@ public static class PlanetaryCaptureStatistics
             var (fluxSlow, fluxFast) = FluxVariation(flux, seconds);
             progress?.Report("aligned every frame");
 
+            // Single frames' limbs, each fitted where its shift put its disk.
+            var stride = Math.Max(1, options.LimbStride);
+            var sampled = new int[(n + stride - 1) / stride];
+            for (var k = 0; k < sampled.Length; k++)
+            {
+                sampled[k] = k * stride;
+            }
+            var limbClock = Stopwatch.StartNew();
+            // Each starts from the mean's fit, moved by the frame's shift, where there is one: beside its answer.
+            var limbWorkers = await ForEachFrameAsync(stream, sampled, () => new List<FrameLimb>(), (own, index, frame) =>
+            {
+                var (cx, cy) = limbAll is { } mean ? (mean.CenterX + shiftX[index], mean.CenterY + shiftY[index]) : (disk.X + shiftX[index], disk.Y + shiftY[index]);
+                var framePlane = frame.GetChannelSpan(0).ToArray();
+                var fit = limbAll is { } like
+                    ? PlanetaryLimbFit.Fit(framePlane, frame.Width, frame.Height, cx, cy, like, options.Limb)
+                    : PlanetaryLimbFit.Fit(framePlane, frame.Width, frame.Height, cx, cy, disk.Radius, options.Limb);
+                own.Add(new FrameLimb(index, quality[index], LimbWidth((framePlane, frame.Width, frame.Height), cx, cy, disk.Radius, skyLevel / options.FullScaleAdu), fit));
+            }, cancellationToken).ConfigureAwait(false);
+            var frameLimbs = new List<FrameLimb>();
+            foreach (var own in limbWorkers)
+            {
+                frameLimbs.AddRange(own);
+            }
+            frameLimbs.Sort((a, b) => a.Frame.CompareTo(b.Frame));
+            progress?.Report($"fitted the limb on {frameLimbs.Count} single frames in {limbClock.Elapsed.TotalSeconds:0} s");
+            var (limbSeeingRms, alignerErrorRms, limbRadiusRms, limbOutliers) = LimbMotion(frameLimbs, seconds, shiftX, shiftY, disk.X, disk.Y, options.MountWindowSeconds);
+
             var fps = (n - 1) / (seconds[n - 1] - seconds[0]);
             var (mountX, mountY, seeingRms, mountRate, mountWander) = SplitMotion(seconds, shiftX, shiftY, options.MountWindowSeconds);
 
@@ -303,7 +361,7 @@ public static class PlanetaryCaptureStatistics
             var camera = new CameraEstimate(options.FullScaleAdu, skyLevel, Median(skyNoise), diskLevel);
 
             return new CaptureStatistics(n, fps, referenceIndex, disk.X, disk.Y, disk.Radius, [.. shiftX], [.. shiftY], [.. mountX], [.. mountY], seeingRms, mountRate, mountWander, [.. flux], fluxSlow, fluxFast, limbWidthAll, limbWidthBest,
-                limbAll, limbBest, warp, [.. quality], QualityPercentilesOf(quality), Lag1(quality), bandNoise, camera);
+                limbAll, limbBest, [.. frameLimbs], limbSeeingRms, alignerErrorRms, limbRadiusRms, limbOutliers, warp, [.. quality], QualityPercentilesOf(quality), Lag1(quality), bandNoise, camera);
         }
         finally
         {
@@ -333,12 +391,15 @@ public static class PlanetaryCaptureStatistics
     }
 
     /// <summary>The percentiles of <see cref="Percentiles"/> of <paramref name="values"/>, linearly interpolated.</summary>
-    public static ImmutableArray<double> QualityPercentilesOf(ReadOnlySpan<double> values)
+    public static ImmutableArray<double> QualityPercentilesOf(ReadOnlySpan<double> values) => PercentilesOf(values, Percentiles);
+
+    /// <summary>The given percentiles of <paramref name="values"/>, linearly interpolated between ranks.</summary>
+    public static ImmutableArray<double> PercentilesOf(ReadOnlySpan<double> values, ImmutableArray<double> percentiles)
     {
         var sorted = values.ToArray();
         Array.Sort(sorted);
-        var result = ImmutableArray.CreateBuilder<double>(Percentiles.Length);
-        foreach (var p in Percentiles)
+        var result = ImmutableArray.CreateBuilder<double>(percentiles.Length);
+        foreach (var p in percentiles)
         {
             var at = p / 100 * (sorted.Length - 1);
             var lo = (int)Math.Floor(at);
@@ -899,6 +960,55 @@ public static class PlanetaryCaptureStatistics
             result.Add(new BandNoise(j + 1, Median([.. sky]), Median([.. disk])));
         }
         return result.MoveToImmutable();
+    }
+
+    // The disk's motion by its single frames' limb fits: the seeing's part of it, the aligner's disagreement with it and the
+    // fitted radius's scatter (both robust), and how many fits sit so far from the aligner that they settled in a wrong minimum,
+    // which are left out of all three. NaN with fewer than three fits.
+    private static (double SeeingRms, double AlignerError, double RadiusRms, int Outliers) LimbMotion(List<FrameLimb> frames, double[] seconds,
+        double[] shiftX, double[] shiftY, double diskX, double diskY, double window)
+    {
+        var fitted = new List<(int Frame, LimbFit Fit)>();
+        foreach (var f in frames)
+        {
+            if (f.Fit is { } fit)
+            {
+                fitted.Add((f.Frame, fit));
+            }
+        }
+        if (fitted.Count < 3)
+        {
+            return (double.NaN, double.NaN, double.NaN, 0);
+        }
+        var dx = fitted.Select(f => f.Fit.CenterX - diskX - shiftX[f.Frame]).ToArray();
+        var dy = fitted.Select(f => f.Fit.CenterY - diskY - shiftY[f.Frame]).ToArray();
+        var (mx, sx) = (Median(dx), RobustSigma(dx));
+        var (my, sy) = (Median(dy), RobustSigma(dy));
+        var kept = new List<int>();
+        for (var i = 0; i < fitted.Count; i++)
+        {
+            if (Math.Abs(dx[i] - mx) <= 5 * sx && Math.Abs(dy[i] - my) <= 5 * sy)
+            {
+                kept.Add(i);
+            }
+        }
+        if (kept.Count < 3)
+        {
+            return (double.NaN, double.NaN, double.NaN, fitted.Count - kept.Count);
+        }
+        var (_, _, seeing, _, _) = SplitMotion([.. kept.Select(i => seconds[fitted[i].Frame])], [.. kept.Select(i => fitted[i].Fit.CenterX)],
+            [.. kept.Select(i => fitted[i].Fit.CenterY)], window);
+        var alignerError = Math.Sqrt((Square(RobustSigma([.. kept.Select(i => dx[i])])) + Square(RobustSigma([.. kept.Select(i => dy[i])]))) / 2);
+        return (seeing, alignerError, RobustSigma([.. kept.Select(i => fitted[i].Fit.EquatorialRadius)]), fitted.Count - kept.Count);
+
+        static double Square(double v) => v * v;
+    }
+
+    // A robust standard deviation: 1.4826 times the median absolute deviation from the median.
+    private static double RobustSigma(double[] values)
+    {
+        var median = Median(values);
+        return 1.4826 * Median(Array.ConvertAll(values, v => Math.Abs(v - median)));
     }
 
     private static double Median(double[] values)
