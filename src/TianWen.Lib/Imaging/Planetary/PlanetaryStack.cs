@@ -51,6 +51,13 @@ public sealed record PlanetaryStackOptions
     public float MeshNodeSpacing { get; init; } = 24f;
 
     /// <summary>
+    /// How far an alignment point's displacement reaches into the mesh, px: the Gaussian that blends the points' residuals
+    /// (<see cref="DisplacementMesh.Build"/>). A warp that varies over less than this cannot be followed, however well each
+    /// point is matched (R5 part 2: 2022-09-03's warp is correlated over 9 px or less).
+    /// </summary>
+    public float MeshInfluence { get; init; } = 48f;
+
+    /// <summary>
     /// Per-AP "best-of" weighting: when true (default) each output pixel is weighted by how locally sharp
     /// each frame was at the feature landing there (<see cref="FrameSharpnessMap"/>), the lucky-imaging
     /// edge. When false, frames are folded in with their global quality weight only.

@@ -152,12 +152,12 @@ public sealed class LuckyImagingStacker
                 {
                     var (gx, gy) = tracks.GlobalShift(index);
                     tracks.Points(index, options.WarpPoolFrames, options.MedianGeometry, points);
-                    mesh = matcher.BuildMesh((float)gx, (float)gy, points, options.MeshNodeSpacing);
+                    mesh = matcher.BuildMesh((float)gx, (float)gy, points, options.MeshNodeSpacing, options.MeshInfluence);
                 }
                 else
                 {
                     var shift = ctx.Aligner.Estimate(frame, PlanetaryDisk.BoundingBox(frame));
-                    mesh = matcher.BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, options.MeshNodeSpacing);
+                    mesh = matcher.BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, options.MeshNodeSpacing, options.MeshInfluence);
                 }
                 if (options.PerPointQualityWeighting)
                 {
@@ -245,7 +245,7 @@ public sealed class LuckyImagingStacker
                     // The mesh is built at sub-plane resolution; MeshSourceToCanvas samples it at the
                     // mosaic pixel's sub-plane position, doubles the offset into mosaic space, and applies
                     // the output scale -- so drizzle gets the local de-warp, not just a whole-disk shift.
-                    var mesh = matcher.BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, options.MeshNodeSpacing);
+                    var mesh = matcher.BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, options.MeshNodeSpacing, options.MeshInfluence);
                     DrizzleKernel.IterateAndDeposit(
                         mosaic, new MeshSourceToCanvas(mesh, scale), pattern, halfP, flux, weight,
                         xStart: 0, xEnd: canvasW, yStart: 0, yEnd: canvasH,
