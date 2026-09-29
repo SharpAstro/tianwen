@@ -1,6 +1,6 @@
 # Planetary restoration by measurement
 
-**Status: PARTIAL: R0 to R4 done** (written 2026-09-28, the user's request; R0 2026-09-29: the survey, the FITS video conversion and the tracked lossless crop; R1 2026-09-29: the ephemeris, the limb fit, which telescope; R2 2026-09-29: rendered truth, T1 passed, and a synthetic capture that matches the real one on the disk, its kill line firing on the sky's finest bands; R3 2026-09-30: the metrics, the limb's undershoot validated, the halves' agreement not, pending R7's blur; R4 2026-09-30: per frame, the Laplacian ranks an 8-bit capture's frames near chance and the mid bands rank them well, on the twin and truth-free on the real capture, the choice waiting on open question 4 and the per-point half on #1071; R5 part 1 2026-09-30: phase correlation places 8-bit frames and points three times worse than a plain one, every stack better plain (#1074), and the real capture's warp visible only plain; part 2 2026-09-30: the dewarp cannot follow this capture's warp, 0.6 px over 10 px, the mesh the stack applies recovering 0 to 3 % of it, and the kill line fires; part 3, the resampling and AutoStakkert, to come). Milestone `planetary-restoration`: R0 #1048, R1 #1049, R2 #1050, R3 #1051, R4 #1052, R5 #1053, R6 #815, R7 #1054, R8 #1055, R9 #1056 (conditional).
+**Status: PARTIAL: R0 to R5 done** (written 2026-09-28, the user's request; R0 2026-09-29: the survey, the FITS video conversion and the tracked lossless crop; R1 2026-09-29: the ephemeris, the limb fit, which telescope; R2 2026-09-29: rendered truth, T1 passed, and a synthetic capture that matches the real one on the disk, its kill line firing on the sky's finest bands; R3 2026-09-30: the metrics, the limb's undershoot validated, the halves' agreement not, pending R7's blur; R4 2026-09-30: per frame, the Laplacian ranks an 8-bit capture's frames near chance and the mid bands rank them well, on the twin and truth-free on the real capture, the choice waiting on open question 4 and the per-point half on #1071; R5 part 1 2026-09-30: phase correlation places 8-bit frames and points three times worse than a plain one, every stack better plain (#1074), and the real capture's warp visible only plain; part 2 2026-09-30: the dewarp cannot follow this capture's warp, 0.6 px over 10 px, the mesh the stack applies recovering 0 to 3 % of it, and the kill line fires; part 3 2026-09-30: the bilinear kernel is the stack's blur, sinc^2 in transfer, and Lanczos-3 lifts band 1 10 to 12 % (#1086), a correlation's peak is climbed rather than fitted by a parabola, a stacked reference rescues phase correlation, and the three-cornered hat compares registrations with no truth where the twin clears the triple, which AutoStakkert's track and our limb fit, both reading the outline, never do; the literature behind what comes next is `docs/architecture/planetary-literature.md`, its follow-ups #1081 to #1085). Milestone `planetary-restoration`: R0 #1048, R1 #1049, R2 #1050, R3 #1051, R4 #1052, R5 #1053, R6 #815, R7 #1054, R8 #1055, R9 #1056 (conditional).
 
 The user asked for what the deep-sky training effort does, done for planetary lucky imaging:
 - which frames are usable;
@@ -470,6 +470,15 @@ Each metric lives in Lib and is shared by the CLI verb and the stack itself (`ti
 - the free air at an altitude, so points a few arcseconds apart look through different parts of it, calibrated against the real capture's warp (R2: 0.787 px RMS a point, its correlation length at most 9 px);
 - the quality's spread over the frames and its coherence from one to the next matched to the real capture's, both read by the reference gain.
 
+#### R4 keeps are scored after restoration
+
+**Issue:** #1083 (the literature: `docs/architecture/planetary-literature.md`, theme A).
+
+R4's keeps minimise the error of a raw stack, and a raw stack's band 1 error is mostly the blur R8 is there to remove. Decomposed from R4's own numbers (theme A section 1.4, derived), band 1's error^2 at a 5 % keep is about 0.34 transfer deficit, 0.06 a residual that does not average down, and 0.015 frame noise. So the keep is chosen where it is used:
+- R4's selections, per-band matched weights (each frame by its transfer) and a Fourier burst accumulation exponent sweep (Delbracio and Sapiro 2015), each scored after an oracle per-frequency Wiener, then after R8's gains;
+- the oracle ceiling of per-frequency selection (Garrel, Guyon and Baudoz 2012; Mackay 2013) from the twin's noise-free frames, warp on and off, before anything is built.
+- **Pre-registered:** band 1's best keep moves from 5 to 10 % to half the frames or more; the ceiling of per-frequency selection is under 15 % in band 1's transfer on this twin, whose frames vary little (D/r0 about 3), where the literature's large gains came from D/r0 of 7 to 30.
+
 ## R5 Alignment points and the dewarp
 
 **Issue:** #1053 (feeds #817).
@@ -566,6 +575,56 @@ Each metric lives in Lib and is shared by the CLI verb and the stack itself (`ti
   - **The median reference cuts the residual warp by at least 20 % against the best-frame reference: it does not.** Against the truth's own geometry the points' reading is 0.513, 0.555 px on the median geometry and 0.570, 0.592 on the reference frame's, 8 % less; the mesh the stack applies moves neither.
   - **The kill line fires.** The warp, 0.6 px RMS over 10 px, stays in every stack as blur, which R7's measured PSF has to carry. A capture whose warp varies over more than a patch, finer scales and larger disks, is where the dewarp would be tested again.
 
+### R5 results, part 3: the resampling kernel, the peak, the reference and AutoStakkert
+
+**Measured** (2026-09-30) on 2022-09-03's twins (the calibrated warp, and none) and its real capture, beside AutoStakkert 3.1.4's session file of the same capture. Stacks at keep 5 %, plain correlation, no sharpening; bands 1 and 2 as transfer / error. The literature behind the follow-ups: `docs/architecture/planetary-literature.md`. **R5 closes here**; what the literature ranks next is below.
+
+- **The resampling kernel is the largest lever part 2 left.** A stack of frames resampled bilinearly at sub-pixel phases spread evenly is convolved, on average, with the bilinear triangle, whose transfer is sinc^2 an axis: 0.81 at 0.25 cycles a pixel, 0.41 at Nyquist. Lanczos-3's stays at 1.0 to 0.3 cycles a pixel (`PlanetaryResamplingTests` pins both). `PlanetaryStackOptions.Interpolation`, `planetary-measure --interpolation`:
+
+  | Stack | Calibrated, bilinear | Calibrated, Lanczos-3 | No warp, bilinear | No warp, Lanczos-3 |
+  |---|---|---|---|---|
+  | Global | 0.193 / 0.833, 0.498 / 0.559 | 0.215 / 0.817, 0.513 / 0.542 | 0.262 / 0.764, 0.537 / 0.513 | 0.294 / 0.740, 0.551 / 0.497 |
+  | Points 12 px | 0.207 / 0.824, 0.508 / 0.547 | 0.217 / 0.819, 0.514 / 0.540 | 0.280 / 0.752, 0.548 / 0.502 | 0.295 / 0.742, 0.554 / 0.494 |
+
+  - **Pre-registered** from the two kernels' transfer weighted over each band by the stack's spectrum: band 1's transfer 12 to 39 % higher, band 2's 5 to 8 %. **Measured:** 10 to 12 % on a global stack, 2 to 3 % in band 2, under the low end. What the seeing leaves of band 1 sits at the band's low end, where bilinear costs least.
+  - **Band 1's error falls 0.014 to 0.024** on a global stack: more than every dewarp of part 2 (0.005), and as much as plain correlation won in part 1.
+  - **A global stack resampled by Lanczos-3 matches the points' stack.** Much of what the points seemed to add over a global stack was the bilinear blur, which the mesh path suffers less.
+  - **The clamp changes nothing on a planet**: `Lanczos3Clamped` equals `Lanczos3` to the digit on both twins, since a smooth disk trips it nowhere.
+  - **The real capture shows no ringing** (the limb undershoot stays 0). Its halves' band 1 agreement falls (0.751 to 0.626 on a global stack): the band's noise passed with its signal, which R3 found that metric sees where it cannot see the blur.
+  - **Adopting Lanczos-3** as the default changes every user's stack, the user's call: #1086, with the stacked reference below.
+- **A correlation's peak is climbed, never fitted by a parabola.** A disk's autocorrelation peaks in a rounded cone, and the parabola through three samples locks toward the whole pixel.
+  - On a banded disk whose belts run along x, so that the limb alone places x, the plain global aligner misplaced frames by 0.198 px RMS with no noise at all, 0.272 with the twin's (0.040 and 0.052 across the belts).
+  - Climbed by Newton's method on the Fourier-interpolated surface (R4's registrar's climb, now `PhaseCorrelation.ClimbPeak`, shared): 0.070 and 0.123 (0.009 and 0.029). What remains with no noise is not yet attributed; the window, which stays put while the disk moves under it, is the suspect.
+  - The twin's stacks do not move (band 1 0.193 / 0.833 against 0.195 / 0.832): its texture places frames along the belts as well, so the fixture is the worst case. A 16 px patch reads 0.36 px as before, the literature's prediction for a textured patch (theme B, section 2.3). The whitened path is untouched.
+- **A stacked reference** (`PlanetaryStackOptions.ReferenceFrames`, AutoStakkert's choice, one of R5's three candidate references):
+  - On the banded fixture it helps once the climb has taken the estimator's own bias out: 0.116, 0.033 px against the best frame, 0.085, 0.026 against a stack of 40.
+  - On the twin, against the recorded motion: plain 0.201, 0.225 px against the best frame and 0.194, 0.218 against a stack of 300; whitened 0.968, 1.120 and 0.546, 0.687. The stack rescues phase correlation and barely moves a plain one.
+  - The twin's stacks do not move (within 0.001). A 0.2 px registration error costs band 1 about 5 % of its transfer, where the warp's 0.6 px costs 36 % (a Gaussian misregistration passes exp(-2 pi^2 sigma^2 f^2)).
+- **Registrations compared with no truth** (`tianwen planetary-registration`): every frame registered several ways, each pair's difference being the sum of their errors, and the three-cornered hat (`ThreeCorneredHat`, Gray and Allan 1974) splitting any three into each one's own.
+  - **The hat is checked on the twin against its recorded motion:**
+
+    | Registration | Its error against the truth, px RMS x, y |
+    |---|---|
+    | Plain, the best frame | 0.201, 0.225 |
+    | Plain, a stack of 300 | 0.194, 0.218 |
+    | Whitened, the best frame | 0.968, 1.120 |
+    | Whitened, a stack of 300 | 0.546, 0.687 |
+    | The limb fit, every fourth frame | 0.243, 0.232 |
+
+  - **It is silently wrong where two errors are shared.** Plain correlation and the limb fit differ by 0.281, 0.245 px against the 0.315, 0.323 their truths add to (a shared error correlated about 0.2), so the triple with the whitened stack reads plain at 0.085 against its true 0.201 and nothing in the answer says so (`RegistrationComparisonTests` pins the case). So a triple is believed only where the twin clears it.
+  - The limb fit is no better than plain correlation (0.24 against 0.20 px). R2's 0.04 px was its formal error, not its real one.
+- **AutoStakkert on the same capture** (`AutoStakkertSession` reads the `.as3`; its session of 2022-09-04 for 2022-09-03's Red, on PIPP's centred copy of the 12,990 frames):
+  - **What it did:** the frames graded by gradient, noise-robust level 6 (a pre-blur, R4's finding that the raw Laplacian is noise); registered against a stack of the best 8,572; 41 points at three scales (26 of 24 px, 14 of 32, one of 72); drizzle 1.5x.
+  - **Its planet track and our limb fit agree to 0.118, 0.071 px**: both read the outline, so the hat cannot split them, and solves AutoStakkert's variance below zero.
+  - **Plain correlation against a stack of 1,000 differs from its track by 0.367, 0.371 px, and frame to frame by only 0.283, 0.249** (each difference less its mean over 25 frames either side, `RegistrationComparison.FastDifferenceVariance`). The fast part is what the twin predicts (its plain correlation and limb fit differ by 0.248, 0.208 frame to frame, which the twin's truth splits as 0.20 and 0.24 px of error each). The slow 0.23 to 0.28 px the twin does not have is the texture moving against the limb: Jupiter's rotation moves the texture 0.53 px a minute at the centre while the limb stays, over a 60 s capture.
+  - **On the real capture the reference matters, as it did not on the twin.** Against AutoStakkert's track, independent of both, the best-frame reference differs frame to frame by 0.396, 0.661 px and a stack of 1,000 by 0.283, 0.249: the best frame's registration error variance is larger by 0.077 and 0.375 px^2. The twin's frames differ too little for a bad reference to show (its two references differ by 0.05 px); the real best frame is the Laplacian's pick, which R4 found picks noise. Adopting a stacked reference: #1086.
+
+#### R5 follow-ups the literature ranks
+
+- **#1081:** every frame re-measured against the stack on the median geometry, with points 4 px apart and a matched interpolator (a 4 px reach, and a kriging with the warp's covariance). Part 2 changed spacing, reach and reference one at a time; Hardie et al. 2021's model says only all three together pay, 15 to 22 % of the warp recovered against 3 % today.
+- **#1082:** an efficient point estimator judged against its Cramer-Rao bound (the maximum-likelihood weight, a square-difference match with a 2-D quadratic fit, correlation surfaces pooled over frames).
+- **#1086:** Lanczos-3 and a stacked reference as the planetary defaults, the user's call.
+
 ### R5a Drizzle, where the sampling calls for it
 
 **Issue:** #1064.
@@ -588,6 +647,7 @@ Each metric lives in Lib and is shared by the CLI verb and the stack itself (`ti
   - Bayer drizzle to the sensor grid beats the demosaic above a plane's Nyquist on every colour capture.
   - 1.5x beats the sensor grid only where the frames' measured cutoff passes 0.5 cycles a pixel of the sensor grid.
   - 3x does not beat 1.5x at matched noise in ordinary seeing.
+  - **Added 2026-09-30, before any drizzle was measured** (theme C of the literature): a Gaussian misregistration of sigma passes exp(-2 pi^2 sigma^2 f^2), so the 0.6 px warp R5 could not follow passes 0.64 of the signal at 0.25 cycles a pixel, 0.17 at 0.5 and 0.018 at 0.75, the band a 1.5x drizzle adds. On 2022-09-03 and every capture with a warp like it, 1.5x does not beat the sensor grid, while Bayer drizzle to the sensor grid, recovering 0.25 to 0.5 cycles a pixel on a colour plane, still can.
   - Kill line: a drizzle that wins where the frames' cutoff stays under the input grid's Nyquist is fabricating detail, the RL oracle's rule, and the metric is checked before anything is concluded.
 
 ## R6 De-rotation
@@ -626,6 +686,21 @@ Each metric lives in Lib and is shared by the CLI verb and the stack itself (`ti
   - The two kernel estimates agree within 10 % in FWHM on the real captures, and each lies within 10 % of the true kernel on the synthetic ones.
   - RL with the measured kernel reaches at least 80 % of the oracle's per-band gain without failing the ringing gate.
   - Kill line: estimates that disagree mean the model of one probe is wrong. The deep-sky deconvolver's tolerance was measured at about 10 % (E7.1), which is why the kernel must be measured, not guessed.
+
+### R7 revised before measurement: a static blur cancels out of a ratio of frames
+
+**Issue:** #1084. Revised 2026-09-30, before either probe was run, from theme C of the literature (`docs/architecture/planetary-literature.md`).
+
+- **Why the first pre-registration cannot hold.** If a frame is S T_i O, a static blur S and a varying T_i, then the lucky frames against the stack are T_lucky / mean T: S has cancelled. Probe (a) therefore sees only the stack's EXTRA blur over its lucky frames, while probe (b), the limb, sees the total, the still layer and the scatter the twin says dominate. The real capture's lucky tenth is only 1 % narrower at the limb than every frame (7.28 px against 7.37). The two cannot agree within 10 %, whatever the kernels.
+- **Measured three ways instead:**
+  - the spectral ratio, abs(mean F)^2 / mean abs(F)^2 over the frames (von der Luehe 1984), which gives r0 of the varying air from the resolved disk, truth-free and blind to the static part as (a) is;
+  - (a), the lucky frames against the stack, the stack's extra blur;
+  - (b), a joint fit of the limb AND the halo, the total: fitted apart they trade the core against the wing (Wedemeyer-Boehm 2008, Hinode's PSF from a Mercury transit). The twin's scatter has the transfer exp(-2 pi a f) with a = 10 px, which lifts bands 1 to 3 by only 1.053 once inverted.
+- **Pre-registered, replacing the agreement above:**
+  - the spectral ratio's r0 matches the twin's free air (8.5 cm at 500 nm) within 15 % and ignores the still layer;
+  - (a)'s width is under 0.3 of (b)'s on the twin and the real capture;
+  - (b) composed from (a), the still layer and the scatter matches the twin's true kernel within 10 %, and on the real capture (b) is the kernel R7's inverse uses.
+  - The oracle ceiling and the ringing gate stand as written.
 
 ### R7a A ghost in the camera train, fitted and subtracted
 
@@ -666,6 +741,16 @@ Each metric lives in Lib and is shared by the CLI verb and the stack itself (`ti
   - The derived gains beat every preset at matched noise on per-band fidelity and pass the ringing gate.
   - Kill line: if a preset wins, the Wiener model is missing a term, most likely the resampling blur or the noise's colour; find which.
 
+### R8 how far a real per-band gain can reach
+
+**Issue:** #1085 (the literature: theme C, sections C and D).
+
+Before the gains are derived, the ceilings they are judged against:
+- **ASTRA-SR's oracle swap, per band:** the stack's Fourier magnitude replaced by the truth's with its phase kept, and the other way round. A long exposure's transfer is real and positive, which is why restoring the magnitude gains most, but the twin's still layer is one static screen whose transfer has a phase: whether a real, isotropic per-band gain can reach the oracle is this measurement.
+- **A multi-frame Wiener with the twin's true per-frame PSFs**, the bound on anything multi-frame blind deconvolution or Fourier-domain lucky imaging could add.
+- **Three regularised inverses at a matched band 3 transfer, scored on the limb:** per-band Wiener with Conan et al. 1998's power-law object spectrum (the gain formula above with a prior the capture can fit), Richardson-Lucy on offset-subtracted electrons, and an L1-L2 edge-preserving prior (MISTRAL, Mugnier et al. 2004), each with the measured core-plus-scatter kernel and against a single Gaussian.
+- **Pre-registered:** the multi-frame Wiener oracle gains under 10 % on the calibrated twin and over 20 % with the still layer off; Richardson-Lucy and L1-L2 leave at most a third and a half of Wiener's limb undershoot; a single Gaussian rings 1.5 times more. No published quantitative ringing metric for planetary sharpening was found (Lewis 2020 measures the Mars edge-rind's width, not its depth), so R3's limb undershoot stays the penalty.
+
 ## R9 A learned stage, only if the measurements say so
 
 **Issue:** #1056 (conditional).
@@ -689,7 +774,8 @@ Each metric lives in Lib and is shared by the CLI verb and the stack itself (`ti
       - R2's phase-screen model is the same physics, but per 4 ms frame rather than exposure-averaged, and with layer strengths fitted to the capture's own measured statistics, never to Paranal's.
       - The mean-plus-PCA kernel field is a compact form for R7's spatially varying kernel.
       - Its Fourier split is the case for R8's per-band gains: restoring a blurred image's Fourier MAGNITUDE gains 3.7 dB, restoring its phase 0.4 dB.
-  - DIPLI combines a deep image prior with lucky imaging (code CC BY-NC-SA, so learn only).
+  - DIPLI combines a deep image prior with lucky imaging (the paper is CC BY-NC-SA and no code was released; corrected 2026-09-30, theme C of the literature, which also found that it scores real data by a Laplacian energy, which rewards over-sharpening).
+  - Every learned planetary restorer found (PlaNet, AstroDiff, DIPLI, ASTRA-SR, FluxFlow) trains on turbulence alone, with no static layer or scatter, and none released code or weights (`docs/architecture/planetary-literature.md`).
   - Asensio Ramos et al. 2018 trained on MOMFBD-restored solar data.
 
 ## Rules carried over
@@ -727,6 +813,7 @@ Each metric lives in Lib and is shared by the CLI verb and the stack itself (`ti
   - [LROC WAC mosaic](https://astrogeology.usgs.gov/search/map/moon_lro_lroc_wac_global_morphology_mosaic_100m).
   - [SLDEM2015](https://pgda.gsfc.nasa.gov/products/54).
   - [SDO data rules](https://sdo.gsfc.nasa.gov/data/rules.php): too coarse for granulation at these scales, but same-time truth for sunspot geometry.
+- **The literature, reviewed and verified 2026-09-30:** [`docs/architecture/planetary-literature.md`](../architecture/planetary-literature.md), with its three reviews in full (Fourier-domain lucky imaging and speckle; registration and dewarping; the blur, its inverse and learned restoration).
 - **Method:**
   - [PlanetarySystemStacker](https://github.com/Rolf-Hempel/PlanetarySystemStacker).
   - [Hirsch et al. 2011, online MFBD](https://www.aanda.org/articles/aa/full_html/2011/07/aa13955-09/aa13955-09.html).
