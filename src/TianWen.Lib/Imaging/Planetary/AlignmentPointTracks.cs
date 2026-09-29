@@ -105,25 +105,35 @@ internal sealed class AlignmentPointTracks
     {
         var n = _points.Length;
         ArgumentOutOfRangeException.ThrowIfLessThan(destination.Length, n);
-        var reach = sigmaFrames > 0 ? (int)Math.Ceiling(3 * sigmaFrames) : 0;
-        var (first, last) = (Math.Max(0, frame - reach), Math.Min(_global.Length - 1, frame + reach));
         var (fracX, fracY) = (_global[frame].Dx - Math.Round(_global[frame].Dx), _global[frame].Dy - Math.Round(_global[frame].Dy));
         for (var p = 0; p < n; p++)
         {
-            double sx = 0, sy = 0, weights = 0;
-            for (var g = first; g <= last; g++)
-            {
-                var w = sigmaFrames > 0 ? Math.Exp(-0.5 * (g - frame) * (g - frame) / (sigmaFrames * sigmaFrames)) : 1;
-                sx += w * _warpX[(g * n) + p];
-                sy += w * _warpY[(g * n) + p];
-                weights += w;
-            }
-            var (wx, wy) = (sx / weights, sy / weights);
-            if (medianGeometry)
-            {
-                (wx, wy) = (wx - _medianX[p], wy - _medianY[p]);
-            }
+            var (wx, wy) = Warp(frame, p, sigmaFrames, medianGeometry);
             destination[p] = _points[p] with { ResidualX = (float)(wx + fracX), ResidualY = (float)(wy + fracY) };
         }
+    }
+
+    /// <summary>The points tracked, where they sit on the reference frame (their residuals zero).</summary>
+    public ReadOnlySpan<AlignmentPointShift> AlignmentPoints => _points;
+
+    /// <summary>
+    /// Point <paramref name="point"/>'s warp in frame <paramref name="frame"/>, over the frame's own global shift, pooled and on the
+    /// median geometry as <see cref="Points"/> takes it.
+    /// </summary>
+    public (double X, double Y) Warp(int frame, int point, double sigmaFrames, bool medianGeometry)
+    {
+        var n = _points.Length;
+        var reach = sigmaFrames > 0 ? (int)Math.Ceiling(3 * sigmaFrames) : 0;
+        var (first, last) = (Math.Max(0, frame - reach), Math.Min(_global.Length - 1, frame + reach));
+        double sx = 0, sy = 0, weights = 0;
+        for (var g = first; g <= last; g++)
+        {
+            var w = sigmaFrames > 0 ? Math.Exp(-0.5 * (g - frame) * (g - frame) / (sigmaFrames * sigmaFrames)) : 1;
+            sx += w * _warpX[(g * n) + point];
+            sy += w * _warpY[(g * n) + point];
+            weights += w;
+        }
+        var (wx, wy) = (sx / weights, sy / weights);
+        return medianGeometry ? (wx - _medianX[point], wy - _medianY[point]) : (wx, wy);
     }
 }

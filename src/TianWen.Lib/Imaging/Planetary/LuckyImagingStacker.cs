@@ -316,6 +316,18 @@ public sealed class LuckyImagingStacker
         }
     }
 
+    /// <summary>
+    /// Every frame's alignment points read as <see cref="StackAsync"/> reads them, with the same reference, points, aligner and
+    /// matcher, and the reference's index: what a dewarp's residual is measured from (<see cref="DewarpResidual"/>).
+    /// </summary>
+    internal static async Task<(AlignmentPointTracks Tracks, int ReferenceIndex)> TrackAsync(IPlanetaryFrameStream stream, PlanetaryStackOptions options, CancellationToken cancellationToken)
+    {
+        var ctx = await PrepareAsync(stream, options, includeAlignmentPoints: true, cancellationToken).ConfigureAwait(false);
+        var matcher = ctx.Matcher
+            ?? throw new InvalidOperationException("PrepareAsync(includeAlignmentPoints: true) must produce an alignment-point matcher.");
+        return (await AlignmentPointTracks.MeasureAsync(stream, ctx.Aligner, matcher, cancellationToken).ConfigureAwait(false), ctx.ReferenceIndex);
+    }
+
     private sealed record StackContext(
         ImmutableArray<FrameGrade> Grades,
         int ReferenceIndex,

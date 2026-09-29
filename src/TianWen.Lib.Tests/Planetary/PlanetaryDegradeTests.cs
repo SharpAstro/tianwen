@@ -384,6 +384,57 @@ public class PlanetaryDegradeTests
     }
 
     [Fact]
+    public async Task EachFramesWarpIsReportedWhereItsWindowLanded()
+    {
+        // A warp is the truth a dewarp is scored against (R5 part 2), so it must come with the frame it moved, at the window the
+        // frame's whole-pixel shift put it: frames 3 px apart report windows 3 px apart, and no warp reports nothing. The screen's
+        // tilt is kept, so the shift given is where the window lands (taken out, the PSF's centroid moves it by up to a pixel more).
+        ImmutableArray<double> shiftX = [0, 3, 3.4, -2];
+        ImmutableArray<double> shiftY = [0, 0, 1, 0];
+        var reported = new SyntheticWarp[4];
+        var seen = 0;
+        await MakeAsync(shiftX, shiftY, size: 96, radius: 30, r0M: 0.1, keepTilt: true, warpRms: 0.5, warps: (index, warp) => { reported[index] = warp; seen++; });
+        seen.ShouldBe(4);
+        (reported[1].OriginX - reported[0].OriginX).ShouldBe(3);
+        (reported[2].OriginX - reported[0].OriginX, reported[2].OriginY - reported[0].OriginY).ShouldBe((3, 1));
+        (reported[3].OriginX - reported[0].OriginX).ShouldBe(-2);
+        reported[0].Field.IsEmpty.ShouldBeFalse();
+        var (x, y) = reported[0].AtWindow(40, 40);
+        (Math.Abs(x) + Math.Abs(y)).ShouldBeGreaterThan(0);
+
+        var none = 0;
+        await MakeAsync(shiftX, shiftY, size: 96, radius: 30, r0M: 0.1, warps: (_, _) => none++);
+        none.ShouldBe(0);
+    }
+
+    [Fact]
+    public void AWarpFileReadsBackWhatWasWritten()
+    {
+        var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"tianwen-warp-{Guid.NewGuid():N}.warp");
+        try
+        {
+            var first = new SyntheticWarp(10, -3, new SyntheticWarpField(2, [0.1f, 0.2f, 0.3f, 0.4f], [-0.1f, 0f, 0.5f, 1f]));
+            var second = new SyntheticWarp(12, -2, new SyntheticWarpField(2, [1f, 2f, 3f, 4f], [4f, 3f, 2f, 1f]));
+            using (var writer = new SyntheticWarpFile.Writer(path))
+            {
+                writer.Append(first);
+                writer.Append(second);
+            }
+            var read = SyntheticWarpFile.Read(path) ?? throw new InvalidOperationException("not a warp file");
+            read.Length.ShouldBe(2);
+            (read[1].OriginX, read[1].OriginY).ShouldBe((12, -2));
+            read[0].Field.X.ShouldBe(first.Field.X);
+            read[1].Field.Y.ShouldBe(second.Field.Y);
+            // Between the nodes it reads bilinearly: halfway along the first row of the first frame.
+            read[0].AtWindow(SyntheticWarpField.GridStep / 2.0, 0).X.ShouldBe(0.15, 1e-6);
+        }
+        finally
+        {
+            System.IO.File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task AWarpedFrameHoldsNoGridOfItsOwn()
     {
         // A warp stretches and squeezes the disk smoothly, so a warped frame over its unwarped twin varies smoothly too. The
@@ -599,7 +650,8 @@ public class PlanetaryDegradeTests
     // read noise, 16 bits), under seeing of `r0M`.
     private static async Task<ushort[][]> MakeAsync(ImmutableArray<double> shiftX, ImmutableArray<double> shiftY, int size, double radius, double r0M,
         bool keepTilt = false, Action<ImmutableArray<SyntheticFrame>>? made = null, double warpRms = 0, bool flat = false, double defocusNm = 0,
-        Pupil? pupil = null, double localR0M = double.PositiveInfinity, double localOuterScaleM = 0.25, double scatter = 0)
+        Pupil? pupil = null, double localR0M = double.PositiveInfinity, double localOuterScaleM = 0.25, double scatter = 0,
+        Action<int, SyntheticWarp>? warps = null)
     {
         var values = new float[360 * 180];
         for (var row = 0; row < 180; row++)
@@ -638,7 +690,7 @@ public class PlanetaryDegradeTests
         var frames = new ushort[shiftX.Length][];
         var reference = new DiskPlacement((size / 2) - 0.3, (size / 2) + 0.2, radius, NorthAngleDeg: -80);
         var truths = await PlanetaryDegrade.MakeAsync(map, CatalogIndex.Jupiter, times.MoveToImmutable(), reference, 0.49, shiftX, shiftY, [], size, size, options,
-            (index, samples) => frames[index] = samples, cancellationToken: TestContext.Current.CancellationToken);
+            (index, samples) => frames[index] = samples, warps: warps, cancellationToken: TestContext.Current.CancellationToken);
         made?.Invoke(truths);
         return frames;
     }
