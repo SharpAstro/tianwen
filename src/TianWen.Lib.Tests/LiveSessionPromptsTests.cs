@@ -37,6 +37,7 @@ public class LiveSessionPromptsTests
         app.ActiveTab.ShouldBe(GuiTab.LiveSession, "this computer's own run brings its question to the front");
 
         // Withdrawn by the run (cancelled while it waited): nothing is left waiting on the view.
+        // None, not the test's token: the RUN withdrew the prompt, and the test's own cancellation is a different fact.
         answer.TrySetCanceled(CancellationToken.None);
         await UntilClearedAsync(view, ct);
     }

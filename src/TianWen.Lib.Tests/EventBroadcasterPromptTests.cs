@@ -340,6 +340,7 @@ namespace TianWen.Lib.Tests
             broadcaster.OnPromptRequested(this, prompt);
             host.PendingPrompt.ShouldBeSameAs(prompt);
 
+            // None, not the test's token: the RUN withdrew the prompt, and the test's own cancellation is a different fact.
             completion.TrySetCanceled(CancellationToken.None);
             await prompt.Settled.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
