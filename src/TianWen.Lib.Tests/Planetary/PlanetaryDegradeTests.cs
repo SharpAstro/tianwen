@@ -138,6 +138,29 @@ public class PlanetaryDegradeTests
     }
 
     [Fact]
+    public async Task AKeptTiltMovesTheDiskAsItsRecordSays()
+    {
+        // No shift given: the seeing alone moves the disk, by its screen's tilt, and the record must say where it put it.
+        ImmutableArray<double> none = [0, 0, 0, 0];
+        var truths = ImmutableArray<SyntheticFrame>.Empty;
+        var frames = await MakeAsync(none, none, size: 96, radius: 20, r0M: 0.05, keepTilt: true, made: t => truths = t);
+
+        var (x0, y0, _) = CentroidAndLevel(frames[0], 96, 20);
+        var moved = 0.0;
+        for (var i = 1; i < frames.Length; i++)
+        {
+            var (x, y, _) = CentroidAndLevel(frames[i], 96, 20);
+            var (ex, ey) = (truths[i].ShiftX - truths[0].ShiftX, truths[i].ShiftY - truths[0].ShiftY);
+            TestContext.Current.TestOutputHelper?.WriteLine($"frame {i}: centroid moved {x - x0:+0.000;-0.000}, {y - y0:+0.000;-0.000}; recorded {ex:+0.000;-0.000}, {ey:+0.000;-0.000}");
+            (x - x0).ShouldBe(ex, 0.03);
+            (y - y0).ShouldBe(ey, 0.03);
+            moved = Math.Max(moved, Math.Abs(ex) + Math.Abs(ey));
+        }
+        // At r0 5 cm on a 254 mm aperture the tilt moves the disk by pixels, so the check above is not of a disk standing still.
+        moved.ShouldBeGreaterThan(0.2);
+    }
+
+    [Fact]
     public async Task TheStatisticsSplitAKnownMotionIntoTheMountsAndTheSeeings()
     {
         // A drift of 3 px/s under a seeing that shakes the disk by a known RMS, at 200 frames a second for four seconds, four
@@ -203,7 +226,8 @@ public class PlanetaryDegradeTests
 
     // Frames of a banded Jupiter (the aligners want texture, as a real one has), bright and nearly noiseless (a large gain, no
     // read noise, 16 bits), under seeing of `r0M`.
-    private static async Task<ushort[][]> MakeAsync(ImmutableArray<double> shiftX, ImmutableArray<double> shiftY, int size, double radius, double r0M)
+    private static async Task<ushort[][]> MakeAsync(ImmutableArray<double> shiftX, ImmutableArray<double> shiftY, int size, double radius, double r0M,
+        bool keepTilt = false, Action<ImmutableArray<SyntheticFrame>>? made = null)
     {
         var values = new float[360 * 180];
         for (var row = 0; row < 180; row++)
@@ -229,11 +253,13 @@ public class PlanetaryDegradeTests
             ElectronsPerAdu = 1000,
             DiskLevelAdu = DiskLevel,
             ScreenSamples = 128,
+            KeepScreenTilt = keepTilt,
         };
         var frames = new ushort[shiftX.Length][];
         var reference = new DiskPlacement((size / 2) - 0.3, (size / 2) + 0.2, radius, NorthAngleDeg: -80);
-        await PlanetaryDegrade.MakeAsync(map, CatalogIndex.Jupiter, times.MoveToImmutable(), reference, 0.49, shiftX, shiftY, size, size, options,
+        var truths = await PlanetaryDegrade.MakeAsync(map, CatalogIndex.Jupiter, times.MoveToImmutable(), reference, 0.49, shiftX, shiftY, [], size, size, options,
             (index, samples) => frames[index] = samples, cancellationToken: TestContext.Current.CancellationToken);
+        made?.Invoke(truths);
         return frames;
     }
 
