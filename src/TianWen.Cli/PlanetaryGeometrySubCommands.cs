@@ -186,14 +186,16 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         var fpsOpt = new Option<double?>("--fps") { Description = "The frame rate, for a SER without timestamps." };
         var pairsOpt = new Option<int>("--pairs") { Description = "Pairs of consecutive frames to read the warp and the noise from.", DefaultValueFactory = _ => 500 };
         var warpFramesOpt = new Option<int>("--warp-frames") { Description = "Consecutive frames averaged (aligned) before the warp is read: one frame of a faint capture cannot place a patch.", DefaultValueFactory = _ => 1 };
-        var patchOpt = new Option<int>("--ap-patch") { Description = "The alignment points' patch, a power of two.", DefaultValueFactory = _ => 32 };
-        var spacingOpt = new Option<int>("--ap-spacing") { Description = "The alignment points' spacing.", DefaultValueFactory = _ => 24 };
+        var patchOpt = new Option<int>("--ap-patch") { Description = "The alignment points' patch, a power of two.", DefaultValueFactory = _ => CaptureStatisticsOptions.DefaultAlignmentPatchSize };
+        var spacingOpt = new Option<int>("--ap-spacing") { Description = "The alignment points' spacing.", DefaultValueFactory = _ => CaptureStatisticsOptions.DefaultAlignmentPointSpacing };
+        var firstOpt = new Option<int>("--first") { Description = "The first frame measured.", DefaultValueFactory = _ => 0 };
+        var framesOpt = new Option<int?>("--frames") { Description = "Only this many frames, from --first." };
 
         var command = new Command("planetary-seeing",
             "A capture's statistics, measured as a synthetic capture's are (R2): the shift's seeing and mount parts, the warp, the quality distribution, each band's noise, the camera's levels and gain.")
         {
             Arguments = { inputsArg },
-            Options = { planetOpt, utcOpt, fpsOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt },
+            Options = { planetOpt, utcOpt, fpsOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, firstOpt, framesOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -204,7 +206,9 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             {
                 ct.ThrowIfCancellationRequested();
                 using var reader = SerReader.Open(input);
-                using var stream = new SerFrameStream(reader, ownsReader: false);
+                using var whole = new SerFrameStream(reader, ownsReader: false);
+                var first = Math.Clamp(parseResult.GetValue(firstOpt), 0, whole.FrameCount - 1);
+                using var stream = new PlanetaryFrameWindow(whole, first, Math.Min(whole.FrameCount - first, parseResult.GetValue(framesOpt) ?? whole.FrameCount));
                 if ((MidCapture(stream) ?? ParseUtc(parseResult.GetValue(utcOpt))) is not { } when)
                 {
                     consoleHost.WriteError($"{input}: no timestamps (pass --utc)");
@@ -262,8 +266,8 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         var replayOpt = new Option<bool>("--replay-shifts") { Description = "Move each disk by the real capture's measured shift (its tilt taken out), not by the screen's tilt on the mount's drift." };
         var pairsOpt = new Option<int>("--pairs") { Description = "Pairs of consecutive frames the statistics read the warp and the noise from.", DefaultValueFactory = _ => 500 };
         var warpFramesOpt = new Option<int>("--warp-frames") { Description = "Frames averaged before the warp is read.", DefaultValueFactory = _ => 1 };
-        var patchOpt = new Option<int>("--ap-patch") { Description = "The statistics' alignment-point patch.", DefaultValueFactory = _ => 16 };
-        var spacingOpt = new Option<int>("--ap-spacing") { Description = "The statistics' alignment-point spacing.", DefaultValueFactory = _ => 12 };
+        var patchOpt = new Option<int>("--ap-patch") { Description = "The statistics' alignment-point patch.", DefaultValueFactory = _ => CaptureStatisticsOptions.DefaultAlignmentPatchSize };
+        var spacingOpt = new Option<int>("--ap-spacing") { Description = "The statistics' alignment-point spacing.", DefaultValueFactory = _ => CaptureStatisticsOptions.DefaultAlignmentPointSpacing };
         var framesOpt = new Option<int?>("--frames") { Description = "Only the capture's first frames, measured and made (a quicker trial)." };
 
         var command = new Command("planetary-degrade",
