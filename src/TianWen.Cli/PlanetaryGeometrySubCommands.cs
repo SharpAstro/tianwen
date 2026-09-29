@@ -395,6 +395,9 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             var partial = output + ".partial";
             var bytesPerSample = depth == 8 ? 1 : 2;
             ImmutableArray<SyntheticFrame> made;
+            // A warp's truth goes beside the capture, frame by frame, for the dewarp to be scored against (R5).
+            var warpPartial = SyntheticWarpFile.PathFor(output) + ".partial";
+            using (var warpWriter = options.WarpRmsPx > 0 ? new SyntheticWarpFile.Writer(warpPartial) : null)
             using (var writer = new SerWriter(partial, reader.Width, reader.Height, SerColorId.Mono, depth, instrument: "TianWen planetary-degrade"))
             {
                 var buffer = new byte[reader.Width * reader.Height * bytesPerSample];
@@ -413,9 +416,13 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                         }
                     }
                     writer.AppendFrame(buffer, times[index]);
-                }, done, ct);
+                }, done, warpWriter is null ? null : (_, warp) => warpWriter.Append(warp), ct);
             }
             File.Move(partial, output, overwrite: true);
+            if (options.WarpRmsPx > 0)
+            {
+                File.Move(warpPartial, SyntheticWarpFile.PathFor(output), overwrite: true);
+            }
 
             // The truth the synthetic capture is scored against: the same map at the reference frame's time through the pupil
             // alone, in ADU over the sky.

@@ -271,10 +271,12 @@ public static class PlanetaryDegrade
     /// <param name="options">The seeing, the warp and the camera.</param>
     /// <param name="write">Takes each frame's samples, in order.</param>
     /// <param name="progress">Told the frames done.</param>
+    /// <param name="warps">Takes each frame's warp where the frame is, in order, when there is one: the truth a dewarp is scored
+    /// against (R5 part 2).</param>
     /// <param name="cancellationToken">Stops the making.</param>
     public static async Task<ImmutableArray<SyntheticFrame>> MakeAsync(PlanetMap map, CatalogIndex planet, ImmutableArray<DateTimeOffset> times, DiskPlacement reference,
         double arcsecPerPixel, ImmutableArray<double> shiftX, ImmutableArray<double> shiftY, ImmutableArray<double> brightness, int width, int height, DegradeOptions options,
-        Action<int, ushort[]> write, IProgress<int>? progress = null, CancellationToken cancellationToken = default)
+        Action<int, ushort[]> write, IProgress<int>? progress = null, Action<int, SyntheticWarp>? warps = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(map);
         ArgumentNullException.ThrowIfNull(options);
@@ -331,7 +333,7 @@ public static class PlanetaryDegrade
         var truths = new SyntheticFrame[n];
         var screenPhase = new double[screenSamples * screenSamples];
         var blockPsfs = new double[Block][];
-        var blockWarps = new WarpFrame[Block];
+        var blockWarps = new SyntheticWarpField[Block];
         var blockTilts = new (double X, double Y)[Block];
         for (var i = 0; i < Block; i++)
         {
@@ -422,7 +424,13 @@ public static class PlanetaryDegrade
             }).ConfigureAwait(false);
             for (var k = 0; k < count; k++)
             {
-                write(first + k, frames[k]);
+                var t = first + k;
+                write(t, frames[k]);
+                // The window lands on the whole pixels of the frame's shift, as MakeFrame places it.
+                if (warps is not null && !blockWarps[k].IsEmpty)
+                {
+                    warps(t, new SyntheticWarp(windowX + (int)Math.Round(shiftX[t] + blockTilts[k].X), windowY + (int)Math.Round(shiftY[t] + blockTilts[k].Y), blockWarps[k]));
+                }
             }
             progress?.Report(first + count);
         }
@@ -461,7 +469,7 @@ public static class PlanetaryDegrade
 
     // One frame: the object through this frame's PSF, moved by `shiftX`, `shiftY` (the fraction of a pixel in the Fourier
     // domain, the whole pixels in where the window lands), warped, binned, and read out.
-    private static ushort[] MakeFrame(Complex[] objectSpectrum, double[] psf, Complex[]? scatter, WarpFrame warp, int fine, int os, int windowX, int windowY,
+    private static ushort[] MakeFrame(Complex[] objectSpectrum, double[] psf, Complex[]? scatter, SyntheticWarpField warp, int fine, int os, int windowX, int windowY,
         double shiftX, double shiftY, double brightness, int width, int height, DegradeOptions options, Random random)
     {
         var (ix, iy) = ((int)Math.Round(shiftX), (int)Math.Round(shiftY));
@@ -668,7 +676,7 @@ public static class PlanetaryDegrade
     /// </summary>
     private sealed class WarpField
     {
-        public const int GridStep = 4;
+        public const int GridStep = SyntheticWarpField.GridStep;
         private readonly int _nodes;
         private readonly double _rms;
         private readonly double _rho;
@@ -733,11 +741,11 @@ public static class PlanetaryDegrade
         }
 
         // The field now, in pixels, as float copies the parallel frames read; empty when there is no warp.
-        public WarpFrame Current()
+        public SyntheticWarpField Current()
         {
             if (_rms <= 0)
             {
-                return WarpFrame.Empty;
+                return SyntheticWarpField.Empty;
             }
             var (x, y) = (new float[_x.Length], new float[_y.Length]);
             for (var i = 0; i < x.Length; i++)
@@ -745,7 +753,7 @@ public static class PlanetaryDegrade
                 x[i] = (float)_x[i];
                 y[i] = (float)_y[i];
             }
-            return new WarpFrame(_nodes, x, y);
+            return new SyntheticWarpField(_nodes, x, y);
         }
 
         // Unit-variance smoothed noise scaled to the RMS, into `into`.
@@ -784,23 +792,4 @@ public static class PlanetaryDegrade
         }
     }
 
-    /// <summary>One frame's warp on the node grid, read between the nodes bilinearly.</summary>
-    private sealed record WarpFrame(int Nodes, float[] X, float[] Y)
-    {
-        public static readonly WarpFrame Empty = new WarpFrame(0, [], []);
-
-        public bool IsEmpty => Nodes == 0;
-
-        // The displacement at detector position (px, py) of the window, in pixels.
-        public (double X, double Y) At(double px, double py)
-        {
-            var gx = Math.Clamp(px / WarpField.GridStep, 0, Nodes - 1.001);
-            var gy = Math.Clamp(py / WarpField.GridStep, 0, Nodes - 1.001);
-            var (x0, y0) = ((int)gx, (int)gy);
-            var (tx, ty) = (gx - x0, gy - y0);
-            var i = (y0 * Nodes) + x0;
-            double Read(float[] f) => (((f[i] * (1 - tx)) + (f[i + 1] * tx)) * (1 - ty)) + (((f[i + Nodes] * (1 - tx)) + (f[i + Nodes + 1] * tx)) * ty);
-            return (Read(X), Read(Y));
-        }
-    }
 }
