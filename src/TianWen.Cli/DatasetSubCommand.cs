@@ -11,6 +11,7 @@ using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Dataset;
+using TianWen.Lib.Imaging.Degradation;
 using TianWen.Lib.IO;
 using TianWen.UI.Abstractions;
 
@@ -480,6 +481,8 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 BuildReportCommand(consoleHost),
                 BuildGradientReportCommand(),
                 BuildDegradeCommand(),
+                BuildBrightCellsCommand(),
+                BuildNoiseCheckCommand(),
                 BuildNoisePlanesCommand(),
                 BuildPairCommand(),
                 BuildCoverageCommand(consoleHost),
@@ -948,12 +951,29 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "exported. Names an arm's pool without exporting the whole bake.",
             AllowMultipleArgumentsPerToken = true,
         };
+        var noiseAnchorOpt = new Option<string>("--noise-anchor")
+        {
+            Description = "What the injected noise is anchored on: sub-mad (each cell on its own subs' tile MAD, channel " +
+                          "0's calibration for every channel; every export up to E16a) or half-pairs (each session on its " +
+                          "half pairs' scatter over quiet sky, one calibration per channel; E16b).",
+            DefaultValueFactory = _ => "sub-mad",
+        };
+        var extraCellsOpt = new Option<string>("--extra-cells")
+        {
+            Description = "A cell list (tianwen dataset bright-cells) exported beside each session's seeded sample; " +
+                          "the sample does not change, so every cell of the same export without the list is here byte for byte.",
+        };
+        var listedOnlyOpt = new Option<bool>("--listed-only")
+        {
+            Description = "With --extra-cells: export each session's listed cells and no sample, how a session joins an " +
+                          "arm for its bright cells alone. A session with none listed is skipped.",
+        };
 
         var command = new Command("degrade",
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -982,6 +1002,24 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 consoleHost.WriteError("--white-fraction and --warp-sigma-max vary a WARPED export's shape; pass --shape warped");
                 return 1;
             }
+            var anchorText = (parseResult.GetValue(noiseAnchorOpt) ?? "sub-mad").Replace("-", "", StringComparison.Ordinal);
+            if (!Enum.TryParse<DatasetDegradationExporter.NoiseAnchorKind>(anchorText, ignoreCase: true, out var noiseAnchor))
+            {
+                consoleHost.WriteError($"--noise-anchor must be sub-mad or half-pairs, got '{parseResult.GetValue(noiseAnchorOpt)}'");
+                return 1;
+            }
+            var extraCells = parseResult.GetValue(extraCellsOpt);
+            if (extraCells is not null && !File.Exists(extraCells))
+            {
+                consoleHost.WriteError($"--extra-cells: no list at {extraCells}");
+                return 1;
+            }
+            var listedOnly = parseResult.GetValue(listedOnlyOpt);
+            if (listedOnly && extraCells is null)
+            {
+                consoleHost.WriteError("--listed-only exports the cells --extra-cells lists; pass a list");
+                return 1;
+            }
 
             var options = new DatasetDegradationExporter.Options(
                 BakeRoot: parseResult.Required(bakeOpt),
@@ -1001,7 +1039,10 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 EstimateWindowPx: parseResult.GetValue(estimateWindowOpt),
                 SessionFilters: [.. parseResult.GetValue(sessionFilterOpt) ?? []],
                 WarpResampleSigmaMax: warpSigmaMax,
-                WhiteFraction: whiteFraction);
+                WhiteFraction: whiteFraction,
+                NoiseAnchor: noiseAnchor,
+                ExtraCellsPath: extraCells,
+                ListedCellsOnly: listedOnly);
 
             var result = await DatasetDegradationExporter.RunAsync(options, logger, ct);
             var degraded = result.Sessions.Sum(s => s.DegradedTiles);
@@ -1021,6 +1062,149 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             return result.Failed > 0 && result.Sessions.Length == 0 ? 2 : 0;
         });
 
+        return command;
+    }
+
+    /// <summary>
+    /// <c>tianwen dataset bright-cells</c>: lists a bake's bright cells by the one rule (<see cref="DatasetBrightCells"/>),
+    /// for the degrade export's <c>--extra-cells</c> and the trainer's prepare, and prints each session's count.
+    /// </summary>
+    private Command BuildBrightCellsCommand()
+    {
+        var bakeOpt = new Option<string>("--bake") { Description = "The bake whose P0 cells are read.", Required = true };
+        var outOpt = new Option<string>("--out", "-o") { Description = "The cell list to write (x TAB y TAB session id). Omit to count only." };
+        var sessionFilterOpt = new Option<string[]>("--session")
+        {
+            Description = "Case-insensitive substring of the session id (repeatable). None counts every session of the bake.",
+            AllowMultipleArgumentsPerToken = true,
+        };
+        var perSessionOpt = new Option<int>("--per-session") { Description = "Cells listed per session, seeded and uniform among the bright ones; 0 lists all.", DefaultValueFactory = _ => 0 };
+        var seedOpt = new Option<int>("--seed") { Description = "The list's own seed.", DefaultValueFactory = _ => 1 };
+        var frameOpt = new Option<string>("--frame")
+        {
+            Description = "Which stored tile the level is read from: master (the stretch a degraded draw carries; training) " +
+                          "or halfmaster_b (the level the scorer bins by; eval).",
+            DefaultValueFactory = _ => DatasetTileExporter.FrameMaster,
+        };
+        var excludeSampleOpt = new Option<int>("--exclude-sample")
+        {
+            Description = "The --cells of the degrade export the list will join: its seeded sample is left out, so no listed " +
+                          "cell is one the export already holds. 0 leaves nothing out.",
+            DefaultValueFactory = _ => 0,
+        };
+        var exportSeedOpt = new Option<int>("--export-seed") { Description = "That export's --seed.", DefaultValueFactory = _ => 1 };
+        var command = new Command("bright-cells",
+            "List a bake's bright cells (at least 10 percent of a cell's level in [0.45, 0.95), the scorer's low-pass), " +
+            "for E16b's training cells and eval cells.")
+        {
+            Options = { bakeOpt, outOpt, sessionFilterOpt, perSessionOpt, seedOpt, frameOpt, excludeSampleOpt, exportSeedOpt },
+        };
+        command.SetAction(async (parseResult, ct) =>
+        {
+            var bake = parseResult.Required(bakeOpt);
+            var filters = parseResult.GetValue(sessionFilterOpt) ?? [];
+            var perSession = parseResult.GetValue(perSessionOpt);
+            var seed = parseResult.GetValue(seedOpt);
+            var frame = parseResult.GetValue(frameOpt) ?? DatasetTileExporter.FrameMaster;
+            var excludeSample = parseResult.GetValue(excludeSampleOpt);
+            var exportSeed = parseResult.GetValue(exportSeedOpt);
+            var (listed, counts) = await DatasetDegradationExporter.ListBrightCellsAsync(bake, [.. filters], perSession, seed, frame, excludeSample, exportSeed, ct);
+            foreach (var c in counts.OrderByDescending(static c => c.Bright))
+            {
+                consoleHost.WriteScrollable($"[bright-cells] {c.Bright,4} bright of {c.Cells,4} cells, {c.Listed,4} listed  {c.SessionId}");
+            }
+            consoleHost.WriteScrollable(
+                $"[bright-cells] {listed.Length} cells listed from {counts.Count(static c => c.Listed > 0)} of {counts.Length} sessions");
+            if (parseResult.GetValue(outOpt) is { } outPath)
+            {
+                DatasetCellList.Write(outPath,
+                    [$"tianwen dataset bright-cells --bake {bake} --per-session {perSession} --seed {seed} --frame {frame} --exclude-sample {excludeSample} --export-seed {exportSeed}",
+                     $"rule: at least {DatasetBrightCells.MinFraction:P0} of a cell's level in [{DatasetBrightCells.Level}, {DatasetBrightCells.Ceiling}), inside a {HalfPairNoise.RimPx} px rim, low-pass {HalfPairNoise.LevelSigmaPx} px",
+                     .. filters.Select(static f => $"session filter: {f}")],
+                    listed);
+                consoleHost.WriteScrollable($"[bright-cells] list: {outPath}");
+            }
+            return 0;
+        });
+        return command;
+    }
+
+    /// <summary>
+    /// <c>tianwen dataset noise-check</c>: E16b's check D2, the injection's noise model against the half pairs per
+    /// channel on the cells an export would write (<see cref="DatasetDegradationExporter.CheckInjectionAsync"/>), under
+    /// the half-pair anchor and the sub-MAD one. Exits 1 when the half-pair anchor misses its tolerance.
+    /// </summary>
+    private Command BuildNoiseCheckCommand()
+    {
+        var bakeOpt = new Option<string>("--bake") { Description = "The bake.", Required = true };
+        var sessionFilterOpt = new Option<string[]>("--session")
+        {
+            Description = "Case-insensitive substring of the session id (repeatable), as the export takes them.",
+            AllowMultipleArgumentsPerToken = true,
+        };
+        var cellsOpt = new Option<int>("--cells") { Description = "The export's --cells.", DefaultValueFactory = _ => 120 };
+        var seedOpt = new Option<int>("--seed") { Description = "The export's --seed.", DefaultValueFactory = _ => 1 };
+        var extraCellsOpt = new Option<string>("--extra-cells") { Description = "The export's --extra-cells list." };
+        var quietTolOpt = new Option<double>("--quiet-tolerance") { Description = "Largest miss of the half-pair anchor on quiet cells.", DefaultValueFactory = _ => 0.10 };
+        var brightTolOpt = new Option<double>("--bright-tolerance") { Description = "Largest miss of the half-pair anchor on bright cells.", DefaultValueFactory = _ => 0.15 };
+        var command = new Command("noise-check",
+            "Check the injected noise's model against the half pairs, per channel, on quiet and bright cells (E16b's D2).")
+        {
+            Options = { bakeOpt, sessionFilterOpt, cellsOpt, seedOpt, extraCellsOpt, quietTolOpt, brightTolOpt },
+        };
+        command.SetAction(async (parseResult, ct) =>
+        {
+            var rows = await DatasetDegradationExporter.CheckInjectionAsync(
+                parseResult.Required(bakeOpt), [.. parseResult.GetValue(sessionFilterOpt) ?? []],
+                parseResult.GetValue(cellsOpt), parseResult.GetValue(seedOpt), parseResult.GetValue(extraCellsOpt), logger, ct);
+            if (rows.Length == 0)
+            {
+                consoleHost.WriteError("[noise-check] no cell could be read");
+                return 1;
+            }
+            var quietTol = parseResult.GetValue(quietTolOpt);
+            var brightTol = parseResult.GetValue(brightTolOpt);
+            var channels = rows[0].HalfPairs.Length;
+            var pass = true;
+            foreach (var bright in new[] { false, true })
+            {
+                var group = rows.Where(r => r.Bright == bright).ToList();
+                if (group.Count == 0)
+                {
+                    consoleHost.WriteScrollable($"[noise-check] {(bright ? "bright" : "quiet")}: no cells");
+                    pass &= !bright;
+                    continue;
+                }
+                var tol = bright ? brightTol : quietTol;
+                var pairs = Enumerable.Range(0, channels).Select(c => Median(group.Select(r => r.HalfPairs[c]))).ToArray();
+                var subMad = Enumerable.Range(0, channels).Select(c => Median(group.Select(r => r.SubMad[c]))).ToArray();
+                var ok = pairs.All(v => Math.Abs(v - 1.0) <= tol);
+                pass &= ok;
+                consoleHost.WriteScrollable(
+                    $"[noise-check] {(bright ? "bright" : "quiet"),-6} {group.Count,5} cells over {group.Select(r => r.SessionId).Distinct().Count()} sessions: " +
+                    $"measured / predicted per channel, half-pairs {string.Join(" / ", pairs.Select(v => v.ToString("F3", CultureInfo.InvariantCulture)))} " +
+                    $"({(ok ? "within" : "OUTSIDE")} {tol:P0}), sub-mad {string.Join(" / ", subMad.Select(v => v.ToString("F3", CultureInfo.InvariantCulture)))}");
+            }
+            foreach (var session in rows.GroupBy(static r => r.SessionId).OrderBy(static g => g.Key, StringComparer.Ordinal))
+            {
+                var q = session.Where(static r => !r.Bright).ToList();
+                var b = session.Where(static r => r.Bright).ToList();
+                consoleHost.WriteScrollable(
+                    $"[noise-check]   {session.Key}: quiet {q.Count} " +
+                    $"{(q.Count > 0 ? string.Join("/", Enumerable.Range(0, channels).Select(c => Median(q.Select(r => r.HalfPairs[c])).ToString("F2", CultureInfo.InvariantCulture))) : "-")}, " +
+                    $"bright {b.Count} {(b.Count > 0 ? string.Join("/", Enumerable.Range(0, channels).Select(c => Median(b.Select(r => r.HalfPairs[c])).ToString("F2", CultureInfo.InvariantCulture))) : "-")}");
+            }
+            consoleHost.WriteScrollable($"[noise-check] {(pass ? "PASS" : "FAIL")}");
+            return pass ? 0 : 1;
+
+            static double Median(IEnumerable<double> values)
+            {
+                var sorted = values.Where(double.IsFinite).OrderBy(static v => v).ToArray();
+                return sorted.Length == 0 ? double.NaN
+                    : sorted.Length % 2 == 1 ? sorted[sorted.Length / 2]
+                    : 0.5 * (sorted[(sorted.Length / 2) - 1] + sorted[sorted.Length / 2]);
+            }
+        });
         return command;
     }
 
