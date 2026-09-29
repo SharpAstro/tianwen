@@ -61,6 +61,46 @@ public class PlanetaryDegradeTests
     }
 
     [Fact]
+    public void AnOuterScaleTakesFromTheStructureFunctionAsVonKarmanSays()
+    {
+        // Von Karman's structure function is Kolmogorov's times 1 - 1.485 (r / L0)^(1/3) + ... for r well inside L0 (Tokovinin
+        // 2002): even a 4 cm separation loses 40 % to a 2 m outer scale, the first order says, and one of a metre, half of it,
+        // saturates. Written first as "the small scales keep theirs", which the screen rightly refused.
+        const int n = 256;
+        const double spacing = 0.01;
+        const double r0 = 0.1;
+        double Structure(double outerScale, int d)
+        {
+            var screen = new EvolvingPhaseScreen(n, spacing, r0, new Random(9), outerScale);
+            var phase = new double[n * n];
+            double sum = 0;
+            long count = 0;
+            for (var step = 0; step < 20; step++)
+            {
+                screen.Step(0, 0, 1, 0);
+                screen.Fill(phase);
+                for (var y = 0; y < n - d; y++)
+                {
+                    for (var x = 0; x < n - d; x++)
+                    {
+                        var dx = phase[(y * n) + x + d] - phase[(y * n) + x];
+                        sum += dx * dx;
+                        count++;
+                    }
+                }
+            }
+            return sum / count;
+        }
+
+        var (smallKolmogorov, smallVonKarman) = (Structure(double.PositiveInfinity, 4), Structure(2, 4));
+        var (largeKolmogorov, largeVonKarman) = (Structure(double.PositiveInfinity, 100), Structure(2, 100));
+        TestContext.Current.TestOutputHelper?.WriteLine(
+            $"4 cm: {smallVonKarman:0.000} against {smallKolmogorov:0.000} rad^2; 1 m: {largeVonKarman:0.0} against {largeKolmogorov:0.0} rad^2");
+        (smallVonKarman / smallKolmogorov).ShouldBe(1 - (1.485 * Math.Cbrt(0.04 / 2)), 0.08);
+        (largeVonKarman / largeKolmogorov).ShouldBeLessThan(0.3);
+    }
+
+    [Fact]
     public void WithNothingRenewedTheScreenIsTheSameAirMovedOn()
     {
         const int n = 64;
@@ -221,13 +261,129 @@ public class PlanetaryDegradeTests
         s.SeeingRms.ShouldBe(Math.Sqrt(seeingSquares / (2 * frames)), 0.05);
     }
 
+    [Fact]
+    public async Task AWarpMovesLightAndMakesNone()
+    {
+        // The same seeing with and without a warp of half a pixel: the frames' light over the offset must agree, frame by frame.
+        ImmutableArray<double> none = [0, 0, 0, 0, 0, 0];
+        var still = await MakeAsync(none, none, size: 96, radius: 20, r0M: 0.1);
+        var warped = await MakeAsync(none, none, size: 96, radius: 20, r0M: 0.1, warpRms: 0.5);
+        var moved = 0.0;
+        for (var i = 0; i < still.Length; i++)
+        {
+            double a = 0, b = 0;
+            for (var p = 0; p < still[i].Length; p++)
+            {
+                a += still[i][p] - 100.0;
+                b += warped[i][p] - 100.0;
+                moved = Math.Max(moved, Math.Abs(still[i][p] - warped[i][p]));
+            }
+            TestContext.Current.TestOutputHelper?.WriteLine($"frame {i}: light {b / a - 1:+0.00000;-0.00000} of the unwarped frame's");
+            (b / a).ShouldBe(1, 2e-4);
+        }
+        // The warp did move something: a pixel changed by more than the rounding.
+        moved.ShouldBeGreaterThan(50);
+    }
+
+    [Fact]
+    public async Task TheLimbsEdgeWidthIsTheBlursForAUniformDisk()
+    {
+        // A uniform disk blurred by a Gaussian of sigma 2 px: a straight edge's level over its steepest fall is sqrt(2 pi) sigma,
+        // and a disk 30 px in radius is straight enough for that to the percent.
+        const int size = 128;
+        const double sigma = 2;
+        var frames = new float[12][,];
+        var times = new DateTimeOffset[frames.Length];
+        var random = new Random(4);
+        var sharp = new double[size, size];
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                // The disk's area in each pixel, from 8 by 8 points.
+                var inside = 0;
+                for (var sy = 0; sy < 8; sy++)
+                {
+                    for (var sx = 0; sx < 8; sx++)
+                    {
+                        var dx = x - 63.7 + ((sx + 0.5) / 8) - 0.5;
+                        var dy = y - 64.2 + ((sy + 0.5) / 8) - 0.5;
+                        inside += (dx * dx) + (dy * dy) < 30 * 30 ? 1 : 0;
+                    }
+                }
+                sharp[y, x] = inside / 64.0;
+            }
+        }
+        var blurred = GaussianBlur(sharp, sigma);
+        for (var i = 0; i < frames.Length; i++)
+        {
+            frames[i] = new float[size, size];
+            for (var y = 0; y < size; y++)
+            {
+                for (var x = 0; x < size; x++)
+                {
+                    frames[i][y, x] = (float)(0.1 + (0.6 * blurred[y, x]) + (0.0005 * PhaseScreen.Gaussian(random)));
+                }
+            }
+            times[i] = Night + TimeSpan.FromMilliseconds(5 * i);
+        }
+
+        using var stream = new InMemoryFrameStream(frames, times);
+        var statistics = await PlanetaryCaptureStatistics.MeasureAsync(stream, new CaptureStatisticsOptions(1) { FullScaleAdu = 1000, Pairs = 5 },
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        statistics.ShouldNotBeNull();
+        TestContext.Current.TestOutputHelper?.WriteLine($"limb edge width {statistics.LimbWidthAll:0.000} px (every frame), {statistics.LimbWidthBest:0.000} (best tenth); sqrt(2 pi) sigma {Math.Sqrt(2 * Math.PI) * sigma:0.000}");
+        statistics.LimbWidthAll.ShouldBe(Math.Sqrt(2 * Math.PI) * sigma, 0.1);
+    }
+
+    private static double[,] GaussianBlur(double[,] image, double sigma)
+    {
+        var (height, width) = (image.GetLength(0), image.GetLength(1));
+        var radius = (int)Math.Ceiling(4 * sigma);
+        var kernel = new double[(2 * radius) + 1];
+        double total = 0;
+        for (var t = -radius; t <= radius; t++)
+        {
+            kernel[t + radius] = Math.Exp(-0.5 * t * t / (sigma * sigma));
+            total += kernel[t + radius];
+        }
+        var rows = new double[height, width];
+        var result = new double[height, width];
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                double s = 0;
+                for (var t = -radius; t <= radius; t++)
+                {
+                    s += kernel[t + radius] * image[y, Math.Clamp(x + t, 0, width - 1)];
+                }
+                rows[y, x] = s / total;
+            }
+        }
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                double s = 0;
+                for (var t = -radius; t <= radius; t++)
+                {
+                    s += kernel[t + radius] * rows[Math.Clamp(y + t, 0, height - 1), x];
+                }
+                result[y, x] = s / total;
+            }
+        }
+        return result;
+    }
+
     private const double FullScale = 65535;
     private const double DiskLevel = 20000;
 
     // Frames of a banded Jupiter (the aligners want texture, as a real one has), bright and nearly noiseless (a large gain, no
     // read noise, 16 bits), under seeing of `r0M`.
     private static async Task<ushort[][]> MakeAsync(ImmutableArray<double> shiftX, ImmutableArray<double> shiftY, int size, double radius, double r0M,
-        bool keepTilt = false, Action<ImmutableArray<SyntheticFrame>>? made = null)
+        bool keepTilt = false, Action<ImmutableArray<SyntheticFrame>>? made = null, double warpRms = 0)
     {
         var values = new float[360 * 180];
         for (var row = 0; row < 180; row++)
@@ -254,6 +410,9 @@ public class PlanetaryDegradeTests
             DiskLevelAdu = DiskLevel,
             ScreenSamples = 128,
             KeepScreenTilt = keepTilt,
+            WarpRmsPx = warpRms,
+            WarpLengthPx = 10,
+            WarpLag1 = 0.5,
         };
         var frames = new ushort[shiftX.Length][];
         var reference = new DiskPlacement((size / 2) - 0.3, (size / 2) + 0.2, radius, NorthAngleDeg: -80);

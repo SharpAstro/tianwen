@@ -127,6 +127,11 @@ public static class PhaseScreen
 /// wind and partly renewed, <c>c(t) = alpha e^(-2 pi i f.v dt) c(t - dt) + sqrt(1 - alpha^2) n(t)</c> (Srinath, Poyneer, Rudy and
 /// Ammons 2015, Opt. Express 23, 33335). Each step's screen has Kolmogorov's statistics, consecutive screens are the same air
 /// moved on, and the renewal keeps the periodic screen from coming round again as the wind wraps it.
+/// <para>
+/// A finite outer scale L0 makes it von Karman's, <c>0.023 r0^(-5/3) (f^2 + 1/L0^2)^(-11/6)</c>: the eddies stop growing at L0,
+/// which takes most from the tilt of a small aperture and almost nothing from its finer aberrations. Kolmogorov's infinite
+/// scale moved 2022-09-03's synthetic disk 1.25 px RMS where the real one moved 0.96.
+/// </para>
 /// </summary>
 public sealed class EvolvingPhaseScreen
 {
@@ -144,10 +149,13 @@ public sealed class EvolvingPhaseScreen
 
     /// <summary>
     /// A screen of <paramref name="n"/> by <paramref name="n"/> samples (a power of two) <paramref name="spacingM"/> apart, of
-    /// Fried parameter <paramref name="r0M"/>, drawn from <paramref name="random"/>.
+    /// Fried parameter <paramref name="r0M"/> and outer scale <paramref name="outerScaleM"/> (infinite for Kolmogorov's), drawn
+    /// from <paramref name="random"/>.
     /// </summary>
-    public EvolvingPhaseScreen(int n, double spacingM, double r0M, Random random)
+    public EvolvingPhaseScreen(int n, double spacingM, double r0M, Random random, double outerScaleM = double.PositiveInfinity)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(outerScaleM);
+        var f0Squared = double.IsPositiveInfinity(outerScaleM) ? 0 : 1 / (outerScaleM * outerScaleM);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(spacingM);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(r0M);
         ArgumentNullException.ThrowIfNull(random);
@@ -168,7 +176,7 @@ public sealed class EvolvingPhaseScreen
             {
                 var fx = (kx < n / 2 ? kx : kx - n) * df;
                 var f = Math.Sqrt((fx * fx) + (fy * fy));
-                _amplitude[(ky * n) + kx] = f == 0 ? 0 : scale * Math.Pow(f, -11.0 / 6.0);
+                _amplitude[(ky * n) + kx] = f == 0 ? 0 : scale * Math.Pow((f * f) + f0Squared, -11.0 / 12.0);
             }
         }
         var size = n * spacingM;
@@ -182,7 +190,7 @@ public sealed class EvolvingPhaseScreen
                 for (var i = -1; i <= 1; i++)
                 {
                     var f = Math.Sqrt((i * i) + (j * j)) * sdf;
-                    _subAmplitude[(p * 9) + ((j + 1) * 3) + i + 1] = f == 0 ? 0 : subScale * Math.Pow(f, -11.0 / 6.0) * sdf;
+                    _subAmplitude[(p * 9) + ((j + 1) * 3) + i + 1] = f == 0 ? 0 : subScale * Math.Pow((f * f) + f0Squared, -11.0 / 12.0) * sdf;
                 }
             }
         }

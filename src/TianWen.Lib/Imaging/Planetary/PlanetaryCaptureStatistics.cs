@@ -105,6 +105,9 @@ public readonly record struct CameraEstimate(double FullScaleAdu, double SkyLeve
 /// transparency, which a synthetic capture replays.</param>
 /// <param name="FluxSlowRms">The flux's RMS over the capture once each quarter second is averaged: its slow part.</param>
 /// <param name="FluxFastRms">Consecutive frames' flux difference over the square root of two, RMS: its fast part and the noise.</param>
+/// <param name="LimbWidthAll">The limb's edge width in the mean of every frame aligned, in pixels: the seeing's blur with its
+/// motion taken out, which pins the Fried parameter where the Laplacian, mostly noise in a faint capture, cannot.</param>
+/// <param name="LimbWidthBest">The same in the mean of the best tenth by quality: the lucky frames' blur.</param>
 /// <param name="Warp">The local warp.</param>
 /// <param name="Quality">Every frame's Laplacian score (the grader's), in frame order.</param>
 /// <param name="QualityPercentiles">Its 5th, 25th, 50th, 75th and 95th percentiles.</param>
@@ -128,6 +131,8 @@ public sealed record CaptureStatistics(
     ImmutableArray<double> Flux,
     double FluxSlowRms,
     double FluxFastRms,
+    double LimbWidthAll,
+    double LimbWidthBest,
     WarpStatistics Warp,
     ImmutableArray<double> Quality,
     ImmutableArray<double> QualityPercentiles,
@@ -203,13 +208,22 @@ public static class PlanetaryCaptureStatistics
             var shiftX = new double[n];
             var shiftY = new double[n];
             var flux = new double[n];
-            await ForEachFrameAsync(stream, all, () => LuckyImagingStacker.AlignerFor(reference, region, alignTileSize: 0), (aligner, index, frame) =>
-            {
-                var shift = aligner.Estimate(frame, PlanetaryDisk.BoundingBox(frame));
-                shiftX[index] = shift.Dx;
-                shiftY[index] = shift.Dy;
-                flux[index] = LightAround(frame, disk.X + shift.Dx, disk.Y + shift.Dy, 1.3 * disk.Radius, skyLevel / options.FullScaleAdu);
-            }, cancellationToken).ConfigureAwait(false);
+            var bestLevel = QualityPercentile(quality, 90);
+            var workers = await ForEachFrameAsync(stream, all, () => new ShiftWorker(LuckyImagingStacker.AlignerFor(reference, region, alignTileSize: 0), width, height),
+                (worker, index, frame) =>
+                {
+                    var shift = worker.Aligner.Estimate(frame, PlanetaryDisk.BoundingBox(frame));
+                    shiftX[index] = shift.Dx;
+                    shiftY[index] = shift.Dy;
+                    flux[index] = LightAround(frame, disk.X + shift.Dx, disk.Y + shift.Dy, 1.3 * disk.Radius, skyLevel / options.FullScaleAdu);
+                    frame.AccumulateTranslatedInto(worker.All, worker.AllWeight, (float)shift.Dx, (float)shift.Dy, 1f);
+                    if (quality[index] >= bestLevel)
+                    {
+                        frame.AccumulateTranslatedInto(worker.Best, worker.BestWeight, (float)shift.Dx, (float)shift.Dy, 1f);
+                    }
+                }, cancellationToken).ConfigureAwait(false);
+            var limbWidthAll = LimbWidth(ShiftWorker.Mean(workers, best: false), disk.X, disk.Y, disk.Radius, skyLevel / options.FullScaleAdu);
+            var limbWidthBest = LimbWidth(ShiftWorker.Mean(workers, best: true), disk.X, disk.Y, disk.Radius, skyLevel / options.FullScaleAdu);
             var (fluxSlow, fluxFast) = FluxVariation(flux, seconds);
             progress?.Report("aligned every frame");
 
@@ -278,7 +292,7 @@ public static class PlanetaryCaptureStatistics
             var diskLevel = DiskLevel(plane, width, height, disk, options.FullScaleAdu) - skyLevel;
             var camera = new CameraEstimate(options.FullScaleAdu, skyLevel, Median(skyNoise), diskLevel);
 
-            return new CaptureStatistics(n, fps, referenceIndex, disk.X, disk.Y, disk.Radius, [.. shiftX], [.. shiftY], [.. mountX], [.. mountY], seeingRms, mountRate, mountWander, [.. flux], fluxSlow, fluxFast,
+            return new CaptureStatistics(n, fps, referenceIndex, disk.X, disk.Y, disk.Radius, [.. shiftX], [.. shiftY], [.. mountX], [.. mountY], seeingRms, mountRate, mountWander, [.. flux], fluxSlow, fluxFast, limbWidthAll, limbWidthBest,
                 warp, [.. quality], QualityPercentilesOf(quality), Lag1(quality), bandNoise, camera);
         }
         finally
@@ -348,13 +362,14 @@ public static class PlanetaryCaptureStatistics
 
     // Loads each frame of `indices` on one of up to a processor's count of workers, each with its own state, and hands it to
     // `body`, which must write only its own frame's slots.
-    private static Task ForEachFrameAsync<TState>(IPlanetaryFrameStream stream, int[] indices, Func<TState> state, Action<TState, int, Image> body,
+    private static async Task<TState[]> ForEachFrameAsync<TState>(IPlanetaryFrameStream stream, int[] indices, Func<TState> state, Action<TState, int, Image> body,
         CancellationToken cancellationToken)
     {
         var workers = Math.Max(1, Math.Min(Environment.ProcessorCount, indices.Length));
-        return Parallel.ForAsync(0, workers, new ParallelOptions { CancellationToken = cancellationToken }, async (worker, token) =>
+        var states = new TState[workers];
+        await Parallel.ForAsync(0, workers, new ParallelOptions { CancellationToken = cancellationToken }, async (worker, token) =>
         {
-            var own = state();
+            var own = states[worker] = state();
             for (var k = worker; k < indices.Length; k += workers)
             {
                 var frame = await stream.LoadAsync(indices[k], token).ConfigureAwait(false);
@@ -367,7 +382,91 @@ public static class PlanetaryCaptureStatistics
                     frame.Release();
                 }
             }
-        });
+        }).ConfigureAwait(false);
+        return states;
+    }
+
+    // One worker of the shift pass: its own aligner, and its own share of the two means, summed once the pass is done.
+    private sealed class ShiftWorker(GlobalAligner aligner, int width, int height)
+    {
+        public GlobalAligner Aligner { get; } = aligner;
+        public float[][,] All { get; } = Image.CreateChannelData(1, height, width);
+        public float[,] AllWeight { get; } = new float[height, width];
+        public float[][,] Best { get; } = Image.CreateChannelData(1, height, width);
+        public float[,] BestWeight { get; } = new float[height, width];
+
+        // The workers' shares summed into one mean, row-major.
+        public static (float[] Plane, int Width, int Height) Mean(ShiftWorker[] workers, bool best)
+        {
+            var first = best ? workers[0].Best[0] : workers[0].All[0];
+            var (height, width) = (first.GetLength(0), first.GetLength(1));
+            var plane = new float[width * height];
+            for (var y = 0; y < height; y++)
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    double sum = 0, weight = 0;
+                    foreach (var w in workers)
+                    {
+                        sum += best ? w.Best[0][y, x] : w.All[0][y, x];
+                        weight += best ? w.BestWeight[y, x] : w.AllWeight[y, x];
+                    }
+                    plane[(y * width) + x] = weight > 0 ? (float)(sum / weight) : 0;
+                }
+            }
+            return (plane, width, height);
+        }
+    }
+
+    // The value at `percentile` of `values`, the nearest rank.
+    private static double QualityPercentile(double[] values, double percentile)
+    {
+        var sorted = (double[])values.Clone();
+        Array.Sort(sorted);
+        return sorted[(int)Math.Round(percentile / 100 * (sorted.Length - 1))];
+    }
+
+    // The limb's edge width: along 72 rays from the disk's centre, the level just inside the limb (0.85 radii) over the sky,
+    // over the steepest fall between 0.75 and 1.25 radii, in pixels; the median over the rays, so a moon on one does not
+    // count. For a Gaussian blur of an edge that is sqrt(2 pi) sigma. The same rule for a real and a synthetic capture, whose
+    // limbs are the same planet's in the same filter.
+    private static double LimbWidth((float[] Plane, int Width, int Height) mean, double cx, double cy, double radius, double sky)
+    {
+        var (plane, width, height) = mean;
+        double At(double x, double y)
+        {
+            if (x < 0 || y < 0 || x > width - 1 || y > height - 1)
+            {
+                return double.NaN;
+            }
+            var (x0, y0) = ((int)x, (int)y);
+            var (x1, y1) = (Math.Min(x0 + 1, width - 1), Math.Min(y0 + 1, height - 1));
+            var (tx, ty) = (x - x0, y - y0);
+            var top = (plane[(y0 * width) + x0] * (1 - tx)) + (plane[(y0 * width) + x1] * tx);
+            var bottom = (plane[(y1 * width) + x0] * (1 - tx)) + (plane[(y1 * width) + x1] * tx);
+            return (top * (1 - ty)) + (bottom * ty);
+        }
+        var widths = new List<double>();
+        for (var ray = 0; ray < 72; ray++)
+        {
+            var (sin, cos) = Math.SinCos(ray * Math.PI / 36);
+            var inside = At(cx + (0.85 * radius * cos), cy + (0.85 * radius * sin)) - sky;
+            var steepest = 0.0;
+            for (var r = 0.75 * radius; r <= 1.25 * radius; r += 0.1)
+            {
+                var fall = (At(cx + ((r - 0.25) * cos), cy + ((r - 0.25) * sin)) - At(cx + ((r + 0.25) * cos), cy + ((r + 0.25) * sin))) / 0.5;
+                steepest = double.IsNaN(fall) ? double.NaN : Math.Max(steepest, fall);
+                if (double.IsNaN(steepest))
+                {
+                    break;
+                }
+            }
+            if (steepest > 0 && inside > 0)
+            {
+                widths.Add(inside / steepest);
+            }
+        }
+        return Median([.. widths]);
     }
 
     // Each frame's time in seconds from the first: its timestamp, else its index over the stated rate.
