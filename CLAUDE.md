@@ -956,6 +956,11 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   gain** (a frame's least-squares gain per a trous band on the stack of every frame, noise-unbiased) rank at +0.87 to +0.99. **Never
   judge a quality statistic read by the Laplacian**: R2's quality spread and lag 1 were noise. **Register onto a truth with
   `CorrelationRegistrar`** (not whitened, peak climbed by Newton's method), never a phase correlation, which follows the noise.
+- **On a single 8-bit frame phase correlation places a patch 3 times worse than a plain cross-correlation** (R5: 1.11 against
+  0.35 px, `AlignmentPointMatchingTests`), and every stack is worse for it. `PlanetaryStackOptions.WhitenedCorrelation` and
+  `CaptureStatisticsOptions.WhitenedCorrelation` switch the global aligner and the alignment points (whitened by default until
+  #1074). **A warp statistic read whitened is the matching's noise** (1 px injected moved it 0.04): read it with
+  `--plain-correlation`, and with the one alignment-point default both verbs take (`CaptureStatisticsOptions.DefaultAlignmentPatchSize`).
 - **Read the plan doc before touching the Canon path** -- it is a list of five things that fail
   SILENTLY. **Recentering is opt-in** (the user, 2026-09-28; it costs the loop about 15 ms a frame at full frame), and
   so is the mount jog, whose **sign is uncalibrated**.
