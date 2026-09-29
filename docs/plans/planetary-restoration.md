@@ -1,6 +1,6 @@
 # Planetary restoration by measurement
 
-**Status: PARTIAL: R0 to R4 done** (written 2026-09-28, the user's request; R0 2026-09-29: the survey, the FITS video conversion and the tracked lossless crop; R1 2026-09-29: the ephemeris, the limb fit, which telescope; R2 2026-09-29: rendered truth, T1 passed, and a synthetic capture that matches the real one on the disk, its kill line firing on the sky's finest bands; R3 2026-09-30: the metrics, the limb's undershoot validated, the halves' agreement not, pending R7's blur; R4 2026-09-30: per frame, the Laplacian ranks an 8-bit capture's frames near chance and the mid bands rank them well, on the twin and truth-free on the real capture, the choice waiting on open question 4 and the per-point half on #1071). Milestone `planetary-restoration`: R0 #1048, R1 #1049, R2 #1050, R3 #1051, R4 #1052, R5 #1053, R6 #815, R7 #1054, R8 #1055, R9 #1056 (conditional).
+**Status: PARTIAL: R0 to R4 done** (written 2026-09-28, the user's request; R0 2026-09-29: the survey, the FITS video conversion and the tracked lossless crop; R1 2026-09-29: the ephemeris, the limb fit, which telescope; R2 2026-09-29: rendered truth, T1 passed, and a synthetic capture that matches the real one on the disk, its kill line firing on the sky's finest bands; R3 2026-09-30: the metrics, the limb's undershoot validated, the halves' agreement not, pending R7's blur; R4 2026-09-30: per frame, the Laplacian ranks an 8-bit capture's frames near chance and the mid bands rank them well, on the twin and truth-free on the real capture, the choice waiting on open question 4 and the per-point half on #1071; R5 part 1 2026-09-30: phase correlation places 8-bit frames and points three times worse than a plain one, every stack better plain (#1074), and the real capture's warp visible only plain; part 2, the dewarp, under way). Milestone `planetary-restoration`: R0 #1048, R1 #1049, R2 #1050, R3 #1051, R4 #1052, R5 #1053, R6 #815, R7 #1054, R8 #1055, R9 #1056 (conditional).
 
 The user asked for what the deep-sky training effort does, done for planetary lucky imaging:
 - which frames are usable;
@@ -491,6 +491,39 @@ Each metric lives in Lib and is shared by the CLI verb and the stack itself (`ti
   - At 0.31 arcsec a pixel and finer, the measured warp correlation length is shorter than twice the default 24 px spacing.
   - The median reference cuts the residual warp RMS by at least 20 % against the best-frame reference.
   - Kill line: if not, the parameter study's finding that AP count barely matters stands, now with a measurement behind it.
+
+### R5 results, part 1: the registration and the warp it can see
+
+**Measured** (2026-09-30) on 2022-09-03's twin with a known warp injected (`planetary-degrade --warp-rms` 0.25, 0.5 and 1.0 px, its default length and frame-to-frame correlation, otherwise the calibrated twin), and on the real capture. **Adopting plain correlation:** #1074. Part 2 (the median reference, and a dewarp that can follow the warp) is still #1053's.
+
+- **The registration follows the noise.** The global aligner and the alignment points register by phase correlation, which weights every frequency alike; on a single 8-bit frame the finest frequencies are noise, and whitening hands them the peak.
+  - **A controlled test, not the twin** (`AlignmentPointMatchingTests`): a banded disk at the twin's level and noise (47 ADU over the sky, 1.25 ADU a pixel, rounded), moved by a known sub-pixel shift. A 16 px patch is placed to **1.11 px RMS a axis whitened, and 0.35 px by a plain cross-correlation**, which is also the maximum-likelihood shift under white noise.
+  - `PhaseCorrelation` takes `whiten: false` (the tile's mean under the window taken out first); `GlobalAligner`, `AlignmentPointMatcher`, `PlanetaryStackOptions` and `CaptureStatisticsOptions` carry it, whitened by default until #1074.
+- **Every stack is better registered plain**, keep 5 % (150 frames), the fidelity error in bands 1 and 2:
+
+  | Warp injected | Global, whitened | Points 12 px, whitened | Global, plain | Points 12 px, plain | Points 12 px, plain, no per-point weight |
+  |---|---|---|---|---|---|
+  | None | 0.796, 0.534 | 0.791, 0.531 | 0.764, 0.513 | 0.751, 0.500 | 0.760, 0.508 |
+  | 0.25 px | 0.815, 0.548 | 0.809, 0.544 | 0.786, 0.528 | 0.770, 0.514 | 0.777, 0.520 |
+  | 0.5 px | 0.842, 0.577 | 0.835, 0.574 | 0.809, 0.541 | 0.803, 0.533 | 0.807, 0.538 |
+  | 1.0 px | 0.931, 0.705 | 0.917, 0.695 | 0.877, 0.605 | 0.872, 0.600 | 0.875, 0.599 |
+
+  - **Plain wins at every warp and in every band**, 0.03 to 0.05 in band 1. Most of it is the global aligner's: whitened, it is 0.45 px off the synthetic truth (R2).
+  - **The alignment points add little over a global stack**, 0.005 to 0.014 in band 2 plain, the same with no warp at all. There they only refine the global aligner's own error.
+  - **The dewarp cannot follow the warp yet.** A 1 px warp costs band 2 0.10 of error (0.500 to 0.600, plain) and the points win back almost none of it. Each frame's match is as uncertain as the warp is large; part 2 is a dewarp that pools each point's displacement over the frames the warp stays coherent for.
+  - **Spacing:** plain, 12, 24 and 48 px stack alike (band 2 0.500, 0.503, 0.502 with no warp). Whitened, a wider spacing is worse (0.531 to 0.582), fewer noisy points leaving the mesh less to average.
+- **The warp statistic sees a warp only plain**, with the same points (16 px patches 12 px apart; `planetary-seeing` once read with 32 px patches, which leave two points on this disk, and now takes the one default `planetary-degrade` does):
+
+  | | No warp | 0.25 px | 0.5 px | 1.0 px | The real capture |
+  |---|---|---|---|---|---|
+  | Whitened, RMS a axis | 0.745 (seed 2: 0.754) | 0.762 | 0.789 | 0.797 | 0.787 |
+  | Plain, RMS a axis | 0.300 | | 0.347 | 0.487 | **0.372** |
+  | Plain, lag 1 | 0.012 | | 0.118 | 0.281 | **0.173** |
+
+  - Whitened, the statistic is the matching's noise: 1 px of warp moves it by 0.04. R2 calibrated the twin's warp on that reading, so the twin has none.
+  - Plain, the warp shows, and **the real capture has one**: coherent from one frame to the next (lag 1 0.173, where the no-warp twin reads 0.012), between the 0.5 and 1 px twins. Part 2 calibrates the twin's warp on this reading.
+  - Plain, the statistic reads about 0.4 of the warp injected (0.39 px over the no-warp twin's in quadrature at 1 px), what the frame's mean over its points and a 16 px patch's averaging leave of a field 20 px long.
+- **For R4:** R4's pipeline stacks lost against the stacks registered onto the truth by the global aligner's error, and a global stack registered plain gains 0.02 to 0.10 of band 2's error back (above). Its error in pixels, plain, is part 2's to measure.
 
 ### R5a Drizzle, where the sampling calls for it
 

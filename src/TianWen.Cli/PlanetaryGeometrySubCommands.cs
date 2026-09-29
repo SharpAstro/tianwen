@@ -270,13 +270,14 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         var warpFramesOpt = new Option<int>("--warp-frames") { Description = "Frames averaged before the warp is read.", DefaultValueFactory = _ => 1 };
         var patchOpt = new Option<int>("--ap-patch") { Description = "The statistics' alignment-point patch.", DefaultValueFactory = _ => CaptureStatisticsOptions.DefaultAlignmentPatchSize };
         var spacingOpt = new Option<int>("--ap-spacing") { Description = "The statistics' alignment-point spacing.", DefaultValueFactory = _ => CaptureStatisticsOptions.DefaultAlignmentPointSpacing };
+        var plainOpt = new Option<bool>("--plain-correlation") { Description = "The statistics register frames and points by a plain cross-correlation, not phase correlation (R5)." };
         var framesOpt = new Option<int?>("--frames") { Description = "Only the capture's first frames, measured and made (a quicker trial)." };
 
         var command = new Command("planetary-degrade",
             "A synthetic capture from a global map with a real capture's own seeing, motion and camera (R2): measure the real one, make the synthetic one, measure it the same way, and compare.")
         {
             Arguments = { inputArg },
-            Options = { mapOpt, outputOpt, planetOpt, kOpt, telescopeOpt, wavelengthOpt, r0Opt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, localR0Opt, localOuterScaleOpt, localWindOpt, scatterOpt, scatterCoreOpt, realStatisticsOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, replayOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, framesOpt },
+            Options = { mapOpt, outputOpt, planetOpt, kOpt, telescopeOpt, wavelengthOpt, r0Opt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, localR0Opt, localOuterScaleOpt, localWindOpt, scatterOpt, scatterCoreOpt, realStatisticsOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, replayOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, plainOpt, framesOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -310,6 +311,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                 WarpFrames = parseResult.GetValue(warpFramesOpt),
                 AlignmentPatchSize = parseResult.GetValue(patchOpt),
                 AlignmentPointSpacing = parseResult.GetValue(spacingOpt),
+                WhitenedCorrelation = !parseResult.GetValue(plainOpt),
             };
             // A real capture measured once serves every synthetic one compared with it.
             var statisticsPath = parseResult.GetValue(realStatisticsOpt);
