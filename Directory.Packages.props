@@ -20,7 +20,7 @@
     <PackageVersion Include="Lzip.Lib" Version="1.1.*" />
     <PackageVersion Include="Serial.Lib" Version="1.1.*" />
 
-    <PackageVersion Include="LAN.Lib" Version="2.1.*" />
+    <PackageVersion Include="LAN.Lib" Version="2.2.*" />
     <PackageVersion Include="SharpAstro.AppShell" Version="1.1.*" />
     <PackageVersion Include="GeoTimeZone" Version="6.1.0" />
 

@@ -882,6 +882,25 @@ public class RemoteSessionMirrorTests
     }
 
     [Fact]
+    public async Task ACameraThatHasNotStartedAnExposureIsNotShiftedByTheClockSkew()
+    {
+        // A camera reports DateTimeOffset.MinValue until its first exposure (the whole of Cooling and rough focus). A node
+        // ten minutes AHEAD of this computer makes the skew negative, and MinValue plus a negative span throws, on the
+        // render thread of every window that attaches to a running session: the successor P7 starts died the same way
+        // (found live, 2026-09-29). An exposure that never started has no start to move.
+        var nodeNow = new DateTimeOffset(2026, 7, 26, 20, 10, 0, TimeSpan.Zero);
+        var session = Observing(Substitute.For<ISessionTelemetry>());
+        session.CameraStates.Returns([new CameraExposureState(0, default, TimeSpan.FromSeconds(120), 0, "L", 980,
+            CameraState.Idle, 15.0, false)]);
+
+        var (mirror, _) = BuildMirror(_ => Json(ResponseEnvelope<SessionStateDto>.Ok(SessionStateDto.FromSession(session, nodeNow: nodeNow))));
+        await using var _mirror = mirror;
+        await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+
+        mirror.CameraStates.ShouldHaveSingleItem().ExposureStart.ShouldBe(default);
+    }
+
+    [Fact]
     public async Task AnUnknownNumberCrossesAsNullAndReadsBackAsNaN()
     {
         // NaN is "not known" throughout the domain. On the native wire it is null, never 0: as 0, a pre-poll mount read
