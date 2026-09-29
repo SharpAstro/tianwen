@@ -189,13 +189,14 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         var patchOpt = new Option<int>("--ap-patch") { Description = "The alignment points' patch, a power of two.", DefaultValueFactory = _ => CaptureStatisticsOptions.DefaultAlignmentPatchSize };
         var spacingOpt = new Option<int>("--ap-spacing") { Description = "The alignment points' spacing.", DefaultValueFactory = _ => CaptureStatisticsOptions.DefaultAlignmentPointSpacing };
         var firstOpt = new Option<int>("--first") { Description = "The first frame measured.", DefaultValueFactory = _ => 0 };
+        var plainOpt = new Option<bool>("--plain-correlation") { Description = "Register frames and points by a plain cross-correlation, not phase correlation (R5)." };
         var framesOpt = new Option<int?>("--frames") { Description = "Only this many frames, from --first." };
 
         var command = new Command("planetary-seeing",
             "A capture's statistics, measured as a synthetic capture's are (R2): the shift's seeing and mount parts, the warp, the quality distribution, each band's noise, the camera's levels and gain.")
         {
             Arguments = { inputsArg },
-            Options = { planetOpt, utcOpt, fpsOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, firstOpt, framesOpt },
+            Options = { planetOpt, utcOpt, fpsOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, firstOpt, framesOpt, plainOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -223,6 +224,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                     WarpFrames = parseResult.GetValue(warpFramesOpt),
                     AlignmentPatchSize = parseResult.GetValue(patchOpt),
                     AlignmentPointSpacing = parseResult.GetValue(spacingOpt),
+                    WhitenedCorrelation = !parseResult.GetValue(plainOpt),
                 };
                 var progress = new Progress<string>(line => consoleHost.WriteScrollable("    " + line));
                 if (await PlanetaryCaptureStatistics.MeasureAsync(stream, options, progress, ct) is not { } statistics)

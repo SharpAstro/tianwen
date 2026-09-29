@@ -25,9 +25,11 @@ public sealed class GlobalAligner
     private readonly double _refCenterY;
     private readonly float[] _tile;
     private readonly Complex[] _spectrumScratch;
+    private readonly bool _whiten;
 
-    private GlobalAligner(int tileSize, Complex[] referenceSpectrum, double refCenterX, double refCenterY)
+    private GlobalAligner(int tileSize, Complex[] referenceSpectrum, double refCenterX, double refCenterY, bool whiten)
     {
+        _whiten = whiten;
         _tileSize = tileSize;
         _referenceSpectrum = referenceSpectrum;
         _refCenterX = refCenterX;
@@ -46,9 +48,10 @@ public sealed class GlobalAligner
     /// Builds an aligner from the reference frame: finds its disk COM over <paramref name="region"/> and
     /// caches the Hann-windowed forward FFT of a <paramref name="tileSize"/> x <paramref name="tileSize"/>
     /// planet-centred luminance tile, so each <see cref="Estimate"/> correlates against the precomputed
-    /// reference spectrum instead of re-transforming the (fixed) reference per frame.
+    /// reference spectrum instead of re-transforming the (fixed) reference per frame. <paramref name="whiten"/> picks phase
+    /// correlation (every frequency alike) or a plain cross-correlation (<see cref="PhaseCorrelation.Estimate(System.ReadOnlySpan{Complex}, System.ReadOnlySpan{float}, int, int, System.Span{Complex}, bool, bool)"/>).
     /// </summary>
-    public static GlobalAligner FromReference(Image reference, PixelRect region, int tileSize)
+    public static GlobalAligner FromReference(Image reference, PixelRect region, int tileSize, bool whiten = true)
     {
         ArgumentNullException.ThrowIfNull(reference);
         if (!ComplexFft.IsPowerOfTwo(tileSize))
@@ -68,8 +71,8 @@ public sealed class GlobalAligner
         PlanetaryTile.ExtractLuma(reference, rcx, rcy, tileSize, tile);
         // Precompute the reference tile's Hann-windowed forward FFT once; every Estimate correlates the
         // frame tile against this cached spectrum instead of re-transforming the fixed reference per frame.
-        var spectrum = PhaseCorrelation.PrepareReferenceSpectrum(tile, tileSize, tileSize, applyWindow: true);
-        return new GlobalAligner(tileSize, spectrum, rcx, rcy);
+        var spectrum = PhaseCorrelation.PrepareReferenceSpectrum(tile, tileSize, tileSize, applyWindow: true, whiten);
+        return new GlobalAligner(tileSize, spectrum, rcx, rcy, whiten);
     }
 
     /// <summary>
@@ -90,7 +93,7 @@ public sealed class GlobalAligner
         // Bulk shift = integer rounded-COM difference (matches the tile centring); the phase-correlation
         // residual is the full sub-pixel remainder between the two integer-centred tiles. Window on --
         // real, non-periodic imagery.
-        var residual = PhaseCorrelation.Estimate(_referenceSpectrum, _tile, _tileSize, _tileSize, _spectrumScratch, applyWindow: true);
+        var residual = PhaseCorrelation.Estimate(_referenceSpectrum, _tile, _tileSize, _tileSize, _spectrumScratch, applyWindow: true, _whiten);
 
         var dx = (rcx - _refCenterX) + residual.Dx;
         var dy = (rcy - _refCenterY) + residual.Dy;

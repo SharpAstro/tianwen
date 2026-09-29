@@ -18,6 +18,14 @@ public sealed record PlanetaryStackOptions
     /// <summary>Spacing (px) of the alignment-point grid cells -- at most one AP per cell.</summary>
     public int AlignmentPointSpacing { get; init; } = 24;
 
+    /// <summary>
+    /// Whether the global aligner and the alignment points register by phase correlation (whitened, every frequency weighted
+    /// alike, the default) or by a plain cross-correlation. On a single 8-bit frame the finest frequencies are noise, and
+    /// whitening hands the peak to it: a 16 px patch at 2022-09-03's level is placed to 1.1 px RMS whitened, 0.35 px plain
+    /// (<c>AlignmentPointMatchingTests</c>; docs/plans/planetary-restoration.md, R5).
+    /// </summary>
+    public bool WhitenedCorrelation { get; init; } = true;
+
     /// <summary>Maximum number of alignment points to track.</summary>
     public int MaxAlignmentPoints { get; init; } = 64;
 

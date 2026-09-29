@@ -44,6 +44,15 @@ public sealed record CaptureStatisticsOptions(LimbFitOptions Limb)
     /// <summary>The most alignment points to track.</summary>
     public int MaxAlignmentPoints { get; init; } = 256;
 
+    /// <summary>
+    /// Whether the statistics' global aligner and alignment points register by phase correlation (whitened, every frequency weighted
+    /// alike, the default) or by a plain cross-correlation. On a single 8-bit frame the finest frequencies are noise, and
+    /// whitening hands the peak to it: a 16 px patch at 2022-09-03's level is placed to 1.1 px RMS whitened, 0.35 px plain
+    /// (<c>AlignmentPointMatchingTests</c>; docs/plans/planetary-restoration.md, R5).
+    /// </summary>
+    public bool WhitenedCorrelation { get; init; } = true;
+
+
     /// <summary>The alignment points' patch, a power of two.</summary>
     public int AlignmentPatchSize { get; init; } = DefaultAlignmentPatchSize;
 
@@ -281,7 +290,7 @@ public static class PlanetaryCaptureStatistics
             var shiftY = new double[n];
             var flux = new double[n];
             var bestLevel = QualityPercentile(quality, 90);
-            var workers = await ForEachFrameAsync(stream, all, () => new ShiftWorker(LuckyImagingStacker.AlignerFor(reference, region, alignTileSize: 0), width, height),
+            var workers = await ForEachFrameAsync(stream, all, () => new ShiftWorker(LuckyImagingStacker.AlignerFor(reference, region, alignTileSize: 0, options.WhitenedCorrelation), width, height),
                 (worker, index, frame) =>
                 {
                     var shift = worker.Aligner.Estimate(frame, PlanetaryDisk.BoundingBox(frame));
@@ -358,7 +367,7 @@ public static class PlanetaryCaptureStatistics
                 {
                     // Each block is its frames moved onto the reference and averaged, so a block's points are matched with no
                     // global shift left.
-                    var matcher = AlignmentPointMatcher.FromReference(reference, aps, options.AlignmentPatchSize);
+                    var matcher = AlignmentPointMatcher.FromReference(reference, aps, options.AlignmentPatchSize, options.WhitenedCorrelation);
                     residuals[2 * k] = new AlignmentPointShift[aps.Length];
                     residuals[(2 * k) + 1] = new AlignmentPointShift[aps.Length];
                     var blockA = await MeanOnReferenceAsync(stream, a, block, shiftX, shiftY, reference, token).ConfigureAwait(false);

@@ -38,6 +38,7 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
         var methodOpt = new Option<string>("--method") { Description = "The stacking methods, a comma list of ap (alignment points with the per-point best-of weighting, the full lucky-imaging path), ap-flat (alignment points, each frame weighted as a whole) and global.", DefaultValueFactory = _ => "ap" };
         var spacingOpt = new Option<string>("--ap-spacing") { Description = "The alignment points' spacings to stack at, a comma list (ap methods only).", DefaultValueFactory = _ => "24" };
         var patchOpt = new Option<int>("--ap-patch") { Description = "The alignment points' patch, a power of two.", DefaultValueFactory = _ => 32 };
+        var correlationOpt = new Option<string>("--correlation") { Description = "How frames and points are registered, a comma list of whitened (phase correlation) and plain (cross-correlation).", DefaultValueFactory = _ => "whitened" };
         var noHalvesOpt = new Option<bool>("--no-halves") { Description = "Stack each candidate only, not its two halves: no halves' agreement, in a third of the time." };
         var cutoffOpt = new Option<double?>("--cutoff") { Description = "The telescope's cutoff in cycles a pixel, for the power past it (fabrication); none past Nyquist." };
 
@@ -45,7 +46,7 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
             "Stacks a capture as each candidate asks, and its two halves, and measures every stack (R3): fidelity per wavelet band and the limb against a truth, the halves' agreement per band, the limb's undershoot; with a truth, how the truth-free metrics rank the candidates against the truth-based ones.")
         {
             Arguments = { captureArg },
-            Options = { truthOpt, planetOpt, utcOpt, framesOpt, keepOpt, sharpenOpt, methodOpt, spacingOpt, patchOpt, noHalvesOpt, cutoffOpt },
+            Options = { truthOpt, planetOpt, utcOpt, framesOpt, keepOpt, sharpenOpt, methodOpt, spacingOpt, patchOpt, correlationOpt, noHalvesOpt, cutoffOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -92,6 +93,12 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
                 return 1;
             }
             var spacings = ParseList(parseResult.GetValue(spacingOpt), int.Parse);
+            var correlations = ParseList(parseResult.GetValue(correlationOpt), name => name.ToLowerInvariant());
+            if (correlations.FirstOrDefault(c => c is not ("whitened" or "plain")) is { } unknownCorrelation)
+            {
+                consoleHost.WriteError($"--correlation {unknownCorrelation}: whitened or plain");
+                return 1;
+            }
             var patch = parseResult.GetValue(patchOpt);
             var halves = !parseResult.GetValue(noHalvesOpt);
             var cutoff = parseResult.GetValue(cutoffOpt);
@@ -99,9 +106,9 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
             MetricDisk? reference = truthDisk;
             var rows = new List<Row>();
             // A global stack has no alignment points, so it is stacked once, whatever the spacings.
-            var candidates = methods.SelectMany(m => m == "global" ? [(Method: m, Spacing: 0)] : spacings.Select(s => (Method: m, Spacing: s))).ToArray();
+            var candidates = correlations.SelectMany(c => methods.SelectMany(m => m == "global" ? [(Method: m, Spacing: 0, Correlation: c)] : spacings.Select(s => (Method: m, Spacing: s, Correlation: c)))).ToArray();
             consoleHost.WriteScrollable($"{Path.GetFileName(input)}: {frames} frames, {candidates.Length * keeps.Length * presets.Length} candidates{(halves ? ", each with its two halves" : "")}");
-            foreach (var (method, spacing) in candidates)
+            foreach (var (method, spacing, correlation) in candidates)
             {
                 foreach (var preset in presets)
                 {
@@ -115,8 +122,9 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
                             AlignmentPointSpacing = spacing > 0 ? spacing : new PlanetaryStackOptions().AlignmentPointSpacing,
                             AlignmentPatchSize = patch,
                             PerPointQualityWeighting = method == "ap",
+                            WhitenedCorrelation = correlation == "whitened",
                         };
-                        var name = method == "global" ? "global" : $"{method} {spacing} px";
+                        var name = (method == "global" ? "global" : $"{method} {spacing} px") + (correlation == "plain" ? ", plain" : "");
                         var full = await StackAsync(stacker, stream, options, method, ct);
                         // Every stack onto one disk: the truth's, or the first stack's own.
                         if (Register(full.Master, limbOptions, reference) is not { } fullPlane)
