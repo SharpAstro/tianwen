@@ -1,6 +1,6 @@
 # Planetary restoration by measurement
 
-**Status: PARTIAL: R0 done** (written 2026-09-28, the user's request; R0 2026-09-29: the survey, the FITS video conversion and the tracked lossless crop). Milestone `planetary-restoration`: R0 #1048, R1 #1049, R2 #1050, R3 #1051, R4 #1052, R5 #1053, R6 #815, R7 #1054, R8 #1055, R9 #1056 (conditional).
+**Status: PARTIAL: R0, R1 and R2 done** (written 2026-09-28, the user's request; R0 2026-09-29: the survey, the FITS video conversion and the tracked lossless crop; R1 2026-09-29: the ephemeris, the limb fit, which telescope; R2 2026-09-29: rendered truth, T1 passed, and a synthetic capture that matches the real one on the disk, its kill line firing on the sky's finest bands). Milestone `planetary-restoration`: R0 #1048, R1 #1049, R2 #1050, R3 #1051, R4 #1052, R5 #1053, R6 #815, R7 #1054, R8 #1055, R9 #1056 (conditional).
 
 The user asked for what the deep-sky training effort does, done for planetary lucky imaging:
 - which frames are usable;
@@ -163,7 +163,7 @@ With no truth, two independent stacks of the same capture (disjoint frame sets, 
     - The radius disagreement grows with the blur: within 0.5 % where the edge's sigma is about a pixel, 1.4 to 1.7 % larger where it is 7.7 px. An outline set by eye marks the visible edge, which lies inside the unblurred limb by a fraction of the blur; the Moffat-wing bias the synthetic test measured accounts for about 0.6 px of the 3 px there.
     - About 0.4 to 0.5 px along the POLE direction on 2022-09-03 is not the phase's (the Sun lies along the equator). Jupiter's darker polar regions, which a uniform-albedo disk does not have, are the hypothesis.
     - The blue stack (sigma 3.2 px, k 0.67) is the one radius outlier, 3.85 % small: blurrier, and fitted with a flatter limb darkening.
-  - **The decider is T1, and it is R2's first step** (#1050): render an OPAL map at 2022-09-03's geometry (belts and dark poles included), blur it with a Moffat PSF, and fit it with this same code. The rendered geometry is known exactly, so the fit's own error is measured without an outline set by eye. Until that passes (centre within 0.2 px, radius within 0.5 %, the plan's numbers), the fit's centre is trusted to about a pixel and its radius to about 2 %. R2 may render and degrade with that, but no later phase leans on the geometry below it.
+  - **The decider was T1, R2's first step, and it passed** (#1050, R2 part 1 below): an OPAL map rendered at 2022-09-03's geometry (belts and dark poles included), blurred, and fitted with this same code, the rendered geometry known exactly. Against the plan's numbers (centre within 0.2 px, radius within 0.5 %) the fixed fit lands within 0.05 px and +0.17 to +0.44 %. T1 also found four faults in the fit, now fixed, and with them the miss against WinJUPOS shrank to one sign per session, the pattern of an outline set by hand.
 - **Which telescope, from the data:** the two apertures differ 2.5 times, and the sharpest frames show it.
   - The averaged power spectrum of a capture's best frames falls to its noise floor at the aperture's cutoff, `D / lambda`, or before it, and the cutoff times the measured scale gives `D` or a bound on it (`PlanetaryPowerSpectrum`, `ApertureCutoff`).
   - The Newtonian's spider vanes add diffraction spikes, a four-fold pattern in the stack's halo, that the Maksutov lacks (`SpiderSignature`).
@@ -230,6 +230,108 @@ With no truth, two independent stacks of the same capture (disjoint frame sets, 
 - **Pre-registered:**
   - The synthetic capture matches the real one within 10 % on five statistics: the global shift RMS, the warp correlation length, the quality distribution's shape (its percentiles), the per-band noise, and the lag-1 frame correlation.
   - Kill line: a statistic outside that band means a physical term is missing, and the synthetic capture is not used to choose any parameter until it matches.
+
+### R2 part 1: the render, and T1
+
+**Done** (2026-09-29).
+
+- **The map:** `PlanetMap` reads a global map in OPAL's conventions: planetographic latitude, north in the first row, west longitude with the left edge at 0 and decreasing to the right, 10 samples a degree. Checked on the 2022 map: its Great Red Spot reads at 23 degrees south. OPAL's maps are Minnaert-flattened, and each filter's k is in the readme (F631N 0.999 in 2022 and 2024).
+- **The render:** `PlanetaryRender` casts a ray per sample onto the ephemeris' oblate spheroid at the capture's geometry, reads the map at the point hit, and puts back the map's limb darkening, lit from the sub-solar point (`PhysicalEphemeris.SunOnTheDisk`, whose phase angle agrees with the ephemeris' to the thousandth of a degree). Through a telescope it renders at a scale fine enough for the pupil's cutoff, convolves with the pupil's PSF, and bins to pixels. It is pinned against formulas of its own, never against the limb fit: the outline's area to 0.005 %, a meridian and a latitude circle to a hundredth of a pixel, the phase's side, the flux kept through diffraction, and Airy's encircled energy.
+- **The verb:** `tianwen planetary-render-truth --map --utc` renders at an image's disk (`--like`) or a given one, optionally through a Moffat seeing, at an output scale (`--upsample`, R5a), and with `--fit` reports the limb fit's error against the geometry rendered.
+- **T1, the limb fit on a rendered Jupiter** (R1's decider). A synthetic Jupiter with belts, dark poles and a red spot, at 2022-09-03's geometry, through the Newtonian's pupil and a Moffat seeing the fit's model does not have:
+
+  | Seeing (FWHM, beta) | Centre error | Radius error |
+  |---|---|---|
+  | 3 px, 3 | 0.05, 0.03 px | +0.36 % |
+  | 6 px, 3 | 0.04, 0.04 px | +0.29 % |
+  | 6 px, 2 | 0.04, 0.05 px | +0.31 % |
+
+  And OPAL's 2022 F631N map itself, rendered at the same geometry through Moffat seeing of 3, 5 and 7 px: the centre within 0.04 px, the radius +0.44, +0.19 and +0.17 % large. **It passes the pre-registration** (centre within 0.2 px, radius within 0.5 %).
+- **What T1 found wrong in the limb fit, and fixed** (`PlanetaryLimbFit`):
+  - A cell the limb crosses was lit by its centre alone, so the model jumped and the search stalled in a worse minimum on a phased disk (2.4 % small where the truth fitted to 0.2 %). A cell is now lit by the fraction of it inside the limb.
+  - A uniform albedo read the dark polar regions as a smaller disk. The albedo is now a smooth function of latitude, with an odd term for the hemispheres' difference, counted from the observer's latitude.
+  - The Sun was put on the equator, where on 2022-09-03 the lit side is 5.2 degrees off it, which moved the centre 0.14 px along the axis. The tilt comes from the ephemeris, and both ends of the axis are tried.
+  - A single Gaussian blur against seeing's Moffat wings and the diffraction rings left the radius 0.4 to 0.7 % large. The blur now has a wider second Gaussian, a nuisance term: in every T1 case it holds half the light (its bound) at 1.9 to 57 times the core's width, a pedestal rather than a measured PSF. Its width was first bounded at 8 times the core's, which held a beta-2 Moffat at both bounds and moved the radius to +0.61 %; the bound is 64.
+- **Against WinJUPOS again, with the fixed fit:** R1 missed its outlines by up to 1 px and 1.7 %; the fixed fit misses them by:
+
+  | Session | dx | dy | dR |
+  |---|---|---|---|
+  | 2022-09-03, the Red, Green, Blue and luminance stacks | -0.21 to -0.39 px | +0.53 to +0.82 px | -0.91 to +0.27 % |
+  | 2022-09-29, five RGB stacks | +0.44 to +0.66 px | -0.04 to -0.21 px | +0.14 to +0.84 % |
+
+  Each session's offset has one sign across its stacks, and the stacks are wavelet-sharpened, which rings at the limb. An outline WinJUPOS's user sets by hand once a session fits that pattern; the fit's own error on a rendered Jupiter is a tenth of it. So the residual is WinJUPOS's, and R1's question is closed on T1.
+
+### R2 part 2: the synthetic capture
+
+**Done** (2026-09-29), the kill line firing on the sky's finest bands (below). `tianwen planetary-degrade <capture> --map --output` measures the real capture, makes the synthetic one, measures it the same way and prints the comparison; `tianwen planetary-seeing` measures any capture alone.
+
+- **How a synthetic frame is made** (`PlanetaryDegrade`):
+  - The map, rendered on the spheroid at the capture's geometry without diffraction, sampled finely enough for the pupil's cutoff at the filter's wavelength (2 samples a pixel for Red on 2022-09-03), and rendered afresh every 2 s as the planet turns.
+  - Through the pupil and a phase screen that evolves from the last frame's (`EvolvingPhaseScreen`): each mode and subharmonic is carried by the wind and partly renewed (Srinath et al. 2015). Its structure function matches the static screen's, and with nothing renewed it is the same air moved on. An outer scale (von Karman) takes from the structure function as Tokovinin's first order says (`PlanetaryDegradeTests`).
+  - Integrated over the exposure: the pupil's window slides across the same screen in steps of at most a centimetre while the shutter is open (9 cm in 4 ms at 22 m/s). An instant's full-contrast speckle jittered the aligner and every frame-to-frame statistic.
+  - The disk moves by the screen's own tilt, on the real capture's slow drift (its one-second running mean, the mount's). Replaying the real capture's measured shifts instead was the first design, and counted the aligner's error twice: once in the replayed shifts and again when the synthetic capture was measured.
+  - Optionally, a telescope's own defocus (Zernike, RMS nm), a layer of turbulence at the telescope with its own r0, outer scale and drift, and a local warp that moves surface brightness without changing it (a lossless screen keeps the radiance; a Jacobian, tried, was both unphysical and printed its grid into the frames).
+  - Binned to pixels and read out: Poisson electrons, read noise, the offset, rounded and clipped to 8 bits.
+  - The telescope's wide scatter: a share of each frame's light spread over the whole fine window by a kernel (1 + (r / core)^2)^(-3/2), past the PSF grid's reach, entering the frame's transfer function beside its PSF.
+  - The camera from the real frames, fitted through the 8-bit rounding pixel by pixel (`PlanetaryCaptureStatistics.SkyByPixels`, below): the offset the sky's level 2.5 to 3.5 radii from the disk; the read noise the far sky's frame-to-frame noise (0.175 ADU); the gain from the finest band's noise on the disk (32 e-/ADU, which the capture's own SharpCap settings confirm: gain 50 on an ASI290MM is about 2 e- a 12-bit ADU, sixteen times that in 8 bits). A photon transfer from consecutive frames' differences was tried first and read the seeing's changes rather than shot noise: no slope at all.
+  - Written beside the SER: the truth at the reference frame's time (FITS, in the frames' ADU) and each frame's shift and Strehl ratio, the truth R4 grades frames against.
+- **Not modelled:** the blur varying over the disk (one PSF a frame, only the warp varies), the camera's fixed pattern, and the filter's width (one wavelength).
+- **The five statistics, defined in code before any synthetic capture was measured** (`PlanetaryCaptureStatistics`, one routine for both captures):
+  1. **The shift's seeing RMS:** every frame's shift against the sharpest frame (`GlobalAligner`), less a centred one-second running mean (the mount's part, reported as its straight-line rate and its wander about that line), RMS per axis.
+  2. **The warp's correlation length:** alignment points whose whole patch lies on the disk, matched on means of consecutive frames after the global shift; each point's own mean and each frame's mean over its points taken out; the correlation of two points' displacements against their separation, and where it falls to 1/e.
+  3. **The quality distribution's shape:** the grader's Laplacian score of every frame, its 5th, 25th, 75th and 95th percentiles over its median.
+  4. **The per-band noise:** consecutive frames whose relative shift is within a fifth of a pixel of whole, differenced after that whole shift; a trous bands 1 to 4 of the difference, their RMS over the sky (1.3 to 1.6 radii) and their clipped RMS over the disk (inside 0.8), over the square root of two.
+  5. **The lag-1 correlation:** of consecutive frames' quality scores.
+- **Added as the comparisons needed them:** the flux's variation over quarter seconds and frame to frame; the limb's edge width in the aligned means; the limb fit on the aligned means (its Minnaert k is the planet's, its blur the capture's) and on single frames (every fourth, each where its shift put its disk: the disk's own motion, the aligner's error against it, each frame's blur); the halo, annulus by annulus over the local sky; and the camera's sky levels and noise, each fitted through the rounding pixel by pixel. `--real-statistics` keeps a capture's statistics in a file, versioned so a stale one is measured again.
+- **What 2022-09-03's Red capture says** (ASI290MM, 8 bits, 4 ms, 216 fps, 12,990 frames over 60 s, a disk 49 px in radius at 0.497"/px):
+  - The aligner reads 1.15 px (0.57") RMS per axis of seeing; the imprecise platform drifts the disk 1.15 px/s and it wanders 4.9 px about that line. By the limb, most of the 1.15 is the aligner's own error (below).
+  - **The warp is not measurable in it.** On single frames, and on means of 4, 8 and 16, the points' displacements correlate with nothing beyond the overlap of neighbouring patches, and read 0.6 to 0.8 px RMS. The first attempt took points across the limb and on the moons, 222 px apart over a disk 98 px across, which follow the edge or the moon rather than the warp; only points wholly on the disk are kept.
+  - **The Laplacian score is mostly noise here:** its 5th to 95th percentiles span 0.96 to 1.04 of its median, and consecutive frames' scores correlate at 0.07. That is R4's hypothesis seen on a real capture.
+- **Calibrating on the capture's first 3,000 frames** (`--frames 3000`, 12 s; `--real-statistics` keeps the real capture's measurement, `PlanetaryCaptureStatistics.SaveAsync`). What the trials found, in the order they found it:
+  1. **Replaying the real shifts counted the aligner's error twice**: once in the shifts replayed, and again when the synthetic capture was measured. The disk now moves by the screen's own tilt, on the real capture's one-second running mean (the mount's drift).
+  2. **An instant's PSF is too speckled**: its full-contrast speckle jittered the aligner and every frame-to-frame statistic. The PSF is integrated over the 4 ms exposure.
+  3. **The Laplacian carries no seeing on this capture**, so the limb's edge width was added: the level just inside the limb over the steepest fall, in the mean of every frame aligned and in the best tenth's. The real capture's lucky tenth is barely sharper (7.28 px against 7.37) where seeing alone made the synthetic one 5 % sharper.
+  4. **A static defocus is ruled out**: 150 nm RMS matches the limb, but the frames' truth moves 0.79 px while the aligner reads 2.39 (5.25 at 250 nm), where the real capture reads 0.96. Defocus puts zeros in the transfer function inside the sampled band, where the phase correlation's whitening then weighs noise as much as signal.
+  5. **The limb fit on the aligned means separates the planet from the blur**: Minnaert k 1.050 real against 1.033 synthetic, so the rendered limb is right, while the blur's core is 1.58 px in the real best tenth against 0.75 in the synthetic one.
+  6. **The aligner's shift is two things, and on this capture the error is the larger**. Fitted alone on single frames, the limb lands on a synthetic capture's truth to 0.04 px RMS where the aligner is off by 0.45 (0.019 against 0.115 in the statistics' own test). By the limb, the real disk moves 0.58 px RMS per axis, not the 0.96 the aligner reads; the aligner errs by 0.71. The first "match" at r0 5 cm was two different mixtures: the synthetic moved 0.81 px and erred 0.41.
+  7. **The real frames are blurrier and move less**: what turbulence at the telescope does (the tube's air, the mirror's boundary layer), whose outer scale is about the tube's, so it blurs without moving the disk (`ALayerAtTheTelescopeBlursWithoutMovingTheDisk`: a like loss of peak for 6 % of the free air's tilt). With it drifting (0.5 to 1 m/s), the sky's finest bands rose 1.2 to 1.9 times and the frame-to-frame flux doubled: the real capture has no flickering halo. Held still, the flux and the lag-1 match.
+  8. **The camera's terms were wrong twice.** They were read in the ring beside the disk, whose light the synthetic capture then added again, and they were read off an 8-bit sky's rounded values. Such a sky reads one or two values (the far sky 17 in 92 % of its samples, 16 in 8 %), whose mean is not the level and whose spread the mean alone sets. They are now fitted through the rounding (`PlanetaryDegrade.RoundedGaussianFit`) in the far sky, three radii and more out with moons left out: a level of 16.80 ADU and a read noise of 0.21. The ring gives the same noise under 0.25 ADU of halo, where the rounded moments had given 17.00 and 0.19, and the far sky's 16.92 and 0.27.
+  9. **A warp is bounded, not measured**: the alignment points read 0.79 px RMS on the real capture and 0.67 to 0.78 on synthetic ones with no warp at all. A warp of 0.35 px with a 20 px correlation tripled the frame-to-frame flux (0.37 % against 0.12 %), because a lossless screen keeps the radiance and a warp whose divergence does not cancel over the disk changes its light; the real capture's steady flux leaves no room for it.
+  10. **The telescope scatters light past the PSF grid's reach.** The real sky stands 0.43, 0.15, 0.08 and 0.03 ADU over the local sky at 1.15 to 1.3, 1.3 to 1.6, 1.6 to 2.0 and 2.0 to 2.5 radii (`CaptureStatistics.Halo`, fitted through the rounding pixel by pixel), where the synthetic sky stopped dead at 1.65 radii: the PSF grid of 128 fine samples reaches 32 px. A wide scatter kernel over the whole window, 5 % of the light with a 5" core (`--scatter`, `--scatter-core`), matches the first two annuli.
+- **The calibrated twin** (free air r0 8.5 cm at 500 nm, outer scale 4 m, 22 m/s; a still layer at the telescope, r0 2.7 cm, outer scale 0.25 m; 5 % scattered with a 5" core; 4 ms; no warp, no defocus), measured on three seeds:
+
+  | Statistic | Real | Synthetic, 3 seeds | Ratio | Seed spread |
+  |---|---|---|---|---|
+  | **Shift's seeing RMS** (the aligner's) | 0.963 px | 1.069 px | 1.11 | 0.22 px: within noise |
+  | **Warp correlation length** | at most 9 px | at most 3 to 9 px | | bounded in both, measured in neither |
+  | **Quality p5, p25, p75, p95 over the median** | 0.963, 0.985, 1.016, 1.039 | 0.964, 0.985, 1.016, 1.039 | 1.000 to 1.001 | |
+  | **Quality lag-1** | 0.082 | 0.049 | 0.59 | 0.033: within noise |
+  | **Noise, disk bands 1 to 4** | 1.116, 0.265, 0.147, 0.131 ADU | 1.103, 0.264, 0.141, 0.109 ADU | 0.99, 0.99, 0.96, 0.83 | band 4 0.022: within noise |
+  | **Noise, sky band 4** | 0.044 ADU | 0.041 ADU | 0.94 | |
+  | **Noise, sky bands 1 to 3** | 0.078, 0.018, 0.009 ADU | 0.119, 0.027, 0.012 ADU | 1.52, 1.50, 1.38 | **outside, 11 to 42 spreads** |
+  | The disk's motion by the limb | 0.582 px | 0.528 px | 0.91 | 0.003 px |
+  | The aligner's error against the limb (seed 1) | 0.708 px | 0.722 px | 1.02 | |
+  | Limb edge width, every frame and best tenth | 7.37, 7.28 px | 6.87, 6.77 px | 0.93, 0.93 | 0.18, 0.16 px |
+  | Single frames' edge width, p10, p50, p90 (seed 1) | 5.11, 5.39, 5.63 px | 5.01, 5.20, 5.38 px | 0.98, 0.97, 0.96 | |
+  | Minnaert k (the mean's limb fit) | 1.050 | 0.979 | 0.93 | |
+  | Halo over the local sky, 1.15 to 1.3 and 1.3 to 1.6 radii | 0.434, 0.155 ADU | 0.438, 0.142 ADU | 1.01, 0.92 | |
+  | Halo, 1.6 to 2.0 and 2.0 to 2.5 radii | 0.082, 0.029 ADU | 0.044, 0.018 ADU | 0.53, 0.61 | |
+  | Flux, over quarter seconds and frame to frame | 0.92, 0.12 % | 0.93, 0.14 % | 1.01, 1.19 | frame to frame 0.02 %: within noise |
+  | Camera: the far sky's level and noise, the local sky's level | 16.747, 0.175; 16.772 ADU | 16.770, 0.173; 16.776 ADU | | |
+
+  The five pre-registered statistics in bold; the rest were added as the comparisons found what the five could not tell apart. A seed's spread is the synthetic capture's own sampling noise, which the real value has as well, so a ratio outside 10 % that sits within about two of them is no evidence of a missing term.
+
+- **The verdict, against the pre-registration:**
+  - Every statistic of the disk matches, inside 10 % or within its own sampling noise: its motion, its blur (single frames and aligned means), the quality's shape, all four bands of its frame-to-frame noise, its flux, and the halo out to 1.6 radii.
+  - **The kill line fires on the sky's three finest bands**: the ring 1.3 to 1.6 radii from the disk flickers about 0.10 ADU more between frames in the synthetic capture than in the real one, which is exactly camera noise at its level (it flips 1.5 % of the time, what a noise of 0.17 ADU at 16.93 gives). What it is not: the free air's PSF (held still, the synthetic ring was unchanged), the camera's terms (they agree to 0.02 ADU in level and 0.002 in noise), or banding (rows through the disk read 0.006 ADU lower than the rest, columns 0.016 higher). The real ring flips as if its 0.15 ADU of halo carried no shot noise, and what the model lacks there is not yet found.
+  - So, as pre-registered, no parameter is chosen on the synthetic capture yet. Whether a parameter measured on the disk alone (every one R3 to R8 names) may be chosen on it while the sky's finest bands stay unmatched is put to the user in #1050.
+  - **The pre-registration named no sampling error.** At 3,000 frames the lag-1 wanders 67 % from one seed to the next and the aligner's shift 20 %, so a 10 % band on them tests nothing. From here on a statistic is read against its spread over seeds (`--seed`), which the trials above had not done until the last three.
+- **Not modelled:** the blur varying over the disk (one PSF a frame, only the warp varies), the camera's fixed pattern, the filter's width (one wavelength), and whatever keeps the real sky's ring from flickering.
+- **Found for the later phases:**
+  - **R4, R5:** on a disk, the limb fit registers a frame ten times better than the phase correlation (0.04 against 0.45 px on the truth). A frame's global alignment by its limb is the first thing R5 measures.
+  - **R4:** the Laplacian score is noise on this capture (its 5th to 95th percentiles 0.96 to 1.04 of the median, its lag-1 0.08), as the plan's hypothesis has it.
+  - **R7:** the real capture's blur is mostly static (a still layer at the telescope and a wide scatter), which a deconvolution can measure once, from the stack; the scatter's 5 % is light R7's inverse must not try to put back as detail.
+  - **The ASI462MC's captures** need their own camera terms; dark video at the captures' settings (RAW8, high speed, 4 ms, offset 53, gain 121 and 170) would pin them, and the camera is on hand.
 
 ## R3 Metrics, validated against the truth
 
@@ -434,6 +536,7 @@ Each metric lives in Lib and is shared by the CLI verb and the stack itself (`ti
    - the ASI462MC Jupiter and Saturn of 2021-12-16 (raw);
    - the 2022-10-09 Jupiter, for its AutoStakkert and WinJUPOS references.
 3. ~~The scratch root~~ **answered 2026-09-28:** `D:/Astro-Dataset/planetary`, keeping 109 GB free on `D:`. The 7z archives are unpacked one member at a time and cropped (R0). **2026-09-29:** the originals are kept, and the crops are working copies on the SSD.
+4. **May the synthetic capture choose a parameter measured on the disk alone, while its sky's finest bands stay unmatched?** R2's kill line fired on the sky ring's bands 1 to 3 (1.4 to 1.5 times the real, beyond their sampling noise) and on nothing measured on the disk (R2 part 2, the verdict). Every parameter R3 to R8 names is measured on the disk. Until this is answered, R3 builds its metrics on the synthetic capture but chooses nothing on it.
 
 ## Sources
 
