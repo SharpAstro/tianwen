@@ -64,7 +64,7 @@ public sealed class CorrelationRegistrar
         double At(int x, int y) => correlation[(((y % n) + n) % n * n) + (((x % n) + n) % n)].Real;
         var dx = Wrapped(px, n) + Vertex(At(px - 1, py), peak, At(px + 1, py));
         var dy = Wrapped(py, n) + Vertex(At(px, py - 1), peak, At(px, py + 1));
-        (dx, dy) = Climb(cross, n, dx, dy);
+        (dx, dy) = PhaseCorrelation.ClimbPeak(cross, n, n, dx, dy);
 
         // moved(x) = crop(x + d), whose transform is the crop's times exp(+2 pi i k.d / n).
         for (var ky = 0; ky < n; ky++)
@@ -127,52 +127,6 @@ public sealed class CorrelationRegistrar
         }
         Fft2D.Forward(field, n, n);
         return field;
-    }
-
-    // Newton's method on c(s) = Re sum over k of cross(k) exp(2 pi i k.s / n), from (x, y): its gradient and curvature are sums
-    // of the same terms, so each step is exact. A step that would leave the peak's pixel, or a curvature that is not a maximum's,
-    // stops the climb where it is.
-    private static (double X, double Y) Climb(Complex[] cross, int n, double x, double y)
-    {
-        for (var iteration = 0; iteration < 5; iteration++)
-        {
-            double gx = 0, gy = 0, hxx = 0, hyy = 0, hxy = 0;
-            for (var ky = 0; ky < n; ky++)
-            {
-                var wy = 2 * Math.PI * (ky < n / 2 ? ky : ky - n) / n;
-                for (var kx = 0; kx < n; kx++)
-                {
-                    var wx = 2 * Math.PI * (kx < n / 2 ? kx : kx - n) / n;
-                    var c = cross[(ky * n) + kx];
-                    var (sin, cos) = Math.SinCos((wx * x) + (wy * y));
-                    // Re(c e^{i theta}) and Re(i c e^{i theta}).
-                    var re = (c.Real * cos) - (c.Imaginary * sin);
-                    var im = -((c.Real * sin) + (c.Imaginary * cos));
-                    gx += wx * im;
-                    gy += wy * im;
-                    hxx -= wx * wx * re;
-                    hyy -= wy * wy * re;
-                    hxy -= wx * wy * re;
-                }
-            }
-            var det = (hxx * hyy) - (hxy * hxy);
-            if (!(hxx < 0 && det > 0))
-            {
-                break;
-            }
-            var sx = ((hyy * gx) - (hxy * gy)) / det;
-            var sy = ((hxx * gy) - (hxy * gx)) / det;
-            if (Math.Abs(sx) > 1 || Math.Abs(sy) > 1)
-            {
-                break;
-            }
-            (x, y) = (x - sx, y - sy);
-            if (Math.Abs(sx) < 1e-5 && Math.Abs(sy) < 1e-5)
-            {
-                break;
-            }
-        }
-        return (x, y);
     }
 
     private static int Wrapped(int k, int n) => k < n / 2 ? k : k - n;

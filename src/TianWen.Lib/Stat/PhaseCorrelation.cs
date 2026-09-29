@@ -142,7 +142,70 @@ public static class PhaseCorrelation
 
         Fft2D.Inverse(f2, width, height);
 
-        return PeakShift(f2, width, height);
+        var shift = PeakShift(f2, width, height);
+        if (whiten)
+        {
+            return shift;
+        }
+
+        // Unwhitened, the peak is a disk's autocorrelation, a rounded cone, and the parabola through its three samples locks
+        // toward the whole pixel: along a planet's belts, where only the limb places the frame, it misplaced a noise-free
+        // disk by 0.20 px RMS (RegistrationComparisonTests; docs/plans/planetary-restoration.md, R5 part 3). So the peak is
+        // climbed on the correlation itself, exact between the pixels from its spectrum, which one forward transform of the
+        // surface gives back. The surface peaks at minus the shift.
+        Fft2D.Forward(f2, width, height);
+        var (x, y) = ClimbPeak(f2, width, height, -shift.Dx, -shift.Dy);
+        return shift with { Dx = -x, Dy = -y };
+    }
+
+    /// <summary>
+    /// The maximum near (<paramref name="x"/>, <paramref name="y"/>) of <c>c(s) = Re sum over k of cross(k) exp(2 pi i k.s / n)</c>,
+    /// the correlation surface <paramref name="cross"/> transforms back to, by Newton's method: its gradient and curvature are
+    /// sums of the same terms, so each step is exact. A step that would leave the start's pixel, or a curvature that is not a
+    /// maximum's, stops the climb where it is. A parabola through the peak's neighbours is biased by up to tenths of a pixel on
+    /// a disk's correlation, whose peak is a rounded cone; this is how a correlation's peak is placed between the pixels.
+    /// </summary>
+    internal static (double X, double Y) ClimbPeak(ReadOnlySpan<Complex> cross, int width, int height, double x, double y)
+    {
+        for (var iteration = 0; iteration < 5; iteration++)
+        {
+            double gx = 0, gy = 0, hxx = 0, hyy = 0, hxy = 0;
+            for (var ky = 0; ky < height; ky++)
+            {
+                var wy = 2 * Math.PI * (ky < height / 2 ? ky : ky - height) / height;
+                for (var kx = 0; kx < width; kx++)
+                {
+                    var wx = 2 * Math.PI * (kx < width / 2 ? kx : kx - width) / width;
+                    var c = cross[(ky * width) + kx];
+                    var (sin, cos) = Math.SinCos((wx * x) + (wy * y));
+                    // Re(c e^{i theta}) and Re(i c e^{i theta}).
+                    var re = (c.Real * cos) - (c.Imaginary * sin);
+                    var im = -((c.Real * sin) + (c.Imaginary * cos));
+                    gx += wx * im;
+                    gy += wy * im;
+                    hxx -= wx * wx * re;
+                    hyy -= wy * wy * re;
+                    hxy -= wx * wy * re;
+                }
+            }
+            var det = (hxx * hyy) - (hxy * hxy);
+            if (!(hxx < 0 && det > 0))
+            {
+                break;
+            }
+            var sx = ((hyy * gx) - (hxy * gy)) / det;
+            var sy = ((hxx * gy) - (hxy * gx)) / det;
+            if (Math.Abs(sx) > 1 || Math.Abs(sy) > 1)
+            {
+                break;
+            }
+            (x, y) = (x - sx, y - sy);
+            if (Math.Abs(sx) < 1e-5 && Math.Abs(sy) < 1e-5)
+            {
+                break;
+            }
+        }
+        return (x, y);
     }
 
     // Windows (or copies) a real tile into a complex buffer. The window multiply keeps the original

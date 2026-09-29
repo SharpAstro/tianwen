@@ -507,7 +507,7 @@ public static class PlanetaryCaptureStatistics
 
     // Loads each frame of `indices` on one of up to a processor's count of workers, each with its own state, and hands it to
     // `body`, which must write only its own frame's slots.
-    private static async Task<TState[]> ForEachFrameAsync<TState>(IPlanetaryFrameStream stream, int[] indices, Func<TState> state, Action<TState, int, Image> body,
+    internal static async Task<TState[]> ForEachFrameAsync<TState>(IPlanetaryFrameStream stream, int[] indices, Func<TState> state, Action<TState, int, Image> body,
         CancellationToken cancellationToken)
     {
         var workers = Math.Max(1, Math.Min(Environment.ProcessorCount, indices.Length));

@@ -43,6 +43,8 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
         var influenceOpt = new Option<float>("--mesh-influence") { Description = "How far a point's displacement reaches into the mesh, px (ap methods only).", DefaultValueFactory = _ => 48f };
         var poolOpt = new Option<string>("--pool") { Description = "Pool each point's warp over this many frames either side (a Gaussian's sigma, 0 for none), a comma list (ap methods only).", DefaultValueFactory = _ => "0" };
         var geometryOpt = new Option<string>("--geometry") { Description = "The geometry the points put the stack on, a comma list of reference (the reference frame's) and median (each point's median over the frames); ap methods only.", DefaultValueFactory = _ => "reference" };
+        var interpolationOpt = new Option<string>("--interpolation") { Description = "The kernel each frame is resampled by as it is stacked, a comma list of bilinear, lanczos3 and lanczos3-clamped.", DefaultValueFactory = _ => "bilinear" };
+        var referenceOpt = new Option<string>("--reference-frames") { Description = "What frames are registered against, a comma list: 0 the best frame, N a stack of the best N.", DefaultValueFactory = _ => "0" };
         var noHalvesOpt = new Option<bool>("--no-halves") { Description = "Stack each candidate only, not its two halves: no halves' agreement, in a third of the time." };
         var cutoffOpt = new Option<double?>("--cutoff") { Description = "The telescope's cutoff in cycles a pixel, for the power past it (fabrication); none past Nyquist." };
 
@@ -50,7 +52,7 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
             "Stacks a capture as each candidate asks, and its two halves, and measures every stack (R3): fidelity per wavelet band and the limb against a truth, the halves' agreement per band, the limb's undershoot; with a truth, how the truth-free metrics rank the candidates against the truth-based ones.")
         {
             Arguments = { captureArg },
-            Options = { truthOpt, planetOpt, utcOpt, framesOpt, keepOpt, sharpenOpt, methodOpt, spacingOpt, patchOpt, correlationOpt, poolOpt, geometryOpt, meshOpt, influenceOpt, noHalvesOpt, cutoffOpt },
+            Options = { truthOpt, planetOpt, utcOpt, framesOpt, keepOpt, sharpenOpt, methodOpt, spacingOpt, patchOpt, correlationOpt, poolOpt, geometryOpt, meshOpt, influenceOpt, interpolationOpt, referenceOpt, noHalvesOpt, cutoffOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -110,6 +112,19 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
                 consoleHost.WriteError($"--correlation {unknownCorrelation}: whitened or plain");
                 return 1;
             }
+            var interpolations = ParseList(parseResult.GetValue(interpolationOpt), name => name.ToLowerInvariant() switch
+            {
+                "bilinear" => (WarpInterpolation?)WarpInterpolation.Bilinear,
+                "lanczos3" => WarpInterpolation.Lanczos3,
+                "lanczos3-clamped" => WarpInterpolation.Lanczos3Clamped,
+                _ => null,
+            });
+            if (interpolations.Any(i => i is null))
+            {
+                consoleHost.WriteError($"--interpolation {parseResult.GetValue(interpolationOpt)}: bilinear, lanczos3 or lanczos3-clamped");
+                return 1;
+            }
+            var references = ParseList(parseResult.GetValue(referenceOpt), int.Parse);
             var patch = parseResult.GetValue(patchOpt);
             var halves = !parseResult.GetValue(noHalvesOpt);
             var cutoff = parseResult.GetValue(cutoffOpt);
@@ -117,11 +132,11 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
             MetricDisk? reference = truthDisk;
             var rows = new List<Row>();
             // A global stack has no alignment points, so it is stacked once, whatever the spacings.
-            var candidates = correlations.SelectMany(c => methods.SelectMany(m => m == "global"
-                ? [(Method: m, Spacing: 0, Correlation: c, Pool: 0.0, Median: false)]
-                : spacings.SelectMany(s => pools.SelectMany(pool => geometries.Select(g => (Method: m, Spacing: s, Correlation: c, Pool: pool, Median: g == "median")))))).ToArray();
+            var candidates = references.SelectMany(r => interpolations.SelectMany(i => correlations.SelectMany(c => methods.SelectMany(m => m == "global"
+                ? [(Method: m, Spacing: 0, Correlation: c, Pool: 0.0, Median: false, Interpolation: i ?? WarpInterpolation.Bilinear, Reference: r)]
+                : spacings.SelectMany(s => pools.SelectMany(pool => geometries.Select(g => (Method: m, Spacing: s, Correlation: c, Pool: pool, Median: g == "median", Interpolation: i ?? WarpInterpolation.Bilinear, Reference: r)))))))).ToArray();
             consoleHost.WriteScrollable($"{Path.GetFileName(input)}: {frames} frames, {candidates.Length * keeps.Length * presets.Length} candidates{(halves ? ", each with its two halves" : "")}");
-            foreach (var (method, spacing, correlation, pool, median) in candidates)
+            foreach (var (method, spacing, correlation, pool, median, interpolation, referenceFrames) in candidates)
             {
                 foreach (var preset in presets)
                 {
@@ -140,9 +155,13 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
                             MeshNodeSpacing = parseResult.GetValue(meshOpt),
                             MeshInfluence = parseResult.GetValue(influenceOpt),
                             MedianGeometry = median,
+                            Interpolation = interpolation,
+                            ReferenceFrames = referenceFrames,
                         };
                         var name = (method == "global" ? "global" : $"{method} {spacing} px") + (correlation == "plain" ? ", plain" : "")
-                            + (pool > 0 ? string.Create(CultureInfo.InvariantCulture, $", pooled {pool:0.#}") : "") + (median ? ", median" : "");
+                            + (pool > 0 ? string.Create(CultureInfo.InvariantCulture, $", pooled {pool:0.#}") : "") + (median ? ", median" : "")
+                            + interpolation switch { WarpInterpolation.Lanczos3 => ", Lanczos-3", WarpInterpolation.Lanczos3Clamped => ", Lanczos-3 clamped", _ => "" }
+                            + (referenceFrames > 1 ? $", against a stack of {referenceFrames}" : "");
                         var full = await StackAsync(stacker, stream, options, method, ct);
                         // Every stack onto one disk: the truth's, or the first stack's own.
                         if (Register(full.Master, limbOptions, reference) is not { } fullPlane)

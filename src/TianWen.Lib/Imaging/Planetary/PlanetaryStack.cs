@@ -41,6 +41,23 @@ public sealed record PlanetaryStackOptions
     /// </summary>
     public bool MedianGeometry { get; init; }
 
+    /// <summary>
+    /// The kernel each frame is resampled by as it is folded in, global and alignment-point paths alike (bilinear, the default,
+    /// as every stack before R5 part 3). A stack of frames resampled bilinearly at sub-pixel phases spread evenly is blurred
+    /// by the kernel's triangle, sinc squared an axis in transfer; Lanczos-3 keeps the transfer to 0.3 cycles a pixel
+    /// (docs/plans/planetary-restoration.md, R5 part 3). Not drizzle, which scatters instead of resampling.
+    /// </summary>
+    public WarpInterpolation Interpolation { get; init; } = WarpInterpolation.Bilinear;
+
+    /// <summary>
+    /// Register every frame, and match every alignment point, against a stack of this many of the best-graded frames (each
+    /// aligned to the best frame first) instead of the best frame alone (0 or 1, the default). A stack carries a fraction of one
+    /// frame's noise and its local warp averaged out, and it is what AutoStakkert registers to: its session file for
+    /// 2022-09-03's Red names the best 8,572 of 12,990 frames. The plan's candidate references are the best frame, the stack
+    /// and the medians (docs/plans/planetary-restoration.md, R5).
+    /// </summary>
+    public int ReferenceFrames { get; init; }
+
     /// <summary>Maximum number of alignment points to track.</summary>
     public int MaxAlignmentPoints { get; init; } = 64;
 
