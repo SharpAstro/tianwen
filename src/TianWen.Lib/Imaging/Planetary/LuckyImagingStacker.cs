@@ -128,6 +128,12 @@ public sealed class LuckyImagingStacker
             ?? throw new InvalidOperationException(
                 "PrepareAsync(includeAlignmentPoints: true) must produce an alignment-point matcher.");
 
+        // Pooled or on the median geometry, every frame's points are read first, in capture order.
+        var tracks = options.WarpPoolFrames > 0 || options.MedianGeometry
+            ? await AlignmentPointTracks.MeasureAsync(stream, ctx.Aligner, matcher, cancellationToken).ConfigureAwait(false)
+            : null;
+        var points = new AlignmentPointShift[matcher.AlignmentPoints.Length];
+
         var used = 0;
         foreach (var index in ctx.Selected)
         {
@@ -141,8 +147,18 @@ public sealed class LuckyImagingStacker
             var frame = await stream.LoadAsync(index, cancellationToken).ConfigureAwait(false);
             try
             {
-                var shift = ctx.Aligner.Estimate(frame, PlanetaryDisk.BoundingBox(frame));
-                var mesh = matcher.BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, options.MeshNodeSpacing);
+                DisplacementMesh mesh;
+                if (tracks is not null)
+                {
+                    var (gx, gy) = tracks.GlobalShift(index);
+                    tracks.Points(index, options.WarpPoolFrames, options.MedianGeometry, points);
+                    mesh = matcher.BuildMesh((float)gx, (float)gy, points, options.MeshNodeSpacing);
+                }
+                else
+                {
+                    var shift = ctx.Aligner.Estimate(frame, PlanetaryDisk.BoundingBox(frame));
+                    mesh = matcher.BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, options.MeshNodeSpacing);
+                }
                 if (options.PerPointQualityWeighting)
                 {
                     var quality = FrameSharpnessMap.Build(frame);
