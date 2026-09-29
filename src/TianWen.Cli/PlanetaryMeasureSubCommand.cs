@@ -60,24 +60,11 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
             DateTimeOffset? truthTime = null;
             if (parseResult.GetValue(truthOpt) is { } truthPath)
             {
-                if (!Image.TryReadFitsFile(truthPath, out var truthImage))
+                if (ReadTruth(truthPath, consoleHost) is not { } read)
                 {
-                    consoleHost.WriteError($"{truthPath}: not a readable FITS image");
                     return 1;
                 }
-                using (var fits = Image.OpenFitsHeader(truthPath))
-                {
-                    var header = fits.ReadFirstImageHduHeaderOnly()?.Header;
-                    if (header is null || !double.IsFinite(header.GetDoubleValue("DISKX", double.NaN)))
-                    {
-                        consoleHost.WriteError($"{truthPath}: no DISKX, DISKY, DISKR in its header (planetary-degrade writes them)");
-                        return 1;
-                    }
-                    truthTime = PlanetaryGeometrySubCommands.ParseUtc(header.GetStringValue("DATE-OBS"));
-                    truthDisk = new MetricDisk(header.GetDoubleValue("DISKX", double.NaN), header.GetDoubleValue("DISKY", double.NaN),
-                        header.GetDoubleValue("DISKR", double.NaN), 1, header.GetDoubleValue("NORTHANG", 0));
-                }
-                truthPlane = truthImage.GetChannelSpan(0).ToArray();
+                (truthPlane, truthDisk, truthTime) = (read.Plane, read.Disk, read.Time);
             }
             if ((truthTime ?? PlanetaryGeometrySubCommands.MidCapture(stream) ?? PlanetaryGeometrySubCommands.ParseUtc(parseResult.GetValue(utcOpt))) is not { } when)
             {
@@ -138,6 +125,29 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
             return 0;
         });
         return command;
+    }
+
+    /// <summary>
+    /// A truth planetary-degrade wrote: its plane, the disk it was rendered with (DISKX, DISKY, DISKR, NORTHANG; round, the
+    /// caller sets the axis ratio) and its time. Null, said on the console, when the file or its cards are missing.
+    /// </summary>
+    internal static (float[] Plane, MetricDisk Disk, DateTimeOffset? Time)? ReadTruth(string path, IConsoleHost consoleHost)
+    {
+        if (!Image.TryReadFitsFile(path, out var image))
+        {
+            consoleHost.WriteError($"{path}: not a readable FITS image");
+            return null;
+        }
+        using var fits = Image.OpenFitsHeader(path);
+        var header = fits.ReadFirstImageHduHeaderOnly()?.Header;
+        if (header is null || !double.IsFinite(header.GetDoubleValue("DISKX", double.NaN)))
+        {
+            consoleHost.WriteError($"{path}: no DISKX, DISKY, DISKR in its header (planetary-degrade writes them)");
+            return null;
+        }
+        var disk = new MetricDisk(header.GetDoubleValue("DISKX", double.NaN), header.GetDoubleValue("DISKY", double.NaN),
+            header.GetDoubleValue("DISKR", double.NaN), 1, header.GetDoubleValue("NORTHANG", 0));
+        return (image.GetChannelSpan(0).ToArray(), disk, PlanetaryGeometrySubCommands.ParseUtc(header.GetStringValue("DATE-OBS")));
     }
 
     // One candidate's stack and its metrics.
