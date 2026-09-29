@@ -343,6 +343,24 @@ public class PlanetaryDegradeTests
     }
 
     [Fact]
+    public async Task ATelescopesDefocusCostsTheStrehlMarechalSays()
+    {
+        // With the air all but still (r0 of 10 m), 50 nm RMS of defocus at 650 nm leaves exp(-(2 pi W / lambda)^2) of the peak:
+        // 0.79, Marechal's approximation, good to a percent or two this close to the diffraction limit. A clear aperture: the
+        // RMS is Zernike's over the whole disk, and the Newtonian's obstruction takes out the middle, where defocus is deepest
+        // (it scored 0.81).
+        ImmutableArray<double> none = [0, 0, 0];
+        var truths = ImmutableArray<SyntheticFrame>.Empty;
+        await MakeAsync(none, none, size: 64, radius: 12, r0M: 10, made: t => truths = t, defocusNm: 50, pupil: new Pupil(0.254));
+        var expected = Math.Exp(-Math.Pow(2 * Math.PI * 50 / 650, 2));
+        foreach (var frame in truths)
+        {
+            TestContext.Current.TestOutputHelper?.WriteLine($"Strehl {frame.Strehl:0.0000}, Marechal {expected:0.0000}");
+            frame.Strehl.ShouldBe(expected, 0.02);
+        }
+    }
+
+    [Fact]
     public async Task TheLimbsEdgeWidthIsTheBlursForAUniformDisk()
     {
         // A uniform disk blurred by a Gaussian of sigma 2 px: a straight edge's level over its steepest fall is sqrt(2 pi) sigma,
@@ -440,7 +458,8 @@ public class PlanetaryDegradeTests
     // Frames of a banded Jupiter (the aligners want texture, as a real one has), bright and nearly noiseless (a large gain, no
     // read noise, 16 bits), under seeing of `r0M`.
     private static async Task<ushort[][]> MakeAsync(ImmutableArray<double> shiftX, ImmutableArray<double> shiftY, int size, double radius, double r0M,
-        bool keepTilt = false, Action<ImmutableArray<SyntheticFrame>>? made = null, double warpRms = 0, bool flat = false)
+        bool keepTilt = false, Action<ImmutableArray<SyntheticFrame>>? made = null, double warpRms = 0, bool flat = false, double defocusNm = 0,
+        Pupil? pupil = null)
     {
         var values = new float[360 * 180];
         for (var row = 0; row < 180; row++)
@@ -458,7 +477,7 @@ public class PlanetaryDegradeTests
         {
             times.Add(Night + TimeSpan.FromMilliseconds(5 * i));
         }
-        var options = new DegradeOptions(new Pupil(0.254, ObstructionRatio: 0.23, Vanes: 4, VaneWidthM: 0.001), 650e-9)
+        var options = new DegradeOptions(pupil ?? new Pupil(0.254, ObstructionRatio: 0.23, Vanes: 4, VaneWidthM: 0.001), 650e-9)
         {
             R0M = r0M,
             FullScaleAdu = FullScale,
@@ -468,6 +487,7 @@ public class PlanetaryDegradeTests
             DiskLevelAdu = DiskLevel,
             ScreenSamples = 128,
             KeepScreenTilt = keepTilt,
+            DefocusNm = defocusNm,
             WarpRmsPx = warpRms,
             WarpLengthPx = 10,
             WarpLag1 = 0.5,
