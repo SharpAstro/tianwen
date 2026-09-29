@@ -136,29 +136,33 @@ public class PlanetaryDegradeTests
     }
 
     [Theory]
+    [InlineData(16.80, 0.21)]
     [InlineData(16.99, 0.15)]
     [InlineData(16.99, 0.3)]
     [InlineData(40.5, 0.6)]
     [InlineData(40.2, 1.5)]
-    public void TheReadNoiseIsRecoveredThroughTheRounding(double offset, double sigma)
+    [InlineData(1000.3, 12)]
+    public void TheLevelAndNoiseAreRecoveredThroughTheRounding(double offset, double sigma)
     {
-        // What a camera records: the offset plus the noise, rounded to whole ADU. Its spread is what a sky measures.
+        // What a camera records: the offset plus the noise, rounded to whole ADU, counted by value as a sky's pixels are. The
+        // first case is 2022-09-03's far sky, whose rounded mean (16.92) is not its level.
         var random = new Random(11);
-        double sum = 0, sumSquares = 0;
         const int draws = 400_000;
+        var first = (int)Math.Floor(offset - (8 * sigma)) - 1;
+        var counts = new long[(int)Math.Ceiling(16 * sigma) + 3];
+        double sum = 0;
         for (var i = 0; i < draws; i++)
         {
             var v = Math.Round(offset + (sigma * PhaseScreen.Gaussian(random)));
+            counts[(int)v - first]++;
             sum += v;
-            sumSquares += v * v;
         }
-        var mean = sum / draws;
-        var recorded = Math.Sqrt((sumSquares / draws) - (mean * mean));
 
-        var solved = PlanetaryDegrade.ReadNoiseFor(offset, recorded);
+        var (level, noise) = PlanetaryDegrade.RoundedGaussianFit(counts, first);
 
-        TestContext.Current.TestOutputHelper?.WriteLine($"offset {offset}, noise {sigma}: recorded {recorded:0.0000}, solved {solved:0.0000}");
-        solved.ShouldBe(sigma, sigma * 0.03);
+        TestContext.Current.TestOutputHelper?.WriteLine($"offset {offset}, noise {sigma}: rounded mean {sum / draws:0.0000}; fitted level {level:0.0000}, noise {noise:0.0000}");
+        level.ShouldBe(offset, Math.Max(0.01, 0.01 * sigma));
+        noise.ShouldBe(sigma, sigma * 0.03);
     }
 
     [Fact]

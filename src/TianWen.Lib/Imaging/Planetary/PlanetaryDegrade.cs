@@ -133,30 +133,70 @@ public static class PlanetaryDegrade
         => Math.Max(1, (int)Math.Ceiling(arcsecPerPixel / (wavelengthM / (2 * apertureM) * ShortExposurePsf.ArcsecPerRadian)));
 
     /// <summary>
-    /// The read noise, in ADU, that leaves a sky at <paramref name="offsetAdu"/> with <paramref name="recordedNoiseAdu"/> of noise
-    /// once rounded to whole ADU. An 8-bit sky is mostly one value, and rounding hides a noise far below a step: the spread
-    /// recorded is the rounding's, so the noise is solved through it rather than read off it.
+    /// The level and noise, in ADU, of a flat sky as it was before the camera rounded it to whole ADU: the maximum-likelihood
+    /// Gaussian whose rounding gives <paramref name="counts"/>, how many samples read each value from <paramref name="first"/> on.
+    /// An 8-bit sky reads one or two values, whose mean is not its level and whose spread the mean alone sets: 2022-09-03's far sky
+    /// read 17 in 92 % of its samples and 16 in 8 %, a mean of 16.92 and a spread of 0.27, from a level of 16.80 and a noise of
+    /// 0.21. Solving the noise from the spread at the mean, as this once did, gave 0.27, and 0.19 in the ring beside the disk.
+    /// A noise of several ADU is its moments, less the rounding's twelfth (Sheppard). NaN for no samples.
     /// </summary>
-    public static double ReadNoiseFor(double offsetAdu, double recordedNoiseAdu)
+    public static (double Level, double Noise) RoundedGaussianFit(ReadOnlySpan<long> counts, int first)
     {
-        if (!(recordedNoiseAdu > 0))
+        double total = 0, m1 = 0, m2 = 0;
+        for (var k = 0; k < counts.Length; k++)
         {
-            return 0;
+            total += counts[k];
+            m1 += counts[k] * (double)(first + k);
+            m2 += counts[k] * (double)(first + k) * (first + k);
         }
-        double lo = 0, hi = Math.Max(1, 2 * recordedNoiseAdu);
-        for (var i = 0; i < 60; i++)
+        if (total == 0)
         {
-            var mid = (lo + hi) / 2;
-            if (RoundedStd(offsetAdu, mid) < recordedNoiseAdu)
+            return (double.NaN, double.NaN);
+        }
+        var mean = m1 / total;
+        var variance = Math.Max(0, (m2 / total) - (mean * mean));
+        if (variance > 4)
+        {
+            return (mean, Math.Sqrt(variance - (1.0 / 12)));
+        }
+        // A grid over a step either side of the mean and noises to two ADU, then twice a tenth of the grid around the best.
+        var (bestLevel, bestNoise, best) = (mean, 0.3, double.NegativeInfinity);
+        var (levelStep, noiseStep) = (0.02, 0.02);
+        var (levelFrom, levelTo, noiseFrom, noiseTo) = (mean - 1, mean + 1, 0.01, 2.0);
+        for (var pass = 0; pass < 3; pass++)
+        {
+            for (var level = levelFrom; level <= levelTo; level += levelStep)
             {
-                lo = mid;
+                for (var noise = noiseFrom; noise <= noiseTo; noise += noiseStep)
+                {
+                    var likelihood = RoundedLogLikelihood(counts, first, level, noise);
+                    if (likelihood > best)
+                    {
+                        (bestLevel, bestNoise, best) = (level, noise, likelihood);
+                    }
+                }
             }
-            else
+            (levelFrom, levelTo) = (bestLevel - (2 * levelStep), bestLevel + (2 * levelStep));
+            (noiseFrom, noiseTo) = (Math.Max(0.001, bestNoise - (2 * noiseStep)), bestNoise + (2 * noiseStep));
+            (levelStep, noiseStep) = (levelStep / 10, noiseStep / 10);
+        }
+        return (bestLevel, bestNoise);
+    }
+
+    // The log-likelihood of `counts` under round(level + noise z), z standard normal.
+    private static double RoundedLogLikelihood(ReadOnlySpan<long> counts, int first, double level, double noise)
+    {
+        double sum = 0;
+        for (var k = 0; k < counts.Length; k++)
+        {
+            if (counts[k] > 0)
             {
-                hi = mid;
+                var v = first + k;
+                var p = NormalCdf((v + 0.5 - level) / noise) - NormalCdf((v - 0.5 - level) / noise);
+                sum += counts[k] * Math.Log(Math.Max(p, 1e-300));
             }
         }
-        return (lo + hi) / 2;
+        return sum;
     }
 
     /// <summary>
@@ -186,25 +226,6 @@ public static class PlanetaryDegrade
             sum += (double)v * v;
         }
         return sum;
-    }
-
-    // The spread of round(mean + sigma z), z standard normal.
-    private static double RoundedStd(double mean, double sigma)
-    {
-        if (sigma <= 0)
-        {
-            return 0;
-        }
-        double m1 = 0, m2 = 0;
-        var from = (int)Math.Floor(mean - (8 * sigma)) - 1;
-        var to = (int)Math.Ceiling(mean + (8 * sigma)) + 1;
-        for (var k = from; k <= to; k++)
-        {
-            var p = NormalCdf((k + 0.5 - mean) / sigma) - NormalCdf((k - 0.5 - mean) / sigma);
-            m1 += p * k;
-            m2 += p * k * k;
-        }
-        return Math.Sqrt(Math.Max(0, m2 - (m1 * m1)));
     }
 
     // Abramowitz and Stegun 7.1.26 through erfc, good to 1.5e-7.
