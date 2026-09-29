@@ -83,7 +83,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         return command;
     }
 
-    // The corpus' two telescopes (docs/plans/planetary-restoration.md, "The corpus"): a Skywatcher 10 inch Newtonian with a
+    // The corpus' two telescopes (docs/plans/planetary-restoration.md, "The corpus"): a Saxon 10 inch f/4.7 Newtonian with a
     // four-vane spider, and a Skymax 102 Maksutov. The Maksutov's cutoff is reckoned at 400 nm in every plane, the shortest
     // any plane passes behind a UV/IR cut, so no plane's short-wavelength leak can make it look larger than it is. A halo
     // mostly at black cannot show a spike worth a fraction of an 8-bit step, so there not even the spider is looked for.
