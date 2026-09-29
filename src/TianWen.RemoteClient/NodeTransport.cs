@@ -128,10 +128,19 @@ namespace TianWen.RemoteClient
         {
             var endpoint = WebSocketUri(BaseAddress, FrameStreamWire.PathOf(source),
                 sharedMemory && SocketPath is not null ? $"{FrameStreamWire.CarrierQuery}={FrameStreamWire.SharedMemory}" : null);
-            HttpMessageInvoker? invoker = SocketPath is null ? null : new HttpMessageInvoker(NodeSocket.CreateHandler(SocketPath));
-            ClientWebSocket? socket = new ClientWebSocket();
+            // The handler is handed to the invoker, which disposes it, and the invoker and the socket to the stream: each nulled
+            // once handed on, the form CA2000 can follow.
+            SocketsHttpHandler? handler = SocketPath is null ? null : NodeSocket.CreateHandler(SocketPath);
+            HttpMessageInvoker? invoker = null;
+            ClientWebSocket? socket = null;
             try
             {
+                if (handler is not null)
+                {
+                    invoker = new HttpMessageInvoker(handler);
+                    handler = null;
+                }
+                socket = new ClientWebSocket();
                 if (SocketPath is null)
                 {
                     Grant.Present(socket.Options);
@@ -146,6 +155,7 @@ namespace TianWen.RemoteClient
             {
                 socket?.Dispose();
                 invoker?.Dispose();
+                handler?.Dispose();
             }
         }
 

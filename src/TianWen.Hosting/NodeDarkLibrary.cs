@@ -27,6 +27,10 @@ internal sealed class NodeDarkLibrary(IDeviceHub hub, NodeJobs jobs, IHostedSess
     /// <summary>What the lease on the camera is called, which a refusal names.</summary>
     internal const string LeaseOwner = "dark library";
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope",
+        Justification = "The run passes to the node once IHostedSession.TryStartAsync accepts it, and the node disposes it when "
+            + "the next run replaces it or as the host stops: a hand-off through a method call, which CA2000 cannot follow. "
+            + "Every other way out, a throw included, disposes it in the finally.")]
     public async Task<ResponseEnvelope<DarkLibraryStateDto>> StartAsync(DarkLibraryRequestDto request)
     {
         if (request.Count < 1 || !double.IsFinite(request.ExposureSeconds) || request.ExposureSeconds <= 0 || request.Bin < 1)
@@ -60,23 +64,42 @@ internal sealed class NodeDarkLibrary(IDeviceHub hub, NodeJobs jobs, IHostedSess
         {
             return ResponseEnvelope<DarkLibraryStateDto>.Fail($"{name} is busy: a {job.Kind} of it is running (job {job.Id})", 409);
         }
-        if (!DeviceLeaseSet.TryAcquire(hub, [uri], LeaseOwner, out var claim, out var refusal))
+        if (!DeviceLeaseSet.TryAcquire(hub, [uri], LeaseOwner, out var acquired, out var refusal))
         {
             return ResponseEnvelope<DarkLibraryStateDto>.Fail(refusal.Describe(), 409);
         }
 
-        var options = new DarkFrameRunOptions(TimeSpan.FromSeconds(request.ExposureSeconds), request.Count, request.Gain, request.Offset,
-            request.Bin, request.Bias ? FrameType.Bias : FrameType.Dark);
-        var run = new DarkLibraryRun(capture, camera, name, uri, options, claim, logger);
-        if (!await hosted.TryStartAsync(run, hosted.ActiveProfileId ?? Guid.Empty))
+        // The lease is this start's until the node's run owns it, and goes back on every other way out, a throw included
+        // (an exposure TimeSpan cannot hold throws, and a lease dropped there held the camera until the node restarted).
+        // Each is nulled once handed on, the form CA2000 can follow.
+        DeviceLeaseSet? claim = acquired;
+        DarkLibraryRun? run = null;
+        try
         {
-            // Another run won the node between the check above and the start: the lease goes back with this one.
-            await run.DisposeAsync();
-            return ResponseEnvelope<DarkLibraryStateDto>.Fail(NodeRuns.AlreadyGoingOn(hosted.RunningKind), 409);
-        }
+            var options = new DarkFrameRunOptions(TimeSpan.FromSeconds(request.ExposureSeconds), request.Count, request.Gain, request.Offset,
+                request.Bin, request.Bias ? FrameType.Bias : FrameType.Dark);
+            run = new DarkLibraryRun(capture, camera, name, uri, options, claim, logger);
+            claim = null;
+            if (!await hosted.TryStartAsync(run, hosted.ActiveProfileId ?? Guid.Empty))
+            {
+                // Another run won the node between the check above and the start: the lease goes back with this one.
+                return ResponseEnvelope<DarkLibraryStateDto>.Fail(NodeRuns.AlreadyGoingOn(hosted.RunningKind), 409);
+            }
 
-        logger.LogInformation("Taking {Count} {Kind} of {Exposure} s with {Camera}", options.Count, options.FrameType, request.ExposureSeconds, name);
-        return ResponseEnvelope<DarkLibraryStateDto>.Accepted(run.State);
+            // The node's from here: it disposes the run when the next one replaces it, or as the host stops.
+            var started = run;
+            run = null;
+            logger.LogInformation("Taking {Count} {Kind} of {Exposure} s with {Camera}", options.Count, options.FrameType, request.ExposureSeconds, name);
+            return ResponseEnvelope<DarkLibraryStateDto>.Accepted(started.State);
+        }
+        finally
+        {
+            if (run is not null)
+            {
+                await run.DisposeAsync();
+            }
+            claim?.Dispose();
+        }
     }
 
     /// <summary>The dark library going on, or the last one to end until the node's next run replaces it.</summary>

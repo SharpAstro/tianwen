@@ -51,13 +51,13 @@ public class EventHubTests
         return socket;
     }
 
-    private static async Task UntilAsync(Func<bool> condition)
+    /// <summary>Waits until <paramref name="condition"/> holds, bounded by the test's own timeout (its token) and nothing shorter.</summary>
+    private static async Task UntilAsync(Func<bool> condition, CancellationToken ct)
     {
-        for (var i = 0; i < 500 && !condition(); i++)
+        while (!condition())
         {
-            await Task.Delay(10, TestContext.Current.CancellationToken);
+            await Task.Delay(10, ct);
         }
-        condition().ShouldBeTrue();
     }
 
     [Fact]
@@ -120,6 +120,7 @@ public class EventHubTests
     [Fact(Timeout = 10_000)]
     public async Task AStalledClientHoldsUpNeitherTheBroadcastNorAnyOtherClient()
     {
+        var ct = TestContext.Current.CancellationToken;
         var hub = new EventHub(queueCapacity: 64, sendTimeout: TimeSpan.FromMinutes(5), new SystemTimeProvider());
         hub.AddClient(Stalled());
         var received = new ConcurrentQueue<string>();
@@ -131,12 +132,13 @@ public class EventHubTests
             hub.Broadcast(Event(n));
         }
 
-        await UntilAsync(() => received.Count == 5);
+        await UntilAsync(() => received.Count == 5, ct);
     }
 
     [Fact(Timeout = 10_000)]
     public async Task EveryClientReceivesTheEventsInTheOrderTheyWereBroadcast()
     {
+        var ct = TestContext.Current.CancellationToken;
         var hub = new EventHub(queueCapacity: 256, sendTimeout: TimeSpan.FromMinutes(5), new SystemTimeProvider());
         var first = new ConcurrentQueue<string>();
         var second = new ConcurrentQueue<string>();
@@ -148,7 +150,7 @@ public class EventHubTests
             hub.Broadcast(Event(n));
         }
 
-        await UntilAsync(() => first.Count == 100 && second.Count == 100);
+        await UntilAsync(() => first.Count == 100 && second.Count == 100, ct);
         var index = 0;
         foreach (var message in first)
         {
@@ -164,6 +166,7 @@ public class EventHubTests
     [Fact(Timeout = 10_000)]
     public async Task AClientThatFallsBehindIsDroppedSoItResyncsByPolling()
     {
+        var ct = TestContext.Current.CancellationToken;
         var hub = new EventHub(queueCapacity: 2, sendTimeout: TimeSpan.FromMinutes(5), new SystemTimeProvider());
         var stalled = Stalled();
         hub.AddClient(stalled);
@@ -174,20 +177,21 @@ public class EventHubTests
             hub.Broadcast(Event(n));
         }
 
-        await UntilAsync(() => hub.ClientCount == 0);
+        await UntilAsync(() => hub.ClientCount == 0, ct);
         stalled.Received(1).Abort();
     }
 
     [Fact(Timeout = 10_000)]
     public async Task ASendThatNeverCompletesIsGivenUpAfterTheTimeout()
     {
+        var ct = TestContext.Current.CancellationToken;
         var hub = new EventHub(queueCapacity: 64, sendTimeout: TimeSpan.FromMilliseconds(100), new SystemTimeProvider());
         var stalled = Stalled();
         hub.AddClient(stalled);
 
         hub.Broadcast(Event(0));
 
-        await UntilAsync(() => hub.ClientCount == 0);
+        await UntilAsync(() => hub.ClientCount == 0, ct);
         stalled.Received(1).Abort();
     }
 

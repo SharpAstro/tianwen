@@ -71,7 +71,8 @@ public static class FrameStreamWire
     /// <summary>Sends <paramref name="frame"/> as one message. The caller keeps the frame, leased for the call.</summary>
     public static async Task WriteAsync(WebSocket socket, int number, Image frame, CancellationToken cancellationToken)
     {
-        var message = new MessageWriteStream(socket);
+        // Disposing it leaves the socket open: the stream is a view of one message and owns nothing.
+        await using var message = new MessageWriteStream(socket);
         var head = new byte[sizeof(int)];
         BinaryPrimitives.WriteInt32LittleEndian(head, number);
         await message.WriteAsync(head, cancellationToken);
@@ -101,7 +102,8 @@ public static class FrameStreamWire
     /// </summary>
     public static async Task<FrameAnswer?> ReadAnswerAsync(WebSocket socket, FrameReader reader, CancellationToken cancellationToken)
     {
-        var message = new MessageReadStream(socket);
+        // As the writer's: a view of one message that owns nothing, disposed with the socket still open.
+        await using var message = new MessageReadStream(socket);
         var head = new byte[sizeof(int)];
         var read = 0;
         while (read < head.Length)

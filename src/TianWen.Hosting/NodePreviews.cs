@@ -82,37 +82,49 @@ internal sealed class NodePreviews(IDeviceHub hub, NodeJobs jobs, IHostedSession
         {
             return ResponseEnvelope<JobDto>.Fail($"{name} is busy: a {busy.Kind} of it is running (job {busy.Id})", 409);
         }
-        if (!DeviceLeaseSet.TryAcquire(hub, [uri], LeaseOwner, out var claim, out var refusal))
+        if (!DeviceLeaseSet.TryAcquire(hub, [uri], LeaseOwner, out var acquired, out var refusal))
         {
             return ResponseEnvelope<JobDto>.Fail(refusal.Describe(), 409);
         }
 
-        var (focuser, filterWheel, mount) = PreviewCapture.ResolveOtaCaptureDevices(hub, data, otaIndex);
-        var exposure = TimeSpan.FromSeconds(request.ExposureSeconds);
-        var started = jobs.TryStart(ExposureJob, uri, async (step, ct) =>
+        // The lease is this request's until the job owns it, and goes back on every other way out, a throw included (an
+        // exposure TimeSpan cannot hold throws). Nulled once the job has it, the form CA2000 can follow; the job holds its
+        // own reference, since a lambda captures the variable, not its value.
+        DeviceLeaseSet? claim = acquired;
+        try
         {
-            using (claim)
+            var (focuser, filterWheel, mount) = PreviewCapture.ResolveOtaCaptureDevices(hub, data, otaIndex);
+            var exposure = TimeSpan.FromSeconds(request.ExposureSeconds);
+            var held = claim;
+            var started = jobs.TryStart(ExposureJob, uri, async (step, ct) =>
             {
-                step.Report($"Exposing {name} for {exposure.TotalSeconds:0.###} s");
-                // Stamped as every other capture path stamps, so the frame's headers (and the fake camera's
-                // synthetic field) match a session's and the GUI's.
-                await CameraExposureActions.StampDenormAsync(camera, ota.Name, ota.FocalLength, ota.Aperture, focuser, filterWheel, mount,
-                    targetName: mount is not null ? "Preview" : null, catalogDb: catalog,
-                    logger: logger, ct: ct);
-                var image = await PreviewCapture.CaptureAsync(camera, exposure, request.Gain, request.Binning, timeProvider, ct)
-                    ?? throw new InvalidOperationException($"{name} finished its exposure but gave no frame");
-                frames.PublishPreview(otaIndex, image);
-                return $"Preview captured: OTA {otaIndex + 1}";
-            }
-        }, out var job);
+                using (held)
+                {
+                    step.Report($"Exposing {name} for {exposure.TotalSeconds:0.###} s");
+                    // Stamped as every other capture path stamps, so the frame's headers (and the fake camera's
+                    // synthetic field) match a session's and the GUI's.
+                    await CameraExposureActions.StampDenormAsync(camera, ota.Name, ota.FocalLength, ota.Aperture, focuser, filterWheel, mount,
+                        targetName: mount is not null ? "Preview" : null, catalogDb: catalog,
+                        logger: logger, ct: ct);
+                    var image = await PreviewCapture.CaptureAsync(camera, exposure, request.Gain, request.Binning, timeProvider, ct)
+                        ?? throw new InvalidOperationException($"{name} finished its exposure but gave no frame");
+                    frames.PublishPreview(otaIndex, image);
+                    return $"Preview captured: OTA {otaIndex + 1}";
+                }
+            }, out var job);
 
-        if (!started)
-        {
-            // A job got onto the camera between the look above and this start: the lease goes back unused.
-            claim.Dispose();
-            return ResponseEnvelope<JobDto>.Fail($"{name} is busy: a {job.Kind} of it is running (job {job.Id})", 409);
+            if (!started)
+            {
+                // A job got onto the camera between the look above and this start: the lease goes back unused.
+                return ResponseEnvelope<JobDto>.Fail($"{name} is busy: a {job.Kind} of it is running (job {job.Id})", 409);
+            }
+            claim = null;
+            return ResponseEnvelope<JobDto>.Accepted(job);
         }
-        return ResponseEnvelope<JobDto>.Accepted(job);
+        finally
+        {
+            claim?.Dispose();
+        }
     }
 
     /// <summary>
@@ -210,43 +222,53 @@ internal sealed class NodePreviews(IDeviceHub hub, NodeJobs jobs, IHostedSession
         {
             return ResponseEnvelope<JobDto>.NotFound($"{NameOf(ota.Camera)} is not connected");
         }
-        if (!DeviceLeaseSet.TryAcquire(hub, [mountUri, ota.Camera], SolveSyncLeaseOwner, out var claim, out var refusal))
+        if (!DeviceLeaseSet.TryAcquire(hub, [mountUri, ota.Camera], SolveSyncLeaseOwner, out var acquired, out var refusal))
         {
             return ResponseEnvelope<JobDto>.Fail(refusal.Describe(), 409);
         }
 
-        var (focuser, filterWheel, _) = PreviewCapture.ResolveOtaCaptureDevices(hub, data, otaIndex);
-        var profile = new Profile(profileId, "active", data);
-        var started = jobs.TryStart(SolveSyncJob, mountUri, async (step, ct) =>
+        // As a preview's: the lease is this request's until the job owns it, and the job holds its own reference.
+        DeviceLeaseSet? claim = acquired;
+        try
         {
-            using (claim)
+            var (focuser, filterWheel, _) = PreviewCapture.ResolveOtaCaptureDevices(hub, data, otaIndex);
+            var profile = new Profile(profileId, "active", data);
+            var held = claim;
+            var started = jobs.TryStart(SolveSyncJob, mountUri, async (step, ct) =>
             {
-                step.Report($"Exposing {NameOf(ota.Camera)} to solve and sync {NameOf(mountUri)}");
-                var outcome = await MountSolveSync.SolveAndSyncAsync(mount, camera, ota.Name, ota.FocalLength, ota.Aperture, focuser, filterWheel,
-                    catalog, solver, profile, timeProvider, TimeSpan.FromSeconds(request.ExposureSeconds), request.Gain, request.Binning, logger, ct);
-
-                // The frame is the OTA's now, whatever came of it, and its solution is the OTA's solution.
-                if (outcome.CapturedImage is { } image)
+                using (held)
                 {
-                    frames.PublishPreview(otaIndex, image);
-                }
-                if (outcome.SolveResult is { } result)
-                {
-                    Keep(otaIndex, frames.Ota(otaIndex).Number, result, outcome.StatusMessage, result.Solution is not null);
-                }
+                    step.Report($"Exposing {NameOf(ota.Camera)} to solve and sync {NameOf(mountUri)}");
+                    var outcome = await MountSolveSync.SolveAndSyncAsync(mount, camera, ota.Name, ota.FocalLength, ota.Aperture, focuser, filterWheel,
+                        catalog, solver, profile, timeProvider, TimeSpan.FromSeconds(request.ExposureSeconds), request.Gain, request.Binning, logger, ct);
 
-                return outcome.Result is MountSolveSync.SolveSyncResult.Synced
-                    ? outcome.StatusMessage
-                    : throw new InvalidOperationException(outcome.StatusMessage);
+                    // The frame is the OTA's now, whatever came of it, and its solution is the OTA's solution.
+                    if (outcome.CapturedImage is { } image)
+                    {
+                        frames.PublishPreview(otaIndex, image);
+                    }
+                    if (outcome.SolveResult is { } result)
+                    {
+                        Keep(otaIndex, frames.Ota(otaIndex).Number, result, outcome.StatusMessage, result.Solution is not null);
+                    }
+
+                    return outcome.Result is MountSolveSync.SolveSyncResult.Synced
+                        ? outcome.StatusMessage
+                        : throw new InvalidOperationException(outcome.StatusMessage);
+                }
+            }, out var job);
+
+            if (!started)
+            {
+                return ResponseEnvelope<JobDto>.Fail($"{NameOf(mountUri)} is busy: a {job.Kind} of it is running (job {job.Id})", 409);
             }
-        }, out var job);
-
-        if (!started)
-        {
-            claim.Dispose();
-            return ResponseEnvelope<JobDto>.Fail($"{NameOf(mountUri)} is busy: a {job.Kind} of it is running (job {job.Id})", 409);
+            claim = null;
+            return ResponseEnvelope<JobDto>.Accepted(job);
         }
-        return ResponseEnvelope<JobDto>.Accepted(job);
+        finally
+        {
+            claim?.Dispose();
+        }
     }
 
     private void Keep(int otaIndex, int frameNumber, PlateSolveResult result, string message, bool solved)

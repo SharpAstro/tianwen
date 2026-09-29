@@ -53,7 +53,7 @@ public class SessionFailureReasonTests(ITestOutputHelper output)
 
         ctx.Session.Phase.ShouldBe(SessionPhase.Failed);
         ctx.Session.FailureReason.ShouldBe(Session.NoSiteReason);
-        ctx.Session.FailureReason.ShouldContain("Set the site's latitude and longitude in the profile");
+        ctx.Session.FailureReason.ShouldNotBeNull().ShouldContain("Set the site's latitude and longitude in the profile");
         phases.ShouldNotContain(SessionPhase.Cooling);
         phases.ShouldNotContain(SessionPhase.RoughFocus);
         // Straight from initialising to failed: nothing after initialisation ran.
