@@ -18,10 +18,12 @@ tool FLAGS.
 Since 2026-09-28 the report is not published as an Artifact (a private page nobody else saw, refreshed only when
 this skill ran, and one was lost outright). It lives in the repository:
 
-- **The check** is the `plan-report` workflow (`.github/workflows/plan-report.yml`). It runs the tool with
-  `--strict` on every PR that touches `docs/plans/`, weekly on Monday for drift on the issues' side, and on
-  demand. ERRORs fail it; the job summary lists every ERROR and WARN, and the HTML page is the run's
-  `plan-report` artifact (a workflow upload, not a claude.ai Artifact).
+- **The check** is the `plan-report` workflow (`.github/workflows/plan-report.yml`). On a PR that touches
+  `docs/plans/` it runs the tool with `--strict-plans <the plans that PR changed>`: only an ERROR about one of
+  them fails the PR, and an error elsewhere is listed without failing it (it is another piece of work's; #1065
+  went red on a dead link in an issue another session had just opened). Weekly on Monday and on demand it only
+  reports. The job summary lists every ERROR and WARN, and the HTML page is the run's `plan-report` artifact (a
+  workflow upload, not a claude.ai Artifact).
 - **What is happening** is the repository's shared issue views (https://github.com/SharpAstro/tianwen/issues/views,
   created in the web UI on 2026-09-28: up next, the bench queue, the triage inbox, open issues in no plan, recently
   closed; neither `gh` nor the API can create or list them), and per plan, the Milestones page.

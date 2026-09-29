@@ -5,11 +5,14 @@ links its plan's section; every plan with open work has a milestone of the same 
 This checks all four mechanically (no model involved) and writes a JSON result, a self-contained HTML
 page and a Markdown summary. Needs `gh` (authenticated) and Python 3.
 
-    python tools/plan-issue-report.py --html out.html [--json out.json] [--markdown out.md] [--strict]
+    python tools/plan-issue-report.py --html out.html [--json out.json] [--markdown out.md]
+                                      [--strict | --strict-plans PLAN ...]
 
---strict exits 1 when any ERROR-level finding exists: the plan-report workflow runs it on every PR that
-touches docs/plans/, and weekly for drift on the issues' side. --markdown is what that workflow writes to
-the job summary.
+--strict exits 1 when any ERROR-level finding exists. --strict-plans exits 1 only for an ERROR about one of
+the named plans (their file stems): the plan-report workflow passes the plans a PR changed, so a heading
+that PR renamed cannot leave an issue's link dead, while an error elsewhere in the repository (an issue
+another piece of work opened) reports without failing someone else's PR. The weekly run fails nothing; the
+issues and milestones are the shared view. --markdown is what that workflow writes to the job summary.
 """
 import argparse
 import html
@@ -290,6 +293,8 @@ def main():
     ap.add_argument("--json")
     ap.add_argument("--markdown")
     ap.add_argument("--strict", action="store_true")
+    ap.add_argument("--strict-plans", nargs="*", metavar="PLAN",
+                    help="exit 1 only for an ERROR about one of these plans (file stems, e.g. denoiser-training)")
     a = ap.parse_args()
     r = build()
     if a.json:
@@ -304,7 +309,16 @@ def main():
     for f in r["findings"]:
         if f["level"] != "INFO":
             print(f"  {f['level']:5s} {f['kind']:15s} {f['plan'] or ''} {('#' + str(f['issue'])) if f['issue'] else ''} {f['msg']}")
-    sys.exit(1 if a.strict and c["ERROR"] else 0)
+    if a.strict:
+        sys.exit(1 if c["ERROR"] else 0)
+    if a.strict_plans is not None:
+        scope = set(a.strict_plans)
+        own = [f for f in r["findings"] if f["level"] == "ERROR" and f["plan"] in scope]
+        others = c["ERROR"] - len(own)
+        print(f"strict for {sorted(scope) or 'no plan'}: {len(own)} error(s) there"
+              + (f"; {others} elsewhere, reported and not failed" if others else ""))
+        sys.exit(1 if own else 0)
+    sys.exit(0)
 
 
 if __name__ == "__main__":
