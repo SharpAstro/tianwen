@@ -778,11 +778,11 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             : null;
     }
 
-    private static DateTimeOffset? MidCapture(IPlanetaryFrameStream stream)
+    internal static DateTimeOffset? MidCapture(IPlanetaryFrameStream stream)
         => stream.HasTimestamps && stream.TimestampOf(0) is { } first && stream.TimestampOf(stream.FrameCount - 1) is { } last
             ? first + ((last - first) / 2)
             : null;
 
-    private static DateTimeOffset? ParseUtc(string? text)
+    internal static DateTimeOffset? ParseUtc(string? text)
         => DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var utc) ? utc : null;
 }
