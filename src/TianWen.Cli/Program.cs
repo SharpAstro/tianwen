@@ -145,6 +145,7 @@ var rootCommand = new RootCommand
         new PlanetaryGeometrySubCommands(consoleHost).BuildRenderTruth(),
         new PlanetaryGeometrySubCommands(consoleHost).BuildSeeing(),
         new PlanetaryGeometrySubCommands(consoleHost).BuildDegrade(),
+        new PlanetaryMeasureSubCommand(consoleHost).Build(),
         new SolveSubCommand(
             consoleHost,
             services.GetRequiredService<TianWen.Lib.Astrometry.PlateSolve.IPlateSolverFactory>(),
