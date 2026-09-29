@@ -945,6 +945,10 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   sky's camera terms are fitted through the rounding, pixel by pixel** (`SkyByPixels`): its rounded mean is not its level, its
   spread is set by the mean alone, and a sky that slopes over the frame widens any pooled fit. **A statistic is read against its
   spread over seeds** (`--seed`): at 3,000 frames the quality's lag-1 wanders 67 % between seeds, so a 10 % band on it tests nothing.
+- **A stack is scored through `PlanetaryMetrics` and `tianwen planetary-measure`** (R3), and **a truth-free metric judges a real
+  capture only once it ranks candidate stacks as its truth-based twin does on a synthetic one** (Spearman at least 0.8). The limb's
+  undershoot does (+0.95); the two halves' agreement does not (it sees noise, never a per-band gain or the blur), and waits on R7's
+  measured PSF.
 - **Read the plan doc before touching the Canon path** -- it is a list of five things that fail
   SILENTLY. **Recentering is opt-in** (the user, 2026-09-28; it costs the loop about 15 ms a frame at full frame), and
   so is the mount jog, whose **sign is uncalibrated**.
