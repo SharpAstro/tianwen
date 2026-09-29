@@ -87,9 +87,19 @@ public sealed class AlignmentPointMatcher
     }
 
     /// <summary>
+    /// The displacement mesh from points already matched (or pooled, <see cref="AlignmentPointTracks"/>): each a residual over
+    /// the integer-rounded global shift (<paramref name="globalDx"/>, <paramref name="globalDy"/>), as <see cref="Match"/> writes
+    /// them.
+    /// </summary>
+    public DisplacementMesh BuildMesh(float globalDx, float globalDy, ReadOnlySpan<AlignmentPointShift> shifts, float nodeSpacing = 32f, float influence = 48f)
+    {
+        return DisplacementMesh.Build(_width, _height, MathF.Round(globalDx), MathF.Round(globalDy), shifts, nodeSpacing, influence);
+    }
+
+    /// <summary>
     /// Matches every alignment point of <paramref name="frame"/> given its whole-disk shift, writing each point's residual
     /// over the integer-rounded global shift into <paramref name="destination"/> (one per point, in
-    /// <see cref="AlignmentPoints"/> order): what <see cref="BuildMesh"/> interpolates, and what the capture statistics read
+    /// <see cref="AlignmentPoints"/> order): what <see cref="BuildMesh(Image, float, float, float, float)"/> interpolates, and what the capture statistics read
     /// the warp from (docs/plans/planetary-restoration.md, R2).
     /// </summary>
     public void Match(Image frame, float globalDx, float globalDy, Span<AlignmentPointShift> destination)

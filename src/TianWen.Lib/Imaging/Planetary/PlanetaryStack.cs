@@ -26,6 +26,21 @@ public sealed record PlanetaryStackOptions
     /// </summary>
     public bool WhitenedCorrelation { get; init; } = true;
 
+    /// <summary>
+    /// Pool each alignment point's warp over the frames either side of a frame, a Gaussian of this many frames in capture order
+    /// (0, the default, takes each frame's own match). A warp stays coherent for a few frames while one frame's match is as
+    /// uncertain as the warp is large (docs/plans/planetary-restoration.md, R5 part 2). Every frame of the capture is matched
+    /// first, selected or not; the alignment-point mesh path only, not drizzle.
+    /// </summary>
+    public double WarpPoolFrames { get; init; }
+
+    /// <summary>
+    /// Put the stack on each alignment point's median geometry over the capture's frames, not the reference frame's: each
+    /// point's median warp is taken out of every frame's, so a feature lands where it lies on average, not where the
+    /// reference's own warp put it (the user's centroid idea, R5 part 2). The alignment-point mesh path only.
+    /// </summary>
+    public bool MedianGeometry { get; init; }
+
     /// <summary>Maximum number of alignment points to track.</summary>
     public int MaxAlignmentPoints { get; init; } = 64;
 
