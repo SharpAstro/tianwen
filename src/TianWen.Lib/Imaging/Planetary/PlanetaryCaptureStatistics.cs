@@ -27,14 +27,25 @@ public sealed record CaptureStatisticsOptions(LimbFitOptions Limb)
     /// <summary>How many pairs of consecutive frames the warp and the noise are read from, spread over the capture.</summary>
     public int Pairs { get; init; } = 500;
 
+    /// <summary>
+    /// The alignment points' spacing and patch the warp is read with by default, for every verb that measures a capture: finer than
+    /// the stacker's (24 and 32), because only a patch that lies wholly on the disk is kept, and a 32 px patch leaves about two
+    /// points on a disk 98 px across (2022-09-03's). <c>planetary-seeing</c> once defaulted to the stacker's while
+    /// <c>planetary-degrade</c> read with these, so the one statistic read two different ways.
+    /// </summary>
+    public const int DefaultAlignmentPointSpacing = 12;
+
+    /// <inheritdoc cref="DefaultAlignmentPointSpacing"/>
+    public const int DefaultAlignmentPatchSize = 16;
+
     /// <summary>The alignment points' spacing on the reference frame, in pixels.</summary>
-    public int AlignmentPointSpacing { get; init; } = 24;
+    public int AlignmentPointSpacing { get; init; } = DefaultAlignmentPointSpacing;
 
     /// <summary>The most alignment points to track.</summary>
     public int MaxAlignmentPoints { get; init; } = 256;
 
     /// <summary>The alignment points' patch, a power of two.</summary>
-    public int AlignmentPatchSize { get; init; } = 32;
+    public int AlignmentPatchSize { get; init; } = DefaultAlignmentPatchSize;
 
     /// <summary>
     /// How many consecutive frames, aligned by their global shifts and averaged, the warp is read from. One frame of a faint
