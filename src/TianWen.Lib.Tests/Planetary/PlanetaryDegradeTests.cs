@@ -274,6 +274,12 @@ public class PlanetaryDegradeTests
         s.LimbOutliers.ShouldBe(0);
         s.LimbSeeingRms.ShouldBe(Math.Sqrt(seeingSquares / (2 * frames)), 0.05);
 
+        // The far sky holds a small part of the planet's scattered light, where the ring beside the disk holds a lot of it. Not
+        // none: in a frame 64 px across three radii is 36 px from the disk's centre, still in the seeing halo's reach.
+        TestContext.Current.TestOutputHelper?.WriteLine(
+            $"sky {s.Camera.SkyLevel:0.000} ADU at 1.3 to 1.6 radii, {s.Camera.FarSkyLevel:0.000} beyond 3 (offset 100), noise {s.Camera.FarSkyNoise:0.000}");
+        (s.Camera.FarSkyLevel - 100).ShouldBeLessThan(0.05 * (s.Camera.SkyLevel - 100));
+
         // Saved and read back whole, and only under the key it was saved with.
         var path = Path.Combine(Path.GetTempPath(), $"capture-statistics-{Guid.NewGuid():N}.json");
         try
