@@ -49,7 +49,7 @@ namespace TianWen.Lib.Tests
 
         /// <summary>A linear master on an ADU-like scale: sky, a gradient, stars, and noise at the depth
         /// a 64-frame integration would have.</summary>
-        private static Image SyntheticMaster(int stackedFrames = 64)
+        private static Image SyntheticMaster(int stackedFrames = 64, bool withNoise = true)
         {
             var rng = new Random(4);
             var planes = new float[3][,];
@@ -86,11 +86,14 @@ namespace TianWen.Lib.Tests
                         flat[(y * W) + x] = p[y, x];
                     }
                 }
-                LinearDegradation.AddNoiseInPlace(
-                    flat,
-                    NoiseField.White(W, H, rng),
-                    new LinearDegradation.NoiseCalibration(0.0, 1000.0, 40.0, stackedFrames),
-                    depthScale: 1.0 / Math.Sqrt(stackedFrames));
+                if (withNoise)
+                {
+                    LinearDegradation.AddNoiseInPlace(
+                        flat,
+                        NoiseField.White(W, H, rng),
+                        new LinearDegradation.NoiseCalibration(0.0, 1000.0, 40.0, stackedFrames),
+                        depthScale: 1.0 / Math.Sqrt(stackedFrames));
+                }
                 for (var y = 0; y < H; y++)
                 {
                     for (var x = 0; x < W; x++)
@@ -202,6 +205,263 @@ namespace TianWen.Lib.Tests
         private const double OneSubSigmaUnit = 40.0 / 65535.0;
 
         private const double OneSubBackgroundUnit = 1000.0 / 65535.0;
+
+        /// <summary>The halves fixture's one-sub noise per channel, ADU at a background of 1000: green at half red's,
+        /// as a Bayer drizzle builds it from twice the photosites, so a calibration carried from channel 0 is wrong.</summary>
+        private static readonly double[] HalfOneSubAdu = [40.0, 20.0, 30.0];
+
+        /// <summary>
+        /// A bake as recipe 3 writes one, with the half pair: a noise-free scene, two halves of it each carrying half
+        /// the session's frames of noise (per channel, <see cref="HalfOneSubAdu"/>), the master their mean, and every
+        /// tile stretched by its OWN frame's stretch with that stretch on its row, as <c>DatasetTileExporter</c> stores
+        /// them. Sub rows as <see cref="BuildBake"/> writes them, so the sub-MAD anchor still has its input.
+        /// </summary>
+        private string BuildBakeWithHalves(int stackedFrames = 64)
+        {
+            var bake = Path.Combine(_root, "bake-halves");
+            Directory.CreateDirectory(bake);
+            var truth = SyntheticMaster(stackedFrames, withNoise: false);
+            var rng = new Random(11);
+            var halfDepth = Math.Sqrt(2.0 / stackedFrames);
+            var halves = new Image[2];
+            for (var h = 0; h < 2; h++)
+            {
+                var planes = new float[3][,];
+                for (var c = 0; c < 3; c++)
+                {
+                    var flat = truth.GetChannelSpan(c).ToArray();
+                    LinearDegradation.AddNoiseInPlace(flat, NoiseField.White(W, H, rng),
+                        new LinearDegradation.NoiseCalibration(0.0, 1000.0, HalfOneSubAdu[c], stackedFrames), halfDepth);
+                    planes[c] = ToPlane(flat);
+                }
+                halves[h] = new Image(planes, BitDepth.Float32, 65535f, 0f, 0f, truth.ImageMeta);
+            }
+            var masterPlanes = new float[3][,];
+            for (var c = 0; c < 3; c++)
+            {
+                var a = halves[0].GetChannelSpan(c);
+                var b = halves[1].GetChannelSpan(c);
+                var flat = new float[a.Length];
+                for (var i = 0; i < flat.Length; i++)
+                {
+                    flat[i] = 0.5f * (a[i] + b[i]);
+                }
+                masterPlanes[c] = ToPlane(flat);
+            }
+            var master = new Image(masterPlanes, BitDepth.Float32, 65535f, 0f, 0f, truth.ImageMeta);
+            truth.Release();
+            RetainedMasterStore.Write(bake, SessionId, master, frameCount: stackedFrames);
+
+            var slug = DatasetTileExporter.Sanitize(SessionId);
+            var tilesDir = Path.Combine(bake, "tiles", slug);
+            Directory.CreateDirectory(tilesDir);
+            var rows = ImmutableArray.CreateBuilder<DatasetTileExporter.TileManifestRow>();
+            var frames = new (string Frame, Image Image)[]
+            {
+                (DatasetTileExporter.FrameMaster, master),
+                (DatasetTileExporter.FrameHalfMasterA, halves[0]),
+                (DatasetTileExporter.FrameHalfMasterB, halves[1]),
+            };
+            float[]? masterOrigMin = null;
+            double[]? masterBalances = null;
+            Image? masterUnit = null;
+            foreach (var (frame, image) in frames)
+            {
+                var unit = DatasetTileExporter.ToUnitRange(image);
+                var (stretched, applied, origMin, balances) = ChunkedNafnetRunner.ApplyInputStretch(unit);
+                applied.ShouldBeTrue();
+                origMin.ShouldNotBeNull();
+                balances.ShouldNotBeNull();
+                if (frame == DatasetTileExporter.FrameMaster)
+                {
+                    (masterOrigMin, masterBalances, masterUnit) = (origMin, balances, unit);
+                }
+                foreach (var cell in new[] { new PixelPoint(0, 0), new PixelPoint(W - TileSize, H - TileSize) })
+                {
+                    var file = $"x{cell.X}_y{cell.Y}_{frame}.f16";
+                    var mad = DatasetTileExporter.WriteTile(stretched, cell, TileSize, Path.Combine(tilesDir, file), SessionId);
+                    rows.Add(new DatasetTileExporter.TileManifestRow(
+                        $"tiles/{slug}/{file}", SessionId, "TestCam", frame, "", cell.X, cell.Y, TileSize, 3, 100, 120.0, mad,
+                        StretchOrigMin: [.. origMin.Select(static v => (double)v)], StretchBalance: balances));
+                }
+                if (!ReferenceEquals(stretched, unit))
+                {
+                    stretched.Release();
+                }
+                if (frame != DatasetTileExporter.FrameMaster && !ReferenceEquals(unit, image))
+                {
+                    unit.Release();
+                }
+            }
+            masterUnit.ShouldNotBeNull();
+            foreach (var cell in new[] { new PixelPoint(0, 0), new PixelPoint(W - TileSize, H - TileSize) })
+            {
+                for (var s = 0; s < 2; s++)
+                {
+                    var subFile = $"x{cell.X}_y{cell.Y}_s{s:D3}.f16";
+                    var noisy = OneSubCopy(masterUnit, masterOrigMin!, masterBalances!, s);
+                    var subMad = DatasetTileExporter.WriteTile(noisy, cell, TileSize, Path.Combine(tilesDir, subFile), SessionId);
+                    noisy.Release();
+                    rows.Add(new DatasetTileExporter.TileManifestRow(
+                        $"tiles/{slug}/{subFile}", SessionId, "TestCam", DatasetTileExporter.FrameSub, $"sub{s}.fits",
+                        cell.X, cell.Y, TileSize, 3, 100, 120.0, subMad));
+                }
+            }
+            File.WriteAllLines(Path.Combine(bake, DatasetTileExporter.ManifestFileName), rows.Select(static r => JsonSerializer.Serialize(r)));
+            if (!ReferenceEquals(masterUnit, master))
+            {
+                masterUnit.Release();
+            }
+            master.Release();
+            halves[0].Release();
+            halves[1].Release();
+            return bake;
+        }
+
+        private static float[,] ToPlane(float[] flat)
+        {
+            var p = new float[H, W];
+            for (var y = 0; y < H; y++)
+            {
+                for (var x = 0; x < W; x++)
+                {
+                    p[y, x] = flat[(y * W) + x];
+                }
+            }
+            return p;
+        }
+
+        /// <summary>
+        /// E16b's anchor: each channel's one-sub noise comes back from the half pairs, at the background it was read at,
+        /// and each channel's draw carries its own channel's noise, not channel 0's.
+        /// </summary>
+        [Fact]
+        public async Task TheHalfPairAnchorCalibratesAndInjectsEachChannelOnItsOwnNoise()
+        {
+            var bake = BuildBakeWithHalves();
+            var outDir = Path.Combine(_root, "degraded");
+            var result = await DatasetDegradationExporter.RunAsync(
+                new DatasetDegradationExporter.Options(bake, outDir, Draws: 2, CellsPerSession: 0, Seed: 5, MinDepthScale: 0.1, MaxDepthScale: 0.2,
+                    NoiseAnchor: DatasetDegradationExporter.NoiseAnchorKind.HalfPairs),
+                logger: null,
+                TestContext.Current.CancellationToken);
+            result.Failed.ShouldBe(0);
+            result.WorstParity.ShouldBe(0.0);
+
+            var rows = ReadDegradationRows(outDir);
+            rows.ShouldAllBe(r => r.NoiseAnchor == "half-pairs");
+            var sigma = rows[0].OneSubSigmaPerChannel.ShouldNotBeNull();
+            var background = rows[0].BackgroundPerChannel.ShouldNotBeNull();
+            for (var c = 0; c < 3; c++)
+            {
+                // The truth at the background the anchor read: the fixture's noise is set at 1000 ADU and grows as shot
+                // noise does, and the quiet pixels' median sits above it by the sky's gradient.
+                var expected = HalfOneSubAdu[c] / 65535.0 * Math.Sqrt(background[c] / (1000.0 / 65535.0));
+                output.WriteLine($"channel {c}: one sub {sigma[c]:E4} against {expected:E4} at background {background[c] * 65535.0:F0} ADU");
+                sigma[c].ShouldBe(expected, expected * 0.05);
+            }
+            rows[0].OneSubSigma.ShouldBe(sigma[0], "the scalar columns stay channel 0's");
+
+            // Each channel's injected noise, draw minus clean in stretched units, against the noise the plane model
+            // predicts for THAT channel at the clean level: green must come out near half red's, not equal to it.
+            var unit = DatasetTileExporter.ToUnitRange(RetainedMasterStore.TryRead(bake, SessionId, out var retained) ? retained : throw new InvalidOperationException("no master"));
+            var (_, _, origMin, balances) = ChunkedNafnetRunner.ApplyInputStretch(unit);
+            origMin.ShouldNotBeNull();
+            balances.ShouldNotBeNull();
+            foreach (var row in rows)
+            {
+                var clean = ReadTileChannels(outDir, CleanTileOf(row));
+                var drawn = ReadTileChannels(outDir, row.Tile);
+                for (var c = 0; c < 3; c++)
+                {
+                    var calibration = new LinearDegradation.NoiseCalibration(0.0, background[c], sigma[c], row.StackedFrames);
+                    var stretch = new StretchedNoise.ChannelStretch(balances[c], origMin[c]);
+                    var d = clean[c].Select((v, i) => (double)(drawn[c][i] - v)).ToArray();
+                    var mean = d.Average();
+                    var measured = Math.Sqrt(d.Sum(v => (v - mean) * (v - mean)) / d.Length);
+                    var predicted = Math.Sqrt(clean[c].Average(v => Math.Pow(StretchedNoise.SigmaAt(v, stretch, calibration, row.DepthScale), 2)));
+                    output.WriteLine($"draw {row.Draw} depth {row.DepthScale:F3} channel {c}: measured {measured:E3}, predicted {predicted:E3}, ratio {measured / predicted:F3}");
+                    (measured / predicted).ShouldBe(1.0, 0.12);
+                }
+            }
+        }
+
+        /// <summary>
+        /// A listed cell joins the export beside the seeded sample, and the sample, every draw of it, is byte for byte
+        /// what the export makes without the list: the control and the arm of E16b come from one export this way.
+        /// </summary>
+        [Fact]
+        public async Task AListedCellJoinsTheExportAndTheSampleStaysAsItWas()
+        {
+            var bake = BuildBake();
+            var plain = Path.Combine(_root, "plain");
+            var listed = Path.Combine(_root, "listed");
+            await DatasetDegradationExporter.RunAsync(new DatasetDegradationExporter.Options(bake, plain, Draws: 2, CellsPerSession: 1, Seed: 5),
+                logger: null, TestContext.Current.CancellationToken);
+            var list = Path.Combine(_root, "cells.txt");
+            DatasetCellList.Write(list, ["test"], [(SessionId, 0, 0), (SessionId, W - TileSize, H - TileSize)]);
+            await DatasetDegradationExporter.RunAsync(new DatasetDegradationExporter.Options(bake, listed, Draws: 2, CellsPerSession: 1, Seed: 5, ExtraCellsPath: list),
+                logger: null, TestContext.Current.CancellationToken);
+
+            var plainRows = ReadDegradationRows(plain);
+            var listedRows = ReadDegradationRows(listed);
+            plainRows.Select(static r => (r.CellX, r.CellY)).Distinct().Count().ShouldBe(1);
+            listedRows.Select(static r => (r.CellX, r.CellY)).Distinct().Count().ShouldBe(2, "the listed cell the sample did not hold joins it, and the one it held is not written twice");
+            listedRows.Length.ShouldBe(4);
+            foreach (var row in plainRows)
+            {
+                File.ReadAllBytes(Path.Combine(listed, row.Tile)).ShouldBe(File.ReadAllBytes(Path.Combine(plain, row.Tile)));
+                File.ReadAllBytes(Path.Combine(listed, row.SigmaTile!)).ShouldBe(File.ReadAllBytes(Path.Combine(plain, row.SigmaTile!)));
+            }
+        }
+
+        /// <summary>Listed cells only: a session joins for its listed cells and nothing of its sample, as a widened
+        /// session joins E16b's arm for its bright cells alone.</summary>
+        [Fact]
+        public async Task ListedCellsOnlyExportsTheListAndNoSample()
+        {
+            var bake = BuildBake();
+            var outDir = Path.Combine(_root, "listed-only");
+            var list = Path.Combine(_root, "cells.txt");
+            DatasetCellList.Write(list, [], [(SessionId, W - TileSize, H - TileSize)]);
+            await DatasetDegradationExporter.RunAsync(
+                new DatasetDegradationExporter.Options(bake, outDir, Draws: 2, CellsPerSession: 1, Seed: 5, ExtraCellsPath: list, ListedCellsOnly: true),
+                logger: null, TestContext.Current.CancellationToken);
+            ReadDegradationRows(outDir).Select(static r => (r.CellX, r.CellY)).Distinct().ShouldBe([(W - TileSize, H - TileSize)]);
+        }
+
+        /// <summary>A cell the bake does not have fails its session rather than being silently dropped.</summary>
+        [Fact]
+        public async Task AListedCellTheBakeDoesNotHaveFailsItsSession()
+        {
+            var bake = BuildBake();
+            var list = Path.Combine(_root, "cells.txt");
+            DatasetCellList.Write(list, [], [(SessionId, 7, 9)]);
+            var result = await DatasetDegradationExporter.RunAsync(
+                new DatasetDegradationExporter.Options(bake, Path.Combine(_root, "out"), Draws: 1, CellsPerSession: 1, ExtraCellsPath: list),
+                logger: null, TestContext.Current.CancellationToken);
+            result.Failed.ShouldBe(1);
+        }
+
+        /// <summary>
+        /// Check D2's machinery: on the halves fixture, whose half pairs hold exactly the noise the anchor models, the
+        /// half-pair anchor's measured-over-predicted ratio is 1 in every channel, and the sub-MAD anchor's is not
+        /// (it carries channel 0's noise to green, which holds half of it).
+        /// </summary>
+        [Fact]
+        public async Task TheInjectionCheckReadsTheHalfPairAnchorAsAMatch()
+        {
+            var bake = BuildBakeWithHalves();
+            var rows = await DatasetDegradationExporter.CheckInjectionAsync(bake, [], 0, 1, null, cancellationToken: TestContext.Current.CancellationToken);
+            rows.Length.ShouldBeGreaterThan(0);
+            foreach (var row in rows)
+            {
+                output.WriteLine($"x{row.X} y{row.Y} bright {row.Bright}: half-pairs {string.Join(" / ", row.HalfPairs.Select(v => v.ToString("F3")))}, sub-mad {string.Join(" / ", row.SubMad.Select(v => v.ToString("F3")))}");
+                row.HalfPairs.ShouldAllBe(v => Math.Abs(v - 1.0) < 0.06);
+                // Green holds half of red's noise, so the carried calibration over-predicts it by about two.
+                row.SubMad[1].ShouldBeLessThan(0.7);
+            }
+        }
 
         [Fact]
         public async Task TheCleanTileFromTheRetainedMasterIsTheByteThePipelineAlreadyWrote()

@@ -220,7 +220,7 @@ def read_train_names(path):
 
 def choose(cells, n_train_sessions, n_val_sessions, cells_per_session, seed=42,
            require_halves=False, val_names=None, val_cells_per_session=None,
-           train_names=None):
+           train_names=None, exclude=frozenset()):
     by_session = defaultdict(list)
     for key, entry in cells.items():
         if require_halves and not has_halves(entry):
@@ -262,7 +262,9 @@ def choose(cells, n_train_sessions, n_val_sessions, cells_per_session, seed=42,
     def pick(session_list, per_session):
         out = []
         for s in session_list:
-            keys = sorted(by_session[s])
+            # An excluded cell never enters the shuffle, so a session whose export also holds listed cells picks
+            # exactly what it would without them; one whose cells are ALL listed picks none and stays nameable.
+            keys = sorted(k for k in by_session[s] if k not in exclude)
             # Seeded per session name so the same cells are chosen on a re-run, independent
             # of how many sessions were requested.
             random.Random(f"{seed}:{s}").shuffle(keys)
@@ -381,15 +383,51 @@ def prepare_stretch(bake, keys, cells, read_tile):
     return out, per_session
 
 
+def read_cell_list(path):
+    """A cell list as tianwen dataset bright-cells writes it (DatasetCellList): 'x TAB y TAB session id' per
+    line, '#' comments. The set of (session, x, y) keys, the form load_cells keys a cell by."""
+    out = set()
+    if not path:
+        return out
+    with open(path, encoding="utf-8") as fh:
+        for n, line in enumerate(fh, 1):
+            line = line.rstrip("\r\n")
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split("\t")
+            if len(parts) != 3:
+                raise SystemExit(f"{path}:{n}: expected 'x<TAB>y<TAB>session id', got {line!r}")
+            out.add((parts[2], int(parts[0]), int(parts[1])))
+    return out
+
+
 def prepare(args):
     cells = load_cells(args.root, args.manifest)
     cells = drop_foreign_channel_sessions(args.root, cells)
+    exclude = read_cell_list(args.exclude_cells)
+    extra = read_cell_list(args.extra_cells)
     train_keys, val_keys, train_s, val_s = choose(
         cells, args.train_sessions, args.val_sessions, args.cells_per_session,
         require_halves=args.require_halves,
         val_names=read_val_list(args.val_from_list) or read_val_names(args.val_from_meta),
         val_cells_per_session=args.val_cells_per_session,
-        train_names=read_train_names(args.train_from_list))
+        train_names=read_train_names(args.train_from_list),
+        exclude=frozenset(exclude))
+    if exclude:
+        print(f"excluded {sum(1 for k in exclude if k in cells)} listed cells from the pick ({args.exclude_cells})")
+    if extra:
+        missing = sorted(k for k in extra if k not in cells)
+        if missing:
+            raise SystemExit(f"{len(missing)} listed cells are not in this root, e.g. {missing[:3]}")
+        have = set(train_keys) | set(val_keys)
+        in_train, in_val = set(train_s), set(val_s)
+        add_train = sorted(k for k in extra if k[0] in in_train and k not in have)
+        add_val = sorted(k for k in extra if k[0] in in_val and k not in have)
+        outside = sum(1 for k in extra if k[0] not in in_train and k[0] not in in_val)
+        train_keys = train_keys + add_train
+        val_keys = val_keys + add_val
+        print(f"extra cells: {len(add_train)} train, {len(add_val)} val added ({args.extra_cells})"
+              + (f"; {outside} in sessions of neither split, not added" if outside else ""))
     keys = train_keys + val_keys
     print(f"sessions: {len(train_s)} train / {len(val_s)} val; cells: "
           f"{len(train_keys)} train / {len(val_keys)} val")
@@ -553,6 +591,7 @@ def prepare(args):
         "cells": n, "slots": SLOTS_WITH_HALVES, "injected": bool(injected), "has_subs": bool(has_subs),
         "train_cells": len(train_keys), "val_cells": len(val_keys),
         "train_sessions": train_s, "val_sessions": val_s,
+        "extra_cells": args.extra_cells, "exclude_cells": args.exclude_cells,
         "has_halves": halves,
         "psf01_labels": labelled,
         "kernel_labels": kernel_labelled,
@@ -1958,6 +1997,13 @@ if __name__ == "__main__":
                    help="cells per VAL session (default: --cells-per-session). Lets the train "
                         "set trade cells-per-session for session COUNT while val keeps enough "
                         "cells for --gate-cells to draw the same sample as earlier runs")
+    p.add_argument("--exclude-cells", default=None,
+                   help="a cell list (tianwen dataset bright-cells: x TAB y TAB session id) whose cells "
+                        "never enter the seeded per-session pick, so an export that holds them picks the "
+                        "cells an export without them would (E16b's control from the arm's export)")
+    p.add_argument("--extra-cells", default=None,
+                   help="a cell list added AFTER the seeded pick, each cell to the split its session is "
+                        "in and never twice; the pick itself is unchanged, so every earlier cell stays")
     p.add_argument("--base", type=int, default=32)
     p.add_argument("--batch", type=int, default=8)
     p.add_argument("--lr", type=float, default=2e-4)

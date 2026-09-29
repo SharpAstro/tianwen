@@ -91,6 +91,19 @@ namespace TianWen.AI.Imaging
             Warped = 1,
         }
 
+        /// <summary>What the injected noise is anchored on.</summary>
+        public enum NoiseAnchorKind
+        {
+            /// <summary>Each cell on the MAD of its own subs' tiles, channel 0's calibration carried to every
+            /// channel: every export up to E16a.</summary>
+            SubMad = 0,
+
+            /// <summary>Each session on its half pairs' scatter over quiet pixels, one calibration per channel
+            /// (<see cref="HalfPairNoise"/>; E16b). A bright cell's structure cannot read as noise, and each channel
+            /// carries its own noise.</summary>
+            HalfPairs = 1,
+        }
+
         /// <summary>
         /// One degraded tile's parameters. Joined to the tile manifest on
         /// (<see cref="SessionId"/>, <see cref="CellX"/>, <see cref="CellY"/>, <see cref="Frame"/>).
@@ -212,7 +225,9 @@ namespace TianWen.AI.Imaging
             double? EstimatedKernelBeta = null,
             string? KernelEstimateRefusal = null,
             double? WarpSigma = null,
-            string? SigmaTile = null);
+            string? SigmaTile = null,
+            double[]? OneSubSigmaPerChannel = null,
+            double[]? BackgroundPerChannel = null);
 
         /// <summary>The extension of a tile's conditioning-plane sidecar, beside the tile.</summary>
         public const string SigmaTileExtension = ".sigma.f16";
@@ -317,6 +332,13 @@ namespace TianWen.AI.Imaging
         /// something to read only where the shape varies. 0 (the default) keeps one shape.</param>
         /// <param name="WhiteFraction">Warped shape only: the probability that a draw is white instead,
         /// taken before the smoothing draw. 0 (the default) keeps every draw warped.</param>
+        /// <param name="NoiseAnchor">What the injected noise is anchored on (<see cref="NoiseAnchorKind"/>).</param>
+        /// <param name="ExtraCellsPath">A cell list (<see cref="DatasetCellList"/>, as <c>tianwen dataset bright-cells</c>
+        /// writes it) exported beside each session's seeded sample: a listed cell the sample already holds is not
+        /// exported twice, and one the bake does not have fails its session. The sample itself does not change, so
+        /// an export with a list holds every cell of the same export without one, byte for byte.</param>
+        /// <param name="ListedCellsOnly">Export a session's LISTED cells and no sample: how a session joins an arm for
+        /// its bright cells alone (E16b's widened pool). A session with none listed is skipped.</param>
         public sealed record Options(
             string BakeRoot,
             string OutDir,
@@ -340,7 +362,10 @@ namespace TianWen.AI.Imaging
             int EstimateWindowPx = 1024,
             ImmutableArray<string> SessionFilters = default,
             double WarpResampleSigmaMax = 0.0,
-            double WhiteFraction = 0.0);
+            double WhiteFraction = 0.0,
+            NoiseAnchorKind NoiseAnchor = NoiseAnchorKind.SubMad,
+            string? ExtraCellsPath = null,
+            bool ListedCellsOnly = false);
 
         /// <summary>What one session's export produced. <paramref name="Estimator"/> is the estimator step's
         /// own cost, null unless <see cref="Options.EstimateKernels"/>.</summary>
@@ -416,6 +441,9 @@ namespace TianWen.AI.Imaging
 
             var cellsBySession = await ReadCellsAsync(bakeManifest, cancellationToken);
             var alreadyDone = options.Force ? [] : await ReadExportedSessionsAsync(outDegManifest, cancellationToken);
+            var extraCells = options.ExtraCellsPath is { } extraPath
+                ? DatasetCellList.Read(extraPath)
+                : new Dictionary<string, HashSet<(int X, int Y)>>(StringComparer.Ordinal);
 
             var sessions = cellsBySession.Keys.OrderBy(static s => s, StringComparer.Ordinal).ToList();
             if (!options.SessionFilters.IsDefaultOrEmpty)
@@ -448,10 +476,16 @@ namespace TianWen.AI.Imaging
                     skipped++;
                     continue;
                 }
+                if (options.ListedCellsOnly && extraCells.GetValueOrDefault(sessionId) is not { Count: > 0 })
+                {
+                    logger?.LogInformation("[degrade] {Index}/{Total} {Session}: no listed cell, skipped (listed cells only)", index, sessions.Count, sessionId);
+                    skipped++;
+                    continue;
+                }
 
                 try
                 {
-                    var result = await ExportSessionAsync(options, sessionId, cellsBySession[sessionId], outTileManifest, outDegManifest, logger, cancellationToken);
+                    var result = await ExportSessionAsync(options, sessionId, cellsBySession[sessionId], extraCells.GetValueOrDefault(sessionId), outTileManifest, outDegManifest, logger, cancellationToken);
                     results.Add(result);
                     worstParity = Math.Max(worstParity, result.ParityMaxAbsDiff);
                     logger?.LogInformation(
@@ -482,6 +516,7 @@ namespace TianWen.AI.Imaging
             Options options,
             string sessionId,
             IReadOnlyList<CellSpec> cells,
+            HashSet<(int X, int Y)>? extraCells,
             string outTileManifest,
             string outDegManifest,
             ILogger? logger,
@@ -499,16 +534,25 @@ namespace TianWen.AI.Imaging
             // top of every frame, with the field-radius covariate the deconvolver's H7 needs collapsed
             // onto one edge. Seeded on the session id so a re-run picks the same cells, and re-sorted
             // afterwards so the manifest order stays canonical.
-            var selected = cells.ToList();
-            if (options.CellsPerSession > 0 && selected.Count > options.CellsPerSession)
+            var selected = options.ListedCellsOnly ? [] : SampleCells(cells, options.CellsPerSession, options.Seed, sessionId, static c => (c.X, c.Y));
+
+            // Listed cells join AFTER the sample is drawn, so the sample, and every draw's seed (a function of the
+            // cell alone), is the one an export without the list makes.
+            if (extraCells is { Count: > 0 })
             {
-                var rng = new Random(DrawSeed(options.Seed, sessionId, -1, -1, -1));
-                for (var i = selected.Count - 1; i > 0; i--)
+                var byPosition = cells.ToDictionary(static c => (c.X, c.Y));
+                var have = selected.Select(static c => (c.X, c.Y)).ToHashSet();
+                foreach (var position in extraCells)
                 {
-                    var j = rng.Next(i + 1);
-                    (selected[i], selected[j]) = (selected[j], selected[i]);
+                    if (!byPosition.TryGetValue(position, out var extra))
+                    {
+                        throw new InvalidOperationException($"{sessionId}: listed cell x{position.X} y{position.Y} is not a cell of the bake");
+                    }
+                    if (have.Add(position))
+                    {
+                        selected.Add(extra);
+                    }
                 }
-                selected = selected.Take(options.CellsPerSession).ToList();
                 selected.Sort(static (a, b) => a.Y != b.Y ? a.Y.CompareTo(b.Y) : a.X.CompareTo(b.X));
             }
 
@@ -535,6 +579,24 @@ namespace TianWen.AI.Imaging
                     // no parity check can see.
                     throw new InvalidOperationException(
                         $"{sessionId}: the retained master did not read as linear (the stretch auto-detect skipped the stretch), so it is not a valid degradation source");
+                }
+
+                // The half-pair anchor is the SESSION's, measured once over every cell the bake has, not only the
+                // ones exported: its quiet pixels are the sky of the whole frame.
+                LinearDegradation.NoiseCalibration[]? sessionCalibrations = null;
+                if (options.NoiseAnchor == NoiseAnchorKind.HalfPairs)
+                {
+                    var accumulator = MeasureHalfPairs(options.BakeRoot, cells, unitMaster, cleanStretched);
+                    if (!accumulator.TryCalibrate(unitMaster.Pedestal, stackedFrames, out sessionCalibrations))
+                    {
+                        throw new InvalidOperationException(
+                            $"{sessionId}: {accumulator.QuietPixels} quiet half-pair pixels, under the {HalfPairNoise.MinQuietPixels} a calibration needs; the half-pair anchor cannot serve this session");
+                    }
+                    logger?.LogInformation(
+                        "[degrade] {Session}: half-pair anchor from {Pixels} quiet pixels; one-sub sigma {Sigma}, background {Background}",
+                        sessionId, accumulator.QuietPixels,
+                        string.Join(" / ", sessionCalibrations.Select(static k => k.OneSubSigmaAdu.ToString("G4", CultureInfo.InvariantCulture))),
+                        string.Join(" / ", sessionCalibrations.Select(static k => k.BackgroundAdu.ToString("G4", CultureInfo.InvariantCulture))));
                 }
 
                 var tileRows = ImmutableArray.CreateBuilder<DatasetTileExporter.TileManifestRow>();
@@ -587,7 +649,7 @@ namespace TianWen.AI.Imaging
                     for (var draw = 0; draw < options.Draws; draw++)
                     {
                         var seed = DrawSeed(options.Seed, sessionId, cell.X, cell.Y, draw);
-                        var row = await DegradeCellAsync(options, unitMaster, cell, origin, draw, seed, stackedFrames, fieldRadius, origMin, balances, tilesDir, slug, sessionId, cleanFwhmPx, cleanFit, estimatorClock, cancellationToken);
+                        var row = await DegradeCellAsync(options, unitMaster, cell, origin, draw, seed, stackedFrames, fieldRadius, origMin, balances, sessionCalibrations, tilesDir, slug, sessionId, cleanFwhmPx, cleanFit, estimatorClock, cancellationToken);
                         degRows.Add(row);
                         tileRows.Add(new DatasetTileExporter.TileManifestRow(
                             Tile: row.Tile, SessionId: sessionId, Camera: cell.Camera, Frame: row.Frame,
@@ -617,6 +679,274 @@ namespace TianWen.AI.Imaging
         }
 
         /// <summary>
+        /// A session's seeded sample of <paramref name="cellsPerSession"/> cells (all of them at 0 or when there are
+        /// no more), in canonical row-major order. The ONE sampler: the export draws its cells through it, and the
+        /// bright-cell list leaves out exactly the cells an export of that size and seed holds.
+        /// </summary>
+        internal static List<T> SampleCells<T>(IReadOnlyList<T> cells, int cellsPerSession, int seed, string sessionId, Func<T, (int X, int Y)> position)
+        {
+            var selected = cells.ToList();
+            if (cellsPerSession > 0 && selected.Count > cellsPerSession)
+            {
+                var rng = new Random(DrawSeed(seed, sessionId, -1, -1, -1));
+                for (var i = selected.Count - 1; i > 0; i--)
+                {
+                    var j = rng.Next(i + 1);
+                    (selected[i], selected[j]) = (selected[j], selected[i]);
+                }
+                selected = selected.Take(cellsPerSession).ToList();
+                selected.Sort((a, b) =>
+                {
+                    var (pa, pb) = (position(a), position(b));
+                    return pa.Y != pb.Y ? pa.Y.CompareTo(pb.Y) : pa.X.CompareTo(pb.X);
+                });
+            }
+            return selected;
+        }
+
+        /// <summary>One session's count behind a bright-cell list: its cells, the ones the rule calls bright (the
+        /// export's sample left out), and the ones listed.</summary>
+        public sealed record BrightCellCount(string SessionId, int Cells, int Bright, int Listed);
+
+        /// <summary>
+        /// Lists bright cells of a bake (<see cref="DatasetBrightCells.IsBright"/>), up to <paramref name="perSession"/>
+        /// per session (0 for all), seeded and uniform among those that qualify, in canonical order.
+        /// </summary>
+        /// <param name="bakeRoot">The bake whose P0 cells are read.</param>
+        /// <param name="sessionFilters">Case-insensitive substrings of the session id, as the export takes them; empty
+        /// for every session of the bake, which is how a count over the whole store is taken.</param>
+        /// <param name="perSession">Cells listed per session, or 0 for every bright one.</param>
+        /// <param name="seed">The list's own seed.</param>
+        /// <param name="frame">Which stored tile the level is read from: the master, whose stretch a degraded draw
+        /// carries (training), or half B, whose level the scorer bins by (eval).</param>
+        /// <param name="excludeSampleOf">The cells-per-session of the export the list will join: its sample is left
+        /// out, so a listed cell is never one the export already has. 0 leaves nothing out.</param>
+        /// <param name="exportSeed">That export's seed.</param>
+        public static async Task<(ImmutableArray<(string SessionId, int X, int Y)> Listed, ImmutableArray<BrightCellCount> Counts)> ListBrightCellsAsync(
+            string bakeRoot,
+            ImmutableArray<string> sessionFilters,
+            int perSession,
+            int seed,
+            string frame = DatasetTileExporter.FrameMaster,
+            int excludeSampleOf = 0,
+            int exportSeed = 1,
+            CancellationToken cancellationToken = default)
+        {
+            if (frame is not (DatasetTileExporter.FrameMaster or DatasetTileExporter.FrameHalfMasterB))
+            {
+                throw new ArgumentException($"a level is read from the {DatasetTileExporter.FrameMaster} or the {DatasetTileExporter.FrameHalfMasterB} tile, not {frame}", nameof(frame));
+            }
+            var cellsBySession = await ReadCellsAsync(Path.Combine(bakeRoot, DatasetTileExporter.ManifestFileName), cancellationToken);
+            var sessions = cellsBySession.Keys.OrderBy(static s => s, StringComparer.Ordinal)
+                .Where(s => sessionFilters.IsDefaultOrEmpty || sessionFilters.Any(f => s.Contains(f, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+
+            var listed = ImmutableArray.CreateBuilder<(string SessionId, int X, int Y)>();
+            var counts = ImmutableArray.CreateBuilder<BrightCellCount>();
+            foreach (var sessionId in sessions)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var cells = cellsBySession[sessionId];
+                var excluded = excludeSampleOf > 0
+                    ? SampleCells(cells, excludeSampleOf, exportSeed, sessionId, static c => (c.X, c.Y)).Select(static c => (c.X, c.Y)).ToHashSet()
+                    : [];
+                var bright = new List<CellSpec>();
+                foreach (var cell in cells)
+                {
+                    if (excluded.Contains((cell.X, cell.Y)))
+                    {
+                        continue;
+                    }
+                    var tile = frame == DatasetTileExporter.FrameMaster ? cell.MasterTileRelative : cell.HalfBTile;
+                    if (tile is not { Length: > 0 } || ReadTile(bakeRoot, tile, TileChannels(bakeRoot, tile, cell.TileSize), cell.TileSize) is not { } pixels)
+                    {
+                        continue;
+                    }
+                    if (DatasetBrightCells.IsBright(pixels, pixels.Length / (cell.TileSize * cell.TileSize), cell.TileSize))
+                    {
+                        bright.Add(cell);
+                    }
+                }
+
+                var chosen = bright;
+                if (perSession > 0 && bright.Count > perSession)
+                {
+                    var rng = new Random(DrawSeed(seed, sessionId, -2, -2, -2));
+                    chosen = [.. bright];
+                    for (var i = chosen.Count - 1; i > 0; i--)
+                    {
+                        var j = rng.Next(i + 1);
+                        (chosen[i], chosen[j]) = (chosen[j], chosen[i]);
+                    }
+                    chosen = chosen.Take(perSession).ToList();
+                }
+                foreach (var cell in chosen.OrderBy(static c => c.Y).ThenBy(static c => c.X))
+                {
+                    listed.Add((sessionId, cell.X, cell.Y));
+                }
+                counts.Add(new BrightCellCount(sessionId, cells.Count, bright.Count, chosen.Count));
+            }
+            return (listed.ToImmutable(), counts.ToImmutable());
+        }
+
+        /// <summary>
+        /// One cell's reading in <see cref="CheckInjectionAsync"/>, per channel: the half pair's measured noise over
+        /// the noise each anchor predicts for a half, as the robust spread of <c>(A - B) / sqrt 2</c> divided pixel by
+        /// pixel by the predicted sigma. 1 is a match; below 1 the anchor predicts more noise than the pair holds.
+        /// </summary>
+        public sealed record InjectionCheckRow(string SessionId, int X, int Y, bool Bright, double[] HalfPairs, double[] SubMad);
+
+        /// <summary>The largest bright share a QUIET cell of <see cref="CheckInjectionAsync"/> may have: star cores
+        /// reach the bright level after the low-pass, so none at all would leave almost no real cell quiet.</summary>
+        public const double QuietCellMaxBrightFraction = 0.01;
+
+        /// <summary>
+        /// Check D2 of E16b: the injection's noise model against the half pairs, on the cells an export of
+        /// <paramref name="cellsPerSession"/> and <paramref name="seed"/> (plus <paramref name="extraCellsPath"/>) would
+        /// write. For each cell and channel the prediction is <see cref="LinearDegradation.NoiseCalibration.SigmaAt"/> at
+        /// the master's own linear level and a half's depth (sqrt(2/N) of one sub), under the half-pair anchor and under
+        /// the sub-MAD one (channel 0's calibration carried to every channel, as it was injected). Quiet cells (under
+        /// <see cref="QuietCellMaxBrightFraction"/> of their level at or above <see cref="DatasetBrightCells.Level"/>,
+        /// which star cores alone reach) and bright ones (<see cref="DatasetBrightCells.IsBright"/>) are returned; a cell
+        /// between the two is left out.
+        /// </summary>
+        public static async Task<ImmutableArray<InjectionCheckRow>> CheckInjectionAsync(
+            string bakeRoot,
+            ImmutableArray<string> sessionFilters,
+            int cellsPerSession,
+            int seed,
+            string? extraCellsPath,
+            ILogger? logger = null,
+            CancellationToken cancellationToken = default)
+        {
+            var cellsBySession = await ReadCellsAsync(Path.Combine(bakeRoot, DatasetTileExporter.ManifestFileName), cancellationToken);
+            var extra = extraCellsPath is { } p ? DatasetCellList.Read(p) : new Dictionary<string, HashSet<(int X, int Y)>>(StringComparer.Ordinal);
+            var rows = ImmutableArray.CreateBuilder<InjectionCheckRow>();
+            var sessions = cellsBySession.Keys.OrderBy(static s => s, StringComparer.Ordinal)
+                .Where(s => sessionFilters.IsDefaultOrEmpty || sessionFilters.Any(f => s.Contains(f, StringComparison.OrdinalIgnoreCase)));
+            foreach (var sessionId in sessions)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!RetainedMasterStore.TryRead(bakeRoot, sessionId, out var master, logger))
+                {
+                    continue;
+                }
+                var cells = cellsBySession[sessionId];
+                var chosen = SampleCells(cells, cellsPerSession, seed, sessionId, static c => (c.X, c.Y));
+                if (extra.TryGetValue(sessionId, out var listed))
+                {
+                    var have = chosen.Select(static c => (c.X, c.Y)).ToHashSet();
+                    chosen.AddRange(cells.Where(c => listed.Contains((c.X, c.Y)) && have.Add((c.X, c.Y))));
+                }
+
+                var stackedFrames = ReadStackCount(RetainedMasterStore.PathFor(bakeRoot, sessionId));
+                Image? unitMaster = null;
+                Image? stretched = null;
+                try
+                {
+                    unitMaster = DatasetTileExporter.ToUnitRange(master);
+                    var (s, applied, origMin, balances) = ChunkedNafnetRunner.ApplyInputStretch(unitMaster);
+                    stretched = s;
+                    if (!applied || origMin is null || balances is null)
+                    {
+                        continue;
+                    }
+                    var accumulator = MeasureHalfPairs(bakeRoot, cells, unitMaster, stretched);
+                    if (!accumulator.TryCalibrate(unitMaster.Pedestal, stackedFrames, out var halfPairs))
+                    {
+                        logger?.LogWarning("[noise-check] {Session}: too few quiet half-pair pixels ({Pixels})", sessionId, accumulator.QuietPixels);
+                        continue;
+                    }
+                    var channels = unitMaster.ChannelCount;
+                    var halfDepth = Math.Sqrt(2.0 / stackedFrames);
+                    foreach (var cell in chosen)
+                    {
+                        if (cell.HalfATile is not { } aTile || cell.HalfBTile is not { } bTile
+                            || cell.HalfAStretch is not { } aStretch || cell.HalfBStretch is not { } bStretch)
+                        {
+                            continue;
+                        }
+                        var size = cell.TileSize;
+                        if (ReadTile(bakeRoot, aTile, channels, size) is not { } halfA || ReadTile(bakeRoot, bTile, channels, size) is not { } halfB)
+                        {
+                            continue;
+                        }
+                        var n = size * size;
+                        var masterStretched = new float[channels * n];
+                        var masterLinear = new float[channels * n];
+                        for (var c = 0; c < channels; c++)
+                        {
+                            CutClamped(stretched, c, cell.X, cell.Y, size, size).CopyTo(masterStretched, c * n);
+                            CutClamped(unitMaster, c, cell.X, cell.Y, size, size).CopyTo(masterLinear, c * n);
+                        }
+                        var fraction = DatasetBrightCells.BrightFraction(masterStretched, channels, size);
+                        var bright = fraction >= DatasetBrightCells.MinFraction;
+                        if (!bright && fraction >= QuietCellMaxBrightFraction)
+                        {
+                            continue;
+                        }
+                        var inner = masterLinear.AsSpan(0, n);
+                        var subMad = cell.SubNoiseMads.Count > 0
+                            ? LinearDegradation.NoiseCalibration.FromStretchedSubNoise(
+                                inner, unitMaster.Pedestal, MedianOf(cell.SubNoiseMads), balances[0], origMin[0], stackedFrames)
+                            : LinearDegradation.NoiseCalibration.Measure(inner, unitMaster.Pedestal, stackedFrames);
+                        var level = HalfPairNoise.Level(masterStretched, channels, size);
+                        var ratioPairs = new double[channels];
+                        var ratioSubMad = new double[channels];
+                        for (var c = 0; c < channels; c++)
+                        {
+                            var zPairs = new List<float>(n);
+                            var zSubMad = new List<float>(n);
+                            for (var y = HalfPairNoise.RimPx; y < size - HalfPairNoise.RimPx; y++)
+                            {
+                                for (var x = HalfPairNoise.RimPx; x < size - HalfPairNoise.RimPx; x++)
+                                {
+                                    var i = (y * size) + x;
+                                    if (level[i] >= (float)DatasetBrightCells.Ceiling)
+                                    {
+                                        continue;
+                                    }
+                                    var j = (c * n) + i;
+                                    var d = (HalfPairNoise.Unstretch(halfA[j], aStretch[c]) - HalfPairNoise.Unstretch(halfB[j], bStretch[c])) / Math.Sqrt(2.0);
+                                    var predictedPairs = halfPairs[c].SigmaAt(masterLinear[j], halfDepth);
+                                    var predictedSubMad = subMad.SigmaAt(masterLinear[j], halfDepth);
+                                    if (predictedPairs > 0 && predictedSubMad > 0)
+                                    {
+                                        zPairs.Add((float)(d / predictedPairs));
+                                        zSubMad.Add((float)(d / predictedSubMad));
+                                    }
+                                }
+                            }
+                            ratioPairs[c] = zPairs.Count == 0 ? double.NaN : 1.4826 * StatisticsHelper.MedianAndMad(zPairs.ToArray().AsSpan()).Mad;
+                            ratioSubMad[c] = zSubMad.Count == 0 ? double.NaN : 1.4826 * StatisticsHelper.MedianAndMad(zSubMad.ToArray().AsSpan()).Mad;
+                        }
+                        rows.Add(new InjectionCheckRow(sessionId, cell.X, cell.Y, bright, ratioPairs, ratioSubMad));
+                    }
+                }
+                finally
+                {
+                    if (!ReferenceEquals(stretched, unitMaster))
+                    {
+                        stretched?.Release();
+                    }
+                    if (!ReferenceEquals(unitMaster, master))
+                    {
+                        unitMaster?.Release();
+                    }
+                    master.Release();
+                }
+            }
+            return rows.ToImmutable();
+        }
+
+        /// <summary>A stored tile's channel count, from its size: a tile is CHW fp16 with no header.</summary>
+        private static int TileChannels(string root, string relative, int tileSize)
+        {
+            var path = Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar));
+            return File.Exists(path) ? (int)(new FileInfo(path).Length / (2L * tileSize * tileSize)) : 0;
+        }
+
+        /// <summary>
         /// Degrades ONE cell and writes its tile. The margin is what makes a per-cell blur exact: the
         /// region is cut <see cref="PsfKernel.Radius"/> pixels wider on every side, convolved, and then
         /// cropped back, so the kernel never reaches for a pixel that is not there.
@@ -632,6 +962,7 @@ namespace TianWen.AI.Imaging
             double fieldRadius,
             float[] origMin,
             double[] balances,
+            LinearDegradation.NoiseCalibration[]? sessionCalibrations,
             string tilesDir,
             string slug,
             string sessionId,
@@ -780,17 +1111,26 @@ namespace TianWen.AI.Imaging
 
                 if (c == 0)
                 {
-                    // Calibrate ONCE, on the KEPT part of channel 0 (so a margin hanging over the canvas
-                    // edge cannot drag the background down), and use it for every channel: the anchor is
-                    // a sub's measured noise at a background level, and SigmaAt then follows each
-                    // channel's own signal from there, which is what shot noise does when the channels
-                    // share a gain.
                     var inner = CutClamped(unitMaster, 0, origin.X, origin.Y, size, size);
-                    anchor = cell.SubNoiseMads.Count > 0 ? "sub-noisemad" : "master-mad";
-                    calibration = cell.SubNoiseMads.Count > 0
-                        ? LinearDegradation.NoiseCalibration.FromStretchedSubNoise(
-                            inner, unitMaster.Pedestal, MedianOf(cell.SubNoiseMads), balances[0], origMin[0], stackedFrames)
-                        : LinearDegradation.NoiseCalibration.Measure(inner, unitMaster.Pedestal, stackedFrames);
+                    if (sessionCalibrations is { } session)
+                    {
+                        // The session's own half-pair noise, one calibration per channel (below).
+                        anchor = "half-pairs";
+                        calibration = session[0];
+                    }
+                    else
+                    {
+                        // Calibrate ONCE, on the KEPT part of channel 0 (so a margin hanging over the canvas
+                        // edge cannot drag the background down), and use it for every channel: the anchor is
+                        // a sub's measured noise at a background level, and SigmaAt then follows each
+                        // channel's own signal from there, which is what shot noise does when the channels
+                        // share a gain.
+                        anchor = cell.SubNoiseMads.Count > 0 ? "sub-noisemad" : "master-mad";
+                        calibration = cell.SubNoiseMads.Count > 0
+                            ? LinearDegradation.NoiseCalibration.FromStretchedSubNoise(
+                                inner, unitMaster.Pedestal, MedianOf(cell.SubNoiseMads), balances[0], origMin[0], stackedFrames)
+                            : LinearDegradation.NoiseCalibration.Measure(inner, unitMaster.Pedestal, stackedFrames);
+                    }
                     adjacent = LinearDegradation.NoiseCalibration.AdjacentDifferenceSigma(inner, size, size);
                 }
 
@@ -815,7 +1155,7 @@ namespace TianWen.AI.Imaging
                 }
                 levelPlanes[c] = cleanPlane;
 
-                LinearDegradation.AddNoiseInPlace(degraded, shape, calibration, depthScale);
+                LinearDegradation.AddNoiseInPlace(degraded, shape, sessionCalibrations?[c] ?? calibration, depthScale);
 
                 // Crop the margin off and lay the cell out as a plane.
                 var plane = new float[size, size];
@@ -831,12 +1171,17 @@ namespace TianWen.AI.Imaging
 
             var cellImage = new Image(planes, BitDepth.Float32, 1f, 0f, unitMaster.Pedestal, unitMaster.ImageMeta);
 
+            // Every plane of this cell is written from the calibrations its noise was injected with, one per channel:
+            // the session's own under the half-pair anchor, else channel 0's carried to each (which the plane's
+            // scalar form did, so an export without the anchor is byte for byte what it was).
+            var calibrations = sessionCalibrations ?? Enumerable.Repeat(calibration, channels).ToArray();
+
             if (draw == 0)
             {
                 // The clean master's own plane, once per cell: slot 0 is also what the gate denoises (the
                 // deployment case), and its noise is the master's own depth. Named by the one rule every
                 // tile's plane follows (SigmaPathFor), so no manifest field is needed to find it.
-                WriteMasterSigmaTile(unitMaster, origin, size, origMin, balances, calibration, masterDepth,
+                WriteMasterSigmaTile(unitMaster, origin, size, origMin, balances, calibrations, masterDepth,
                     Path.Combine(tilesDir, SigmaPathFor($"x{cell.X}_y{cell.Y}_{FrameClean}{DatasetTileExporter.TileExtension}")));
             }
 
@@ -917,7 +1262,7 @@ namespace TianWen.AI.Imaging
                     var windowShape = drawShape == NoiseShape.White
                         ? NoiseField.White(windowCut, windowCut, windowRng)
                         : NoiseField.Warped(windowCut, windowCut, Math.Max(2, Math.Min(stackedFrames, 16)), windowRng, drawSigma);
-                    LinearDegradation.AddNoiseInPlace(windowBlurred, windowShape, calibration, depthScale);
+                    LinearDegradation.AddNoiseInPlace(windowBlurred, windowShape, calibrations[green], depthScale);
                     var windowPlane = new float[windowSize, windowSize];
                     for (var y = 0; y < windowSize; y++)
                     {
@@ -980,7 +1325,7 @@ namespace TianWen.AI.Imaging
                 var sigmaFile = SigmaPathFor(file);
                 levelCell = new Image(levelPlanes, BitDepth.Float32, 1f, 0f, unitMaster.Pedestal, unitMaster.ImageMeta);
                 levelStretched = levelCell.MtfStretchWith(origMin, balances);
-                WriteSigmaTile(levelStretched, origMin, balances, calibration,
+                WriteSigmaTile(levelStretched, origMin, balances, calibrations,
                     Math.Sqrt((depthScale * depthScale) + (masterDepth * masterDepth)), Path.Combine(tilesDir, sigmaFile));
 
                 return new DegradationRow(
@@ -1021,7 +1366,9 @@ namespace TianWen.AI.Imaging
                     Psf01Stars: psf01Stars,
                     CleanFwhmPx: cleanFwhmPx,
                     WarpSigma: drawShape == NoiseShape.Warped ? drawSigma : null,
-                    SigmaTile: $"tiles/{slug}/{sigmaFile}");
+                    SigmaTile: $"tiles/{slug}/{sigmaFile}",
+                    OneSubSigmaPerChannel: sessionCalibrations is { } perChannel ? [.. perChannel.Select(static k => k.OneSubSigmaAdu)] : null,
+                    BackgroundPerChannel: sessionCalibrations is { } perChannelBg ? [.. perChannelBg.Select(static k => k.BackgroundAdu)] : null);
             }
             finally
             {
@@ -1042,7 +1389,7 @@ namespace TianWen.AI.Imaging
             int size,
             float[] origMin,
             double[] balances,
-            in LinearDegradation.NoiseCalibration calibration,
+            IReadOnlyList<LinearDegradation.NoiseCalibration> calibrations,
             double masterDepth,
             string path)
         {
@@ -1060,7 +1407,7 @@ namespace TianWen.AI.Imaging
             try
             {
                 stretched = linear.MtfStretchWith(origMin, balances);
-                WriteSigmaTile(stretched, origMin, balances, calibration, masterDepth, path);
+                WriteSigmaTile(stretched, origMin, balances, calibrations, masterDepth, path);
             }
             finally
             {
@@ -1077,7 +1424,7 @@ namespace TianWen.AI.Imaging
             Image stretchedCell,
             ReadOnlySpan<float> origMin,
             ReadOnlySpan<double> balances,
-            in LinearDegradation.NoiseCalibration calibration,
+            IReadOnlyList<LinearDegradation.NoiseCalibration> calibrations,
             double depthScale,
             string path)
         {
@@ -1089,7 +1436,7 @@ namespace TianWen.AI.Imaging
                 planes[c] = stretchedCell.GetChannelSpan(c).ToArray();
                 stretches[c] = new StretchedNoise.ChannelStretch(balances[c], origMin[c]);
             }
-            WritePlaneFile(StretchedNoise.Plane(planes, width, height, stretches, calibration, depthScale), path);
+            WritePlaneFile(StretchedNoise.Plane(planes, width, height, stretches, calibrations, depthScale), path);
         }
 
         /// <summary>
@@ -1244,6 +1591,65 @@ namespace TianWen.AI.Imaging
             return NoiseField.BandSigmasOf(a, tileSize, tileSize);
         }
 
+        /// <summary>
+        /// Every cell's half pair of one session into a <see cref="HalfPairNoise.Accumulator"/>: the master's
+        /// stretched and linear cut for the level and the background, each half from its stored tile through its own
+        /// recorded stretch. A cell without both halves, or without their stretches (a store baked before rows
+        /// carried them), adds nothing.
+        /// </summary>
+        private static HalfPairNoise.Accumulator MeasureHalfPairs(string bakeRoot, IReadOnlyList<CellSpec> cells, Image unitMaster, Image cleanStretched)
+        {
+            var channels = unitMaster.ChannelCount;
+            var accumulator = new HalfPairNoise.Accumulator(channels);
+            foreach (var cell in cells)
+            {
+                if (cell.HalfATile is not { } aTile || cell.HalfBTile is not { } bTile
+                    || cell.HalfAStretch is not { } aStretch || cell.HalfBStretch is not { } bStretch
+                    || aStretch.Length != channels || bStretch.Length != channels)
+                {
+                    continue;
+                }
+                var size = cell.TileSize;
+                if (ReadTile(bakeRoot, aTile, channels, size) is not { } halfA || ReadTile(bakeRoot, bTile, channels, size) is not { } halfB)
+                {
+                    continue;
+                }
+                var n = size * size;
+                var masterStretched = new float[channels * n];
+                var masterLinear = new float[channels * n];
+                for (var c = 0; c < channels; c++)
+                {
+                    CutClamped(cleanStretched, c, cell.X, cell.Y, size, size).CopyTo(masterStretched, c * n);
+                    CutClamped(unitMaster, c, cell.X, cell.Y, size, size).CopyTo(masterLinear, c * n);
+                }
+                accumulator.Add(masterStretched, masterLinear, halfA, aStretch, halfB, bStretch, size);
+            }
+            return accumulator;
+        }
+
+        /// <summary>A stored tile's every channel, CHW floats, or null when it is missing or short.</summary>
+        private static float[]? ReadTile(string root, string relative, int channels, int tileSize)
+        {
+            var path = Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar));
+            if (!File.Exists(path))
+            {
+                return null;
+            }
+            var bytes = File.ReadAllBytes(path);
+            var count = channels * tileSize * tileSize;
+            if (bytes.Length < count * 2)
+            {
+                return null;
+            }
+            var halfs = MemoryMarshal.Cast<byte, Half>(bytes.AsSpan(0, count * 2));
+            var tile = new float[count];
+            for (var i = 0; i < count; i++)
+            {
+                tile[i] = (float)halfs[i];
+            }
+            return tile;
+        }
+
         private static float[]? ReadTileChannel0(string root, string relative, int tileSize)
         {
             var path = Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar));
@@ -1268,6 +1674,9 @@ namespace TianWen.AI.Imaging
         /// <summary>One cell as the P0 manifest describes it, plus the tiles it carries.</summary>
         /// <param name="SubNoiseMads">The <c>NoiseMad</c> of every sub tile of this cell, stretched-domain
         /// and unscaled, which is what the injected level is anchored on.</param>
+        /// <param name="HalfAStretch">Half A's own stretch per channel, from its row; null in a store baked before
+        /// rows carried one.</param>
+        /// <param name="HalfBStretch">Half B's, likewise.</param>
         private sealed record CellSpec(
             int X,
             int Y,
@@ -1279,7 +1688,15 @@ namespace TianWen.AI.Imaging
             List<string> OtherTiles,
             List<double> SubNoiseMads,
             string? HalfATile,
-            string? HalfBTile);
+            string? HalfBTile,
+            StretchedNoise.ChannelStretch[]? HalfAStretch = null,
+            StretchedNoise.ChannelStretch[]? HalfBStretch = null);
+
+        /// <summary>A row's own stretch per channel, or null when it records none.</summary>
+        private static StretchedNoise.ChannelStretch[]? StretchOf(DatasetTileExporter.TileManifestRow row)
+            => row.StretchOrigMin is { } origMin && row.StretchBalance is { } balance && origMin.Length == balance.Length
+                ? [.. origMin.Zip(balance, static (m, b) => new StretchedNoise.ChannelStretch(b, m))]
+                : null;
 
         private static double MedianOf(List<double> values)
         {
@@ -1316,8 +1733,8 @@ namespace TianWen.AI.Imaging
                 cells[key] = row.Frame switch
                 {
                     DatasetTileExporter.FrameMaster => spec with { MasterTileRelative = row.Tile },
-                    DatasetTileExporter.FrameHalfMasterA => spec with { HalfATile = row.Tile },
-                    DatasetTileExporter.FrameHalfMasterB => spec with { HalfBTile = row.Tile },
+                    DatasetTileExporter.FrameHalfMasterA => spec with { HalfATile = row.Tile, HalfAStretch = StretchOf(row) },
+                    DatasetTileExporter.FrameHalfMasterB => spec with { HalfBTile = row.Tile, HalfBStretch = StretchOf(row) },
                     _ => Add(spec, row.Tile, row.Frame, row.NoiseMad),
                 };
             }
