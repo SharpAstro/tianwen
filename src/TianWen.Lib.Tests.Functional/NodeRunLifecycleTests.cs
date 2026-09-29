@@ -144,20 +144,37 @@ public class NodeRunLifecycleTests(ITestOutputHelper outputHelper) : IAsyncLifet
         _harness.Node.CurrentSession.ShouldBeSameAs(second.Session);
     }
 
+    /// <summary>
+    /// Both starts are held at discovery until BOTH have reached it, and only then is discovery let finish, so they
+    /// race for the node's run itself. A fixed 200 ms wait stood in for that and failed on a slow runner (#1041): the
+    /// second start arrived after the first had begun and was answered 409 by the "already running" check, before
+    /// any session was made, so there was no losing session to find disposed.
+    /// </summary>
     [Fact(Timeout = 30_000)]
     public async Task TwoStartsAtOnceStartOneRun()
     {
         var ct = TestContext.Current.CancellationToken;
+        var node = (HostedSession)_harness.Node;
         var a = _harness.Client.PostAsync($"/api/v1/session/start?profileId={NodeHarness.ProfileId}", null, ct);
         var b = _harness.Client.PostAsync($"/api/v1/session/start?profileId={NodeHarness.ProfileId}", null, ct);
-        await Task.Delay(200, ct);
+        await NodeWait.UntilAsync("both starts to reach the node", _ =>
+        {
+            var waiting = node.WaitingForInitialisation;
+            return ValueTask.FromResult((waiting == 2, $"{waiting} start(s) waiting for discovery"));
+        }, ct);
         _harness.Factory.Initialised.SetResult();
 
         var codes = (await Task.WhenAll(NodeHarness.EnvelopeStatusAsync(a, ct), NodeHarness.EnvelopeStatusAsync(b, ct))).OrderBy(c => c).ToArray();
 
         codes.ShouldBe([200, 409]);
-        _harness.Factory.Created.Count(s => s.Started.Task.IsCompleted).ShouldBe(1);
-        _harness.Factory.Created.Count(s => s.Disposals == 1 && !s.Started.Task.IsCompleted).ShouldBe(1, "the loser's session is disposed, never run");
+        var created = _harness.Factory.Created.ToArray();
+        created.Length.ShouldBe(2, "both starts made a session and raced for the node");
+        // The node disposes the losing session before it answers 409, so the loser is known as soon as both answers are in.
+        var loser = created.Single(s => s.Disposals == 1);
+        var winner = created.Single(s => s.Disposals == 0);
+        // The winner's run begins on a task of its own after its start is answered: wait for it rather than race it.
+        await winner.Started.Task.WaitAsync(ct);
+        loser.Started.Task.IsCompleted.ShouldBeFalse("the loser's session is disposed, never run");
     }
 
     [Fact(Timeout = 60_000)]

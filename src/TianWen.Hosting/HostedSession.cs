@@ -150,6 +150,7 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
     // abort, because a run must end through its Finalise rather than be cut off by whatever stops the host.
     private readonly CancellationTokenSource _lifetime = new CancellationTokenSource();
     private volatile Task _initialisation = Task.CompletedTask;
+    private int _waitingForInitialisation;
 
     private SessionPromptEventArgs? _pendingPrompt;
     private ImmutableArray<ScheduledObservation> _pendingSchedule = [];
@@ -303,7 +304,26 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
     internal ImmutableArray<ScheduledObservation> DrainSchedule()
         => ImmutableInterlocked.InterlockedExchange(ref _pendingSchedule, []);
 
-    public Task WhenInitialisedAsync(CancellationToken cancellationToken) => _initialisation.WaitAsync(cancellationToken);
+    public async Task WhenInitialisedAsync(CancellationToken cancellationToken)
+    {
+        Interlocked.Increment(ref _waitingForInitialisation);
+        try
+        {
+            await _initialisation.WaitAsync(cancellationToken);
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _waitingForInitialisation);
+        }
+    }
+
+    /// <summary>
+    /// How many callers are in <see cref="WhenInitialisedAsync"/>. A start is there only once it is past the node's
+    /// "already running" check, so a test that means two starts to RACE for the node waits for both to arrive here
+    /// before letting discovery finish (#1041): a start reaching the node after the other has begun is answered 409
+    /// before any session is made, which is a different path from the one the race tests.
+    /// </summary>
+    internal int WaitingForInitialisation => Volatile.Read(ref _waitingForInitialisation);
 
     public Task<bool> TryStartAsync(ISession session, NodeRunKind kind, Guid profileId, Func<ISession, CancellationToken, Task> run)
         => TryStartAsync(() => new NodeRun(session, session, new NodeRunRecord(kind, profileId, timeProvider.GetUtcNow()),
