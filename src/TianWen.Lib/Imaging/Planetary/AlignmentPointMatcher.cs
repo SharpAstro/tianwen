@@ -28,9 +28,11 @@ public sealed class AlignmentPointMatcher
     private readonly Complex[][] _referenceSpectra;
     private readonly float[] _patch;
     private readonly Complex[] _spectrumScratch;
+    private readonly bool _whiten;
 
-    private AlignmentPointMatcher(int patchSize, int width, int height, ImmutableArray<PixelPoint> apCenters, Complex[][] referenceSpectra)
+    private AlignmentPointMatcher(int patchSize, int width, int height, ImmutableArray<PixelPoint> apCenters, Complex[][] referenceSpectra, bool whiten)
     {
+        _whiten = whiten;
         _patchSize = patchSize;
         _width = width;
         _height = height;
@@ -45,9 +47,10 @@ public sealed class AlignmentPointMatcher
 
     /// <summary>
     /// Caches a luminance patch of <paramref name="patchSize"/> (power of two) per AP centre from the
-    /// reference frame.
+    /// reference frame. <paramref name="whiten"/> picks phase correlation or a plain cross-correlation: on a single 8-bit
+    /// frame a whitened 16 px patch is placed to 1.1 px RMS, a plain one to 0.35 (<c>AlignmentPointMatchingTests</c>).
     /// </summary>
-    public static AlignmentPointMatcher FromReference(Image reference, ImmutableArray<PixelPoint> apCenters, int patchSize = 32)
+    public static AlignmentPointMatcher FromReference(Image reference, ImmutableArray<PixelPoint> apCenters, int patchSize = 32, bool whiten = true)
     {
         ArgumentNullException.ThrowIfNull(reference);
         if (!ComplexFft.IsPowerOfTwo(patchSize))
@@ -61,10 +64,10 @@ public sealed class AlignmentPointMatcher
         {
             var p = apCenters[i];
             PlanetaryTile.ExtractLuma(reference, p.X, p.Y, patchSize, patch);
-            spectra[i] = PhaseCorrelation.PrepareReferenceSpectrum(patch, patchSize, patchSize, applyWindow: true);
+            spectra[i] = PhaseCorrelation.PrepareReferenceSpectrum(patch, patchSize, patchSize, applyWindow: true, whiten);
         }
 
-        return new AlignmentPointMatcher(patchSize, reference.Width, reference.Height, apCenters, spectra);
+        return new AlignmentPointMatcher(patchSize, reference.Width, reference.Height, apCenters, spectra, whiten);
     }
 
     /// <summary>
@@ -101,7 +104,7 @@ public sealed class AlignmentPointMatcher
             var p = _apCenters[i];
             // ExtractLuma writes every sample, so the reused patch carries nothing from the last point.
             PlanetaryTile.ExtractLuma(frame, p.X + rgx, p.Y + rgy, _patchSize, _patch);
-            var residual = PhaseCorrelation.Estimate(_referenceSpectra[i], _patch, _patchSize, _patchSize, _spectrumScratch, applyWindow: true);
+            var residual = PhaseCorrelation.Estimate(_referenceSpectra[i], _patch, _patchSize, _patchSize, _spectrumScratch, applyWindow: true, _whiten);
             destination[i] = new AlignmentPointShift(p.X, p.Y, (float)residual.Dx, (float)residual.Dy);
         }
     }

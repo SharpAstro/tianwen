@@ -42,6 +42,13 @@ public sealed class LuckyImagingStacker
     /// reference, and a demosaic would put the same interpolated detail into both halves.
     /// </summary>
     public async Task<Image> StackPlanesAsync(IPlanetaryFrameStream stream, ImmutableArray<int> frames, int referenceIndex, CancellationToken cancellationToken = default)
+        => await StackPlanesAsync(stream, frames, referenceIndex, whiten: true, cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// <see cref="StackPlanesAsync(IPlanetaryFrameStream, ImmutableArray{int}, int, CancellationToken)"/>, aligned by phase
+    /// correlation or, not <paramref name="whiten"/>ed, by a plain cross-correlation (<see cref="PlanetaryStackOptions.WhitenedCorrelation"/>).
+    /// </summary>
+    public async Task<Image> StackPlanesAsync(IPlanetaryFrameStream stream, ImmutableArray<int> frames, int referenceIndex, bool whiten, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(stream);
         var reference = await stream.LoadAsync(referenceIndex, cancellationToken).ConfigureAwait(false);
@@ -50,7 +57,7 @@ public sealed class LuckyImagingStacker
         ImageMeta meta;
         try
         {
-            aligner = AlignerFor(reference, PlanetaryDisk.BoundingBox(reference), alignTileSize: 0);
+            aligner = AlignerFor(reference, PlanetaryDisk.BoundingBox(reference), alignTileSize: 0, whiten);
             (width, height, channels, meta) = (reference.Width, reference.Height, reference.ChannelCount, reference.ImageMeta);
         }
         finally
@@ -95,12 +102,12 @@ public sealed class LuckyImagingStacker
     }
 
     // The global aligner on a reference's disk, its tile auto-sized to the disk (clamped to [64, 512]) unless one is set.
-    internal static GlobalAligner AlignerFor(Image reference, PixelRect refRegion, int alignTileSize)
+    internal static GlobalAligner AlignerFor(Image reference, PixelRect refRegion, int alignTileSize, bool whiten = true)
     {
         var tileSize = alignTileSize > 0
             ? NextPowerOfTwo(alignTileSize)
             : Math.Clamp(NextPowerOfTwo(Math.Max(refRegion.Width, refRegion.Height)), 64, 512);
-        return GlobalAligner.FromReference(reference, refRegion, tileSize);
+        return GlobalAligner.FromReference(reference, refRegion, tileSize, whiten);
     }
 
     /// <summary>
@@ -329,14 +336,14 @@ public sealed class LuckyImagingStacker
         try
         {
             var refRegion = PlanetaryDisk.BoundingBox(reference);
-            var aligner = AlignerFor(reference, refRegion, options.AlignTileSize);
+            var aligner = AlignerFor(reference, refRegion, options.AlignTileSize, options.WhitenedCorrelation);
 
             AlignmentPointMatcher? matcher = null;
             float[,]? signalConfidence = null;
             if (includeAlignmentPoints)
             {
                 var aps = FeatureDetector.DetectAlignmentPoints(reference, refRegion, options.AlignmentPointSpacing, options.MaxAlignmentPoints);
-                matcher = AlignmentPointMatcher.FromReference(reference, aps, options.AlignmentPatchSize);
+                matcher = AlignmentPointMatcher.FromReference(reference, aps, options.AlignmentPatchSize, options.WhitenedCorrelation);
 
                 // The signal-confidence gate is computed once from the reference (= the integrator's output
                 // space, since frames are warped to it). Only needed when best-of weighting is on.
