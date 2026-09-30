@@ -2620,3 +2620,16 @@ reads **inconclusive at this dose**, not killed: at 45 bright cells (a third of 
 crowd rather than nebula) and with the all-shot noise model over-injecting bright narrowband structure, a small fall
 cannot tell a wrong idea from too little of the right data. Prediction 3's kill stands (bright detail kept below 0.92),
 since smoothing is a harm that no dose excuses.
+
+**Before any E16b model was scored, the check's dry run on reference models** (E16a's `convmap_s0` and the shipped model,
+`est`; the cache `n2n-e16b-crowded`, 605 cells, every one half-paired and planed) settled three things about the
+populations, none of which a model under test could have moved:
+
+- CROWDED is 40 cells of 453 to 500 half-B peaks (the field's median cell 355), at a mean level of 0.244: the star cloud
+  fills the frame and the stretch puts a frame's median at 0.25, so it tests crowded grain at mid level, not a bright
+  core. NGC 362 (2,430 pixels, level 0.42) is the one bright crowded core.
+- M22 and M28 are UNREADABLE: the sampled cells reach 20 and 101 of their pixels. A population under the scorer's own
+  2,000-pixel floor (`DETAIL_MIN_PIXELS`) is printed and marked, never read.
+- The measures move as they should: a Gaussian sigma 1 of A keeps grain 0.31 / 0.67 and stars 0.47 on CROWDED; E16a keeps
+  0.96 / 0.98 and 0.965; the shipped model 0.89 / 0.88 and **0.79**. The shipped model already spends a fifth of the
+  unresolved stars' amplitude on a crowded field, which bears on whether to ship `convrf` (the backlog decision).
