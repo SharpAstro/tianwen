@@ -915,6 +915,16 @@ R4's keeps minimise the error of a raw stack, and a raw stack's band 1 error is 
     - **The claims**:
       - On both twins, its band transfers lie within 10 % of the truth's in bands 1 to 4, where (b)'s missed by 17 to 39 % in bands 1 and 2.
       - On 2022-09-03's Red it is reported, the kernel the inverse will use.
+  - **Added 2026-10-01, before part 4 (the inverse) was built or measured** (`tianwen planetary-inverse`), after part 3 found that a limb kernel is the total blur, diffraction included:
+    - **The stack**: 2022-09-03's calibrated twin, its 3,000 frames graded by the gradient, the best 5 % stacked global, plain, Lanczos-3, normalised and registered onto the truth.
+    - **The kernels**, each an isotropic transfer on the grid:
+      - the oracle: the stack's own transfer against the truth, ring by ring (the cross spectrum over the truth's power, which the stack's noise leaves unbiased);
+      - the measured: part 3's (b') divided by the pupil's own diffraction transfer, and (b) the same way beside it.
+    - **The inverse**: Richardson-Lucy in the Fourier domain, up to 40 iterations with each kernel. The oracle's count is where its fidelity error, summed over bands 1 to 4, is least, and every measured kernel is read at that count.
+    - **The claim**, R7's: RL with (b') reaches at least 80 % of the oracle's gain in each of bands 1 to 4, a band's gain being what its transfer rises by over the stack's, without failing the ringing gate.
+      - The gate: a limb undershoot (R3) no deeper than the oracle's by more than a quarter, and under 0.05 of the disk.
+      - R3's fabrication metric cannot be read here: the cutoff lies past Nyquist.
+    - **Reported beside it**: (b) the same way; a Wiener filter with (b') at the band 3 transfer the oracle's RL reaches; and on 2022-09-03's Red, RL with its (b') at the oracle's count, its undershoot the one truth-free check.
 
 ### R7 results, part 1: the spectral ratio
 
