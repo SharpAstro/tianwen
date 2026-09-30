@@ -59,7 +59,7 @@ public class CanonPreviewRobustnessTests
     }
 
     [Fact]
-    public void A_frame_in_ADU_counts_is_the_unit_referred_frame_times_the_range_and_both_stop_at_the_white_point()
+    public void A_frame_in_ADU_counts_is_the_unit_referred_frame_times_the_range_above_the_black_level_and_both_stop_at_the_white_point()
     {
         if (!FixtureUsable)
         {
@@ -81,11 +81,11 @@ public class CanonPreviewRobustnessTests
         var different = 0;
         for (var i = 0; i < u.Length; i++)
         {
-            if (a[i] != u[i] * headroom) different++;
+            if (a[i] != (u[i] * headroom) + CanonWhitePoint.BlackLevel) different++;
         }
 
-        different.ShouldBe(0, "the two reads differ by the scale and nothing else");
-        (whiteAdu / headroom).ShouldBeLessThanOrEqualTo(2.0f);
+        different.ShouldBe(0, "the two reads differ by the scale and the black level, and nothing else");
+        ((whiteAdu - CanonWhitePoint.BlackLevel) / headroom).ShouldBeLessThanOrEqualTo(2.0f);
     }
 
     [Fact]
@@ -129,6 +129,44 @@ public class CanonPreviewRobustnessTests
     }
 
     [Fact]
+    public void A_darks_noise_below_the_black_level_survives_the_file_because_the_frame_keeps_the_black_level()
+    {
+        // A dark is read noise around the black level, so black-subtracted half of it is negative, and a 16-bit FITS file
+        // (BZERO 32768) wrote every such pixel as 0: a 6D's darks read back with a median of 0 in every colour. The frame
+        // keeps the black level, as a camera's offset, so the file holds the whole of the noise.
+        var white = CanonWhitePoint.UnitFor(14, 2048, 0x3C82, Daylight);
+        var headroom = CanonWhitePoint.HeadroomAdu(14, 2048);
+        var random = new Random(20260930);
+        const int Width = 64, Height = 64;
+        var plane = new float[Height, Width];
+        for (var y = 0; y < Height; y++)
+        {
+            // Read noise of about 3 counts either side of the black level, in unit terms.
+            var row = Enumerable.Range(0, Width).Select(_ => (float)((random.NextDouble() - 0.5) * 6.0 / headroom)).ToArray();
+            CanonWhitePoint.ClampRow(row, System.Runtime.InteropServices.MemoryMarshal.CreateSpan(ref plane[y, 0], Width), white, headroom, CanonWhitePoint.BlackLevel);
+        }
+
+        var frame = new Image([plane], BitDepth.Int16, CanonWhitePoint.BlackLevel + 3f, CanonWhitePoint.BlackLevel - 3f, 0f,
+            new ImageMeta { SensorFullScaleAdu = (white * headroom) + CanonWhitePoint.BlackLevel });
+        var path = Path.Combine(Path.GetTempPath(), $"canon_dark_{Guid.NewGuid():N}.fits");
+        try
+        {
+            frame.WriteToFitsFile(path);
+            Image.TryReadFitsFile(path, out var back).ShouldBeTrue();
+
+            var readBack = back.GetChannelSpan(0).ToArray();
+            readBack.Count(v => v < CanonWhitePoint.BlackLevel).ShouldBeGreaterThan(readBack.Length / 3, "the noise below the black level is kept");
+            readBack.Count(v => v == 0f).ShouldBe(0, "nothing is clipped to 0");
+            var mean = readBack.Average();
+            mean.ShouldBe(CanonWhitePoint.BlackLevel, 1.0, "centred on the black level, not pushed up by a clip");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void A_clipped_pixel_is_held_at_the_white_point_in_every_channel_so_a_blown_highlight_is_neutral()
     {
         // A window the body clipped, after white balance (2.0, 1.0, 1.0, 1.4) and the range above the black level: green
@@ -155,8 +193,8 @@ public class CanonPreviewRobustnessTests
             var expected = new float[length];
             var actual = new float[length];
 
-            var expectedPeak = CanonWhitePoint.ClampRowScalar(row, expected, white, toOutput: 14335f);
-            var actualPeak = CanonWhitePoint.ClampRow(row, actual, white, toOutput: 14335f);
+            var expectedPeak = CanonWhitePoint.ClampRowScalar(row, expected, white, toOutput: 14335f, offset: CanonWhitePoint.BlackLevel);
+            var actualPeak = CanonWhitePoint.ClampRow(row, actual, white, toOutput: 14335f, offset: CanonWhitePoint.BlackLevel);
 
             actual.SequenceEqual(expected).ShouldBeTrue($"length {length}");
             actualPeak.ShouldBe(expectedPeak, $"peak at length {length}");

@@ -37,11 +37,31 @@ public record class CanonDevice(Uri DeviceUri) : DeviceBase(DeviceUri), IDeviceW
     public string? WifiHost => DeviceUri.QueryValue(DeviceQueryKey.Host);
 
     /// <summary>
-    /// Settings surface: WiFi host address is editable via StringEditor in the equipment tab.
-    /// Only visible when <c>port=wifi</c>.
+    /// Whether each exposure is taken with the mirror locked up first (the <c>mirrorLockup</c> setting; on unless it says false):
+    /// the body raises the mirror, lets it settle for its 2 s self-timer and exposes on its own. Up to 30 s only; a bulb
+    /// exposure is taken without it.
+    /// </summary>
+    public bool MirrorLockup => !bool.TryParse(DeviceUri.QueryValue(DeviceQueryKey.MirrorLockup), out var on) || on;
+
+    /// <summary>
+    /// Whether the connect fixes the body's white balance at Daylight (the <c>daylightWhiteBalance</c> setting; on unless it says
+    /// false). A frame carries the as-shot white balance in its pixels, so under Auto each frame is scaled per colour by what
+    /// the body chose for it, a dark as much as a light.
+    /// </summary>
+    public bool DaylightWhiteBalance => !bool.TryParse(DeviceUri.QueryValue(DeviceQueryKey.DaylightWhiteBalance), out var on) || on;
+
+    /// <summary>
+    /// Settings surface, applied when the camera connects: mirror lockup and white balance, and the WiFi host address
+    /// (editable via StringEditor in the equipment tab, only visible when <c>port=wifi</c>).
     /// </summary>
     public override ImmutableArray<DeviceSettingDescriptor> Settings { get; } =
     [
+        DeviceSettingHelper.BoolSetting(
+            DeviceQueryKey.MirrorLockup.Key, "Mirror lockup",
+            defaultValue: true, trueLabel: "On (2 s settle)", falseLabel: "Off"),
+        DeviceSettingHelper.BoolSetting(
+            DeviceQueryKey.DaylightWhiteBalance.Key, "White balance",
+            defaultValue: true, trueLabel: "Daylight (fixed)", falseLabel: "As set on the camera"),
         DeviceSettingHelper.StringSetting(
             DeviceQueryKey.Host.Key, "WiFi Host / IP",
             placeholder: "Camera IP address...",

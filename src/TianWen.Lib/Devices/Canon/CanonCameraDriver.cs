@@ -16,84 +16,18 @@ namespace TianWen.Lib.Devices.Canon;
 
 /// <summary>
 /// Canon DSLR camera driver via FC.SDK (PTP over USB or WiFi).
-/// Uses <see cref="CanonCamera.TakePictureAsync"/> for exposures ≤30s (Tv mode)
+/// Uses <see cref="CanonCamera.TakePictureWithMirrorLockupAsync"/> (or <see cref="CanonCamera.TakePictureAsync"/> with the
+/// device's Mirror lockup setting off) for exposures ≤30s (Tv mode)
 /// and <see cref="CanonCamera.BulbStartAsync"/>/<see cref="CanonCamera.BulbEndAsync"/> for longer exposures.
 /// Images are downloaded as CR2 and decoded via the SharpAstro codecs facade (FC.SDK.Raw).
 /// </summary>
 internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
 {
-    /// <summary>Canon Tv codes for standard shutter speeds up to 30s.</summary>
-    private static readonly (uint Code, TimeSpan Duration)[] TvTable =
-    [
-        (0x10, TimeSpan.FromSeconds(30)),
-        (0x13, TimeSpan.FromSeconds(25)),
-        (0x14, TimeSpan.FromSeconds(20)),
-        (0x18, TimeSpan.FromSeconds(15)),
-        (0x1B, TimeSpan.FromSeconds(13)),
-        (0x1C, TimeSpan.FromSeconds(10)),
-        (0x1D, TimeSpan.FromSeconds(10)), // some models
-        (0x20, TimeSpan.FromSeconds(8)),
-        (0x23, TimeSpan.FromSeconds(6)),
-        (0x24, TimeSpan.FromSeconds(5)),
-        (0x25, TimeSpan.FromSeconds(5)),
-        (0x28, TimeSpan.FromSeconds(4)),
-        (0x2B, TimeSpan.FromSeconds(3.2)),
-        (0x2C, TimeSpan.FromSeconds(2.5)),
-        (0x2D, TimeSpan.FromSeconds(2.5)),
-        (0x30, TimeSpan.FromSeconds(2)),
-        (0x33, TimeSpan.FromSeconds(1.6)),
-        (0x34, TimeSpan.FromSeconds(1.3)),
-        (0x35, TimeSpan.FromSeconds(1.3)),
-        (0x38, TimeSpan.FromSeconds(1)),
-        (0x3B, TimeSpan.FromSeconds(0.8)),
-        (0x3C, TimeSpan.FromSeconds(0.6)),
-        (0x3D, TimeSpan.FromSeconds(0.6)),
-        (0x40, TimeSpan.FromSeconds(0.5)),
-        (0x43, TimeSpan.FromSeconds(0.4)),
-        (0x44, TimeSpan.FromSeconds(0.3)),
-        (0x45, TimeSpan.FromSeconds(0.3)),
-        (0x48, TimeSpan.FromSeconds(1.0 / 4)),
-        (0x4B, TimeSpan.FromSeconds(1.0 / 5)),
-        (0x4C, TimeSpan.FromSeconds(1.0 / 6)),
-        (0x4D, TimeSpan.FromSeconds(1.0 / 6)),
-        (0x50, TimeSpan.FromSeconds(1.0 / 8)),
-        (0x53, TimeSpan.FromSeconds(1.0 / 10)),
-        (0x54, TimeSpan.FromSeconds(1.0 / 10)),
-        (0x55, TimeSpan.FromSeconds(1.0 / 13)),
-        (0x58, TimeSpan.FromSeconds(1.0 / 15)),
-        (0x5B, TimeSpan.FromSeconds(1.0 / 20)),
-        (0x5C, TimeSpan.FromSeconds(1.0 / 20)),
-        (0x5D, TimeSpan.FromSeconds(1.0 / 25)),
-        (0x60, TimeSpan.FromSeconds(1.0 / 30)),
-        (0x63, TimeSpan.FromSeconds(1.0 / 40)),
-        (0x64, TimeSpan.FromSeconds(1.0 / 45)),
-        (0x65, TimeSpan.FromSeconds(1.0 / 50)),
-        (0x68, TimeSpan.FromSeconds(1.0 / 60)),
-        (0x6B, TimeSpan.FromSeconds(1.0 / 80)),
-        (0x6C, TimeSpan.FromSeconds(1.0 / 90)),
-        (0x6D, TimeSpan.FromSeconds(1.0 / 100)),
-        (0x70, TimeSpan.FromSeconds(1.0 / 125)),
-        (0x73, TimeSpan.FromSeconds(1.0 / 160)),
-        (0x74, TimeSpan.FromSeconds(1.0 / 180)),
-        (0x75, TimeSpan.FromSeconds(1.0 / 200)),
-        (0x78, TimeSpan.FromSeconds(1.0 / 250)),
-        (0x7B, TimeSpan.FromSeconds(1.0 / 320)),
-        (0x7C, TimeSpan.FromSeconds(1.0 / 350)),
-        (0x7D, TimeSpan.FromSeconds(1.0 / 400)),
-        (0x80, TimeSpan.FromSeconds(1.0 / 500)),
-        (0x83, TimeSpan.FromSeconds(1.0 / 640)),
-        (0x84, TimeSpan.FromSeconds(1.0 / 750)),
-        (0x85, TimeSpan.FromSeconds(1.0 / 800)),
-        (0x88, TimeSpan.FromSeconds(1.0 / 1000)),
-        (0x8B, TimeSpan.FromSeconds(1.0 / 1250)),
-        (0x8C, TimeSpan.FromSeconds(1.0 / 1500)),
-        (0x8D, TimeSpan.FromSeconds(1.0 / 1600)),
-        (0x90, TimeSpan.FromSeconds(1.0 / 2000)),
-        (0x93, TimeSpan.FromSeconds(1.0 / 2500)),
-        (0x94, TimeSpan.FromSeconds(1.0 / 3000)),
-        (0x95, TimeSpan.FromSeconds(1.0 / 3200)),
-        (0x98, TimeSpan.FromSeconds(1.0 / 4000)),
-    ];
+    // Shutter speeds are not a table here: the body says which Tv codes it offers (a third-stop and a half-stop body offer
+    // different ones, 10 s being 0x1D in thirds and 0x1C in halves, and the Exposure level increments C.Fn switches one body
+    // between them), the code says its own duration (APEX, see TvDuration), and the frame's EXIF says what it was taken at. A
+    // 6D answers DeviceBusy, not "invalid", to a code it does not offer: a hand-kept table asked it for the half-stop 10 s and
+    // the exposure failed as a busy body, and four of that table's durations were wrong.
 
     /// <summary>Canon ISO codes.</summary>
     private static readonly (uint Code, string Label)[] IsoTable =
@@ -151,8 +85,34 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
     private CanonCamera? _camera;
     private bool _connected;
     private bool _bulbActive;
-    private TaskCompletionSource<uint>? _objectAddedTcs;
-    private Task? _downloadTask;
+
+    // Every object the body announces goes through one queue and one reader (PumpAnnouncedObjectsAsync), which downloads the
+    // raw an exposure is owed and releases (TransferComplete) everything else. A host-destination frame the body is not
+    // released from stays in its RAM, and while it holds one it refuses property writes, and with enough of them releases.
+    // One handle per exposure used to be taken and any other dropped: the JPEG of a RAW+JPEG body, and a raw that arrived
+    // after its exposure had been given up (FC.SDK counted 8 frames held after 8 downloads).
+    private System.Threading.Channels.Channel<uint> _announced = NewAnnouncedQueue();
+    private Task? _objectPump;
+    private CancellationTokenSource? _pumpStop;
+    private Task? _decodeTask;
+
+    // The exposure (its generation) a raw is still owed to, 0 when none is.
+    private int _awaitingRaw;
+
+    // Until when the body is still taking a shot it was released for, 0 once any object has come since: a shot given up or
+    // aborted goes on (a Tv exposure cannot be stopped once released), and the body answers DeviceBusy to every write until
+    // it is done, which read as a body that had stopped (WaitForTheBodyAsync).
+    private long _bodyBusyUntilTicks;
+
+    // The latest exposure the body sent a JPEG for while its raw was owed, so a lost exposure can say it got only a JPEG.
+    private int _jpegGeneration;
+    private int _jpegNoted;
+
+    // Mirror lockup is taken per exposure through the body's own 2 s self-timer, never left armed (ReleaseShutterAsync), and
+    // a lockup capture's restore of the drive waits for its frame, so the release and that restore take turns.
+    private bool _mirrorLockup;
+    private bool _mirrorLockupUnavailable;
+    private readonly SemaphoreSlim _releaseGate = new SemaphoreSlim(1, 1);
 
     // A picture the body never delivers throws nothing, so the wait for one needs an end of its own (DAL does the same).
     // The deadline is checked where the imaging loop polls, so it is testable on a fake clock and needs no timer.
@@ -190,6 +150,7 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
         _external = serviceProvider.GetRequiredService<IExternal>();
         _cameraFactory = cameraFactory;
         _bodies = serviceProvider.GetService<CanonBodyRegistry>();
+        _mirrorLockup = device.MirrorLockup;
         Logger = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(CanonCameraDriver));
         TimeProvider = serviceProvider.GetRequiredService<ITimeProvider>();
     }
@@ -252,6 +213,14 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
             throw new CanonDriverException(result, "Failed to open PTP session");
         }
 
+        // The queue's reader is running before the body can announce anything.
+        _announced = NewAnnouncedQueue();
+        _pumpStop = new CancellationTokenSource();
+        var pumpCamera = _camera;
+        var pumpReader = _announced.Reader;
+        var pumpToken = _pumpStop.Token;
+        _objectPump = Task.Run(() => PumpAnnouncedObjectsAsync(pumpCamera, pumpReader, pumpToken), CancellationToken.None);
+
         _camera.StartEventPolling();
         _camera.ObjectAdded += OnObjectAdded;
 
@@ -307,41 +276,47 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
         // AutoPowerOff=0:     disable the 30-min sleep that would kill unattended runs
         // AFMode=ManualFocus: prevent AF hunting on dark sky between exposures
         // HighIsoNR=Disable:  in-camera NR is wrong for stacking; calibrate in post
+        // WhiteBalance=Daylight (the device's White balance setting): a frame carries the as-shot white balance in its
+        //                     pixels (CanonRaw.PreprocessMosaic), so under Auto every frame, a dark included, is scaled per
+        //                     colour by whatever the body chose for it
+        // First, let go of a half press an earlier session left held: the body answers DeviceBusy to every write while one is,
+        // closing the session does not let go of it, and until now only a power cycle did. A refused bulb start left one held
+        // (FC.SDK let go of it only from 3.2's successor), and so did a release whose transport failed mid-press; letting go
+        // with nothing held is answered OK. Measured 2026-09-30: ISO refused busy, let go, ISO taken.
+        await TrySetAsync(
+            () => _camera.ReleaseShutterAsync(cancellationToken),
+            "shutter button let go of", cancellationToken, askAgainWhileBusy: false);
         await TrySetAsync(
             () => _camera.SetSaveToAsync(EdsSaveTo.Host, cancellationToken),
-            "SaveTo=Host");
+            "SaveTo=Host", cancellationToken);
+        // Asked once: a 6D answers DeviceBusy to this on every connect, a power-cycled body's included (2026-09-30), so asking
+        // again only held the connect for 9 s.
         await TrySetAsync(
             () => _camera.SetAutoPowerOffAsync(0, cancellationToken),
-            "AutoPowerOff=disabled");
+            "AutoPowerOff=disabled", cancellationToken, askAgainWhileBusy: false);
         await TrySetAsync(
             () => _camera.SetAFModeAsync(EdsAFMode.ManualFocus, cancellationToken),
-            "AFMode=ManualFocus");
+            "AFMode=ManualFocus", cancellationToken);
         await TrySetAsync(
             () => _camera.SetHighIsoNRAsync(EdsHighIsoNR.Disable, cancellationToken),
-            "HighIsoNR=Disable");
+            "HighIsoNR=Disable", cancellationToken);
+        if (_device.DaylightWhiteBalance)
+        {
+            await TrySetAsync(
+                () => _camera.SetWhiteBalanceAsync(EdsWhiteBalance.Daylight, cancellationToken),
+                "WhiteBalance=Daylight", cancellationToken);
+        }
 
         // Long-exposure NR lives in Custom Functions on Canon DSLRs, not as a direct
         // PTP property. Leaving it on doubles every sub (in-camera dark subtraction);
         // proper calibration frames give better results anyway.
         await DisableLongExposureNRAsync(cancellationToken);
 
-        // Enable mirror lockup for astrophotography (reduces vibration during exposures)
-        try
-        {
-            var (mluErr, mluSetting) = await _camera.GetMirrorUpSettingAsync(cancellationToken);
-            if (mluErr is EdsError.OK && mluSetting is EdsMirrorUpSetting.Off)
-            {
-                var enableResult = await _camera.EnableMirrorLockupAsync(cancellationToken);
-                if (enableResult is EdsError.OK)
-                {
-                    Logger.LogInformation("Mirror lockup enabled automatically for astrophotography");
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogDebug(ex, "Could not configure mirror lockup on Canon camera");
-        }
+        // Mirror lockup is never left armed on the body. Armed on a 6D in a single-shot drive, a release only RAISES the
+        // mirror: the body waits for a second press and drops the mirror again after 30 s, so a plain release gets no
+        // picture at all (a power-cycled 6D armed here at connect took none on 2026-09-30), and nor does a bulb start. It is
+        // taken per exposure instead, where the body can do it (ReleaseShutterAsync).
+        await DisarmMirrorLockupAsync(_camera, cancellationToken);
 
         Volatile.Write(ref _connected, true);
         DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(true));
@@ -352,8 +327,58 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
     {
         if (_camera is { } camera)
         {
+            // A shot given up or aborted is still being taken: let it finish, up to its deadline, so its frame is released and
+            // the drive a lockup capture changed is put back, rather than closing on a body left on its self-timer (a run
+            // cancelled 8 s into a 30 s dark closed that way, 2026-09-30).
+            try
+            {
+                await WaitForTheBodyAsync(cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                Logger.LogDebug("Canon disconnect stopped waiting for the exposure the body is still taking");
+            }
+
             camera.ObjectAdded -= OnObjectAdded;
             await camera.StopEventPollingAsync();
+
+            // Release what the body announced and nobody took (no raw is owed any more), then stop the queue's reader.
+            Volatile.Write(ref _awaitingRaw, 0);
+            _announced.Writer.TryComplete();
+            if (_objectPump is { } pump && _pumpStop is { } stop)
+            {
+                stop.CancelAfter(PumpDrainBudget);
+                try
+                {
+                    await pump;
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogDebug(ex, "Canon object queue ended with an error");
+                }
+                stop.Dispose();
+            }
+            _objectPump = null;
+            _pumpStop = null;
+
+            // Leave the body on the drive it was found in: a lockup capture's restore waits for its frame to be released.
+            try
+            {
+                await _releaseGate.WaitAsync(cancellationToken);
+                try
+                {
+                    await ApplyPendingMirrorLockupRestoreAsync(camera, persist: true, cancellationToken);
+                }
+                finally
+                {
+                    _releaseGate.Release();
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogDebug(ex, "Canon drive restore on disconnect failed");
+            }
+
             await camera.CloseSessionAsync(cancellationToken);
             await camera.DisposeAsync();
             _camera = null;
@@ -425,6 +450,8 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
             return;
         }
 
+        await WaitForTheBodyAsync(cancellationToken);
+
         var result = await CanonBusyRetry.RunAsync(
             () => _camera.SetPropertyAsync(EdsPropertyId.ISOSpeed, IsoTable[value].Code, cancellationToken), TimeProvider, cancellationToken);
         if (result is EdsError.OK)
@@ -465,35 +492,70 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
     public ValueTask SetSetCCDTemperatureAsync(double value, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
 
     // --- Mirror lockup ---
-    public async ValueTask<bool> GetMirrorLockupAsync(CancellationToken cancellationToken = default)
-    {
-        if (_camera is null)
-        {
-            return false;
-        }
+    // The per-exposure choice (the device's Mirror lockup setting), never the body's own setting, which the driver keeps
+    // disarmed: armed, a release only raises the mirror (see ConnectAsync).
+    private bool UseMirrorLockup => _mirrorLockup && !_mirrorLockupUnavailable && _camera is { SupportsMirrorLockupCapture: true };
 
-        var (err, setting) = await _camera.GetMirrorUpSettingAsync(cancellationToken);
-        return err is EdsError.OK && setting is EdsMirrorUpSetting.On;
+    public ValueTask<bool> GetMirrorLockupAsync(CancellationToken cancellationToken = default)
+    {
+        return ValueTask.FromResult(UseMirrorLockup);
     }
 
-    public async ValueTask SetMirrorLockupAsync(bool value, CancellationToken cancellationToken = default)
+    public ValueTask SetMirrorLockupAsync(bool value, CancellationToken cancellationToken = default)
     {
-        if (_camera is null)
-        {
-            return;
-        }
+        _mirrorLockup = value;
+        Logger.LogInformation("Canon mirror lockup per exposure {State}", value ? "on" : "off");
+        return ValueTask.CompletedTask;
+    }
 
-        var result = value
-            ? await _camera.EnableMirrorLockupAsync(cancellationToken)
-            : await _camera.DisableMirrorLockupAsync(cancellationToken);
+    /// <summary>
+    /// Says in the log how the body was found (its drive and its own mirror lockup setting) and disarms that setting when it is
+    /// armed: a release on an armed body only raises the mirror. Lockup is the driver's to take per exposure.
+    /// </summary>
+    private async ValueTask DisarmMirrorLockupAsync(CanonCamera camera, CancellationToken ct)
+    {
+        try
+        {
+            var (driveErr, drive) = await camera.GetDriveModeAsync(ct);
+            var (lockupErr, lockup) = await camera.GetMirrorUpSettingAsync(ct);
+            Logger.LogInformation(
+                "Canon {Name}: drive {Drive}, mirror lockup {Lockup} on the body; each exposure {PerExposure}",
+                Name,
+                driveErr is EdsError.OK ? drive.ToString() : $"unread ({driveErr})",
+                lockupErr is EdsError.OK ? lockup.ToString() : $"unread ({lockupErr})",
+                UseMirrorLockup ? "locks the mirror up first (the body's 2 s self-timer)" : "is released without mirror lockup");
 
-        if (result is EdsError.OK)
-        {
-            Logger.LogInformation("Canon mirror lockup {State}", value ? "enabled" : "disabled");
+            if (_mirrorLockup && !camera.SupportsMirrorLockupCapture)
+            {
+                Logger.LogWarning(
+                    "{Name} keeps mirror lockup as a Custom Function and discards every remote release while it is armed: its exposures are taken without it",
+                    Name);
+            }
+
+            // A lockup capture that could not put the drive back (the session closed while the body still held its frame) left
+            // the self-timer on, which would delay every plain release and survive into the body's own use.
+            if (driveErr is EdsError.OK && drive is EdsDriveMode.Timer_2sec or EdsDriveMode.Timer_10sec or EdsDriveMode.Timer_10sec_RemoteControl)
+            {
+                var single = await CanonBusyRetry.RunAsync(() => camera.SetDriveModeAsync(EdsDriveMode.SingleShooting, ct), TimeProvider, ct);
+                Logger.LogInformation("Canon drive {Drive} set back to single shot: {Result}", drive, single);
+            }
+
+            if (lockupErr is EdsError.OK && lockup is EdsMirrorUpSetting.On)
+            {
+                var off = await CanonBusyRetry.RunAsync(() => camera.DisableMirrorLockupAsync(ct), TimeProvider, ct);
+                if (off is EdsError.OK)
+                {
+                    Logger.LogInformation("Canon mirror lockup disarmed on the body: armed, a release would only raise the mirror");
+                }
+                else
+                {
+                    Logger.LogWarning("Canon mirror lockup is armed on the body and could not be disarmed ({Error}): an exposure may get no picture", off);
+                }
+            }
         }
-        else
+        catch (Exception ex)
         {
-            Logger.LogWarning("Failed to {Action} Canon mirror lockup: {Error}", value ? "enable" : "disable", result);
+            Logger.LogWarning(ex, "Could not read or disarm mirror lockup on {Name}", Name);
         }
     }
 
@@ -531,7 +593,9 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
         {
             var seconds = (_lastExposureDuration ?? TimeSpan.Zero).TotalSeconds;
             throw new InvalidOperationException(AbandonLostExposure(
-                $"{Name} sent no picture for a {seconds:0.###} s exposure. If its LCD shows a blinking Err, the body itself has stopped: switch it off and on (or take its battery out)."));
+                Volatile.Read(ref _jpegGeneration) == Volatile.Read(ref _exposureGeneration)
+                    ? $"{Name} sent only a JPEG for a {seconds:0.###} s exposure, and TianWen needs its raw: set the camera's image quality to RAW (or RAW+JPEG)."
+                    : $"{Name} sent no picture for a {seconds:0.###} s exposure. If its LCD shows a blinking Err, the body itself has stopped: switch it off and on (or take its battery out)."));
         }
 
         return ValueTask.FromResult(false);
@@ -547,7 +611,7 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
     private string AbandonLostExposure(string message)
     {
         Interlocked.Increment(ref _exposureGeneration);
-        _objectAddedTcs?.TrySetCanceled();
+        Volatile.Write(ref _awaitingRaw, 0);
         Volatile.Write(ref _exposureFault, message);
         Interlocked.Exchange(ref _cameraState, (int)CameraState.Idle);
         Logger.LogWarning("{Message}", message);
@@ -595,6 +659,8 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
                 "Cannot start a single-shot exposure while a Canon Live View video stream is running.");
         }
 
+        await WaitForTheBodyAsync(cancellationToken);
+
         var startTime = TimeProvider.GetUtcNow();
         _lastExposureStartTime = startTime;
         _lastExposureDuration = duration;
@@ -603,47 +669,141 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
         Volatile.Write(ref _exposureFault, null);
         var generation = Interlocked.Increment(ref _exposureGeneration);
 
-        // Prepare to receive ObjectAdded event
-        _objectAddedTcs = new TaskCompletionSource<uint>(TaskCreationOptions.RunContinuationsAsynchronously);
         Interlocked.Exchange(ref _cameraState, (int)CameraState.Exposing);
 
-        if (duration <= TimeSpan.FromSeconds(30))
+        var bulb = duration > TimeSpan.FromSeconds(30);
+        await _releaseGate.WaitAsync(cancellationToken);
+        try
         {
-            // Tv mode: set shutter speed then take picture
-            var tvCode = FindClosestTv(duration);
-            var tvResult = await CanonBusyRetry.RunAsync(
-                () => _camera.SetPropertyAsync(EdsPropertyId.Tv, tvCode, cancellationToken), TimeProvider, cancellationToken);
-            if (tvResult is EdsError.DeviceBusy)
-            {
-                Interlocked.Exchange(ref _cameraState, (int)CameraState.Idle);
-                throw new InvalidOperationException(BusyMessage("the shutter speed"));
-            }
+            // Back to the drive the body was found in before a release: a lockup capture leaves that until its frame is
+            // released, and a release on the self-timer drive with lockup armed would be a different exposure.
+            await ApplyPendingMirrorLockupRestoreAsync(_camera, persist: true, cancellationToken);
 
-            Volatile.Write(ref _exposureDeadlineTicks, (startTime + LostExposureDeadline(duration)).UtcTicks);
-            var released = await _camera.TakePictureAsync(cancellationToken);
-            if (released is not EdsError.OK)
+            if (!bulb)
             {
-                Interlocked.Exchange(ref _cameraState, (int)CameraState.Idle);
-                throw new InvalidOperationException(released is EdsError.DeviceBusy
-                    ? BusyMessage("the release")
-                    : $"{Name} refused the release ({released}).");
+                // Tv mode: set shutter speed then take picture. The speed is one the body offers, and the frame says the one
+                // it was taken at.
+                var tvCode = ClosestTv(duration, await _camera.GetAllowedValuesAsync(EdsPropertyId.Tv, cancellationToken));
+                _lastExposureDuration = TvDuration(tvCode);
+                var tvResult = await CanonBusyRetry.RunAsync(
+                    () => _camera.SetPropertyAsync(EdsPropertyId.Tv, tvCode, cancellationToken), TimeProvider, cancellationToken);
+                if (tvResult is EdsError.DeviceBusy)
+                {
+                    Interlocked.Exchange(ref _cameraState, (int)CameraState.Idle);
+                    throw new InvalidOperationException(BusyMessage("the shutter speed"));
+                }
+
+                Volatile.Write(ref _exposureDeadlineTicks, (startTime + LostExposureDeadline(duration)).UtcTicks);
+
+                // Owed a raw from here: the object queue downloads an announcement matched to this exposure, and releases the rest.
+                Volatile.Write(ref _awaitingRaw, generation);
+                var released = await ReleaseShutterAsync(_camera, cancellationToken);
+                if (released is EdsError.OK)
+                {
+                    Volatile.Write(ref _bodyBusyUntilTicks, (startTime + LostExposureDeadline(TvDuration(tvCode))).UtcTicks);
+                }
+                else
+                {
+                    Volatile.Write(ref _awaitingRaw, 0);
+                    Interlocked.Exchange(ref _cameraState, (int)CameraState.Idle);
+                    throw new InvalidOperationException(released is EdsError.DeviceBusy
+                        ? BusyMessage("the release")
+                        : $"{Name} refused the release ({released}).");
+                }
+            }
+            else
+            {
+                // Bulb takes no mirror lockup: an armed bulb start only raises the mirror, and over 30 s the slap is a small part
+                // of the exposure. The body's own setting is disarmed at connect; one still armed here was switched on since.
+                if (_camera.MirrorLockupEnabled is true)
+                {
+                    Interlocked.Exchange(ref _cameraState, (int)CameraState.Idle);
+                    throw new InvalidOperationException(
+                        $"{Name} has mirror lockup switched on, and a bulb exposure would only raise the mirror: switch it off in the camera's menu.");
+                }
+
+                Volatile.Write(ref _awaitingRaw, generation);
+                _bulbActive = true;
+                var opened = await _camera.BulbStartAsync(cancellationToken);
+                if (opened is not EdsError.OK)
+                {
+                    _bulbActive = false;
+                    Volatile.Write(ref _awaitingRaw, 0);
+                    Interlocked.Exchange(ref _cameraState, (int)CameraState.Idle);
+                    throw new InvalidOperationException(opened is EdsError.DeviceBusy
+                        ? BusyMessage("the bulb exposure")
+                        : $"{Name} refused a bulb exposure ({opened}): an exposure over 30 s needs its mode dial on B.");
+                }
             }
         }
-        else
+        catch
         {
-            // Bulb mode
-            _bulbActive = true;
-            await _camera.BulbStartAsync(cancellationToken);
+            // A transport that threw before anything was released (or a cancel): the camera is free again and owed no raw,
+            // where it was left Exposing for ever.
+            Volatile.Write(ref _awaitingRaw, 0);
+            Interlocked.Exchange(ref _cameraState, (int)CameraState.Idle);
+            throw;
+        }
+        finally
+        {
+            _releaseGate.Release();
+        }
+
+        if (bulb)
+        {
             await TimeProvider.SleepAsync(duration, cancellationToken);
             await _camera.BulbEndAsync(cancellationToken);
             _bulbActive = false;
             Volatile.Write(ref _exposureDeadlineTicks, (TimeProvider.GetUtcNow() + LostExposureGrace).UtcTicks);
+            Volatile.Write(ref _bodyBusyUntilTicks, (TimeProvider.GetUtcNow() + LostExposureGrace).UtcTicks);
         }
 
-        // Start background download once ObjectAdded fires
-        _downloadTask = Task.Run(() => WaitAndDownloadAsync(generation, cancellationToken), cancellationToken);
-
         return startTime;
+    }
+
+    /// <summary>
+    /// Waits, up to its deadline, for the body to finish a shot whose picture has not come: one given up or aborted keeps
+    /// exposing and answers DeviceBusy to every write until it is done. A 30 s dark cancelled 14 s in made the next run's ISO
+    /// write fail as a busy body; its picture, when it comes, is released by the object queue.
+    /// </summary>
+    private async ValueTask WaitForTheBodyAsync(CancellationToken ct)
+    {
+        var said = false;
+        while (Volatile.Read(ref _bodyBusyUntilTicks) is var until and > 0 && TimeProvider.GetUtcNow().UtcTicks < until)
+        {
+            if (!said)
+            {
+                Logger.LogInformation("Waiting for {Name} to finish the exposure it is still taking", Name);
+                said = true;
+            }
+
+            await TimeProvider.SleepAsync(TimeSpan.FromMilliseconds(250), ct);
+        }
+    }
+
+    /// <summary>
+    /// Releases the shutter: with <see cref="UseMirrorLockup"/>, through the body's 2 s self-timer with the mirror locked up
+    /// first (the body raises the mirror, lets it settle and exposes on its own, so the settle is its timer's, ~2.9 s from
+    /// release to picture on a 6D); otherwise a plain release.
+    /// </summary>
+    private async ValueTask<EdsError> ReleaseShutterAsync(CanonCamera camera, CancellationToken ct)
+    {
+        if (UseMirrorLockup)
+        {
+            var locked = await camera.TakePictureWithMirrorLockupAsync(EdsDriveMode.Timer_2sec, ct);
+
+            // Refused before anything was released: the body offers no self-timer drive to settle with. Take it without lockup
+            // from here on, and say so once.
+            if (locked is not EdsError.OperationRefused)
+            {
+                return locked;
+            }
+
+            _mirrorLockupUnavailable = true;
+            Logger.LogWarning("{Name} cannot take an exposure with mirror lockup (it offers no self-timer drive): exposing without it", Name);
+        }
+
+        return await camera.TakePictureAsync(ct);
     }
 
     public ValueTask StopExposureAsync(CancellationToken cancellationToken = default)
@@ -656,60 +816,263 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
             await _camera.BulbEndAsync(cancellationToken);
             _bulbActive = false;
         }
-        // A picture that arrives after an abort is the aborted exposure's, not the next one's.
+        // A picture that arrives after an abort is the aborted exposure's, not the next one's: the object queue releases it.
         Interlocked.Increment(ref _exposureGeneration);
-        _objectAddedTcs?.TrySetCanceled(cancellationToken);
+        Volatile.Write(ref _awaitingRaw, 0);
         Interlocked.Exchange(ref _cameraState, (int)CameraState.Idle);
     }
 
-    private async Task WaitAndDownloadAsync(int generation, CancellationToken ct)
+    // How long a disconnect lets the object queue release what the body still announced, before it stops it.
+    private static readonly TimeSpan PumpDrainBudget = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// The queue of announced objects. Its reader must be able to COUNT (the queue asks whether more is waiting before it
+    /// restores the drive): a single-reader unbounded channel cannot, and its Count threw after the first object, which left
+    /// every later one unread and held in the body.
+    /// </summary>
+    internal static System.Threading.Channels.Channel<uint> NewAnnouncedQueue()
     {
-        if (_objectAddedTcs is null || _camera is null)
+        return System.Threading.Channels.Channel.CreateUnbounded<uint>();
+    }
+
+    private void OnObjectAdded(object? sender, CanonObjectAddedEventArgs e)
+    {
+        _announced.Writer.TryWrite(e.ObjectHandle);
+    }
+
+    /// <summary>What becomes of an object the body announced.</summary>
+    internal enum AnnouncedObjectFate
+    {
+        /// <summary>The raw the exposure in progress is owed: downloaded, then released.</summary>
+        Download,
+
+        /// <summary>Not a raw (the JPEG of a RAW+JPEG body): released unread.</summary>
+        ReleaseNotRaw,
+
+        /// <summary>A raw no exposure is owed (one given up, or aborted): released unread.</summary>
+        ReleaseUnowed,
+    }
+
+    /// <summary>
+    /// What becomes of an object named <paramref name="fileName"/> (null when the body would not say), with
+    /// <paramref name="awaitingRaw"/> the exposure a raw is owed to (0: none) and <paramref name="currentGeneration"/> the
+    /// exposure in progress. An object whose name could not be read is taken for the raw when one is owed: the decode says
+    /// otherwise, where dropping it would hold the frame in the body.
+    /// </summary>
+    internal static AnnouncedObjectFate FateOf(string? fileName, int awaitingRaw, int currentGeneration)
+    {
+        if (fileName is not null && !IsRawFileName(fileName))
         {
-            return;
+            return AnnouncedObjectFate.ReleaseNotRaw;
         }
 
-        uint handle;
+        return awaitingRaw != 0 && awaitingRaw == currentGeneration ? AnnouncedObjectFate.Download : AnnouncedObjectFate.ReleaseUnowed;
+    }
+
+    /// <summary>Whether <paramref name="fileName"/> names a Canon raw (CR2, CR3 or CRW).</summary>
+    internal static bool IsRawFileName(string fileName)
+    {
+        return Path.GetExtension(fileName).ToUpperInvariant() is ".CR2" or ".CR3" or ".CRW";
+    }
+
+    /// <summary>
+    /// The one reader of the announced objects, for one connection: each is the raw an exposure is owed and downloaded, or is
+    /// released. Either way the body is told it may let go of it.
+    /// </summary>
+    private async Task PumpAnnouncedObjectsAsync(CanonCamera camera, System.Threading.Channels.ChannelReader<uint> reader, CancellationToken ct)
+    {
         try
         {
-            handle = await _objectAddedTcs.Task.WaitAsync(ct);
-        }
-        catch (OperationCanceledException)
-        {
-            if (Volatile.Read(ref _exposureGeneration) == generation)
+            await foreach (var handle in reader.ReadAllAsync(ct))
             {
-                Interlocked.Exchange(ref _cameraState, (int)CameraState.Idle);
+                // One object that goes wrong must not end the queue: every object after it would then be held in the body,
+                // which is what a queue that stopped reading after its first object did.
+                try
+                {
+                    await TakeOrReleaseAsync(camera, handle, ct);
+
+                    // With nothing more announced, the body takes writes again: put back what a lockup capture changed.
+                    if (reader.Count == 0)
+                    {
+                        await _releaseGate.WaitAsync(ct);
+                        try
+                        {
+                            await ApplyPendingMirrorLockupRestoreAsync(camera, persist: false, ct);
+                        }
+                        finally
+                        {
+                            _releaseGate.Release();
+                        }
+                    }
+                }
+                catch (Exception ex) when (!ct.IsCancellationRequested)
+                {
+                    Logger.LogWarning(ex, "Canon object 0x{Handle:X8} could not be handled; the queue goes on", handle);
+                }
             }
-            return;
         }
-
-        if (Volatile.Read(ref _exposureGeneration) != generation)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
+            // Disconnecting: closing the session releases whatever the body still holds.
+            Logger.LogDebug("Canon object queue stopped with {Count} object(s) unread", reader.Count);
+        }
+    }
+
+    private async Task TakeOrReleaseAsync(CanonCamera camera, uint handle, CancellationToken ct)
+    {
+        string? fileName = null;
+        var nameAnswer = "";
+        try
+        {
+            var (nameErr, name) = await camera.GetObjectFileNameAsync(handle, ct);
+            fileName = nameErr is EdsError.OK ? name : null;
+            nameAnswer = nameErr is EdsError.OK ? "" : $": {nameErr}";
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            Logger.LogDebug(ex, "Canon object 0x{Handle:X8}: its name could not be read", handle);
+        }
+
+        // Whatever it is, the shot it came from is over.
+        Volatile.Write(ref _bodyBusyUntilTicks, 0);
+
+        var owed = Volatile.Read(ref _awaitingRaw);
+        var fate = FateOf(fileName, owed, Volatile.Read(ref _exposureGeneration));
+        Logger.LogDebug("Canon announced object 0x{Handle:X8} ({FileName}): {Fate}", handle, fileName ?? $"name unread{nameAnswer}", fate);
+
+        if (fate is AnnouncedObjectFate.Download && Interlocked.CompareExchange(ref _awaitingRaw, 0, owed) == owed)
+        {
+            await DownloadAsync(camera, handle, owed, ct);
             return;
         }
 
-        Interlocked.Exchange(ref _cameraState, (int)CameraState.Download);
+        if (fate is AnnouncedObjectFate.ReleaseNotRaw && owed != 0)
+        {
+            NoteJpeg(owed, Path.GetExtension(fileName));
+        }
+
+        await ReleaseObjectAsync(camera, handle, ct);
+    }
+
+    /// <summary>Remembers that exposure <paramref name="generation"/> was sent a JPEG, and says once that the body records one.</summary>
+    private void NoteJpeg(int generation, string? extension)
+    {
+        Volatile.Write(ref _jpegGeneration, generation);
+        if (Interlocked.Exchange(ref _jpegNoted, 1) == 0)
+        {
+            Logger.LogInformation(
+                "{Name} also records a {Extension} with each exposure (its image quality includes one): only the raw is kept, the rest is released",
+                Name, extension is { Length: > 0 } ? extension : "JPEG");
+        }
+    }
+
+    /// <summary>
+    /// Whether <paramref name="head"/>, a file's first bytes, is a JPEG's (the SOI marker and the next marker's lead byte): what
+    /// the body sent when it would not name the object, told apart from a raw by what it is.
+    /// </summary>
+    internal static bool IsJpeg(ReadOnlySpan<byte> head)
+    {
+        return head.Length >= 3 && head[0] == 0xFF && head[1] == 0xD8 && head[2] == 0xFF;
+    }
+
+    private static bool IsJpegFile(string path)
+    {
+        Span<byte> head = stackalloc byte[3];
+        using var file = File.OpenRead(path);
+        return file.ReadAtLeast(head, head.Length, throwOnEndOfStream: false) == head.Length && IsJpeg(head);
+    }
+
+    /// <summary>Tells the body it may let go of <paramref name="handle"/>, and says so when it will not.</summary>
+    private async Task ReleaseObjectAsync(CanonCamera camera, uint handle, CancellationToken ct)
+    {
+        try
+        {
+            // The answer is read: a frame the body is not told it may let go of stays in its RAM, and enough of them stop it
+            // releasing at all (FC.SDK's ReleasePendingTransfersAsync documents it). Ignored, that looked like a lost exposure.
+            var released = await camera.TransferCompleteAsync(handle, ct);
+            if (released is EdsError.OK)
+            {
+                Logger.LogDebug("Canon TransferComplete for object 0x{Handle:X8}: OK", handle);
+            }
+            else
+            {
+                Logger.LogWarning("Canon TransferComplete for object 0x{Handle:X8} answered {Error}: the body keeps the frame", handle, released);
+            }
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            Logger.LogWarning(ex, "Canon TransferComplete for object 0x{Handle:X8} failed: the body keeps the frame", handle);
+        }
+    }
+
+    /// <summary>
+    /// Downloads exposure <paramref name="generation"/>'s raw and releases it, whether or not the download worked, then decodes
+    /// it off the queue, so an object announced meanwhile (the JPEG of RAW+JPEG) is released at once.
+    /// </summary>
+    private async Task DownloadAsync(CanonCamera camera, uint handle, int generation, CancellationToken ct)
+    {
+        if (Volatile.Read(ref _exposureGeneration) == generation)
+        {
+            Interlocked.Exchange(ref _cameraState, (int)CameraState.Download);
+        }
 
         var tmpPath = Path.Combine(Path.GetTempPath(), $"tianwen_canon_{Guid.NewGuid():N}.cr2");
+        string? failure = null;
         try
         {
             await using (var fs = new FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None,
                 bufferSize: 64 * 1024, useAsync: true))
             {
-                await _camera.DownloadAsync(handle, fs, ct);
+                var got = await camera.DownloadAsync(handle, fs, ct);
+                if (got is not EdsError.OK)
+                {
+                    failure = $"The picture from {Name} could not be downloaded ({got}).";
+                }
             }
-            // The answer is read: a frame the body is not told it may let go of stays in its RAM, and enough of them stop it
-            // releasing at all (FC.SDK's ReleasePendingTransfersAsync documents it). Ignored, that looked like a lost exposure.
-            var transferred = await _camera.TransferCompleteAsync(handle, ct);
-            if (transferred is not EdsError.OK)
-            {
-                Logger.LogWarning("Canon TransferComplete for object 0x{Handle:X8} answered {Error}: the body keeps the frame", handle, transferred);
-            }
-            else
-            {
-                Logger.LogDebug("Canon TransferComplete for object 0x{Handle:X8}: OK", handle);
-            }
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            Logger.LogError(ex, "Canon image download failed");
+            failure = $"The picture from {Name} could not be downloaded: {ex.Message}";
+        }
+        catch (OperationCanceledException)
+        {
+            DeleteQuietly(tmpPath);
+            throw;
+        }
 
+        await ReleaseObjectAsync(camera, handle, ct);
+
+        if (failure is not null)
+        {
+            Logger.LogError("{Failure}", failure);
+            DeleteQuietly(tmpPath);
+            FailExposure(generation, failure);
+            IdleIfCurrent(generation);
+            return;
+        }
+
+        // An object the body would not name, and a JPEG after all (RAW+JPEG): released like one, and the exposure is still owed
+        // its raw, which the next announcement is looked at for.
+        if (IsJpegFile(tmpPath))
+        {
+            DeleteQuietly(tmpPath);
+            NoteJpeg(generation, null);
+            if (Volatile.Read(ref _exposureGeneration) == generation)
+            {
+                Interlocked.CompareExchange(ref _awaitingRaw, generation, 0);
+                Interlocked.CompareExchange(ref _cameraState, (int)CameraState.Exposing, (int)CameraState.Download);
+            }
+            return;
+        }
+
+        _decodeTask = Task.Run(() => DecodeDownloaded(tmpPath, generation), CancellationToken.None);
+    }
+
+    private void DecodeDownloaded(string tmpPath, int generation)
+    {
+        try
+        {
             // Into a recycled plane, the DAL pattern: the ref-counted buffer travels ON the channel into
             // GetImageAsync's Image, whose release hands the plane back for the next sub. A new plane per sub
             // was 120 MB on a 30 MP body. (FC.SDK.Raw's own decode buffers are its to recycle.)
@@ -725,6 +1088,13 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
                 {
                     // Abandoned while it downloaded: the next exposure owns the camera's state now.
                     return;
+                }
+
+                // What the body says it exposed for (EXIF ExposureTime: 10 s for Tv 0x1D, a bulb's own length), before the
+                // frame is published, so the frame's EXPTIME is the camera's.
+                if (image.ImageMeta.ExposureDuration > TimeSpan.Zero)
+                {
+                    _lastExposureDuration = image.ImageMeta.ExposureDuration;
                 }
 
                 _lastImageData = _stillPlanes.Wrap(image.GetChannelArray(0), image.MinValue, image.MaxValue, 0, Filter.None);
@@ -746,31 +1116,63 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Canon image download failed");
-            FailExposure(generation, $"The picture from {Name} could not be downloaded: {ex.Message}");
+            Logger.LogError(ex, "Canon image decode failed");
+            FailExposure(generation, $"{Name} sent a picture that could not be read: {ex.Message}");
         }
         finally
         {
-            try { if (File.Exists(tmpPath)) File.Delete(tmpPath); } catch { /* best effort */ }
-            if (Volatile.Read(ref _exposureGeneration) == generation)
-            {
-                Interlocked.Exchange(ref _cameraState, (int)CameraState.Idle);
-            }
+            DeleteQuietly(tmpPath);
+            IdleIfCurrent(generation);
         }
     }
 
-    private void OnObjectAdded(object? sender, CanonObjectAddedEventArgs e)
+    /// <summary>The camera is free again, unless a newer exposure has begun.</summary>
+    private void IdleIfCurrent(int generation)
     {
-        Logger.LogDebug("Canon announced object 0x{Handle:X8}", e.ObjectHandle);
-        _objectAddedTcs?.TrySetResult(e.ObjectHandle);
+        if (Volatile.Read(ref _exposureGeneration) == generation)
+        {
+            Interlocked.Exchange(ref _cameraState, (int)CameraState.Idle);
+        }
     }
 
-    /// <summary>Applies a Canon setter, logging Info on OK and Debug on reject.</summary>
-    private async ValueTask TrySetAsync(Func<Task<EdsError>> setter, string name)
+    private static void DeleteQuietly(string path)
+    {
+        try { if (File.Exists(path)) File.Delete(path); } catch { /* best effort */ }
+    }
+
+    /// <summary>
+    /// Puts back the drive (and the lockup setting) a lockup capture changed, once the body takes writes again: it refuses
+    /// them while it holds a frame, so FC.SDK leaves the restore pending until the frame is released. <paramref name="persist"/>
+    /// asks again for a few seconds, before a release, which must not run on the self-timer drive; the object queue asks once.
+    /// </summary>
+    private async ValueTask ApplyPendingMirrorLockupRestoreAsync(CanonCamera camera, bool persist, CancellationToken ct)
+    {
+        var attempts = persist ? CanonBusyRetry.Attempts : 1;
+        for (var tries = 0; tries < attempts && camera.PendingMirrorLockupRestore is not null; tries++)
+        {
+            if (tries > 0)
+            {
+                await TimeProvider.SleepAsync(CanonBusyRetry.Delay, ct);
+            }
+
+            await camera.ApplyPendingMirrorLockupRestoreAsync(ct);
+        }
+
+        if (persist && camera.PendingMirrorLockupRestore is { } left)
+        {
+            Logger.LogWarning("{Name} would not take back {Pending} after a mirror lockup exposure", Name, left);
+        }
+    }
+
+    /// <summary>
+    /// Applies a Canon setter, asking again while the body answers busy unless <paramref name="askAgainWhileBusy"/> is false,
+    /// logging Info on OK and Debug on reject.
+    /// </summary>
+    private async ValueTask TrySetAsync(Func<Task<EdsError>> setter, string name, CancellationToken ct, bool askAgainWhileBusy = true)
     {
         try
         {
-            var result = await setter();
+            var result = askAgainWhileBusy ? await CanonBusyRetry.RunAsync(setter, TimeProvider, ct) : await setter();
             if (result is EdsError.OK)
             {
                 Logger.LogInformation("Canon {Setting} applied", name);
@@ -843,23 +1245,48 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
         }
     }
 
-    private static uint FindClosestTv(TimeSpan duration)
+    /// <summary>
+    /// The duration Tv code <paramref name="code"/> stands for: Canon's code is the APEX time value in eighths of a stop above
+    /// 0x38 (1 s), so each 8 halves the time. It is the exact power of two (0x1D is 10.4 s, 0x10 32 s), where the body's own
+    /// label is rounded (10", 30"): the frame's EXIF is what an exposure records, this is what picks one.
+    /// </summary>
+    internal static TimeSpan TvDuration(uint code)
     {
-        var seconds = duration.TotalSeconds;
-        uint bestCode = TvTable[0].Code;
-        var bestDiff = double.MaxValue;
+        return TimeSpan.FromSeconds(Math.Pow(2.0, (0x38 - (int)code) / 8.0));
+    }
 
-        foreach (var (code, tvDuration) in TvTable)
+    /// <summary>The Tv codes a timed exposure can use: 30 s (0x10) to 1/8000 (0xA0); below is bulb (0x0C) and auto (0).</summary>
+    private static bool IsTimedTv(uint code)
+    {
+        return code is >= 0x10 and <= 0xA0;
+    }
+
+    /// <summary>
+    /// The Tv code among those the body announces as <paramref name="allowed"/> whose duration is closest to
+    /// <paramref name="duration"/> in stops. A body that announces none is given a third-stop code (the whole stops and the
+    /// two between each, 3 and 5 eighths on), as every EOS offers by default.
+    /// </summary>
+    internal static uint ClosestTv(TimeSpan duration, IReadOnlyCollection<uint>? allowed)
+    {
+        var offered = allowed?.Where(IsTimedTv).ToArray() ?? [];
+        var candidates = offered.Length > 0
+            ? offered
+            : Enumerable.Range(0x10, 0xA0 - 0x10 + 1).Select(c => (uint)c).Where(c => (c & 7) is 0 or 3 or 5).ToArray();
+
+        var wanted = Math.Log2(Math.Max(duration.TotalSeconds, 1e-4));
+        var best = candidates[0];
+        var bestStops = double.MaxValue;
+        foreach (var code in candidates)
         {
-            var diff = Math.Abs(tvDuration.TotalSeconds - seconds);
-            if (diff < bestDiff)
+            var stops = Math.Abs(Math.Log2(TvDuration(code).TotalSeconds) - wanted);
+            if (stops < bestStops)
             {
-                bestDiff = diff;
-                bestCode = code;
+                bestStops = stops;
+                best = code;
             }
         }
 
-        return bestCode;
+        return best;
     }
 
     // ── Live View video (IVideoCameraDriver) ─────────────────────────────────────
@@ -1259,10 +1686,10 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
 
     public async ValueTask DisposeAsync()
     {
-        if (_downloadTask is not null)
-        {
-            try { await _downloadTask; } catch { /* swallow */ }
-        }
         await DisconnectAsync();
+        if (_decodeTask is not null)
+        {
+            try { await _decodeTask; } catch { /* swallow */ }
+        }
     }
 }

@@ -801,6 +801,11 @@ All driver calls reachable from the session hot path go through `Session.Resilie
   `duration + 15 s + 10%` (and on an SDK `Failed`), and resets a `CanResetDevice` body before the
   next exposure after two in a row, restoring its settings. Measured cause and the hardware probe:
   the lost-exposure section of `docs/architecture/driver-resilience.md`.
+- **A Canon body holds every object it announces until it is released, and a press until it is let go of**, and answers
+  `DeviceBusy` to every write while it holds either, across reconnects. So every announced object goes through ONE queue that
+  downloads the raw an exposure is owed and releases the rest (a RAW+JPEG body wedged after 8 frames), mirror lockup is taken
+  per exposure (`TakePictureWithMirrorLockupAsync`), never left armed on the body (armed, a release only raises the mirror),
+  and a shutter speed is one the body announces. All five causes, measured: `driver-resilience.md`, "What stopped the body".
 
 **A command that fails BACKWARD (returns hardware to a state the driver believes it already reached,
 e.g. Skywatcher's `:I1` sidereal-rate restore and `:K1`/`:K2` pulse stop) needs verified retry, not
@@ -1320,7 +1325,9 @@ vocabulary (own/borrow/consume), the four conventions and the DEBUG leak leg:
   test measure the machine (it emptied a 256 MiB fill halfway on a loaded box, and never ran on CI).
 - **A driver's frame is in ADU counts that agree with its `BitDepth` and `MaxADU`** (`ICameraDriver.GetImageAsync` wraps
   it by them): the Canon driver's unit-referred floats under Int16 and 16383 were divided by 16383 by the unit normalisation
-  whenever the peak passed 1, and written to FITS as 0, 1 and 2 (#1101); its frame is now ADU, clipped at the body's white point (`CanonWhitePoint`).
+  whenever the peak passed 1, and written to FITS as 0, 1 and 2 (#1101); its frame is now ADU, clipped at the body's white point
+  (`CanonWhitePoint`), **with the black level kept in** as any camera's offset is: black-subtracted, a dark's noise below zero
+  was written to the 16-bit file as 0 (medians of 0).
 - **`Image.MaxValue` is the peak pixel OBSERVED, not saturation** (`ImageMeta.SensorFullScaleAdu` is
   the fixed value). Two "full scale" numbers must not be conflated: the BITPIX container width vs the
   native ADC resolution -- never route a native ADC depth through `BitDepthEx.FromValue` (falls back

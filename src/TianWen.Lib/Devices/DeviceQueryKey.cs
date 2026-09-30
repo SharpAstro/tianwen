@@ -52,6 +52,18 @@ public enum DeviceQueryKey
     /// while the path names the body by its serial (#1097). Transport state: refreshed from discovery when the cable moves.
     /// </summary>
     WpdDeviceId,
+
+    /// <summary>
+    /// A DSLR's Mirror lockup setting: each exposure is taken with the mirror raised first and left to settle, so its slap does
+    /// not shake the start of the exposure. On unless false; how a body is asked for it is its driver's.
+    /// </summary>
+    MirrorLockup,
+
+    /// <summary>
+    /// A camera's White balance setting, for one that records a white balance with its raw (a DSLR or a mirrorless body): the
+    /// connect fixes it at Daylight, so every frame is taken under the same one. On unless false.
+    /// </summary>
+    DaylightWhiteBalance,
 }
 
 public static class DeviceQueryKeyExtensions
@@ -111,6 +123,8 @@ public static class DeviceQueryKeyExtensions
             DeviceQueryKey.SlewStartLatencyMs => "slewStartLatencyMs",
             DeviceQueryKey.Alignment => "alignment",
             DeviceQueryKey.HasCover => "hasCover",
+            DeviceQueryKey.MirrorLockup => "mirrorLockup",
+            DeviceQueryKey.DaylightWhiteBalance => "daylightWhiteBalance",
             _ => key.ToString().ToLowerInvariant()
         };
     }
