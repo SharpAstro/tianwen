@@ -242,7 +242,9 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
                 // Each way of stacking, demosaiced and drizzled at each scale; a drizzle warps by the points where its method has them.
                 var colourCandidates = references.SelectMany(r => interpolations.SelectMany(i => correlations.SelectMany(c => methods.SelectMany(m =>
                     (m == "global" ? [0] : spacings).SelectMany(sp => drizzles.Select(d => (double?)d).Prepend(null).Select(d =>
-                        (Method: m, Spacing: sp, Correlation: c, Interpolation: i ?? WarpInterpolation.Bilinear, Reference: r, Drizzle: d))))))).ToArray();
+                        (Method: m, Spacing: sp, Correlation: c, Interpolation: i ?? WarpInterpolation.Bilinear, Reference: r, Drizzle: d)))))))
+                    // A drizzle resamples nothing, so it is stacked once, whatever the interpolations.
+                    .Where(candidate => candidate.Drizzle is null || candidate.Interpolation == (interpolations[0] ?? WarpInterpolation.Bilinear)).ToArray();
                 consoleHost.WriteScrollable($"{Path.GetFileName(input)}: {frames} frames of a colour capture, {colourCandidates.Length * keeps.Length * presets.Length} stacks, each scored a colour at a time");
                 foreach (var (method, spacing, correlation, interpolation, referenceFrames, drizzle) in colourCandidates)
                 {
