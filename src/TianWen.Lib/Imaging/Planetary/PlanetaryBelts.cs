@@ -51,7 +51,14 @@ public static class PlanetaryBelts
     /// A map's zonal mean over every longitude, blurred in latitude by a Gaussian of <paramref name="blurSigmaDeg"/> (none for 0):
     /// the resolution of the stack it is compared with.
     /// </summary>
-    public static ZonalProfile FromMap(PlanetMap map, double blurSigmaDeg)
+    public static ZonalProfile FromMap(PlanetMap map, double blurSigmaDeg) => FromMap(map, blurSigmaDeg, 0, 0);
+
+    /// <summary>
+    /// <see cref="FromMap(PlanetMap, double)"/> blurred in latitude by a kernel with a halo, the limb fit's own (R7 part 3): (1 - h) of a
+    /// Gaussian of <paramref name="coreSigmaDeg"/> and h, <paramref name="haloFraction"/>, of one of <paramref name="haloSigmaDeg"/>.
+    /// R6 part 3 took the core alone, and the limb fit puts half of a stack's blur in its halo.
+    /// </summary>
+    public static ZonalProfile FromMap(PlanetMap map, double coreSigmaDeg, double haloFraction, double haloSigmaDeg)
     {
         ArgumentNullException.ThrowIfNull(map);
         var (sum, count) = (new double[Bins], new int[Bins]);
@@ -69,7 +76,18 @@ public static class PlanetaryBelts
             }
         }
         var profile = Finish(sum, count);
-        return blurSigmaDeg > 0 ? profile with { Albedo = Smooth(profile.Albedo, blurSigmaDeg / Step) } : profile;
+        var core = coreSigmaDeg > 0 ? Smooth(profile.Albedo, coreSigmaDeg / Step) : profile.Albedo;
+        if (haloFraction <= 0 || haloSigmaDeg <= 0)
+        {
+            return profile with { Albedo = core };
+        }
+        var halo = Smooth(profile.Albedo, haloSigmaDeg / Step);
+        var mixed = new double[core.Length];
+        for (var b = 0; b < mixed.Length; b++)
+        {
+            mixed[b] = ((1 - haloFraction) * core[b]) + (haloFraction * halo[b]);
+        }
+        return profile with { Albedo = mixed };
     }
 
     /// <summary>

@@ -34,12 +34,14 @@ internal sealed class PlanetaryBlurSubCommand(IConsoleHost consoleHost)
         var framesOpt = new Option<int?>("--frames") { Description = "Only the first frames." };
         var luckyOpt = new Option<double>("--lucky") { Description = "The share of the frames that are lucky, split in two halves.", DefaultValueFactory = _ => 0.01 };
         var keepOpt = new Option<double>("--keep") { Description = "The share of the frames down to which the stack goes, from the lucky ones' end.", DefaultValueFactory = _ => 0.05 };
+        var mapOpt = new Option<string?>("--map") { Description = "The truth's global map: rendered again without the telescope's diffraction, so the stack's TOTAL true transfer and the diffraction's own are read too (the truth is rendered through the diffraction limit, the limb's kernels against a sharp disk)." };
+        var kOpt = new Option<double>("--k") { Description = "Minnaert's exponent the truth was rendered with.", DefaultValueFactory = _ => 0.999 };
 
         var command = new Command("planetary-blur",
             "A capture's blur by two probes: the stack's band transfer over its lucky frames' (a), and the limb fit's core and halo read as band transfers (b), each set against the truth when a synthetic capture's is given (R7 part 2).")
         {
             Arguments = { inputArg },
-            Options = { truthOpt, planetOpt, planeOpt, framesOpt, luckyOpt, keepOpt },
+            Options = { truthOpt, planetOpt, planeOpt, framesOpt, luckyOpt, keepOpt, mapOpt, kOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -153,6 +155,26 @@ internal sealed class PlanetaryBlurSubCommand(IConsoleHost consoleHost)
                     luckyTransfer = [.. PlanetaryMetrics.Fidelity(luckyMean, truthPlane, width, height, disk).Select(f => f.Transfer)];
                     var sigmaTrue = PlanetaryBlurProbes.EquivalentGaussianSigma(truthTransfer, truthPlane, width, height, disk);
                     consoleHost.WriteScrollable(string.Create(inv, $"    the stack's true kernel's width {sigmaTrue:0.000} px"));
+                    // The same scene without the telescope's diffraction: what the limb's kernels, fitted against a sharp disk, read.
+                    if (parseResult.GetValue(mapOpt) is { } mapPath && truth is { } read && read.Time is { } truthTime)
+                    {
+                        if (PlanetMap.ReadFits(mapPath) is not { } map)
+                        {
+                            consoleHost.WriteError($"{mapPath}: no map");
+                            return 1;
+                        }
+                        var aspect = PhysicalEphemeris.Compute(planet, truthTime);
+                        var placement = new DiskPlacement(read.Disk.X, read.Disk.Y, read.Disk.Radius, read.Disk.AxisAngleDeg);
+                        var geometric = PlanetaryMetrics.Normalise(PlanetaryRender.Render(map, aspect, placement, width, height, parseResult.GetValue(kOpt), supersample: 4), width, height, disk);
+                        var total = PlanetaryMetrics.Fidelity(stack.Plane, geometric, width, height, disk).Select(f => f.Transfer).ToArray();
+                        var diffraction = PlanetaryMetrics.Fidelity(truthPlane, geometric, width, height, disk).Select(f => f.Transfer).ToArray();
+                        consoleHost.WriteScrollable("    against the scene without diffraction: band, the stack's total true, the diffraction's own, (b) over total, (b') over total");
+                        for (var b = 0; b < probeA.Length; b++)
+                        {
+                            consoleHost.WriteScrollable(string.Create(inv,
+                                $"      {b + 1,4}   {total[b],7:0.0000}   {diffraction[b],7:0.0000}   {probeB[b] / total[b],7:0.000}   {probeWide[b] / total[b],7:0.000}"));
+                        }
+                    }
                 }
                 consoleHost.WriteScrollable(truthPlane is null
                     ? "    band   (a) stack over lucky   (b) limb kernel   (b') widened"
