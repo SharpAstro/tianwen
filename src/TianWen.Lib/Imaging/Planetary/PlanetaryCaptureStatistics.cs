@@ -318,6 +318,17 @@ public static class PlanetaryCaptureStatistics
                         frame.AccumulateTranslatedInto(worker.Best, worker.BestWeight, (float)shift.Dx, (float)shift.Dy, 1f);
                     }
                 }, cancellationToken).ConfigureAwait(false);
+            // A corrupted frame's shift and light are the glitch's (its full-scale rows pull the disk's bounding box and the
+            // correlation), so each is carried over from its usable neighbours, in time: the arrays stay a frame each, as the
+            // motion a synthetic capture replays must.
+            if (Array.IndexOf(corrupt, true) >= 0)
+            {
+                var corruptFrames = Enumerable.Range(0, n).Where(i => corrupt[i]).ToArray();
+                progress?.Report($"left out {corruptFrames.Length} frame(s) the camera corrupted in readout ({string.Join("; ", corruptFrames.Select(i => $"{i}, which read a shift of {shiftX[i]:+0.00;-0.00}, {shiftY[i]:+0.00;-0.00} px"))}), their shift and light taken from their neighbours");
+                FillFromNeighbours(shiftX, corrupt, seconds);
+                FillFromNeighbours(shiftY, corrupt, seconds);
+                FillFromNeighbours(flux, corrupt, seconds);
+            }
             var (meanAll, meanBest) = (ShiftWorker.Mean(workers, best: false), ShiftWorker.Mean(workers, best: true));
             var limbWidthAll = LimbWidth(meanAll, disk.X, disk.Y, disk.Radius, skyLevel / options.FullScaleAdu);
             var limbWidthBest = LimbWidth(meanBest, disk.X, disk.Y, disk.Radius, skyLevel / options.FullScaleAdu);
@@ -575,6 +586,37 @@ public static class PlanetaryCaptureStatistics
     }
 
     // The value at `percentile` of `values`, the nearest rank.
+    // Each value of a frame marked in `skip` replaced by its nearest usable neighbours' interpolated at its time, or by the one
+    // neighbour it has at an end of the capture.
+    private static void FillFromNeighbours(double[] values, bool[] skip, double[] seconds)
+    {
+        for (var i = 0; i < values.Length; i++)
+        {
+            if (!skip[i])
+            {
+                continue;
+            }
+            var before = i - 1;
+            while (before >= 0 && skip[before])
+            {
+                before--;
+            }
+            var after = i + 1;
+            while (after < values.Length && skip[after])
+            {
+                after++;
+            }
+            values[i] = (before >= 0, after < values.Length) switch
+            {
+                (true, true) when seconds[after] > seconds[before] => values[before] + ((values[after] - values[before]) * (seconds[i] - seconds[before]) / (seconds[after] - seconds[before])),
+                (true, true) => (values[before] + values[after]) / 2,
+                (true, false) => values[before],
+                (false, true) => values[after],
+                _ => values[i],
+            };
+        }
+    }
+
     private static double QualityPercentile(double[] values, double percentile)
     {
         return StatisticsHelper.NthSmallest((double[])values.Clone(), (int)Math.Round(percentile / 100 * (values.Length - 1)));
