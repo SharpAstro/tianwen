@@ -272,6 +272,21 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task APortWhoseFarEndIsNeverAnInstrumentIsNeverOpened()
+    {
+        // A paired headset's serial channel takes every write and answers none: it used to get every probe and the retry.
+        var external = new ProbeTestExternal { Ports = ["serial:COM4", "serial:COM7"] };
+        external.NotToProbe["serial:COM4"] = "a Bluetooth audio device (S42), which is never an instrument";
+        var probe = StubProbe.Sync("NoMatch", baud: 9600, match: (_, _) => null);
+        var service = BuildService(external, output, probe);
+
+        await service.ProbeAllAsync(TestContext.Current.CancellationToken);
+
+        external.OpenCalls.Select(c => c.Port).ShouldNotContain("serial:COM4");
+        external.OpenCalls.Select(c => c.Port).ShouldContain("serial:COM7", "any other port is probed as before");
+    }
+
+    [Fact]
     public async Task WithProbeThatThrowsNonCancellationExceptionIsTreatedAsNoMatch()
     {
         var external = new ProbeTestExternal { Ports = ["serial:COM5"] };
@@ -534,6 +549,11 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
         }
 
         public override IReadOnlyList<string> EnumerateAvailableSerialPorts(ResourceLock _) => Ports;
+
+        /// <summary>The ports the enumeration says are not to be probed, and why.</summary>
+        public Dictionary<string, string> NotToProbe { get; } = [];
+
+        public override string? ReasonNotToProbeSerialPort(string port) => NotToProbe.GetValueOrDefault(port);
     }
 
     /// <summary>Minimal <see cref="ITestOutputHelper"/> for the zero-arg FakeExternal path.</summary>

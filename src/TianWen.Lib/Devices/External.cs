@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using SharpAstro.Serial;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -21,6 +22,9 @@ internal sealed class External(
     private Task? _dbInitTask;
     private readonly SemaphoreSlim _serialPortEnumerationSemaphore = new SemaphoreSlim(1, 1);
     private readonly ConcurrentDictionary<string, ISerialConnection> _serialConnections = [];
+
+    // Why a port the latest enumeration listed is not to be probed (SerialProbeExclusion), keyed as that list names it.
+    private readonly ConcurrentDictionary<string, string> _serialPortsNotToProbe = new(StringComparer.OrdinalIgnoreCase);
     private bool _disposed;
 
     /// <summary>
@@ -52,20 +56,33 @@ internal sealed class External(
 
     public IReadOnlyList<string> EnumerateAvailableSerialPorts(ResourceLock resourceLock)
     {
-        var existingPorts = SerialConnection.EnumerateSerialPorts();
+        var described = SerialPorts.Enumerate();
 
-        var availablePorts = new List<string>(existingPorts.Count);
+        var availablePorts = new List<string>(described.Count);
 
-        foreach (var port in existingPorts)
+        foreach (var info in described)
         {
+            var port = $"{ISerialConnection.SerialProto}{info.PortName}";
             if (!_serialConnections.TryGetValue(port, out var connection) || !connection.IsOpen)
             {
                 availablePorts.Add(port);
+            }
+
+            // Per port, as of this enumeration: a COM name can come back with another device behind it.
+            if (Discovery.SerialProbeExclusion.ReasonNotToProbe(info) is { } reason)
+            {
+                _serialPortsNotToProbe[port] = reason;
+            }
+            else
+            {
+                _serialPortsNotToProbe.TryRemove(port, out _);
             }
         }
 
         return availablePorts;
     }
+
+    public string? ReasonNotToProbeSerialPort(string port) => _serialPortsNotToProbe.GetValueOrDefault(port);
 
     public ValueTask<ResourceLock> WaitForSerialPortEnumerationAsync(CancellationToken cancellationToken) => _serialPortEnumerationSemaphore.AcquireLockAsync(cancellationToken);
 

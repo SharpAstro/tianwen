@@ -1,7 +1,7 @@
 # Serial.Lib: a serial-I/O sibling repo that does one job well (plan)
 
 **Status: P1 and P3 DONE (2026-09-27); P2 open as #1012.** `SharpAstro/Serial.Lib` exists (1.0.11 on nuget.org;
-1.1 adds reads with no deadline and a loopback pair), and TianWen's `SerialConnection` is an adapter over it
+1.1 adds reads with no deadline and a loopback pair, 1.2 the Bluetooth device behind a port), and TianWen's `SerialConnection` is an adapter over it
 ("What shipped", below). #407 closes with P3. The 2026-09 bench findings it must cover are in
 "What the 2026-09 bench sessions added" (#780, #781, #783, #784, #809, #810). Motivated by the Gemini FlatPanel Lite hardware bring-up
 (branch `fix/gemini-flat-panel`), which proved that .NET's `System.IO.Ports.SerialPort` is not
@@ -128,6 +128,10 @@ pin, never push TianWen referencing an unpublished version, never use local nupk
   `ISerialConnection`'s reads have always been bounded by the caller's token alone (a QHY wheel's reply blocks
   until the wheel arrives); and `SerialLoopback.CreatePair`, two real ports wired to each other in memory, which
   TianWen's adapter tests run over.
+- **1.2:** `SerialPortInfo.Bluetooth`, what a Windows Bluetooth serial port leads to: the paired device's address, name
+  and Class of Device as Windows recorded them, or Windows' own incoming port. TianWen's discovery skips a port whose far
+  end can never be an instrument (`SerialProbeExclusion`): a pair of headphones ("S42", Audio/Video) took every write,
+  answered none, and cost 31 s of each discovery; with 1.2 that discovery took 8 s, node start included (2026-09-30).
 - **TianWen** (P3): `Serial.Lib` joins `UseLocalSiblings`; `SerialConnection` adapts `ISerialPort` to
   `ISerialConnection` (typed failures to the `Try*` null / -1 / false, the verbose probe log unchanged); the old
   `SerialConnectionBase` and the interim `SynchronousReads` opt-in are gone; bytes past a terminator are now kept
