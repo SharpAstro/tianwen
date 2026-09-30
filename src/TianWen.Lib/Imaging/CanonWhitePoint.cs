@@ -26,27 +26,35 @@ internal static class CanonWhitePoint
     public static float HeadroomAdu(int bitDepth, int blackLevel) => Math.Max(1, ((1 << bitDepth) - 1) - blackLevel);
 
     /// <summary>
-    /// One row of the picture: every pixel of <paramref name="source"/> held to <paramref name="white"/> and then multiplied by
-    /// <paramref name="toOutput"/> (1 for the unit-referred frame, the range for ADU counts), into
+    /// One row of the picture: every pixel of <paramref name="source"/> held to <paramref name="white"/>, multiplied by
+    /// <paramref name="toOutput"/> (1 for the unit-referred frame, the range for ADU counts) and raised by
+    /// <paramref name="offset"/> (0 for the unit-referred frame, the black level for ADU counts), into
     /// <paramref name="destination"/>. Returns the row's peak.
     /// </summary>
-    public static float ClampRow(ReadOnlySpan<float> source, Span<float> destination, float white, float toOutput)
+    /// <remarks>
+    /// The ADU frame keeps the body's black level, as any camera's frame keeps its offset: black-subtracted, half of a dark's
+    /// read noise is below zero, and a 16-bit FITS file (BZERO 32768) writes every one of those as 0, so each Canon dark and
+    /// bias lost the lower half of its noise and read back with a median of 0.
+    /// </remarks>
+    public static float ClampRow(ReadOnlySpan<float> source, Span<float> destination, float white, float toOutput, float offset = 0f)
     {
         destination = destination[..source.Length];
         var i = 0;
         var peak = 0f;
 
-        // Vector<float> lanes: min, multiply and max are exact IEEE operations, so the row is bit for bit the scalar loop's
+        // Vector<float> lanes: min, multiply, add and max are exact IEEE operations (and neither form is contracted into a
+        // fused multiply-add), so the row is bit for bit the scalar loop's
         // (ClampRowScalar, which the tail below is and the tests compare against), and the peak is a max, which is
         // order-free, so unlike a running SUM it may be taken per lane.
         if (Vector.IsHardwareAccelerated && source.Length >= Vector<float>.Count)
         {
             var whiteLanes = new Vector<float>(white);
             var scaleLanes = new Vector<float>(toOutput);
+            var offsetLanes = new Vector<float>(offset);
             var peakLanes = Vector<float>.Zero;
             for (var last = source.Length - Vector<float>.Count; i <= last; i += Vector<float>.Count)
             {
-                var clamped = Vector.Min(new Vector<float>(source[i..]), whiteLanes) * scaleLanes;
+                var clamped = (Vector.Min(new Vector<float>(source[i..]), whiteLanes) * scaleLanes) + offsetLanes;
                 clamped.CopyTo(destination[i..]);
                 peakLanes = Vector.Max(peakLanes, clamped);
             }
@@ -57,16 +65,16 @@ internal static class CanonWhitePoint
             }
         }
 
-        return MathF.Max(peak, ClampRowScalar(source[i..], destination[i..], white, toOutput));
+        return MathF.Max(peak, ClampRowScalar(source[i..], destination[i..], white, toOutput, offset));
     }
 
     /// <summary>The definition <see cref="ClampRow"/> is held to: one pixel at a time.</summary>
-    internal static float ClampRowScalar(ReadOnlySpan<float> source, Span<float> destination, float white, float toOutput)
+    internal static float ClampRowScalar(ReadOnlySpan<float> source, Span<float> destination, float white, float toOutput, float offset = 0f)
     {
         var peak = 0f;
         for (var i = 0; i < source.Length; i++)
         {
-            var value = MathF.Min(source[i], white) * toOutput;
+            var value = (MathF.Min(source[i], white) * toOutput) + offset;
             destination[i] = value;
             if (value > peak)
             {

@@ -97,7 +97,8 @@ public partial class Image
     /// </summary>
     /// <param name="aduDomain">
     /// False (the file import): the plane is unit-referred, black-subtracted, white-balanced, 1.0 being the
-    /// body's raw full scale. True (a camera driver's frame): the same values in ADU counts, which is what a
+    /// body's raw full scale. True (a camera driver's frame): the same values in ADU counts, with the body's black level
+    /// kept in as a camera's offset is (a dark's noise below it survives a 16-bit file), which is what a
     /// driver's <c>BitDepth</c> and <c>MaxADU</c> promise <c>ICameraDriver.GetImageAsync</c> and the FITS writer, and
     /// <see cref="ImageMeta.SensorFullScaleAdu"/> states the white point. Handed unit-referred floats under an
     /// Int16 depth and a 16383 full scale, a frame was divided by 16383 for display and written to FITS as the
@@ -148,6 +149,10 @@ public partial class Image
             var white = CanonWhitePoint.UnitFor(raw.BitDepth, CanonWhitePoint.BlackLevel, profile?.MaxRaw ?? 0, wb);
             var toOutput = aduDomain ? CanonWhitePoint.HeadroomAdu(raw.BitDepth, CanonWhitePoint.BlackLevel) : 1f;
 
+            // In ADU counts the black level stays in, as any camera's offset does: black-subtracted, half of a dark's read
+            // noise is negative and a 16-bit FITS file writes it as 0.
+            var offset = aduDomain ? CanonWhitePoint.BlackLevel : 0f;
+
             // Reshape flat float[] to channel-planar [height, width], taking only the active area.
             //
             // MaxValue is measured in the SAME pass and over the SAME pixels, which is the half that
@@ -164,7 +169,7 @@ public partial class Image
                 var rowMax = CanonWhitePoint.ClampRow(
                     mosaic.AsSpan(srcRow, area.Width),
                     System.Runtime.InteropServices.MemoryMarshal.CreateSpan(ref channel[y, 0], area.Width),
-                    white, toOutput);
+                    white, toOutput, offset);
                 if (rowMax > max) max = rowMax;
             }
 
@@ -188,7 +193,7 @@ public partial class Image
             var meta = BuildCanonRawImageMeta(raw, matrix);
             if (aduDomain)
             {
-                meta = meta with { SensorFullScaleAdu = white * toOutput };
+                meta = meta with { SensorFullScaleAdu = (white * toOutput) + offset };
             }
             image = new Image([channel], BitDepth.Float32,
                 maxValue: max, minValue: 0f, pedestal: 0f, meta);

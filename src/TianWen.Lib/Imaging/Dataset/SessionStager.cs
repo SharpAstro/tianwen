@@ -40,6 +40,13 @@ public sealed class SessionStager(string stageRoot, Func<ImagingSession, bool> w
     /// and its stage root are always on one volume, which production correctly declines to copy.</summary>
     internal bool StageSameVolume { get; init; }
 
+    /// <summary>
+    /// The free space of the drive holding a path: the real drive's (<see cref="IO.ScratchSpace.FreeBytesOf"/>) in production.
+    /// Tests pass their own, or they measure the machine: on a disk with less than <see cref="ReserveBytes"/> free every
+    /// copy was declined, and three tests of what a copy does failed (2026-09-30, 14 GB free).
+    /// </summary>
+    internal Func<string, long> FreeBytesOf { get; init; } = IO.ScratchSpace.FreeBytesOf;
+
     /// <summary>Free space always left on the scratch volume after a copy.</summary>
     public const long ReserveBytes = 20L << 30;
 
@@ -97,7 +104,7 @@ public sealed class SessionStager(string stageRoot, Func<ImagingSession, bool> w
                 return session;
             }
 
-            var free = new DriveInfo(root ?? dir).AvailableFreeSpace;
+            var free = FreeBytesOf(root ?? dir);
             if (need > free - ReserveBytes)
             {
                 logger?.LogInformation(

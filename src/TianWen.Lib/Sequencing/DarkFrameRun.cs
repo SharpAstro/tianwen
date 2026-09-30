@@ -134,11 +134,27 @@ public sealed class DarkFrameRun(IExternal external, ITimeProvider timeProvider,
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var startedUtc = await camera.StartExposureAsync(options.Exposure, options.FrameType, cancellationToken);
-
-            while (!await camera.GetImageReadyAsync(cancellationToken))
+            DateTimeOffset startedUtc;
+            try
             {
-                await timeProvider.SleepAsync(PollInterval, cancellationToken);
+                startedUtc = await camera.StartExposureAsync(options.Exposure, options.FrameType, cancellationToken);
+
+                while (!await camera.GetImageReadyAsync(cancellationToken))
+                {
+                    await timeProvider.SleepAsync(PollInterval, cancellationToken);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Whoever cancelled the run meant the EXPOSURE too (PreviewCapture does the same): a wait that only stops
+                // watching left the camera Exposing, so the disconnect after a cancelled run was refused for it. Not the
+                // cancelled token: it is what ended this.
+                if (camera.CanAbortExposure)
+                {
+                    await camera.AbortExposureAsync(CancellationToken.None);
+                }
+
+                throw;
             }
 
             var image = await camera.GetImageAsync(cancellationToken)

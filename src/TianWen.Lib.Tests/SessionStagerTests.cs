@@ -39,7 +39,7 @@ public sealed class SessionStagerTests : IDisposable
     }
 
     private SessionStager Stager(Func<ImagingSession, bool>? willProcess = null)
-        => new(Path.Combine(_dir, "_stage"), willProcess ?? (_ => true)) { StageSameVolume = true };
+        => new(Path.Combine(_dir, "_stage"), willProcess ?? (_ => true)) { StageSameVolume = true, FreeBytesOf = _ => 1L << 40 };
 
     [Fact]
     public async Task EachSessionReadsTheCopyMadeWhileThePreviousOneRan_AndTheCopyGoesWhenItIsDone()
