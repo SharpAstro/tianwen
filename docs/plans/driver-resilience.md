@@ -16,8 +16,9 @@ resilient.
 What we have:
 
 - `IDeviceDriver.Connected` (atomic int gate at `DeviceDriverBase.cs:50`).
-- `IDeviceDriver.ConnectAsync` / `DisconnectAsync` (cheap, idempotent, both
-  funnel through `SetConnectionStateAsync`).
+- `IDeviceDriver.ConnectAsync` / `DisconnectAsync` (cheap, idempotent, one at
+  a time per driver; a connect that fails closes what it opened, so a
+  reconnect runs the whole connect again, #806).
 - `LoggerCatchExtensions.CatchAsync(...)`: catches-and-logs a single
   call, returns a default value. Used in `Session.PollDeviceStatesAsync`
   for telemetry reads. No retry, no reconnect.

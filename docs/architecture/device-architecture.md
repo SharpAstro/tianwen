@@ -226,6 +226,16 @@ ships with its document in its first commit: OnStep went without one for five mo
 notes survived only in a commit message. Each maps every driver member to the wire, including what
 it does when the device is connected and does not answer, which must be a transient THROW (#810).
 
+**A node holds ONE driver per device, and a driver's connect is all or nothing (#806).** `DeviceHub` runs one
+connect, adoption or disconnect of a device at a time (a gate per device key), so two at once (a session's
+initialisation and an Alpaca `Connected=true`) leave one driver and hand both callers it. A driver the hub holds
+that went down is RECONNECTED, the same instance, while its URI is unchanged, since a run still holds it and its
+resilient calls reconnect it; only a changed URI (a mount re-plugged on another port) builds a new one.
+`DeviceDriverBase` runs one connect or disconnect at a time per driver, and a connect whose transport will not
+open, or whose `InitDeviceAsync` returns `false` or throws, closes what it opened and throws, leaving the driver
+not connected: it used to read `Connected` after a refused init, so the retry skipped init and the disconnect had
+no connection id to close. Pinned by `DeviceDriverConnectionTests` and `DeviceHubAdoptionTests`.
+
 **A vendor's native binaries reach an app through the REFERENCE GRAPH, and nothing downstream can
 filter them out.** The ZWO and QHYCCD drivers therefore live in `TianWen.Devices.Native`, not in
 `TianWen.Lib`: an SDK project marks its natives `CopyToOutputDirectory` deliberately (a

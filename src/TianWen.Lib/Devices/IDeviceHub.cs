@@ -25,8 +25,17 @@ public interface IDeviceHub : IAsyncDisposable
     // ── Driver lifecycle ──
 
     /// <summary>
-    /// Creates a driver for <paramref name="device"/>, connects it, and stores
-    /// it in the hub. Returns the connected driver.
+    /// Returns the hub's connected driver for <paramref name="device"/>, connecting one first when there is none.
+    /// <para>
+    /// A driver the hub holds that went DOWN (a serial glitch mid-night, a run's <c>Finalise</c> disconnecting it) is
+    /// RECONNECTED, the same instance, while the device's URI is unchanged: a run still holds that instance, and a new
+    /// one would be a second driver on the device (#806). Only a changed URI (a mount re-plugged on another COM port,
+    /// which keeps its key) builds a new driver, releasing the old one.
+    /// </para>
+    /// <para>
+    /// One connect, adoption or disconnect of a device runs at a time, so two at once leave one driver and hand both
+    /// callers that one.
+    /// </para>
     /// </summary>
     ValueTask<IDeviceDriver> ConnectAsync(DeviceBase device, CancellationToken cancellationToken = default);
 

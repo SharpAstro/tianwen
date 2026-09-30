@@ -31,7 +31,8 @@ internal abstract class DeviceDriverBase<TDevice, TDeviceInfo>(TDevice device, I
 
     public ITimeProvider TimeProvider { get; } = serviceProvider.GetRequiredService<ITimeProvider>();
 
-    private int _connectionId;
+    // CONNECTION_ID_UNKNOWN while nothing is open: 0 is a real id to an SDK that numbers its devices from 0.
+    private int _connectionId = CONNECTION_ID_UNKNOWN;
 
     protected int ConnectionId => _connectionId;
 
@@ -47,101 +48,153 @@ internal abstract class DeviceDriverBase<TDevice, TDeviceInfo>(TDevice device, I
     private int _connectionState = DISCONNECTED;
     private bool disposedValue;
 
-    public bool Connected => Interlocked.CompareExchange(ref _connectionState, CONNECTED, CONNECTED) == CONNECTED;
+    // One connect or disconnect at a time (#806): an async transition awaits I/O, so a compare-and-swap on the
+    // state cannot hold the second caller back while the first opens the port. Never disposed: a SemaphoreSlim
+    // allocates a wait handle only when AvailableWaitHandle is read, which nothing here does.
+    private readonly SemaphoreSlim _transition = new SemaphoreSlim(1, 1);
 
-    public ValueTask ConnectAsync(CancellationToken cancellationToken = default) => SetConnectionStateAsync(CONNECTED, cancellationToken);
+    public bool Connected => Volatile.Read(ref _connectionState) == CONNECTED;
 
-    public ValueTask DisconnectAsync(CancellationToken cancellationToken = default) => SetConnectionStateAsync(DISCONNECTED, cancellationToken);
-
-    private async ValueTask SetConnectionStateAsync(int desiredState, CancellationToken cancellationToken)
+    /// <summary>
+    /// Opens the transport and initialises the device. A connect that fails, whether the transport would not open or the
+    /// initialisation refused or threw, closes what it opened and throws, leaving the driver not connected, so the next
+    /// connect runs the whole of it again rather than reading as a success (#806).
+    /// </summary>
+    public async ValueTask ConnectAsync(CancellationToken cancellationToken = default)
     {
-        if (!await TrySetConnectionStateAsync(desiredState, cancellationToken))
+        await _transition.WaitAsync(cancellationToken);
+        try
         {
-            var desiredStateStr = desiredState switch { CONNECTED => "connect", DISCONNECTED => "disconnect", _ => $"reach unknown state {desiredState}" };
+            if (Volatile.Read(ref _connectionState) == CONNECTED)
+            {
+                return;
+            }
 
-            throw new InvalidOperationException($"Failed to {desiredStateStr} to device {_device.DeviceId} ({_device.DisplayName}), current state is {StateToString(Volatile.Read(ref _connectionState))}");
+            // A disconnect that failed left its transport open: closed first, or this would open a second one.
+            if (Volatile.Read(ref _connectionId) is var stale and not CONNECTION_ID_UNKNOWN)
+            {
+                await ReleaseFailedConnectionAsync(stale);
+            }
+
+            Volatile.Write(ref _connectionState, CONNECTING);
+            bool connectSuccess;
+            int connectionId;
+            try
+            {
+                (connectSuccess, connectionId, _deviceInfo) = await DoConnectDeviceAsync(cancellationToken);
+            }
+            catch
+            {
+                Volatile.Write(ref _connectionState, CONNECTION_FAILURE);
+                throw;
+            }
+
+            if (!connectSuccess)
+            {
+                Volatile.Write(ref _connectionState, CONNECTION_FAILURE);
+                throw new InvalidOperationException($"Could not connect to device {_device.DeviceId} ({_device.DisplayName})");
+            }
+
+            // CONNECTED while it initialises, since an initialisation talks to the device through the driver's own
+            // members, and they may ask whether it is connected; the connection id is the one it was opened with.
+            Volatile.Write(ref _connectionId, connectionId);
+            Volatile.Write(ref _connectionState, CONNECTED);
+
+            Exception? initFailure = null;
+            bool initSuccess;
+            try
+            {
+                initSuccess = await InitDeviceAsync(cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                initSuccess = false;
+                initFailure = ex;
+            }
+
+            if (!initSuccess)
+            {
+                // A device that would not initialise is not connected, and the transport it was reached through goes
+                // back: left open, a retry found the driver CONNECTED and skipped init, and its disconnect was handed
+                // no connection id to close.
+                Volatile.Write(ref _connectionState, CONNECTION_FAILURE);
+                await ReleaseFailedConnectionAsync(connectionId);
+
+                throw new InvalidOperationException($"Failed to initialise device {_device.DeviceId} ({_device.DisplayName})", initFailure);
+            }
+
+            DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(true));
+        }
+        finally
+        {
+            _transition.Release();
         }
     }
 
     /// <summary>
-    /// Tries to transition device into <paramref name="desiredState"/> (either <see cref="CONNECTED"/> or <see cref="DISCONNECTED"/>) via intermediate states (<see cref="CONNECTING"/>, <see cref="DISCONNECTING"/>).
-    /// Will trigger <see cref="DoConnectDeviceAsync(CancellationToken)"/> and <see cref="DoDisconnectDeviceAsync(int, CancellationToken)"/> <em>once</em> respectively.
+    /// Closes the transport. A driver with nothing open (it never connected, it was disconnected already, or a connect
+    /// failed and released what it opened) has nothing to close, and this returns.
     /// </summary>
-    /// <param name="desiredState"></param>
-    /// <returns><see langword="true"/> if desired state has been reached</returns>
-    /// <exception cref="InvalidOperationException"></exception>
-    private async ValueTask<bool> TrySetConnectionStateAsync(int desiredState, CancellationToken cancellationToken)
+    public async ValueTask DisconnectAsync(CancellationToken cancellationToken = default)
     {
-        var wantsConnect = desiredState is CONNECTED;
-        var intermediateState = wantsConnect ? CONNECTING : DISCONNECTING;
-        var oppositeState = wantsConnect ? DISCONNECTED : CONNECTED;
-        var prevState = Interlocked.CompareExchange(ref _connectionState, intermediateState, oppositeState);
-
-        if (prevState == desiredState)
+        await _transition.WaitAsync(cancellationToken);
+        try
         {
-            return true;
+            // Nothing open: never connected, disconnected already, or a connect that failed and released what it opened.
+            // A DISCONNECT that failed keeps its connection id, and is tried again.
+            var state = Volatile.Read(ref _connectionState);
+            if (state != CONNECTED && (state != CONNECTION_FAILURE || Volatile.Read(ref _connectionId) == CONNECTION_ID_UNKNOWN))
+            {
+                Volatile.Write(ref _connectionState, DISCONNECTED);
+                return;
+            }
+
+            Volatile.Write(ref _connectionState, DISCONNECTING);
+            bool disconnectSuccess;
+            try
+            {
+                disconnectSuccess = await DoDisconnectDeviceAsync(Volatile.Read(ref _connectionId), cancellationToken);
+            }
+            catch
+            {
+                Volatile.Write(ref _connectionState, CONNECTION_FAILURE);
+                throw;
+            }
+
+            if (!disconnectSuccess)
+            {
+                Volatile.Write(ref _connectionState, CONNECTION_FAILURE);
+                throw new InvalidOperationException($"Could not disconnect device {_device.DeviceId} ({_device.DisplayName})");
+            }
+
+            Volatile.Write(ref _connectionId, CONNECTION_ID_UNKNOWN);
+            Volatile.Write(ref _connectionState, DISCONNECTED);
+            DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(false));
         }
-
-        if (desiredState == CONNECTED)
+        finally
         {
-            (var connectSuccess, var connectionId, _deviceInfo) = await DoConnectDeviceAsync(cancellationToken);
-            if (connectSuccess)
-            {
-                // only trigger connected event once
-                if (Interlocked.CompareExchange(ref _connectionState, desiredState, intermediateState) == intermediateState)
-                {
-                    bool initSuccess;
-                    try
-                    {
-                        initSuccess = await InitDeviceAsync(cancellationToken);
-                    }
-                    catch (Exception ex)
-                    {
-                        initSuccess = false;
-                        // revert to failed state as initization failed.
-                        Interlocked.CompareExchange(ref _connectionState, CONNECTION_FAILURE, desiredState);
-
-                        Logger.LogError(ex, "Failed to initialize device {DeviceId} ({DisplayName}): {ErrorMessage}", _device.DeviceId, _device.DisplayName, ex.Message);
-                    }
-
-                    if (initSuccess)
-                    {
-                        Volatile.Write(ref _connectionId, connectionId);
-                        DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(wantsConnect));
-
-                        return true;
-                    }
-                    else
-                    {
-                        return false;
-                    }
-                }
-            }
-            else if (Interlocked.CompareExchange(ref _connectionState, CONNECTION_FAILURE, intermediateState) == intermediateState)
-            {
-                throw new InvalidOperationException($"Could not connect to device {_device.DeviceId}");
-            }
+            _transition.Release();
         }
-        else if (desiredState == DISCONNECTED)
-        {
-            if (await DoDisconnectDeviceAsync(Volatile.Read(ref _connectionId), cancellationToken))
-            {
-                // only trigger disconnect event once
-                if (Interlocked.CompareExchange(ref _connectionState, desiredState, intermediateState) == intermediateState)
-                {
-                    Volatile.Write(ref _connectionId, CONNECTION_ID_UNKNOWN);
-                    DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(wantsConnect));
+    }
 
-                    return true;
-                }
-            }
-            else if (Interlocked.CompareExchange(ref _connectionState, CONNECTION_FAILURE, intermediateState) == intermediateState)
+    private async ValueTask ReleaseFailedConnectionAsync(int connectionId)
+    {
+        try
+        {
+            // Not the caller's token: a connect cancelled during its initialisation must still close what it opened.
+            if (!await DoDisconnectDeviceAsync(connectionId, CancellationToken.None))
             {
-                throw new InvalidOperationException($"Could not disconnect device {_device.DeviceId}");
+                Logger.LogWarning("Could not close {DeviceId} ({DisplayName}) after a failed connect or disconnect", _device.DeviceId, _device.DisplayName);
             }
         }
-
-        return Interlocked.CompareExchange(ref _connectionState, desiredState, desiredState) != desiredState;
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not close {DeviceId} ({DisplayName}) after a failed connect or disconnect: {ErrorMessage}", _device.DeviceId, _device.DisplayName, ex.Message);
+        }
+        finally
+        {
+            Volatile.Write(ref _connectionId, CONNECTION_ID_UNKNOWN);
+        }
     }
 
     /// <summary>
@@ -150,16 +203,6 @@ internal abstract class DeviceDriverBase<TDevice, TDeviceInfo>(TDevice device, I
     /// <param name="cancellationToken"></param>
     /// <returns></returns>
     protected virtual ValueTask<bool> InitDeviceAsync(CancellationToken cancellationToken) => ValueTask.FromResult(true);
-
-    static string StateToString(int state) => state switch
-    {
-        CONNECTED => "connected",
-        DISCONNECTED => "disconnected",
-        CONNECTING => "connecting",
-        DISCONNECTING => "disconnecting",
-        CONNECTION_FAILURE => "failure",
-        _ => $"unknown state {state}"
-    };
 
     protected abstract Task<(bool Success, int ConnectionId, TDeviceInfo DeviceInfo)> DoConnectDeviceAsync(CancellationToken cancellationToken);
 

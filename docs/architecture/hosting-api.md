@@ -419,7 +419,9 @@ Alpaca and ninaAPI refusals, Allow and Always allow, the counts), `NodeShareTest
    its `Connected=true` opened a second driver on a device the run was driving, and the shutdown warm-up
    missed the run's cameras. So:
    - **A node holds one driver per device**, whoever connected it, and every later phase of the plan
-     assumes it. Not yet under two connects of one device at once, nor after a driver drops (#806).
+     assumes it. It holds under two connects of one device at once and after a driver drops (#806): the
+     hub serialises connect, adoption and disconnect per device, and reconnects a down driver in place
+     while its URI is unchanged.
    - **A run no longer disconnects what it adopted when it is disposed.** `Finalise` still stops,
      parks and disconnects the mount and the guider through their drivers. The cameras, focusers,
      wheels and covers stay connected in the hub, which is where the shutdown warm-up finds them.

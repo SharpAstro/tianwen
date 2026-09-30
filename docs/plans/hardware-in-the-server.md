@@ -398,8 +398,9 @@ Found by the review (2026-09-25), all confirmed in the code:
       mount, which initialisation now always arranges, so `coupleCameraToMount: false` is a flag on the
       camera's own driver (`FakeCameraDriver.CouplesToMount`).
     - The mount's site on connect, for every host, followed on top of this (#798).
-    - What it leaves, both older than it: two connects of one device at once can still leave two
-      drivers, and a driver that dropped is replaced rather than reconnected (#806, with P2's jobs).
+    - What it left, both older than it, is fixed by #806: the hub runs one connect, adoption or
+      disconnect of a device at a time, so two at once leave one driver, and reconnects a driver that
+      dropped, the same instance, while its URI is unchanged.
 12. **A finished session is never cleared**, so the next `/session/start` answers 409 until an
     `/abort`, which disconnects the rig (item 3). And the start is check-then-set (an
     `Interlocked.Exchange`, not a compare-and-swap), so two starts can race.
