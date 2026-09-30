@@ -44,6 +44,7 @@ public class PlanetaryFrameDerotationTests
             sequence.TimestampOf(5).ShouldBeNull();
             sequence.PartOf(2).ShouldBe(0);
             sequence.PartOf(3).ShouldBe(1);
+            (sequence.StartOf(0), sequence.CountOf(0), sequence.StartOf(1), sequence.CountOf(1)).ShouldBe((0, 3, 3, 2));
             sequence.MidCapture.ShouldBe(Night.AddMinutes(1.05));
             var levels = new List<float>();
             for (var i = 0; i < sequence.FrameCount; i++)

@@ -101,6 +101,12 @@ public sealed class PlanetaryFrameSequence : IPlanetaryFrameStream
     /// <summary>How many captures the sequence joins.</summary>
     public int PartCount => _parts.Length;
 
+    /// <summary>The index of capture <paramref name="part"/>'s first frame, the captures in time order.</summary>
+    public int StartOf(int part) => _starts[part];
+
+    /// <summary>How many frames capture <paramref name="part"/> holds.</summary>
+    public int CountOf(int part) => (part + 1 < _parts.Length ? _starts[part + 1] : FrameCount) - _starts[part];
+
     /// <summary>The capture frame <paramref name="index"/> comes from, in time order.</summary>
     public int PartOf(int index)
     {
