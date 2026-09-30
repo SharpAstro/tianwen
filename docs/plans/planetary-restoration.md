@@ -1,6 +1,6 @@
 # Planetary restoration by measurement
 
-**Status: PARTIAL: R0 to R5 done** (written 2026-09-28, the user's request; R0 2026-09-29: the survey, the FITS video conversion and the tracked lossless crop; R1 2026-09-29: the ephemeris, the limb fit, which telescope; R2 2026-09-29: rendered truth, T1 passed, and a synthetic capture that matches the real one on the disk, its kill line firing on the sky's finest bands; R3 2026-09-30: the metrics, the limb's undershoot validated, the halves' agreement not, pending R7's blur; R4 2026-09-30: per frame, the Laplacian ranks an 8-bit capture's frames near chance and the mid bands rank them well, on the twin and truth-free on the real capture, the choice waiting on open question 4 and the per-point half on #1071; R5 part 1 2026-09-30: phase correlation places 8-bit frames and points three times worse than a plain one, every stack better plain (#1074), and the real capture's warp visible only plain; part 2 2026-09-30: the dewarp cannot follow this capture's warp, 0.6 px over 10 px, the mesh the stack applies recovering 0 to 3 % of it, and the kill line fires; part 3 2026-09-30: the bilinear kernel is the stack's blur, sinc^2 in transfer, and Lanczos-3 lifts band 1 10 to 12 % (#1086), a correlation's peak is climbed rather than fitted by a parabola, a stacked reference rescues phase correlation, and the three-cornered hat compares registrations with no truth where the twin clears the triple, which AutoStakkert's track and our limb fit, both reading the outline, never do; the literature behind what comes next is `docs/architecture/planetary-literature.md`, its follow-ups #1081 to #1085). Milestone `planetary-restoration`: R0 #1048, R1 #1049, R2 #1050, R3 #1051, R4 #1052, R5 #1053, R6 #815, R7 #1054, R8 #1055, R9 #1056 (conditional).
+**Status: PARTIAL: R0 to R5a done** (written 2026-09-28, the user's request; R0 2026-09-29: the survey, the FITS video conversion and the tracked lossless crop; R1 2026-09-29: the ephemeris, the limb fit, which telescope; R2 2026-09-29: rendered truth, T1 passed, and a synthetic capture that matches the real one on the disk, its kill line firing on the sky's finest bands; R3 2026-09-30: the metrics, the limb's undershoot validated, the halves' agreement not, pending R7's blur; R4 2026-09-30: per frame, the Laplacian ranks an 8-bit capture's frames near chance and the mid bands rank them well, on the twin and truth-free on the real capture, the choice waiting on open question 4 and the per-point half on #1071; R5 part 1 2026-09-30: phase correlation places 8-bit frames and points three times worse than a plain one, every stack better plain (#1074), and the real capture's warp visible only plain; part 2 2026-09-30: the dewarp cannot follow this capture's warp, 0.6 px over 10 px, the mesh the stack applies recovering 0 to 3 % of it, and the kill line fires; part 3 2026-09-30: the bilinear kernel is the stack's blur, sinc^2 in transfer, and Lanczos-3 lifts band 1 10 to 12 % (#1086), a correlation's peak is climbed rather than fitted by a parabola, a stacked reference rescues phase correlation, and the three-cornered hat compares registrations with no truth where the twin clears the triple, which AutoStakkert's track and our limb fit, both reading the outline, never do; the literature behind what comes next is `docs/architecture/planetary-literature.md`, its follow-ups #1081 to #1085; R5a 2026-09-30: a colour twin of 2024-12-15's Uranus-C capture, calibrated per colour, on which Bayer drizzle to the sensor grid beats the demosaic above a plane's Nyquist and nothing past the sensor grid pays, the adoption #1091 and a smaller drop #1092; on the way, a camera's corrupted readout frame kept out of every grade, and an alignment point's patch cut at the exact global shift). Milestone `planetary-restoration`: R0 #1048, R1 #1049, R2 #1050, R3 #1051, R4 #1052, R5 #1053, R6 #815, R7 #1054, R8 #1055, R9 #1056 (conditional).
 
 The user asked for what the deep-sky training effort does, done for planetary lucky imaging:
 - which frames are usable;
@@ -655,6 +655,59 @@ R4's keeps minimise the error of a raw stack, and a raw stack's band 1 error is 
     - (c) 3x beats 1.5x in no band.
     - Each is compared on the grid the finer stack makes, since a wavelet band is counted in output pixels: band 1 at 1.5x is 0.375 to 0.75 cycles a sensor pixel.
 
+### R5a results: the colour twin, and two bugs the real capture found
+
+**Measured** (2026-09-30) on 2024-12-15's Uranus-C capture at 12:36:43 UTC (320 x 240 RGGB, 8 bits, 444.7 frames a second, the first 3,000 frames) and its calibrated colour twin.
+
+- **The colour twin** (`planetary-degrade` on a colour capture, `--bayer-maps` OPAL 2024d's F631N, F502N and F395N, Minnaert k 0.999, 0.950, 0.850; `planetary-seeing --plane r|g|g2|b`; `CfaPlaneStream`):
+  - each photosite colour measured on its own plane, with its own levels, its own gain, and a truth at its own wavelength, where its own disk is;
+  - **one atmosphere for three colours is more than one seed**: the screen is drawn at the finest pupil spacing and the largest size any colour needs, and each colour's pupil reads it at its own spacing (`DegradeOptions.ScreenSpacingM`);
+  - **the dispersion is measured, not modelled**: the four planes stacked on one registration, each colour's limb against green's in the same stack. Red lies 0.39, 0.85 sensor px from green and blue 0.56, 1.16 the other way, 1.1" red to blue at an altitude of about 34 degrees;
+  - **each colour's gain is its own**: the camera applies its white balance as a digital gain before its 8 bits, so red reads 14.5 e-/ADU, green 15.4 and blue 11.4. Green's gain for all three gave blue's twin 0.86 of its real noise.
+- **A glitch frame poisoned every reading of the real capture.** Four frames of its 30,000 (2102, 10806, 16845, 22543) carry their top two to four sensor rows at 255 right across, over a sky of 6. That line is the sharpest thing a Laplacian sees, so frame 2102 was every colour's best:
+  - every stack of those frames was registered against it and weighed it highest;
+  - the capture statistics took it for their reference, and its line pulled the disk's first estimate 6 plane px off, a quarter of the radius, which moved every ring read around the disk (the halo, the sky, the alignment points' reach, so the real planes matched no points at any patch size);
+  - in blue, whose photosites the rows also cover, the aligner read it 62 px off, which alone doubled the seeing's reading.
+  - **The fix:** `FrameGrader.IsCorruptReadout`, a band of rows at full scale ending abruptly in a mostly dark row (so an overexposed Moon, whose saturated rows fade, is never one), scores zero in the batch stacker, the live one and the capture statistics; the statistics keep such a frame out of their reference, means, sampled limbs and quality distribution, and take its shift and light from its neighbours.
+- **An alignment point's patch was cut at the ROUNDED global shift.** A point's residual then had to carry the shift's own fraction as well as the warp, and along the belts, where a 16 px patch holds nothing to place it by in x, it locked to the whole pixel, and so did every frame's mesh.
+  - A mesh stack was misregistered by up to half a pixel along the belts. A 3x Bayer drizzle, which needs the frames' offsets spread over the pixel to fill each colour's grid, left 17 % of red's and blue's disk empty, every empty cell in one column of the red photosite's 6 px repeat (band 1's error read 87).
+  - **The fix:** `PlanetaryTile.ExtractLumaAt` cuts a frame's patch at the exact sub-pixel shift (separable Lanczos-3, a whole-pixel centre bit for bit the old patch), and the mesh is built on the exact shift. On a disk whose belts run along x only, moved (0.4, 0.3), the mesh read 0.071, 0.235 px plain and 0.123, 0.136 whitened before, and 0.399, 0.299 and 0.434, 0.278 after (`AMeshKeepsTheGlobalShiftsFractionWhereAPatchCannotPlaceIt`).
+- **The calibration, one step at a time, against the real capture's statistics with both fixes in** (each colour's ratio of twin to real):
+
+  | Twin | r0 at 500 nm | Warp | Gain | Seeing's motion | Single frames' blur (median) | The aligner against the limb |
+  |---|---|---|---|---|---|---|
+  | 1 | 8.5 cm (2022-09-03's) | none | green's | 0.58 to 0.59 | 0.60 to 0.67 | 0.46 to 0.59 |
+  | 2 | 5.0 cm | none | green's | 0.87 to 0.88 | 0.71 to 0.93 | 0.51 to 0.56 |
+  | 3 | 4.3 cm | 0.45 px | green's | 0.99 to 1.01 | 0.82 to 1.00 | 0.78 to 0.82 |
+  | 4 | 4.3 cm | 0.62 px | green's | 1.01 to 1.03 | 0.98 to 1.02 | 0.94 to 1.03 |
+  | **5** | **4.3 cm** | **0.62 px** | **each colour's** | **1.02 to 1.03** | **1.01 to 1.06** | **1.00 to 1.03** |
+
+  - The warp's own statistic cannot calibrate on these planes: a disk 24 px in radius holds 8 to 13 points 8 px apart, and taking each frame's mean over so few strips out most of a warp correlated over 10 px, leaving a noise floor of 0.12 to 0.25 px with no warp at all. The aligner's error against the limb, which the warp moves, stands in for it, and the single frames' radius RMS agrees. The 0.62 px it asks for is R5's 0.65 on 2022-09-03, the same telescope and site.
+  - **Twin 5 and its second seed** agree within 10 % on every colour's motion, blur, edge width, limb, halo, quality and finest noise, each other within a few percent. Outside the band: the quality's lag 1 (1.25 to 1.7, where its seed spread at 3,000 frames is 67 %), red's sky noise beside the disk (0.80) and the flux's frame-to-frame RMS (2.4 to 2.8: the degrader's warp moves surface brightness without its Jacobian, a gain jitter of 0.2 % that no resolution measure sees).
+  - **The limb fit cannot tell north from south a week from opposition** (a phase of 1.8 degrees), so the twin's north angle turned over from 90 to 265 degrees between runs. Nothing here depends on it; R6's de-rotation does.
+
+#### R5a drizzle against the demosaic
+
+**Measured** on twin 5 and its second seed (`planetary-measure --drizzle 1,1.5,3`, 3,000 frames, plain correlation, no sharpening), each colour of each stack against its own colour's truth, and each finer stack against the truth rendered at its own scale. Band 1 (0.25 to 0.5 cycles an output pixel) as transfer / error, keep 5 %, global stacks; the two seeds side by side:
+
+| Stack | Red | Green | Blue |
+|---|---|---|---|
+| Demosaiced, bilinear (the default) | 0.103 / 0.936, 0.119 / 0.923 | 0.126 / 0.893, 0.139 / 0.881 | 0.091 / 0.927, 0.097 / 0.923 |
+| Demosaiced, Lanczos-3 | 0.124 / 0.925, 0.146 / 0.911 | 0.147 / 0.875, 0.168 / 0.857 | 0.105 / 0.917, 0.115 / 0.911 |
+| **Bayer drizzle to the sensor grid** | **0.148 / 0.892, 0.161 / 0.894** | **0.152 / 0.868, 0.180 / 0.843** | **0.111 / 0.909, 0.135 / 0.888** |
+| On the 1.5x grid: the sensor-grid drizzle resampled | 0.091 / 0.938, 0.091 / 0.963 | 0.093 / 0.922, 0.110 / 0.907 | 0.066 / 0.951, 0.084 / 0.935 |
+| On the 1.5x grid: drizzle at 1.5x | 0.096 / 1.002, 0.091 / 1.016 | 0.096 / 0.928, 0.112 / 0.916 | 0.067 / 0.966, 0.086 / 0.952 |
+| On the 3x grid: the sensor-grid drizzle resampled | 0.047 / 0.986, 0.040 / 1.013 | 0.045 / 0.967, 0.053 / 0.962 | 0.029 / 0.986, 0.040 / 0.980 |
+| On the 3x grid: drizzle at 3x | 0.056 / 1.236, 0.040 / 1.245 | 0.050 / 1.028, 0.054 / 1.021 | 0.031 / 1.074, 0.043 / 1.066 |
+
+- **(a) holds: Bayer drizzle to the sensor grid beats the demosaic above a plane's Nyquist.** Band 1's error falls 0.018 to 0.044 against the default bilinear demosaic, and 0.007 to 0.033 against a Lanczos-3 one, in every colour on both seeds (the seeds move a stack by up to 0.02, but never the sign of a difference within one); keep 20 % reads the same (0.005 to 0.034 against Lanczos-3). It is measured against the truth, so the kill line's fabrication does not arise.
+  - **It costs the lower bands against Lanczos-3**: a drop of a whole pixel (pixfrac 1) blurs as a bilinear kernel does, so bands 2 and 3 lose 0.007 to 0.018 of error to a Lanczos-3 demosaic, while still beating the bilinear one in band 2 (0.609 against 0.636 in red).
+  - **The alignment points change nothing** (every drizzle and demosaic within 0.002 of its global stack), as R5 found for this warp.
+- **(b) holds: 1.5x beats the sensor-grid drizzle resampled to 1.5x in no band.** Band 1's error is 0.006 to 0.064 worse (the finer grid's noise), bands 2 and 3 within 0.002. The theme C prediction stands: with 0.62 px of warp, 1.5x does not beat the sensor grid.
+- **(c) holds: 3x adds nothing past the sensor grid.** Against the sensor-grid drizzle resampled to 3x it loses bands 1 and 2 (band 1's error 1.02 to 1.25, more error than the band holds signal) and gains 0.003 to 0.005 in band 3, which is the comparison's own Lanczos-3 resampling (its transfer falls toward 0.9 at the frequencies that band covers), not detail. It was compared with the resampled sensor grid, not with 1.5x.
+- **The split-half detail (T2) of the real capture is not reported**: R3 found the halves' agreement ranks noise, never the blur, so it cannot judge a stack until R7's measured PSF.
+- **What it asks of the stacker, the user's call** (#1091): Bayer drizzle to the sensor grid for a colour capture wins the finest band a colour plane cannot sample and loses a little below it to a Lanczos-3 demosaic, so the choice is tied to #1086's Lanczos-3. A smaller drop (pixfrac under 1), which should keep drizzle's band 1 without its bilinear blur below, is measured next on the same twin (#1092).
+
 ## R6 De-rotation
 
 **Issue:** #815 (planetary-stacking.md's phases 10 and 11, measured here).
@@ -663,6 +716,7 @@ R4's keeps minimise the error of a raw stack, and a raw stack's band 1 error is 
   - 6a: each frame reprojected to the capture's mid epoch before stacking.
   - 6b: finished stacks and colour channels to a common epoch.
   - Each reprojection runs through the oblate spheroid in longitude, never a flat image rotation.
+  - The image's north comes from somewhere other than the limb fit near opposition: its sun side decides north from south, and a week from opposition (a phase of 1.8 degrees) the fit turned it over by 175 degrees between runs of one capture (R5a). The rendered truth matched at both orientations, or the camera's recorded rotation, settles it.
 - **Measured:**
   - Two stacks from the two halves of one long run (the 16-minute, 441,558-frame Jupiter run), derotated to one epoch, must agree better than the same pair without derotation.
   - WinJUPOS's own derotated composites of the 2022 captures are the external comparison.
