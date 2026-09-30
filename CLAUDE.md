@@ -1011,7 +1011,9 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
 - **A stack's blur is its lucky frames' own** (R7 part 2, `planetary-blur`): the frames ranked 1 to 5 % add 0.33 to 0.43 px of
   equivalent Gaussian to the best 1 %. **The limb fit's kernel is not the stack's in the finest bands**: its halo sits at the
   two-Gaussian model's bound (49.9 %) on every capture measured and it reads bands 1 and 2 at 0.61 to 0.83 of the true transfer,
-  so it is never an inverse's kernel as fitted.
+  so it is never an inverse's kernel as fitted. **A limb kernel is the TOTAL blur, the telescope's diffraction included** (part 3): it
+  is fitted against a sharp disk, while a twin's truth is rendered through the diffraction limit, so set it against the scene rendered
+  WITHOUT diffraction (`planetary-blur --map`), never against the truth; there it holds within 6 % in bands 2 to 4.
 - **Read the plan doc before touching the Canon path** -- it is a list of five things that fail
   SILENTLY. **Recentering is opt-in** (the user, 2026-09-28; it costs the loop about 15 ms a frame at full frame), and
   so is the mount jog, whose **sign is uncalibrated**.
