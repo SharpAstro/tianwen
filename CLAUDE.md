@@ -1003,6 +1003,11 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   stacks of that night agree on** (part 3, `planetary-drift`): stacks of different frames differ in local geometry by about half a
   pixel (0.2 at one instant), both colours alike, more than a jet moves in any run here, and a red-green floor cannot see an
   achromatic error. A belt's latitude is right to half a degree (`planetary-belts`); no wind is read from one night.
+- **The spectral ratio (R7 part 1, `planetary-spectral-ratio`) cancels a static CONVOLUTION, never a static phase**: the telescope's
+  still layer adds to the air's phase before the PSF forms, so read as free air alone it put the calibrated twin's 8.5 cm at 5.71.
+  **An 8-bit sky's noise is its pixels' own spread from frame to frame**, never the camera model's rounding twelfth (a sky that rounds
+  to one value nine times in ten spreads half as much, and took the ratio over one). And a warp the registration leaves cannot be
+  told from the seeing over the band an 8-bit capture's noise leaves (to about 0.12 cycles a pixel).
 - **Read the plan doc before touching the Canon path** -- it is a list of five things that fail
   SILENTLY. **Recentering is opt-in** (the user, 2026-09-28; it costs the loop about 15 ms a frame at full frame), and
   so is the mount jog, whose **sign is uncalibrated**.
