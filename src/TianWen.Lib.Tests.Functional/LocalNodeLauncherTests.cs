@@ -162,6 +162,24 @@ public class LocalNodeLauncherTests
         node.Answers.ShouldBeGreaterThan(1, "the first ask outran its budget, and a later one found the node");
     }
 
+    /// <summary>
+    /// A named socket whose path is too long to be a socket address at all (a deep data root, a long <c>--node-socket</c>)
+    /// is reported unreachable, as it always was: the wait for a slow node asks whether anything listens there, and the
+    /// address it builds to ask throws for such a path (#1079 review).
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task ANamedSocketTooLongToBeAnAddressIsReportedNotThrown()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (options, folder) = Isolated();
+        var named = Path.Combine(folder, new string('n', 120) + ".sock");
+
+        var node = await Launcher(options with { NamedSocket = named }).FindOrStartAsync(ct);
+
+        node.Outcome.ShouldBe(LocalNodeOutcome.NamedNodeUnreachable, node.Message);
+        node.Message.ShouldContain(named);
+    }
+
     [Fact(Timeout = 60_000)]
     public async Task AMissingServerIsReportedWithWhereItWasLookedFor()
     {
