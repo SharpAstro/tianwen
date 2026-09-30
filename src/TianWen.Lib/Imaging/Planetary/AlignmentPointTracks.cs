@@ -71,13 +71,12 @@ internal sealed class AlignmentPointTracks
             {
                 var shift = aligner.Estimate(frame, PlanetaryDisk.BoundingBox(frame));
                 global[f] = (shift.Dx, shift.Dy);
+                // A point's residual is its warp: over the frame's own global shift, which its patch was cut at.
                 matcher.Match(frame, (float)shift.Dx, (float)shift.Dy, shifts);
-                // A point's residual is over the rounded global shift; its warp is over the frame's own, unrounded.
-                var (fracX, fracY) = (shift.Dx - Math.Round(shift.Dx), shift.Dy - Math.Round(shift.Dy));
                 for (var p = 0; p < n; p++)
                 {
-                    warpX[(f * n) + p] = (float)(shifts[p].ResidualX - fracX);
-                    warpY[(f * n) + p] = (float)(shifts[p].ResidualY - fracY);
+                    warpX[(f * n) + p] = shifts[p].ResidualX;
+                    warpY[(f * n) + p] = shifts[p].ResidualY;
                 }
             }
             finally
@@ -97,7 +96,7 @@ internal sealed class AlignmentPointTracks
     public (double Dx, double Dy) GlobalShift(int frame) => _global[frame];
 
     /// <summary>
-    /// Frame <paramref name="frame"/>'s points as residuals over its rounded global shift, as <see cref="DisplacementMesh.Build"/>
+    /// Frame <paramref name="frame"/>'s points as residuals over its global shift, as <see cref="DisplacementMesh.Build"/>
     /// takes them: each point's warp averaged over the frames within three <paramref name="sigmaFrames"/> of it, Gaussian-weighted
     /// (the frame's own when zero), less the point's median warp over every frame when <paramref name="medianGeometry"/>.
     /// </summary>
@@ -105,11 +104,10 @@ internal sealed class AlignmentPointTracks
     {
         var n = _points.Length;
         ArgumentOutOfRangeException.ThrowIfLessThan(destination.Length, n);
-        var (fracX, fracY) = (_global[frame].Dx - Math.Round(_global[frame].Dx), _global[frame].Dy - Math.Round(_global[frame].Dy));
         for (var p = 0; p < n; p++)
         {
             var (wx, wy) = Warp(frame, p, sigmaFrames, medianGeometry);
-            destination[p] = _points[p] with { ResidualX = (float)(wx + fracX), ResidualY = (float)(wy + fracY) };
+            destination[p] = _points[p] with { ResidualX = (float)wx, ResidualY = (float)wy };
         }
     }
 

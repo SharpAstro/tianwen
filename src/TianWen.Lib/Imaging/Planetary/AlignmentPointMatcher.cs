@@ -27,6 +27,7 @@ public sealed class AlignmentPointMatcher
     private readonly ImmutableArray<PixelPoint> _apCenters;
     private readonly Complex[][] _referenceSpectra;
     private readonly float[] _patch;
+    private readonly float[] _extractScratch;
     private readonly Complex[] _spectrumScratch;
     private readonly bool _whiten;
 
@@ -39,6 +40,7 @@ public sealed class AlignmentPointMatcher
         _apCenters = apCenters;
         _referenceSpectra = referenceSpectra;
         _patch = new float[patchSize * patchSize];
+        _extractScratch = new float[PlanetaryTile.ScratchLength(patchSize)];
         _spectrumScratch = new Complex[patchSize * patchSize];
     }
 
@@ -72,10 +74,8 @@ public sealed class AlignmentPointMatcher
 
     /// <summary>
     /// Builds the displacement mesh for <paramref name="frame"/> given its whole-disk global shift
-    /// <c>(globalDx, globalDy)</c> (from <see cref="GlobalAligner"/>). Reference and frame patches are
-    /// extracted on integer-rounded centres, so the integer baseline <c>round(global)</c> carries the
-    /// bulk offset and each phase-correlation residual carries the AP's full sub-pixel local correction
-    /// (the same integer-baseline / sub-pixel-residual split the global aligner uses).
+    /// <c>(globalDx, globalDy)</c> (from <see cref="GlobalAligner"/>): the global shift itself, exactly, and each point's
+    /// residual over it (<see cref="Match"/>), the local warp the whole-disk shift missed there.
     /// </summary>
     public DisplacementMesh BuildMesh(Image frame, float globalDx, float globalDy, float nodeSpacing = 32f, float influence = 48f)
     {
@@ -83,37 +83,38 @@ public sealed class AlignmentPointMatcher
 
         var shifts = _apCenters.Length == 0 ? [] : new AlignmentPointShift[_apCenters.Length];
         Match(frame, globalDx, globalDy, shifts);
-        return DisplacementMesh.Build(_width, _height, MathF.Round(globalDx), MathF.Round(globalDy), shifts, nodeSpacing, influence);
+        return DisplacementMesh.Build(_width, _height, globalDx, globalDy, shifts, nodeSpacing, influence);
     }
 
     /// <summary>
     /// The displacement mesh from points already matched (or pooled, <see cref="AlignmentPointTracks"/>): each a residual over
-    /// the integer-rounded global shift (<paramref name="globalDx"/>, <paramref name="globalDy"/>), as <see cref="Match"/> writes
-    /// them.
+    /// the global shift (<paramref name="globalDx"/>, <paramref name="globalDy"/>), as <see cref="Match"/> writes them.
     /// </summary>
     public DisplacementMesh BuildMesh(float globalDx, float globalDy, ReadOnlySpan<AlignmentPointShift> shifts, float nodeSpacing = 32f, float influence = 48f)
     {
-        return DisplacementMesh.Build(_width, _height, MathF.Round(globalDx), MathF.Round(globalDy), shifts, nodeSpacing, influence);
+        return DisplacementMesh.Build(_width, _height, globalDx, globalDy, shifts, nodeSpacing, influence);
     }
 
     /// <summary>
     /// Matches every alignment point of <paramref name="frame"/> given its whole-disk shift, writing each point's residual
-    /// over the integer-rounded global shift into <paramref name="destination"/> (one per point, in
-    /// <see cref="AlignmentPoints"/> order): what <see cref="BuildMesh(Image, float, float, float, float)"/> interpolates, and what the capture statistics read
-    /// the warp from (docs/plans/planetary-restoration.md, R2).
+    /// over that shift into <paramref name="destination"/> (one per point, in <see cref="AlignmentPoints"/> order): what
+    /// <see cref="BuildMesh(Image, float, float, float, float)"/> interpolates, and what the capture statistics read the warp
+    /// from (docs/plans/planetary-restoration.md, R2). Each frame patch is cut at the point moved by the shift EXACTLY
+    /// (<see cref="PlanetaryTile.ExtractLumaAt"/>), so a residual is the local warp alone. Cut at the rounded shift, a residual
+    /// had to carry the shift's own fraction too, and where a patch holds little to place it by (along a planet's belts) it
+    /// locked to the whole pixel: every frame's mesh with it, a mesh stack misregistered by up to half a pixel, and a Bayer
+    /// drizzle past the sensor grid left red and blue columns no drop reached (R5a).
     /// </summary>
     public void Match(Image frame, float globalDx, float globalDy, Span<AlignmentPointShift> destination)
     {
         ArgumentNullException.ThrowIfNull(frame);
         ArgumentOutOfRangeException.ThrowIfLessThan(destination.Length, _apCenters.Length);
 
-        var rgx = MathF.Round(globalDx);
-        var rgy = MathF.Round(globalDy);
         for (var i = 0; i < _apCenters.Length; i++)
         {
             var p = _apCenters[i];
-            // ExtractLuma writes every sample, so the reused patch carries nothing from the last point.
-            PlanetaryTile.ExtractLuma(frame, p.X + rgx, p.Y + rgy, _patchSize, _patch);
+            // The extraction writes every sample, so the reused patch carries nothing from the last point.
+            PlanetaryTile.ExtractLumaAt(frame, p.X + globalDx, p.Y + globalDy, _patchSize, _patch, _extractScratch);
             var residual = PhaseCorrelation.Estimate(_referenceSpectra[i], _patch, _patchSize, _patchSize, _spectrumScratch, applyWindow: true, _whiten);
             destination[i] = new AlignmentPointShift(p.X, p.Y, (float)residual.Dx, (float)residual.Dy);
         }

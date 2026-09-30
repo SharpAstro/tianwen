@@ -16,9 +16,10 @@ public class AlignmentPointTracksTests
     private static readonly AlignmentPointShift[] Points = [new AlignmentPointShift(10, 10, 0, 0), new AlignmentPointShift(30, 10, 0, 0)];
 
     [Fact]
-    public void AFramesOwnPointsAreItsWarpOverItsRoundedShift()
+    public void AFramesOwnPointsAreItsWarpOverItsShift()
     {
-        // No pooling, no median: a point's residual is its warp plus the global shift's fraction, what the matcher wrote.
+        // No pooling, no median: a point's residual is its warp over the frame's exact global shift, what the matcher wrote,
+        // since its patch is cut there. The shift's fraction is the mesh's, never a residual's (it once was: R5a).
         var global = new (double Dx, double Dy)[Frames];
         var (warpX, warpY) = (new float[Frames * 2], new float[Frames * 2]);
         global[7] = (3.3, -1.8);
@@ -26,10 +27,10 @@ public class AlignmentPointTracksTests
         var tracks = AlignmentPointTracks.FromWarps(global, warpX, warpY, Points);
         var points = new AlignmentPointShift[2];
         tracks.Points(7, sigmaFrames: 0, medianGeometry: false, points);
-        points[0].ResidualX.ShouldBe(0.25f + 0.3f, 1e-5f);
-        points[0].ResidualY.ShouldBe(-0.5f + 0.2f, 1e-5f);
-        points[1].ResidualX.ShouldBe(-0.1f + 0.3f, 1e-5f);
-        points[1].ResidualY.ShouldBe(0.4f + 0.2f, 1e-5f);
+        points[0].ResidualX.ShouldBe(0.25f, 1e-5f);
+        points[0].ResidualY.ShouldBe(-0.5f, 1e-5f);
+        points[1].ResidualX.ShouldBe(-0.1f, 1e-5f);
+        points[1].ResidualY.ShouldBe(0.4f, 1e-5f);
         (points[0].X, points[0].Y).ShouldBe((10f, 10f));
     }
 
