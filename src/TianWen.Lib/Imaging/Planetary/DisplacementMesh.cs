@@ -12,6 +12,13 @@ public readonly record struct AlignmentPointShift(float X, float Y, float Residu
 /// alignment-point residuals blended (Gaussian-weighted, regularised toward the baseline) over a global
 /// shift, so the field equals the global shift far from any AP and bends toward each AP's local
 /// correction nearby -- the seeing-distortion mesh a single affine transform cannot represent.
+/// <para>
+/// A frame carried to its capture's epoch (docs/plans/planetary-restoration.md, R6 part 2) adds its de-rotation beneath: a
+/// <see cref="DerotationField"/>, per pixel, since the planet's rotation moves a disk's middle and leaves its limb where it is,
+/// which a node grid a disk's radius apart cannot follow. The nodes then carry the registration over it, and a sample is
+/// relit by the field (<see cref="RelightAt"/>). The field is the stacker's, refilled for every frame, so a mesh built on
+/// one is that frame's only.
+/// </para>
 /// </summary>
 public sealed class DisplacementMesh
 {
@@ -20,15 +27,20 @@ public sealed class DisplacementMesh
     private readonly float _spacing;
     private readonly float[] _offX;
     private readonly float[] _offY;
+    private readonly DerotationField? _derotation;
 
-    private DisplacementMesh(int cols, int rows, float spacing, float[] offX, float[] offY)
+    private DisplacementMesh(int cols, int rows, float spacing, float[] offX, float[] offY, DerotationField? derotation)
     {
         _cols = cols;
         _rows = rows;
         _spacing = spacing;
         _offX = offX;
         _offY = offY;
+        _derotation = derotation;
     }
+
+    /// <summary>The de-rotation beneath the registration, or null for a frame taken as it is.</summary>
+    public DerotationField? Derotation => _derotation;
 
     /// <summary>Node grid dimensions (columns x rows), exposed for tests / diagnostics.</summary>
     public (int Cols, int Rows) NodeGrid => (_cols, _rows);
@@ -59,8 +71,16 @@ public sealed class DisplacementMesh
 
         var ox = Bilinear(_offX[i00], _offX[i10], _offX[i01], _offX[i11], fx, fy);
         var oy = Bilinear(_offY[i00], _offY[i10], _offY[i01], _offY[i11], fx, fy);
+        if (_derotation is { } derotation)
+        {
+            var (dx, dy) = derotation.OffsetAt(x, y);
+            (ox, oy) = (ox + dx, oy + dy);
+        }
         return (ox, oy);
     }
+
+    /// <summary>What a sample landing at <c>(x, y)</c> is multiplied by: its de-rotation's relight, or one.</summary>
+    public float RelightAt(float x, float y) => _derotation?.RelightAt(x, y) ?? 1f;
 
     private static float Bilinear(float v00, float v10, float v01, float v11, float fx, float fy)
         => (v00 * (1 - fx) * (1 - fy)) + (v10 * fx * (1 - fy)) + (v01 * (1 - fx) * fy) + (v11 * fx * fy);
@@ -74,6 +94,15 @@ public sealed class DisplacementMesh
     /// </summary>
     public static DisplacementMesh Build(int width, int height, float globalDx, float globalDy,
         ReadOnlySpan<AlignmentPointShift> alignmentPoints, float nodeSpacing = 32f, float influence = 48f, float regularization = 0.25f)
+        => Build(width, height, globalDx, globalDy, alignmentPoints, derotation: null, nodeSpacing, influence, regularization);
+
+    /// <summary>
+    /// <see cref="Build(int, int, float, float, ReadOnlySpan{AlignmentPointShift}, float, float, float)"/> over a frame's
+    /// <paramref name="derotation"/>: each point's residual is then over its de-rotated place (what
+    /// <see cref="AlignmentPointMatcher.Match(Image, float, float, DerotationField?, Span{AlignmentPointShift})"/> measures).
+    /// </summary>
+    public static DisplacementMesh Build(int width, int height, float globalDx, float globalDy,
+        ReadOnlySpan<AlignmentPointShift> alignmentPoints, DerotationField? derotation, float nodeSpacing = 32f, float influence = 48f, float regularization = 0.25f)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(nodeSpacing);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(influence);
@@ -107,6 +136,6 @@ public sealed class DisplacementMesh
             }
         }
 
-        return new DisplacementMesh(cols, rows, nodeSpacing, offX, offY);
+        return new DisplacementMesh(cols, rows, nodeSpacing, offX, offY, derotation);
     }
 }
