@@ -2569,3 +2569,54 @@ records no position. They were chosen by count under the one rule before any E16
 now run after training and before scoring, so the GPU trains while the eval is widened; D3's bars are unchanged, and a
 failure still stops the run before any model is scored. The added fields sit on the skies of two existing ones (eta Car,
 Lagoon), on other nights and cameras, so they add readable fields more than independent ones.
+
+#### E16b, a crowded-field check and the reading of a null, registered before any model was scored (2026-09-30, 18:15)
+
+**Why.** 28 of the arm's 45 bright cells are Omega Cen, a crowded bright core of unresolved stars, and the registered
+predictions read only nebula: the scorer masks star-like peaks before it bins detail, and no eval field has a crowded core
+in its bright bins. So most of the arm's dose went unmeasured, and a model could blow a crowded core out (smooth its
+unresolved grain into a blob, or lift it toward clipping) and pass every column. The owner's concern (2026-09-30): what we
+really do not want is bright unresolved stars blown out. The block estimator already reads unresolved stars as noise
+(D2: LMC 0.57, Tarantula on the ASI585 0.72), so at inference the plane over-states the noise exactly there.
+
+**The check** (`e16b_crowded.py`, run after the registered scoring, the scorer untouched). Cache `n2n-e16b-crowded`
+from the full store: val sessions Sgr Star Cloud ASI533 2022-07-29 (held out of training and the test split, half-masters,
+its plate 4.8 degrees clear of every training plate) and SMC QHY294C 2026-08-01 (an eval field), 300 val cells each;
+train list `arms/eval-rf-train-1.txt`, 5 cells. Two populations, fixed before any model runs:
+
+- **CROWDED:** the 40 Sgr cells with the most half-B peaks (`n2n_metrics.star_table` on half B's luminance inside the
+  16 px rim), every pixel inside the rim, no star mask. At 31"/px this is the densest unresolved star field we hold.
+- **CORES:** M22 and M28 (Sgr frame, half-light radius 7 and 2 px) and NGC 362 (SMC frame, 10 px): the pixels within
+  3 half-light radii of each catalogue centre by its master's own WCS, over every cell that holds them. Spot checks,
+  reported per core and never pooled: a few hundred pixels each, against Omega Cen's roughly 60 px half-light radius
+  in training.
+
+Input is half A with its planes: `est` as estimated, `orc` with the scorer's truth anchor per session (sky is B's
+low-pass in 0.15 to 0.30 with every detected peak masked, since no Gaia split is made). Full strength. Measured against
+half B over each population's pixels:
+
+- **grain kept**, 0-1 and 1-2 px: sum(Y_b B_b) / sum(A_b B_b), the scorer's detail kept without its star mask;
+- **error left** in the same bands, the scorer's formula;
+- **level**: mean(Y) / mean(B) per channel;
+- **clip share**: the share of pixels whose luminance is 0.95 or more (stretched), the output's minus half B's;
+- **stars kept**: at half B's peaks in the population (`star_table` on B), the peak's amplitude above the tile median,
+  Y's over A's.
+
+References printed beside the models: the input A itself and a Gaussian sigma 1 of A (the scorer's `gauss1` reference,
+what smoothing looks like on these measures). Models: `convmap3_s0..3`, `convmapb_s0..3`, `convmap_s0..3` (E16a),
+`convrf_s0..3` and the shipped model; seed means and ranges.
+
+**Expectations**, a diagnostic with no kill line; it cannot change the reading of predictions 1 to 6:
+
+- **C1** (`orc`, CROWDED): `convmapb`'s grain kept in the 1-2 px band is at least `convmap3`'s minus 0.02, seed means.
+  Moderate confidence that it is higher, if the Omega Cen cells teach a crowded core.
+- **C2**: every E16b model's level within 0.98 to 1.02 in every channel on CROWDED, and its clip share within 0.1
+  points of half B's.
+- **C3**: `est` keeps less grain than `orc` on CROWDED, because the estimator over-reads unresolved stars; the size is
+  reported, not predicted.
+
+**The reading of a null** (the owner's decision, 2026-09-30). If prediction 1 misses with a fall under 0.03, the arm
+reads **inconclusive at this dose**, not killed: at 45 bright cells (a third of the 150 registered, 28 of them a star
+crowd rather than nebula) and with the all-shot noise model over-injecting bright narrowband structure, a small fall
+cannot tell a wrong idea from too little of the right data. Prediction 3's kill stands (bright detail kept below 0.92),
+since smoothing is a harm that no dose excuses.
