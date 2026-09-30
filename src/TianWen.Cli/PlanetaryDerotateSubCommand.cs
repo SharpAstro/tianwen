@@ -53,17 +53,17 @@ internal sealed class PlanetaryDerotateSubCommand(IConsoleHost consoleHost)
                 $"{(second.Aspect.Utc - first.Aspect.Utc).TotalMinutes:0.00} minutes apart: the central meridian (System III) turned {rotation:0.00} degrees"));
 
             // With no rotation: the first moved onto the second's disk alone. Then de-rotated, each way round, each compared with
-            // the unrotated one over the pixels its de-rotation covered.
+            // the unrotated one over the pixels its de-rotation covered. One camera took both, so both disks have ONE north, the
+            // second's fit: with each its own, the two fits' difference (0.4 degrees on 2024-12-15) would turn the image too.
             var k = first.Fit.LimbDarkening;
-            var unrotated = PlanetaryDerotation.Derotate(first.Master, second.Aspect, first.Placement, second.Aspect, second.Placement, k);
+            var unrotated = PlanetaryDerotation.Derotate(first.Master, second.Aspect, first.Placement with { NorthAngleDeg = second.Placement.NorthAngleDeg },
+                second.Aspect, second.Placement, k);
             Image? best = null;
             var (bestRms, bestNone) = (double.PositiveInfinity, double.NaN);
             foreach (var flip in new[] { 0.0, 180.0 })
             {
-                var from = first.Placement with { NorthAngleDeg = first.Placement.NorthAngleDeg + flip };
-                // The second's north taken as the same end of the axis as the first's.
-                var turn = Math.IEEERemainder(second.Placement.NorthAngleDeg - from.NorthAngleDeg, 360);
-                var to = second.Placement with { NorthAngleDeg = second.Placement.NorthAngleDeg + (Math.Abs(turn) > 90 ? 180 : 0) };
+                var to = second.Placement with { NorthAngleDeg = second.Placement.NorthAngleDeg + flip };
+                var from = first.Placement with { NorthAngleDeg = to.NorthAngleDeg };
                 var derotated = PlanetaryDerotation.Derotate(first.Master, first.Aspect, from, second.Aspect, to, k);
                 var both = new bool[derotated.Covered.Length];
                 for (var i = 0; i < both.Length; i++)
@@ -73,7 +73,7 @@ internal sealed class PlanetaryDerotateSubCommand(IConsoleHost consoleHost)
                 var (rms, pixels) = PlanetaryDerotation.DifferenceRms(derotated.Image, second.Master, second.Placement, both);
                 var (none, _) = PlanetaryDerotation.DifferenceRms(unrotated.Image, second.Master, second.Placement, both);
                 consoleHost.WriteScrollable(string.Create(inv,
-                    $"    north at {from.NorthAngleDeg:0.0} deg (the limb fit's{(flip == 0 ? "" : ", turned over")}), over the {pixels} pixels inside 0.9 radii it covers: not de-rotated {none:0.00000} RMS, de-rotated {rms:0.00000}, {rms / none:0.000} of none"));
+                    $"    north at {from.NorthAngleDeg:0.0} deg (the second stack's limb fit{(flip == 0 ? "" : ", turned over")}), over the {pixels} pixels inside 0.9 radii it covers: not de-rotated {none:0.00000} RMS, de-rotated {rms:0.00000}, {rms / none:0.000} of none"));
                 if (rms / none < bestRms / bestNone || best is null)
                 {
                     (best, bestRms, bestNone) = (derotated.Image, rms, none);

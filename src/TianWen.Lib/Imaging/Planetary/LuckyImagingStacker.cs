@@ -466,8 +466,22 @@ public sealed class LuckyImagingStacker
             // derotator keeps the reference it registers against, so that one is never released here.
             try
             {
-                var fitted = FrameDerotator.Create(stream, reference, referenceIndex, derotation, options.AlignTileSize, options.WhitenedCorrelation);
+                // The disk is fitted on a stack of the capture's best frames as they are, never on one frame: the limb does not
+                // turn with the planet, and one 8-bit frame's fit put north anywhere from 260.5 to 268.2 degrees on 2024-12-15
+                // (a stack of 150, 263.8), which tilts every frame's rotation by the difference.
                 var plain = AlignerFor(reference, PlanetaryDisk.BoundingBox(reference), options.AlignTileSize, options.WhitenedCorrelation);
+                var steady = stream.TimestampOf(0) is { } firstTime && stream.TimestampOf(stream.FrameCount - 1) is { } lastTime
+                    ? await QuarterStackAsync(stream, grades, firstTime, lastTime, plain, reference.ChannelCount, reference.Width, reference.Height, reference.ImageMeta, options, cancellationToken).ConfigureAwait(false)
+                    : null;
+                FrameDerotator fitted;
+                try
+                {
+                    fitted = FrameDerotator.Create(stream, steady?.Stack ?? reference, referenceIndex, derotation, options.AlignTileSize, options.WhitenedCorrelation);
+                }
+                finally
+                {
+                    steady?.Stack.Release();
+                }
                 var (asFitted, turned) = await AgreementBothWaysAsync(stream, grades, fitted, plain, reference.ChannelCount, reference.Width, reference.Height, reference.ImageMeta, options, cancellationToken).ConfigureAwait(false);
                 derotator = (turned < asFitted) != derotation.TurnNorthOver ? fitted.TurnedOver() : fitted;
                 north = new PlanetaryNorthDecision(derotator.Placement.NorthAngleDeg, asFitted, turned);
@@ -578,7 +592,8 @@ public sealed class LuckyImagingStacker
         return (Apart(placement), Apart(placement with { NorthAngleDeg = placement.NorthAngleDeg + 180 }));
     }
 
-    // The best frames between two instants, stacked as they are onto the reference's disk, and their mean time; null for none.
+    // The best frames between two instants, stacked as they are onto the reference's disk, and their mean time; null for none. Over
+    // the whole capture it is what the disk is fitted on; over a quarter, what the north is decided by.
     private static async Task<(Image Stack, DateTimeOffset Time)?> QuarterStackAsync(IPlanetaryFrameStream stream, ImmutableArray<FrameGrade> grades,
         DateTimeOffset from, DateTimeOffset to, GlobalAligner aligner, int channels, int width, int height, ImageMeta meta, PlanetaryStackOptions options, CancellationToken cancellationToken)
     {

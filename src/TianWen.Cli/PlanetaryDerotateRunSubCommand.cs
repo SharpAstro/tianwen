@@ -86,19 +86,21 @@ internal sealed class PlanetaryDerotateRunSubCommand(IConsoleHost consoleHost)
                 return 1;
             }
 
-            // Every comparison onto the second half's disk. As taken: the first moved there with no rotation. 6b: carried from its
-            // epoch to the second's, each way round. 6a: both already at the run's middle, the first moved there.
+            // Every comparison onto the second half's disk, with ONE north, the second's: one camera took the run, and two stacks
+            // moved onto each other with each its own fitted north are turned by the fits' difference too (2.9 degrees between the
+            // de-rotated halves' own, which alone put them 0.018 apart). As taken: the first moved there with no rotation. 6b:
+            // carried from its epoch to the second's, each way round. 6a: both already at the run's middle, the first moved there.
             var k = secondTaken.Fit.LimbDarkening;
-            var none = PlanetaryDerotation.Derotate(firstTaken.Master, secondTaken.Aspect, firstTaken.Placement, secondTaken.Aspect, secondTaken.Placement, k);
-            var frames = PlanetaryDerotation.Derotate(firstTurned.Master, secondTurned.Aspect, firstTurned.Placement, secondTurned.Aspect, secondTurned.Placement, k);
+            var none = PlanetaryDerotation.Derotate(firstTaken.Master, secondTaken.Aspect, firstTaken.Placement with { NorthAngleDeg = secondTaken.Placement.NorthAngleDeg },
+                secondTaken.Aspect, secondTaken.Placement, k);
+            var frames = PlanetaryDerotation.Derotate(firstTurned.Master, secondTurned.Aspect, firstTurned.Placement with { NorthAngleDeg = secondTurned.Placement.NorthAngleDeg },
+                secondTurned.Aspect, secondTurned.Placement, k);
             var stacks = new (double North, Derotation Carried)[2];
             for (var i = 0; i < 2; i++)
             {
-                var flip = 180.0 * i;
-                var from = firstTaken.Placement with { NorthAngleDeg = firstTaken.Placement.NorthAngleDeg + flip };
-                var turn = Math.IEEERemainder(secondTaken.Placement.NorthAngleDeg - from.NorthAngleDeg, 360);
-                var to = secondTaken.Placement with { NorthAngleDeg = secondTaken.Placement.NorthAngleDeg + (Math.Abs(turn) > 90 ? 180 : 0) };
-                stacks[i] = (from.NorthAngleDeg, PlanetaryDerotation.Derotate(firstTaken.Master, firstTaken.Aspect, from, secondTaken.Aspect, to, k));
+                var to = secondTaken.Placement with { NorthAngleDeg = secondTaken.Placement.NorthAngleDeg + (180.0 * i) };
+                var from = firstTaken.Placement with { NorthAngleDeg = to.NorthAngleDeg };
+                stacks[i] = (to.NorthAngleDeg, PlanetaryDerotation.Derotate(firstTaken.Master, firstTaken.Aspect, from, secondTaken.Aspect, to, k));
             }
             var covered = new bool[none.Covered.Length];
             for (var i = 0; i < covered.Length; i++)
@@ -163,8 +165,10 @@ internal sealed class PlanetaryDerotateRunSubCommand(IConsoleHost consoleHost)
         {
             result.Master.WriteToFitsFile(Path.Combine(folder, name.Replace(", ", "-").Replace(' ', '-') + ".fits"));
         }
-        // The stack's own disk, its north the frames' where they decided it (a limb fit on the stack cannot tell it either).
-        var placement = new DiskPlacement(fit.CenterX, fit.CenterY, fit.EquatorialRadius, result.North?.NorthAngleDeg ?? fit.NorthAngleDeg);
+        // The stack's own disk and its own fit's north, at the end of the axis its frames decided where they did (a limb fit on
+        // the stack cannot tell the ends apart either).
+        var turnedOver = result.North is { } frames && Math.Abs(Math.IEEERemainder(fit.NorthAngleDeg - frames.NorthAngleDeg, 360)) > 90;
+        var placement = new DiskPlacement(fit.CenterX, fit.CenterY, fit.EquatorialRadius, fit.NorthAngleDeg + (turnedOver ? 180 : 0));
         return new Stack(result.Master, aspect, fit, placement);
     }
 
