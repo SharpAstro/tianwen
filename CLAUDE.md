@@ -999,7 +999,10 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   **Each frame is carried inside the stacker** (`PlanetaryStackOptions.Derotation`, part 2): its field beneath the registration in the
   mesh, registered against the reference turned to its own instant, the disk fitted on a STACK of the best frames (one 8-bit frame's
   north scattered 8 degrees). **Two stacks of one camera are moved onto each other with ONE north**: each its own turned the image by
-  the fits' difference, 2.9 degrees, which alone read as a de-rotation worse than none.
+  the fits' difference, 2.9 degrees, which alone read as a de-rotation worse than none. **A night's zonal drift is below what two
+  stacks of that night agree on** (part 3, `planetary-drift`): stacks of different frames differ in local geometry by about half a
+  pixel (0.2 at one instant), both colours alike, more than a jet moves in any run here, and a red-green floor cannot see an
+  achromatic error. A belt's latitude is right to half a degree (`planetary-belts`); no wind is read from one night.
 - **Read the plan doc before touching the Canon path** -- it is a list of five things that fail
   SILENTLY. **Recentering is opt-in** (the user, 2026-09-28; it costs the loop about 15 ms a frame at full frame), and
   so is the mount jog, whose **sign is uncalibrated**.

@@ -401,7 +401,7 @@ hot path is align-bound (~85-89%), so `GlobalAligner` caches the reference tile'
 fine/mid boost + coarse-band suppression to flatten the gradient). BenchmarkDotNet benches + a
 `profile planetary` per-stage breakdown live in `TianWen.UI.Benchmarks`.
 
-Not yet done: Phases 10-11 (de-rotation, #815), Phase 12's native video (#813) and Phase 13 (GPU, #816), plus an
+Phases 10-11 (de-rotation, #815) shipped through `docs/plans/planetary-restoration.md`'s R6, measured there (parts 1 to 3). Not yet done: Phase 12's native video (#813) and Phase 13 (GPU, #816), plus an
 AUTO parameter mode (#817, below). The "EAA free-run" mode listed here until 2026-09-25 shipped as follow-latest in
 live-planetary-capture Phase A (`LiveStackPreviewSource.RequestFollowLatest`).
 
@@ -416,8 +416,8 @@ live-planetary-capture Phase A (`LiveStackPreviewSource.RequestFollowLatest`).
 | 7 | **`WaveletSharpen`** (a-trous, per-scale gain/denoise) | 6 | Medium | DONE |
 | 8 | **CLI**: `tianwen planetary-stack` (or `tianwen stack --planetary`) orchestrator | 6,7 | Low | DONE |
 | 9 | **Live**: `RollingWindowStacker` (5-min window) + `LiveStackPreviewSource` push-stream wired into the previewer (GUI + tianwen-fits) | 4,6 | Medium | DONE (follow-the-playhead, global align, adjustable wavelet sliders, perf-tuned; the EAA free-run shipped as follow-latest in live-planetary-capture Phase A, `LiveStackPreviewSource.RequestFollowLatest`) |
-| 10 | **De-rotation 6a** (within-capture): Meeus per-planet CM + disk geometry + spheroid reproject; derotate-to-midpoint before stack | 6 | High | NOT STARTED (#815) |
-| 11 | **De-rotation 6b** (multi-stack / RGB temporal): derotate finished stacks to a common epoch + combine | 10 | High | NOT STARTED (#815) |
+| 10 | **De-rotation 6a** (within-capture): Meeus per-planet CM + disk geometry + spheroid reproject; derotate-to-midpoint before stack | 6 | High | DONE (#815, 2026-09-30): `PlanetaryStackOptions.Derotation`, `planetary-stack --derotate`, every stacking path; the IAU ephemeris, not Meeus (planetary-restoration R1); measured in its R6 part 2 |
+| 11 | **De-rotation 6b** (multi-stack / RGB temporal): derotate finished stacks to a common epoch + combine | 10 | High | DONE (#815, 2026-09-30): `PlanetaryDerotation`, `planetary-derotate`; measured in planetary-restoration's R6 part 1 |
 | 12 | **Live camera stream** (`LiveCameraFrameStream`) feeding the same windowed stacker (true EAA) | 9 | Medium | DONE on fake (A+B+C, 2026-06-28): `IVideoCameraDriver` contract, `LiveCameraFrameStream` push-stream, `PlanetaryCaptureController` w/ rapid-exposure fallback, fake colour video (drifting Jupiter + realistic noise), Live Session 🪐 planetary mode w/ shared viewer + capture/ROI/focuser panel, and the **COM recenter loop** (ROI auto + opt-in coarse mount jog + manual N/S/E/W nudge). See [live-planetary-capture.md](live-planetary-capture.md). Remaining (hardware, behind the same contract): D native video for the DAL cameras (#813; nothing records the stream to disk either, #814). E Canon Live View DONE (2026-07-16; zoom and pan 2026-08-03) |
 | 13 | **GPU compute acceleration**: headless compute capability in `SdlVulkan.Renderer` (storage buffers, no swapchain) + GPU impls of FFT/quality/NCC/warp/drizzle-scatter/integrate/wavelet, capability-probed; CPU mirror stays source of truth + fallback; software-Vulkan CI shader-exercise | 6,7 | Medium | NOT STARTED (#816) |
 
