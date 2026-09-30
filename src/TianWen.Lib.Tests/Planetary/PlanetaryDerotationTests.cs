@@ -79,14 +79,56 @@ public class PlanetaryDerotationTests
         var later = PlanetaryRender.Render(map, to, Disk, Size, Size, 0.95, supersample: 2);
 
         var derotated = PlanetaryDerotation.Derotate(earlier, from, to, Disk, 0.95);
-        var (none, done) = (DiskRms(earlier.GetChannelSpan(0), later), DiskRms(derotated.GetChannelSpan(0), later));
+        var (none, done) = (DiskRms(earlier.GetChannelSpan(0), later), DiskRms(derotated.Image.GetChannelSpan(0), later, derotated.Covered));
         // North the wrong way round turns the planet backwards: twice the rotation, where none was better.
         var backwards = PlanetaryDerotation.Derotate(earlier, from, to, Disk with { NorthAngleDeg = Disk.NorthAngleDeg + 180 }, 0.95);
-        var wrong = DiskRms(backwards.GetChannelSpan(0), later);
+        var wrong = DiskRms(backwards.Image.GetChannelSpan(0), later, backwards.Covered);
 
         TestContext.Current.TestOutputHelper?.WriteLine($"RMS against the later render inside 0.9 radii: none {none:0.00000}, derotated {done:0.00000}, north flipped {wrong:0.00000}");
         done.ShouldBeLessThan(none * 0.1);
         wrong.ShouldBeGreaterThan(none);
+    }
+
+    [Fact]
+    public void APixelWhoseSourceLiesNearTheLimbIsNotCovered()
+    {
+        // Over 31 minutes (18.8 degrees) the side the rotation turns into view reads its sources beyond 0.9 radii, where a
+        // stack is its blurred edge rather than Minnaert's law: those pixels say they were not de-rotated, the rest say they were.
+        var map = SpottedMap();
+        var (from, to) = (PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night), PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night.AddMinutes(31)));
+        var earlier = Image.FromChannel(ToPlane(PlanetaryRender.Render(map, from, Disk, Size, Size, 0.95, supersample: 2)));
+        var derotated = PlanetaryDerotation.Derotate(earlier, from, to, Disk, 0.95);
+        var source = new PlanetaryProjection(from, Disk);
+        var target = new PlanetaryProjection(to, Disk);
+        var (checkedCovered, checkedNot) = (0, 0);
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                if (!target.TryUnproject(x, y, out var latitude, out var west) || !source.TryProject(latitude, west, out var sx, out var sy))
+                {
+                    derotated.Covered[(y * Size) + x].ShouldBeFalse();
+                    continue;
+                }
+                var inside = Math.Sqrt(((sx - Disk.CenterX) * (sx - Disk.CenterX)) + ((sy - Disk.CenterY) * (sy - Disk.CenterY))) < PlanetaryDerotation.SourceRadiusLimit * Disk.EquatorialRadius;
+                derotated.Covered[(y * Size) + x].ShouldBe(inside);
+                (checkedCovered, checkedNot) = inside ? (checkedCovered + 1, checkedNot) : (checkedCovered, checkedNot + 1);
+            }
+        }
+        checkedCovered.ShouldBeGreaterThan(0);
+        checkedNot.ShouldBeGreaterThan(0);
+        // What was relit stays within the render's own range, which a source at the limb broke.
+        var max = 0f;
+        foreach (var v in derotated.Image.GetChannelSpan(0))
+        {
+            max = Math.Max(max, v);
+        }
+        var peak = 0f;
+        foreach (var v in earlier.GetChannelSpan(0))
+        {
+            peak = Math.Max(peak, v);
+        }
+        max.ShouldBeLessThan(peak * 1.5f);
     }
 
     private static float[,] ToPlane(float[] values)
@@ -97,8 +139,8 @@ public class PlanetaryDerotationTests
     }
 
     // The RMS difference inside 0.9 equatorial radii, where the limb's lighting and the strip the rotation turns into view are
-    // left out.
-    private static double DiskRms(ReadOnlySpan<float> a, float[] b)
+    // left out, over the pixels a de-rotation covered when it says.
+    private static double DiskRms(ReadOnlySpan<float> a, float[] b, bool[]? covered = null)
     {
         double sum = 0;
         var count = 0;
@@ -107,7 +149,7 @@ public class PlanetaryDerotationTests
             for (var x = 0; x < Size; x++)
             {
                 var (dx, dy) = (x - Disk.CenterX, y - Disk.CenterY);
-                if ((dx * dx) + (dy * dy) < 0.81 * Disk.EquatorialRadius * Disk.EquatorialRadius)
+                if ((dx * dx) + (dy * dy) < 0.81 * Disk.EquatorialRadius * Disk.EquatorialRadius && (covered is null || covered[(y * Size) + x]))
                 {
                     var d = a[(y * Size) + x] - b[(y * Size) + x];
                     sum += d * d;
