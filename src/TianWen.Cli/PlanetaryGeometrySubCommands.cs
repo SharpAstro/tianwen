@@ -5,6 +5,7 @@ using System.CommandLine;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
@@ -191,17 +192,24 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         var firstOpt = new Option<int>("--first") { Description = "The first frame measured.", DefaultValueFactory = _ => 0 };
         var plainOpt = new Option<bool>("--plain-correlation") { Description = "Register frames and points by a plain cross-correlation, not phase correlation (R5)." };
         var framesOpt = new Option<int?>("--frames") { Description = "Only this many frames, from --first." };
+        var planeOpt = new Option<string?>("--plane") { Description = "A colour capture's photosite colour to measure: r, g (the greens on the red rows), g2 or b (R5a)." };
 
         var command = new Command("planetary-seeing",
             "A capture's statistics, measured as a synthetic capture's are (R2): the shift's seeing and mount parts, the warp, the quality distribution, each band's noise, the camera's levels and gain.")
         {
             Arguments = { inputsArg },
-            Options = { planetOpt, utcOpt, fpsOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, firstOpt, framesOpt, plainOpt },
+            Options = { planetOpt, utcOpt, fpsOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, firstOpt, framesOpt, plainOpt, planeOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
         {
             var failed = 0;
+            var plane = ParsePlane(parseResult.GetValue(planeOpt));
+            if (parseResult.GetValue(planeOpt) is { } named && plane is null)
+            {
+                consoleHost.WriteError($"--plane {named}: r, g, g2 or b");
+                return 1;
+            }
             var planet = parseResult.GetValue(planetOpt)?.ToLowerInvariant() == "saturn" ? CatalogIndex.Saturn : CatalogIndex.Jupiter;
             foreach (var input in parseResult.GetValue(inputsArg) ?? [])
             {
@@ -209,7 +217,16 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                 using var reader = SerReader.Open(input);
                 using var whole = new SerFrameStream(reader, ownsReader: false);
                 var first = Math.Clamp(parseResult.GetValue(firstOpt), 0, whole.FrameCount - 1);
-                using var stream = new PlanetaryFrameWindow(whole, first, Math.Min(whole.FrameCount - first, parseResult.GetValue(framesOpt) ?? whole.FrameCount));
+                using var window = new PlanetaryFrameWindow(whole, first, Math.Min(whole.FrameCount - first, parseResult.GetValue(framesOpt) ?? whole.FrameCount));
+                // A colour capture is measured a photosite colour at a time: the statistics are a mono capture's.
+                if (window.Layout == PlanetaryFrameLayout.SplitCfa && plane is null)
+                {
+                    consoleHost.WriteError($"{input}: a colour capture; pass --plane r, g, g2 or b");
+                    failed++;
+                    continue;
+                }
+                using var planeStream = plane is { } channel && window.Layout == PlanetaryFrameLayout.SplitCfa ? new CfaPlaneStream(window, channel) : null;
+                IPlanetaryFrameStream stream = planeStream is null ? window : planeStream;
                 if ((MidCapture(stream) ?? ParseUtc(parseResult.GetValue(utcOpt))) is not { } when)
                 {
                     consoleHost.WriteError($"{input}: no timestamps (pass --utc)");
@@ -272,12 +289,15 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         var spacingOpt = new Option<int>("--ap-spacing") { Description = "The statistics' alignment-point spacing.", DefaultValueFactory = _ => CaptureStatisticsOptions.DefaultAlignmentPointSpacing };
         var plainOpt = new Option<bool>("--plain-correlation") { Description = "The statistics register frames and points by a plain cross-correlation, not phase correlation (R5)." };
         var framesOpt = new Option<int?>("--frames") { Description = "Only the capture's first frames, measured and made (a quicker trial)." };
+        var bayerMapsOpt = new Option<string?>("--bayer-maps") { Description = "A colour capture's three maps, red, green and blue, a comma list (R5a; OPAL's F631N, F502N and F395N)." };
+        var bayerWavelengthsOpt = new Option<string>("--bayer-wavelengths") { Description = "The camera's red, green and blue effective wavelengths, nm.", DefaultValueFactory = _ => "610,535,460" };
+        var bayerKOpt = new Option<string?>("--bayer-k") { Description = "Minnaert's exponent for each colour's map, red, green and blue (OPAL's: 0.999, 0.950, 0.850); --k for all three by default." };
 
         var command = new Command("planetary-degrade",
             "A synthetic capture from a global map with a real capture's own seeing, motion and camera (R2): measure the real one, make the synthetic one, measure it the same way, and compare.")
         {
             Arguments = { inputArg },
-            Options = { mapOpt, outputOpt, planetOpt, kOpt, telescopeOpt, wavelengthOpt, r0Opt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, localR0Opt, localOuterScaleOpt, localWindOpt, scatterOpt, scatterCoreOpt, realStatisticsOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, replayOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, plainOpt, framesOpt },
+            Options = { mapOpt, outputOpt, planetOpt, kOpt, telescopeOpt, wavelengthOpt, r0Opt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, localR0Opt, localOuterScaleOpt, localWindOpt, scatterOpt, scatterCoreOpt, realStatisticsOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, replayOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, plainOpt, framesOpt, bayerMapsOpt, bayerWavelengthsOpt, bayerKOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -313,27 +333,80 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                 AlignmentPointSpacing = parseResult.GetValue(spacingOpt),
                 WhitenedCorrelation = !parseResult.GetValue(plainOpt),
             };
-            // A real capture measured once serves every synthetic one compared with it.
+            // A real capture measured once serves every synthetic one compared with it; a colour capture's photosite colours are
+            // each measured, and cached, on their own.
             var statisticsPath = parseResult.GetValue(realStatisticsOpt);
-            var key = $"{Path.GetFullPath(input)} | {real.FrameCount} frames | {measure}";
-            var truth = statisticsPath is null ? null : await PlanetaryCaptureStatistics.TryLoadAsync(statisticsPath, key, ct);
-            if (truth is not null)
+            async Task<CaptureStatistics?> MeasureReal(IPlanetaryFrameStream stream, string colour)
             {
-                consoleHost.WriteScrollable($"{Path.GetFileName(input)}: statistics read from {statisticsPath}");
+                var cachePath = statisticsPath is null || colour.Length == 0 ? statisticsPath : $"{statisticsPath}.{colour}";
+                var key = colour.Length == 0
+                    ? $"{Path.GetFullPath(input)} | {stream.FrameCount} frames | {measure}"
+                    : $"{Path.GetFullPath(input)} | {colour} | {stream.FrameCount} frames | {measure}";
+                var label = colour.Length == 0 ? Path.GetFileName(input) : $"{Path.GetFileName(input)} ({colour})";
+                if (cachePath is not null && await PlanetaryCaptureStatistics.TryLoadAsync(cachePath, key, ct) is { } cached)
+                {
+                    consoleHost.WriteScrollable($"{label}: statistics read from {cachePath}");
+                    return cached;
+                }
+                consoleHost.WriteScrollable($"measuring {label}");
+                var measured = await PlanetaryCaptureStatistics.MeasureAsync(stream, measure, progress, ct);
+                if (measured is null)
+                {
+                    consoleHost.WriteError($"{input}: no disk found{(colour.Length == 0 ? "" : $" in its {colour} photosites")}");
+                    return null;
+                }
+                if (cachePath is not null)
+                {
+                    await PlanetaryCaptureStatistics.SaveAsync(measured, key, cachePath, ct);
+                }
+                return measured;
             }
-            else
+
+            var pupil = (parseResult.GetValue(telescopeOpt) ?? "newtonian").ToLowerInvariant() == "maksutov" ? MaksutovPupil : NewtonianPupil;
+            // Everything the air, the telescope, the warp and the draws set: the same for every colour of one capture.
+            DegradeOptions Atmosphere(double wavelengthM, double k) => new DegradeOptions(pupil, wavelengthM)
             {
-                consoleHost.WriteScrollable($"measuring {Path.GetFileName(input)}");
-                truth = await PlanetaryCaptureStatistics.MeasureAsync(real, measure, progress, ct);
-                if (truth is null)
-                {
-                    consoleHost.WriteError($"{input}: no disk found");
-                    return 1;
-                }
-                if (statisticsPath is not null)
-                {
-                    await PlanetaryCaptureStatistics.SaveAsync(truth, key, statisticsPath, ct);
-                }
+                R0M = parseResult.GetValue(r0Opt) / 100,
+                WindMps = parseResult.GetValue(windOpt),
+                OuterScaleM = parseResult.GetValue(outerScaleOpt) ?? double.PositiveInfinity,
+                ExposureSeconds = parseResult.GetValue(exposureOpt) / 1000,
+                DefocusNm = parseResult.GetValue(defocusOpt),
+                LocalR0M = parseResult.GetValue(localR0Opt) / 100 ?? double.PositiveInfinity,
+                LocalOuterScaleM = parseResult.GetValue(localOuterScaleOpt),
+                LocalWindMps = parseResult.GetValue(localWindOpt),
+                ScatterFraction = parseResult.GetValue(scatterOpt),
+                ScatterCoreArcsec = parseResult.GetValue(scatterCoreOpt),
+                MinnaertK = k,
+                WarpRmsPx = parseResult.GetValue(warpRmsOpt),
+                WarpLengthPx = parseResult.GetValue(warpLengthOpt),
+                WarpLag1 = parseResult.GetValue(warpLagOpt),
+                Seed = parseResult.GetValue(seedOpt),
+                KeepScreenTilt = !parseResult.GetValue(replayOpt),
+            };
+            // The camera's own terms from the far sky, where the planet's scattered light has gone (the synthetic capture scatters
+            // its own light into the ring), as they were before the camera rounded them.
+            static DegradeOptions WithCamera(DegradeOptions atmosphere, CameraEstimate estimate, double gainElectrons) => atmosphere with
+            {
+                FullScaleAdu = estimate.FullScaleAdu,
+                OffsetAdu = estimate.LocalSkyLevel,
+                ReadNoiseAdu = estimate.FarSkyNoise,
+                ElectronsPerAdu = gainElectrons,
+                DiskLevelAdu = estimate.DiskLevel,
+            };
+            string Describe(DegradeOptions o, DiskPlacement at, double pixelScale) => string.Create(CultureInfo.InvariantCulture,
+                $"disk at {at.CenterX:0.00}, {at.CenterY:0.00}, R {at.EquatorialRadius:0.00} px ({pixelScale:0.0000}\"/px), north {at.NorthAngleDeg:0.0} deg; " +
+                $"r0 {o.R0M * 100:0.0} cm at 500 nm, outer scale {(double.IsPositiveInfinity(o.OuterScaleM) ? "none" : $"{o.OuterScaleM:0.#} m")}, wind {o.WindMps:0} m/s, exposure {o.ExposureSeconds * 1000:0.#} ms, defocus {o.DefocusNm:0} nm RMS, {(double.IsFinite(o.LocalR0M) ? $"a local layer of r0 {o.LocalR0M * 100:0.0} cm, outer scale {o.LocalOuterScaleM:0.00} m, drifting {o.LocalWindMps:0.#} m/s, " : "")}{(o.ScatterFraction > 0 ? $"{o.ScatterFraction * 100:0.##} % scattered with a core of {o.ScatterCoreArcsec:0.#}\", " : "")}{o.WavelengthM * 1e9:0} nm, oversampled {PlanetaryDegrade.OversampleFor(pixelScale, pupil.DiameterM, o.WavelengthM)}x; " +
+                $"camera offset {o.OffsetAdu:0.00}, read noise {o.ReadNoiseAdu:0.000} ADU, {o.ElectronsPerAdu:0.0} e-/ADU, disk {o.DiskLevelAdu:0.0} ADU; warp {o.WarpRmsPx:0.00} px; " +
+                $"{(o.KeepScreenTilt ? "the screen's tilt on the mount's drift" : "the real shifts replayed")}");
+
+            if (real.Layout == PlanetaryFrameLayout.SplitCfa)
+            {
+                return await MakeColourTwin();
+            }
+
+            if (await MeasureReal(real, "") is not { } truth)
+            {
+                return 1;
             }
 
             // The disk's placement at the reference frame: the limb of a stack of the best frames, which the stacker aligns to
@@ -349,47 +422,16 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             var scale = aspect.AngularDiameterArcsec / 2 / limb.EquatorialRadius;
 
             var camera = truth.Camera;
-            // The camera's own terms from the far sky, where the planet's scattered light has gone (the synthetic capture scatters
-            // its own light into the ring), as they were before the camera rounded them.
-            var readNoise = camera.FarSkyNoise;
-            var gain = parseResult.GetValue(gainOpt) ?? PlanetaryDegrade.GainFor(camera.DiskLevel, truth.Noise[0].Disk, readNoise);
+            var gain = parseResult.GetValue(gainOpt) ?? PlanetaryDegrade.GainFor(camera.DiskLevel, truth.Noise[0].Disk, camera.FarSkyNoise);
             if (gain is not { } electronsPerAdu)
             {
                 consoleHost.WriteError("the disk's finest band leaves no room for shot noise: pass --gain");
                 return 1;
             }
-            var pupil = (parseResult.GetValue(telescopeOpt) ?? "newtonian").ToLowerInvariant() == "maksutov" ? MaksutovPupil : NewtonianPupil;
-            var options = new DegradeOptions(pupil, parseResult.GetValue(wavelengthOpt) * 1e-9)
-            {
-                R0M = parseResult.GetValue(r0Opt) / 100,
-                WindMps = parseResult.GetValue(windOpt),
-                OuterScaleM = parseResult.GetValue(outerScaleOpt) ?? double.PositiveInfinity,
-                ExposureSeconds = parseResult.GetValue(exposureOpt) / 1000,
-                DefocusNm = parseResult.GetValue(defocusOpt),
-                LocalR0M = parseResult.GetValue(localR0Opt) / 100 ?? double.PositiveInfinity,
-                LocalOuterScaleM = parseResult.GetValue(localOuterScaleOpt),
-                LocalWindMps = parseResult.GetValue(localWindOpt),
-                ScatterFraction = parseResult.GetValue(scatterOpt),
-                ScatterCoreArcsec = parseResult.GetValue(scatterCoreOpt),
-                MinnaertK = parseResult.GetValue(kOpt),
-                FullScaleAdu = camera.FullScaleAdu,
-                OffsetAdu = camera.LocalSkyLevel,
-                ReadNoiseAdu = readNoise,
-                ElectronsPerAdu = electronsPerAdu,
-                DiskLevelAdu = camera.DiskLevel,
-                WarpRmsPx = parseResult.GetValue(warpRmsOpt),
-                WarpLengthPx = parseResult.GetValue(warpLengthOpt),
-                WarpLag1 = parseResult.GetValue(warpLagOpt),
-                Seed = parseResult.GetValue(seedOpt),
-                KeepScreenTilt = !parseResult.GetValue(replayOpt),
-            };
+            var options = WithCamera(Atmosphere(parseResult.GetValue(wavelengthOpt) * 1e-9, parseResult.GetValue(kOpt)), camera, electronsPerAdu);
             // The seeing's motion is the screen's own tilt, on the mount's slow drift; or the real shifts, replayed whole.
             var (moveX, moveY) = options.KeepScreenTilt ? (truth.MountX, truth.MountY) : (truth.ShiftX, truth.ShiftY);
-            consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                $"making {Path.GetFileName(output)}: disk at {reference.CenterX:0.00}, {reference.CenterY:0.00}, R {reference.EquatorialRadius:0.00} px ({scale:0.0000}\"/px), north {reference.NorthAngleDeg:0.0} deg; " +
-                $"r0 {options.R0M * 100:0.0} cm at 500 nm, outer scale {(double.IsPositiveInfinity(options.OuterScaleM) ? "none" : $"{options.OuterScaleM:0.#} m")}, wind {options.WindMps:0} m/s, exposure {options.ExposureSeconds * 1000:0.#} ms, defocus {options.DefocusNm:0} nm RMS, {(double.IsFinite(options.LocalR0M) ? $"a local layer of r0 {options.LocalR0M * 100:0.0} cm, outer scale {options.LocalOuterScaleM:0.00} m, drifting {options.LocalWindMps:0.#} m/s, " : "")}{(options.ScatterFraction > 0 ? $"{options.ScatterFraction * 100:0.##} % scattered with a core of {options.ScatterCoreArcsec:0.#}\", " : "")}{options.WavelengthM * 1e9:0} nm, oversampled {PlanetaryDegrade.OversampleFor(scale, pupil.DiameterM, options.WavelengthM)}x; " +
-                $"camera offset {options.OffsetAdu:0.00}, read noise {options.ReadNoiseAdu:0.000} ADU, {options.ElectronsPerAdu:0.0} e-/ADU, disk {options.DiskLevelAdu:0.0} ADU; warp {options.WarpRmsPx:0.00} px; " +
-                $"{(options.KeepScreenTilt ? "the screen's tilt on the mount's drift" : "the real shifts replayed")}"));
+            consoleHost.WriteScrollable($"making {Path.GetFileName(output)}: {Describe(options, reference, scale)}");
 
             var depth = camera.FullScaleAdu <= 255 ? 8 : 16;
             var partial = output + ".partial";
@@ -402,21 +444,9 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             {
                 var buffer = new byte[reader.Width * reader.Height * bytesPerSample];
                 var done = new Progress<int>(frames => { if (frames % 2048 < 64) { consoleHost.WriteScrollable($"    {frames} of {times.Length} frames"); } });
-                made = await PlanetaryDegrade.MakeAsync(map, planet, times, reference, scale, moveX, moveY, truth.Flux, reader.Width, reader.Height, options, (index, samples) =>
-                {
-                    for (var i = 0; i < samples.Length; i++)
-                    {
-                        if (depth == 8)
-                        {
-                            buffer[i] = (byte)samples[i];
-                        }
-                        else
-                        {
-                            BitConverter.TryWriteBytes(buffer.AsSpan(2 * i, 2), samples[i]);
-                        }
-                    }
-                    writer.AppendFrame(buffer, times[index]);
-                }, done, warpWriter is null ? null : (_, warp) => warpWriter.Append(warp), ct);
+                made = await PlanetaryDegrade.MakeAsync(map, planet, times, reference, scale, moveX, moveY, truth.Flux, reader.Width, reader.Height, options,
+                    (index, samples) => writer.AppendFrame(Pack(samples, buffer, depth), times[index]),
+                    done, warpWriter is null ? null : (_, warp) => warpWriter.Append(warp), ct);
             }
             File.Move(partial, output, overwrite: true);
             if (options.WarpRmsPx > 0)
@@ -443,8 +473,188 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             WriteStatistics(Path.GetFileName(output), made2);
             WriteComparison(truth, made2);
             return 0;
+
+            // A colour capture's twin (R5a): each photosite colour measured on its own; the colours placed where their own
+            // limbs are, which differ by the atmosphere's dispersion; one atmosphere and one motion, green's, for the three.
+            async Task<int> MakeColourTwin()
+            {
+                var mapPaths = CommaList(parseResult.GetValue(bayerMapsOpt));
+                if (mapPaths.Length != 3)
+                {
+                    consoleHost.WriteError($"{input}: a colour capture; pass --bayer-maps with its red, green and blue maps");
+                    return 1;
+                }
+                var colourMaps = new PlanetMap[3];
+                for (var c = 0; c < 3; c++)
+                {
+                    if (PlanetMap.ReadFits(mapPaths[c]) is not { } colourMap)
+                    {
+                        consoleHost.WriteError($"{mapPaths[c]}: no map");
+                        return 1;
+                    }
+                    colourMaps[c] = colourMap;
+                }
+                var wavelengths = CommaNumbers(parseResult.GetValue(bayerWavelengthsOpt));
+                var ks = parseResult.GetValue(bayerKOpt) is { } kText ? CommaNumbers(kText) : [parseResult.GetValue(kOpt), parseResult.GetValue(kOpt), parseResult.GetValue(kOpt)];
+                if (wavelengths.Length != 3 || ks.Length != 3)
+                {
+                    consoleHost.WriteError("--bayer-wavelengths and --bayer-k take three numbers each, red, green and blue");
+                    return 1;
+                }
+                // The colours are held until the last is made: a synthetic capture this size is made in parts.
+                if ((long)times.Length * reader.Width * reader.Height * 2 > 2L << 30)
+                {
+                    consoleHost.WriteError($"{times.Length} frames of {reader.Width} x {reader.Height} are more than a colour twin holds at once: pass --frames");
+                    return 1;
+                }
+                var (_, ox, oy) = reader.ColorId.ToSensorType();
+                using var redPlane = new CfaPlaneStream(real, CfaPlaneStream.Red);
+                using var greenPlane = new CfaPlaneStream(real, CfaPlaneStream.Green1);
+                using var bluePlane = new CfaPlaneStream(real, CfaPlaneStream.Blue);
+                if (await MeasureReal(redPlane, "r") is not { } redTruth || await MeasureReal(greenPlane, "g") is not { } greenTruth
+                    || await MeasureReal(bluePlane, "b") is not { } blueTruth)
+                {
+                    return 1;
+                }
+
+                // Green's placement, found as the mono path finds a disk's, on its plane: the limb of a stack of the best frames,
+                // carried onto the statistics' reference by that frame's shift.
+                var greenStack = await new LuckyImagingStacker().StackGlobalAsync(greenPlane, new PlanetaryStackOptions { KeepFraction = 0.05 }, ct);
+                var limbOptions = PlanetaryLimbFit.OptionsFor(aspect);
+                if (PlanetaryLimbFit.Fit(greenStack.Master, limbOptions) is not { } greenLimb)
+                {
+                    consoleHost.WriteError($"{input}: the green stack's limb could not be fitted");
+                    return 1;
+                }
+                var (gx, gy) = (greenLimb.CenterX - greenTruth.ShiftX[greenStack.ReferenceIndex], greenLimb.CenterY - greenTruth.ShiftY[greenStack.ReferenceIndex]);
+
+                // The dispersion: the four planes stacked on ONE registration, each colour's limb against green's in the same stack.
+                var planes = await new LuckyImagingStacker().StackPlanesAsync(real, [.. Enumerable.Range(0, real.FrameCount)], greenStack.ReferenceIndex, whiten: false, ct);
+                (double X, double Y)? Offset(int channel)
+                {
+                    var ownFit = PlanetaryLimbFit.Fit(Image.FromChannel(ChannelPlane(planes, channel)), limbOptions);
+                    var greenFit = PlanetaryLimbFit.Fit(Image.FromChannel(ChannelPlane(planes, CfaPlaneStream.Green1)), limbOptions);
+                    return ownFit is { } of && greenFit is { } gf ? (of.CenterX - gf.CenterX, of.CenterY - gf.CenterY) : null;
+                }
+                var redOffset = Offset(CfaPlaneStream.Red);
+                var blueOffset = Offset(CfaPlaneStream.Blue);
+                planes.Release();
+                if (redOffset is not { } dr || blueOffset is not { } db)
+                {
+                    consoleHost.WriteError($"{input}: a colour plane's limb could not be fitted");
+                    return 1;
+                }
+
+                // On the sensor: a plane's pixel (i, j) is the photosite (2i + px, 2j + py) of its colour.
+                DiskPlacement OnSensor(double x, double y, int channel)
+                {
+                    var (px, py) = CfaPlaneStream.PhaseOf(channel, ox, oy);
+                    return new DiskPlacement((2 * x) + px, (2 * y) + py, 2 * greenLimb.EquatorialRadius, greenLimb.NorthAngleDeg);
+                }
+                var greenPlacement = OnSensor(gx, gy, CfaPlaneStream.Green1);
+                var redPlacement = OnSensor(gx + dr.X, gy + dr.Y, CfaPlaneStream.Red);
+                var bluePlacement = OnSensor(gx + db.X, gy + db.Y, CfaPlaneStream.Blue);
+                var sensorScale = aspect.AngularDiameterArcsec / 2 / greenPlacement.EquatorialRadius;
+                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                    $"the colours' dispersion, sensor px from green: red {redPlacement.CenterX - greenPlacement.CenterX:+0.00;-0.00}, {redPlacement.CenterY - greenPlacement.CenterY:+0.00;-0.00}; blue {bluePlacement.CenterX - greenPlacement.CenterX:+0.00;-0.00}, {bluePlacement.CenterY - greenPlacement.CenterY:+0.00;-0.00}"));
+
+                // One camera: its gain read on green, the colour with the most photosites.
+                if ((parseResult.GetValue(gainOpt) ?? PlanetaryDegrade.GainFor(greenTruth.Camera.DiskLevel, greenTruth.Noise[0].Disk, greenTruth.Camera.FarSkyNoise)) is not { } colourGain)
+                {
+                    consoleHost.WriteError("the green disk's finest band leaves no room for shot noise: pass --gain");
+                    return 1;
+                }
+                var red = new BayerColour(colourMaps[0], redPlacement, WithCamera(Atmosphere(wavelengths[0] * 1e-9, ks[0]), redTruth.Camera, colourGain));
+                var green = new BayerColour(colourMaps[1], greenPlacement, WithCamera(Atmosphere(wavelengths[1] * 1e-9, ks[1]), greenTruth.Camera, colourGain));
+                var blue = new BayerColour(colourMaps[2], bluePlacement, WithCamera(Atmosphere(wavelengths[2] * 1e-9, ks[2]), blueTruth.Camera, colourGain));
+                foreach (var (name, colour) in new[] { ("red", red), ("green", green), ("blue", blue) })
+                {
+                    consoleHost.WriteScrollable($"making {Path.GetFileName(output)}, {name}: {Describe(colour.Options, colour.Placement, sensorScale)}");
+                }
+
+                // One motion, green's, in the sensor's pixels.
+                var (planeMoveX, planeMoveY) = green.Options.KeepScreenTilt ? (greenTruth.MountX, greenTruth.MountY) : (greenTruth.ShiftX, greenTruth.ShiftY);
+                ImmutableArray<double> colourMoveX = [.. planeMoveX.Select(v => 2 * v)];
+                ImmutableArray<double> colourMoveY = [.. planeMoveY.Select(v => 2 * v)];
+                var colourDepth = greenTruth.Camera.FullScaleAdu <= 255 ? 8 : 16;
+                var colourPartial = output + ".partial";
+                var colourWarpPartial = SyntheticWarpFile.PathFor(output) + ".partial";
+                (ImmutableArray<SyntheticFrame> Red, ImmutableArray<SyntheticFrame> Green, ImmutableArray<SyntheticFrame> Blue) madeColours;
+                using (var warpWriter = green.Options.WarpRmsPx > 0 ? new SyntheticWarpFile.Writer(colourWarpPartial) : null)
+                using (var writer = new SerWriter(colourPartial, reader.Width, reader.Height, reader.ColorId, colourDepth, instrument: "TianWen planetary-degrade"))
+                {
+                    var buffer = new byte[reader.Width * reader.Height * (colourDepth == 8 ? 1 : 2)];
+                    var done = new Progress<int>(frames => { if (frames % 2048 < 64) { consoleHost.WriteScrollable($"    {frames} of {times.Length} frames"); } });
+                    madeColours = await PlanetaryDegrade.MakeBayerAsync(planet, times, red, green, blue, sensorScale, colourMoveX, colourMoveY, greenTruth.Flux,
+                        reader.Width, reader.Height, ox, oy, (index, samples) => writer.AppendFrame(Pack(samples, buffer, colourDepth), times[index]),
+                        done, warpWriter is null ? null : (_, warp) => warpWriter.Append(warp), ct);
+                }
+                File.Move(colourPartial, output, overwrite: true);
+                if (green.Options.WarpRmsPx > 0)
+                {
+                    File.Move(colourWarpPartial, SyntheticWarpFile.PathFor(output), overwrite: true);
+                }
+
+                // A truth for each colour, each through the pupil alone at its own wavelength, where its own disk is.
+                var colourTime = times[greenTruth.ReferenceIndex];
+                var colourAspect = PhysicalEphemeris.Compute(planet, colourTime);
+                foreach (var (name, colour, path) in new[] { ("r", red, mapPaths[0]), ("g", green, mapPaths[1]), ("b", blue, mapPaths[2]) })
+                {
+                    var render = PlanetaryRender.RenderDiffracted(colour.Map, colourAspect, colour.Placement, reader.Width, reader.Height, colour.Options.MinnaertK, pupil,
+                        colour.Options.WavelengthM, sensorScale);
+                    WriteTruth(Path.ChangeExtension(output, $".truth.{name}.fits"), render, reader.Width, reader.Height, colour.Placement, colour.Options, colourTime, path);
+                }
+                WriteRecord(Path.ChangeExtension(output, ".frames.csv"), madeColours.Green);
+
+                // Each colour of the twin measured as its real one was.
+                using var colourTwin = SerFrameStream.Open(output);
+                foreach (var (name, channel, realOne) in new[] { ("r", CfaPlaneStream.Red, redTruth), ("g", CfaPlaneStream.Green1, greenTruth), ("b", CfaPlaneStream.Blue, blueTruth) })
+                {
+                    consoleHost.WriteScrollable($"measuring {Path.GetFileName(output)} ({name})");
+                    using var twinPlane = new CfaPlaneStream(colourTwin, channel);
+                    if (await PlanetaryCaptureStatistics.MeasureAsync(twinPlane, measure, progress, ct) is not { } twinOne)
+                    {
+                        consoleHost.WriteError($"{output}: no disk found in its {name} photosites");
+                        return 1;
+                    }
+                    WriteStatistics($"{Path.GetFileName(input)} ({name})", realOne);
+                    WriteStatistics($"{Path.GetFileName(output)} ({name})", twinOne);
+                    WriteComparison(realOne, twinOne);
+                }
+                return 0;
+            }
         });
         return command;
+    }
+
+    // A frame's samples as the SER's bytes: one a sample at 8 bits, two (little-endian) at 16.
+    private static byte[] Pack(ushort[] samples, byte[] buffer, int depth)
+    {
+        for (var i = 0; i < samples.Length; i++)
+        {
+            if (depth == 8)
+            {
+                buffer[i] = (byte)samples[i];
+            }
+            else
+            {
+                BitConverter.TryWriteBytes(buffer.AsSpan(2 * i, 2), samples[i]);
+            }
+        }
+        return buffer;
+    }
+
+    // A comma list, its entries trimmed and the empty ones dropped.
+    private static string[] CommaList(string? text) => (text ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    private static double[] CommaNumbers(string? text) => [.. CommaList(text).Select(t => double.Parse(t, CultureInfo.InvariantCulture))];
+
+    // One channel of an image as a plane of its own.
+    private static float[,] ChannelPlane(Image image, int channel)
+    {
+        var plane = new float[image.Height, image.Width];
+        image.GetChannelSpan(channel).CopyTo(MemoryMarshal.CreateSpan(ref plane[0, 0], plane.Length));
+        return plane;
     }
 
     // The truth, scaled as the frames are (ADU over the sky), with the geometry it was rendered at in its header.
@@ -792,6 +1002,16 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             ? (x, y)
             : null;
     }
+
+    // A photosite colour's channel of a split-CFA frame, by the name a verb takes it by; null for none or an unknown name.
+    internal static int? ParsePlane(string? name) => name?.ToLowerInvariant() switch
+    {
+        "r" or "red" => CfaPlaneStream.Red,
+        "g" or "g1" or "green" => CfaPlaneStream.Green1,
+        "g2" => CfaPlaneStream.Green2,
+        "b" or "blue" => CfaPlaneStream.Blue,
+        _ => null,
+    };
 
     internal static DateTimeOffset? MidCapture(IPlanetaryFrameStream stream)
         => stream.HasTimestamps && stream.TimestampOf(0) is { } first && stream.TimestampOf(stream.FrameCount - 1) is { } last
