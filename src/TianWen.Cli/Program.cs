@@ -149,6 +149,7 @@ var rootCommand = new RootCommand
         new PlanetaryGradeSubCommand(consoleHost).Build(),
         new PlanetaryDewarpSubCommand(consoleHost).Build(),
         new PlanetaryRegistrationSubCommand(consoleHost).Build(),
+        new PlanetaryDerotateSubCommand(consoleHost).Build(),
         new SolveSubCommand(
             consoleHost,
             services.GetRequiredService<TianWen.Lib.Astrometry.PlateSolve.IPlateSolverFactory>(),

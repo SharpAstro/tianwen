@@ -15,19 +15,29 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// viewing geometry, so a point carried along its latitude arrives with the lighting of where it was. Each sample is divided by
 /// the lighting at its source and multiplied by the lighting at its target, by Minnaert's law with the limb fit's k
 /// (<see cref="PlanetaryProjection.Minnaert"/>); carried as brightness, a 10-minute de-rotation of a rendered planet took out
-/// only 46 % of the rotation's difference. A pixel the planet does not cover at the target keeps the source's pixel at the
-/// same place (the sky, and the thin strip at the limb the rotation turns into view, which the source saw on the far side).
-/// Sampling is Lanczos-3, one resample, since a stack's resampling kernel is its own blur (R5 part 3).
+/// only 46 % of the rotation's difference.
+/// </para>
+/// <para>
+/// <b>A pixel is de-rotated only from a source inside <see cref="SourceRadiusLimit"/> of its disk</b>, and says so
+/// (<see cref="Derotation.Covered"/>): nearer the limb a stack's brightness is its seeing-blurred edge, not Minnaert's law, so a
+/// source there is relit by a model it does not follow. Over 31 minutes (18.8 degrees) the side the rotation turns into view
+/// read its sources out there, and a de-rotation that took them doubled the difference it was meant to remove, its relit
+/// samples reaching 195 times the stack's peak. Any other pixel keeps the source's pixel at the same place (the sky, and that
+/// strip), and whatever combines de-rotated stacks takes it from a stack that covers it. Sampling is Lanczos-3, one resample,
+/// since a stack's resampling kernel is its own blur (R5 part 3).
 /// </para>
 /// </summary>
 public static class PlanetaryDerotation
 {
+    /// <summary>How far out, in equatorial radii of the source's disk, a de-rotated pixel may read its source.</summary>
+    public const double SourceRadiusLimit = 0.9;
+
     /// <summary>
     /// <paramref name="image"/>, taken at <paramref name="from"/> with its disk where <paramref name="fromPlacement"/> says, as
     /// the planet would have looked at <paramref name="to"/> with its disk where <paramref name="toPlacement"/> puts it: a
     /// de-rotation and a registration in one resample, the lighting carried by Minnaert's law with <paramref name="minnaertK"/>.
     /// </summary>
-    public static Image Derotate(Image image, in PlanetAspect from, in DiskPlacement fromPlacement, in PlanetAspect to, in DiskPlacement toPlacement, double minnaertK)
+    public static Derotation Derotate(Image image, in PlanetAspect from, in DiskPlacement fromPlacement, in PlanetAspect to, in DiskPlacement toPlacement, double minnaertK)
     {
         ArgumentNullException.ThrowIfNull(image);
         var target = new PlanetaryProjection(to, toPlacement);
@@ -38,15 +48,18 @@ public static class PlanetaryDerotation
         var sourceX = new float[width * height];
         var sourceY = new float[width * height];
         var relight = new float[width * height];
+        var covered = new bool[width * height];
+        var (fromX, fromY, limit) = (fromPlacement.CenterX, fromPlacement.CenterY, SourceRadiusLimit * fromPlacement.EquatorialRadius);
         ParallelFor.Run(height, y =>
         {
             for (var x = 0; x < width; x++)
             {
                 var i = (y * width) + x;
                 if (target.TryUnproject(x, y, out var latitude, out var west) && source.TryProject(latitude, west, out var sx, out var sy)
+                    && ((sx - fromX) * (sx - fromX)) + ((sy - fromY) * (sy - fromY)) < limit * limit
                     && source.Minnaert(sx, sy, minnaertK) is var lightFrom and > 0 && target.Minnaert(x, y, minnaertK) is var lightTo and > 0)
                 {
-                    (sourceX[i], sourceY[i], relight[i]) = ((float)sx, (float)sy, (float)(lightTo / lightFrom));
+                    (sourceX[i], sourceY[i], relight[i], covered[i]) = ((float)sx, (float)sy, (float)(lightTo / lightFrom), true);
                 }
                 else
                 {
@@ -70,10 +83,16 @@ public static class PlanetaryDerotation
                 }
             });
         }
-        return new Image(planes, BitDepth.Float32, image.MaxValue, image.MinValue, image.Pedestal, image.ImageMeta);
+        return new Derotation(new Image(planes, BitDepth.Float32, image.MaxValue, image.MinValue, image.Pedestal, image.ImageMeta), covered);
     }
 
     /// <summary><see cref="Derotate(Image, in PlanetAspect, in DiskPlacement, in PlanetAspect, in DiskPlacement, double)"/> on one disk.</summary>
-    public static Image Derotate(Image image, in PlanetAspect from, in PlanetAspect to, in DiskPlacement placement, double minnaertK)
+    public static Derotation Derotate(Image image, in PlanetAspect from, in PlanetAspect to, in DiskPlacement placement, double minnaertK)
         => Derotate(image, from, placement, to, placement, minnaertK);
 }
+
+/// <summary>
+/// A de-rotated image, and which of its pixels were de-rotated (row-major): those that read their source inside
+/// <see cref="PlanetaryDerotation.SourceRadiusLimit"/> of its disk. The rest are the source's own pixels, where they were.
+/// </summary>
+public sealed record Derotation(Image Image, bool[] Covered);

@@ -725,7 +725,30 @@ R4's keeps minimise the error of a raw stack, and a raw stack's band 1 error is 
 - **Pre-registered:**
   - R1's belt check, moved here with the projection it needs: the belt-edge latitudes on the projected map of the 2022 Jupiter stacks agree with OPAL's within 1 degree, in planetographic latitude.
   - Derotation cuts the half-to-half belt difference RMS by at least half on the 16-minute run.
+  - **Added 2026-09-30, before the first pair of 2024-12-15's stacks was compared** (`planetary-derotate`, single-file stacks of 3,000 frames each, 6.7 s): without de-rotation the difference grows with the gap (3.3 degrees of rotation at 5.4 minutes, 6.6 at 11, 18.8 at 31); de-rotated, what is left is the two stacks' own noise and seeing, about the same at every gap. So the 11-minute pair meets the half and the 31-minute pair beats it clearly. Jupiter's fastest jet drifts about 0.008 degrees a minute against System III, a quarter of a degree over 31 minutes, too little to show.
   - The residual drift profile matches the known zonal wind profile's shape.
+
+### R6 results, part 1: finished stacks carried to one epoch (6b)
+
+**Measured** (2026-09-30) on 2024-12-15's Uranus-C session: single-file stacks (the first 3,000 frames, keep 5 %, plain correlation, Lanczos-3), each at its file's middle, compared inside 0.9 radii of the later one's disk, each on its own disk level. Part 2 (each frame to the capture's epoch, 6a) and part 3 (belt latitudes against OPAL, and the drift against the zonal winds) are still #815's.
+
+- **The geometry both ways** (`PlanetaryProjection`): a pixel to the planetographic latitude, west longitude and lighting it sees, and a latitude and longitude back to a pixel. `PlanetaryRender` casts its rays through it, the same arithmetic, so every render is unchanged.
+- **A de-rotation carries the ALBEDO** (`PlanetaryDerotation`): each output pixel's latitude and longitude at the target instant, found where they lay at the source instant and sampled there by Lanczos-3, divided by Minnaert's lighting where it was and multiplied by the lighting where it goes, with the limb fit's k. On a map rendered ten minutes apart, 0.0706 RMS falls to 0.00044; carried as brightness, 46 % of it went.
+- **A pixel is de-rotated only from a source inside 0.9 radii** (`Derotation.Covered`). Nearer the limb a stack is its seeing-blurred edge, not Minnaert's law, and over 31 minutes the side the rotation turns into view read its sources out there: relit samples reached 195 times the stack's peak and the de-rotation doubled the difference (1.83 of none) before the limit.
+- **North is decided by the agreement, and the limb fit's was right on every pair** (`tianwen planetary-derotate`); turned over, the planet turns backwards and every pair gets worse (1.26 to 1.55 of none).
+- **The pairs**, over the pixels the de-rotation covers:
+
+  | Pair | Apart | Rotation | Not de-rotated | De-rotated | Of none |
+  |---|---|---|---|---|---|
+  | 13:02:24 and 13:07:47 | 5.38 min | 3.25 deg | 0.01108 | 0.00805 | 0.727 |
+  | 12:56:44 and 13:02:24 | 5.67 min | 3.43 deg | 0.01236 | 0.00836 | 0.676 |
+  | 12:56:44 and 13:07:47 | 11.05 min | 6.68 deg | 0.01753 | 0.00812 | **0.463** |
+  | 12:36:43 and 13:07:47 | 31.06 min | 18.78 deg | 0.02853 | 0.01932 | 0.677 |
+
+- **The pre-registered claims:**
+  - **The difference without de-rotation grows with the gap**: it does, 0.011 to 0.029.
+  - **De-rotated, what is left is the same at every gap**: 0.0081 to 0.0084 for the three pairs that share their camera's settings. The 31-minute pair's 0.019 is not the rotation: its earlier capture was taken at an analogue gain of 215 against 263 (4.8 dB less, its stack peaking at 0.41 of full scale against 0.71) and 2.9 degrees warmer, so the two stacks differ in what the camera made of them.
+  - **The 11-minute pair meets the plan's half**: 0.463. **The 31-minute pair beats it clearly: it does not** (0.677), for the camera's reason above; a pair 31 minutes apart at one gain would say more, and this session has none.
 
 ## R7 The blur, measured twice, and its inverse
 
