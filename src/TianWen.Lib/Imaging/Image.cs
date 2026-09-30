@@ -706,6 +706,12 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
         => FromChannel(channel, BitDepth.Float32, maxValue, minValue);
 
     /// <summary>
+    /// Channel <paramref name="channel"/> as a mono image of its own, its plane copied: how a measurement built for one plane
+    /// (a limb fit, a band's fidelity) reads one colour of a colour image.
+    /// </summary>
+    public Image ChannelImage(int channel) => FromChannel((float[,])GetChannelArray(channel).Clone(), MaxValue, MinValue);
+
+    /// <summary>
     /// <see cref="FromChannel(float[,], float, float)"/> with the container depth stated, for a plane
     /// that is whole numbers by construction (a label map, a 0/1 mask) and should be written as such.
     /// </summary>
