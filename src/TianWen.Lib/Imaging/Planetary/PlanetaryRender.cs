@@ -170,89 +170,20 @@ public static class PlanetaryRender
     }
 
     /// <summary>
-    /// The geometry of one render. The disk frame is the sky plane through the planet's centre: u toward the sky's WEST, v
-    /// toward the projected north pole, w toward the observer, in equatorial radii. The body frame shares u (it lies in the
-    /// equator, since the pole lies in the v-w plane) and adds e2, the equator's direction nearest the observer, and the pole.
+    /// The lighting of one render over its geometry, <see cref="PlanetaryProjection"/>: each ray's point on the spheroid, its
+    /// latitude and longitude, and the Sun and observer angles there.
     /// </summary>
-    private readonly struct Scene
+    private readonly struct Scene(in PlanetAspect aspect, in DiskPlacement placement, double minnaertK)
     {
-        private readonly double _centerX, _centerY, _radius;
-        private readonly double _northX, _northY, _westX, _westY;
-        private readonly double _sinD, _cosD, _q2Inverse, _a;
-        private readonly double _centralMeridian;
-        private readonly double _sun1, _sun2, _sun3;
-        private readonly double _k;
-
-        public Scene(in PlanetAspect aspect, in DiskPlacement placement, double minnaertK)
-        {
-            _centerX = placement.CenterX;
-            _centerY = placement.CenterY;
-            _radius = placement.EquatorialRadius;
-            var (sinN, cosN) = Math.SinCos(placement.NorthAngleDeg * Math.PI / 180);
-            _northX = cosN;
-            _northY = sinN;
-            // West is north turned a quarter toward +y: with north up on a y-down screen, west is to the right, as the sky
-            // looks to the eye. A mirrored image has it the other way.
-            var mirror = placement.Mirrored ? -1 : 1;
-            _westX = -sinN * mirror;
-            _westY = cosN * mirror;
-
-            var q = 1 - aspect.Flattening;
-            var d = aspect.SubObserverLatitudeCentric * Math.PI / 180;
-            (_sinD, _cosD) = Math.SinCos(d);
-            _q2Inverse = 1 / (q * q);
-            _a = (_cosD * _cosD) + (_sinD * _sinD * _q2Inverse);
-            _centralMeridian = aspect.CentralMeridianIII;
-
-            // The direction to the Sun, from the disk frame into the body frame: e1 is west, e2 = toward cos D - north sin D,
-            // the pole = toward sin D + north cos D.
-            var (west, north, toward) = PhysicalEphemeris.SunOnTheDisk(aspect);
-            _sun1 = west;
-            _sun2 = (toward * _cosD) - (north * _sinD);
-            _sun3 = (toward * _sinD) + (north * _cosD);
-            _k = minnaertK;
-        }
+        private readonly PlanetaryProjection _projection = new(aspect, placement);
+        private readonly double _k = minnaertK;
 
         public double Radiance(PlanetMap map, double x, double y)
         {
-            var dx = (x - _centerX) / _radius;
-            var dy = (y - _centerY) / _radius;
-            var u = (dx * _westX) + (dy * _westY);
-            var v = (dx * _northX) + (dy * _northY);
-
-            // The ray (u, v, t) meets the spheroid X1^2 + X2^2 + X3^2 / q^2 = 1, with X1 = u, X2 = t cos D - v sin D and
-            // X3 = t sin D + v cos D; the nearer of the two meetings is the larger t.
-            var b = 2 * v * _sinD * _cosD * (_q2Inverse - 1);
-            var c = (u * u) + (v * v * _sinD * _sinD) + (v * v * _cosD * _cosD * _q2Inverse) - 1;
-            var discriminant = (b * b) - (4 * _a * c);
-            if (discriminant < 0)
+            if (!_projection.TrySurface(x, y, out var latitude, out var west, out var mu, out var mu0) || mu <= 0 || mu0 <= 0)
             {
                 return 0;
             }
-            var t = (-b + Math.Sqrt(discriminant)) / (2 * _a);
-            var x1 = u;
-            var x2 = (t * _cosD) - (v * _sinD);
-            var x3 = (t * _sinD) + (v * _cosD);
-
-            // The normal, in the body frame; its latitude is the planetographic latitude.
-            var n1 = x1;
-            var n2 = x2;
-            var n3 = x3 * _q2Inverse;
-            var norm = Math.Sqrt((n1 * n1) + (n2 * n2) + (n3 * n3));
-            n1 /= norm;
-            n2 /= norm;
-            n3 /= norm;
-
-            var mu = (n2 * _cosD) + (n3 * _sinD);
-            var mu0 = (n1 * _sun1) + (n2 * _sun2) + (n3 * _sun3);
-            if (mu <= 0 || mu0 <= 0)
-            {
-                return 0;
-            }
-
-            // A point toward the sky's west has crossed the central meridian already, so its west longitude is the smaller.
-            var west = _centralMeridian - (Math.Atan2(x1, x2) * 180 / Math.PI);
-            var latitude = Math.Asin(Math.Clamp(n3, -1, 1)) * 180 / Math.PI;
             return map.Sample(latitude, west) * Math.Pow(mu0, _k) * Math.Pow(mu, _k - 1);
         }
     }
