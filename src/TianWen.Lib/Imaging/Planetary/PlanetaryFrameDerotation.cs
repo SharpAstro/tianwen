@@ -32,8 +32,8 @@ public sealed record PlanetaryDerotationOptions(CatalogIndex Planet)
 }
 
 /// <summary>
-/// Each frame of a capture carried to one epoch as it is stacked (<see cref="PlanetaryDerotationOptions"/>): the reference frame's
-/// disk (its limb fit, which a rotation leaves where it is) is the stack's, every frame is registered against the reference turned
+/// Each frame of a capture carried to one epoch as it is stacked (<see cref="PlanetaryDerotationOptions"/>): the capture's disk (the
+/// limb fit of its best frames stacked as taken, which a rotation leaves where it is) is the stack's, every frame is registered against the reference turned
 /// to the frame's own instant, and its de-rotation to the epoch (<see cref="DerotationField"/>) goes beneath its registration in
 /// the mesh the stack resamples it by. The stack visits its frames in capture order, so one turned reference serves a run of
 /// them. One frame at a time: the field is refilled for every frame.
@@ -62,24 +62,26 @@ internal sealed class FrameDerotator
     /// <summary>The planet at the epoch every frame is carried to.</summary>
     public PlanetAspect Epoch { get; }
 
-    /// <summary>The stack's disk: the reference frame's limb fit, its north turned over if asked.</summary>
+    /// <summary>The stack's disk: the limb fit of the capture's best frames stacked as taken, its north turned over if asked.</summary>
     public DiskPlacement Placement { get; }
 
-    /// <summary>The reference frame's limb darkening, Minnaert's k, which relights every carried sample.</summary>
+    /// <summary>The capture's limb darkening, Minnaert's k from the same fit, which relights every carried sample.</summary>
     public double MinnaertK { get; }
 
     /// <summary>The reference at the epoch every frame is registered against (<see cref="UseTemplate"/>); this derotator's, never to be released by a caller.</summary>
     public Image Template => _template ?? throw new InvalidOperationException("The derotator has no reference yet.");
 
     /// <summary>
-    /// The de-rotation for <paramref name="stream"/> on the disk of its best frame <paramref name="best"/> (frame
-    /// <paramref name="bestIndex"/>), read but not kept: <see cref="UseTemplate"/> gives it the reference to register against.
-    /// Its north is the limb fit's, which the stacker then checks against the capture itself (<see cref="TurnedOver"/>).
+    /// The de-rotation for <paramref name="stream"/> on the disk <paramref name="disk"/> shows, an image on the grid of its best
+    /// frame (frame <paramref name="bestIndex"/>, whose instant the limb fit's lighting is read at): a stack of its best frames as
+    /// taken, which the stacker fits instead of one frame. Read but not kept: <see cref="UseTemplate"/> gives it the reference to
+    /// register against. Its north is the limb fit's, which the stacker then checks against the capture itself
+    /// (<see cref="TurnedOver"/>).
     /// </summary>
-    public static FrameDerotator Create(IPlanetaryFrameStream stream, Image best, int bestIndex, PlanetaryDerotationOptions options, int alignTileSize, bool whiten)
+    public static FrameDerotator Create(IPlanetaryFrameStream stream, Image disk, int bestIndex, PlanetaryDerotationOptions options, int alignTileSize, bool whiten)
     {
         ArgumentNullException.ThrowIfNull(stream);
-        ArgumentNullException.ThrowIfNull(best);
+        ArgumentNullException.ThrowIfNull(disk);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(options.ReferenceStepSeconds);
         if (!PhysicalEphemeris.Supports(options.Planet))
@@ -91,13 +93,13 @@ internal sealed class FrameDerotator
             throw new InvalidOperationException("A de-rotated stack needs every frame's time, and this capture has none.");
         }
         var bestAspect = PhysicalEphemeris.Compute(options.Planet, bestTime);
-        if (PlanetaryLimbFit.Fit(best, PlanetaryLimbFit.OptionsFor(bestAspect)) is not { } fit)
+        if (PlanetaryLimbFit.Fit(disk, PlanetaryLimbFit.OptionsFor(bestAspect)) is not { } fit)
         {
-            throw new InvalidOperationException($"The reference frame's limb (frame {bestIndex}) could not be fitted, so its disk cannot be de-rotated.");
+            throw new InvalidOperationException($"The capture's limb (on frame {bestIndex}'s grid) could not be fitted, so its disk cannot be de-rotated.");
         }
         var placement = new DiskPlacement(fit.CenterX, fit.CenterY, fit.EquatorialRadius, fit.NorthAngleDeg + (options.TurnNorthOver ? 180 : 0));
         return new FrameDerotator(stream, options.Planet, PhysicalEphemeris.Compute(options.Planet, epochTime), placement, fit.LimbDarkening,
-            best.Width, best.Height, options.ReferenceStepSeconds, alignTileSize, whiten);
+            disk.Width, disk.Height, options.ReferenceStepSeconds, alignTileSize, whiten);
     }
 
     /// <summary>The same de-rotation with the disk's north turned over, as a derotator of its own with no reference yet.</summary>
