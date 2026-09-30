@@ -190,6 +190,59 @@ public static class StatisticsHelper
         return values[k];
     }
 
+    /// <summary>
+    /// Spearman's rank correlation of two series of equal length: Pearson's correlation of their ranks, a tie taking the mean of
+    /// the ranks it spans. NaN for fewer than three pairs, or a series that does not vary.
+    /// </summary>
+    public static double Spearman(ReadOnlySpan<double> a, ReadOnlySpan<double> b)
+    {
+        if (a.Length != b.Length)
+        {
+            throw new ArgumentException("The two series must be of equal length.", nameof(b));
+        }
+        if (a.Length < 3)
+        {
+            return double.NaN;
+        }
+        var (ra, rb) = (Ranks(a), Ranks(b));
+        var mean = (a.Length - 1) / 2.0;
+        double ab = 0, aa = 0, bb = 0;
+        for (var i = 0; i < ra.Length; i++)
+        {
+            ab += (ra[i] - mean) * (rb[i] - mean);
+            aa += (ra[i] - mean) * (ra[i] - mean);
+            bb += (rb[i] - mean) * (rb[i] - mean);
+        }
+        return aa > 0 && bb > 0 ? ab / Math.Sqrt(aa * bb) : double.NaN;
+    }
+
+    // Each value's rank from zero, a tie the mean of the ranks it spans.
+    private static double[] Ranks(ReadOnlySpan<double> values)
+    {
+        var order = new int[values.Length];
+        for (var i = 0; i < order.Length; i++)
+        {
+            order[i] = i;
+        }
+        var keys = values.ToArray();
+        Array.Sort(keys, order);
+        var ranks = new double[values.Length];
+        for (var i = 0; i < order.Length;)
+        {
+            var j = i;
+            while (j + 1 < order.Length && keys[j + 1] == keys[i])
+            {
+                j++;
+            }
+            for (var k = i; k <= j; k++)
+            {
+                ranks[order[k]] = (i + j) / 2.0;
+            }
+            i = j + 1;
+        }
+        return ranks;
+    }
+
     /// <summary>Double-precision counterpart to <see cref="MedianAndMad(Span{float})"/>.</summary>
     public static (double Median, double Mad) MedianAndMad(Span<double> values)
     {

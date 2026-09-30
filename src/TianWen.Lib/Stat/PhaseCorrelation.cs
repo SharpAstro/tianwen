@@ -58,6 +58,15 @@ public static class PhaseCorrelation
     /// must match the value passed to that overload.
     /// </summary>
     public static Complex[] PrepareReferenceSpectrum(ReadOnlySpan<float> reference, int width, int height, bool applyWindow = true)
+        => PrepareReferenceSpectrum(reference, width, height, applyWindow, whiten: true);
+
+    /// <summary>
+    /// <see cref="PrepareReferenceSpectrum(ReadOnlySpan{float}, int, int, bool)"/> for a correlation that is
+    /// <paramref name="whiten"/>ed or not: without whitening the tile's (windowed) mean is taken out first, since a
+    /// pedestal under the window would correlate with itself and pull every peak to zero. Must match the value the
+    /// estimate is made with.
+    /// </summary>
+    public static Complex[] PrepareReferenceSpectrum(ReadOnlySpan<float> reference, int width, int height, bool applyWindow, bool whiten)
     {
         ValidateTile(width, height);
         if (reference.Length != width * height)
@@ -66,7 +75,7 @@ public static class PhaseCorrelation
         }
 
         var spectrum = new Complex[width * height];
-        FillWindowed(reference, spectrum, width, height, applyWindow);
+        FillWindowed(reference, spectrum, width, height, applyWindow, removeMean: !whiten);
         Fft2D.Forward(spectrum, width, height);
         return spectrum;
     }
@@ -88,6 +97,18 @@ public static class PhaseCorrelation
     /// Numerically identical to the allocating overload.
     /// </summary>
     public static Shift Estimate(ReadOnlySpan<Complex> referenceSpectrum, ReadOnlySpan<float> moving, int width, int height, Span<Complex> scratch, bool applyWindow = true)
+        => Estimate(referenceSpectrum, moving, width, height, scratch, applyWindow, whiten: true);
+
+    /// <summary>
+    /// <see cref="Estimate(ReadOnlySpan{Complex}, ReadOnlySpan{float}, int, int, Span{Complex}, bool)"/>, whitened (phase
+    /// correlation, every frequency weighted alike) or not (a plain cross-correlation, each frequency weighted by the power
+    /// both tiles hold there). Whitening sharpens the peak where the detail stands above the noise everywhere; where the
+    /// finest frequencies are noise, as on a single 8-bit planetary frame, it hands the peak to the noise
+    /// (docs/plans/planetary-restoration.md, R4 and R5). Unwhitened, <see cref="Shift.PeakValue"/> is not bounded.
+    /// <paramref name="referenceSpectrum"/> must come from <see cref="PrepareReferenceSpectrum(ReadOnlySpan{float}, int, int, bool, bool)"/>
+    /// with the same <paramref name="whiten"/>.
+    /// </summary>
+    public static Shift Estimate(ReadOnlySpan<Complex> referenceSpectrum, ReadOnlySpan<float> moving, int width, int height, Span<Complex> scratch, bool applyWindow, bool whiten)
     {
         ValidateTile(width, height);
         var n = width * height;
@@ -104,27 +125,99 @@ public static class PhaseCorrelation
         // Forward-transform the moving tile into the scratch; the cross-power spectrum then overwrites it (the
         // cached reference spectrum is never mutated).
         var f2 = scratch[..n];
-        FillWindowed(moving, f2, width, height, applyWindow);
+        FillWindowed(moving, f2, width, height, applyWindow, removeMean: !whiten);
         Fft2D.Forward(f2, width, height);
 
-        // Normalised cross-power spectrum R = F1 * conj(F2) / |F1 * conj(F2)| (F1 = reference spectrum).
+        // The cross-power spectrum R = F1 * conj(F2) (F1 = reference spectrum), normalised to unit magnitude when whitened.
         for (var i = 0; i < n; i++)
         {
             var c = referenceSpectrum[i] * Complex.Conjugate(f2[i]);
-            var mag = c.Magnitude;
-            f2[i] = mag > 1e-12 ? c / mag : Complex.Zero;
+            if (whiten)
+            {
+                var mag = c.Magnitude;
+                c = mag > 1e-12 ? c / mag : Complex.Zero;
+            }
+            f2[i] = c;
         }
 
         Fft2D.Inverse(f2, width, height);
 
-        return PeakShift(f2, width, height);
+        var shift = PeakShift(f2, width, height);
+        if (whiten)
+        {
+            return shift;
+        }
+
+        // Unwhitened, the peak is a disk's autocorrelation, a rounded cone, and the parabola through its three samples locks
+        // toward the whole pixel: along a planet's belts, where only the limb places the frame, it misplaced a noise-free
+        // disk by 0.20 px RMS (RegistrationComparisonTests; docs/plans/planetary-restoration.md, R5 part 3). So the peak is
+        // climbed on the correlation itself, exact between the pixels from its spectrum, which one forward transform of the
+        // surface gives back. The surface peaks at minus the shift.
+        Fft2D.Forward(f2, width, height);
+        var (x, y) = ClimbPeak(f2, width, height, -shift.Dx, -shift.Dy);
+        return shift with { Dx = -x, Dy = -y };
+    }
+
+    /// <summary>
+    /// The maximum near (<paramref name="x"/>, <paramref name="y"/>) of <c>c(s) = Re sum over k of cross(k) exp(2 pi i k.s / n)</c>,
+    /// the correlation surface <paramref name="cross"/> transforms back to, by Newton's method: its gradient and curvature are
+    /// sums of the same terms, so each step is exact. A step that would leave the start's pixel, or a curvature that is not a
+    /// maximum's, stops the climb where it is. A parabola through the peak's neighbours is biased by up to tenths of a pixel on
+    /// a disk's correlation, whose peak is a rounded cone; this is how a correlation's peak is placed between the pixels.
+    /// </summary>
+    internal static (double X, double Y) ClimbPeak(ReadOnlySpan<Complex> cross, int width, int height, double x, double y)
+    {
+        for (var iteration = 0; iteration < 5; iteration++)
+        {
+            double gx = 0, gy = 0, hxx = 0, hyy = 0, hxy = 0;
+            for (var ky = 0; ky < height; ky++)
+            {
+                var wy = 2 * Math.PI * (ky < height / 2 ? ky : ky - height) / height;
+                for (var kx = 0; kx < width; kx++)
+                {
+                    var wx = 2 * Math.PI * (kx < width / 2 ? kx : kx - width) / width;
+                    var c = cross[(ky * width) + kx];
+                    var (sin, cos) = Math.SinCos((wx * x) + (wy * y));
+                    // Re(c e^{i theta}) and Re(i c e^{i theta}).
+                    var re = (c.Real * cos) - (c.Imaginary * sin);
+                    var im = -((c.Real * sin) + (c.Imaginary * cos));
+                    gx += wx * im;
+                    gy += wy * im;
+                    hxx -= wx * wx * re;
+                    hyy -= wy * wy * re;
+                    hxy -= wx * wy * re;
+                }
+            }
+            var det = (hxx * hyy) - (hxy * hxy);
+            if (!(hxx < 0 && det > 0))
+            {
+                break;
+            }
+            var sx = ((hyy * gx) - (hxy * gy)) / det;
+            var sy = ((hxx * gy) - (hxy * gx)) / det;
+            if (Math.Abs(sx) > 1 || Math.Abs(sy) > 1)
+            {
+                break;
+            }
+            (x, y) = (x - sx, y - sy);
+            if (Math.Abs(sx) < 1e-5 && Math.Abs(sy) < 1e-5)
+            {
+                break;
+            }
+        }
+        return (x, y);
     }
 
     // Windows (or copies) a real tile into a complex buffer. The window multiply keeps the original
     // operation order -- w = wx*wy first, then src*w -- so the precomputed-reference path is bit-identical
     // to the single-call path (float multiply is not associative).
-    private static void FillWindowed(ReadOnlySpan<float> src, Span<Complex> dst, int width, int height, bool applyWindow)
+    private static void FillWindowed(ReadOnlySpan<float> src, Span<Complex> dst, int width, int height, bool applyWindow, bool removeMean = false)
     {
+        if (removeMean)
+        {
+            FillWindowedLessMean(src, dst, width, height, applyWindow);
+            return;
+        }
         if (applyWindow)
         {
             // Separable Hann window, per axis, built once per length and shared: the values are a pure
@@ -146,6 +239,32 @@ public static class PhaseCorrelation
             for (var i = 0; i < src.Length; i++)
             {
                 dst[i] = new Complex(src[i], 0);
+            }
+        }
+    }
+
+    // A tile less its mean under the window (the weighted mean, so a constant tile fills with zeros), windowed or not.
+    private static void FillWindowedLessMean(ReadOnlySpan<float> src, Span<Complex> dst, int width, int height, bool applyWindow)
+    {
+        var wx = applyWindow ? HannWindows.GetOrAdd(width, MakeHannWindow) : null;
+        var wy = applyWindow ? HannWindows.GetOrAdd(height, MakeHannWindow) : null;
+        double sum = 0, weights = 0;
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var w = wx is null || wy is null ? 1.0 : wx[x] * wy[y];
+                sum += src[(y * width) + x] * w;
+                weights += w;
+            }
+        }
+        var mean = weights > 0 ? sum / weights : 0;
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var w = wx is null || wy is null ? 1.0 : wx[x] * wy[y];
+                dst[(y * width) + x] = new Complex((src[(y * width) + x] - mean) * w, 0);
             }
         }
     }

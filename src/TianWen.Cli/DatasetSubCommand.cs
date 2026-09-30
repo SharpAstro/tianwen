@@ -90,6 +90,15 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             AllowMultipleArgumentsPerToken = true,
         };
 
+        var sessionOpt = new Option<string[]>("--session")
+        {
+            Description = "Case-insensitive wildcard(s) on the session id (repeatable): build ONLY matching sessions. " +
+                          "For a store of a few named sessions from the same roots, so calibration resolves as it does " +
+                          "in a full bake; the pinned split is still written over every session the archive holds. A " +
+                          "pattern matching no session is reported.",
+            AllowMultipleArgumentsPerToken = true,
+        };
+
         var excludePathOpt = new Option<string[]>("--exclude-path")
         {
             Description = "Case-insensitive wildcard(s) matched against each PATH SEGMENT; a frame " +
@@ -275,7 +284,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             Options =
             {
                 archiveRootOpt, outOpt,
-                minExposureOpt, maxExposureOpt, excludeInstrumeOpt, excludeObjectOpt, excludePathOpt, holdOutOpt, rebuildSessionOpt, parametersOpt, minSubsOpt,
+                minExposureOpt, maxExposureOpt, excludeInstrumeOpt, excludeObjectOpt, excludePathOpt, holdOutOpt, rebuildSessionOpt, sessionOpt, parametersOpt, minSubsOpt,
                 tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, requireDarkOpt, requireGainMatchOpt, maxDarkDeltaTOpt, hotPixelSigmaOpt, warpInterpolationOpt, softwareOpt, discoverOnlyOpt, resumeOpt, fillMissingPsfOpt, forcePsfOpt, remeasureSubsOpt, siteOpt, scratchRootOpt,
                 noStageLightsOpt, noHeaderIndexOpt,
             },
@@ -367,6 +376,11 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 options = options with { RebuildSessionPatterns = [.. rebuild] };
             }
 
+            if (parseResult.GetValue(sessionOpt) is { Length: > 0 } only)
+            {
+                options = options with { SessionPatterns = [.. only] };
+            }
+
             consoleHost.WriteScrollable($"[dataset] scanning {roots.Length} root(s) for raw lights ...");
             // ONE scan, listed here and then handed to the build, which used to scan the archive again.
             var scan = await SessionDiscovery.ScanAsync(options, logger,
@@ -433,8 +447,9 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             // file again. Null when no solver is configured, which simply retains masters as before.
             var result = await DatasetBuildRunner.RunAsync(options, scan, logger, progress, plateSolverFactory, ct);
 
+            // A stopped run says so in its summary line, so no wrapper reading that line can take it for a finished one.
             consoleHost.WriteScrollable(
-                $"[dataset] {result.Registered}/{result.Sessions} sessions" +
+                $"[dataset] {(result.Stopped ? $"STOPPED by {DatasetBuildRunner.StopFileName} after " : "")}{result.Registered}/{result.Sessions} sessions" +
                 $"{(result.Resumed > 0 ? $" (+{result.Resumed} resumed)" : "")} -> {result.TotalTiles} tiles" +
                 $"{(result.Failed > 0 ? $" ({result.Failed} FAILED, see log)" : "")}" +
                 $"{(result.SkippedNoDark > 0 ? $" ({result.SkippedNoDark} skipped: no dark calibration)" : "")}" +
@@ -465,6 +480,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 BuildReportCommand(consoleHost),
                 BuildGradientReportCommand(),
                 BuildDegradeCommand(),
+                BuildNoisePlanesCommand(),
                 BuildPairCommand(),
                 BuildCoverageCommand(consoleHost),
                 BuildMastersCommand(consoleHost),
@@ -1005,6 +1021,66 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             return result.Failed > 0 && result.Sessions.Length == 0 ? 2 : 0;
         });
 
+        return command;
+    }
+
+    /// <summary>
+    /// <c>tianwen dataset noise-planes</c>: E16's per-pixel conditioning planes for a bake's real frames (master and
+    /// half-masters), the calibration estimated from each session's retained master as a runner would, written
+    /// under <c>--out</c> mirroring the tile paths for the trainer's <c>--prepare --sigma-root</c>.
+    /// </summary>
+    private Command BuildNoisePlanesCommand()
+    {
+        var bakeOpt = new Option<string>("--bake")
+        {
+            Description = "The bake: tiles-manifest.jsonl, tiles/ and session-masters/.",
+            Required = true,
+        };
+        var outOpt = new Option<string>("--out", "-o")
+        {
+            Description = "Where the .sigma.f16 planes go, mirroring the bake's tile paths. Never the bake itself.",
+            Required = true,
+        };
+        var sessionFilterOpt = new Option<string[]>("--session")
+        {
+            Description = "Case-insensitive substring of the session id (repeatable); only matching sessions get planes.",
+            AllowMultipleArgumentsPerToken = true,
+        };
+        var framesOpt = new Option<string>("--frames")
+        {
+            Description = "Comma-separated frames to write planes for. Default master,halfmaster_a,halfmaster_b.",
+        };
+        var command = new Command("noise-planes",
+            "Write per-pixel noise planes beside a bake's master and half-master tiles, the noise estimated from the " +
+            "retained linear master as inference estimates it (E16).")
+        {
+            Options = { bakeOpt, outOpt, sessionFilterOpt, framesOpt },
+        };
+        command.SetAction(async (parseResult, ct) =>
+        {
+            var bake = parseResult.Required(bakeOpt);
+            var outRoot = parseResult.Required(outOpt);
+            if (Path.GetFullPath(outRoot).TrimEnd(Path.DirectorySeparatorChar).Equals(
+                    Path.GetFullPath(bake).TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+            {
+                consoleHost.WriteError("--out must not be the bake: the planes are written apart from it");
+                return 1;
+            }
+            var frames = (parseResult.GetValue(framesOpt) ?? "")
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToImmutableArray();
+            var results = await DatasetNoisePlaneExporter.RunAsync(
+                new DatasetNoisePlaneExporter.Options(bake, outRoot, [.. parseResult.GetValue(sessionFilterOpt) ?? []], frames),
+                logger, ct);
+            foreach (var r in results)
+            {
+                consoleHost.WriteScrollable(
+                    $"[noise-planes] {r.SessionId}: {r.Tiles} planes; master sigma {DatasetNoisePlaneExporter.PerChannel(r.MasterSigma)} " +
+                    $"at background {DatasetNoisePlaneExporter.PerChannel(r.Background)}; " +
+                    $"sky plane master {r.SkyPlaneMaster:F3}, half {r.SkyPlaneHalf:F3}");
+            }
+            consoleHost.WriteScrollable($"[noise-planes] {results.Length} sessions, {results.Sum(r => r.Tiles)} planes under {outRoot}");
+            return results.Length == 0 ? 2 : 0;
+        });
         return command;
     }
 

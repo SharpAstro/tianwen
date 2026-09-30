@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Net.WebSockets;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
@@ -339,7 +340,8 @@ namespace TianWen.Lib.Tests
             broadcaster.OnPromptRequested(this, prompt);
             host.PendingPrompt.ShouldBeSameAs(prompt);
 
-            completion.TrySetCanceled();
+            // None, not the test's token: the RUN withdrew the prompt, and the test's own cancellation is a different fact.
+            completion.TrySetCanceled(CancellationToken.None);
             await prompt.Settled.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
             for (var i = 0; i < 100 && host.PendingPrompt is not null; i++)
@@ -359,7 +361,7 @@ namespace TianWen.Lib.Tests
 
             broadcaster.OnPromptRequested(this, first);
             broadcaster.OnPromptRequested(this, second);
-            firstCompletion.TrySetCanceled();
+            firstCompletion.TrySetCanceled(CancellationToken.None);
             await first.Settled.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             await Task.Delay(50, TestContext.Current.CancellationToken);
 

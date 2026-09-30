@@ -585,6 +585,32 @@ public partial class Image
     }
 
     /// <summary>
+    /// One sample for a planetary accumulate, by the kernel chosen. Bilinear goes through <see cref="SubpixelValue(float[,], float, float)"/>
+    /// exactly as before, its own rule for the plane's edge included, so a bilinear stack is unchanged to the bit. Any
+    /// other kernel samples only a position inside the plane (NaN outside, which the accumulate skips).
+    /// </summary>
+    /// <remarks>
+    /// Why the kernel matters there: a stack of frames resampled bilinearly at sub-pixel phases spread evenly is, on
+    /// average, convolved with the bilinear kernel's triangle, whose transfer is sinc squared an axis: 0.81 at 0.25 cycles a
+    /// pixel and 0.41 at Nyquist, where Lanczos-3's stays at 1.0 to 0.3 cycles a pixel (docs/plans/planetary-restoration.md,
+    /// R5 part 3).
+    /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static float AccumulateSample(float[,] plane, float x, float y, WarpInterpolation interpolation)
+    {
+        if (interpolation == WarpInterpolation.Bilinear)
+        {
+            return SubpixelValue(plane, x, y);
+        }
+
+        var height = plane.GetLength(0);
+        var width = plane.GetLength(1);
+        return x >= 0 && x < width && y >= 0 && y < height
+            ? Sample(MemoryMarshal.CreateReadOnlySpan(ref plane[0, 0], plane.Length), width, height, x, y, interpolation)
+            : float.NaN;
+    }
+
+    /// <summary>
     /// Accumulates this image -- translated by (<paramref name="dx"/>, <paramref name="dy"/>) and scaled
     /// by <paramref name="weight"/> -- into caller-owned per-channel accumulators plus a shared per-pixel
     /// weight plane. For output pixel <c>(x, y)</c> it samples this image at <c>(x + dx, y + dy)</c> via
@@ -592,9 +618,11 @@ public partial class Image
     /// neighbourhood is incomplete -> NaN) contributes nothing and its weight is not added, so the
     /// integrated edges stay unbiased. The output grid size is taken from <paramref name="weightAccum"/>.
     /// This is the translate-and-average kernel of the planetary global-align integrator (a pure
-    /// translation; the per-AP mesh warp is a separate Phase 5 primitive).
+    /// translation; the per-AP mesh warp is a separate Phase 5 primitive). <paramref name="interpolation"/>
+    /// other than bilinear samples by that kernel instead (<see cref="AccumulateSample"/>).
     /// </summary>
-    internal void AccumulateTranslatedInto(float[][,] channelAccum, float[,] weightAccum, float dx, float dy, float weight)
+    internal void AccumulateTranslatedInto(float[][,] channelAccum, float[,] weightAccum, float dx, float dy, float weight,
+        WarpInterpolation interpolation = WarpInterpolation.Bilinear)
     {
         var outH = weightAccum.GetLength(0);
         var outW = weightAccum.GetLength(1);
@@ -614,7 +642,7 @@ public partial class Image
                 var ok = true;
                 for (var c = 0; c < channels; c++)
                 {
-                    var v = SubpixelValue(planes[c], sx, sy);
+                    var v = AccumulateSample(planes[c], sx, sy, interpolation);
                     if (float.IsNaN(v))
                     {
                         ok = false;
@@ -690,7 +718,8 @@ public partial class Image
     /// contribute nothing and add no weight, so integrated edges stay unbiased. Used by the per-AP
     /// planetary integrator to fold a frame in with no intermediate warped-image allocation.
     /// </summary>
-    internal void AccumulateByMeshInto(float[][,] channelAccum, float[,] weightAccum, Planetary.DisplacementMesh mesh, float weight)
+    internal void AccumulateByMeshInto(float[][,] channelAccum, float[,] weightAccum, Planetary.DisplacementMesh mesh, float weight,
+        WarpInterpolation interpolation = WarpInterpolation.Bilinear)
     {
         var outH = weightAccum.GetLength(0);
         var outW = weightAccum.GetLength(1);
@@ -711,7 +740,7 @@ public partial class Image
                 var ok = true;
                 for (var c = 0; c < channels; c++)
                 {
-                    var v = SubpixelValue(planes[c], sx, sy);
+                    var v = AccumulateSample(planes[c], sx, sy, interpolation);
                     if (float.IsNaN(v))
                     {
                         ok = false;
@@ -753,7 +782,8 @@ public partial class Image
     /// otherwise preferentially pick the frames where the faint region was brightest). Null = no gate.
     /// </para>
     /// </summary>
-    internal void AccumulateByMeshWeightedInto(float[][,] channelAccum, float[,] weightAccum, Planetary.DisplacementMesh mesh, float[,] frameLocalQuality, float globalWeight, float[,]? signalConfidence = null)
+    internal void AccumulateByMeshWeightedInto(float[][,] channelAccum, float[,] weightAccum, Planetary.DisplacementMesh mesh, float[,] frameLocalQuality, float globalWeight, float[,]? signalConfidence = null,
+        WarpInterpolation interpolation = WarpInterpolation.Bilinear)
     {
         var outH = weightAccum.GetLength(0);
         var outW = weightAccum.GetLength(1);
@@ -776,7 +806,7 @@ public partial class Image
                 var ok = true;
                 for (var c = 0; c < channels; c++)
                 {
-                    var v = SubpixelValue(planes[c], sx, sy);
+                    var v = AccumulateSample(planes[c], sx, sy, interpolation);
                     if (float.IsNaN(v))
                     {
                         ok = false;

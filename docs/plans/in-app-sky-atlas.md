@@ -867,3 +867,68 @@ locking the release scope was *"as long as we track everything we skipped in a p
 - **Do `Grid` and `Stars` lose their toolbar buttons when they join the dropdown?** Folding four
   toggles into one button reclaims two slots and costs a click for two layers that are currently one.
   The keys stay either way.
+
+## Hover highlight: rules in full (moved from CLAUDE.md)
+
+**A hover highlight and the click MUST come from one resolver, or they will disagree.**
+`SkyMapSearchActions.TryResolveHit` is the search; `SelectObjectByClick` turns it into an info panel
+and `ResolveHoverAtScreenPoint` into a `SkyMapHoverTarget` (`SkyMapTab.Hover.cs`). Two hit tests
+written the same way is how a wash over one object and a panel about another happens, which is worse
+than no wash. **Hover does not honour Ctrl** -- the modifier is read at the press, and a hover carries
+none, so guessing is wrong exactly where it matters (picking a star out of a nebula). This is a
+HIGHLIGHT, not hover selection: the click still selects (`docs/plans/in-app-sky-atlas.md`, 2026-09-10).
+
+- **The wash is one `Renderer.FillEllipse`**, which all three renderers implement natively, so it needs
+  no instance stream, no cache key and no shader. **It is the object's OWN ellipse** (since 2026-09-22,
+  the same solver as the selection ring; a disc only for a shapeless object or a star), and **the FITS
+  viewer has the same wash** through its click resolver (`ViewerState.HoverObject`, budgeted by pointer
+  travel, never through a declared region). **Drawn FIRST of the annotation layers**, which is
+  what makes a pointer resting over the search modal or the layer palette harmless with none of them
+  claiming the pointer: the sky behind resolves, the wash paints under the panel covering it.
+- **Only a CHANGED answer asks for a frame** (another object, or onto or off one), and resolves are
+  bounded by the pending frame or, with none pending, by `HoverResolveMinInterval` (8 ms) on the app
+  clock. Every resolve used to ask for one, so every pointer move repainted the whole atlas at
+  display rate and a hover that changed nothing held the Adreno at up to 70 percent (2026-09-23).
+  Assert with `HoverFrameRequests`, never `NeedsRedraw`, which a render sets for reasons of its own.
+  **A crowded field is settled by the RESOLVER, never by delaying the answer** (2026-09-28). An object
+  CONTAINS the pointer when the pointer is on what is drawn for it: within `MarkerHitRadiusPx` (12 px) of
+  its centre, or inside its drawn ellipse. The smallest drawn footprint that contains it wins, and only
+  when nothing does is the forgiving 20 px near tolerance used. A 120 ms settle once hid the flicker the
+  older nearest-centre rule caused (every cluster claimed a 20 px disc of the LMC around it), and it made
+  every hover on the atlas feel sluggish; it is gone, with its delayed-frame hooks on both hosts.
+  **An object that fills the view is hovered but not washed.**
+  The resolve cost itself, measured by
+  `SkyMapHoverResolveBenchmarks` (Release, win-arm64, re-measured 2026-09-28): over an OBJECT ~27 us at
+  any zoom, over bare STAR FIELD 170 us at 1 degree and 153 at 10, falling to ~17 us by 60, and **0 B on
+  every row** (389 us / 225 KB before the fixes below; 9, 157, 134 and 1.7 us on 2026-09-20, the growth
+  since not yet attributed). **The gap is WHETHER THE STAR PASS RUNS, not a
+  per-star cost that varies with zoom** -- the nine index cells come from the unprojected pointer
+  and are identical at every zoom, holding 1094 candidates whatever the FOV. **The DSO pass
+  short-circuits it and floors its hit test at a FIXED 20 SCREEN PX**, whose sky footprint runs
+  0.020 deg at 1 degree FOV to 4.200 at 170, so it reaches something catalogued only when zoomed
+  out. `EffectiveMagnitudeLimit` is the minor term and runs the OTHER way (1 degree is dearer than
+  10 over the same cells). **The star pass reads a Tycho-2 candidate through `TryGetTycho2Star` and
+  looks up only the WINNER in full**: a `CelestialObject` names its constellation by precessing the
+  star to B1875, which a hit test never reads, and that plus `ToCatalogAndValue`'s base91 decode
+  was 320 of the 389 us and 197 of the 225 KB. Both are allocation-free now (`PrecessRadians`, the
+  span `Base91.DecodeBytes`), which every catalogue lookup in the program inherits;
+  `Tycho2LiteLookupParityTests` walks the whole catalogue to pin that the two lookups read the same
+  star. **A cell is walked through `IRaDecIndex.EnumerateCell`, never the indexer, on a per-frame
+  path**: the indexer built a `List` of the cell's Tycho-2 stars, a wrapper and an iterator per cell
+  (the last 27.6 KB of a resolve), the struct (`RaDecCell`) scans the same regions as the caller
+  advances and allocates nothing, and `RaDecCellEnumerationTests` holds the two equal for every
+  cell of the sky against the catalogue bucketed independently, which is how the blob's 254
+  duplicate identifiers and its one unaddressable star were found (`docs/known-limitations.md`).
+  **Three corrections worth keeping: a Debug timing was
+  ~5x pessimistic and blended the two paths; the cliff was attributed to the magnitude limit by
+  reading the code; and a test-host Stopwatch ranked terms by JIT order. Attribute with
+  `SkyMapHoverResolveCostProbe` (`TIANWEN_HOVER_PROBE=1 DOTNET_TieredCompilation=0`).**
+- **The target is dropped when the view moved**, compared at DRAW time against the view it was
+  resolved for, never cleared at each of the five call sites that move the view.
+- **`ShowOnlyObjectsWithPicture` ([O]'s `I` sub-setting) goes through `OverlayEngine.PassesLayerFilter`,
+  and so do the [O]/[D] gates.** Three callers: the desktop's background gather, the browser / offline
+  primitive path, and the CLICK resolver -- the last must ask it or a filtered-out object stays
+  selectable through apparently-empty sky. It does NOT reach the dark-nebula layer, which [O] does not
+  govern (the predicate's [D] branch says why; four comments said the opposite until 2026-09-20), a
+  pinned landmark survives it, and **it is in BOTH gather cache keys** because it strips the CACHED
+  list.

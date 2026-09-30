@@ -1,4 +1,4 @@
-# Atlas: planet detail (light curve, visibility curve, next opposition / GE)
+# Atlas: planet detail (light curve, visibility curve, next opposition / GE, how a planet is drawn, the solar system in 3D)
 
 **Status: PLANNED (raised by the user 2026-08-22).** Tracked here rather than in the next release,
 per the user's instruction: *"for Atlas lets just track it in the plan"*.
@@ -8,6 +8,12 @@ The notes, in the order they arrived:
 - *"TW Atlas: Spark lines"*
 - *"atlas needs the planet light curve and visiblity curve and whatnot"*
 - *"at the very least show when the next opposition/GE is"*
+- 2026-09-28, with a reference of the planets side by side by brightness and by size in the sky:
+  *"improve the display of the planets in the atlas ... possibly also showing the correct Saturn ring
+  angle + the phases of Venus + Mercury + Moon"* (A4)
+- The same day: *"maybe pressing Alt-S gives us a planetary 3d view of the solar system"*, then *"we don't
+  need to show this keyboard shortcut prominently, but maybe have a button when clicking on a planet/the
+  sun/comets"* (A5). The user built something like it in MAUI years ago.
 
 They are one theme: **a selected planet's info panel is much poorer than a selected comet's**, and
 the last note is the floor to hit if only one thing gets done.
@@ -49,7 +55,7 @@ Both were checked in the code before writing this, because each one moves the it
    So the light curve is not only a new widget, it is also the fix for a value the panel already
    shows incorrectly.
 
-## The three items
+## The items
 
 ### A1. Planet vmag sparkline (the "spark lines" note)
 
@@ -96,11 +102,93 @@ classification (inferior planet -> GE, outer planet -> opposition, Moon/Sun -> n
 long-window search from finding 1. Cheapest of the three and independently shippable, which is why
 it should go first.
 
+### A4. How a planet is drawn: disc, phase, Saturn's rings
+
+Issue: #1037.
+
+A1 to A3 are about what the info panel SAYS; this is what the map DRAWS. Today every planet is a dot sized by
+its type (`SkyMapTab.DrawPlanetLabels`: the Sun and the Moon 4 px, Jupiter and Saturn 3, the rest 2), in a
+colour per planet (`SkyMapRenderer.GetPlanetColor`). It looks the same at any zoom, whatever the body's
+distance, phase or brightness.
+
+1. **A disc at its true angular size, where the zoom resolves one.** The apparent diameter is the body's
+   equatorial radius over its geocentric distance, and `VSOP87a.Reduce` already returns that distance. Jupiter
+   runs about 30 to 50 arcseconds, which is some 11 px across at a 1 degree field on a 1,000 px view, so a disc
+   is real from moderate zoom inward. Below a few pixels the dot stays, but sized by the LIVE brightness (A1's
+   magnitude) rather than by type. The disc is also the planet's hit area, as a shaped object's ellipse already
+   is for the resolver.
+2. **A drawn disc per planet, from the palette.** Jupiter's and Saturn's bands, Mars's red, the ice giants'
+   tints, as the reference draws them. Never a texture or an emoji, for the reason the night calendar's Moon mark
+   is drawn: Night mode must be able to tint it (CLAUDE.md, "Night Calendar"). A disc is ellipse fills, which
+   all three renderers draw natively.
+3. **Phase: Venus, Mercury, the Moon, and Mars's gibbous.** The illuminated fraction is (1 + cos i) / 2 for the
+   phase angle i (Sun, body, Earth), from the heliocentric and geocentric distances A1 needs for the magnitude
+   anyway, so the two share one geometry and whichever lands first builds it. The terminator is a half-ellipse
+   whose minor axis is the disc's radius times |cos i|, with the bright limb turned toward the Sun's position
+   angle from the body. `MeeusMoon.GetPhase` already has the Moon's fraction and not its bright-limb angle. The
+   crescent is either composed from ellipse fills or a small primitive added to DIR.Lib's `Renderer`, which is
+   where it belongs if the composition cannot be exact on all three renderers.
+4. **Saturn's rings at their real tilt.** The ring opening B (the Earth's saturnicentric latitude) and the
+   position angle P, per Meeus, Astronomical Algorithms, ch. 45. The ring is an ellipse of axis ratio sin |B|,
+   its back half drawn behind the disc and its front half over it. The rings were edge-on at the ring-plane
+   crossing of March 2025 and are opening again, so a near edge-on ring is today's picture and a good check.
+5. **Info-panel rows:** apparent diameter (40.9"), illuminated fraction for a phased body, ring tilt for Saturn.
+6. **Optional: the planets side by side**, by size in the sky or by brightness, as in the reference: a strip of
+   all of them at the viewing instant, each pressable to select it. Only after 1 to 5, and only if it earns its
+   screen space.
+
+**Tests:** the apparent diameter and the illuminated fraction against published ephemeris values for a date;
+Saturn's B and P and Venus's illuminated fraction against Meeus's worked examples (ch. 45 and ch. 41); and
+pixels for the phase's orientation (the lit limb faces the Sun) and for the ring's front half covering the disc.
+
+### A5. The solar system in 3D
+
+Issue: #1039.
+
+A view that swaps the atlas's sky for the solar system seen from outside it, at the instant the atlas is
+showing: the Sun at the centre, the planets on their orbits, and the selected body highlighted. A "gimmick" in
+the user's word, but one that explains the sky beside it: the line from Earth to Venus, against the line from
+the Sun, is why Venus is a crescent, and the angle between them at the planet is A4's phase angle.
+
+- **The way in is a button in the object panel**, for a planet, the Sun, a comet or the Moon. It opens the view
+  centred on that body. The panel already carries per-kind actions (`ObjectInfoPanel.PanelActions`: Goto, View
+  in Planner, Pin, and Solve and Sync for the mount), so this is one more entry, shown only for a solar-system
+  body (`CatalogIndex.IsSolarSystemObject`, which already covers comets).
+- **Alt+S is a quiet shortcut** to the same view, in the shortcuts help and nowhere else, per the user. It must
+  be a declared node shortcut (`.WithShortcut(InputKey.S, InputModifier.Alt)`): the atlas's layer toggles
+  ignore modifiers (`SkyMapLayers.TryToggleByKey` in `SkyMapTab.HandleKey`), so an arm in the key switch would
+  also toggle the Milky Way, while the router matches a painted node's shortcut before the tab's own keys.
+  Firefox takes Alt+S for its History menu and macOS Option+S types a character; for a convenience with a
+  button beside it, that is acceptable. Escape goes back to the sky with the selection kept.
+- **Positions:** `VSOP87a.GetBody` already returns each planet's heliocentric rectangular coordinates, so no new
+  ephemeris. An orbit is one sampled period (Mercury 88 days to Neptune 165 years), cached per body like the
+  selection path. A comet's orbit comes from the elements the comet repository holds, which is also where its
+  position in this view must come from, or the comet would sit off its own orbit.
+- **The camera:** drag orbits it about the Sun, the wheel zooms, and a scale choice between true distances and a
+  compressed radial scale (Neptune is 75 times Mercury's distance, so at true scale the inner planets are one
+  dot). Bodies are drawn with A4's discs at an exaggerated, labelled size, since at true size none is visible.
+- **Time:** the atlas's time controls drive it (`SkyMapState.TimeOffset`, the strip's steps and landmarks), so
+  a scrub of a month moves the planets, and a play control animates it. One clock for both views, or the
+  orrery and the sky disagree about the instant.
+- **Drawing:** a small CPU perspective projection feeding the 2D primitives all three renderers already have
+  (polylines for orbits, ellipse fills for bodies). No new shaders, so the web and `RgbaImageRenderer` (and
+  therefore tests) get it for free. The view is a mode of the sky map tab rather than a tab of its own, as the
+  FITS viewer's sky backdrop is a mode of the map.
+
+**Tests:** Earth's heliocentric longitude is the Sun's geocentric longitude plus 180 degrees; the angle the view
+draws at a planet between the Sun and Earth is A4's phase angle for the same instant; the panel shows the
+button for a planet, the Sun, a comet and the Moon and not for a galaxy; Alt+S opens the view and leaves the
+Milky Way layer as it was.
+
 ## Sequencing
 
 A3, then A1 (which carries the live-magnitude fix), then A2. A3 is a text row over a detector that
 already exists; A1 is a new per-body sampler plus a cache with two known traps; A2 has a design
 question to settle before it is worth starting.
+
+A4 can run beside them: its first step (the disc at its true size) needs only the distance VSOP87a already
+gives, and its phases share A1's geometry. A5 comes after A4, whose discs it draws, and shares A1's heliocentric
+geometry too.
 
 ## Related
 

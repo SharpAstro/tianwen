@@ -45,7 +45,9 @@ public static class DeviceHubReadingExtensions
             return new CameraReading(
                 ccd, heatsink, setpoint, power, coolerOn, state,
                 camera.UsesGainValue, camera.UsesGainMode, camera.GainMin, camera.GainMax, gain, gainModes,
-                camera.CameraXSize, camera.CameraYSize, camera.RoiConstraints);
+                camera.CameraXSize, camera.CameraYSize, camera.RoiConstraints,
+                camera is IVideoCameraDriver { CanVideoCapture: true } video ? video.VideoBitDepths : [],
+                camera.CanFastReadout);
         }
 
         /// <summary>The focuser at <paramref name="focuserUri"/> as it reads now, or null when it is not connected.</summary>

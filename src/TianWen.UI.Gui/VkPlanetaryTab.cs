@@ -103,11 +103,16 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget<Vulka
     // + whether the jog row is shown). Render-thread only.
     private PreviewOTATelemetry _focuser = PreviewOTATelemetry.Unknown;
 
+    // The stream's depth and high-speed readout, offered only where the camera has a choice (its telemetry's
+    // VideoBitDepths and CanFastReadout). A null depth is the camera's own, shown as its deepest. Render-thread only.
+    private BitDepth? _bitDepth;
+    private bool _highSpeed = true;
+
     // --- RECENTER (Phase C): COM auto-recenter via ROI jog + opt-in coarse mount jog. Render-thread only;
-    // synced to the controller (ConfigureRecenter) once per render. Auto-recenter defaults ON -- it's
-    // zero-disturbance (ROI window only; a no-disk frame yields a centred COM -> no jog) and matches the
-    // SharpCap "Track Planet: Center" default. Mount jog stays opt-in OFF (it moves the scope). ---
-    private bool _autoRecenter = true;
+    // synced to the controller (ConfigureRecenter) once per render. Both are OPT-IN (the user, 2026-09-28): the
+    // operator turns the recenter on once the rig is ready for it, and it costs the capture loop about 20 ms a frame at
+    // full frame. Mount jog moves the scope, and its sign is uncalibrated. ---
+    private bool _autoRecenter;
     private bool _mountJog;
     private static readonly int[] DeadbandPresetsPx = [2, 4, 8, 16, 32];
     private int _deadbandIdx = 1;                 // 4 px
@@ -270,7 +275,9 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget<Vulka
                         ExposureMs: ExposurePresetsMs[_exposureIdx],
                         Gain: (short)_gain,
                         RoiWidth: _roi.Width,
-                        RoiHeight: _roi.Height));
+                        RoiHeight: _roi.Height,
+                        BitDepth: _bitDepth,
+                        HighSpeed: _focuser.CanFastReadout ? _highSpeed : null));
                 }
             });
 
@@ -287,9 +294,26 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget<Vulka
         rows.Add(Stepper("Gain", _gain.ToString(), canEdit, "Gain",
             () => { _gain = Math.Max(0, _gain - GainStep); if (capturing) controller.Capture.SetGain(_gain); },
             () => { _gain = Math.Min(GainMax, _gain + GainStep); if (capturing) controller.Capture.SetGain(_gain); }));
+        // IsDefault first: a camera with no reading yet holds a default array, whose Length throws.
+        if (_focuser.VideoBitDepths is { IsDefault: false, Length: > 1 } depths)
+        {
+            rows.Add(DepthRow(depths, controller, capturing));
+        }
+        if (_focuser.CanFastReadout)
+        {
+            rows.Add(CheckRow("High speed", _highSpeed, "HighSpeed", () =>
+            {
+                _highSpeed = !_highSpeed;
+                if (capturing)
+                {
+                    controller.Capture.SetHighSpeed(_highSpeed);
+                }
+            }));
+        }
         if (capturing)
         {
-            var readout = $"{controller.Capture.MeasuredFps:F0} fps   {controller.Capture.FramesReceived} frm   {controller.Capture.DroppedFrames} drop";
+            var depth = controller.Capture.FrameBitDepth is { } streamed ? $"   {streamed.BitSize} bit" : "";
+            var readout = $"{controller.Capture.MeasuredFps:F0} fps   {controller.Capture.FramesReceived} frm   {controller.Capture.DroppedFrames} drop{depth}";
             rows.Add(Layout.Builder.Text(readout, PanelFontSize * 0.85f, HeaderText, TextAlign.Near, TextAlign.Center).RowH(BaseRowHeight));
         }
 
@@ -410,6 +434,29 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget<Vulka
                 dec,
                 Layout.Builder.Text(value, PanelFontSize, valueColor, TextAlign.Center, TextAlign.Center).WStar().HStar(),
                 inc)
+            .RowH(BaseRowHeight).WithGap(BaseGap * 0.6f);
+    }
+
+    // The stream's depth, one segment per depth the camera streams in; a change while capturing restarts its stream in it.
+    private Layout.Node DepthRow(ImmutableArray<BitDepth> depths, PlanetaryCaptureController controller, bool capturing)
+    {
+        var options = new Layout.ButtonGroupOption<BitDepth>[depths.Length];
+        for (var i = 0; i < depths.Length; i++)
+        {
+            options[i] = new Layout.ButtonGroupOption<BitDepth>(depths[i], $"{depths[i].BitSize} bit") { Hit = new HitResult.ButtonHit($"Depth{depths[i].BitSize}") };
+        }
+        var selected = _bitDepth is { } chosen && depths.Contains(chosen) ? chosen : depths[^1];
+        var style = new Layout.ButtonGroupStyle(CheckOnBg, StepBtnBg, HeaderText, DimText, GuiTheme.Hover(StepBtnBg));
+        return Layout.Builder.HStack(
+                Layout.Builder.Text("Depth", PanelFontSize, DimText, TextAlign.Near, TextAlign.Center).WFixed(52f).HStar(),
+                Layout.Builder.ButtonGroup<BitDepth>(options, selected, depth =>
+                {
+                    _bitDepth = depth;
+                    if (capturing)
+                    {
+                        controller.Capture.SetBitDepth(depth);
+                    }
+                }, style, PanelFontSize * 0.9f).Stretch())
             .RowH(BaseRowHeight).WithGap(BaseGap * 0.6f);
     }
 

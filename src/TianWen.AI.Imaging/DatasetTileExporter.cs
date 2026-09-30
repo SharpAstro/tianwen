@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using TianWen.Lib.Geometry;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -12,6 +13,7 @@ using System.Threading.Tasks;
 using TianWen.AI.Imaging.Onnx;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Dataset;
+using TianWen.Lib.Imaging.Degradation;
 using TianWen.Lib.Stat;
 
 namespace TianWen.AI.Imaging;
@@ -108,6 +110,17 @@ public static class DatasetTileExporter
     /// <param name="Gain">Camera gain (session-uniform).</param>
     /// <param name="ExposureSeconds">Sub exposure in seconds.</param>
     /// <param name="NoiseMad">Per-tile noise proxy: MAD of the stored channel-0 tile.</param>
+    /// <param name="SigmaTile">The tile's per-pixel noise plane (<see cref="DatasetDegradationExporter.SigmaPathFor"/>),
+    /// relative like <paramref name="Tile"/>; null when the frame was fed unstretched, or in a store baked before
+    /// planes were.</param>
+    /// <param name="StretchOrigMin">The FRAME's own stretch floor per channel, as <see cref="ChunkedNafnetRunner"/>'s
+    /// input stretch measured it on this frame; null when it fed the frame unstretched.</param>
+    /// <param name="StretchBalance">The frame's own midtones balance per channel, likewise.</param>
+    /// <param name="NoisePedestal">The frame's own noise calibration
+    /// (<see cref="StretchedNoise.EstimateCalibration"/> on this frame, at a depth of 1): its pedestal,</param>
+    /// <param name="NoiseBackground">each channel's background level, and</param>
+    /// <param name="NoiseSigma">each channel's noise sigma at that background, all linear in unit range. With the
+    /// stretch they reproduce <see cref="SigmaTile"/> through <see cref="StretchedNoise.Plane"/>.</param>
     /// <remarks>
     /// There is deliberately no session median FWHM here, and re-adding one would reintroduce a bug
     /// that already happened. This row is written once, at export time, and a session that resumes
@@ -120,6 +133,13 @@ public static class DatasetTileExporter
     /// <c>median(SubFwhm)</c> over that session's record in <c>stats/psf-sessions.jsonl</c>, joined
     /// on <see cref="SessionId"/>. That is exactly what this column used to hold, so nothing is lost
     /// by its absence -- only the second copy that could drift.
+    /// </para>
+    /// <para>
+    /// The stretch and noise columns are the opposite case, and belong here: they are facts about the ONE frame
+    /// this tile was cut from, fixed when it was stretched, and nothing retains that frame. Before them a half's or
+    /// a sub's plane had to borrow the MASTER's stretch and scale its noise by an assumed depth, which was one of
+    /// the two reasons an estimated plane missed its field's truth by a factor (docs/plans/denoiser-training.md,
+    /// "E16's machinery").
     /// </para>
     /// </remarks>
     public sealed record TileManifestRow(
@@ -134,7 +154,118 @@ public static class DatasetTileExporter
         int Channels,
         int Gain,
         double ExposureSeconds,
-        double NoiseMad);
+        double NoiseMad,
+        string? SigmaTile = null,
+        double[]? StretchOrigMin = null,
+        double[]? StretchBalance = null,
+        double? NoisePedestal = null,
+        double[]? NoiseBackground = null,
+        double[]? NoiseSigma = null);
+
+    /// <summary>
+    /// One frame as the runner would prepare it: the stretched frame the tiles are cut from and, when it was
+    /// stretched, the stretch and the frame's OWN noise calibration its planes are computed with, one per channel.
+    /// </summary>
+    private sealed record PreparedFrame(Image Stretched, StretchedNoise.ChannelStretch[]? Stretches, LinearDegradation.NoiseCalibration[]? Calibrations)
+    {
+        /// <summary>The manifest columns this frame contributes to each of its rows.</summary>
+        public TileManifestRow Stamp(TileManifestRow row, string? sigmaTile) => Stretches is { } s && Calibrations is { Length: > 0 } cal
+            ? row with
+            {
+                SigmaTile = sigmaTile,
+                StretchOrigMin = [.. s.Select(x => x.OrigMin)],
+                StretchBalance = [.. s.Select(x => x.MidtonesBalance)],
+                NoisePedestal = cal[0].PedestalAdu,
+                NoiseBackground = [.. cal.Select(x => x.BackgroundAdu)],
+                NoiseSigma = [.. cal.Select(x => x.OneSubSigmaAdu)],
+            }
+            : row;
+    }
+
+    /// <summary>Subs prepared ahead of the one whose tiles are being written. One is enough to hide a load behind
+    /// the writes; more would only hold more full-canvas frames.</summary>
+    internal const int SubPrefetchDepth = 1;
+
+    /// <summary>
+    /// Each sub of <paramref name="order"/>, loaded through the session's own source (a drizzled session wrote no
+    /// warped scratch, so there the sub is warped again from its raw light with the warp pass's arguments) and
+    /// prepared, on a background task <see cref="SubPrefetchDepth"/> ahead of the consumer. A fault in the producer
+    /// surfaces at the consumer's next read; the consumer leaving early cancels the producer and waits for it, so no
+    /// sub is being prepared after the export ends. The shape of <c>DrizzleStrategy</c>'s frame prefetch.
+    /// </summary>
+    private static async IAsyncEnumerable<(int SubIdx, List<int> Cells, PreparedFrame Prepared)> PrepareSubsAhead(
+        Dictionary<int, List<int>> order,
+        SessionRegistrar.RegisteredSession session,
+        WarpedSubSource warpedSubs,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var channel = System.Threading.Channels.Channel.CreateBounded<(int, List<int>, PreparedFrame)>(
+            new System.Threading.Channels.BoundedChannelOptions(SubPrefetchDepth)
+            {
+                SingleReader = true,
+                SingleWriter = true,
+                FullMode = System.Threading.Channels.BoundedChannelFullMode.Wait,
+            });
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var producer = Task.Run(async () =>
+        {
+            try
+            {
+                foreach (var (subIdx, cells) in order)
+                {
+                    cts.Token.ThrowIfCancellationRequested();
+                    var warped = await warpedSubs.LoadAsync(session.Subs[subIdx], cts.Token);
+                    await channel.Writer.WriteAsync((subIdx, cells, Prepare(warped)), cts.Token);
+                }
+                channel.Writer.TryComplete();
+            }
+            catch (Exception ex)
+            {
+                // Handed to the reader, which rethrows it: nothing here is swallowed.
+                channel.Writer.TryComplete(ex);
+            }
+        }, CancellationToken.None);
+
+        try
+        {
+            await foreach (var item in channel.Reader.ReadAllAsync(cancellationToken))
+            {
+                yield return item;
+            }
+        }
+        finally
+        {
+            cts.Cancel();
+            // The producer catches everything and completes the channel with it, so this only waits for it to stop.
+            await producer;
+        }
+    }
+
+    /// <summary>
+    /// Stretches one frame exactly as <see cref="ChunkedNafnetRunner"/> will at inference and estimates the frame's
+    /// own noise from its own linear pixels, as the runner will too: every plane a bake writes is then the plane the
+    /// product would compute for that frame, with nothing borrowed from another one.
+    /// </summary>
+    private static PreparedFrame Prepare(Image frame)
+    {
+        var unit = ToUnitRange(frame);
+        var absent = unit.AbsentPixels();
+        var (stretched, applied, origMin, balances) = ChunkedNafnetRunner.ApplyInputStretch(unit, absent);
+        if (!applied || origMin is null || balances is null)
+        {
+            return new PreparedFrame(stretched, null, null);
+        }
+        var stretches = new StretchedNoise.ChannelStretch[origMin.Length];
+        for (var c = 0; c < stretches.Length; c++)
+        {
+            stretches[c] = new StretchedNoise.ChannelStretch(balances[c], origMin[c]);
+        }
+        // A frame with no block to estimate from gets no plane; if it is degenerate (all ring, or blank), the tile
+        // guards below say so with the message that names the real fault.
+        return StretchedNoise.TryEstimateCalibration(unit, stretches, absent, out var calibrations)
+            ? new PreparedFrame(stretched, stretches, calibrations)
+            : new PreparedFrame(stretched, null, null);
+    }
 
     /// <summary>Summary of one session's export.</summary>
     public sealed record TileExportResult(
@@ -229,8 +360,8 @@ public static class DatasetTileExporter
         var seed = StableSeed(imaging.Id);
         var rng = new Random(seed);
 
-        var (masterStretched, _, _, _) = ChunkedNafnetRunner.ApplyInputStretch(ToUnitRange(session.Master));
-        var selected = SampleCells(candidates, masterStretched, tileSize, cellsPerSession, rng);
+        var master = Prepare(session.Master);
+        var selected = SampleCells(candidates, master.Stretched, tileSize, cellsPerSession, rng);
 
         var subCount = session.Subs.Length;
         var perCellSubs = new int[selected.Count][];
@@ -256,19 +387,18 @@ public static class DatasetTileExporter
 
         // Master tiles (one per selected cell), then the half-master pair over the SAME cells, so a
         // cell's master / halfA / halfB / sub tiles are all the same footprint on the same grid.
-        var masterTiles = EmitWholeFrameTiles(masterStretched, FrameMaster);
+        var masterTiles = EmitWholeFrameTiles(master, FrameMaster);
         var halfMasterTiles = 0;
         // Stretched one at a time and dropped: each is another full-canvas float image (124 MB on a
-        // 236-sub session), and the session record already holds three unstretched ones.
+        // 236-sub session), and the session record already holds three unstretched ones. Each half is
+        // prepared on ITS OWN pixels: its stretch and its noise are its own, never the master's.
         if (session.HalfMasterA is { } halfMasterA)
         {
-            var (stretched, _, _, _) = ChunkedNafnetRunner.ApplyInputStretch(ToUnitRange(halfMasterA));
-            halfMasterTiles += EmitWholeFrameTiles(stretched, FrameHalfMasterA);
+            halfMasterTiles += EmitWholeFrameTiles(Prepare(halfMasterA), FrameHalfMasterA);
         }
         if (session.HalfMasterB is { } halfMasterB)
         {
-            var (stretched, _, _, _) = ChunkedNafnetRunner.ApplyInputStretch(ToUnitRange(halfMasterB));
-            halfMasterTiles += EmitWholeFrameTiles(stretched, FrameHalfMasterB);
+            halfMasterTiles += EmitWholeFrameTiles(Prepare(halfMasterB), FrameHalfMasterB);
         }
 
         // One tile per selected cell out of a whole-session frame (the master or one half-master), as
@@ -276,19 +406,21 @@ public static class DatasetTileExporter
         // consumer conditions on is the noise level, NoiseMad measures it per tile, and a second
         // derived copy of a session-level fact on a row that is never rewritten is exactly how the
         // FWHM column came to be authoritative while wrong (see TileManifestRow's remarks).
-        int EmitWholeFrameTiles(Image stretched, string frame)
+        int EmitWholeFrameTiles(PreparedFrame prepared, string frame)
         {
             for (var c = 0; c < selected.Count; c++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var cell = selected[c];
                 var file = $"x{cell.X}_y{cell.Y}_{frame}{TileExtension}";
-                var mad = WriteTile(stretched, cell, tileSize, Path.Combine(tilesDir, file), imaging.Id);
-                rows.Add(new TileManifestRow(
-                    Tile: $"tiles/{slug}/{file}", SessionId: imaging.Id, Camera: imaging.Camera,
+                var path = Path.Combine(tilesDir, file);
+                var relative = $"tiles/{slug}/{file}";
+                var mad = WriteTile(prepared.Stretched, cell, tileSize, path, imaging.Id, out var stored);
+                rows.Add(prepared.Stamp(new TileManifestRow(
+                    Tile: relative, SessionId: imaging.Id, Camera: imaging.Camera,
                     Frame: frame, SourceFile: "", CellX: cell.X, CellY: cell.Y, TileSize: tileSize,
                     Channels: channels, Gain: refMeta.Gain, ExposureSeconds: refMeta.ExposureDuration.TotalSeconds,
-                    NoiseMad: mad));
+                    NoiseMad: mad), WritePlane(prepared, stored, tileSize, path, relative)));
             }
             return selected.Count;
         }
@@ -299,28 +431,29 @@ public static class DatasetTileExporter
             ?? throw new InvalidOperationException(
                 $"Session {imaging.Id} carries no WarpedSubs, so its subs cannot be read back for tiling.");
         var subTiles = 0;
-        foreach (var (subIdx, cellsForSub) in subToCells)
+        // The next sub is loaded and prepared while this one's tiles are written: the load is a debayer plus a warp
+        // on a drizzled session (it uses every core) and the writes are one file after another onto the archive
+        // disk (they use one), so taking them in turn left most of the machine idle (a profile of the 2026-09-29
+        // bake: 63 percent of thread time in an idle pool). Every sub is prepared from the same inputs and every
+        // tile written under its own name, and the rows are sorted before the manifest is written, so the
+        // overlap changes no byte of the output.
+        await foreach (var (subIdx, cellsForSub, preparedSub) in PrepareSubsAhead(subToCells, session, warpedSubs, cancellationToken))
         {
-            cancellationToken.ThrowIfCancellationRequested();
             var sub = session.Subs[subIdx];
-            // Through the session's own source, because a drizzled session wrote no warped scratch:
-            // there the sub is warped again here, from the raw light, with the warp pass's arguments
-            // (WarpedSubSource). Still off the calling thread -- it is a file read on a staged
-            // session and a debayer plus a warp on a drizzled one, and neither belongs inline.
-            var warped = await Task.Run(async () => await warpedSubs.LoadAsync(sub, cancellationToken), cancellationToken);
-            var (subStretched, _, _, _) = ChunkedNafnetRunner.ApplyInputStretch(ToUnitRange(warped));
             var sourceName = Path.GetFileName(sub.Source.Path);
             var subMeta = sub.Source.Meta;
             foreach (var cellIndex in cellsForSub)
             {
                 var cell = selected[cellIndex];
                 var file = $"x{cell.X}_y{cell.Y}_s{subIdx:D3}{TileExtension}";
-                var mad = WriteTile(subStretched, cell, tileSize, Path.Combine(tilesDir, file), imaging.Id);
-                rows.Add(new TileManifestRow(
-                    Tile: $"tiles/{slug}/{file}", SessionId: imaging.Id, Camera: imaging.Camera,
+                var path = Path.Combine(tilesDir, file);
+                var relative = $"tiles/{slug}/{file}";
+                var mad = WriteTile(preparedSub.Stretched, cell, tileSize, path, imaging.Id, out var stored);
+                rows.Add(preparedSub.Stamp(new TileManifestRow(
+                    Tile: relative, SessionId: imaging.Id, Camera: imaging.Camera,
                     Frame: FrameSub, SourceFile: sourceName, CellX: cell.X, CellY: cell.Y, TileSize: tileSize,
                     Channels: channels, Gain: subMeta.Gain, ExposureSeconds: subMeta.ExposureDuration.TotalSeconds,
-                    NoiseMad: mad));
+                    NoiseMad: mad), WritePlane(preparedSub, stored, tileSize, path, relative)));
                 subTiles++;
             }
         }
@@ -479,11 +612,45 @@ public static class DatasetTileExporter
     /// <summary>Writes one CHW fp16 tile at <paramref name="cell"/> and returns the MAD of the
     /// stored channel-0 tile (the manifest's per-tile noise proxy).</summary>
     internal static double WriteTile(Image stretched, PixelPoint cell, int tileSize, string path, string sessionId)
+        => WriteTile(stretched, cell, tileSize, path, sessionId, out _);
+
+    /// <summary><see cref="WriteTile(Image, PixelPoint, int, string, string)"/>, handing back the samples it
+    /// stored.</summary>
+    private static double WriteTile(Image stretched, PixelPoint cell, int tileSize, string path, string sessionId, out Half[] stored)
     {
         var halfs = ExtractTileHalfs(stretched, cell, tileSize, out var ch0Buf);
         EnsureTileIsUsable(halfs, cell, sessionId, path);
         File.WriteAllBytes(path, MemoryMarshal.AsBytes<Half>(halfs).ToArray());
+        stored = halfs;
         return Mad(ch0Buf);
+    }
+
+    /// <summary>
+    /// Writes the noise plane of one stored tile beside it (<see cref="DatasetDegradationExporter.SigmaPathFor"/>), from
+    /// the STORED samples, so the plane is computed from exactly what the model is given, with the frame's own stretch
+    /// and calibration at a depth of 1 (the calibration is this frame's). Returns the plane's path relative to the
+    /// output, or null when the frame was fed unstretched and so has no stretch to invert.
+    /// </summary>
+    private static string? WritePlane(PreparedFrame frame, Half[] stored, int tileSize, string tilePath, string tileRelative)
+    {
+        if (frame.Stretches is not { } stretches || frame.Calibrations is not { } calibrations)
+        {
+            return null;
+        }
+        var n = tileSize * tileSize;
+        var channels = new float[stretches.Length][];
+        for (var c = 0; c < channels.Length; c++)
+        {
+            var p = new float[n];
+            for (var i = 0; i < n; i++)
+            {
+                p[i] = (float)stored[(c * n) + i];
+            }
+            channels[c] = p;
+        }
+        var plane = StretchedNoise.Plane(channels, tileSize, tileSize, stretches, calibrations, 1.0);
+        DatasetDegradationExporter.WritePlaneFile(plane, DatasetDegradationExporter.SigmaPathFor(tilePath));
+        return DatasetDegradationExporter.SigmaPathFor(tileRelative);
     }
 
     /// <summary>

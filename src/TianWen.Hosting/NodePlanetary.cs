@@ -28,6 +28,7 @@ namespace TianWen.Hosting;
 internal sealed class NodePlanetary(IDeviceHub hub, NodeJobs jobs, IHostedSession hosted, NodeFrames frames, IExternal external,
     ITimeProvider timeProvider, ILogger<NodePlanetary> logger)
 {
+    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = NodeRuns.HandedToTheNode)]
     public async Task<ResponseEnvelope<PlanetaryStateDto>> StartAsync(PlanetaryRequestDto request, CancellationToken cancellationToken)
     {
         if (Invalid(request.ExposureMs, request.Gain, request.RoiWidth, request.RoiHeight) is { } invalid)
@@ -47,25 +48,38 @@ internal sealed class NodePlanetary(IDeviceHub hub, NodeJobs jobs, IHostedSessio
             return ResponseEnvelope<PlanetaryStateDto>.Fail($"The camera is busy: a {job.Kind} of it is running (job {job.Id})", 409);
         }
 
-        var run = new NodePlanetaryRun(frames, timeProvider, logger);
-        var capture = new PlanetaryCaptureRequest(request.OtaIndex, TimeSpan.FromMilliseconds(request.ExposureMs), request.Gain,
-            request.RoiWidth, request.RoiHeight);
-        if (!run.TryPrepare(capture, data, hub, out var refusal))
+        // The run, and the camera it claims as it prepares, are this start's until the node owns them, and go back on every
+        // other way out, a throw included. Nulled once handed on, the form CA2000 can follow.
+        NodePlanetaryRun? run = new NodePlanetaryRun(frames, timeProvider, logger);
+        try
         {
-            await run.DisposeAsync();
-            return ResponseEnvelope<PlanetaryStateDto>.Fail(refusal, 409);
-        }
-        run.Configure(request.Recenter ?? new PlanetaryRecenterDto());
+            var capture = new PlanetaryCaptureRequest(request.OtaIndex, TimeSpan.FromMilliseconds(request.ExposureMs), request.Gain,
+                request.RoiWidth, request.RoiHeight, request.BitDepth, request.HighSpeed);
+            if (!run.TryPrepare(capture, data, hub, out var refusal))
+            {
+                return ResponseEnvelope<PlanetaryStateDto>.Fail(refusal, 409);
+            }
+            run.Configure(request.Recenter ?? new PlanetaryRecenterDto());
 
-        if (!await hosted.TryStartAsync(run, profileId))
+            if (!await hosted.TryStartAsync(run, profileId))
+            {
+                // Another run won the node between the check above and the start: the claim goes back with this one.
+                return ResponseEnvelope<PlanetaryStateDto>.Fail(NodeRuns.AlreadyGoingOn(hosted.RunningKind), 409);
+            }
+
+            // The node's from here: it disposes the run when the next one replaces it, or as the host stops.
+            var started = run;
+            run = null;
+            logger.LogInformation("Planetary capture with {Camera} at {Exposure} ms", started.State.Camera, request.ExposureMs);
+            return ResponseEnvelope<PlanetaryStateDto>.Accepted(started.State);
+        }
+        finally
         {
-            // Another run won the node between the check above and the start: the claim goes back with this one.
-            await run.DisposeAsync();
-            return ResponseEnvelope<PlanetaryStateDto>.Fail(NodeRuns.AlreadyGoingOn(hosted.RunningKind), 409);
+            if (run is not null)
+            {
+                await run.DisposeAsync();
+            }
         }
-
-        logger.LogInformation("Planetary capture with {Camera} at {Exposure} ms", run.State.Camera, request.ExposureMs);
-        return ResponseEnvelope<PlanetaryStateDto>.Accepted(run.State);
     }
 
     /// <summary>The planetary capture going on, or the last one to end until the node's next run replaces it.</summary>
@@ -226,6 +240,7 @@ internal sealed class NodePlanetaryRun : INodeRun
                 FramesReceived = Capture.FramesReceived,
                 DroppedFrames = Capture.DroppedFrames,
                 FramesPerSecond = JsonNumber.OrNull(Capture.MeasuredFps),
+                BitDepth = Capture.FrameBitDepth,
                 Masters = Volatile.Read(ref _masters),
                 StackedFrames = Volatile.Read(ref _stackedFrames),
                 OffsetX = JsonNumber.OrNull(offsetX),
@@ -276,6 +291,14 @@ internal sealed class NodePlanetaryRun : INodeRun
         if (controls.Recenter is { } recenter)
         {
             Configure(recenter);
+        }
+        if (controls.BitDepth is { } bitDepth)
+        {
+            Capture.SetBitDepth(bitDepth);
+        }
+        if (controls.HighSpeed is { } highSpeed)
+        {
+            Capture.SetHighSpeed(highSpeed);
         }
     }
 

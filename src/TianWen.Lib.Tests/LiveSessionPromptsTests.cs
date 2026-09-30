@@ -1,5 +1,6 @@
 using NSubstitute;
 using Shouldly;
+using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
@@ -23,6 +24,7 @@ public class LiveSessionPromptsTests
     [Fact(Timeout = 10_000)]
     public async Task APromptShowsOnTheViewAndComesOffOnceItSettles()
     {
+        var ct = TestContext.Current.CancellationToken;
         var run = Substitute.For<ISessionTelemetry>();
         var view = new LiveSessionState();
         var app = new GuiAppState { ActiveTab = GuiTab.Planner };
@@ -35,8 +37,9 @@ public class LiveSessionPromptsTests
         app.ActiveTab.ShouldBe(GuiTab.LiveSession, "this computer's own run brings its question to the front");
 
         // Withdrawn by the run (cancelled while it waited): nothing is left waiting on the view.
-        answer.TrySetCanceled();
-        await UntilClearedAsync(view);
+        // None, not the test's token: the RUN withdrew the prompt, and the test's own cancellation is a different fact.
+        answer.TrySetCanceled(CancellationToken.None);
+        await UntilClearedAsync(view, ct);
     }
 
     [Fact]
@@ -65,11 +68,11 @@ public class LiveSessionPromptsTests
         view.PendingPrompt.ShouldBeNull();
     }
 
-    private static async Task UntilClearedAsync(LiveSessionState view)
+    private static async Task UntilClearedAsync(LiveSessionState view, CancellationToken ct)
     {
         while (view.PendingPrompt is not null)
         {
-            await Task.Delay(5, TestContext.Current.CancellationToken);
+            await Task.Delay(5, ct);
         }
     }
 }

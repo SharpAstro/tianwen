@@ -170,7 +170,8 @@ namespace TianWen.Lib.Tests
 
                 await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
 
-                handler.Requests.ShouldContain(r => r.EndsWith("/api/v1/frames/ota/0/latest", StringComparison.Ordinal));
+                handler.Requests.ShouldContain(r => r.EndsWith("/api/v1/frames/ota/0/latest", StringComparison.Ordinal),
+                    "a rig's frame is asked for as bytes: shared memory is for this machine's node");
                 var got = mirror.LastCapturedImages.ShouldHaveSingleItem().ShouldNotBeNull();
                 got.ChannelCount.ShouldBe(1);
                 got.GetChannelSpan(0).SequenceEqual(sent.GetChannelSpan(0)).ShouldBeTrue("the frame must arrive bit for bit");
@@ -214,6 +215,46 @@ namespace TianWen.Lib.Tests
                 mirror.LastCapturedImages[0].ShouldBeSameAs(first, "and must keep the frame already read");
                 first.ShouldNotBeNull();
                 Released(first).ShouldBeFalse("a frame still shown is not given back");
+            }
+        }
+
+        /// <summary>
+        /// A mirror of this computer's own node asks for every frame through shared memory, and a frame the node names in a
+        /// slot is copied out of it (P4b, #932). A rig's mirror never asks (the test above).
+        /// </summary>
+        [Fact]
+        public async Task AFrameTheNodeNamesInASlotIsCopiedOutOfIt()
+        {
+            using var writer = new FrameSlotWriter($"tianwen-test-{Guid.NewGuid():N}", Path.GetTempPath());
+            var sent = CameraFrame(offset: 3);
+            var slot = FrameSlotDto.Of(7, writer.Write(7, sent));
+            string? asked = null;
+            var (mirror, _) = BuildMirror(onThisMachine: true, respond: request =>
+            {
+                if (!IsFrameRoute(request))
+                {
+                    return Json(ResponseEnvelope<SessionStateDto>.Ok(StateWith()));
+                }
+                asked = request.RequestUri?.Query;
+                var response = new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(JsonSerializer.SerializeToUtf8Bytes(slot, HostingJsonContext.Default.FrameSlotDto)),
+                };
+                response.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(FrameStreamWire.SlotContentType);
+                response.Headers.Add(TianWenNodeClient.PreviewFrameNumberHeader, "7");
+                return response;
+            });
+
+            await using (mirror)
+            {
+                mirror.Previews = new PreviewOptions();
+                await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+
+                asked.ShouldNotBeNull().ShouldContain($"{FrameStreamWire.CarrierQuery}={FrameStreamWire.SharedMemory}");
+                var shown = mirror.LastCapturedImages[0].ShouldNotBeNull("the frame came out of the slot");
+                shown.GetChannelSpan(0).SequenceEqual(sent.GetChannelSpan(0)).ShouldBeTrue("bit for bit the frame the node wrote");
+                mirror.FramesFromSharedMemory.ShouldBe(1);
+                mirror.LastCapturedImageNumber(0).ShouldBe(7);
             }
         }
 

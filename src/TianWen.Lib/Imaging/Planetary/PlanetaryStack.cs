@@ -18,6 +18,46 @@ public sealed record PlanetaryStackOptions
     /// <summary>Spacing (px) of the alignment-point grid cells -- at most one AP per cell.</summary>
     public int AlignmentPointSpacing { get; init; } = 24;
 
+    /// <summary>
+    /// Whether the global aligner and the alignment points register by phase correlation (whitened, every frequency weighted
+    /// alike, the default) or by a plain cross-correlation. On a single 8-bit frame the finest frequencies are noise, and
+    /// whitening hands the peak to it: a 16 px patch at 2022-09-03's level is placed to 1.1 px RMS whitened, 0.35 px plain
+    /// (<c>AlignmentPointMatchingTests</c>; docs/plans/planetary-restoration.md, R5).
+    /// </summary>
+    public bool WhitenedCorrelation { get; init; } = true;
+
+    /// <summary>
+    /// Pool each alignment point's warp over the frames either side of a frame, a Gaussian of this many frames in capture order
+    /// (0, the default, takes each frame's own match). A warp stays coherent for a few frames while one frame's match is as
+    /// uncertain as the warp is large (docs/plans/planetary-restoration.md, R5 part 2). Every frame of the capture is matched
+    /// first, selected or not; the alignment-point mesh path only, not drizzle.
+    /// </summary>
+    public double WarpPoolFrames { get; init; }
+
+    /// <summary>
+    /// Put the stack on each alignment point's median geometry over the capture's frames, not the reference frame's: each
+    /// point's median warp is taken out of every frame's, so a feature lands where it lies on average, not where the
+    /// reference's own warp put it (the user's centroid idea, R5 part 2). The alignment-point mesh path only.
+    /// </summary>
+    public bool MedianGeometry { get; init; }
+
+    /// <summary>
+    /// The kernel each frame is resampled by as it is folded in, global and alignment-point paths alike (bilinear, the default,
+    /// as every stack before R5 part 3). A stack of frames resampled bilinearly at sub-pixel phases spread evenly is blurred
+    /// by the kernel's triangle, sinc squared an axis in transfer; Lanczos-3 keeps the transfer to 0.3 cycles a pixel
+    /// (docs/plans/planetary-restoration.md, R5 part 3). Not drizzle, which scatters instead of resampling.
+    /// </summary>
+    public WarpInterpolation Interpolation { get; init; } = WarpInterpolation.Bilinear;
+
+    /// <summary>
+    /// Register every frame, and match every alignment point, against a stack of this many of the best-graded frames (each
+    /// aligned to the best frame first) instead of the best frame alone (0 or 1, the default). A stack carries a fraction of one
+    /// frame's noise and its local warp averaged out, and it is what AutoStakkert registers to: its session file for
+    /// 2022-09-03's Red names the best 8,572 of 12,990 frames. The plan's candidate references are the best frame, the stack
+    /// and the medians (docs/plans/planetary-restoration.md, R5).
+    /// </summary>
+    public int ReferenceFrames { get; init; }
+
     /// <summary>Maximum number of alignment points to track.</summary>
     public int MaxAlignmentPoints { get; init; } = 64;
 
@@ -26,6 +66,13 @@ public sealed record PlanetaryStackOptions
 
     /// <summary>Displacement-mesh node spacing (px). Smaller = finer distortion correction, more cost.</summary>
     public float MeshNodeSpacing { get; init; } = 24f;
+
+    /// <summary>
+    /// How far an alignment point's displacement reaches into the mesh, px: the Gaussian that blends the points' residuals
+    /// (<see cref="DisplacementMesh.Build"/>). A warp that varies over less than this cannot be followed, however well each
+    /// point is matched (R5 part 2: 2022-09-03's warp is correlated over 9 px or less).
+    /// </summary>
+    public float MeshInfluence { get; init; } = 48f;
 
     /// <summary>
     /// Per-AP "best-of" weighting: when true (default) each output pixel is weighted by how locally sharp

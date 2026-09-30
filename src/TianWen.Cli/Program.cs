@@ -137,6 +137,18 @@ var rootCommand = new RootCommand
             new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
                 services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
                 services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>())).Build(),
+        new PlanetaryCorpusSubCommands(consoleHost, services.GetRequiredService<ILogger<PlanetaryCorpusSubCommands>>()).BuildSurvey(),
+        new PlanetaryCorpusSubCommands(consoleHost, services.GetRequiredService<ILogger<PlanetaryCorpusSubCommands>>()).BuildCrop(),
+        new PlanetaryCorpusSubCommands(consoleHost, services.GetRequiredService<ILogger<PlanetaryCorpusSubCommands>>()).BuildConvert(),
+        new PlanetaryGeometrySubCommands(consoleHost).BuildLimb(),
+        new PlanetaryGeometrySubCommands(consoleHost).BuildAperture(),
+        new PlanetaryGeometrySubCommands(consoleHost).BuildRenderTruth(),
+        new PlanetaryGeometrySubCommands(consoleHost).BuildSeeing(),
+        new PlanetaryGeometrySubCommands(consoleHost).BuildDegrade(),
+        new PlanetaryMeasureSubCommand(consoleHost).Build(),
+        new PlanetaryGradeSubCommand(consoleHost).Build(),
+        new PlanetaryDewarpSubCommand(consoleHost).Build(),
+        new PlanetaryRegistrationSubCommand(consoleHost).Build(),
         new SolveSubCommand(
             consoleHost,
             services.GetRequiredService<TianWen.Lib.Astrometry.PlateSolve.IPlateSolverFactory>(),

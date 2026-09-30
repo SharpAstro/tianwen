@@ -495,6 +495,12 @@ So an AUTO mode should:
 - [`multi-source-previewer.md`](multi-source-previewer.md) - SER playback + `IPreviewSource`; the
   live stack displays through it, and `LiveStackPreviewSource` is the push-stream its follow-up
   note anticipated.
+- [`planetary-restoration.md`](planetary-restoration.md) - the truth and the measurements this
+  stacker's parameters are chosen on (2026-09-28): a Hubble or Cassini map rendered at a capture's
+  geometry and degraded with the capture's own measured seeing, metrics validated against it, the
+  blur measured twice and inverted, and the wavelet gains derived from it. Its R1 and R6 are
+  section E's disk fit and de-rotation (#815); its R4, R5 and R8 give the AUTO mode (#817) the
+  known truth it asks to be judged against.
 
 ## Live-capture drivers and the recenter loop (shipped)
 
@@ -543,8 +549,8 @@ The Canon detail in particular is a list of things that fail SILENTLY, so it is 
   iteration) and/or a **single-flight, fired-non-blocking** mount pulse. The new `IVideoCameraDriver.VideoRoi`
   exposes the live window so the loop knows its remaining pan range. **One mount actuator**:
   `MountActions.PulseGuideArcsecAsync` (arcsec → guide-rate-sized capped `StartPulseGuideAsync`) serves both the auto
-  loop and the manual `JogMountSignal` (RECENTER panel N/S/E/W buttons, focuser-jog routing model). Auto-recenter
-  defaults ON (ROI-only, zero mount disturbance; a no-disk frame → centred COM → no jog); mount jog is opt-in OFF.
+  loop and the manual `JogMountSignal` (RECENTER panel N/S/E/W buttons, focuser-jog routing model). Auto-recenter is
+  opt-in OFF since 2026-09-28 (live-planetary-capture.md, "Frame rate at full frame"); mount jog is opt-in OFF.
   The mount **sign is uncalibrated** (`FlipRa`/`FlipDec` + the per-axis cap bound a wrong guess; a guider-style
   calibration is the deferred refinement). `ConfigureRecenter`/`AttachMount` stage config + the mount on Start.
 - **Live viewer integration** (`LiveStackPreviewSource : IPreviewSource`, in `.UI.Abstractions`): a RAW/STACK

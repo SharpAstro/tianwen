@@ -266,3 +266,29 @@ and removed by hand, which an unattended night cannot do.
 - **The zone moves with the seeing.** A constant threshold, in steps or in °C, is right on one night only.
 - **A tolerance is quantized by the focuser and blurred by the night.** 7, 8 and 9 % can be the same step (F3).
   Never tune it finer than one step's `t(n)`, and never below what the night's scatter lets the trend resolve.
+
+## Moved from CLAUDE.md, 2026-09-29
+
+**Focus-drift refocus trigger (trend, not single-frame):** the imaging loop compares
+`FocusDriftDetector.EstimateTrendHfd` -- a least-squares fit of median HFD over the last
+`SessionConfiguration.FocusDriftSampleSize` frames (default 30; only samples comparable to the
+baseline participate -- same exposure, gain AND filter position (`FrameMetrics.IsComparableTo`, so a
+filter ladder never compares one filter's chromatic focus shift against another's baseline), enough
+stars -- and below `FocusDriftMinSamples` of them
+it falls back to the newest frame's raw HFD) -- against the per-target baseline at
+`FocusDriftThreshold` (the NINA `AutofocusAfterHFRIncreaseTrigger` analogue), so one bloated frame
+(wind gust, passing haze) cannot trigger a spurious refocus. Two invariants: **the LSQ divisor is the
+INCLUDED-sample count, not the window length** (dividing by the window length biases slope and
+intercept whenever a sample is skipped -- the bug in the original inline implementation); and **the
+history window is cleared on a drift-triggered refocus and on target change**, so the fit never sees
+frames from a different focus position (a stale high-HFD window fitted against the fresh post-refocus
+baseline re-triggers immediately -- refocus oscillation). The window is a `CircularBuffer<T>`, the
+lock-free most-recent-N ring (torn-free `Snapshot`; the GUI render thread polls `Session.GuideSamples`
+off the same type every frame). Pinned by `FocusDriftDetectorTests` + `CircularBufferTests`.
+**There is one baseline per ACQUISITION SETTING, not per telescope** (`AcquisitionSetting`, exactly what
+`IsComparableTo` compares, keyed with the telescope and observation): a frame is compared with its own
+setting's baseline, and a setting with none collects one from its first `BaselineHfdFrameCount` frames
+without disturbing the others. One per telescope switched the trigger off after every AutoFocus (its 2 s
+verification frame is never comparable to a science sub) and never finished a baseline under a ladder
+changing slot every frame (#820). A drift refocus and a target change drop EVERY setting's baseline for
+the telescope. Assert a refocus through `Session.DriftRefocusCount`, never through a baseline existing.

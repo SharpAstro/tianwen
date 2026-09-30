@@ -20,6 +20,8 @@ Usage:
   python n2n_starsplit.py --cache <eval cache> --models slug=ckpt.pt [...] [--match 4,10]
 """
 import argparse
+import os
+
 import numpy as np
 import torch
 
@@ -40,6 +42,24 @@ AUTO_FLOOR_MAX = 0.05
 FLOOR_MARGIN = 2.0     # a session's confirmed fraction must clear this times its coincidence floor
 BLEND_PX = 2.5         # a broad unmatched peak this close to a catalogued star is a blend
 BLEND_DEEPER = 1.0     # "catalogued" reaches this many magnitudes past the session's match cap
+
+# Detail kept, added 2026-09-28 after E15's 1:1 sheets showed every model, the shipped one included,
+# smoothing away the Orion Nebula's bright filaments while no column here moved: the columns above score
+# LOCAL MAXIMA, and a filament is a ridge. Per band of the H2 decomposition and per brightness level, the
+# share of the signal's band power the output keeps, against the independent half B:
+#   kept = sum(Y_b * B_b) / sum(A_b * B_b)
+# With A = S + nA and B = S + nB, nB is independent of A and of the model's output, so the numerator is
+# E[Y_b S_b] and the denominator E[S_b^2]: 1.0 keeps the band's signal (the identity and a perfect
+# denoiser both do), below 1 smooths it away, above 1 amplifies it. Removing noise cannot move it, which
+# is the point. The level of a pixel is B's own low-pass (independent of A); star-like peaks are masked,
+# since the columns above already score them; and a bin whose denominator is not clearly signal prints
+# '-' (the DoG bands are spatially correlated, so the z threshold is set high rather than read as a test).
+DETAIL_BANDS = ((0.0, 1.0), (1.0, 2.0), (2.0, 4.0))
+DETAIL_LEVELS = (0.30, 0.45, 0.60)   # stretched units; the export stretch puts a frame's median at 0.25
+DETAIL_LEVEL_SIGMA = 3.0
+DETAIL_MASK_PX = 3
+DETAIL_MIN_PIXELS = 2000
+DETAIL_MIN_Z = 10.0
 
 
 def audit_extended(idx, session_of, mask, cap_of, confirmed, compact, extended, crop_shape,
@@ -84,12 +104,120 @@ def audit_extended(idx, session_of, mask, cap_of, confirmed, compact, extended, 
           'stars; near the STARS column it is, and a structure claim resting on it is a claim about stars.')
 
 
+def detail_bands(lum):
+    """The DETAIL_BANDS of a stack of luminance tiles, one (n, h, w) array per band."""
+    return [np.stack([M.dog(x, s1, s2) for x in lum]) for s1, s2 in DETAIL_BANDS]
+
+
+def detail_bins(lb, stars, extended):
+    """Per pixel, the index of its DETAIL_LEVELS bin by B's low-pass, or -1 where a star-like peak is
+    masked. Every detected peak is masked except those the split called extended, so a session dropped
+    from the split (no extended population) masks all of its peaks: conservative, never star-polluted."""
+    from scipy.ndimage import gaussian_filter
+    r = DETAIL_MASK_PX
+    out = np.empty(lb.shape, np.int8)
+    for t in range(len(lb)):
+        b = np.digitize(gaussian_filter(lb[t], DETAIL_LEVEL_SIGMA), DETAIL_LEVELS).astype(np.int8)
+        keep = set(zip(extended[t][0].tolist(), extended[t][1].tolist()))
+        ys, xs, _ = stars[t]
+        for y, x in zip(ys.tolist(), xs.tolist()):
+            if (y, x) not in keep:
+                b[max(0, y - r):y + r + 1, max(0, x - r):x + r + 1] = -1
+        out[t] = b
+    return out
+
+
+def detail_reference(a_bands, b_bands, bins):
+    """Per (band, level): the denominator sum(A_b * B_b), its z (sum over root sum of squares), and the
+    pixel count, computed once for every model."""
+    ref = []
+    for k in range(len(DETAIL_BANDS)):
+        prod = a_bands[k] * b_bands[k]
+        row = []
+        for lvl in range(len(DETAIL_LEVELS) + 1):
+            sel = bins == lvl
+            p = prod[sel]
+            den = float(p.sum())
+            z = den / (float(np.sqrt((p.astype(np.float64) ** 2).sum())) + 1e-30)
+            row.append((den, z, int(sel.sum())))
+        ref.append(row)
+    return ref
+
+
+def detail_kept(lum_out, b_bands, bins, ref):
+    """Detail kept per (band, level) for one output, None where the bin is unreadable."""
+    y_bands = detail_bands(lum_out)
+    out = []
+    for k in range(len(DETAIL_BANDS)):
+        row = []
+        for lvl in range(len(DETAIL_LEVELS) + 1):
+            den, z, n = ref[k][lvl]
+            if n < DETAIL_MIN_PIXELS or z < DETAIL_MIN_Z or den <= 0:
+                row.append(None)
+                continue
+            row.append(float((y_bands[k] * b_bands[k])[bins == lvl].sum()) / den)
+        out.append(row)
+    return out
+
+
+def detail_line(label, kept, what='detail kept'):
+    """One line per output: the levels left to right, the bands of each level comma-separated. No
+    slash and no '%:' anywhere, so the model-row readers (e13_read / e14_read / e15_read) never match it."""
+    cells = []
+    for lvl in range(len(DETAIL_LEVELS) + 1):
+        cells.append(','.join('   -' if kept[k][lvl] is None else f'{kept[k][lvl]:4.2f}' for k in range(len(DETAIL_BANDS))))
+    return f'{"":14s} {what} {label:>10s}: ' + ' | '.join(cells)
+
+
+def error_terms(lum_out, a_bands, b_bands, bins, ref):
+    """Per (band, level), the three sums a blend's error against the truth needs, or None where the bin is
+    unreadable: sum (A-B)^2, sum (A-B)(Y-A), sum (Y-A)^2.
+
+    Detail kept cannot tell a model that keeps the signal AND removes the noise from one that leaves the level
+    alone: both keep 1.0 (E16a, 2026-09-28, where convmap kept 0.99 in the FINEST band above 0.30). The error
+    against the truth can, and half B measures it without the truth: B's noise is independent of Y (made from
+    A), so sum (Y-B)^2 = sum (Y-S)^2 + sum n_B^2, and with the two halves carrying equal noise (they split the
+    subs in two) sum n_B^2 = sum (A-B)^2 / 2. A blend Y_al = A + al (Y - A) then has
+        error left = [sum (Y_al - B)^2 - sum (A-B)^2 / 2] / [sum (A-B)^2 / 2]
+                   = 1 + (4 al sum (A-B)(Y-A) + 2 al^2 sum (Y-A)^2) / sum (A-B)^2,
+    1.0 for the input, 0 for the truth, and it charges lost signal and noise left alike."""
+    y_bands = detail_bands(lum_out)
+    out = []
+    for k in range(len(DETAIL_BANDS)):
+        d, e = a_bands[k] - b_bands[k], y_bands[k] - a_bands[k]
+        row = []
+        for lvl in range(len(DETAIL_LEVELS) + 1):
+            den, z, n = ref[k][lvl]
+            if n < DETAIL_MIN_PIXELS or z < DETAIL_MIN_Z or den <= 0:
+                row.append(None)
+                continue
+            sel = bins == lvl
+            dd, ee = d[sel].astype(np.float64), e[sel].astype(np.float64)
+            row.append((float((dd * dd).sum()), float((dd * ee).sum()), float((ee * ee).sum())))
+        out.append(row)
+    return out
+
+
+def error_left(terms, al):
+    """error_terms' ratio for the blend at al (1.0 is the model at full strength)."""
+    return [[None if t is None else 1.0 + (4.0 * al * t[1] + 2.0 * al * al * t[2]) / t[0] for t in row] for row in terms]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--cache', required=True)
     ap.add_argument('--models', nargs='+', default=None, help='slug=checkpoint.pt (required unless --audit-extended)')
     ap.add_argument('--blend', default='0.2,0.4,0.7,1.0')
     ap.add_argument('--match', default='4,10', help='noise-removal percentages to compare AT')
+    ap.add_argument('--plane-truth-anchor', action='store_true',
+                    help='E16 evaluation condition: scale each session\'s estimated half-A planes to the half pair\'s own '
+                         'noise over its sky (an ORACLE anchor, shape kept); only a --cond-map checkpoint reads planes')
+    ap.add_argument('--anchor-only', action='store_true',
+                    help='score no model: print each session\'s truth-over-estimate factor (--plane-truth-anchor\'s, so '
+                         'its sky and star masks) and stop. How far the estimated planes are from their fields\' truth')
+    ap.add_argument('--detail-at', default='15',
+                    help='noise-removal percentages at which detail kept is ALSO read, beside full strength: a model '
+                         'that removes more noise loses more detail by construction, so recipes compare here')
     ap.add_argument('--mag-max', default='auto',
                     # Formatted twice: once here, and again by argparse when it renders help. A literal
                     # percent must therefore survive BOTH, so it is written %%%% and not %%.
@@ -108,8 +236,10 @@ def main():
     ap.add_argument('--legacy-split', action='store_true',
                     help='the split before 2026-09-26 (no floor rule, no blend rule), to reproduce an older table')
     a = ap.parse_args()
-    if not a.models and not a.audit_extended:
-        ap.error('--models is required unless --audit-extended')
+    if a.anchor_only:
+        a.plane_truth_anchor = True
+    if not a.models and not a.audit_extended and not a.anchor_only:
+        ap.error('--models is required unless --audit-extended or --anchor-only')
 
     dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     mm, meta = S.open_cache(a.cache)
@@ -265,6 +395,24 @@ def main():
     base_noise = float(np.mean([M.bg_stats(t)[1] for t in raw.mean(axis=1)]))
     raw_amp = {k: M.measure(raw.mean(axis=1), t, lb)[0][0] for k, t in pops.items()}
 
+    from scipy.ndimage import gaussian_filter
+    raw_lum = raw.mean(axis=1)
+    d_bins = detail_bins(lb, stars, extended)
+    d_a, d_b = detail_bands(raw_lum), detail_bands(lb)
+    d_ref = detail_reference(d_a, d_b, d_bins)
+    edges = ['<{:.2f}'.format(DETAIL_LEVELS[0])] + [f'{lo:.2f}-{hi:.2f}' for lo, hi in zip(DETAIL_LEVELS, DETAIL_LEVELS[1:])] + \
+            ['>={:.2f}'.format(DETAIL_LEVELS[-1])]
+    print('DETAIL KEPT, against half B: sum(Y*B)/sum(A*B) per band, 1.0 keeps the signal, below 1 smooths it away.')
+    print(f'  levels (B low-pass): ' + ' | '.join(
+        f'{e} {d_ref[0][lvl][2]:,} px, z {"/".join(f"{d_ref[k][lvl][1]:.0f}" for k in range(len(DETAIL_BANDS)))}'
+        for lvl, e in enumerate(edges)))
+    print(f'  each level shows bands {", ".join(f"{s1:g}-{s2:g} px" for s1, s2 in DETAIL_BANDS)}; star-like peaks masked '
+          f'({int((d_bins < 0).sum()):,} px); "-" is a bin under {DETAIL_MIN_PIXELS} px or z {DETAIL_MIN_Z:g}')
+    g1 = np.stack([gaussian_filter(x, 1.0) for x in raw_lum])
+    print(detail_line('gauss1 ref', detail_kept(g1, d_b, d_bins, d_ref)))
+    print(detail_line('gauss1 ref', error_left(error_terms(g1, d_a, d_b, d_bins, d_ref), 1.0), what='error left '))
+    print()
+
     alphas = [float(x) for x in a.blend.split(',') if x.strip()]
     targets = [float(x) for x in a.match.split(',') if x.strip()]
     # The last column is the model at FULL strength (the last --blend, 1.0 by default): how much noise
@@ -274,9 +422,41 @@ def main():
     print(f"{'model':14s} " + ' '.join(f'{t:>19.0f}% removed' for t in targets) + f"{'full strength':>36}")
     print(f"{'':14s} " + ' '.join(f'{"stars/compact/extended":>27}' for _ in targets)
           + f"{'removed: stars/compact/extended':>36}")
+    # E16: the input's per-pixel planes, for a --cond-map checkpoint (S.denoise refuses one without them).
+    sig, sig_has = S.open_sigma(a.cache, meta)
+    half_a_planes = (np.asarray(sig[idx, S.SLOT_HALF_A], dtype=np.float32)
+                     if sig is not None and sig_has[idx, S.SLOT_HALF_A].all() else None)
+    if half_a_planes is not None and a.plane_truth_anchor:
+        # The ORACLE-anchor condition: each session's estimated planes scaled so that, over its sky (B's low-pass in
+        # 0.15 to 0.30, star-like peaks masked), their mean is the half pair's own noise, (A - B) / sqrt 2. The plane's
+        # SHAPE stays the model's; only the anchor, which a one-frame estimate gets wrong by a factor per field (the
+        # run log, "Detail kept"), is taken from the truth. An evaluation condition, never a product one.
+        from scipy.ndimage import gaussian_filter
+        la_raw = raw.mean(axis=1)
+        crop_planes = S.crop(half_a_planes)
+        for sid in dict.fromkeys(session_of[i] for i in idx):
+            ts = [t for t, i in enumerate(idx) if session_of[i] == sid]
+            d = ((la_raw[ts] - lb[ts]) / np.sqrt(2.0))
+            lvl = np.stack([gaussian_filter(lb[t], DETAIL_LEVEL_SIGMA) for t in ts])
+            sky = (lvl >= 0.15) & (lvl < 0.30) & (d_bins[ts] >= 0)
+            if sky.sum() < 3000:
+                print(f'plane truth anchor: {sid.split("|")[0][-44:]}: under 3000 sky pixels, left as estimated')
+                continue
+            v = d[sky]
+            truth = 1.4826 * float(np.median(np.abs(v - np.median(v))))
+            est = float(np.mean(crop_planes[ts][sky])) / S.PLANE_SCALE
+            factor = truth / est
+            half_a_planes[ts] *= factor
+            print(f'plane truth anchor: {sid.split("|")[0][-44:]}: estimated x{factor:.3f}')
+    if a.anchor_only:
+        if half_a_planes is None:
+            print(f'{a.cache} holds no half-A planes for these cells, so there is no anchor to read')
+        return
     for spec in a.models:
         slug, ckpt = spec.split('=', 1)
-        out = S.crop(S.denoise(a.cache, ckpt, half_a, dev))
+        cond_map = bool(torch.load(ckpt if os.path.isabs(ckpt) else os.path.join(a.cache, ckpt),
+                                   map_location='cpu').get('cond_map', False))
+        out = S.crop(S.denoise(a.cache, ckpt, half_a, dev, planes=half_a_planes if cond_map else None))
         pts = {k: [(0.0, 0.0)] for k in pops}
         for al in alphas:
             blend = raw + al * (out - raw)
@@ -299,6 +479,25 @@ def main():
         full_removed = pts['Gaia stars'][-1][0]
         full = f"{full_removed:5.1f}%: " + '/'.join(f'{pts[k][-1][1]:5.1f}' for k in pops)
         print(f'{slug:14s} ' + ' '.join(f'{r:>27}' for r in row) + f'{full:>36}')
+        kept_full = detail_kept(out.mean(axis=1), d_b, d_bins, d_ref)
+        print(detail_line('full', kept_full))
+        err_terms = error_terms(out.mean(axis=1), d_a, d_b, d_bins, d_ref)
+        print(detail_line('full', error_left(err_terms, 1.0), what='error left '))
+        # A blend raw + al (out - raw) keeps exactly 1 + al (kept - 1): the numerator is linear in the output.
+        # So detail kept at a matched removal needs only the blend factor that reaches it, read off the
+        # removal curve above (the same interpolation as the frontier columns).
+        curve = [(0.0, 0.0)] + [(pts['Gaia stars'][j + 1][0], al) for j, al in enumerate(alphas)]
+        for tgt in [float(x) for x in a.detail_at.split(',') if x.strip()]:
+            al_at = None
+            for (r0, a0), (r1, a1) in zip(curve, curve[1:]):
+                if r0 <= tgt <= r1 and r1 > r0:
+                    al_at = a0 + (a1 - a0) * (tgt - r0) / (r1 - r0)
+                    break
+            if al_at is None:
+                print(f'{"":14s} detail kept {f"@{tgt:g}%":>10s}: never reaches {tgt:g} percent removed')
+                continue
+            print(detail_line(f'@{tgt:g}%', [[None if v is None else 1.0 + al_at * (v - 1.0) for v in row] for row in kept_full]))
+            print(detail_line(f'@{tgt:g}%', error_left(err_terms, al_at), what='error left '))
         if a.per_session:
             # The pooled "removed" is a mean over cells of several fields, and a model can denoise one
             # field while making another NOISIER (arm X: +4 percent pooled on eval4b, -13 to -25 on

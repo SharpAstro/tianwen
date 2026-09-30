@@ -456,7 +456,10 @@ Settled by the campaign; restated so no run re-derives them.
 | **E11** | SUPERSEDED by E12 (its one seed died at ~4800 steps; its partial curve is in the run log). The step budget (run log, "what went wrong in Probe BB and E10"). `run-steps.ps1`: the E10 control cache and recipe at 16000 steps instead of 4000 (the cosine then spans the whole run), four seeds, final weights, scored with the fixed split beside the six 4000-step controls. Primary R, full-strength removal over all eight fields (24.67 at 4000, seed sd 3.67): predicted gain >= 8; killed if the interval's upper bound is under 5. | superseded | steps |
 | **E12** | Train to convergence (run log, "what went wrong in Probe BB and E10"). `run-converge.ps1`: E11's cache and recipe under `--schedule plateau` (held rate, held-out objective every 500 steps, halve after four flat windowed scores, stop after the fourth halving, 60000-step cap), four seeds, final weights, E11's primary and kill. Launched 2026-09-26. **DONE 14:27: not killed, and prediction 2 failed** (G +0.63, 95 percent interval -6.5 to +7.8; seed sd 5.00): the frontier is better on six of seven readable fields and worse on V1045 Ori's compact column (run log, "E12's result"). | ~1 to 3 h per seed | steps |
 | **E13** | The varied pool (run log, E13): 78 sessions on 6 cameras (81 on 7 pre-registered; three refused at export, see the run log), the injected shape varied per draw (0.22 to 0.65), three converged arms from one cache: `pool` (the new recipe), `poolb` (band conditioning, more signal), `pool48` (base 48, more features), three seeds each, twelve fields. `run-pool.ps1` exports now and trains once E12 hands over the GPU. **DONE 2026-09-27: no prediction holds** (R: pool 21.7, poolb 18.6, pool48 15.0, against E12's 25.3; eleven fields, the unsolvable 24mm ASI585 excluded for good): the varied pool moves removal BETWEEN fields, far more on HIP-34710 and HIP-85088, far less on three bb-eval-4 fields and eta Car (run log, "E13's result"). | ~2.5 h export, then ~15 to 25 h GPU | data, signal, features |
-| **E14** | The ring fix alone (run log, E14): E13's `pool` arm byte for byte on `n2n-pool-rf`, the same pool re-exported after the canvas-ring fix, three seeds; scored on the old eval caches AND on ring-fixed ones built from 2026-09-25-full. `run-poolrf.ps1` (training), `run-poolrf-score.ps1`, `run-poolrf-evalrf.ps1`. Trained 2026-09-27, ~54 min a seed. **IN PROGRESS: the old caches are read** (R poolrf 18.83, seed sd 4.29, against pool 21.74; prediction 2 holds); the ring-fixed read, the primary one, is building. | ~3 h GPU, ~2 h bake | stretch |
+| **E14** | The ring fix alone (run log, E14): E13's `pool` arm byte for byte on `n2n-pool-rf`, the same pool re-exported after the canvas-ring fix, three seeds; scored on the old eval caches AND on ring-fixed ones built from 2026-09-25-full. `run-poolrf.ps1` (training), `run-poolrf-score.ps1`, `run-poolrf-evalrf.ps1`. Trained 2026-09-27, ~54 min a seed. **DONE 2026-09-27: not killed** (run log, "E14 on the ring-fixed caches"). Ring-fixed, the primary read: R poolrf 22.52 (seed sd 4.91) against pool 23.75 (sd 0.89), -1.23 inside the 2.04 threshold; the frontier is worse on eta Car and the Skull, better on Horsehead. Old caches: 18.83 against 21.74 (prediction 2 holds). E13's redistribution survives the fix (prediction 3). E12's `conv` leads both domains (29.18 ring-fixed). | ~3 h GPU, ~2 h bake | stretch |
+| **E15** | E12's recipe on data that matches inference (run log, E15): the E10 control cache re-exported after the ring fix (`n2n-bb-ctl-rf`, the same 16 sessions and cells, 9 of them with a stretch the fix moves), then `run-converge.ps1`'s training line exactly, four seeds; every model re-scored in one pass on E14's ring-fixed caches, the shipped `e2_wide_s2` as a reference. `run-e15.ps1`, pre-registered in its header. The ship candidate. **DONE 2026-09-28: not killed, four of five predictions hold** (run log, "E15's result"): R `convrf` 29.78 against `conv` 29.18, and its seed sd 0.58 against 4.53; the frontier against `conv` is worse on one field of ten readable, against the shipped model better on seven. Prediction 5 (the moves concentrate on broadband) fails. Every model, the shipped one included, smooths away real structure in a bright emission core. | 1 h 28 min export and prepare, 2 h 57 min for four seeds and the scoring | stretch, ship |
+| **E16a** | The per-pixel noise plane alone (run log, "Detail kept" and E16a): E15's cells and recipe exactly, `--cond-map` in place of `--cond`, the tiles proved byte-identical to `n2n-bb-ctl-rf`'s so the plane is the only difference. Scored on the `-rfs` eval caches in two conditions: the half-A planes as estimated (`tianwen dataset noise-planes`) and with each field's anchor taken from its half pairs (`--plane-truth-anchor`, the primary). `run-e16a.ps1`, pre-registered in its header. **DONE 2026-09-28: predictions 1, 2 and 4 hold, 3 misses toward more removal, 5 holds for removal only** (run log, "E16a's result"). Brightest-level detail kept 0.995 against `convrf`'s 0.849, R 33.22 against 29.78. By the error left per level (added after the pre-registration), `convmap` is the first model that leaves less error than its input in the sky and the middle levels, and that leaves the bright levels at about the input's own error, where every earlier model is 1.3 to 34 times worse. It does not yet denoise a bright level, and under today's estimate it over-reads the noise on nine fields and spends stars (R 41.21, frontier worse on five). | 1 h 17 min export and prepare, 4 h 49 min for four seeds, 16 to 20 min per scoring pass | conditioning |
+| **E16b** | NOT STARTED. Bright-cell sampling on top of E16a (cells chosen from bright structure, calibrated from the session's quiet cells rather than a MAD of each bright cell's own structure), and bright eval cells so the detail-kept levels read on more than two fields. E16a's error left says what it is for: above 0.45 `convmap` keeps a bright level exactly as it came (0.97 to 1.04), so the arm should LOWER that error, not just hold detail kept. | | data |
 
 Every arm: pre-register predictions in the run script header; three seeds; one prepared cache per
 arm, never edited between runs; launch multi-hour jobs detached (`Start-Process`), never through the
@@ -1974,7 +1977,324 @@ numbers exactly): `poolrf` R 18.83 (seed sd 4.29) against `pool` 21.74 (sd 1.26)
 `pool`'s range on seven readable fields, better on V1045 Ori and worse on eta Car. The seed spread is the
 new thing: 3.4 times `pool`'s.
 
+**E14 on the ring-fixed caches**, the primary read (all 16 models in one pass, `run-poolrf-score.ps1 -Domain
+rf`, 2026-09-27): **not killed.** `poolrf` R 22.52 (seed sd 4.91) against `pool` 23.75 (sd 0.89), paired by
+seed -5.75, -0.26 and +2.34, so 1.23 points down against a 2.04 threshold (2.8 x 0.89 x sqrt(2/3)): the
+fixed stretch does not cost the pool recipe removal. The frontier clause is met only by counting what
+cannot be read: `poolrf` is worse than `pool`'s seed range on eta Car and the Skull, better on Horsehead,
+inside on six, and two fields are unreadable (no model reaches matched removal on Carina-Wide, one `pool`
+seed misses it on Lagoon), so 9 of 11 are "no worse" as written and 7 of the 9 readable ones are. The
+redistribution is not the ring (prediction 3): against E12's `conv`, `poolrf` still removes far more on
+HIP-34710 (39.8 against 22.1) and far less on eta Car (12.9 against 22.5) and the Skull (25.6 against
+64.4); HIP-85088 narrows to 28.2 against 24.2, inside `conv`'s spread. The seed spread grew again, to 5.5
+times `pool`'s, most of it seed 0 (R 17.0). **E12's `conv` leads in this domain too, at 29.18 (sd 4.53)
+against `ctl4k` 23.22**, having never trained on the fixed stretch, which is what E15 is for.
+
+**E15, E12's recipe on data that matches inference** (`run-e15.ps1`, pre-registered 2026-09-27 before the
+export): the E10 control cache re-exported after the fix as `n2n-bb-ctl-rf` (the same 16 sessions, bake,
+degrade flags and seed, so the same cells, which the script proves against `n2n-bb-ctl`'s cell keys before
+training), then `run-converge.ps1`'s line exactly, four seeds, final weights. The ring census moves 9 of
+the 16: eight of the fourteen training sessions (the seven 2024 Vela SNR panels on IDAS LPS-D3 and the
+Pleiades, all broadband) and Triangulum, the observed val session; the gate session and the six narrowband
+training sessions keep their floor. Scored in one pass on E14's eleven ring-fixed fields beside every
+earlier model and the shipped `e2_wide_s2` (a reference, no prediction). Threshold 2.8 x 4.53 x sqrt(2/4)
+= 8.97 points of R, so four seeds settle nothing smaller. Predictions: (1) `convrf` no lower than `conv`
+beyond it (KILL: lower by more, and no post-fix model of this recipe ships until that is understood); (2)
+the frontier no worse than `conv`'s on all but at most two of the fields both can read; (3) `convrf` above
+`poolrf` on R, so the recipe to ship stays E12's; (4) its seed sd under 6.8, 1.5 times `conv`'s; (5) what
+moves, moves most on the four bb-eval-4 fields, because the moved training sessions are the broadband ones.
+Whether `convrf` replaces the shipped model is decided after the read, on the frontier against
+`e2_wide_s2` and a look at 1:1.
+
+**E15's result** (2026-09-28; 21 models in one pass, and `conv`, `poolrf`, `pool` and `ctl4k` reproduce
+E14's ring-fixed values to the digit, so the CLI rebuilt at this HEAD moved nothing). The export matched
+16 sessions plus the pier-flip variants of three of them (22 in its count); the prepared cache holds
+exactly `n2n-bb-ctl`'s 870 cells. **Not killed; predictions 1 to 4 hold, 5 fails.**
+
+| | R | seed sd | vs `conv` |
+|---|---|---|---|
+| `convrf` (E15) | **29.78** | **0.58** | +0.60 (paired +3.98, +5.75, -3.22, -4.13) |
+| `conv` (E12) | 29.18 | 4.53 | |
+| shipped `e2_wide_s2` | 27.51 | | -1.67 |
+| `ctl4k` (E10) | 23.22 | 3.37 | |
+| `pool` (E13) | 23.75 | 0.89 | |
+| `poolrf` (E14) | 22.52 | 4.91 | |
+
+- (1) +0.60 against the 8.98 threshold (conv's sd in this pass): holds, and says nothing finer.
+- (2) The frontier against `conv`: worse on eta Car, better on V1045 Ori and Horsehead, inside on seven,
+  Carina-Wide unreadable (no model reaches 4 percent there). Worse on one of ten readable: holds.
+- (3) 7.26 above `poolrf`: holds, so the recipe to ship stays E12's.
+- (4) **The seed sd fell from 4.53 to 0.58**, the finding of the run. `conv`'s seeds disagree most on
+  HIP-34710 (13.8 to 31.4), HIP-85088 (13.1 to 39.1) and Horsehead (24.9 to 49.3), where `convrf`'s span
+  2 to 8 points; its seed range is narrower on nine of the eleven fields (not V1045 Ori or the Skull).
+  The field pattern moved too: `conv` removes 62 to 67 percent on the Skull and 4 to 12 on Rim, `convrf`
+  28 to 33 and 19 to 22. Trained on the stretch inference uses, the recipe's seeds agree.
+- (5) Fails: the largest moves are HIP-34710 (+18.6), the Skull (-32.6), Rim (+11.8) and Horsehead
+  (-9.3), not the bb-eval-4 fields (+0.3 to +9.4).
+
+Against the shipped model (a reference, not a prediction): R +2.27, and at matched removal `convrf` spends
+fewer stars and less compact detail on seven fields, is inside its value on two, spends more on the
+Skull, with Carina unreadable. **Every seed stopped earlier than E12's** (steps 11500 to 18500 against 26000 to 43000;
+seed 0's best held-out objective came at step 1500), and the objective sits about five times higher
+than on `n2n-bb-ctl`, as it did for E14's ring-fixed pool: the stretch of the val tiles changed, so the
+plateau rule reads a flatter curve. All four seeds passed the gate (steps 4000 to 9000).
+
+**What the 1:1 sheets show** (`n2n_compare.py`, shipped / `conv_s0` / `convrf_s1`, each arm's seed nearest
+its mean R, on the three ring-fixed eval caches): on star fields the three are hard to tell apart. **On a
+bright emission core (eval4b's V1045 Ori field, the Orion Nebula) every model smooths away filaments and
+dark bays that the independent half B shows**, the shipped one also turning the nebula olive, `convrf`
+tinting its core highlight a pale green-white. None of the scored columns measures bright extended
+structure, so no table above can see it; it is the open question before a ship.
+
+**Detail kept** (2026-09-28, the user: "removing the filaments is not acceptable"). The star, compact and
+extended columns score LOCAL MAXIMA, and a filament is a ridge, which is how every model's smoothing of the
+Orion core passed every table. `n2n_starsplit.py` now reports detail kept against the independent half,
+sum(Y*B)/sum(A*B), in the H2 bands (0-1, 1-2, 2-4 px) and four brightness levels (B's own low-pass), star-like
+peaks masked, at full strength and at a matched 15 percent removal, with a 1 px Gaussian of the input as a
+reference row. B's noise is independent of the input and the output, so 1.0 keeps the signal, below 1
+smooths it, and removing noise cannot move it. `run-detail-score.ps1` ran every model on the eleven
+ring-fixed fields.
+
+- **The eval set barely holds bright structure either.** The brightest level (>= 0.60) is readable on two
+  fields of eleven (V1045 Ori's Orion core and eta Car), the next (0.45 to 0.60) on four; eval cells are
+  placed like training cells. And training holds none: of `n2n-bb-ctl-rf`'s 630 cells not one has a tenth
+  of its pixels above 0.60 (its brightest cell's median is 0.317), and of the 78-session pool's 3510
+  cells, 16 (0.5 percent). The Orion cell has 35 percent.
+- **At full strength** (the operating point) the brightest level's 1-2 px band keeps 0.85 for `convrf` and
+  the shipped model, 0.78 for `conv`, 0.91 for `pool`; on the Orion field `conv` and `convrf` keep 0.63 to
+  0.65, less than the 1 px Gaussian (0.79). **At matched 15 percent removal the recipes are close**
+  (shipped 0.93, `convrf` 0.93, `conv` 0.91, `ctl4k` 0.91, `poolrf` 0.94): the recipes share one
+  detail-for-noise frontier, and a model that removes more loses more. No recipe tried so far moves it.
+
+**Why, and the probe** (`n2n_sigmamap_probe.py`, no retraining). Every model conditions on ONE number per
+tile (`with_sigma`: the MAD of the tile's darkest half, broadcast over the plane). Measured from each
+field's half pairs, the stretched noise FALLS with brightness: relative to the 0.25 level, 0.79 at 0.45,
+0.49 to 0.52 at 0.65, 0.22 to 0.41 at 0.85, so a bright core is told the sky's noise. Given a plane that
+follows that curve (anchored to the tile's own value, continuous, low-passed at 8 px), the same
+checkpoints keep far more bright detail at no cost in removal:
+
+| brightest level, 0-1 / 1-2 / 2-4 px | tile value | per-pixel plane | removed |
+|---|---|---|---|
+| `convrf_s1`, Orion | 0.43 / 0.58 / 0.82 | 0.75 / 0.88 / 0.97 | 37.4 to 39.0 percent |
+| `convrf_s1`, eta Car | 0.39 / 0.62 / 0.78 | 0.62 / 0.83 / 0.92 | 26.0 to 26.4 |
+| shipped, Orion | 0.71 / 0.77 / 0.92 | 0.89 / 0.93 / 0.99 | 30.7 to 33.6 |
+
+Three things the 1:1 sheets showed that the numbers did not. **A stepped plane draws contour lines**: the
+first version binned the curve at 0.05, and every model painted the bins' edges into the image, which the
+score counted as detail kept. **The shipped model grows magenta fringes** on the bright edges under a
+smooth plane; `convrf` shows none. **On eta Car `convrf` stays blurred** with or without the plane, and
+the reason is the second finding: the tile estimate there is TWICE the true noise (0.894 against 0.446 in
+plane units, where Orion's is 0.448 against 0.423), because a nebula-filled tile's darkest half is
+texture. Given the true noise instead (`--absolute`), the checkpoints keep all the detail and halve their
+removal (eta Car 26.0 to 12.7 percent): they were trained on the same inflated estimate, so an honest one
+reads to them as "barely noisy". Two defects, one cause: the conditioning plane is a texture statistic
+of the tile, not the noise at the pixel.
+
+**E16's machinery** (2026-09-28, all on stage 6). `StretchedNoise` (TianWen.Lib) is the one function for the
+plane: the exporter's shot-noise model at the stretch's inverse of a low-passed level, times the stretch's slope,
+the channels combined as the trainer's luminance, low-passed; pinned against injected-and-stretched noise within
+1 percent from the sky to a level of 0.8. `tianwen dataset degrade` writes each draw's plane (`.sigma.f16`, the
+draw's own noise, known) and the clean master's, pinned against the draws' own noise within 2 percent at shallow
+depths; deeper draws measure short of the plane because the stretch clips at the master's minimum, so **every
+export so far has clipped the dark-sky noise of its deep draws** (a 1.26-sub draw on the fixture lost 17 percent
+of its measured noise), a property of all earlier training data. `--prepare` packs the planes (`sigma.f16`),
+`--train --cond-map` conditions on them, the gate and the held-out objective too. For real frames
+`StretchedNoise.EstimateCalibration` estimates a frame's noise from the frame (blocks through a 4 px high-pass,
+each divided by the model's level dependence, the quiet quantile), and `tianwen dataset noise-planes` writes the
+estimated planes beside a bake's master and half tiles. **Against the half pairs' own noise the estimated half
+planes keep their shape across levels (V1045 Ori 0.97 to 0.98, eta Car 1.21 to 1.26) but their anchor is off by a
+factor per field**, median 1.31 over eleven fields, 0.78 (Horsehead) to 2.54 (Lagoon, the uncooled Uranus-C):
+a half's own stretch is not retained, so the master's stands in, and pattern noise both halves share cancels in the
+truth but not in a one-frame estimate. The estimator is therefore not ready to ship behind a `--cond-map` model,
+and E16a is read under an oracle anchor as well as the estimate.
+
+**E16a, pre-registered** (`run-e16a.ps1`): E15's cells and recipe, the plane the only difference. Predictions
+under the oracle anchor: (1) brightest-level 1-2 px detail kept at full strength, mean of V1045 Ori and eta Car,
+at least 0.92 against convrf's 0.85 (KILL below 0.88, which an untrained convrf given the plane reaches); (2) at
+0.45-0.60, convrf + 0.03; (3) R within 3 points of 29.78 (KILL: lower by more than 5); (4) the frontier no worse on
+all but two readable fields; (5) under the estimate, higher R and lower bright detail than the oracle on each field
+whose estimate reads high.
+
+**E16a's result** (2026-09-28). The export and prepare took 1 h 17 min, and the cache held exactly
+`n2n-bb-ctl-rf`'s cells, its tiles equal byte for byte, with a plane on all 7830 cell slots. The four seeds ran
+23000 to 32000 steps (61 to 85 minutes each), against `convrf`'s 11500 to 18500. The first scoring pass lost the
+oracle condition to a PowerShell splat, which passed the flag one character at a time ("E16a's oracle condition
+reaches the scorer as one flag"), and was re-run. Every model that reads no plane reproduced E15's value to the
+digit (`convrf` R 29.78, sd 0.58). **Under the oracle anchor, predictions 1, 2 and 4 hold, 3 misses its tolerance
+in the direction of more removal, and 5 holds for removal only.**
+
+- (1) Brightest level (>= 0.60), 1-2 px, full strength, mean of V1045 Ori and eta Car: **`convmap` 0.995**,
+  against `convrf` 0.849, the shipped model 0.855 and `conv` 0.780. Holds; the kill was 0.88.
+- (2) At 0.45-0.60 over its four readable fields: 0.996 against `convrf` 0.889 (needed 0.919). Holds.
+- (3) R 33.22 (seed sd 2.61) against 29.78: +3.44, outside the 3.0 tolerance, and the miss is in the direction
+  of more removal (the kill was lower by 5). The seeds disagree more than `convrf`'s: seed 0 reads 29.6, the other
+  three 33.6 to 35.7.
+- (4) The frontier against `convrf`'s seed range is better on Lagoon, eta Car and Rim, worse on V1045 Ori and
+  Horsehead, and inside on five, with Carina unreadable. Two worse is the limit, so it holds.
+- (5) The anchors, truth over estimate per field: Lagoon 0.39, Rim 0.53, HIP-85088 0.62, HIP-34710 0.65, SMC
+  2023 0.71, the Skull 0.76, SMC 2026 0.77, eta Car 0.79, Carina 0.80, V1045 Ori 1.02, Horsehead 1.28. On each of
+  the nine whose estimate reads high, the estimate removes more than the oracle (Rim 34.3 against 15.6 percent,
+  Lagoon 25.8 against 14.7), and on Horsehead, which reads low, less (31.4 against 46.8), as the reasoning says.
+  Bright detail does not move: 0.99 at the brightest level in both conditions.
+
+**Under the estimate** (what the product would compute today), R is 41.21, 11.4 points above `convrf`, and the
+frontier is worse on five fields and better on one. An over-read plane buys removal with faint stars: on HIP-85088
+it spends 78.7 percent of the stars' amplitude at full strength against the oracle's 34.6.
+
+**The training gate passed no probe in any seed.** Its structure criteria held only at steps 2500 to 3500, where
+the gate's noise ratio was still 0.95 to 0.99 (threshold 0.82), so each seed's `.pt` is its final weights. That is
+what was scored, the same rule as `convrf`'s `_final.pt`. Why the gate's one session disagrees with the eleven
+fields is not yet known.
+
+**Detail kept cannot say whether a bright level was DENOISED.** `convmap` keeps 0.99 even in the 0-1 px band above
+0.45, which is also what an identity would score. So the scorer now reports the **error left** per band and level
+("the scorer reports the error left per band and brightness level", added after the pre-registration and not part
+of it). It is [sum (Y-B)^2 - sum (A-B)^2 / 2] / [sum (A-B)^2 / 2]: 1.0 is the input, 0 the truth, and lost signal
+and noise left both count. In the oracle condition, at full strength, bands 0-1 / 1-2 / 2-4 px, arm means over the
+fields every arm can read:
+
+| level | `convmap` | `convrf` | `conv` | shipped | 1 px Gaussian |
+|---|---|---|---|---|---|
+| < 0.30, 11 fields | **0.32 / 0.43 / 0.59** | 0.45 / 1.01 / 1.39 | 0.46 / 0.87 / 1.20 | 0.63 / 1.08 / 1.61 | 0.39 / 1.12 / 1.52 |
+| 0.30-0.45, 11 | **0.78 / 0.89 / 0.98** | 0.83 / 1.64 / 2.15 | 0.75 / 1.52 / 2.06 | 1.01 / 1.92 / 2.21 | 11.2 / 37.5 / 18.7 |
+| 0.45-0.60, 4 | **0.97 / 1.00 / 0.98** | 1.39 / 4.72 / 9.92 | 1.49 / 5.32 / 11.7 | 1.27 / 4.62 / 8.21 | 10.8 / 40.9 / 15.1 |
+| >= 0.60, 2 | **0.97 / 0.98 / 1.04** | 2.39 / 9.03 / 23.4 | 3.13 / 13.7 / 34.5 | 1.47 / 5.30 / 9.89 | 4.85 / 11.3 / 10.5 |
+
+Every model before this one leaves the image WORSE than its input from 1 px up at every level above the sky, and
+at the two bright levels 1.3 to 3.1 times worse in the finest band and 4.6 to 34 times in the other two: that is
+the smoothing the 1:1 sheets showed, now measured. `convmap` is the first to leave less error than the input in
+the sky and at 0.30-0.45, and it leaves the two bright levels as they came, neither cleaned nor damaged. Per
+field, the 1-2 px band at 0.30-0.45 is lower than `convrf`'s on eight of eleven fields, higher on SMC 2026 (1.17
+against 1.12), Rim (0.89 against 0.71) and Horsehead (0.91 against 0.90). At a matched 15 percent removal the sky is close for every model (`convmap` 0.60 / 0.65 / 0.72
+against `convrf` 0.62 / 0.70 / 0.78), so the sky gain at full strength comes from removing more. The bright
+levels stay near 1.0 against `convrf`'s 1.07 / 2.54 / 5.43. Under the estimate the over-read plane costs the
+middle level on the fields it over-reads: Lagoon's 1-2 px band at 0.30-0.45 goes from 0.86 to 1.54, SMC's from
+0.94 and 1.17 to 1.28 and 1.26.
+
+**The 1:1 sheets** (`n2n_compare.py --pick bright`, the three cells of each field with the most of half B at
+0.45 or above): on the Orion core and eta Car, `convmap_s0` keeps the filaments, the dark bays and the colour of
+half B. `convrf_s0` turns the Orion core yellow-white and smears the eta Car lanes under a yellow cast, and the
+shipped model turns both olive.
+
+**So the plane does what E16a asked of it**: bright structure survives, and the sky is cleaner than under any
+earlier recipe. It does not yet denoise a bright level at all, which the training data explains: no training cell
+holds structure above 0.60. And it cannot ship behind today's estimator, which over-reads the noise on nine
+fields of eleven and turns that into spent stars.
+
+**Next, E16b and the estimator, in either order.** E16b adds bright-cell sampling, so that above 0.45 the model
+learns to clean a bright level and not only to keep it, and bright eval cells, so those levels read on more than
+two fields. The estimator must land each field's anchor near its half pairs' truth (today 0.39 to 1.28 truth over
+estimate) before any `--cond-map` model ships. Then the ONNX graph takes the plane as an input, which the runner
+computes from the linear frame and the stretch it applied (`StretchedNoise.EstimateCalibration` and `Plane`).
+
 **The other models share the budget.** Every deconvolver run (`run-e3-*.ps1`, including E3.4d's prior
 that met the star clauses) trained the same fixed 4000-step cosine; `--schedule plateau` does not yet
 cover the psf01 / operator path (it refuses rather than guess), which is the next thing to extend
 before any further deconvolver arm.
+
+### 2026-09-28: the noise estimator against the half pairs
+
+E16a's estimated planes missed their fields' truth by a factor, and "E16's machinery" named two suspects: a half's
+own stretch was not retained, and pattern noise both halves share cancels in the truth but not in a one-frame
+estimate. This entry takes them in order. The factor throughout is truth over estimate on each field's sky
+(`n2n_starsplit.py --anchor-only`), so below 1 is an over-read.
+
+**Each frame's own stretch and plane** ("every tile carries its own frame's stretch and noise plane"). The tile
+exporter now stretches every frame (master, both halves, each sub) as the runner will, estimates that frame's noise
+from its own pixels, writes each tile's plane beside it and records the stretch and calibration in the manifest
+row. The master's stretch is far steeper than a half's (synthetic fixture: balance 0.046 against 0.074), so
+borrowing it was wrong in stretched units, not approximately right. The eleven eval fields were re-baked with
+it (`2026-09-28-evalplanes`, `tianwen dataset build --session`, 2 h 40 min; `run-ownplanes.ps1`). Every scored cell
+is the cell `-rf` held. Six fields' tiles are identical byte for byte. The other five (SMC 2026, Lagoon, SMC 2023,
+HIP 34710, Rim) had been built by the 2026-09-24 binary where the six were rebuilt on 2026-09-27, with the same
+subs, gates and geometry, and their half-pair noise moved by 0.97 to 1.09.
+
+| | E16a (master's stretch, depth sqrt 2) | each frame's own |
+|---|---|---|
+| typical error, exp(mean abs ln) | x1.45 | **x1.22** |
+| bias, geometric mean | 0.725 | **0.848** |
+| spread, sd of ln | 0.31 | **0.21** |
+| range | 0.39 (Lagoon) to 1.28 (Horsehead) | 0.52 (Lagoon) to 1.18 (Horsehead) |
+
+Half the error was the stand-in stretch. Nine fields still over-read, by 1.08 to 1.94. `convmap` (four seeds,
+per-field full-strength removal and error left in the 1-2 px band, mean of the eleven fields) moves about half way
+to the oracle, whose condition reproduces E16a's on every field:
+
+| | E16a, estimate | each frame's own, estimate | oracle (E16a / own) |
+|---|---|---|---|
+| removal at full strength | 47.6 percent | **43.9** | 39.0 / 38.6 |
+| error left, sky | 0.65 | **0.55** | 0.43 / 0.44 |
+| error left, 0.30-0.45 | 0.99 | **0.92** | 0.89 / 0.89 |
+
+Lagoon still leaves 2.33 in the sky against the oracle's 0.88, and Horsehead, the one field that reads low, removes
+40.9 percent against 52.4.
+
+**What the rest is, per channel.** On each field's sky (half B's low-passed luminance in 0.15-0.30, peaks masked,
+the 16 px rim out; this mask reproduces every field's anchor to within 0.03), against T, the half-pair truth per
+channel:
+
+- **The model misreads the other channels.** The estimator anchored every channel on channel 0, carrying red's
+  noise-per-level to green and blue at their own levels. The shot-noise ramp holds within a channel, not across
+  them: a Bayer drizzle builds green from twice the photosites, and the channels' skies differ (SMC 2026: 0.012,
+  0.047, 0.032). Green's truth over model is below red's on ten fields of eleven (0.43 to 1.25 against red's 0.55
+  to 1.07), lowest relative to red on Rim (0.62) and SMC 2023 (0.71), above it only on Horsehead. The ratio is not
+  a clean sqrt 2 on every field, so a per-channel anchor, not a constant, is the fix.
+- **Red's own anchor reads high too, by content both halves share.** Through the estimator's 4 px high-pass, a half
+  reads 1.03 to 2.0 times what the same filter reads on (A - B) / sqrt 2 over the same sky, and the 25th-percentile
+  block does not escape it: Lagoon's plate holds about one Gaia star per pixel, and no block of it is clean sky.
+- **The filter is not a cause.** The high-pass on pure half-pair noise reads 0.85 to 0.99 of it, low and not high.
+
+**Variants, re-run on the val tiles of half A** (32 px blocks inside each tile's rim, a sample of the frame; the
+shipped variant reproduces the recorded channel-0 anchor to within 4 percent and every field's factor):
+
+| variant | bias | typical error | sd ln | worst |
+|---|---|---|---|---|
+| shipped | 0.850 | x1.218 | 0.218 | 0.51 |
+| **each channel its own anchor and background** | **0.929** | **x1.127** | **0.160** | 0.64 |
+| per channel, 2 px high-pass | 1.025 | x1.116 | 0.145 | 0.73 |
+| per channel, 1 px high-pass | 1.336 | x1.336 | 0.140 | 1.02 (reads LOW: drizzle correlates the noise over a pixel) |
+| per channel, quantile 0.10 | 0.989 | x1.105 | 0.133 | 0.73 |
+
+The per-channel anchor is a correction of the model and is adopted ("the noise estimator anchors each channel on
+its own noise", recipe version 3, the manifest's background and sigma now one per channel). The high-pass and
+quantile variants gain another 1 to 2 percent of typical error, but they are knobs chosen on the same eleven
+fields they would be scored on, so they are not adopted. `EachChannelIsAnchoredOnItsOwnNoise` pins it on a frame
+with SMC's three skies and green at half the variance per unit signal: each channel's estimate within 2 percent,
+its plane within 5 percent of the injected noise, where channel 0's calibration carried to green reads 1.37x.
+
+**Pre-registered, the per-channel re-bake** of the same twelve sessions, scored with `--anchor-only` as above:
+(1) typical error x1.10 to x1.16; (2) bias 0.90 to 0.96; (3) Lagoon the lowest field, 0.58 to 0.70; (4) each
+field within 0.05 of its `perch` value above on at least nine of eleven. KILL: typical error no better than
+x1.20, which would say the tile sample misjudged the whole-frame estimator.
+
+**The per-channel re-bake's result** (2026-09-29, `2026-09-28-evalplanes-pc`, the same twelve sessions and 54778
+tiles, parity OK; `run-ownplanes.ps1 -Tag perch`): **all four hold.** (1) Typical error x1.126; (2) bias 0.926;
+(3) Lagoon the lowest at 0.647; (4) all eleven fields within 0.05 of the tile prediction, the largest miss 0.021
+(eta Car). The whole-frame estimator is what the tile sample said it would be.
+
+| field | E16a | own stretch | per channel |
+|---|---|---|---|
+| SMC 2026 | 0.767 | 0.898 | **0.987** |
+| Lagoon | 0.394 | 0.516 | **0.647** |
+| SMC 2023 | 0.711 | 0.826 | **0.944** |
+| Carina | 0.795 | 0.909 | **0.960** |
+| HIP 34710 | 0.650 | 0.862 | **0.945** |
+| HIP 85088 | 0.624 | 0.925 | **1.036** |
+| V1045 Ori | 1.018 | 1.028 | **1.065** |
+| eta Car | 0.794 | 0.873 | **0.914** |
+| Rim | 0.527 | 0.693 | **0.837** |
+| Horsehead | 1.283 | 1.183 | **1.143** |
+| Skull | 0.764 | 0.799 | **0.816** |
+| typical error | x1.45 | x1.22 | **x1.13** |
+
+What is left over-reads where a field is dense in structure both halves share (Lagoon, the Skull, Rim), which the
+paragraph below says no one-frame estimate will separate. The full store is re-baked at recipe 3 on this code
+(`2026-09-29-full`, a fresh store beside `2026-09-25-full`), the data E16b is built from.
+
+**What no one-frame estimator will fix.** Content both halves share looks like noise to any statistic of one
+frame, and in a star field as dense as Lagoon's there is nothing else to read. For TianWen's own masters the
+stacker has the answer already in hand: the scatter of the frames at each pixel is the independent noise, the
+thing the half pairs measure, and a per-pixel standard-error sidecar written at integration would make the plane
+a measurement instead of an estimate. The degrade export's master-slot plane (`WriteMasterSigmaTile`) still
+carries channel 0's calibration to every channel, consistently with the noise it injects, which is one
+calibration; whether the injection itself should become per channel is a training question for E16b.

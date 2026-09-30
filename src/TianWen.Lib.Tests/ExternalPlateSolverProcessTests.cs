@@ -110,7 +110,10 @@ public class ExternalPlateSolverProcessTests
 
         protected override string CommandFile => "stand-in";
 
-        protected override TimeSpan ProbeTimeout => Timeout;
+        // The 5 s bound is for the tool that never exits. One that answers must not race it: pwsh's cold start alone took more
+        // than 5 s under a loaded full suite (2026-09-30) and read an answering tool as absent, so it gets a bound well inside
+        // the test's own timeout.
+        protected override TimeSpan ProbeTimeout => hang ? Timeout : TimeSpan.FromSeconds(45);
 
         protected override string FormatImageDimenstions(ImageDim? imageDim, float range) => "";
 

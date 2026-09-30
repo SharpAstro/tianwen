@@ -113,7 +113,13 @@ namespace TianWen.RemoteClient
             }
             var transport = NodeTransport.OverSocket(socketPath);
 
-            if (await AskAsync(transport, cancellationToken) is { } running)
+            var asked = await AskWithReasonAsync(transport, cancellationToken);
+            if (asked.Value is null && named)
+            {
+                asked = await WaitForNamedNodeAsync(transport, socketPath, asked, cancellationToken);
+            }
+
+            if (asked.Value is { } running)
             {
                 if (running.WireVersion == NodeWire.Version)
                 {
@@ -138,7 +144,7 @@ namespace TianWen.RemoteClient
             }
             else if (named)
             {
-                return new LocalNode(LocalNodeOutcome.NamedNodeUnreachable, null, null, $"No node answers on {socketPath}");
+                return new LocalNode(LocalNodeOutcome.NamedNodeUnreachable, null, null, $"No node answers on {socketPath}: {asked.Error}");
             }
             else if (options.AnotherAccountProbe is { } probe && await AskAsync(NodeTransport.OverTcp(probe), cancellationToken) is { } service)
             {
@@ -220,12 +226,46 @@ namespace TianWen.RemoteClient
             return false;
         }
 
+        /// <summary>
+        /// Waits for a node on a NAMED socket that did not answer the first ask, for as long as a node this client starts is
+        /// given (<see cref="LocalNodeOptions.ReadyBudget"/>), but only while something listens there. A node that is up and
+        /// slow to answer its first request, as one on a loaded machine is, is waited for rather than reported gone (#1070:
+        /// a test's own node, serving, was "No node answers" after one 2 s ask); a socket nothing listens on is answered at
+        /// once. A named socket is only ever connected to, so this wait is the only recovery it has.
+        /// </summary>
+        private async Task<NodeResult<NodeInfoDto>> WaitForNamedNodeAsync(NodeTransport transport, string socketPath,
+            NodeResult<NodeInfoDto> first, CancellationToken cancellationToken)
+        {
+            var last = first;
+            var deadline = Stopwatch.StartNew();
+            var said = false;
+            while (deadline.Elapsed < options.ReadyBudget && await NodeSocket.IsListeningAsync(socketPath, cancellationToken).ConfigureAwait(false))
+            {
+                if (!said)
+                {
+                    logger.LogInformation("The node on {Socket} is listening but did not answer ({Error}); asking again", socketPath, first.Error);
+                    said = true;
+                }
+                await Task.Delay(TimeSpan.FromMilliseconds(100), cancellationToken).ConfigureAwait(false);
+                last = await AskWithReasonAsync(transport, cancellationToken);
+                if (last.Value is not null)
+                {
+                    return last;
+                }
+            }
+            return last;
+        }
+
         /// <summary>The node's answer, or null when nothing answers there within a short budget.</summary>
         private static async Task<NodeInfoDto?> AskAsync(NodeTransport transport, CancellationToken cancellationToken)
+            => (await AskWithReasonAsync(transport, cancellationToken)).Value;
+
+        /// <summary>As <see cref="AskAsync"/>, with why nothing answered: a timeout and a refused connection are different facts.</summary>
+        private static async Task<NodeResult<NodeInfoDto>> AskWithReasonAsync(NodeTransport transport, CancellationToken cancellationToken)
         {
             using var http = transport.CreateHttpClient();
             var client = new TianWenNodeClient(http, new NodeTimeouts(AskBudget, AskBudget, AskBudget));
-            return (await client.GetNodeAsync(cancellationToken).ConfigureAwait(false)).Value;
+            return await client.GetNodeAsync(cancellationToken).ConfigureAwait(false);
         }
 
         /// <summary>Where a node that failed to come up wrote what happened: the newest server and keeper logs.</summary>

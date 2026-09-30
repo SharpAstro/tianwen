@@ -340,9 +340,20 @@ public partial class Image
     /// <summary>
     /// Separable Gaussian blur on a row-major <c>float[]</c> (edge-clamped both axes). A plain flat-raster
     /// blur -- distinct from <c>MilkyWayTextureBaker.GaussianBlur</c>, which is spherical (RA-wrap,
-    /// dec-scaled sigma) and not applicable here.
+    /// dec-scaled sigma) and not applicable here. Also the low-pass of the denoiser's per-pixel noise plane
+    /// (<see cref="Degradation.StretchedNoise"/>), so the plane the exporter writes and the one the runner
+    /// computes are smoothed by the same code.
     /// </summary>
-    private static float[] SeparableGaussianBlur(float[] src, int w, int h, float sigma)
+    /// <remarks>
+    /// <b>Bit for bit the plain two-loop blur, faster.</b> Each output pixel is still the sum of its taps in
+    /// ascending tap order starting from zero, one multiply and one add per tap, so every value equals the
+    /// scalar loop's exactly; what changed is only the order in which PIXELS are visited. Both passes add one tap
+    /// across a whole row at a time (vectorised, and the vertical pass reads rows front to back instead of
+    /// striding a column per pixel), and rows run in parallel. It is the noise estimator's inner cost: the tile
+    /// export blurs every channel of every sub, and the scalar form made that export six to thirteen times its
+    /// pre-plane time (2026-09-29). <c>GaussianBlurParityTests</c> holds the two equal.
+    /// </remarks>
+    internal static float[] SeparableGaussianBlur(float[] src, int w, int h, float sigma)
     {
         var radius = Math.Max(1, (int)MathF.Ceiling(sigma * 3f));
         var kernel = new float[radius * 2 + 1];
@@ -357,41 +368,93 @@ public partial class Image
         var inv = 1f / norm;
         for (var i = 0; i < kernel.Length; i++) kernel[i] *= inv;
 
-        // Horizontal pass -> tmp.
         var tmp = new float[src.Length];
-        for (var y = 0; y < h; y++)
+        var dst = new float[src.Length];
+        if ((long)w * h < BlurParallelMinPixels)
         {
-            var rowBase = y * w;
-            for (var x = 0; x < w; x++)
+            for (var y = 0; y < h; y++)
             {
-                var sum = 0f;
-                for (var t = -radius; t <= radius; t++)
-                {
-                    var sx = x + t;
-                    if (sx < 0) sx = 0; else if (sx >= w) sx = w - 1;
-                    sum += src[rowBase + sx] * kernel[t + radius];
-                }
-                tmp[rowBase + x] = sum;
+                BlurRowHorizontal(src.AsSpan(y * w, w), tmp.AsSpan(y * w, w), kernel, radius);
+            }
+            for (var y = 0; y < h; y++)
+            {
+                BlurRowVertical(tmp, dst.AsSpan(y * w, w), y, w, h, kernel, radius);
             }
         }
-
-        // Vertical pass -> dst.
-        var dst = new float[src.Length];
-        for (var y = 0; y < h; y++)
+        else
         {
-            for (var x = 0; x < w; x++)
-            {
-                var sum = 0f;
-                for (var t = -radius; t <= radius; t++)
-                {
-                    var sy = y + t;
-                    if (sy < 0) sy = 0; else if (sy >= h) sy = h - 1;
-                    sum += tmp[sy * w + x] * kernel[t + radius];
-                }
-                dst[y * w + x] = sum;
-            }
+            ParallelFor.Run(h, y => BlurRowHorizontal(src.AsSpan(y * w, w), tmp.AsSpan(y * w, w), kernel, radius));
+            ParallelFor.Run(h, y => BlurRowVertical(tmp, dst.AsSpan(y * w, w), y, w, h, kernel, radius));
         }
         return dst;
+    }
+
+    /// <summary>Below this many pixels a blur runs on the calling thread: a tile's plane is 65,536 and is cheaper
+    /// serial than scheduled.</summary>
+    private const long BlurParallelMinPixels = 1 << 17;
+
+    /// <summary>One row of the horizontal pass: tap by tap across the row, each pixel's taps in ascending order,
+    /// the samples past either end clamped to the edge sample as the scalar loop clamps them.</summary>
+    private static void BlurRowHorizontal(ReadOnlySpan<float> row, Span<float> output, float[] kernel, int radius)
+    {
+        var w = row.Length;
+        output.Clear();
+        for (var t = -radius; t <= radius; t++)
+        {
+            var k = kernel[t + radius];
+            // x + t < 0 for x below leftEnd, x + t >= w from rightStart on; between them the tap reads row[x + t].
+            var leftEnd = Math.Min(w, Math.Max(0, -t));
+            var rightStart = Math.Max(leftEnd, Math.Min(w, w - t));
+            var first = row[0] * k;
+            for (var x = 0; x < leftEnd; x++)
+            {
+                output[x] += first;
+            }
+            // On a row narrower than the kernel every tap can clamp, and the interior is empty (its start index
+            // then lies outside the row, so it must not be sliced at all).
+            if (rightStart > leftEnd)
+            {
+                AddScaled(row.Slice(leftEnd + t, rightStart - leftEnd), k, output.Slice(leftEnd, rightStart - leftEnd));
+            }
+            var last = row[w - 1] * k;
+            for (var x = rightStart; x < w; x++)
+            {
+                output[x] += last;
+            }
+        }
+    }
+
+    /// <summary>One row of the vertical pass: the source rows the taps reach, each added whole, in tap order.</summary>
+    private static void BlurRowVertical(float[] tmp, Span<float> output, int y, int w, int h, float[] kernel, int radius)
+    {
+        output.Clear();
+        for (var t = -radius; t <= radius; t++)
+        {
+            var sy = y + t;
+            if (sy < 0) sy = 0; else if (sy >= h) sy = h - 1;
+            AddScaled(tmp.AsSpan(sy * w, w), kernel[t + radius], output);
+        }
+    }
+
+    /// <summary><c>acc[i] += src[i] * k</c>: a multiply then an add, each rounded to float, exactly the scalar
+    /// statement, so the vector lanes and the scalar tail agree with the plain loop bit for bit.</summary>
+    private static void AddScaled(ReadOnlySpan<float> src, float k, Span<float> acc)
+    {
+        var i = 0;
+        if (System.Numerics.Vector.IsHardwareAccelerated && src.Length >= System.Numerics.Vector<float>.Count)
+        {
+            var kv = new System.Numerics.Vector<float>(k);
+            var n = System.Numerics.Vector<float>.Count;
+            for (; i <= src.Length - n; i += n)
+            {
+                var product = new System.Numerics.Vector<float>(src.Slice(i, n)) * kv;
+                (new System.Numerics.Vector<float>(acc.Slice(i, n)) + product).CopyTo(acc.Slice(i, n));
+            }
+        }
+        for (; i < src.Length; i++)
+        {
+            acc[i] += src[i] * k;
+        }
     }
 }
 

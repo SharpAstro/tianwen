@@ -342,12 +342,14 @@ public partial class Image
         var channels = ChannelCount;
         var origMin = new float[channels];
         var balances = new double[channels];
-        for (var c = 0; c < channels; c++)
+        // Each channel is measured on its own (a full-frame selection, the stretch's main cost), so the channels
+        // run side by side; every answer is the serial one.
+        ParallelFor.Run(channels, c =>
         {
             var (min, median) = MinAndShiftedMedian(c, exclude);
             origMin[c] = min;
             balances[c] = median > 0f ? MidtonesBalanceFor(median, targetMedian) : 0.5;
-        }
+        });
 
         return (origMin, balances);
     }
@@ -459,13 +461,23 @@ public partial class Image
 
         var pixelCount = width * height;
         var newData = CreateChannelData(channels, height, width);
-        for (var c = 0; c < channels; c++)
+        var mins = origMin.ToArray();
+        var betas = balances.ToArray();
+        // Pointwise, so it runs in parallel row bands over every channel at once with every value unchanged; a
+        // cell-sized image stays on the calling thread, where scheduling would cost more than the work.
+        const int bandRows = 64;
+        var bands = (height + bandRows - 1) / bandRows;
+        void StretchBand(int job)
         {
-            var src = GetChannelSpan(c);
-            var dst = MemoryMarshal.CreateSpan(ref newData[c][0, 0], pixelCount);
-            var min = origMin[c];
-            var beta = balances[c];
-            for (var i = 0; i < pixelCount; i++)
+            var c = job / bands;
+            var y0 = (job % bands) * bandRows;
+            var rows = Math.Min(bandRows, height - y0);
+            var plane = Planes[c].Data;
+            var src = MemoryMarshal.CreateReadOnlySpan(ref plane[0, 0], pixelCount).Slice(y0 * width, rows * width);
+            var dst = MemoryMarshal.CreateSpan(ref newData[c][0, 0], pixelCount).Slice(y0 * width, rows * width);
+            var min = mins[c];
+            var beta = betas[c];
+            for (var i = 0; i < src.Length; i++)
             {
                 var v = src[i];
                 if (float.IsNaN(v))
@@ -479,6 +491,17 @@ public partial class Image
                     dst[i] = (float)MidtonesTransferFunction(beta, shifted);
                 }
             }
+        }
+        if (pixelCount < (1 << 17))
+        {
+            for (var job = 0; job < channels * bands; job++)
+            {
+                StretchBand(job);
+            }
+        }
+        else
+        {
+            ParallelFor.Run(channels * bands, StretchBand);
         }
 
         return new Image(newData, BitDepth.Float32, 1.0f, 0f, 0f, ImageMeta);

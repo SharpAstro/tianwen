@@ -4,6 +4,8 @@ using System.IO;
 using System.Net.Http;
 using System.Net.Sockets;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using TianWen.Lib;
 
 namespace TianWen.Hosting.Api;
@@ -115,4 +117,24 @@ public static class NodeSocket
             }
         }
     };
+
+    /// <summary>
+    /// Whether anything accepts a connection on <paramref name="socketPath"/>: a node that is up, however slow to answer a
+    /// request. False when there is no socket file, or only a stale one nothing listens on, which is refused at once, and
+    /// for a path too long to be a socket address at all, where <see cref="UnixDomainSocketEndPoint"/> throws
+    /// <see cref="ArgumentOutOfRangeException"/> (nothing can listen on an address that cannot be formed).
+    /// </summary>
+    public static async Task<bool> IsListeningAsync(string socketPath, CancellationToken cancellationToken)
+    {
+        using var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+        try
+        {
+            await socket.ConnectAsync(new UnixDomainSocketEndPoint(socketPath), cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+        catch (Exception ex) when (ex is SocketException or ArgumentException)
+        {
+            return false;
+        }
+    }
 }

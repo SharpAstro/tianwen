@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.AI.Imaging;
+using TianWen.AI.Imaging.Onnx;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Dataset;
@@ -194,6 +195,145 @@ namespace TianWen.Lib.Tests
                 registered, outDir, result.Rows, sampleCount: 12, cancellationToken: ct);
             parity.Checked.ShouldBeGreaterThan(0);
             parity.MaxAbsDiff.ShouldBe(0.0);
+        }
+
+        /// <summary>
+        /// Every tile carries its OWN frame's stretch and noise (E16), never the master's: the manifest's stretch is
+        /// what the runner's input stretch measures on that frame, each tile's plane lies beside it, and the planes
+        /// rank the frames by depth. And against a truth the estimate never saw: over the fixture's sky, a half's
+        /// plane reads the noise the two halves' own difference measures.
+        /// </summary>
+        [Fact]
+        public async Task EveryTileCarriesItsOwnFramesStretchAndNoisePlane()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var registered = await RegisterFixtureAsync(ct, minSubsForHalfMasters: 4);
+            var halfA = registered.HalfMasterA.ShouldNotBeNull();
+            var halfB = registered.HalfMasterB.ShouldNotBeNull();
+            var outDir = Path.Combine(_dir, "out");
+
+            var result = await DatasetTileExporter.ExportAsync(
+                registered, outDir, tileSize: TileSize, cellsPerSession: 20, subsPerCell: SubsPerCell,
+                logger: new XunitLogger(output), cancellationToken: ct);
+
+            var balanceOf = new Dictionary<string, double[]>();
+            foreach (var (frame, image) in new[]
+                {
+                    (DatasetTileExporter.FrameMaster, registered.Master),
+                    (DatasetTileExporter.FrameHalfMasterA, halfA),
+                    (DatasetTileExporter.FrameHalfMasterB, halfB),
+                })
+            {
+                var (_, applied, origMin, balances) = ChunkedNafnetRunner.ApplyInputStretch(DatasetTileExporter.ToUnitRange(image));
+                applied.ShouldBeTrue();
+                var expectedMin = origMin.ShouldNotBeNull().Select(v => (double)v).ToArray();
+                var expectedBalance = balances.ShouldNotBeNull();
+                foreach (var row in result.Rows.Where(r => r.Frame == frame))
+                {
+                    row.StretchOrigMin.ShouldBe(expectedMin);
+                    row.StretchBalance.ShouldBe(expectedBalance);
+                    // One calibration per channel, each the channel's own.
+                    row.NoiseSigma.ShouldNotBeNull().Length.ShouldBe(row.Channels);
+                    row.NoiseSigma.ShouldAllBe(s => s > 0.0);
+                    row.NoiseBackground.ShouldNotBeNull().Length.ShouldBe(row.Channels);
+                }
+                balanceOf[frame] = expectedBalance;
+            }
+            // Each half's stretch is its own: the column exists because the master's does not stand in for it.
+            balanceOf[DatasetTileExporter.FrameHalfMasterA].ShouldNotBe(balanceOf[DatasetTileExporter.FrameMaster]);
+
+            var planeBytes = TileSize * TileSize * 2;
+            var meanPlane = new Dictionary<string, List<double>>();
+            foreach (var row in result.Rows)
+            {
+                var sigma = row.SigmaTile.ShouldNotBeNull($"{row.Tile} has no plane");
+                sigma.ShouldBe(DatasetDegradationExporter.SigmaPathFor(row.Tile));
+                var bytes = File.ReadAllBytes(Path.Combine(outDir, sigma.Replace('/', Path.DirectorySeparatorChar)));
+                bytes.Length.ShouldBe(planeBytes);
+                var mean = 0.0;
+                foreach (var h in MemoryMarshal.Cast<byte, Half>(bytes))
+                {
+                    var v = (double)(float)h;
+                    double.IsFinite(v).ShouldBeTrue();
+                    mean += v;
+                }
+                var key = row.Frame == DatasetTileExporter.FrameSub ? DatasetTileExporter.FrameSub
+                    : row.Frame == DatasetTileExporter.FrameMaster ? DatasetTileExporter.FrameMaster : "half";
+                (meanPlane.TryGetValue(key, out var list) ? list : meanPlane[key] = []).Add(mean / (TileSize * TileSize));
+            }
+            var master = meanPlane[DatasetTileExporter.FrameMaster].Average();
+            var half = meanPlane["half"].Average();
+            var sub = meanPlane[DatasetTileExporter.FrameSub].Average();
+            output.WriteLine($"mean plane: master {master:F4}, half {half:F4} ({half / master:F2}x), sub {sub:F4} ({sub / master:F2}x), " +
+                             $"{registered.Subs.Length} subs; balance master {balanceOf[DatasetTileExporter.FrameMaster][0]:F4}, " +
+                             $"half A {balanceOf[DatasetTileExporter.FrameHalfMasterA][0]:F4}");
+
+            // The external truth, which the estimate never saw: per cell, two frames of the same depth differ by
+            // their noise alone, so their difference over sqrt 2 is one frame's noise, in the frames' own stretched
+            // units. The two halves for a half, two subs for a sub. Luminance (the channel mean), as the plane is.
+            var halfRatios = new List<double>();
+            var subRatios = new List<double>();
+            foreach (var cell in result.Rows.GroupBy(r => (r.CellX, r.CellY)))
+            {
+                var halfRow = cell.Single(r => r.Frame == DatasetTileExporter.FrameHalfMasterA);
+                halfRatios.Add(MeanPlane(outDir, halfRow) / PairNoise(outDir, halfRow, cell.Single(r => r.Frame == DatasetTileExporter.FrameHalfMasterB)));
+                var subs = cell.Where(r => r.Frame == DatasetTileExporter.FrameSub).ToArray();
+                subRatios.Add(MeanPlane(outDir, subs[0]) / PairNoise(outDir, subs[0], subs[1]));
+            }
+            var halfMedian = Median(halfRatios);
+            var subMedian = Median(subRatios);
+            output.WriteLine($"plane over the pair's own noise: half {halfMedian:F3} ({halfRatios.Min():F3} to {halfRatios.Max():F3}), " +
+                             $"sub {subMedian:F3} ({subRatios.Min():F3} to {subRatios.Max():F3}) over {halfRatios.Count} cells");
+            halfMedian.ShouldBeInRange(0.8, 1.25);
+            subMedian.ShouldBeInRange(0.8, 1.25);
+        }
+
+        /// <summary>The mean of a tile's plane, in stretched sigma (the plane's units divided out).</summary>
+        private static double MeanPlane(string outDir, DatasetTileExporter.TileManifestRow row)
+        {
+            var plane = MemoryMarshal.Cast<byte, Half>(File.ReadAllBytes(Path.Combine(outDir,
+                row.SigmaTile.ShouldNotBeNull().Replace('/', Path.DirectorySeparatorChar))));
+            var sum = 0.0;
+            foreach (var h in plane)
+            {
+                sum += (float)h;
+            }
+            return sum / (plane.Length * TianWen.Lib.Imaging.Degradation.StretchedNoise.PlaneScale);
+        }
+
+        /// <summary>One frame's noise from two frames of the same depth: the MAD sigma of their difference over sqrt 2.</summary>
+        private static double PairNoise(string outDir, DatasetTileExporter.TileManifestRow a, DatasetTileExporter.TileManifestRow b)
+        {
+            var la = ReadLuminance(outDir, a);
+            var lb = ReadLuminance(outDir, b);
+            var d = new float[la.Length];
+            for (var i = 0; i < d.Length; i++)
+            {
+                d[i] = (float)((la[i] - lb[i]) / Math.Sqrt(2.0));
+            }
+            var (_, mad) = TianWen.Lib.Stat.StatisticsHelper.MedianAndMad(d.AsSpan());
+            return 1.4826 * mad;
+        }
+
+        private static double Median(List<double> values)
+        {
+            var sorted = values.OrderBy(v => v).ToArray();
+            return sorted[sorted.Length / 2];
+        }
+
+        private static float[] ReadLuminance(string outDir, DatasetTileExporter.TileManifestRow row)
+        {
+            var halfs = MemoryMarshal.Cast<byte, Half>(File.ReadAllBytes(Path.Combine(outDir, row.Tile.Replace('/', Path.DirectorySeparatorChar))));
+            var n = row.TileSize * row.TileSize;
+            var lum = new float[n];
+            for (var c = 0; c < row.Channels; c++)
+            {
+                for (var i = 0; i < n; i++)
+                {
+                    lum[i] += (float)halfs[(c * n) + i] / row.Channels;
+                }
+            }
+            return lum;
         }
 
         [Fact]

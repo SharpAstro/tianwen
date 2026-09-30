@@ -1,4 +1,5 @@
-﻿using System;
+﻿using LAN.Lib;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -167,6 +168,13 @@ namespace TianWen.RemoteClient
 
         /// <summary>How many planes the mirror's reader holds ready for the next frame (a test's view of the recycling).</summary>
         internal int FreeFramePlanes => _frameReader.FreePlanes;
+
+        // The node's sections a frame is copied out of when this mirror is this machine's node's (P4b, #932): asked for on
+        // every fetch then, and never of a rig, whose node would answer a TCP client with the bytes anyway.
+        private readonly FrameSlotReaders _frameSlots = new FrameSlotReaders();
+
+        /// <summary>How many frames came out of the node's shared memory rather than across the socket.</summary>
+        internal int FramesFromSharedMemory => _frameSlots.FramesRead;
 
         private CancellationTokenSource? _cts;
         private Task? _pollLoop;
@@ -386,7 +394,10 @@ namespace TianWen.RemoteClient
         /// How far this computer's clock is ahead of the node's, measured as each state arrives (P5b part 3). A camera's
         /// exposure start is on the node's clock and a countdown subtracts it from this one's, so the start is moved by it.
         /// </summary>
-        private long _clockSkewTicks;
+        // How far the node's clock is ahead of this computer's, from the state polls (LAN.Lib's LanClockOffset: NTP's midpoint of
+        // the shortest round trip in a window). A camera's ExposureStart is on the node's clock, and the countdown subtracts it
+        // from this one's.
+        private readonly LanClockOffset _nodeClock = new();
 
         private void StampContact() =>
             Interlocked.Exchange(ref _lastContactTicks, _timeProvider.GetUtcNow().UtcTicks);
@@ -447,6 +458,7 @@ namespace TianWen.RemoteClient
 
             // The poll loop has stopped, so nothing publishes a frame any more: give back what is held.
             DropFrames();
+            _frameSlots.Dispose();
         }
 
         // -----------------------------------------------------------------------------------------
@@ -665,7 +677,9 @@ namespace TianWen.RemoteClient
         /// <summary>One poll cycle. Internal so a test can step it with a fake clock.</summary>
         internal async Task PollOnceAsync(CancellationToken cancellationToken)
         {
+            var askedAt = _timeProvider.GetUtcNow();
             var result = await _client.GetSessionStateAsync(Volatile.Read(ref _histories).Cursor, cancellationToken).ConfigureAwait(false);
+            var answeredAt = _timeProvider.GetUtcNow();
             var contactBefore = (NodeContactState)Volatile.Read(ref _contactState);
 
             if (result is { IsSuccess: true, Value: { } state })
@@ -675,7 +689,10 @@ namespace TianWen.RemoteClient
                 _consecutiveFailures = 0;
                 StampContact();
                 Volatile.Write(ref _contactState, (int)NodeContactState.Answering);
-                Volatile.Write(ref _clockSkewTicks, state.NodeNowUtc is { } nodeNow ? (_timeProvider.GetUtcNow() - nodeNow).Ticks : 0);
+                if (state.NodeNowUtc is { } nodeNow)
+                {
+                    _nodeClock.Observe(askedAt, nodeNow, answeredAt);
+                }
                 _nodeSendsFrameTokens = state.Frames is not null;
                 foreach (var token in state.Frames ?? [])
                 {
@@ -918,7 +935,8 @@ namespace TianWen.RemoteClient
         /// </summary>
         private async Task<(Image Image, int? Number)?> FetchFrameAsync(string source, int? held, int token, CancellationToken cancellationToken)
         {
-            var result = await _client.GetLatestFrameAsync(source, held, _frameReader, cancellationToken).ConfigureAwait(false);
+            var result = await _client.GetLatestFrameAsync(source, held, _frameReader, IsOnThisMachine ? _frameSlots : null, cancellationToken)
+                .ConfigureAwait(false);
             if (result.Error is { } error)
             {
                 // A frame failure must never blank the telemetry: keep the last frame and let the state poll go on
@@ -1465,13 +1483,12 @@ namespace TianWen.RemoteClient
                     return [];
                 }
 
-                var skew = TimeSpan.FromTicks(Volatile.Read(ref _clockSkewTicks));
                 var builder = ImmutableArray.CreateBuilder<CameraExposureState>(cameras.Length);
                 foreach (var camera in cameras)
                 {
                     builder.Add(new CameraExposureState(
                         camera.OtaIndex,
-                        camera.ExposureStart + skew,
+                        _nodeClock.ToLocal(camera.ExposureStart),
                         TimeSpan.FromSeconds(camera.SubExposureSeconds),
                         camera.FrameNumber,
                         camera.FilterName,

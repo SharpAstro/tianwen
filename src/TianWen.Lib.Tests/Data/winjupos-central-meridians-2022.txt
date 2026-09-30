@@ -1,0 +1,16 @@
+# WinJUPOS 12.1.2 image measurements (.ims.xml, beside the user's 2022 Jupiter stacks), read 2026-09-29: each image's
+# JulianDateUT and the central meridians WinJUPOS computed for it (CM1Deg, CM2Deg, CM3Deg, two decimals) and the
+# Earth's planetocentric declination (DeclinationOfEarthOnPlanetDeg). One row per distinct time.
+body,jd_ut,cm1,cm2,cm3,de
+Jupiter,2459826.00625,274.76,67.06,351.45,2.64
+Jupiter,2459826.00694,275.37,67.66,352.05,2.64
+Jupiter,2459826.00764,275.98,68.27,352.66,2.64
+Jupiter,2459826.00833,276.59,68.87,353.26,2.64
+Jupiter,2459826.00903,277.20,69.48,353.87,2.64
+Jupiter,2459826.00972,277.81,70.08,354.47,2.64
+Jupiter,2459852.01222,69.06,22.93,314.24,2.57
+Jupiter,2459852.01292,69.67,23.53,314.84,2.57
+Jupiter,2459852.01368,70.34,24.20,315.51,2.57
+Jupiter,2459852.01444,71.01,24.86,316.17,2.57
+Jupiter,2459852.01521,71.68,25.53,316.84,2.57
+Jupiter,2459852.01528,71.75,25.59,316.90,2.57

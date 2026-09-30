@@ -109,4 +109,17 @@ public class StatisticsHelperTests
     {
         StatisticsHelper.LCM(first, rest).ShouldBe(expectedLCM);
     }
+
+    [Fact]
+    public void SpearmanRanksTiesAtTheirMeanAndIgnoresScale()
+    {
+        // Any increasing map of one series leaves the correlation 1; reversing it, -1; a tie takes the mean of its ranks, so
+        // the textbook case (1, 2, 2, 3) against (1, 2, 3, 4) reads sqrt(0.9) = 0.949.
+        double[] x = [1, 2, 3, 4, 5, 6];
+        StatisticsHelper.Spearman(x, [1, 4, 9, 16, 25, 100]).ShouldBe(1, 1e-12);
+        StatisticsHelper.Spearman(x, [6, 5, 4, 3, 2, 1]).ShouldBe(-1, 1e-12);
+        StatisticsHelper.Spearman([1.0, 2, 2, 3], [1.0, 2, 3, 4]).ShouldBe(Math.Sqrt(0.9), 1e-12);
+        double.IsNaN(StatisticsHelper.Spearman([1.0, 2], [2.0, 1])).ShouldBeTrue();
+        double.IsNaN(StatisticsHelper.Spearman([1.0, 1, 1], [1.0, 2, 3])).ShouldBeTrue();
+    }
 }

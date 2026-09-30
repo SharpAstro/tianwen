@@ -91,6 +91,51 @@ public class SerRecordingTests
         recording.FramesWritten.ShouldBe(1);
     }
 
+    /// <summary>An 8-bit readout of the same mosaic: whole ADU 0 to 255, as a camera streaming in 8 bits hands over.</summary>
+    private static Image EightBitMosaic(int seed)
+    {
+        var plane = new float[4, 8];
+        for (var i = 0; i < 32; i++)
+        {
+            plane[i / 8, i % 8] = seed + i;
+        }
+        return new Image([plane], BitDepth.Int8, maxValue: seed + 31, minValue: seed, pedestal: 0f,
+            new ImageMeta { SensorType = SensorType.RGGB, SensorFullScaleAdu = byte.MaxValue });
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task AnEightBitStreamRecordsAnEightBitFile()
+    {
+        // The depth the camera streams in is the file's: 8 bits a sample, not 0..255 padded into 16.
+        var path = NewPath();
+        var recording = Recording(path, TimeSpan.FromMinutes(1));
+
+        recording.TryAppend(EightBitMosaic(100), T0).ShouldBeTrue();
+        recording.TryAppend(EightBitMosaic(200), T0.AddSeconds(1)).ShouldBeTrue();
+        recording.End("done");
+        await recording.Completion.WaitAsync(TestContext.Current.CancellationToken);
+
+        using var reader = SerReader.Open(path);
+        (reader.FrameCount, reader.PixelDepthPerPlane).ShouldBe((2, 8));
+        var samples = new byte[32];
+        reader.ReadFrameBytes(1, samples);
+        samples.ShouldBe(Enumerable.Range(0, 32).Select(i => (byte)(200 + i)).ToArray());
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task AStreamSwitchedToAnotherDepthEndsIt()
+    {
+        // A SER file has one depth, as it has one size.
+        var recording = Recording(NewPath(), TimeSpan.FromMinutes(1));
+
+        recording.TryAppend(Mosaic(10, bayerOffsetX: 0), T0).ShouldBeTrue();
+        recording.TryAppend(EightBitMosaic(20), T0.AddSeconds(1)).ShouldBeFalse();
+        await recording.Completion.WaitAsync(TestContext.Current.CancellationToken);
+
+        recording.EndReason.ShouldBe("the frames changed from 16 to 8 bits");
+        recording.FramesWritten.ShouldBe(1);
+    }
+
     [Fact(Timeout = 30_000)]
     public async Task AColourFrameIsInterleavedAndAUnitFrameIsScaledToSixteenBits()
     {

@@ -18,4 +18,13 @@
     <ProjectReference Include="..\TianWen.Hosting.Contracts\TianWen.Hosting.Contracts.csproj" />
   </ItemGroup>
 
+  <!-- LAN.Lib: LanClockOffset, how far a node's clock is ahead of this computer's (the mirror's exposure countdown). Sibling
+       repo's csproj lives at ../LAN.Lib/src/LAN.Lib/LAN.Lib.csproj. -->
+  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <ProjectReference Include="..\..\..\LAN.Lib\src\LAN.Lib\LAN.Lib.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
+    <PackageReference Include="LAN.Lib" />
+  </ItemGroup>
+
 </Project>

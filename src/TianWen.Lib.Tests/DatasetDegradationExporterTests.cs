@@ -293,6 +293,63 @@ namespace TianWen.Lib.Tests
             spreads.Zip(spreads.Skip(1)).ShouldAllBe(p => p.Second.Rms > p.First.Rms);
         }
 
+        /// <summary>
+        /// E16's conditioning plane: every draw names a sidecar, and the sidecar says how noisy the draw is. The
+        /// plane is the noise of the INPUT (the master's own depth and the injected draw's in quadrature), and
+        /// draw minus clean holds the injected part alone, so the two agree once the master's share is added
+        /// back, over the tile's luminance, which is what the plane is the noise of.
+        /// <para>At SHALLOW depths only. The stretch clips at the master's own minimum, and this fixture's sky sits
+        /// about 22 ADU above it: a draw of 1.26 subs injects about 65 ADU, most of whose negative excursions are cut
+        /// off, and the measured noise fell 17 percent short of the plane. The plane models the unclipped noise,
+        /// which is what a master's own noise is at inference; a 0.2-sub draw stays clear of the floor.</para>
+        /// </summary>
+        [Fact]
+        public async Task EveryDrawCarriesItsNoisePlaneAndThePlaneIsTheDrawsNoise()
+        {
+            var bake = BuildBake();
+            var outDir = Path.Combine(_root, "degraded");
+
+            await DatasetDegradationExporter.RunAsync(
+                new DatasetDegradationExporter.Options(bake, outDir, Draws: 3, CellsPerSession: 1, Seed: 5, MinDepthScale: 0.1, MaxDepthScale: 0.2),
+                logger: null,
+                TestContext.Current.CancellationToken);
+
+            var rows = ReadDegradationRows(outDir);
+            rows.ShouldAllBe(r => r.SigmaTile == DatasetDegradationExporter.SigmaPathFor(r.Tile));
+            var clean = ReadTileChannels(outDir, CleanTileOf(rows[0]));
+
+            // The clean master's own plane sits beside it by the same rule, at the master's depth, so it is
+            // quieter than every draw's (whose input carries the master's noise and the draw's).
+            var masterPlane = ReadTile(outDir, DatasetDegradationExporter.SigmaPathFor(CleanTileOf(rows[0])));
+            masterPlane.ShouldAllBe(v => float.IsFinite(v) && v > 0f);
+            foreach (var row in rows)
+            {
+                var path = Path.Combine(outDir, row.SigmaTile!.Replace('/', Path.DirectorySeparatorChar));
+                new FileInfo(path).Length.ShouldBe(TileSize * TileSize * 2, "one channel of fp16, the tiles' own format");
+                var plane = ReadTile(outDir, row.SigmaTile);
+                plane.ShouldAllBe(v => float.IsFinite(v) && v > 0f);
+
+                var drawn = ReadTileChannels(outDir, row.Tile);
+                var lum = new double[TileSize * TileSize];
+                for (var c = 0; c < 3; c++)
+                {
+                    for (var i = 0; i < lum.Length; i++)
+                    {
+                        lum[i] += (drawn[c][i] - clean[c][i]) / 3.0;
+                    }
+                }
+                var mean = lum.Average();
+                var injected = Math.Sqrt(lum.Sum(v => (v - mean) * (v - mean)) / lum.Length);
+                var input = injected * Math.Sqrt((row.DepthScale * row.DepthScale) + (row.MasterDepth * row.MasterDepth)) / row.DepthScale;
+                var predicted = plane.Average(v => (double)v) / StretchedNoise.PlaneScale;
+                output.WriteLine($"depth {row.DepthScale:F3} (master {row.MasterDepth:F3}): measured input noise {input:E3}, plane {predicted:E3}, ratio {predicted / input:F3}");
+                (predicted / input).ShouldBe(1.0, 0.12);
+                // The master's plane is the same model at the master's depth alone.
+                var masterPredicted = masterPlane.Average(v => (double)v) / StretchedNoise.PlaneScale;
+                (masterPredicted / predicted).ShouldBe(row.MasterDepth / Math.Sqrt((row.DepthScale * row.DepthScale) + (row.MasterDepth * row.MasterDepth)), 0.03);
+            }
+        }
+
         [Fact]
         public async Task BlurModeWidensStarsAndLabelsTheWidthItAdded()
         {
@@ -782,6 +839,21 @@ namespace TianWen.Lib.Tests
         /// that passes on the luck of the seed.</summary>
         private static string CleanTileOf(DatasetDegradationExporter.DegradationRow row)
             => $"tiles/{DatasetTileExporter.Sanitize(row.SessionId)}/x{row.CellX}_y{row.CellY}_{DatasetDegradationExporter.FrameClean}.f16";
+
+        private static float[][] ReadTileChannels(string root, string relative)
+        {
+            var bytes = File.ReadAllBytes(Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar)));
+            var channels = new float[3][];
+            for (var c = 0; c < 3; c++)
+            {
+                channels[c] = new float[TileSize * TileSize];
+                for (var i = 0; i < channels[c].Length; i++)
+                {
+                    channels[c][i] = (float)BitConverter.ToHalf(bytes, ((c * TileSize * TileSize) + i) * 2);
+                }
+            }
+            return channels;
+        }
 
         private static float[] ReadTile(string root, string relative)
         {

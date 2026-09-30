@@ -78,6 +78,18 @@ public sealed record DatasetBuildOptions
     /// </remarks>
     public ImmutableArray<string> RebuildSessionPatterns { get; init; } = [];
 
+    /// <summary>
+    /// Case-insensitive wildcards on the session id (the <see cref="RebuildSessionPatterns"/> matching): when any
+    /// are given, only matching sessions are built. Empty builds every session.
+    /// </summary>
+    /// <remarks>
+    /// For a store of a few named sessions, such as the eval fields re-baked by a recipe change, built from the SAME
+    /// roots, so calibration resolves exactly as in the full bake. The pinned split is still written over every
+    /// session the archive holds, so a subset store holds out the same sessions the full one does. Not part of
+    /// <see cref="RecipeKey"/>: it decides which sessions are built, never what a session's outputs are.
+    /// </remarks>
+    public ImmutableArray<string> SessionPatterns { get; init; } = [];
+
     /// <summary>MAD threshold (standard-deviation-equivalent units) for the session-relative
     /// quality gate (<see cref="SessionFrameAnalyzer.ApplyGate"/>); the stacker's
     /// <c>--quality-reject-sigma</c> semantics. 0 disables the relative gate

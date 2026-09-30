@@ -142,6 +142,44 @@ public class LocalNodeLauncherTests
         File.Exists(options.SocketPath).ShouldBeFalse("nor anywhere else");
     }
 
+    /// <summary>
+    /// A node on a named socket that is up but slow to answer its first ask, as a loaded machine makes one, is waited for
+    /// rather than reported gone. #1070: a test's own node, serving, was reported as "No node answers" after one 2 s ask.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task ANamedNodeSlowToAnswerItsFirstAskIsWaitedFor()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (options, folder) = Isolated();
+        var named = Path.Combine(folder, "named.sock");
+        await using var node = await ImpostorNode.StartAsync(named, NodeWire.Version, holdsHardware: false, ct,
+            firstAnswerDelay: TimeSpan.FromSeconds(3));
+
+        var found = await Launcher(options with { NamedSocket = named }).FindOrStartAsync(ct);
+
+        found.Outcome.ShouldBe(LocalNodeOutcome.Found, found.Message);
+        found.Node.ShouldNotBeNull().NodeId.ShouldBe("impostor");
+        node.Answers.ShouldBeGreaterThan(1, "the first ask outran its budget, and a later one found the node");
+    }
+
+    /// <summary>
+    /// A named socket whose path is too long to be a socket address at all (a deep data root, a long <c>--node-socket</c>)
+    /// is reported unreachable, as it always was: the wait for a slow node asks whether anything listens there, and the
+    /// address it builds to ask throws for such a path (#1079 review).
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task ANamedSocketTooLongToBeAnAddressIsReportedNotThrown()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (options, folder) = Isolated();
+        var named = Path.Combine(folder, new string('n', 120) + ".sock");
+
+        var node = await Launcher(options with { NamedSocket = named }).FindOrStartAsync(ct);
+
+        node.Outcome.ShouldBe(LocalNodeOutcome.NamedNodeUnreachable, node.Message);
+        node.Message.ShouldContain(named);
+    }
+
     [Fact(Timeout = 60_000)]
     public async Task AMissingServerIsReportedWithWhereItWasLookedFor()
     {

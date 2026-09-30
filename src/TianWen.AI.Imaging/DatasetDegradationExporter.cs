@@ -7,6 +7,7 @@ using TianWen.Lib.Geometry;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
@@ -169,6 +170,10 @@ namespace TianWen.AI.Imaging
         /// a white draw. Recorded per draw because <see cref="Options.WarpResampleSigmaMax"/> and
         /// <see cref="Options.WhiteFraction"/> make the shape vary within one export, and a row that named
         /// only the export's setting would say nothing about the tile beside it.</param>
+        /// <param name="SigmaTile">The draw's per-pixel conditioning plane (E16), relative to the output root:
+        /// the noise this INPUT carries after the stretch, the master's own depth and the injected one in
+        /// quadrature, by <see cref="StretchedNoise.Plane"/> in its units, one channel of raw little-endian fp16
+        /// like the tiles. Null in an export from before E16.</param>
         public sealed record DegradationRow(
             string Tile,
             string SessionId,
@@ -206,7 +211,36 @@ namespace TianWen.AI.Imaging
             double? EstimatedKernelFwhmPx = null,
             double? EstimatedKernelBeta = null,
             string? KernelEstimateRefusal = null,
-            double? WarpSigma = null);
+            double? WarpSigma = null,
+            string? SigmaTile = null);
+
+        /// <summary>The extension of a tile's conditioning-plane sidecar, beside the tile.</summary>
+        public const string SigmaTileExtension = ".sigma.f16";
+
+        /// <summary>
+        /// The one naming rule for a conditioning plane: beside its tile, the tile's extension replaced by
+        /// <see cref="SigmaTileExtension"/>. The trainer's <c>--prepare</c> finds every slot's plane (master, draws,
+        /// halves) by this rule, so a tile needs no manifest field to carry one.
+        /// </summary>
+        public static string SigmaPathFor(string tilePath)
+            => tilePath.EndsWith(DatasetTileExporter.TileExtension, StringComparison.Ordinal)
+                ? string.Concat(tilePath.AsSpan(0, tilePath.Length - DatasetTileExporter.TileExtension.Length), SigmaTileExtension)
+                : throw new ArgumentException($"{tilePath} is not a {DatasetTileExporter.TileExtension} tile", nameof(tilePath));
+
+        /// <summary>
+        /// The one writer of a plane file: one channel, raw little-endian fp16 like the tiles, in
+        /// <see cref="StretchedNoise.PlaneScale"/> units. Every exporter that writes a plane goes through it, so the
+        /// trainer's reader has one format to know.
+        /// </summary>
+        internal static void WritePlaneFile(ReadOnlySpan<float> plane, string path)
+        {
+            var halfs = new Half[plane.Length];
+            for (var i = 0; i < plane.Length; i++)
+            {
+                halfs[i] = (Half)plane[i];
+            }
+            File.WriteAllBytes(path, MemoryMarshal.AsBytes<Half>(halfs).ToArray());
+        }
 
         /// <summary>What to export.</summary>
         /// <param name="BakeRoot">A dataset bake: it must hold <c>tiles-manifest.jsonl</c> and
@@ -704,6 +738,7 @@ namespace TianWen.AI.Imaging
                 : perChannelKernels.Max(static k => k.Radius);
             var cut = size + (2 * margin);
             var planes = new float[channels][,];
+            var levelPlanes = new float[channels][,];
             var calibration = default(LinearDegradation.NoiseCalibration);
             var adjacent = double.NaN;
             var anchor = "";
@@ -767,6 +802,19 @@ namespace TianWen.AI.Imaging
                 var degraded = channelKernel is null
                     ? region
                     : channelKernel.Convolve(region, cut, cut);
+
+                // The noise-free level of the cell (blurred, if this draw blurs), kept for the conditioning
+                // plane before the noise goes in: see WriteSigmaTile's call below for why the plane reads it.
+                var cleanPlane = new float[size, size];
+                for (var y = 0; y < size; y++)
+                {
+                    for (var x = 0; x < size; x++)
+                    {
+                        cleanPlane[y, x] = degraded[((y + margin) * cut) + x + margin];
+                    }
+                }
+                levelPlanes[c] = cleanPlane;
+
                 LinearDegradation.AddNoiseInPlace(degraded, shape, calibration, depthScale);
 
                 // Crop the margin off and lay the cell out as a plane.
@@ -782,6 +830,15 @@ namespace TianWen.AI.Imaging
             }
 
             var cellImage = new Image(planes, BitDepth.Float32, 1f, 0f, unitMaster.Pedestal, unitMaster.ImageMeta);
+
+            if (draw == 0)
+            {
+                // The clean master's own plane, once per cell: slot 0 is also what the gate denoises (the
+                // deployment case), and its noise is the master's own depth. Named by the one rule every
+                // tile's plane follows (SigmaPathFor), so no manifest field is needed to find it.
+                WriteMasterSigmaTile(unitMaster, origin, size, origMin, balances, calibration, masterDepth,
+                    Path.Combine(tilesDir, SigmaPathFor($"x{cell.X}_y{cell.Y}_{FrameClean}{DatasetTileExporter.TileExtension}")));
+            }
 
             // H2's label, measured HERE and not from the kernel, on the LINEAR cell and not the
             // stretched one. Both halves matter. Inference has no kernel, only what the estimator reads
@@ -904,12 +961,27 @@ namespace TianWen.AI.Imaging
             }
 
             Image? stretchedCell = null;
+            Image? levelCell = null;
+            Image? levelStretched = null;
             try
             {
                 stretchedCell = cellImage.MtfStretchWith(origMin, balances);
                 var frame = FrameForDraw(draw);
                 var file = $"x{cell.X}_y{cell.Y}_{frame}{DatasetTileExporter.TileExtension}";
                 DatasetTileExporter.WriteTile(stretchedCell, PixelPoint.Empty, size, Path.Combine(tilesDir, file), sessionId);
+
+                // The draw's conditioning plane (E16): the noise the INPUT carries per pixel, which is the
+                // master's own (its depth, 1/sqrt(N) of a sub) and the injected draw's, in quadrature, both on
+                // this cell's calibration, through the one function the runner calls on its input. The LEVEL
+                // is the cell before its noise: the stretch's slope is convex near black, so a level read off a
+                // draw noisier than a master biases the plane up (18 percent at 1.26 subs of warped noise, the
+                // exporter test), while the runner's input is a master, whose own low-passed level is close to
+                // noise-free already. Train and inference then differ in the calibration alone.
+                var sigmaFile = SigmaPathFor(file);
+                levelCell = new Image(levelPlanes, BitDepth.Float32, 1f, 0f, unitMaster.Pedestal, unitMaster.ImageMeta);
+                levelStretched = levelCell.MtfStretchWith(origMin, balances);
+                WriteSigmaTile(levelStretched, origMin, balances, calibration,
+                    Math.Sqrt((depthScale * depthScale) + (masterDepth * masterDepth)), Path.Combine(tilesDir, sigmaFile));
 
                 return new DegradationRow(
                     Tile: $"tiles/{slug}/{file}",
@@ -948,13 +1020,76 @@ namespace TianWen.AI.Imaging
                     KernelEstimateRefusal: kernelRefusal,
                     Psf01Stars: psf01Stars,
                     CleanFwhmPx: cleanFwhmPx,
-                    WarpSigma: drawShape == NoiseShape.Warped ? drawSigma : null);
+                    WarpSigma: drawShape == NoiseShape.Warped ? drawSigma : null,
+                    SigmaTile: $"tiles/{slug}/{sigmaFile}");
             }
             finally
             {
+                levelStretched?.Release();
+                levelCell?.Release();
                 stretchedCell?.Release();
                 cellImage.Release();
             }
+        }
+
+        /// <summary>
+        /// The clean master cell's conditioning plane: its own noise at the master's depth, the level read off the
+        /// cell itself.
+        /// </summary>
+        private static void WriteMasterSigmaTile(
+            Image unitMaster,
+            PixelPoint origin,
+            int size,
+            float[] origMin,
+            double[] balances,
+            in LinearDegradation.NoiseCalibration calibration,
+            double masterDepth,
+            string path)
+        {
+            var channels = unitMaster.ChannelCount;
+            var planes = new float[channels][,];
+            for (var c = 0; c < channels; c++)
+            {
+                var cut = CutClamped(unitMaster, c, origin.X, origin.Y, size, size);
+                var plane = new float[size, size];
+                Buffer.BlockCopy(cut, 0, plane, 0, cut.Length * sizeof(float));
+                planes[c] = plane;
+            }
+            var linear = new Image(planes, BitDepth.Float32, 1f, 0f, unitMaster.Pedestal, unitMaster.ImageMeta);
+            Image? stretched = null;
+            try
+            {
+                stretched = linear.MtfStretchWith(origMin, balances);
+                WriteSigmaTile(stretched, origMin, balances, calibration, masterDepth, path);
+            }
+            finally
+            {
+                stretched?.Release();
+                linear.Release();
+            }
+        }
+
+        /// <summary>
+        /// Writes a stretched cell's per-pixel conditioning plane (<see cref="StretchedNoise.Plane"/>) as one channel
+        /// of raw little-endian fp16, the tiles' own format.
+        /// </summary>
+        internal static void WriteSigmaTile(
+            Image stretchedCell,
+            ReadOnlySpan<float> origMin,
+            ReadOnlySpan<double> balances,
+            in LinearDegradation.NoiseCalibration calibration,
+            double depthScale,
+            string path)
+        {
+            var (channels, width, height) = stretchedCell.Shape;
+            var planes = new float[channels][];
+            var stretches = new StretchedNoise.ChannelStretch[channels];
+            for (var c = 0; c < channels; c++)
+            {
+                planes[c] = stretchedCell.GetChannelSpan(c).ToArray();
+                stretches[c] = new StretchedNoise.ChannelStretch(balances[c], origMin[c]);
+            }
+            WritePlaneFile(StretchedNoise.Plane(planes, width, height, stretches, calibration, depthScale), path);
         }
 
         /// <summary>

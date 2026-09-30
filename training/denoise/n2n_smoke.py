@@ -63,6 +63,45 @@ def open_cache(cache):
     return open_tiles(cache, meta), meta
 
 
+# E16's per-pixel conditioning plane (docs/plans/denoiser-training.md, run log "Detail kept"): one channel of
+# fp16 beside its tile, named by ONE rule (DatasetDegradationExporter.SigmaPathFor in C#: the tile's .f16
+# replaced by .sigma.f16), computed by StretchedNoise.Plane in C# and only READ here, so the plane a model
+# trains on and the one the runner computes at inference come from the same code. --prepare packs every slot's
+# plane it finds into sigma.f16, aligned with tiles.f16, and sigma_has.npy says which slots have one.
+TILE_EXT = ".f16"
+SIGMA_EXT = ".sigma.f16"
+SIGMA_FILE = "sigma.f16"
+SIGMA_HAS_FILE = "sigma_has.npy"
+# A plane value per unit of stretched sigma: StretchedNoise.PlaneScale in C# (the scalar plane's convention, 0.6745
+# sigma for pure noise, times SIGMA_SCALE). Planes arrive in these units; divide to read a sigma back.
+PLANE_SCALE = 0.6745 * 100.0
+
+
+def sigma_path_for(rel):
+    """A tile's conditioning-plane sidecar: the C# SigmaPathFor rule, verbatim."""
+    if not rel.endswith(TILE_EXT):
+        raise ValueError(f"{rel} is not a {TILE_EXT} tile")
+    return rel[:-len(TILE_EXT)] + SIGMA_EXT
+
+
+def open_sigma(cache, meta):
+    """(planes, has): planes [cells, slots, TILE, TILE] fp16 and has [cells, slots] bool, or (None, None) for a
+    cache prepared without any plane."""
+    if not meta.get("sigma_planes"):
+        return None, None
+    planes = np.memmap(os.path.join(cache, SIGMA_FILE), dtype=np.float16, mode="r",
+                       shape=(meta["cells"], meta.get("slots", SLOTS_SUBS_ONLY), TILE, TILE))
+    return planes, np.load(os.path.join(cache, SIGMA_HAS_FILE))
+
+
+def with_plane(x, plane, strength=1.0):
+    """Append a STORED per-pixel conditioning plane [B, H, W] to an image batch: --cond-map, in place of
+    with_sigma's broadcast scalar. `strength` keeps the scalar's meaning (overstating the noise is the dial)."""
+    import torch
+    p = plane if torch.is_tensor(plane) else torch.from_numpy(np.ascontiguousarray(plane, dtype=np.float32))
+    return torch.cat([x, p.to(x.device, dtype=x.dtype).unsqueeze(1) * strength], dim=1)
+
+
 # --------------------------------------------------------------------------- index
 def load_cells(root, manifest):
     """(session, cx, cy) -> {'subs': [relpath...], 'master': relpath, 'half_a'/'half_b': relpath}
@@ -381,6 +420,40 @@ def prepare(args):
             raise SystemExit(f"tile {rel} is {len(raw)} bytes, expected {BYTES}")
         return np.frombuffer(raw, "<f2").reshape(CH, TILE, TILE)
 
+    # E16's per-pixel planes, by the sidecar rule, under --sigma-root (the export root by default). The array is
+    # made only when the first cell has one, so a cache of an export from before E16 is byte for byte unchanged.
+    sigma_root = args.sigma_root or args.root
+
+    def read_sigma(rel):
+        p = os.path.join(sigma_root, sigma_path_for(rel).replace("/", os.sep))
+        if not os.path.exists(p):
+            return None
+        with open(p, "rb") as fh:
+            raw = fh.read()
+        if len(raw) != TILE * TILE * 2:
+            raise SystemExit(f"plane {p} is {len(raw)} bytes, expected {TILE * TILE * 2}")
+        return np.frombuffer(raw, "<f2").reshape(TILE, TILE)
+
+    # Any cell may be the first with a plane: an eval cache's training sessions carry none (noise-planes wrote the
+    # eval sessions only), so the check looks at every cell's master and half A, which costs a stat each.
+    def has_sidecar(rel):
+        return bool(rel) and os.path.exists(os.path.join(sigma_root, sigma_path_for(rel).replace("/", os.sep)))
+
+    sigma = sigma_has = None
+    if any(has_sidecar(cells[k]["master"]) or has_sidecar(cells[k].get("half_a"))
+           or (cells[k]["subs"] and has_sidecar(cells[k]["subs"][0])) for k in keys):
+        sigma = np.memmap(os.path.join(args.cache, SIGMA_FILE), dtype=np.float16, mode="w+",
+                          shape=(n, SLOTS_WITH_HALVES, TILE, TILE))
+        sigma_has = np.zeros((n, SLOTS_WITH_HALVES), dtype=bool)
+
+    def put_sigma(i, slot, rel):
+        if sigma is None or not rel:
+            return
+        plane = read_sigma(rel)
+        if plane is not None:
+            sigma[i, slot] = plane
+            sigma_has[i, slot] = True
+
     # The E3 operator's session stretch parameters, BEFORE the tile read: the proof against the cache's
     # clean tiles reads them straight from the export, so a parameter set that fails costs seconds
     # here rather than the fifteen minutes of tile packing it would otherwise sit behind.
@@ -398,6 +471,7 @@ def prepare(args):
         paths = [entry["master"]] + sorted(entry["subs"])[:SUBS_PER_CELL]
         for slot, rel in enumerate(paths):
             mm[i, slot] = read_tile(rel)
+            put_sigma(i, slot, rel)
             if slot > 0 and rel in psf01_by_tile:
                 psf01[i, slot - 1] = psf01_by_tile[rel]
             if slot > 0 and rel in kernel_by_tile:
@@ -407,12 +481,24 @@ def prepare(args):
         if pair:
             mm[i, SLOT_HALF_A] = read_tile(entry["half_a"])
             mm[i, SLOT_HALF_B] = read_tile(entry["half_b"])
+            put_sigma(i, SLOT_HALF_A, entry["half_a"])
+            put_sigma(i, SLOT_HALF_B, entry["half_b"])
         if (i + 1) % 100 == 0:
             done = i + 1
             rate = done / (time.perf_counter() - t0)
             print(f"  {done}/{n} cells  {rate:5.1f} cells/s  "
                   f"eta {(n - done) / rate / 60:5.1f} min", flush=True)
     mm.flush()
+    sigma_planes = 0
+    if sigma is not None:
+        sigma.flush()
+        np.save(os.path.join(args.cache, SIGMA_HAS_FILE), sigma_has)
+        sigma_planes = int(sigma_has.sum())
+        per_slot = sigma_has.sum(axis=0)
+        print(f"  per-pixel noise planes: {sigma_planes} (master {per_slot[0]}, draws/subs {int(per_slot[1:SUBS_PER_CELL + 1].sum())}, "
+              f"half A {per_slot[SLOT_HALF_A]}, half B {per_slot[SLOT_HALF_B]}) from {sigma_root}")
+    else:
+        print("  per-pixel noise planes: NONE (no .sigma.f16 beside the tiles; an export from before E16)")
 
     print(f"  half-master pairs: {sum(halves)}/{n} cells")
     # Whether the sub slots hold INJECTED draws (frame names deg000..) rather than real subs. The
@@ -472,6 +558,7 @@ def prepare(args):
         "kernel_labels": kernel_labelled,
         "bake": args.bake,
         "stretch_proved": bool(stretch_info),
+        "sigma_planes": sigma_planes,
         "keys": [[k[0], k[1], k[2]] for k in keys],
     }
     with open(os.path.join(args.cache, "meta.json"), "w", encoding="utf-8") as fh:
@@ -715,20 +802,33 @@ def load_model(cache, name, dev):
         model = build_model(ck["base"], ck.get("upsample", False), planes).to(dev)
     model.load_state_dict(ck["model"])
     model.eval()
+    # E16: a model that conditions on the stored per-pixel plane says so, so no caller can feed it the scalar.
+    model.cond_map = bool(ck.get("cond_map", False))
     return model, planes
 
 
-def denoise(cache, name, src, dev, batch=16, strength=1.0):
-    """Run a checkpoint over an [N,C,H,W] float32 array, honouring its conditioning flag."""
+def denoise(cache, name, src, dev, batch=16, strength=1.0, planes=None):
+    """Run a checkpoint over an [N,C,H,W] float32 array, honouring its conditioning flag.
+
+    `planes` [N, H, W] is the input's per-pixel noise plane, required by a --cond-map checkpoint and refused by
+    any other (which would silently ignore it)."""
     import torch
-    model, planes = load_model(cache, name, dev)
-    if not planes and strength != 1.0:
+    model, plane_count = load_model(cache, name, dev)
+    if not plane_count and strength != 1.0:
         raise ValueError(f"{name} is not conditioned, so strength has nothing to act on")
+    if model.cond_map and planes is None:
+        raise SystemExit(f"{name} conditions on a per-pixel noise plane (--cond-map): pass the input's planes "
+                         f"(the cache's sigma.f16 for that slot)")
+    if planes is not None and not model.cond_map:
+        raise SystemExit(f"{name} conditions on the tile's scalar sigma, not a per-pixel plane; do not pass planes")
     out = []
     with torch.no_grad():
         for i in range(0, len(src), batch):
             x = torch.from_numpy(src[i:i + batch]).to(dev)
-            out.append(model(with_sigma(x, strength, planes) if planes else x).cpu().numpy())
+            if model.cond_map:
+                out.append(model(with_plane(x, planes[i:i + batch], strength)).cpu().numpy())
+            else:
+                out.append(model(with_sigma(x, strength, plane_count) if plane_count else x).cpu().numpy())
     return np.concatenate(out)
 
 
@@ -992,6 +1092,32 @@ def train(args):
     # checkpoint cannot disagree about what the input looks like.
     cond_planes = COND_BANDS if args.cond_bands else (1 if args.cond else 0)
 
+    # E16: condition on the STORED per-pixel noise plane (sigma.f16, written by the C# exporter) instead of the
+    # tile's darkest-half MAD broadcast as one number, which told a bright core the sky's noise and read a
+    # nebula-filled tile's texture as noise (run log, "Detail kept"). The synthetic regime only: an injected
+    # draw's plane IS its noise, while a real sub's or half's would have to be estimated, which is the runner's
+    # job at inference and the eval caches' planes, never the trainer's.
+    sigma_planes = None
+    if args.cond_map:
+        if args.cond_bands or args.cond_psf01 or args.operator == "rl" or getattr(args, "scale_aug", None):
+            raise SystemExit("--cond-map replaces the scalar noise plane; it does not combine with --cond-bands, "
+                             "--cond-psf01, --operator or --scale-aug")
+        if regimes != [SYNTH]:
+            raise SystemExit("--cond-map is for the synthetic regime (--synthetic): only an injected draw's plane "
+                             "is its noise")
+        sigma_planes, sigma_has = open_sigma(args.cache, meta)
+        if sigma_planes is None:
+            raise SystemExit(f"--cond-map needs per-pixel planes in {args.cache}: export with a build that writes "
+                             f".sigma.f16 beside each draw (tianwen dataset degrade, E16) and re-run --prepare")
+        missing = int((~sigma_has[:, :SUBS_PER_CELL + 1]).sum())
+        if missing:
+            raise SystemExit(f"--cond-map: {missing} master or draw slots carry no plane, so this cache is not an "
+                             f"E16 export throughout")
+        cond_planes = 1
+        sample = np.asarray(sigma_planes[:min(64, meta["cells"]), 1], dtype=np.float32)
+        print(f"conditioning on the STORED per-pixel noise plane (sigma.f16): draw planes p5 "
+              f"{np.percentile(sample, 5):.3f} p50 {np.percentile(sample, 50):.3f} p95 {np.percentile(sample, 95):.3f}")
+
     # A DECONVOLUTION arm conditions on a stored psf01 label rather than on the input's measured
     # noise, and is selected on width and ringing rather than on noise: the denoiser's gate would
     # pick whichever checkpoint irons the frame flattest, which is selecting a deconvolver for
@@ -1092,7 +1218,7 @@ def train(args):
                   f"probing every {args.gate_every} steps; the probed input sits at "
                   f"{np.nanmean(gate.input_fwhm / gate.truth_fwhm):.2f}x the truth width")
         else:
-            gate = n2n_gate.Gate(mm, cells, dev, input_slot=gate_input)
+            gate = n2n_gate.Gate(mm, cells, dev, input_slot=gate_input, sigma=sigma_planes)
             print(f"gate: {len(cells)} cells from {args.gate_sessions} val session(s), probing every "
                   f"{args.gate_every} steps; floor {gate.floor_spurious:.1f} spurious/tile")
         if args.gate_observe:
@@ -1114,7 +1240,7 @@ def train(args):
                           f"input stars null {observers[-1][1].stars_null:.3f} (stars@{int(n2n_deconv_gate.STAR_SIGMA_LOW)} null "
                           f"{observers[-1][1].stars_null_lo:.3f})")
                 else:
-                    observers.append((s, n2n_gate.Gate(mm, ocells, dev, input_slot=gate_input)))
+                    observers.append((s, n2n_gate.Gate(mm, ocells, dev, input_slot=gate_input, sigma=sigma_planes)))
                     print(f"  OBSERVING (never selected on) {len(ocells)} cells from {s[:44]}; "
                           f"floor {observers[-1][1].floor_spurious:.1f} spurious/tile")
         # Names the three gates that are actually in the pass condition. It used to print the
@@ -1221,7 +1347,8 @@ def train(args):
                     for shift in (0, SUBS_PER_CELL // 2):
                         slots = 1 + (np.arange(j0, j0 + len(vi)) + shift) % SUBS_PER_CELL
                         x = torch.from_numpy(np.ascontiguousarray(mm[vi, slots])).to(dev).float()
-                        pred = model(with_sigma(x, planes=cond_planes) if cond_planes else x)
+                        pred = model(with_plane(x, sigma_planes[vi, slots]) if sigma_planes is not None
+                                     else with_sigma(x, planes=cond_planes) if cond_planes else x)
                         pc = pred[:, :, BORDER:-BORDER, BORDER:-BORDER]
                         obj = (nn.functional.l1_loss(pc, yc) if args.loss == "l1"
                                else nn.functional.mse_loss(pc, yc))
@@ -1364,6 +1491,9 @@ def train(args):
                     good = lab[np.isfinite(lab)]
                     lab = np.where(np.isfinite(lab), lab, float(np.median(good)) if good.size else 0.5)
             pred = model(DG.with_psf01(x, lab))
+        elif sigma_planes is not None:
+            # Each sample's plane follows the SLOT it was drawn from: the draw's own noise, per pixel.
+            pred = model(with_plane(x, sigma_planes[idx, a]))
         else:
             pred = model(with_sigma(x, planes=cond_planes) if cond_planes else x)
         # Mask the rim: at inference no output pixel comes from a chunk edge, so a loss over
@@ -1576,7 +1706,7 @@ def train(args):
 
     def save(state, path, selected_at):
         torch.save({"model": state, "base": args.base, "upsample": args.upsample,
-                    "cond": cond_planes, "half_pairs": args.half_pairs,
+                    "cond": cond_planes, "cond_map": sigma_planes is not None, "half_pairs": args.half_pairs,
                     "regimes": [str(k) for k in regimes], "selected_at_step": selected_at,
                     "pair_time": args.pair_time, "star_loss_w": star_w,
                     "operator": args.operator, "rl_k": args.rl_k,
@@ -1887,6 +2017,12 @@ if __name__ == "__main__":
                    help="prepare only from sessions that carry a half-master pair")
     p.add_argument("--cond", action="store_true",
                    help="condition on ONE plane holding the tile's own background sigma")
+    p.add_argument("--cond-map", action="store_true",
+                   help="E16: condition on the STORED per-pixel noise plane (sigma.f16, the C# exporter's "
+                        "StretchedNoise.Plane) instead of the tile's darkest-half MAD; --synthetic only")
+    p.add_argument("--sigma-root", default=None,
+                   help="--prepare: where the tiles' .sigma.f16 planes live (default --root), for an eval cache "
+                        "whose planes were written apart from the bake")
     p.add_argument("--cond-bands", action="store_true",
                    help="condition on a per-band noise PROFILE instead of one scalar (implies "
                         "--cond and overrides it). A scalar cannot express noise SHAPE, and "

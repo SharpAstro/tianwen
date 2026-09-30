@@ -28,11 +28,59 @@ public sealed class LuckyImagingStacker
         var channelAccum = Image.CreateChannelData(ctx.Channels, ctx.Height, ctx.Width);
         var weightAccum = new float[ctx.Height, ctx.Width];
 
+        var used = await AccumulateGlobalAsync(stream, ctx.Selected, ctx.Aligner, index => ctx.ScoreByIndex[index], channelAccum, weightAccum, options.Interpolation, cancellationToken).ConfigureAwait(false);
+
+        var stacked = Normalize(channelAccum, weightAccum, ctx);
+        var master = await FinalizeAsync(stacked, stream.Layout, options, cancellationToken).ConfigureAwait(false);
+        return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length);
+    }
+
+    /// <summary>
+    /// Stacks exactly <paramref name="frames"/>, equally weighted and globally aligned to frame <paramref name="referenceIndex"/>'s
+    /// disk, into the stream's OWN planes: a split Bayer stack stays its four CFA sub-planes, never demosaiced. It is what the
+    /// split-half test compares (docs/plans/planetary-restoration.md, T2), two such stacks from disjoint frames against one
+    /// reference, and a demosaic would put the same interpolated detail into both halves.
+    /// </summary>
+    public async Task<Image> StackPlanesAsync(IPlanetaryFrameStream stream, ImmutableArray<int> frames, int referenceIndex, CancellationToken cancellationToken = default)
+        => await StackPlanesAsync(stream, frames, referenceIndex, whiten: true, cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// <see cref="StackPlanesAsync(IPlanetaryFrameStream, ImmutableArray{int}, int, CancellationToken)"/>, aligned by phase
+    /// correlation or, not <paramref name="whiten"/>ed, by a plain cross-correlation (<see cref="PlanetaryStackOptions.WhitenedCorrelation"/>).
+    /// </summary>
+    public async Task<Image> StackPlanesAsync(IPlanetaryFrameStream stream, ImmutableArray<int> frames, int referenceIndex, bool whiten, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        var reference = await stream.LoadAsync(referenceIndex, cancellationToken).ConfigureAwait(false);
+        GlobalAligner aligner;
+        int width, height, channels;
+        ImageMeta meta;
+        try
+        {
+            aligner = AlignerFor(reference, PlanetaryDisk.BoundingBox(reference), alignTileSize: 0, whiten);
+            (width, height, channels, meta) = (reference.Width, reference.Height, reference.ChannelCount, reference.ImageMeta);
+        }
+        finally
+        {
+            reference.Release();
+        }
+
+        var channelAccum = Image.CreateChannelData(channels, height, width);
+        var weightAccum = new float[height, width];
+        await AccumulateGlobalAsync(stream, frames, aligner, _ => 1f, channelAccum, weightAccum, WarpInterpolation.Bilinear, cancellationToken).ConfigureAwait(false);
+        return PlanetaryMaster.NormalizeInPlace(channelAccum, weightAccum, meta);
+    }
+
+    // The global path's integration, shared: each frame aligned to the reference's disk and added with its weight (a frame
+    // weighted zero or less is skipped). Returns how many were added.
+    private static async Task<int> AccumulateGlobalAsync(IPlanetaryFrameStream stream, ImmutableArray<int> frames, GlobalAligner aligner, Func<int, float> weightOf,
+        float[][,] channelAccum, float[,] weightAccum, WarpInterpolation interpolation, CancellationToken cancellationToken)
+    {
         var used = 0;
-        foreach (var index in ctx.Selected)
+        foreach (var index in frames)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var weight = ctx.ScoreByIndex[index];
+            var weight = weightOf(index);
             if (weight <= 0f)
             {
                 continue;
@@ -41,8 +89,8 @@ public sealed class LuckyImagingStacker
             var frame = await stream.LoadAsync(index, cancellationToken).ConfigureAwait(false);
             try
             {
-                var shift = ctx.Aligner.Estimate(frame, PlanetaryDisk.BoundingBox(frame));
-                frame.AccumulateTranslatedInto(channelAccum, weightAccum, (float)shift.Dx, (float)shift.Dy, weight);
+                var shift = aligner.Estimate(frame, PlanetaryDisk.BoundingBox(frame));
+                frame.AccumulateTranslatedInto(channelAccum, weightAccum, (float)shift.Dx, (float)shift.Dy, weight, interpolation);
                 used++;
             }
             finally
@@ -50,10 +98,16 @@ public sealed class LuckyImagingStacker
                 frame.Release();
             }
         }
+        return used;
+    }
 
-        var stacked = Normalize(channelAccum, weightAccum, ctx);
-        var master = await FinalizeAsync(stacked, stream.Layout, options, cancellationToken).ConfigureAwait(false);
-        return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length);
+    // The global aligner on a reference's disk, its tile auto-sized to the disk (clamped to [64, 512]) unless one is set.
+    internal static GlobalAligner AlignerFor(Image reference, PixelRect refRegion, int alignTileSize, bool whiten = true)
+    {
+        var tileSize = alignTileSize > 0
+            ? NextPowerOfTwo(alignTileSize)
+            : Math.Clamp(NextPowerOfTwo(Math.Max(refRegion.Width, refRegion.Height)), 64, 512);
+        return GlobalAligner.FromReference(reference, refRegion, tileSize, whiten);
     }
 
     /// <summary>
@@ -74,6 +128,12 @@ public sealed class LuckyImagingStacker
             ?? throw new InvalidOperationException(
                 "PrepareAsync(includeAlignmentPoints: true) must produce an alignment-point matcher.");
 
+        // Pooled or on the median geometry, every frame's points are read first, in capture order.
+        var tracks = options.WarpPoolFrames > 0 || options.MedianGeometry
+            ? await AlignmentPointTracks.MeasureAsync(stream, ctx.Aligner, matcher, cancellationToken).ConfigureAwait(false)
+            : null;
+        var points = new AlignmentPointShift[matcher.AlignmentPoints.Length];
+
         var used = 0;
         foreach (var index in ctx.Selected)
         {
@@ -87,16 +147,26 @@ public sealed class LuckyImagingStacker
             var frame = await stream.LoadAsync(index, cancellationToken).ConfigureAwait(false);
             try
             {
-                var shift = ctx.Aligner.Estimate(frame, PlanetaryDisk.BoundingBox(frame));
-                var mesh = matcher.BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, options.MeshNodeSpacing);
-                if (options.PerPointQualityWeighting)
+                DisplacementMesh mesh;
+                if (tracks is not null)
                 {
-                    var quality = FrameSharpnessMap.Build(frame);
-                    frame.AccumulateByMeshWeightedInto(channelAccum, weightAccum, mesh, quality, weight, ctx.SignalConfidence);
+                    var (gx, gy) = tracks.GlobalShift(index);
+                    tracks.Points(index, options.WarpPoolFrames, options.MedianGeometry, points);
+                    mesh = matcher.BuildMesh((float)gx, (float)gy, points, options.MeshNodeSpacing, options.MeshInfluence);
                 }
                 else
                 {
-                    frame.AccumulateByMeshInto(channelAccum, weightAccum, mesh, weight);
+                    var shift = ctx.Aligner.Estimate(frame, PlanetaryDisk.BoundingBox(frame));
+                    mesh = matcher.BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, options.MeshNodeSpacing, options.MeshInfluence);
+                }
+                if (options.PerPointQualityWeighting)
+                {
+                    var quality = FrameSharpnessMap.Build(frame);
+                    frame.AccumulateByMeshWeightedInto(channelAccum, weightAccum, mesh, quality, weight, ctx.SignalConfidence, options.Interpolation);
+                }
+                else
+                {
+                    frame.AccumulateByMeshInto(channelAccum, weightAccum, mesh, weight, options.Interpolation);
                 }
 
                 used++;
@@ -175,7 +245,7 @@ public sealed class LuckyImagingStacker
                     // The mesh is built at sub-plane resolution; MeshSourceToCanvas samples it at the
                     // mosaic pixel's sub-plane position, doubles the offset into mosaic space, and applies
                     // the output scale -- so drizzle gets the local de-warp, not just a whole-disk shift.
-                    var mesh = matcher.BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, options.MeshNodeSpacing);
+                    var mesh = matcher.BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, options.MeshNodeSpacing, options.MeshInfluence);
                     DrizzleKernel.IterateAndDeposit(
                         mosaic, new MeshSourceToCanvas(mesh, scale), pattern, halfP, flux, weight,
                         xStart: 0, xEnd: canvasW, yStart: 0, yEnd: canvasH,
@@ -246,6 +316,18 @@ public sealed class LuckyImagingStacker
         }
     }
 
+    /// <summary>
+    /// Every frame's alignment points read as <see cref="StackAsync"/> reads them, with the same reference, points, aligner and
+    /// matcher, and the reference's index: what a dewarp's residual is measured from (<see cref="DewarpResidual"/>).
+    /// </summary>
+    internal static async Task<(AlignmentPointTracks Tracks, int ReferenceIndex)> TrackAsync(IPlanetaryFrameStream stream, PlanetaryStackOptions options, CancellationToken cancellationToken)
+    {
+        var ctx = await PrepareAsync(stream, options, includeAlignmentPoints: true, cancellationToken).ConfigureAwait(false);
+        var matcher = ctx.Matcher
+            ?? throw new InvalidOperationException("PrepareAsync(includeAlignmentPoints: true) must produce an alignment-point matcher.");
+        return (await AlignmentPointTracks.MeasureAsync(stream, ctx.Aligner, matcher, cancellationToken).ConfigureAwait(false), ctx.ReferenceIndex);
+    }
+
     private sealed record StackContext(
         ImmutableArray<FrameGrade> Grades,
         int ReferenceIndex,
@@ -279,20 +361,21 @@ public sealed class LuckyImagingStacker
         }
 
         var reference = await stream.LoadAsync(referenceIndex, cancellationToken).ConfigureAwait(false);
+        if (options.ReferenceFrames > 1)
+        {
+            reference = await StackedReferenceAsync(stream, grades, reference, options, cancellationToken).ConfigureAwait(false);
+        }
         try
         {
             var refRegion = PlanetaryDisk.BoundingBox(reference);
-            var tileSize = options.AlignTileSize > 0
-                ? NextPowerOfTwo(options.AlignTileSize)
-                : Math.Clamp(NextPowerOfTwo(Math.Max(refRegion.Width, refRegion.Height)), 64, 512);
-            var aligner = GlobalAligner.FromReference(reference, refRegion, tileSize);
+            var aligner = AlignerFor(reference, refRegion, options.AlignTileSize, options.WhitenedCorrelation);
 
             AlignmentPointMatcher? matcher = null;
             float[,]? signalConfidence = null;
             if (includeAlignmentPoints)
             {
                 var aps = FeatureDetector.DetectAlignmentPoints(reference, refRegion, options.AlignmentPointSpacing, options.MaxAlignmentPoints);
-                matcher = AlignmentPointMatcher.FromReference(reference, aps, options.AlignmentPatchSize);
+                matcher = AlignmentPointMatcher.FromReference(reference, aps, options.AlignmentPatchSize, options.WhitenedCorrelation);
 
                 // The signal-confidence gate is computed once from the reference (= the integrator's output
                 // space, since frames are warped to it). Only needed when best-of weighting is on.
@@ -309,6 +392,60 @@ public sealed class LuckyImagingStacker
         {
             reference.Release();
         }
+    }
+
+    // The best frames' stack, each aligned to the best frame's disk and weighted alike (PlanetaryStackOptions.ReferenceFrames).
+    // Consumes `best`, which it releases, and returns the stack, which the caller owns; the stack lies on the best frame's
+    // global geometry, its local warp averaged over the frames.
+    private static async Task<Image> StackedReferenceAsync(IPlanetaryFrameStream stream, ImmutableArray<FrameGrade> grades, Image best,
+        PlanetaryStackOptions options, CancellationToken cancellationToken)
+    {
+        GlobalAligner aligner;
+        int width, height, channels;
+        ImageMeta meta;
+        try
+        {
+            aligner = AlignerFor(best, PlanetaryDisk.BoundingBox(best), options.AlignTileSize, options.WhitenedCorrelation);
+            (width, height, channels, meta) = (best.Width, best.Height, best.ChannelCount, best.ImageMeta);
+        }
+        finally
+        {
+            best.Release();
+        }
+
+        var frames = FrameGrader.SelectBest(grades, Math.Min(1.0, (double)options.ReferenceFrames / grades.Length));
+        var channelAccum = Image.CreateChannelData(channels, height, width);
+        var weightAccum = new float[height, width];
+        await AccumulateGlobalAsync(stream, frames, aligner, _ => 1f, channelAccum, weightAccum, options.Interpolation, cancellationToken).ConfigureAwait(false);
+        return PlanetaryMaster.NormalizeInPlace(channelAccum, weightAccum, meta);
+    }
+
+    /// <summary>
+    /// Every frame's global shift as <see cref="StackGlobalAsync"/> would apply it, in capture order, with the same reference
+    /// (<see cref="PlanetaryStackOptions.ReferenceFrames"/> included) and aligner, and the best frame's index: sampling frame
+    /// <c>f</c> at <c>(x + Dx[f], y + Dy[f])</c> lands it on the reference, so a disk that moves +1 px reads +1. What a
+    /// registration is compared by (<c>tianwen planetary-registration</c>, docs/plans/planetary-restoration.md, R5 part 3).
+    /// </summary>
+    public static async Task<(double[] Dx, double[] Dy, int ReferenceIndex)> RegisterAllAsync(IPlanetaryFrameStream stream, PlanetaryStackOptions options,
+        CancellationToken cancellationToken)
+    {
+        var ctx = await PrepareAsync(stream, options, includeAlignmentPoints: false, cancellationToken).ConfigureAwait(false);
+        var (dx, dy) = (new double[stream.FrameCount], new double[stream.FrameCount]);
+        for (var f = 0; f < stream.FrameCount; f++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var frame = await stream.LoadAsync(f, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                var shift = ctx.Aligner.Estimate(frame, PlanetaryDisk.BoundingBox(frame));
+                (dx[f], dy[f]) = (shift.Dx, shift.Dy);
+            }
+            finally
+            {
+                frame.Release();
+            }
+        }
+        return (dx, dy, ctx.ReferenceIndex);
     }
 
     private static Image Normalize(float[][,] channelAccum, float[,] weightAccum, StackContext ctx)
