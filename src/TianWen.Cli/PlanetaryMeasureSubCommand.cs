@@ -389,7 +389,7 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
     }
 
     // A stack's plane normalised on its own fitted disk and moved onto `onto`'s centre (or left where it is), with that disk.
-    private static (float[] Plane, MetricDisk Disk)? Register(Image master, LimbFitOptions options, MetricDisk? onto)
+    internal static (float[] Plane, MetricDisk Disk)? Register(Image master, LimbFitOptions options, MetricDisk? onto)
     {
         if (PlanetaryLimbFit.Fit(master, options) is not { } fit)
         {
