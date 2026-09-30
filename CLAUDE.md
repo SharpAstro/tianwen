@@ -981,6 +981,11 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   so every mesh locked to the whole pixel: a mesh stack off by up to half a pixel, and a 3x Bayer drizzle with 17 % of red and blue empty.
   **Bayer drizzle to the sensor grid beats the demosaic above a plane's Nyquist; nothing past the sensor grid pays** at a warp of
   0.6 px (the adoption is #1091).
+- **A planet is de-rotated through the spheroid, as ALBEDO, and only from sources inside 0.9 radii** (R6, `PlanetaryDerotation`,
+  `PlanetaryProjection`, which the render shares): the limb darkening and the Sun's lighting belong to the viewing geometry, so each
+  sample is relit by Minnaert's law (carried as brightness, 46 % of a rendered rotation went, as albedo 99.3 %), and nearer the limb a
+  stack is its blurred edge, which a relight blew to 195 times its peak. **North comes from the agreement of two stacks**
+  (`planetary-derotate`), never the limb fit alone near opposition: turned over, the planet turns backwards.
 - **Read the plan doc before touching the Canon path** -- it is a list of five things that fail
   SILENTLY. **Recentering is opt-in** (the user, 2026-09-28; it costs the loop about 15 ms a frame at full frame), and
   so is the mount jog, whose **sign is uncalibrated**.
