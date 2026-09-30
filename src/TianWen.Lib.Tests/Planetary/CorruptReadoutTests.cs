@@ -144,5 +144,10 @@ public class CorruptReadoutTests
         // The glitch's line of full-scale samples pulled the disk's first estimate a quarter of its radius off on the real capture.
         statistics.DiskX.ShouldBe(CentreX, 0.5);
         statistics.DiskY.ShouldBe(CentreY, 0.5);
+        // Its shift and light are the glitch's, so they are its neighbours' (the frames are evenly spaced, so their mean): on the
+        // real capture blue's aligner read the glitch frame far enough off to double the shift's RMS.
+        statistics.ShiftX[5].ShouldBe((statistics.ShiftX[4] + statistics.ShiftX[6]) / 2, 1e-9);
+        statistics.ShiftY[5].ShouldBe((statistics.ShiftY[4] + statistics.ShiftY[6]) / 2, 1e-9);
+        statistics.Flux[5].ShouldBe((statistics.Flux[4] + statistics.Flux[6]) / 2, 1e-9);
     }
 }
