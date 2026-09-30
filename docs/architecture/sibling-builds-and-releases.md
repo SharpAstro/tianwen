@@ -155,7 +155,7 @@ every sibling uses `src/<Lib>/<Lib>.csproj`.
 | `SdlVulkan.Renderer` | `../SdlVulkan.Renderer` | `src/SdlVulkan.Renderer/SdlVulkan.Renderer.csproj` | ✅ |
 | `Console.Lib` | `../Console.Lib` | `src/Console.Lib/Console.Lib.csproj` | ✅ |
 | `FITS.Lib` | `../FITS.Lib` | `CSharpFITS/CSharpFITS.csproj` (package name is `FITS.Lib`) | ✅ |
-| `FC.SDK` | `../FC.SDK` | `src/FC.SDK/FC.SDK.csproj` | ❌ |
+| `FC.SDK`, `FC.SDK.Raw` | `../FC.SDK` | `src/FC.SDK/FC.SDK.csproj`, `src/FC.SDK.Raw/FC.SDK.Raw.csproj` | ✅ |
 | `ZWOptical.SDK` | `../ZWOptical.SDK` | `ZWOptical.SDK.csproj` (repo root) | ✅ |
 | `QHYCCD.SDK` | `../QHYCCD.SDK` | `QHYCCD.SDK.csproj` (repo root) | ✅ |
 | `SharpAstro.Fonts` | `../Fonts.Lib` | `src/SharpAstro.Fonts/SharpAstro.Fonts.csproj` | transitive |
@@ -172,8 +172,8 @@ every sibling uses `src/<Lib>/<Lib>.csproj`.
 TianWen depends on in-house libraries published to nuget.org under the **SharpAstro** org.
 Siblings, each at `../<repo>` (csproj layout varies; the full table with paths and the auto-detect
 column: `docs/architecture/sibling-builds-and-releases.md`): `DIR.Lib`, `SdlVulkan.Renderer`,
-`Console.Lib`, `FITS.Lib` (`../FITS.Lib`, csproj `CSharpFITS/CSharpFITS.csproj`), `FC.SDK` (no
-auto-detect), `ZWOptical.SDK` (`../ZWOptical.SDK`, csproj at the repo root),
+`Console.Lib`, `FITS.Lib` (`../FITS.Lib`, csproj `CSharpFITS/CSharpFITS.csproj`), `FC.SDK` and
+`FC.SDK.Raw` (`../FC.SDK`), `ZWOptical.SDK` (`../ZWOptical.SDK`, csproj at the repo root),
 `QHYCCD.SDK` (csproj at the repo root), `SharpAstro.Fonts` (`../Fonts.Lib`, transitive), `SER.Lib`,
 `Lzip.Lib`, `Serial.Lib`, `LAN.Lib`, `WebGl.Renderer`, `SharpAstro.AppShell` (`../AppShell`), `TianWen.DAL` (csproj at
 the repo root).
@@ -209,7 +209,7 @@ The rules:
   out-of-solution project compiles: a rename passed both and broke CI. Run E2E explicitly:
   `dotnet test TianWen.UI.Web.E2E`.
 
-For a library without auto-detection (`FC.SDK`, the one left),
+For a library without auto-detection (none is left: `FC.SDK` joined on 2026-09-30),
 prefer to extend the `UseLocalSiblings` switch in
 `Directory.Build.props` + add a conditional `ProjectReference` in the consuming `.csproj`
 rather than reaching for local nupkg feeds. When that's not viable (e.g. cross-team release
