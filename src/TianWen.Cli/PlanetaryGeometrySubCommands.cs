@@ -558,15 +558,19 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                 consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
                     $"the colours' dispersion, sensor px from green: red {redPlacement.CenterX - greenPlacement.CenterX:+0.00;-0.00}, {redPlacement.CenterY - greenPlacement.CenterY:+0.00;-0.00}; blue {bluePlacement.CenterX - greenPlacement.CenterX:+0.00;-0.00}, {bluePlacement.CenterY - greenPlacement.CenterY:+0.00;-0.00}"));
 
-                // One camera: its gain read on green, the colour with the most photosites.
-                if ((parseResult.GetValue(gainOpt) ?? PlanetaryDegrade.GainFor(greenTruth.Camera.DiskLevel, greenTruth.Noise[0].Disk, greenTruth.Camera.FarSkyNoise)) is not { } colourGain)
+                // Each colour's own gain, read on its own noise as the mono path reads one: a colour camera's white balance is a
+                // digital gain applied before its 8 bits, so a colour's electrons an ADU are the sensor's over its balance. On
+                // 2024-12-15 blue carries 0.93 of green's finest noise at 0.64 of its level, and green's gain gave its twin 0.86 of it.
+                double? GainOf(CaptureStatistics statistics) => parseResult.GetValue(gainOpt)
+                    ?? PlanetaryDegrade.GainFor(statistics.Camera.DiskLevel, statistics.Noise[0].Disk, statistics.Camera.FarSkyNoise);
+                if (GainOf(redTruth) is not { } redGain || GainOf(greenTruth) is not { } greenGain || GainOf(blueTruth) is not { } blueGain)
                 {
-                    consoleHost.WriteError("the green disk's finest band leaves no room for shot noise: pass --gain");
+                    consoleHost.WriteError("a colour's finest band leaves no room for shot noise: pass --gain");
                     return 1;
                 }
-                var red = new BayerColour(colourMaps[0], redPlacement, WithCamera(Atmosphere(wavelengths[0] * 1e-9, ks[0]), redTruth.Camera, colourGain));
-                var green = new BayerColour(colourMaps[1], greenPlacement, WithCamera(Atmosphere(wavelengths[1] * 1e-9, ks[1]), greenTruth.Camera, colourGain));
-                var blue = new BayerColour(colourMaps[2], bluePlacement, WithCamera(Atmosphere(wavelengths[2] * 1e-9, ks[2]), blueTruth.Camera, colourGain));
+                var red = new BayerColour(colourMaps[0], redPlacement, WithCamera(Atmosphere(wavelengths[0] * 1e-9, ks[0]), redTruth.Camera, redGain));
+                var green = new BayerColour(colourMaps[1], greenPlacement, WithCamera(Atmosphere(wavelengths[1] * 1e-9, ks[1]), greenTruth.Camera, greenGain));
+                var blue = new BayerColour(colourMaps[2], bluePlacement, WithCamera(Atmosphere(wavelengths[2] * 1e-9, ks[2]), blueTruth.Camera, blueGain));
                 foreach (var (name, colour) in new[] { ("red", red), ("green", green), ("blue", blue) })
                 {
                     consoleHost.WriteScrollable($"making {Path.GetFileName(output)}, {name}: {Describe(colour.Options, colour.Placement, sensorScale)}");
