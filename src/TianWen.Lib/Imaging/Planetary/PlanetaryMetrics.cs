@@ -164,6 +164,37 @@ public static class PlanetaryMetrics
     }
 
     /// <summary>
+    /// <paramref name="stack"/>'s transfer over another's in each band inside 0.9 radii, that other read as two stacks of disjoint
+    /// frames, <paramref name="half1"/> and <paramref name="half2"/>: the cross term of the stack with the first half over that of
+    /// the two halves (docs/plans/planetary-restoration.md, R7 part 2). Independent noise enters neither, so the ratio is the
+    /// stack's extra blur over the halves' frames with no floor to estimate, provided the stack shares no frame with either half.
+    /// All three normalised and registered on the same disk.
+    /// </summary>
+    public static ImmutableArray<double> CrossTransfer(ReadOnlySpan<float> stack, ReadOnlySpan<float> half1, ReadOnlySpan<float> half2, int width, int height, MetricDisk disk,
+        int bands = Bands)
+    {
+        var s = ATrousWaveletTransform.Decompose(stack, width, height, bands);
+        var a = ATrousWaveletTransform.Decompose(half1, width, height, bands);
+        var b = ATrousWaveletTransform.Decompose(half2, width, height, bands);
+        var inside = Inside(width, height, disk, InnerRadii);
+        var result = ImmutableArray.CreateBuilder<double>(bands);
+        for (var j = 0; j < bands; j++)
+        {
+            var sj = s.Detail(j);
+            var aj = a.Detail(j);
+            var bj = b.Detail(j);
+            double sa = 0, ab = 0;
+            foreach (var i in inside)
+            {
+                sa += (double)sj[i] * aj[i];
+                ab += (double)aj[i] * bj[i];
+            }
+            result.Add(ab > 0 ? sa / ab : double.NaN);
+        }
+        return result.MoveToImmutable();
+    }
+
+    /// <summary>
     /// Two stacks from disjoint halves of a capture, band by band, inside 0.9 radii (both normalised and registered on the same
     /// disk): the truth-free twin of <see cref="Fidelity"/>.
     /// </summary>
