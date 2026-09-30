@@ -87,9 +87,9 @@
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageVersion Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
 
-    <PackageVersion Include="FC.SDK" Version="3.1.*" />
+    <PackageVersion Include="FC.SDK" Version="3.2.*" />
 
-    <PackageVersion Include="FC.SDK.Raw" Version="3.1.*" />
+    <PackageVersion Include="FC.SDK.Raw" Version="3.2.*" />
 
     <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.12" />
     <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.12" />

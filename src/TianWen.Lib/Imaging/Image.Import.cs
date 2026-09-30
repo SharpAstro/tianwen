@@ -95,7 +95,15 @@ public partial class Image
     /// carries the plane as its own, with no buffer: attaching the recycling buffer is the caller's, since
     /// the caller is who hands the frame on.
     /// </summary>
-    internal static bool TryReadCanonRaw(string fileName, Func<int, int, float[,]>? planeFor, [NotNullWhen(true)] out Image? image)
+    /// <param name="aduDomain">
+    /// False (the file import): the plane is unit-referred, black-subtracted, white-balanced, 1.0 being the
+    /// body's raw full scale. True (a camera driver's frame): the same values in ADU counts, which is what a
+    /// driver's <c>BitDepth</c> and <c>MaxADU</c> promise <c>ICameraDriver.GetImageAsync</c> and the FITS writer, and
+    /// <see cref="ImageMeta.SensorFullScaleAdu"/> states the white point. Handed unit-referred floats under an
+    /// Int16 depth and a 16383 full scale, a frame was divided by 16383 for display and written to FITS as the
+    /// integers 0, 1 and 2.
+    /// </param>
+    internal static bool TryReadCanonRaw(string fileName, Func<int, int, float[,]>? planeFor, [NotNullWhen(true)] out Image? image, bool aduDomain = false)
     {
         try
         {
@@ -127,8 +135,18 @@ public partial class Image
                 return false;
             }
 
-            // Fused ushort -> float + black-subtract + per-CFA-cell WB.
-            var mosaic = CanonRaw.PreprocessMosaic(raw);
+            // Fused ushort -> float + black-subtract + per-CFA-cell WB. The white balance is resolved here, once,
+            // so the white point below is computed from the multipliers the pixels were actually scaled by.
+            var profile = CanonCameraProfiles.ResolveProfile(raw.Exif?.Model);
+            var wb = raw.MakerNote?.AsShotWhiteBalance ?? CanonWhitePoint.DaylightFallback;
+            var mosaic = CanonRaw.PreprocessMosaic(raw, CanonWhitePoint.BlackLevel, wb);
+
+            // White balance multiplies red and blue above green, and a clipped highlight clips at the SENSOR's
+            // white level in every channel: green stops at the white point while red and blue go on rising to their
+            // multiplier, so a blown window came out magenta. A pixel past the lowest channel's white point is
+            // clipped in at least one channel, and is neutral, not tinted.
+            var white = CanonWhitePoint.UnitFor(raw.BitDepth, CanonWhitePoint.BlackLevel, profile?.MaxRaw ?? 0, wb);
+            var toOutput = aduDomain ? CanonWhitePoint.HeadroomAdu(raw.BitDepth, CanonWhitePoint.BlackLevel) : 1f;
 
             // Reshape flat float[] to channel-planar [height, width], taking only the active area.
             //
@@ -143,12 +161,11 @@ public partial class Image
             for (var y = 0; y < area.Height; y++)
             {
                 var srcRow = ((y + area.Top) * raw.Width) + area.Left;
-                for (var x = 0; x < area.Width; x++)
-                {
-                    var v = mosaic[srcRow + x];
-                    channel[y, x] = v;
-                    if (v > max) max = v;
-                }
+                var rowMax = CanonWhitePoint.ClampRow(
+                    mosaic.AsSpan(srcRow, area.Width),
+                    System.Runtime.InteropServices.MemoryMarshal.CreateSpan(ref channel[y, 0], area.Width),
+                    white, toOutput);
+                if (rowMax > max) max = rowMax;
             }
 
             if (max < 1f) max = 1f; // defensive: never below the natural 1.0 ceiling
@@ -163,12 +180,16 @@ public partial class Image
             {
                 matrix = spectral;
             }
-            else if (CanonCameraProfiles.ResolveProfile(raw.Exif?.Model)?.ComputeRgbCam() is { } dcraw)
+            else if (profile?.ComputeRgbCam() is { } dcraw)
             {
                 matrix = dcraw;
             }
 
             var meta = BuildCanonRawImageMeta(raw, matrix);
+            if (aduDomain)
+            {
+                meta = meta with { SensorFullScaleAdu = white * toOutput };
+            }
             image = new Image([channel], BitDepth.Float32,
                 maxValue: max, minValue: 0f, pedestal: 0f, meta);
             return true;

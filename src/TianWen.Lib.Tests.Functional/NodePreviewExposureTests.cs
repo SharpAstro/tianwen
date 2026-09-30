@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
 using System;
+using TianWen.UI.Abstractions;
 using System.Collections.Concurrent;
 using System.IO;
 using System.Linq;
@@ -38,6 +39,57 @@ public class NodePreviewExposureTests(ITestOutputHelper outputHelper)
             var job = (await client.GetJobAsync(id, token)).Value;
             return (job is { State: not JobState.Running } ? job : null, job is null ? "not found" : $"{job.State}: {job.Step}");
         }, ct);
+
+    [Fact(Timeout = 60_000)]
+    public async Task AnOtaWithNoCameraAssignedIsRefusedInWordsThatSaySoAndNeverNameThePlaceholder()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var node = await NodeHarness.StartAsync(outputHelper, ct);
+        // An unassigned slot is the none:// placeholder, whose name is "None": the answer used to be "None is not connected".
+        var ota = new OTAData("Test OTA", 400, NoneDevice.Instance.DeviceUri, null, null, null, null, null);
+        var profile = new Profile(Guid.NewGuid(), "No camera",
+            new ProfileData(NoneDevice.Instance.DeviceUri, NoneDevice.Instance.DeviceUri, [ota], SiteLatitude: 48.2, SiteLongitude: 16.3));
+        await profile.SaveAsync(node.External, ct);
+        await node.Node.SetActiveProfileAsync(profile.ProfileId, ct);
+
+        var preview = await ClientOf(node).StartPreviewExposureAsync(0, new PreviewExposureRequestDto { ExposureSeconds = 1 }, ct);
+
+        preview.StatusCode.ShouldBe(409);
+        var error = preview.Error.ShouldNotBeNull();
+        error.ShouldContain("OTA 1 has no camera assigned");
+        error.ShouldNotContain("None");
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task AStopEndsAPreviewThatWouldNotEndAndFreesItsCamera()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var node = await NodeHarness.StartAsync(outputHelper, ct);
+        ((FakeExternal)node.External).MaxFitsWrites = 10;
+        await ActiveRigAsync(node, ct);
+        var client = ClientOf(node);
+        var exposing = (await client.StartPreviewExposureAsync(0, new PreviewExposureRequestDto { ExposureSeconds = 600 }, ct)).Value.ShouldNotBeNull();
+
+        var stopped = await PictureJobs.StopPreviewsAsync(client, new SystemTimeProvider(), progress: null, ct);
+
+        stopped.Select(j => j.Id).ShouldBe([exposing.Id]);
+        (await client.GetJobAsync(exposing.Id, ct)).Value.ShouldNotBeNull().State.ShouldBe(JobState.Cancelled);
+        // Its camera is free again: the next preview is taken, not refused for a job that is gone.
+        var next = await client.StartPreviewExposureAsync(0, new PreviewExposureRequestDto { ExposureSeconds = 0.1 }, ct);
+        next.IsSuccess.ShouldBeTrue(next.Error);
+        var after = await UntilEndedAsync(client, next.Value.ShouldNotBeNull().Id, ct);
+        after.State.ShouldBe(JobState.Succeeded, after.Error);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task StoppingWithNoPreviewRunningStopsNothing()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var node = await NodeHarness.StartAsync(outputHelper, ct);
+        await ActiveRigAsync(node, ct);
+
+        (await PictureJobs.StopPreviewsAsync(ClientOf(node), new SystemTimeProvider(), progress: null, ct)).ShouldBeEmpty();
+    }
 
     [Fact(Timeout = 60_000)]
     public async Task APreviewIsAJobHoldingItsCameraAndItsFrameIsTheOtasUntilTheNextReplacesIt()

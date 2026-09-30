@@ -1314,6 +1314,9 @@ vocabulary (own/borrow/consume), the four conventions and the DEBUG leak leg:
   arrays of other shapes, and its policy is tested on an `Array2DPoolCore` of its own, never through the
   shared pool**, whose Gen2 trim empties it above 90 % memory load and so makes any fill-the-budget
   test measure the machine (it emptied a 256 MiB fill halfway on a loaded box, and never ran on CI).
+- **A driver's frame is in ADU counts that agree with its `BitDepth` and `MaxADU`** (`ICameraDriver.GetImageAsync` wraps
+  it by them): the Canon driver's unit-referred floats under Int16 and 16383 were divided by 16383 by the unit normalisation
+  whenever the peak passed 1, and written to FITS as 0, 1 and 2 (#1101); its frame is now ADU, clipped at the body's white point (`CanonWhitePoint`).
 - **`Image.MaxValue` is the peak pixel OBSERVED, not saturation** (`ImageMeta.SensorFullScaleAdu` is
   the fixed value). Two "full scale" numbers must not be conflated: the BITPIX container width vs the
   native ADC resolution -- never route a native ADC depth through `BitDepthEx.FromValue` (falls back

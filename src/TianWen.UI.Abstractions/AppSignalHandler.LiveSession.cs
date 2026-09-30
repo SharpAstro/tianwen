@@ -163,6 +163,13 @@ namespace TianWen.UI.Abstractions
                 }, cancelMessage: "Preview cancelled");
             });
 
+            bus.Subscribe<StopPreviewSignal>(_ =>
+            {
+                if (CommandTargetOrSay("Stopping a preview") is not { } target) return;
+                RunTracked("StopPreview", "Could not stop the preview",
+                    ct => PictureJobs.StopPreviewsAsync(target.Node.Client, _timeProvider, progress: null, ct));
+            });
+
             bus.Subscribe<SaveSnapshotSignal>(sig =>
             {
                 if (CommandTargetOrSay("A snapshot") is not { Node: var node }) return;
