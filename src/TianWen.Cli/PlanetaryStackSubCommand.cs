@@ -3,6 +3,8 @@ using System.CommandLine;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
 using TianWen.Lib.Imaging.Stacking;
@@ -11,8 +13,10 @@ using TianWen.UI.Abstractions;
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>tianwen planetary-stack &lt;ser-file&gt;</c> -- end-to-end planetary lucky-imaging stack of a single
-/// SER video: grade the frames by sharpness, keep the best N%, align (global disk-COM + phase correlation,
+/// <c>tianwen planetary-stack &lt;ser-file&gt;...</c> -- end-to-end planetary lucky-imaging stack of a SER video, or of a
+/// run of them joined in time order (<see cref="PlanetaryFrameSequence"/>), each frame optionally carried through the planet's
+/// rotation to the run's middle first (<c>--derotate</c>, docs/plans/planetary-restoration.md, R6 part 2): grade the frames by
+/// sharpness, keep the best N%, align (global disk-COM + phase correlation,
 /// then feature-driven alignment points + a per-AP displacement mesh), integrate with per-AP "best-of"
 /// quality weighting, and optionally wavelet-sharpen. Wraps <see cref="LuckyImagingStacker"/>. Writes the
 /// linear integrated master as FITS, an optional wavelet-sharpened master FITS, and a high-key planetary
@@ -44,9 +48,23 @@ internal sealed class PlanetaryStackSubCommand(
 
     public Command Build()
     {
-        var serArg = new Argument<string>("ser-file")
+        var serArg = new Argument<string[]>("ser-files")
         {
-            Description = "Path to the .ser planetary video to stack.",
+            Description = "The .ser planetary video to stack, or several of one run, joined in time order.",
+            Arity = ArgumentArity.OneOrMore,
+        };
+        var derotateOpt = new Option<bool>("--derotate")
+        {
+            Description = "Carry every frame through the planet's rotation to the run's middle before it is stacked (R6): over a run of minutes the belts move and the limb does not. Needs the frames' timestamps. The north is the one the run's first and last quarters agree on.",
+        };
+        var planetOpt = new Option<string>("--planet")
+        {
+            Description = "The planet whose rotation --derotate takes out: jupiter or saturn.",
+            DefaultValueFactory = _ => "jupiter",
+        };
+        var turnNorthOverOpt = new Option<bool>("--turn-north-over")
+        {
+            Description = "Under --derotate, turn the north the run agreed on over: the planet then turns backwards (a check, never a stack).",
         };
 
         var outputOpt = new Option<string?>("--output", "-o")
@@ -155,17 +173,19 @@ internal sealed class PlanetaryStackSubCommand(
                 noPerPointOpt, noSignalGateOpt,
                 noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, noPngOpt, pngGammaOpt,
                 tileSizeOpt, apSpacingOpt, maxApOpt, patchSizeOpt, meshSpacingOpt, plainOpt,
+                derotateOpt, planetOpt, turnNorthOverOpt,
             },
         };
 
         command.SetAction(async (parseResult, ct) =>
         {
-            var serPath = parseResult.Required(serArg);
-            if (!File.Exists(serPath))
+            var serPaths = parseResult.Required(serArg);
+            if (serPaths.FirstOrDefault(path => !File.Exists(path)) is { } missing)
             {
-                consoleHost.WriteError($"SER file does not exist: {serPath}");
+                consoleHost.WriteError($"SER file does not exist: {missing}");
                 return 1;
             }
+            var serPath = serPaths[0];
 
             var keep = parseResult.GetValue(keepOpt);
             if (keep is <= 0 or > 1)
@@ -236,20 +256,28 @@ internal sealed class PlanetaryStackSubCommand(
                     ? new PlanetaryDrizzleOptions(drizzleScale, parseResult.GetValue(drizzlePixfracOpt),
                         AlignmentPointMesh: !parseResult.GetValue(drizzleGlobalOpt))
                     : null,
+                Derotation = parseResult.GetValue(derotateOpt)
+                    ? new PlanetaryDerotationOptions(parseResult.GetValue(planetOpt)?.ToLowerInvariant() == "saturn" ? CatalogIndex.Saturn : CatalogIndex.Jupiter)
+                    {
+                        TurnNorthOver = parseResult.GetValue(turnNorthOverOpt),
+                    }
+                    : null,
                 // The raw integrated master stays linear/unsharpened (downstream-friendly); the sharpen
                 // pass is applied separately below so we can emit both the raw and sharpened masters.
             };
 
             var label = parseResult.GetValue(labelOpt);
             var prefix = string.IsNullOrWhiteSpace(label) ? "" : label.Trim() + "_";
-            var baseName = Path.GetFileNameWithoutExtension(serPath);
+            // A run is named by its first capture and how many follow it.
+            var baseName = Path.GetFileNameWithoutExtension(serPaths.Order(StringComparer.OrdinalIgnoreCase).First())
+                + (serPaths.Length > 1 ? $"+{serPaths.Length - 1}" : "");
             var sw = Stopwatch.StartNew();
 
             PlanetaryStackResult result;
-            using (var stream = SerFrameStream.Open(serPath))
+            using (IPlanetaryFrameStream stream = serPaths.Length == 1 ? SerFrameStream.Open(serPath) : PlanetaryFrameSequence.OpenSer(serPaths))
             {
                 consoleHost.WriteScrollable(
-                    $"[planetary] {baseName}: {stream.FrameCount} frames, {stream.Width}x{stream.Height}, layout {stream.Layout}");
+                    $"[planetary] {baseName}: {stream.FrameCount} frames{(serPaths.Length > 1 ? $" of {serPaths.Length} captures" : "")}, {stream.Width}x{stream.Height}, layout {stream.Layout}");
                 var mode = useDrizzle ? $"Bayer drizzle x{drizzleScale:0.0#}"
                     : useGlobal ? "global-translate"
                     : "alignment-point mesh";
@@ -266,6 +294,11 @@ internal sealed class PlanetaryStackSubCommand(
             consoleHost.WriteScrollable(
                 $"[planetary] {baseName}: stacked {result.FramesUsed}/{result.FramesGraded} frames " +
                 $"(reference #{result.ReferenceIndex}) in {sw.Elapsed.TotalSeconds:F1}s");
+            if (result.Epoch is { } epoch && result.North is { } north)
+            {
+                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                    $"[planetary] every frame carried to {epoch:yyyy-MM-dd HH:mm:ss.f} UTC, north at {north.NorthAngleDeg:0.0} deg (the run's quarters {north.AgreementAsFitted:0.00000} apart with the limb fit's north, {north.AgreementTurnedOver:0.00000} turned over)"));
+            }
 
             var masterFits = Path.Combine(outputDir, $"{prefix}master_{baseName}.fits");
             master.WriteToFitsFile(masterFits);

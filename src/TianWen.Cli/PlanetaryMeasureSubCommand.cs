@@ -51,12 +51,13 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
         var pixfracOpt = new Option<float>("--pixfrac") { Description = "The drizzle's drop size, a fraction of a photosite.", DefaultValueFactory = _ => 1f };
         var noHalvesOpt = new Option<bool>("--no-halves") { Description = "Stack each candidate only, not its two halves: no halves' agreement, in a third of the time." };
         var cutoffOpt = new Option<double?>("--cutoff") { Description = "The telescope's cutoff in cycles a pixel, for the power past it (fabrication); none past Nyquist." };
+        var derotateOpt = new Option<string>("--derotate") { Description = "Each frame as taken (none) or carried through the planet's rotation to the truth's instant, or the capture's middle without one (frames; R6), a comma list.", DefaultValueFactory = _ => "none" };
 
         var command = new Command("planetary-measure",
             "Stacks a capture as each candidate asks, and its two halves, and measures every stack (R3): fidelity per wavelet band and the limb against a truth, the halves' agreement per band, the limb's undershoot; with a truth, how the truth-free metrics rank the candidates against the truth-based ones.")
         {
             Arguments = { captureArg },
-            Options = { truthOpt, planetOpt, utcOpt, framesOpt, keepOpt, sharpenOpt, methodOpt, spacingOpt, patchOpt, correlationOpt, poolOpt, geometryOpt, meshOpt, influenceOpt, interpolationOpt, referenceOpt, drizzleOpt, pixfracOpt, noHalvesOpt, cutoffOpt },
+            Options = { truthOpt, planetOpt, utcOpt, framesOpt, keepOpt, sharpenOpt, methodOpt, spacingOpt, patchOpt, correlationOpt, poolOpt, geometryOpt, meshOpt, influenceOpt, interpolationOpt, referenceOpt, drizzleOpt, pixfracOpt, noHalvesOpt, cutoffOpt, derotateOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -80,7 +81,7 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
                 }
                 (truthPlane, truthDisk, truthTime) = (read.Plane, read.Disk, read.Time);
             }
-            if ((truthTime ?? PlanetaryGeometrySubCommands.MidCapture(stream) ?? PlanetaryGeometrySubCommands.ParseUtc(parseResult.GetValue(utcOpt))) is not { } when)
+            if ((truthTime ?? stream.MidCapture ?? PlanetaryGeometrySubCommands.ParseUtc(parseResult.GetValue(utcOpt))) is not { } when)
             {
                 consoleHost.WriteError($"{input}: no timestamps (pass --utc)");
                 return 1;
@@ -129,6 +130,15 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
                 return 1;
             }
             var references = ParseList(parseResult.GetValue(referenceOpt), int.Parse);
+            var derotations = ParseList(parseResult.GetValue(derotateOpt), name => name.ToLowerInvariant());
+            if (derotations.FirstOrDefault(d => d is not ("none" or "frames")) is { } unknownDerotation)
+            {
+                consoleHost.WriteError($"--derotate {unknownDerotation}: none or frames");
+                return 1;
+            }
+            // A de-rotated stack shows the planet at the truth's instant, which it is scored against, or at the capture's middle.
+            PlanetaryDerotationOptions? DerotationFor(string derotate, DateTimeOffset? epoch)
+                => derotate == "frames" ? new PlanetaryDerotationOptions(planet) { Epoch = epoch ?? stream.MidCapture } : null;
             var patch = parseResult.GetValue(patchOpt);
             var halves = !parseResult.GetValue(noHalvesOpt);
             var cutoff = parseResult.GetValue(cutoffOpt);
@@ -142,9 +152,10 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
             // A global stack has no alignment points, so it is stacked once, whatever the spacings.
             var candidates = references.SelectMany(r => interpolations.SelectMany(i => correlations.SelectMany(c => methods.SelectMany(m => m == "global"
                 ? [(Method: m, Spacing: 0, Correlation: c, Pool: 0.0, Median: false, Interpolation: i ?? WarpInterpolation.Bilinear, Reference: r)]
-                : spacings.SelectMany(s => pools.SelectMany(pool => geometries.Select(g => (Method: m, Spacing: s, Correlation: c, Pool: pool, Median: g == "median", Interpolation: i ?? WarpInterpolation.Bilinear, Reference: r)))))))).ToArray();
+                : spacings.SelectMany(s => pools.SelectMany(pool => geometries.Select(g => (Method: m, Spacing: s, Correlation: c, Pool: pool, Median: g == "median", Interpolation: i ?? WarpInterpolation.Bilinear, Reference: r))))))))
+                .SelectMany(candidate => derotations.Select(d => (Candidate: candidate, Derotate: d))).ToArray();
             consoleHost.WriteScrollable($"{Path.GetFileName(input)}: {frames} frames, {candidates.Length * keeps.Length * presets.Length} candidates{(halves ? ", each with its two halves" : "")}");
-            foreach (var (method, spacing, correlation, pool, median, interpolation, referenceFrames) in candidates)
+            foreach (var ((method, spacing, correlation, pool, median, interpolation, referenceFrames), derotate) in candidates)
             {
                 foreach (var preset in presets)
                 {
@@ -165,11 +176,13 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
                             MedianGeometry = median,
                             Interpolation = interpolation,
                             ReferenceFrames = referenceFrames,
+                            Derotation = DerotationFor(derotate, truthTime),
                         };
                         var name = (method == "global" ? "global" : $"{method} {spacing} px") + (correlation == "plain" ? ", plain" : "")
                             + (pool > 0 ? string.Create(CultureInfo.InvariantCulture, $", pooled {pool:0.#}") : "") + (median ? ", median" : "")
                             + interpolation switch { WarpInterpolation.Lanczos3 => ", Lanczos-3", WarpInterpolation.Lanczos3Clamped => ", Lanczos-3 clamped", _ => "" }
-                            + (referenceFrames > 1 ? $", against a stack of {referenceFrames}" : "");
+                            + (referenceFrames > 1 ? $", against a stack of {referenceFrames}" : "")
+                            + (derotate == "frames" ? ", de-rotated" : "");
                         var full = await StackAsync(stacker, stream, options, method, ct);
                         // Every stack onto one disk: the truth's, or the first stack's own.
                         if (Register(full.Master, limbOptions, reference) is not { } fullPlane)
@@ -219,6 +232,7 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
                 var pixfrac = parseResult.GetValue(pixfracOpt);
                 var (sensorWidth, sensorHeight) = (stream.Width * 2, stream.Height * 2);
                 var colourTruths = new Dictionary<(int Channel, double Scale), (float[] Plane, MetricDisk Disk, int Width, int Height)>();
+                DateTimeOffset? colourTruthTime = null;
                 foreach (var scale in drizzles.Prepend(1.0).Distinct())
                 {
                     foreach (var (channel, colour) in Colours)
@@ -236,6 +250,7 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
                         }
                         var disk = read.Disk with { AxisRatio = limbOptions.AxisRatio };
                         colourTruths[(channel, scale)] = (PlanetaryMetrics.Normalise(read.Plane, w, h, disk), disk, w, h);
+                        colourTruthTime ??= read.Time;
                     }
                 }
 
@@ -244,9 +259,10 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
                     (m == "global" ? [0] : spacings).SelectMany(sp => drizzles.Select(d => (double?)d).Prepend(null).Select(d =>
                         (Method: m, Spacing: sp, Correlation: c, Interpolation: i ?? WarpInterpolation.Bilinear, Reference: r, Drizzle: d)))))))
                     // A drizzle resamples nothing, so it is stacked once, whatever the interpolations.
-                    .Where(candidate => candidate.Drizzle is null || candidate.Interpolation == (interpolations[0] ?? WarpInterpolation.Bilinear)).ToArray();
+                    .Where(candidate => candidate.Drizzle is null || candidate.Interpolation == (interpolations[0] ?? WarpInterpolation.Bilinear))
+                    .SelectMany(candidate => derotations.Select(d => (Candidate: candidate, Derotate: d))).ToArray();
                 consoleHost.WriteScrollable($"{Path.GetFileName(input)}: {frames} frames of a colour capture, {colourCandidates.Length * keeps.Length * presets.Length} stacks, each scored a colour at a time");
-                foreach (var (method, spacing, correlation, interpolation, referenceFrames, drizzle) in colourCandidates)
+                foreach (var ((method, spacing, correlation, interpolation, referenceFrames, drizzle), derotate) in colourCandidates)
                 {
                     foreach (var preset in presets)
                     {
@@ -266,11 +282,13 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
                                 Interpolation = interpolation,
                                 ReferenceFrames = referenceFrames,
                                 Drizzle = drizzle is { } d ? new PlanetaryDrizzleOptions((float)d, pixfrac, AlignmentPointMesh: method != "global") : null,
+                                Derotation = DerotationFor(derotate, colourTruthTime),
                             };
                             var name = (method == "global" ? "global" : $"{method} {spacing} px") + (correlation == "plain" ? ", plain" : "")
                                 + (drizzle is null ? interpolation switch { WarpInterpolation.Lanczos3 => ", Lanczos-3", WarpInterpolation.Lanczos3Clamped => ", Lanczos-3 clamped", _ => "" } : "")
                                 + (referenceFrames > 1 ? $", against a stack of {referenceFrames}" : "")
-                                + (drizzle is { } dz ? string.Create(CultureInfo.InvariantCulture, $", Bayer drizzle {dz:0.##}x, pixfrac {pixfrac:0.##}") : ", demosaiced");
+                                + (drizzle is { } dz ? string.Create(CultureInfo.InvariantCulture, $", Bayer drizzle {dz:0.##}x, pixfrac {pixfrac:0.##}") : ", demosaiced")
+                                + (derotate == "frames" ? ", de-rotated" : "");
                             var result = drizzle is null ? await StackAsync(stacker, stream, options, method, ct) : await stacker.StackDrizzleAsync(stream, options, ct);
                             try
                             {
