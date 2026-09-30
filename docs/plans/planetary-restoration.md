@@ -887,6 +887,14 @@ R4's keeps minimise the error of a raw stack, and a raw stack's band 1 error is 
       - The same twin made without its still layer: within 5 % of the first.
       - On the real capture it was calibrated on (2022-09-03's Red, the same 3,000 frames): within 20 % of 8.5 cm (6.8 to 10.2), the twin's calibration being right.
       - The twin with its warp calibrated (`c065l10`, 0.65 px) is measured to show what an uncorrected warp costs the ratio, and nothing is claimed for it.
+    - **Added 2026-10-01, after the claims above failed and the method was corrected on the twins, before the corrected method was run on the real capture**. The sky's noise now comes from its own pixels' spread from frame to frame, and the fit may take a warp's factor exp(-4 pi^2 s^2 f^2).
+      - The twins, where the truth is known:
+        - the one without its still layer reads 8.99 cm;
+        - the calibrated one reads 9.06 with the still layer in the theory, and 5.71 without it;
+        - the warped one cannot tell its warp from the seeing: fitting both takes r0 to the grid's end and the warp to 0.74 px.
+      - Predicted for 2022-09-03's Red:
+        - its corrected ratio lies within 0.03 of the warped twin's at every ring fitted, the two sharing their warp by R5's calibration;
+        - fitting seeing and warp together is as degenerate there, so no r0 is claimed for the real capture.
   - **Added 2026-09-30 from R6 part 3, before either probe was run**: R6's belts re-read against OPAL blurred by (b) instead of the limb fit's PSF bring the SEB's north edge within 1 degree of OPAL's in at least four of R6's six stacks. If they do not, the edge's miss is not the blur, and the belts' own change over weeks is what is left.
 
 ### R7a A ghost in the camera train, fitted and subtracted
