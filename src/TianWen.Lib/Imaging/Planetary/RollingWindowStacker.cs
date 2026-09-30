@@ -410,7 +410,7 @@ public sealed class RollingWindowStacker
             return cached;
         }
 
-        var score = MathF.Max(0f, _options.QualityEstimator.Score(frame, PlanetaryDisk.BoundingBox(frame)));
+        var score = MathF.Max(0f, FrameGrader.Grade(_options.QualityEstimator, frame));
         _scoreCache[index] = score;
         if (index < _scoreCacheFloor)
         {

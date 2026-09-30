@@ -45,8 +45,7 @@ public sealed class FrameGrader(IFrameQualityEstimator estimator)
             var image = await stream.LoadAsync(i, cancellationToken).ConfigureAwait(false);
             try
             {
-                var r = region.IsEmpty ? PlanetaryDisk.BoundingBox(image) : region;
-                grades.Add(new FrameGrade(i, estimator.Score(image, r)));
+                grades.Add(new FrameGrade(i, Grade(estimator, image, region)));
             }
             finally
             {
@@ -55,6 +54,86 @@ public sealed class FrameGrader(IFrameQualityEstimator estimator)
         }
 
         return grades.MoveToImmutable();
+    }
+
+    /// <summary>
+    /// One frame's score by <paramref name="estimator"/> over <paramref name="region"/> (its own disk's bounding box when
+    /// empty), and zero for a frame the camera corrupted as it read it out (<see cref="IsCorruptReadout"/>): never the
+    /// reference, and no weight in a stack. The one grading rule, for the batch stacker, the live one and the capture
+    /// statistics.
+    /// </summary>
+    public static float Grade(IFrameQualityEstimator estimator, Image frame, PixelRect region = default)
+    {
+        ArgumentNullException.ThrowIfNull(estimator);
+        return IsCorruptReadout(frame) ? 0f : estimator.Score(frame, region.IsEmpty ? PlanetaryDisk.BoundingBox(frame) : region);
+    }
+
+    /// <summary>
+    /// Whether the camera corrupted <paramref name="frame"/> as it read it out: a band of rows of any channel whose samples
+    /// stand at the frame's full scale nearly all the way across (<see cref="CorruptRowFraction"/> of them), ending ABRUPTLY
+    /// in a row that is mostly under half scale. A planet never fills a row of the frame at full scale, and a readout glitch
+    /// does exactly that: four frames of the 30,000 in 2024-12-15's Uranus-C capture carry their top two to four rows at 255
+    /// over a sky of 6, and that one sharp line is the sharpest thing a Laplacian sees, so the grader made one of them every
+    /// stack's reference and the capture statistics' (docs/plans/planetary-restoration.md, R5a). The abrupt edge is what
+    /// tells the glitch from an overexposed Moon filling the frame, whose saturated rows fade into bright ones, so a lunar
+    /// stack is never emptied by it. Full scale is the frame's own <see cref="Image.MaxValue"/>, the 1 a SER or a live
+    /// stream normalises to.
+    /// </summary>
+    public static bool IsCorruptReadout(Image frame)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+        var ceiling = frame.MaxValue;
+        if (!(ceiling > 0))
+        {
+            return false;
+        }
+        var (width, height) = (frame.Width, frame.Height);
+        var needed = (int)Math.Ceiling(CorruptRowFraction * width);
+        for (var c = 0; c < frame.ChannelCount; c++)
+        {
+            var plane = frame.GetChannelSpan(c);
+            var bandStart = -1;
+            for (var y = 0; y <= height; y++)
+            {
+                var full = y < height && CountAtLeast(plane.Slice(y * width, width), ceiling * (1 - FullScaleTolerance)) >= needed;
+                if (full)
+                {
+                    bandStart = bandStart < 0 ? y : bandStart;
+                    continue;
+                }
+                if (bandStart >= 0)
+                {
+                    // A band [bandStart, y) at full scale: a glitch when a row beside it is mostly dark, or when it is the frame.
+                    var above = bandStart > 0 && CountAtLeast(plane.Slice((bandStart - 1) * width, width), ceiling / 2) < width / 2;
+                    var below = y < height && CountAtLeast(plane.Slice(y * width, width), ceiling / 2) < width / 2;
+                    if (above || below || (bandStart == 0 && y == height))
+                    {
+                        return true;
+                    }
+                    bandStart = -1;
+                }
+            }
+        }
+        return false;
+    }
+
+    /// <summary>The share of a row at full scale that marks a frame corrupt (<see cref="IsCorruptReadout"/>).</summary>
+    public const double CorruptRowFraction = 0.9;
+
+    // A sample within this fraction of full scale is at it: an 8-bit 254 (0.4 % under) is not, a 255 is.
+    private const float FullScaleTolerance = 1e-3f;
+
+    private static int CountAtLeast(ReadOnlySpan<float> row, float level)
+    {
+        var count = 0;
+        foreach (var sample in row)
+        {
+            if (sample >= level)
+            {
+                count++;
+            }
+        }
+        return count;
     }
 
     /// <summary>Returns <paramref name="grades"/> sorted best-first (descending score, ties by index).</summary>
