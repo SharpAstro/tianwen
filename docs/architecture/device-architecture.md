@@ -281,20 +281,31 @@ device's files and secrets, never a comparison of two devices; the whole URI, qu
 configured.
 
 "Identity lives in the path, transport in the query" is the design intent, and it is **not true for every family**.
-The path is whatever the device source writes, and three families write the port into it:
+The rule is identity first: a key names the hardware, and a serial port or USB path goes into it only where the device
+offers nothing else. The Skywatcher handshake names the model and the firmware and nothing else, the SkyGuider Pro has
+no serial number, and an LX200/OnStep mount has none when its spare site slot cannot take a UUID. The path is whatever
+the device source writes, and these families write the port or the USB path into it:
 
 | Family | Path id | Survives a re-plug on another port? |
 |---|---|---|
-| ZWO, QHY, Player One, ToupTek, Canon | serial number, else custom id | yes (no port involved) |
+| ZWO, QHY, Player One, ToupTek | serial number, else custom id, else the model name | yes (no port involved), except on the model-name fallback |
+| Canon over USB | serial number, else the device path, else `VID:PID` | yes with a serial; **no** on the device-path fallback |
+| Canon over WiFi | the PTP/IP responder GUID, else the IP address | yes with the GUID; **no** on the IP fallback |
+| Canon over Windows WPD | the Windows device path, which encodes the USB port (an EOS 6D's USB descriptor carries no serial) | **no**: one body was seen under three keys (#1097) |
 | Alpaca | `uniqueId`; host, port and device number are query | yes |
 | Meade, OnStep **with a UUID** (the probe writes one into a spare site slot) | model plus UUID | yes, and the same across USB and WiFi |
 | Meade, OnStep **without a UUID** | model, site names **and the port** (`MeadeSerialProbe`, `OnStepSerialProbe`: "NOT transport-stable") | **no**: the key changes with the port |
 | Skywatcher | `Skywatcher_<model>_<fw>_<port>` (`SkywatcherSerialProbe`) | **no** |
 | iOptron SkyGuider Pro | `SkyGuider-Pro_<fw>_<port>` (`IOptronSerialProbe`) | **no** |
 
-So for the last three rows a re-plug is a NEW device: a lease does not follow it, `ReconcileUri` does not match it
-(it compares by `SameDevice`, which compares the path the port is in), and the hub's "a changed URI under the same key
-is rebuilt" rule (#806) never applies to them.
+So wherever the key carries the port or a USB path, a re-plug is a NEW device: a lease does not follow it,
+`ReconcileUri` does not match it (it compares by `SameDevice`, which compares the path the port is in), and the hub's
+"a changed URI under the same key is rebuilt" rule (#806) never applies to it.
+
+Canon over WPD is the one of these that did not have to be. The body's DeviceInfo serial (32 hex digits, stable) is
+readable over WPD with a bare PTP `GetDeviceInfo`, no `OpenSession`: measured on an EOS 6D at 7 ms to open the device and
+21 ms to read, it also works while another client holds a session, and it changes nothing on the camera (#1097). The
+Skywatcher, SkyGuider Pro and UUID-less LX200/OnStep rows have no such option.
 
 ### Known limitations of device keys
 
@@ -305,7 +316,11 @@ is rebuilt" rule (#806) never applies to them.
   Two holders with different filters share one key (`filterwheel://manualfilterwheeldevice/manual`), and the hub
   hands the second the first's driver, which reads its filter from its own device: on a rig with manual holders on
   two OTAs, the second reports the first's filter. The owner has accepted this for now (review of #1089).
-- **The port-qualified ids above** can only be fixed with a profile migration, which is work of its own (#1090).
+- **The port-qualified ids above** (Skywatcher, SkyGuider Pro, UUID-less LX200/OnStep) cannot be improved by reading more
+  from the hardware, which offers no identity; what is left is a profile migration or a rule for matching a moved mount,
+  which is work of its own (#1090).
+- **Canon over WPD** is keyed by the USB path although its serial is readable (#1097), and the path it is keyed by is
+  passed to WPD still percent-escaped, which WPD rejects, so a Canon found over WPD cannot connect (#1096).
 
 ## Alpaca camera image transfer
 
