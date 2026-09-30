@@ -653,17 +653,7 @@ public class PlanetaryDegradeTests
         Pupil? pupil = null, double localR0M = double.PositiveInfinity, double localOuterScaleM = 0.25, double scatter = 0,
         Action<int, SyntheticWarp>? warps = null)
     {
-        var values = new float[360 * 180];
-        for (var row = 0; row < 180; row++)
-        {
-            var latitude = (89.5 - row) * Math.PI / 180;
-            for (var column = 0; column < 360; column++)
-            {
-                values[(row * 360) + column] = flat ? 1f
-                    : (float)(1 - (0.3 * Math.Pow(Math.Sin(4 * latitude), 2)) - (0.2 * Math.Exp(-Math.Pow((column - 90) / 15.0, 2) - Math.Pow((row - 112) / 6.0, 2))));
-            }
-        }
-        var map = new PlanetMap(values, 360, 180);
+        var map = BandedMap(flat);
         var times = ImmutableArray.CreateBuilder<DateTimeOffset>(shiftX.Length);
         for (var i = 0; i < shiftX.Length; i++)
         {
@@ -693,6 +683,22 @@ public class PlanetaryDegradeTests
             (index, samples) => frames[index] = samples, warps: warps, cancellationToken: TestContext.Current.CancellationToken);
         made?.Invoke(truths);
         return frames;
+    }
+
+    // A global map of belts and one spot (a uniform one when flat): texture enough to register on and to see a blur in.
+    internal static PlanetMap BandedMap(bool flat = false)
+    {
+        var values = new float[360 * 180];
+        for (var row = 0; row < 180; row++)
+        {
+            var latitude = (89.5 - row) * Math.PI / 180;
+            for (var column = 0; column < 360; column++)
+            {
+                values[(row * 360) + column] = flat ? 1f
+                    : (float)(1 - (0.3 * Math.Pow(Math.Sin(4 * latitude), 2)) - (0.2 * Math.Exp(-Math.Pow((column - 90) / 15.0, 2) - Math.Pow((row - 112) / 6.0, 2))));
+            }
+        }
+        return new PlanetMap(values, 360, 180);
     }
 
     // The disk's centroid over the offset, and its mean over the offset inside 0.8 equatorial radii of it: the level asked for.

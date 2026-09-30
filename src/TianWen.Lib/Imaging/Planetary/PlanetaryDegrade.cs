@@ -10,6 +10,13 @@ using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.Planetary;
 
+/// <summary>
+/// One colour of a Bayer synthetic capture (<see cref="PlanetaryDegrade.MakeBayerAsync"/>): its map, where its disk sits on the
+/// sensor in the sensor's pixels (the colours' placements differ by the atmosphere's dispersion), and its own wavelength and camera
+/// levels in <paramref name="Options"/>.
+/// </summary>
+public sealed record BayerColour(PlanetMap Map, DiskPlacement Placement, DegradeOptions Options);
+
 /// <summary>What a synthetic capture is made with (<see cref="PlanetaryDegrade"/>): the seeing, the warp and the camera.</summary>
 /// <param name="Pupil">The telescope.</param>
 /// <param name="WavelengthM">The single wavelength the frames are imaged at: the filter's effective one.</param>
@@ -109,6 +116,14 @@ public sealed record DegradeOptions(Pupil Pupil, double WavelengthM)
 
     /// <summary>The seed every draw comes from: the same seed, the same capture.</summary>
     public int Seed { get; init; } = 1;
+
+    /// <summary>
+    /// The phase screens' sample spacing, in metres; null (the default) for the pupil's own, which the wavelength and the fine
+    /// grid set. A screen is its Fourier modes on a frequency grid its spacing fixes, so the same seed at another spacing is
+    /// other air: colours that are to share one atmosphere (<see cref="PlanetaryDegrade.MakeBayerAsync"/>) share this, and each
+    /// samples the one screen at its own pupil's spacing.
+    /// </summary>
+    public double? ScreenSpacingM { get; init; }
 }
 
 /// <summary>What one synthetic frame was made with: the truth a later phase measures itself against.</summary>
@@ -303,16 +318,21 @@ public static class PlanetaryDegrade
         };
 
         // The pupil sampled for a PSF of fine samples, and the screen that crosses it.
-        var sampleRadians = arcsecPerPixel / os / ShortExposurePsf.ArcsecPerRadian;
-        var spacing = options.WavelengthM / (PsfGrid * sampleRadians);
+        var spacing = PupilSpacingM(arcsecPerPixel, options);
         var pupil = options.Pupil.Rasterise(PsfGrid, spacing);
         var defocus = DefocusPhase(PsfGrid, spacing, options.Pupil.DiameterM, options.DefocusNm * 1e-9, options.WavelengthM);
         var diffraction = new double[PsfGrid * PsfGrid];
         // The diffraction limit the Strehl ratio is taken against is the perfect telescope's, so a defocused one scores below 1.
         ShortExposurePsf.Compute(pupil, ReadOnlySpan<double>.Empty, PsfGrid, diffraction);
         var diffractionPeak = Max(diffraction);
-        var screenSamples = Math.Max(options.ScreenSamples, PsfGrid);
-        var screen = new EvolvingPhaseScreen(screenSamples, spacing, options.R0M, new Random(options.Seed), options.OuterScaleM);
+        // The screens' own spacing: the pupil's, or the one the colours of one atmosphere share, which a pupil then samples at its
+        // own, `stride` screen samples to one of its own.
+        var screenSpacing = options.ScreenSpacingM ?? spacing;
+        var stride = spacing / screenSpacing;
+        // On the pupil's own spacing the screen is what it always was (a mono capture made before is made again, sample for
+        // sample); on a shared one it must hold the pupil's extent at the stride and a neighbour for the interpolation.
+        var screenSamples = stride == 1 ? Math.Max(options.ScreenSamples, PsfGrid) : Math.Max(options.ScreenSamples, NextPowerOfTwo((int)Math.Ceiling(PsfGrid * stride) + 2));
+        var screen = new EvolvingPhaseScreen(screenSamples, screenSpacing, options.R0M, new Random(options.Seed), options.OuterScaleM);
         // Phase in radians at 500 nm, where r0 is stated, scaled to the imaging wavelength (the path difference is achromatic).
         var phaseScale = 500e-9 / options.WavelengthM;
         var (windX, windY) = (options.WindMps * Math.Cos(options.WindAngleDeg * Math.PI / 180), options.WindMps * Math.Sin(options.WindAngleDeg * Math.PI / 180));
@@ -321,7 +341,7 @@ public static class PlanetaryDegrade
         // The layer at the telescope, on a screen of its own, the same size (its outer scale is well inside it); the same rule
         // for its renewal, so a still one is the same air throughout.
         var local = double.IsFinite(options.LocalR0M)
-            ? new EvolvingPhaseScreen(screenSamples, spacing, options.LocalR0M, new Random(options.Seed + 2), options.LocalOuterScaleM)
+            ? new EvolvingPhaseScreen(screenSamples, screenSpacing, options.LocalR0M, new Random(options.Seed + 2), options.LocalOuterScaleM)
             : null;
         var localPhase = local is null ? [] : new double[screenSamples * screenSamples];
         var localRenewSeconds = local is null ? double.PositiveInfinity : local.SizeM / Math.Max(options.LocalWindMps, 1e-3) / 3;
@@ -346,10 +366,11 @@ public static class PlanetaryDegrade
         // being the same air within a frame.
         var sweepM = options.WindMps * options.ExposureSeconds;
         var subSteps = Math.Max(1, (int)Math.Ceiling(sweepM / 0.01));
-        var screenMargin = (screenSamples - PsfGrid) / 2;
-        if (sweepM / spacing > screenMargin)
+        // A pupil on its own spacing reads whole samples; one on the shared spacing needs a neighbour for its interpolation.
+        var screenMargin = stride == 1 ? (screenSamples - PsfGrid) / 2 : (screenSamples - (int)Math.Ceiling(PsfGrid * stride) - 1) / 2;
+        if (sweepM / screenSpacing > screenMargin)
         {
-            throw new ArgumentException($"The exposure sweeps {sweepM:0.000} m of air, more than the screen's margin of {screenMargin * spacing:0.000} m: use a larger screen.", nameof(options));
+            throw new ArgumentException($"The exposure sweeps {sweepM:0.000} m of air, more than the screen's margin of {screenMargin * screenSpacing:0.000} m: use a larger screen.", nameof(options));
         }
 
         Complex[]? objectSpectrum = null;
@@ -387,15 +408,20 @@ public static class PlanetaryDegrade
                 Array.Clear(blockPsfs[k]);
                 for (var step = 0; step < subSteps; step++)
                 {
-                    var along = subSteps == 1 ? 0 : (sweepM * ((step + 0.5) / subSteps - 0.5)) / spacing;
+                    var along = subSteps == 1 ? 0 : (sweepM * ((step + 0.5) / subSteps - 0.5)) / screenSpacing;
                     var offsetX = screenMargin - (int)Math.Round(along * Math.Cos(options.WindAngleDeg * Math.PI / 180));
                     var offsetY = screenMargin - (int)Math.Round(along * Math.Sin(options.WindAngleDeg * Math.PI / 180));
                     for (var y = 0; y < PsfGrid; y++)
                     {
                         for (var x = 0; x < PsfGrid; x++)
                         {
-                            phase[(y * PsfGrid) + x] = (screenPhase[((y + offsetY) * screenSamples) + x + offsetX] * phaseScale) + defocus[(y * PsfGrid) + x]
-                                + (local is null ? 0 : localPhase[((y + screenMargin) * screenSamples) + x + screenMargin] * phaseScale);
+                            // The pupil's own spacing on the screen's: the one screen read at each colour's sampling of the pupil,
+                            // exactly the screen's samples where the two are one.
+                            var (air, still) = stride == 1
+                                ? (screenPhase[((y + offsetY) * screenSamples) + x + offsetX], local is null ? 0 : localPhase[((y + screenMargin) * screenSamples) + x + screenMargin])
+                                : (ScreenAt(screenPhase, screenSamples, offsetX + (x * stride), offsetY + (y * stride)),
+                                    local is null ? 0 : ScreenAt(localPhase, screenSamples, screenMargin + (x * stride), screenMargin + (y * stride)));
+                            phase[(y * PsfGrid) + x] = (air * phaseScale) + defocus[(y * PsfGrid) + x] + (still * phaseScale);
                         }
                     }
                     ShortExposurePsf.Compute(pupil, phase, PsfGrid, subPsf, psfScratch);
@@ -435,6 +461,110 @@ public static class PlanetaryDegrade
             progress?.Report(first + count);
         }
         return [.. truths];
+    }
+
+    /// <summary>
+    /// A colour synthetic capture on a Bayer sensor (docs/plans/planetary-restoration.md, R5a): each colour made by
+    /// <see cref="MakeAsync"/> at the sensor's full resolution, its own map, wavelength, camera levels and placement (the colours'
+    /// placements differ by the atmosphere's dispersion), and each photosite taken from its own colour's frame, the two greens
+    /// from the green one. One atmosphere for all three: the colours must share <see cref="DegradeOptions.Seed"/> and everything
+    /// the air sets, so their screens, tilts and warp are the same path difference seen at three wavelengths (the phase is
+    /// scaled by 500 nm over the wavelength). The frames are held until the last colour is made, then written in order; the warp,
+    /// achromatic, is reported from the green pass.
+    /// </summary>
+    /// <returns>Each colour's frames as <see cref="MakeAsync"/> records them.</returns>
+    /// <remarks>The screens are drawn once, at the finest of the three pupils' spacings (<see cref="DegradeOptions.ScreenSpacingM"/>),
+    /// so every colour samples the same air at or above its own resolution.</remarks>
+    public static async Task<(ImmutableArray<SyntheticFrame> Red, ImmutableArray<SyntheticFrame> Green, ImmutableArray<SyntheticFrame> Blue)> MakeBayerAsync(
+        CatalogIndex planet, ImmutableArray<DateTimeOffset> times, BayerColour red, BayerColour green, BayerColour blue, double arcsecPerPixel,
+        ImmutableArray<double> shiftX, ImmutableArray<double> shiftY, ImmutableArray<double> brightness, int width, int height, int bayerOffsetX, int bayerOffsetY,
+        Action<int, ushort[]> write, IProgress<int>? progress = null, Action<int, SyntheticWarp>? warps = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(red);
+        ArgumentNullException.ThrowIfNull(green);
+        ArgumentNullException.ThrowIfNull(blue);
+        ArgumentNullException.ThrowIfNull(write);
+        if (red.Options.Seed != green.Options.Seed || blue.Options.Seed != green.Options.Seed)
+        {
+            throw new ArgumentException("The three colours are one atmosphere, so they share one seed.");
+        }
+        ArgumentOutOfRangeException.ThrowIfNotEqual(width % 2, 0, nameof(width));
+        ArgumentOutOfRangeException.ThrowIfNotEqual(height % 2, 0, nameof(height));
+
+        // One screen for the three: its modes are set by its spacing AND its size, so both are the same for every colour, the
+        // size the largest any colour's pupil needs at its stride.
+        var spacings = new[] { PupilSpacingM(arcsecPerPixel, red.Options), PupilSpacingM(arcsecPerPixel, green.Options), PupilSpacingM(arcsecPerPixel, blue.Options) };
+        var screenSpacing = Math.Min(spacings[0], Math.Min(spacings[1], spacings[2]));
+        var screenSamples = green.Options.ScreenSamples;
+        foreach (var spacing in spacings)
+        {
+            screenSamples = Math.Max(screenSamples, NextPowerOfTwo((int)Math.Ceiling(PsfGrid * spacing / screenSpacing) + 2));
+        }
+        (red, green, blue) = (Shared(red), Shared(green), Shared(blue));
+        BayerColour Shared(BayerColour colour) => colour with { Options = colour.Options with { ScreenSpacingM = screenSpacing, ScreenSamples = screenSamples } };
+
+        var n = times.Length;
+        var mosaic = new ushort[]?[n];
+        var passes = new (BayerColour Colour, int[] Channels)[]
+        {
+            (red, [CfaPlaneStream.Red]),
+            (green, [CfaPlaneStream.Green1, CfaPlaneStream.Green2]),
+            (blue, [CfaPlaneStream.Blue]),
+        };
+        var records = new ImmutableArray<SyntheticFrame>[passes.Length];
+        for (var p = 0; p < passes.Length; p++)
+        {
+            var (colour, channels) = passes[p];
+            var phases = Array.ConvertAll(channels, c => CfaPlaneStream.PhaseOf(c, bayerOffsetX, bayerOffsetY));
+            var passProgress = progress is null ? null : new PassProgress(progress, p, passes.Length, n);
+            records[p] = await MakeAsync(colour.Map, planet, times, colour.Placement, arcsecPerPixel, shiftX, shiftY, brightness, width, height, colour.Options,
+                (index, samples) =>
+                {
+                    var frame = mosaic[index] ??= new ushort[width * height];
+                    foreach (var (px, py) in phases)
+                    {
+                        for (var y = py; y < height; y += 2)
+                        {
+                            var row = y * width;
+                            for (var x = px; x < width; x += 2)
+                            {
+                                frame[row + x] = samples[row + x];
+                            }
+                        }
+                    }
+                }, passProgress, p == 1 ? warps : null, cancellationToken).ConfigureAwait(false);
+        }
+
+        for (var t = 0; t < n; t++)
+        {
+            write(t, mosaic[t] ?? throw new InvalidOperationException($"Frame {t} was made by no colour."));
+            mosaic[t] = null;
+        }
+        return (records[0], records[1], records[2]);
+    }
+
+    // The pupil's sample spacing for a PSF on the fine grid: the grid's angular sample is the wavelength over the pupil grid's
+    // extent, so it depends on the wavelength and the oversampling as well as the pixel scale.
+    internal static double PupilSpacingM(double arcsecPerPixel, DegradeOptions options)
+    {
+        var sampleRadians = arcsecPerPixel / OversampleFor(arcsecPerPixel, options.Pupil.DiameterM, options.WavelengthM) / ShortExposurePsf.ArcsecPerRadian;
+        return options.WavelengthM / (PsfGrid * sampleRadians);
+    }
+
+    // A screen's phase between its samples, bilinear: where a colour's pupil samples a screen drawn at another spacing.
+    private static double ScreenAt(double[] screen, int n, double x, double y)
+    {
+        var (x0, y0) = ((int)Math.Floor(x), (int)Math.Floor(y));
+        var (fx, fy) = (x - x0, y - y0);
+        var top = (screen[(y0 * n) + x0] * (1 - fx)) + (screen[(y0 * n) + x0 + 1] * fx);
+        var bottom = (screen[((y0 + 1) * n) + x0] * (1 - fx)) + (screen[((y0 + 1) * n) + x0 + 1] * fx);
+        return (top * (1 - fy)) + (bottom * fy);
+    }
+
+    // A pass's frames reported as the share of the whole three-colour make they are.
+    private sealed class PassProgress(IProgress<int> inner, int pass, int passes, int frames) : IProgress<int>
+    {
+        public void Report(int value) => inner.Report(((pass * frames) + value) / passes);
     }
 
     // The map at `aspect`, on the fine grid, scaled so the disk's mean inside 0.8 radii is its level in electrons, and taken
@@ -504,12 +634,15 @@ public static class PlanetaryDegrade
         Fft2D.Inverse(field, fine, fine);
 
         // Warped (each fine sample takes the value the field moved onto it) and binned to the detector's pixels.
+        // Only the fine samples that make whole pixels: the grid is a power of two for the transform, so where the oversampling is
+        // not (3 for a blue channel at 0.5"/px), the last fine % os samples are a partial pixel beyond the window, out in the sky.
         var windowPx = fine / os;
+        var extent = windowPx * os;
         var binned = new double[windowPx * windowPx];
         var hasWarp = !warp.IsEmpty;
-        for (var y = 0; y < fine; y++)
+        for (var y = 0; y < extent; y++)
         {
-            for (var x = 0; x < fine; x++)
+            for (var x = 0; x < extent; x++)
             {
                 double value;
                 if (hasWarp)
