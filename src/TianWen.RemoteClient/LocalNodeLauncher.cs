@@ -173,6 +173,8 @@ namespace TianWen.RemoteClient
                 ? Path.GetFullPath(root)
                 : TianWenDataRoot.Directory.FullName;
             Directory.CreateDirectory(dataRoot);
+            // A refusal is read only after it was written by THIS start (#1077).
+            NodeStartRefusal.Clear(dataRoot);
 
             using var keeper = DetachedProcess.Start(server, ["--keeper", "--socket", socketPath, .. options.NodeArguments], dataRoot, environment);
             logger.LogInformation("Started the node's keeper {Server}, pid {Pid}{Breakaway}", server, keeper.Id,
@@ -193,14 +195,14 @@ namespace TianWen.RemoteClient
                 if (keeper.TryGetExitCode(out var exit) && exit != NodeExitCodes.AlreadyRunning)
                 {
                     return new LocalNode(LocalNodeOutcome.CouldNotStart, null, null,
-                        $"The node's keeper ended with {exit} before the node answered; {DescribeLogs(dataRoot)}");
+                        $"The node's keeper ended with {exit} before the node answered; {WhyItDidNotStart(dataRoot)}");
                 }
 
                 await Task.Delay(TimeSpan.FromMilliseconds(100), cancellationToken).ConfigureAwait(false);
             }
 
             return new LocalNode(LocalNodeOutcome.CouldNotStart, null, null,
-                $"The node did not answer on {socketPath} within {options.ReadyBudget.TotalSeconds:0} s; {DescribeLogs(dataRoot)}");
+                $"The node did not answer on {socketPath} within {options.ReadyBudget.TotalSeconds:0} s; {WhyItDidNotStart(dataRoot)}");
         }
 
         /// <summary>Asks the node to stop, then waits until it no longer answers.</summary>
@@ -267,6 +269,13 @@ namespace TianWen.RemoteClient
             var client = new TianWenNodeClient(http, new NodeTimeouts(AskBudget, AskBudget, AskBudget));
             return await client.GetNodeAsync(cancellationToken).ConfigureAwait(false);
         }
+
+        /// <summary>
+        /// What a node that failed to come up said, in its own words when it left them (<see cref="NodeStartRefusal"/>: a
+        /// refusal comes before any log does, and its stderr reaches no one), else where it wrote what happened.
+        /// </summary>
+        private static string WhyItDidNotStart(string dataRoot)
+            => NodeStartRefusal.TryRead(dataRoot) is { } reason ? $"it said: {reason}" : DescribeLogs(dataRoot);
 
         /// <summary>Where a node that failed to come up wrote what happened: the newest server and keeper logs.</summary>
         private static string DescribeLogs(string dataRoot)

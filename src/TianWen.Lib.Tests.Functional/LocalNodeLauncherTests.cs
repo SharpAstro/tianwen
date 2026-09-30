@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using TianWen.Hosting;
 using TianWen.Hosting.Api;
 using TianWen.Lib.Devices;
+using TianWen.Lib.IO;
 using TianWen.RemoteClient;
 using Xunit;
 
@@ -253,5 +254,41 @@ public class LocalNodeLauncherTests
 
         node.Outcome.ShouldBe(LocalNodeOutcome.CouldNotStart);
         node.Message.ShouldContain($"ended with {NodeExitCodes.InvalidArguments}");
+        node.Message.ShouldContain("it said:", customMessage: "the keeper's own reason reaches the user, not a pointer to a log it never wrote");
+        node.Message.ShouldContain(NodeArguments.Usage);
+        node.Message.ShouldNotContain("wrote no log");
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task ASocketPathTooLongForTheSystemIsNamedNotLeftAsAnExitCode()
+    {
+        // Found live (#1077): a data root under a deep folder made the keeper end with 2 and the window say only "ended with
+        // 2 ... it wrote no log", the log being a thing a refusal before any logging cannot leave.
+        var ct = TestContext.Current.CancellationToken;
+        var (options, folder) = Isolated();
+        var deep = Directory.CreateDirectory(Path.Combine(folder, new string('d', 120))).FullName;
+        var socket = Path.Combine(deep, "node.sock");
+
+        var node = await Launcher(options with { SocketPath = socket }).FindOrStartAsync(ct);
+
+        node.Outcome.ShouldBe(LocalNodeOutcome.CouldNotStart);
+        node.Message.ShouldContain($"ended with {NodeExitCodes.InvalidArguments}");
+        node.Message.ShouldContain("The node socket path is");
+        node.Message.ShouldContain("longer than the");
+        node.Message.ShouldContain(socket, customMessage: "it names the path, which is the thing to shorten");
+    }
+
+    [Fact]
+    public void ARefusalFromAnEarlierStartIsNotReadAsThisOnes()
+    {
+        var folder = Directory.CreateTempSubdirectory("twr").FullName;
+        NodeStartRefusal.TryRead(folder).ShouldBeNull("nothing refused yet");
+
+        NodeStartRefusal.Write(folder, "first" + Environment.NewLine + "second" + Environment.NewLine);
+        NodeStartRefusal.TryRead(folder).ShouldBe("first second", "one line, however many the reason took");
+
+        NodeStartRefusal.Clear(folder);
+        NodeStartRefusal.TryRead(folder).ShouldBeNull("cleared before a new start");
+        NodeStartRefusal.Clear(folder);
     }
 }

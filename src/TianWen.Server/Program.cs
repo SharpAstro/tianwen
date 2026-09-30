@@ -8,6 +8,7 @@ using TianWen.Hosting.Api;
 using TianWen.Lib;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Extensions;
+using TianWen.Lib.IO;
 using TianWen.Hosting.Extensions;
 using TianWen.Lib.Logging;
 
@@ -17,6 +18,8 @@ using TianWen.Lib.Logging;
 if (!NodeArguments.TryParse(args, out var node, out var invalid))
 {
     Console.Error.WriteLine(invalid);
+    // A client starts the keeper with nothing to read its stderr: the reason goes where the client looks (#1077).
+    NodeStartRefusal.Write(TianWenDataRoot.Directory.FullName, invalid);
     return NodeExitCodes.InvalidArguments;
 }
 
@@ -40,7 +43,9 @@ var socketPath = node.SocketPath;
 // One node per socket: the lock, not the socket file, decides it, and only its holder may clear a stale socket.
 if (!NodeLock.TryAcquire(socketPath, out var held, out var refusal))
 {
-    Console.Error.WriteLine(await NodeLock.DescribeHolderAsync(socketPath, refusal, CancellationToken.None));
+    var holder = await NodeLock.DescribeHolderAsync(socketPath, refusal, CancellationToken.None);
+    Console.Error.WriteLine(holder);
+    NodeStartRefusal.Write(TianWenDataRoot.Directory.FullName, holder);
     return NodeExitCodes.AlreadyRunning;
 }
 
