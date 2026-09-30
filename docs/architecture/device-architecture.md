@@ -308,7 +308,8 @@ readable over WPD with a bare PTP `GetDeviceInfo`, no `OpenSession`: measured on
 program streamed live view, 2 of 11 such reads coincided with a live view frame answering `InternalError` (one frame, the
 next was fine; the error was stamped to the millisecond a read finished), so it is a read for a camera nobody holds,
 taken once per path and remembered, never for one the hub is driving. Enumeration alone (`EnumerateWpdCameras`) opens
-nothing and caused none. The Skywatcher, SkyGuider Pro and UUID-less LX200/OnStep rows have no such option.
+nothing and caused none, but it returns only the port-shaped path, so the serial needs this read, made as rarely as
+possible (#1097). The Skywatcher, SkyGuider Pro and UUID-less LX200/OnStep rows have no such option.
 
 ### Known limitations of device keys
 
