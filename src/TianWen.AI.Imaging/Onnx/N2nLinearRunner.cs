@@ -7,6 +7,7 @@ using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using TianWen.Lib;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Degradation;
 using TianWen.Lib.Stat;
 
 namespace TianWen.AI.Imaging.Onnx;
@@ -42,14 +43,22 @@ namespace TianWen.AI.Imaging.Onnx;
 /// stored it, so a pre-stretched input takes the same path in training and here, and a frame this
 /// runner has stretched itself is not stretched twice.</para>
 ///
-/// <para><b>The conditioning is per tile, and lives inside the graph.</b> The model takes a
-/// fourth plane holding the tile's own measured background sigma, which is what makes its
-/// denoising strength an input rather than a constant baked in at training time. The exported
-/// graph computes that plane itself from the tile it is handed, so this runner never touches it
-/// -- deliberately. The alternative (host-computed sigma, passed alongside) invites computing it
-/// once for the whole image, which still runs, still looks like a denoiser, and feeds the model a
-/// number it never saw during training. <see cref="ChunkedNafnetRunner"/>'s <c>extraInputs</c>
-/// could not express it either way: those are documented as reused across every chunk.</para>
+/// <para><b>The conditioning is per tile, in one of two kinds the graph's inputs decide.</b> A
+/// SCALAR graph (image + <c>strength</c>) takes a fourth plane holding the tile's own measured
+/// background sigma and computes it itself from the tile it is handed, so this runner never
+/// touches it -- deliberately: a host-computed sigma invites computing it once for the whole image,
+/// which still runs, still looks like a denoiser, and feeds the model a number it never saw.</para>
+///
+/// <para>A PLANE graph (image + <c>plane</c>, E16's per-pixel conditioning, <c>n2n_export.py</c>'s
+/// <c>mapped</c> shape) takes the noise the input carries PER PIXEL, and that plane is the host's to
+/// compute, because it rests on a whole-frame estimate. It is computed exactly as the eval's planes
+/// were (<c>DatasetNoisePlaneExporter</c>): one calibration per channel for the whole frame
+/// (<see cref="StretchedNoise.EstimateCalibration"/> on the linear input, with the stretch this runner
+/// applies, the identity where the auto-detect skips it), then for EACH chunk, on the very stretched
+/// and padded tile the net is fed, <see cref="StretchedNoise.Plane"/> at the frame's own depth
+/// (<see cref="MasterPlaneDepth"/>). The tile is part of the plane's definition (its two low-passes see
+/// the tile's edges), which is why the plane is made per chunk rather than cut from a whole-frame
+/// one.</para>
 ///
 /// <para><b>Fixed 256 px tiles, read off the graph.</b> This UNet has two pooling levels and needs
 /// spatial dims divisible by 4, not NAFNet's 16 -- but the binding constraint is stricter than
@@ -65,11 +74,62 @@ namespace TianWen.AI.Imaging.Onnx;
 /// different things on different data, and fabricated point sources RISE by 2.6x to 6.3x toward
 /// its gentle end -- told its input is clean, the model reads noise as signal and sharpens it.
 /// The blend is a convex combination of two images that already exist, so it is exactly monotone,
-/// spans the full range to "untouched" by construction, and cannot invent. The graph input is
-/// pinned to 1.0 here and kept only because removing it would mean re-exporting.</para>
+/// spans the full range to "untouched" by construction, and cannot invent. The scalar graph's
+/// input is pinned to 1.0 here and kept only because removing it would mean re-exporting; a plane
+/// graph has no such input, and its plane is never scaled.</para>
 /// </remarks>
 internal static class N2nLinearRunner
 {
+    /// <summary>
+    /// The depth a plane graph's plane is computed at: the frame's OWN noise. The calibration is estimated from
+    /// the frame itself, which makes one unit of depth that frame's noise (a master's, as the eval's master planes
+    /// were made; training drew its planes at the injected depth plus the master's, on the same scale).
+    /// </summary>
+    internal const double MasterPlaneDepth = 1.0;
+
+    /// <summary>
+    /// A frame's per-channel stretch and noise calibration for a plane graph: the stretch this runner applied (the
+    /// identity, a midtones balance of 0.5 from zero, where the auto-detect fed the frame as it came) and one
+    /// calibration per channel estimated from the linear frame through that stretch, the covered pixels only.
+    /// </summary>
+    internal static (StretchedNoise.ChannelStretch[] Stretches, LinearDegradation.NoiseCalibration[] Calibrations) FrameNoise(
+        Image input, bool stretchApplied, float[]? origMin, double[]? balances, BitMatrix? absent)
+    {
+        var channels = input.ChannelCount;
+        var stretches = new StretchedNoise.ChannelStretch[channels];
+        for (var c = 0; c < channels; c++)
+        {
+            stretches[c] = stretchApplied && origMin is { } min && balances is { } balance
+                ? new StretchedNoise.ChannelStretch(balance[c], min[c])
+                : new StretchedNoise.ChannelStretch(0.5, 0.0);
+        }
+        if (!StretchedNoise.TryEstimateCalibration(input, stretches, absent, out var calibrations))
+        {
+            throw new NotSupportedException(
+                $"N2nLinearRunner: the frame has no {StretchedNoise.EstimateBlockPx} px block free of the canvas ring and NaN, " +
+                "so its noise cannot be estimated and a plane-conditioned model has nothing to be told.");
+        }
+        return (stretches, calibrations);
+    }
+
+    /// <summary>
+    /// The plane of one chunk as a plane graph is fed it: <see cref="StretchedNoise.Plane"/> over the chunk's stretched
+    /// channels (CHW, <paramref name="tileW"/> x <paramref name="tileH"/>, padding included) at
+    /// <see cref="MasterPlaneDepth"/>.
+    /// </summary>
+    internal static float[] ChunkPlane(
+        ReadOnlySpan<float> chw, int channels, int tileW, int tileH,
+        StretchedNoise.ChannelStretch[] stretches, LinearDegradation.NoiseCalibration[] calibrations)
+    {
+        var n = tileW * tileH;
+        var planes = new float[channels][];
+        for (var c = 0; c < channels; c++)
+        {
+            planes[c] = chw.Slice(c * n, n).ToArray();
+        }
+        return StretchedNoise.Plane(planes, tileW, tileH, stretches, calibrations, MasterPlaneDepth);
+    }
+
     /// <summary>
     /// Run one denoise pass over <paramref name="input"/> and blend the result back toward it.
     /// </summary>
@@ -87,16 +147,24 @@ internal static class N2nLinearRunner
     /// regions merely touch, there is nothing to blend across, and
     /// <see cref="RestoreLevel"/>'s per-chunk offsets step at the join. The default 64 against a
     /// 16 px border leaves 32 px to ramp over.</param>
+    /// <param name="strengthInputName">A scalar graph's <c>strength</c> input; null for a plane graph.</param>
+    /// <param name="planeInputName">A plane graph's <c>plane</c> input; null for a scalar graph. Exactly one of the
+    /// two is given, and <see cref="OnnxIoNames.IsImagePlusPlane"/> says which the graph is.</param>
     public static N2nRunResult Run(
         Image input,
         InferenceSession session,
         string imageInputName,
-        string strengthInputName,
+        string? strengthInputName,
+        string? planeInputName,
         string outputName,
         float blend,
         int overlap,
         CancellationToken ct = default)
     {
+        if ((strengthInputName is null) == (planeInputName is null))
+        {
+            throw new ArgumentException("exactly one of a strength input (a scalar graph) or a plane input (a plane graph) is given");
+        }
         var (channels, srcW, srcH) = input.Shape;
         var border = AiNafnetInputs.StitchBorderPx;
 
@@ -136,6 +204,13 @@ internal static class N2nLinearRunner
         //    pixels only; the canvas ring is found once here and handed back untouched in step 5.
         var absent = input.AbsentPixels();
         var (stretched, stretchApplied, origMin, balances) = ChunkedNafnetRunner.ApplyInputStretch(input, absent);
+        // A plane graph's whole-frame half of the conditioning: the frame's own noise, once (see the class remarks).
+        StretchedNoise.ChannelStretch[]? planeStretches = null;
+        LinearDegradation.NoiseCalibration[]? planeCalibrations = null;
+        if (planeInputName is not null)
+        {
+            (planeStretches, planeCalibrations) = FrameNoise(input, stretchApplied, origMin, balances, absent);
+        }
         var stretchMs = phaseSw.ElapsedMilliseconds; phaseSw.Restart();
         ct.ThrowIfCancellationRequested();
 
@@ -164,8 +239,9 @@ internal static class N2nLinearRunner
         for (var c = 0; c < channels; c++) outChunksByChannel[c] = new ChunkedInference.Chunk[chunkCount];
 
         var planeStride = tileH * tileW;
-        var strengthTensor = new DenseTensor<float>(new[] { 1.0f }.AsMemory(), ReadOnlySpan<int>.Empty);
-        var strengthValue = NamedOnnxValue.CreateFromTensor(strengthInputName, strengthTensor);
+        var strengthValue = strengthInputName is not null
+            ? NamedOnnxValue.CreateFromTensor(strengthInputName, new DenseTensor<float>(new[] { 1.0f }.AsMemory(), ReadOnlySpan<int>.Empty))
+            : null;
         // |offset| per (channel, chunk) from RestoreLevel, kept for the result: how far the net's
         // level prior dragged each tile is the number that says whether the input sat in the
         // net's training band (see the remarks on RestoreLevel).
@@ -212,10 +288,18 @@ internal static class N2nLinearRunner
                 }
             }
 
+            // The second input: the scalar graph's fixed strength, or this chunk's own plane, made from the very
+            // stretched and padded tile the net is fed.
+            var conditioning = strengthValue
+                ?? (planeInputName is { } planeName && planeStretches is { } stretches && planeCalibrations is { } calibrations
+                    ? NamedOnnxValue.CreateFromTensor(planeName, new DenseTensor<float>(
+                        ChunkPlane(span[..(channels * planeStride)], channels, tileW, tileH, stretches, calibrations).AsMemory(),
+                        [1, 1, tileH, tileW]))
+                    : throw new InvalidOperationException("N2nLinearRunner: a plane graph reached a chunk without its frame's noise"));
             using var result = session.Run(
             [
                 NamedOnnxValue.CreateFromTensor(imageInputName, imageTensor),
-                strengthValue,
+                conditioning,
             ]);
             var outSpan = result[0].AsTensor<float>().ToDenseTensor().Buffer.Span;
 

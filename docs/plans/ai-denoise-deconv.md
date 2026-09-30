@@ -1,7 +1,8 @@
 # TianWen-Trained Denoise + Deconvolution Models ("own AI")
 
 **Status: P0 SHIPPED (2026-07-12); P1 DE-RISKED, first checkpoint SHIPPED opt-in (v19d, 2026-08-17) and
-REPLACED by `e2_wide_s2` (2026-09-06, D5 in [denoiser-training.md](denoiser-training.md));
+REPLACED by `e2_wide_s2` (2026-09-06, D5 in [denoiser-training.md](denoiser-training.md)) and then by the
+plane-conditioned `convmapb_s2` (2026-10-01, D6);
 P2+ NOT STARTED. Run-level plans for every training now live in their own documents, indexed by
 [model-training-roadmap.md](model-training-roadmap.md): [denoiser-training.md](denoiser-training.md),
 [deconvolver-training.md](deconvolver-training.md), [gradient-remover-training.md](gradient-remover-training.md),

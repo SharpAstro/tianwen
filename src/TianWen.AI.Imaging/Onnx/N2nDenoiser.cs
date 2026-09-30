@@ -10,30 +10,36 @@ using TianWen.Lib.Imaging.Enhancement;
 namespace TianWen.AI.Imaging.Onnx;
 
 /// <summary>
-/// The in-house Noise2Noise denoiser for one-shot-colour stacked masters: a 0.81 M-parameter
-/// noise-conditioned UNet trained on pairs of subs from the same cell, so it never saw a clean
-/// target and cannot have learned to reproduce one.
+/// The in-house denoiser for one-shot-colour stacked masters: a 0.81 M-parameter UNet conditioned on a
+/// per-pixel noise plane, trained on injected pairs (a master plus noise drawn at a known depth as the
+/// input, the master itself as the target).
 /// </summary>
 /// <remarks>
-/// <para><b>Provenance, stated because it changes how to treat this model.</b> The shipped weights
-/// are <c>e2_wide_s2</c>, gate-selected at step 3100 of a 17-session x 45-cell run over injected
-/// pairs (E2's recipe, E9's pool). They replaced <c>n2n_v19d</c> seed 2 on 2026-09-06, which had
-/// trained on 8 sessions of real sub pairs.</para>
+/// <para><b>Provenance, stated because it changes how to treat this model.</b> The shipped weights are
+/// <c>convmapb_s2</c>, seed 2 of E16b's arm (<c>docs/plans/denoiser-training.md</c>, "E16b's result"):
+/// E16a's recipe on the recipe-3 store, the noise injected per channel on each master's own recorded
+/// calibration and shaped by its integration, plus 45 bright cells. They replaced <c>e2_wide_s2</c> on
+/// 2026-10-01, which took the tile's scalar sigma and was never shown a bright level being cleaned.
+/// The seed is the one nearest its arm's mean on the two registered primary measures, not the best of
+/// four, so the arm's published numbers describe what ships; the arm effect cleared its seed spread on
+/// every field that carries it.</para>
 ///
-/// <para><b>The POOL effect is established; the SEED is still the best one measured.</b> Widening
-/// the pool to cover the low end of the conditioning plane is the one thing in this programme whose
-/// effect cleared the seed spread: the WIDE arm's worst seed removes more noise on the low-plane
-/// observers (13.7 percent) than the best of NINE seeds of the arm it replaced (11.3), where the
-/// pool has one measured confound (eight of the nine added sessions are one mosaic on one rig).
-/// Picking seed 2 within that arm is not established the same way, and three disjoint 8-session
-/// draws of the older recipe scored 0.825 / 0.726 / 0.739 on one held-out session, so a like-for-like
-/// retrain should be re-measured on the held-out sessions rather than assumed to reproduce this.</para>
+/// <para><b>What it does that the model it replaced did not</b>, at full strength against half B on the
+/// E16b eval (14 fields): it CLEANS a bright level, where every earlier model left one as it came or
+/// worse. The finest-band error left at level 0.45-0.60 is 0.743 against the E16b control's 0.907 and
+/// E16a's 0.947, and 0.862 at 0.60 and up, while <c>e2_wide_s2</c> left 1.36 and 2.05 (it added error
+/// there); bright detail is kept at 0.991 and 1.000 against 0.849 and 0.844. On the densest cells of
+/// the Sgr Star Cloud it keeps 0.999 of the unresolved stars' amplitude and 0.992 of their grain, where
+/// <c>e2_wide_s2</c> kept 0.790 and 0.875, and in the NGC 362 core it moves no channel's level (that
+/// one put red at 1.012 of half B's level against its input's 0.998, and more pixels toward clipping).
+/// It removes somewhat less noise at full strength (22.6
+/// percent on the eval's mean against 24.5), because its planes are calibrated to the noise it is
+/// actually fed.</para>
 ///
-/// <para><b>What changed against v19d, measured through this class's own path</b> on the eta Car
-/// master: the per-channel colour cast a level prior leaves (bright-decile out/in spread) falls
-/// 0.044 to 0.019, every star bucket keeps more amplitude (0.690 / 0.786 / 0.864 / 0.883 against
-/// 0.649 / 0.700 / 0.753 / 0.724), the noise removed is the same, and on the Gaia split the same
-/// quiet costs 1.0 of the extended column against 6.3 at 10 percent removed.</para>
+/// <para><b>The plane is the runner's to compute</b> (<see cref="N2nLinearRunner"/>'s remarks): one
+/// calibration per channel from the frame itself, then each chunk's plane from the tile the net is fed,
+/// exactly as the eval's planes were made. A frame whose noise cannot be estimated (no 32 px block free
+/// of the canvas ring) is refused rather than guessed at.</para>
 ///
 /// <para><b>Domain semantics: linear in, linear out, the exporter's stretch in between.</b> The
 /// contract at this boundary is a linear <c>[0, 1]</c> frame, the one every enhancer here takes, and
@@ -65,14 +71,15 @@ public sealed class N2nDenoiser(
     : IDenoiseEnhancer, IEnhancerAvailability, IDisposable
 {
     /// <summary>
-    /// The shipped weights. The <c>e2wide_s2</c> segment is deliberate: the checkpoint identity is
+    /// The shipped weights. The <c>convmapb_s2</c> segment is deliberate: the checkpoint identity is
     /// part of what this model is (see the provenance note on the class), so a retrain gets a new
     /// file name rather than silently replacing this one under the same one. That rule was honoured
-    /// on 2026-09-06, when this stopped being <c>tianwen_denoise_osc_v19d.onnx</c>; the old weights
-    /// are one <c>git show</c> away, and the seam probe's model-directory override exists to compare
-    /// two checkpoints on one frame without swapping the file back.
+    /// on 2026-09-06, when this stopped being <c>tianwen_denoise_osc_v19d.onnx</c>, and on 2026-10-01,
+    /// when it stopped being <c>tianwen_denoise_osc_e2wide_s2.onnx</c>; the old weights are one
+    /// <c>git show</c> away, and the seam probe's model-directory override exists to compare two
+    /// checkpoints on one frame without swapping the file back.
     /// </summary>
-    public const string ModelFileName = "tianwen_denoise_osc_e2wide_s2.onnx";
+    public const string ModelFileName = "tianwen_denoise_osc_convmapb_s2.onnx";
 
     private readonly System.Threading.Lock _gate = new(); // serializes lazy InferenceSession creation and Dispose; session build is a one-time cold path, not a hot-path hand-off
     private InferenceSession? _session;
@@ -163,11 +170,19 @@ public sealed class N2nDenoiser(
     {
         var (channels, srcW, srcH) = input.Shape;
         var session = AcquireSession();
-        var (imageInput, strengthInput, output) = OnnxIoNames.ImagePlusScalar(session);
-
-        var result = N2nLinearRunner.Run(
-            input, session, imageInput, strengthInput, output,
-            blend: strength, overlap: overlap, ct: ct);
+        // The graph's inputs say which conditioning it takes: a per-pixel plane (E16's, the shipped weights since
+        // 2026-10) or the tile's scalar sigma computed in-graph (every model before it).
+        N2nRunResult result;
+        if (OnnxIoNames.IsImagePlusPlane(session))
+        {
+            var (imageInput, planeInput, output) = OnnxIoNames.ImagePlusPlane(session);
+            result = N2nLinearRunner.Run(input, session, imageInput, null, planeInput, output, blend: strength, overlap: overlap, ct: ct);
+        }
+        else
+        {
+            var (imageInput, strengthInput, output) = OnnxIoNames.ImagePlusScalar(session);
+            result = N2nLinearRunner.Run(input, session, imageInput, strengthInput, null, output, blend: strength, overlap: overlap, ct: ct);
+        }
 
         var megapixels = (channels * srcW * (double)srcH) / 1_000_000.0;
         var throughputMpps = result.TotalMs > 0 ? megapixels * 1000.0 / result.TotalMs : 0.0;

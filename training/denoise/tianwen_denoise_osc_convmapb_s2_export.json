@@ -1,0 +1,32 @@
+{
+ "checkpoint": "bb_e16barm_s2.pt",
+ "cache": "C:/temp/tianwen-scratch/n2n-e16b-arm",
+ "eval": "C:/temp/tianwen-scratch/n2n-e2-eval4b-rfpcb",
+ "cond_map": true,
+ "model_file": "tianwen_denoise_osc_convmapb_s2.onnx",
+ "params": 813251,
+ "opset": 17,
+ "tile": 256,
+ "border_px": 16,
+ "plane_scale": 67.45,
+ "parity_max_abs": 1.4901161193847656e-07,
+ "tile_signal_sigma": 0.03252469748258591,
+ "parity_cells": [
+  0,
+  17,
+  34,
+  52,
+  69,
+  87,
+  104,
+  122,
+  139,
+  157,
+  174,
+  192,
+  209,
+  227,
+  244,
+  262
+ ]
+}

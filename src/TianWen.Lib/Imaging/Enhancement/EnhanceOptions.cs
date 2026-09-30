@@ -26,7 +26,7 @@ public enum EnhanceBackend
     ForceRcAstro = 1,
 
     /// <summary>Prefer the in-house TianWen model for any role that has one -- today that is
-    /// the DENOISE role only (the Noise2Noise <c>tianwen_denoise_osc_e2wide_s2</c> net) -- and behave
+    /// the DENOISE role only (the in-house <c>tianwen_denoise_osc_convmapb_s2</c> net) -- and behave
     /// as <see cref="Auto"/> for every other role. Scoped this way because one options record
     /// threads through every step of a pipeline run, so the star remover and deconvolver see
     /// this value too and must keep working. The N2N denoiser is OSC-only (throws on mono, by

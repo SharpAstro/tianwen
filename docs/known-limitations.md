@@ -129,7 +129,8 @@ and, end to end through the shipped model, `N2nDenoiserTests.ACanvasRingIsLeftOu
 Their tiles were exported with the OLD stretch (a zero-ringed master from a floor of 0) and inference
 now uses the fixed one, so for a ringed input the two differ until a re-export and a retrain. Where
 the old gate flipped, the fix is a clear improvement (those masters reached the net unstretched); for
-the other zero-ringed masters the shipped `tianwen_denoise_osc_e2wide_s2` now answers differently, and
+the other zero-ringed masters the then-shipped `tianwen_denoise_osc_e2wide_s2` answered differently (its successor,
+`convmapb_s2`, was trained on a store baked after the fix, so it matches inference), and
 by how much is NOT measured. In E13's 78-session pool the floor moves on 43 sessions, and the median
 the stretch maps to 0.25 shrinks to 0.79 of its old value (as low as 0.19). E12 and E13 stay internally
 consistent (old stretch throughout, same eval caches), so they read as comparisons within it; the
