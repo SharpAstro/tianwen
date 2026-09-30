@@ -19,8 +19,8 @@ namespace TianWen.Lib.Devices;
 ///   built from, and what the hub compares to decide a down driver can be reconnected rather than rebuilt.</item>
 /// </list>
 /// The key is only as stable as the path a device source writes. For most families it names the hardware, but the
-/// Skywatcher and SkyGuider Pro probes, an LX200/OnStep mount without a UUID, and a Canon over WPD put the PORT (or USB
-/// path) in it, so their key
+/// Skywatcher and SkyGuider Pro probes, an LX200/OnStep mount without a UUID, and a Canon through Windows' stock USB driver (WPD) put the PORT
+/// (or USB path) in it, so their key
 /// changes when the port does: <c>docs/architecture/device-architecture.md</c>, "Device keys by family".
 /// </remarks>
 public static class DeviceUriExtensions
