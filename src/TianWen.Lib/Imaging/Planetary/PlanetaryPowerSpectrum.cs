@@ -224,7 +224,7 @@ public sealed class PlanetaryPowerSpectrum
         return builder.ToImmutable();
     }
 
-    private static float[] Tukey(int length, double taper)
+    internal static float[] Tukey(int length, double taper)
     {
         var window = new float[length];
         for (var i = 0; i < length; i++)

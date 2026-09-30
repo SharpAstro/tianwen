@@ -662,7 +662,7 @@ public static class PlanetaryDegrade
     }
 
     // A PSF's centroid over its centre sample, in fine samples.
-    private static (double X, double Y) Centroid(double[] psf)
+    internal static (double X, double Y) Centroid(double[] psf)
     {
         double cx = 0, cy = 0;
         for (var y = 0; y < PsfGrid; y++)
