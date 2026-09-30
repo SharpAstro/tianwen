@@ -304,8 +304,11 @@ So wherever the key carries the port or a USB path, a re-plug is a NEW device: a
 
 Canon over WPD is the one of these that did not have to be. The body's DeviceInfo serial (32 hex digits, stable) is
 readable over WPD with a bare PTP `GetDeviceInfo`, no `OpenSession`: measured on an EOS 6D at 7 ms to open the device and
-21 ms to read, it also works while another client holds a session, and it changes nothing on the camera (#1097). The
-Skywatcher, SkyGuider Pro and UUID-less LX200/OnStep rows have no such option.
+21 ms to read, and it changes nothing on the camera (#1097). It is not free of interference, though. While another
+program streamed live view, 2 of 11 such reads coincided with a live view frame answering `InternalError` (one frame, the
+next was fine; the error was stamped to the millisecond a read finished), so it is a read for a camera nobody holds,
+taken once per path and remembered, never for one the hub is driving. Enumeration alone (`EnumerateWpdCameras`) opens
+nothing and caused none. The Skywatcher, SkyGuider Pro and UUID-less LX200/OnStep rows have no such option.
 
 ### Known limitations of device keys
 
