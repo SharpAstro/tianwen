@@ -31,12 +31,13 @@ internal sealed class PlanetaryBeltsSubCommand(IConsoleHost consoleHost)
         var derotateOpt = new Option<bool>("--derotate") { Description = "Carry every frame to the run's middle first (R6 part 2)." };
         var framesOpt = new Option<int?>("--frames") { Description = "Only the first frames." };
         var outputOpt = new Option<string?>("--output") { Description = "Write both profiles as CSV here (latitude, stack, map)." };
+        var kernelOpt = new Option<string>("--kernel") { Description = "What the map is blurred by: core (the limb fit's core alone, R6 part 3) or limb (its core and its halo, R7 part 3).", DefaultValueFactory = _ => "core" };
 
         var command = new Command("planetary-belts",
             "A capture or a run stacked and projected onto the spheroid, its zonal albedo profile along planetographic latitude and its belts' edges compared with a global map's (R6 part 3).")
         {
             Arguments = { capturesArg },
-            Options = { mapOpt, channelOpt, planetOpt, keepOpt, derotateOpt, framesOpt, outputOpt },
+            Options = { mapOpt, channelOpt, planetOpt, keepOpt, derotateOpt, framesOpt, outputOpt, kernelOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -75,7 +76,13 @@ internal sealed class PlanetaryBeltsSubCommand(IConsoleHost consoleHost)
             }
             // The map at the stack's resolution: its limb PSF, in degrees of latitude at the disk's middle.
             var blurDeg = fit.PsfSigma / fit.EquatorialRadius * 180 / Math.PI;
-            var reference = PlanetaryBelts.FromMap(map, blurDeg);
+            var withHalo = (parseResult.GetValue(kernelOpt) ?? "core").ToLowerInvariant() == "limb";
+            var haloDeg = fit.HaloWidth / fit.EquatorialRadius * 180 / Math.PI;
+            var reference = withHalo ? PlanetaryBelts.FromMap(map, blurDeg, fit.HaloFraction, haloDeg) : PlanetaryBelts.FromMap(map, blurDeg);
+            if (withHalo)
+            {
+                consoleHost.WriteScrollable(string.Create(inv, $"    the map blurred by the limb fit's core and halo: {fit.HaloFraction:P1} in a halo of {haloDeg:0.00} deg"));
+            }
             consoleHost.WriteScrollable(string.Create(inv,
                 $"{Path.GetFileNameWithoutExtension(paths[0])}{(paths.Length > 1 ? $" and {paths.Length - 1} more" : "")}: {result.FramesUsed} of {result.FramesGraded} frames at {when:yyyy-MM-dd HH:mm:ss} UTC, CM III {aspect.CentralMeridianIII:0.0}, sub-observer latitude {aspect.SubObserverLatitude:+0.00;-0.00}; disk R {fit.EquatorialRadius:0.00} px, PSF sigma {fit.PsfSigma:0.00} px ({blurDeg:0.00} deg), k {fit.LimbDarkening:0.000}; against {Path.GetFileName(mapPath)}"));
 

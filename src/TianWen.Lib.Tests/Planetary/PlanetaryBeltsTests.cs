@@ -62,6 +62,22 @@ public class PlanetaryBeltsTests
     }
 
     [Fact]
+    public void AMapBlurredByACoreAndAHaloIsTheirMix()
+    {
+        var map = BandedMap();
+        PlanetaryBelts.FromMap(map, 1.5, 0, 0).Albedo.ShouldBe(PlanetaryBelts.FromMap(map, 1.5).Albedo);
+        var mixed = PlanetaryBelts.FromMap(map, 1.5, 0.3, 4).Albedo;
+        var (core, halo) = (PlanetaryBelts.FromMap(map, 1.5).Albedo, PlanetaryBelts.FromMap(map, 4).Albedo);
+        for (var b = 0; b < mixed.Length; b += 17)
+        {
+            if (double.IsFinite(mixed[b]))
+            {
+                mixed[b].ShouldBe((0.7 * core[b]) + (0.3 * halo[b]), 1e-9);
+            }
+        }
+    }
+
+    [Fact]
     public void NorthTurnedOverMirrorsTheBelts()
     {
         var map = BandedMap();
