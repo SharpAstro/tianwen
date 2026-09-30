@@ -1008,6 +1008,10 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   **An 8-bit sky's noise is its pixels' own spread from frame to frame**, never the camera model's rounding twelfth (a sky that rounds
   to one value nine times in ten spreads half as much, and took the ratio over one). And a warp the registration leaves cannot be
   told from the seeing over the band an 8-bit capture's noise leaves (to about 0.12 cycles a pixel).
+- **A stack's blur is its lucky frames' own** (R7 part 2, `planetary-blur`): the frames ranked 1 to 5 % add 0.33 to 0.43 px of
+  equivalent Gaussian to the best 1 %. **The limb fit's kernel is not the stack's in the finest bands**: its halo sits at the
+  two-Gaussian model's bound (49.9 %) on every capture measured and it reads bands 1 and 2 at 0.61 to 0.83 of the true transfer,
+  so it is never an inverse's kernel as fitted.
 - **Read the plan doc before touching the Canon path** -- it is a list of five things that fail
   SILENTLY. **Recentering is opt-in** (the user, 2026-09-28; it costs the loop about 15 ms a frame at full frame), and
   so is the mount jog, whose **sign is uncalibrated**.
