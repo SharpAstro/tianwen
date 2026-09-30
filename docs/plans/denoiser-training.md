@@ -2551,3 +2551,21 @@ the correlation its integration adds. Both were measured on the half pairs in li
 The control against E16a now reads the whole correction (per-channel noise, the anchor's level and the shape), not the
 per-channel injection alone. The failed export and its caches were moved aside, not deleted (`degraded/e16b-subcal`,
 `n2n-e16b-ctl-subcal`, `n2n-e16b-arm-subcal`, D2's output as `e16b-d2-subcal.txt`), and the export re-runs.
+
+#### E16b, amended a fourth time after D3 failed, before any model existed (2026-09-30)
+
+**The re-export passed D1 and D2 and failed D3.** D1 as before (the control's clean tiles E16a's to 0); D2 amended,
+quiet 0.913 / 0.915 / 0.964 and bright over quiet at worst 1.024 in each of three sessions. D3 needs the bright levels
+readable on enough fields, and the rule finds bright cells, read off half B, on only 3 of the 17 eval sessions (eta Car
+20, V1045 Ori 6, Lagoon 2): 0.45-0.60 reads on 4 fields (Carina-Wide, Lagoon, V1045 Ori, eta Car; needs 6) and 0.60 and
+up on 2 (V1045 Ori, eta Car; needs 4). The run stopped before training.
+
+**The owner's decision: train now and widen the eval alongside.** Three fields join from the full store as
+`n2n-e16b-evalb` (`arms/e16b-eval-bright.txt`): Lagoon SV605CC 2026-08-01, eta Car ASI533 2025-01-31 and Lagoon ASI585
+2025-05-25, with 32, 31 and 16 bright cells under the training frame's rule. They are held out of training (the
+widening kept eval skies out) and out of the test split; they have half-masters and a recorded position, and their plates
+are 9 to 17 degrees clear of every training plate. Orion ASI294MC 2021-11-28 (10 cells) is left out, since its master
+records no position. They were chosen by count under the one rule before any E16b model existed. The eval caches and D3
+now run after training and before scoring, so the GPU trains while the eval is widened; D3's bars are unchanged, and a
+failure still stops the run before any model is scored. The added fields sit on the skies of two existing ones (eta Car,
+Lagoon), on other nights and cameras, so they add readable fields more than independent ones.
