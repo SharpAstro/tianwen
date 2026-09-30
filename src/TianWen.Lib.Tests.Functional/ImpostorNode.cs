@@ -43,8 +43,11 @@ internal sealed class ImpostorNode : IAsyncDisposable
 
     /// <param name="firstAnswerDelay">How long its first answer to <c>GET /api/v1/node</c> takes; every later one is at once.
     /// Real time, since what it stands in for is a real socket whose first request outruns a client's real budget.</param>
+    /// <param name="installFolder">The folder it says it runs from, with <paramref name="buildWrittenUtc"/> when its code was
+    /// written; neither, as a node that predates saying.</param>
+    /// <param name="clientsAttached">How many clients it says are attached.</param>
     public static async Task<ImpostorNode> StartAsync(string? socketPath, int wireVersion, bool holdsHardware, CancellationToken cancellationToken,
-        TimeSpan firstAnswerDelay = default)
+        TimeSpan firstAnswerDelay = default, string? installFolder = null, DateTimeOffset? buildWrittenUtc = null, int clientsAttached = 0)
     {
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
@@ -78,6 +81,9 @@ internal sealed class ImpostorNode : IAsyncDisposable
                     WireVersion = wireVersion,
                     ProcessId = Environment.ProcessId,
                     HoldsHardware = holdsHardware,
+                    ClientsAttached = clientsAttached,
+                    InstallFolder = installFolder,
+                    BuildWrittenUtc = buildWrittenUtc,
                     NowUtc = DateTimeOffset.UtcNow,
                 }),
                 HostingJsonContext.Default.ResponseEnvelopeNodeInfoDto);

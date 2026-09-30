@@ -52,6 +52,15 @@ public sealed class NodeInfoDto
     public bool HoldsHardware { get; init; }
 
     /// <summary>
+    /// The folder the node runs from, so a client can tell whether it is the build the client would start (with
+    /// <see cref="BuildWrittenUtc"/>). Null from a node that predates it, which is therefore another build.
+    /// </summary>
+    public string? InstallFolder { get; init; }
+
+    /// <summary>When the newest code in <see cref="InstallFolder"/> was written, as the node found it when it started.</summary>
+    public DateTimeOffset? BuildWrittenUtc { get; init; }
+
+    /// <summary>
     /// The node's clock now. A node a client started runs on the client's clock (a simulated <c>TIANWEN_NOW</c>
     /// included), and this is how the client can tell.
     /// </summary>

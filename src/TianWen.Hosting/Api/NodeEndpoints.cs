@@ -35,6 +35,8 @@ internal static class NodeEndpoints
                     ClientsAttached = events.CommandingClientCount,
                     CallerMayCommand = await access.MayCommandAsync(context, ct),
                     HoldsHardware = hub.ConnectedDevices.Count > 0 || hosted.IsRunning,
+                    InstallFolder = identity.InstallFolder,
+                    BuildWrittenUtc = identity.BuildWrittenUtc is { } written ? new DateTimeOffset(written, TimeSpan.Zero) : null,
                     NowUtc = timeProvider.GetUtcNow(),
                     Recovery = journal.Recovery,
                     Run = hosted.CurrentRunRecord is { } run

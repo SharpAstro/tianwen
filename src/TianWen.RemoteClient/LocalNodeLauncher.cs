@@ -123,6 +123,20 @@ namespace TianWen.RemoteClient
             {
                 if (running.WireVersion == NodeWire.Version)
                 {
+                    // The same wire, but maybe another build: another install, or this one rebuilt since the node started (a
+                    // rebuild of uncommitted changes keeps the version string). An idle node no client is attached to is
+                    // replaced, so this client runs the code it was built with; one in use is used as it is.
+                    var newestHere = BuildInfo.NewestCodeFileUtc(options.ServerDirectory, Path.Combine(options.ServerDirectory, ServerFileName));
+                    if (!named && running is { HoldsHardware: false, ClientsAttached: 0 } && IsAnotherBuild(running, options.ServerDirectory, newestHere))
+                    {
+                        if (await StopAsync(transport, running, cancellationToken))
+                        {
+                            logger.LogInformation("Stopped an idle node of another build (from {Folder}, written {Written}) to start this client's",
+                                running.InstallFolder ?? "an older node", running.BuildWrittenUtc);
+                            return await StartAsync(transport, socketPath, cancellationToken);
+                        }
+                        logger.LogWarning("An idle node of another build (pid {Pid}) would not stop; it is used as it is", running.ProcessId);
+                    }
                     return new LocalNode(LocalNodeOutcome.Found, transport, running, $"Connected to the node on {socketPath}");
                 }
                 if (named)
@@ -153,6 +167,27 @@ namespace TianWen.RemoteClient
             }
 
             return await StartAsync(transport, socketPath, cancellationToken);
+        }
+
+        /// <summary>
+        /// Whether <paramref name="node"/> runs another build than the one a client would start from
+        /// <paramref name="serverDirectory"/>, whose newest code was written at <paramref name="newestHere"/>: it runs from
+        /// another folder, or that folder has newer code than it had when the node started, or the node does not say (it
+        /// predates saying, so it is older).
+        /// </summary>
+        internal static bool IsAnotherBuild(NodeInfoDto node, string serverDirectory, DateTime? newestHere)
+        {
+            if (node.InstallFolder is not { Length: > 0 } folder || node.BuildWrittenUtc is not { } written)
+            {
+                return true;
+            }
+            if (!string.Equals(Normalized(folder), Normalized(serverDirectory), OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+            {
+                return true;
+            }
+            return newestHere is { } here && here > written.UtcDateTime;
+
+            static string Normalized(string path) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
         }
 
         private async Task<LocalNode> StartAsync(NodeTransport transport, string socketPath, CancellationToken cancellationToken)

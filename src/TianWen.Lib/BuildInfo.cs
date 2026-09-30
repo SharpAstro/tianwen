@@ -94,6 +94,34 @@ namespace TianWen.Lib
         public static string InstallFolder => AppContext.BaseDirectory;
 
         /// <summary>
+        /// When the newest code under <paramref name="folder"/> was written: its assemblies and native libraries, and
+        /// <paramref name="executable"/> (a published Unix binary has no extension). What a node and a client compare to tell
+        /// whether the node runs the build the client would start (<c>LocalNodeLauncher</c>): a rebuild of uncommitted
+        /// changes keeps the commit, so the version string, the same. Null when the folder cannot be read.
+        /// </summary>
+        public static DateTime? NewestCodeFileUtc(string folder, string executable)
+        {
+            try
+            {
+                var newest = File.Exists(executable) ? File.GetLastWriteTimeUtc(executable) : DateTime.MinValue;
+                foreach (var file in IO.FileEnumeration.EnumerateFileStamps(folder, CodeFileExtensions, recursive: true))
+                {
+                    if (file.LastWriteTimeUtc > newest)
+                    {
+                        newest = file.LastWriteTimeUtc;
+                    }
+                }
+                return newest == DateTime.MinValue ? null : newest;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return null;
+            }
+        }
+
+        private static readonly string[] CodeFileExtensions = [".dll", ".exe", ".so", ".dylib"];
+
+        /// <summary>
         /// One line, safe to print before any logging is configured. Shows local time because it is
         /// read by a human comparing it against when they last built, not by a machine.
         /// <para>

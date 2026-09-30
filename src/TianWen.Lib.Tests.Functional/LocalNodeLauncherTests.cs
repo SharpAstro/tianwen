@@ -210,6 +210,58 @@ public class LocalNodeLauncherTests
         node.Node.NodeId.ShouldNotBe("impostor");
     }
 
+    [Fact(Timeout = 120_000)]
+    public async Task AnIdleNodeOfAnotherBuildIsStoppedAndReplaced()
+    {
+        // The same wire, from another folder (the GUI's node, found by a CLI): a client of the same wire used to attach
+        // without a word and run the other build's code.
+        var ct = TestContext.Current.CancellationToken;
+        var (options, folder) = Isolated();
+        await using var stop = new StopsNodes(options.SocketPath);
+        await using var other = await ImpostorNode.StartAsync(options.SocketPath, NodeWire.Version, holdsHardware: false, ct,
+            installFolder: Path.Combine(folder, "another-install"), buildWrittenUtc: DateTimeOffset.UtcNow);
+
+        var node = await Launcher(options).FindOrStartAsync(ct);
+
+        other.ShutdownRequests.ShouldBe(1);
+        node.Outcome.ShouldBeOneOf(LocalNodeOutcome.Started, LocalNodeOutcome.StartedWithTheClient);
+        var started = node.Node.ShouldNotBeNull();
+        started.NodeId.ShouldNotBe("impostor");
+        Path.TrimEndingDirectorySeparator(started.InstallFolder.ShouldNotBeNull())
+            .ShouldBe(Path.TrimEndingDirectorySeparator(options.ServerDirectory), "the node started is this client's build");
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task ANodeOfAnotherBuildThatAClientIsUsingIsUsedAsItIs()
+    {
+        // Another window's node: stopping it would pull it out from under that window.
+        var ct = TestContext.Current.CancellationToken;
+        var (options, folder) = Isolated();
+        await using var other = await ImpostorNode.StartAsync(options.SocketPath, NodeWire.Version, holdsHardware: false, ct,
+            installFolder: Path.Combine(folder, "another-install"), buildWrittenUtc: DateTimeOffset.UtcNow, clientsAttached: 1);
+        await using var stop = new StopsNodes(options.SocketPath);
+
+        var node = await Launcher(options).FindOrStartAsync(ct);
+
+        node.Outcome.ShouldBe(LocalNodeOutcome.Found);
+        other.ShutdownRequests.ShouldBe(0);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task ANodeOfThisBuildIsUsedAsItIs()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (options, _) = Isolated();
+        await using var same = await ImpostorNode.StartAsync(options.SocketPath, NodeWire.Version, holdsHardware: false, ct,
+            installFolder: options.ServerDirectory, buildWrittenUtc: DateTimeOffset.UtcNow.AddDays(1));
+        await using var stop = new StopsNodes(options.SocketPath);
+
+        var node = await Launcher(options).FindOrStartAsync(ct);
+
+        node.Outcome.ShouldBe(LocalNodeOutcome.Found);
+        same.ShutdownRequests.ShouldBe(0);
+    }
+
     [Fact(Timeout = 60_000)]
     public async Task ABusyNodeOfAnotherWireIsLeftRunning()
     {
