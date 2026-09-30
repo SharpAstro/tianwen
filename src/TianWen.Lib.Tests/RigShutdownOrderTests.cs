@@ -29,10 +29,16 @@ public class RigShutdownOrderTests
 {
     private const string Camera = "fake://camera/1";
 
-    /// <summary>A node with a session going on for <paramref name="pollsUntilEnded"/> more reads of it, and one camera.</summary>
-    private sealed class ScriptedNode(int pollsUntilEnded) : HttpMessageHandler
+    /// <summary>
+    /// A node with a session going on for <paramref name="pollsUntilEnded"/> more reads of it, and one camera; with
+    /// <paramref name="previewRunning"/>, a preview exposure running on that camera until it is cancelled.
+    /// </summary>
+    private sealed class ScriptedNode(int pollsUntilEnded, bool previewRunning = false) : HttpMessageHandler
     {
         private int _runPolls = pollsUntilEnded;
+        private int _previewCancelled;
+
+        private static JobDto Preview(JobState state) => new JobDto { Id = "p1", Kind = JobDto.PreviewKind, DeviceUri = Camera, State = state };
 
         public ConcurrentQueue<string> Asked { get; } = new ConcurrentQueue<string>();
 
@@ -56,6 +62,21 @@ public class RigShutdownOrderTests
                 case "POST /api/v1/session/abort":
                     Asked.Enqueue("abort");
                     body = JsonSerializer.Serialize(ResponseEnvelope<string>.Ok("Abort requested"), HostingJsonContext.Default.ResponseEnvelopeString);
+                    break;
+                case "GET /api/v1/jobs":
+                    Asked.Enqueue("jobs");
+                    body = JsonSerializer.Serialize(ResponseEnvelope<JobDto[]>.Ok(
+                        previewRunning && Volatile.Read(ref _previewCancelled) == 0 ? [Preview(JobState.Running)] : []),
+                        HostingJsonContext.Default.ResponseEnvelopeJobDtoArray);
+                    break;
+                case "DELETE /api/v1/jobs/p1":
+                    Asked.Enqueue("cancel preview");
+                    Volatile.Write(ref _previewCancelled, 1);
+                    body = JsonSerializer.Serialize(ResponseEnvelope<JobDto>.Ok(Preview(JobState.Running)), HostingJsonContext.Default.ResponseEnvelopeJobDto);
+                    break;
+                case "GET /api/v1/jobs/p1":
+                    Asked.Enqueue("preview job");
+                    body = JsonSerializer.Serialize(ResponseEnvelope<JobDto>.Ok(Preview(JobState.Cancelled)), HostingJsonContext.Default.ResponseEnvelopeJobDto);
                     break;
                 case "GET /api/v1/devices/state":
                     Asked.Enqueue("devices");
@@ -94,8 +115,26 @@ public class RigShutdownOrderTests
         node.Asked.ToArray().ShouldBe(
         [
             "node: running", "abort", "node: running", "node: running", "node: ended",
-            "devices", "warm-and-disconnect", "job",
+            "jobs", "devices", "warm-and-disconnect", "job",
         ], "the run first, followed to its end; the devices after");
         progress.First().ShouldBe(RigShutdown.Ending(NodeRunKind.Session));
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task ARunningPreviewIsStoppedAndFollowedToItsEndBeforeAnyDeviceIsTouched()
+    {
+        // The node refuses to disconnect a device a job holds, so a preview that does not end held the quit for ever.
+        var node = new ScriptedNode(pollsUntilEnded: 0, previewRunning: true);
+        using var http = new HttpClient(node) { BaseAddress = new Uri("http://node.local/") };
+        var progress = new List<string>();
+
+        await new RigShutdown(new FakeTimeProviderWrapper(), NullLogger.Instance)
+            .StopAsync(new TianWenNodeClient(http), progress.Add, TestContext.Current.CancellationToken);
+
+        node.Asked.ToArray().ShouldBe(
+        [
+            "node: ended", "jobs", "cancel preview", "preview job", "devices", "warm-and-disconnect", "job",
+        ], "the preview asked to stop and followed to its end; the devices after");
+        progress.ShouldContain("Stopping the preview exposure", "the window says what it is waiting for");
     }
 }
