@@ -75,7 +75,10 @@ internal class DeviceHub(IServiceProvider serviceProvider, ILogger<DeviceHub> lo
                 return held;
             }
 
-            if (existing.Driver is { } down && existing.Device.DeviceUri == device.DeviceUri)
+            // While a run holds the device it keeps its instance, even across a URI that changed in a way that names the
+            // same device (session end mirrors focuserBacklashIn/Out into a focuser's query): replacing it would dispose
+            // the driver the run is still reconnecting.
+            if (existing.Driver is { } down && (existing.Device.DeviceUri == device.DeviceUri || _leases.ContainsKey(key)))
             {
                 await down.ConnectAsync(cancellationToken);
                 driver = down;

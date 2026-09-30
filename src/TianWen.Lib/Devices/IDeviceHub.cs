@@ -30,7 +30,8 @@ public interface IDeviceHub : IAsyncDisposable
     /// A driver the hub holds that went DOWN (a serial glitch mid-night, a run's <c>Finalise</c> disconnecting it) is
     /// RECONNECTED, the same instance, while the device's URI is unchanged: a run still holds that instance, and a new
     /// one would be a second driver on the device (#806). Only a changed URI (a mount re-plugged on another COM port,
-    /// which keeps its key) builds a new driver, releasing the old one.
+    /// which keeps its key) builds a new driver, releasing the old one, and never while a run leases the device: the run
+    /// keeps its instance.
     /// </para>
     /// <para>
     /// One connect, adoption or disconnect of a device runs at a time, so two at once leave one driver and hand both

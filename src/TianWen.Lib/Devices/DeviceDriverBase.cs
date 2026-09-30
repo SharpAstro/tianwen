@@ -120,7 +120,11 @@ internal abstract class DeviceDriverBase<TDevice, TDeviceInfo>(TDevice device, I
                 Volatile.Write(ref _connectionState, CONNECTION_FAILURE);
                 await ReleaseFailedConnectionAsync(connectionId);
 
-                throw new InvalidOperationException($"Failed to initialise device {_device.DeviceId} ({_device.DisplayName})", initFailure);
+                // The driver's own reason in the message, not only the inner exception: a job's Error and the GUI show
+                // ex.Message alone.
+                throw new InvalidOperationException(
+                    $"Failed to initialise device {_device.DeviceId} ({_device.DisplayName}): {initFailure?.Message ?? "the device refused its initialisation"}",
+                    initFailure);
             }
 
             DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(true));
