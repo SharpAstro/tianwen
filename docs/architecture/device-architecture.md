@@ -289,9 +289,9 @@ the device source writes, and these families write the port or the USB path into
 | Family | Path id | Survives a re-plug on another port? |
 |---|---|---|
 | ZWO, QHY, Player One, ToupTek | serial number, else custom id, else the model name | yes (no port involved), except on the model-name fallback |
-| Canon over USB | serial number, else the device path, else `VID:PID` | yes with a serial; **no** on the device-path fallback |
+| Canon, raw USB (LibUsbDotNet; needs a WinUSB driver on Windows) | the USB descriptor's serial number, else the device path, else `VID:PID` | yes with a serial; **no** on the device-path fallback |
 | Canon over WiFi | the PTP/IP responder GUID, else the IP address | yes with the GUID; **no** on the IP fallback |
-| Canon over Windows WPD | the Windows device path, which encodes the USB port (an EOS 6D's USB descriptor carries no serial) | **no**: one body was seen under three keys (#1097) |
+| Canon, Windows' stock driver (WPD; the same USB cable) | the WPD device path, which is the USB device instance: its last part is the USB serial when the body reports one, else an id Windows generates from the hub it is plugged into and the hub port, `<hub's ParentIdPrefix>&<port>` (an EOS 6D reports none) | **no** on the 6D: one body was seen under three keys (#1097) |
 | Alpaca | `uniqueId`; host, port and device number are query | yes |
 | Meade, OnStep **with a UUID** (the probe writes one into a spare site slot) | model plus UUID | yes, and the same across USB and WiFi |
 | Meade, OnStep **without a UUID** | model, site names **and the port** (`MeadeSerialProbe`, `OnStepSerialProbe`: "NOT transport-stable") | **no**: the key changes with the port |
@@ -302,7 +302,7 @@ So wherever the key carries the port or a USB path, a re-plug is a NEW device: a
 `ReconcileUri` does not match it (it compares by `SameDevice`, which compares the path the port is in), and the hub's
 "a changed URI under the same key is rebuilt" rule (#806) never applies to it.
 
-Canon over WPD is the one of these that did not have to be. The body's DeviceInfo serial (32 hex digits, stable) is
+Canon through WPD is the one of these that did not have to be (WPD is Windows' stock driver for a camera on a USB cable, not a second kind of link). The body's DeviceInfo serial (32 hex digits, stable) is
 readable over WPD with a bare PTP `GetDeviceInfo`, no `OpenSession`: measured on an EOS 6D at 7 ms to open the device and
 21 ms to read, and it changes nothing on the camera (#1097). It is not free of interference, though. While another
 program streamed live view, 2 of 11 such reads coincided with a live view frame answering `InternalError` (one frame, the
@@ -323,7 +323,7 @@ possible (#1097). The Skywatcher, SkyGuider Pro and UUID-less LX200/OnStep rows 
 - **The port-qualified ids above** (Skywatcher, SkyGuider Pro, UUID-less LX200/OnStep) cannot be improved by reading more
   from the hardware, which offers no identity; what is left is a profile migration or a rule for matching a moved mount,
   which is work of its own (#1090).
-- **Canon over WPD** is keyed by the USB path although its serial is readable (#1097), and the path it is keyed by is
+- **Canon through WPD** is keyed by the USB device path although its serial is readable (#1097), and the path it is keyed by is
   passed to WPD still percent-escaped, which WPD rejects, so a Canon found over WPD cannot connect (#1096).
 
 ## Alpaca camera image transfer
