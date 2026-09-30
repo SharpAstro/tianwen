@@ -40,6 +40,7 @@ public class DeviceDriverConnectionTests(ITestOutputHelper output)
         var thrown = await Should.ThrowAsync<InvalidOperationException>(driver.ConnectAsync(ct).AsTask());
 
         thrown.InnerException.ShouldBeOfType<TimeoutException>().Message.ShouldBe("no answer to :e1");
+        thrown.Message.ShouldContain("no answer to :e1", Case.Sensitive, "a job's Error and the GUI show the message alone");
         driver.Connected.ShouldBeFalse();
         driver.ClosedIds.ShouldBe([ScriptedDeviceDriver.OpenedId]);
     }

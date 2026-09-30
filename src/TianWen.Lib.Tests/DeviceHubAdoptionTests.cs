@@ -187,6 +187,31 @@ public class DeviceHubAdoptionTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// A URI can change without the device changing: session end mirrors <c>focuserBacklashIn</c>/<c>Out</c> into a
+    /// focuser's query. While a run leases the device, a down driver is reconnected in place whatever its query says,
+    /// since replacing it would dispose the instance the run is still reconnecting (#1089 review).
+    /// </summary>
+    [Fact]
+    public async Task ALeasedDeviceKeepsItsDriverAcrossAChangedQuery()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (_, hub) = Build();
+        var before = new FakeDevice(DeviceType.Focuser, 1, new NameValueCollection { ["focuserBacklashIn"] = "20" });
+        var after = new FakeDevice(DeviceType.Focuser, 1, new NameValueCollection { ["focuserBacklashIn"] = "35" });
+        var runs = await hub.ConnectAsync(before, ct);
+        hub.TryAcquireLease(before.DeviceUri, "the imaging session", out var lease).ShouldBeTrue();
+        using (lease)
+        {
+            await runs.DisconnectAsync(ct);
+
+            var reconnected = await hub.ConnectAsync(after, ct);
+
+            reconnected.ShouldBeSameAs(runs);
+            runs.Connected.ShouldBeTrue();
+        }
+    }
+
+    /// <summary>
     /// Every run now ends with such entries: <c>Finalise</c> parks the mount and disconnects it, and the
     /// guider, straight through drivers the hub holds, while the cameras it only warms stay connected. A
     /// listing that kept the down ones had the profile-switch gate name a parked mount as connected and the

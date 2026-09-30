@@ -369,10 +369,7 @@ native-serial subgraphs): `docs/architecture/device-architecture.md`, which also
   Gemini devices, indexed under "Native serial protocols" there), and a new native driver ships with its
   document in its first commit (OnStep went without one for five months). Each maps every driver member to the
   wire, including what it does when the device is connected and does not answer: a transient THROW (#810).
-- **A node holds ONE driver per device, and a driver's connect is all or nothing** (#806): the hub serialises
-  connect, adoption and disconnect per device and reconnects a down driver IN PLACE while its URI is unchanged;
-  a `DeviceDriverBase` connect whose init returns `false` or throws closes what it opened and throws, never
-  leaving `Connected` true.
+- **One driver per device; a driver's connect is all or nothing** (#806, rules in the doc above).
 - **A vendor's native binaries reach an app through the REFERENCE GRAPH, and nothing downstream can filter them
   out**: an SDK project marks its natives `CopyToOutputDirectory`, MSBuild propagates that to every transitive
   consumer, and trimming cannot undo it. The ZWO and QHYCCD drivers therefore live in
