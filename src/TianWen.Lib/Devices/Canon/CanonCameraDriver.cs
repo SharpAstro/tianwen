@@ -147,6 +147,7 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
     private readonly CanonDevice _device;
     private readonly IExternal _external;
     private readonly CanonCameraFactory _cameraFactory;
+    private readonly CanonBodyRegistry? _bodies;
     private CanonCamera? _camera;
     private bool _connected;
     private bool _bulbActive;
@@ -180,6 +181,7 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
         _device = device;
         _external = serviceProvider.GetRequiredService<IExternal>();
         _cameraFactory = cameraFactory;
+        _bodies = serviceProvider.GetService<CanonBodyRegistry>();
         Logger = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(CanonCameraDriver));
         TimeProvider = serviceProvider.GetRequiredService<ITimeProvider>();
     }
@@ -206,7 +208,7 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
         // Connect based on transport type
         if (_device.IsWpd && OperatingSystem.IsWindows())
         {
-            _camera = _cameraFactory.ConnectWpd(_device.DeviceId);
+            _camera = _cameraFactory.ConnectWpd(_device.WpdDeviceId);
         }
         else if (_device.IsWifi)
         {
@@ -217,7 +219,7 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
         else
         {
             // Find matching USB camera by device ID
-            var deviceId = _device.DeviceId;
+            var deviceId = _device.RawDeviceId;
             UsbDeviceInfo? match = null;
             foreach (var usb in CanonCamera.EnumerateUsbCameras())
             {
@@ -244,6 +246,13 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
 
         _camera.StartEventPolling();
         _camera.ObjectAdded += OnObjectAdded;
+
+        // Its session already reports the body's serial: tell discovery, which then keys this camera by it, and never opens
+        // a camera this driver is holding to ask (#1097).
+        if (_device.IsWpd)
+        {
+            _bodies?.Remember(_device.WpdDeviceId, _camera.SerialNumber ?? "");
+        }
 
         // Populate sensor info from model name
         var modelName = _device.DisplayName;

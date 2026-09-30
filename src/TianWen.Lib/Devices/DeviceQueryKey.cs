@@ -46,6 +46,12 @@ public enum DeviceQueryKey
     SlewStartLatencyMs,
     Alignment,
     HasCover,
+
+    /// <summary>
+    /// A Canon body's current WPD device id (the Windows device instance, which encodes the USB port), kept in the query
+    /// while the path names the body by its serial (#1097). Transport state: refreshed from discovery when the cable moves.
+    /// </summary>
+    WpdDeviceId,
 }
 
 public static class DeviceQueryKeyExtensions
@@ -65,6 +71,7 @@ public static class DeviceQueryKeyExtensions
             DeviceQueryKey.Baud => true,
             DeviceQueryKey.Host => true,
             DeviceQueryKey.DeviceNumber => true,
+            DeviceQueryKey.WpdDeviceId => true,
             _ => false
         };
 
@@ -78,6 +85,7 @@ public static class DeviceQueryKeyExtensions
             DeviceQueryKey.Gain => "gain",
             DeviceQueryKey.Offset => "offset",
             DeviceQueryKey.Host => "host",
+            DeviceQueryKey.WpdDeviceId => "wpd",
             DeviceQueryKey.DeviceNumber => "deviceNumber",
             DeviceQueryKey.Data => "data",
             DeviceQueryKey.PulseGuideSource => "pulseGuideSource",
