@@ -25,8 +25,12 @@
 # EVAL. The eleven fields' per-channel caches (-rfpc cells, from 2026-09-28-evalplanes-pc) plus up to 20 bright cells
 #   each (level read off half B, as the scorer bins it), as -rfpcb. Conditions orc (--plane-truth-anchor, primary) and
 #   est (each tile's own plane). Scored: convmap3_s0..3, convmapb_s0..3, convmap_s0..3 (E16a), convrf_s0..3, shipped.
+#   AMENDED (fourth, 2026-09-30, the owner's decision, D3 having failed at 4 and 2 fields): three fields added from the
+#   full store, arms\e16b-eval-bright.txt (bright held-out sessions with halves, a position and plates clear of every
+#   training plate), as n2n-e16b-evalb; and the eval caches and D3 run after training and before scoring, so the GPU
+#   trains while the eval is widened. Chosen before any E16b model existed.
 #
-# CHECKS, before any training; a failure stops the run.
+# CHECKS; D1 and D2 before any training, D3 before any scoring; a failure stops the run.
 #   D1 (amended) the control's keys equal n2n-bb-ctl-rfm's outside the Pleiades and Triangulum (whose P0 samples the
 #      recipe-3 store moved by 2 of 300 cells), and its clean (slot 0) tiles are E16a's within 2 fp16 steps.
 #   D2 (amended) tianwen dataset noise-check --anchor master-calibration --bright-gate relative: against the half pairs
@@ -207,49 +211,78 @@ try {
     }
     elseif (-not (Select-String -Path $d2 -Pattern '^\[noise-check\] PASS' -Quiet)) { throw "D2 failed earlier; see $d2" }
 
-    # 4. The eval caches with their bright cells, then D3.
-    $evalList = Join-Path $lists 'bright-eval.txt'
+    # 4. Train, interleaved so a stop leaves matched pairs.
+    :seeds foreach ($seed in 0..($SeedCount - 1)) {
+        $runs = @(@{ Cache = $ctl; Name = "bb_e16bctl_s$seed" })
+        if ($Arms -eq 'both') { $runs += @{ Cache = $arm; Name = "bb_e16barm_s$seed" } }
+        foreach ($t in $runs) {
+            if (Test-Path $stopFile) { "stop file present before $($t.Name)" | Tee-Object -FilePath $log -Append; break seeds }
+            if (Test-Path (Join-Path $t.Cache "$($t.Name).pt")) { "train $($t.Name): present, skipped" | Tee-Object -FilePath $log -Append; continue }
+            Set-Status "train $($t.Name)"
+            "train $($t.Name) $(Get-Date -Format o)" | Tee-Object -FilePath $log -Append
+            & python n2n_smoke.py --train --cache $t.Cache --synthetic --loss l2 --upsample --cond-map `
+                --band-loss 3 --band-scales "2,4 4,8" --base 32 --schedule plateau --steps 60000 `
+                --val-every 500 --patience 4 --max-decays 4 --min-improve 0.001 --gate-every 500 `
+                --seed $seed --out "$($t.Name).pt" *>> $log
+            if ($LASTEXITCODE -ne 0) { throw "train $($t.Name) failed" }
+        }
+    }
+    # 5. The eval caches with their bright cells, then D3 (before scoring, as amended).
+    # Each cache names its own bake and solved masters: the eleven fields' come from the eval bake, the three added
+    # fields' (arms\e16b-eval-bright.txt, the third amendment) from the full store, whose copies of the eleven are the
+    # eval bake's byte for byte. A cell's pixel coordinates are its own bake's, so each pairs with its own solves.
+    $evalSolved = Join-Path $LogDir "gaia\solved-$(Split-Path -Leaf $EvalBake)"
+    $addedVal = 'arms\e16b-eval-bright.txt'
     $caches = @(
-        @{ Name = 'n2n-bb-eval4'; Train = 'arms\bb-eval-train-2.txt'; Val = 'arms\bb-eval-4.txt'; Cells = 60
+        @{ Name = 'n2n-bb-eval4'; Train = 'arms\bb-eval-train-2.txt'; Val = 'arms\bb-eval-4.txt'; Cells = 60; Root = $EvalBake; Solved = $evalSolved
+           List = Join-Path $lists 'bright-eval.txt'; Cache = Join-Path $Scratch 'n2n-bb-eval4-rfpcb'; Before = Join-Path $Scratch 'n2n-bb-eval4-rfpc'
            Fields = @('Small-Magellanic-Cloud/2026-08-01', 'Lagoon-and-Trifid/2023-08-03', 'Small-Magellanic-Cloud/2023-07-29', 'Carina-Wide/2025-03-19') },
-        @{ Name = 'n2n-e2-eval4b'; Train = 'arms\eval-rf-train-1.txt'; Val = 'arms\eval4b-25full.txt'; Cells = 60
+        @{ Name = 'n2n-e2-eval4b'; Train = 'arms\eval-rf-train-1.txt'; Val = 'arms\eval4b-25full.txt'; Cells = 60; Root = $EvalBake; Solved = $evalSolved
+           List = Join-Path $lists 'bright-eval.txt'; Cache = Join-Path $Scratch 'n2n-e2-eval4b-rfpcb'; Before = Join-Path $Scratch 'n2n-e2-eval4b-rfpc'
            Fields = @('HIP-34710/2025-12-28', 'HIP-85088/2025-05-20', 'V1045-Ori/2026-01-18', 'eta-Car-Nebula/2026-02-20') },
-        @{ Name = 'n2n-eval4'; Train = 'arms\eval-rf-train-1.txt'; Val = 'arms\eval4-25full.txt'; Cells = 48
-           Fields = @('Rim-Nebula/2025-05-02', 'Horsehead-Nebula/2025-10-28', 'Skull-and-Crossbones-Nebula/2026-02-14') })
-    if (-not (Test-Path $evalList)) {
+        @{ Name = 'n2n-eval4'; Train = 'arms\eval-rf-train-1.txt'; Val = 'arms\eval4-25full.txt'; Cells = 48; Root = $EvalBake; Solved = $evalSolved
+           List = Join-Path $lists 'bright-eval.txt'; Cache = Join-Path $Scratch 'n2n-eval4-rfpcb'; Before = Join-Path $Scratch 'n2n-eval4-rfpc'
+           Fields = @('Rim-Nebula/2025-05-02', 'Horsehead-Nebula/2025-10-28', 'Skull-and-Crossbones-Nebula/2026-02-14') },
+        @{ Name = 'n2n-e16b-evalb'; Train = 'arms\eval-rf-train-1.txt'; Val = $addedVal; Cells = 60; Root = $Bake
+           Solved = Join-Path $LogDir "gaia\solved-$(Split-Path -Leaf $Bake)"
+           List = Join-Path $lists 'bright-eval-added.txt'; Cache = Join-Path $Scratch 'n2n-e16b-evalb'; Before = $null
+           Fields = @(Read-List $addedVal | ForEach-Object { ($_ -split '\|', 2)[0] }) })
+    foreach ($group in $caches | Group-Object { $_.List }) {
+        $list = $group.Name
+        if (Test-Path $list) { continue }
         if (Stop-Requested 'eval bright cells') { return }
-        Set-Status 'eval bright cells'
-        $evalIds = @($caches | ForEach-Object { Read-List $_.Val }) | Sort-Object -Unique
-        Invoke-Tianwen 'bright-cells (eval)' (@('dataset', 'bright-cells', '--bake', $EvalBake, '--per-session', '20', '--seed', '1',
-            '--frame', 'halfmaster_b', '--out', $evalList) + @(Session-Args $evalIds)) $log
+        Set-Status "eval bright cells ($(Split-Path -Leaf $list))"
+        $evalIds = @($group.Group | ForEach-Object { Read-List $_.Val }) | Sort-Object -Unique
+        Invoke-Tianwen 'bright-cells (eval)' (@('dataset', 'bright-cells', '--bake', $group.Group[0].Root, '--per-session', '20', '--seed', '1',
+            '--frame', 'halfmaster_b', '--out', $list) + @(Session-Args $evalIds)) $log
     }
     foreach ($c in $caches) {
-        $cache = Join-Path $Scratch "$($c.Name)-rfpcb"
-        if (Test-Path (Join-Path $cache 'meta.json')) { continue }
-        if (Stop-Requested "prepare $($c.Name)-rfpcb") { return }
-        Set-Status "prepare $($c.Name)-rfpcb"
-        & python n2n_smoke.py --prepare --root $EvalBake --cache $cache --train-from-list $c.Train `
-            --val-from-list $c.Val --cells-per-session 5 --val-cells-per-session $c.Cells --extra-cells $evalList *>> $log
-        if ($LASTEXITCODE -ne 0) { throw "prepare $($c.Name)-rfpcb failed (exit $LASTEXITCODE)" }
+        if (Test-Path (Join-Path $c.Cache 'meta.json')) { continue }
+        if (Stop-Requested "prepare $($c.Name)") { return }
+        Set-Status "prepare $(Split-Path -Leaf $c.Cache)"
+        & python n2n_smoke.py --prepare --root $c.Root --cache $c.Cache --train-from-list $c.Train `
+            --val-from-list $c.Val --cells-per-session 5 --val-cells-per-session $c.Cells --extra-cells $c.List *>> $log
+        if ($LASTEXITCODE -ne 0) { throw "prepare $($c.Cache) failed (exit $LASTEXITCODE)" }
+        if ($null -eq $c.Before) { continue }
         # Every earlier cell is still there: the -rfpc cache's keys are the first of this one's val keys.
         $superset = & python -c "import sys, n2n_smoke as S; _, ma = S.open_cache(sys.argv[1]); _, mb = S.open_cache(sys.argv[2]); a, b = [tuple(k) for k in ma['keys']], [tuple(k) for k in mb['keys']]; print(set(a) <= set(b), len(a), len(b))" `
-            (Join-Path $Scratch "$($c.Name)-rfpc") $cache
-        "$($c.Name)-rfpcb holds every -rfpc cell (holds, before, after): $superset" | Tee-Object -FilePath $log -Append
-        if (-not "$superset".StartsWith('True')) { throw "$($c.Name)-rfpcb lost cells of -rfpc: $superset" }
+            $c.Before $c.Cache
+        "$(Split-Path -Leaf $c.Cache) holds every -rfpc cell (holds, before, after): $superset" | Tee-Object -FilePath $log -Append
+        if (-not "$superset".StartsWith('True')) { throw "$($c.Cache) lost cells of -rfpc: $superset" }
     }
 
     $env:TIANWEN_CLI = (Resolve-Path $Tianwen).Path
-    $env:TIANWEN_BAKES = $EvalBake
-    $env:TIANWEN_SOLVED_MASTERS = Join-Path $LogDir "gaia\solved-$(Split-Path -Leaf $EvalBake)"
     $shipped = "shipped=$(Join-Path $Scratch 'n2n-e2-wide\e2_wide_s2.pt')"
     $d3Readable = @{ 2 = 0; 3 = 0 }
     foreach ($c in $caches) {
+        $env:TIANWEN_BAKES = $c.Root
+        $env:TIANWEN_SOLVED_MASTERS = $c.Solved
         foreach ($f in $c.Fields) {
             $out = Join-Path $LogDir "$Tag-d3-$($f -replace '[/\\ ]', '_').txt"
             if (-not (Test-Path $out)) {
                 if (Stop-Requested "D3 $f") { return }
                 Set-Status "D3 $f"
-                & python n2n_starsplit.py --cache (Join-Path $Scratch "$($c.Name)-rfpcb") --models $shipped --only $f --per-session *> "$out.partial"
+                & python n2n_starsplit.py --cache $c.Cache --models $shipped --only $f --per-session *> "$out.partial"
                 if ($LASTEXITCODE -ne 0) { throw "D3 scoring $f failed (exit $LASTEXITCODE)" }
                 Move-Item "$out.partial" $out -Force
             }
@@ -266,25 +299,9 @@ try {
     "D3 fields readable: 0.45-0.60 on $($d3Readable[2]) (needs 6), 0.60 and up on $($d3Readable[3]) (needs 4)" | Tee-Object -FilePath $log -Append
     if ($d3Readable[2] -lt 6 -or $d3Readable[3] -lt 4) { throw "D3 failed: 0.45-0.60 readable on $($d3Readable[2]), 0.60 up on $($d3Readable[3])" }
 
-    # 5. Train, interleaved so a stop leaves matched pairs.
-    :seeds foreach ($seed in 0..($SeedCount - 1)) {
-        $runs = @(@{ Cache = $ctl; Name = "bb_e16bctl_s$seed" })
-        if ($Arms -eq 'both') { $runs += @{ Cache = $arm; Name = "bb_e16barm_s$seed" } }
-        foreach ($t in $runs) {
-            if (Test-Path $stopFile) { "stop file present before $($t.Name)" | Tee-Object -FilePath $log -Append; break seeds }
-            if (Test-Path (Join-Path $t.Cache "$($t.Name).pt")) { "train $($t.Name): present, skipped" | Tee-Object -FilePath $log -Append; continue }
-            Set-Status "train $($t.Name)"
-            "train $($t.Name) $(Get-Date -Format o)" | Tee-Object -FilePath $log -Append
-            & python n2n_smoke.py --train --cache $t.Cache --synthetic --loss l2 --upsample --cond-map `
-                --band-loss 3 --band-scales "2,4 4,8" --base 32 --schedule plateau --steps 60000 `
-                --val-every 500 --patience 4 --max-decays 4 --min-improve 0.001 --gate-every 500 `
-                --seed $seed --out "$($t.Name).pt" *>> $log
-            if ($LASTEXITCODE -ne 0) { throw "train $($t.Name) failed" }
-        }
-    }
     if (Stop-Requested 'scoring') { return }
 
-    # 6. Score in both plane conditions on the -rfpcb caches.
+    # 6. Score in both plane conditions on the eval caches.
     $mapped = @()
     foreach ($seed in 0..($SeedCount - 1)) {
         foreach ($m in @(@{ Label = "convmap3_s$seed"; Cache = $ctl; Name = "bb_e16bctl_s$seed" }, @{ Label = "convmapb_s$seed"; Cache = $arm; Name = "bb_e16barm_s$seed" })) {
@@ -302,12 +319,14 @@ try {
         $models = if ($cond -eq 'orc') { $mapped + $others } else { $mapped }
         $extra = @(if ($cond -eq 'orc') { '--plane-truth-anchor' })
         foreach ($c in $caches) {
+            $env:TIANWEN_BAKES = $c.Root
+            $env:TIANWEN_SOLVED_MASTERS = $c.Solved
             foreach ($f in $c.Fields) {
                 $out = Join-Path $LogDir "$scorePrefix-$cond-$($c.Name)-$($f -replace '[/\\ ]', '_').txt"
                 if (Test-Path $out) { continue }
                 if (Stop-Requested "score $cond $f") { return }
                 Set-Status "score $cond $($c.Name) $f"
-                & python n2n_starsplit.py --cache (Join-Path $Scratch "$($c.Name)-rfpcb") --models @models --only $f --per-session @extra *> "$out.partial"
+                & python n2n_starsplit.py --cache $c.Cache --models @models --only $f --per-session @extra *> "$out.partial"
                 if ($LASTEXITCODE -ne 0) { $failed += "$cond $f (exit $LASTEXITCODE)" } else { Move-Item "$out.partial" $out -Force }
             }
         }

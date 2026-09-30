@@ -1,0 +1,8 @@
+# E16b's added eval fields (the third amendment's D3 widening, 2026-09-30, the owner's decision): the full store's
+# sessions outside training and the test split, with half-masters, a recorded position, bright cells by the one rule,
+# and plates 9 to 17 degrees clear of every training plate. Chosen before any E16b model existed. Orion ASI294MC
+# 2021-11-28 (10 bright cells) is left out: its master records no position, so neither the overlap nor a hinted solve
+# can be checked.
+SVBONY-SV605CC/Optolong-L-Ultimate-3nm/Lagoon-and-Trifid/2026-08-01|SVBONY SV605CC|SH 2-28|Optolong L-Ultimate 3nm
+ZWO-ASI533MC-Pro/Optolong-L-Ultimate-3nm/eta-Car-Nebula/2025-01-31|ZWO ASI533MC Pro|eta Car 4min -10deg OIII+Ha
+ZWO-ASI585MC-Pro/Unidentified-Broadband-BlueCut/Lagoon-Nebula/2025-05-25|ZWO ASI585MC Pro|Lagoon Nebula
