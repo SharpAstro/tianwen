@@ -1,0 +1,5 @@
+# E16b's crowded-field check (the plan, "E16b, a crowded-field check and the reading of a null", 2026-09-30): the Sgr
+# Star Cloud (held out of training and the test split, its plate 4.8 degrees clear of every training plate; M22, M28)
+# and the SMC field holding NGC 362 (an eval field). Every half-paired cell of each.
+ZWO-ASI533MC-Pro/UV-IR-Cut/Sagittarius-Star-Cloud/2022-07-29|ZWO ASI533MC Pro|Sgr Star Cloud
+QHYCCD-QHY294C/IDAS-LPS-D3/Small-Magellanic-Cloud/2026-08-01|QHY294PROC|Small Magellanic Cloud
