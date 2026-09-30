@@ -30,7 +30,7 @@ internal sealed class NodePreviews(IDeviceHub hub, NodeJobs jobs, IHostedSession
     ICelestialObjectDB catalog, IPlateSolverFactory solver, ITimeProvider timeProvider, ILogger<NodePreviews> logger)
 {
     /// <summary>The <see cref="JobDto.Kind"/> of a preview exposure.</summary>
-    internal const string ExposureJob = "preview";
+    internal const string ExposureJob = JobDto.PreviewKind;
 
     /// <summary>The <see cref="JobDto.Kind"/> of a plate solve of the frame an OTA shows.</summary>
     internal const string SolveJob = "solve";
@@ -67,7 +67,10 @@ internal sealed class NodePreviews(IDeviceHub hub, NodeJobs jobs, IHostedSession
         }
 
         var ota = data.OTAs[otaIndex];
-        var uri = ota.Camera;
+        if (ota.Camera is not { Scheme: not "none" } uri)
+        {
+            return ResponseEnvelope<JobDto>.Fail(NoCameraAssigned(otaIndex), 409);
+        }
         var ownership = DeviceOwnershipGate.Evaluate(hub, uri, DeviceAction.Actuate);
         if (!ownership.Allowed)
         {
@@ -198,6 +201,10 @@ internal sealed class NodePreviews(IDeviceHub hub, NodeJobs jobs, IHostedSession
         }
 
         var ota = data.OTAs[otaIndex];
+        if (ota.Camera is not { Scheme: not "none" })
+        {
+            return ResponseEnvelope<JobDto>.Fail(NoCameraAssigned(otaIndex), 409);
+        }
         foreach (var uri in new[] { mountUri, ota.Camera })
         {
             var ownership = DeviceOwnershipGate.Evaluate(hub, uri, DeviceAction.Actuate);
@@ -283,6 +290,9 @@ internal sealed class NodePreviews(IDeviceHub hub, NodeJobs jobs, IHostedSession
         };
         ImmutableInterlocked.AddOrUpdate(ref _solutions, otaIndex, kept, (_, _) => kept);
     }
+
+    /// <summary>An unassigned slot is the <c>none://</c> placeholder, which is called "None": never name it as a device.</summary>
+    private static string NoCameraAssigned(int otaIndex) => $"OTA {otaIndex + 1} has no camera assigned: pick one on the Equipment tab";
 
     private string NameOf(Uri uri) => hub.TryGetDeviceFromUri(uri, out var device) ? device.DisplayName : uri.ToString();
 

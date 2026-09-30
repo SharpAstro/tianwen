@@ -134,7 +134,7 @@ public static class SessionTimelineRenderer
 
         if (state.AstroDark == default)
         {
-            DrawText(renderer, "Twilight data loading…", fontPath,
+            DrawText(renderer, "No twilight yet: it needs the site (Equipment tab, Set Site)", fontPath,
                 rect.X, rect.Y, rect.Width, rect.Height,
                 fontSize * 0.85f, GuiTheme.Palette.DimText, TextAlign.Center, TextAlign.Center);
             return;

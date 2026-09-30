@@ -338,10 +338,21 @@ namespace TianWen.UI.Abstractions
                 var fraction = dur.TotalSeconds > 0
                     ? (float)Math.Min(elapsed.TotalSeconds / dur.TotalSeconds, 1.0)
                     : 0f;
-                rows.Add(Layout.Builder.Text($"Capturing {elapsed.TotalSeconds:F0}/{dur.TotalSeconds:F0}s",
-                    BaseFontSize * 0.85f, HeaderText).RowH(BaseRowHeight));
+                // The job is longer than the exposure (release, download over USB, decode, transfer), so past it say what
+                // it is doing instead of counting on beyond the exposure, and keep a sub-second exposure readable.
+                var label = elapsed < dur
+                    ? $"Exposing {elapsed.TotalSeconds:0.#}/{dur.TotalSeconds:0.###}s"
+                    : "Reading out the frame\u2026";
+                rows.Add(Layout.Builder.Text(label, BaseFontSize * 0.85f, HeaderText).RowH(BaseRowHeight));
 
                 rows.Add(Layout.Builder.Progress(fraction, ProgressBg, ProgressFill).RowH(BaseProgressBarH));
+
+                // A body that sends no picture leaves this bar up for as long as the node's job lasts: a way out that is not
+                // the window's quit.
+                rows.Add(Layout.Builder.Text("Stop", BaseFontSize * 0.85f, BrightText, TextAlign.Center, TextAlign.Center)
+                    .HStar().Bg(GuiTheme.DangerButtonBg).BgHover(GuiTheme.Hover(GuiTheme.DangerButtonBg))
+                    .Clickable(new HitResult.ButtonHit($"PreviewStop{otaIndex}"), _ => PostSignal(new StopPreviewSignal(otaIndex)))
+                    .RowH(BaseRowHeight));
                 return Layout.Builder.VStack([.. rows]).WStar();
             }
 

@@ -154,6 +154,14 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
     private TaskCompletionSource<uint>? _objectAddedTcs;
     private Task? _downloadTask;
 
+    // A picture the body never delivers throws nothing, so the wait for one needs an end of its own (DAL does the same).
+    // The deadline is checked where the imaging loop polls, so it is testable on a fake clock and needs no timer.
+    private static readonly TimeSpan LostExposureGrace = TimeSpan.FromSeconds(30);
+    private long _exposureDeadlineTicks;
+    private string? _exposureFault;
+    private int _exposureGeneration;
+    private int _whiteAdu;
+
     // Live View (IVideoCameraDriver) single-stream gate: 0/1. Streaming and single-shot StartExposureAsync
     // are mutually exclusive (the camera is in one mode), mirroring FakeCameraDriver's "stream OR expose" rule.
     private int _videoActive;
@@ -389,7 +397,9 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
     public int NumY { get; set; }
     public int CameraXSize => _cameraXSize;
     public int CameraYSize => _cameraYSize;
-    public int MaxADU => 16383; // 14-bit Canon sensor
+    // The white point of the latest frame (its body's saturation level times the lowest white-balance factor, see
+    // CanonWhitePoint), which is what the pixels are clipped at and so what they are a fraction of. 16383 until a frame says.
+    public int MaxADU => Volatile.Read(ref _whiteAdu) is > 0 and var white ? white : 16383;
     public double FullWellCapacity => 70000; // typical Canon full-frame
     public double ElectronsPerADU => 4.3; // typical Canon 6D
     public double ExposureResolution => 0.001; // 1ms
@@ -415,12 +425,20 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
             return;
         }
 
-        var result = await _camera.SetPropertyAsync(EdsPropertyId.ISOSpeed, IsoTable[value].Code, cancellationToken);
+        var result = await CanonBusyRetry.RunAsync(
+            () => _camera.SetPropertyAsync(EdsPropertyId.ISOSpeed, IsoTable[value].Code, cancellationToken), TimeProvider, cancellationToken);
         if (result is EdsError.OK)
         {
             _currentIsoIndex = value;
         }
+        else if (result is EdsError.DeviceBusy)
+        {
+            throw new InvalidOperationException(BusyMessage($"the {IsoTable[value].Label} setting"));
+        }
     }
+
+    private string BusyMessage(string refused)
+        => $"{Name} is busy and refused {refused}. If its LCD shows a blinking Err, the body itself has stopped: switch it off and on (or take its battery out).";
 
     // --- Offset (not supported) ---
     public IReadOnlyList<string> Offsets => [];
@@ -495,7 +513,55 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
     }
 
     public ValueTask<bool> GetImageReadyAsync(CancellationToken cancellationToken = default)
-        => ValueTask.FromResult((CameraState)Volatile.Read(ref _cameraState) == CameraState.Idle && _lastImageData is not null);
+    {
+        // The picture is not coming: say so to whoever is waiting for it, every time they ask, until the next exposure.
+        if (Volatile.Read(ref _exposureFault) is { } fault)
+        {
+            throw new InvalidOperationException(fault);
+        }
+
+        var state = (CameraState)Volatile.Read(ref _cameraState);
+        if (state == CameraState.Idle && _lastImageData is not null)
+        {
+            return ValueTask.FromResult(true);
+        }
+
+        if (state is CameraState.Exposing or CameraState.Download
+            && TimeProvider.GetUtcNow().UtcTicks > Volatile.Read(ref _exposureDeadlineTicks))
+        {
+            var seconds = (_lastExposureDuration ?? TimeSpan.Zero).TotalSeconds;
+            throw new InvalidOperationException(AbandonLostExposure(
+                $"{Name} sent no picture for a {seconds:0.###} s exposure. If its LCD shows a blinking Err, the body itself has stopped: switch it off and on (or take its battery out)."));
+        }
+
+        return ValueTask.FromResult(false);
+    }
+
+    /// <summary>How long after it began an exposure of <paramref name="duration"/> may take to deliver its picture.</summary>
+    internal static TimeSpan LostExposureDeadline(TimeSpan duration) => (duration * 1.1) + LostExposureGrace;
+
+    /// <summary>
+    /// Gives up the exposure in flight: the wait for its picture is ended, a picture that arrives late is discarded rather
+    /// than taken for the next exposure's, and the camera is free again. Returns <paramref name="message"/>.
+    /// </summary>
+    private string AbandonLostExposure(string message)
+    {
+        Interlocked.Increment(ref _exposureGeneration);
+        _objectAddedTcs?.TrySetCanceled();
+        Volatile.Write(ref _exposureFault, message);
+        Interlocked.Exchange(ref _cameraState, (int)CameraState.Idle);
+        Logger.LogWarning("{Message}", message);
+        return message;
+    }
+
+    /// <summary>Ends exposure <paramref name="generation"/> as failed, unless a newer one has begun.</summary>
+    private void FailExposure(int generation, string message)
+    {
+        if (Volatile.Read(ref _exposureGeneration) == generation)
+        {
+            Volatile.Write(ref _exposureFault, message);
+        }
+    }
 
     public ValueTask<CameraState> GetCameraStateAsync(CancellationToken cancellationToken = default)
         => ValueTask.FromResult((CameraState)Volatile.Read(ref _cameraState));
@@ -534,6 +600,8 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
         _lastExposureDuration = duration;
         _lastExposureFrameType = frameType;
         _lastImageData = null;
+        Volatile.Write(ref _exposureFault, null);
+        var generation = Interlocked.Increment(ref _exposureGeneration);
 
         // Prepare to receive ObjectAdded event
         _objectAddedTcs = new TaskCompletionSource<uint>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -543,8 +611,23 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
         {
             // Tv mode: set shutter speed then take picture
             var tvCode = FindClosestTv(duration);
-            await _camera.SetPropertyAsync(EdsPropertyId.Tv, tvCode, cancellationToken);
-            await _camera.TakePictureAsync(cancellationToken);
+            var tvResult = await CanonBusyRetry.RunAsync(
+                () => _camera.SetPropertyAsync(EdsPropertyId.Tv, tvCode, cancellationToken), TimeProvider, cancellationToken);
+            if (tvResult is EdsError.DeviceBusy)
+            {
+                Interlocked.Exchange(ref _cameraState, (int)CameraState.Idle);
+                throw new InvalidOperationException(BusyMessage("the shutter speed"));
+            }
+
+            Volatile.Write(ref _exposureDeadlineTicks, (startTime + LostExposureDeadline(duration)).UtcTicks);
+            var released = await _camera.TakePictureAsync(cancellationToken);
+            if (released is not EdsError.OK)
+            {
+                Interlocked.Exchange(ref _cameraState, (int)CameraState.Idle);
+                throw new InvalidOperationException(released is EdsError.DeviceBusy
+                    ? BusyMessage("the release")
+                    : $"{Name} refused the release ({released}).");
+            }
         }
         else
         {
@@ -554,10 +637,11 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
             await TimeProvider.SleepAsync(duration, cancellationToken);
             await _camera.BulbEndAsync(cancellationToken);
             _bulbActive = false;
+            Volatile.Write(ref _exposureDeadlineTicks, (TimeProvider.GetUtcNow() + LostExposureGrace).UtcTicks);
         }
 
         // Start background download once ObjectAdded fires
-        _downloadTask = Task.Run(() => WaitAndDownloadAsync(cancellationToken), cancellationToken);
+        _downloadTask = Task.Run(() => WaitAndDownloadAsync(generation, cancellationToken), cancellationToken);
 
         return startTime;
     }
@@ -572,11 +656,13 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
             await _camera.BulbEndAsync(cancellationToken);
             _bulbActive = false;
         }
+        // A picture that arrives after an abort is the aborted exposure's, not the next one's.
+        Interlocked.Increment(ref _exposureGeneration);
         _objectAddedTcs?.TrySetCanceled(cancellationToken);
         Interlocked.Exchange(ref _cameraState, (int)CameraState.Idle);
     }
 
-    private async Task WaitAndDownloadAsync(CancellationToken ct)
+    private async Task WaitAndDownloadAsync(int generation, CancellationToken ct)
     {
         if (_objectAddedTcs is null || _camera is null)
         {
@@ -590,7 +676,15 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
         }
         catch (OperationCanceledException)
         {
-            Interlocked.Exchange(ref _cameraState, (int)CameraState.Idle);
+            if (Volatile.Read(ref _exposureGeneration) == generation)
+            {
+                Interlocked.Exchange(ref _cameraState, (int)CameraState.Idle);
+            }
+            return;
+        }
+
+        if (Volatile.Read(ref _exposureGeneration) != generation)
+        {
             return;
         }
 
@@ -609,8 +703,20 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
             // Into a recycled plane, the DAL pattern: the ref-counted buffer travels ON the channel into
             // GetImageAsync's Image, whose release hands the plane back for the next sub. A new plane per sub
             // was 120 MB on a 30 MP body. (FC.SDK.Raw's own decode buffers are its to recycle.)
-            if (Image.TryReadCanonRaw(tmpPath, _stillPlanes.Take, out var image))
+            // In ADU counts (the driver's Int16 depth and MaxADU say so), clipped at the body's white point.
+            if (Image.TryReadCanonRaw(tmpPath, _stillPlanes.Take, out var image, aduDomain: true))
             {
+                if (image.ImageMeta.SensorFullScaleAdu is { } white)
+                {
+                    Volatile.Write(ref _whiteAdu, (int)MathF.Round(white));
+                }
+
+                if (Volatile.Read(ref _exposureGeneration) != generation)
+                {
+                    // Abandoned while it downloaded: the next exposure owns the camera's state now.
+                    return;
+                }
+
                 _lastImageData = _stillPlanes.Wrap(image.GetChannelArray(0), image.MinValue, image.MaxValue, 0, Filter.None);
 
                 // Update sensor dimensions from actual image if not set from model table
@@ -625,16 +731,21 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
             else
             {
                 Logger.LogError("Failed to decode CR2 from Canon camera");
+                FailExposure(generation, $"{Name} sent a picture that could not be read (a CR2 that did not decode). Take it again; if it keeps failing, switch the camera off and on.");
             }
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Canon image download failed");
+            FailExposure(generation, $"The picture from {Name} could not be downloaded: {ex.Message}");
         }
         finally
         {
             try { if (File.Exists(tmpPath)) File.Delete(tmpPath); } catch { /* best effort */ }
-            Interlocked.Exchange(ref _cameraState, (int)CameraState.Idle);
+            if (Volatile.Read(ref _exposureGeneration) == generation)
+            {
+                Interlocked.Exchange(ref _cameraState, (int)CameraState.Idle);
+            }
         }
     }
 

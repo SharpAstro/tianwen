@@ -26,6 +26,9 @@ public enum JobState
 /// </remarks>
 public sealed record JobDto
 {
+    /// <summary>The <see cref="Kind"/> of a preview exposure: a job that holds its camera while it exposes.</summary>
+    public const string PreviewKind = "preview";
+
     public required string Id { get; init; }
 
     /// <summary>What the job does: <c>discover</c>, <c>connect</c>, <c>disconnect</c>, <c>warm-and-disconnect</c>.</summary>

@@ -87,6 +87,26 @@ public class QuitThroughTheNodeTests(ITestOutputHelper output)
     /// poll carries it below the heat sink.
     /// </summary>
     [Fact(Timeout = 60_000)]
+    public async Task WithAPreviewThatWillNotEndTheQuitStopsItFirstAndTheNodeThenDisconnects()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var h = await GuiNodeHarness.StartAsync(output, ct);
+        // A preview that runs for ten minutes stands for one the body never answers: it holds its camera, the node refuses to
+        // disconnect a device a job holds, and the window used to sit on "Quitting... please wait" behind it, saying nothing.
+        var started = await h.Local.Client.StartPreviewExposureAsync(0, new PreviewExposureRequestDto { ExposureSeconds = 600 }, ct);
+        started.IsSuccess.ShouldBeTrue(started.Error);
+        var job = started.Value.ShouldNotBeNull();
+        var quit = h.Quit();
+        var asked = await AskedAsync(h, quit);
+
+        quit.Answer(asked.Default);
+
+        await h.UntilAsync(() => quit.IsComplete, ct);
+        await h.UntilAsync(() => !AnyConnected(h), ct);
+        (await h.Local.Client.GetJobAsync(job.Id, ct)).Value.ShouldNotBeNull().State.ShouldBe(JobState.Cancelled);
+    }
+
+    [Fact(Timeout = 60_000)]
     public async Task WithACameraCoolingItOffersToWarmItUpAndTheNodeDoes()
     {
         var ct = TestContext.Current.CancellationToken;

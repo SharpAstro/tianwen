@@ -294,6 +294,36 @@ reset path is `ToupTekResetRecoveryProbe` (`TIANWEN_TOUPTEK_PROBE=1`): back in 1
 restored, the next frame taken binned. The binding's half (arming the SDK's no-packet and no-frame
 timeouts so a stalled transfer fails the exposure at once) is in ToupTek.SDK 1.1.
 
+## A lost exposure on a Canon body
+
+The same rung for a body whose frame arrives as an event (`CanonCameraDriver`, over WPD or USB), found on an EOS 6D on
+2026-09-30. A release that produced no picture threw nothing, and the waits on it had no end.
+
+1. **Deadline.** `duration * 1.1 + 30 s` (`LostExposureGrace`), checked where the imaging loop polls
+   (`GetImageReadyAsync`, no timer, so a fake clock sees it). Past it the exposure is abandoned: the wait for the body's
+   object-added event is cancelled, a picture that arrives later is discarded (`_exposureGeneration`, so it can never be
+   taken for the next exposure's), and `GetImageReadyAsync` throws a message that names the body and says to look at its LCD
+   for a blinking Err.
+2. **Every failure reaches the waiting job.** A download that throws and a CR2 that does not decode were logged and then
+   waited on for ever; the release's own answer (`TakePictureAsync` returns an `EdsError`) was ignored, and is checked now.
+3. **`DeviceBusy` is answered.** A body still busy with its last write refuses the next with `DeviceBusy` and does not make it.
+   The shutter speed and ISO writes are retried (`CanonBusyRetry`: six tries, 500 ms apart) and refused loudly when the body
+   stays busy. Before, the exposure ran at the previous setting with nothing said (seven times in one session).
+4. **A preview's wait is bounded and abortable, for every driver.** `PreviewCapture.CaptureAsync` gives up at
+   `exposure + ReadyGrace` (2 min), and when cancelled (the node's Stop, a quit) it aborts the exposure: a wait that only
+   stops watching left the camera `Exposing`, and its next exposure was refused for that.
+5. **The quit ends a running preview first** (`PictureJobs.StopPreviewsAsync`, used by `RigShutdown` and the preview's Stop
+   button), because the node refuses to disconnect a device a job holds. The window used to sit on "Quitting... please
+   wait" behind it, saying nothing.
+
+**What was observed, and what was not established.** The body went silent on the fifth capture of a rapid sequence (the user
+had changed the ISO to 8000 before): `Taking picture`, then no object-added event. After the job was cancelled by hand the
+next writes were answered `DeviceBusy`, a file arrived that did not decode, and later operations failed with WPD's
+`0x802A0002` ("Shutdown was already called on this object"), the body having dropped off the bus; a reconnect opens a fresh
+session. After a power-cycle the body (its LCD blinking Err) still produced no pictures, and FC.SDK logged about sixteen
+`TransferComplete for orphaned handle` failures as the first session closed. **The cause of the first lost exposure is not
+established**; what is pinned is what the driver does about one (`CanonPreviewRobustnessTests`, `QuitThroughTheNodeTests`).
+
 ## Files
 
 ### New

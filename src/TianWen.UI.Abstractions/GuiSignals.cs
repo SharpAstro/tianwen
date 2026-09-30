@@ -363,6 +363,12 @@ public readonly record struct TakePreviewSignal(
     short Binning = 1);
 
 /// <summary>
+/// Stop the preview exposure that is running: the node's job is cancelled, which frees the camera. The preview's own wait
+/// then sees its job end and clears the progress bar.
+/// </summary>
+public readonly record struct StopPreviewSignal(int OtaIndex = 0);
+
+/// <summary>
 /// Write the current preview frame to disk under a "Snapshot" target.
 /// Only valid when a preview image exists and no session is running.
 /// </summary>

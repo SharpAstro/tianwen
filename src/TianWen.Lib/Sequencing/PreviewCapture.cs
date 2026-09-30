@@ -47,6 +47,9 @@ public static class PreviewCapture
     /// Captures a single preview frame: applies optional gain / binning, starts the exposure, polls until ready, and
     /// returns the image. Caller owns the returned image's lifetime (must call <see cref="Image.Release"/> when done).
     /// </summary>
+    /// <summary>How long past the exposure itself a preview waits for its frame (readout, download, decode).</summary>
+    internal static readonly TimeSpan ReadyGrace = TimeSpan.FromMinutes(2);
+
     public static async Task<Image?> CaptureAsync(
         ICameraDriver camera,
         TimeSpan exposure,
@@ -57,9 +60,11 @@ public static class PreviewCapture
     {
         // Apply gain if user explicitly set one (null = keep camera default).
         // Both numeric (ZWO/ASCOM) and mode (DSLR ISO) cameras expose SetGainAsync.
+        // A refusal is not swallowed: a body that answers busy would otherwise expose at the ISO it had, and the
+        // frame on screen would claim the one the user chose.
         if (gain.HasValue && (camera.UsesGainValue || camera.UsesGainMode))
         {
-            try { await camera.SetGainAsync(gain.Value, ct); } catch { }
+            await camera.SetGainAsync(gain.Value, ct);
         }
         if (binning > 1)
         {
@@ -68,9 +73,28 @@ public static class PreviewCapture
 
         await camera.StartExposureAsync(exposure, FrameType.Light, ct);
 
-        while (!await camera.GetImageReadyAsync(ct))
+        // A frame the camera never delivers throws nothing, so this wait needs an end of its own: a driver that knows
+        // better (Canon, DAL) says so from GetImageReadyAsync, and this is what stops one that does not.
+        var started = timeProvider.GetUtcNow();
+        try
         {
-            await timeProvider.SleepAsync(TimeSpan.FromMilliseconds(200), ct);
+            while (!await camera.GetImageReadyAsync(ct))
+            {
+                if (timeProvider.GetUtcNow() - started > exposure + ReadyGrace)
+                {
+                    await camera.AbortExposureAsync(CancellationToken.None);
+                    throw new TimeoutException($"{camera.Name} delivered no frame within {(exposure + ReadyGrace).TotalSeconds:0} s of a {exposure.TotalSeconds:0.###} s exposure");
+                }
+
+                await timeProvider.SleepAsync(TimeSpan.FromMilliseconds(200), ct);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Whoever cancelled this (the node's Stop, the quit) meant the EXPOSURE too: a wait that only stops watching leaves
+            // the camera Exposing, and its next exposure is then refused for that. Not the cancelled token: it is what ended this.
+            await camera.AbortExposureAsync(CancellationToken.None);
+            throw;
         }
 
         return await camera.GetImageAsync(ct);

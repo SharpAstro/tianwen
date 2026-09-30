@@ -65,6 +65,10 @@ public sealed class RigShutdown(ITimeProvider timeProvider, ILogger logger)
     /// </summary>
     public async Task WarmUpAndDisconnectAsync(TianWenNodeClient client, Action<string>? progress, bool untilDone, CancellationToken cancellationToken)
     {
+        // A preview holds its camera, and the node refuses to disconnect a device a job holds: end it first, or the stop
+        // below is refused and the window waits on the preview's own wait for ever.
+        await PictureJobs.StopPreviewsAsync(client, timeProvider, progress, cancellationToken).ConfigureAwait(false);
+
         var states = await client.GetDeviceStatesAsync(cancellationToken).ConfigureAwait(false);
         if (states.Value is not { } devices)
         {
