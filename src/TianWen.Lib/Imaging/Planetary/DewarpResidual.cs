@@ -125,7 +125,7 @@ public static class DewarpResidual
                 {
                     var (gx, gy) = tracks.GlobalShift(f);
                     tracks.Points(f, pool, median, shifts);
-                    var mesh = DisplacementMesh.Build(width, height, MathF.Round((float)gx), MathF.Round((float)gy), shifts, options.MeshNodeSpacing, options.MeshInfluence);
+                    var mesh = DisplacementMesh.Build(width, height, (float)gx, (float)gy, shifts, options.MeshNodeSpacing, options.MeshInfluence);
                     for (var q = 0; q < m; q++)
                     {
                         var (ox, oy) = mesh.Sample(places[q].X, places[q].Y);

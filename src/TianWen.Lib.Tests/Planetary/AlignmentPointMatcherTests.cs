@@ -119,6 +119,48 @@ public class AlignmentPointMatcherTests
         warpedErr.ShouldBeLessThan(frameErr * 0.5); // the mesh more than halves the distortion residual
     }
 
+    // A disk whose belts run along x only, moved by (dx, dy) exactly: frame(x, y) = disk(x - dx, y - dy), its limb softened
+    // over about two pixels. A patch inside it holds nothing to place it by in x.
+    private static float[,] BeltedDisk(double dx, double dy)
+    {
+        var a = new float[N, N];
+        for (var y = 0; y < N; y++)
+        {
+            for (var x = 0; x < N; x++)
+            {
+                var (u, v) = (x - dx - 47.5, y - dy - 47.5);
+                var r = Math.Sqrt((u * u) + (v * v));
+                var inside = Math.Clamp((40 - r + 1) / 2, 0, 1);
+                a[y, x] = (float)(0.02 + (inside * 0.5 * (1 + (0.2 * Math.Sin(2 * Math.PI * (y - dy) / 7)))));
+            }
+        }
+        return a;
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AMeshKeepsTheGlobalShiftsFractionWhereAPatchCannotPlaceIt(bool whiten)
+    {
+        // Each patch used to be cut at the ROUNDED global shift, so a point's residual had to carry the shift's fraction as well
+        // as the warp; along the belts no patch can, the residual locked to the whole pixel, and so did the mesh: a mesh stack
+        // misregistered by up to half a pixel, and a 3x Bayer drizzle of the Uranus-C twin left red and blue columns empty
+        // (docs/plans/planetary-restoration.md, R5a). With no warp at all, the mesh is the global shift, its fraction kept.
+        var reference = Image.FromChannel(BeltedDisk(0, 0));
+        var frame = Image.FromChannel(BeltedDisk(0.4, 0.3));
+        var region = PlanetaryDisk.BoundingBox(reference);
+        var aps = FeatureDetector.DetectAlignmentPoints(reference, region, spacing: 16, maxPoints: 64, minGradientFraction: 0.1);
+        aps.Length.ShouldBeGreaterThan(4);
+        var matcher = AlignmentPointMatcher.FromReference(reference, aps, patchSize: 16, whiten);
+
+        var mesh = matcher.BuildMesh(frame, globalDx: 0.4f, globalDy: 0.3f, nodeSpacing: 16, influence: 24);
+
+        var (x, y) = mesh.Sample(47.5f, 47.5f);
+        TestContext.Current.TestOutputHelper?.WriteLine($"{(whiten ? "whitened" : "plain")}: the mesh at the centre reads {x:0.000}, {y:0.000} px against 0.400, 0.300");
+        x.ShouldBe(0.4f, 0.05f);
+        y.ShouldBe(0.3f, 0.05f);
+    }
+
     [Fact]
     public void BuildingAMeshAllocatesNoSpectrumPerAlignmentPoint()
     {
