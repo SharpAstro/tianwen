@@ -70,8 +70,8 @@ internal sealed class PlanetaryDerotateSubCommand(IConsoleHost consoleHost)
                 {
                     both[i] = derotated.Covered[i] && unrotated.Covered[i];
                 }
-                var (rms, pixels) = Compare(derotated.Image, second, both);
-                var (none, _) = Compare(unrotated.Image, second, both);
+                var (rms, pixels) = PlanetaryDerotation.DifferenceRms(derotated.Image, second.Master, second.Placement, both);
+                var (none, _) = PlanetaryDerotation.DifferenceRms(unrotated.Image, second.Master, second.Placement, both);
                 consoleHost.WriteScrollable(string.Create(inv,
                     $"    north at {from.NorthAngleDeg:0.0} deg (the limb fit's{(flip == 0 ? "" : ", turned over")}), over the {pixels} pixels inside 0.9 radii it covers: not de-rotated {none:0.00000} RMS, de-rotated {rms:0.00000}, {rms / none:0.000} of none"));
                 if (rms / none < bestRms / bestNone || best is null)
@@ -102,7 +102,7 @@ internal sealed class PlanetaryDerotateSubCommand(IConsoleHost consoleHost)
         using var reader = SerReader.Open(path);
         using var whole = new SerFrameStream(reader, ownsReader: false);
         using var stream = new PlanetaryFrameWindow(whole, 0, Math.Min(whole.FrameCount, frames ?? whole.FrameCount));
-        if (PlanetaryGeometrySubCommands.MidCapture(stream) is not { } when)
+        if (stream.MidCapture is not { } when)
         {
             consoleHost.WriteError($"{path}: no timestamps");
             return null;
@@ -119,35 +119,6 @@ internal sealed class PlanetaryDerotateSubCommand(IConsoleHost consoleHost)
         consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
             $"{name}: {result.FramesUsed} of {result.FramesGraded} frames at {when:HH:mm:ss.f} UTC, CM III {aspect.CentralMeridianIII:0.00}; disk at {fit.CenterX:0.00}, {fit.CenterY:0.00}, R {fit.EquatorialRadius:0.00} px, north {fit.NorthAngleDeg:0.0} deg, k {fit.LimbDarkening:0.000}"));
         return new Stack(name, result.Master, aspect, fit, new DiskPlacement(fit.CenterX, fit.CenterY, fit.EquatorialRadius, fit.NorthAngleDeg));
-    }
-
-    // The difference RMS of two stacks inside 0.9 radii of the second's disk and over the pixels `over` names, each normalised on
-    // its own disk level, and how many pixels that was.
-    private static (double Rms, int Pixels) Compare(Image image, Stack against, bool[] over)
-    {
-        var (width, height) = (image.Width, image.Height);
-        var disk = new MetricDisk(against.Fit.CenterX, against.Fit.CenterY, against.Fit.EquatorialRadius);
-        using var a = Luma(image);
-        using var b = Luma(against.Master);
-        var pa = PlanetaryMetrics.Normalise(a.GetChannelSpan(0), width, height, disk);
-        var pb = PlanetaryMetrics.Normalise(b.GetChannelSpan(0), width, height, disk);
-        double sum = 0;
-        var count = 0;
-        var reach = 0.9 * disk.Radius;
-        for (var y = 0; y < height; y++)
-        {
-            for (var x = 0; x < width; x++)
-            {
-                var (dx, dy) = (x - disk.X, y - disk.Y);
-                if ((dx * dx) + (dy * dy) < reach * reach && over[(y * width) + x])
-                {
-                    var d = pa[(y * width) + x] - pb[(y * width) + x];
-                    sum += d * d;
-                    count++;
-                }
-            }
-        }
-        return (Math.Sqrt(sum / count), count);
     }
 
     // The mean of a stack's channels as a mono image of its own, which the limb fit and the comparison read.

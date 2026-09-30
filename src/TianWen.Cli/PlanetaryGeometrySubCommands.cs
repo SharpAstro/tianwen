@@ -123,7 +123,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             {
                 ct.ThrowIfCancellationRequested();
                 using var stream = SerFrameStream.Open(input);
-                var utc = MidCapture(stream) ?? ParseUtc(parseResult.GetValue(utcOpt));
+                var utc = stream.MidCapture ?? ParseUtc(parseResult.GetValue(utcOpt));
                 if (utc is not { } when)
                 {
                     consoleHost.WriteError($"{input}: no timestamps (pass --utc)");
@@ -226,7 +226,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                 }
                 using var planeStream = plane is { } channel && window.Layout == PlanetaryFrameLayout.SplitCfa ? new CfaPlaneStream(window, channel) : null;
                 IPlanetaryFrameStream stream = planeStream is null ? window : planeStream;
-                if ((MidCapture(stream) ?? ParseUtc(parseResult.GetValue(utcOpt))) is not { } when)
+                if ((stream.MidCapture ?? ParseUtc(parseResult.GetValue(utcOpt))) is not { } when)
                 {
                     consoleHost.WriteError($"{input}: no timestamps (pass --utc)");
                     failed++;
@@ -292,12 +292,14 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         var bayerWavelengthsOpt = new Option<string>("--bayer-wavelengths") { Description = "The camera's red, green and blue effective wavelengths, nm.", DefaultValueFactory = _ => "610,535,460" };
         var truthUpsampleOpt = new Option<string?>("--truth-upsample") { Description = "A colour twin's truths rendered at these scales too, a comma list (1.5 for a Bayer drizzle at 1.5x; R5a), each .truth.<colour>.x<scale>.fits." };
         var bayerKOpt = new Option<string?>("--bayer-k") { Description = "Minnaert's exponent for each colour's map, red, green and blue (OPAL's: 0.999, 0.950, 0.850); --k for all three by default." };
+        var spanOpt = new Option<double?>("--span-minutes") { Description = "Spread the synthetic capture's frames evenly in time over this many minutes, in their order, so the planet turns as it would over a run (R6 part 2: a de-rotation's twin). Each frame keeps the real capture's seeing; the air between two frames is no longer the next instant's." };
+        var truthAtOpt = new Option<string>("--truth-at") { Description = "The instant the truth is rendered at: reference (the statistics' reference frame's) or middle (the capture's middle, where a de-rotated stack shows the planet).", DefaultValueFactory = _ => "reference" };
 
         var command = new Command("planetary-degrade",
             "A synthetic capture from a global map with a real capture's own seeing, motion and camera (R2): measure the real one, make the synthetic one, measure it the same way, and compare.")
         {
             Arguments = { inputArg },
-            Options = { mapOpt, outputOpt, planetOpt, kOpt, telescopeOpt, wavelengthOpt, r0Opt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, localR0Opt, localOuterScaleOpt, localWindOpt, scatterOpt, scatterCoreOpt, realStatisticsOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, replayOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, plainOpt, framesOpt, bayerMapsOpt, bayerWavelengthsOpt, bayerKOpt, truthUpsampleOpt },
+            Options = { mapOpt, outputOpt, planetOpt, kOpt, telescopeOpt, wavelengthOpt, r0Opt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, localR0Opt, localOuterScaleOpt, localWindOpt, scatterOpt, scatterCoreOpt, realStatisticsOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, replayOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, plainOpt, framesOpt, bayerMapsOpt, bayerWavelengthsOpt, bayerKOpt, truthUpsampleOpt, spanOpt, truthAtOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -317,12 +319,32 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             using var whole = new SerFrameStream(reader, ownsReader: false);
             var frames = Math.Min(parseResult.GetValue(framesOpt) ?? whole.FrameCount, whole.FrameCount);
             using var real = new PlanetaryFrameWindow(whole, 0, frames);
-            if (MidCapture(real) is not { } mid || reader.Timestamps is not { IsDefaultOrEmpty: false } allTimes)
+            if (real.MidCapture is not { } mid || reader.Timestamps is not { IsDefaultOrEmpty: false } allTimes)
             {
                 consoleHost.WriteError($"{input}: no timestamps");
                 return 1;
             }
             var times = allTimes[..frames];
+            if (parseResult.GetValue(spanOpt) is { } spanMinutes)
+            {
+                // The frames spread over the span, in their order and at their own spacing scaled: the seeing each frame was made
+                // with is the capture's, the planet's turn the span's.
+                var (first, taken) = (times[0], (times[^1] - times[0]).TotalSeconds);
+                if (spanMinutes <= 0 || taken <= 0)
+                {
+                    consoleHost.WriteError("--span-minutes needs a positive span and a capture of more than one instant");
+                    return 1;
+                }
+                var stretch = spanMinutes * 60 / taken;
+                times = [.. times.Select(t => first + ((t - first) * stretch))];
+            }
+            var truthAtMiddle = (parseResult.GetValue(truthAtOpt) ?? "reference").ToLowerInvariant() switch
+            {
+                "middle" => true,
+                "reference" => false,
+                var other => throw new ArgumentException($"--truth-at {other}: reference or middle"),
+            };
+            var middle = times[0] + ((times[^1] - times[0]) / 2);
             var aspect = PhysicalEphemeris.Compute(planet, mid);
             var measure = new CaptureStatisticsOptions(PlanetaryLimbFit.OptionsFor(aspect))
             {
@@ -454,9 +476,9 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                 File.Move(warpPartial, SyntheticWarpFile.PathFor(output), overwrite: true);
             }
 
-            // The truth the synthetic capture is scored against: the same map at the reference frame's time through the pupil
-            // alone, in ADU over the sky.
-            var referenceTime = times[truth.ReferenceIndex];
+            // The truth the synthetic capture is scored against: the same map at the reference frame's time (or the capture's
+            // middle, --truth-at middle) through the pupil alone, in ADU over the sky.
+            var referenceTime = truthAtMiddle ? middle : times[truth.ReferenceIndex];
             var referenceAspect = PhysicalEphemeris.Compute(planet, referenceTime);
             var truthImage = PlanetaryRender.RenderDiffracted(map, referenceAspect, reference, reader.Width, reader.Height, options.MinnaertK, pupil, options.WavelengthM, scale);
             WriteTruth(Path.ChangeExtension(output, ".truth.fits"), truthImage, reader.Width, reader.Height, reference, options, referenceTime, mapPath);
@@ -599,8 +621,9 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                     File.Move(colourWarpPartial, SyntheticWarpFile.PathFor(output), overwrite: true);
                 }
 
-                // A truth for each colour, each through the pupil alone at its own wavelength, where its own disk is.
-                var colourTime = times[greenTruth.ReferenceIndex];
+                // A truth for each colour, each through the pupil alone at its own wavelength, where its own disk is, at the
+                // reference frame's time or the capture's middle.
+                var colourTime = truthAtMiddle ? middle : times[greenTruth.ReferenceIndex];
                 var colourAspect = PhysicalEphemeris.Compute(planet, colourTime);
                 foreach (var (name, colour, path) in new[] { ("r", red, mapPaths[0]), ("g", green, mapPaths[1]), ("b", blue, mapPaths[2]) })
                 {
@@ -1021,11 +1044,6 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         "b" or "blue" => CfaPlaneStream.Blue,
         _ => null,
     };
-
-    internal static DateTimeOffset? MidCapture(IPlanetaryFrameStream stream)
-        => stream.HasTimestamps && stream.TimestampOf(0) is { } first && stream.TimestampOf(stream.FrameCount - 1) is { } last
-            ? first + ((last - first) / 2)
-            : null;
 
     internal static DateTimeOffset? ParseUtc(string? text)
         => DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var utc) ? utc : null;

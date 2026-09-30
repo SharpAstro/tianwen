@@ -74,7 +74,7 @@ internal sealed class PlanetaryGradeSubCommand(IConsoleHost consoleHost)
             {
                 return 1;
             }
-            if ((read?.Time ?? PlanetaryGeometrySubCommands.MidCapture(stream)) is not { } when)
+            if ((read?.Time ?? stream.MidCapture) is not { } when)
             {
                 consoleHost.WriteError($"{input}: no truth with a DATE-OBS and no timestamps in the capture");
                 return 1;

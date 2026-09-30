@@ -86,7 +86,7 @@ internal sealed class PlanetaryRegistrationSubCommand(IConsoleHost consoleHost)
             if (stride > 0 && referenceIndex is { } refIndex)
             {
                 var planet = parseResult.GetValue(planetOpt)?.ToLowerInvariant() == "saturn" ? CatalogIndex.Saturn : CatalogIndex.Jupiter;
-                if ((PlanetaryGeometrySubCommands.MidCapture(stream) ?? PlanetaryGeometrySubCommands.ParseUtc(parseResult.GetValue(utcOpt))) is not { } when)
+                if ((stream.MidCapture ?? PlanetaryGeometrySubCommands.ParseUtc(parseResult.GetValue(utcOpt))) is not { } when)
                 {
                     consoleHost.WriteError($"{input}: no timestamps for the limb fit's ephemeris (pass --utc, or --limb-stride 0)");
                     return 1;
