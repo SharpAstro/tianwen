@@ -129,6 +129,17 @@ internal sealed class PlanetaryBlurSubCommand(IConsoleHost consoleHost)
                     $"    the limb fit on the stack: core sigma {fit.PsfSigma:0.00} px, halo {fit.HaloFraction:P1} of sigma {fit.HaloWidth:0.00} px"));
                 consoleHost.WriteScrollable(string.Create(inv,
                     $"    widths, the Gaussian each kernel's band transfers fit: (a) {sigmaA:0.000} px, (b) {sigmaB:0.000} px, (a) over (b) {sigmaA / sigmaB:0.000}"));
+                // (b'), part 3: the limb fit's geometry kept, its kernel refitted with a core convolved with the scatter's wing.
+                if (PlanetaryLimbKernel.Fit(stackImage, fit, limbOptions) is not { } wide)
+                {
+                    consoleHost.WriteError($"{input}: the limb's widened kernel could not be fitted");
+                    return 1;
+                }
+                var probeWide = PlanetaryMetrics.Fidelity(PlanetaryLimbKernel.Blur(objectPlane, width, height, wide with { Brightness = 1, Sky = 0 }), objectPlane, width, height, disk)
+                    .Select(f => f.Transfer).ToImmutableArray();
+                var sigmaWide = PlanetaryBlurProbes.EquivalentGaussianSigma(probeWide, objectPlane, width, height, disk);
+                consoleHost.WriteScrollable(string.Create(inv,
+                    $"    (b') the limb's kernel with the scatter's wing: core sigma {wide.CoreSigma:0.000} px convolved with {wide.WingFraction:P1} in a wing of a {wide.WingScale:0.00} px; width {sigmaWide:0.000} px, (a) over it {sigmaA / sigmaWide:0.000}"));
 
                 ImmutableArray<double> truthTransfer = [], luckyTransfer = [];
                 if (truthPlane is not null)
@@ -144,14 +155,14 @@ internal sealed class PlanetaryBlurSubCommand(IConsoleHost consoleHost)
                     consoleHost.WriteScrollable(string.Create(inv, $"    the stack's true kernel's width {sigmaTrue:0.000} px"));
                 }
                 consoleHost.WriteScrollable(truthPlane is null
-                    ? "    band   (a) stack over lucky   (b) limb kernel"
-                    : "    band   (a) stack over lucky   (b) limb kernel   true   (b) over true   lucky's own   lucky's own x (a)   over true");
+                    ? "    band   (a) stack over lucky   (b) limb kernel   (b') widened"
+                    : "    band   (a) stack over lucky   (b) limb kernel   (b') widened   true   (b) over true   (b') over true   lucky's own   lucky's own x (a)   over true");
                 for (var b = 0; b < probeA.Length; b++)
                 {
                     consoleHost.WriteScrollable(truthPlane is null
-                        ? string.Create(inv, $"    {b + 1,4}   {probeA[b],20:0.0000}   {probeB[b],15:0.0000}")
+                        ? string.Create(inv, $"    {b + 1,4}   {probeA[b],20:0.0000}   {probeB[b],15:0.0000}   {probeWide[b],12:0.0000}")
                         : string.Create(inv,
-                            $"    {b + 1,4}   {probeA[b],20:0.0000}   {probeB[b],15:0.0000}   {truthTransfer[b],4:0.0000}   {probeB[b] / truthTransfer[b],12:0.000}   {luckyTransfer[b],11:0.0000}   {luckyTransfer[b] * probeA[b],17:0.0000}   {luckyTransfer[b] * probeA[b] / truthTransfer[b],9:0.000}"));
+                            $"    {b + 1,4}   {probeA[b],20:0.0000}   {probeB[b],15:0.0000}   {probeWide[b],12:0.0000}   {truthTransfer[b],4:0.0000}   {probeB[b] / truthTransfer[b],12:0.000}   {probeWide[b] / truthTransfer[b],13:0.000}   {luckyTransfer[b],11:0.0000}   {luckyTransfer[b] * probeA[b],17:0.0000}   {luckyTransfer[b] * probeA[b] / truthTransfer[b],9:0.000}"));
                 }
                 return 0;
             }
