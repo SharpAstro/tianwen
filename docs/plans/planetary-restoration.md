@@ -1,6 +1,6 @@
 # Planetary restoration by measurement
 
-**Status: PARTIAL: R0 to R5a done** (written 2026-09-28, the user's request; R0 2026-09-29: the survey, the FITS video conversion and the tracked lossless crop; R1 2026-09-29: the ephemeris, the limb fit, which telescope; R2 2026-09-29: rendered truth, T1 passed, and a synthetic capture that matches the real one on the disk, its kill line firing on the sky's finest bands; R3 2026-09-30: the metrics, the limb's undershoot validated, the halves' agreement not, pending R7's blur; R4 2026-09-30: per frame, the Laplacian ranks an 8-bit capture's frames near chance and the mid bands rank them well, on the twin and truth-free on the real capture, the choice waiting on open question 4 and the per-point half on #1071; R5 part 1 2026-09-30: phase correlation places 8-bit frames and points three times worse than a plain one, every stack better plain (#1074), and the real capture's warp visible only plain; part 2 2026-09-30: the dewarp cannot follow this capture's warp, 0.6 px over 10 px, the mesh the stack applies recovering 0 to 3 % of it, and the kill line fires; part 3 2026-09-30: the bilinear kernel is the stack's blur, sinc^2 in transfer, and Lanczos-3 lifts band 1 10 to 12 % (#1086), a correlation's peak is climbed rather than fitted by a parabola, a stacked reference rescues phase correlation, and the three-cornered hat compares registrations with no truth where the twin clears the triple, which AutoStakkert's track and our limb fit, both reading the outline, never do; the literature behind what comes next is `docs/architecture/planetary-literature.md`, its follow-ups #1081 to #1085; R5a 2026-09-30: a colour twin of 2024-12-15's Uranus-C capture, calibrated per colour, on which Bayer drizzle to the sensor grid beats the demosaic above a plane's Nyquist and nothing past the sensor grid pays, the adoption #1091 and a smaller drop #1092; on the way, a camera's corrupted readout frame kept out of every grade, and an alignment point's patch cut at the exact global shift; R6 part 1 2026-09-30: the spheroid's projection both ways and a de-rotation that carries the albedo, finished stacks carried to one epoch leaving 0.46 of the difference at 11 minutes, north decided by the stacks' agreement). Milestone `planetary-restoration`: R0 #1048, R1 #1049, R2 #1050, R3 #1051, R4 #1052, R5 #1053, R6 #815, R7 #1054, R8 #1055, R9 #1056 (conditional).
+**Status: PARTIAL: R0 to R5a done** (written 2026-09-28, the user's request; R0 2026-09-29: the survey, the FITS video conversion and the tracked lossless crop; R1 2026-09-29: the ephemeris, the limb fit, which telescope; R2 2026-09-29: rendered truth, T1 passed, and a synthetic capture that matches the real one on the disk, its kill line firing on the sky's finest bands; R3 2026-09-30: the metrics, the limb's undershoot validated, the halves' agreement not, pending R7's blur; R4 2026-09-30: per frame, the Laplacian ranks an 8-bit capture's frames near chance and the mid bands rank them well, on the twin and truth-free on the real capture, the choice waiting on open question 4 and the per-point half on #1071; R5 part 1 2026-09-30: phase correlation places 8-bit frames and points three times worse than a plain one, every stack better plain (#1074), and the real capture's warp visible only plain; part 2 2026-09-30: the dewarp cannot follow this capture's warp, 0.6 px over 10 px, the mesh the stack applies recovering 0 to 3 % of it, and the kill line fires; part 3 2026-09-30: the bilinear kernel is the stack's blur, sinc^2 in transfer, and Lanczos-3 lifts band 1 10 to 12 % (#1086), a correlation's peak is climbed rather than fitted by a parabola, a stacked reference rescues phase correlation, and the three-cornered hat compares registrations with no truth where the twin clears the triple, which AutoStakkert's track and our limb fit, both reading the outline, never do; the literature behind what comes next is `docs/architecture/planetary-literature.md`, its follow-ups #1081 to #1085; R5a 2026-09-30: a colour twin of 2024-12-15's Uranus-C capture, calibrated per colour, on which Bayer drizzle to the sensor grid beats the demosaic above a plane's Nyquist and nothing past the sensor grid pays, the adoption #1091 and a smaller drop #1092; on the way, a camera's corrupted readout frame kept out of every grade, and an alignment point's patch cut at the exact global shift; R6 part 1 2026-09-30: the spheroid's projection both ways and a de-rotation that carries the albedo, finished stacks carried to one epoch leaving 0.46 of the difference at 11 minutes, north decided by the stacks' agreement; part 2 2026-09-30: every frame carried to a run's middle inside the stacker on every path, a night's captures joined in time order, the disk fitted on a stack and north decided by the run's quarters, the 16-minute run's halves left at 0.45 of their difference, and two stacks of one camera moved onto each other with one north). Milestone `planetary-restoration`: R0 #1048, R1 #1049, R2 #1050, R3 #1051, R4 #1052, R5 #1053, R6 #815, R7 #1054, R8 #1055, R9 #1056 (conditional).
 
 The user asked for what the deep-sky training effort does, done for planetary lucky imaging:
 - which frames are usable;
@@ -734,25 +734,65 @@ R4's keeps minimise the error of a raw stack, and a raw stack's band 1 error is 
 
 ### R6 results, part 1: finished stacks carried to one epoch (6b)
 
-**Measured** (2026-09-30) on 2024-12-15's Uranus-C session: single-file stacks (the first 3,000 frames, keep 5 %, plain correlation, Lanczos-3), each at its file's middle, compared inside 0.9 radii of the later one's disk, each on its own disk level. Part 2 (each frame to the capture's epoch, 6a) and part 3 (belt latitudes against OPAL, and the drift against the zonal winds) are still #815's.
+**Measured** (2026-09-30) on 2024-12-15's Uranus-C session: single-file stacks (the first 3,000 frames, keep 5 %, plain correlation, Lanczos-3), each at its file's middle, compared inside 0.9 radii of the later one's disk, each on its own disk level. The pairs were measured again after part 2 found that two stacks of one camera moved onto each other with each its own fitted north are turned by the fits' difference as well; both now take the second's (0.4 degrees apart on the 11-minute pair, more on the short ones), and the table is the second measurement. Part 3 (belt latitudes against OPAL, and the drift against the zonal winds) is still #815's.
 
 - **The geometry both ways** (`PlanetaryProjection`): a pixel to the planetographic latitude, west longitude and lighting it sees, and a latitude and longitude back to a pixel. `PlanetaryRender` casts its rays through it, the same arithmetic, so every render is unchanged.
 - **A de-rotation carries the ALBEDO** (`PlanetaryDerotation`): each output pixel's latitude and longitude at the target instant, found where they lay at the source instant and sampled there by Lanczos-3, divided by Minnaert's lighting where it was and multiplied by the lighting where it goes, with the limb fit's k. On a map rendered ten minutes apart, 0.0706 RMS falls to 0.00044; carried as brightness, 46 % of it went.
 - **A pixel is de-rotated only from a source inside 0.9 radii** (`Derotation.Covered`). Nearer the limb a stack is its seeing-blurred edge, not Minnaert's law, and over 31 minutes the side the rotation turns into view read its sources out there: relit samples reached 195 times the stack's peak and the de-rotation doubled the difference (1.83 of none) before the limit.
-- **North is decided by the agreement, and the limb fit's was right on every pair** (`tianwen planetary-derotate`); turned over, the planet turns backwards and every pair gets worse (1.26 to 1.55 of none).
+- **North is decided by the agreement, and the limb fit's was right on every pair** (`tianwen planetary-derotate`); turned over, the planet turns backwards and every pair gets worse (1.23 to 1.59 of none).
 - **The pairs**, over the pixels the de-rotation covers:
 
   | Pair | Apart | Rotation | Not de-rotated | De-rotated | Of none |
   |---|---|---|---|---|---|
-  | 13:02:24 and 13:07:47 | 5.38 min | 3.25 deg | 0.01108 | 0.00805 | 0.727 |
-  | 12:56:44 and 13:02:24 | 5.67 min | 3.43 deg | 0.01236 | 0.00836 | 0.676 |
-  | 12:56:44 and 13:07:47 | 11.05 min | 6.68 deg | 0.01753 | 0.00812 | **0.463** |
-  | 12:36:43 and 13:07:47 | 31.06 min | 18.78 deg | 0.02853 | 0.01932 | 0.677 |
+  | 13:02:24 and 13:07:47 | 5.38 min | 3.25 deg | 0.01074 | 0.00675 | 0.628 |
+  | 12:56:44 and 13:02:24 | 5.67 min | 3.43 deg | 0.01068 | 0.00602 | 0.564 |
+  | 12:56:44 and 13:07:47 | 11.05 min | 6.68 deg | 0.01719 | 0.00784 | **0.456** |
+  | 12:36:43 and 13:07:47 | 31.06 min | 18.78 deg | 0.02855 | 0.01934 | 0.678 |
+
+  With each stack's own north the first measurement read 0.727, 0.676, 0.463 and 0.677: the short pairs gained most, their fits' difference being the larger share of their rotation.
 
 - **The pre-registered claims:**
   - **The difference without de-rotation grows with the gap**: it does, 0.011 to 0.029.
-  - **De-rotated, what is left is the same at every gap**: 0.0081 to 0.0084 for the three pairs that share their camera's settings. The 31-minute pair's 0.019 is not the rotation: its earlier capture was taken at an analogue gain of 215 against 263 (4.8 dB less, its stack peaking at 0.41 of full scale against 0.71) and 2.9 degrees warmer, so the two stacks differ in what the camera made of them.
-  - **The 11-minute pair meets the plan's half**: 0.463. **The 31-minute pair beats it clearly: it does not** (0.677), for the camera's reason above; a pair 31 minutes apart at one gain would say more, and this session has none.
+  - **De-rotated, what is left is the same at every gap**: 0.0060 to 0.0078 for the three pairs that share their camera's settings. The 31-minute pair's 0.019 is not the rotation: its earlier capture was taken at an analogue gain of 215 against 263 (4.8 dB less, its stack peaking at 0.41 of full scale against 0.71) and 2.9 degrees warmer, so the two stacks differ in what the camera made of them.
+  - **The 11-minute pair meets the plan's half**: 0.456. **The 31-minute pair beats it clearly: it does not** (0.678), for the camera's reason above; a pair 31 minutes apart at one gain would say more, and this session has none.
+
+### R6 results, part 2: every frame carried to the run's middle (6a)
+
+**Measured** (2026-09-30) on 2024-12-15's 16-minute run at one gain, 12:52:23 to 13:08:55: twelve captures joined in time order (`PlanetaryFrameSequence`), 311,558 frames. Every stack keeps 5 %, global, plain correlation, Lanczos-3. `PlanetaryStackOptions.Derotation` carries each frame to the run's middle, on the global, alignment-point and Bayer drizzle paths; `tianwen planetary-stack --derotate` stacks a run so, and `tianwen planetary-derotate-run` measures it.
+
+- **How a frame is carried** (`FrameDerotator`): the de-rotation to the epoch is a per-pixel field (`DerotationField`, part 1's rule and arithmetic) beneath the frame's registration in the displacement mesh the stack resamples it by, each sample relit as it lands; alignment points are cut where the rotation and the shift put them, and a drizzle's forward map takes one fixed-point step over the field, each raw sample relit before it is scattered. Every frame is registered against the reference turned to its own instant (every 10 s), so a whole-disk correlation never splits the difference between the belts and the limb.
+- **The disk comes from a stack of the best frames as taken, never one frame.** The limb does not turn with the planet, and one 8-bit frame's fit put north anywhere from 260.5 to 268.2 degrees on three of 12:56:44's best frames (a stack of 150: 263.8), which tilts every frame's rotation by the error. It is one cold limb fit a stack (#1106 has what it costs).
+- **North is decided by the capture**, as part 1 decided it by two stacks: the best frames of the run's first and last quarters, the earlier carried to the later's instant both ways round (`PlanetaryNorthDecision`). On a synthetic capture one frame's fit had it turned over.
+- **The first pass found two faults**, both fixed before the numbers below. Each half took its north from its own best frame (263.7 and 266.6 degrees), and the halves were moved onto each other with each its own: the 2.9 degrees between them turned the image, and alone put the de-rotated halves 0.018 apart, 1.56 of as taken. Two stacks of one camera now share one north, in this verb and in part 1's.
+- **The halves**, split at the run's middle (13:00:39.2) into 131,558 and 180,000 frames, 8.56 minutes apart as taken, over the 5,620 pixels inside 0.9 radii all three ways cover:
+
+  | Halves | Difference | Of as taken |
+  |---|---|---|
+  | As taken | 0.01176 | 1 |
+  | Finished stacks carried to one epoch (6b) | 0.00548 | 0.466 |
+  | The same, north turned over | 0.02043 | 1.738 |
+  | Every frame carried to the run's middle (6a) | 0.00533 | **0.453** |
+
+- **The whole run**, 15,578 frames, each wavelet band's power inside 0.8 radii with every frame de-rotated against as taken, the same frames and so the same noise: 1.095, 1.037, 1.005, 1.001 and 1.000 in bands 1 to 5. Band 1 is mostly noise at 8 bits, and a resample through a field that varies across the disk smooths the noise a little less than a pure shift, so its 9.5 % is not all detail; bands 2 and 3 are the planet's.
+- **The twin**: R5a's colour twin of 12:36:43 with its 3,000 frames spread over 16 minutes (`planetary-degrade --span-minutes 16 --truth-at middle`), and R5a's own at 6.7 s as the control; green's error by band against the truth, global, demosaiced:
+
+  | Twin | Stacked | Band 1 | Band 2 | Band 3 | Band 4 |
+  |---|---|---|---|---|---|
+  | 16 min, seed 1 | as taken | 0.884 | 0.631 | 0.366 | 0.173 |
+  | | de-rotated | 0.871 | 0.618 | 0.362 | 0.173 |
+  | 16 min, seed 2 | as taken | 0.861 | 0.587 | 0.337 | 0.165 |
+  | | de-rotated | 0.853 | 0.579 | 0.335 | 0.165 |
+  | 6.7 s, seed 1 | either | 0.875 | 0.622 | 0.365 | 0.177 |
+  | 6.7 s, seed 2 | either | 0.857 | 0.590 | 0.349 | 0.172 |
+
+  The alignment points and the drizzle move the same way, by the same amounts (bands 1 and 2 down 0.007 to 0.013 in all eight, band 3 down 0.002 to 0.005, bands 4 and 5 within 0.001). The twin does turn: its halves, 75 frames each, differ by 0.013 and 0.011 as taken, and north turned over puts them 1.68 and 1.84 of that apart. Against this seeing its turn costs little.
+- **The pre-registered claims:**
+  - **The twin as taken, band 3 above 0.5 and band 4 above 0.3: it is not** (0.34 to 0.37, and 0.17): the prediction was wrong, and the twin says why. Sixteen minutes smear the middle of the disk by about 4 sensor pixels, but the stacks sit 0.067 RMS from a diffraction-limited truth, most of it the seeing's blur, and the rotation changes a stack by 0.006.
+  - **The twin de-rotated, band 3 at most 0.39 and band 4 at most 0.20**: it is, and a little better than as taken in bands 1 to 3.
+  - **On `uc-g4` (6.7 s), de-rotated and as taken within 0.005 in every band**: within 0.001.
+  - **The run's halves, 6b and 6a each at most half of as taken**: 0.466 and 0.453. **6a within a tenth of 6b or better**: better, by 3 %.
+  - **The whole run de-rotated has more power in bands 1 to 3**: it does (1.095, 1.037, 1.005).
+  - **North, the quarters agreeing better with the limb fit's than turned over**: they do, in both halves and the whole run (0.0087 against 0.0181, 0.0047 against 0.0172, 0.0124 against 0.0279), all at 264.1 degrees.
 
 ## R7 The blur, measured twice, and its inverse
 

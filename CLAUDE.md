@@ -985,8 +985,12 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
 - **A planet is de-rotated through the spheroid, as ALBEDO, and only from sources inside 0.9 radii** (R6, `PlanetaryDerotation`,
   `PlanetaryProjection`, which the render shares): the limb darkening and the Sun's lighting belong to the viewing geometry, so each
   sample is relit by Minnaert's law (carried as brightness, 46 % of a rendered rotation went, as albedo 99.3 %), and nearer the limb a
-  stack is its blurred edge, which a relight blew to 195 times its peak. **North comes from the agreement of two stacks**
-  (`planetary-derotate`), never the limb fit alone near opposition: turned over, the planet turns backwards.
+  stack is its blurred edge, which a relight blew to 195 times its peak. **North comes from agreement, never the limb fit alone**: two
+  stacks' (`planetary-derotate`), or a run's first and last quarters inside the stacker; turned over, the planet turns backwards.
+  **Each frame is carried inside the stacker** (`PlanetaryStackOptions.Derotation`, part 2): its field beneath the registration in the
+  mesh, registered against the reference turned to its own instant, the disk fitted on a STACK of the best frames (one 8-bit frame's
+  north scattered 8 degrees). **Two stacks of one camera are moved onto each other with ONE north**: each its own turned the image by
+  the fits' difference, 2.9 degrees, which alone read as a de-rotation worse than none.
 - **Read the plan doc before touching the Canon path** -- it is a list of five things that fail
   SILENTLY. **Recentering is opt-in** (the user, 2026-09-28; it costs the loop about 15 ms a frame at full frame), and
   so is the mount jog, whose **sign is uncalibrated**.
