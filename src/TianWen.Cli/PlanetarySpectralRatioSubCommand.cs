@@ -40,13 +40,14 @@ internal sealed class PlanetarySpectralRatioSubCommand(IConsoleHost consoleHost)
         var readNoiseOpt = new Option<double>("--read-noise") { Description = "The camera's read noise, ADU.", Required = true };
         var minPowerOpt = new Option<double>("--min-power") { Description = "The least power over the noise's a ring is fitted at.", DefaultValueFactory = _ => 4 };
         var seedOpt = new Option<int>("--seed") { Description = "The theory's draws' seed.", DefaultValueFactory = _ => 1 };
+        var fitWarpOpt = new Option<bool>("--fit-warp") { Description = "Fit again with a displacement the registration left, its factor exp(-4 pi^2 s^2 f^2) on the theory, s fitted with r0." };
         var outputOpt = new Option<string?>("--output") { Description = "Write the rings as CSV here." };
 
         var command = new Command("planetary-spectral-ratio",
             "A capture's spectral ratio, abs(mean F)^2 over mean abs(F)^2 of its registered frames, and the free air's r0 whose theory, the synthetic capture's own seeing model, fits it (R7 part 1).")
         {
             Arguments = { inputArg },
-            Options = { planetOpt, planeOpt, framesOpt, telescopeOpt, wavelengthOpt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, localR0Opt, localOuterScaleOpt, localWindOpt, offsetOpt, gainOpt, readNoiseOpt, minPowerOpt, seedOpt, outputOpt },
+            Options = { planetOpt, planeOpt, framesOpt, telescopeOpt, wavelengthOpt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, localR0Opt, localOuterScaleOpt, localWindOpt, offsetOpt, gainOpt, readNoiseOpt, minPowerOpt, seedOpt, fitWarpOpt, outputOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -108,15 +109,24 @@ internal sealed class PlanetarySpectralRatioSubCommand(IConsoleHost consoleHost)
                 }
                 consoleHost.WriteScrollable(string.Create(inv,
                     $"    the free air alone: r0 {fit.R0M * 100:0.00} cm at 500 nm ({fit.R0M * 100 * Math.Pow(freeAir.WavelengthM / 500e-9, 1.2):0.00} at {freeAir.WavelengthM * 1e9:0} nm), log RMS {fit.LogRms:0.000} over {fit.Rings.Length} rings to {fit.Rings[^1].CyclesPerPixel:0.000} c/px"));
-                SpectralRatioFit? withStill = null;
+                var fitWarp = parseResult.GetValue(fitWarpOpt);
+                if (fitWarp && PlanetarySpectralRatio.Fit(measured.Rings, freeAir, scale, minPower, fitWarp: true) is { } warped)
+                {
+                    consoleHost.WriteScrollable(string.Create(inv,
+                        $"    the free air and a warp: r0 {warped.R0M * 100:0.00} cm at 500 nm, warp {warped.WarpRmsPx:0.000} px per axis, log RMS {warped.LogRms:0.000}"));
+                }
                 if (parseResult.GetValue(localR0Opt) is { } localR0)
                 {
                     var still = freeAir with { LocalR0M = localR0 / 100, LocalOuterScaleM = parseResult.GetValue(localOuterScaleOpt), LocalWindMps = parseResult.GetValue(localWindOpt) };
-                    withStill = PlanetarySpectralRatio.Fit(measured.Rings, still, scale, minPower);
-                    if (withStill is { } s)
+                    if (PlanetarySpectralRatio.Fit(measured.Rings, still, scale, minPower) is { } s)
                     {
                         consoleHost.WriteScrollable(string.Create(inv,
                             $"    with a still layer of {localR0:0.0} cm in the theory: r0 {s.R0M * 100:0.00} cm, log RMS {s.LogRms:0.000}"));
+                    }
+                    if (fitWarp && PlanetarySpectralRatio.Fit(measured.Rings, still, scale, minPower, fitWarp: true) is { } sw)
+                    {
+                        consoleHost.WriteScrollable(string.Create(inv,
+                            $"    the still layer and a warp: r0 {sw.R0M * 100:0.00} cm, warp {sw.WarpRmsPx:0.000} px per axis, log RMS {sw.LogRms:0.000}"));
                     }
                 }
                 consoleHost.WriteScrollable("    ring (c/px), measured, power over noise, the free air's fitted theory:");

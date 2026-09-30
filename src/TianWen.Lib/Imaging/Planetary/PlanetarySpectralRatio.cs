@@ -35,8 +35,10 @@ public sealed record SpectralRatioMeasurement(ImmutableArray<SpectralRatioRing> 
 /// <summary>A spectral ratio's Fried parameter (<see cref="PlanetarySpectralRatio.Fit"/>).</summary>
 /// <param name="R0M">The free air's r0 at 500 nm, metres, whose theory fits the rings best.</param>
 /// <param name="LogRms">The fit's RMS in the logarithm of the ratio over the rings it used.</param>
-/// <param name="Rings">The rings fitted: their frequency, the measured ratio and the fitted theory's.</param>
-public sealed record SpectralRatioFit(double R0M, double LogRms, ImmutableArray<(double CyclesPerPixel, double Measured, double Theory)> Rings);
+/// <param name="Rings">The rings fitted: their frequency, the measured ratio and the fitted theory's, its warp's factor in it.</param>
+/// <param name="WarpRmsPx">The displacement per axis, pixels, the registration left and the fit found: its factor exp(-4 pi^2 s^2 f^2)
+/// on the ratio. Zero where it was not fitted.</param>
+public sealed record SpectralRatioFit(double R0M, double LogRms, ImmutableArray<(double CyclesPerPixel, double Measured, double Theory)> Rings, double WarpRmsPx = 0);
 
 /// <summary>
 /// The spectral ratio (docs/plans/planetary-restoration.md, R7, part 1; von der Luehe 1984): over a capture's frames, each registered
@@ -60,7 +62,8 @@ public sealed class PlanetarySpectralRatio
     private readonly double[] _power;
     private readonly int[] _ringOf;
     private readonly int[] _ringSamples;
-    private double _noiseSum;
+    private readonly double[] _valueSum;
+    private readonly double[] _valueSquareSum;
 
     /// <param name="size">The square window's side, a power of two.</param>
     /// <param name="taper">The fraction of each side the window tapers over, which must lie on the sky.</param>
@@ -83,6 +86,8 @@ public sealed class PlanetarySpectralRatio
         _field = new Complex[size * size];
         _sum = new Complex[size * size];
         _power = new double[size * size];
+        _valueSum = new double[size * size];
+        _valueSquareSum = new double[size * size];
         _ringOf = new int[size * size];
         var rings = 0;
         for (var ky = 0; ky < size; ky++)
@@ -124,7 +129,7 @@ public sealed class PlanetarySpectralRatio
     /// y + <paramref name="dy"/>) lies where the reference's does: the fraction of the frame's shift its whole-pixel crop left, applied
     /// to its spectrum as a phase ramp. The sky, the mean of the tapered border, is taken off before the taper.
     /// </summary>
-    public void Add(ReadOnlySpan<float> window, double dx, double dy, in CameraNoise camera)
+    public void Add(ReadOnlySpan<float> window, double dx, double dy)
     {
         ArgumentOutOfRangeException.ThrowIfNotEqual(window.Length, _n * _n);
         double skySum = 0;
@@ -138,12 +143,12 @@ public sealed class PlanetarySpectralRatio
             }
         }
         var sky = skySum / Math.Max(1, skyCount);
-        double noise = 0;
         for (var i = 0; i < window.Length; i++)
         {
-            var w = _window[i];
-            _field[i] = new Complex((window[i] - sky) * w, 0);
-            noise += w * w * camera.VarianceAt(window[i]);
+            var v = window[i];
+            _field[i] = new Complex((v - sky) * _window[i], 0);
+            _valueSum[i] += v;
+            _valueSquareSum[i] += (double)v * v;
         }
         Fft2D.Forward(_field, _n, _n);
         for (var ky = 0; ky < _n; ky++)
@@ -160,12 +165,17 @@ public sealed class PlanetarySpectralRatio
                 _power[i] += (value.Real * value.Real) + (value.Imaginary * value.Imaginary);
             }
         }
-        _noiseSum += noise;
         Frames++;
     }
 
-    /// <summary>The ratio so far, ring by ring, lowest frequency first; empty under two frames.</summary>
-    public ImmutableArray<SpectralRatioRing> Rings()
+    /// <summary>
+    /// The ratio so far, ring by ring, lowest frequency first; empty under two frames. The noise taken off the mean power is each
+    /// pixel's: <paramref name="camera"/>'s at its mean level where that stands <paramref name="skyAboveOffsetAdu"/> or more over the
+    /// offset, and the pixel's own spread from frame to frame below it, on the sky, where an 8-bit camera's noise lies under the
+    /// rounding step and no model of it holds: 2022-09-03's sky rounds to one value nine times in ten, which spreads half as much
+    /// as the read noise and the rounding's twelfth added, and the sky is most of the window.
+    /// </summary>
+    public ImmutableArray<SpectralRatioRing> Rings(in CameraNoise camera, double skyAboveOffsetAdu = 3)
     {
         if (Frames < 2)
         {
@@ -187,7 +197,15 @@ public sealed class PlanetarySpectralRatio
             power[ring] += _power[i] / Frames;
         }
         // White noise of per-pixel variance v puts sum(w^2 v) in every sample of an unnormalised transform.
-        var noisePerSample = _noiseSum / Frames;
+        double noisePerSample = 0;
+        for (var i = 0; i < _window.Length; i++)
+        {
+            var mean = _valueSum[i] / Frames;
+            var variance = mean - camera.OffsetAdu >= skyAboveOffsetAdu
+                ? camera.VarianceAt(mean)
+                : Math.Max(0, (_valueSquareSum[i] / Frames) - (mean * mean)) * Frames / (Frames - 1);
+            noisePerSample += _window[i] * _window[i] * variance;
+        }
         var builder = ImmutableArray.CreateBuilder<SpectralRatioRing>(rings);
         for (var ring = 0; ring < rings; ring++)
         {
@@ -256,7 +274,7 @@ public sealed class PlanetarySpectralRatio
                         window[(y * size) + x] = (float)(row[x] * fullScaleAdu);
                     }
                 }
-                ratio.Add(window, shift.Dx - ix, shift.Dy - iy, camera);
+                ratio.Add(window, shift.Dx - ix, shift.Dy - iy);
             }
             finally
             {
@@ -267,7 +285,7 @@ public sealed class PlanetarySpectralRatio
                 progress?.Report($"{i + 1} of {stream.FrameCount} frames");
             }
         }
-        return new SpectralRatioMeasurement(ratio.Rings(), ratio.Frames, size, reference);
+        return new SpectralRatioMeasurement(ratio.Rings(camera), ratio.Frames, size, reference);
     }
 
     /// <summary>
@@ -354,8 +372,14 @@ public sealed class PlanetarySpectralRatio
     /// <paramref name="maxR0M"/>, every one from the same draws (<paramref name="seeing"/>'s seed) scaled, so the fit is smooth in r0;
     /// the best is placed between them by a parabola in log r0. Null when no ring can be read.
     /// </summary>
+    /// <remarks>
+    /// With <paramref name="fitWarp"/>, each theory is multiplied by exp(-4 pi^2 s^2 f^2) and s fitted with it: a displacement of s
+    /// per axis that the registration leaves in a frame (a local warp, or the registration's own error) moves its detail against the
+    /// mean's, and the mean spectrum loses that factor while the power keeps it. Seeing and warp both lower the ratio, so over a band
+    /// where the seeing's theory barely falls the two trade against each other.
+    /// </remarks>
     public static SpectralRatioFit? Fit(ImmutableArray<SpectralRatioRing> measured, DegradeOptions seeing, double arcsecPerPixel, double minPowerOverNoise = 4,
-        double minCyclesPerPixel = 0.02, double minR0M = 0.02, double maxR0M = 0.4, int grid = 61, int exposures = 400)
+        double minCyclesPerPixel = 0.02, double minR0M = 0.02, double maxR0M = 0.4, int grid = 61, int exposures = 400, bool fitWarp = false)
     {
         ArgumentNullException.ThrowIfNull(seeing);
         var used = ImmutableArray.CreateBuilder<SpectralRatioRing>();
@@ -382,7 +406,7 @@ public sealed class PlanetarySpectralRatio
         var residuals = new double[grid];
         for (var j = 0; j < grid; j++)
         {
-            residuals[j] = LogResidual(used, theories[j], out _);
+            residuals[j] = fitWarp ? BestWarp(used, theories[j]).Residual : LogResidual(used, theories[j], 0, out _);
         }
         var best = 0;
         for (var j = 1; j < grid; j++)
@@ -402,12 +426,40 @@ public sealed class PlanetarySpectralRatio
         }
         var r0 = Math.Exp(logR0);
         var fitted = Theory(seeing, arcsecPerPixel, Math.Pow(baseR0 / r0, 5.0 / 6), exposures);
-        var rms = Math.Sqrt(LogResidual(used, fitted, out var curve));
-        return new SpectralRatioFit(r0, rms, curve);
+        var warp = fitWarp ? BestWarp(used, fitted).Warp : 0;
+        var rms = Math.Sqrt(LogResidual(used, fitted, warp, out var curve));
+        return new SpectralRatioFit(r0, rms, curve, warp);
     }
 
-    // The mean square of log(measured / theory) over the rings, the theory read between its own rings; its curve for a report.
-    private static double LogResidual(ImmutableArray<SpectralRatioRing>.Builder used, ImmutableArray<(double CyclesPerPixel, double Ratio)> theory,
+    // The warp s, 0 to 2 pixels, that fits the rings best with this theory: a golden section on the mean square log residual.
+    private static (double Residual, double Warp) BestWarp(ImmutableArray<SpectralRatioRing>.Builder used, ImmutableArray<(double CyclesPerPixel, double Ratio)> theory)
+    {
+        var (a, b) = (0.0, 2.0);
+        var golden = (Math.Sqrt(5) - 1) / 2;
+        var (c, d) = (b - (golden * (b - a)), a + (golden * (b - a)));
+        var (fc, fd) = (LogResidual(used, theory, c, out _), LogResidual(used, theory, d, out _));
+        for (var iteration = 0; iteration < 40; iteration++)
+        {
+            if (fc < fd)
+            {
+                (b, d, fd) = (d, c, fc);
+                c = b - (golden * (b - a));
+                fc = LogResidual(used, theory, c, out _);
+            }
+            else
+            {
+                (a, c, fc) = (c, d, fd);
+                d = a + (golden * (b - a));
+                fd = LogResidual(used, theory, d, out _);
+            }
+        }
+        var warp = (a + b) / 2;
+        return (LogResidual(used, theory, warp, out _), warp);
+    }
+
+    // The mean square of log(measured / theory) over the rings, the theory read between its own rings and multiplied by the warp's
+    // factor; its curve for a report.
+    private static double LogResidual(ImmutableArray<SpectralRatioRing>.Builder used, ImmutableArray<(double CyclesPerPixel, double Ratio)> theory, double warpRmsPx,
         out ImmutableArray<(double, double, double)> curve)
     {
         var builder = ImmutableArray.CreateBuilder<(double, double, double)>(used.Count);
@@ -415,7 +467,7 @@ public sealed class PlanetarySpectralRatio
         var count = 0;
         foreach (var ring in used)
         {
-            var t = Interpolate(theory, ring.CyclesPerPixel);
+            var t = Interpolate(theory, ring.CyclesPerPixel) * Math.Exp(-4 * Math.PI * Math.PI * warpRmsPx * warpRmsPx * ring.CyclesPerPixel * ring.CyclesPerPixel);
             builder.Add((ring.CyclesPerPixel, ring.Ratio, t));
             if (t > 0 && double.IsFinite(t))
             {
