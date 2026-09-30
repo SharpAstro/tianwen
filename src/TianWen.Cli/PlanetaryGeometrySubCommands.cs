@@ -5,7 +5,6 @@ using System.CommandLine;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
@@ -291,13 +290,14 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         var framesOpt = new Option<int?>("--frames") { Description = "Only the capture's first frames, measured and made (a quicker trial)." };
         var bayerMapsOpt = new Option<string?>("--bayer-maps") { Description = "A colour capture's three maps, red, green and blue, a comma list (R5a; OPAL's F631N, F502N and F395N)." };
         var bayerWavelengthsOpt = new Option<string>("--bayer-wavelengths") { Description = "The camera's red, green and blue effective wavelengths, nm.", DefaultValueFactory = _ => "610,535,460" };
+        var truthUpsampleOpt = new Option<string?>("--truth-upsample") { Description = "A colour twin's truths rendered at these scales too, a comma list (1.5 for a Bayer drizzle at 1.5x; R5a), each .truth.<colour>.x<scale>.fits." };
         var bayerKOpt = new Option<string?>("--bayer-k") { Description = "Minnaert's exponent for each colour's map, red, green and blue (OPAL's: 0.999, 0.950, 0.850); --k for all three by default." };
 
         var command = new Command("planetary-degrade",
             "A synthetic capture from a global map with a real capture's own seeing, motion and camera (R2): measure the real one, make the synthetic one, measure it the same way, and compare.")
         {
             Arguments = { inputArg },
-            Options = { mapOpt, outputOpt, planetOpt, kOpt, telescopeOpt, wavelengthOpt, r0Opt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, localR0Opt, localOuterScaleOpt, localWindOpt, scatterOpt, scatterCoreOpt, realStatisticsOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, replayOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, plainOpt, framesOpt, bayerMapsOpt, bayerWavelengthsOpt, bayerKOpt },
+            Options = { mapOpt, outputOpt, planetOpt, kOpt, telescopeOpt, wavelengthOpt, r0Opt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, localR0Opt, localOuterScaleOpt, localWindOpt, scatterOpt, scatterCoreOpt, realStatisticsOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, replayOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, plainOpt, framesOpt, bayerMapsOpt, bayerWavelengthsOpt, bayerKOpt, truthUpsampleOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -532,8 +532,8 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                 var planes = await new LuckyImagingStacker().StackPlanesAsync(real, [.. Enumerable.Range(0, real.FrameCount)], greenStack.ReferenceIndex, whiten: false, ct);
                 (double X, double Y)? Offset(int channel)
                 {
-                    var ownFit = PlanetaryLimbFit.Fit(Image.FromChannel(ChannelPlane(planes, channel)), limbOptions);
-                    var greenFit = PlanetaryLimbFit.Fit(Image.FromChannel(ChannelPlane(planes, CfaPlaneStream.Green1)), limbOptions);
+                    var ownFit = PlanetaryLimbFit.Fit(planes.ChannelImage(channel), limbOptions);
+                    var greenFit = PlanetaryLimbFit.Fit(planes.ChannelImage(CfaPlaneStream.Green1), limbOptions);
                     return ownFit is { } of && greenFit is { } gf ? (of.CenterX - gf.CenterX, of.CenterY - gf.CenterY) : null;
                 }
                 var redOffset = Offset(CfaPlaneStream.Red);
@@ -603,6 +603,19 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                     var render = PlanetaryRender.RenderDiffracted(colour.Map, colourAspect, colour.Placement, reader.Width, reader.Height, colour.Options.MinnaertK, pupil,
                         colour.Options.WavelengthM, sensorScale);
                     WriteTruth(Path.ChangeExtension(output, $".truth.{name}.fits"), render, reader.Width, reader.Height, colour.Placement, colour.Options, colourTime, path);
+                    // At a drizzle's scale: rendered there, never the 1x truth resampled (the plan's rule for R5a).
+                    foreach (var upsample in CommaNumbers(parseResult.GetValue(truthUpsampleOpt)))
+                    {
+                        var (w, h) = ((int)Math.Round(reader.Width * upsample), (int)Math.Round(reader.Height * upsample));
+                        var at = colour.Placement with
+                        {
+                            CenterX = ((colour.Placement.CenterX + 0.5) * upsample) - 0.5,
+                            CenterY = ((colour.Placement.CenterY + 0.5) * upsample) - 0.5,
+                            EquatorialRadius = colour.Placement.EquatorialRadius * upsample,
+                        };
+                        var fine = PlanetaryRender.RenderDiffracted(colour.Map, colourAspect, at, w, h, colour.Options.MinnaertK, pupil, colour.Options.WavelengthM, sensorScale / upsample);
+                        WriteTruth(Path.ChangeExtension(output, string.Create(CultureInfo.InvariantCulture, $".truth.{name}.x{upsample:0.##}.fits")), fine, w, h, at, colour.Options, colourTime, path);
+                    }
                 }
                 WriteRecord(Path.ChangeExtension(output, ".frames.csv"), madeColours.Green);
 
@@ -648,14 +661,6 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
     private static string[] CommaList(string? text) => (text ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     private static double[] CommaNumbers(string? text) => [.. CommaList(text).Select(t => double.Parse(t, CultureInfo.InvariantCulture))];
-
-    // One channel of an image as a plane of its own.
-    private static float[,] ChannelPlane(Image image, int channel)
-    {
-        var plane = new float[image.Height, image.Width];
-        image.GetChannelSpan(channel).CopyTo(MemoryMarshal.CreateSpan(ref plane[0, 0], plane.Length));
-        return plane;
-    }
 
     // The truth, scaled as the frames are (ADU over the sky), with the geometry it was rendered at in its header.
     private static void WriteTruth(string path, float[] render, int width, int height, DiskPlacement placement, DegradeOptions options, DateTimeOffset utc, string mapPath)

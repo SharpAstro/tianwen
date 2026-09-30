@@ -28,7 +28,7 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
 {
     public Command Build()
     {
-        var captureArg = new Argument<string>("capture") { Description = "A mono SER capture of a planet." };
+        var captureArg = new Argument<string>("capture") { Description = "A SER capture of a planet, mono or colour (a colour one is scored a colour at a time against its truths beside it)." };
         var truthOpt = new Option<string?>("--truth") { Description = "The truth to score the stacks against (planetary-degrade writes it beside a synthetic capture); without it, only the truth-free metrics." };
         var planetOpt = new Option<string>("--planet") { Description = "jupiter or saturn.", DefaultValueFactory = _ => "jupiter" };
         var utcOpt = new Option<string?>("--utc") { Description = "The capture's time (ISO 8601, UTC), for a SER without timestamps and no truth." };
@@ -45,6 +45,8 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
         var geometryOpt = new Option<string>("--geometry") { Description = "The geometry the points put the stack on, a comma list of reference (the reference frame's) and median (each point's median over the frames); ap methods only.", DefaultValueFactory = _ => "reference" };
         var interpolationOpt = new Option<string>("--interpolation") { Description = "The kernel each frame is resampled by as it is stacked, a comma list of bilinear, lanczos3 and lanczos3-clamped.", DefaultValueFactory = _ => "bilinear" };
         var referenceOpt = new Option<string>("--reference-frames") { Description = "What frames are registered against, a comma list: 0 the best frame, N a stack of the best N.", DefaultValueFactory = _ => "0" };
+        var drizzleOpt = new Option<string>("--drizzle") { Description = "A colour capture's Bayer drizzle stacks, a comma list of scales (1 the sensor's grid, 1.5 past it); R5a. Each is scored against the truths at its scale, which planetary-degrade --truth-upsample writes.", DefaultValueFactory = _ => "" };
+        var pixfracOpt = new Option<float>("--pixfrac") { Description = "The drizzle's drop size, a fraction of a photosite.", DefaultValueFactory = _ => 1f };
         var noHalvesOpt = new Option<bool>("--no-halves") { Description = "Stack each candidate only, not its two halves: no halves' agreement, in a third of the time." };
         var cutoffOpt = new Option<double?>("--cutoff") { Description = "The telescope's cutoff in cycles a pixel, for the power past it (fabrication); none past Nyquist." };
 
@@ -52,7 +54,7 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
             "Stacks a capture as each candidate asks, and its two halves, and measures every stack (R3): fidelity per wavelet band and the limb against a truth, the halves' agreement per band, the limb's undershoot; with a truth, how the truth-free metrics rank the candidates against the truth-based ones.")
         {
             Arguments = { captureArg },
-            Options = { truthOpt, planetOpt, utcOpt, framesOpt, keepOpt, sharpenOpt, methodOpt, spacingOpt, patchOpt, correlationOpt, poolOpt, geometryOpt, meshOpt, influenceOpt, interpolationOpt, referenceOpt, noHalvesOpt, cutoffOpt },
+            Options = { truthOpt, planetOpt, utcOpt, framesOpt, keepOpt, sharpenOpt, methodOpt, spacingOpt, patchOpt, correlationOpt, poolOpt, geometryOpt, meshOpt, influenceOpt, interpolationOpt, referenceOpt, drizzleOpt, pixfracOpt, noHalvesOpt, cutoffOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -129,6 +131,10 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
             var halves = !parseResult.GetValue(noHalvesOpt);
             var cutoff = parseResult.GetValue(cutoffOpt);
             var stacker = new LuckyImagingStacker();
+            if (stream.Layout == PlanetaryFrameLayout.SplitCfa)
+            {
+                return await MeasureColourAsync();
+            }
             MetricDisk? reference = truthDisk;
             var rows = new List<Row>();
             // A global stack has no alignment points, so it is stacked once, whatever the spacings.
@@ -201,6 +207,105 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
                 WriteRanking(rows);
             }
             return 0;
+
+            // A colour capture (R5a): its truths beside it, one per colour at every scale a stack is made at (planetary-degrade
+            // writes them), and every stack scored a colour at a time against that colour's truth, a demosaiced stack's colours
+            // and a Bayer drizzle's alike, each on the grid it made. No halves: R3 found their agreement sees only the noise.
+            async Task<int> MeasureColourAsync()
+            {
+                var drizzles = ParseList(parseResult.GetValue(drizzleOpt), text => double.Parse(text, CultureInfo.InvariantCulture));
+                var pixfrac = parseResult.GetValue(pixfracOpt);
+                var (sensorWidth, sensorHeight) = (stream.Width * 2, stream.Height * 2);
+                var colourTruths = new Dictionary<(int Channel, double Scale), (float[] Plane, MetricDisk Disk, int Width, int Height)>();
+                foreach (var scale in drizzles.Prepend(1.0).Distinct())
+                {
+                    foreach (var (channel, colour) in Colours)
+                    {
+                        var path = Path.ChangeExtension(input, scale == 1 ? $".truth.{colour}.fits" : string.Create(CultureInfo.InvariantCulture, $".truth.{colour}.x{scale:0.##}.fits"));
+                        if (ReadTruth(path, consoleHost) is not { } read)
+                        {
+                            return 1;
+                        }
+                        var (w, h) = ((int)Math.Round(sensorWidth * scale), (int)Math.Round(sensorHeight * scale));
+                        if (read.Plane.Length != w * h)
+                        {
+                            consoleHost.WriteError($"{path}: not the {w} x {h} a stack at {scale.ToString(CultureInfo.InvariantCulture)}x makes");
+                            return 1;
+                        }
+                        var disk = read.Disk with { AxisRatio = limbOptions.AxisRatio };
+                        colourTruths[(channel, scale)] = (PlanetaryMetrics.Normalise(read.Plane, w, h, disk), disk, w, h);
+                    }
+                }
+
+                // Each way of stacking, demosaiced and drizzled at each scale; a drizzle warps by the points where its method has them.
+                var colourCandidates = references.SelectMany(r => interpolations.SelectMany(i => correlations.SelectMany(c => methods.SelectMany(m =>
+                    (m == "global" ? [0] : spacings).SelectMany(sp => drizzles.Select(d => (double?)d).Prepend(null).Select(d =>
+                        (Method: m, Spacing: sp, Correlation: c, Interpolation: i ?? WarpInterpolation.Bilinear, Reference: r, Drizzle: d))))))).ToArray();
+                consoleHost.WriteScrollable($"{Path.GetFileName(input)}: {frames} frames of a colour capture, {colourCandidates.Length * keeps.Length * presets.Length} stacks, each scored a colour at a time");
+                foreach (var (method, spacing, correlation, interpolation, referenceFrames, drizzle) in colourCandidates)
+                {
+                    foreach (var preset in presets)
+                    {
+                        foreach (var keep in keeps)
+                        {
+                            ct.ThrowIfCancellationRequested();
+                            var options = new PlanetaryStackOptions
+                            {
+                                KeepFraction = keep,
+                                Sharpen = SharpenFor(preset),
+                                AlignmentPointSpacing = spacing > 0 ? spacing : new PlanetaryStackOptions().AlignmentPointSpacing,
+                                AlignmentPatchSize = patch,
+                                PerPointQualityWeighting = method == "ap",
+                                WhitenedCorrelation = correlation == "whitened",
+                                MeshNodeSpacing = parseResult.GetValue(meshOpt),
+                                MeshInfluence = parseResult.GetValue(influenceOpt),
+                                Interpolation = interpolation,
+                                ReferenceFrames = referenceFrames,
+                                Drizzle = drizzle is { } d ? new PlanetaryDrizzleOptions((float)d, pixfrac, AlignmentPointMesh: method != "global") : null,
+                            };
+                            var name = (method == "global" ? "global" : $"{method} {spacing} px") + (correlation == "plain" ? ", plain" : "")
+                                + (drizzle is null ? interpolation switch { WarpInterpolation.Lanczos3 => ", Lanczos-3", WarpInterpolation.Lanczos3Clamped => ", Lanczos-3 clamped", _ => "" } : "")
+                                + (referenceFrames > 1 ? $", against a stack of {referenceFrames}" : "")
+                                + (drizzle is { } dz ? string.Create(CultureInfo.InvariantCulture, $", Bayer drizzle {dz:0.##}x, pixfrac {pixfrac:0.##}") : ", demosaiced");
+                            var result = drizzle is null ? await StackAsync(stacker, stream, options, method, ct) : await stacker.StackDrizzleAsync(stream, options, ct);
+                            try
+                            {
+                                foreach (var (channel, colour) in Colours)
+                                {
+                                    var truthOne = colourTruths[(channel, drizzle ?? 1)];
+                                    var plane = result.Master.ChannelImage(channel);
+                                    try
+                                    {
+                                        if (plane.Width != truthOne.Width || plane.Height != truthOne.Height)
+                                        {
+                                            consoleHost.WriteError($"keep {keep}, {preset}, {name}, {colour}: a {plane.Width} x {plane.Height} stack against a {truthOne.Width} x {truthOne.Height} truth");
+                                            continue;
+                                        }
+                                        if (Register(plane, limbOptions, truthOne.Disk) is not { } fitted)
+                                        {
+                                            consoleHost.WriteError($"keep {keep}, {preset}, {name}, {colour}: the stack's limb could not be fitted");
+                                            continue;
+                                        }
+                                        WriteRow(new Row(keep, preset, $"{name}, {colour}", result.FramesUsed,
+                                            PlanetaryMetrics.Fidelity(fitted.Plane, truthOne.Plane, truthOne.Width, truthOne.Height, truthOne.Disk),
+                                            PlanetaryMetrics.LimbProfileError(fitted.Plane, truthOne.Plane, truthOne.Width, truthOne.Height, truthOne.Disk),
+                                            [], PlanetaryMetrics.LimbUndershoot(fitted.Plane, truthOne.Width, truthOne.Height, truthOne.Disk), double.NaN));
+                                    }
+                                    finally
+                                    {
+                                        plane.Release();
+                                    }
+                                }
+                            }
+                            finally
+                            {
+                                result.Master.Release();
+                            }
+                        }
+                    }
+                }
+                return 0;
+            }
         });
         return command;
     }
@@ -227,6 +332,9 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
             header.GetDoubleValue("DISKR", double.NaN), 1, header.GetDoubleValue("NORTHANG", 0));
         return (image.GetChannelSpan(0).ToArray(), disk, PlanetaryGeometrySubCommands.ParseUtc(header.GetStringValue("DATE-OBS")));
     }
+
+    // A colour master's channels and the name its truths carry.
+    private static readonly (int Channel, string Colour)[] Colours = [(0, "r"), (1, "g"), (2, "b")];
 
     // One candidate's stack and its metrics.
     private sealed record Row(double Keep, string Preset, string Method, int FramesUsed, ImmutableArray<BandFidelity> Fidelity, double LimbError,
