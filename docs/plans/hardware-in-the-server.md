@@ -662,7 +662,12 @@ hardware server must survive its parent:
   client attached.
 - **Version skew**: the GUI and the server ship together, but an older server may still be running from
   before an update (or a newer one, after a downgrade). The handshake compares wire versions. An idle
-  server of another version is asked to exit and a new one spawned. A busy one is left alone: the client
+  server of another version is asked to exit and a new one spawned. **So is an idle one of the same wire but
+  another BUILD** (2026-09-30): `GET /api/v1/node` says the folder the node runs from and when its newest code
+  was written (`InstallFolder`, `BuildWrittenUtc`), and a client whose own folder differs, or has newer code,
+  replaces a node that holds no hardware and has no client attached (`LocalNodeLauncher.IsAnotherBuild`); one in
+  use is used as it is. A CLI had attached to the GUI's node and run a burst on the GUI build's older code,
+  since a rebuild of uncommitted changes keeps the version string. A busy one is left alone: the client
   says a node of another version is running a session, connects read-only through the mirror, and offers
   to restart the node once the run ends. **On Windows a running server's executable and native
   libraries are locked**, so extracting a release over the folder a node runs from fails part-way: the

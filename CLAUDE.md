@@ -1175,6 +1175,8 @@ full native-AOT rules, and the reasoning behind each rule below:
    **A node a client started exits a minute after nothing uses it** (`NodeIdleExit`, `--idle-exit`: no client beat, no
    device, run or job; never one run by hand or sharing the rig): a lingering one held the camera, locked the build and
    served a newer client older code. A test whose clients do not beat gives its node a long `--idle-exit` (`KeptNode`).
+   **A client replaces an idle, unattended node of another BUILD, not only another wire** (`IsAnotherBuild`: another
+   install folder, or newer code in it than when the node started; the version string misses a rebuild of uncommitted work).
 11. **A device is read through ONE set of readers, `DeviceHubReadingExtensions`** (GUI polls and
    `DeviceStatePoller`), and **the node never reads a device a run holds**. `DEVICE-STATE` is pushed on a
    change at the resolution a reader is shown.

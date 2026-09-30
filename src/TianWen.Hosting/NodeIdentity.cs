@@ -1,6 +1,7 @@
 using System.IO;
 using System.Reflection;
 using LAN.Lib;
+using TianWen.Lib;
 using TianWen.Lib.Devices;
 
 namespace TianWen.Hosting;
@@ -19,6 +20,15 @@ public sealed class NodeIdentity(string nodeId, string version)
 
     /// <summary>The node's informational version (the build it is), for display. Compatibility is the wire version.</summary>
     public string Version { get; } = version;
+
+    /// <summary>The folder the node runs from (<see cref="BuildInfo.InstallFolder"/>).</summary>
+    public string InstallFolder { get; } = BuildInfo.InstallFolder;
+
+    /// <summary>
+    /// When the newest code in <see cref="InstallFolder"/> was written, read once as the node starts: a client compares it
+    /// with the folder it would start a node from, and replaces an idle node of another build.
+    /// </summary>
+    public DateTime? BuildWrittenUtc { get; } = BuildInfo.NewestCodeFileUtc(BuildInfo.InstallFolder, Environment.ProcessPath ?? "");
 
     /// <summary>Where the id is kept: the AppData root this node runs under, a test's temp folder in a test.</summary>
     public static string IdFilePath(IExternal external) => Path.Combine(external.AppDataFolder.FullName, IdFileName);
