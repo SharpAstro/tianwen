@@ -142,4 +142,40 @@ internal static class OnnxIoNames
         }
         return (imageName, scalarName, session.OutputMetadata.Keys.First());
     }
+
+    /// <summary>
+    /// Whether a graph takes an image and a per-pixel plane (two rank-4 inputs), the E16 conditioning, rather than an
+    /// image and a scalar: the graph's inputs decide which path a runner takes, so a checkpoint cannot be fed the
+    /// conditioning of the other kind.
+    /// </summary>
+    public static bool IsImagePlusPlane(InferenceSession session)
+        => session.InputMetadata.Count == 2 && session.InputMetadata.Values.All(static m => m.Dimensions.Length == 4);
+
+    /// <summary>
+    /// The input and output names of an image-plus-plane graph (<c>n2n_export.py</c>'s <c>mapped</c> shape): the plane is
+    /// the rank-4 input with ONE channel, the image the other.
+    /// </summary>
+    public static (string imageInput, string planeInput, string output) ImagePlusPlane(InferenceSession session)
+    {
+        if (!IsImagePlusPlane(session))
+        {
+            throw new InvalidOperationException(
+                "OnnxIoNames.ImagePlusPlane: expected 2 rank-4 inputs (image + plane), got " +
+                string.Join(", ", session.InputMetadata.Select(kv => $"{kv.Key}=[{string.Join(",", kv.Value.Dimensions)}]")));
+        }
+        var planes = session.InputMetadata.Where(static kv => kv.Value.Dimensions[1] == 1).Select(static kv => kv.Key).ToList();
+        if (planes.Count != 1)
+        {
+            throw new InvalidOperationException(
+                "OnnxIoNames.ImagePlusPlane: could not tell the plane (one channel) from the image; got " +
+                string.Join(", ", session.InputMetadata.Select(kv => $"{kv.Key}=[{string.Join(",", kv.Value.Dimensions)}]")));
+        }
+        if (session.OutputMetadata.Count != 1)
+        {
+            throw new InvalidOperationException(
+                $"OnnxIoNames.ImagePlusPlane: expected 1 output, got {session.OutputMetadata.Count}.");
+        }
+        var image = session.InputMetadata.Keys.First(k => k != planes[0]);
+        return (image, planes[0], session.OutputMetadata.Keys.First());
+    }
 }

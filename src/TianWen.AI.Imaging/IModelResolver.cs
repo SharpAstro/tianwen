@@ -1,7 +1,7 @@
 namespace TianWen.AI.Imaging;
 
 /// <summary>
-/// Resolves AI enhancement model filenames (e.g. <c>tianwen_denoise_osc_e2wide_s2.onnx</c>)
+/// Resolves AI enhancement model filenames (e.g. <c>tianwen_denoise_osc_convmapb_s2.onnx</c>)
 /// to absolute paths on disk. The default <see cref="ModelResolver"/> looks beside the
 /// binary first (the weights the build ships), then under <c>%LOCALAPPDATA%/TianWen/models</c>,
 /// and finds GraXpert's model in GraXpert's own cache. SASpro's models folder is not searched:

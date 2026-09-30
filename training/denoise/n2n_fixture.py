@@ -40,6 +40,14 @@ raster. That is not a shortcut -- it is what makes the test diagnostic. A transp
 the lattice, a broken border moves the corners and not the centre, and a wrong blend moves the
 mean. A raster diff would say only that something is wrong.
 
+**A PLANE checkpoint (E16's `--cond-map`, the shipped weights since 2026-10) takes the plate's per-pixel
+noise plane instead**, which the C# runner computes (`N2nLinearRunner.FrameNoise` + `ChunkPlane`). The
+estimator half of it is C#'s alone and is not ported: the plate's calibration comes in as
+`--plane-calibration`, the numbers `N2nDenoiserTests.ThePlatesNoiseIsTheFixtures` prints, and that test
+pins them. The formula half is ported below (`plane_of`), at the identity stretch the plate is fed with,
+and `TheChunkPlaneIsTheFixtures` compares it with the runner's plane at the lattice, so a disagreement is
+attributed to the plane before the output is compared at all.
+
 Usage:  python n2n_fixture.py
         (writes straight into the C# test's embedded resource; --out to put it elsewhere, --cache
         and --ckpt to fixture a different checkpoint)
@@ -150,21 +158,51 @@ def replicate_pad(plane, size):
     return out
 
 
+def blur(plane, sigma):
+    """`Image.SeparableGaussianBlur`: a Gaussian of radius ceil(3 sigma), edges clamped to the edge sample.
+    scipy's `truncate` gives radius int(3 sigma + 0.5), the same at the two sigmas the plane uses (2 and 4)."""
+    from scipy.ndimage import gaussian_filter
+    return gaussian_filter(plane.astype(np.float64), sigma, mode="nearest", truncate=3.0)
+
+
+def plane_of(tile, calibration, depth=1.0):
+    """`StretchedNoise.Plane` at the IDENTITY stretch, the one the plate is fed with (a midtones balance of 0.5
+    from zero makes the stretch's inverse and its slope the identity): per channel the calibration's shot-noise
+    sigma at the level (the channel low-passed at 2 px), the channels combined as their mean's noise, in
+    PlaneScale units, then low-passed at 4 px. `calibration` is C#'s, per channel."""
+    ped, bg, sig = (np.asarray(calibration[k], dtype=np.float64) for k in ("pedestal", "background", "sigma"))
+    sum_sq = np.zeros(tile.shape[1:], dtype=np.float64)
+    for c in range(tile.shape[0]):
+        level = np.clip(blur(tile[c], 2.0), 0.0, 1.0)
+        above = bg[c] - ped[c]
+        ratio = (level - ped[c]) / above if above > 0 else np.ones_like(level)
+        variance = np.clip(ratio, 0.25, 1000.0)
+        s = depth * sig[c] * np.sqrt(variance)
+        sum_sq += s * s
+    return blur((S.PLANE_SCALE * np.sqrt(sum_sq) / tile.shape[0]).astype(np.float32), 4.0).astype(np.float32)
+
+
 def main():
     import torch
 
     p = argparse.ArgumentParser()
-    p.add_argument("--cache", default=cache("n2n-e2-wide"), help="the prepared cache holding --ckpt")
-    p.add_argument("--ckpt", default="e2_wide_s2.pt")
-    p.add_argument("--model-file", default="tianwen_denoise_osc_e2wide_s2.onnx",
+    p.add_argument("--cache", default=cache("n2n-e16b-arm"), help="the prepared cache holding --ckpt")
+    p.add_argument("--ckpt", default="bb_e16barm_s2.pt")
+    p.add_argument("--model-file", default="tianwen_denoise_osc_convmapb_s2.onnx",
                    help="the shipped ONNX this fixture is the parity partner of; recorded in the "
                         "fixture so a stale pair is visible rather than silently compared")
+    p.add_argument("--plane-calibration", default=None,
+                   help="a plane checkpoint's plate calibration as JSON, {pedestal, background, sigma} per channel: "
+                        "the numbers N2nDenoiserTests.ThePlatesNoiseIsTheFixtures prints")
     p.add_argument("--out", default=REPO_FIXTURE,
                    help="where the fixture goes; the default is the C# test's embedded resource")
     a = p.parse_args()
 
     model, planes_cond = S.load_model(a.cache, a.ckpt, "cpu")
     model.eval()
+    cond_map = bool(getattr(model, "cond_map", False))
+    if cond_map and a.plane_calibration is None:
+        raise SystemExit("a plane checkpoint needs --plane-calibration, which C# computes (see the module docstring)")
 
     src = build_plate()
     border = S.BORDER
@@ -173,9 +211,11 @@ def main():
     tile = np.stack([replicate_pad(chunk[c], TILE) for c in range(CH)])
     print(f"plate {src.shape} -> chunk {chunk.shape} -> model tile {tile.shape}")
 
+    calibration = json.loads(a.plane_calibration) if cond_map else None
+    plane = plane_of(tile, calibration) if cond_map else None
     with torch.no_grad():
         x = torch.from_numpy(tile[None])
-        xc = S.with_sigma(x, strength=1.0, planes=planes_cond)
+        xc = S.with_plane(x, torch.from_numpy(plane[None])) if cond_map else S.with_sigma(x, strength=1.0, planes=planes_cond)
         den_tile = model(xc).numpy()[0]
 
     # Crop back to the chunk, then the per-channel level restore the runner applies before
@@ -216,6 +256,18 @@ def main():
                 fixture["samples"].append(
                     {"c": c, "x": int(x), "y": int(y),
                      "in": float(src[c, y, x]), "out": float(den[c, y, x])})
+
+    if cond_map:
+        # The plane over the whole model tile (border and replicate pad included), on its own lattice in TILE
+        # coordinates: the runner's ChunkPlane is compared with it before any output is.
+        tile_step = TILE // (LATTICE - 1)
+        tile_coords = [min(i * tile_step, TILE - 1) for i in range(LATTICE)]
+        fixture["plane"] = {
+            "calibration": calibration,
+            "mean": float(plane.astype(np.float64).mean()),
+            "samples": [{"x": int(x), "y": int(y), "v": float(plane[y, x])} for y in tile_coords for x in tile_coords],
+        }
+        print(f"  plane: mean {plane.mean():.6f}, min {plane.min():.6f}, max {plane.max():.6f}")
 
     # newline="\n": the repo stores JSON with LF, and text mode on Windows would write CRLF.
     with io.open(a.out, "w", encoding="utf-8", newline="\n") as f:

@@ -505,6 +505,7 @@ Tracked by #846, #847.
 | D3 | Broadband transfer answered; N3 restated in the programme doc and in `N2nDenoiser`'s XML doc | E4, E5 |
 | D4 | Capacity answered or retired | E6 |
 | D5 | **SHIPPED 2026-09-06** (below): v2 exported, parity-pinned, LFS exemption reverted. Still open: the contract JSON asserted at load, and the photometric gate | E7 |
+| D6 | **SHIPPED 2026-10-01** (below): `convmapb_s2`, the first plane-conditioned graph; the runner computes the plane as the eval did, pinned by the parity fixture | E16b |
 
 ### D5, shipped 2026-09-06: `e2_wide_s2`
 
@@ -570,6 +571,51 @@ conditioning plane runs far above a master's; every arm since E1 trains on injec
 not. The deployed job is masters and that is what every column above measures, but if anyone points
 this at a single sub it is out of range on the high side, exactly as v19d was on the low side. One
 measurement would settle it and none has been taken.
+
+### D6, shipped 2026-10-01: `convmapb_s2`
+
+**Shipped as `src/TianWen.AI.Imaging/models/tianwen_denoise_osc_convmapb_s2.onnx`**, replacing
+`e2_wide_s2` under a new name by the same rule. The owner's decision (2026-09-30), on E16b's result (run log,
+"E16b's result"): the first model in the campaign that cleans a bright level, keeps a crowded field, and does
+not smooth. **The seed is the one nearest the arm's mean on the two registered primary measures** (the
+finest-band error left at 0.45-0.60 and at 0.60 and up: s2 0.743 / 0.862 against the mean 0.745 / 0.849), not
+the best of four, so the arm's published numbers describe what ships; s0 was the near alternative (0.743 /
+0.830, less sky error). The checkpoint is the scored one, `bb_e16barm_s2.pt`.
+
+**It is the first plane-conditioned graph, so the runner computes the plane.** `n2n_export.py` exports a
+`--cond-map` checkpoint as `mapped` (inputs `image` [N,3,256,256] and `plane` [N,1,256,256], the tile fixed
+because the plane's low-passes see its edges; parity against torch 1.49e-7 on 16 eval tiles with their stored
+planes, `training/denoise/tianwen_denoise_osc_convmapb_s2_export.json`). `N2nDenoiser` picks the path by the
+graph's inputs (`OnnxIoNames.IsImagePlusPlane`), and `N2nLinearRunner` makes the plane as the eval's planes
+were made: one calibration per channel from the frame itself (`FrameNoise`, through the runner's own stretch),
+then each chunk's plane from the very tile the net is fed (`ChunkPlane`, `StretchedNoise.Plane` at depth 1).
+
+Verified through the committed file:
+
+- **The parity fixture pins the plane as well as the path.** `n2n_fixture.py` takes the plate's calibration
+  from C# (`--plane-calibration`, what `ThePlatesNoiseIsTheFixtures` prints and pins to 1e-9; the estimator is
+  never ported) and ports only the plane's formula, at the identity stretch the plate is fed with. The runner's
+  chunk plane matches it to 7.0e-7 relative at every lattice point (`TheChunkPlaneIsTheFixtures`), and the whole
+  C# path reproduces torch to 4.2e-7 on the sampled pixels (`TheWholePipelineReproducesTorch`).
+- **A linear frame still takes the exporter's stretch** (the H0 pin), now on a starless plate: the runner and
+  the by-hand stretch agree to 6.1e-8 mean and 1.2e-6 worst against a denoise that moves the sky 4.3e-5. The
+  25-star plate it used before cannot pin that identity for a plane graph (below).
+- **The seam probe on a real master** (eta Car 2026-02-20 from the full store, 3066 x 3108, 289 chunks, 33 s):
+  the median seam step is 1.2x the local structure (1x is invisible), and the per-chunk level restore moves a
+  chunk by a median 8.1e-4 on a level of 0.25 (the previous model's 0.0029 on the seam master).
+
+**A pre-stretched input is outside what was measured.** The plane rests on the frame's noise model, which the
+runner builds from the LINEAR frame through its own stretch. A frame the auto-detect finds already stretched
+(an enhanced or GHS-stretched master) is fed as it came and gets the identity stretch, so its noise model grows
+with the stretched level, which no training plane did. The two agree on a flat sky and part where a star or a
+bright structure lifts the level (on a 25-star linear plate they differed by a third of what the denoise moves
+the sky). The deployed job is linear masters, where this does not arise.
+
+**The LFS object waited for the metering reset.** CI's test jobs pull the one new `.onnx` as an LFS delta (the
+`.git/lfs` caches restore the rest, `restore-keys` on every step), and the month's LFS budget was not to be
+spent on the last day of September, so the branch was prepared on 2026-09-30 and pushed and merged on
+2026-10-01. The release payload needs no edit: `lfs-payload.list` is generated from `APP_LFS_INCLUDE`'s globs,
+`*.onnx` among them.
 
 ## 8. Open questions
 

@@ -21,19 +21,18 @@ namespace TianWen.Lib.Tests;
 /// Tests for the in-house Noise2Noise denoiser. The model ships IN the repo at
 /// <c>src/TianWen.AI.Imaging/models/</c> (copied beside every consumer's binaries as
 /// <c>models/</c> by that project's Content item), so the resolver probes that copy first and
-/// falls back to the per-user cache dirs. At 3.1 MiB it is committed as a plain git blob rather
-/// than an LFS object -- <c>.gitattributes</c> exempts that directory from the repo-wide
-/// <c>*.onnx</c> LFS rule, to keep infrequent clones off the LFS bandwidth budget -- so a checkout
-/// has the real weights whether or not git-lfs is installed. <see cref="ModelResolver"/> still
-/// refuses a pointer stub, which is what keeps the model-gated tests skipping rather than failing
-/// if that ever changes back.
+/// falls back to the per-user cache dirs. At 3.1 MiB it is an LFS object (the directory's LFS
+/// exemption of 2026-09-06 was reverted the same day, once the budget was back), so a checkout
+/// without git-lfs holds a pointer stub; <see cref="ModelResolver"/> refuses a pointer stub, which
+/// is what keeps the model-gated tests skipping rather than failing there.
 /// <para>
 /// <b>The parity test is the point of this file.</b> The exported graph is already pinned against
-/// torch by <c>n2n-smoke/ship/n2n_export.py</c> (max |diff| 1.49e-7). What no Python check can
+/// torch by <c>training/denoise/n2n_export.py</c> (max |diff| 1.49e-7). What no Python check can
 /// cover is the C# deployment path around it: the whole-frame MTF into the training domain and its
-/// inverse, NCHW packing, the median-fill border, the 256 px chunking, the replicate-pad of an edge
-/// chunk, the per-channel level restore, the stitch that drops a 16 px rim, and the blend. Every one
-/// of those fails silently -- a transposed tensor or a mis-scaled input still produces a
+/// inverse, the per-pixel noise plane (the frame's calibration, then each chunk's plane from the tile
+/// the net is fed), NCHW packing, the median-fill border, the 256 px chunking, the replicate-pad of
+/// an edge chunk, the per-channel level restore, the stitch that drops a 16 px rim, and the blend.
+/// Every one of those fails silently -- a transposed tensor or a mis-scaled input still produces a
 /// plausible-looking picture, and a frame fed 100x below the training band did for two weeks.
 /// </para>
 /// </summary>
@@ -203,6 +202,83 @@ public class N2nDenoiserTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// A plane graph's whole-frame half of the conditioning, on the plate: the runner feeds the plate as it is (the
+    /// dead pixel puts it in band), so the stretch is the identity, and the calibration it estimates is the one the
+    /// fixture recorded and <c>n2n_fixture.py</c> built torch's plane from. The estimator is C#'s alone; this is what
+    /// ties the Python half of the fixture to it.
+    /// </summary>
+    [Fact]
+    public void ThePlatesNoiseIsTheFixtures()
+    {
+        var fixture = LoadFixture();
+        var plate = BuildPlateFrom(fixture);
+        var absent = plate.AbsentPixels();
+        var (_, applied, origMin, balances) = ChunkedNafnetRunner.ApplyInputStretch(plate, absent);
+        applied.ShouldBeFalse("the plate sits in band and is fed as it is, so its plane is made with the identity stretch");
+        var (stretches, calibrations) = N2nLinearRunner.FrameNoise(plate, applied, origMin, balances, absent);
+        stretches.ShouldAllBe(s => s.MidtonesBalance == 0.5 && s.OrigMin == 0.0);
+        output.WriteLine("calibration: {\"pedestal\": [" + string.Join(", ", calibrations.Select(k => k.PedestalAdu.ToString("R"))) +
+            "], \"background\": [" + string.Join(", ", calibrations.Select(k => k.BackgroundAdu.ToString("R"))) +
+            "], \"sigma\": [" + string.Join(", ", calibrations.Select(k => k.OneSubSigmaAdu.ToString("R"))) + "]}");
+
+        var recorded = fixture.GetProperty("plane").GetProperty("calibration");
+        for (var c = 0; c < calibrations.Length; c++)
+        {
+            calibrations[c].PedestalAdu.ShouldBe(recorded.GetProperty("pedestal")[c].GetDouble(), 1e-9);
+            calibrations[c].BackgroundAdu.ShouldBe(recorded.GetProperty("background")[c].GetDouble(), 1e-9);
+            calibrations[c].OneSubSigmaAdu.ShouldBe(recorded.GetProperty("sigma")[c].GetDouble(), 1e-9);
+        }
+        plate.Release();
+    }
+
+    /// <summary>
+    /// A plane graph's per-chunk half: the plane the runner makes for the plate's one chunk (bordered to 192 and
+    /// replicate-padded to the 256 tile, the very bytes the net is fed) is the plane torch was given, at every lattice
+    /// point. Wrong depth, a plane cut from the unpadded frame or the wrong stretch all move it.
+    /// </summary>
+    [Fact]
+    public void TheChunkPlaneIsTheFixtures()
+    {
+        var fixture = LoadFixture();
+        var plate = BuildPlateFrom(fixture);
+        var (channels, size, _) = plate.Shape;
+        var tile = fixture.GetProperty("tile").GetInt32();
+        var border = AiNafnetInputs.StitchBorderPx;
+        var absent = plate.AbsentPixels();
+        var (_, applied, origMin, balances) = ChunkedNafnetRunner.ApplyInputStretch(plate, absent);
+        var (stretches, calibrations) = N2nLinearRunner.FrameNoise(plate, applied, origMin, balances, absent);
+
+        var chw = new float[channels * tile * tile];
+        for (var c = 0; c < channels; c++)
+        {
+            var chunk = ChunkedInference.AddBorder(plate.GetChannelSpan(c), size, size, border, out var cw, out var ch);
+            for (var y = 0; y < tile; y++)
+            {
+                var sy = Math.Min(y, ch - 1);
+                for (var x = 0; x < tile; x++)
+                {
+                    chw[(c * tile * tile) + (y * tile) + x] = chunk[(sy * cw) + Math.Min(x, cw - 1)];
+                }
+            }
+        }
+        var plane = N2nLinearRunner.ChunkPlane(chw, channels, tile, tile, stretches, calibrations);
+
+        var recorded = fixture.GetProperty("plane");
+        var worst = 0.0;
+        foreach (var sample in recorded.GetProperty("samples").EnumerateArray())
+        {
+            var x = sample.GetProperty("x").GetInt32();
+            var y = sample.GetProperty("y").GetInt32();
+            var want = sample.GetProperty("v").GetDouble();
+            worst = Math.Max(worst, Math.Abs(plane[(y * tile) + x] - want) / want);
+        }
+        output.WriteLine($"plane mean {plane.Average():F6} (torch's {recorded.GetProperty("mean").GetDouble():F6}); worst relative lattice difference {worst:E2}");
+        ((double)plane.Average()).ShouldBe(recorded.GetProperty("mean").GetDouble(), recorded.GetProperty("mean").GetDouble() * 1e-4);
+        worst.ShouldBeLessThan(1e-4);
+        plate.Release();
+    }
+
+    /// <summary>
     /// The whole C# path against torch's answer for the same plate. The fixture's 160 px size is
     /// load-bearing: it borders to 192, which <c>ChunkedInference.Split</c> yields as exactly ONE
     /// chunk (its step is 192 and its loop runs while <c>i &lt; height</c>), so a discrepancy is
@@ -269,19 +345,28 @@ public class N2nDenoiserTests(ITestOutputHelper output)
 
     /// <summary>
     /// A linear frame is stretched into the training domain by the runner itself and inverted with
-    /// the same parameters, so doing those two steps by hand around the denoiser gives the identical
+    /// the same parameters, so doing those two steps by hand around the denoiser gives the same
     /// answer: the runner's auto-detect finds the hand-stretched plate already in band and feeds it
-    /// as it is. That equality is the pin. Until 2026-09-02 the runner fed a linear plate verbatim
-    /// and the two routes disagreed by 0.89 on the Bubble master; the parity plate cannot see that,
-    /// because at a background of 0.26 it is already where the training tiles were.
+    /// as it is. Until 2026-09-02 the runner fed a linear plate verbatim and the two routes disagreed
+    /// by 0.89 on the Bubble master; the parity plate cannot see that, because at a background of 0.26
+    /// it is already where the training tiles were.
+    /// <para><b>On a starless plate, since the plane model (2026-10).</b> Its plane rests on the frame's
+    /// noise model, which the runner builds from the LINEAR frame through its own stretch; a frame
+    /// handed over already stretched gets the identity stretch instead, whose noise grows with the
+    /// stretched level rather than the linear one. The two agree on a flat sky and part wherever a star
+    /// lifts the level, and the plane's low-passes carry that some 12 px into the sky around it (on the
+    /// old 25-star plate the routes then differed by a third of what the denoise moves the sky). So the
+    /// identity is pinned where it holds, a starless sky, and it is still the H0 pin: a runner that
+    /// fed a linear frame verbatim would miss it by far more than the denoise itself moves anything.
+    /// The stars are the parity fixture's to pin.</para>
     /// </summary>
     [Fact]
     public async Task ALinearInputTakesTheExportersStretchAndComesBackInItsOwnUnits()
     {
         if (!HasModel(out var skip)) { Assert.Skip(skip); return; }
 
-        // The seam master's level and noise (median 0.0019, MAD near 1e-4), in one 160 px chunk.
-        var plate = BuildPlate(160, channels: 3, background: 0.002f, noiseAmplitude: 0.0003f, starCount: 25, seed: 20260902u);
+        // The seam master's level and noise (median 0.0019, MAD near 1e-4), in one 160 px chunk, no stars.
+        var plate = BuildPlate(160, channels: 3, background: 0.002f, noiseAmplitude: 0.0003f, starCount: 0, seed: 20260902u);
         using var enhancer = new N2nDenoiser(CreateResolver());
         var ct = TestContext.Current.CancellationToken;
 
@@ -296,7 +381,8 @@ public class N2nDenoiserTests(ITestOutputHelper output)
         var byHand = inBand.MtfUnstretch(origMin!, balances!);
 
         var worst = 0f;
-        var moved = 0f;
+        double routes = 0, moved = 0;
+        var n = 0;
         for (var c = 0; c < plate.ChannelCount; c++)
         {
             var a = direct.GetChannelSpan(c);
@@ -305,13 +391,18 @@ public class N2nDenoiserTests(ITestOutputHelper output)
             for (var i = 0; i < a.Length; i++)
             {
                 worst = Math.Max(worst, Math.Abs(a[i] - b[i]));
-                moved = Math.Max(moved, Math.Abs(a[i] - src[i]));
+                routes += Math.Abs(a[i] - b[i]);
+                moved += Math.Abs(a[i] - src[i]);
+                n++;
             }
         }
-        output.WriteLine($"runner vs by-hand stretch: max |diff| {worst:E3}; runner vs input: max |diff| {moved:E3}");
-        worst.ShouldBeLessThan(1e-6f);
-        // It denoised: an identity runner would pass the line above too.
-        moved.ShouldBeGreaterThan(1e-4f);
+        routes /= n;
+        moved /= n;
+        output.WriteLine($"runner vs by-hand stretch: mean |diff| {routes:E3}, max {worst:E3}; runner vs input: mean |diff| {moved:E3}");
+        // It denoised: an identity runner would pass the two lines below too.
+        moved.ShouldBeGreaterThan(1e-5);
+        routes.ShouldBeLessThan(0.01 * moved);
+        worst.ShouldBeLessThan((float)(0.1 * moved));
 
         direct.Release();
         inBand.Release();

@@ -16,6 +16,14 @@ on. So this script exports TWO shapes and measures both against torch:
 Prefer `baked`. `plain` exists so a quantile-export failure is a fallback rather than a stop,
 and so the two can be compared against each other as well as against torch.
 
+A `--cond-map` checkpoint (E16: the per-pixel noise plane) exports ONE shape instead, `mapped`: an
+`image` input [N,3,256,256] and a `plane` input [N,1,256,256], the plane in `StretchedNoise.PlaneScale`
+units exactly as the cache stores it. The host computes the plane (N2nLinearRunner, through the same
+`StretchedNoise.Plane` the eval planes came from), so there is no estimator to bake; the tile stays fixed at
+256 because the plane's two low-passes see the tile's edges, which makes the tile part of the plane's
+definition. Parity is measured on real master tiles WITH their stored planes (`--eval`, a cache prepared
+with planes).
+
 Both are checked on REAL master tiles from the eval cache, not on noise: the estimator reads
 the darkest half of the luminance, so a uniform-random tile exercises none of the distribution
 the model actually meets. The run also writes a fixture of per-tile sigma values, which is what
@@ -113,6 +121,52 @@ def build_wrappers(model, planes):
     return Baked().eval(), Plain().eval()
 
 
+def export_mapped(model, a, nparam):
+    """A --cond-map checkpoint: image + stored plane in, denoised image out, checked against torch on real
+    master tiles and the planes the cache holds for them."""
+    import torch
+    import torch.nn as nn
+
+    class Mapped(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.net = model
+
+        def forward(self, image, plane):
+            return self.net(torch.cat([image, plane], dim=1))
+
+    mm, meta = S.open_cache(a.eval)
+    sig, has = S.open_sigma(a.eval, meta)
+    if sig is None:
+        raise SystemExit(f"{a.eval} holds no planes; a --cond-map export is checked on tiles WITH their planes")
+    ok = [i for i in range(meta["cells"]) if has[i, S.SLOT_MASTER]]
+    idx = np.asarray(ok)[np.linspace(0, len(ok) - 1, a.tiles).astype(int)]
+    tiles = np.asarray(mm[idx, S.SLOT_MASTER], dtype=np.float32)
+    planes = np.asarray(sig[idx, S.SLOT_MASTER], dtype=np.float32)[:, None]
+    print(f"parity tiles: {tiles.shape} and planes {planes.shape} from {a.eval}")
+    with torch.no_grad():
+        ref = model(S.with_plane(torch.from_numpy(tiles), torch.from_numpy(planes[:, 0]))).numpy()
+    scale = float(np.mean([np.std(t.mean(axis=0)) for t in tiles]))
+    print(f"tile signal sigma ~{scale:.5f}\n")
+
+    path = os.path.join(os.path.abspath(a.out), a.name or os.path.splitext(a.ckpt)[0] + ".onnx")
+    mod = Mapped().eval()
+    mb = export(mod, (torch.from_numpy(tiles[:1]), torch.from_numpy(planes[:1])), path, ["image", "plane"],
+                {"image": {0: "n"}, "plane": {0: "n"}, "output": {0: "n"}})
+    got, names = run_ort(path, {"image": tiles, "plane": planes})
+    print(f"mapped -> {os.path.basename(path)} ({mb:.2f} MiB), inputs {names}")
+    worst = report("mapped", ref, got, scale)
+    meta_out = {
+        "checkpoint": a.ckpt, "cache": a.cache, "eval": a.eval, "cond_map": True, "model_file": os.path.basename(path),
+        "params": int(nparam), "opset": OPSET, "tile": TILE, "border_px": S.BORDER, "plane_scale": S.PLANE_SCALE,
+        "parity_max_abs": worst, "tile_signal_sigma": scale, "parity_cells": [int(i) for i in idx],
+    }
+    with io.open(os.path.splitext(path)[0] + "_export.json", "w", encoding="utf-8", newline="\n") as f:
+        json.dump(meta_out, f, indent=1)
+    print(f"\nwritten {os.path.basename(os.path.splitext(path)[0])}_export.json")
+    return 0
+
+
 def export(mod, args, path, input_names, dynamic_axes):
     import torch
     with io.BytesIO() as _probe:
@@ -147,6 +201,9 @@ def main():
     p.add_argument("--out", default=".")
     p.add_argument("--tiles", type=int, default=8)
     p.add_argument("--strength", type=float, default=1.0)
+    p.add_argument("--eval", default=EVAL, help="the cache the parity tiles come from; a --cond-map checkpoint "
+                                                "needs one prepared with planes")
+    p.add_argument("--name", default=None, help="the ONNX file name (default: the checkpoint's stem)")
     args = p.parse_args()
 
     import torch
@@ -154,7 +211,9 @@ def main():
     model, planes = S.load_model(args.cache, args.ckpt, "cpu")
     model.eval()
     nparam = sum(q.numel() for q in model.parameters())
-    print(f"{args.ckpt}: cond planes {planes}, {nparam/1e6:.3f} M params")
+    print(f"{args.ckpt}: cond planes {planes}, cond map {bool(getattr(model, 'cond_map', False))}, {nparam/1e6:.3f} M params")
+    if getattr(model, "cond_map", False):
+        return export_mapped(model, args, nparam)
     if planes != 1:
         print(f"NOTE: cond planes is {planes}, not the scalar 1 this exporter was written for.")
 
