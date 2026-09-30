@@ -5,6 +5,8 @@ using System.CommandLine;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Numerics;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry;
@@ -270,30 +272,20 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
                             var result = drizzle is null ? await StackAsync(stacker, stream, options, method, ct) : await stacker.StackDrizzleAsync(stream, options, ct);
                             try
                             {
-                                foreach (var (channel, colour) in Colours)
+                                Score(result.Master, drizzle ?? 1, keep, preset, name, result.FramesUsed);
+                                // Every stack on the sensor grid, demosaiced or drizzled, at each finer drizzle's scale too, by Lanczos-3: a
+                                // band is counted in the OUTPUT grid's pixels, so a drizzle at 1.5x is judged beside what the sensor grid
+                                // carries on that grid, never beside the 1x stack's own bands.
+                                foreach (var scale in (drizzle ?? 1) == 1 ? drizzles.Where(d => d > 1) : [])
                                 {
-                                    var truthOne = colourTruths[(channel, drizzle ?? 1)];
-                                    var plane = result.Master.ChannelImage(channel);
+                                    var upsampled = await UpsampleAsync(result.Master, scale, ct);
                                     try
                                     {
-                                        if (plane.Width != truthOne.Width || plane.Height != truthOne.Height)
-                                        {
-                                            consoleHost.WriteError($"keep {keep}, {preset}, {name}, {colour}: a {plane.Width} x {plane.Height} stack against a {truthOne.Width} x {truthOne.Height} truth");
-                                            continue;
-                                        }
-                                        if (Register(plane, limbOptions, truthOne.Disk) is not { } fitted)
-                                        {
-                                            consoleHost.WriteError($"keep {keep}, {preset}, {name}, {colour}: the stack's limb could not be fitted");
-                                            continue;
-                                        }
-                                        WriteRow(new Row(keep, preset, $"{name}, {colour}", result.FramesUsed,
-                                            PlanetaryMetrics.Fidelity(fitted.Plane, truthOne.Plane, truthOne.Width, truthOne.Height, truthOne.Disk),
-                                            PlanetaryMetrics.LimbProfileError(fitted.Plane, truthOne.Plane, truthOne.Width, truthOne.Height, truthOne.Disk),
-                                            [], PlanetaryMetrics.LimbUndershoot(fitted.Plane, truthOne.Width, truthOne.Height, truthOne.Disk), double.NaN));
+                                        Score(upsampled, scale, keep, preset, string.Create(CultureInfo.InvariantCulture, $"{name}, Lanczos-3 to {scale:0.##}x"), result.FramesUsed);
                                     }
                                     finally
                                     {
-                                        plane.Release();
+                                        upsampled.Release();
                                     }
                                 }
                             }
@@ -305,6 +297,37 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
                     }
                 }
                 return 0;
+
+                // A colour master's channels, each onto its own colour's truth at the master's scale.
+                void Score(Image master, double scale, double keep, string preset, string name, int framesUsed)
+                {
+                    foreach (var (channel, colour) in Colours)
+                    {
+                        var truthOne = colourTruths[(channel, scale)];
+                        var plane = master.ChannelImage(channel);
+                        try
+                        {
+                            if (plane.Width != truthOne.Width || plane.Height != truthOne.Height)
+                            {
+                                consoleHost.WriteError($"keep {keep}, {preset}, {name}, {colour}: a {plane.Width} x {plane.Height} stack against a {truthOne.Width} x {truthOne.Height} truth");
+                                continue;
+                            }
+                            if (Register(plane, limbOptions, truthOne.Disk) is not { } fitted)
+                            {
+                                consoleHost.WriteError($"keep {keep}, {preset}, {name}, {colour}: the stack's limb could not be fitted");
+                                continue;
+                            }
+                            WriteRow(new Row(keep, preset, $"{name}, {colour}", framesUsed,
+                                PlanetaryMetrics.Fidelity(fitted.Plane, truthOne.Plane, truthOne.Width, truthOne.Height, truthOne.Disk),
+                                PlanetaryMetrics.LimbProfileError(fitted.Plane, truthOne.Plane, truthOne.Width, truthOne.Height, truthOne.Disk),
+                                [], PlanetaryMetrics.LimbUndershoot(fitted.Plane, truthOne.Width, truthOne.Height, truthOne.Disk), double.NaN));
+                        }
+                        finally
+                        {
+                            plane.Release();
+                        }
+                    }
+                }
             }
         });
         return command;
@@ -358,6 +381,33 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
         return onto is { } target
             ? (PlanetaryMetrics.Shift(plane, width, height, target.X - own.X, target.Y - own.Y), target)
             : (plane, own);
+    }
+
+    // A master resampled by Lanczos-3 to `scale` times its grid, pixel centres to pixel centres as a drizzle's truth is rendered
+    // ((x + 0.5) u - 0.5); the edge the kernel cannot reach reads zero, as a drizzle's uncovered cells do.
+    private static async Task<Image> UpsampleAsync(Image master, double scale, CancellationToken ct)
+    {
+        var (width, height) = ((int)Math.Round(master.Width * scale), (int)Math.Round(master.Height * scale));
+        var u = (float)scale;
+        var transform = Matrix3x2.CreateTranslation(0.5f, 0.5f) * Matrix3x2.CreateScale(u) * Matrix3x2.CreateTranslation(-0.5f, -0.5f);
+        var upsampled = await master.WarpToReferenceGridAsync(transform, width, height, WarpInterpolation.Lanczos3, ct);
+        var planes = new float[upsampled.ChannelCount][,];
+        for (var c = 0; c < planes.Length; c++)
+        {
+            var plane = new float[height, width];
+            var flat = MemoryMarshal.CreateSpan(ref plane[0, 0], plane.Length);
+            upsampled.GetChannelSpan(c).CopyTo(flat);
+            for (var i = 0; i < flat.Length; i++)
+            {
+                if (float.IsNaN(flat[i]))
+                {
+                    flat[i] = 0f;
+                }
+            }
+            planes[c] = plane;
+        }
+        upsampled.Release();
+        return new Image(planes, BitDepth.Float32, master.MaxValue, master.MinValue, 0f, master.ImageMeta);
     }
 
     private static WaveletSharpenOptions? SharpenFor(string preset)
