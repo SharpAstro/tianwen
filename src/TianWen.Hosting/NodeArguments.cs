@@ -28,14 +28,17 @@ namespace TianWen.Hosting;
 /// <param name="DetachGrace"><c>--detach-grace &lt;seconds&gt;</c>: how long an interactive run goes on once no client is
 /// present (<see cref="NodeRunWatch"/>), in place of <see cref="NodeRunWatchOptions.Default"/>'s: a respawn that takes
 /// longer, or a test that cannot wait a minute for each detach.</param>
+/// <param name="IdleExit"><c>--idle-exit &lt;seconds&gt;</c>: how long a node a client started goes on with nothing using it
+/// (<see cref="NodeIdleExit"/>), in place of <see cref="NodeIdleExitOptions.Default"/>'s: a test whose clients send no
+/// presence beat, or one that proves the exit without waiting a minute.</param>
 public sealed record NodeArguments(string SocketPath, int Port, bool LocalOnly, bool Keeper, bool Spawned, bool FakeDevicesOnly, int? AfterCrashOf,
-    TimeSpan? DetachGrace = null)
+    TimeSpan? DetachGrace = null, TimeSpan? IdleExit = null)
 {
     /// <summary>The port a node run by hand listens on for the LAN.</summary>
     public const int DefaultPort = NodeWire.LanPort;
 
     /// <summary>The usage line an error ends with.</summary>
-    public const string Usage = "usage: tianwen-server [--socket <path>] [--port <n>] [--local-only] [--fake-devices] [--detach-grace <seconds>] [--keeper]";
+    public const string Usage = "usage: tianwen-server [--socket <path>] [--port <n>] [--local-only] [--fake-devices] [--detach-grace <seconds>] [--idle-exit <seconds>] [--keeper]";
 
     public static bool TryParse(ReadOnlySpan<string> args, [NotNullWhen(true)] out NodeArguments? parsed, [NotNullWhen(false)] out string? error)
     {
@@ -44,6 +47,7 @@ public sealed record NodeArguments(string SocketPath, int Port, bool LocalOnly, 
         bool localOnly = false, keeper = false, spawned = false, fakeDevicesOnly = false;
         int? afterCrashOf = null;
         TimeSpan? detachGrace = null;
+        TimeSpan? idleExit = null;
 
         for (var i = 0; i < args.Length; i++)
         {
@@ -85,6 +89,14 @@ public sealed record NodeArguments(string SocketPath, int Port, bool LocalOnly, 
                     detachGrace = TimeSpan.FromSeconds(graceSeconds);
                     break;
 
+                case "--idle-exit" when i + 1 < args.Length:
+                    if (!double.TryParse(args[++i], NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var idleSeconds) || idleSeconds <= 0)
+                    {
+                        return Fail($"--idle-exit takes a number of seconds, more than 0, not {args[i]}", out parsed, out error);
+                    }
+                    idleExit = TimeSpan.FromSeconds(idleSeconds);
+                    break;
+
                 case "--port" when i + 1 < args.Length:
                     if (!int.TryParse(args[++i], NumberStyles.None, CultureInfo.InvariantCulture, out port) || port is < 1 or > 65535)
                     {
@@ -103,7 +115,7 @@ public sealed record NodeArguments(string SocketPath, int Port, bool LocalOnly, 
             return Fail(invalid, out parsed, out error);
         }
 
-        parsed = new NodeArguments(socketPath, port, localOnly, keeper, spawned, fakeDevicesOnly, afterCrashOf, detachGrace);
+        parsed = new NodeArguments(socketPath, port, localOnly, keeper, spawned, fakeDevicesOnly, afterCrashOf, detachGrace, idleExit);
         error = null;
         return true;
     }
@@ -127,6 +139,11 @@ public sealed record NodeArguments(string SocketPath, int Port, bool LocalOnly, 
         {
             args.Add("--detach-grace");
             args.Add(grace.TotalSeconds.ToString(CultureInfo.InvariantCulture));
+        }
+        if (IdleExit is { } idle)
+        {
+            args.Add("--idle-exit");
+            args.Add(idle.TotalSeconds.ToString(CultureInfo.InvariantCulture));
         }
         return args;
     }

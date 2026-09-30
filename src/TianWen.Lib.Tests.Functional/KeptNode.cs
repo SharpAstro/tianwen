@@ -65,7 +65,9 @@ internal sealed class KeptNode : IAsyncDisposable
             UseShellExecute = false,
             CreateNoWindow = true,
         };
-        foreach (var argument in (ReadOnlySpan<string>)["--keeper", "--socket", socketPath, "--local-only", "--fake-devices"])
+        // A test's node is used by clients that send no presence beat, so it would exit after the idle minute a client-started
+        // node has; an hour outlasts any test. A test of that exit passes its own --idle-exit, which comes later and wins.
+        foreach (var argument in (ReadOnlySpan<string>)["--keeper", "--socket", socketPath, "--local-only", "--fake-devices", "--idle-exit", "3600"])
         {
             start.ArgumentList.Add(argument);
         }

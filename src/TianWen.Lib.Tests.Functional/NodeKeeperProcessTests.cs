@@ -78,6 +78,21 @@ public class NodeKeeperProcessTests
     }
 
     [Fact(Timeout = 120_000)]
+    public async Task ANodeNothingUsesEndsByItselfAfterItsIdleExitAndTakesItsKeeperWithIt()
+    {
+        // No client beats (this test's reads are not presence), no device is connected, no run and no job: the node a client
+        // started exits once its idle grace is spent, cleanly, so its keeper ends with it (decision 2, amended 2026-09-30).
+        var ct = TestContext.Current.CancellationToken;
+        await using var kept = await KeptNode.StartAsync(ct, arguments: ["--idle-exit", "3"]);
+        var node = await kept.WaitForNodeAsync(static _ => true, ct);
+        using var nodeProcess = Process.GetProcessById(node.ProcessId);
+
+        (await kept.KeeperExitAsync(ct)).ShouldBe(NodeExitCodes.Stopped);
+        await nodeProcess.WaitForExitAsync(ct).WaitAsync(TimeSpan.FromSeconds(30), ct);
+        nodeProcess.HasExited.ShouldBeTrue();
+    }
+
+    [Fact(Timeout = 120_000)]
     public async Task ASecondKeeperOnARunningNodesSocketEndsWithoutStartingAnother()
     {
         var ct = TestContext.Current.CancellationToken;

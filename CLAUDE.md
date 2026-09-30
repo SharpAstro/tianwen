@@ -1172,6 +1172,9 @@ full native-AOT rules, and the reasoning behind each rule below:
    commands a cooler owes the same**), believed only from the node its keeper saw crash (`--after-crash <pid>`)
    or when younger than `MachineBoot`, and ACTED on (mount first, cameras re-cooled), never a run resumed; two
    crashes within `NodeKeeper.CrashLoopWindow` reconnect nothing. **ONE cooling ramp, `CameraCoolingRamp`.**
+   **A node a client started exits a minute after nothing uses it** (`NodeIdleExit`, `--idle-exit`: no client beat, no
+   device, run or job; never one run by hand or sharing the rig): a lingering one held the camera, locked the build and
+   served a newer client older code. A test whose clients do not beat gives its node a long `--idle-exit` (`KeptNode`).
 11. **A device is read through ONE set of readers, `DeviceHubReadingExtensions`** (GUI polls and
    `DeviceStatePoller`), and **the node never reads a device a run holds**. `DEVICE-STATE` is pushed on a
    change at the resolution a reader is shown.
