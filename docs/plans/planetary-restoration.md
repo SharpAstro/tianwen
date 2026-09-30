@@ -879,6 +879,14 @@ R4's keeps minimise the error of a raw stack, and a raw stack's band 1 error is 
   - (a)'s width is under 0.3 of (b)'s on the twin and the real capture;
   - (b) composed from (a), the still layer and the scatter matches the twin's true kernel within 10 %, and on the real capture (b) is the kernel R7's inverse uses.
   - The oracle ceiling and the ringing gate stand as written.
+  - **Added 2026-09-30, before part 1 (the spectral ratio) was built or measured** (`tianwen planetary-spectral-ratio`):
+    - **The measurement**: every frame registered by a plain correlation against the capture's sharpest, a window about the disk tapered to the sky, and each ring's ratio of the frames' mean spectrum squared (from the cross-frame terms alone, so the noise drops out of it) to their mean power less the camera's noise.
+    - **The theory**: the same ratio of the twin's own seeing model (`planetary-degrade`'s screens, exposure and pupil, one code for both), with the free air alone, its r0 fitted over the rings where the frames' power is at least four times the noise.
+    - **The claims**:
+      - On the calibrated twin (`red-3k-final`: 3,000 frames, free air 8.5 cm at 500 nm, a still layer of 2.7 cm, no warp): 8.5 cm within 15 % (7.2 to 9.8).
+      - The same twin made without its still layer: within 5 % of the first.
+      - On the real capture it was calibrated on (2022-09-03's Red, the same 3,000 frames): within 20 % of 8.5 cm (6.8 to 10.2), the twin's calibration being right.
+      - The twin with its warp calibrated (`c065l10`, 0.65 px) is measured to show what an uncorrected warp costs the ratio, and nothing is claimed for it.
   - **Added 2026-09-30 from R6 part 3, before either probe was run**: R6's belts re-read against OPAL blurred by (b) instead of the limb fit's PSF bring the SEB's north edge within 1 degree of OPAL's in at least four of R6's six stacks. If they do not, the edge's miss is not the blur, and the belts' own change over weeks is what is left.
 
 ### R7a A ghost in the camera train, fitted and subtracted
