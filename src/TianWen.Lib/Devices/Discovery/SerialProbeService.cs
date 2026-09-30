@@ -131,9 +131,25 @@ internal sealed class SerialProbeService : ISerialProbeService
         // a fraction (or multiple) of each probe's declared Budget. Cold devices
         // that miss the first pass get a retry at a longer budget without any
         // warm probe paying the cost.
-        var initialPorts = verifiedPorts.Count == 0
+        var unverified = verifiedPorts.Count == 0
             ? ports
             : ports.Where(p => !verifiedPorts.Contains(p)).ToArray();
+
+        // A port whose far end can never be an instrument is not probed at all: a paired headset's serial channel takes
+        // every write and answers none, which cost every probe and then the retry at twice the budget, about 31 s of each
+        // discovery (SerialProbeExclusion). A pinned port was verified above whatever it is.
+        var initialPorts = new List<string>(unverified.Count);
+        foreach (var port in unverified)
+        {
+            if (_external.ReasonNotToProbeSerialPort(port) is { } reason)
+            {
+                _logger.LogInformation("{Port} is not probed: {Reason}.", port, reason);
+            }
+            else
+            {
+                initialPorts.Add(port);
+            }
+        }
 
         if (initialPorts.Count == 0)
         {

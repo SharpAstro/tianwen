@@ -63,18 +63,6 @@ internal sealed class SerialConnection : ISerialConnection
         return new SerialConnection(port, encoding, logger);
     }
 
-    /// <summary>The OS ports present now, each with the <c>serial:</c> prefix.</summary>
-    public static IReadOnlyList<string> EnumerateSerialPorts()
-    {
-        var ports = SerialPorts.Enumerate();
-        var names = new List<string>(ports.Count);
-        foreach (var port in ports)
-        {
-            names.Add($"{ISerialConnection.SerialProto}{port.PortName}");
-        }
-        return names;
-    }
-
     public bool IsOpen => _port.IsOpen;
 
     public string DisplayName => _port.PortName;

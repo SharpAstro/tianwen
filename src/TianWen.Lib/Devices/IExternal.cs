@@ -149,6 +149,12 @@ public interface IExternal
     IReadOnlyList<string> EnumerateAvailableSerialPorts(ResourceLock resourceLock);
 
     /// <summary>
+    /// Why a discovery should not probe <paramref name="port"/> (one <see cref="EnumerateAvailableSerialPorts"/> listed), or
+    /// null when it should: a port whose far end can never be an instrument (<see cref="Discovery.SerialProbeExclusion"/>).
+    /// </summary>
+    string? ReasonNotToProbeSerialPort(string port) => null;
+
+    /// <summary>
     /// Opens a serial-style connection (RS-232 / USB-to-serial) asynchronously. The
     /// underlying BCL <c>SerialPort.Open</c> is synchronous and does not yield, so
     /// implementations typically offload the open onto the thread pool via

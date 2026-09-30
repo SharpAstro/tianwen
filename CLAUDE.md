@@ -384,6 +384,10 @@ native-serial subgraphs): `docs/architecture/device-architecture.md`, which also
   completes a write); only a write the driver never completed raises `ISerialConnection.HasAbandonedIo`, on
   which the pass drops the port for the rest of the discovery; a READ timeout never does (a device at the wrong
   baud completes the write and stays silent). `docs/plans/mount-safety-limits.md`, "Live verification".
+  **A Bluetooth port whose far end can never be an instrument is not probed at all** (`SerialProbeExclusion`, from
+  Serial.Lib's `SerialPortInfo.Bluetooth`): Windows' incoming port, and a paired headset, phone, computer, keyboard,
+  wearable. A pair of headphones took every write and answered none for 31 s of each discovery; an HC-05 on a mount is
+  uncategorised and is probed, and a pinned port is verified whatever it is.
 - **Serial I/O is the Serial.Lib sibling's, and closing a connection is asynchronous.** `SerialConnection` only
   adapts it to `ISerialConnection` (typed failures become the `Try*` null / -1 / false; reads bounded by the
   caller's token alone). `ISerialConnection` is `IAsyncDisposable` and closes through `TryCloseAsync`; a
