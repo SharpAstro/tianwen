@@ -973,6 +973,15 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   credits two estimators that share an error with too little, SILENTLY**: rank registrations with no truth only in a triple the
   twin's recorded motion clears (a limb fit and AutoStakkert's track both read the outline). The literature behind all of R4 to
   R9: `docs/architecture/planetary-literature.md`.
+- **A frame the camera corrupted in readout scores zero, everywhere a frame is graded** (R5a): `FrameGrader.IsCorruptReadout` (a band
+  of full-scale rows ending abruptly; an overexposed Moon's fade is never one) is what the batch stacker, the live one and the capture
+  statistics grade through (`FrameGrader.Grade`). Four frames in 30,000 of the Uranus-C capture carry their top rows at 255, the
+  Laplacian's sharpest line, so one was every stack's reference and pulled the statistics' disk a quarter radius off.
+- **An alignment point's patch is cut at the EXACT global shift** (`PlanetaryTile.ExtractLumaAt`), and a mesh is built on it: a residual
+  is the local warp alone. Cut at the rounded shift, a residual had to carry the fraction, which a patch along the belts cannot place,
+  so every mesh locked to the whole pixel: a mesh stack off by up to half a pixel, and a 3x Bayer drizzle with 17 % of red and blue empty.
+  **Bayer drizzle to the sensor grid beats the demosaic above a plane's Nyquist; nothing past the sensor grid pays** at a warp of
+  0.6 px (the adoption is #1091).
 - **Read the plan doc before touching the Canon path** -- it is a list of five things that fail
   SILENTLY. **Recentering is opt-in** (the user, 2026-09-28; it costs the loop about 15 ms a frame at full frame), and
   so is the mount jog, whose **sign is uncalibrated**.
