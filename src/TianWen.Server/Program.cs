@@ -111,6 +111,10 @@ using (held)
         builder.Services.AddNodeDetachGrace(grace);
     }
 
+    // A node a client started exits once nothing has used it for a minute (or --idle-exit): never one run by hand or
+    // sharing the rig, and never while it holds hardware.
+    builder.Services.AddNodeIdleExit(node.IdleExit);
+
     // A local client may take a stream's frames through shared memory (P4b): sections named after the socket this node holds.
     builder.Services.AddNodeSharedMemory(held);
 

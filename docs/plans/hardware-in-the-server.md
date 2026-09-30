@@ -92,7 +92,7 @@ Every rule below is a requirement, and a phase that breaks one is not done:
 |---|---|
 | Pick drivers, then start `indiserver` with that list; a device not in the list does not exist | No driver list. The server registers every device source the GUI does today, and discovery finds what is plugged in. There is nothing to select |
 | Start the server (by hand, from Ekos, or through INDI Web Manager) before the client can connect | The GUI finds or starts its node itself, before its first frame asks for anything. No menu item, no setting, no "connect to server" step, no separate launcher |
-| A crashed client or server leaves a process on port 7624, so the next start fails | No port for a local node unless the user shares the rig (decision 3). The lock file admits exactly one server, and the lock holder clears a stale socket. A spawned server stays until logoff (decision 2), so a reopened window never waits for one |
+| A crashed client or server leaves a process on port 7624, so the next start fails | No port for a local node unless the user shares the rig (decision 3). The lock file admits exactly one server, and the lock holder clears a stale socket. A spawned server stays while anything uses it and a minute after (`NodeIdleExit`), so a window reopened within it never waits for one |
 | Settings in two places: the client profile and each driver's saved config | One place. The server is the only profile writer, and the GUI edits through it (P3). No per-driver configuration exists to save or load |
 | Client and drivers of different versions | The server is spawned from the client's OWN directory, never from `PATH`, and ships in the GUI's and the CLI's archives and in the GUI's `.app`, so a client always gets its own build. The handshake handles the one skew that can happen (an older server still running a night after an update) without asking anything unless a session is running |
 | A generic property bag: the client must know each driver's property names | A typed API of whole operations (connect, warm up and disconnect, solve and sync, a session), each completed in the server. A client never drives hardware one property at a time |
@@ -651,8 +651,13 @@ hardware server must survive its parent:
   client to show. The keeper holds no hardware and does nothing but wait, which is why it outlives what
   it guards.
 - **When the server exits by itself**: never while it holds hardware, meaning any connected device, any
-  run, or any warm-up in progress. Otherwise a spawned server stays until logoff (decision 2), and one
-  started by hand never exits by itself. `POST /api/v1/node/shutdown` (socket only) performs the safe
+  run, or any warm-up in progress. Otherwise a spawned server exits once nothing has used it for a minute
+  (`NodeIdleExit`, `--idle-exit`: no client present by its presence beat, no device, no run, no job), and one
+  started by hand, or one sharing the rig on the LAN, never exits by itself. It used to stay until logoff
+  (decision 2), so a reopened window never waited for one; amended 2026-09-30, when a lingering idle node held
+  a Canon's session, so nothing else could use the camera, locked every build of the tree it ran from, and
+  served a CLI burst with the previous build's code, since a client of the same wire version attaches to it
+  without a word. A reopened window after the minute pays about two seconds to start a new node. `POST /api/v1/node/shutdown` (socket only) performs the safe
   stop from P0b item 4, then exits; "Stop the rig and quit" (decision 1) calls it, only from the last
   client attached.
 - **Version skew**: the GUI and the server ship together, but an older server may still be running from
@@ -1581,8 +1586,11 @@ and 10.0 ships it (P9).
    too); otherwise the default is "Disconnect". Found quitting after a planetary capture with an uncooled
    ASI462MC, which the node's ramp then stepped toward +25 °C for its whole 15 minute cap. A client that is not the last one attached detaches without
    asking, so closing the RDP window never warms a rig the laptop is watching.
-2. **When a spawned server exits: DECIDED, it stays until logoff** (the recommendation was 10 minutes
-   idle). It still never exits while it holds hardware, and one started by hand never exits by itself.
+2. **When a spawned server exits: DECIDED, a minute after nothing uses it** (user, 2026-09-30, amending "it stays until
+   logoff"; the first recommendation was 10 minutes idle). Nothing means no client present, no connected device, no run
+   and no job, and a node that shares the rig on the LAN, or one started by hand, never exits by itself; none ever exits
+   while it holds hardware (`NodeIdleExit`, "Spawn and lifetime"). Staying until logoff let an idle node hold a camera,
+   lock the build and serve an older build's code.
 3. **LAN exposure: DECIDED, off, with a share setting that the machine KEEPS** (user: "the share setting
    should be perm, so I can have my NUC controlled remotely without RDP'ing"). While it is on, the node
    listens on TCP 1888, announces itself, and **starts at logon by itself** (also decided 2026-09-25),
@@ -1636,8 +1644,8 @@ AppData root, not `$XDG_RUNTIME_DIR`; the child calls `setsid()` itself instead 
 ## Open questions (engineering, not the user's)
 
 - **OS shutdown and logoff give a server seconds, not the 15 minutes a warm-up ramp takes.** What is the
-  least-bad stop: cooler off at once, or leave the cooler running at its setpoint? With decision 2 the
-  server lives until logoff, so this is its normal end, not a corner case. On Windows a process with a
+  least-bad stop: cooler off at once, or leave the cooler running at its setpoint? A server holding a camera
+  never exits idle (decision 2), so logoff is still how one with a cooling camera ends, not a corner case. On Windows a process with a
   top-level (hidden) window can hold the shutdown with `ShutdownBlockReasonCreate`, which puts "TianWen:
   warming the camera" on the shutdown screen and leaves the choice to the user; a console process cannot.
 - **ASCOM COM drivers in the server run on MTA thread-pool threads, as they do in the GUI today.** No

@@ -28,6 +28,18 @@ public static class HostedSessionServiceCollectionExtensions
         => services.AddSingleton(new NodeRunWatchOptions(grace, NodeRunWatchOptions.Default.Poll));
 
     /// <summary>
+    /// Ends the node once nothing has used it for <paramref name="grace"/> (<c>--idle-exit</c>; a minute when null), when a
+    /// client started it and it does not share the rig (<see cref="NodeIdleExit"/>). For <c>tianwen-server</c>, which
+    /// registers the <see cref="NodeRole"/> and <see cref="NodeListening"/> it reads; a host that composes the node another
+    /// way has no idle exit.
+    /// </summary>
+    public static IServiceCollection AddNodeIdleExit(this IServiceCollection services, TimeSpan? grace)
+    {
+        services.AddSingleton(grace is { } g ? new NodeIdleExitOptions(g, NodeIdleExitOptions.Default.Poll) : NodeIdleExitOptions.Default);
+        return services.AddHostedService<NodeIdleExit>();
+    }
+
+    /// <summary>
     /// Registers the hosted session service, WebSocket event hub, and event broadcaster.
     /// </summary>
     public static IServiceCollection AddHostedSession(this IServiceCollection services)
