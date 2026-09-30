@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Shouldly;
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Hosting;
@@ -50,6 +51,96 @@ public class NodeJobsPerDeviceTests
         {
             await Task.Delay(10, ct);
         }
+    }
+
+    /// <summary>
+    /// A <see cref="NodeJobs.Changed"/> subscriber that throws: the one thing between taking a slot and the body owning it
+    /// that a test can reach (#1088). It throws on the first publish, or on every one.
+    /// </summary>
+    private sealed class BrokenSubscriber
+    {
+        private readonly bool _always;
+        private int _armed = 1;
+
+        public BrokenSubscriber(NodeJobs jobs, bool always)
+        {
+            _always = always;
+            jobs.Changed += (_, job) =>
+            {
+                Seen.Enqueue(job);
+                if (_always || Interlocked.Exchange(ref _armed, 0) == 1)
+                {
+                    throw new InvalidOperationException("a subscriber broke");
+                }
+            };
+        }
+
+        public System.Collections.Concurrent.ConcurrentQueue<JobDto> Seen { get; } = new();
+    }
+
+    [Theory(Timeout = 10_000)]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AStartThatThrowsBeforeItsBodyRunsGivesTheDeviceBackAndTheJobEndsFailed(bool everyPublishThrows)
+    {
+        // The slot was taken and only the body's end gave it back, so a throw after the take left the device held by a job
+        // that never ran: every later connect, cool or move answered a 409 naming it, DELETE cancelled a token nothing
+        // observed, and GET /jobs/{id} answered Running for ever (#1088). With every publish throwing, the notice of the
+        // failure throws too, and the caller still has to see the FIRST exception.
+        var ct = TestContext.Current.CancellationToken;
+        var jobs = Jobs();
+        var subscriber = new BrokenSubscriber(jobs, everyPublishThrows);
+        var first = new HeldWork();
+
+        var thrown = Should.Throw<InvalidOperationException>(() => jobs.TryStartOrJoin("connect", Camera, first.RunAsync, out _));
+
+        thrown.Message.ShouldBe("a subscriber broke");
+        first.Runs.ShouldBe(0, "the body never ran");
+        jobs.TryGetRunningOn(Camera, out _).ShouldBeFalse("nothing holds the device");
+        var failed = jobs.List().ShouldHaveSingleItem();
+        failed.State.ShouldBe(JobState.Failed, "not Running for ever");
+        failed.Error.ShouldBe("a subscriber broke");
+        failed.EndedUtc.ShouldNotBeNull();
+        subscriber.Seen.Last().State.ShouldBe(JobState.Failed, "whoever was told it began is told it ended");
+
+        var second = new HeldWork();
+        if (everyPublishThrows)
+        {
+            // The subscriber is still broken, so the retry fails the same way, and gives the device back the same way.
+            Should.Throw<InvalidOperationException>(() => jobs.TryStartOrJoin("connect", Camera, second.RunAsync, out _)).Message.ShouldBe("a subscriber broke");
+            second.Runs.ShouldBe(0);
+            jobs.TryGetRunningOn(Camera, out _).ShouldBeFalse("and the device is free again");
+            jobs.List().Count(job => job.State is JobState.Failed).ShouldBe(2);
+            return;
+        }
+
+        // Not a join of the ghost: a same-kind start would answer true for it and never run anything.
+        jobs.TryStartOrJoin("connect", Camera, second.RunAsync, out var again).ShouldBeTrue();
+        await second.Began.Task.WaitAsync(ct);
+        again.Id.ShouldNotBe(failed.Id);
+        second.Release.SetResult();
+        await UntilEndedAsync(jobs, again.Id, ct);
+        jobs.TryGet(again.Id, out var ended).ShouldBeTrue();
+        ended.State.ShouldBe(JobState.Succeeded);
+    }
+
+    [Fact(Timeout = 10_000)]
+    public async Task AJobOfAKindThatFailedToStartCanBeStartedAgain()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var jobs = Jobs();
+        _ = new BrokenSubscriber(jobs, always: false);
+        var first = new HeldWork();
+
+        Should.Throw<InvalidOperationException>(() => jobs.StartOrJoin("discover", first.RunAsync));
+
+        first.Runs.ShouldBe(0);
+        var second = new HeldWork();
+        var job = jobs.StartOrJoin("discover", second.RunAsync);
+        await second.Began.Task.WaitAsync(ct);
+        second.Release.SetResult();
+        await UntilEndedAsync(jobs, job.Id, ct);
+        second.Runs.ShouldBe(1);
     }
 
     [Fact(Timeout = 10_000)]

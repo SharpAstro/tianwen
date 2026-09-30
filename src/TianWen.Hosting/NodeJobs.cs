@@ -98,14 +98,45 @@ internal sealed class NodeJobs(IHostApplicationLifetime lifetime, ITimeProvider 
             }
         }
 
-        // The host stopping stops it. A registration rather than a linked source, so the source never needs
-        // disposing and a cancel racing the job's end is always safe; the registration goes when the job does.
-        started.StopsWithTheHost = lifetime.ApplicationStopping.Register(static state => (state as CancellationTokenSource)?.Cancel(), started.Cancellation);
-        _jobs[started.Id] = started;
-        Changed?.Invoke(this, started.Snapshot);
-        _ = Task.Run(() => RunAsync(started, work), CancellationToken.None);
+        // Only RunAsync gives the slot back, so from here to the body owning the job a throw would leave the device held by
+        // a job that never runs (#1088): every later command on it answered a 409 naming a ghost, DELETE cancelled a token
+        // nothing observed, and GET answered Running for ever. The body owns the job once Task.Run has returned, and not
+        // before, so a throw up to then ends the job here as Failed, with its reason, and is the caller's to see.
+        try
+        {
+            // The host stopping stops it. A registration rather than a linked source, so the source never needs
+            // disposing and a cancel racing the job's end is always safe; the registration goes when the job does.
+            started.StopsWithTheHost = lifetime.ApplicationStopping.Register(static state => (state as CancellationTokenSource)?.Cancel(), started.Cancellation);
+            _jobs[started.Id] = started;
+            Changed?.Invoke(this, started.Snapshot);
+            _ = Task.Run(() => RunAsync(started, work), CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Job {Kind} {Id} failed to start", started.Kind, started.Id);
+            End(started, JobState.Failed, step: null, error: ex.Message);
+            TellChangedOfAFailedStart(started);
+            throw;
+        }
+
         job = started.Snapshot;
         return true;
+    }
+
+    /// <summary>
+    /// Tells <see cref="Changed"/> a job that failed to start has ended, for whoever was told it began. Best effort: a
+    /// subscriber whose throw failed the start may throw again, and that must not replace the failure being reported.
+    /// </summary>
+    private void TellChangedOfAFailedStart(Job job)
+    {
+        try
+        {
+            Changed?.Invoke(this, job.Snapshot);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "A Changed subscriber threw for job {Kind} {Id} failing to start", job.Kind, job.Id);
+        }
     }
 
     /// <summary>
@@ -168,6 +199,16 @@ internal sealed class NodeJobs(IHostApplicationLifetime lifetime, ITimeProvider 
             logger.LogError(ex, "Job {Kind} {Id} failed", job.Kind, job.Id);
         }
 
+        End(job, state, step, error);
+        Changed?.Invoke(this, job.Snapshot);
+    }
+
+    /// <summary>
+    /// Ends a job: its final snapshot, its slot given back, its host registration dropped, and its place among the ended
+    /// jobs it keeps. The one place a job ends, whether its body ran (<see cref="RunAsync"/>) or never did.
+    /// </summary>
+    private void End(Job job, JobState state, string? step, string? error)
+    {
         job.Snapshot = job.Snapshot with
         {
             State = state,
@@ -183,8 +224,6 @@ internal sealed class NodeJobs(IHostApplicationLifetime lifetime, ITimeProvider 
         {
             _jobs.TryRemove(forgotten, out _);
         }
-
-        Changed?.Invoke(this, job.Snapshot);
     }
 
     private void Report(Job job, string step)
