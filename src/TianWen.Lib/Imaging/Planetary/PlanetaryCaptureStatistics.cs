@@ -256,15 +256,26 @@ public static class PlanetaryCaptureStatistics
             all[i] = i;
         }
 
-        // Every frame's quality, the grader's score over its own disk.
+        // Every frame's quality, the grader's score over its own disk, and which frames the camera corrupted as it read them
+        // out: those score zero, as the stacker grades them, and none of them is the reference, in a mean, a sampled limb or
+        // the quality's distribution (2024-12-15's Uranus-C glitch frame was all four, R5a).
         var quality = new double[n];
+        var corrupt = new bool[n];
         var estimator = new LaplacianEnergyEstimator();
-        await ForEachFrameAsync(stream, all, () => 0, (_, index, frame) => quality[index] = estimator.Score(frame, PlanetaryDisk.BoundingBox(frame)), cancellationToken)
-            .ConfigureAwait(false);
-        var referenceIndex = 0;
-        for (var i = 1; i < n; i++)
+        await ForEachFrameAsync(stream, all, () => 0, (_, index, frame) =>
         {
-            if (quality[i] > quality[referenceIndex])
+            quality[index] = FrameGrader.Grade(estimator, frame);
+            corrupt[index] = FrameGrader.IsCorruptReadout(frame);
+        }, cancellationToken).ConfigureAwait(false);
+        var usableQuality = quality.Where((_, i) => !corrupt[i]).ToArray();
+        if (usableQuality.Length < 3)
+        {
+            return null;
+        }
+        var referenceIndex = Array.IndexOf(corrupt, false);
+        for (var i = referenceIndex + 1; i < n; i++)
+        {
+            if (!corrupt[i] && quality[i] > quality[referenceIndex])
             {
                 referenceIndex = i;
             }
@@ -289,7 +300,7 @@ public static class PlanetaryCaptureStatistics
             var shiftX = new double[n];
             var shiftY = new double[n];
             var flux = new double[n];
-            var bestLevel = QualityPercentile(quality, 90);
+            var bestLevel = QualityPercentile(usableQuality, 90);
             var workers = await ForEachFrameAsync(stream, all, () => new ShiftWorker(LuckyImagingStacker.AlignerFor(reference, region, alignTileSize: 0, options.WhitenedCorrelation), width, height),
                 (worker, index, frame) =>
                 {
@@ -297,6 +308,10 @@ public static class PlanetaryCaptureStatistics
                     shiftX[index] = shift.Dx;
                     shiftY[index] = shift.Dy;
                     flux[index] = LightAround(frame, disk.X + shift.Dx, disk.Y + shift.Dy, 1.3 * disk.Radius, skyLevel / options.FullScaleAdu);
+                    if (corrupt[index])
+                    {
+                        return;
+                    }
                     frame.AccumulateTranslatedInto(worker.All, worker.AllWeight, (float)shift.Dx, (float)shift.Dy, 1f);
                     if (quality[index] >= bestLevel)
                     {
@@ -313,11 +328,7 @@ public static class PlanetaryCaptureStatistics
 
             // Single frames' limbs, each fitted where its shift put its disk.
             var stride = Math.Max(1, options.LimbStride);
-            var sampled = new int[(n + stride - 1) / stride];
-            for (var k = 0; k < sampled.Length; k++)
-            {
-                sampled[k] = k * stride;
-            }
+            var sampled = Enumerable.Range(0, (n + stride - 1) / stride).Select(k => k * stride).Where(index => !corrupt[index]).ToArray();
             var limbClock = Stopwatch.StartNew();
             // Each starts from the mean's fit, moved by the frame's shift, where there is one: beside its answer.
             var limbWorkers = await ForEachFrameAsync(stream, sampled, () => new List<FrameLimb>(), (own, index, frame) =>
@@ -406,7 +417,7 @@ public static class PlanetaryCaptureStatistics
             var halo = sky.Halo;
 
             return new CaptureStatistics(n, fps, referenceIndex, disk.X, disk.Y, disk.Radius, [.. shiftX], [.. shiftY], [.. mountX], [.. mountY], seeingRms, mountRate, mountWander, [.. flux], fluxSlow, fluxFast, limbWidthAll, limbWidthBest,
-                limbAll, limbBest, [.. frameLimbs], limbSeeingRms, alignerErrorRms, limbRadiusRms, limbOutliers, halo, warp, [.. quality], QualityPercentilesOf(quality), Lag1(quality), bandNoise, camera);
+                limbAll, limbBest, [.. frameLimbs], limbSeeingRms, alignerErrorRms, limbRadiusRms, limbOutliers, halo, warp, [.. quality], QualityPercentilesOf(usableQuality), Lag1(usableQuality), bandNoise, camera);
         }
         finally
         {
