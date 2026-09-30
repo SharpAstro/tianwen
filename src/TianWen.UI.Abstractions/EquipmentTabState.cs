@@ -82,7 +82,7 @@ public class EquipmentTabState
     /// The <see cref="CameraTelemetryBuffer"/> values are themselves internally locked.
     /// </para>
     /// </summary>
-    public ConcurrentDictionary<string, CameraTelemetryBuffer> CameraTelemetry { get; } = new();
+    public ConcurrentDictionary<string, CameraTelemetryBuffer> CameraTelemetry { get; } = new(DeviceUriExtensions.DeviceKeyComparer);
 
     /// <summary>Per-camera setpoint input shared across cameras (camera URI path → text input state).</summary>
     public Dictionary<string, TextInputState> CameraSetpointInputs { get; } = new();
@@ -205,7 +205,7 @@ public class EquipmentTabState
     /// </summary>
     public void BeginEditingDeviceSettings(Uri deviceUri)
     {
-        var deviceKey = deviceUri.GetLeftPart(UriPartial.Path);
+        var deviceKey = deviceUri.DeviceKey;
         if (ExpandedDeviceSettingsUri != deviceKey)
         {
             // Different device: start with the advanced sub-section collapsed. Re-opening the

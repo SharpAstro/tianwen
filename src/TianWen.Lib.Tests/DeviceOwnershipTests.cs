@@ -106,8 +106,8 @@ namespace TianWen.Lib.Tests
         [Fact]
         public void AClaimIgnoresTheQueryPartJustLikeAConnection()
         {
-            // Device identity is scheme+authority+path -- the query carries transport detail that changes
-            // under the device (a re-plugged mount moving COM5 -> COM6). A lease keyed any other way would
+            // Device identity is scheme+authority+path -- the query carries detail that changes under the
+            // device (a reconciled port or host, a mirrored backlash). A lease keyed any other way would
             // silently free itself the moment the URI was reconciled.
             var hub = NewHub();
             hub.TryAcquireLease(new Uri("Mount://FakeDevice/FakeMount1?port=COM5"), "the imaging session", out _).ShouldBeTrue();

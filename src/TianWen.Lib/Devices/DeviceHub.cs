@@ -12,15 +12,18 @@ namespace TianWen.Lib.Devices;
 
 internal class DeviceHub(IServiceProvider serviceProvider, ILogger<DeviceHub> logger) : IDeviceHub
 {
-    private readonly ConcurrentDictionary<string, (DeviceBase Device, IDeviceDriver Driver)> _connected = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, (DeviceBase Device, IDeviceDriver Driver)> _connected = new(DeviceUriExtensions.DeviceKeyComparer);
 
     /// <summary>
     /// Live ownership claims, keyed the same way as <see cref="_connected"/> so a lease survives the
-    /// query part of a URI changing (a re-plugged mount moving COM5 -> COM6 is the same device).
+    /// query part of a URI changing. A mount re-plugged on another port keeps its key, and so its lease, only where
+    /// its device source keeps the port out of the path: an LX200/OnStep mount with a UUID does, a Skywatcher, a
+    /// SkyGuider Pro or an LX200/OnStep mount without one does not (docs/architecture/device-architecture.md,
+    /// "Device keys by family").
     /// A lease is deliberately independent of connection state: a run owns its devices across a driver
     /// reconnect, which is precisely when a stray disconnect would do the most damage.
     /// </summary>
-    private readonly ConcurrentDictionary<string, LeaseHandle> _leases = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, LeaseHandle> _leases = new(DeviceUriExtensions.DeviceKeyComparer);
 
     /// <summary>
     /// One connect, adoption or disconnect of a device at a time, keyed like <see cref="_connected"/> (#806). Each reads the
@@ -30,10 +33,10 @@ internal class DeviceHub(IServiceProvider serviceProvider, ILogger<DeviceHub> lo
     /// per device ever connected, never removed or disposed (a SemaphoreSlim whose wait handle is never read holds
     /// nothing), so two devices never wait on each other.
     /// </summary>
-    private readonly ConcurrentDictionary<string, SemaphoreSlim> _gates = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _gates = new(DeviceUriExtensions.DeviceKeyComparer);
 
     /// <summary>What each camera's cooler is being asked to do, keyed like <see cref="_connected"/>.</summary>
-    private readonly ConcurrentDictionary<string, CoolerIntent> _coolerIntents = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, CoolerIntent> _coolerIntents = new(DeviceUriExtensions.DeviceKeyComparer);
 
     public event EventHandler<DeviceConnectedEventArgs>? DeviceStateChanged;
 

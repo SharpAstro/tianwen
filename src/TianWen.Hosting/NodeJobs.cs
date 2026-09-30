@@ -34,7 +34,7 @@ internal sealed class NodeJobs(IHostApplicationLifetime lifetime, ITimeProvider 
 {
     internal const int EndedKept = 32;
 
-    private readonly ConcurrentDictionary<string, Job> _jobs = new ConcurrentDictionary<string, Job>(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, Job> _jobs = new ConcurrentDictionary<string, Job>(DeviceUriExtensions.DeviceKeyComparer);
     // The running job in each slot: a kind for a job on no device, the device's key for a job on one. A device key is a
     // URI's left part ("Camera://FakeDevice/1"), so it can never be a kind's name.
     private readonly ConcurrentDictionary<string, Job> _running = new ConcurrentDictionary<string, Job>(StringComparer.Ordinal);

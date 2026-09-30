@@ -497,7 +497,7 @@ internal sealed class NodeJournalService(
         var devices = now.Devices;
         if (!_pending.IsDefaultOrEmpty)
         {
-            var held = devices.Select(static d => KeyOf(d.DeviceUri)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var held = devices.Select(static d => KeyOf(d.DeviceUri)).ToHashSet(DeviceUriExtensions.DeviceKeyComparer);
             devices = [.. devices.Concat(_pending.Where(p => !held.Contains(KeyOf(p.DeviceUri))))
                 .OrderBy(static d => d.DeviceUri, StringComparer.Ordinal)];
         }

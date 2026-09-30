@@ -167,10 +167,11 @@ internal class SessionFactory(
 
         DeviceBase DeviceFromUri(Uri deviceUri, int? otaIdx = null)
         {
-            // Reconcile stored URI with discovery: if the same device (by scheme+authority+path,
-            // i.e. matching stable deviceId) has been discovered with a different query, e.g.
-            // the mount was re-plugged and moved from COM5 → COM6, or DHCP reassigned the WiFi IP; 
-            // adopt the discovered URI so transport state tracks hardware reality.
+            // Reconcile stored URI with discovery: if the same device (by its DeviceKey) has been
+            // discovered with a different query, e.g. DHCP reassigned an Alpaca host's IP, or a
+            // mount whose id keeps the port out of its path (an LX200/OnStep UUID) moved COM5 → COM6,
+            // adopt the discovered URI so transport state tracks hardware reality. A port-qualified
+            // id (Skywatcher, SkyGuider Pro) is a different key on a new port and is not matched.
             var resolvedUri = deviceDiscovery.ReconcileUri(deviceUri);
             if (resolvedUri != deviceUri)
             {

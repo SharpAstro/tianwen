@@ -19,7 +19,10 @@ public static class DeviceDiscoveryExtensions
         /// <para>
         /// Fixes two classes of bug:
         /// <list type="bullet">
-        ///   <item>"I replugged USB to a different hub and now COM5 is COM6"; transport drift.</item>
+        ///   <item>"I replugged USB to a different hub and now COM5 is COM6"; transport drift. Only for a family whose
+        ///   path keeps the port out (a camera's serial, Alpaca's unique id, an LX200/OnStep mount's UUID): a
+        ///   Skywatcher, a SkyGuider Pro or a mount without a UUID has the port in its path, so the rediscovered
+        ///   device is a different key and nothing here matches it (docs/architecture/device-architecture.md).</item>
         ///   <item>"Discovery published default latitude=48.2 and reset my site to it"; user-config clobber.</item>
         /// </list>
         /// </para>

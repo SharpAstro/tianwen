@@ -214,7 +214,7 @@ namespace TianWen.UI.Abstractions
                             // latest cached telemetry. If the camera reports CoolerOn or Busy,
                             // tint Off red so the user knows clicking it will land on the
                             // confirmation strip rather than disconnecting cleanly.
-                            var key = connectUri.GetLeftPart(UriPartial.Path);
+                            var key = connectUri.DeviceKey;
                             var unsafeOff = false;
                             if (State.CameraTelemetry.TryGetValue(key, out var buf) && buf.Latest is { } latest)
                             {

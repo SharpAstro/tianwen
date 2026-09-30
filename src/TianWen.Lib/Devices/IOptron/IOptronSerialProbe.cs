@@ -50,9 +50,11 @@ internal sealed partial class IOptronSerialProbe : ISerialProbe
         var firmwareVersion = fwMatch.Groups[1].Value;
 
         var portWithoutPrefix = ISerialConnection.RemoveProtoPrrefix(port);
-        // SGP has no mount-resident UUID mechanism: deviceId is port-qualified. A USB
-        // port reshuffle will change the id, but ReconcileUri handles the stored-URI
-        // rewrite downstream.
+        // SGP has no mount-resident UUID mechanism: deviceId is port-qualified, so a USB
+        // port reshuffle changes the id. ReconcileUri does NOT carry a stored URI across
+        // that: it matches by SameDevice, which compares the path the port is in, so the
+        // profile's mount goes unmatched until it is re-assigned (device-architecture.md,
+        // "Device keys by family").
         var deviceId = string.Join('_',
             "SkyGuider-Pro",
             SafeName(firmwareVersion),

@@ -51,7 +51,7 @@ namespace TianWen.UI.Abstractions
             ImmutableArray<DeviceSettingDescriptor> settings, string sectionLabel)
         {
             var dpiScale = DpiScale;
-            var deviceKey = savedDeviceUri.GetLeftPart(UriPartial.Path);
+            var deviceKey = savedDeviceUri.DeviceKey;
             var isExpanded = State.ExpandedDeviceSettingsUri == deviceKey;
             float rowH = BaseItemHeight * 0.9f;   // design units
 

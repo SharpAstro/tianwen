@@ -51,7 +51,7 @@ internal sealed class DeviceStatePoller(
     /// <summary>How long the active profile's site is used before it is read again, for a topocentric mount's J2000.</summary>
     private static readonly TimeSpan SiteRefresh = TimeSpan.FromSeconds(30);
 
-    private readonly ConcurrentDictionary<string, Entry> _entries = new ConcurrentDictionary<string, Entry>(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, Entry> _entries = new ConcurrentDictionary<string, Entry>(DeviceUriExtensions.DeviceKeyComparer);
     private long _lastSnapshotRequest;
     private Profile? _siteProfile;
     private long _siteReadAt;
@@ -66,7 +66,7 @@ internal sealed class DeviceStatePoller(
     public DeviceStateDto[] Snapshot()
     {
         Volatile.Write(ref _lastSnapshotRequest, timeProvider.GetTimestamp());
-        var devices = new Dictionary<string, Uri>(StringComparer.OrdinalIgnoreCase);
+        var devices = new Dictionary<string, Uri>(DeviceUriExtensions.DeviceKeyComparer);
         foreach (var (uri, _) in hub.ConnectedDevices)
         {
             devices[uri.DeviceKey] = uri;
@@ -120,7 +120,7 @@ internal sealed class DeviceStatePoller(
         var watched = events.ClientCount > 0
             || (Volatile.Read(ref _lastSnapshotRequest) is var asked && asked != 0 && timeProvider.GetElapsedTime(asked, now) < WatchedFor);
 
-        var present = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var present = new HashSet<string>(DeviceUriExtensions.DeviceKeyComparer);
         foreach (var (uri, _) in hub.ConnectedDevices)
         {
             present.Add(uri.DeviceKey);
