@@ -52,7 +52,7 @@ internal sealed class TuiEquipmentTab(
     private List<EquipmentFieldItem> _lastItems = [];
 
     /// <summary>Working copy of device URIs being edited (keyed by slot path).</summary>
-    private readonly Dictionary<string, Uri> _editingUris = new Dictionary<string, Uri>();
+    private readonly Dictionary<string, Uri> _editingUris = new Dictionary<string, Uri>(DeviceUriExtensions.DeviceKeyComparer);
 
     /// <summary>Device URI paths whose "Advanced" settings sub-section is expanded (collapsed by default).</summary>
     private readonly HashSet<string> _advancedExpandedUris = new HashSet<string>();
@@ -547,7 +547,7 @@ internal sealed class TuiEquipmentTab(
         }
 
         // Use working copy of URI if we have one, otherwise the original
-        var uriKey = deviceUri.GetLeftPart(UriPartial.Path);
+        var uriKey = deviceUri.DeviceKey;
         if (!_editingUris.TryGetValue(uriKey, out var workingUri))
         {
             workingUri = deviceUri;
@@ -704,24 +704,24 @@ internal sealed class TuiEquipmentTab(
 
     private static Uri? FindOriginalUri(ProfileData data, string uriKey)
     {
-        if (data.Weather is { } w && w.GetLeftPart(UriPartial.Path) == uriKey)
+        if (data.Weather is { } w && DeviceUriExtensions.DeviceKeyComparer.Equals(w.DeviceKey, uriKey))
         {
             return w;
         }
 
-        if (data.Guider is { } g && g.GetLeftPart(UriPartial.Path) == uriKey)
+        if (data.Guider is { } g && DeviceUriExtensions.DeviceKeyComparer.Equals(g.DeviceKey, uriKey))
         {
             return g;
         }
 
-        if (data.GuiderCamera is { } gc && gc.GetLeftPart(UriPartial.Path) == uriKey)
+        if (data.GuiderCamera is { } gc && DeviceUriExtensions.DeviceKeyComparer.Equals(gc.DeviceKey, uriKey))
         {
             return gc;
         }
 
         for (var i = 0; i < data.OTAs.Length; i++)
         {
-            if (data.OTAs[i].Camera is { } cam && cam.GetLeftPart(UriPartial.Path) == uriKey)
+            if (data.OTAs[i].Camera is { } cam && DeviceUriExtensions.DeviceKeyComparer.Equals(cam.DeviceKey, uriKey))
             {
                 return cam;
             }

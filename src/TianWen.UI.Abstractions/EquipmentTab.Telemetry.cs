@@ -30,7 +30,7 @@ namespace TianWen.UI.Abstractions
 
             var dpiScale = DpiScale;
             var fontPath = FontPath;
-            var key = cameraUri.GetLeftPart(UriPartial.Path);
+            var key = cameraUri.DeviceKey;
             var fontSize = BaseFontSize * dpiScale;
             float rowH = BaseItemHeight * 0.9f;   // design units
             var headerKey = $"CamCool_{key}";
@@ -160,7 +160,7 @@ namespace TianWen.UI.Abstractions
             if (liveSessionState is null) return null;
 
             var dpiScale = DpiScale;
-            var key = mountUri.GetLeftPart(UriPartial.Path);
+            var key = mountUri.DeviceKey;
             var fontSize = BaseFontSize * dpiScale;
             float rowH = BaseItemHeight * 0.9f;   // design units
             var headerKey = $"MountStatus_{key}";

@@ -55,7 +55,7 @@ public abstract class NodeConnection : IAsyncDisposable
     private string? _profileRevision;
     private long _devicesCheckedTicks;
     private int _devicesRefreshInFlight;
-    private ImmutableDictionary<string, DeviceStateDto> _devices = ImmutableDictionary<string, DeviceStateDto>.Empty;
+    private ImmutableDictionary<string, DeviceStateDto> _devices = ImmutableDictionary<string, DeviceStateDto>.Empty.WithComparers(DeviceUriExtensions.DeviceKeyComparer);
     private ImmutableArray<NodeDevice> _listed = [];
 
     private readonly NodeGrants? _grants;
@@ -168,8 +168,8 @@ public abstract class NodeConnection : IAsyncDisposable
     public DeviceOwnershipVerdict Ownership(Uri deviceUri, DeviceAction action) =>
         new DeviceOwnershipVerdict(Device(deviceUri)?.LeaseOwner is { } owner ? new DeviceLease(deviceUri, owner) : null, action);
 
-    /// <summary>The identity a device is keyed by: its URI's scheme, host and path, as <see cref="DeviceBase.SameDevice"/> compares.</summary>
-    internal static string KeyOf(Uri deviceUri) => deviceUri.GetLeftPart(UriPartial.Path);
+    /// <summary>The identity a device is keyed by, <see cref="DeviceUriExtensions.DeviceKey"/>, as <see cref="DeviceBase.SameDevice"/> compares.</summary>
+    internal static string KeyOf(Uri deviceUri) => deviceUri.DeviceKey;
 
     private void OnNodeEvent(object? sender, WebSocketEventDto dto)
     {
@@ -435,7 +435,7 @@ public abstract class NodeConnection : IAsyncDisposable
 
     private static ImmutableDictionary<string, DeviceStateDto> Keyed(IEnumerable<DeviceStateDto> devices)
     {
-        var keyed = ImmutableDictionary.CreateBuilder<string, DeviceStateDto>();
+        var keyed = ImmutableDictionary.CreateBuilder<string, DeviceStateDto>(DeviceUriExtensions.DeviceKeyComparer);
         foreach (var device in devices)
         {
             if (Uri.TryCreate(device.DeviceUri, UriKind.Absolute, out var uri))

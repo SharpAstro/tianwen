@@ -29,9 +29,10 @@ public interface IDeviceHub : IAsyncDisposable
     /// <para>
     /// A driver the hub holds that went DOWN (a serial glitch mid-night, a run's <c>Finalise</c> disconnecting it) is
     /// RECONNECTED, the same instance, while the device's URI is unchanged: a run still holds that instance, and a new
-    /// one would be a second driver on the device (#806). Only a changed URI (a mount re-plugged on another COM port,
-    /// which keeps its key) builds a new driver, releasing the old one, and never while a run leases the device: the run
-    /// keeps its instance.
+    /// one would be a second driver on the device (#806). Only a changed URI under the same key builds a new driver,
+    /// releasing the old one, and never while a run leases the device: the run keeps its instance. That case exists only
+    /// for a family whose key survives a re-plug (a camera's serial, Alpaca's unique id, an LX200/OnStep mount's
+    /// UUID); a port-qualified id (Skywatcher, SkyGuider Pro, a mount without a UUID) is a new key on a new port.
     /// </para>
     /// <para>
     /// One connect, adoption or disconnect of a device runs at a time, so two at once leave one driver and hand both

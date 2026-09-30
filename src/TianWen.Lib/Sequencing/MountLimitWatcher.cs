@@ -63,7 +63,7 @@ public sealed class MountLimitWatcher(
     // (Uri.DeviceKey) so a profile URI whose query has drifted still finds it. Entries for mounts the tick
     // skipped (disconnected, leased by a session, no limits configured) are dropped, so a stale verdict can
     // never outlive the situation that produced it.
-    private readonly ConcurrentDictionary<string, MountLimitVerdict> _verdicts = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, MountLimitVerdict> _verdicts = new(DeviceUriExtensions.DeviceKeyComparer);
 
     /// <summary>
     /// The verdict from the last tick for the mount at <paramref name="mountUri"/> (query ignored), or
@@ -117,7 +117,7 @@ public sealed class MountLimitWatcher(
         // a restart, and this is a handful of small JSON files, not a cost worth caching around.
         await deviceDiscovery.DiscoverOnlyDeviceType(DeviceType.Profile, cancellationToken).ConfigureAwait(false);
 
-        var evaluated = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var evaluated = new HashSet<string>(DeviceUriExtensions.DeviceKeyComparer);
         foreach (var (deviceUri, driver) in hub.ConnectedDevices)
         {
             if (driver is not IMountDriver mount)
@@ -164,7 +164,7 @@ public sealed class MountLimitWatcher(
             // from the connected URI (re-discovery, a reconciled setting) is still this mount's profile.
             if (device is Profile { Data: { } data }
                 && data.Mount is { } profileMount
-                && string.Equals(profileMount.DeviceKey, mountUri.DeviceKey, StringComparison.OrdinalIgnoreCase)
+                && DeviceUriExtensions.DeviceKeyComparer.Equals(profileMount.DeviceKey, mountUri.DeviceKey)
                 && data.MountLimits is { } limits)
             {
                 return (limits, data.SiteLatitude);

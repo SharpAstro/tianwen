@@ -230,8 +230,9 @@ it does when the device is connected and does not answer, which must be a transi
 connect, adoption or disconnect of a device at a time (a gate per device key), so two at once (a session's
 initialisation and an Alpaca `Connected=true`) leave one driver and hand both callers it. A driver the hub holds
 that went down is RECONNECTED, the same instance, while its URI is unchanged, since a run still holds it and its
-resilient calls reconnect it; only a changed URI (a mount re-plugged on another port) builds a new one, and
-never while a run leases the device (session end mirrors `focuserBacklashIn`/`Out` into a focuser's query).
+resilient calls reconnect it; only a changed URI under the same key builds a new one, and never while a run leases
+the device (session end mirrors `focuserBacklashIn`/`Out` into a focuser's query). A changed URI under the same key
+only ever happens for a family whose key survives a re-plug (see "Device keys by family" below).
 `DeviceDriverBase` runs one connect or disconnect at a time per driver, and a connect whose transport will not
 open, or whose `InitDeviceAsync` returns `false` or throws, closes what it opened and throws, leaving the driver
 not connected: it used to read `Connected` after a refused init, so the retry skipped init and the disconnect had
@@ -270,6 +271,41 @@ bounded by the caller's token alone (`Timeout.InfiniteTimeSpan`), as they always
 `IAsyncDisposable` and closes through `TryCloseAsync`; a synchronous `Dispose` that cannot await starts the close
 with `CloseInBackground` and never waits on it. A new transport guarantee goes into Serial.Lib with a test there,
 never into the adapter: `docs/plans/serial-lib.md`.
+
+### Device keys by family
+
+A device's key is `Uri.DeviceKey` (`DeviceUriExtensions`): scheme, host and path, compared with
+`DeviceKeyComparer` (ordinal, case-insensitive). It is the ONE definition, and `DeviceKeyHasOneDefinitionTests` fails
+on a second `GetLeftPart(UriPartial.Path)` anywhere in `src/`. `DeviceBase.DeviceId` (the path alone) is a NAME for a
+device's files and secrets, never a comparison of two devices; the whole URI, query included, is the device as
+configured.
+
+"Identity lives in the path, transport in the query" is the design intent, and it is **not true for every family**.
+The path is whatever the device source writes, and three families write the port into it:
+
+| Family | Path id | Survives a re-plug on another port? |
+|---|---|---|
+| ZWO, QHY, Player One, ToupTek, Canon | serial number, else custom id | yes (no port involved) |
+| Alpaca | `uniqueId`; host, port and device number are query | yes |
+| Meade, OnStep **with a UUID** (the probe writes one into a spare site slot) | model plus UUID | yes, and the same across USB and WiFi |
+| Meade, OnStep **without a UUID** | model, site names **and the port** (`MeadeSerialProbe`, `OnStepSerialProbe`: "NOT transport-stable") | **no**: the key changes with the port |
+| Skywatcher | `Skywatcher_<model>_<fw>_<port>` (`SkywatcherSerialProbe`) | **no** |
+| iOptron SkyGuider Pro | `SkyGuider-Pro_<fw>_<port>` (`IOptronSerialProbe`) | **no** |
+
+So for the last three rows a re-plug is a NEW device: a lease does not follow it, `ReconcileUri` does not match it
+(it compares by `SameDevice`, which compares the path the port is in), and the hub's "a changed URI under the same key
+is rebuilt" rule (#806) never applies to them.
+
+### Known limitations of device keys
+
+- **Same key, two devices.** ZWO, QHY, Player One and ToupTek fall back to the model name when a camera has no serial
+  or custom id, so two same-model cameras without a serial share a key. ToupTek discovery skips the second one
+  outright, and the Player One source already says the name is not unique.
+- **The manual filter holder and the manual cover have a constant path (`manual`)** and keep the filter in the query.
+  Two holders with different filters share one key (`filterwheel://manualfilterwheeldevice/manual`), and the hub
+  hands the second the first's driver, which reads its filter from its own device: on a rig with manual holders on
+  two OTAs, the second reports the first's filter. The owner has accepted this for now (review of #1089).
+- **The port-qualified ids above** can only be fixed with a profile migration, which is work of its own (#1090).
 
 ## Alpaca camera image transfer
 

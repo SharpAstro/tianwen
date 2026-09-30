@@ -350,7 +350,10 @@ Tracked by #890.
   Phase 3's skip would then mis-skip the new port. Acceptable: user runs
   discovery again after the obvious move; the existing
   `DeviceDiscoveryExtensions.ReconcileUri` handles the recovery once any
-  source re-finds the device. We could add "if pinned port doesn't exist in
+  source re-finds the device, for a device whose id keeps the port out of its
+  path; a Skywatcher, a SkyGuider Pro or an LX200/OnStep mount without a UUID
+  has a port-qualified id, which a new port turns into a different device
+  (`docs/architecture/device-architecture.md`, "Device keys by family"). We could add "if pinned port doesn't exist in
   enumeration, fall through and probe everything" as a safety net; cheap.
 - **OnStep ESP32 cold-start retry budget (2 × 1.5s)**: still possible to
   miss it on a port that has *another* slow device that wins the lock first.

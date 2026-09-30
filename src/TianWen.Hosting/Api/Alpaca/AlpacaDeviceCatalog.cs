@@ -123,10 +123,11 @@ namespace TianWen.Hosting.Api.Alpaca
         }
 
         /// <summary>
-        /// A stable per-device identifier for the management API. Derived from the device URI (minus its
-        /// query, matching how the hub keys devices), so it survives a re-plug that changes the COM port
-        /// but names a genuinely different device when the hardware changes.
+        /// A per-device identifier for the management API: the hub's own key, <see cref="DeviceUriExtensions.DeviceKey"/>.
+        /// It survives a re-plug on another port only where the device source keeps the port out of the path (a camera
+        /// SDK's serial, Alpaca's unique id, an LX200/OnStep mount's UUID); a Skywatcher or SkyGuider Pro id carries
+        /// its port. docs/architecture/device-architecture.md, "Device keys by family".
         /// </summary>
-        public static string UniqueId(Uri deviceUri) => deviceUri.GetLeftPart(UriPartial.Path);
+        public static string UniqueId(Uri deviceUri) => deviceUri.DeviceKey;
     }
 }

@@ -33,7 +33,7 @@ internal sealed partial class DeviceOperations
     private static readonly TimeSpan MoveAxisTick = TimeSpan.FromMilliseconds(100);
 
     // The motion each move-axis job carries out, by device key: what requests renew and change while the job runs.
-    private readonly ConcurrentDictionary<string, AxisMotion> _axisMotions = new ConcurrentDictionary<string, AxisMotion>(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, AxisMotion> _axisMotions = new ConcurrentDictionary<string, AxisMotion>(DeviceUriExtensions.DeviceKeyComparer);
 
     /// <summary>Both axes' rates and when a client last asked for the motion; written by requests, read by the job.</summary>
     private sealed class AxisMotion(long renewedAt)

@@ -22,6 +22,11 @@ public abstract record class DeviceBase(Uri DeviceUri)
 
     private string? _deviceId;
 
+    /// <summary>
+    /// The path of the device URI alone, no scheme or host: a NAME for the device's files and secrets (the credential
+    /// store, <c>Profiles/BacklashHistory/&lt;id&gt;.json</c>, profile lookup). To ask whether two URIs name the same
+    /// device, use <see cref="DeviceUriExtensions.DeviceKey"/> or <see cref="SameDevice"/>, never this.
+    /// </summary>
     [JsonIgnore]
     public string DeviceId => _deviceId ??= DeviceIdOf(DeviceUri);
 
@@ -155,9 +160,9 @@ public abstract record class DeviceBase(Uri DeviceUri)
     }
 
     /// <summary>
-    /// Compares two device URIs by identity (scheme + authority + path), ignoring
-    /// query parameters and fragment. Query params carry runtime config (e.g. site
-    /// coordinates on a mount URI) that should not affect device identity.
+    /// Compares two device URIs by identity, their <see cref="DeviceUriExtensions.DeviceKey"/> (scheme + authority +
+    /// path), ignoring query parameters and fragment, case-insensitively as the hub's maps do. Query params carry
+    /// runtime config (e.g. site coordinates on a mount URI) that should not affect device identity.
     /// </summary>
     /// <remarks>
     /// Both <see cref="NotNullWhenAttribute"/>s state what the body decides: a true answer means
@@ -166,7 +171,7 @@ public abstract record class DeviceBase(Uri DeviceUri)
     /// </remarks>
     public static bool SameDevice([NotNullWhen(true)] Uri? a, [NotNullWhen(true)] Uri? b) =>
         a is not null && b is not null
-        && a.GetLeftPart(UriPartial.Path) == b.GetLeftPart(UriPartial.Path);
+        && DeviceUriExtensions.DeviceKeyComparer.Equals(a.DeviceKey, b.DeviceKey);
 
     internal static bool IsValidHost(string host) => Uri.CheckHostName(host) switch
     {

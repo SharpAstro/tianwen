@@ -204,7 +204,7 @@ public class EquipmentThroughTheNodeTests(ITestOutputHelper output)
         await using var h = await GuiNodeHarness.StartAsync(output, ct);
         h.AppState.ActiveTab = GuiTab.Equipment;
         await h.Local.RefreshDevicesNowAsync(ct);
-        var key = h.CameraUri.GetLeftPart(UriPartial.Path);
+        var key = h.CameraUri.DeviceKey;
 
         h.Handler.PollCameraTelemetry();
         h.Handler.PollCameraTelemetry();
