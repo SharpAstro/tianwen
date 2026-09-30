@@ -907,6 +907,14 @@ R4's keeps minimise the error of a raw stack, and a raw stack's band 1 error is 
     - **The claims**, on the calibrated twin (`red-3k-final`), the warped one (`c065l10`) and 2022-09-03's Red:
       - (a)'s width is under 0.3 of (b)'s, on all three.
       - On the twins, (b)'s transfer lies within 10 % of the truth's in bands 1 to 4. The plan's "(b) composed from (a), the still layer and the scatter" is read on the twins as: the lucky frames' own transfer against the truth, times (a), within 10 % of S's against the truth in bands 1 to 4. The still layer and the scatter are what the lucky frames' own kernel holds.
+  - **Added 2026-10-01, after part 2 found (b)'s halo at its bound, before part 3's kernel was built or measured** (`tianwen planetary-blur`, again):
+    - **The kernel**:
+      - The limb fit's geometry is kept: centre, radius, axis, limb darkening and zonal albedo, rendered sharp by the fit's own model.
+      - The blur is refitted with a Gaussian core CONVOLVED with the scatter's shape, a delta and a wing (1 + (r/a)^2)^(-3/2): transfer exp(-2 pi^2 s^2 f^2) ((1 - h) + h exp(-2 pi a f)).
+      - It is fitted over 0.8 to 2 radii, where the scattered light shows in the sky and the limb fit's annulus stopped at 1.2.
+    - **The claims**:
+      - On both twins, its band transfers lie within 10 % of the truth's in bands 1 to 4, where (b)'s missed by 17 to 39 % in bands 1 and 2.
+      - On 2022-09-03's Red it is reported, the kernel the inverse will use.
 
 ### R7 results, part 1: the spectral ratio
 
