@@ -169,7 +169,7 @@ Each carries its prediction and what would falsify it; the issues are in the pla
 - **The 8-bit sky sits below the rounding step** (read noise 0.21 ADU): its noise is neither additive nor white there.
 - **The warp is a phase error.** No magnitude-weighted method (FAS, FBA, HDR+) can undo what the 0.6 px warp costs a coherent
   stack.
-- **Static blur is invisible to the spectral ratio and to any selection.**
+- **Static blur is invisible to the spectral ratio and to any selection, but only a static CONVOLUTION is** (the scatter, the pixel). A still phase in the pupil adds to the air's before the PSF forms and does not cancel: measured in R7 part 1, the calibrated twin's ratio read as free air alone gave 5.71 cm for 8.5, and 9.06 with its still layer in the theory.
 - **A 4 ms exposure is not frozen at 22 m/s**: the pupil slides 9 cm, more than r0, so Korff's frozen-screen transfer reads band
   1 low.
 - **Colour.** Turbulence is chromatic (r0 goes as the wavelength to the 1.2), so per-frequency weights on an RGGB capture are per
