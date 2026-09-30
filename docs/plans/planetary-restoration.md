@@ -896,6 +896,17 @@ R4's keeps minimise the error of a raw stack, and a raw stack's band 1 error is 
         - its corrected ratio lies within 0.03 of the warped twin's at every ring fitted, the two sharing their warp by R5's calibration;
         - fitting seeing and warp together is as degenerate there, so no r0 is claimed for the real capture.
   - **Added 2026-09-30 from R6 part 3, before either probe was run**: R6's belts re-read against OPAL blurred by (b) instead of the limb fit's PSF bring the SEB's north edge within 1 degree of OPAL's in at least four of R6's six stacks. If they do not, the edge's miss is not the blur, and the belts' own change over weeks is what is left.
+  - **Added 2026-10-01, before part 2 (probes (a) and (b)) was built or measured** (`tianwen planetary-blur`):
+    - **The stacks**: each capture's 3,000 frames graded by the gradient (R4; the Laplacian ranks 8-bit frames near chance, so its best are not the lucky ones), stacked global, plain, Lanczos-3.
+      - The lucky frames are the best 1 %, split alternately by rank into two halves, L1 and L2.
+      - The stack, S, is the frames ranked 1 to 5 %, so no frame of S is lucky and the noise of neither enters the other's cross terms.
+    - **Probe (a)**: in each a trous band inside 0.9 radii, S's transfer over the lucky frames', the cross term of S with L1 over that of L1 with L2 (all three registered onto S, normalised).
+    - **Probe (b)**: the limb fit on S, its core and its Gaussian halo fitted together (R1's fit), read as band transfers by blurring the twin's truth with that PSF.
+    - **The truth**, on the twins: S's transfer against its truth in each band (R3's fidelity).
+    - A kernel's **width** is the Gaussian sigma whose band transfers fit its own best.
+    - **The claims**, on the calibrated twin (`red-3k-final`), the warped one (`c065l10`) and 2022-09-03's Red:
+      - (a)'s width is under 0.3 of (b)'s, on all three.
+      - On the twins, (b)'s transfer lies within 10 % of the truth's in bands 1 to 4. The plan's "(b) composed from (a), the still layer and the scatter" is read on the twins as: the lucky frames' own transfer against the truth, times (a), within 10 % of S's against the truth in bands 1 to 4. The still layer and the scatter are what the lucky frames' own kernel holds.
 
 ### R7 results, part 1: the spectral ratio
 
