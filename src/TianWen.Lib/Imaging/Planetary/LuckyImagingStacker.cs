@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Geometry;
 using System.Numerics;
 using System.Threading;
@@ -28,11 +30,13 @@ public sealed class LuckyImagingStacker
         var channelAccum = Image.CreateChannelData(ctx.Channels, ctx.Height, ctx.Width);
         var weightAccum = new float[ctx.Height, ctx.Width];
 
-        var used = await AccumulateGlobalAsync(stream, ctx.Selected, ctx.Aligner, index => ctx.ScoreByIndex[index], channelAccum, weightAccum, options.Interpolation, cancellationToken).ConfigureAwait(false);
+        var used = ctx.Derotator is { } derotator
+            ? await AccumulateDerotatedAsync(stream, ctx.Selected, derotator, index => ctx.ScoreByIndex[index], channelAccum, weightAccum, options, cancellationToken).ConfigureAwait(false)
+            : await AccumulateGlobalAsync(stream, ctx.Selected, ctx.Aligner, index => ctx.ScoreByIndex[index], channelAccum, weightAccum, options.Interpolation, cancellationToken).ConfigureAwait(false);
 
         var stacked = Normalize(channelAccum, weightAccum, ctx);
         var master = await FinalizeAsync(stacked, stream.Layout, options, cancellationToken).ConfigureAwait(false);
-        return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length);
+        return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length) { Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North };
     }
 
     /// <summary>
@@ -101,6 +105,47 @@ public sealed class LuckyImagingStacker
         return used;
     }
 
+    // The global path's integration for frames carried to one epoch (R6 part 2): each frame registered onto the stack's disk
+    // against the reference turned to its instant, and resampled through its de-rotation beneath that shift, a mesh with no
+    // points, relit as it lands. In capture order, so one turned reference serves a run of frames. Returns how many were added.
+    private static async Task<int> AccumulateDerotatedAsync(IPlanetaryFrameStream stream, ImmutableArray<int> frames, FrameDerotator derotator, Func<int, float> weightOf,
+        float[][,] channelAccum, float[,] weightAccum, PlanetaryStackOptions options, CancellationToken cancellationToken)
+    {
+        var (height, width) = (weightAccum.GetLength(0), weightAccum.GetLength(1));
+        var used = 0;
+        foreach (var index in InCaptureOrder(frames))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var weight = weightOf(index);
+            if (weight <= 0f)
+            {
+                continue;
+            }
+
+            var frame = await stream.LoadAsync(index, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                var shift = derotator.Shift(frame, index);
+                var mesh = DisplacementMesh.Build(width, height, (float)shift.Dx, (float)shift.Dy, [], derotator.FieldFor(index), options.MeshNodeSpacing, options.MeshInfluence);
+                frame.AccumulateByMeshInto(channelAccum, weightAccum, mesh, weight, options.Interpolation);
+                used++;
+            }
+            finally
+            {
+                frame.Release();
+            }
+        }
+        return used;
+    }
+
+    // The frames a de-rotated stack visits, in capture order: the order its turned references are made in.
+    private static ImmutableArray<int> InCaptureOrder(ImmutableArray<int> frames)
+    {
+        var sorted = frames.ToBuilder();
+        sorted.Sort();
+        return sorted.ToImmutable();
+    }
+
     // The global aligner on a reference's disk, its tile auto-sized to the disk (clamped to [64, 512]) unless one is set.
     internal static GlobalAligner AlignerFor(Image reference, PixelRect refRegion, int alignTileSize, bool whiten = true)
     {
@@ -119,6 +164,11 @@ public sealed class LuckyImagingStacker
     public async Task<PlanetaryStackResult> StackAsync(IPlanetaryFrameStream stream, PlanetaryStackOptions? options = null, CancellationToken cancellationToken = default)
     {
         options ??= new PlanetaryStackOptions();
+        if (options.Derotation is not null && (options.WarpPoolFrames > 0 || options.MedianGeometry))
+        {
+            throw new InvalidOperationException(
+                "A de-rotated stack matches each frame's points where the planet's rotation put them; pooled points and the median geometry read every frame's points unrotated, so they do not combine with it.");
+        }
         var ctx = await PrepareAsync(stream, options, includeAlignmentPoints: true, cancellationToken).ConfigureAwait(false);
         var channelAccum = Image.CreateChannelData(ctx.Channels, ctx.Height, ctx.Width);
         var weightAccum = new float[ctx.Height, ctx.Width];
@@ -135,7 +185,7 @@ public sealed class LuckyImagingStacker
         var points = new AlignmentPointShift[matcher.AlignmentPoints.Length];
 
         var used = 0;
-        foreach (var index in ctx.Selected)
+        foreach (var index in ctx.Derotator is null ? ctx.Selected : InCaptureOrder(ctx.Selected))
         {
             cancellationToken.ThrowIfCancellationRequested();
             var weight = ctx.ScoreByIndex[index];
@@ -148,7 +198,13 @@ public sealed class LuckyImagingStacker
             try
             {
                 DisplacementMesh mesh;
-                if (tracks is not null)
+                if (ctx.Derotator is { } derotator)
+                {
+                    // Each point matched where the rotation and the shift put it, over the frame's de-rotation (R6 part 2).
+                    var shift = derotator.Shift(frame, index);
+                    mesh = matcher.BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, derotator.FieldFor(index), options.MeshNodeSpacing, options.MeshInfluence);
+                }
+                else if (tracks is not null)
                 {
                     var (gx, gy) = tracks.GlobalShift(index);
                     tracks.Points(index, options.WarpPoolFrames, options.MedianGeometry, points);
@@ -179,7 +235,7 @@ public sealed class LuckyImagingStacker
 
         var stacked = Normalize(channelAccum, weightAccum, ctx);
         var master = await FinalizeAsync(stacked, stream.Layout, options, cancellationToken).ConfigureAwait(false);
-        return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length);
+        return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length) { Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North };
     }
 
     /// <summary>
@@ -225,7 +281,7 @@ public sealed class LuckyImagingStacker
         // One mosaic plane for the whole stack, merged into per frame (every sample is overwritten): a new
         // full-size plane per frame was garbage the drizzle read once. Returned when the stack is done.
         using var mosaicPlane = Array2DPool<float>.RentScoped(mosaicH, mosaicW);
-        foreach (var index in ctx.Selected)
+        foreach (var index in ctx.Derotator is null ? ctx.Selected : InCaptureOrder(ctx.Selected))
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (ctx.ScoreByIndex[index] <= 0f)
@@ -236,18 +292,28 @@ public sealed class LuckyImagingStacker
             var frame = await stream.LoadAsync(index, cancellationToken).ConfigureAwait(false);
             try
             {
-                var shift = ctx.Aligner.Estimate(frame, PlanetaryDisk.BoundingBox(frame));
+                var shift = ctx.Derotator?.Shift(frame, index) ?? ctx.Aligner.Estimate(frame, PlanetaryDisk.BoundingBox(frame));
+                var derotation = ctx.Derotator?.FieldFor(index);
                 var mosaic = frame.MergeBayerChannelsInto(mosaicPlane.Array);
                 var sourceRect = new PixelRect(0, 0, mosaic.Width, mosaic.Height);
-                if (ctx.Matcher is { } matcher)
+                if (ctx.Matcher is not null || derotation is not null)
                 {
                     // AP-mesh drizzle: forward-scatter each raw sample through the per-AP displacement mesh.
                     // The mesh is built at sub-plane resolution; MeshSourceToCanvas samples it at the
                     // mosaic pixel's sub-plane position, doubles the offset into mosaic space, and applies
                     // the output scale -- so drizzle gets the local de-warp, not just a whole-disk shift.
-                    var mesh = matcher.BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, options.MeshNodeSpacing, options.MeshInfluence);
+                    // A de-rotated frame (R6 part 2) goes the same way with or without points, its field beneath
+                    // the mesh, and each raw sample relit before it is scattered.
+                    var mesh = ctx.Matcher is { } matcher
+                        ? matcher.BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, derotation, options.MeshNodeSpacing, options.MeshInfluence)
+                        : DisplacementMesh.Build(ctx.Width, ctx.Height, (float)shift.Dx, (float)shift.Dy, [], derotation, options.MeshNodeSpacing, options.MeshInfluence);
+                    var map = new MeshSourceToCanvas(mesh, scale);
+                    if (derotation is not null)
+                    {
+                        map.RelightInPlace(mosaicPlane.Array);
+                    }
                     DrizzleKernel.IterateAndDeposit(
-                        mosaic, new MeshSourceToCanvas(mesh, scale), pattern, halfP, flux, weight,
+                        mosaic, map, pattern, halfP, flux, weight,
                         xStart: 0, xEnd: canvasW, yStart: 0, yEnd: canvasH,
                         sourceRect, badPixelMask: default, hasBadPixelMask: false);
                 }
@@ -296,7 +362,7 @@ public sealed class LuckyImagingStacker
             master = WaveletSharpen.Sharpen(master, sharpen);
         }
 
-        return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length);
+        return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length) { Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North };
     }
 
     /// <summary>
@@ -306,13 +372,41 @@ public sealed class LuckyImagingStacker
     /// mosaic position is <c>mosaic - 2*offset</c> (the mesh offset already folds in the global shift), and
     /// the canvas position is that scaled by the output <c>scale</c> -- the per-pixel generalisation of the
     /// whole-disk affine <c>(mosaic - 2*shift) * scale</c>.
+    /// <para>
+    /// The mesh is the stack's pixel to the frame's, sampled here at the frame's photosite as if that were the stack's pixel,
+    /// which a shift and a seeing warp that varies over tens of pixels allow. A de-rotation varies by a pixel or two across a
+    /// disk, so over one the offset is sampled again where the first answer lands: one step of the fixed point
+    /// <c>c = s - offset(c)</c>, where the stack's pixel <c>c</c> reads the photosite <c>s</c>.
+    /// </para>
     /// </summary>
     private readonly struct MeshSourceToCanvas(DisplacementMesh mesh, float scale) : ISourceToCanvas
     {
         public Vector2 Map(int xSrc, int ySrc)
         {
-            var (offX, offY) = mesh.Sample(xSrc * 0.5f, ySrc * 0.5f);
+            var (offX, offY) = Offset(xSrc, ySrc);
             return new Vector2((xSrc - (2f * offX)) * scale, (ySrc - (2f * offY)) * scale);
+        }
+
+        // Each raw sample of a de-rotated frame multiplied by the relight at the stack pixel it lands on.
+        public void RelightInPlace(float[,] mosaic)
+        {
+            var (height, width) = (mosaic.GetLength(0), mosaic.GetLength(1));
+            var (self, field) = (this, mesh);
+            ParallelFor.Run(height, y =>
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    var (offX, offY) = self.Offset(x, y);
+                    mosaic[y, x] *= field.RelightAt((x * 0.5f) - offX, (y * 0.5f) - offY);
+                }
+            });
+        }
+
+        private (float OffsetX, float OffsetY) Offset(int xSrc, int ySrc)
+        {
+            var (x, y) = (xSrc * 0.5f, ySrc * 0.5f);
+            var (offX, offY) = mesh.Sample(x, y);
+            return mesh.Derotation is null ? (offX, offY) : mesh.Sample(x - offX, y - offY);
         }
     }
 
@@ -339,7 +433,9 @@ public sealed class LuckyImagingStacker
         int Width,
         int Height,
         int Channels,
-        ImageMeta MasterMeta);
+        ImageMeta MasterMeta,
+        FrameDerotator? Derotator,
+        PlanetaryNorthDecision? North);
 
     private static async Task<StackContext> PrepareAsync(IPlanetaryFrameStream stream, PlanetaryStackOptions options, bool includeAlignmentPoints, CancellationToken cancellationToken)
     {
@@ -361,7 +457,33 @@ public sealed class LuckyImagingStacker
         }
 
         var reference = await stream.LoadAsync(referenceIndex, cancellationToken).ConfigureAwait(false);
-        if (options.ReferenceFrames > 1)
+        FrameDerotator? derotator = null;
+        PlanetaryNorthDecision? north = null;
+        if (options.Derotation is { } derotation)
+        {
+            // Carried to one epoch (R6 part 2), the stack's disk is the best frame's and its reference the best frame at the
+            // epoch, or a stack of the best frames each carried there. Its north is the one the capture agrees with. The
+            // derotator keeps the reference it registers against, so that one is never released here.
+            try
+            {
+                var fitted = FrameDerotator.Create(stream, reference, referenceIndex, derotation, options.AlignTileSize, options.WhitenedCorrelation);
+                var plain = AlignerFor(reference, PlanetaryDisk.BoundingBox(reference), options.AlignTileSize, options.WhitenedCorrelation);
+                var (asFitted, turned) = await AgreementBothWaysAsync(stream, grades, fitted, plain, reference.ChannelCount, reference.Width, reference.Height, reference.ImageMeta, options, cancellationToken).ConfigureAwait(false);
+                derotator = (turned < asFitted) != derotation.TurnNorthOver ? fitted.TurnedOver() : fitted;
+                north = new PlanetaryNorthDecision(derotator.Placement.NorthAngleDeg, asFitted, turned);
+                derotator.UseTemplate(derotator.ToEpoch(reference, derotator.AspectOf(referenceIndex)));
+            }
+            finally
+            {
+                reference.Release();
+            }
+            if (options.ReferenceFrames > 1)
+            {
+                derotator.UseTemplate(await StackedReferenceAsync(stream, grades, derotator, options, cancellationToken).ConfigureAwait(false));
+            }
+            reference = derotator.Template;
+        }
+        else if (options.ReferenceFrames > 1)
         {
             reference = await StackedReferenceAsync(stream, grades, reference, options, cancellationToken).ConfigureAwait(false);
         }
@@ -386,11 +508,14 @@ public sealed class LuckyImagingStacker
             }
 
             return new StackContext(grades, referenceIndex, selected, scoreByIndex, aligner, matcher, signalConfidence,
-                reference.Width, reference.Height, reference.ChannelCount, reference.ImageMeta);
+                reference.Width, reference.Height, reference.ChannelCount, reference.ImageMeta, derotator, north);
         }
         finally
         {
-            reference.Release();
+            if (derotator is null)
+            {
+                reference.Release();
+            }
         }
     }
 
@@ -418,6 +543,85 @@ public sealed class LuckyImagingStacker
         var weightAccum = new float[height, width];
         await AccumulateGlobalAsync(stream, frames, aligner, _ => 1f, channelAccum, weightAccum, options.Interpolation, cancellationToken).ConfigureAwait(false);
         return PlanetaryMaster.NormalizeInPlace(channelAccum, weightAccum, meta);
+    }
+
+    // How a turn under this many degrees of the central meridian leaves the north: as the limb fit has it, since either way round
+    // carries the planet too little to matter, or to tell.
+    private const double LeastTurnToTellNorthDeg = 1;
+
+    // Which way round the planet turns in this capture (R6 part 2). Near opposition the limb fit's north can be its south, and a
+    // de-rotation turned the wrong way turns the planet backwards. The best frames of the capture's first and last quarters are
+    // stacked as they are, each on the reference's disk, and the earlier is carried to the later's instant both ways round:
+    // the RMS apart each way, the limb fit's north first. NaN for both when the capture turns the planet too little to tell.
+    private static async Task<(double AsFitted, double TurnedOver)> AgreementBothWaysAsync(IPlanetaryFrameStream stream, ImmutableArray<FrameGrade> grades,
+        FrameDerotator fitted, GlobalAligner aligner, int channels, int width, int height, ImageMeta meta, PlanetaryStackOptions options, CancellationToken cancellationToken)
+    {
+        var (first, last) = (fitted.AspectOf(0), fitted.AspectOf(stream.FrameCount - 1));
+        if (Math.Abs(Math.IEEERemainder(last.CentralMeridianIII - first.CentralMeridianIII, 360)) < LeastTurnToTellNorthDeg)
+        {
+            return (double.NaN, double.NaN);
+        }
+        var quarter = (last.Utc - first.Utc) / 4;
+        var early = await QuarterStackAsync(stream, grades, first.Utc, first.Utc + quarter, aligner, channels, width, height, meta, options, cancellationToken).ConfigureAwait(false);
+        var late = await QuarterStackAsync(stream, grades, last.Utc - quarter, last.Utc, aligner, channels, width, height, meta, options, cancellationToken).ConfigureAwait(false);
+        if (early is not { } a || late is not { } b)
+        {
+            return (double.NaN, double.NaN);
+        }
+        var (from, to) = (PhysicalEphemeris.Compute(fitted.Epoch.Planet, a.Time), PhysicalEphemeris.Compute(fitted.Epoch.Planet, b.Time));
+        double Apart(in DiskPlacement disk)
+        {
+            var carried = PlanetaryDerotation.Derotate(a.Stack, from, to, disk, fitted.MinnaertK);
+            return PlanetaryDerotation.DifferenceRms(carried.Image, b.Stack, disk, carried.Covered).Rms;
+        }
+        var placement = fitted.Placement;
+        return (Apart(placement), Apart(placement with { NorthAngleDeg = placement.NorthAngleDeg + 180 }));
+    }
+
+    // The best frames between two instants, stacked as they are onto the reference's disk, and their mean time; null for none.
+    private static async Task<(Image Stack, DateTimeOffset Time)?> QuarterStackAsync(IPlanetaryFrameStream stream, ImmutableArray<FrameGrade> grades,
+        DateTimeOffset from, DateTimeOffset to, GlobalAligner aligner, int channels, int width, int height, ImageMeta meta, PlanetaryStackOptions options, CancellationToken cancellationToken)
+    {
+        var inside = new List<FrameGrade>();
+        foreach (var grade in grades)
+        {
+            if (grade.Score > 0 && stream.TimestampOf(grade.Index) is { } time && time >= from && time <= to)
+            {
+                inside.Add(grade);
+            }
+        }
+        if (inside.Count == 0)
+        {
+            return null;
+        }
+        // One in a hundred of the quarter's frames, at least 5 and at most 200: enough that its stack's noise is well below the
+        // rotation it is to tell, few enough that the best are sharp.
+        inside.Sort((p, q) => q.Score.CompareTo(p.Score));
+        var keep = Math.Min(inside.Count, Math.Clamp(inside.Count / 100, 5, 200));
+        var frames = ImmutableArray.CreateBuilder<int>(keep);
+        var ticks = 0.0;
+        for (var i = 0; i < keep; i++)
+        {
+            frames.Add(inside[i].Index);
+            ticks += (stream.TimestampOf(inside[i].Index) ?? from).UtcTicks;
+        }
+        var channelAccum = Image.CreateChannelData(channels, height, width);
+        var weightAccum = new float[height, width];
+        await AccumulateGlobalAsync(stream, frames.MoveToImmutable(), aligner, _ => 1f, channelAccum, weightAccum, options.Interpolation, cancellationToken).ConfigureAwait(false);
+        return (PlanetaryMaster.NormalizeInPlace(channelAccum, weightAccum, meta), new DateTimeOffset((long)(ticks / keep), TimeSpan.Zero));
+    }
+
+    // The best frames' stack carried to the epoch (PlanetaryStackOptions.ReferenceFrames, R6 part 2): each registered against the
+    // derotator's reference as it is, and carried there. Returns the stack, which the caller owns.
+    private static async Task<Image> StackedReferenceAsync(IPlanetaryFrameStream stream, ImmutableArray<FrameGrade> grades, FrameDerotator derotator,
+        PlanetaryStackOptions options, CancellationToken cancellationToken)
+    {
+        var template = derotator.Template;
+        var frames = FrameGrader.SelectBest(grades, Math.Min(1.0, (double)options.ReferenceFrames / grades.Length));
+        var channelAccum = Image.CreateChannelData(template.ChannelCount, template.Height, template.Width);
+        var weightAccum = new float[template.Height, template.Width];
+        await AccumulateDerotatedAsync(stream, frames, derotator, _ => 1f, channelAccum, weightAccum, options, cancellationToken).ConfigureAwait(false);
+        return PlanetaryMaster.NormalizeInPlace(channelAccum, weightAccum, template.ImageMeta);
     }
 
     /// <summary>

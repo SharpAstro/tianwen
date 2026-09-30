@@ -716,7 +716,8 @@ public partial class Image
     /// <paramref name="weight"/>, into caller-owned per-channel accumulators + a shared per-pixel weight
     /// plane (the mesh-warp analogue of <see cref="AccumulateTranslatedInto"/>). Out-of-bounds samples
     /// contribute nothing and add no weight, so integrated edges stay unbiased. Used by the per-AP
-    /// planetary integrator to fold a frame in with no intermediate warped-image allocation.
+    /// planetary integrator to fold a frame in with no intermediate warped-image allocation. A mesh over a de-rotation
+    /// (<see cref="Planetary.DisplacementMesh.Derotation"/>) relights each sample as it lands.
     /// </summary>
     internal void AccumulateByMeshInto(float[][,] channelAccum, float[,] weightAccum, Planetary.DisplacementMesh mesh, float weight,
         WarpInterpolation interpolation = WarpInterpolation.Bilinear)
@@ -724,6 +725,7 @@ public partial class Image
         var outH = weightAccum.GetLength(0);
         var outW = weightAccum.GetLength(1);
         var channels = ChannelCount;
+        var relit = mesh.Derotation is not null;
 
         // Residency resolved once per operation, not once per sampled pixel.
         var planes = ResidentPlanes();
@@ -755,9 +757,10 @@ public partial class Image
                     continue;
                 }
 
+                var gain = relit ? weight * mesh.RelightAt(x, y) : weight;
                 for (var c = 0; c < channels; c++)
                 {
-                    channelAccum[c][y, x] += weight * samples[c];
+                    channelAccum[c][y, x] += gain * samples[c];
                 }
 
                 weightAccum[y, x] += weight;
@@ -793,6 +796,7 @@ public partial class Image
         var planes = ResidentPlanes();
         var width = Width;
         var height = Height;
+        var relit = mesh.Derotation is not null;
 
         Span<float> samples = stackalloc float[channels];
         for (var y = 0; y < outH; y++)
@@ -836,9 +840,10 @@ public partial class Image
                     continue;
                 }
 
+                var gain = relit ? weight * mesh.RelightAt(x, y) : weight;
                 for (var c = 0; c < channels; c++)
                 {
-                    channelAccum[c][y, x] += weight * samples[c];
+                    channelAccum[c][y, x] += gain * samples[c];
                 }
 
                 weightAccum[y, x] += weight;

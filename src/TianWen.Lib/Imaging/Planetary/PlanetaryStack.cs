@@ -1,3 +1,5 @@
+using System;
+
 namespace TianWen.Lib.Imaging.Planetary;
 
 /// <summary>Options for a planetary lucky-imaging stack.</summary>
@@ -106,6 +108,13 @@ public sealed record PlanetaryStackOptions
     /// scattered through the local de-warp, not just a whole-disk translation.
     /// </summary>
     public PlanetaryDrizzleOptions? Drizzle { get; init; }
+
+    /// <summary>
+    /// Carry every frame through the planet's rotation to one epoch before it is stacked (docs/plans/planetary-restoration.md,
+    /// R6 part 2), on every path: null (the default) stacks each frame as it was taken, which over a run of minutes smears
+    /// the planet along its rotation, since the limb stays where it is and the belts move. Needs every frame's time.
+    /// </summary>
+    public PlanetaryDerotationOptions? Derotation { get; init; }
 }
 
 /// <summary>
@@ -124,4 +133,11 @@ public sealed record PlanetaryDrizzleOptions(float Scale = 1.5f, float Pixfrac =
 /// reference frame's <see cref="ImageMeta"/> -- for a split-CFA stream it is the four stacked CFA
 /// sub-planes (demosaiced in Phase 6); for mono / RGB it is the integrated image directly.
 /// </summary>
-public sealed record PlanetaryStackResult(Image Master, int ReferenceIndex, int FramesUsed, int FramesGraded);
+public sealed record PlanetaryStackResult(Image Master, int ReferenceIndex, int FramesUsed, int FramesGraded)
+{
+    /// <summary>The instant a de-rotated stack shows the planet at (<see cref="PlanetaryStackOptions.Derotation"/>), or null for one that was not.</summary>
+    public DateTimeOffset? Epoch { get; init; }
+
+    /// <summary>Which way round a de-rotated stack took the planet's north, and why; null for one that was not de-rotated.</summary>
+    public PlanetaryNorthDecision? North { get; init; }
+}

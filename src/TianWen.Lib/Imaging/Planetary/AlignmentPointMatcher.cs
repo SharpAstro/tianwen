@@ -78,12 +78,20 @@ public sealed class AlignmentPointMatcher
     /// residual over it (<see cref="Match"/>), the local warp the whole-disk shift missed there.
     /// </summary>
     public DisplacementMesh BuildMesh(Image frame, float globalDx, float globalDy, float nodeSpacing = 32f, float influence = 48f)
+        => BuildMesh(frame, globalDx, globalDy, derotation: null, nodeSpacing, influence);
+
+    /// <summary>
+    /// <see cref="BuildMesh(Image, float, float, float, float)"/> for a frame carried to its capture's epoch by
+    /// <paramref name="derotation"/> (docs/plans/planetary-restoration.md, R6 part 2): each point matched where the rotation and
+    /// the shift put it, and the mesh built over the field.
+    /// </summary>
+    public DisplacementMesh BuildMesh(Image frame, float globalDx, float globalDy, DerotationField? derotation, float nodeSpacing = 32f, float influence = 48f)
     {
         ArgumentNullException.ThrowIfNull(frame);
 
         var shifts = _apCenters.Length == 0 ? [] : new AlignmentPointShift[_apCenters.Length];
-        Match(frame, globalDx, globalDy, shifts);
-        return DisplacementMesh.Build(_width, _height, globalDx, globalDy, shifts, nodeSpacing, influence);
+        Match(frame, globalDx, globalDy, derotation, shifts);
+        return DisplacementMesh.Build(_width, _height, globalDx, globalDy, shifts, derotation, nodeSpacing, influence);
     }
 
     /// <summary>
@@ -106,6 +114,14 @@ public sealed class AlignmentPointMatcher
     /// drizzle past the sensor grid left red and blue columns no drop reached (R5a).
     /// </summary>
     public void Match(Image frame, float globalDx, float globalDy, Span<AlignmentPointShift> destination)
+        => Match(frame, globalDx, globalDy, derotation: null, destination);
+
+    /// <summary>
+    /// <see cref="Match(Image, float, float, Span{AlignmentPointShift})"/> for a frame carried to its capture's epoch: each
+    /// point's patch cut where the rotation put it as well as the shift (the <paramref name="derotation"/>'s offset at the
+    /// point), so a residual is again the local warp alone.
+    /// </summary>
+    public void Match(Image frame, float globalDx, float globalDy, DerotationField? derotation, Span<AlignmentPointShift> destination)
     {
         ArgumentNullException.ThrowIfNull(frame);
         ArgumentOutOfRangeException.ThrowIfLessThan(destination.Length, _apCenters.Length);
@@ -113,8 +129,9 @@ public sealed class AlignmentPointMatcher
         for (var i = 0; i < _apCenters.Length; i++)
         {
             var p = _apCenters[i];
+            var (rx, ry) = derotation?.OffsetAt(p.X, p.Y) ?? (0f, 0f);
             // The extraction writes every sample, so the reused patch carries nothing from the last point.
-            PlanetaryTile.ExtractLumaAt(frame, p.X + globalDx, p.Y + globalDy, _patchSize, _patch, _extractScratch);
+            PlanetaryTile.ExtractLumaAt(frame, p.X + globalDx + rx, p.Y + globalDy + ry, _patchSize, _patch, _extractScratch);
             var residual = PhaseCorrelation.Estimate(_referenceSpectra[i], _patch, _patchSize, _patchSize, _spectrumScratch, applyWindow: true, _whiten);
             destination[i] = new AlignmentPointShift(p.X, p.Y, (float)residual.Dx, (float)residual.Dy);
         }

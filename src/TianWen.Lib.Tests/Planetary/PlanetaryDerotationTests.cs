@@ -20,7 +20,7 @@ public class PlanetaryDerotationTests
 
     // Belts, and features along them every 60 degrees of longitude, smooth enough for a render and a Lanczos-3 resample to
     // follow: a map whose rotation shows, which a banded map's would not.
-    private static PlanetMap SpottedMap()
+    internal static PlanetMap SpottedMap()
     {
         var values = new float[360 * 180];
         for (var row = 0; row < 180; row++)
