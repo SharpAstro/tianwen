@@ -46,9 +46,9 @@ public class PlanetarySpectralRatioTests
                     window[(y * size) + x] = (float)(Object(x - sx, y - sy) + (sigma * Gaussian(random)));
                 }
             }
-            ratio.Add(window, sx, sy, camera);
+            ratio.Add(window, sx, sy);
         }
-        var rings = ratio.Rings().Where(r => r.CyclesPerPixel is > 0.03 and < 0.25 && r.PowerOverNoise > 4).ToArray();
+        var rings = ratio.Rings(camera).Where(r => r.CyclesPerPixel is > 0.03 and < 0.25 && r.PowerOverNoise > 4).ToArray();
         TestContext.Current.TestOutputHelper?.WriteLine(string.Join(", ", rings.Select(r => $"{r.CyclesPerPixel:0.000}: {r.Ratio:0.000} ({r.PowerOverNoise:0})")));
         rings.Length.ShouldBeGreaterThan(5);
         foreach (var ring in rings)
@@ -83,6 +83,24 @@ public class PlanetarySpectralRatioTests
         var fit = PlanetarySpectralRatio.Fit(measured, Seeing, Scale, minR0M: 0.05, maxR0M: 0.16, grid: 13, exposures: 150).ShouldNotBeNull();
         TestContext.Current.TestOutputHelper?.WriteLine($"fitted r0 {fit.R0M * 100:0.00} cm, log RMS {fit.LogRms:0.000} over {fit.Rings.Length} rings");
         fit.R0M.ShouldBe(0.09, 0.009);
+    }
+
+    [Fact]
+    public void TheFitTellsAWarpFromTheSeeingOverAWideEnoughBand()
+    {
+        // The same air at 9 cm, and every frame displaced 0.5 px per axis against the mean: the ratio loses exp(-4 pi^2 s^2 f^2).
+        const double warp = 0.5;
+        var made = PlanetarySpectralRatio.Theory(Seeing with { Seed = 7 }, Scale, Math.Pow(Seeing.R0M / 0.09, 5.0 / 6), exposures: 150);
+        var measured = made.Where(r => r.CyclesPerPixel is > 0 and <= 0.5 && r.Ratio > 0)
+            .Select(r => new SpectralRatioRing(r.CyclesPerPixel, r.Ratio * Math.Exp(-4 * Math.PI * Math.PI * warp * warp * r.CyclesPerPixel * r.CyclesPerPixel), PowerOverNoise: 100, Samples: 1))
+            .ToImmutableArray();
+        var plain = PlanetarySpectralRatio.Fit(measured, Seeing, Scale, minR0M: 0.02, maxR0M: 0.16, grid: 13, exposures: 150).ShouldNotBeNull();
+        var both = PlanetarySpectralRatio.Fit(measured, Seeing, Scale, minR0M: 0.02, maxR0M: 0.16, grid: 13, exposures: 150, fitWarp: true).ShouldNotBeNull();
+        TestContext.Current.TestOutputHelper?.WriteLine($"seeing alone: r0 {plain.R0M * 100:0.00} cm (log RMS {plain.LogRms:0.000}); with a warp: r0 {both.R0M * 100:0.00} cm, warp {both.WarpRmsPx:0.000} px (log RMS {both.LogRms:0.000})");
+        // Read as seeing alone, the warp makes the air look worse than it was.
+        plain.R0M.ShouldBeLessThan(0.08);
+        both.R0M.ShouldBe(0.09, 0.015);
+        both.WarpRmsPx.ShouldBe(warp, 0.1);
     }
 
     private static double Gaussian(Random random)
