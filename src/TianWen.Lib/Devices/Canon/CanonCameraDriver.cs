@@ -698,7 +698,17 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
             {
                 await _camera.DownloadAsync(handle, fs, ct);
             }
-            await _camera.TransferCompleteAsync(handle, ct);
+            // The answer is read: a frame the body is not told it may let go of stays in its RAM, and enough of them stop it
+            // releasing at all (FC.SDK's ReleasePendingTransfersAsync documents it). Ignored, that looked like a lost exposure.
+            var transferred = await _camera.TransferCompleteAsync(handle, ct);
+            if (transferred is not EdsError.OK)
+            {
+                Logger.LogWarning("Canon TransferComplete for object 0x{Handle:X8} answered {Error}: the body keeps the frame", handle, transferred);
+            }
+            else
+            {
+                Logger.LogDebug("Canon TransferComplete for object 0x{Handle:X8}: OK", handle);
+            }
 
             // Into a recycled plane, the DAL pattern: the ref-counted buffer travels ON the channel into
             // GetImageAsync's Image, whose release hands the plane back for the next sub. A new plane per sub
@@ -751,6 +761,7 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
 
     private void OnObjectAdded(object? sender, CanonObjectAddedEventArgs e)
     {
+        Logger.LogDebug("Canon announced object 0x{Handle:X8}", e.ObjectHandle);
         _objectAddedTcs?.TrySetResult(e.ObjectHandle);
     }
 
