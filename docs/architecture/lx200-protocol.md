@@ -275,10 +275,6 @@ lunar; `OnStepMountTests` pins the same slew and site for OnStep. `MeadeLX200Rep
 - **Solar goes out as `:TQ#`, sidereal**, and reads back as sidereal.
 - **`AtParkAsync` is always `false`** while `CanPark` is `true`, so `Session.Finalise` polls it 1000 times at
   100 ms after `:hP#` before calling the park incomplete.
-- **A failed init leaves the driver `Connected`.** `InitDeviceAsync` catches everything and returns `false`;
-  `DeviceDriverBase.TrySetConnectionStateAsync` has already set the state to connected and reverts it only when
-  init THROWS, so `ConnectAsync` throws while `Connected` reads `true`, and the next `ConnectAsync` returns at
-  once without re-running init. The base's bug, not this driver's; it is on #806.
 - **A late reply answers the next command.** Bytes past a terminator are kept for the next read since the move to
   Serial.Lib (the old transport's `ReadAtLeastAsync` dropped them, so a multi-line reply arriving in one chunk, the
   `:SC` block, could leave `SetUTCDateAsync`'s discard reads waiting for the caller's token). But nothing discards a

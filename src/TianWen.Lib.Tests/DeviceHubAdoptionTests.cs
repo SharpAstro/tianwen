@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Specialized;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
@@ -96,6 +97,93 @@ public class DeviceHubAdoptionTests(ITestOutputHelper output)
         (await hub.AdoptAsync(device, second, ct)).ShouldBeSameAs(second);
         hub.TryGetConnectedDriver<IMountDriver>(device.DeviceUri, out var held).ShouldBeTrue();
         held.ShouldBeSameAs(second);
+    }
+
+    /// <summary>
+    /// Two adoptions of one device at once (#806): each read the entry, connected its own driver, then stored, so the last
+    /// store won and the other driver stayed connected outside the hub. The first's connect is held open, so the second
+    /// arrives while it is still in flight.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task TwoAdoptionsAtOnceLeaveTheHubOneDriverAndHandBothCallersIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (services, hub) = Build();
+        var device = new FakeDevice(DeviceType.Mount, 1);
+        await using var first = new ScriptedDeviceDriver(device, services) { HoldOpen = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) };
+        await using var second = new ScriptedDeviceDriver(device, services);
+
+        var firstAdoption = hub.AdoptAsync(device, first, ct).AsTask();
+        var secondAdoption = hub.AdoptAsync(device, second, ct).AsTask();
+        first.HoldOpen.SetResult();
+
+        (await firstAdoption).ShouldBeSameAs(first);
+        (await secondAdoption).ShouldBeSameAs(first, "the hub already held a connected driver when the second got its turn");
+        second.Opens.ShouldBe(0, "the second driver never opened the device");
+        hub.TryGetConnectedDriver<IDeviceDriver>(device.DeviceUri, out var held).ShouldBeTrue();
+        held.ShouldBeSameAs(first);
+    }
+
+    /// <summary>
+    /// The race the issue names (#806): a session's initialisation adopting its mount while an Alpaca client's
+    /// <c>Connected=true</c> connects the same device through the hub. The client gets the session's driver, not a second.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task AConnectDuringAnAdoptionGetsTheAdoptedDriver()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (services, hub) = Build();
+        var device = new FakeDevice(DeviceType.Mount, 1);
+        await using var sessions = new ScriptedDeviceDriver(device, services) { HoldOpen = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) };
+
+        var adoption = hub.AdoptAsync(device, sessions, ct).AsTask();
+        var alpacas = hub.ConnectAsync(device, ct).AsTask();
+        sessions.HoldOpen.SetResult();
+
+        (await adoption).ShouldBeSameAs(sessions);
+        (await alpacas).ShouldBeSameAs(sessions, "a driver of its own would be a second one on the device");
+    }
+
+    /// <summary>
+    /// A run's driver that went down (a serial glitch) and is connected again through the hub comes back as the SAME
+    /// instance (#806): the run still holds it, and its resilient calls reconnect it. A new one was a second driver.
+    /// </summary>
+    [Fact]
+    public async Task ADriverThatWentDownIsReconnectedInPlaceByTheHub()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (_, hub) = Build();
+        var device = new FakeDevice(DeviceType.Mount, 1);
+        var runs = await hub.ConnectAsync(device, ct);
+        await runs.DisconnectAsync(ct);
+
+        var reconnected = await hub.ConnectAsync(device, ct);
+
+        reconnected.ShouldBeSameAs(runs);
+        runs.Connected.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// A changed URI with the same key (a mount re-plugged on another port) is the one case the hub builds a new driver
+    /// for a device it holds: the old one would reopen the old port.
+    /// </summary>
+    [Fact]
+    public async Task ADriverWhoseUriChangedIsReplaced()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (_, hub) = Build();
+        var before = new FakeDevice(DeviceType.Mount, 1, new NameValueCollection { ["port"] = "COM5" });
+        var after = new FakeDevice(DeviceType.Mount, 1, new NameValueCollection { ["port"] = "COM6" });
+        after.DeviceUri.DeviceKey.ShouldBe(before.DeviceUri.DeviceKey, "premise: the same device");
+        var old = await hub.ConnectAsync(before, ct);
+        await old.DisconnectAsync(ct);
+
+        var replacement = await hub.ConnectAsync(after, ct);
+
+        replacement.ShouldNotBeSameAs(old);
+        old.Connected.ShouldBeFalse();
+        hub.TryGetConnectedDriver<IMountDriver>(after.DeviceUri, out var held).ShouldBeTrue();
+        held.ShouldBeSameAs(replacement);
     }
 
     /// <summary>

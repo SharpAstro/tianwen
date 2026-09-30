@@ -230,7 +230,8 @@ the last connect, sync or setter.
 Nothing is written to the mount at connect: no hemisphere, tracking rate, time or site. Because reads have
 no deadline, a mount that never answers holds the connect until the caller's token fires.
 `InitDeviceAsync` catches every exception, logs "Failed to initialize SGP mount" and returns `false`, which
-`ConnectAsync` turns into an `InvalidOperationException`. `DoDisconnectDeviceAsync` takes the port lock and
+`ConnectAsync` turns into an `InvalidOperationException`, closing the port it opened and leaving the driver
+not connected, so a retry runs the whole connect again (#806). `DoDisconnectDeviceAsync` takes the port lock and
 closes the port.
 
 ## Discovery

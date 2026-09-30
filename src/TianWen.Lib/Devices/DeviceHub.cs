@@ -22,6 +22,16 @@ internal class DeviceHub(IServiceProvider serviceProvider, ILogger<DeviceHub> lo
     /// </summary>
     private readonly ConcurrentDictionary<string, LeaseHandle> _leases = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// One connect, adoption or disconnect of a device at a time, keyed like <see cref="_connected"/> (#806). Each reads the
+    /// entry, awaits the device, then stores, so two at once (a session's initialisation and an Alpaca client's
+    /// <c>Connected=true</c>) both found no connected entry, both connected a driver, and the last store won: the other
+    /// driver stayed connected outside the hub, a second handle on a camera SDK and a refused open on a COM port. One gate
+    /// per device ever connected, never removed or disposed (a SemaphoreSlim whose wait handle is never read holds
+    /// nothing), so two devices never wait on each other.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _gates = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>What each camera's cooler is being asked to do, keyed like <see cref="_connected"/>.</summary>
     private readonly ConcurrentDictionary<string, CoolerIntent> _coolerIntents = new(StringComparer.OrdinalIgnoreCase);
 
@@ -47,33 +57,63 @@ internal class DeviceHub(IServiceProvider serviceProvider, ILogger<DeviceHub> lo
 
     // ── Driver lifecycle ──
 
+    private SemaphoreSlim GateFor(string key) => _gates.GetOrAdd(key, static _ => new SemaphoreSlim(1, 1));
+
     public async ValueTask<IDeviceDriver> ConnectAsync(DeviceBase device, CancellationToken cancellationToken = default)
     {
         var key = device.DeviceUri.DeviceKey;
+        var gate = GateFor(key);
+        IDeviceDriver driver;
+        string verb;
 
-        if (_connected.TryGetValue(key, out var existing) && existing.Driver.Connected)
-        {
-            return existing.Driver;
-        }
-
-        if (!device.TryInstantiateDriver<IDeviceDriver>(serviceProvider, out var driver))
-        {
-            throw new InvalidOperationException($"Could not instantiate driver for device {device.DisplayName} ({device.DeviceType})");
-        }
-
+        await gate.WaitAsync(cancellationToken);
         try
         {
-            await driver.ConnectAsync(cancellationToken);
+            _connected.TryGetValue(key, out var existing);
+            if (existing.Driver is { Connected: true } held)
+            {
+                return held;
+            }
+
+            if (existing.Driver is { } down && existing.Device.DeviceUri == device.DeviceUri)
+            {
+                await down.ConnectAsync(cancellationToken);
+                driver = down;
+                verb = "reconnected";
+            }
+            else
+            {
+                if (!device.TryInstantiateDriver<IDeviceDriver>(serviceProvider, out var created))
+                {
+                    throw new InvalidOperationException($"Could not instantiate driver for device {device.DisplayName} ({device.DeviceType})");
+                }
+
+                try
+                {
+                    await created.ConnectAsync(cancellationToken);
+                }
+                catch
+                {
+                    await created.DisposeAsync();
+                    throw;
+                }
+
+                _connected[key] = (device, created);
+                driver = created;
+                verb = "connected";
+
+                if (existing.Driver is { } replaced)
+                {
+                    await replaced.DisposeAsync();
+                }
+            }
         }
-        catch
+        finally
         {
-            await driver.DisposeAsync();
-            throw;
+            gate.Release();
         }
 
-        _connected[key] = (device, driver);
-
-        logger.LogInformation("DeviceHub: connected {DeviceType} {DisplayName}", device.DeviceType, device.DisplayName);
+        logger.LogInformation("DeviceHub: {Verb} {DeviceType} {DisplayName}", verb, device.DeviceType, device.DisplayName);
         DeviceStateChanged?.Invoke(this, new DeviceConnectedEventArgs(connected: true));
 
         return driver;
@@ -82,25 +122,34 @@ internal class DeviceHub(IServiceProvider serviceProvider, ILogger<DeviceHub> lo
     public async ValueTask<IDeviceDriver> AdoptAsync(DeviceBase device, IDeviceDriver driver, CancellationToken cancellationToken = default)
     {
         var key = device.DeviceUri.DeviceKey;
+        var gate = GateFor(key);
 
-        _connected.TryGetValue(key, out var existing);
-        if (existing.Driver is { Connected: true } held)
+        await gate.WaitAsync(cancellationToken);
+        try
         {
-            return held;
+            _connected.TryGetValue(key, out var existing);
+            if (existing.Driver is { Connected: true } held)
+            {
+                return held;
+            }
+
+            if (!driver.Connected)
+            {
+                await driver.ConnectAsync(cancellationToken);
+            }
+
+            _connected[key] = (device, driver);
+
+            // A driver the entry held before went down on its own (a run's Finalise disconnects the mount it
+            // drove). Nothing reaches it through the hub any more, so it is released here rather than leaked.
+            if (existing.Driver is { } stale && !ReferenceEquals(stale, driver))
+            {
+                await stale.DisposeAsync();
+            }
         }
-
-        if (!driver.Connected)
+        finally
         {
-            await driver.ConnectAsync(cancellationToken);
-        }
-
-        _connected[key] = (device, driver);
-
-        // A driver the entry held before went down on its own (a run's Finalise disconnects the mount it
-        // drove). Nothing reaches it through the hub any more, so it is released here rather than leaked.
-        if (existing.Driver is { } stale && !ReferenceEquals(stale, driver))
-        {
-            await stale.DisposeAsync();
+            gate.Release();
         }
 
         logger.LogInformation("DeviceHub: adopted {DeviceType} {DisplayName}", device.DeviceType, device.DisplayName);
@@ -112,32 +161,42 @@ internal class DeviceHub(IServiceProvider serviceProvider, ILogger<DeviceHub> lo
     public async ValueTask DisconnectAsync(Uri deviceUri, bool force = false, CancellationToken cancellationToken = default)
     {
         var key = deviceUri.DeviceKey;
+        var gate = GateFor(key);
+        (DeviceBase Device, IDeviceDriver Driver) entry;
 
-        // Ownership is checked BEFORE the TryRemove: refusing after the entry is gone would leave the hub
-        // believing the device is disconnected while the run keeps driving it.
-        if (!force && _leases.TryGetValue(key, out var lease))
-        {
-            throw new DeviceLeasedException(lease.Claim);
-        }
-
-        if (!_connected.TryRemove(key, out var entry))
-        {
-            return;
-        }
-
-        // A camera that is no longer the hub's is no longer the node's to re-establish.
-        _coolerIntents.TryRemove(key, out _);
-
+        await gate.WaitAsync(cancellationToken);
         try
         {
-            if (entry.Driver.Connected)
+            // Ownership is checked BEFORE the TryRemove: refusing after the entry is gone would leave the hub
+            // believing the device is disconnected while the run keeps driving it.
+            if (!force && _leases.TryGetValue(key, out var lease))
             {
-                await entry.Driver.DisconnectAsync(cancellationToken);
+                throw new DeviceLeasedException(lease.Claim);
+            }
+
+            if (!_connected.TryRemove(key, out entry))
+            {
+                return;
+            }
+
+            // A camera that is no longer the hub's is no longer the node's to re-establish.
+            _coolerIntents.TryRemove(key, out _);
+
+            try
+            {
+                if (entry.Driver.Connected)
+                {
+                    await entry.Driver.DisconnectAsync(cancellationToken);
+                }
+            }
+            finally
+            {
+                await entry.Driver.DisposeAsync();
             }
         }
         finally
         {
-            await entry.Driver.DisposeAsync();
+            gate.Release();
         }
 
         logger.LogInformation("DeviceHub: disconnected {DeviceType} {DisplayName}", entry.Device.DeviceType, entry.Device.DisplayName);
