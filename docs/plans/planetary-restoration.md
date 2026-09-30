@@ -649,6 +649,11 @@ R4's keeps minimise the error of a raw stack, and a raw stack's band 1 error is 
   - 3x does not beat 1.5x at matched noise in ordinary seeing.
   - **Added 2026-09-30, before any drizzle was measured** (theme C of the literature): a Gaussian misregistration of sigma passes exp(-2 pi^2 sigma^2 f^2), so the 0.6 px warp R5 could not follow passes 0.64 of the signal at 0.25 cycles a pixel, 0.17 at 0.5 and 0.018 at 0.75, the band a 1.5x drizzle adds. On 2022-09-03 and every capture with a warp like it, 1.5x does not beat the sensor grid, while Bayer drizzle to the sensor grid, recovering 0.25 to 0.5 cycles a pixel on a colour plane, still can.
   - Kill line: a drizzle that wins where the frames' cutoff stays under the input grid's Nyquist is fabricating detail, the RL oracle's rule, and the metric is checked before anything is concluded.
+  - **Added 2026-09-30 for 2024-12-15's Uranus-C twin, before its first drizzle was stacked.** R1 measured the colour nights' best frames to 0.4 to 0.6 cycles a plane pixel, 0.2 to 0.3 a sensor pixel: past a plane's Nyquist, under the sensor grid's. So on the twin, each colour against its own truth:
+    - (a) Bayer drizzle to the sensor grid beats the demosaic in band 1 (0.25 to 0.5 cycles a pixel) by transfer, the demosaic's interpolation being the loss it avoids, and gives back no more than a little of it in error to its extra noise;
+    - (b) a 1.5x drizzle beats the 1x drizzle resampled to 1.5x (Lanczos-3) in no band;
+    - (c) 3x beats 1.5x in no band.
+    - Each is compared on the grid the finer stack makes, since a wavelet band is counted in output pixels: band 1 at 1.5x is 0.375 to 0.75 cycles a sensor pixel.
 
 ## R6 De-rotation
 
