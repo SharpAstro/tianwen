@@ -459,7 +459,7 @@ Settled by the campaign; restated so no run re-derives them.
 | **E14** | The ring fix alone (run log, E14): E13's `pool` arm byte for byte on `n2n-pool-rf`, the same pool re-exported after the canvas-ring fix, three seeds; scored on the old eval caches AND on ring-fixed ones built from 2026-09-25-full. `run-poolrf.ps1` (training), `run-poolrf-score.ps1`, `run-poolrf-evalrf.ps1`. Trained 2026-09-27, ~54 min a seed. **DONE 2026-09-27: not killed** (run log, "E14 on the ring-fixed caches"). Ring-fixed, the primary read: R poolrf 22.52 (seed sd 4.91) against pool 23.75 (sd 0.89), -1.23 inside the 2.04 threshold; the frontier is worse on eta Car and the Skull, better on Horsehead. Old caches: 18.83 against 21.74 (prediction 2 holds). E13's redistribution survives the fix (prediction 3). E12's `conv` leads both domains (29.18 ring-fixed). | ~3 h GPU, ~2 h bake | stretch |
 | **E15** | E12's recipe on data that matches inference (run log, E15): the E10 control cache re-exported after the ring fix (`n2n-bb-ctl-rf`, the same 16 sessions and cells, 9 of them with a stretch the fix moves), then `run-converge.ps1`'s training line exactly, four seeds; every model re-scored in one pass on E14's ring-fixed caches, the shipped `e2_wide_s2` as a reference. `run-e15.ps1`, pre-registered in its header. The ship candidate. **DONE 2026-09-28: not killed, four of five predictions hold** (run log, "E15's result"): R `convrf` 29.78 against `conv` 29.18, and its seed sd 0.58 against 4.53; the frontier against `conv` is worse on one field of ten readable, against the shipped model better on seven. Prediction 5 (the moves concentrate on broadband) fails. Every model, the shipped one included, smooths away real structure in a bright emission core. | 1 h 28 min export and prepare, 2 h 57 min for four seeds and the scoring | stretch, ship |
 | **E16a** | The per-pixel noise plane alone (run log, "Detail kept" and E16a): E15's cells and recipe exactly, `--cond-map` in place of `--cond`, the tiles proved byte-identical to `n2n-bb-ctl-rf`'s so the plane is the only difference. Scored on the `-rfs` eval caches in two conditions: the half-A planes as estimated (`tianwen dataset noise-planes`) and with each field's anchor taken from its half pairs (`--plane-truth-anchor`, the primary). `run-e16a.ps1`, pre-registered in its header. **DONE 2026-09-28: predictions 1, 2 and 4 hold, 3 misses toward more removal, 5 holds for removal only** (run log, "E16a's result"). Brightest-level detail kept 0.995 against `convrf`'s 0.849, R 33.22 against 29.78. By the error left per level (added after the pre-registration), `convmap` is the first model that leaves less error than its input in the sky and the middle levels, and that leaves the bright levels at about the input's own error, where every earlier model is 1.3 to 34 times worse. It does not yet denoise a bright level, and under today's estimate it over-reads the noise on nine fields and spends stars (R 41.21, frontier worse on five). | 1 h 17 min export and prepare, 4 h 49 min for four seeds, 16 to 20 min per scoring pass | conditioning |
-| **E16b** | PRE-REGISTERED 2026-09-29 and amended three times before any model existed (run log, "E16b, pre-registered" and its amendments; the third after D2 failed the sub anchor); `run-e16b.ps1`. Two arms on the recipe-3 store, seeds interleaved so a stop leaves matched pairs: `convmap3`, E16a's cells with the noise injected per channel on each master's own recorded calibration and shaped by its integration (the control), and `convmapb`, the same plus bright cells, from E16a's sessions and a widened pool. Bright eval cells are added so the bright levels read on more than two fields. E16a's error left says what it is for: above 0.45 `convmap` keeps a bright level exactly as it came (0.97 to 1.04), so the arm should LOWER that error, not just hold detail kept. | one export, eight seeds at about 70 min each, three scoring passes | data |
+| **E16b** | PRE-REGISTERED 2026-09-29 and amended four times before any model existed (run log, "E16b, pre-registered" and its amendments); `run-e16b.ps1`. **DONE 2026-09-30: predictions 1, 2, 3 and 5 hold, 4 misses in the arm's favour, 6 holds on the mean** (run log, "E16b's result"). At 0.45-0.60 the finest-band error left falls 0.907 to 0.745, at 0.60 and up 0.968 to 0.849, detail kept 0.994 / 0.996; the crowded-field check finds nothing blown out, and the shipped model the one that smooths (0.79 of crowded stars' amplitude). Two arms on the recipe-3 store, seeds interleaved so a stop leaves matched pairs: `convmap3`, E16a's cells with the noise injected per channel on each master's own recorded calibration and shaped by its integration (the control), and `convmapb`, the same plus bright cells, from E16a's sessions and a widened pool. Bright eval cells are added so the bright levels read on more than two fields. E16a's error left says what it is for: above 0.45 `convmap` keeps a bright level exactly as it came (0.97 to 1.04), so the arm should LOWER that error, not just hold detail kept. | one export, eight seeds at about 70 min each, three scoring passes | data |
 
 Every arm: pre-register predictions in the run script header; three seeds; one prepared cache per
 arm, never edited between runs; launch multi-hour jobs detached (`Start-Process`), never through the
@@ -2633,3 +2633,76 @@ populations, none of which a model under test could have moved:
 - The measures move as they should: a Gaussian sigma 1 of A keeps grain 0.31 / 0.67 and stars 0.47 on CROWDED; E16a keeps
   0.96 / 0.98 and 0.965; the shipped model 0.89 / 0.88 and **0.79**. The shipped model already spends a fifth of the
   unresolved stars' amplitude on a crowded field, which bears on whether to ship `convrf` (the backlog decision).
+
+### 2026-09-30: E16b's result: bright cells teach the model to clean a bright level, and nothing is blown out
+
+`run-e16b.ps1` checked, trained and scored in both conditions (20:15); `run-e16b-crowded.ps1` scored the crowded check
+(20:17). Read by `training/denoise/e16b_read.py` (`C:\temp\e2\e16b-read.txt`). D1, D2 (amended) and D3 (widened) passed
+before any model was scored: D3 read 0.45-0.60 on 7 fields and 0.60 and up on 5. Full strength, `orc`, `convmapb`
+against `convmap3`, arm means over four seeds, then over the fields both arms read:
+
+| prediction | registered | measured | verdict |
+|---|---|---|---|
+| (1) 0.45-0.60, 0-1 px error left | falls by at least 0.10 | 0.907 to 0.745, **fall +0.163** (7 fields) | **holds** |
+| (2) 0.60 and up, 0-1 px error left | falls by at least 0.10 | 0.968 to 0.849, **fall +0.119** (5 fields) | **holds** |
+| (3) bright detail kept, 1-2 px | at least 0.97; KILL below 0.92 | 0.994 and 0.996 (control 0.992, 0.995) | **holds** |
+| (4) below 0.45: error left within 0.05, R within 4 | unharmed | every band within 0.05 but 0.30-0.45 0-1 px, where the arm is **0.09 BETTER** (0.642 against 0.732); R 23.85 against 23.02 | misses as written, in the arm's favour |
+| (5) frontier no worse on all but two fields | | worse on none of 12 readable fields, better on one (Lagoon ASI585 at 10 percent) | **holds** |
+| (6) `est` against `orc`: within 4 points, largest on Lagoon | | mean +1.20 points; largest on Skull and Crossbones (+10.9), Lagoon second (+5.9) | holds on the mean, not on where |
+| the control against E16a: error left within 0.05, R within 4 | low confidence | worst error difference 0.053 (sky, 1-2 px); R 23.02 against 27.28 (-4.26) | misses, narrowly |
+
+Neither kill fires, and the null reading registered at 18:15 is not needed: at a third of the registered dose the arm
+clears prediction 1 by more than half again. **The seeds separate on every field that carries the effect**: on V1045 Ori
+the arm's four seeds read 0.60 to 0.72 against the control's 0.88 to 0.97, on the SV605CC Lagoon 0.60 to 0.66 against 0.82
+to 0.98, on the ASI585 Lagoon 0.49 to 0.55 against 0.66 to 0.81. Removal is not what moved: R rose 0.8 points. The arm
+removes the noise at a bright level while keeping its detail (0.994), which E16a (`convmap`, 0.947 and 0.970 at the two
+bright levels) and every earlier model did not.
+
+What qualifies it:
+
+- **The effect is carried by five of the seven fields.** On Carina-Wide and the 2023 Lagoon (the two original fields that
+  read 0.45-0.60 without bright cells of their own) the fall is +0.015 and +0.013; on V1045 Ori, eta Car and the three
+  added fields it is +0.12 to +0.27. Those five are exactly the fields with bright nebular cells, so the gain is on bright
+  nebula, where the rule found structure, not on a bright level reached by a little nebulosity at the edge of a bin.
+- **The added fields share two skies** (eta Car, Lagoon) with existing ones, on other nights and cameras. They were
+  chosen by count under the one rule before any model existed, and no training cell comes from either sky.
+- **At the coarsest band the brightest level got slightly worse**: error left 2-4 px at 0.60 and up is 1.115 against the
+  control's 1.075, both above the input's 1.0. Both models alter large-scale bright structure a little and the arm a
+  little more; prediction 3 reads 1-2 px only. A watch item for the next run, not a verdict.
+- **The dose is 45 cells, 28 of them Omega Cen.** Which cells taught it is not separable here. The crowded check says the
+  Omega Cen cells did not hurt a crowded field (below); whether the 17 nebular cells alone would do as much is open.
+- **The control's correction (the master anchor and the shape) costs E16a's removal**: R 23.0 against 27.3, sky error
+  left 0.484 against 0.430 in the 1-2 px band, while the middle and bright levels leave less error (0.30-0.45 0-1 px
+  0.732 against 0.759). E16a's anchor under-injected (the third amendment), so its planes told the model the input was
+  quieter than the injected noise it had seen; the control's are calibrated, and it removes less at full strength.
+
+**The crowded-field check** (`C:\temp\e2\e16b-crowded-{orc,est}.txt`), `orc`, seed means (ranges):
+
+| model | CROWDED grain 0-1 / 1-2 | CROWDED stars kept | CROWDED level R/G/B | NGC 362 grain | NGC 362 stars | NGC 362 level R |
+|---|---|---|---|---|---|---|
+| input A | 1.000 / 1.000 | 1.000 | 0.992 / 0.998 / 0.991 | 1.000 / 1.000 | 1.000 | 0.998 |
+| Gaussian sigma 1 of A | 0.310 / 0.669 | 0.472 | | 0.446 / 0.703 | 0.813 | |
+| `convmapb` | 0.986 / 0.992 (0.989-0.995) | 0.996 (0.989-1.001) | 0.993 / 0.999 / 0.992 | 0.998 / 0.999 | 1.000 | 0.998 |
+| `convmap3` | 0.980 / 0.990 (0.987-0.993) | 0.986 (0.978-0.995) | 0.994 / 1.000 / 0.991 | 0.996 / 0.997 | 1.000 | 0.999 |
+| `convmap` (E16a) | 0.966 / 0.982 | 0.968 | 0.995 / 0.999 / 0.990 | 0.999 / 0.997 | 1.000 | 0.998 |
+| `convrf` | 0.952 / 0.974 | 0.930 | 0.995 / 0.998 / 0.992 | 1.000 / 1.002 | 0.999 | 0.997 |
+| shipped | 0.886 / 0.875 | **0.790** | 1.002 / 1.010 / 1.004 | 0.986 / 0.998 | 1.000 | **1.012** |
+
+- **C1 holds**: the arm keeps crowded grain at 0.992 against the control's 0.990 (1-2 px) and stars at 0.996 against
+  0.986, the seed ranges overlapping. The Omega Cen cells did not teach a crowded field anything measurable here, and did
+  not cost one.
+- **C2 holds**: every E16b model's level is within 1 percent of half B in every channel, and none changes the share of
+  near-clipped pixels (NGC 362's stays at the input's -0.16 points).
+- **C3 holds in direction only**: `est` keeps 0.001 to 0.002 less grain than `orc` (the Sgr anchor was x0.944, a 6 percent
+  over-read), negligible on this field.
+- **Nothing E16 blows a crowded field or core out.** The ordering is the finding: every step of the campaign kept more of
+  the crowded field (shipped 0.79 of the stars' amplitude, `convrf` 0.93, E16a 0.97, E16b 0.99), and the **shipped model
+  is the one that smooths**: grain 0.89, a fifth of the stars' amplitude spent, and in the NGC 362 core red lifted 1.2
+  percent and 0.24 points more pixels pushed toward clipping than its input. M22 and M28 stayed unreadable.
+
+**What it means.** The arm is the first model in the campaign that cleans a bright level (0.45 and up) rather than leaving
+it as it came, and it does so without smoothing it, without costing the sky or the stars, and without blowing out a
+crowded field. At a third of the registered dose, with the all-shot noise model over-injecting bright narrowband structure
+by up to 30 percent, the effect is large enough that more bright nebular cells (the sky split the plan names) and the
+two-term noise model (E16c) are now clearly worth their cost. `convmapb` is the candidate to compare against the shipped
+model; that decision is the owner's.
