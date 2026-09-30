@@ -149,7 +149,7 @@ public static class PlanetaryDegrade
 {
     // Frames made at once: the screens and warps are drawn in order, the frames themselves in parallel.
     private const int Block = 64;
-    private const int PsfGrid = 128;
+    internal const int PsfGrid = 128;
 
     /// <summary>
     /// The pixel-to-fine-sample factor the frames are rendered at: enough samples for the pupil's cutoff at
@@ -317,60 +317,20 @@ public static class PlanetaryDegrade
             EquatorialRadius = reference.EquatorialRadius * os,
         };
 
-        // The pupil sampled for a PSF of fine samples, and the screen that crosses it.
-        var spacing = PupilSpacingM(arcsecPerPixel, options);
-        var pupil = options.Pupil.Rasterise(PsfGrid, spacing);
-        var defocus = DefocusPhase(PsfGrid, spacing, options.Pupil.DiameterM, options.DefocusNm * 1e-9, options.WavelengthM);
-        var diffraction = new double[PsfGrid * PsfGrid];
-        // The diffraction limit the Strehl ratio is taken against is the perfect telescope's, so a defocused one scores below 1.
-        ShortExposurePsf.Compute(pupil, ReadOnlySpan<double>.Empty, PsfGrid, diffraction);
-        var diffractionPeak = Max(diffraction);
-        // The screens' own spacing: the pupil's, or the one the colours of one atmosphere share, which a pupil then samples at its
-        // own, `stride` screen samples to one of its own.
-        var screenSpacing = options.ScreenSpacingM ?? spacing;
-        var stride = spacing / screenSpacing;
-        // On the pupil's own spacing the screen is what it always was (a mono capture made before is made again, sample for
-        // sample); on a shared one it must hold the pupil's extent at the stride and a neighbour for the interpolation.
-        var screenSamples = stride == 1 ? Math.Max(options.ScreenSamples, PsfGrid) : Math.Max(options.ScreenSamples, NextPowerOfTwo((int)Math.Ceiling(PsfGrid * stride) + 2));
-        var screen = new EvolvingPhaseScreen(screenSamples, screenSpacing, options.R0M, new Random(options.Seed), options.OuterScaleM);
-        // Phase in radians at 500 nm, where r0 is stated, scaled to the imaging wavelength (the path difference is achromatic).
-        var phaseScale = 500e-9 / options.WavelengthM;
-        var (windX, windY) = (options.WindMps * Math.Cos(options.WindAngleDeg * Math.PI / 180), options.WindMps * Math.Sin(options.WindAngleDeg * Math.PI / 180));
-        // The periodic screen comes round again after its side over the wind; it is renewed three e-folds in that time.
-        var renewSeconds = screen.SizeM / Math.Max(options.WindMps, 1e-3) / 3;
-        // The layer at the telescope, on a screen of its own, the same size (its outer scale is well inside it); the same rule
-        // for its renewal, so a still one is the same air throughout.
-        var local = double.IsFinite(options.LocalR0M)
-            ? new EvolvingPhaseScreen(screenSamples, screenSpacing, options.LocalR0M, new Random(options.Seed + 2), options.LocalOuterScaleM)
-            : null;
-        var localPhase = local is null ? [] : new double[screenSamples * screenSamples];
-        var localRenewSeconds = local is null ? double.PositiveInfinity : local.SizeM / Math.Max(options.LocalWindMps, 1e-3) / 3;
-        var (localWindX, localWindY) = (options.LocalWindMps * Math.Cos((options.WindAngleDeg + 90) * Math.PI / 180), options.LocalWindMps * Math.Sin((options.WindAngleDeg + 90) * Math.PI / 180));
+        // The seeing, frame after frame: the air, the still layer, the exposure and the telescope, one code with R7's theory.
+        var seeing = new SeeingPsfSequence(options, arcsecPerPixel);
+        var diffractionPeak = seeing.DiffractionPeak;
 
         var warp = new WarpField(windowPx, options.WarpRmsPx, options.WarpLengthPx, options.WarpLag1, options.Seed + 1);
         var scatter = options.ScatterFraction > 0 ? ScatterSpectrum(fine, options.ScatterCoreArcsec / (arcsecPerPixel / os)) : null;
 
         var truths = new SyntheticFrame[n];
-        var screenPhase = new double[screenSamples * screenSamples];
         var blockPsfs = new double[Block][];
         var blockWarps = new SyntheticWarpField[Block];
         var blockTilts = new (double X, double Y)[Block];
         for (var i = 0; i < Block; i++)
         {
             blockPsfs[i] = new double[PsfGrid * PsfGrid];
-        }
-        var phase = new double[PsfGrid * PsfGrid];
-        var psfScratch = new Complex[PsfGrid * PsfGrid];
-        var subPsf = new double[PsfGrid * PsfGrid];
-        // The exposure in frozen-flow steps of at most a centimetre: the pupil's window slides across the same screen, the air
-        // being the same air within a frame.
-        var sweepM = options.WindMps * options.ExposureSeconds;
-        var subSteps = Math.Max(1, (int)Math.Ceiling(sweepM / 0.01));
-        // A pupil on its own spacing reads whole samples; one on the shared spacing needs a neighbour for its interpolation.
-        var screenMargin = stride == 1 ? (screenSamples - PsfGrid) / 2 : (screenSamples - (int)Math.Ceiling(PsfGrid * stride) - 1) / 2;
-        if (sweepM / screenSpacing > screenMargin)
-        {
-            throw new ArgumentException($"The exposure sweeps {sweepM:0.000} m of air, more than the screen's margin of {screenMargin * screenSpacing:0.000} m: use a larger screen.", nameof(options));
         }
 
         Complex[]? objectSpectrum = null;
@@ -397,39 +357,10 @@ public static class PlanetaryDegrade
                 var t = first + k;
                 if (t > 0)
                 {
-                    var dt = (times[t] - times[t - 1]).TotalSeconds;
-                    screen.Step(windX, windY, dt, Math.Exp(-dt / renewSeconds));
-                    local?.Step(localWindX, localWindY, dt, Math.Exp(-dt / localRenewSeconds));
+                    seeing.Step((times[t] - times[t - 1]).TotalSeconds);
                     warp.Step();
                 }
-                screen.Fill(screenPhase);
-                local?.Fill(localPhase);
-                // The PSF over the exposure: the pupil's window stepped upwind across the screen, as the air moves past it.
-                Array.Clear(blockPsfs[k]);
-                for (var step = 0; step < subSteps; step++)
-                {
-                    var along = subSteps == 1 ? 0 : (sweepM * ((step + 0.5) / subSteps - 0.5)) / screenSpacing;
-                    var offsetX = screenMargin - (int)Math.Round(along * Math.Cos(options.WindAngleDeg * Math.PI / 180));
-                    var offsetY = screenMargin - (int)Math.Round(along * Math.Sin(options.WindAngleDeg * Math.PI / 180));
-                    for (var y = 0; y < PsfGrid; y++)
-                    {
-                        for (var x = 0; x < PsfGrid; x++)
-                        {
-                            // The pupil's own spacing on the screen's: the one screen read at each colour's sampling of the pupil,
-                            // exactly the screen's samples where the two are one.
-                            var (air, still) = stride == 1
-                                ? (screenPhase[((y + offsetY) * screenSamples) + x + offsetX], local is null ? 0 : localPhase[((y + screenMargin) * screenSamples) + x + screenMargin])
-                                : (ScreenAt(screenPhase, screenSamples, offsetX + (x * stride), offsetY + (y * stride)),
-                                    local is null ? 0 : ScreenAt(localPhase, screenSamples, screenMargin + (x * stride), screenMargin + (y * stride)));
-                            phase[(y * PsfGrid) + x] = (air * phaseScale) + defocus[(y * PsfGrid) + x] + (still * phaseScale);
-                        }
-                    }
-                    ShortExposurePsf.Compute(pupil, phase, PsfGrid, subPsf, psfScratch);
-                    for (var i = 0; i < subPsf.Length; i++)
-                    {
-                        blockPsfs[k][i] += subPsf[i] / subSteps;
-                    }
-                }
+                seeing.Exposure(blockPsfs[k]);
                 blockWarps[k] = warp.Current();
                 // The PSF's tilt in pixels: kept as the seeing's motion, or taken out where the shift given is the whole of it.
                 var (cx, cy) = Centroid(blockPsfs[k]);
@@ -552,7 +483,7 @@ public static class PlanetaryDegrade
     }
 
     // A screen's phase between its samples, bilinear: where a colour's pupil samples a screen drawn at another spacing.
-    private static double ScreenAt(double[] screen, int n, double x, double y)
+    internal static double ScreenAt(double[] screen, int n, double x, double y)
     {
         var (x0, y0) = ((int)Math.Floor(x), (int)Math.Floor(y));
         var (fx, fy) = (x - x0, y - y0);
@@ -684,7 +615,7 @@ public static class PlanetaryDegrade
 
     // Zernike's defocus, sqrt(3) (2 rho^2 - 1), scaled to `rmsM` of wavefront over the unit disk of the aperture, in radians at
     // `wavelengthM`, on the pupil grid (centred on sample n/2, n/2).
-    private static double[] DefocusPhase(int n, double spacingM, double diameterM, double rmsM, double wavelengthM)
+    internal static double[] DefocusPhase(int n, double spacingM, double diameterM, double rmsM, double wavelengthM)
     {
         var phase = new double[n * n];
         if (rmsM == 0)
@@ -792,7 +723,7 @@ public static class PlanetaryDegrade
         return max;
     }
 
-    private static int NextPowerOfTwo(int value)
+    internal static int NextPowerOfTwo(int value)
     {
         var p = 1;
         while (p < value)
