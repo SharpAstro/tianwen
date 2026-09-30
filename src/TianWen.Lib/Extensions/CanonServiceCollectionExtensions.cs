@@ -12,5 +12,7 @@ public static class CanonServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection AddCanon(this IServiceCollection services) => services
         .AddSingleton<CanonCameraFactory>()
+        .AddSingleton<CanonBodyRegistry>()
+        .AddSingleton<ICanonWpd, FcSdkCanonWpd>()
         .AddDevicSource<CanonDevice, CanonDeviceSource>(uri => new CanonDevice(uri));
 }

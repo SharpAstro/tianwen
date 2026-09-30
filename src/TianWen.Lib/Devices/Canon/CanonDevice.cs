@@ -9,7 +9,9 @@ namespace TianWen.Lib.Devices.Canon;
 
 /// <summary>
 /// Device record for Canon DSLR cameras connected via WPD, USB, or WiFi (PTP/IP).
-/// URI format: <c>Camera://CanonDevice/{id}?port={wpd|usb|wifi}&amp;host={ipAddr}#{modelName}</c>
+/// URI format: <c>Camera://CanonDevice/{id}?port={wpd|usb|wifi}&amp;host={ipAddr}#{modelName}</c>. Over WPD the id is the
+/// body's serial and the current WPD path rides in <c>wpd=</c>: <c>Camera://CanonDevice/{serial}?port=wpd&amp;wpd={path}#{modelName}</c>
+/// (#1097). A camera whose serial could not be read keeps the older form, the WPD path itself as the id.
 /// </summary>
 public record class CanonDevice(Uri DeviceUri) : DeviceBase(DeviceUri), IDeviceWithGainModes, IUncooledCamera
 {
@@ -18,6 +20,18 @@ public record class CanonDevice(Uri DeviceUri) : DeviceBase(DeviceUri), IDeviceW
 
     /// <summary>Whether this device connects via WPD (Windows Portable Devices).</summary>
     public bool IsWpd => DeviceUri.QueryValue(DeviceQueryKey.Port) == "wpd";
+
+    /// <summary>
+    /// The id as the transport wants it. <see cref="DeviceBase.DeviceId"/> is the URI's path, which is still percent-escaped:
+    /// a WPD path or a USB device path reached the transport as <c>%5C%5C%3F%5Cusb%23...</c>, which WPD rejects (#1096).
+    /// </summary>
+    public string RawDeviceId => Uri.UnescapeDataString(DeviceId);
+
+    /// <summary>
+    /// The WPD device id to open: the current path from the <c>wpd</c> query for a camera keyed by its serial, else the
+    /// unescaped path id of the older form.
+    /// </summary>
+    public string WpdDeviceId => DeviceUri.QueryValue(DeviceQueryKey.WpdDeviceId) is { Length: > 0 } path ? path : RawDeviceId;
 
     /// <summary>WiFi host/IP address, read from the <c>host</c> query parameter.</summary>
     public string? WifiHost => DeviceUri.QueryValue(DeviceQueryKey.Host);

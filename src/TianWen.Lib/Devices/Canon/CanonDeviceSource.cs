@@ -17,12 +17,18 @@ namespace TianWen.Lib.Devices.Canon;
 /// Device source for Canon DSLR cameras.
 /// Discovers cameras via WPD (Windows), USB (LibUsbDotNet), and WiFi (mDNS + PTP/IP).
 /// </summary>
-internal sealed class CanonDeviceSource(ILogger<CanonDeviceSource> logger) : IDeviceSource<CanonDevice>
+internal sealed class CanonDeviceSource(ILogger<CanonDeviceSource> logger, ICanonWpd wpd, CanonBodyRegistry bodies) : IDeviceSource<CanonDevice>
 {
     private static readonly IPAddress MdnsMulticast = IPAddress.Parse("224.0.0.251");
     private const int MdnsPort = 5353;
     private static readonly TimeSpan MdnsTimeout = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(3);
+
+    /// <summary>
+    /// How long one identity read may take. It is about 30 ms on a body that answers, and the transport's own deadline is
+    /// 15 s; a camera that does not answer must not hold a whole discovery, so it is keyed by its path instead.
+    /// </summary>
+    private static readonly TimeSpan IdentityReadTimeout = TimeSpan.FromSeconds(3);
 
     /// <summary>
     /// Pre-built DNS PTR query for <c>_ptp._tcp.local</c>.
@@ -66,10 +72,7 @@ internal sealed class CanonDeviceSource(ILogger<CanonDeviceSource> logger) : IDe
         _cameras.Clear();
 
         // Phase 1: WPD cameras (Windows only, uses stock MTP driver, no Zadig needed)
-        if (OperatingSystem.IsWindows())
-        {
-            DiscoverWpdCameras();
-        }
+        _cameras.AddRange(await DiscoverWpdAsync(cancellationToken));
 
         // Phase 2: USB cameras (LibUsbDotNet, needs WinUSB driver on Windows)
         try
@@ -122,27 +125,74 @@ internal sealed class CanonDeviceSource(ILogger<CanonDeviceSource> logger) : IDe
         }
     }
 
-    [SupportedOSPlatform("windows")]
-    private void DiscoverWpdCameras()
+    /// <summary>
+    /// The Canon cameras Windows lists over WPD, each keyed by its body's serial where that can be had (#1097).
+    /// <para>
+    /// The WPD path is the Windows device instance, which on a body with no USB serial (an EOS 6D) is built from the hub and
+    /// the hub port, so it is where the cable is plugged in and not which camera it is. The serial is the body's own, and
+    /// only the camera can say it, which takes opening the device for one <c>GetDeviceInfo</c>. That read can cost another
+    /// program's live view a frame, so it is made as rarely as it can be: a path already read, or held by one of this
+    /// process's drivers (whose session reported the serial), is answered from <see cref="CanonBodyRegistry"/>; and a read that
+    /// fails or is slow leaves the camera keyed by its path, as before, and is tried again at the next discovery.
+    /// </para>
+    /// </summary>
+    internal async Task<IReadOnlyList<CanonDevice>> DiscoverWpdAsync(CancellationToken cancellationToken)
     {
+        var found = new List<CanonDevice>();
         try
         {
-            var wpdCount = 0;
-            foreach (var (wpdDeviceId, friendlyName) in CanonCamera.EnumerateWpdCameras())
+            foreach (var (wpdId, friendlyName) in wpd.Enumerate())
             {
-                wpdCount++;
-                var uri = new Uri($"{DeviceType.Camera}://{nameof(CanonDevice)}/{Uri.EscapeDataString(wpdDeviceId)}" +
-                    $"?{DeviceQueryKey.Port.Key}=wpd#{Uri.EscapeDataString(friendlyName)}");
-                _cameras.Add(new CanonDevice(uri) );
+                var serial = await ResolveSerialAsync(wpdId, cancellationToken);
+                var escapedName = Uri.EscapeDataString(friendlyName);
+                var uri = serial is null
+                    ? new Uri($"{DeviceType.Camera}://{nameof(CanonDevice)}/{Uri.EscapeDataString(wpdId)}" +
+                        $"?{DeviceQueryKey.Port.Key}=wpd#{escapedName}")
+                    : new Uri($"{DeviceType.Camera}://{nameof(CanonDevice)}/{Uri.EscapeDataString(serial)}" +
+                        $"?{DeviceQueryKey.Port.Key}=wpd&{DeviceQueryKey.WpdDeviceId.Key}={Uri.EscapeDataString(wpdId)}#{escapedName}");
+                found.Add(new CanonDevice(uri));
 
-                logger.LogDebug("Discovered Canon WPD camera: {Name} ({Id})", friendlyName, wpdDeviceId);
+                logger.LogDebug("Discovered Canon WPD camera: {Name} ({Id}), keyed by {Key}", friendlyName, wpdId, serial is null ? "its path" : "its serial");
             }
-            logger.LogDebug("Canon WPD enumeration found {Count} camera(s)", wpdCount);
+            logger.LogDebug("Canon WPD enumeration found {Count} camera(s)", found.Count);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
             logger.LogDebug(ex, "Canon WPD enumeration failed");
         }
+
+        return found;
+    }
+
+    /// <summary>The serial of the body at <paramref name="wpdId"/>, or null when it is to be keyed by its path.</summary>
+    private async Task<string?> ResolveSerialAsync(string wpdId, CancellationToken cancellationToken)
+    {
+        if (bodies.TryGetSerial(wpdId, out var known))
+        {
+            // Read before, or learned by a driver that connected: not opened again. Empty means the body reports none.
+            return known.Length > 0 ? known : null;
+        }
+
+        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        bounded.CancelAfter(IdentityReadTimeout);
+        try
+        {
+            if (await wpd.ReadIdentityAsync(wpdId, bounded.Token) is { } body && body.SerialNumber.Length > 0)
+            {
+                bodies.Remember(wpdId, body.SerialNumber);
+                return body.SerialNumber;
+            }
+
+            // It answered and has no serial: the same answer next time, so it is not asked again.
+            bodies.Remember(wpdId, "");
+            logger.LogDebug("The Canon body at {Id} reported no serial; keyed by its path", wpdId);
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogDebug(ex, "Could not read the identity of the Canon body at {Id}; keyed by its path", wpdId);
+        }
+
+        return null;
     }
 
     public IEnumerable<DeviceType> RegisteredDeviceTypes { get; } = [DeviceType.Camera];
