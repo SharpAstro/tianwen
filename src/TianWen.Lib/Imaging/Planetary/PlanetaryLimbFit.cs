@@ -192,6 +192,41 @@ public static class PlanetaryLimbFit
         return FitAt(plane, width, height, startX, startY, like.EquatorialRadius, options, (seed, like.SunSide), 30);
     }
 
+    /// <summary>
+    /// <paramref name="fit"/>'s disk as its own model renders it before any blur (docs/plans/planetary-restoration.md, R7 part 3): the
+    /// limb-darkened disk lit at the fit's phase, with its zonal albedo, each pixel the mean of its supersampled cells, of unit brightness
+    /// on a sky of zero, over <paramref name="width"/> by <paramref name="height"/>; zero off the disk and on its night side. What a
+    /// kernel other than the fit's own is fitted around, the geometry kept.
+    /// </summary>
+    public static float[] SharpModel(in LimbFit fit, LimbFitOptions options, int width, int height)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        // Every pixel the disk reaches, inside the model's own grid (which reaches 12 px past its annulus).
+        var cover = options with { AnnulusOuter = 1.05 };
+        var reach = (int)Math.Ceiling((1.05 * fit.EquatorialRadius) + 2);
+        var (cx, cy) = ((int)Math.Round(fit.CenterX), (int)Math.Round(fit.CenterY));
+        var pixels = new List<int>();
+        for (var y = Math.Max(0, cy - reach); y <= Math.Min(height - 1, cy + reach); y++)
+        {
+            for (var x = Math.Max(0, cx - reach); x <= Math.Min(width - 1, cx + reach); x++)
+            {
+                pixels.Add((y * width) + x);
+            }
+        }
+        var model = new DiskModel(pixels, width, height, cover, fit.SunSide, fit.CenterX, fit.CenterY, fit.EquatorialRadius);
+        // The fit's own parameters with no blur (a core under 0.05 cells is none), no halo, unit brightness and no sky.
+        var p = SeedFrom(fit, fit.CenterX, fit.CenterY, fit.EquatorialRadius, 0);
+        (p[6], p[7], p[11]) = (1, 0, 0);
+        var values = new double[pixels.Count];
+        model.Evaluate(p, values);
+        var result = new float[width * height];
+        for (var i = 0; i < pixels.Count; i++)
+        {
+            result[pixels[i]] = (float)values[i];
+        }
+        return result;
+    }
+
     // A fit's parameters as the search holds them, with the centre, radius and core sigma given: how one fit seeds another. The
     // halo's share and width are held through their bounds (DiskModel.HaloFraction, HaloRatio), so they go back through them:
     // passing the share as it reads started the next search at a quarter of it.
