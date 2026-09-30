@@ -141,7 +141,7 @@ come from `Microsoft.Testing.Extensions.CrashDump` / `.HangDump` / `.TrxReport`,
 TianWen depends on in-house libraries published to nuget.org under the **SharpAstro** org, each a sibling clone
 at `../<repo>` (csproj layout varies; the full table with paths and the auto-detect column:
 `docs/architecture/sibling-builds-and-releases.md`): `DIR.Lib`, `SdlVulkan.Renderer`, `Console.Lib`, `FITS.Lib`
-(csproj `CSharpFITS/CSharpFITS.csproj`), `FC.SDK` (no auto-detect), `ZWOptical.SDK`, `QHYCCD.SDK`,
+(csproj `CSharpFITS/CSharpFITS.csproj`), `FC.SDK` (+ `FC.SDK.Raw`), `ZWOptical.SDK`, `QHYCCD.SDK`,
 `SharpAstro.Fonts` (`../Fonts.Lib`, transitive), `SER.Lib`, `Lzip.Lib`, `Serial.Lib`, `LAN.Lib`, `WebGl.Renderer`,
 `SharpAstro.AppShell` (`../AppShell`), `TianWen.DAL` and the `Codecs`-repo codec family.
 
@@ -165,8 +165,7 @@ override with `dotnet build -p:UseLocalSiblings=false`. `Fonts.Lib` is transitiv
   `UI.Abstractions` from `.razor`, which no `--include=*.cs` grep sees: a rename passed both and broke CI. Run
   E2E explicitly: `dotnet test TianWen.UI.Web.E2E`.
 
-For a library without auto-detection (`FC.SDK`, the one left), extend the `UseLocalSiblings` switch in
-`Directory.Build.props` + add a conditional `ProjectReference` rather than local nupkg feeds. When that's not
+A new sibling gets auto-detection the same way (an `Exists` entry + a conditional `ProjectReference`), never local nupkg feeds. When that's not
 viable, commit + push + wait for NuGet publish; **do not** create local nupkg feeds or run `dotnet pack` to
 short-circuit the release dance (CI pulls from nuget.org, and a local-only nupkg masks version-skew bugs).
 

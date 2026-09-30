@@ -290,13 +290,11 @@
     <PackageReference Include="CommunityToolkit.HighPerformance" />
     <PackageReference Include="DotNext.Threading" />
     <PackageReference Include="System.IO.Hashing" />
-    <PackageReference Include="FC.SDK.Raw" />
     <PackageReference Include="GeoTimeZone" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Http" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="System.Numerics.Tensors" />
-    <PackageReference Include="FC.SDK" />
   </ItemGroup>
 
   <!-- TianWen.DAL: the native-camera abstraction every driver in Devices/ does
@@ -424,6 +422,19 @@
   </ItemGroup>
   <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
     <PackageReference Include="FITS.Lib" />
+  </ItemGroup>
+
+  <!-- FC.SDK + FC.SDK.Raw: Canon PTP camera control (Devices/Canon) and the CR2/CR3 decoder (Image.TryReadCanonRaw).
+       Both come from one repo, so they switch together. FC.SDK.Raw's own Codecs references follow the same
+       detection in FC.SDK's src/Directory.Build.props, whose list this one includes, so the two always agree.
+       Sibling repo's csprojs live at ../FC.SDK/src/FC.SDK/FC.SDK.csproj and ../FC.SDK/src/FC.SDK.Raw/FC.SDK.Raw.csproj. -->
+  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <ProjectReference Include="..\..\..\FC.SDK\src\FC.SDK\FC.SDK.csproj" />
+    <ProjectReference Include="..\..\..\FC.SDK\src\FC.SDK.Raw\FC.SDK.Raw.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
+    <PackageReference Include="FC.SDK" />
+    <PackageReference Include="FC.SDK.Raw" />
   </ItemGroup>
 
   <!-- SER.Lib: SER planetary-video reader (SharpAstro.Ser). Imaging/SerImageBridge.cs maps SER

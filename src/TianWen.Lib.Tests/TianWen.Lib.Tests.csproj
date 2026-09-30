@@ -87,8 +87,15 @@
          copies the pointer stub, which ModelResolver refuses, and the model-gated tests skip. -->
   </ItemGroup>
 
-  <ItemGroup>
+  <!-- FC.SDK.Raw: the CR2/CR3 tests read the decoder directly. Same switch as TianWen.Lib's reference. -->
+  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <ProjectReference Include="..\..\..\FC.SDK\src\FC.SDK.Raw\FC.SDK.Raw.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
     <PackageReference Include="FC.SDK.Raw" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Meziantou.Extensions.Logging.Xunit.v3" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />

@@ -70,6 +70,8 @@ $siblings = @"
     <Project Path="../Lzip.Lib/src/Lzip.Lib/Lzip.Lib.csproj" />
     <Project Path="../Serial.Lib/src/Serial.Lib/Serial.Lib.csproj" />
     <Project Path="../LAN.Lib/src/LAN.Lib/LAN.Lib.csproj" />
+    <Project Path="../FC.SDK/src/FC.SDK/FC.SDK.csproj" />
+    <Project Path="../FC.SDK/src/FC.SDK.Raw/FC.SDK.Raw.csproj" />
     <Project Path="../AppShell/src/SharpAstro.AppShell/SharpAstro.AppShell.csproj" />
   </Folder>
 "@
