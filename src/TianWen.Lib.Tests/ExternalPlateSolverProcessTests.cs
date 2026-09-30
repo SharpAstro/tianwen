@@ -25,12 +25,12 @@ public class ExternalPlateSolverProcessTests
     public async Task AProbeThatNeverExitsCountsAsAbsentAndLeavesNothingRunning()
     {
         var solver = new StandInToolSolver(hang: true);
-        var sw = Stopwatch.StartNew();
 
+        // Bounded by the test's own timeout, never a stopwatch (CLAUDE.md): the stand-in sleeps 120 s, so a probe that did not stop it
+        // fails at 60. A budget of the probe's 5 s plus 10 read 15.5 on a CI runner whose cores a parallel test held.
         var supported = await solver.CheckSupportAsync(TestContext.Current.CancellationToken);
 
         supported.ShouldBeFalse();
-        sw.Elapsed.ShouldBeLessThan(StandInToolSolver.Timeout + TimeSpan.FromSeconds(10));
         await ShouldAllExitAsync(solver);
     }
 
