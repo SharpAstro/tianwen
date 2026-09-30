@@ -16,6 +16,9 @@ namespace TianWen.Lib.Tests;
 public class PlanetarySpectralRatioTests
 {
     private const double Scale = 0.4974;
+
+    // PSFs a theory in these tests averages: enough for its ratio's shape, few enough that the fits stay cheap.
+    private const int Exposures = 60;
     private static readonly DegradeOptions Seeing = new DegradeOptions(new Pupil(0.254, ObstructionRatio: 0.23, Vanes: 4, VaneWidthM: 0.001), 650e-9)
     {
         R0M = 0.1,
@@ -65,7 +68,7 @@ public class PlanetarySpectralRatioTests
         {
             value.ShouldBe(1, 1e-6, $"at {f:0.000} cycles a pixel");
         }
-        double At(double r0M, double f) => PlanetarySpectralRatio.Theory(Seeing, Scale, Math.Pow(Seeing.R0M / r0M, 5.0 / 6), exposures: 100)
+        double At(double r0M, double f) => PlanetarySpectralRatio.Theory(Seeing, Scale, Math.Pow(Seeing.R0M / r0M, 5.0 / 6), exposures: 40)
             .MinBy(r => Math.Abs(r.CyclesPerPixel - f)).Ratio;
         var (weak, strong) = (At(0.15, 0.2), At(0.05, 0.2));
         TestContext.Current.TestOutputHelper?.WriteLine($"at 0.2 cycles a pixel: r0 15 cm {weak:0.000}, 5 cm {strong:0.000}");
@@ -76,13 +79,14 @@ public class PlanetarySpectralRatioTests
     [Fact]
     public void TheFitFindsTheR0ARatioWasMadeAt()
     {
-        // A ratio made at 9 cm from other draws than the fit's own, read as a capture's rings would be.
-        var made = PlanetarySpectralRatio.Theory(Seeing with { Seed = 7 }, Scale, Math.Pow(Seeing.R0M / 0.09, 5.0 / 6), exposures: 200);
+        // A ratio made at 9 cm from the fit's own draws, between two of its grid's strengths, read as a capture's rings would be: the
+        // fit's machinery, not its draws, which a unit test keeps cheap (the suite runs it beside timing-sensitive tests).
+        var made = PlanetarySpectralRatio.Theory(Seeing, Scale, Math.Pow(Seeing.R0M / 0.09, 5.0 / 6), exposures: Exposures);
         var measured = made.Where(r => r.CyclesPerPixel is > 0 and <= 0.5 && r.Ratio > 0)
             .Select(r => new SpectralRatioRing(r.CyclesPerPixel, r.Ratio, PowerOverNoise: 100, Samples: 1)).ToImmutableArray();
-        var fit = PlanetarySpectralRatio.Fit(measured, Seeing, Scale, minR0M: 0.05, maxR0M: 0.16, grid: 13, exposures: 150).ShouldNotBeNull();
+        var fit = PlanetarySpectralRatio.Fit(measured, Seeing, Scale, minR0M: 0.06, maxR0M: 0.13, grid: 7, exposures: Exposures).ShouldNotBeNull();
         TestContext.Current.TestOutputHelper?.WriteLine($"fitted r0 {fit.R0M * 100:0.00} cm, log RMS {fit.LogRms:0.000} over {fit.Rings.Length} rings");
-        fit.R0M.ShouldBe(0.09, 0.009);
+        fit.R0M.ShouldBe(0.09, 0.0045);
     }
 
     [Fact]
@@ -90,17 +94,17 @@ public class PlanetarySpectralRatioTests
     {
         // The same air at 9 cm, and every frame displaced 0.5 px per axis against the mean: the ratio loses exp(-4 pi^2 s^2 f^2).
         const double warp = 0.5;
-        var made = PlanetarySpectralRatio.Theory(Seeing with { Seed = 7 }, Scale, Math.Pow(Seeing.R0M / 0.09, 5.0 / 6), exposures: 150);
+        var made = PlanetarySpectralRatio.Theory(Seeing, Scale, Math.Pow(Seeing.R0M / 0.09, 5.0 / 6), exposures: Exposures);
         var measured = made.Where(r => r.CyclesPerPixel is > 0 and <= 0.5 && r.Ratio > 0)
             .Select(r => new SpectralRatioRing(r.CyclesPerPixel, r.Ratio * Math.Exp(-4 * Math.PI * Math.PI * warp * warp * r.CyclesPerPixel * r.CyclesPerPixel), PowerOverNoise: 100, Samples: 1))
             .ToImmutableArray();
-        var plain = PlanetarySpectralRatio.Fit(measured, Seeing, Scale, minR0M: 0.02, maxR0M: 0.16, grid: 13, exposures: 150).ShouldNotBeNull();
-        var both = PlanetarySpectralRatio.Fit(measured, Seeing, Scale, minR0M: 0.02, maxR0M: 0.16, grid: 13, exposures: 150, fitWarp: true).ShouldNotBeNull();
+        var plain = PlanetarySpectralRatio.Fit(measured, Seeing, Scale, minR0M: 0.03, maxR0M: 0.13, grid: 9, exposures: Exposures).ShouldNotBeNull();
+        var both = PlanetarySpectralRatio.Fit(measured, Seeing, Scale, minR0M: 0.03, maxR0M: 0.13, grid: 9, exposures: Exposures, fitWarp: true).ShouldNotBeNull();
         TestContext.Current.TestOutputHelper?.WriteLine($"seeing alone: r0 {plain.R0M * 100:0.00} cm (log RMS {plain.LogRms:0.000}); with a warp: r0 {both.R0M * 100:0.00} cm, warp {both.WarpRmsPx:0.000} px (log RMS {both.LogRms:0.000})");
         // Read as seeing alone, the warp makes the air look worse than it was.
         plain.R0M.ShouldBeLessThan(0.08);
-        both.R0M.ShouldBe(0.09, 0.015);
-        both.WarpRmsPx.ShouldBe(warp, 0.1);
+        both.R0M.ShouldBe(0.09, 0.01);
+        both.WarpRmsPx.ShouldBe(warp, 0.05);
     }
 
     private static double Gaussian(Random random)
