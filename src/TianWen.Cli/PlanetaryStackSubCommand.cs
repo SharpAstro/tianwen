@@ -136,6 +136,10 @@ internal sealed class PlanetaryStackSubCommand(
             Description = "Advanced: power-of-two patch edge phase-correlated per alignment point.",
             DefaultValueFactory = _ => 32,
         };
+        var plainOpt = new Option<bool>("--plain-correlation")
+        {
+            Description = "Register frames and points by a plain cross-correlation, not phase correlation (docs/plans/planetary-restoration.md, R5: 3 times better placed on a single 8-bit frame; the default until #1074).",
+        };
         var meshSpacingOpt = new Option<float>("--mesh-spacing")
         {
             Description = "Advanced: displacement-mesh node spacing (px). Smaller = finer distortion correction.",
@@ -150,7 +154,7 @@ internal sealed class PlanetaryStackSubCommand(
                 outputOpt, labelOpt, keepOpt, qualityOpt, globalOpt, drizzleOpt, drizzlePixfracOpt, drizzleGlobalOpt,
                 noPerPointOpt, noSignalGateOpt,
                 noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, noPngOpt, pngGammaOpt,
-                tileSizeOpt, apSpacingOpt, maxApOpt, patchSizeOpt, meshSpacingOpt,
+                tileSizeOpt, apSpacingOpt, maxApOpt, patchSizeOpt, meshSpacingOpt, plainOpt,
             },
         };
 
@@ -225,6 +229,7 @@ internal sealed class PlanetaryStackSubCommand(
                 MaxAlignmentPoints = parseResult.GetValue(maxApOpt),
                 AlignmentPatchSize = RoundUpToPowerOfTwo(parseResult.GetValue(patchSizeOpt)),
                 MeshNodeSpacing = parseResult.GetValue(meshSpacingOpt),
+                WhitenedCorrelation = !parseResult.GetValue(plainOpt),
                 PerPointQualityWeighting = !parseResult.GetValue(noPerPointOpt),
                 PerPointSignalGate = !parseResult.GetValue(noSignalGateOpt),
                 Drizzle = drizzleScale > 0f
