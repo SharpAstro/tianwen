@@ -1013,7 +1013,10 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   two-Gaussian model's bound (49.9 %) on every capture measured and it reads bands 1 and 2 at 0.61 to 0.83 of the true transfer,
   so it is never an inverse's kernel as fitted. **A limb kernel is the TOTAL blur, the telescope's diffraction included** (part 3): it
   is fitted against a sharp disk, while a twin's truth is rendered through the diffraction limit, so set it against the scene rendered
-  WITHOUT diffraction (`planetary-blur --map`), never against the truth; there it holds within 6 % in bands 2 to 4.
+  WITHOUT diffraction (`planetary-blur --map`), never against the truth; there it holds within 6 % in bands 2 to 4. **An inverse
+  with it lands as far past the truth as the kernel is too wide** (part 4, `planetary-inverse`, the kernel over the pupil's own
+  diffraction): Richardson-Lucy restores bands 2 to 4 about 4 % past the truth with 7.6 times the oracle's undershoot, and band 1's
+  kernel is the model's tail, not a measurement (0.05 to 0.19 at 0.3 cycles a pixel against a true 0.28; #1120).
 - **Read the plan doc before touching the Canon path** -- it is a list of five things that fail
   SILENTLY. **Recentering is opt-in** (the user, 2026-09-28; it costs the loop about 15 ms a frame at full frame), and
   so is the mount jog, whose **sign is uncalibrated**.

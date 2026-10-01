@@ -1,6 +1,6 @@
 # Planetary restoration by measurement
 
-**Status: PARTIAL: R0 to R6 done, R7 under way** (written 2026-09-28, the user's request; R0 2026-09-29: the survey, the FITS video conversion and the tracked lossless crop; R1 2026-09-29: the ephemeris, the limb fit, which telescope; R2 2026-09-29: rendered truth, T1 passed, and a synthetic capture that matches the real one on the disk, its kill line firing on the sky's finest bands; R3 2026-09-30: the metrics, the limb's undershoot validated, the halves' agreement not, pending R7's blur; R4 2026-09-30: per frame, the Laplacian ranks an 8-bit capture's frames near chance and the mid bands rank them well, on the twin and truth-free on the real capture, the choice waiting on open question 4 and the per-point half on #1071; R5 part 1 2026-09-30: phase correlation places 8-bit frames and points three times worse than a plain one, every stack better plain (#1074), and the real capture's warp visible only plain; part 2 2026-09-30: the dewarp cannot follow this capture's warp, 0.6 px over 10 px, the mesh the stack applies recovering 0 to 3 % of it, and the kill line fires; part 3 2026-09-30: the bilinear kernel is the stack's blur, sinc^2 in transfer, and Lanczos-3 lifts band 1 10 to 12 % (#1086), a correlation's peak is climbed rather than fitted by a parabola, a stacked reference rescues phase correlation, and the three-cornered hat compares registrations with no truth where the twin clears the triple, which AutoStakkert's track and our limb fit, both reading the outline, never do; the literature behind what comes next is `docs/architecture/planetary-literature.md`, its follow-ups #1081 to #1085; R5a 2026-09-30: a colour twin of 2024-12-15's Uranus-C capture, calibrated per colour, on which Bayer drizzle to the sensor grid beats the demosaic above a plane's Nyquist and nothing past the sensor grid pays, the adoption #1091 and a smaller drop #1092; on the way, a camera's corrupted readout frame kept out of every grade, and an alignment point's patch cut at the exact global shift; R6 part 1 2026-09-30: the spheroid's projection both ways and a de-rotation that carries the albedo, finished stacks carried to one epoch leaving 0.46 of the difference at 11 minutes, north decided by the stacks' agreement; part 2 2026-09-30: every frame carried to a run's middle inside the stacker on every path, a night's captures joined in time order, the disk fitted on a stack and north decided by the run's quarters, the 16-minute run's halves left at 0.45 of their difference, and two stacks of one camera moved onto each other with one north; part 3 2026-09-30: the belts' latitudes against OPAL within half a degree in five stacks of six, one edge, the SEB's north, north of OPAL's in all six, and a night's drift below what two stacks of one night agree on, about half a pixel, so the winds are not decided; R6 is done; R7 part 1 2026-10-01: the spectral ratio, which finds the free air on the twins once an 8-bit sky's noise is its own pixels' spread, sees the still layer, cannot tell a warp from the seeing over the band the noise leaves, and so claims no r0 for the real capture, whose warp is not the twin's; part 2 2026-10-01: the stack's blur is its lucky frames' own within 0.33 to 0.43 px, and the limb fit's kernel, its halo at its model's bound, reads the finest two bands 17 to 39 % too blurred; part 3 2026-10-01: the limb reads the TOTAL blur, diffraction included, within 6 % in bands 2 to 4 once the twin's diffraction-limited truth is not what it is set against, band 1 uncertain by a fifth, and the SEB's north edge is not moved by the blur). Milestone `planetary-restoration`: R0 #1048, R1 #1049, R2 #1050, R3 #1051, R4 #1052, R5 #1053, R6 #815, R7 #1054, R8 #1055, R9 #1056 (conditional).
+**Status: PARTIAL: R0 to R7 done, R8 next** (written 2026-09-28, the user's request; R0 2026-09-29: the survey, the FITS video conversion and the tracked lossless crop; R1 2026-09-29: the ephemeris, the limb fit, which telescope; R2 2026-09-29: rendered truth, T1 passed, and a synthetic capture that matches the real one on the disk, its kill line firing on the sky's finest bands; R3 2026-09-30: the metrics, the limb's undershoot validated, the halves' agreement not, pending R7's blur; R4 2026-09-30: per frame, the Laplacian ranks an 8-bit capture's frames near chance and the mid bands rank them well, on the twin and truth-free on the real capture, the choice waiting on open question 4 and the per-point half on #1071; R5 part 1 2026-09-30: phase correlation places 8-bit frames and points three times worse than a plain one, every stack better plain (#1074), and the real capture's warp visible only plain; part 2 2026-09-30: the dewarp cannot follow this capture's warp, 0.6 px over 10 px, the mesh the stack applies recovering 0 to 3 % of it, and the kill line fires; part 3 2026-09-30: the bilinear kernel is the stack's blur, sinc^2 in transfer, and Lanczos-3 lifts band 1 10 to 12 % (#1086), a correlation's peak is climbed rather than fitted by a parabola, a stacked reference rescues phase correlation, and the three-cornered hat compares registrations with no truth where the twin clears the triple, which AutoStakkert's track and our limb fit, both reading the outline, never do; the literature behind what comes next is `docs/architecture/planetary-literature.md`, its follow-ups #1081 to #1085; R5a 2026-09-30: a colour twin of 2024-12-15's Uranus-C capture, calibrated per colour, on which Bayer drizzle to the sensor grid beats the demosaic above a plane's Nyquist and nothing past the sensor grid pays, the adoption #1091 and a smaller drop #1092; on the way, a camera's corrupted readout frame kept out of every grade, and an alignment point's patch cut at the exact global shift; R6 part 1 2026-09-30: the spheroid's projection both ways and a de-rotation that carries the albedo, finished stacks carried to one epoch leaving 0.46 of the difference at 11 minutes, north decided by the stacks' agreement; part 2 2026-09-30: every frame carried to a run's middle inside the stacker on every path, a night's captures joined in time order, the disk fitted on a stack and north decided by the run's quarters, the 16-minute run's halves left at 0.45 of their difference, and two stacks of one camera moved onto each other with one north; part 3 2026-09-30: the belts' latitudes against OPAL within half a degree in five stacks of six, one edge, the SEB's north, north of OPAL's in all six, and a night's drift below what two stacks of one night agree on, about half a pixel, so the winds are not decided; R6 is done; R7 part 1 2026-10-01: the spectral ratio, which finds the free air on the twins once an 8-bit sky's noise is its own pixels' spread, sees the still layer, cannot tell a warp from the seeing over the band the noise leaves, and so claims no r0 for the real capture, whose warp is not the twin's; part 2 2026-10-01: the stack's blur is its lucky frames' own within 0.33 to 0.43 px, and the limb fit's kernel, its halo at its model's bound, reads the finest two bands 17 to 39 % too blurred; part 3 2026-10-01: the limb reads the TOTAL blur, diffraction included, within 6 % in bands 2 to 4 once the twin's diffraction-limited truth is not what it is set against, band 1 uncertain by a fifth, and the SEB's north edge is not moved by the blur; part 4 2026-10-01: `planetary-inverse`, Richardson-Lucy with the limb's kernel over diffraction misses the oracle, restoring bands 2 to 4 about 4 % past the truth with 7.6 times the oracle's undershoot, and band 1 is the kernel model's tail, which no edge here measures, #1120). Milestone `planetary-restoration`: R0 #1048, R1 #1049, R2 #1050, R3 #1051, R4 #1052, R5 #1053, R6 #815, R7 #1054, R8 #1055, R9 #1056 (conditional).
 
 The user asked for what the deep-sky training effort does, done for planetary lucky imaging:
 - which frames are usable;
@@ -1028,6 +1028,60 @@ R4's keeps minimise the error of a raw stack, and a raw stack's band 1 error is 
   - On five stacks the halo the limb fit finds is 49 to 56 degrees of latitude wide, which only lowers the map's contrast and moves no edge.
   - So by the claim's own terms the edge's miss is not the blur the limb sees, and the belts' own change over the weeks between a capture and its map is what is left.
 
+### R7 results, part 4: the inverse with the measured kernel
+
+**Measured** (2026-10-01) with `tianwen planetary-inverse` (`PlanetaryInverse`).
+- **The stack**: each capture's best 150 of 3,000 frames by the gradient, stacked global, plain, Lanczos-3, registered onto the truth.
+- **The kernels**:
+  - the oracle, read ring by ring against the truth;
+  - (b') and (b), each divided by the Newtonian pupil's own transfer at 650 nm, kept at most one and zero past the cutoff.
+  - `PlanetaryInverse.Diffraction` gives a clear pupil 0.395 at half its cutoff, where the textbook gives 0.391.
+- **The inverse**: Richardson-Lucy in the Fourier domain, every kernel read at the count where the oracle's error, summed over bands 1 to 4, is least: 8 steps of 40 on the calibrated twin, 9 on the warped one.
+
+| The kernel at 0.1, 0.2, 0.3 cycles a pixel | Calibrated twin | Warped twin | 2022-09-03's Red |
+|---|---|---|---|
+| The oracle | 0.54, 0.37, 0.28 | 0.50, 0.26, 0.11 | |
+| (b') over diffraction | 0.48, 0.18, 0.05 | 0.42, 0.09, 0.01 | 0.43, 0.08, 0.01 |
+| (b) over diffraction | 0.51, 0.36, 0.19 | 0.46, 0.25, 0.08 | 0.47, 0.26, 0.09 |
+
+Band transfers against the truth, the calibrated twin / the warped one:
+
+| Band | The stack | RL, the oracle | RL, (b') | RL, (b) | Wiener, (b') |
+|---|---|---|---|---|---|
+| 1 | 0.383 / 0.259 | 0.788 / 0.533 | 0.708 / 0.472 | 0.755 / 0.520 | 1.347 / 0.677 |
+| 2 | 0.601 / 0.550 | 0.991 / 0.930 | 1.029 / 0.961 | 0.995 / 0.944 | 1.186 / 1.094 |
+| 3 | 0.815 / 0.811 | 1.028 / 1.025 | 1.040 / 1.052 | 1.024 / 1.031 | 1.028 / 1.025 |
+| 4 | 0.936 / 0.938 | 1.018 / 1.016 | 1.040 / 1.041 | 0.990 / 0.993 | 1.032 / 1.024 |
+| Of the oracle's gain, bands 1 to 4 | | 1 | 0.80, 1.10, 1.06, 1.27 / 0.78, 1.08, 1.13, 1.32 | 0.92, 1.01, 0.98, 0.66 / 0.95, 1.04, 1.03, 0.71 | |
+| Error, bands 1 to 4 (calibrated twin) | | 0.472, 0.114, 0.038, 0.020 | 0.463, 0.131, 0.048, 0.041 | 0.420, 0.128, 0.057, 0.022 | 0.762, 0.312, 0.046, 0.034 |
+| The limb's undershoot | 0.0000 / 0.0000 | 0.0011 / 0.0010 | 0.0084 / 0.0076 | 0.0000 / 0.0000 | 0.0082 / 0.0075 |
+
+The Wiener filter is set to the band 3 transfer the oracle's RL reaches (noise-to-signal 0.0077 and 0.0145).
+
+- **The claim, RL with (b') at 80 % of the oracle's gain in each of bands 1 to 4 without failing the ringing gate: it fails, on the gate on both twins and in band 1 on the warped one.**
+  - Band 1 reaches 0.80 and 0.78 of the oracle's gain.
+  - Bands 2 to 4 overshoot: 1.06 to 1.32 of the oracle's gain, transfers of 1.03 to 1.05, past the truth.
+    - Part 3 read (b') 5 % too blurred in bands 2 to 4 against the total, and a restoration by it lands about that far past the truth.
+    - This is the deep-sky deconvolver's tolerance (about 10 %, E7.1) seen from the other side: a kernel too wide by a few percent restores past the truth by as much.
+    - Band 4's error doubles (0.041 against 0.020).
+  - The gate: the limb's undershoot is 0.0084 and 0.0076, 7.6 times the oracle's, against a quarter more allowed. It is under 0.05, below 1 % of the disk.
+- **Reported beside it:**
+  - **(b) passes the gate** (no undershoot) and reaches 0.92 to 1.04 of the oracle's gain in bands 1 to 3, but 0.66 and 0.71 in band 4.
+    - Band 4's gain is a ratio of small numbers: the oracle's own RL ends 1.8 % past the truth there and (b) 1 % short of it.
+    - (b)'s band 1 error is the lowest of the three (0.420 against the oracle's 0.472). RL with the true kernel, at the count that is best summed over the bands, raises band 1's noise the most, so the oracle is a ceiling on the gain, not on each band's error.
+  - **Wiener with (b')**, at the oracle's band 3, takes band 1 to 1.35 on the calibrated twin: a flat noise-to-signal lifts the finest band's noise past the truth (error 0.762), and its undershoot is the same as RL's with (b').
+  - **2022-09-03's Red**, RL with its (b') at 8 steps: core 1.58 px, 78.5 % in a 1.18 px wing. It lifts bands 1 to 4 by 1.58, 1.51, 1.24 and 1.09 over the stack, and the limb's undershoot from 0 to 0.0048, less than on either twin.
+  - **No Galilean moon is in this capture's 800 x 600 field**: nothing past 1.6 radii stands more than 3 ADU over the sky in a mean of 200 frames, where the disk peaks at 75. The plan's third probe has no capture here (#1120).
+- **What it found:**
+  - **The finest band is the kernel's MODEL, not the data's.**
+    - At 0.3 cycles a pixel the true kernel over diffraction passes 0.28 on the calibrated twin. (b') passes 0.05 there, and (b) 0.19.
+    - A Gaussian core falls as exp(-f^2), and both models put one there; the stack's own blur falls more slowly.
+    - The edge fixes the kernel where it carries signal (bands 2 to 4, part 3) and the model's shape extrapolates the rest.
+  - **At a fixed count, RL restores a low transfer slowly.** (b') is the lowest kernel in band 1 and restores it the least. The count acts as a filter on the kernel itself, so a kernel too low in a band under-restores it rather than ringing there. The ringing came from bands 2 to 4, restored past the truth.
+- **What it leaves:**
+  - R7's inverse with the measured kernel falls short of its claim. The limb gives the stack's blur within about 5 % in bands 2 to 4, an inverse with it overshoots them by as much, and band 1's transfer is what no edge model here constrains.
+  - R8 (#1055) takes H per band: from the limb over diffraction in bands 2 to 4, while band 1's is the open term. The oracle's 0.28 against the models' 0.05 to 0.19 at 0.3 cycles a pixel is its size, and a near-point probe (#1120) is how it could be measured.
+
 ### R7a A ghost in the camera train, fitted and subtracted
 
 **Issues:** #1061; the check at the telescope, #1062 (bench).
@@ -1059,6 +1113,7 @@ R4's keeps minimise the error of a raw stack, and a raw stack's band 1 error is 
 **Issue:** #1055 (the wavelet half of #817).
 
 - **First principles:** sharpening is an inverse filter. The gain that minimises error at a band with transfer `H` and signal-to-noise `S/N` is Wiener's, `H / (H^2 + N/S)`, applied per a-trous band. `H` comes from R7's kernel, and `N` per band from the split-half difference (T2).
+  - **From R7 part 4 (2026-10-01):** the limb's kernel over diffraction gives `H` within about 5 % in bands 2 to 4. Band 1's is the kernel model's tail, 0.05 to 0.19 at 0.3 cycles a pixel against the twins' true 0.28, so band 1's gain rests on a term no edge here measures (#1120).
 - **Measured:**
   - The derived gains against every preset (`PlanetaryDefault`, `Bandpass`, `Combo`) at matched noise, on T1 fidelity and R3's ringing gate.
   - On the real captures, the split-half metrics against AutoStakkert's and RegiStax's results as comparisons.
