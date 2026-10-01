@@ -346,20 +346,30 @@ namespace TianWen.Lib.Imaging.Dataset
         }
 
         /// <summary>
-        /// Measures one master: the default fit per plane, the sweep, and the covariates. The caller keeps
-        /// ownership of <paramref name="master"/>; <paramref name="masterPath"/> is only read when
-        /// <paramref name="solver"/> is given (the solver works from the file). <paramref name="headerWcs"/>
-        /// is the WCS the master's own header carries, the scale's fallback when this run does not solve.
+        /// The classical fit G1 measures, as one rule for the report and the gradient exporter (G2), so the
+        /// scene the exporter flattens is the surface the report described. The caller owns the result and
+        /// releases it.
         /// </summary>
-        public static async Task<MasterGradient> MeasureMasterAsync(
-            Image master, string masterPath, string strategy, int stackedFrames,
-            IPlateSolver? solver, bool sweep, WCS? headerWcs = null, ILogger? logger = null, CancellationToken cancellationToken = default)
+        /// <param name="Masked">The master with its absent ring, and outside <paramref name="CoveredRect"/> its thin band, set to NaN.</param>
+        /// <param name="Baseline">The extractor's result at its defaults on <paramref name="Masked"/>.</param>
+        /// <param name="Planes">The per-plane measurement of that fit.</param>
+        /// <param name="AbsentFraction">The share of the canvas masked.</param>
+        /// <param name="CoveredRect">The all-frames rectangle from the coverage sidecar, or empty without one.</param>
+        internal sealed record MasterFit(Image Masked, BackgroundExtractionResult Baseline, ImmutableArray<PlaneGradient> Planes, float AbsentFraction, PixelRect CoveredRect)
         {
-            ArgumentNullException.ThrowIfNull(master);
-            var sw = Stopwatch.StartNew();
-            var meta = master.ImageMeta;
-            var (channels, width, height) = master.Shape;
+            /// <summary>Releases the masked copy and the extractor's two images.</summary>
+            public void Release()
+            {
+                Baseline.Cleaned.Release();
+                Baseline.Background.Release();
+                Masked.Release();
+            }
+        }
 
+        /// <summary>Fits <paramref name="master"/> as G1 does; see <see cref="MasterFit"/>.</summary>
+        internal static async Task<MasterFit> FitMasterAsync(Image master, string masterPath, CancellationToken cancellationToken)
+        {
+            var (channels, width, height) = master.Shape;
             // The band some frames covered and others did not is NOT absent -- it holds real pixels,
             // at a lower depth and (before the drizzle sky reference) carrying level steps from sky
             // drift, which is what put the white and black edge bands on Statue of Liberty and Great
@@ -387,12 +397,16 @@ namespace TianWen.Lib.Imaging.Dataset
             }
 
             var masked = MaskAbsent(master, coveredRect, out var absentFraction);
-            var extractor = new ClassicalBackgroundExtractor();
-            var defaults = BackgroundExtractionOptions.Default;
-
-            ImmutableArray<PlaneGradient> planes;
-            ImmutableArray<SweepPoint> sweepPoints;
-            var baseline = await extractor.ExtractAsync(masked, defaults, cancellationToken);
+            BackgroundExtractionResult baseline;
+            try
+            {
+                baseline = await new ClassicalBackgroundExtractor().ExtractAsync(masked, BackgroundExtractionOptions.Default, cancellationToken);
+            }
+            catch
+            {
+                masked.Release();
+                throw;
+            }
             try
             {
                 if (baseline.Planes.Length != channels)
@@ -406,17 +420,48 @@ namespace TianWen.Lib.Imaging.Dataset
                 {
                     builder.Add(MeasurePlane(p, masked.GetChannelSpan(p), baseline.Background.GetChannelSpan(p), width, height, baseline.Planes[p]));
                 }
-                planes = builder.MoveToImmutable();
-
-                sweepPoints = sweep
-                    ? await SweepAsync(extractor, masked, baseline.Background, planes, defaults, cancellationToken)
-                    : ImmutableArray<SweepPoint>.Empty;
+                return new MasterFit(masked, baseline, builder.MoveToImmutable(), absentFraction, coveredRect);
             }
-            finally
+            catch
             {
                 baseline.Cleaned.Release();
                 baseline.Background.Release();
                 masked.Release();
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Measures one master: the default fit per plane, the sweep, and the covariates. The caller keeps
+        /// ownership of <paramref name="master"/>; <paramref name="masterPath"/> is only read when
+        /// <paramref name="solver"/> is given (the solver works from the file). <paramref name="headerWcs"/>
+        /// is the WCS the master's own header carries, the scale's fallback when this run does not solve.
+        /// </summary>
+        public static async Task<MasterGradient> MeasureMasterAsync(
+            Image master, string masterPath, string strategy, int stackedFrames,
+            IPlateSolver? solver, bool sweep, WCS? headerWcs = null, ILogger? logger = null, CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(master);
+            var sw = Stopwatch.StartNew();
+            var meta = master.ImageMeta;
+            var (channels, width, height) = master.Shape;
+
+            var extractor = new ClassicalBackgroundExtractor();
+            var defaults = BackgroundExtractionOptions.Default;
+            ImmutableArray<PlaneGradient> planes;
+            ImmutableArray<SweepPoint> sweepPoints;
+            var fit = await FitMasterAsync(master, masterPath, cancellationToken);
+            var absentFraction = fit.AbsentFraction;
+            try
+            {
+                planes = fit.Planes;
+                sweepPoints = sweep
+                    ? await SweepAsync(extractor, fit.Masked, fit.Baseline.Background, planes, defaults, cancellationToken)
+                    : ImmutableArray<SweepPoint>.Empty;
+            }
+            finally
+            {
+                fit.Release();
             }
 
             // Geometry. The solve gives the frame's orientation on the sky and a better centre than the
