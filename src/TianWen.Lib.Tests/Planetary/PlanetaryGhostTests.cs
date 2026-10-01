@@ -15,6 +15,9 @@ public class PlanetaryGhostTests
     // Small, so a fit's every Fourier transform is 256 on a side: the model is rebuilt for each step of the fit.
     private const int Size = 128;
 
+    // A drawn disk has no blurred limb below the source's threshold, so these fit from 3 px out, nearer than a real stack's default.
+    private const double Margin = 3;
+
     [Theory]
     [InlineData(0.5, 0.2422684577)]
     [InlineData(1.0, 0.4400505857)]
@@ -72,16 +75,58 @@ public class PlanetaryGhostTests
         var disk = Disk();
         var source = new PlanetaryGhost.Source(disk, Size, Size);
         var ghost = source.Ghost(0.02, 5, -3, 12);
-        var glow = source.Glow(0.01, 2.5);
+        var glow = source.Glow(0.01, 2.5, 1);
         var random = new Random(3);
         var plane = disk.Select((v, i) => v + ghost[i] + glow[i] + (float)(0.0005 * Normal(random))).ToArray();
 
-        var fit = PlanetaryGhost.FitGhost(plane, new PlanetaryGhost.Source(plane, Size, Size));
-        TestContext.Current.TestOutputHelper?.WriteLine($"strength {fit.Strength:0.0000}, shift ({fit.ShiftX:0.00}, {fit.ShiftY:0.00}), radius {fit.Radius:0.00}, glow {fit.Glow:0.0000} at q {fit.GlowExponent:0.00}, rms {fit.Rms:0.00000}");
+        var fit = PlanetaryGhost.FitGhost(plane, new PlanetaryGhost.Source(plane, Size, Size, Margin));
+        TestContext.Current.TestOutputHelper?.WriteLine($"strength {fit.Strength:0.0000}, shift ({fit.ShiftX:0.00}, {fit.ShiftY:0.00}), radius {fit.Radius:0.00}, axis ratio {fit.AxisRatio:0.00} at {fit.AngleDeg:0.0}, rms {fit.Rms:0.00000}");
         fit.Strength.ShouldBe(0.02, 0.002);
         fit.ShiftX.ShouldBe(5, 1);
         fit.ShiftY.ShouldBe(-3, 1);
         fit.Radius.ShouldBe(12, 1.2);
+    }
+
+    [Fact]
+    public void AnEllipticalGhostWithNoShiftIsFittedBack()
+    {
+        var disk = Disk();
+        var source = new PlanetaryGhost.Source(disk, Size, Size);
+        var ghost = source.Ghost(0.02, 0, 0, 12, 0.6, 120);
+        var glow = source.Glow(0.01, 2.5, 1);
+        var random = new Random(4);
+        var plane = disk.Select((v, i) => v + ghost[i] + glow[i] + (float)(0.0005 * Normal(random))).ToArray();
+
+        var fit = PlanetaryGhost.FitGhost(plane, new PlanetaryGhost.Source(plane, Size, Size, Margin));
+        TestContext.Current.TestOutputHelper?.WriteLine($"strength {fit.Strength:0.0000}, shift ({fit.ShiftX:0.00}, {fit.ShiftY:0.00}), radius {fit.Radius:0.00}, axis ratio {fit.AxisRatio:0.00} at {fit.AngleDeg:0.0}, rms {fit.Rms:0.00000}");
+        fit.Strength.ShouldBe(0.02, 0.002);
+        fit.Radius.ShouldBe(12, 1.2);
+        fit.AxisRatio.ShouldBe(0.6, 0.06);
+        fit.AngleDeg.ShouldBe(120, 5);
+    }
+
+    [Fact]
+    public void TakingOutAnEllipticalCopysNonRoundPartLeavesTheHaloRound()
+    {
+        var disk = Disk();
+        var source = new PlanetaryGhost.Source(disk, Size, Size, Margin);
+        var ghost = source.Ghost(0.05, 0, 0, 14, 0.5, 30);
+        var glow = source.Glow(0.01, 2.5, 1);
+        var random = new Random(6);
+        var plane = disk.Select((v, i) => v + ghost[i] + glow[i] + (float)(0.0002 * Normal(random))).ToArray();
+
+        var fitted = new PlanetaryGhost.Source(plane, Size, Size, Margin);
+        var fit = PlanetaryGhost.FitGhost(plane, fitted);
+        var shell = PlanetaryGhost.NonRound(fitted.Ghost(fit.Strength, fit.ShiftX, fit.ShiftY, fit.Radius, fit.AxisRatio, fit.AngleDeg), fitted);
+        (double, double)[] bands = [(3, 8), (8, 14)];
+        var before = PlanetaryGhost.Quadrupoles(plane, fitted, bands);
+        var after = PlanetaryGhost.Quadrupoles([.. plane.Select((v, i) => v - shell[i])], fitted, bands);
+        TestContext.Current.TestOutputHelper?.WriteLine(string.Join("; ", before.Zip(after, (b, a) => $"{b.From}-{b.To}: {b.Amplitude:0.00000}@{b.AxisDeg:0} to {a.Amplitude:0.00000}")));
+        before[0].AxisDeg.ShouldBe(30, 3);
+        for (var k = 0; k < bands.Length; k++)
+        {
+            after[k].Amplitude.ShouldBeLessThan(0.1 * before[k].Amplitude);
+        }
     }
 
     [Fact]
@@ -90,11 +135,11 @@ public class PlanetaryGhostTests
         var disk = Disk();
         var source = new PlanetaryGhost.Source(disk, Size, Size);
         var flare = source.Flare(0.05, 14, 30);
-        var glow = source.Glow(0.01, 2.5);
+        var glow = source.Glow(0.01, 2.5, 1);
         var random = new Random(5);
         var plane = disk.Select((v, i) => v + flare[i] + glow[i] + (float)(0.0005 * Normal(random))).ToArray();
 
-        var fitted = new PlanetaryGhost.Source(plane, Size, Size);
+        var fitted = new PlanetaryGhost.Source(plane, Size, Size, Margin);
         var (asGhost, asComa) = (PlanetaryGhost.FitGhost(plane, fitted), PlanetaryGhost.FitComa(plane, fitted));
         TestContext.Current.TestOutputHelper?.WriteLine($"as a ghost rms {asGhost.Rms:0.00000}; as coma rms {asComa.Rms:0.00000}, length {asComa.Length:0.0} at {asComa.AngleDeg:0.0} degrees");
         asComa.Rms.ShouldBeLessThan(asGhost.Rms);
