@@ -480,6 +480,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 buildCommand,
                 BuildReportCommand(consoleHost),
                 BuildGradientReportCommand(),
+                BuildGradientExportCommand(),
                 BuildDegradeCommand(),
                 BuildBrightCellsCommand(),
                 BuildNoiseCheckCommand(),
@@ -819,6 +820,90 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             consoleHost.WriteScrollable(
                 $"[gradient] measured {result.Measured} ({result.Solved} solved), skipped {result.Skipped} ({result.Backfilled} given their scale), failed {result.Failed}; report: {result.ReportPath}");
             return result.Failed > 0 && result.Measured == 0 ? 2 : 0;
+        });
+
+        return command;
+    }
+
+    /// <summary>
+    /// <c>tianwen dataset gradient-export</c>: every retained master of a bake reduced to the gradient
+    /// model's square on the whole canvas, beside its presence plane, the classical surface and the
+    /// covariates (docs/plans/gradient-remover-training.md, G2). Reads the bake's masters, ledger, pinned
+    /// split and G1's store; never the archive.
+    /// </summary>
+    private Command BuildGradientExportCommand()
+    {
+        var bakeOpt = new Option<string>("--bake")
+        {
+            Description = "The bake root: its session-masters, stats/sessions.jsonl and test-sessions.txt are read.",
+            Required = true,
+        };
+        var outOpt = new Option<string>("--out", "-o")
+        {
+            Description = "Output root: the manifest and the frames directory land here.",
+            Required = true,
+        };
+        var sizeOpt = new Option<int>("--size")
+        {
+            Description = "The model's square input, pixels.",
+            DefaultValueFactory = _ => DatasetGradientFrameExporter.DefaultSize,
+        };
+        var storeOpt = new Option<string?>("--gradient-store")
+        {
+            Description = "G1's store for the covariates and scale (default: <bake>/stats/gradient-masters.jsonl).",
+        };
+        var forceOpt = new Option<bool>("--force")
+        {
+            Description = "Re-export masters already in the manifest.",
+        };
+        var onlyOpt = new Option<string[]>("--only")
+        {
+            Description = "Export only masters whose file name contains one of these (ordinal, case-insensitive); repeatable.",
+            AllowMultipleArgumentsPerToken = true,
+        };
+
+        var command = new Command("gradient-export",
+            "Reduce every retained master to the gradient model's square, linear and on the whole canvas, with a " +
+            "presence plane, the classical surface, the coverage depth and G1's covariates (G2).")
+        {
+            Options = { bakeOpt, outOpt, sizeOpt, storeOpt, forceOpt, onlyOpt },
+        };
+
+        command.SetAction(async (parseResult, ct) =>
+        {
+            var bake = parseResult.Required(bakeOpt);
+            var only = parseResult.GetValue(onlyOpt) ?? [];
+            var masters = RetainedMasterStore.EnumerateMasters(bake)
+                .Where(path => only.Length == 0 || only.Any(o => Path.GetFileName(path).Contains(o, StringComparison.OrdinalIgnoreCase)))
+                .ToImmutableArray();
+            if (masters.Length == 0)
+            {
+                consoleHost.WriteError($"No retained masters under {bake}.");
+                return 1;
+            }
+
+            var store = parseResult.GetValue(storeOpt) ?? Path.Combine(bake, "stats", DatasetGradientReport.StoreFileName);
+            if (!File.Exists(store))
+            {
+                consoleHost.WriteScrollable($"[gradient-export] no G1 store at {store}; rows carry no covariates and take the scale from each header");
+            }
+
+            var result = await DatasetGradientFrameExporter.RunAsync(
+                new DatasetGradientFrameExporter.ExportOptions(
+                    masters,
+                    Path.Combine(bake, "stats", DatasetSessionLedger.FileName),
+                    Path.Combine(bake, DatasetSplitWriter.TestSessionsFileName),
+                    store,
+                    parseResult.Required(outOpt),
+                    parseResult.GetValue(sizeOpt),
+                    parseResult.GetValue(forceOpt)),
+                logger,
+                progress: new Progress<string>(line => consoleHost.WriteScrollable(line)),
+                cancellationToken: ct);
+
+            consoleHost.WriteScrollable(
+                $"[gradient-export] exported {result.Exported} ({result.Test} test, {result.UnknownSplit} with no session), skipped {result.Skipped}, failed {result.Failed}; manifest: {result.ManifestPath}");
+            return result.Failed > 0 && result.Exported == 0 ? 2 : 0;
         });
 
         return command;
