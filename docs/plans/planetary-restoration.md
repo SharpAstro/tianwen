@@ -1657,6 +1657,39 @@ asked for (512 px rather than 256), so they are new twins, not step 3's with a m
     here is elongated along the planet's axes), the multi-frame blind deconvolution and the defocus burst. Those are #1140's to pick
     from.
 
+##### R8 follow-up 4, part 2: an elongated kernel off the limb's edge
+
+- **Pre-registered 2026-10-02, before anything was built or measured** (`tianwen planetary-elongated`): an ELONGATED kernel read off the
+  limb's edge, the part of R8 part 1's exact 2-D kernel a capture can measure (its anisotropy, never its phase).
+  - **Why.** R8 part 1's exact 2-D kernel left 21 % less error than the best isotropic filter with the still layer and 13 % without, from
+    its anisotropy and its phase together. Part 1 found every stack's kernel wider along the planet's equator, where only the limb places a
+    frame (R5 part 3).
+  - **(e), the elongated kernel**:
+    - the edge (step 3's (b)) read in two sectors: the limb points within 30 degrees of the planet's axis (the poles), whose edges profile
+      the kernel along the axis, and those within 30 degrees of its equator (the sunlit limb only, the terminator's arc left out as before);
+    - step 3's physical kernel (a) fitted to the axis sector alone;
+    - an extra Gaussian jitter along the equator, its variance by least squares on the two sectors' log ratio,
+      ln(equator / axis) = -2 pi^2 sigma^2 f^2, between 0.08 and 0.3 cycles a pixel where both read above 0.05 (a negative fit is zero);
+    - so (e) is (a) on the axis sector times exp(-2 pi^2 sigma^2 (f . e)^2), e the equator's direction in the image.
+  - **The reference**: the oracle read in the same two sectors of frequency (the stack against its truth in the modes within 30 degrees of
+    each direction), and a 2-D oracle interpolating them as a jitter would: the transfer's logarithm linear in the squared sine of the
+    angle from the axis.
+  - **The restorations**: Richardson-Lucy at the sky, set to band 3 = 1.00 against each twin's truth (R8 part 2's rule), with four
+    kernels:
+    - (a), the round physical kernel on the whole edge (step 3 part 2's);
+    - (e);
+    - the oracle's ring average;
+    - the 2-D oracle.
+    Each is scored by the band-error sum over bands 1 to 4 inside 0.9 radii.
+  - **The twins**: step 3's three, calibrated, without its still layer, and warped. The real 2022-09-03 Red is read for (e)'s anisotropy
+    and not judged.
+  - **The claims:**
+    1. (e)'s transfer along the equator over its transfer along the axis, at 0.2 cycles a pixel, within 0.05 of the sectored oracle's.
+    2. **The kill line.** The anisotropy is worth something only where the 2-D oracle's Richardson-Lucy leaves at least 3 % less error
+       than the round oracle's. On a twin where it does not, (e) is not judged on the restorations.
+    3. Past the kill line, (e) recovers at least half of what the 2-D oracle gains over the round one:
+       err((a)) - err((e)) at least half of err(round oracle) - err(2-D oracle).
+
 ## R9 A learned stage, only if the measurements say so
 
 **Issue:** #1056 (conditional).
