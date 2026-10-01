@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- One-off curation program (2026-10-01, the owner's call): merges the curated FILTER and the two
+         sites' cards into D:/Astro-Organized, then rekeys the dataset store so sessions that were baked
+         correctly keep their outputs. Kept beside the other curation scripts so CORRECTIONS.md can name
+         it; never referenced by the apps. -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\TianWen.Lib\TianWen.Lib.csproj" />
+    <ProjectReference Include="..\..\..\src\TianWen.AI.Imaging\TianWen.AI.Imaging.csproj" />
+  </ItemGroup>
+
+</Project>
