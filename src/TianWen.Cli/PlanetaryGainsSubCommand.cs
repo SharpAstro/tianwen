@@ -52,72 +52,22 @@ internal sealed class PlanetaryGainsSubCommand(IConsoleHost consoleHost, MasterP
             var input = parseResult.GetValue(inputArg) ?? "";
             var planet = parseResult.GetValue(planetOpt)?.ToLowerInvariant() == "saturn" ? CatalogIndex.Saturn : CatalogIndex.Jupiter;
             var size = parseResult.GetValue(windowOpt);
-            using var reader = SerReader.Open(input);
-            using var whole = new SerFrameStream(reader, ownsReader: false);
-            using var stream = new PlanetaryFrameWindow(whole, 0, Math.Min(whole.FrameCount, parseResult.GetValue(framesOpt) ?? whole.FrameCount));
-            if (stream.MidCapture is not { } when)
+            using var prepared = await PlanetaryWindowedStack.CreateAsync(consoleHost, input, parseResult.GetValue(truthOpt), planet, parseResult.GetValue(framesOpt),
+                parseResult.GetValue(keepOpt), parseResult.GetValue(telescopeOpt) ?? "newtonian", parseResult.GetValue(wavelengthOpt), size, halves: true, ct);
+            if (prepared is not { HalfA: { } aWindow, HalfB: { } bWindow, HalfAResult: { } halfA, HalfBResult: { } halfB })
             {
-                consoleHost.WriteError($"{input}: no timestamps");
                 return 1;
             }
-            var aspect = PhysicalEphemeris.Compute(planet, when);
-            var limbOptions = PlanetaryLimbFit.OptionsFor(aspect);
-            var options = new PlanetaryStackOptions
-            {
-                KeepFraction = parseResult.GetValue(keepOpt),
-                WhitenedCorrelation = false,
-                Interpolation = WarpInterpolation.Lanczos3,
-                QualityEstimator = new GradientEnergyEstimator(),
-            };
-            var stacker = new LuckyImagingStacker();
-            var result = await stacker.StackGlobalAsync(stream, options, ct);
-            using var halfAFrames = PlanetaryFrameSubset.Half(stream, 0);
-            using var halfBFrames = PlanetaryFrameSubset.Half(stream, 1);
-            var halfA = await stacker.StackGlobalAsync(halfAFrames, options, ct);
-            var halfB = await stacker.StackGlobalAsync(halfBFrames, options, ct);
-            var stackImage = result.Master;
+            var (result, stackImage, wide, disk, stackWindow, truthWindow, scale) =
+                (prepared.Result, prepared.Result.Master, prepared.Wide, prepared.Disk, prepared.Stack, prepared.Truth, prepared.ArcsecPerPixel);
+            var (measured, limbOptions) = (prepared.Measured, prepared.LimbOptions);
+            float[] Registered(ReadOnlySpan<float> plane) => prepared.Registered(plane);
+            float[] Window(float[] plane) => prepared.Window(plane);
             var shipped = new List<Image>();
             try
             {
-                var (width, height) = (stackImage.Width, stackImage.Height);
-                var truth = parseResult.GetValue(truthOpt) is { } truthPath ? PlanetaryMeasureSubCommand.ReadTruth(truthPath, consoleHost) : null;
-                if (parseResult.GetValue(truthOpt) is not null && truth is null)
-                {
-                    return 1;
-                }
-                MetricDisk? onto = truth is { } t ? t.Disk with { AxisRatio = limbOptions.AxisRatio } : null;
-                if (PlanetaryMeasureSubCommand.Register(stackImage, limbOptions, onto) is not { } stack
-                    || PlanetaryLimbFit.Fit(stackImage, limbOptions) is not { } fit
-                    || PlanetaryLimbKernel.Fit(stackImage, fit, limbOptions) is not { } wide)
-                {
-                    consoleHost.WriteError($"{input}: the stack's limb could not be fitted");
-                    return 1;
-                }
-                if (PlanetaryMeasureSubCommand.Register(halfA.Master, limbOptions, stack.Disk) is not { } a
-                    || PlanetaryMeasureSubCommand.Register(halfB.Master, limbOptions, stack.Disk) is not { } b)
-                {
-                    consoleHost.WriteError($"{input}: a half's limb could not be fitted");
-                    return 1;
-                }
-
-                // Everything in a window about the disk, moved as the stack was: normalised on its own disk, then onto the target.
-                var own = MetricDisk.From(fit, limbOptions.AxisRatio);
-                float[] Registered(ReadOnlySpan<float> plane) =>
-                    PlanetaryMetrics.Shift(PlanetaryMetrics.Normalise(plane, width, height, own), width, height, stack.Disk.X - own.X, stack.Disk.Y - own.Y);
-                var (originX, originY) = ((int)Math.Round(stack.Disk.X) - (size / 2), (int)Math.Round(stack.Disk.Y) - (size / 2));
-                var disk = stack.Disk with { X = stack.Disk.X - originX, Y = stack.Disk.Y - originY };
-                float[] Window(float[] plane) => PlanetaryInversesSubCommand.Crop(plane, width, height, originX, originY, size);
-                var stackWindow = Window(stack.Plane);
-                var (aWindow, bWindow) = (Window(a.Plane), Window(b.Plane));
-                var truthWindow = truth is { } tr ? Window(PlanetaryMetrics.Normalise(tr.Plane, width, height, stack.Disk)) : null;
-
-                var scale = aspect.AngularDiameterArcsec / 2 / fit.EquatorialRadius;
-                var pupil = (parseResult.GetValue(telescopeOpt) ?? "newtonian").ToLowerInvariant() == "maksutov" ? PlanetaryGeometrySubCommands.MaksutovPupil : PlanetaryGeometrySubCommands.NewtonianPupil;
-                var diffraction = PlanetaryInverse.Diffraction(pupil, parseResult.GetValue(wavelengthOpt) * 1e-9, scale);
-                Func<double, double> measured = f => diffraction.At(f) is var d && d > 0.02 ? Math.Clamp(wide.TransferAt(f) / d, 0, 1) : 0;
-
                 // The disk's model: the limb fit's sharp disk, moved as the stack was and taken through the diffraction, as the truth is.
-                var diskTarget = PlanetaryInverse.Apply(Window(Registered(PlanetaryLimbFit.SharpModel(fit, limbOptions, width, height))), size, size, diffraction.At);
+                var diskTarget = prepared.DiskTarget;
                 var power = PlanetaryWaveletGains.StackPower(stackWindow, size, size, disk);
                 var noise = PlanetaryWaveletGains.HalvesNoise(aWindow, bWindow, size, size, disk);
                 var white = PlanetaryInverse.WhiteNoise(PlanetaryWaveletGains.Interior(stackWindow, size, size, disk), size, size);
@@ -280,9 +230,6 @@ internal sealed class PlanetaryGainsSubCommand(IConsoleHost consoleHost, MasterP
                 {
                     image.Release();
                 }
-                stackImage.Release();
-                halfA.Master.Release();
-                halfB.Master.Release();
             }
         });
         return command;
