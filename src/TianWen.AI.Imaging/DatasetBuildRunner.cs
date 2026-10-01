@@ -175,17 +175,23 @@ public static class DatasetBuildRunner
         var alwaysHeldOut = options.AlwaysHeldOutSessions.IsDefaultOrEmpty
             ? null
             : options.AlwaysHeldOutSessions.ToFrozenSet(StringComparer.Ordinal);
+        // The split this store (or --split-from's) already made, read BEFORE the file is rewritten: a
+        // session it knew keeps its set, even once a curation pass has written a FILTER card into its id.
+        var prior = await DatasetSplitWriter.PriorSplit.ReadAsync(options.SplitFrom ?? outDir, logger, cancellationToken);
         var testSessions = await DatasetSplitWriter.WriteAsync(
-            sessions.Select(s => s.Id), options.TestFraction, splitPath, alwaysHeldOut, cancellationToken);
-        var forcedPresent = alwaysHeldOut is null ? 0 : sessions.Count(s => alwaysHeldOut.Contains(s.Id));
+            sessions.Select(s => s.Id), options.TestFraction, splitPath, alwaysHeldOut, prior, cancellationToken);
+        var forcedPresent = alwaysHeldOut is null ? 0 : sessions.Count(s => DatasetSplitWriter.IsForced(s.Id, alwaysHeldOut));
+        var renamed = sessions.Count(s => prior.MatchedByLegacyId(s.Id));
         progress?.Report($"[dataset] pinned test split: {testSessions.Length}/{sessions.Length} sessions held out"
-            + (forcedPresent > 0 ? $" ({forcedPresent} forced)" : ""));
+            + (forcedPresent > 0 ? $" ({forcedPresent} forced)" : "")
+            + (prior.KnownCount > 0 ? $"; {prior.KnownCount} known to the previous split keep their set" : "")
+            + (renamed > 0 ? $", {renamed} of them under an id that has gained a FILTER since" : ""));
         // A forced id that matches NOTHING is almost always a typo or a renamed session, and silence
         // there means a session everyone believes is excluded is quietly training.
         if (alwaysHeldOut is not null)
         {
-            var ids = sessions.Select(s => s.Id).ToFrozenSet(StringComparer.Ordinal);
-            foreach (var missing in alwaysHeldOut.Where(h => !ids.Contains(h)))
+            foreach (var missing in alwaysHeldOut.Where(h =>
+                !sessions.Any(s => DatasetSplitWriter.IsForced(s.Id, new HashSet<string>(StringComparer.Ordinal) { h }))))
             {
                 logger?.LogWarning("Hold-out session id matches no session in this archive: {SessionId}", missing);
             }

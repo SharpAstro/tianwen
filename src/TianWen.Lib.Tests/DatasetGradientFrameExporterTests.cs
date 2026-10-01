@@ -46,8 +46,8 @@ public sealed class DatasetGradientFrameExporterTests(ITestOutputHelper output) 
         Directory.CreateDirectory(_dir);
         var path = Path.Combine(_dir, DatasetSplitWriter.TestSessionsFileName);
         File.WriteAllText(path, "# Pinned held-out TEST sessions.\n# another comment\nA/B/C|Cam|X\nD/E/F|Cam|Y\t# FORCED\n\n");
-        DatasetGradientFrameExporter.ReadPinnedTestSessions(path).ShouldBe(["A/B/C|Cam|X", "D/E/F|Cam|Y"], ignoreOrder: true);
-        DatasetGradientFrameExporter.ReadPinnedTestSessions(Path.Combine(_dir, "missing.txt")).ShouldBeEmpty();
+        DatasetSplitWriter.ReadPinned(path).ShouldBe(["A/B/C|Cam|X", "D/E/F|Cam|Y"], ignoreOrder: true);
+        DatasetSplitWriter.ReadPinned(Path.Combine(_dir, "missing.txt")).ShouldBeEmpty();
     }
 
     [Theory]
