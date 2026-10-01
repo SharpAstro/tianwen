@@ -332,6 +332,86 @@ public static class FitsHeaderEditor
 
     /// <summary>The half both public setters share: read the primary header, apply every guard, then
     /// splice in the already-formatted card.</summary>
+    /// <summary>One card of a <see cref="SetCardsAsync"/> edit, and when it may be written.</summary>
+    /// <param name="Keyword">Card keyword, at most 8 characters.</param>
+    /// <param name="Card">The formatted 80-byte card (<see cref="StringCard"/> / <see cref="NumericCard"/>).</param>
+    /// <param name="Replaceable">Values the card may REPLACE (compared trimmed, ignoring case), e.g. the
+    /// placeholders <c>None</c> and <c>NoFilter</c>; any other non-blank value is kept. Null replaces nothing.</param>
+    public readonly record struct CardEdit(string Keyword, string Card, IReadOnlySet<string>? Replaceable = null);
+
+    /// <summary>A string-valued <see cref="CardEdit"/>.</summary>
+    public static CardEdit StringCard(string keyword, string value, string comment = "", IReadOnlySet<string>? replaceable = null)
+    {
+        RejectOverlongKeyword(keyword);
+        return new CardEdit(keyword, FormatStringCard(keyword, value, comment), replaceable);
+    }
+
+    /// <summary>A numeric <see cref="CardEdit"/>, formatted as FITS wants a number (see <see cref="SetNumericCardAsync"/>).</summary>
+    public static CardEdit NumericCard(string keyword, double value, string comment = "")
+    {
+        RejectOverlongKeyword(keyword);
+        return new CardEdit(keyword, FormatNumericCard(keyword, value, comment));
+    }
+
+    /// <summary>
+    /// Fills several cards in ONE rewrite of <paramref name="path"/>: each <paramref name="edits"/> card is
+    /// written where its keyword is absent or blank, or holds one of its <see cref="CardEdit.Replaceable"/>
+    /// values, and left alone otherwise; a file needing none of them is <see cref="TagOutcome.AlreadyPresent"/>.
+    /// The same frame-type gate and hard-link policy as <see cref="SetStringCardAsync"/>, and the same dry run.
+    /// </summary>
+    /// <remarks>
+    /// One rewrite rather than one per card because the editor's write is a replace of the whole file: a
+    /// curation pass merging a filter and three site cards into an 18 MB frame would otherwise read and
+    /// write it four times, across tens of thousands of frames on a spindle.
+    /// </remarks>
+    public static async Task<TagResult> SetCardsAsync(
+        string path,
+        IReadOnlyList<CardEdit> edits,
+        IReadOnlySet<FrameType>? allowedFrameTypes = null,
+        HardLinkPolicy hardLinks = HardLinkPolicy.Refuse,
+        bool apply = false,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentNullException.ThrowIfNull(edits);
+        var (failure, headerLength, cards) = await ReadHeaderForEditAsync(path, cancellationToken);
+        if (failure is not null)
+        {
+            return failure;
+        }
+
+        if (allowedFrameTypes is { Count: > 0 })
+        {
+            var (raw, stated) = StatedFrameType(cards);
+            if (stated is not { } frameType || !allowedFrameTypes.Contains(frameType))
+            {
+                return new TagResult(
+                    path, TagOutcome.FrameTypeExcluded, raw is null ? "no frame type card" : $"frame type '{raw}'");
+            }
+        }
+
+        var pending = new List<(string Keyword, string Card)>(edits.Count);
+        var kept = new List<string>();
+        foreach (var edit in edits)
+        {
+            var existing = CardValue(cards, edit.Keyword);
+            var replaceable = existing is { Length: > 0 } && edit.Replaceable is { } placeholders
+                && placeholders.Any(p => string.Equals(p.Trim(), existing.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (existing is { Length: > 0 } && !replaceable)
+            {
+                kept.Add($"{edit.Keyword}={existing}");
+                continue;
+            }
+            pending.Add((edit.Keyword, edit.Card));
+        }
+        if (pending.Count == 0)
+        {
+            return new TagResult(path, TagOutcome.AlreadyPresent, string.Join(", ", kept));
+        }
+
+        return await CommitAsync(path, headerLength, cards, pending, kept.Count > 0 ? string.Join(", ", kept) : null, hardLinks, apply, cancellationToken);
+    }
+
     private static async Task<TagResult> SetCardAsync(
         string path,
         string keyword,
