@@ -103,7 +103,7 @@ public class PlanetaryGhostTests
         var fit = PlanetaryGhost.FitGhost(plane, fitted);
         (double, double)[] bands = [(3, 8), (8, 14)];
         var injected = PlanetaryGhost.Quadrupoles(ghost, fitted, bands);
-        var recovered = PlanetaryGhost.Quadrupoles(fitted.Ghost(fit.Strength, fit.ShiftX, fit.ShiftY, fit.Radius, fit.AxisRatio, fit.AngleDeg, fit.Separation), fitted, bands);
+        var recovered = PlanetaryGhost.Quadrupoles(fitted.Ghost(fit.Strength, fit.ShiftX, fit.ShiftY, fit.Radius, fit.AxisRatio, fit.AngleDeg), fitted, bands);
         TestContext.Current.TestOutputHelper?.WriteLine(string.Join("; ", injected.Zip(recovered, (i, r) => $"{i.From}-{i.To}: {i.Amplitude:0.00000}@{i.AxisDeg:0} came back {r.Amplitude:0.00000}@{r.AxisDeg:0}")));
         for (var k = 0; k < bands.Length; k++)
         {
@@ -124,7 +124,7 @@ public class PlanetaryGhostTests
 
         var fitted = new PlanetaryGhost.Source(plane, Size, Size, Margin);
         var fit = PlanetaryGhost.FitGhost(plane, fitted);
-        var shell = PlanetaryGhost.Shell(fitted.Ghost(fit.Strength, fit.ShiftX, fit.ShiftY, fit.Radius, fit.AxisRatio, fit.AngleDeg, fit.Separation), fitted);
+        var shell = PlanetaryGhost.Shell(fitted.Ghost(fit.Strength, fit.ShiftX, fit.ShiftY, fit.Radius, fit.AxisRatio, fit.AngleDeg), fitted);
         (double, double)[] bands = [(3, 8), (8, 14)];
         var before = PlanetaryGhost.Quadrupoles(plane, fitted, bands);
         var after = PlanetaryGhost.Quadrupoles([.. plane.Select((v, i) => v - shell[i])], fitted, bands);

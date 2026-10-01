@@ -110,9 +110,9 @@ internal sealed class PlanetaryGhostSubCommand(IConsoleHost consoleHost, MasterP
                             var (plane, width, height) = halfPlanes[c];
                             var source = new PlanetaryGhost.Source(plane, width, height, margin);
                             var fit = PlanetaryGhost.FitGhost(plane, source);
-                            var shell = PlanetaryGhost.Quadrupoles(source.Ghost(fit.Strength, fit.ShiftX, fit.ShiftY, fit.Radius, fit.AxisRatio, fit.AngleDeg, fit.Separation), source, Bands);
+                            var shell = PlanetaryGhost.Quadrupoles(source.Ghost(fit.Strength, fit.ShiftX, fit.ShiftY, fit.Radius, fit.AxisRatio, fit.AngleDeg), source, Bands);
                             consoleHost.WriteScrollable(string.Create(inv,
-                                $"    {half}{(halfPlanes.Count > 1 ? $" plane {c}" : "")}: ghost {fit.Strength:0.0000} at ({fit.ShiftX:0.00}, {fit.ShiftY:0.00}) px, radius {fit.Radius:0.00} px, axis ratio {fit.AxisRatio:0.00} at {fit.AngleDeg:0.0} degrees, split {fit.Separation:0.00} px; its shell {Describe(shell, inv)}"));
+                                $"    {half}{(halfPlanes.Count > 1 ? $" plane {c}" : "")}: ghost {fit.Strength:0.0000} at ({fit.ShiftX:0.00}, {fit.ShiftY:0.00}) px, radius {fit.Radius:0.00} px, axis ratio {fit.AxisRatio:0.00} at {fit.AngleDeg:0.0} degrees; its shell {Describe(shell, inv)}"));
                         }
                     }
                 }
@@ -154,7 +154,7 @@ internal sealed class PlanetaryGhostSubCommand(IConsoleHost consoleHost, MasterP
         var glow = PlanetaryGhost.FitGlow(plane, source);
         var ghost = PlanetaryGhost.FitGhost(plane, source);
         var coma = PlanetaryGhost.FitComa(plane, source);
-        var copy = source.Ghost(ghost.Strength, ghost.ShiftX, ghost.ShiftY, ghost.Radius, ghost.AxisRatio, ghost.AngleDeg, ghost.Separation);
+        var copy = source.Ghost(ghost.Strength, ghost.ShiftX, ghost.ShiftY, ghost.Radius, ghost.AxisRatio, ghost.AngleDeg);
         var shell = PlanetaryGhost.Shell(copy, source);
         var removed = plane.Select((v, i) => v - shell[i]).ToArray();
         var ghostModel = Sum(copy, source.Glow(ghost.Glow.AsSpan()), (float)ghost.Sky);
@@ -162,7 +162,7 @@ internal sealed class PlanetaryGhostSubCommand(IConsoleHost consoleHost, MasterP
         var rings = PlanetaryGhost.Rings(ghostResidual, source, margin);
         var worst = rings.Max(r => Math.Abs(r.Mean) / r.StandardError);
         consoleHost.WriteScrollable(string.Create(inv,
-            $"{label}: ghost {ghost.Strength:0.0000} at ({ghost.ShiftX:0.00}, {ghost.ShiftY:0.00}) px, radius {ghost.Radius:0.00} px, axis ratio {ghost.AxisRatio:0.00} at {ghost.AngleDeg:0.0} degrees, split {ghost.Separation:0.00} px; rms {ghost.Rms:0.00000}, the glow alone {glow.Rms:0.00000}"));
+            $"{label}: ghost {ghost.Strength:0.0000} at ({ghost.ShiftX:0.00}, {ghost.ShiftY:0.00}) px, radius {ghost.Radius:0.00} px, axis ratio {ghost.AxisRatio:0.00} at {ghost.AngleDeg:0.0} degrees; rms {ghost.Rms:0.00000}, the glow alone {glow.Rms:0.00000}"));
         consoleHost.WriteScrollable(string.Create(inv,
             $"    coma in its place: flare {coma.Strength:0.0000}, {coma.Length:0.0} px at {coma.AngleDeg:0.0} degrees; rms {coma.Rms:0.00000} ({(ghost.Rms <= coma.Rms ? "the ghost" : "coma")} fits better)"));
         consoleHost.WriteScrollable(string.Create(inv,
