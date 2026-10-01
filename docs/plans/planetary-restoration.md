@@ -1507,6 +1507,19 @@ Band error summed over bands 1 to 4 inside 0.9 radii, the limb's undershoot, and
   - a direct, oversampled edge profile over the limb, its albedo flattened by the stack's zonal mean;
   - the stack's spectrum against an OPAL map of another year at the capture's geometry, the object's slope supplied, never fitted (Fetick et al. 2020).
 - Then R8's derived gains with the best of them. Pre-registered when it starts.
+- **Pre-registered 2026-10-02, before anything was built or measured** (`tianwen planetary-finest-band`), part 1, the two direct reads; the physical kernel (a) and the gains with the best of the three are part 2, pre-registered when it starts:
+  - **The stacks**: R7 part 4's (the best 150 of 3,000 frames by the gradient, global, plain, Lanczos-3) of three twins, each against its truth: the calibrated twin (`red-3k-final`), the same without its still layer (`r7/nostill`) and the warped one (`r5/c065l10`, 0.65 px over 10 px). The real 2022-09-03 Red is read, not judged.
+  - **The target**: the oracle, `PlanetaryInverse.Measure` of the stack against its truth, at 0.1, 0.2 and 0.3 cycles a pixel (R7 part 4 read 0.54, 0.37 and 0.28 on the calibrated twin, 0.50, 0.26 and 0.11 on the warped one). The truths are rendered through the pupil's diffraction, so every transfer here is over diffraction.
+  - **(b) The edge, read directly**:
+    - every pixel from 8 px inside to 8 px outside the limb fit's outline, except within 45 degrees of the side the phase darkens, where the terminator bends it; each pixel is divided by the stack's own zonal brightness at its latitude (`PlanetaryBelts.FromImage`, read inside 0.9 radii), so the belts do not move the edge;
+    - binned by its signed distance from the outline at a tenth of a pixel, the bins differentiated into a line spread, and the same done to the limb fit's sharp model (`PlanetaryLimbFit.SharpModel`), the true edge;
+    - the transfer is the line spread's Fourier transform over the model's, which for a round kernel is its radial transfer.
+    - **Its self-check**: read on each twin's truth in place of the stack, it must give one within 0.05 from 0.1 to 0.3 cycles a pixel, or the sharp model's edge is not the truth's and (b) is not read.
+  - **(c) The spectrum, against another year**:
+    - the stack's ring power inside 0.9 radii (the interior only, R8 part 3's cosine taper), less its halves' noise power, over the power of the 2024d OPAL map in the same filter rendered at the capture's geometry through the pupil's diffraction; the transfer is the root of that ratio. The twins are of 2022b, so the object's spectrum is another year's, its slope supplied, never fitted (Fetick et al. 2020).
+    - **Its kill line**: 2024d's own power over 2022b's, both rendered at the geometry with no blur, must stay within 20 % of one from 0.1 to 0.3 cycles a pixel, or a year's texture is not the object's spectrum and (c) is not read.
+  - **Pass**: on each twin, (b) and (c) within 0.05 of the oracle at 0.2 and at 0.3 cycles a pixel, and nearer it than the limb's (b'), which read 0.05 at 0.3 against 0.28 on the calibrated twin.
+  - **The real capture**: (b) is also read in two sectors, along R7a's axis (120 degrees on the sensor) and across it, to say how elongated that night's kernel is in band 1.
 
 #### R8 follow-up 4: heavier probes, only if follow-up 3 falls short
 
