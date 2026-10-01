@@ -1041,6 +1041,8 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   flattened by the zonal brightness, and divide its line spread's transform by the sharp model's through the diffraction. It reads 0.3
   cycles a pixel within 0.011 of a twin's oracle where the kernel said a fifth of it; check it on the truth's own edge first (a warped
   stack's limb fit fails that). Another year's spectrum is no object below 0.2 cycles a pixel: the belts change by a third.
+  R8's gains through the edge improve a stack (0.92 against 1.415) where the kernel's doubled its error, but miss the true kernel's by a
+  quarter to two fifths: band 1 runs to 0.5 cycles a pixel and the edge is noise past about 0.3 (step 4, #1140, is the kernel there).
 - **A ghost is taken out as what is NOT ROUND, never as a fitted copy's strength** (R7a, `planetary-ghost`, `PlanetaryGhost`): no round glow
   tells a copy's round part from scatter, so read and remove the copy's non-round part (`PlanetaryGhost.Shell`), from where the planet's own
   blurred limb has died away (8 px past the 2 % edge), with the moons out of the copy and out of every read. A non-round read about that edge
