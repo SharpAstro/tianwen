@@ -135,6 +135,33 @@ public sealed record DegradeOptions(Pupil Pupil, double WavelengthM)
     /// <summary>The moons' surface brightness over the disk's mean inside 0.8 radii, which <see cref="DiskLevelAdu"/> sets.</summary>
     public double MoonLevel { get; init; } = 1;
 
+    /// <summary>
+    /// The free air at an altitude (docs/plans/planetary-restoration.md, R4 per-point, #1071), its Fried parameter at 500 nm; infinite
+    /// for none, the default, which makes every frame as before. Each point of the disk looks through it at its own footprint,
+    /// <see cref="HighAltitudeM"/> times its angle from the disk's centre, so the PSF varies over the disk: its tilts are the warp (so
+    /// <see cref="WarpRmsPx"/> stays zero) and its blur differs from point to point. The free air at the pupil (<see cref="R0M"/>) and the
+    /// still layer stay common to every point.
+    /// </summary>
+    public double HighR0M { get; init; } = double.PositiveInfinity;
+
+    /// <summary>The layer's altitude along the line of sight, in metres.</summary>
+    public double HighAltitudeM { get; init; } = 10_000;
+
+    /// <summary>The layer's outer scale, in metres (infinite for Kolmogorov's).</summary>
+    public double HighOuterScaleM { get; init; } = double.PositiveInfinity;
+
+    /// <summary>The wind that carries the layer across the line of sight, in metres a second.</summary>
+    public double HighWindMps { get; init; } = 20;
+
+    /// <summary>The layer's wind direction on its screen, from +x toward +y.</summary>
+    public double HighWindAngleDeg { get; init; } = 30;
+
+    /// <summary>The spacing of the field points the layer's PSF is computed at, in pixels; between them it is interpolated.</summary>
+    public int FieldGridPx { get; init; } = 6;
+
+    /// <summary>Whether there is a layer at an altitude.</summary>
+    public bool HasHighLayer => double.IsFinite(HighR0M);
+
     /// <summary>The moons at <paramref name="utc"/>, as <see cref="MoonsWithinRadii"/> and <see cref="MoonLevel"/> ask; none for any planet but Jupiter.</summary>
     public ImmutableArray<MoonDisk> MoonsAt(CatalogIndex planet, DateTimeOffset utc) =>
         MoonsWithinRadii > 0 && planet == CatalogIndex.Jupiter ? MoonDisk.Galilean(utc, MoonsWithinRadii, MoonLevel) : [];
@@ -167,11 +194,11 @@ public readonly record struct SyntheticFrameOptics(double[] Psf, double ShiftX, 
 /// pixels, and read out as the camera does:
 /// Poisson electrons, read noise, the offset, rounded and clipped to the ADC's range.
 /// <para>
-/// Not modelled: the blur varying over the disk (one PSF per frame; only the warp varies), the camera's fixed pattern, and
-/// the filter's width (one wavelength).
+/// Not modelled: the camera's fixed pattern, and the filter's width (one wavelength). The blur varies over the disk only with a layer
+/// at an altitude (<see cref="DegradeOptions.HighR0M"/>); without one, one PSF a frame and only the warp varies.
 /// </para>
 /// </summary>
-public static class PlanetaryDegrade
+public static partial class PlanetaryDegrade
 {
     // Frames made at once: the screens and warps are drawn in order, the frames themselves in parallel.
     private const int Block = 64;
@@ -315,12 +342,14 @@ public static class PlanetaryDegrade
     /// <param name="warps">Takes each frame's warp where the frame is, in order, when there is one: the truth a dewarp is scored
     /// against (R5 part 2).</param>
     /// <param name="optics">Takes each frame's PSF, shift and brightness, in order, after the frame is written: the truth a multi-frame
-    /// bound is computed against (R8 part 1).</param>
+    /// bound is computed against (R8 part 1). Not with a layer at an altitude, whose frames have no one PSF.</param>
+    /// <param name="field">Takes each frame's per-point truth, in order, when there is a layer at an altitude (R4 per-point, #1071); the
+    /// points are the same in every frame.</param>
     /// <param name="cancellationToken">Stops the making.</param>
     public static async Task<ImmutableArray<SyntheticFrame>> MakeAsync(PlanetMap map, CatalogIndex planet, ImmutableArray<DateTimeOffset> times, DiskPlacement reference,
         double arcsecPerPixel, ImmutableArray<double> shiftX, ImmutableArray<double> shiftY, ImmutableArray<double> brightness, int width, int height, DegradeOptions options,
         Action<int, ushort[]> write, IProgress<int>? progress = null, Action<int, SyntheticWarp>? warps = null, Action<int, SyntheticFrameOptics>? optics = null,
-        CancellationToken cancellationToken = default)
+        Action<int, SyntheticFieldFrame>? field = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(map);
         ArgumentNullException.ThrowIfNull(options);
@@ -350,6 +379,26 @@ public static class PlanetaryDegrade
             CenterY = ((reference.CenterY - windowY + 0.5) * os) - 0.5,
             EquatorialRadius = reference.EquatorialRadius * os,
         };
+
+        if (options.HasHighLayer)
+        {
+            if (options.WarpRmsPx > 0)
+            {
+                throw new ArgumentException("A layer at an altitude makes the warp with its own tilts: leave WarpRmsPx at zero.", nameof(options));
+            }
+            if (!options.KeepScreenTilt)
+            {
+                throw new ArgumentException("A layer at an altitude moves the disk by its points' tilts: keep the screen's tilt.", nameof(options));
+            }
+            if (optics is not null)
+            {
+                throw new ArgumentException("A layer at an altitude gives each point of the disk its own PSF, so no frame has one to report.", nameof(optics));
+            }
+            // Each frame's points are drawn in parallel, the frames in order, off the caller's thread.
+            var grid = new FieldGrid(fine, os, options.FieldGridPx, finePlacement, reference.EquatorialRadius);
+            return await Task.Run(() => MakeLayered(map, planet, times, grid, windowX, windowY, finePlacement, arcsecPerPixel, shiftX, shiftY, brightness, width, height,
+                options, write, progress, warps, field, cancellationToken), cancellationToken).ConfigureAwait(false);
+        }
 
         // The seeing, frame after frame: the air, the still layer, the exposure and the telescope, one code with R7's theory.
         var seeing = new SeeingPsfSequence(options, arcsecPerPixel);
@@ -537,6 +586,19 @@ public static class PlanetaryDegrade
     // and taken to the Fourier domain once for every frame that shares it.
     private static Complex[] ObjectSpectrum(PlanetMap map, in PlanetAspect aspect, in DiskPlacement placement, int fine, DegradeOptions options, ImmutableArray<MoonDisk> moons)
     {
+        var plane = ObjectPlane(map, aspect, placement, fine, options, moons);
+        var spectrum = new Complex[fine * fine];
+        for (var i = 0; i < spectrum.Length; i++)
+        {
+            spectrum[i] = plane[i];
+        }
+        Fft2D.Forward(spectrum, fine, fine);
+        return spectrum;
+    }
+
+    // The map at `aspect`, with its moons, on the fine grid, scaled so the disk's mean inside 0.8 radii is its level in electrons.
+    private static double[] ObjectPlane(PlanetMap map, in PlanetAspect aspect, in DiskPlacement placement, int fine, DegradeOptions options, ImmutableArray<MoonDisk> moons)
+    {
         var render = PlanetaryRender.Render(map, aspect, placement, fine, fine, options.MinnaertK, supersample: 2, moons);
         double sum = 0;
         var count = 0;
@@ -554,13 +616,12 @@ public static class PlanetaryDegrade
             }
         }
         var scale = count > 0 && sum > 0 ? options.DiskLevelAdu * options.ElectronsPerAdu / (sum / count) : 0;
-        var spectrum = new Complex[fine * fine];
-        for (var i = 0; i < spectrum.Length; i++)
+        var plane = new double[fine * fine];
+        for (var i = 0; i < plane.Length; i++)
         {
-            spectrum[i] = render[i] * scale;
+            plane[i] = render[i] * scale;
         }
-        Fft2D.Forward(spectrum, fine, fine);
-        return spectrum;
+        return plane;
     }
 
     // One frame: the object through this frame's PSF, moved by `shiftX`, `shiftY` (the fraction of a pixel in the Fourier
@@ -598,7 +659,14 @@ public static class PlanetaryDegrade
             }
         }
         Fft2D.Inverse(field, fine, fine);
+        return Readout(field, fine, os, warp, windowX, windowY, ix, iy, brightness, width, height, options, random);
+    }
 
+    // The frame from its field on the fine grid (the object through the optics, already moved by the fraction of its shift): warped,
+    // binned to the detector's pixels at the whole pixels of the shift (`ix`, `iy`), and read out.
+    private static ushort[] Readout(Complex[] field, int fine, int os, SyntheticWarpField warp, int windowX, int windowY, int ix, int iy, double brightness,
+        int width, int height, DegradeOptions options, Random random)
+    {
         // Warped (each fine sample takes the value the field moved onto it) and binned to the detector's pixels.
         // Only the fine samples that make whole pixels: the grid is a power of two for the transform, so where the oversampling is
         // not (3 for a blue channel at 0.5"/px), the last fine % os samples are a partial pixel beyond the window, out in the sky.

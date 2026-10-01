@@ -1,6 +1,7 @@
 using System;
 using System.Numerics;
 using TianWen.Lib.Imaging.Optics;
+using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.Planetary;
 
@@ -10,6 +11,11 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// centimetre, a still layer at the telescope on a screen of its own, and the telescope's defocus, on the fine grid of
 /// <see cref="PlanetaryDegrade.PsfGrid"/> samples. The twin and whatever reasons about the seeing the twin was made with (the spectral
 /// ratio's theory, R7) share this one code, so the two cannot differ.
+/// <para>
+/// With <see cref="DegradeOptions.HighR0M"/> a third screen, the free air at an altitude (R4 per-point, #1071), is seen by each point of
+/// the disk through its own footprint (<see cref="ExposureAt"/>), so the PSF varies over the disk; the two screens at the pupil are
+/// common to every point.
+/// </para>
 /// </summary>
 internal sealed class SeeingPsfSequence
 {
@@ -36,18 +42,47 @@ internal sealed class SeeingPsfSequence
     private readonly (double X, double Y) _localWind;
     private readonly double _renewSeconds;
     private readonly double _localRenewSeconds;
+    // The layer at an altitude, when there is one: its screen at twice the pupil's spacing (its air is coarser than the telescope's),
+    // read bilinearly at each point's footprint, and the common phase of every exposure step, set once a frame by Freeze.
+    private readonly EvolvingPhaseScreen? _high;
+    private readonly double[] _highPhase;
+    private readonly int _highSamples;
+    private readonly double _highSpacing;
+    private readonly double _pupilSpacing;
+    private readonly (double X, double Y) _highWind;
+    private readonly double _highRenewSeconds;
+    private readonly double _highSweepM;
+    private readonly int _layeredSteps;
+    private readonly double[][] _common;
+    // The pupil's transmitting samples and the rows they span: a point's PSF is built and transformed there alone.
+    private readonly int[] _support;
+    private readonly int _firstRow;
+    private readonly int _lastRow;
 
     /// <param name="options">The air, the telescope and the draws' seed, as <see cref="PlanetaryDegrade.MakeAsync"/> takes them.</param>
     /// <param name="arcsecPerPixel">The detector's scale, which sets the fine grid's.</param>
     /// <param name="freeAirScale">The free air's phase multiplied by this, which is its r0 over (r0 / this^(6/5)): one set of draws
     /// read at several strengths of seeing, for a theory fitted in r0. One leaves the twin's seeing as it is.</param>
-    public SeeingPsfSequence(DegradeOptions options, double arcsecPerPixel, double freeAirScale = 1)
+    /// <param name="highReachM">The farthest any footprint on the layer at an altitude lies from the disk's centre's, in metres: how
+    /// much of its air the screen must hold (<see cref="ExposureAt"/>).</param>
+    public SeeingPsfSequence(DegradeOptions options, double arcsecPerPixel, double freeAirScale = 1, double highReachM = 0)
     {
         ArgumentNullException.ThrowIfNull(options);
         _options = options;
         // The pupil sampled for a PSF of fine samples, and the screen that crosses it.
         var spacing = PlanetaryDegrade.PupilSpacingM(arcsecPerPixel, options);
         _pupil = options.Pupil.Rasterise(PsfGrid, spacing);
+        var support = new System.Collections.Generic.List<int>();
+        (_firstRow, _lastRow) = (PsfGrid, -1);
+        for (var i = 0; i < _pupil.Length; i++)
+        {
+            if (_pupil[i] != 0)
+            {
+                support.Add(i);
+                (_firstRow, _lastRow) = (Math.Min(_firstRow, i / PsfGrid), Math.Max(_lastRow, i / PsfGrid));
+            }
+        }
+        _support = [.. support];
         _defocus = PlanetaryDegrade.DefocusPhase(PsfGrid, spacing, options.Pupil.DiameterM, options.DefocusNm * 1e-9, options.WavelengthM);
         var diffraction = new double[PsfGrid * PsfGrid];
         // The diffraction limit the Strehl ratio is taken against is the perfect telescope's, so a defocused one scores below 1.
@@ -93,6 +128,32 @@ internal sealed class SeeingPsfSequence
         {
             throw new ArgumentException($"The exposure sweeps {sweepM:0.000} m of air, more than the screen's margin of {_screenMargin * screenSpacing:0.000} m: use a larger screen.", nameof(options));
         }
+
+        // The layer at an altitude: a screen large enough for every footprint, the pupil and the exposure's sweep, renewed by the same
+        // rule as the others; every footprint shares the exposure's steps, as many as either moving layer needs.
+        _pupilSpacing = spacing;
+        _highSpacing = 2 * spacing;
+        _highSweepM = options.HighWindMps * options.ExposureSeconds;
+        _layeredSteps = Math.Max(_subSteps, Math.Max(1, (int)Math.Ceiling(_highSweepM / 0.01)));
+        if (options.HasHighLayer)
+        {
+            var extentM = (2 * highReachM) + (PsfGrid * spacing) + _highSweepM;
+            _highSamples = Math.Max(256, PlanetaryDegrade.NextPowerOfTwo((int)Math.Ceiling(extentM / _highSpacing) + 4));
+            _high = new EvolvingPhaseScreen(_highSamples, _highSpacing, options.HighR0M, new Random(options.Seed + 3), options.HighOuterScaleM);
+            _highPhase = new double[_highSamples * _highSamples];
+            _highRenewSeconds = _high.SizeM / Math.Max(options.HighWindMps, 1e-3) / 3;
+            _highWind = (options.HighWindMps * Math.Cos(options.HighWindAngleDeg * Math.PI / 180), options.HighWindMps * Math.Sin(options.HighWindAngleDeg * Math.PI / 180));
+            _common = new double[_layeredSteps][];
+            for (var step = 0; step < _layeredSteps; step++)
+            {
+                _common[step] = new double[PsfGrid * PsfGrid];
+            }
+        }
+        else
+        {
+            _highPhase = [];
+            _common = [];
+        }
     }
 
     /// <summary>The perfect telescope's PSF peak on this grid, which a frame's Strehl ratio is taken against.</summary>
@@ -103,7 +164,150 @@ internal sealed class SeeingPsfSequence
     {
         _screen.Step(_wind.X, _wind.Y, seconds, Math.Exp(-seconds / _renewSeconds));
         _local?.Step(_localWind.X, _localWind.Y, seconds, Math.Exp(-seconds / _localRenewSeconds));
+        _high?.Step(_highWind.X, _highWind.Y, seconds, Math.Exp(-seconds / _highRenewSeconds));
     }
+
+    /// <summary>
+    /// The screens as they are now, held for <see cref="ExposureAt"/> until the next <see cref="Step"/>: the layer at an altitude, and
+    /// the phase every point shares at each step of the exposure (the free air at the pupil, the still layer and the defocus).
+    /// </summary>
+    public void Freeze()
+    {
+        if (_high is null)
+        {
+            throw new InvalidOperationException("There is no layer at an altitude to look through.");
+        }
+        _screen.Fill(_screenPhase);
+        _local?.Fill(_localPhase);
+        _high.Fill(_highPhase);
+        var angle = _options.WindAngleDeg * Math.PI / 180;
+        for (var step = 0; step < _layeredSteps; step++)
+        {
+            var along = _layeredSteps == 1 ? 0 : (_sweepM * (((step + 0.5) / _layeredSteps) - 0.5)) / _screenSpacing;
+            var offsetX = _screenMargin - (int)Math.Round(along * Math.Cos(angle));
+            var offsetY = _screenMargin - (int)Math.Round(along * Math.Sin(angle));
+            var common = _common[step];
+            foreach (var i in _support)
+            {
+                var (y, x) = (i / PsfGrid, i % PsfGrid);
+                var (air, still) = _stride == 1
+                    ? (_screenPhase[((y + offsetY) * _screenSamples) + x + offsetX], _local is null ? 0 : _localPhase[((y + _screenMargin) * _screenSamples) + x + _screenMargin])
+                    : (PlanetaryDegrade.ScreenAt(_screenPhase, _screenSamples, offsetX + (x * _stride), offsetY + (y * _stride)),
+                        _local is null ? 0 : PlanetaryDegrade.ScreenAt(_localPhase, _screenSamples, _screenMargin + (x * _stride), _screenMargin + (y * _stride)));
+                common[i] = (air * _airScale) + _defocus[i] + (still * _phaseScale);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The PSF over one exposure seen by the point of the disk whose footprint on the layer at an altitude lies
+    /// (<paramref name="footprintXM"/>, <paramref name="footprintYM"/>) metres from the disk's centre's, into <paramref name="psf"/>: the
+    /// common phase of each step of the exposure (<see cref="Freeze"/>) with that footprint's air, the layer's own wind sweeping it.
+    /// Safe from any thread with a <paramref name="scratch"/> of its own, between one <see cref="Freeze"/> and the next <see cref="Step"/>.
+    /// </summary>
+    public void ExposureAt(double footprintXM, double footprintYM, double[] psf, ExposureScratch scratch)
+    {
+        ArgumentNullException.ThrowIfNull(psf);
+        ArgumentNullException.ThrowIfNull(scratch);
+        if (_high is null)
+        {
+            throw new InvalidOperationException("There is no layer at an altitude to look through.");
+        }
+        Array.Clear(psf);
+        var angle = _options.HighWindAngleDeg * Math.PI / 180;
+        var ratio = _pupilSpacing / _highSpacing;
+        var centre = _highSamples / 2.0;
+        var field = scratch.Field;
+        for (var step = 0; step < _layeredSteps; step++)
+        {
+            var along = _layeredSteps == 1 ? 0 : _highSweepM * (((step + 0.5) / _layeredSteps) - 0.5);
+            var originX = centre + ((footprintXM - (along * Math.Cos(angle))) / _highSpacing) - (PsfGrid / 2 * ratio);
+            var originY = centre + ((footprintYM - (along * Math.Sin(angle))) / _highSpacing) - (PsfGrid / 2 * ratio);
+            // The pupil's samples on the periodic screen, bilinear and separable: each column's and row's two samples and weight once.
+            Neighbours(originX, ratio, _highSamples, scratch.Columns, scratch.ColumnWeights);
+            Neighbours(originY, ratio, _highSamples, scratch.Rows, scratch.RowWeights);
+            var common = _common[step];
+            // The pupil's field, |FT|^2 of it as ShortExposurePsf takes it, built where the pupil transmits and transformed on its rows.
+            Array.Clear(field);
+            foreach (var i in _support)
+            {
+                var (y, x) = (i / PsfGrid, i % PsfGrid);
+                var (top, bottom, wy) = (scratch.Rows[2 * y] * _highSamples, scratch.Rows[(2 * y) + 1] * _highSamples, scratch.RowWeights[y]);
+                var (left, right, wx) = (scratch.Columns[2 * x], scratch.Columns[(2 * x) + 1], scratch.ColumnWeights[x]);
+                var upper = (_highPhase[top + left] * (1 - wx)) + (_highPhase[top + right] * wx);
+                var lower = (_highPhase[bottom + left] * (1 - wx)) + (_highPhase[bottom + right] * wx);
+                field[i] = Complex.FromPolarCoordinates(_pupil[i], common[i] + ((((1 - wy) * upper) + (wy * lower)) * _phaseScale));
+            }
+            for (var y = _firstRow; y <= _lastRow; y++)
+            {
+                ComplexFft.Forward(field.AsSpan(y * PsfGrid, PsfGrid));
+            }
+            var column = scratch.Column;
+            for (var x = 0; x < PsfGrid; x++)
+            {
+                for (var y = 0; y < PsfGrid; y++)
+                {
+                    column[y] = field[(y * PsfGrid) + x];
+                }
+                ComplexFft.Forward(column);
+                for (var y = 0; y < PsfGrid; y++)
+                {
+                    field[(y * PsfGrid) + x] = column[y];
+                }
+            }
+            // The zero frequency moved to the grid's centre and each step's PSF a unit sum, as ShortExposurePsf leaves one.
+            var sub = scratch.SubPsf;
+            var (half, sum) = (PsfGrid / 2, 0.0);
+            for (var y = 0; y < PsfGrid; y++)
+            {
+                var sy = (y + half) % PsfGrid;
+                for (var x = 0; x < PsfGrid; x++)
+                {
+                    var value = field[(y * PsfGrid) + x];
+                    var power = (value.Real * value.Real) + (value.Imaginary * value.Imaginary);
+                    sub[(sy * PsfGrid) + ((x + half) % PsfGrid)] = power;
+                    sum += power;
+                }
+            }
+            var scale = sum > 0 ? 1 / (sum * _layeredSteps) : 0;
+            for (var i = 0; i < psf.Length; i++)
+            {
+                psf[i] += sub[i] * scale;
+            }
+        }
+    }
+
+    /// <summary>What one thread needs to make <see cref="ExposureAt"/>'s PSFs.</summary>
+    public sealed class ExposureScratch
+    {
+        internal double[] SubPsf { get; } = new double[PsfGrid * PsfGrid];
+
+        internal Complex[] Column { get; } = new Complex[PsfGrid];
+
+        internal Complex[] Field { get; } = new Complex[PsfGrid * PsfGrid];
+
+        internal int[] Columns { get; } = new int[2 * PsfGrid];
+
+        internal double[] ColumnWeights { get; } = new double[PsfGrid];
+
+        internal int[] Rows { get; } = new int[2 * PsfGrid];
+
+        internal double[] RowWeights { get; } = new double[PsfGrid];
+    }
+
+    // Where each of the pupil's samples along one axis falls on a periodic screen of `n` samples, from `origin` in steps of `ratio`:
+    // the two screen samples either side (wrapped) and the weight of the second.
+    private static void Neighbours(double origin, double ratio, int n, int[] indices, double[] weights)
+    {
+        for (var i = 0; i < weights.Length; i++)
+        {
+            var at = origin + (i * ratio);
+            var below = (int)Math.Floor(at);
+            (indices[2 * i], indices[(2 * i) + 1], weights[i]) = (Wrap(below, n), Wrap(below + 1, n), at - below);
+        }
+    }
+
+    private static int Wrap(int i, int n) => ((i % n) + n) % n;
 
     /// <summary>
     /// The PSF over one exposure of the air as it is now, into <paramref name="psf"/> (<see cref="PlanetaryDegrade.PsfGrid"/> squared

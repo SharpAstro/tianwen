@@ -408,6 +408,157 @@ public class PlanetaryDegradeTests
     }
 
     [Fact]
+    public async Task ALayerEveryPointSeesAlikeMakesTheOnePsfFrames()
+    {
+        // At no altitude every field point looks through the same air: the points' tilt-removed blurs blended by their tents, and the frame
+        // moved by their one tilt, are the one-PSF frame up to the rounding of its samples. The gain is high enough that shot noise is a
+        // twentieth of an ADU: a sky sample whose round-off differs draws its Poisson value from the stream in one path and not the other,
+        // which puts every later draw out of step, so at the helper's gain the two frames would differ by their noise.
+        var none = ImmutableArray.Create(0.0, 0.0, 0.0, 0.0);
+        var one = await MakeAsync(none, none, size: 96, radius: 20, r0M: 0.1, keepTilt: true, localR0M: 0.05, electronsPerAdu: 1e7);
+        var layered = await MakeAsync(none, none, size: 96, radius: 20, r0M: 0.1, keepTilt: true, localR0M: 0.05, highR0M: 1e6, highAltitudeM: 0, electronsPerAdu: 1e7);
+        var (differing, largest, total) = (0, 0, 0);
+        for (var f = 0; f < one.Length; f++)
+        {
+            for (var i = 0; i < one[f].Length; i++)
+            {
+                var d = Math.Abs(one[f][i] - layered[f][i]);
+                (differing, largest, total) = (differing + (d > 0 ? 1 : 0), Math.Max(largest, d), total + 1);
+            }
+        }
+        TestContext.Current.TestOutputHelper?.WriteLine($"{differing} of {total} samples differ, by at most {largest} ADU");
+        largest.ShouldBeLessThanOrEqualTo(1);
+        (differing / (double)total).ShouldBeLessThan(0.01);
+    }
+
+    [Fact]
+    public void APointsTiltDecorrelatesFromAnothersAsTheirFootprintsPart()
+    {
+        // The layer at an altitude alone (the air at the pupil made negligible, no still layer): the correlation of two points' tilts along
+        // the line joining their footprints is the theory's for a 25.4 cm aperture on von Karman air of a 1 m outer scale. The theory's,
+        // from the integral of Phi(f) (2 pi f_x)^2 [2 J1(pi D f) / (pi D f)]^2 cos(2 pi f_x s) over the plane, over its value at s = 0:
+        // +0.775 at 6.25 cm, -0.276 at 25 cm and -0.151 at 50 cm (it turns negative once the footprints part by about half the aperture).
+        var options = new DegradeOptions(new Pupil(0.254, ObstructionRatio: 0.23, Vanes: 4, VaneWidthM: 0.001), 650e-9)
+        {
+            R0M = 1e6,
+            HighR0M = 0.1,
+            HighOuterScaleM = 1,
+            ScreenSamples = 128,
+            Seed = 3,
+        };
+        var seeing = new SeeingPsfSequence(options, 0.49, highReachM: 0.6);
+        var scratch = new SeeingPsfSequence.ExposureScratch();
+        var psf = new double[PlanetaryDegrade.PsfGrid * PlanetaryDegrade.PsfGrid];
+        double[] separations = [0, 0.0625, 0.25, 0.5];
+        double[] theory = [1, 0.775, -0.276, -0.151];
+        const int draws = 400;
+        var tilts = new double[separations.Length, draws];
+        for (var d = 0; d < draws; d++)
+        {
+            // A long step renews all of the layer's air, so each draw is independent of the last.
+            seeing.Step(100);
+            seeing.Freeze();
+            for (var s = 0; s < separations.Length; s++)
+            {
+                seeing.ExposureAt(separations[s], 0, psf, scratch);
+                tilts[s, d] = PlanetaryDegrade.Centroid(psf).X;
+            }
+        }
+        double Correlation(int s)
+        {
+            double a = 0, b = 0, ab = 0, aa = 0, bb = 0;
+            for (var d = 0; d < draws; d++)
+            {
+                (a, b) = (a + tilts[0, d], b + tilts[s, d]);
+            }
+            (a, b) = (a / draws, b / draws);
+            for (var d = 0; d < draws; d++)
+            {
+                var (x, y) = (tilts[0, d] - a, tilts[s, d] - b);
+                (ab, aa, bb) = (ab + (x * y), aa + (x * x), bb + (y * y));
+            }
+            return ab / Math.Sqrt(aa * bb);
+        }
+        var correlations = Enumerable.Range(0, separations.Length).Select(Correlation).ToArray();
+        TestContext.Current.TestOutputHelper?.WriteLine($"tilt correlation at {string.Join(", ", separations.Select((s, i) => $"{s:0.000} m {correlations[i]:0.000}"))}");
+        // 400 draws read a correlation to about 0.05 near zero and better near one.
+        for (var i = 0; i < separations.Length; i++)
+        {
+            correlations[i].ShouldBe(theory[i], 0.12);
+        }
+    }
+
+    [Fact]
+    public async Task OnlyALayerAtAnAltitudeVariesTheBlurOverTheDisk()
+    {
+        // Each field point's Strehl ratio and its tilt over the frame's: one value for every point when they all see the same air, spread
+        // over the disk once the layer is high enough for their footprints to part.
+        var none = ImmutableArray.Create(0.0, 0.0, 0.0);
+        var at = new System.Collections.Generic.Dictionary<double, System.Collections.Generic.List<SyntheticFieldFrame>>();
+        foreach (var altitude in new[] { 0.0, 10_000.0 })
+        {
+            var frames = new System.Collections.Generic.List<SyntheticFieldFrame>();
+            await MakeAsync(none, none, size: 96, radius: 20, r0M: 0.2, keepTilt: true, highR0M: 0.1, highAltitudeM: altitude, field: (_, f) => frames.Add(f));
+            at[altitude] = frames;
+        }
+        (double StrehlSpread, double TiltRms, double MeanBand1, double MeanBand4) Read(System.Collections.Generic.List<SyntheticFieldFrame> frames)
+        {
+            double spread = 0, tilt = 0, band1 = 0, band4 = 0;
+            var count = 0;
+            foreach (var f in frames)
+            {
+                var mean = f.Strehl.Average(v => (double)v);
+                spread += Math.Sqrt(f.Strehl.Average(v => (v - mean) * (v - mean))) / mean;
+                for (var p = 0; p < f.Points.Length; p++)
+                {
+                    tilt += (f.TiltX[p] * f.TiltX[p]) + (f.TiltY[p] * f.TiltY[p]);
+                    band1 += f.Gain(p, 1);
+                    band4 += f.Gain(p, 4);
+                    count++;
+                }
+            }
+            return (spread / frames.Count, Math.Sqrt(tilt / count / 2), band1 / count, band4 / count);
+        }
+        var (flat, high) = (Read(at[0]), Read(at[10_000.0]));
+        TestContext.Current.TestOutputHelper?.WriteLine($"no altitude: Strehl spread {flat.StrehlSpread:0.0000}, tilt {flat.TiltRms:0.0000} px; 10 km: {high.StrehlSpread:0.0000}, {high.TiltRms:0.0000} px; band 1 and 4 gains {high.MeanBand1:0.000}, {high.MeanBand4:0.000}");
+        flat.StrehlSpread.ShouldBeLessThan(1e-9);
+        flat.TiltRms.ShouldBeLessThan(1e-6);
+        high.StrehlSpread.ShouldBeGreaterThan(0.02);
+        high.TiltRms.ShouldBeGreaterThan(0.05);
+        // A point's finest band is transferred least, its coarsest most.
+        high.MeanBand1.ShouldBeLessThan(high.MeanBand4);
+        high.MeanBand4.ShouldBeInRange(0.5, 1.05);
+    }
+
+    [Fact]
+    public void AFieldFileReadsBackWhatWasWritten()
+    {
+        var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"tianwen-field-{Guid.NewGuid():N}.field");
+        try
+        {
+            ImmutableArray<(double X, double Y)> points = [(10, 20), (16, 20)];
+            var first = new SyntheticFieldFrame(points, 3, -4, [0.1f, -0.2f], [0.3f, 0.4f], [0.5f, 0.6f], [0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f, 0.7f, 0.8f]);
+            var second = first with { OriginX = 5, TiltX = [1f, 2f] };
+            using (var writer = new SyntheticFieldFile.Writer(path, PlanetaryDegrade.FieldPatchPx))
+            {
+                writer.Append(first);
+                writer.Append(second);
+            }
+            var (patch, frames) = SyntheticFieldFile.Read(path) ?? throw new InvalidOperationException("not a field file");
+            patch.ShouldBe(PlanetaryDegrade.FieldPatchPx);
+            frames.Length.ShouldBe(2);
+            frames[0].Points.ShouldBe(points);
+            (frames[1].OriginX, frames[1].OriginY).ShouldBe((5, -4));
+            frames[1].TiltX.ShouldBe(second.TiltX);
+            frames[0].Gain(1, 3).ShouldBe(0.7f);
+        }
+        finally
+        {
+            System.IO.File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void AWarpFileReadsBackWhatWasWritten()
     {
         var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"tianwen-warp-{Guid.NewGuid():N}.warp");
@@ -651,7 +802,8 @@ public class PlanetaryDegradeTests
     private static async Task<ushort[][]> MakeAsync(ImmutableArray<double> shiftX, ImmutableArray<double> shiftY, int size, double radius, double r0M,
         bool keepTilt = false, Action<ImmutableArray<SyntheticFrame>>? made = null, double warpRms = 0, bool flat = false, double defocusNm = 0,
         Pupil? pupil = null, double localR0M = double.PositiveInfinity, double localOuterScaleM = 0.25, double scatter = 0,
-        Action<int, SyntheticWarp>? warps = null)
+        Action<int, SyntheticWarp>? warps = null, double highR0M = double.PositiveInfinity, double highAltitudeM = 10_000,
+        Action<int, SyntheticFieldFrame>? field = null, double electronsPerAdu = 1000)
     {
         var map = BandedMap(flat);
         var times = ImmutableArray.CreateBuilder<DateTimeOffset>(shiftX.Length);
@@ -665,7 +817,7 @@ public class PlanetaryDegradeTests
             FullScaleAdu = FullScale,
             OffsetAdu = 100,
             ReadNoiseAdu = 0,
-            ElectronsPerAdu = 1000,
+            ElectronsPerAdu = electronsPerAdu,
             DiskLevelAdu = DiskLevel,
             ScreenSamples = 128,
             KeepScreenTilt = keepTilt,
@@ -676,11 +828,13 @@ public class PlanetaryDegradeTests
             WarpRmsPx = warpRms,
             WarpLengthPx = 10,
             WarpLag1 = 0.5,
+            HighR0M = highR0M,
+            HighAltitudeM = highAltitudeM,
         };
         var frames = new ushort[shiftX.Length][];
         var reference = new DiskPlacement((size / 2) - 0.3, (size / 2) + 0.2, radius, NorthAngleDeg: -80);
         var truths = await PlanetaryDegrade.MakeAsync(map, CatalogIndex.Jupiter, times.MoveToImmutable(), reference, 0.49, shiftX, shiftY, [], size, size, options,
-            (index, samples) => frames[index] = samples, warps: warps, cancellationToken: TestContext.Current.CancellationToken);
+            (index, samples) => frames[index] = samples, warps: warps, field: field, cancellationToken: TestContext.Current.CancellationToken);
         made?.Invoke(truths);
         return frames;
     }
