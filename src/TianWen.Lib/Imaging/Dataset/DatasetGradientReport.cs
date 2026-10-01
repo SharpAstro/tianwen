@@ -217,7 +217,13 @@ namespace TianWen.Lib.Imaging.Dataset
             var reportPath = Path.Combine(statsDir, ReportFileName);
             var store = await DatasetGradientStore.ReadAsync(storePath, logger, cancellationToken);
 
-            var files = options.MasterFiles.Sort(StringComparer.OrdinalIgnoreCase);
+            // A retained master's coverage, rejection and bad-pixel planes sit beside it under the same
+            // extensions, so a directory listing hands them in as masters; a fit of a coverage plane is
+            // a number in the report with nothing behind it.
+            var files = options.MasterFiles
+                .Where(static path => !IntegrationFitsWriter.IsMapSidecarPath(path))
+                .ToImmutableArray()
+                .Sort(StringComparer.OrdinalIgnoreCase);
             var measured = 0;
             var skipped = 0;
             var failed = 0;
