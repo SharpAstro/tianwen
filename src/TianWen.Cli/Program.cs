@@ -161,6 +161,8 @@ var rootCommand = new RootCommand
         new PlanetaryRingingSubCommand(consoleHost).Build(),
         new PlanetaryFinestBandSubCommand(consoleHost).Build(),
         new PlanetaryElongatedSubCommand(consoleHost).Build(),
+        new PlanetaryMfbdSubCommands(consoleHost).BuildLuckyFrames(),
+        new PlanetaryMfbdSubCommands(consoleHost).BuildScore(),
         new PlanetaryGhostSubCommand(
             consoleHost,
             new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
