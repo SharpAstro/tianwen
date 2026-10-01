@@ -478,6 +478,20 @@ R4's keeps minimise the error of a raw stack, and a raw stack's band 1 error is 
 - R4's selections, per-band matched weights (each frame by its transfer) and a Fourier burst accumulation exponent sweep (Delbracio and Sapiro 2015), each scored after an oracle per-frequency Wiener, then after R8's gains;
 - the oracle ceiling of per-frequency selection (Garrel, Guyon and Baudoz 2012; Mackay 2013) from the twin's noise-free frames, warp on and off, before anything is built.
 - **Pre-registered:** band 1's best keep moves from 5 to 10 % to half the frames or more; the ceiling of per-frequency selection is under 15 % in band 1's transfer on this twin, whose frames vary little (D/r0 about 3), where the literature's large gains came from D/r0 of 7 to 30.
+- **How it is measured, set down 2026-10-02 before anything was built** (`tianwen planetary-keeps`, on R8 part 1's `MultiFrameBound`):
+  - **The twins:** the calibrated one and the one without its still layer (R8 part 1's, each with every frame's PSF), and the warped one
+    (0.65 px over 10 px) made again with its PSFs, for "warp on". The first 3,000 frames, a 256 px window.
+  - **The keeps:** 1, 2, 5, 10, 20, 50 and 100 % of the frames, ranked by the gradient as the stacker ranks them. Each is summed at the
+    frames' true shifts and scored twice: as it is, and restored by the oracle Wiener with its own exact transfer (R8 part 1's 5a). Then
+    `planetary-gains --keep` at the same keeps scores the stacker's own stack after R8's derived gains through the true kernel.
+  - **Matched weights:** every frame weighted per frequency by the magnitude of its true transfer, and restored the same way.
+  - **Fourier burst accumulation:** every frame weighted per frequency by the magnitude of its own spectrum to the power p, p = 0, 1, 2,
+    4, 8 and 11 (Delbracio and Sapiro 2015; p = 0 is a plain average), the weights normalised per frequency, restored by the oracle
+    Wiener with the weighted sum's own transfer.
+  - **The ceiling of per-frequency selection:** in band 1's frequencies (0.25 to 0.5 cycles a pixel), the mean magnitude of the true
+    transfer of the best 5 % of frames chosen afresh at each frequency, over that of the best 5 % by the gradient. Noise-free by
+    construction: it reads the transfers, never a frame.
+  - **Read against the claims:** band 1's error at each keep, raw and restored, its best keep; and the ceiling's excess over one.
 
 ## R5 Alignment points and the dewarp
 
