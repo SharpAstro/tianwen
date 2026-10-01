@@ -118,6 +118,24 @@ public class PlanetaryCeilingsTests
         mixed.MultiFrame.ShouldBeLessThan(mixed.ShiftAndAdd * 0.9);
     }
 
+    [Fact]
+    public void GainsFittedJointlyOverTheBandsLeaveLessErrorThanOneBandAtATime()
+    {
+        // A trous bands overlap in frequency, so the band-by-band least-squares gains are not the best set for the bands of the result.
+        const int size = 128;
+        var disk = new MetricDisk(63.5, 63.5, 44);
+        var truth = Texture(size, 1000, 44);
+        var blurred = PlanetaryInverse.Apply(truth, size, size, f => Math.Exp(-2 * Math.PI * Math.PI * 1.6 * 1.6 * f * f));
+        var random = new Random(5);
+        var noisy = blurred.Select(v => (float)(v + (3 * Math.Sqrt(-2 * Math.Log(1 - random.NextDouble())) * Math.Cos(2 * Math.PI * random.NextDouble())))).ToArray();
+        var (oneAtATime, gains) = PlanetaryCeilings.PerBandOracle(noisy, truth, size, size, disk, 4);
+        var (joint, jointGains) = PlanetaryCeilings.PerBandJointOracle(noisy, truth, size, size, disk, 4);
+        var e1 = PlanetaryMetrics.Fidelity(oneAtATime, truth, size, size, disk, 4).Sum(f => f.Error);
+        var e2 = PlanetaryMetrics.Fidelity(joint, truth, size, size, disk, 4).Sum(f => f.Error);
+        TestContext.Current.TestOutputHelper?.WriteLine($"one band at a time {string.Join(", ", gains.Select(g => g.ToString("0.00")))}: {e1:0.000}; jointly {string.Join(", ", jointGains.Select(g => g.ToString("0.00")))}: {e2:0.000}");
+        e2.ShouldBeLessThan(e1);
+    }
+
     // The RMS error over the window of shift-and-add's Wiener and the multi-frame Wiener, frames through Gaussians of `sigmas`, shifted
     // a little each, with read noise.
     private static (double ShiftAndAdd, double MultiFrame) Restorations(float[] truth, int size, double[] sigmas)
@@ -202,24 +220,25 @@ public class PlanetaryCeilingsTests
         return psf;
     }
 
-    // A texture of blobs on a disk, in ADU over the sky.
-    private static float[] Texture(int size)
+    // A texture of blobs on a disk of `radius`, in ADU over the sky.
+    private static float[] Texture(int size, double level = 1000, double radius = 20)
     {
         var random = new Random(11);
         var c = (size / 2) - 0.5;
-        var blobs = Enumerable.Range(0, 60).Select(_ => (X: c + (random.NextDouble() * 30) - 15, Y: c + (random.NextDouble() * 30) - 15, A: (random.NextDouble() * 300) - 150, S: 0.8 + (random.NextDouble() * 2))).ToArray();
+        var spread = 1.5 * radius;
+        var blobs = Enumerable.Range(0, 60).Select(_ => (X: c + (random.NextDouble() * spread) - (spread / 2), Y: c + (random.NextDouble() * spread) - (spread / 2), A: (random.NextDouble() * 300) - 150, S: 0.8 + (random.NextDouble() * 2))).ToArray();
         var plane = new float[size * size];
         for (var y = 0; y < size; y++)
         {
             for (var x = 0; x < size; x++)
             {
                 var r = Math.Sqrt(((x - c) * (x - c)) + ((y - c) * (y - c)));
-                var v = 1000.0;
+                var v = level;
                 foreach (var b in blobs)
                 {
                     v += b.A * Math.Exp(-(((x - b.X) * (x - b.X)) + ((y - b.Y) * (y - b.Y))) / (2 * b.S * b.S));
                 }
-                plane[(y * size) + x] = (float)(r < 20 ? v : 0);
+                plane[(y * size) + x] = (float)(r < radius ? v : 0);
             }
         }
         return plane;
