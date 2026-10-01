@@ -1726,6 +1726,34 @@ asked for (512 px rather than 256), so they are new twins, not step 3's with a m
   poor, nor checkable against an oracle the planet's own spectrum starves along the equator. Of #1140's three probes, the defocus burst
   needs a night at the telescope and the multi-frame blind deconvolution a new estimator. Neither can run from the corpus alone today.
 
+##### R8 follow-up 4, part 3: a multi-frame blind deconvolution as a reference
+
+- **Pre-registered 2026-10-02, before anything was built or measured**: torchmfbd (Asensio Ramos, MIT, 0.9.2; PyTorch 2.13 on the GTX
+  1070, whose sm_61 it carries) run on the twins as a REFERENCE outside the product. It estimates every kept frame's wavefront with one
+  object, so it reads the kernel itself rather than an edge it was blurred over.
+  - **The product's part**: the frames go in and the result comes out through tianwen's own verbs, the Python only glue (the dogfood
+    rule).
+    - `tianwen planetary-lucky-frames` writes the frames the stack keeps (the best 150 of 3,000 by the gradient), each registered onto
+      the stack by a plain, climbed correlation and normalised to its disk, as a FITS cube in a 128 px window about the disk, beside the
+      stack and the truth in the same window.
+    - `tianwen planetary-score` scores a restoration against the truth: registered onto it by correlation, the band errors over bands 1
+      to 4 inside 0.9 radii (R8's), and a mean PSF's ring transfer over the pupil's diffraction against the oracle.
+    - A port into the product is a later decision, and only if this earns one.
+  - **The configuration**: the Newtonian's 25.4 cm with its 5.8 cm obstruction, 0.497"/px at 650 nm (an overfill of 1.06, just above the
+    tool's floor of 1), 44 Karhunen-Loeve modes, the object by its Wiener solution, Adam over 50 iterations, the frames in one patch.
+    Recorded as a risk before anything is run: the frames are undersampled for the cutoff, and the tool's PSF has no pixel box, so its
+    finest band may be biased.
+  - **The read**: the tool's object convolved with the diffraction (the truth is rendered through it), and its PSFs' mean over the kept
+    frames.
+  - **The twins**: step 3's three (calibrated, without its still layer, warped). The real 2022-09-03 Red is read, not judged.
+  - **The claims:**
+    1. **The kill line.** On the calibrated twin the object leaves less band error than the stack (1.415). If not, the tool as configured
+       does not restore these frames, and the claims below are not read.
+    2. The object leaves no more band error than R8's gains through the true kernel on the twins with and without the still layer (0.649
+       and 0.289, step 3 part 2's table).
+    3. The mean PSF over the pupil's diffraction reads the oracle within 0.05 at 0.3, 0.4 and 0.45 cycles a pixel on the calibrated twin:
+       the band step 3 and parts 1 and 2 could not reach.
+
 ## R9 A learned stage, only if the measurements say so
 
 **Issue:** #1056 (conditional).
