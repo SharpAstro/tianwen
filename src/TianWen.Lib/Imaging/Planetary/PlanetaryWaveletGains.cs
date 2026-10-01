@@ -141,16 +141,7 @@ public static class PlanetaryWaveletGains
         ArgumentOutOfRangeException.ThrowIfGreaterThan(fitted, scales);
         ArgumentOutOfRangeException.ThrowIfNegative(held);
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(held, fitted);
-        var (a, b) = TextureNormalEquations(stackPower, wiener, fitted);
-        var (da, db) = PlanetaryCeilings.JointNormalEquations(blurredDisk, sharpDisk, width, height, disk, fitted);
-        for (var j = 0; j < fitted; j++)
-        {
-            b[j] += db[j];
-            for (var k = 0; k < fitted; k++)
-            {
-                a[j, k] += da[j, k];
-            }
-        }
+        var (a, b) = NormalEquations(stackPower, wiener, sharpDisk, blurredDisk, width, height, disk, fitted);
         // The held gains are 1: what they put into the others' equations moves to the right-hand side.
         var free = fitted - held;
         var (af, bf) = (new double[free, free], new double[free]);
@@ -173,6 +164,121 @@ public static class PlanetaryWaveletGains
             gains.Add(j >= held && j < fitted ? solved[j - held] : 1);
         }
         return gains.MoveToImmutable();
+    }
+
+    /// <summary>
+    /// <see cref="Fit(ImmutableArray{double}, ImmutableArray{double}, ReadOnlySpan{float}, ReadOnlySpan{float}, int, int, MetricDisk, int, int, int)"/>'s
+    /// gains under the constraint that their filter times <paramref name="kernel"/>, taken to the image, is at or above zero within
+    /// <paramref name="reach"/> px of its centre (Magain, Courbin and Sohy 1998: restore toward a non-negative target, never past it):
+    /// a composite that cannot dig below the sky (R8 follow-up 1). A small quadratic program over the fitted gains, solved by a quadratic
+    /// penalty on the violated points, raised until none is violated by more than a millionth of the composite's peak.
+    /// </summary>
+    public static ImmutableArray<double> FitNonNegative(ImmutableArray<double> stackPower, ImmutableArray<double> wiener, ReadOnlySpan<float> sharpDisk, ReadOnlySpan<float> blurredDisk,
+        int width, int height, MetricDisk disk, Func<double, double> kernel, int reach = 15, int scales = Scales, int fitted = ScoredBands)
+    {
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(fitted, scales);
+        var (a, b) = NormalEquations(stackPower, wiener, sharpDisk, blurredDisk, width, height, disk, fitted);
+        var (rows, offsets) = PlanetaryDering.CompositeRows(kernel, fitted, reach);
+        return Gains(SolveNonNegative(a, b, rows, offsets), scales);
+    }
+
+    /// <summary>
+    /// min x' a x - 2 b' x subject to rows x + offsets at or above zero, by a quadratic penalty on the violated rows, raised a decade at a
+    /// time until no row is violated by more than a millionth of the largest offset.
+    /// </summary>
+    internal static double[] SolveNonNegative(double[,] a, double[] b, double[][] rows, double[] offsets)
+    {
+        var n = b.Length;
+        var x = PlanetaryCeilings.Solve(a, b);
+        double peak = 0, diagonal = 0, rowScale = 0;
+        foreach (var o in offsets)
+        {
+            peak = Math.Max(peak, Math.Abs(o));
+        }
+        for (var j = 0; j < n; j++)
+        {
+            diagonal = Math.Max(diagonal, a[j, j]);
+        }
+        foreach (var row in rows)
+        {
+            foreach (var v in row)
+            {
+                rowScale = Math.Max(rowScale, v * v);
+            }
+        }
+        var tolerance = 1e-6 * Math.Max(peak, 1e-12);
+        var rho = diagonal / Math.Max(rowScale, 1e-300);
+        for (var outer = 0; outer < 16; outer++)
+        {
+            for (var inner = 0; inner < 50; inner++)
+            {
+                var (m, r) = ((double[,])a.Clone(), (double[])b.Clone());
+                for (var i = 0; i < rows.Length; i++)
+                {
+                    var value = offsets[i];
+                    for (var j = 0; j < n; j++)
+                    {
+                        value += rows[i][j] * x[j];
+                    }
+                    if (value >= 0)
+                    {
+                        continue;
+                    }
+                    for (var j = 0; j < n; j++)
+                    {
+                        r[j] -= rho * rows[i][j] * offsets[i];
+                        for (var k = 0; k < n; k++)
+                        {
+                            m[j, k] += rho * rows[i][j] * rows[i][k];
+                        }
+                    }
+                }
+                var next = PlanetaryCeilings.Solve(m, r);
+                double change = 0;
+                for (var j = 0; j < n; j++)
+                {
+                    change = Math.Max(change, Math.Abs(next[j] - x[j]));
+                }
+                x = next;
+                if (change < 1e-12)
+                {
+                    break;
+                }
+            }
+            double worst = 0;
+            for (var i = 0; i < rows.Length; i++)
+            {
+                var value = offsets[i];
+                for (var j = 0; j < n; j++)
+                {
+                    value += rows[i][j] * x[j];
+                }
+                worst = Math.Max(worst, -value);
+            }
+            if (worst <= tolerance)
+            {
+                break;
+            }
+            rho *= 10;
+        }
+        return x;
+    }
+
+    // Both halves of the fit's least squares, the texture's and the disk's, summed.
+    private static (double[,] A, double[] B) NormalEquations(ImmutableArray<double> stackPower, ImmutableArray<double> wiener, ReadOnlySpan<float> sharpDisk, ReadOnlySpan<float> blurredDisk,
+        int width, int height, MetricDisk disk, int fitted)
+    {
+        var (a, b) = TextureNormalEquations(stackPower, wiener, fitted);
+        var (da, db) = PlanetaryCeilings.JointNormalEquations(blurredDisk, sharpDisk, width, height, disk, fitted);
+        for (var j = 0; j < fitted; j++)
+        {
+            b[j] += db[j];
+            for (var k = 0; k < fitted; k++)
+            {
+                a[j, k] += da[j, k];
+            }
+        }
+        return (a, b);
     }
 
     /// <summary>
