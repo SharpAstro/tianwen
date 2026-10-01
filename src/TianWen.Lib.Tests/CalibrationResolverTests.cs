@@ -693,6 +693,26 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
+        public void BestFlat_AFlatOfAnotherStatedFilter_IsRefused_EvenWhenItIsTheOnlyOne()
+        {
+            // The Uranus-C 2023-08-09 Lagoon: dual-band lights on the FMA180, and the only flat on that train
+            // the broadband Semi-APO set eleven days earlier. Ranking it last still handed it over, printing
+            // the other filter's dust; with both filters stated it is no candidate at all (the owner, 2026-10-01).
+            const string Camera = "Uranus-C (IMX585)";
+            var light = Light(200, 17, gain: 220, instrument: Camera, telescope: "", focalLength: 180,
+                when: Utc(2023, 8, 9, 11, 0), filter: Filter.FromName("Unidentified-HaOIII"));
+            var broadband = Group(FrameType.Flat, 0.04, 14, gain: 200, instrument: Camera, telescope: "", focalLength: 180,
+                when: Utc(2023, 7, 29, 10, 0), filter: Filter.FromName("Baader Semi-APO"));
+
+            CalibrationResolver.BestFlat([broadband], light).ShouldBeNull();
+
+            // A flat that states NO filter is still judged on its train and date: nothing says it differs.
+            var unstated = Group(FrameType.Flat, 0.04, 14, gain: 200, instrument: Camera, telescope: "", focalLength: 180,
+                when: Utc(2023, 8, 9, 22, 0));
+            CalibrationResolver.BestFlat([broadband, unstated], light).ShouldBe(unstated);
+        }
+
+        [Fact]
         public void BestFlat_ALightWithNoTrainCards_CannotProveAFlatEither()
         {
             // Proof needs an optics card on BOTH sides, so a light that states no train is judged by
