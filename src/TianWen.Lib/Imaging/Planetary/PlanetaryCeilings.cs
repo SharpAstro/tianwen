@@ -42,6 +42,103 @@ public static class PlanetaryCeilings
     }
 
     /// <summary>
+    /// <paramref name="stack"/> with one gain per a trous band fitted JOINTLY: the gains that bring every band of the result nearest the
+    /// truth's at once inside 0.9 radii. A trous bands overlap in frequency, so a band's gain reaches its neighbours' bands too, and the
+    /// gains <see cref="PerBandOracle"/> fits one band at a time are not the best set.
+    /// </summary>
+    public static (float[] Plane, ImmutableArray<double> Gains) PerBandJointOracle(ReadOnlySpan<float> stack, ReadOnlySpan<float> truth, int width, int height, MetricDisk disk,
+        int bands = PlanetaryMetrics.Bands)
+    {
+        var s = ATrousWaveletTransform.Decompose(stack, width, height, bands);
+        var t = ATrousWaveletTransform.Decompose(truth, width, height, bands);
+        var inside = PlanetaryMetrics.Inside(width, height, disk, PlanetaryMetrics.InnerRadii);
+        // Each of the stack's detail planes, and its residual, decomposed again: what a gain on it puts in every band of the result.
+        var parts = new WaveletDecomposition[bands];
+        for (var k = 0; k < bands; k++)
+        {
+            parts[k] = ATrousWaveletTransform.Decompose(s.Detail(k), width, height, bands);
+        }
+        var rest = ATrousWaveletTransform.Decompose(s.Residual, width, height, bands);
+        var a = new double[bands, bands];
+        var b = new double[bands];
+        for (var j = 0; j < bands; j++)
+        {
+            var tj = t.Detail(j);
+            var rj = rest.Detail(j);
+            for (var k = 0; k < bands; k++)
+            {
+                var kj = parts[k].Detail(j);
+                foreach (var i in inside)
+                {
+                    b[k] += (double)kj[i] * (tj[i] - rj[i]);
+                }
+                for (var l = k; l < bands; l++)
+                {
+                    var lj = parts[l].Detail(j);
+                    double sum = 0;
+                    foreach (var i in inside)
+                    {
+                        sum += (double)kj[i] * lj[i];
+                    }
+                    a[k, l] += sum;
+                    if (l != k)
+                    {
+                        a[l, k] += sum;
+                    }
+                }
+            }
+        }
+        var solved = Solve(a, b);
+        var gains = new float[bands];
+        for (var k = 0; k < bands; k++)
+        {
+            gains[k] = (float)solved[k];
+        }
+        return (s.Reconstruct(gains), [.. solved]);
+    }
+
+    // The n-by-n system a x = b by Gaussian elimination with partial pivoting.
+    private static double[] Solve(double[,] a, double[] b)
+    {
+        var n = b.Length;
+        var (m, x) = ((double[,])a.Clone(), (double[])b.Clone());
+        for (var c = 0; c < n; c++)
+        {
+            var pivot = c;
+            for (var r = c + 1; r < n; r++)
+            {
+                if (Math.Abs(m[r, c]) > Math.Abs(m[pivot, c]))
+                {
+                    pivot = r;
+                }
+            }
+            for (var k = 0; k < n; k++)
+            {
+                (m[c, k], m[pivot, k]) = (m[pivot, k], m[c, k]);
+            }
+            (x[c], x[pivot]) = (x[pivot], x[c]);
+            for (var r = c + 1; r < n; r++)
+            {
+                var f = m[r, c] / m[c, c];
+                for (var k = c; k < n; k++)
+                {
+                    m[r, k] -= f * m[c, k];
+                }
+                x[r] -= f * x[c];
+            }
+        }
+        for (var c = n - 1; c >= 0; c--)
+        {
+            for (var k = c + 1; k < n; k++)
+            {
+                x[c] -= m[c, k] * x[k];
+            }
+            x[c] /= m[c, c];
+        }
+        return x;
+    }
+
+    /// <summary>
     /// <paramref name="stack"/> through the best isotropic linear filter the truth allows: over each ring of frequencies, the sum of
     /// Re(T conj(S)) over the sum of abs(S)^2.
     /// </summary>

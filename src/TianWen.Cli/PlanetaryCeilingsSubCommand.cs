@@ -92,10 +92,14 @@ internal sealed class PlanetaryCeilingsSubCommand(IConsoleHost consoleHost)
                     return 1;
                 }
                 consoleHost.WriteScrollable(string.Create(inv, $"{Path.GetFileName(input)}: {result.FramesUsed} of {result.FramesGraded} frames by the gradient ({kept.Count} graded again)"));
+                rows.Add(("the truth itself", truthPlane));
                 rows.Add(("the stack", stack.Plane));
                 var (perBand, gains) = PlanetaryCeilings.PerBandOracle(stack.Plane, truthPlane, width, height, disk, Bands);
                 consoleHost.WriteScrollable(string.Create(inv, $"    the per-band oracle's gains, bands 1 to {Bands}: {string.Join(", ", gains.Select(g => g.ToString("0.000", inv)))}"));
                 rows.Add(("(1) per-band oracle gains", perBand));
+                var (joint, jointGains) = PlanetaryCeilings.PerBandJointOracle(stack.Plane, truthPlane, width, height, disk, Bands);
+                consoleHost.WriteScrollable(string.Create(inv, $"    the per-band gains fitted jointly, bands 1 to {Bands}: {string.Join(", ", jointGains.Select(g => g.ToString("0.000", inv)))}"));
+                rows.Add(("(1') per-band gains fitted jointly", joint));
                 rows.Add(("(2) per-ring oracle filter", PlanetaryCeilings.PerRingOracle(stack.Plane, truthPlane, width, height)));
                 rows.Add(("(3) magnitude swap", PlanetaryCeilings.MagnitudeSwap(stack.Plane, truthPlane, width, height)));
                 rows.Add(("(4) phase swap", PlanetaryCeilings.PhaseSwap(stack.Plane, truthPlane, width, height)));
