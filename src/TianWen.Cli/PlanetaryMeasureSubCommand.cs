@@ -371,8 +371,9 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
             consoleHost.WriteError($"{path}: no DISKX, DISKY, DISKR in its header (planetary-degrade writes them)");
             return null;
         }
+        // AXISRAT is written by planetary-lucky-frames, whose window is scored with the stack's own oblate disk; a degrade truth has none.
         var disk = new MetricDisk(header.GetDoubleValue("DISKX", double.NaN), header.GetDoubleValue("DISKY", double.NaN),
-            header.GetDoubleValue("DISKR", double.NaN), 1, header.GetDoubleValue("NORTHANG", 0));
+            header.GetDoubleValue("DISKR", double.NaN), header.GetDoubleValue("AXISRAT", 1), header.GetDoubleValue("NORTHANG", 0));
         return (image.GetChannelSpan(0).ToArray(), disk, PlanetaryGeometrySubCommands.ParseUtc(header.GetStringValue("DATE-OBS")));
     }
 
