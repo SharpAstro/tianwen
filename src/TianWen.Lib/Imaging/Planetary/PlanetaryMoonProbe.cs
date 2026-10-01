@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using System.Numerics;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.Planetary;
@@ -19,25 +20,23 @@ public sealed record MoonRead(double X, double Y, double Flux, RadialTransfer Tr
 /// <summary>
 /// A Galilean moon beside the planet's disk as a probe of the kernel's finest band (docs/plans/planetary-restoration.md, R8 follow-up 4).
 /// At 0.5"/px a moon is two to four pixels across, close enough to a point that its blurred image reads the kernel where a limb's
-/// edge is noise: Europa's disk passes power to 0.57 cycles a pixel, past Nyquist. The read is a square of
-/// <see cref="Half"/> px about the moon, its rim's plane taken off, under a round taper flat to <see cref="TaperFlat"/> px; the model a
-/// uniform disk of the ephemeris' diameter, smeared along its drift over the frames and through the pupil's diffraction; the place the
-/// cross-correlation's climbed peak; and the transfer in each ring the cross-spectrum's real part over the model's power, over the
-/// read's own flux. So it is the kernel within 16 px, as <see cref="PlanetaryFinestBand.Edge"/> reads the limb's.
+/// edge is noise: Europa's disk passes power to 0.57 cycles a pixel, past Nyquist. The read is a square about the moon, by default
+/// <see cref="DefaultReach"/> px each way, its rim's background (a plane, or a quadratic surface) taken off, under a round taper; the
+/// model a uniform disk of the ephemeris' diameter, smeared along its drift over the frames and through the pupil's diffraction; the
+/// place the cross-correlation's climbed peak; and the transfer in each ring the cross-spectrum's real part over the model's power, over
+/// the read's own flux. So it is the kernel within the square, normalised by the light the square holds: the light a halo spreads past
+/// the rim is not in it (R8 follow-up 4: 18 to 35 % of a twin's moon at 16 px).
 /// </summary>
 public static class PlanetaryMoonProbe
 {
-    /// <summary>The square's half side, px.</summary>
-    public const int Half = 16;
+    /// <summary>The square's half side by default, px.</summary>
+    public const int DefaultReach = 16;
 
-    /// <summary>The radius to which the taper is flat, px; it falls to zero at <see cref="Half"/>.</summary>
-    public const double TaperFlat = 12;
+    /// <summary>How far inside the square's half side its round taper starts to fall, px; it is zero at the half side.</summary>
+    public const int TaperWidth = 4;
 
-    /// <summary>The inner radius of the rim the background plane is fitted to, px; it runs to <see cref="Half"/>.</summary>
-    public const double RimFrom = 13;
-
-    // The square padded for its transform.
-    private const int Grid = 64;
+    /// <summary>How far inside the square's half side the rim the background is fitted to starts, px; it runs to the half side.</summary>
+    public const int RimWidth = 3;
 
     /// <summary>
     /// Reads the moon of radius <paramref name="radiusPx"/> near (<paramref name="x"/>, <paramref name="y"/>) in
@@ -56,32 +55,44 @@ public static class PlanetaryMoonProbe
     /// <param name="searchPx">How far from (<paramref name="x"/>, <paramref name="y"/>) to look, px; zero to read it there.</param>
     /// <param name="limbDarkening">The model disk's brightness as mu to this power (zero for uniform): what a moon's own limb darkening
     /// would move the read by.</param>
+    /// <param name="reach">The square's half side, px: the read is the kernel within it.</param>
+    /// <param name="quadratic">Whether the rim's background is a quadratic surface rather than a plane.</param>
+    /// <param name="sectorDeg">Read the transfer only in the frequencies within <paramref name="sectorHalfWidthDeg"/> of this direction
+    /// (degrees from +x toward +y, either way along it), an anisotropic kernel's one direction; null for every direction.</param>
+    /// <param name="sectorHalfWidthDeg">The sector's half width.</param>
     public static MoonRead? Read(ReadOnlySpan<float> plane, int width, int height, double x, double y, double radiusPx, double driftX, double driftY,
-        Func<double, double> diffraction, int searchPx = 3, double limbDarkening = 0)
+        Func<double, double> diffraction, int searchPx = 3, double limbDarkening = 0, int reach = DefaultReach, bool quadratic = false,
+        double? sectorDeg = null, double sectorHalfWidthDeg = 30)
     {
         ArgumentNullException.ThrowIfNull(diffraction);
-        var model = Model(radiusPx, driftX, driftY, diffraction, limbDarkening);
+        ArgumentOutOfRangeException.ThrowIfLessThan(reach, 2 * TaperWidth);
+        var grid = 64;
+        while (grid < 4 * reach)
+        {
+            grid <<= 1;
+        }
+        var model = Model(grid, radiusPx, driftX, driftY, diffraction, limbDarkening);
         var (atX, atY) = (x, y);
         for (var pass = 0; pass < 3; pass++)
         {
             var (cx, cy) = ((int)Math.Round(atX), (int)Math.Round(atY));
-            if (Cut(plane, width, height, cx, cy) is not { } spectrum)
+            if (Cut(plane, width, height, cx, cy, grid, reach, quadratic) is not { } spectrum)
             {
                 return null;
             }
             double dx, dy;
             if (searchPx > 0)
             {
-                var cross = new Complex[Grid * Grid];
+                var cross = new Complex[grid * grid];
                 for (var i = 0; i < cross.Length; i++)
                 {
                     cross[i] = spectrum[i] * Complex.Conjugate(model[i]);
                 }
-                if (Peak(cross, searchPx + 1) is not { } start)
+                if (Peak(cross, grid, searchPx + 1) is not { } start)
                 {
                     return null;
                 }
-                (dx, dy) = PhaseCorrelation.ClimbPeak(cross, Grid, Grid, start.X, start.Y);
+                (dx, dy) = PhaseCorrelation.ClimbPeak(cross, grid, grid, start.X, start.Y);
                 // Off its square's centre by more than a pixel, the square is cut again about where the moon is.
                 if (pass < 2 && (Math.Abs(dx) > 1 || Math.Abs(dy) > 1))
                 {
@@ -93,51 +104,79 @@ public static class PlanetaryMoonProbe
             {
                 (dx, dy) = (atX - cx, atY - cy);
             }
-            return Transfer(spectrum, model, cx + dx, cy + dy, dx, dy);
+            return Transfer(spectrum, model, grid, cx + dx, cy + dy, dx, dy, sectorDeg, sectorHalfWidthDeg);
         }
         return null;
     }
 
-    // The square about (cx, cy) less its rim's plane, under the taper, padded and transformed; null where it leaves the plane.
-    private static Complex[]? Cut(ReadOnlySpan<float> plane, int width, int height, int cx, int cy)
+    // The square about (cx, cy) less its rim's background (a plane, or a quadratic surface), under the taper, padded and transformed;
+    // null where it leaves the plane.
+    private static Complex[]? Cut(ReadOnlySpan<float> plane, int width, int height, int cx, int cy, int grid, int reach, bool quadratic)
     {
-        if (cx - Half < 0 || cy - Half < 0 || cx + Half >= width || cy + Half >= height)
+        if (cx - reach < 0 || cy - reach < 0 || cx + reach >= width || cy + reach >= height)
         {
             return null;
         }
-        // The plane a + b dx + c dy through the rim, by least squares (the rim is symmetric, so the three terms are independent).
-        double s1 = 0, sx = 0, sy = 0, sxx = 0, syy = 0, n = 0;
-        for (var j = -Half; j <= Half; j++)
+        var terms = quadratic ? 6 : 3;
+        var normal = new double[terms, terms];
+        var rhs = new double[terms];
+        Span<double> basis = stackalloc double[6];
+        for (var j = -reach; j <= reach; j++)
         {
-            for (var i = -Half; i <= Half; i++)
+            for (var i = -reach; i <= reach; i++)
             {
                 var r = Math.Sqrt((i * i) + (j * j));
-                if (r >= RimFrom && r <= Half)
+                if (r >= reach - RimWidth && r <= reach)
                 {
+                    Basis(basis, i, j, reach);
                     var v = plane[((cy + j) * width) + cx + i];
-                    s1 += v;
-                    sx += v * i;
-                    sy += v * j;
-                    sxx += i * i;
-                    syy += j * j;
-                    n++;
+                    for (var a = 0; a < terms; a++)
+                    {
+                        rhs[a] += basis[a] * v;
+                        for (var b = 0; b < terms; b++)
+                        {
+                            normal[a, b] += basis[a] * basis[b];
+                        }
+                    }
                 }
             }
         }
-        var (a, b, c) = (s1 / n, sx / sxx, sy / syy);
-        var spectrum = new Complex[Grid * Grid];
-        for (var j = -Half; j <= Half; j++)
+        if (PolynomialLeastSquares.SolveNormalEquations(normal, rhs) is not { } coefficients)
         {
-            for (var i = -Half; i <= Half; i++)
+            return null;
+        }
+        var spectrum = new Complex[grid * grid];
+        for (var j = -reach; j <= reach; j++)
+        {
+            for (var i = -reach; i <= reach; i++)
             {
                 var r = Math.Sqrt((i * i) + (j * j));
-                var taper = r <= TaperFlat ? 1 : r >= Half ? 0 : 0.5 * (1 + Math.Cos(Math.PI * (r - TaperFlat) / (Half - TaperFlat)));
-                var v = plane[((cy + j) * width) + cx + i] - (a + (b * i) + (c * j));
-                spectrum[(((j + Grid) % Grid) * Grid) + ((i + Grid) % Grid)] = v * taper;
+                var flat = reach - TaperWidth;
+                var taper = r <= flat ? 1 : r >= reach ? 0 : 0.5 * (1 + Math.Cos(Math.PI * (r - flat) / TaperWidth));
+                Basis(basis, i, j, reach);
+                double background = 0;
+                for (var a = 0; a < terms; a++)
+                {
+                    background += coefficients[a] * basis[a];
+                }
+                var v = plane[((cy + j) * width) + cx + i] - background;
+                spectrum[(((j + grid) % grid) * grid) + ((i + grid) % grid)] = v * taper;
             }
         }
-        Fft2D.Forward(spectrum, Grid, Grid);
+        Fft2D.Forward(spectrum, grid, grid);
         return spectrum;
+    }
+
+    // The background's terms at (i, j), scaled by the reach: 1, x, y, then x^2, xy, y^2.
+    private static void Basis(Span<double> basis, int i, int j, int reach)
+    {
+        var (u, v) = (i / (double)reach, j / (double)reach);
+        basis[0] = 1;
+        basis[1] = u;
+        basis[2] = v;
+        basis[3] = u * u;
+        basis[4] = u * v;
+        basis[5] = v * v;
     }
 
     // The model's spectrum at the grid's origin, analytic so that it carries no aliases: the disk's own transfer (uniform, or darkened to
@@ -145,18 +184,18 @@ public static class PlanetaryMoonProbe
     // phase is not the disk drawn where it is: an undersampled disk's aliases move with other phases, which read a Gaussian's transfer
     // 4 % high at 0.2 cycles a pixel. A camera's pixels sample the image after the kernel has blurred it, so the data's aliases are the
     // kernel's to damp, never the model's to carry.
-    private static Complex[] Model(double radiusPx, double driftX, double driftY, Func<double, double> diffraction, double limbDarkening)
+    private static Complex[] Model(int grid, double radiusPx, double driftX, double driftY, Func<double, double> diffraction, double limbDarkening)
     {
         var disk = DiskTransfer(radiusPx, limbDarkening);
-        var field = new Complex[Grid * Grid];
-        for (var ky = 0; ky < Grid; ky++)
+        var field = new Complex[grid * grid];
+        for (var ky = 0; ky < grid; ky++)
         {
-            var fy = (ky < Grid / 2 ? ky : ky - Grid) / (double)Grid;
-            for (var kx = 0; kx < Grid; kx++)
+            var fy = (ky < grid / 2 ? ky : ky - grid) / (double)grid;
+            for (var kx = 0; kx < grid; kx++)
             {
-                var fx = (kx < Grid / 2 ? kx : kx - Grid) / (double)Grid;
+                var fx = (kx < grid / 2 ? kx : kx - grid) / (double)grid;
                 var f = Math.Sqrt((fx * fx) + (fy * fy));
-                field[(ky * Grid) + kx] = disk(f) * Sinc(fx) * Sinc(fy) * Sinc((fx * driftX) + (fy * driftY)) * diffraction(f);
+                field[(ky * grid) + kx] = disk(f) * Sinc(fx) * Sinc(fy) * Sinc((fx * driftX) + (fy * driftY)) * diffraction(f);
             }
         }
         return field;
@@ -256,17 +295,17 @@ public static class PlanetaryMoonProbe
     }
 
     // The correlation surface's highest sample within `reach` of the origin, as a start for the climb.
-    private static (double X, double Y)? Peak(Complex[] cross, int reach)
+    private static (double X, double Y)? Peak(Complex[] cross, int grid, int reach)
     {
         var surface = (Complex[])cross.Clone();
-        Fft2D.Inverse(surface, Grid, Grid);
+        Fft2D.Inverse(surface, grid, grid);
         (double X, double Y)? best = null;
         var top = double.NegativeInfinity;
         for (var j = -reach; j <= reach; j++)
         {
             for (var i = -reach; i <= reach; i++)
             {
-                var v = surface[(((j + Grid) % Grid) * Grid) + ((i + Grid) % Grid)].Real;
+                var v = surface[(((j + grid) % grid) * grid) + ((i + grid) % grid)].Real;
                 if (v > top)
                 {
                     (top, best) = (v, (i, j));
@@ -277,24 +316,32 @@ public static class PlanetaryMoonProbe
     }
 
     // The transfer ring by ring: the cross-spectrum with the model moved to (dx, dy), its real part over the model's power, over the
-    // read's flux; and the model's own mean transfer in each ring.
-    private static MoonRead Transfer(Complex[] spectrum, Complex[] model, double x, double y, double dx, double dy)
+    // read's flux, in every direction or in one sector; and the model's own mean transfer in each ring.
+    private static MoonRead Transfer(Complex[] spectrum, Complex[] model, int grid, double x, double y, double dx, double dy, double? sectorDeg, double sectorHalfWidthDeg)
     {
-        const int rings = (Grid / 2) + 1;
+        var rings = (grid / 2) + 1;
         var (cross, power, magnitude, count) = (new double[rings], new double[rings], new double[rings], new int[rings]);
-        for (var ky = 0; ky < Grid; ky++)
+        for (var ky = 0; ky < grid; ky++)
         {
-            var sy = ky < Grid / 2 ? ky : ky - Grid;
-            for (var kx = 0; kx < Grid; kx++)
+            var sy = ky < grid / 2 ? ky : ky - grid;
+            for (var kx = 0; kx < grid; kx++)
             {
-                var sx = kx < Grid / 2 ? kx : kx - Grid;
+                var sx = kx < grid / 2 ? kx : kx - grid;
                 var ring = (int)Math.Round(Math.Sqrt((sx * sx) + (sy * sy)));
                 if (ring >= rings)
                 {
                     continue;
                 }
-                var i = (ky * Grid) + kx;
-                var moved = model[i] * Complex.FromPolarCoordinates(1, -2 * Math.PI * ((sx * dx) + (sy * dy)) / Grid);
+                if (sectorDeg is { } sector && ring > 0)
+                {
+                    var off = Math.Abs(((((Math.Atan2(sy, sx) * 180 / Math.PI) - sector) % 180) + 270) % 180 - 90);
+                    if (off > sectorHalfWidthDeg)
+                    {
+                        continue;
+                    }
+                }
+                var i = (ky * grid) + kx;
+                var moved = model[i] * Complex.FromPolarCoordinates(1, -2 * Math.PI * ((sx * dx) + (sy * dy)) / grid);
                 cross[ring] += (spectrum[i] * Complex.Conjugate(moved)).Real;
                 power[ring] += moved.Magnitude * moved.Magnitude;
                 magnitude[ring] += moved.Magnitude;
@@ -309,6 +356,6 @@ public static class PlanetaryMoonProbe
             transfer.Add(power[r] > 0 && flux != 0 ? cross[r] / power[r] / flux : 0);
             own.Add(count[r] > 0 ? magnitude[r] / count[r] : 0);
         }
-        return new MoonRead(x, y, flux, new RadialTransfer(transfer.MoveToImmutable(), Grid), new RadialTransfer(own.MoveToImmutable(), Grid));
+        return new MoonRead(x, y, flux, new RadialTransfer(transfer.MoveToImmutable(), grid), new RadialTransfer(own.MoveToImmutable(), grid));
     }
 }
