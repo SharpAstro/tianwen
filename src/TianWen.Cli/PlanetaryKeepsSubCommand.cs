@@ -151,6 +151,9 @@ internal sealed class PlanetaryKeepsSubCommand(IConsoleHost consoleHost)
             var ratio = ceiling.Ratio;
             consoleHost.WriteScrollable(string.Create(inv,
                 $"    the ceiling of per-frequency selection in band 1, the best {ceilingCount} frames at each frequency over the best {ceilingCount} by the gradient: {ratio:0.000} ({ratio - 1:P1}; claimed under 15 %; {(ratio - 1 < 0.15 ? "holds" : "FAILS")})"));
+            // Post hoc, not pre-registered: the same over the whole frames truly sharpest in band 1, which leaves out the gradient's ranking error.
+            consoleHost.WriteScrollable(string.Create(inv,
+                $"    post hoc: over the best {ceilingCount} whole frames by their true band 1 transfer: {ceiling.OverTheSharpestWholeFrames:0.000}"));
             return 0;
         });
         return command;

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Immutable;
+using System.Linq;
 using System.Numerics;
 using TianWen.Lib.Stat;
 
@@ -570,6 +571,7 @@ public sealed class MultiFrameBound
         private readonly float[] _best;
         private readonly int[] _filled;
         private readonly double[] _kept;
+        private readonly System.Collections.Generic.List<double> _scores = [];
         private readonly int _k;
         private int _keptCount;
 
@@ -595,9 +597,11 @@ public sealed class MultiFrameBound
         {
             ArgumentNullException.ThrowIfNull(frame);
             _keptCount += kept ? 1 : 0;
+            double score = 0;
             for (var m = 0; m < _modes.Length; m++)
             {
                 var g = (float)frame.Transfer[_modes[m]].Magnitude;
+                score += g;
                 if (kept)
                 {
                     _kept[m] += g;
@@ -638,6 +642,7 @@ public sealed class MultiFrameBound
                     }
                 }
             }
+            _scores.Add(_modes.Length > 0 ? score / _modes.Length : 0);
         }
 
         /// <summary>The per-frequency selection's mean transfer over the whole-frame selection's, over the frequencies read.</summary>
@@ -645,19 +650,43 @@ public sealed class MultiFrameBound
         {
             get
             {
-                double perFrequency = 0, wholeFrame = 0;
+                double wholeFrame = 0;
                 for (var m = 0; m < _modes.Length; m++)
                 {
-                    double sum = 0;
-                    for (var j = 0; j < _filled[m]; j++)
-                    {
-                        sum += _best[(m * _k) + j];
-                    }
-                    perFrequency += _filled[m] > 0 ? sum / _filled[m] : 0;
                     wholeFrame += _keptCount > 0 ? _kept[m] / _keptCount : 0;
                 }
-                return wholeFrame > 0 ? perFrequency / wholeFrame : double.NaN;
+                return wholeFrame > 0 ? PerFrequencyMean() * _modes.Length / wholeFrame : double.NaN;
             }
+        }
+
+        /// <summary>
+        /// The per-frequency selection's mean transfer over that of the <c>k</c> frames whose mean transfer over these frequencies is
+        /// highest: the whole frames an oracle would keep, so what is left is what choosing afresh at each frequency adds, with no ranking
+        /// error in it.
+        /// </summary>
+        public double OverTheSharpestWholeFrames
+        {
+            get
+            {
+                var best = _scores.OrderDescending().Take(_k).ToArray();
+                return best.Length > 0 && best.Average() is var wholeFrame and > 0 ? PerFrequencyMean() / wholeFrame : double.NaN;
+            }
+        }
+
+        // The mean over the frequencies read of the k largest magnitudes held at each.
+        private double PerFrequencyMean()
+        {
+            double perFrequency = 0;
+            for (var m = 0; m < _modes.Length; m++)
+            {
+                double sum = 0;
+                for (var j = 0; j < _filled[m]; j++)
+                {
+                    sum += _best[(m * _k) + j];
+                }
+                perFrequency += _filled[m] > 0 ? sum / _filled[m] : 0;
+            }
+            return _modes.Length > 0 ? perFrequency / _modes.Length : 0;
         }
     }
 

@@ -155,6 +155,8 @@ public class PlanetaryCeilingsTests
         TestContext.Current.TestOutputHelper?.WriteLine($"over the sharpest three {sharpest.Ratio:0.0000}, over the blurriest {blurriest.Ratio:0.0000}");
         sharpest.Ratio.ShouldBe(1, 1e-6);
         blurriest.Ratio.ShouldBeGreaterThan(2);
+        // Whichever frames a whole-frame selection kept, the oracle's whole frames are the sharpest three here.
+        blurriest.OverTheSharpestWholeFrames.ShouldBe(1, 1e-6);
     }
 
     // Frames of `truth` through Gaussian PSFs of `sigmas` (a perfect telescope a point), each moved a little, prepared for a bound, with
