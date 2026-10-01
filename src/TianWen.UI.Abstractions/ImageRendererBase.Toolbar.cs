@@ -969,7 +969,17 @@ namespace TianWen.UI.Abstractions
         private static bool IsColour(IPreviewSource source)
             => source.ChannelCount >= 3 || source.SensorType is SensorType.RGGB;
 
-        private bool IsToolbarButtonEnabled(ToolbarAction action, AstroImageDocument? document) => action switch
+        /// <summary>
+        /// For an action the HOST runs (the solve, Open, Save, the crop, Enhance): whether it can run it on the frame
+        /// on show now, which only it knows; null leaves the viewer's own rule, which asks the document. The Live
+        /// Session preview's solve runs on the node, over a frame that is no document.
+        /// </summary>
+        public Func<ToolbarAction, bool?>? HostCanRun { get; set; }
+
+        private bool IsToolbarButtonEnabled(ToolbarAction action, AstroImageDocument? document)
+            => HostCanRun?.Invoke(action) ?? IsEnabledByTheViewer(action, document);
+
+        private bool IsEnabledByTheViewer(ToolbarAction action, AstroImageDocument? document) => action switch
         {
             // Gate on the active source's sensor type, not on AstroImageDocument -- a SER is a
             // SerPreviewSource (document == null) but is a raw RGGB Bayer source the GPU debayers,
@@ -1064,7 +1074,7 @@ namespace TianWen.UI.Abstractions
                 // A solution is a RESULT rather than a toggle, but it is the state the eye looks
                 // for first: whether this frame has a WCS decides what the grid and the object
                 // overlay can draw at all, so it is worth carrying across the bar as a highlight.
-                ToolbarAction.PlateSolve => document?.Findings.IsPlateSolved == true,
+                ToolbarAction.PlateSolve => Findings.IsPlateSolved,
                 ToolbarAction.AutoCrop => state.DisplayCrop is not null,
 
                 _ => false,
@@ -2274,7 +2284,7 @@ namespace TianWen.UI.Abstractions
                 // saying twice rather than leaving it to a highlight that every other button
                 // also uses for "on".
                 ToolbarAction.PlateSolve when state.IsPlateSolving => "\u2026",
-                ToolbarAction.PlateSolve when document?.Findings.IsPlateSolved == true => "\u2714",
+                ToolbarAction.PlateSolve when Findings.IsPlateSolved => "\u2714",
                 // Unsolved is a QUESTION, because that is what an unsolved frame is -- and this
                 // button is what answers it. The word "Solve" is gone because the telescope mark
                 // says which button this is and the tooltip names the action.

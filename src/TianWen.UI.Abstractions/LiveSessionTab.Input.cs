@@ -26,8 +26,8 @@ namespace TianWen.UI.Abstractions
 
             // Planetary mode: the router has already dispatched a press on any of the view's controls (the view is
             // one of this tab's Children), so what reaches here is what no region claimed: a pan, the PiP drag, a
-            // wheel zoom. Forward those MOUSE events to the view. Keys are NOT forwarded so global shortcuts (Esc,
-            // mode switching) stay free.
+            // wheel zoom. Forward those MOUSE events to the view. Keys reach it only at the end of the switch below,
+            // after this tab's own and never the window's, so global shortcuts (Esc, mode switching) stay free.
             if (state.Mode == LiveSessionMode.Planetary && PlanetaryView is { } planetaryView
                 && evt is InputEvent.MouseDown or InputEvent.MouseMove or InputEvent.MouseUp or InputEvent.Scroll)
             {
@@ -122,21 +122,10 @@ namespace TianWen.UI.Abstractions
                     return true;
                 }
 
-                case InputEvent.Scroll(var scrollY, var mx, var my, _) when PreviewView is not null && !_previewState.ZoomToFit:
-                {
-                    // Cursor-anchored zoom via the shared controller (was a copy of the viewer's
-                    // formula): seed the transform from the preview state, zoom, write back.
-                    var vs = _previewState;
-                    _previewPanZoom.Zoom = vs.Zoom;
-                    _previewPanZoom.PanOffset = new Vector2(vs.PanOffset.X, vs.PanOffset.Y);
-                    if (_previewPanZoom.ZoomAtCursor(scrollY, mx, my, _viewerImageRect))
-                    {
-                        vs.Zoom = _previewPanZoom.Zoom;
-                        vs.PanOffset = (_previewPanZoom.PanOffset.X, _previewPanZoom.PanOffset.Y);
-                        state.NeedsRedraw = true;
-                    }
-                    return true;
-                }
+                // The wheel over the preview is the viewer's (its zoom at the pointer, as in tianwen-fits); anywhere
+                // else on the tab it scrolls the exposure log, below.
+                case InputEvent.Scroll(_, var wx, var wy, _) when PreviewOnScreen() is { } wheelViewer && _viewerImageRect.Contains(wx, wy):
+                    return ToViewer(state, wheelViewer, evt);
 
                 case InputEvent.Scroll(_, _, _, _):
                     // Exposure-log tail-follow scroll, viewport-gated by the controller (scrolling
@@ -156,28 +145,24 @@ namespace TianWen.UI.Abstractions
                         state.NeedsRedraw = true;
                         return true;
                     }
-                    // Preview viewer mouse drag for panning
-                    if (PreviewView is not null && !_previewState.ZoomToFit)
+                    // A press on the preview that no region claimed (the router has already run its toolbar's
+                    // buttons) is the viewer's: a pan, a tap that selects an object. The tab used to pan it with
+                    // a copy of the viewer's own pan and zoom.
+                    if (PreviewOnScreen() is { } pressViewer && _viewerImageRect.Contains(mx, my))
                     {
-                        _previewPanZoom.PanOffset = new Vector2(_previewState.PanOffset.X, _previewState.PanOffset.Y);
-                        _previewPanZoom.BeginPan(mx, my);
-                        return true;
+                        return ToViewer(state, pressViewer, evt);
                     }
                     return false;
 
-                case InputEvent.MouseMove(var mx, var my):
+                case InputEvent.MouseMove:
                     if (_logScroll.HandleInput(evt)) // false when its gesture is idle
                     {
                         state.NeedsRedraw = true;
                         return true;
                     }
-                    if (_previewPanZoom.UpdatePan(mx, my))
-                    {
-                        _previewState.PanOffset = (_previewPanZoom.PanOffset.X, _previewPanZoom.PanOffset.Y);
-                        state.NeedsRedraw = true;
-                        return true;
-                    }
-                    return false;
+                    // Every move goes to the viewer, inside its rect or not: a pan it began follows the pointer
+                    // anywhere, and its readout clears once the pointer leaves the picture.
+                    return PreviewOnScreen() is { } moveViewer && ToViewer(state, moveViewer, evt);
 
                 case InputEvent.MouseUp(_, _, _):
                     if (_logScroll.HandleInput(evt))
@@ -186,52 +171,45 @@ namespace TianWen.UI.Abstractions
                         state.NeedsRedraw = true;
                         return true;
                     }
-                    if (_previewPanZoom.IsPanning)
-                    {
-                        _previewPanZoom.EndPan();
-                        return true;
-                    }
-                    return false;
+                    return PreviewOnScreen() is { } releaseViewer && ToViewer(state, releaseViewer, evt);
 
-                // The viewer keys, for the viewer ON SCREEN: the planetary view in Planetary mode, else the preview. They
-                // used to act on the preview's state whatever the mode, so in Planetary mode F and R zoomed a viewer nobody
-                // could see (found in the ZWO live check, 2026-09-28). Keys are not forwarded to the view itself, whose own
-                // handler takes Escape as quit and Tab as a field cycle.
-                case InputEvent.KeyDown(InputKey.F, _) when OnScreenViewer() is { } viewer:
-                    viewer.ZoomToFit = true;
-                    return Redrawn(state, viewer);
-
-                case InputEvent.KeyDown(InputKey.R, _) when OnScreenViewer() is { } viewer:
-                    viewer.ZoomToFit = false;
-                    viewer.Zoom = 1f;
-                    viewer.PanOffset = (0, 0);
-                    return Redrawn(state, viewer);
-
-                case InputEvent.KeyDown(InputKey.T, _) when OnScreenViewer() is { } viewer:
-                    CyclePreviewStretch(viewer);
-                    return Redrawn(state, viewer);
-
-                case InputEvent.KeyDown(InputKey.B, _) when OnScreenViewer() is { } viewer:
-                    ViewerActions.CycleCurvesBoost(viewer);
-                    return Redrawn(state, viewer);
-
-                case InputEvent.KeyDown(InputKey.S, _) when OnScreenViewer() is { } viewer:
-                    ViewerActions.CycleStretchPreset(viewer);
-                    return Redrawn(state, viewer);
+                // The viewer's keys, for the viewer ON SCREEN: the planetary view in Planetary mode, else the
+                // preview. They are the keys its tooltips name, the same as tianwen-fits' (the user's call,
+                // 2026-10-01; the preview's own T, S and B went with the toolbar it drew), and the viewer acts on
+                // one only where its host offers that button (ToolbarOffer). They used to act on the preview's
+                // state whatever the mode, so in Planetary mode F and R zoomed a viewer nobody could see (found in
+                // the ZWO live check, 2026-09-28). The WINDOW's keys stay out of it: through the viewer, Escape
+                // would quit, Tab cycle a field, Space and the arrows step a file list, F11 go full screen.
+                case InputEvent.KeyDown(var key, _) when !IsWindowKey(key) && OnScreenViewer() is { } keyViewer:
+                    return ToViewer(state, keyViewer, evt);
 
                 default:
                     return false;
             }
         }
 
-        /// <summary>The state of the viewer on screen: the planetary view's in Planetary mode, else the preview's.</summary>
-        private ViewerState? OnScreenViewer() => State?.Mode == LiveSessionMode.Planetary
-            ? PlanetaryView is not null ? PlanetaryCapture?.ViewerState : null
-            : PreviewView is not null ? _previewState : null;
+        /// <summary>
+        /// The viewer on screen: the one this tab painted last frame, the planetary view in Planetary mode, else the
+        /// preview where it had room. Read off what was PAINTED, never off the mode alone, so a mode that shows no
+        /// viewer (the flats) hands its keys to none.
+        /// </summary>
+        private PixelWidgetBase<TSurface>? OnScreenViewer() => _children.Count > 0 ? _children[0] : null;
 
-        private static bool Redrawn(LiveSessionState state, ViewerState viewer)
+        /// <summary>The preview viewer, when it is the one on screen.</summary>
+        private ImageRendererBase<TSurface>? PreviewOnScreen()
+            => PreviewView is { } preview && ReferenceEquals(OnScreenViewer(), preview) ? preview : null;
+
+        private static bool IsWindowKey(InputKey key) => key is InputKey.Escape or InputKey.Tab or InputKey.Space
+            or InputKey.Up or InputKey.Down or InputKey.Left or InputKey.Right or InputKey.Home or InputKey.End
+            or InputKey.Enter or InputKey.F11;
+
+        /// <summary>Hands <paramref name="evt"/> to <paramref name="viewer"/>, and draws a frame when it took it.</summary>
+        private static bool ToViewer(LiveSessionState state, PixelWidgetBase<TSurface> viewer, InputEvent evt)
         {
-            viewer.NeedsRedraw = true;
+            if (!viewer.HandleInput(evt))
+            {
+                return false;
+            }
             state.NeedsRedraw = true;
             return true;
         }

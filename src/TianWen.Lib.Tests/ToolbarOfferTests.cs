@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using DIR.Lib;
 using Shouldly;
@@ -91,8 +92,8 @@ public class ToolbarOfferTests
     }
 
     /// <summary>
-    /// A key for an action only a host can run acts only where the host offers it: where nothing offers a
-    /// solve, P posted one that nothing ran. Ctrl+O is swallowed rather than let through to O, the annotation.
+    /// A key for an action only a host can run presses its button, and only where the host offers it: where
+    /// nothing offered a solve, P posted one that nothing ran. Ctrl+O never falls through to O, the annotation.
     /// </summary>
     [Theory]
     [InlineData(true)]
@@ -107,18 +108,20 @@ public class ToolbarOfferTests
         };
         var state = new ViewerState();
         viewer.Render(null, state);
-        var solves = 0;
-        var opens = 0;
-        bus.Subscribe<PlateSolveSignal>(_ => solves++);
-        bus.Subscribe<OpenFileSignal>(_ => opens++);
+        var presses = new List<ToolbarAction>();
+        viewer.ToolbarPressPolicy = (_, action, _) =>
+        {
+            presses.Add(action);
+            return true;
+        };
         var overlay = state.OverlayLevel;
 
         viewer.HandleInput(new InputEvent.KeyDown(InputKey.P, InputModifier.None));
         viewer.HandleInput(new InputEvent.KeyDown(InputKey.O, InputModifier.Ctrl));
         bus.ProcessPending();
 
-        solves.ShouldBe(offered ? 1 : 0);
-        opens.ShouldBe(offered ? 1 : 0);
+        presses.ToArray().ShouldBe(offered ? new[] { ToolbarAction.PlateSolve, ToolbarAction.Open } : [],
+            "a key presses its button, where its button is offered");
         state.OverlayLevel.ShouldBe(overlay, "Ctrl+O never falls through to O");
     }
 

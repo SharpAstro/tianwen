@@ -178,24 +178,6 @@ public readonly record struct CycleUiThemeSignal;
 /// </summary>
 public readonly record struct OpenUrlSignal(string Url);
 
-/// <summary>Request plate solving the current image.</summary>
-public readonly record struct PlateSolveSignal;
-
-/// <summary>Request AI enhancement (RC-Astro / in-house) of the current viewer image. The host's
-/// handler routes to <see cref="ViewerController.HandleToolbarAction"/> -> <see cref="EnhanceActions"/>;
-/// fires into the void where no SharpenPipeline is wired (the toolbar button is hidden there anyway).</summary>
-public readonly record struct EnhanceImageSignal;
-
-/// <summary>Show only the area every sub covered, or show the whole frame again. The host's handler
-/// routes to <see cref="ViewerController.HandleToolbarAction"/>, which runs the scan off the render
-/// thread and applies it through <see cref="ViewerController.TryApplyPendingCrop"/>.</summary>
-public readonly record struct AutoCropSignal;
-
-/// <summary>Open the file dialog (<c>Ctrl+O</c>). The host's handler routes to
-/// <see cref="ViewerController.HandleToolbarAction"/> with <see cref="ToolbarAction.Open"/>, the same
-/// path the toolbar's folder button takes; a host without a file dialog simply has no subscriber.</summary>
-public readonly record struct OpenFileSignal;
-
 /// <summary>
 /// Request a save of the displayed image, with or without the overlays drawn over it.
 /// </summary>
@@ -203,8 +185,8 @@ public readonly record struct OpenFileSignal;
 /// A signal rather than a <see cref="ToolbarAction"/> because the choice is made in a dropdown row,
 /// which runs inside the renderer, and the save itself needs the controller (the file dialog, the
 /// document, the background tracker). The renderer reaches the controller the way everything else
-/// does: it posts. A host with no subscriber drops it, exactly as it drops
-/// <see cref="EnhanceImageSignal"/>.
+/// does: it posts. A host with no subscriber drops it. (The solve, Enhance, the crop and Open are
+/// toolbar presses instead, which the host's <c>ImageRendererBase.ToolbarPressPolicy</c> runs.)
 /// </remarks>
 /// <param name="WithOverlays">
 /// <c>false</c> writes the clean display raster (<see cref="DisplayRasterExport"/>), which is what

@@ -29,116 +29,63 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// Cycles the preview viewer's stretch mode None -&gt; Unlinked -&gt; Linked -&gt; Luma -&gt; None (the
-        /// embedded preview's [T] button + key). Preserves the old mini viewer's 4-way cycle; the full viewer's
-        /// own [T] is a 2-way toggle, but the preview keeps the cycle so all modes stay reachable chromeless.
+        /// The preview host's part of a toolbar press (<see cref="ImageRendererBase{TSurface}.ToolbarPressPolicy"/>):
+        /// the solve, which the node runs on the frame on show, for that frame's OTA. Every other press is the
+        /// viewer's own.
         /// </summary>
-        private static void CyclePreviewStretch(ViewerState s)
+        private bool PressPreviewToolbar(ViewerState viewerState, ToolbarAction action, MouseButton button)
         {
-            // Enters at Linked, not Unlinked: leaving linear should land on the mode that PRESERVES a
-            // colour calibration, and only then offer the one that discards it. Same order as
-            // ViewerActions.StretchLinkModes; None stays in this cycle because a live preview wants
-            // the linear look one keypress away.
-            s.StretchMode = s.StretchMode switch
+            if (action is not ToolbarAction.PlateSolve)
             {
-                StretchMode.None => StretchMode.Linked,
-                StretchMode.Linked => StretchMode.Unlinked,
-                StretchMode.Unlinked => StretchMode.Luma,
-                StretchMode.Luma => StretchMode.None,
-                _ => StretchMode.Linked
-            };
+                return false;
+            }
+            if (State is { } state && _displayedOta is { } ota && !IsPreviewSolving(state, ota))
+            {
+                PostSignal(new PlateSolvePreviewSignal(ota));
+            }
+            return true;
         }
 
-        private void RenderMiniViewerToolbar(ViewerState vs, RectF32 rect, float fontSize)
+        /// <summary>
+        /// Whether the solve can run (<see cref="ImageRendererBase{TSurface}.HostCanRun"/>): a frame on show, not
+        /// placed yet, and no solve of it going on. Null for every other action, which the viewer judges itself.
+        /// </summary>
+        private bool? PreviewCanRun(ToolbarAction action) => action is ToolbarAction.PlateSolve
+            ? State is { } state && _displayedOta is { } ota && !IsPreviewSolving(state, ota) && !_previewSource.Findings.IsPlateSolved
+            : null;
+
+        private static bool IsPreviewSolving(LiveSessionState state, int ota)
+            => ota < state.PreviewPlateSolving.Length && state.PreviewPlateSolving[ota];
+
+        /// <summary>
+        /// With more than one OTA, whose frame the preview shows: a button each, the one shown lit, and a second
+        /// press on it back to Auto (the first OTA with a frame). The viewer's own controls are on its toolbar; this
+        /// row is what is left of the toolbar the tab drew for it while it was chromeless.
+        /// </summary>
+        private void RenderOtaPicker(ViewerState vs, RectF32 rect, float fontSize)
         {
             RenderLayout(Layout.Builder.Spacer().Bg(HeaderBg), rect);
 
             var dpiScale = DpiScale;
             var pad = BasePadding * dpiScale;
-            var btnW = 36f * dpiScale;
+            var btnW = 36f * dpiScale * 0.8f;
             var btnFs = fontSize * 0.8f;
 
-            var activeBg = GuiTheme.PrimaryButtonBg;
-            var inactiveBg = GuiTheme.NeutralButtonBg;
-
-            // The whole strip is ONE HStack of Clickable button nodes (was an `x += btnW + pad` cursor +
-            // per-button RenderButton). Sizes are already device px, so the tree renders at DesignScale.One.
-            // A status Text takes the middle Star cell, which naturally right-aligns the OTA buttons.
-            Layout.Node Btn(string label, float w, RGBAColor32 bg, RGBAColor32 fg, string action, Action<InputModifier> onClick, bool enabled = true)
-            {
-                var node = Layout.Builder.Text(label, btnFs, fg, TextAlign.Center, TextAlign.Center)
-                    .WFixed(w).HStar().Bg(bg)
-                    .Clickable(new HitResult.ButtonHit(action), onClick);
-                return enabled ? node.BgHover(GuiTheme.Hover(bg)) : node;
-            }
-
-            var stretchLabel = vs.StretchMode switch
-            {
-                StretchMode.None => "Raw",
-                StretchMode.Linked => "Lnk",
-                StretchMode.Unlinked => "Unl",
-                StretchMode.Luma => "Lum",
-                _ => "T"
-            };
-
-            var nodes = new List<Layout.Node>
-            {
-                // [Fit] zoom to fit
-                Btn("Fit", btnW, vs.ZoomToFit ? activeBg : inactiveBg, BodyText, "ViewerFit",
-                    _ => { vs.ZoomToFit = true; }),
-                // [1:1] actual pixels
-                Btn("1:1", btnW, !vs.ZoomToFit && MathF.Abs(vs.Zoom - 1f) < 0.01f ? activeBg : inactiveBg, BodyText, "Viewer1to1",
-                    _ => { vs.ZoomToFit = false; vs.Zoom = 1f; vs.PanOffset = (0, 0); }),
-                // [T] cycle stretch mode
-                Btn(stretchLabel, btnW, vs.StretchMode is not StretchMode.None ? activeBg : inactiveBg, BodyText, "ViewerStretch",
-                    _ => { CyclePreviewStretch(vs); }),
-                // [S] cycle stretch preset
-                Btn("S", btnW * 0.8f, inactiveBg, BodyText, "ViewerPreset",
-                    _ => { ViewerActions.CycleStretchPreset(vs); }),
-                // [B] cycle boost
-                Btn("B", btnW * 0.8f, vs.CurvesBoost > 0 ? activeBg : inactiveBg, BodyText, "ViewerBoost",
-                    _ => { ViewerActions.CycleCurvesBoost(vs); }),
-            };
-
-            // [G] -- WCS coordinate grid overlay. Enabled only once the preview frame has been plate-solved
-            // (we need a WCS to project RA/Dec lines). Lit when active. Polar-alignment mode switching now
-            // lives on the top-strip mode pill dropdown -- the toolbar stays focused on viewer chrome.
-            if (State is { } liveState)
-            {
-                var hasWcs = liveState.PreviewPlateSolveResult?.Solution is not null;
-                var gridFg = hasWcs || vs.ShowGrid ? BodyText : DimText;
-                nodes.Add(Btn("G", btnW * 0.6f, vs.ShowGrid ? activeBg : inactiveBg, gridFg, "ViewerGrid",
-                    _ =>
-                    {
-                        if (hasWcs)
-                        {
-                            vs.ShowGrid = !vs.ShowGrid;
-                            liveState.NeedsRedraw = true;
-                        }
-                    }, enabled: hasWcs));
-            }
-
-            // Status text (stretch info) fills the middle Star cell, pushing the OTA buttons to the right edge.
-            var infoText = $"{vs.StretchMode} {vs.StretchParameters}";
-            if (vs.CurvesBoost > 0)
-            {
-                infoText += $" Boost:{vs.CurvesBoost:F2}";
-            }
-            nodes.Add(Layout.Builder.Text(infoText, fontSize * 0.7f, DimText, TextAlign.Near, TextAlign.Center).WStar().HStar());
-
-            // OTA selector buttons (right-aligned) -- works in both session and preview mode.
+            // Sizes are already device px, so the tree renders at DesignScale.One. A Star spacer takes the
+            // middle, which right-aligns the buttons, where they have always been.
+            var nodes = new List<Layout.Node> { Layout.Builder.Spacer().WStar() };
             var otaButtonCount = State?.OtaCount ?? 0;
-            if (otaButtonCount > 1)
+            for (var oi = 0; oi < otaButtonCount; oi++)
             {
-                for (var oi = 0; oi < otaButtonCount; oi++)
-                {
-                    var idx = oi; // capture
-                    nodes.Add(Btn($"#{idx + 1}", btnW * 0.8f, vs.SelectedCameraIndex == idx ? activeBg : inactiveBg, BodyText, $"ViewerOTA{idx}",
+                var idx = oi; // capture
+                var bg = vs.SelectedCameraIndex == idx ? GuiTheme.PrimaryButtonBg : GuiTheme.NeutralButtonBg;
+                nodes.Add(Layout.Builder.Text($"#{idx + 1}", btnFs, BodyText, TextAlign.Center, TextAlign.Center)
+                    .WFixed(btnW).HStar().Bg(bg).BgHover(GuiTheme.Hover(bg))
+                    .Clickable(new HitResult.ButtonHit($"ViewerOTA{idx}"),
                         _ => { vs.SelectedCameraIndex = vs.SelectedCameraIndex == idx ? -1 : idx; }));
-                }
             }
 
-            // Inset the row 2px vertically (the old btnY/btnH) inside the already-painted HeaderBg strip.
+            // Inset the row 2px vertically inside the already-painted HeaderBg strip.
             var inner = new RectF32(rect.X + pad, rect.Y + 2f * dpiScale, rect.Width - pad * 2f, rect.Height - 4f * dpiScale);
             RenderLayout(Layout.Builder.HStack([.. nodes]).WithGap(pad), inner, scale: DesignScale.One);
         }
@@ -427,28 +374,17 @@ namespace TianWen.UI.Abstractions
                 rows.Add(gainCtrl.RowH(BaseRowHeight));
             }
 
-            // [Save] and [Solve] only appear if a preview image exists for this OTA.
+            // [Save] only appears if a preview image exists for this OTA. The solve is the viewer's toolbar
+            // button now, for the frame on show (PressPreviewToolbar), so a column no longer carries one.
             var hasImage = otaIndex < state.LastCapturedImages.Length
                 && state.LastCapturedImages[otaIndex] is not null;
             if (hasImage)
             {
-                var solving = otaIndex < state.PreviewPlateSolving.Length
-                    && state.PreviewPlateSolving[otaIndex];
-                var solveLabel = solving ? "Solving\u2026" : "Solve";
-                var solveBg = solving
-                    ? GuiTheme.NeutralButtonBg
-                    : GuiTheme.PrimaryButtonBg;
-                var solveText = solving ? DimText : BrightText;
-                var solveBtn = Layout.Builder.Text(solveLabel, BaseFontSize * 0.85f, solveText, TextAlign.Center, TextAlign.Center)
-                    .WStar().HStar().Bg(solveBg)
-                    .Clickable(new HitResult.ButtonHit($"PreviewSolve{otaIndex}"), solving ? null : _ => PostSignal(new PlateSolvePreviewSignal(otaIndex)));
-                if (!solving) solveBtn = solveBtn.BgHover(GuiTheme.Hover(solveBg));
                 rows.Add(Layout.Builder.HStack(
                         Layout.Builder.Text("Save", BaseFontSize * 0.85f, BrightText, TextAlign.Center, TextAlign.Center)
                             .WStar().HStar().Bg(GuiTheme.GoButtonBg).BgHover(GuiTheme.Hover(GuiTheme.GoButtonBg))
-                            .Clickable(new HitResult.ButtonHit($"PreviewSave{otaIndex}"), _ => PostSignal(new SaveSnapshotSignal(otaIndex))),
-                        solveBtn)
-                    .WithGap(4f).RowH(BaseRowHeight * 0.9f));
+                            .Clickable(new HitResult.ButtonHit($"PreviewSave{otaIndex}"), _ => PostSignal(new SaveSnapshotSignal(otaIndex))))
+                    .RowH(BaseRowHeight * 0.9f));
             }
 
             return Layout.Builder.VStack([.. rows]).WStar();

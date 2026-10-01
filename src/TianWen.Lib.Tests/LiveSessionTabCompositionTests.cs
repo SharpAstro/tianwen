@@ -83,6 +83,28 @@ public class LiveSessionTabCompositionTests
         frames.ShouldBeGreaterThan(0, "the move changed what the button shows, so it asks for the frame itself");
     }
 
+    /// <summary>The planetary view as the GUI's is: the viewer itself, drawing the capture's own state.</summary>
+    private sealed class PlanetaryViewer(RgbaImageRenderer renderer)
+        : ViewerE2E.Surface(renderer, new SignalBus()), IPlanetaryViewWidget<RgbaImage>
+    {
+        public PixelWidgetBase<RgbaImage> Widget => this;
+
+        public void RenderPlanetary(PlanetaryCaptureController? controller, PreviewOTATelemetry focuser, RectF32 contentRect)
+        {
+            if (controller is null)
+            {
+                return;
+            }
+            SetContentRegion(contentRect);
+            Render(controller.Source, controller.ViewerState);
+        }
+    }
+
+    /// <summary>
+    /// In Planetary mode the keys go to the planetary view, the viewer on screen, and never the hidden preview: F and R
+    /// used to zoom a viewer nobody could see (found in the ZWO live check, 2026-09-28). They are the viewer's own keys
+    /// now, so the view answers them itself.
+    /// </summary>
     [Fact]
     public void FAndRZoomThePlanetaryViewOnScreenNotTheHiddenPreview()
     {
@@ -90,8 +112,14 @@ public class LiveSessionTabCompositionTests
         var planetary = new ViewerState();
         var controller = new PlanetaryCaptureController(planetary, new SystemTimeProvider(),
             Microsoft.Extensions.Logging.Abstractions.NullLogger<PlanetaryCaptureController>.Instance);
-        var (tab, _) = PlanetaryTab(renderer);
-        tab.PlanetaryCapture = controller;
+        var tab = new LiveSessionTab<RgbaImage>(renderer)
+        {
+            DpiScale = 1f,
+            FontPath = FontResolver.ResolveSystemFont(),
+            PlanetaryView = new PlanetaryViewer(renderer) { FontPath = FontResolver.ResolveSystemFont() },
+            PlanetaryCapture = controller,
+        };
+        tab.Render(new LiveSessionState { Mode = LiveSessionMode.Planetary }, new RectF32(0f, 0f, SurfaceW, SurfaceH), new SystemTimeProvider());
         planetary.ZoomToFit = false;
         planetary.Zoom = 3f;
 

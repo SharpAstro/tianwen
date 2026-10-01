@@ -415,8 +415,11 @@ hand-place chrome at `(0,0,Width,...)`. One slider (`DrawTrackSlider` / `TrackFr
 `PixelWidgetBase`) serves WB, wavelet and SER scrub; never re-triplicate it. Details:
 [docs/architecture/widgets-and-controls.md](docs/architecture/widgets-and-controls.md).
 
-**One viewer, no mini viewer.** Live Session preview, polar-align and guide-cam host this viewer
-chromeless (`ViewerState.HideChrome`), fed by `LiveFramePreviewSource : IPreviewSource` (normalises to
+**One viewer, no mini viewer.** The Live Session pane (preview, polar alignment, a session's frames) hosts this
+viewer WITH its own toolbar and status line, offering `ToolbarOffer.LivePreview`; the tab is its host (it runs the
+solve through the node, `ToolbarPressPolicy` and `HostCanRun`), lists it as a routed child, and hands it the pointer
+and every key but the window's (P1 of `docs/plans/live-session-preview.md`). The guide cam still hosts it chromeless
+(`ViewerState.HideChrome`). Both are fed by `LiveFramePreviewSource : IPreviewSource` (normalises to
 `[0,1]` by `Image.UnitScaleDivisor`, the divisor a document of the same frame uses, never the observed peak,
 subsampled median/MAD stats taken over those normalised planes, `AcceptFrame(image, freezeStats)` for
 `ViewerState.FreezeStretchStats`, delegates to the shared `AstroImageDocument.ComputeStretchUniforms`;

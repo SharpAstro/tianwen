@@ -239,8 +239,9 @@ internal sealed class ViewerE2E : IDisposable
         }
     }
 
-    /// <summary>The viewer on a CPU surface. Only the GPU-facing members are stubbed.</summary>
-    internal sealed class Surface : ImageRendererBase<RgbaImage>
+    /// <summary>The viewer on a CPU surface. Only the GPU-facing members are stubbed. Not sealed, so a test can host it
+    /// where a GUI hosts its viewer (the planetary view, which is one).</summary>
+    internal class Surface : ImageRendererBase<RgbaImage>
     {
         public Surface(RgbaImageRenderer renderer, SignalBus bus) : base(renderer)
         {
@@ -278,5 +279,8 @@ internal sealed class ViewerE2E : IDisposable
 
         /// <summary>The picture's pane, where the pan and the context menu answer.</summary>
         internal RectF32 ImageArea => ImageAreaRect;
+
+        /// <summary>The state the last render was given, for a host that keeps its own (the Live Session tab).</summary>
+        internal ViewerState? State => CurrentViewerState;
     }
 }

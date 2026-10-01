@@ -283,6 +283,33 @@ namespace TianWen.UI.Abstractions
             };
         }
 
+        /// <summary>
+        /// The toolbar action a key stands for: what its button does, so the key acts only where the host offers the
+        /// button. Null for a key that is the picture's own (zoom, the histogram, the info panel, a step through a
+        /// sequence) or the window's (quit, full screen), which no offer governs.
+        /// </summary>
+        internal static ToolbarAction? ActionOfKey(InputKey key, bool ctrl, bool shift) => key switch
+        {
+            InputKey.O => ctrl ? ToolbarAction.Open : ToolbarAction.Overlays,
+            InputKey.S => ctrl ? ToolbarAction.Save : ToolbarAction.Stars,
+            InputKey.C when !ctrl => shift ? ToolbarAction.AutoCrop : ToolbarAction.Channel,
+            InputKey.T when !ctrl => ToolbarAction.StretchToggle,
+            InputKey.D when !ctrl => ToolbarAction.Debayer,
+            InputKey.L when !ctrl => ToolbarAction.FileList,
+            InputKey.F1 => ToolbarAction.Shortcuts,
+            InputKey.Plus or InputKey.Minus when !ctrl => ToolbarAction.StretchParams,
+            InputKey.B when !ctrl => ToolbarAction.Tone,
+            InputKey.A when !ctrl => ToolbarAction.Compare,
+            InputKey.G when !ctrl => ToolbarAction.Overlays,
+            InputKey.Y when !ctrl => ToolbarAction.SkyBackdrop,
+            InputKey.P when !ctrl => ToolbarAction.PlateSolve,
+            InputKey.E when !ctrl => ToolbarAction.Enhance,
+            InputKey.N when !ctrl => ToolbarAction.BackgroundNeutralize,
+            InputKey.W when !ctrl => ToolbarAction.WhiteBalance,
+            InputKey.Z when !ctrl => ToolbarAction.Zoom,
+            _ => null,
+        };
+
         private bool HandleViewerKey(InputKey key, InputModifier modifiers, bool repeat)
         {
             if (_state is not { } state)
@@ -328,6 +355,15 @@ namespace TianWen.UI.Abstractions
                 return true;
             }
 
+            // A key does what its button does, and only where the host offers that button (ToolbarOffer): a key
+            // for a button the bar does not show is not this viewer's to answer, and is left to the host. The
+            // planetary view offers no solve, so P posted one nothing ran; the preview offers no file list, so L
+            // stays the window's.
+            if (ActionOfKey(key, ctrl, shift) is { } keyAction && !Offer.Offers(keyAction))
+            {
+                return false;
+            }
+
             if (ctrl)
             {
                 switch (key)
@@ -347,18 +383,13 @@ namespace TianWen.UI.Abstractions
                     case >= InputKey.D2 and <= InputKey.D9:
                         ViewerActions.ZoomTo(state, 1f / (key - InputKey.D0));
                         return true;
-                    // The two file-dialog keys every desktop app has. Both post, as P and E do: the
-                    // dialog needs the controller. Ctrl+S writes what the Save button's right-click
-                    // writes -- the clean 16-bit raster -- because that is the one thing a keyboard
-                    // user means by it; Ctrl+Shift+S opens the button's own menu (overlays on or off,
-                    // the PNG depth), the keyboard's route to the choice the button offers on a click.
-                    // Swallowed where the host offers no Open: a plain O is the annotation, and a Ctrl+O
-                    // falling through to it would toggle the overlays.
+                    // The two file-dialog keys every desktop app has. Ctrl+O presses the Open button, as P
+                    // and E press theirs: the dialog is the host's. Ctrl+S writes what the Save button's
+                    // right-click writes -- the clean 16-bit raster -- because that is the one thing a
+                    // keyboard user means by it; Ctrl+Shift+S opens the button's own menu (overlays on or
+                    // off, the PNG depth), the keyboard's route to the choice the button offers on a click.
                     case InputKey.O:
-                        if (Offer.Offers(ToolbarAction.Open))
-                        {
-                            PostSignal(new OpenFileSignal());
-                        }
+                        PressToolbarButton(state, ToolbarAction.Open, MouseButton.Left);
                         return true;
                     // Hold / release the display mapping across frames (see ViewerState.CarryDisplayAcrossFrames).
                     // Ctrl, beside Ctrl+Space which goes back to the held frame; plain H is the histogram.
@@ -367,10 +398,6 @@ namespace TianWen.UI.Abstractions
                         state.NeedsRedraw = true;
                         return true;
                     case InputKey.S:
-                        if (!Offer.Offers(ToolbarAction.Save))
-                        {
-                            return true;
-                        }
                         if (shift)
                         {
                             return OpenToolbarDropdown(state, ToolbarAction.Save);
@@ -427,10 +454,7 @@ namespace TianWen.UI.Abstractions
                     // is tens of milliseconds and belongs off this thread.
                     if (shift)
                     {
-                        if (Offer.Offers(ToolbarAction.AutoCrop))
-                        {
-                            PostSignal(new AutoCropSignal());
-                        }
+                        PressToolbarButton(state, ToolbarAction.AutoCrop, MouseButton.Left);
                     }
                     else if (_source is { } channelSource)
                     {
@@ -540,21 +564,15 @@ namespace TianWen.UI.Abstractions
                         state.ShowHistogram = !state.ShowHistogram;
                     }
                     return true;
-                // A key for an action only the host can run acts only where the host offers it, as its
-                // button shows only there (ToolbarOffer): where it is not offered, nothing would run what
-                // the key posted.
+                // A key for an action only the host can run PRESSES its button, so the host that runs the
+                // button runs the key: tianwen-fits' controller, the Live Session preview's node. The offer
+                // gate above has already left a key whose button is not on the bar to the host.
                 case InputKey.P:
-                    if (Offer.Offers(ToolbarAction.PlateSolve))
-                    {
-                        PostSignal(new PlateSolveSignal());
-                    }
+                    PressToolbarButton(state, ToolbarAction.PlateSolve, MouseButton.Left);
                     return true;
                 case InputKey.E:
-                    // AI enhance, only where the host offers it (a SharpenPipeline is wired).
-                    if (Offer.Offers(ToolbarAction.Enhance))
-                    {
-                        PostSignal(new EnhanceImageSignal());
-                    }
+                    // AI enhance, where the host offers it (a SharpenPipeline is wired).
+                    PressToolbarButton(state, ToolbarAction.Enhance, MouseButton.Left);
                     return true;
                 case InputKey.F:
                     ViewerActions.ZoomToFit(state);
@@ -963,17 +981,20 @@ namespace TianWen.UI.Abstractions
         /// by the router with nothing run. One hook, set by the host, is what makes both fixable.
         /// </para>
         /// <para>
-        /// Null keeps the embedded behaviour, so a host that says nothing gets exactly what it had.
+        /// Null keeps the embedded behaviour, so a host that says nothing gets exactly what it had. It answers
+        /// whether it ran the press, and false leaves the press to that same embedded behaviour, so a host that
+        /// runs only its own actions says nothing about the rest: the Live Session preview runs the solve,
+        /// through the node, and leaves every other button the viewer's.
         /// </para>
         /// </remarks>
-        public Action<ViewerState, ToolbarAction, MouseButton>? ToolbarPressPolicy { get; set; }
+        public Func<ViewerState, ToolbarAction, MouseButton, bool>? ToolbarPressPolicy { get; set; }
 
-        /// <summary>Runs <see cref="ToolbarPressPolicy"/>, or the embedded default when none is set.</summary>
+        /// <summary>Runs <see cref="ToolbarPressPolicy"/>, and the embedded default where there is none or it left
+        /// the press to the viewer.</summary>
         public void PressToolbarButton(ViewerState state, ToolbarAction action, MouseButton button)
         {
-            if (ToolbarPressPolicy is { } policy)
+            if (ToolbarPressPolicy is { } policy && policy(state, action, button))
             {
-                policy(state, action, button);
                 return;
             }
 

@@ -28,12 +28,12 @@ namespace TianWen.UI.Abstractions
     {
         /// <summary>
         /// The widgets this tab painted this frame, rebuilt as it paints: the planetary view in
-        /// <see cref="LiveSessionMode.Planetary"/>, else none. The view registers its controls on itself, so a router
-        /// asking only this tab missed every one of them: Start did nothing and a button lit only when some other
-        /// change drew a frame (found in the ZWO live check, 2026-09-28). The tab's own regions are asked first, which
-        /// is right because everything it paints over the view (the mode menu, a prompt, the quit's question) is its
-        /// own. The chromeless <see cref="PreviewView"/> is not listed: it registers no control, and the tab draws its
-        /// toolbar and takes its gestures itself.
+        /// <see cref="LiveSessionMode.Planetary"/>, else the <see cref="PreviewView"/>. A view registers its controls on
+        /// itself, so a router asking only this tab missed every one of them: Start did nothing and a button lit only
+        /// when some other change drew a frame (found in the ZWO live check, 2026-09-28). The tab's own regions are
+        /// asked first, which is right because everything it paints over the view (the mode menu, a prompt, the
+        /// quit's question) is its own. The preview was not listed while it was chromeless and the tab drew a toolbar
+        /// for it; it draws its own now (P1 of docs/plans/live-session-preview.md).
         /// </summary>
         private readonly List<PixelWidgetBase<TSurface>> _children = [];
 
@@ -54,21 +54,38 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public string? RemoteRigName { get; set; }
 
+        private ImageRendererBase<TSurface>? _previewView;
+
         /// <summary>
         /// The shared full image viewer (same widget as the FITS viewer / planetary tab) used to show the
-        /// last captured frame in Preview / PolarAlign modes. Set by the host. Configured chromeless
-        /// (<see cref="ViewerState.HideChrome"/>) with a lightweight <see cref="LiveFramePreviewSource"/> feed,
-        /// so it is a strict superset of the old mini viewer (stretch / WB / grid / zoom-pan / WCS overlays).
+        /// last captured frame in every mode but Planetary. Set by the host. It shows its OWN toolbar and status
+        /// line (P1 of docs/plans/live-session-preview.md; until then it was chromeless and this tab drew a smaller
+        /// toolbar of its own), with what a preview can use (<see cref="ToolbarOffer.LivePreview"/>), fed by a
+        /// lightweight <see cref="LiveFramePreviewSource"/>. This tab is its host: it runs the solve, through the
+        /// node, and says when the solve can run; every other press and key is the viewer's own.
         /// </summary>
-        public ImageRendererBase<TSurface>? PreviewView { get; set; }
+        public ImageRendererBase<TSurface>? PreviewView
+        {
+            get => _previewView;
+            set
+            {
+                _previewView = value;
+                if (value is not null)
+                {
+                    value.Offer = ToolbarOffer.LivePreview;
+                    value.ToolbarPressPolicy = PressPreviewToolbar;
+                    value.HostCanRun = PreviewCanRun;
+                }
+            }
+        }
 
         /// <summary>Lightweight live-frame source feeding <see cref="PreviewView"/> (subsampled stats, no per-frame document).</summary>
         private readonly LiveFramePreviewSource _previewSource = new();
 
-        /// <summary>Per-instance viewer state for the embedded preview: chromeless, image-only (no info panel / file list / histogram).</summary>
+        /// <summary>Per-instance viewer state for the embedded preview: the viewer's toolbar and status line, no info
+        /// panel or file list, and the histogram off until H.</summary>
         private readonly ViewerState _previewState = new()
         {
-            HideChrome = true,
             ShowInfoPanel = false,
             ShowFileList = false,
             ShowHistogram = false,
@@ -83,16 +100,11 @@ namespace TianWen.UI.Abstractions
         /// <summary>Tracks which image reference is currently displayed to avoid redundant uploads.</summary>
         private Image? _displayedImage;
 
-        /// <summary>
-        /// Preview pan + cursor-anchored zoom (DIR.Lib): the controller owns the gesture and the zoom
-        /// math (this used to be a byte-for-byte copy of the viewer's formula); the display transform
-        /// stays on <see cref="_previewState"/>, seeded per gesture and written back. Clamps match the
-        /// historical preview behaviour ([0.1, 16]).
-        /// </summary>
-        private readonly PanZoomController _previewPanZoom = new PanZoomController { MinZoom = 0.1f, MaxZoom = 16f };
-
-        /// <summary>Cached mini viewer image rect for center-point zoom.</summary>
+        /// <summary>The preview viewer's rect this frame: a press or the wheel inside it is the viewer's.</summary>
         private RectF32 _viewerImageRect;
+
+        /// <summary>Which OTA's frame the preview shows, and so which OTA its Solve button solves.</summary>
+        private int? _displayedOta;
 
         // Layout constants (at 1x scale)
         private static readonly float BaseFontSize = GuiTheme.Metrics.BaseFontSize;
@@ -305,9 +317,11 @@ namespace TianWen.UI.Abstractions
                 var images = state.LastCapturedImages;
                 var selectedIdx = pst.SelectedCameraIndex;
                 Image? latestImage = null;
+                int? latestOta = null;
                 if (selectedIdx >= 0 && selectedIdx < images.Length)
                 {
                     latestImage = images[selectedIdx];
+                    latestOta = selectedIdx;
                 }
                 else
                 {
@@ -317,6 +331,7 @@ namespace TianWen.UI.Abstractions
                         if (images[i] is { } img)
                         {
                             latestImage = img;
+                            latestOta = i;
                             break;
                         }
                     }
@@ -330,6 +345,7 @@ namespace TianWen.UI.Abstractions
                     && _previewSource.AcceptFrame(latestImage, pst.FreezeStretchStats))
                 {
                     _displayedImage = latestImage;
+                    _displayedOta = latestOta;
                     pst.NeedsTextureUpdate = true;
                     // A fresh frame invalidates any prior solve until the user requests a new plate solve:
                     // AcceptFrame dropped the previous frame's findings. Without that, the grid would be
@@ -349,10 +365,13 @@ namespace TianWen.UI.Abstractions
                     _previewSource.Findings = _previewSource.Findings with { Wcs = solveWcs };
                 }
 
-                // Image area (below where the preview toolbar goes). The viewer projects over the full surface
-                // and arranges its (chromeless) layout within this content rect.
-                var toolbarH = BaseRowHeight * dpiScale;
-                var imageRect = new RectF32(viewerX, mainY + toolbarH, viewerW, mainH - toolbarH);
+                // The Solve button reads as solving while the node solves the frame on show.
+                pst.IsPlateSolving = _displayedOta is { } shownOta && IsPreviewSolving(state, shownOta);
+
+                // The viewer arranges its own toolbar, picture and status line within this rect, and projects over
+                // the full surface. With more than one OTA, the picker row above it says whose frame it is.
+                var pickerH = state.OtaCount > 1 ? BaseRowHeight * dpiScale : 0f;
+                var imageRect = new RectF32(viewerX, mainY + pickerH, viewerW, mainH - pickerH);
                 _viewerImageRect = imageRect;
 
                 viewer.SetSurfaceSize((uint)Renderer.Width, (uint)Renderer.Height);
@@ -360,6 +379,8 @@ namespace TianWen.UI.Abstractions
                 // The texture upload NeedsTextureUpdate asks for happens inside Render's PrepareFrame,
                 // before anything in the frame samples the channel views; see the remarks there.
                 viewer.Render(_previewSource, pst);
+                // Its toolbar registers on the viewer itself, so the router has to be told it is here.
+                _children.Add(viewer);
             }
             else if (viewerW > 0)
             {
@@ -389,12 +410,10 @@ namespace TianWen.UI.Abstractions
                 RenderExposureLog(state, rightRect, fs, pad, rowH);
             }
 
-            // Preview toolbar (on top of the image, after panels)
-            if (viewerW > 100 && PreviewView is not null)
+            // The OTA picker over the preview, with more than one OTA (after panels). The viewer's toolbar is its own.
+            if (viewerW > 100 && PreviewView is not null && state.OtaCount > 1)
             {
-                var toolbarH = BaseRowHeight * dpiScale;
-                var toolbarRect = new RectF32(viewerX, mainY, viewerW, toolbarH);
-                RenderMiniViewerToolbar(_previewState, toolbarRect, fs);
+                RenderOtaPicker(_previewState, new RectF32(viewerX, mainY, viewerW, BaseRowHeight * dpiScale), fs);
             }
 
             // Abort confirmation overlay
