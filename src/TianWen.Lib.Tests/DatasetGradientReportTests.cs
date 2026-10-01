@@ -9,6 +9,8 @@ using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.BackgroundExtraction;
 using TianWen.Lib.Imaging.Dataset;
+using TianWen.Lib.Imaging.Stacking;
+using TianWen.Lib.IO;
 using Xunit;
 
 namespace TianWen.Lib.Tests
@@ -270,6 +272,31 @@ namespace TianWen.Lib.Tests
             md.ShouldContain("| m1 |");
             md.ShouldContain("| m2 |");
             md.ShouldContain("Shape census (planes): Ramp 6.");
+        }
+
+        [Fact(Timeout = 60_000)]
+        public async Task ARunMeasuresTheMasterAndNotTheSidecarsBesideIt()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            Directory.CreateDirectory(_dir);
+            var masterPath = Path.Combine(_dir, "m.fits");
+            var master = SyntheticMaster(128, 96, 4, 0.01f, 0.003f, 2e-4f, seed: 5);
+            master.WriteToFitsFile(masterPath);
+            var coverage = new Image([new float[96, 128]], BitDepth.Float32, 1f, 0f, 0f, master.ImageMeta);
+            master.Release();
+            IntegrationFitsWriter.WriteCoverageMap(masterPath, coverage, frameCount: 20);
+            coverage.Release();
+
+            var listed = FileEnumeration.EnumerateFiles(_dir, [".fits", ".fits.gz"], recursive: false).ToImmutableArray();
+            listed.Length.ShouldBe(2);
+
+            var result = await DatasetGradientReport.RunAsync(
+                new DatasetGradientReport.RunOptions(listed, _dir, Sweep: false, Solve: false), solver: null, cancellationToken: ct);
+
+            result.Measured.ShouldBe(1);
+            result.Failed.ShouldBe(0);
+            var store = await DatasetGradientStore.ReadAsync(result.StorePath, cancellationToken: ct);
+            store.Keys.ShouldBe(["m.fits"]);
         }
 
         /// <summary>
