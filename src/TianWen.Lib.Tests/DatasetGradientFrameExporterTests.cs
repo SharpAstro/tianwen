@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.BackgroundExtraction;
+using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Dataset;
 using TianWen.Lib.Imaging.Stacking;
 using Xunit;
@@ -58,7 +59,7 @@ public sealed class DatasetGradientFrameExporterTests(ITestOutputHelper output) 
         var ct = TestContext.Current.CancellationToken;
         var (masterPath, _) = WriteMaster("m", stepSigma);
 
-        var row = await DatasetGradientFrameExporter.ExportMasterAsync(masterPath, "S|Cam|M", "train", covariates: null, _dir, Size, ct);
+        var row = await DatasetGradientFrameExporter.ExportMasterAsync(masterPath, "S|Cam|M", "train", covariates: null, psf: null, _dir, Size, ct);
         output.WriteLine($"offset {string.Join("/", row.ThinBandOffsetSigma)} over {row.ThinBandSamples} samples, step {string.Join("/", row.ThinBandStepSigma)} over {row.ThinBandPairs} pairs, thin {row.ThinBandFraction:P1}, absent {row.AbsentFraction:P2}");
 
         row.HasCoverage.ShouldBeTrue();
@@ -81,7 +82,7 @@ public sealed class DatasetGradientFrameExporterTests(ITestOutputHelper output) 
         var ct = TestContext.Current.CancellationToken;
         var (masterPath, wcs) = WriteMaster("m", 0f);
 
-        var row = await DatasetGradientFrameExporter.ExportMasterAsync(masterPath, "S|Cam|M", "test", covariates: null, _dir, Size, ct);
+        var row = await DatasetGradientFrameExporter.ExportMasterAsync(masterPath, "S|Cam|M", "test", covariates: null, psf: null, _dir, Size, ct);
 
         row.Channels.ShouldBe(3);
         (row.FrameWidth, row.FrameHeight, row.OffsetX, row.OffsetY).ShouldBe((64, 48, 0, 8));
@@ -135,25 +136,55 @@ public sealed class DatasetGradientFrameExporterTests(ITestOutputHelper output) 
         var pinned = Path.Combine(_dir, DatasetSplitWriter.TestSessionsFileName);
         await File.WriteAllTextAsync(pinned, "# held out\nCam/Filter/Field/2026-01-01|Cam|Field\t# FORCED\n", ct);
 
+        // The PSF store: the night flat-fielded, the other night recorded with a dark and no flat, the
+        // flip side with no record at all (the store keys a flip side by its own id).
+        var psfPath = Path.Combine(_dir, DatasetPsfStore.FileName);
+        await DatasetPsfStore.AppendAsync(psfPath, PsfRecord("Cam/Filter/Field/2026-01-01|Cam|Field", "Cam @ 100mm", new CalibrationProvenance(Dark: "dark-a", Flat: "flat-a")), ct);
+        await DatasetPsfStore.AppendAsync(psfPath, PsfRecord("Cam/Filter/Other/2026-01-02|Cam|Other", "Cam @ 200mm", new CalibrationProvenance(Dark: "dark-b")), ct);
+
         var outDir = Path.Combine(_dir, "export");
         var files = ImmutableArray.Create(night, side, other, orphan, IntegrationFitsWriter.CoveragePathFor(night));
-        var options = new DatasetGradientFrameExporter.ExportOptions(files, ledgerPath, pinned, GradientStorePath: null, outDir, Size);
+        var options = new DatasetGradientFrameExporter.ExportOptions(files, ledgerPath, pinned, GradientStorePath: null, psfPath, outDir, Size);
         var result = await DatasetGradientFrameExporter.RunAsync(options, cancellationToken: ct);
 
         result.Exported.ShouldBe(4);
         result.Failed.ShouldBe(0);
         result.Test.ShouldBe(2);
         result.UnknownSplit.ShouldBe(1);
-        var rows = File.ReadAllLines(result.ManifestPath).Where(l => l.Length > 0).ToArray();
-        rows.Length.ShouldBe(4);
-        rows.Single(r => r.Contains("\"Master\":\"Cam_Filter_Field_2026-01-01_Cam_Field_flip=a.fits\"")).ShouldContain("\"Split\":\"test\"");
-        rows.Single(r => r.Contains("\"Master\":\"Cam_Filter_Other_2026-01-02_Cam_Other.fits\"")).ShouldContain("\"Split\":\"train\"");
-        rows.Single(r => r.Contains("\"Master\":\"Nobody_Knows.fits\"")).ShouldContain($"\"Split\":\"{DatasetGradientFrameExporter.UnknownSplit}\"");
+        result.NoFlat.ShouldBe(1);
+        result.FlatUnknown.ShouldBe(2);
+        var rows = File.ReadAllLines(result.ManifestPath).Where(l => l.Length > 0)
+            .Select(l => System.Text.Json.JsonSerializer.Deserialize(l, DatasetGradientFrameJsonContext.Default.FrameRow).ShouldNotBeNull())
+            .ToDictionary(r => r.Master);
+        rows.Count.ShouldBe(4);
+        rows["Cam_Filter_Field_2026-01-01_Cam_Field_flip=a.fits"].Split.ShouldBe("test");
+        rows["Cam_Filter_Other_2026-01-02_Cam_Other.fits"].Split.ShouldBe("train");
+        rows["Nobody_Knows.fits"].Split.ShouldBe(DatasetGradientFrameExporter.UnknownSplit);
+
+        var flatFielded = rows["Cam_Filter_Field_2026-01-01_Cam_Field.fits"];
+        flatFielded.HasFlat.ShouldBe(true);
+        flatFielded.OpticalTrain.ShouldBe("Cam @ 100mm");
+        flatFielded.Calibration.ShouldBe(new CalibrationProvenance(Dark: "dark-a", Flat: "flat-a"));
+        var noFlat = rows["Cam_Filter_Other_2026-01-02_Cam_Other.fits"];
+        noFlat.HasFlat.ShouldBe(false);
+        noFlat.OpticalTrain.ShouldBe("Cam @ 200mm");
+        // Unrecorded is not "no flat": a flip side with no record and a master with no session both say nothing.
+        rows["Cam_Filter_Field_2026-01-01_Cam_Field_flip=a.fits"].HasFlat.ShouldBeNull();
+        rows["Nobody_Knows.fits"].HasFlat.ShouldBeNull();
+        rows["Nobody_Knows.fits"].OpticalTrain.ShouldBe("");
 
         var again = await DatasetGradientFrameExporter.RunAsync(options, cancellationToken: ct);
         again.Exported.ShouldBe(0);
         again.Skipped.ShouldBe(4);
     }
+
+    private static DatasetPsfNoiseReport.SessionPsf PsfRecord(string sessionId, string train, CalibrationProvenance calibration) =>
+        new DatasetPsfNoiseReport.SessionPsf(
+            SessionId: sessionId, OpticalTrain: train, SubFwhm: [3f], SubHfd: [3f],
+            SubEllipticity: [0.1f], MasterNoiseRelative: 0.004, BinsByChannel: null)
+        {
+            Calibration = calibration,
+        };
 
     /// <summary>
     /// A three-channel master: sky plus a ramp, Gaussian noise, an exact-zero ring, and a coverage sidecar
