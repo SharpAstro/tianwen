@@ -1071,7 +1071,7 @@ The Wiener filter is set to the band 3 transfer the oracle's RL reaches (noise-t
     - (b)'s band 1 error is the lowest of the three (0.420 against the oracle's 0.472). RL with the true kernel, at the count that is best summed over the bands, raises band 1's noise the most, so the oracle is a ceiling on the gain, not on each band's error.
   - **Wiener with (b')**, at the oracle's band 3, takes band 1 to 1.35 on the calibrated twin: a flat noise-to-signal lifts the finest band's noise past the truth (error 0.762), and its undershoot is the same as RL's with (b').
   - **2022-09-03's Red**, RL with its (b') at 8 steps: core 1.58 px, 78.5 % in a 1.18 px wing. It lifts bands 1 to 4 by 1.58, 1.51, 1.24 and 1.09 over the stack, and the limb's undershoot from 0 to 0.0048, less than on either twin.
-  - **No Galilean moon is in this capture's 800 x 600 field**: nothing past 1.6 radii stands more than 3 ADU over the sky in a mean of 200 frames, where the disk peaks at 75. The plan's third probe has no capture here (#1120).
+  - **No Galilean moon is in this capture's 800 x 600 field**: nothing past 1.6 radii stands more than 3 ADU over the sky in a mean of 200 frames, where the disk peaks at 75. The plan's third probe has no capture here (#1120). **Wrong** (R8 follow-up 4): Europa, Ganymede and Io are all in it, 1.95, 3.52 and 5.10 radii out.
 - **What it found:**
   - **The finest band is the kernel's MODEL, not the data's.**
     - At 0.3 cycles a pixel the true kernel over diffraction passes 0.28 on the calibrated twin. (b') passes 0.05 there, and (b) 0.19.
@@ -1570,11 +1570,30 @@ Band error summed over bands 1 to 4 inside 0.9 radii, the limb's undershoot, and
 
 #### R8 follow-up 4: heavier probes, only if follow-up 3 falls short
 
-#### R8 follow-up 4: heavier probes, only if follow-up 3 falls short
-
 **Issue:** #1140.
 
 - **Planned:** marginal multi-frame blind deconvolution with torchmfbd (MIT; PyTorch's support for the GTX 1070 first); a Galilean moon's shadow on the disk as a near-point probe (#1120 finds the captures); a short defocused burst after a capture, driven through the focuser, simulated on the twin first.
+- **Pre-registered 2026-10-02, part 1, before the probe was built or anything was measured with it** (`tianwen planetary-finest-band --moons`): a Galilean moon BESIDE the disk, read as a near-point source. A shadow waits for a capture that has one; the blind deconvolution and the defocus burst are later parts.
+  - **The moons are in 2022-09-03's field after all.**
+    - Meeus' low-accuracy theory (Astronomical Algorithms, chapter 44; `GalileanMoons`, within 0.006 radii of his example 44.a) puts Europa 1.95 radii out at 12:11 UT, Ganymede 3.52 and Io 5.10. At 0.497"/px they are 2.15, 3.63 and 2.51 px across.
+    - All four stacks show a compact source at each, 1.94, 3.49 and 5.10 radii out by the limb fit's 49 px radius.
+    - So R7 part 4's "nothing past 1.6 radii stands more than 3 ADU over the sky" was wrong, and #1120's premise with it.
+    - Their places also fix the image's north (about 154 degrees, not mirrored), where the limb fit gives only the axis.
+  - **Europa is the probe.** A uniform disk's transfer first reaches zero at 1.22 over its diameter: 0.57 cycles a pixel for Europa, past Nyquist, against 0.49 for Io and 0.34 for Ganymede. Io is read to 0.4 and Ganymede to 0.25, as checks.
+  - **The read** (`PlanetaryMoonProbe`):
+    - the stack, registered and normalised as the window is; a 33 px square about the moon, less a plane fitted to its rim between 13 and 16 px, under a round taper flat to 12 px;
+    - the model: a uniform disk of the ephemeris' diameter, through the pupil's diffraction, smeared along the moon's track over the frames' span, of unit flux; its place is the cross-correlation's climbed peak (`PhaseCorrelation.ClimbPeak`);
+    - the transfer in each ring: the cross-spectrum's real part over the model's power, over the read's own flux (its zero frequency). It is the kernel within 16 px, as the edge's is;
+    - its noise: half the difference between the same read on the two half-stacks.
+  - **The twins**:
+    - step 3's three (calibrated, without its still layer, warped), made again with Europa (`planetary-degrade --moons 2.5`: every moon within 2.5 radii, at its ephemeris place as the frames go, in the frames and in the truth);
+    - its surface brightness is set once, from the real stack's Europa flux, before any twin's transfer is read.
+  - **The target**: the oracle, at 0.1, 0.2, 0.3, 0.4 and 0.45 cycles a pixel.
+  - **Pass**: on each twin, Europa reads the oracle within 0.03 from 0.1 to 0.45 cycles a pixel, or within twice its halves' noise where that is larger. That is the band step 3 left: the edge is noise past 0.3.
+  - **The real capture** (Red, the first 3,000 frames, as before):
+    - Europa, Ganymede and Io agree within twice their noise where each reads (to 0.25), or the kernel is not the same 47" and 125" from the centre. The differential tilt a registration on the disk leaves grows with distance, and Europa, the nearest, would then be only a bound on the disk's kernel.
+    - Europa past 0.3 is the measurement this part is for: read, not judged. Beside it, how far a limb darkening of mu^0.2 would move it.
+  - Part 2, pre-registered when it starts: R8's gains through a kernel taken from the edge to 0.3 and from Europa past it.
 
 ## R9 A learned stage, only if the measurements say so
 
