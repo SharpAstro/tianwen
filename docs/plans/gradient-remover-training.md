@@ -241,9 +241,14 @@ A master's edge is three different things, and a crop treats them as one:
   sessions with a flat, the other 117 resolve it or were never baked by rule (`BAD_` capture rejects). So the
   store has no hard-dark area to learn from, while a user's frame can (a full-frame sensor
   on a small refractor). The injection family therefore needs a multiplicative falloff beside the additive
-  gradients, up to near-dark corners, its training label the background a remover CAN subtract (the
-  sky's dimming), never the signal's; and the thin-band estimators below cannot tell a coverage step from
-  a dark edge that coincides with the band, so they are read only where the flat says the edge is lit.
+  gradients, up to near-dark corners. Subtracting a falloff can only level its sky; DIVIDING by it is a
+  virtual flat that restores the signal too, which is GraXpert's division mode (the owner's point,
+  2026-10-01) and the classical extractor's `BackgroundCorrection.Divide`. So the model predicts one
+  surface and the runner applies it either way, subtract for sky glow, divide for vignetting; a falloff's
+  label is exact only on a flat-fielded scene with the falloff multiplied in, which is also why the
+  sessions integrated without a flat stay out of training (their true flat is unknown) and are at most a
+  qualitative test. And the thin-band estimators below cannot tell a coverage step from a dark edge that
+  coincides with the band, so they are read only where the flat says the edge is lit.
 
 Cropping to the all-frames rectangle discards the third to avoid the first, and a model trained only on crops
 is off-distribution on every input that was not cropped, which is GraXpert's failure: its path downsamples the
@@ -374,6 +379,10 @@ is. With this and P4 the in-house tier can run the whole canonical program.
   the exporter writes each master at its own channel count (one or three) with a presence plane per sample;
   whether the model shares one per-plane net across channels or reads colour jointly (light pollution is
   coloured, and the channels' gradients correlate) is G4's choice, and nothing in the export forecloses it.
+- **One surface or two?** A frame without a flat carries both at once: sky glow ADDED, vignetting
+  MULTIPLIED (`observed = (scene + glow) x falloff`). One surface applied by subtraction or by division
+  (GraXpert's choice) gets one of them right; a model with an additive and a multiplicative output could
+  separate them. Decide after G4 shows how far one surface gets on a mixed injection.
 - **How the flattener's own residual artefacts enter the training pairs:** they become background the
   net must preserve (the same argument as the star remover's bootstrap plates). Injected gradients
   must be placed independently of where the flattener struggled, or the net learns that removing a
