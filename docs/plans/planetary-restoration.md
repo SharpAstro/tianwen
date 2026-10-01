@@ -1335,6 +1335,7 @@ R8 left two problems: the limb's kernel is its model's tail in the finest band, 
     - Over the linear restorations, the composite's negative mass ranks the undershoots with a Spearman of at least 0.8.
     - AutoStakkert's sharpening is a linear, shift-invariant filter: the residual in the limb annulus and in the sky is at most twice the interior's. Carried to our twins it lifts no band above 1.1 against the truth and digs at most 0.002.
     - Falsified, for the last: a residual concentrated at the limb or in the sky, a mask or a clamp rather than a kernel.
+  - **Clarified while it was built, before anything was measured** (`PlanetaryKernelFitTests`): the negative mass is read within 15 px of the composite kernel's centre, the reach of the ring R3 reads (1.0 to 1.3 radii). Over the whole grid, the faint ripple a hard cut in a transfer leaves far out grows with the area: a Gaussian restored to a narrower Gaussian and cut where the blur passes a thousandth read 1.26, more than its whole sum. The stack's true transfer itself is cut where the truth holds no power.
 
 #### R8 follow-up 2: the ring fixed
 

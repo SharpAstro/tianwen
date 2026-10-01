@@ -212,7 +212,7 @@ internal sealed class PlanetaryInversesSubCommand(IConsoleHost consoleHost, Mast
     }
 
     // The knob in [lo, hi] (a log, bisected) at which `band3` meets `target`, band 3 falling as the knob rises when `decreasing`.
-    private static double Bisect(double lo, double hi, Func<double, double> band3, double target, bool decreasing, int iterations = 24)
+    internal static double Bisect(double lo, double hi, Func<double, double> band3, double target, bool decreasing, int iterations = 24)
     {
         for (var i = 0; i < iterations; i++)
         {
