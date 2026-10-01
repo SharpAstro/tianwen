@@ -34,13 +34,15 @@ internal sealed class PlanetaryGainsSubCommand(IConsoleHost consoleHost, MasterP
         var telescopeOpt = new Option<string>("--telescope") { Description = "newtonian or maksutov: the pupil whose diffraction the limb's kernel is divided by.", DefaultValueFactory = _ => "newtonian" };
         var wavelengthOpt = new Option<double>("--wavelength") { Description = "The filter's effective wavelength, nm.", DefaultValueFactory = _ => 650 };
         var windowOpt = new Option<int>("--window") { Description = "The side of the window about the disk, px.", DefaultValueFactory = _ => 256 };
+        var otherStackOpt = new Option<string?>("--other-stack") { Description = "Another program's stack of the same capture (an AutoStakkert TIFF, say), read beside its sharpened result." };
+        var otherSharpenedOpt = new Option<string?>("--other-sharpened") { Description = "That program's sharpened result: its rise over its own stack per band, and its undershoot." };
         var panelOpt = new Option<string?>("--panel") { Description = "A PNG of the disk: the truth (a twin's), the stack, the derived gains with (b') and the presets as shipped, then the presets at matched noise below." };
 
         var command = new Command("planetary-gains",
             "Wavelet gains derived from a stack's own power, its halves' noise, the limb's kernel and its disk, against the presets as shipped and at matched noise (R8, #1055).")
         {
             Arguments = { inputArg },
-            Options = { truthOpt, planetOpt, framesOpt, keepOpt, telescopeOpt, wavelengthOpt, windowOpt, panelOpt },
+            Options = { truthOpt, planetOpt, framesOpt, keepOpt, telescopeOpt, wavelengthOpt, windowOpt, otherStackOpt, otherSharpenedOpt, panelOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -216,6 +218,34 @@ internal sealed class PlanetaryGainsSubCommand(IConsoleHost consoleHost, MasterP
                     consoleHost.WriteScrollable(string.Create(inv, $"    each preset's error over the derived gains': {string.Join(", ", beaten)}"));
                     consoleHost.WriteScrollable(string.Create(inv, $"    the ringing gate: undershoot {d.Undershoot:0.0000} against {gate:0.0000} ({(d.Undershoot <= gate ? "passes" : "FAILS")})"));
                     consoleHost.WriteScrollable(string.Create(inv, $"    over the jointly fitted oracle: the true kernel {o.Error / j.Error:0.000} (within 1.10?), (b') {d.Error / j.Error:0.000} (within 1.25?)"));
+                }
+
+                if (parseResult.GetValue(otherStackOpt) is { } otherStackPath && parseResult.GetValue(otherSharpenedOpt) is { } otherSharpenedPath)
+                {
+                    // Another program's result on its own grid: its sharpening read against its own stack, the bands in its pixels.
+                    if (!Image.TryReadImageFile(otherStackPath, out var otherStack) || !Image.TryReadImageFile(otherSharpenedPath, out var otherSharpened))
+                    {
+                        consoleHost.WriteError($"{otherStackPath} or {otherSharpenedPath}: not readable");
+                        return 1;
+                    }
+                    try
+                    {
+                        if (PlanetaryMeasureSubCommand.Register(otherStack, limbOptions, null) is not { } os
+                            || PlanetaryMeasureSubCommand.Register(otherSharpened, limbOptions, os.Disk) is not { } oss)
+                        {
+                            consoleHost.WriteError($"{otherStackPath}: the limb could not be fitted");
+                            return 1;
+                        }
+                        var (ow, oh) = (otherStack.Width, otherStack.Height);
+                        var rise = PlanetaryMetrics.Fidelity(oss.Plane, os.Plane, ow, oh, os.Disk, Bands);
+                        consoleHost.WriteScrollable(string.Create(inv,
+                            $"    {Path.GetFileName(otherSharpenedPath)} ({ow}x{oh}, the disk {os.Disk.Radius:0.0} px against our {disk.Radius:0.0}): rise over its own stack {string.Join(", ", rise.Select(f => f.Transfer.ToString("0.000", inv)))}; undershoot {PlanetaryMetrics.LimbUndershoot(oss.Plane, ow, oh, os.Disk):0.0000}, its stack's {PlanetaryMetrics.LimbUndershoot(os.Plane, ow, oh, os.Disk):0.0000}"));
+                    }
+                    finally
+                    {
+                        otherStack.Release();
+                        otherSharpened.Release();
+                    }
                 }
 
                 if (parseResult.GetValue(panelOpt) is { } panelPath)
