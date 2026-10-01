@@ -30,6 +30,8 @@ def main():
     parser.add_argument("--wavelength-a", type=float, default=6500.0)
     parser.add_argument("--modes", type=int, default=44)
     parser.add_argument("--iterations", type=int, default=50)
+    parser.add_argument("--optimizer", default="adam", help="adam (pre-registered) or lbfgs (torchmfbd's own example)")
+    parser.add_argument("--suffix", default="", help="appended to the outputs' names, so a second run does not overwrite the first")
     args = parser.parse_args()
 
     with fits.open(args.stem + ".frames.fits") as f:
@@ -63,7 +65,7 @@ def main():
         try:
             deconv = torchmfbd.Deconvolution(path)
             deconv.add_frames(frames, id_object=0, id_diversity=0, diversity=0.0)
-            deconv.deconvolve(infer_object=False, optimizer="adam", simultaneous_sequences=1, n_iterations=args.iterations)
+            deconv.deconvolve(infer_object=False, optimizer=args.optimizer, simultaneous_sequences=1, n_iterations=args.iterations)
             device = deconv.modes.device if torch.is_tensor(deconv.modes) else "cpu"
             diversity = [d.to(device) for d in deconv.diversity]
             psf, _ = deconv.compute_psfs(deconv.modes.to(device), diversity)
@@ -71,11 +73,11 @@ def main():
             os.chdir(cwd)
 
     obj = deconv.obj_diffraction[0][0].cpu().numpy().astype("float32")
-    fits.writeto(args.stem + ".mfbd.fits", obj, overwrite=True)
+    fits.writeto(args.stem + f".mfbd{args.suffix}.fits", obj, overwrite=True)
     psfs = np.fft.fftshift(psf[0][0].detach().cpu().numpy(), axes=(-2, -1)).astype("float32")
-    fits.writeto(args.stem + ".mfbd-psf.fits", psfs, overwrite=True)
-    print(f"{args.stem}: {n_frames} frames of {n} px, {args.modes} modes, {args.iterations} iterations; "
-          f"wrote {args.stem}.mfbd.fits and {args.stem}.mfbd-psf.fits ({psfs.shape[0]} PSFs)")
+    fits.writeto(args.stem + f".mfbd{args.suffix}-psf.fits", psfs, overwrite=True)
+    print(f"{args.stem}: {n_frames} frames of {n} px, {args.modes} modes, {args.optimizer} over {args.iterations} iterations; "
+          f"wrote {args.stem}.mfbd{args.suffix}.fits and {args.stem}.mfbd{args.suffix}-psf.fits ({psfs.shape[0]} PSFs)")
 
 
 if __name__ == "__main__":
