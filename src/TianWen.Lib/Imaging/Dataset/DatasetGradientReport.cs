@@ -331,7 +331,7 @@ namespace TianWen.Lib.Imaging.Dataset
             }
             try
             {
-                var (scale, source) = ScaleOf(null, headerWcs, image.ImageMeta);
+                var (scale, source) = ScaleOf(null, headerWcs);
                 if (source.Length == 0)
                 {
                     return false;
@@ -440,7 +440,7 @@ namespace TianWen.Lib.Imaging.Dataset
             // that then wanted the solution had to re-assert with `!` what the flag already implied.
             var solution = wcs is { HasCDMatrix: true } ? wcs.Value : (WCS?)null;
             var solved = solution.HasValue;
-            var (pixelScale, scaleSource) = ScaleOf(solution, headerWcs, meta);
+            var (pixelScale, scaleSource) = ScaleOf(solution, headerWcs);
             var raHours = solution?.CenterRA ?? meta.TargetRA;
             var decDeg = solution?.CenterDec ?? meta.TargetDec;
 
@@ -913,16 +913,17 @@ namespace TianWen.Lib.Imaging.Dataset
 
         /// <summary>
         /// A master's scale in arcsec per pixel and where it came from: this run's solve, else the solved
-        /// CD matrix the master's own header carries (every master a bake writes is plate-solved), else a
-        /// DECLARED <c>PIXSCALE</c>. Never the scale derived from <c>FOCALLEN</c>: a camera moved between
-        /// scopes keeps whatever focal length its capture profile last said, so a derived scale can name
-        /// the wrong field outright (the QHY294C in this archive sat behind several). Unknown stays NaN
-        /// rather than becoming a guess the field-width table bins.
+        /// CD matrix the master's own header carries (every master a bake writes is plate-solved), else
+        /// unknown. Only ever a SOLVE: a camera moved between scopes keeps whatever focal length its
+        /// capture profile last said (the QHY294C in this archive sat behind several), so a scale derived
+        /// from <c>FOCALLEN</c> can name the wrong field outright, and a declared <c>PIXSCALE</c> is no
+        /// better on our own masters, whose writer stamps it from that same <c>FOCALLEN</c> (the QHY183M
+        /// eta Car master declares 1.7189, which is 206.265 x 2.4 um / 288 mm, and solves to 1.7066).
+        /// Unknown stays NaN rather than becoming a guess the field-width table bins.
         /// </summary>
-        internal static (double PixelScaleArcsec, string Source) ScaleOf(WCS? solved, WCS? header, in ImageMeta meta) =>
+        internal static (double PixelScaleArcsec, string Source) ScaleOf(WCS? solved, WCS? header) =>
             solved is { HasCDMatrix: true } fromSolve ? (fromSolve.PixelScaleArcsec, "solve")
             : header is { HasCDMatrix: true } fromHeader ? (fromHeader.PixelScaleArcsec, "header")
-            : meta.DeclaredPixelScale > 0 ? (meta.DeclaredPixelScale, "declared")
             : (double.NaN, "");
 
         /// <summary>The field-width bin a master falls in; G1b's prediction is stated over these three.</summary>

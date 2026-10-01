@@ -275,17 +275,9 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
-        public async Task TheScaleIsTheSolvesOrADeclaredOneAndNeverTheFocalLengthsGuess()
+        public async Task TheScaleIsOnlyEverASolveNeverAFocalLengthsGuessNorAPixscaleRestatingIt()
         {
             var ct = TestContext.Current.CancellationToken;
-
-            var declared = SyntheticMaster(128, 96, 4, 0.01f, 0.003f, 2e-4f, seed: 7, m => m with { DeclaredPixelScale = 150f });
-            var fromDeclared = await DatasetGradientReport.MeasureMasterAsync(declared, "d.fits", "", 20, solver: null, sweep: false, cancellationToken: ct);
-            declared.Release();
-            fromDeclared.ScaleSource.ShouldBe("declared");
-            fromDeclared.PixelScaleArcsec.ShouldBe(150.0);
-            fromDeclared.FieldWidthDeg.ShouldBe(150.0 * 128 / 3600.0, 1e-9);
-            DatasetGradientReport.FieldWidthBin(fromDeclared).ShouldBe("4 to 10 deg");
 
             // A focal length and a pixel size DO give the header a scale, which is exactly what must not be
             // taken: a camera moved between scopes keeps its last profile's focal length.
@@ -296,6 +288,25 @@ namespace TianWen.Lib.Tests
             fromGuess.ScaleSource.ShouldBe("");
             double.IsNaN(fromGuess.PixelScaleArcsec).ShouldBeTrue();
             DatasetGradientReport.FieldWidthBin(fromGuess).ShouldBe("unknown scale");
+
+            // Nor a declared PIXSCALE, which our own writer stamps from that same FOCALLEN.
+            var declared = SyntheticMaster(128, 96, 4, 0.01f, 0.003f, 2e-4f, seed: 7, m => m with { DeclaredPixelScale = 150f });
+            declared.GetImageDim().ShouldNotBeNull();
+            var fromDeclared = await DatasetGradientReport.MeasureMasterAsync(declared, "d.fits", "", 20, solver: null, sweep: false, cancellationToken: ct);
+            declared.Release();
+            fromDeclared.ScaleSource.ShouldBe("");
+            double.IsNaN(fromDeclared.PixelScaleArcsec).ShouldBeTrue();
+
+            // A solved CD matrix in the header is a measurement, and wins.
+            const double s = 150.0 / 3600.0;
+            var solvedHeader = new WCS(6.5, 3.4) { CRPix1 = 64, CRPix2 = 48, CD1_1 = -s, CD1_2 = 0, CD2_1 = 0, CD2_2 = s };
+            var withHeader = SyntheticMaster(128, 96, 4, 0.01f, 0.003f, 2e-4f, seed: 7, m => m with { DeclaredPixelScale = 9f });
+            var fromHeader = await DatasetGradientReport.MeasureMasterAsync(withHeader, "h.fits", "", 20, solver: null, sweep: false, headerWcs: solvedHeader, cancellationToken: ct);
+            withHeader.Release();
+            fromHeader.ScaleSource.ShouldBe("header");
+            fromHeader.PixelScaleArcsec.ShouldBe(150.0, 1e-6);
+            fromHeader.FieldWidthDeg.ShouldBe(150.0 * 128 / 3600.0, 1e-6);
+            DatasetGradientReport.FieldWidthBin(fromHeader).ShouldBe("4 to 10 deg");
         }
 
         [Fact]
@@ -303,8 +314,10 @@ namespace TianWen.Lib.Tests
         {
             var ct = TestContext.Current.CancellationToken;
             Directory.CreateDirectory(_dir);
-            var master = SyntheticMaster(128, 96, 4, 0.01f, 0.003f, 2e-4f, seed: 3, m => m with { DeclaredPixelScale = 2f });
-            var record = await DatasetGradientReport.MeasureMasterAsync(master, "old.fits", "", 20, solver: null, sweep: false, cancellationToken: ct);
+            var master = SyntheticMaster(128, 96, 4, 0.01f, 0.003f, 2e-4f, seed: 3);
+            var header = new WCS(6.5, 3.4) { CRPix1 = 64, CRPix2 = 48, CD1_1 = -0.001, CD1_2 = 0, CD2_1 = 0, CD2_2 = 0.001 };
+            var record = await DatasetGradientReport.MeasureMasterAsync(master, "old.fits", "", 20, solver: null, sweep: false, headerWcs: header, cancellationToken: ct);
+            record.ScaleSource.ShouldBe("header");
             master.Release();
 
             var storePath = Path.Combine(_dir, DatasetGradientStore.FileName);
