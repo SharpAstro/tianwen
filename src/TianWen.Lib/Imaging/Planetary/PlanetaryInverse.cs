@@ -181,6 +181,233 @@ public static class PlanetaryInverse
         return Filter(plane, width, height, gain, n);
     }
 
+    /// <summary>
+    /// The power a white noise puts on each Fourier coefficient of <paramref name="plane"/> (on the padded grid every filter here
+    /// works on): the plane's mean power past <paramref name="fromCyclesPerPixel"/>, where a blurred planet holds no signal.
+    /// </summary>
+    public static double WhiteNoise(ReadOnlySpan<float> plane, int width, int height, double fromCyclesPerPixel = 0.4)
+    {
+        var n = GridFor(width, height, 32);
+        var field = Transform(plane, width, height, n);
+        double sum = 0;
+        var count = 0;
+        for (var i = 0; i < field.Length; i++)
+        {
+            if (Frequency(i, n) >= fromCyclesPerPixel)
+            {
+                sum += (field[i].Real * field[i].Real) + (field[i].Imaginary * field[i].Imaginary);
+                count++;
+            }
+        }
+        return count > 0 ? sum / count : 0;
+    }
+
+    /// <summary>
+    /// Conan et al.'s object prior for <paramref name="plane"/>: a power law A f^-p fitted, in logs, to its ring power less
+    /// <paramref name="noise"/> and over the kernel's power, ring by ring between <paramref name="from"/> and <paramref name="to"/>
+    /// cycles a pixel where the power stands at least twice the noise and the transfer above a twentieth.
+    /// </summary>
+    public static (double Amplitude, double Exponent) PowerLawPrior(ReadOnlySpan<float> plane, int width, int height, Func<double, double> transfer, double noise,
+        double from = 0.02, double to = 0.15)
+    {
+        ArgumentNullException.ThrowIfNull(transfer);
+        var n = GridFor(width, height, 32);
+        var field = Transform(plane, width, height, n);
+        var rings = n;
+        var (sum, count) = (new double[rings], new int[rings]);
+        for (var i = 0; i < field.Length; i++)
+        {
+            var ring = PlanetaryCeilings.Ring(i, n);
+            sum[ring] += (field[i].Real * field[i].Real) + (field[i].Imaginary * field[i].Imaginary);
+            count[ring]++;
+        }
+        double sx = 0, sy = 0, sxx = 0, sxy = 0;
+        var points = 0;
+        for (var r = 1; r < rings; r++)
+        {
+            var f = r / (double)n;
+            var h = transfer(f);
+            if (f < from || f > to || count[r] == 0 || h < 0.05)
+            {
+                continue;
+            }
+            var power = sum[r] / count[r];
+            if (power < 2 * noise)
+            {
+                continue;
+            }
+            var (x, y) = (Math.Log(f), Math.Log((power - noise) / (h * h)));
+            (sx, sy, sxx, sxy) = (sx + x, sy + y, sxx + (x * x), sxy + (x * y));
+            points++;
+        }
+        if (points < 3)
+        {
+            return (double.NaN, double.NaN);
+        }
+        var slope = ((points * sxy) - (sx * sy)) / ((points * sxx) - (sx * sx));
+        var intercept = (sy - (slope * sx)) / points;
+        return (Math.Exp(intercept), -slope);
+    }
+
+    /// <summary>
+    /// A Wiener filter with the isotropic <paramref name="transfer"/> and Conan's power-law prior: H / (H^2 + scale N / (A f^-p)), the
+    /// noise <paramref name="noise"/> per coefficient (<see cref="WhiteNoise"/>), the prior from <see cref="PowerLawPrior"/>.
+    /// </summary>
+    public static float[] WienerPowerLaw(ReadOnlySpan<float> plane, int width, int height, Func<double, double> transfer, double amplitude, double exponent,
+        double noise, double scale)
+    {
+        ArgumentNullException.ThrowIfNull(transfer);
+        var n = GridFor(width, height, 32);
+        var gain = new double[n * n];
+        for (var i = 0; i < gain.Length; i++)
+        {
+            var f = Frequency(i, n);
+            var h = transfer(f);
+            var prior = f > 0 ? amplitude * Math.Pow(f, -exponent) : double.PositiveInfinity;
+            gain[i] = f > 0 ? h / ((h * h) + (scale * noise / prior)) : (h > 0 ? 1 / h : 0);
+        }
+        return Filter(plane, width, height, gain, n);
+    }
+
+    /// <summary>
+    /// Restoration under an L1-L2 edge-preserving prior (Mugnier et al. 2004, MISTRAL's): the least squares to <paramref name="plane"/>
+    /// through the isotropic <paramref name="transfer"/>, plus <paramref name="mu"/> times the sum over pixels of
+    /// delta^2 (t / delta - ln(1 + t / delta)), t the gradient's length, quadratic below <paramref name="delta"/> and linear above, so an
+    /// edge is not smoothed as a quadratic prior smooths it. Positivity at zero. Solved by lagged diffusivity: each of
+    /// <paramref name="passes"/> solves the quadratic problem with weights delta / (delta + t) from the last pass by
+    /// <paramref name="steps"/> steps of conjugate gradients, and clips at zero.
+    /// </summary>
+    public static float[] L1L2(ReadOnlySpan<float> plane, int width, int height, Func<double, double> transfer, double mu, double delta, int passes = 8, int steps = 30)
+    {
+        ArgumentNullException.ThrowIfNull(transfer);
+        var n = GridFor(width, height, 32);
+        var kernel = KernelGrid(transfer, n);
+        var cells = width * height;
+        var data = plane.ToArray();
+        // H is real and even in frequency, so it is its own adjoint on the window: the right-hand side is H d.
+        var rhs = ToDouble(Filter(data, width, height, kernel, n));
+        var x = new double[cells];
+        for (var i = 0; i < cells; i++)
+        {
+            x[i] = Math.Max(0, data[i]);
+        }
+        var weights = new double[cells];
+        var (gx, gy) = (new double[cells], new double[cells]);
+
+        double[] Operator(double[] v)
+        {
+            var hv = Filter(ToFloat(v), width, height, kernel, n);
+            var hhv = Filter(hv, width, height, kernel, n);
+            Gradient(v, width, height, gx, gy);
+            for (var i = 0; i < cells; i++)
+            {
+                (gx[i], gy[i]) = (gx[i] * weights[i], gy[i] * weights[i]);
+            }
+            var divergence = Divergence(gx, gy, width, height);
+            var result = new double[cells];
+            for (var i = 0; i < cells; i++)
+            {
+                result[i] = hhv[i] - (mu * divergence[i]);
+            }
+            return result;
+        }
+
+        for (var pass = 0; pass < passes; pass++)
+        {
+            Gradient(x, width, height, gx, gy);
+            for (var i = 0; i < cells; i++)
+            {
+                var t = Math.Sqrt((gx[i] * gx[i]) + (gy[i] * gy[i]));
+                weights[i] = delta / (delta + t);
+            }
+            // Conjugate gradients from the last pass's x.
+            var ax = Operator(x);
+            var r = new double[cells];
+            for (var i = 0; i < cells; i++)
+            {
+                r[i] = rhs[i] - ax[i];
+            }
+            var p = (double[])r.Clone();
+            var rr = Dot(r, r);
+            for (var step = 0; step < steps && rr > 1e-20; step++)
+            {
+                var ap = Operator(p);
+                var alpha = rr / Math.Max(Dot(p, ap), 1e-300);
+                for (var i = 0; i < cells; i++)
+                {
+                    x[i] += alpha * p[i];
+                    r[i] -= alpha * ap[i];
+                }
+                var next = Dot(r, r);
+                var beta = next / rr;
+                rr = next;
+                for (var i = 0; i < cells; i++)
+                {
+                    p[i] = r[i] + (beta * p[i]);
+                }
+            }
+            for (var i = 0; i < cells; i++)
+            {
+                x[i] = Math.Max(0, x[i]);
+            }
+        }
+        return ToFloat(x);
+    }
+
+    // Forward differences, zero across the far edge.
+    private static void Gradient(double[] v, int width, int height, double[] gx, double[] gy)
+    {
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var i = (y * width) + x;
+                gx[i] = x + 1 < width ? v[i + 1] - v[i] : 0;
+                gy[i] = y + 1 < height ? v[i + width] - v[i] : 0;
+            }
+        }
+    }
+
+    // The divergence by backward differences: minus the adjoint of Gradient.
+    private static double[] Divergence(double[] gx, double[] gy, int width, int height)
+    {
+        var d = new double[width * height];
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var i = (y * width) + x;
+                var dx = (x + 1 < width ? gx[i] : 0) - (x > 0 ? gx[i - 1] : 0);
+                var dy = (y + 1 < height ? gy[i] : 0) - (y > 0 ? gy[i - width] : 0);
+                d[i] = dx + dy;
+            }
+        }
+        return d;
+    }
+
+    private static double Dot(double[] a, double[] b)
+    {
+        double sum = 0;
+        for (var i = 0; i < a.Length; i++)
+        {
+            sum += a[i] * b[i];
+        }
+        return sum;
+    }
+
+    private static double[] ToDouble(float[] v) => Array.ConvertAll(v, x => (double)x);
+
+    private static float[] ToFloat(double[] v) => Array.ConvertAll(v, x => (float)x);
+
+    // The frequency, cycles a pixel, of index i on an n-by-n grid.
+    private static double Frequency(int i, int n)
+    {
+        var (ky, kx) = Math.DivRem(i, n);
+        var fy = (ky < n / 2 ? ky : ky - n) / (double)n;
+        var fx = (kx < n / 2 ? kx : kx - n) / (double)n;
+        return Math.Sqrt((fx * fx) + (fy * fy));
+    }
+
     /// <summary><paramref name="plane"/> through the isotropic <paramref name="transfer"/>: blurred by the kernel it describes.</summary>
     public static float[] Apply(ReadOnlySpan<float> plane, int width, int height, Func<double, double> transfer)
     {

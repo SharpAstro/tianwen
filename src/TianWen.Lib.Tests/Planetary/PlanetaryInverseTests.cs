@@ -68,6 +68,56 @@ public class PlanetaryInverseTests
     }
 
     [Fact]
+    public void TheWhiteNoiseFloorAndThePowerLawPriorAreReadBack()
+    {
+        // A field whose power falls as f^-3, blurred by a Gaussian, with white noise of a known spread.
+        var random = new Random(9);
+        var spectrum = new System.Numerics.Complex[Size * Size];
+        for (var ky = 0; ky < Size; ky++)
+        {
+            var fy = (ky < Size / 2 ? ky : ky - Size) / (double)Size;
+            for (var kx = 0; kx < Size; kx++)
+            {
+                var fx = (kx < Size / 2 ? kx : kx - Size) / (double)Size;
+                var f = Math.Sqrt((fx * fx) + (fy * fy));
+                var amplitude = f > 0 ? Math.Pow(f, -1.5) : 0;
+                spectrum[(ky * Size) + kx] = System.Numerics.Complex.FromPolarCoordinates(amplitude * Normal(random), 2 * Math.PI * random.NextDouble());
+            }
+        }
+        TianWen.Lib.Stat.Fft2D.Inverse(spectrum, Size, Size);
+        // Tapered to zero at the window's edge, as a stack's sky is: an edge left standing leaks into every frequency once padded.
+        var field = spectrum.Select((c, i) => (float)(c.Real * Hann(i % Size) * Hann(i / Size))).ToArray();
+        var rms = Math.Sqrt(field.Average(v => (double)v * v));
+        var blurred = PlanetaryInverse.Apply(field.Select(v => (float)(v / rms)).ToArray(), Size, Size, f => Gaussian(1.0, f));
+        const double sigma = 0.01;
+        var noisy = blurred.Select(v => (float)(v + (sigma * Normal(random)))).ToArray();
+        var noise = PlanetaryInverse.WhiteNoise(noisy, Size, Size);
+        var (_, exponent) = PlanetaryInverse.PowerLawPrior(noisy, Size, Size, f => Gaussian(1.0, f), noise);
+        TestContext.Current.TestOutputHelper?.WriteLine($"noise {Math.Sqrt(noise / (Size * Size)):0.0000} a pixel (made {sigma}); the power law's exponent {exponent:0.000} (made 3)");
+        Math.Sqrt(noise / (Size * Size)).ShouldBe(sigma, sigma * 0.1);
+        exponent.ShouldBe(3, 0.3);
+    }
+
+    [Fact]
+    public void AnEdgePreservingPriorRestoresTheBandsAndKeepsThePlanePositive()
+    {
+        var truth = Texture();
+        var random = new Random(4);
+        var blurred = PlanetaryInverse.Apply(truth, Size, Size, f => Gaussian(1.2, f)).Select(v => (float)(v + (0.01 * Normal(random)))).ToArray();
+        var before = PlanetaryMetrics.Fidelity(blurred, truth, Size, Size, Disk).Select(f => f.Transfer).ToArray();
+        var restored = PlanetaryInverse.L1L2(blurred, Size, Size, f => Gaussian(1.2, f), mu: 1e-3, delta: 0.0141);
+        var after = PlanetaryMetrics.Fidelity(restored, truth, Size, Size, Disk).Select(f => f.Transfer).ToArray();
+        TestContext.Current.TestOutputHelper?.WriteLine(string.Join(", ", before.Select((v, b) => $"band {b + 1}: {v:0.000} to {after[b]:0.000}")));
+        after[0].ShouldBeGreaterThan(before[0] + 0.1);
+        after[1].ShouldBeGreaterThan(before[1] + 0.05);
+        restored.Min().ShouldBeGreaterThanOrEqualTo(0f);
+    }
+
+    private static double Hann(int i) => 0.5 - (0.5 * Math.Cos(2 * Math.PI * (i + 0.5) / Size));
+
+    private static double Normal(Random random) => Math.Sqrt(-2 * Math.Log(1 - random.NextDouble())) * Math.Cos(2 * Math.PI * random.NextDouble());
+
+    [Fact]
     public void RichardsonLucyWithTheRightTransferBringsABlurredObjectBack()
     {
         var truth = Texture();
