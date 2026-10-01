@@ -1021,6 +1021,10 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   twins' per-frame PSFs from `planetary-degrade --psf-truth`): the bands overlap in frequency, and band by band the gains left 40 %
   more error than the best isotropic filter on the calibrated twin, jointly 4 %. An exact 2-D kernel is worth 13 to 21 % beyond that
   filter, and weighting each frame per frequency only 2 to 4 % on the kept frames.
+  **An inverse set to one band 3 is judged by what its knob does to the OTHER bands** (part 2, `planetary-inverses`): one noise scale
+  on a power-law prior, holding band 3 down against a kernel about 5 % too blurred there, cut band 1 until the Wiener did worse than the
+  stack it restored, while Richardson-Lucy's count lifted every band together. Its sky held at zero is what keeps Richardson-Lucy and
+  L1-L2 out of the limb's trough, and that trough is (b')'s r^-3 wing more than any gain's ringing: a single Gaussian rang less.
 - **Read the plan doc before touching the Canon path** -- it is a list of five things that fail
   SILENTLY. **Recentering is opt-in** (the user, 2026-09-28; it costs the loop about 15 ms a frame at full frame), and
   so is the mount jog, whose **sign is uncalibrated**.
