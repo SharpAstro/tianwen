@@ -35,13 +35,14 @@ internal sealed class PlanetaryDeringSubCommand(IConsoleHost consoleHost, Master
         var telescopeOpt = new Option<string>("--telescope") { Description = "newtonian or maksutov.", DefaultValueFactory = _ => "newtonian" };
         var wavelengthOpt = new Option<double>("--wavelength") { Description = "The filter's effective wavelength, nm.", DefaultValueFactory = _ => 650 };
         var windowOpt = new Option<int>("--window") { Description = "The side of the window about the disk, px.", DefaultValueFactory = _ => 256 };
+        var trueFloorOpt = new Option<double>("--true-floor") { Description = "Where the truth's power falls below this share of its second ring's, the true kernel reads zero (1e-3 as pre-registered; 1e-6, R8's, post hoc).", DefaultValueFactory = _ => 1e-3 };
         var panelOpt = new Option<string?>("--panel") { Description = "A PNG: PlanetaryDefault plain, floored, as a limb channel and feathered; then the derived gains plain and under a non-negative composite." };
 
         var command = new Command("planetary-dering",
             "The presets and R8's derived gains with a floor at the sky, the limb as its own channel, gains feathered at the limb, and gains under a non-negative composite (R8 follow-up 2).")
         {
             Arguments = { inputArg },
-            Options = { truthOpt, planetOpt, framesOpt, keepOpt, telescopeOpt, wavelengthOpt, windowOpt, panelOpt },
+            Options = { truthOpt, planetOpt, framesOpt, keepOpt, telescopeOpt, wavelengthOpt, windowOpt, trueFloorOpt, panelOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -84,7 +85,7 @@ internal sealed class PlanetaryDeringSubCommand(IConsoleHost consoleHost, Master
             RadialTransfer? trueKernel = null;
             if (truth is { } tw)
             {
-                trueKernel = PlanetaryDering.Smoothed(PlanetaryInverse.Measure(stack, tw, size, size, minPowerFraction: 1e-3));
+                trueKernel = PlanetaryDering.Smoothed(PlanetaryInverse.Measure(stack, tw, size, size, minPowerFraction: parseResult.GetValue(trueFloorOpt)));
                 var control = PlanetaryKernelFit.NegativeMass((_, _) => Complex.One, trueKernel.At);
                 consoleHost.WriteScrollable(string.Create(inv,
                     $"    the control: the stack's own composite through the true kernel, smoothed, has a negative mass of {control:0.0000} ({(control <= 0.01 ? "the composite is read" : "NOT READ, the composite rows below mean nothing")})"));
