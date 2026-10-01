@@ -77,8 +77,11 @@ step. Send the CONFIRMED list upstream with both the SIMBAD link and the second 
 
 **#53 was merged upstream on 2026-09-27 and the refresh brought it in** (OpenNGC `master` at "Add notes
 about Simbad wrong identifications"): the Cocoon Galaxy now sits on NGC 4490 in OpenNGC's own row, so its
-two `OpenNgcCorrections` lines went red and were deleted, as designed, and the SIMBAD merge snapshot was
-re-baked on the new input. The table is down to the Flame Nebula pair, which upstream declined.
+two `OpenNgcCorrections` lines went red and were deleted, as designed, and both snapshots that read
+`NGC.csv.lz` were re-baked on the new input: the SIMBAD merge, and the HD-HIP cross
+(`tools/precompute-hd-hip-cross.ps1`), whose `NGC.gs.gz` input the build generates from that CSV and whose
+staleness guard `HdHipCrossSnapshotTests` caught it in CI after the first was re-baked alone. The table is down
+to the Flame Nebula pair, which upstream declined.
 
 **An upstream DECLINE is a permanent line in `OpenNgcCorrections`, and it has to say so.** The Flame
 Nebula is the case: OpenNGC keeps it on IC 434 on a taxonomy argument (NGC 2024 the cluster inside
