@@ -1036,6 +1036,11 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   **Sharpen the limb as its own channel** (follow-up 2, `planetary-dering`, `PlanetaryDering.LimbChannel`): take the limb fit's model
   through the kernel out, sharpen the residual, put the model back through the diffraction alone. The presets' ring fell under 0.015 of
   the disk and their limb profile became 11 to 64 times truer; feathering the gains at the limb removes the ring but not the rind.
+- **A ghost is taken out as what is NOT ROUND, never as a fitted copy's strength** (R7a, `planetary-ghost`, `PlanetaryGhost`): no round glow
+  tells a copy's round part from scatter, so read and remove the copy's non-round part (`PlanetaryGhost.Shell`), from where the planet's own
+  blurred limb has died away (8 px past the 2 % edge), with the moons out of the copy and out of every read. A non-round read about that edge
+  is biased by whatever moves it: judge a removal against the plane before the ghost through the SAME source. The 2022 shell is a smear
+  along one axis of the alt-az mount (L only; every filter's blur is elongated that way next to the limb, so that night's kernel must be).
 - **Read the plan doc before touching the Canon path** -- it is a list of five things that fail
   SILENTLY. **Recentering is opt-in** (the user, 2026-09-28; it costs the loop about 15 ms a frame at full frame), and
   so is the mount jog, whose **sign is uncalibrated**.
