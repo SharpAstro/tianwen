@@ -274,6 +274,123 @@ namespace TianWen.Lib.Tests
             md.ShouldContain("Shape census (planes): Ramp 6.");
         }
 
+        [Fact]
+        public async Task TheScaleIsTheSolvesOrADeclaredOneAndNeverTheFocalLengthsGuess()
+        {
+            var ct = TestContext.Current.CancellationToken;
+
+            var declared = SyntheticMaster(128, 96, 4, 0.01f, 0.003f, 2e-4f, seed: 7, m => m with { DeclaredPixelScale = 150f });
+            var fromDeclared = await DatasetGradientReport.MeasureMasterAsync(declared, "d.fits", "", 20, solver: null, sweep: false, cancellationToken: ct);
+            declared.Release();
+            fromDeclared.ScaleSource.ShouldBe("declared");
+            fromDeclared.PixelScaleArcsec.ShouldBe(150.0);
+            fromDeclared.FieldWidthDeg.ShouldBe(150.0 * 128 / 3600.0, 1e-9);
+            DatasetGradientReport.FieldWidthBin(fromDeclared).ShouldBe("4 to 10 deg");
+
+            // A focal length and a pixel size DO give the header a scale, which is exactly what must not be
+            // taken: a camera moved between scopes keeps its last profile's focal length.
+            var guessed = SyntheticMaster(128, 96, 4, 0.01f, 0.003f, 2e-4f, seed: 7, m => m with { FocalLength = 300, PixelSizeX = 3.76f, PixelSizeY = 3.76f, BinX = 1, BinY = 1 });
+            guessed.GetImageDim().ShouldNotBeNull();
+            var fromGuess = await DatasetGradientReport.MeasureMasterAsync(guessed, "g.fits", "", 20, solver: null, sweep: false, cancellationToken: ct);
+            guessed.Release();
+            fromGuess.ScaleSource.ShouldBe("");
+            double.IsNaN(fromGuess.PixelScaleArcsec).ShouldBeTrue();
+            DatasetGradientReport.FieldWidthBin(fromGuess).ShouldBe("unknown scale");
+        }
+
+        [Fact]
+        public async Task AStoreLineWrittenBeforeTheScaleExistedReadsBackAsUnknown()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            Directory.CreateDirectory(_dir);
+            var master = SyntheticMaster(128, 96, 4, 0.01f, 0.003f, 2e-4f, seed: 3, m => m with { DeclaredPixelScale = 2f });
+            var record = await DatasetGradientReport.MeasureMasterAsync(master, "old.fits", "", 20, solver: null, sweep: false, cancellationToken: ct);
+            master.Release();
+
+            var storePath = Path.Combine(_dir, DatasetGradientStore.FileName);
+            await DatasetGradientStore.AppendAsync(storePath, record, ct);
+            var line = (await File.ReadAllTextAsync(storePath, ct)).Trim();
+            var old = System.Text.RegularExpressions.Regex.Replace(line, @",""PixelScaleArcsec"":[^,]+,""ScaleSource"":""[^""]*""", "");
+            old.ShouldNotBe(line);
+            await File.WriteAllTextAsync(storePath, old + Environment.NewLine, ct);
+
+            var store = await DatasetGradientStore.ReadAsync(storePath, cancellationToken: ct);
+            double.IsNaN(store["old.fits"].PixelScaleArcsec).ShouldBeTrue();
+            store["old.fits"].ScaleSource.ShouldBe("");
+        }
+
+        [Fact]
+        public async Task TheFieldWidthTableBinsByEachMastersOwnScaleInWidthOrder()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            Directory.CreateDirectory(_dir);
+            var master = SyntheticMaster(128, 96, 4, 0.01f, 0.003f, 2e-4f, seed: 3);
+            var record = await DatasetGradientReport.MeasureMasterAsync(master, "m.fits", "", 20, solver: null, sweep: false, cancellationToken: ct);
+            master.Release();
+
+            // One camera behind three optics: 128 px wide at 30, 150 and 300 arcsec per pixel.
+            DatasetGradientReport.MasterGradient[] list =
+            [
+                record with { Master = "wide.fits", PixelScaleArcsec = 300, ScaleSource = "solve" },
+                record with { Master = "narrow.fits", PixelScaleArcsec = 30, ScaleSource = "solve" },
+                record with { Master = "mid.fits", PixelScaleArcsec = 150, ScaleSource = "solve" },
+                record with { Master = "none.fits" },
+            ];
+            var reportPath = Path.Combine(_dir, DatasetGradientReport.ReportFileName);
+            await DatasetGradientReport.WriteMarkdownAsync(list, reportPath, ct);
+            var md = await File.ReadAllTextAsync(reportPath, ct);
+            output.WriteLine(md);
+
+            var section = md[md.IndexOf("## By field width", StringComparison.Ordinal)..md.IndexOf("## By camera", StringComparison.Ordinal)];
+            var under = section.IndexOf("| under 4 deg | 1 |", StringComparison.Ordinal);
+            var mid = section.IndexOf("| 4 to 10 deg | 1 |", StringComparison.Ordinal);
+            var over = section.IndexOf("| 10 deg and over | 1 |", StringComparison.Ordinal);
+            var unknown = section.IndexOf("| unknown scale | 1 |", StringComparison.Ordinal);
+            under.ShouldBeGreaterThan(0);
+            mid.ShouldBeGreaterThan(under);
+            over.ShouldBeGreaterThan(mid);
+            unknown.ShouldBeGreaterThan(over);
+            md.ShouldContain("| SynthCam | 4 |");
+        }
+
+        [Fact(Timeout = 60_000)]
+        public async Task ARecordStoredBeforeTheScaleExistedGetsItFromItsMastersHeader()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            Directory.CreateDirectory(Path.Combine(_dir, "stats"));
+            const double s = 150.0 / 3600.0;
+            var wcs = new WCS(6.5, 3.4) { CRPix1 = 64, CRPix2 = 48, CD1_1 = -s, CD1_2 = 0, CD2_1 = 0, CD2_2 = s };
+            var oldPath = Path.Combine(_dir, "old.fits");
+            var newPath = Path.Combine(_dir, "new.fits");
+            var master = SyntheticMaster(128, 96, 4, 0.01f, 0.003f, 2e-4f, seed: 9);
+            master.WriteToFitsFile(oldPath, wcs);
+            master.WriteToFitsFile(newPath, wcs);
+            // Measured without the header's WCS, as the binary before the scale measured it.
+            var old = await DatasetGradientReport.MeasureMasterAsync(master, oldPath, "", 20, solver: null, sweep: false, cancellationToken: ct);
+            master.Release();
+            old.ScaleSource.ShouldBe("");
+            var storePath = Path.Combine(_dir, "stats", DatasetGradientStore.FileName);
+            await DatasetGradientStore.AppendAsync(storePath, old, ct);
+
+            var options = new DatasetGradientReport.RunOptions([oldPath, newPath], _dir, Sweep: false, Solve: false);
+            var result = await DatasetGradientReport.RunAsync(options, solver: null, cancellationToken: ct);
+
+            result.Measured.ShouldBe(1);
+            result.Backfilled.ShouldBe(1);
+            var store = await DatasetGradientStore.ReadAsync(storePath, cancellationToken: ct);
+            store["old.fits"].ScaleSource.ShouldBe("header");
+            store["old.fits"].PixelScaleArcsec.ShouldBe(150.0, 1e-6);
+            // The measurement itself is kept, not redone.
+            store["old.fits"].Planes.Select(p => p.PeakToPeakSigma).ShouldBe(old.Planes.Select(p => p.PeakToPeakSigma));
+            store["old.fits"].ElapsedMs.ShouldBe(old.ElapsedMs);
+            // A master measured fresh, unsolved, takes the same header.
+            store["new.fits"].ScaleSource.ShouldBe("header");
+
+            var again = await DatasetGradientReport.RunAsync(options, solver: null, cancellationToken: ct);
+            again.Measured.ShouldBe(0);
+            again.Backfilled.ShouldBe(0);
+        }
+
         [Fact(Timeout = 60_000)]
         public async Task ARunMeasuresTheMasterAndNotTheSidecarsBesideIt()
         {
@@ -303,7 +420,7 @@ namespace TianWen.Lib.Tests
         /// A three-channel master on a canvas: sky plus a ramp along +x, Gaussian noise, a few stars, and an
         /// exact-zero ring <paramref name="ring"/> pixels wide, as the integrator writes where no frame landed.
         /// </summary>
-        private static Image SyntheticMaster(int width, int height, int ring, float sky, float ramp, float noise, int seed)
+        private static Image SyntheticMaster(int width, int height, int ring, float sky, float ramp, float noise, int seed, Func<ImageMeta, ImageMeta>? adjust = null)
         {
             var rng = new Random(seed);
             var planes = new float[3][,];
@@ -356,7 +473,7 @@ namespace TianWen.Lib.Tests
                 TargetRA = 6.522,
                 TargetDec = 3.434,
             };
-            return new Image(planes, BitDepth.Float32, 1f, 0f, 0f, meta);
+            return new Image(planes, BitDepth.Float32, 1f, 0f, 0f, adjust?.Invoke(meta) ?? meta);
         }
     }
 }

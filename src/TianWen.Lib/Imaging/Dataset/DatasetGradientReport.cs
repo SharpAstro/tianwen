@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -157,8 +158,16 @@ namespace TianWen.Lib.Imaging.Dataset
             double MoonAngleInFrameDeg,
             ImmutableArray<PlaneGradient> Planes,
             ImmutableArray<SweepPoint> Sweep,
-            long ElapsedMs)
+            long ElapsedMs,
+            double PixelScaleArcsec = double.NaN,
+            string ScaleSource = "")
         {
+            /// <summary>
+            /// The long side of the frame on the sky, degrees; NaN when the scale is unknown. The amplitude
+            /// follows THIS, not the camera: one camera behind several scopes is several fields.
+            /// </summary>
+            public double FieldWidthDeg => PixelScaleArcsec * Math.Max(Width, Height) / 3600.0;
+
             /// <summary>Circular mean of the planes' brightening directions, degrees; NaN when no plane has one.</summary>
             public double BrighteningAngleDeg => CircularMeanDeg(Planes.Select(p => (double)p.GradientAngleDeg));
 
@@ -200,7 +209,8 @@ namespace TianWen.Lib.Imaging.Dataset
         public sealed record RunOptions(ImmutableArray<string> MasterFiles, string OutputDir, bool Sweep = true, bool Solve = true, bool Force = false);
 
         /// <summary>Outcome of a report run.</summary>
-        public sealed record RunResult(int Measured, int Skipped, int Failed, int Solved, string StorePath, string ReportPath);
+        /// <param name="Backfilled">Stored records given the scale from their master's header (counted in Skipped too).</param>
+        public sealed record RunResult(int Measured, int Skipped, int Failed, int Solved, string StorePath, string ReportPath, int Backfilled = 0);
 
         /// <summary>
         /// Measures every master in <paramref name="options"/> that is not already in the store, appending
@@ -226,6 +236,7 @@ namespace TianWen.Lib.Imaging.Dataset
                 .Sort(StringComparer.OrdinalIgnoreCase);
             var measured = 0;
             var skipped = 0;
+            var backfilled = 0;
             var failed = 0;
             var solved = 0;
             var index = 0;
@@ -234,16 +245,28 @@ namespace TianWen.Lib.Imaging.Dataset
                 cancellationToken.ThrowIfCancellationRequested();
                 index++;
                 var key = Path.GetFileName(path);
-                if (!options.Force && store.ContainsKey(key))
+                if (!options.Force && store.TryGetValue(key, out var stored))
                 {
+                    // A record written before the scale existed gets it from the master's own header:
+                    // seconds of reading against a plate solve and nine fits to measure it again.
+                    if (stored.ScaleSource.Length == 0 && TryBackfillScale(path, stored, out var filled))
+                    {
+                        await DatasetGradientStore.AppendAsync(storePath, filled, cancellationToken);
+                        store[key] = filled;
+                        backfilled++;
+                        progress?.Report($"[gradient] {index}/{files.Length} in store, scale backfilled from its {filled.ScaleSource}: {key} ({filled.FieldWidthDeg:F1} deg)");
+                    }
+                    else
+                    {
+                        progress?.Report($"[gradient] {index}/{files.Length} in store, skipped: {key}");
+                    }
                     skipped++;
-                    progress?.Report($"[gradient] {index}/{files.Length} in store, skipped: {key}");
                     continue;
                 }
 
                 try
                 {
-                    if (!Image.TryReadFitsFile(path, out var image, out _))
+                    if (!Image.TryReadFitsFile(path, out var image, out var headerWcs))
                     {
                         failed++;
                         progress?.Report($"[gradient] {index}/{files.Length} UNREADABLE: {key}");
@@ -254,7 +277,7 @@ namespace TianWen.Lib.Imaging.Dataset
                     try
                     {
                         var (strategy, stackedFrames) = ReadMasterCards(path);
-                        record = await MeasureMasterAsync(image, path, strategy, stackedFrames, options.Solve ? solver : null, options.Sweep, logger, cancellationToken);
+                        record = await MeasureMasterAsync(image, path, strategy, stackedFrames, options.Solve ? solver : null, options.Sweep, headerWcs, logger, cancellationToken);
                     }
                     finally
                     {
@@ -292,17 +315,45 @@ namespace TianWen.Lib.Imaging.Dataset
                 await WriteMarkdownAsync(store.Values, reportPath, cancellationToken);
             }
 
-            return new RunResult(measured, skipped, failed, solved, storePath, reportPath);
+            return new RunResult(measured, skipped, failed, solved, storePath, reportPath, backfilled);
+        }
+
+        /// <summary>
+        /// <paramref name="stored"/> with the scale <see cref="ScaleOf"/> finds in the master's own header,
+        /// or <see langword="false"/> when the header states none (or the file no longer reads).
+        /// </summary>
+        private static bool TryBackfillScale(string path, MasterGradient stored, [NotNullWhen(true)] out MasterGradient? filled)
+        {
+            filled = null;
+            if (!Image.TryReadFitsFile(path, out var image, out var headerWcs))
+            {
+                return false;
+            }
+            try
+            {
+                var (scale, source) = ScaleOf(null, headerWcs, image.ImageMeta);
+                if (source.Length == 0)
+                {
+                    return false;
+                }
+                filled = stored with { PixelScaleArcsec = scale, ScaleSource = source };
+                return true;
+            }
+            finally
+            {
+                image.Release();
+            }
         }
 
         /// <summary>
         /// Measures one master: the default fit per plane, the sweep, and the covariates. The caller keeps
         /// ownership of <paramref name="master"/>; <paramref name="masterPath"/> is only read when
-        /// <paramref name="solver"/> is given (the solver works from the file).
+        /// <paramref name="solver"/> is given (the solver works from the file). <paramref name="headerWcs"/>
+        /// is the WCS the master's own header carries, the scale's fallback when this run does not solve.
         /// </summary>
         public static async Task<MasterGradient> MeasureMasterAsync(
             Image master, string masterPath, string strategy, int stackedFrames,
-            IPlateSolver? solver, bool sweep, ILogger? logger = null, CancellationToken cancellationToken = default)
+            IPlateSolver? solver, bool sweep, WCS? headerWcs = null, ILogger? logger = null, CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(master);
             var sw = Stopwatch.StartNew();
@@ -389,6 +440,7 @@ namespace TianWen.Lib.Imaging.Dataset
             // that then wanted the solution had to re-assert with `!` what the flag already implied.
             var solution = wcs is { HasCDMatrix: true } ? wcs.Value : (WCS?)null;
             var solved = solution.HasValue;
+            var (pixelScale, scaleSource) = ScaleOf(solution, headerWcs, meta);
             var raHours = solution?.CenterRA ?? meta.TargetRA;
             var decDeg = solution?.CenterDec ?? meta.TargetDec;
 
@@ -442,7 +494,8 @@ namespace TianWen.Lib.Imaging.Dataset
                 raHours, decDeg, solved,
                 alt, az, airmass, parallactic, horizonInFrame,
                 moonAlt, moonIllumination, moonSeparation, moonInFrame,
-                planes, sweepPoints, sw.ElapsedMilliseconds);
+                planes, sweepPoints, sw.ElapsedMilliseconds,
+                pixelScale, scaleSource);
         }
 
         /// <summary>
@@ -797,6 +850,10 @@ namespace TianWen.Lib.Imaging.Dataset
             sb.AppendLine();
 
             AppendGroupTable(sb, ci, "## By filter", "Filter", list, m => m.Filter.Length > 0 ? m.Filter : "(no filter recorded)");
+            AppendGroupTable(sb, ci, "## By field width (long side, each master's own scale)", "Field", list, FieldWidthBin, FieldWidthBinRank);
+            sb.AppendLine("A camera is not a field: one moved between scopes or lenses spans several rows of the table above, so read");
+            sb.AppendLine("the camera table below for the sensor, never for the field.");
+            sb.AppendLine();
             AppendGroupTable(sb, ci, "## By camera", "Camera", list, m => m.Camera.Length > 0 ? m.Camera : "(no camera recorded)");
 
             sb.AppendLine("## Threshold sensitivity (the two reasoned defaults)");
@@ -841,26 +898,57 @@ namespace TianWen.Lib.Imaging.Dataset
             sb.AppendLine("Sorted by amplitude. Alt is the field's altitude at the epoch; d-horizon and d-Moon are the signed angles from the");
             sb.AppendLine("horizon and Moon directions to the brightening direction (n/a when unsolved or the Moon is down).");
             sb.AppendLine();
-            sb.AppendLine("| Master | Camera | Filter | Object | N | Alt | Moon alt / illum | p-p / sigma | p-p / level | Shape | Brightening | d-horizon | d-Moon | Kept |");
-            sb.AppendLine("|--------|--------|--------|--------|---|-----|------------------|-------------|-------------|-------|-------------|-----------|--------|------|");
+            sb.AppendLine("| Master | Camera | Field deg | Filter | Object | N | Alt | Moon alt / illum | p-p / sigma | p-p / level | Shape | Brightening | d-horizon | d-Moon | Kept |");
+            sb.AppendLine("|--------|--------|-----------|--------|--------|---|-----|------------------|-------------|-------------|-------|-------------|-----------|--------|------|");
             foreach (var m in list.OrderByDescending(m => double.IsNaN(m.MeanPeakToPeakSigma) ? double.NegativeInfinity : m.MeanPeakToPeakSigma))
             {
                 var moon = double.IsNaN(m.MoonAltitudeDeg) ? "n/a" : string.Create(ci, $"{m.MoonAltitudeDeg:F0} / {m.MoonIllumination:P0}");
                 var dMoonText = m.MoonUp ? Fmt(ci, m.BrighteningMinusMoonDeg, "F0") : "n/a";
                 sb.AppendLine(string.Create(ci,
-                    $"| {Shorten(Path.GetFileNameWithoutExtension(m.Master))} | {m.Camera} | {m.Filter} | {m.ObjectName} | {m.StackedFrames} | {Fmt(ci, m.AltitudeDeg, "F0")} | {moon} | {Fmt(ci, m.MeanPeakToPeakSigma, "F1")} | {Fmt(ci, m.MeanPeakToPeakRelative, "F4")} | {m.DominantShape} | {Fmt(ci, m.BrighteningAngleDeg, "F0")} | {Fmt(ci, m.BrighteningMinusHorizonDeg, "F0")} | {dMoonText} | {Fmt(ci, m.MeanKeptFraction, "F2")} |"));
+                    $"| {Shorten(Path.GetFileNameWithoutExtension(m.Master))} | {m.Camera} | {Fmt(ci, m.FieldWidthDeg, "F1")} | {m.Filter} | {m.ObjectName} | {m.StackedFrames} | {Fmt(ci, m.AltitudeDeg, "F0")} | {moon} | {Fmt(ci, m.MeanPeakToPeakSigma, "F1")} | {Fmt(ci, m.MeanPeakToPeakRelative, "F4")} | {m.DominantShape} | {Fmt(ci, m.BrighteningAngleDeg, "F0")} | {Fmt(ci, m.BrighteningMinusHorizonDeg, "F0")} | {dMoonText} | {Fmt(ci, m.MeanKeptFraction, "F2")} |"));
             }
             sb.AppendLine();
             return sb.ToString();
         }
 
-        private static void AppendGroupTable(StringBuilder sb, CultureInfo ci, string heading, string column, List<MasterGradient> list, Func<MasterGradient, string> key)
+        /// <summary>
+        /// A master's scale in arcsec per pixel and where it came from: this run's solve, else the solved
+        /// CD matrix the master's own header carries (every master a bake writes is plate-solved), else a
+        /// DECLARED <c>PIXSCALE</c>. Never the scale derived from <c>FOCALLEN</c>: a camera moved between
+        /// scopes keeps whatever focal length its capture profile last said, so a derived scale can name
+        /// the wrong field outright (the QHY294C in this archive sat behind several). Unknown stays NaN
+        /// rather than becoming a guess the field-width table bins.
+        /// </summary>
+        internal static (double PixelScaleArcsec, string Source) ScaleOf(WCS? solved, WCS? header, in ImageMeta meta) =>
+            solved is { HasCDMatrix: true } fromSolve ? (fromSolve.PixelScaleArcsec, "solve")
+            : header is { HasCDMatrix: true } fromHeader ? (fromHeader.PixelScaleArcsec, "header")
+            : meta.DeclaredPixelScale > 0 ? (meta.DeclaredPixelScale, "declared")
+            : (double.NaN, "");
+
+        /// <summary>The field-width bin a master falls in; G1b's prediction is stated over these three.</summary>
+        internal static string FieldWidthBin(MasterGradient m) => m.FieldWidthDeg switch
+        {
+            < 4.0 => "under 4 deg",
+            < 10.0 => "4 to 10 deg",
+            >= 10.0 => "10 deg and over",
+            _ => "unknown scale",
+        };
+
+        private static int FieldWidthBinRank(string bin) => bin switch
+        {
+            "under 4 deg" => 0,
+            "4 to 10 deg" => 1,
+            "10 deg and over" => 2,
+            _ => 3,
+        };
+
+        private static void AppendGroupTable(StringBuilder sb, CultureInfo ci, string heading, string column, List<MasterGradient> list, Func<MasterGradient, string> key, Func<string, int>? rank = null)
         {
             sb.AppendLine(heading);
             sb.AppendLine();
             sb.AppendLine(string.Create(ci, $"| {column} | Masters | Planes | p-p / sigma p50 | p95 | p-p / level p50 | Linear share p50 | Dome planes |"));
             sb.AppendLine("|---|---|---|---|---|---|---|---|");
-            foreach (var g in list.GroupBy(key).OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
+            foreach (var g in list.GroupBy(key).OrderBy(g => rank?.Invoke(g.Key) ?? 0).ThenBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
             {
                 var gp = g.SelectMany(m => m.Planes).ToList();
                 var pp = Pct(gp.Select(p => (double)p.PeakToPeakSigma));
