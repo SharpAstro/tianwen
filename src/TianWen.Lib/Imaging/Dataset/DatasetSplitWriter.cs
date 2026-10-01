@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
 using System.Text;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 
 namespace TianWen.Lib.Imaging.Dataset;
 
@@ -64,12 +66,131 @@ public static class DatasetSplitWriter
     /// no-op.</para>
     /// </remarks>
     public static bool IsTestSession(string sessionId, double testFraction, IReadOnlySet<string>? alwaysHeldOut)
+        => IsTestSession(sessionId, testFraction, alwaysHeldOut, prior: null);
+
+    /// <summary>
+    /// The same, keeping the set a session had in a previous bake (<paramref name="prior"/>) when it
+    /// existed then. Forced first, then the prior, then the hash.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Why a prior at all.</b> The id carries the session's <c>FILTER</c> card
+    /// (<see cref="ImagingSession.GroupId"/>), so a curation pass that writes a missing card RENAMES the
+    /// session, and a renamed session would be re-drawn from a fresh hash: across the 79 filterless sessions
+    /// of the 2026-09-29 store that moves about twenty between sets, half of them from held-out into
+    /// training. Matching the prior by the id WITHOUT its filter component (<see cref="WithoutFilter"/>)
+    /// keeps every one where it was, and a session the prior never saw still takes its hash.</para>
+    /// </remarks>
+    public static bool IsTestSession(string sessionId, double testFraction, IReadOnlySet<string>? alwaysHeldOut, PriorSplit? prior)
         // Holding out a night holds out its flip sides too: naming the night is the natural way to
         // ask for it, and a side left behind in training would put the held-out sky back in the
-        // training set through the other door.
-        => (alwaysHeldOut is not null
-            && (alwaysHeldOut.Contains(sessionId) || alwaysHeldOut.Contains(GroupIdOf(sessionId))))
-           || IsTestSession(sessionId, testFraction);
+        // training set through the other door. A forced id written before the session gained a FILTER
+        // still names it.
+        => IsForced(sessionId, alwaysHeldOut)
+           || (prior?.WasTest(sessionId) ?? IsTestSession(sessionId, testFraction));
+
+    /// <summary>Whether <paramref name="alwaysHeldOut"/> names the session: by its id, its night's id, or
+    /// either before the session gained a <c>FILTER</c>.</summary>
+    public static bool IsForced(string sessionId, IReadOnlySet<string>? alwaysHeldOut)
+    {
+        if (alwaysHeldOut is null)
+        {
+            return false;
+        }
+        var group = GroupIdOf(sessionId);
+        return alwaysHeldOut.Contains(sessionId) || alwaysHeldOut.Contains(group) || alwaysHeldOut.Contains(WithoutFilter(group));
+    }
+
+    /// <summary>
+    /// A group id as it read before its session had a <c>FILTER</c> card: <c>dir|CAM|OBJECT</c>, or
+    /// <c>dir|CAM</c> when there is no target. An id with no filter component comes back unchanged.
+    /// </summary>
+    public static string WithoutFilter(string groupId)
+    {
+        var parts = groupId.Split('|');
+        return parts.Length != 4 ? groupId
+            : parts[2].Length > 0 ? string.Join('|', parts[0], parts[1], parts[2])
+            : string.Join('|', parts[0], parts[1]);
+    }
+
+    /// <summary>
+    /// A previous bake's split: every session it knew (its ledger) and the ones it held out (its pinned
+    /// file), by group id.
+    /// </summary>
+    public sealed class PriorSplit
+    {
+        private readonly HashSet<string> _known;
+        private readonly HashSet<string> _test;
+
+        /// <summary>A prior over these session ids; flip sides fold onto their night.</summary>
+        public PriorSplit(IEnumerable<string> knownIds, IEnumerable<string> testIds)
+        {
+            _known = new HashSet<string>(knownIds.Select(GroupIdOf), StringComparer.Ordinal);
+            _test = new HashSet<string>(testIds.Select(GroupIdOf), StringComparer.Ordinal);
+        }
+
+        /// <summary>Sessions the prior knew.</summary>
+        public int KnownCount => _known.Count;
+
+        /// <summary>
+        /// The set the session was in, or null when the prior never saw it: matched by its night's id,
+        /// then by that id before the session gained a <c>FILTER</c>.
+        /// </summary>
+        public bool? WasTest(string sessionId)
+        {
+            var group = GroupIdOf(sessionId);
+            if (_known.Contains(group))
+            {
+                return _test.Contains(group);
+            }
+            var legacy = WithoutFilter(group);
+            return legacy != group && _known.Contains(legacy) ? _test.Contains(legacy) : null;
+        }
+
+        /// <summary>Whether the prior placed this session only through its id before a <c>FILTER</c> was added.</summary>
+        public bool MatchedByLegacyId(string sessionId)
+        {
+            var group = GroupIdOf(sessionId);
+            return !_known.Contains(group) && _known.Contains(WithoutFilter(group));
+        }
+
+        /// <summary>
+        /// The prior a store holds: its session ledger's ids and its pinned test file. Empty for a store
+        /// that has neither, which leaves every session to its hash.
+        /// </summary>
+        public static async Task<PriorSplit> ReadAsync(string storeDir, ILogger? logger = null, CancellationToken cancellationToken = default)
+        {
+            var ledger = await DatasetSessionLedger.ReadAsync(
+                Path.Combine(storeDir, "stats", DatasetSessionLedger.FileName), logger, cancellationToken);
+            return new PriorSplit(ledger.Keys, ReadPinned(Path.Combine(storeDir, TestSessionsFileName)));
+        }
+    }
+
+    /// <summary>The ids a pinned <see cref="TestSessionsFileName"/> holds out, comments and markers stripped;
+    /// empty when the file does not exist.</summary>
+    public static ImmutableArray<string> ReadPinned(string path)
+    {
+        if (!File.Exists(path))
+        {
+            return [];
+        }
+        var ids = ImmutableArray.CreateBuilder<string>();
+        foreach (var raw in File.ReadLines(path))
+        {
+            var line = raw.Trim();
+            if (line.Length == 0 || line.StartsWith('#'))
+            {
+                continue;
+            }
+            // A marker such as "\t# FORCED" follows the id.
+            var cut = line.IndexOfAny(['\t', '#']);
+            var id = (cut < 0 ? line : line[..cut]).Trim();
+            if (id.Length > 0)
+            {
+                ids.Add(id);
+            }
+        }
+        return ids.ToImmutable();
+    }
 
     /// <summary>The held-out TEST session ids among <paramref name="sessionIds"/>, ordinal-sorted
     /// (canonical order, independent of input order).</summary>
@@ -80,11 +201,16 @@ public static class DatasetSplitWriter
     /// <paramref name="alwaysHeldOut"/>. Ordinal-sorted.</summary>
     public static ImmutableArray<string> SelectTestSessions(
         IEnumerable<string> sessionIds, double testFraction, IReadOnlySet<string>? alwaysHeldOut)
+        => SelectTestSessions(sessionIds, testFraction, alwaysHeldOut, prior: null);
+
+    /// <summary>The held-out TEST session ids, a session the <paramref name="prior"/> knew keeping its set.</summary>
+    public static ImmutableArray<string> SelectTestSessions(
+        IEnumerable<string> sessionIds, double testFraction, IReadOnlySet<string>? alwaysHeldOut, PriorSplit? prior)
     {
         var test = ImmutableArray.CreateBuilder<string>();
         foreach (var id in sessionIds)
         {
-            if (IsTestSession(id, testFraction, alwaysHeldOut))
+            if (IsTestSession(id, testFraction, alwaysHeldOut, prior))
             {
                 test.Add(id);
             }
@@ -100,14 +226,21 @@ public static class DatasetSplitWriter
 
     /// <summary>The same, honouring <paramref name="alwaysHeldOut"/> and MARKING those entries in the
     /// file, so a reader can tell a deliberate exclusion from a hash outcome.</summary>
-    public static async Task<ImmutableArray<string>> WriteAsync(
+    public static Task<ImmutableArray<string>> WriteAsync(
         IEnumerable<string> sessionIds, double testFraction, string path,
         IReadOnlySet<string>? alwaysHeldOut, CancellationToken cancellationToken = default)
+        => WriteAsync(sessionIds, testFraction, path, alwaysHeldOut, prior: null, cancellationToken);
+
+    /// <summary>The same, a session the <paramref name="prior"/> knew keeping its set.</summary>
+    public static async Task<ImmutableArray<string>> WriteAsync(
+        IEnumerable<string> sessionIds, double testFraction, string path,
+        IReadOnlySet<string>? alwaysHeldOut, PriorSplit? prior, CancellationToken cancellationToken = default)
     {
-        var test = SelectTestSessions(sessionIds, testFraction, alwaysHeldOut);
+        var test = SelectTestSessions(sessionIds, testFraction, alwaysHeldOut, prior);
         var sb = new StringBuilder();
         sb.AppendLine("# Pinned held-out TEST sessions (by session id). Training MUST exclude these.");
-        sb.AppendLine("# Assignment is a stable hash bucket of the id -- adding sessions never reshuffles the split.");
+        sb.AppendLine("# A session the previous bake knew keeps its set (matched by its id, or by its id before it gained a");
+        sb.AppendLine("# FILTER card); a new session takes a stable hash bucket of its id -- adding sessions never reshuffles.");
         sb.AppendLine("# A line marked FORCED was held out deliberately, not by its bucket.");
         sb.AppendLine($"# An id ending '|{ImagingSession.FlipSideKey}=<side>' is ONE SIDE of a meridian flip and is the");
         sb.AppendLine("# SAME SKY as the id without that suffix: it belongs to whichever set that id is in, whether or");
@@ -115,7 +248,7 @@ public static class DatasetSplitWriter
         sb.AppendLine("# literally, or a side trains on sky the eval is measured over.");
         foreach (var id in test)
         {
-            var forced = alwaysHeldOut is not null && alwaysHeldOut.Contains(id);
+            var forced = IsForced(id, alwaysHeldOut);
             sb.AppendLine(forced ? $"{id}	# FORCED" : id);
         }
         Directory.CreateDirectory(Path.GetDirectoryName(path) ?? ".");

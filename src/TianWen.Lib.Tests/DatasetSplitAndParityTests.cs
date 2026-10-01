@@ -82,5 +82,97 @@ namespace TianWen.Lib.Tests
             parity.MaxAbsDiff.ShouldBe(0.0, "stored tiles must equal the C# stretch of the source (zero train/inference skew)");
             output.WriteLine($"parity checked={parity.Checked} maxDiff={parity.MaxAbsDiff}");
         }
+
+        private const double Fraction = 0.15;
+
+        /// <summary>The first <c>night|Cam|Target</c> id whose own hash says <paramref name="wasTest"/> and whose
+        /// renamed id (with <c>|Filter</c>) says the opposite: the case a rename would move.</summary>
+        private static (string Old, string Renamed) FlippingId(bool wasTest, string filter = "Optolong L-eNhance")
+        {
+            for (var i = 0; ; i++)
+            {
+                var old = $"Cam/Slug/Target/2024-01-{i:D4}|Cam|Target";
+                var renamed = old + "|" + filter;
+                if (DatasetSplitWriter.IsTestSession(old, Fraction) == wasTest && DatasetSplitWriter.IsTestSession(renamed, Fraction) != wasTest)
+                {
+                    return (old, renamed);
+                }
+            }
+        }
+
+        [Fact]
+        public void ASessionThatGainsAFilterKeepsTheSetItHadBothWays()
+        {
+            var (testOld, testRenamed) = FlippingId(wasTest: true);
+            var (trainOld, trainRenamed) = FlippingId(wasTest: false);
+            var prior = new DatasetSplitWriter.PriorSplit([testOld, trainOld], [testOld]);
+
+            // Held out before the FILTER card was written, held out after: no held-out sky reaches training.
+            DatasetSplitWriter.IsTestSession(testRenamed, Fraction, alwaysHeldOut: null, prior).ShouldBeTrue();
+            // And a training session does not drift into the held-out set either.
+            DatasetSplitWriter.IsTestSession(trainRenamed, Fraction, alwaysHeldOut: null, prior).ShouldBeFalse();
+            prior.MatchedByLegacyId(testRenamed).ShouldBeTrue();
+            prior.MatchedByLegacyId(testOld).ShouldBeFalse();
+            // Without the prior both would have moved, which is what the prior is for.
+            DatasetSplitWriter.IsTestSession(testRenamed, Fraction).ShouldBeFalse();
+            DatasetSplitWriter.IsTestSession(trainRenamed, Fraction).ShouldBeTrue();
+        }
+
+        [Fact]
+        public void ASessionThePriorNeverSawStillTakesItsHash()
+        {
+            var (testOld, _) = FlippingId(wasTest: true);
+            var prior = new DatasetSplitWriter.PriorSplit([testOld], [testOld]);
+            foreach (var id in Enumerable.Range(0, 50).Select(i => $"New/Session/{i}|Cam|Field|Ha"))
+            {
+                DatasetSplitWriter.IsTestSession(id, Fraction, alwaysHeldOut: null, prior).ShouldBe(DatasetSplitWriter.IsTestSession(id, Fraction));
+            }
+        }
+
+        [Fact]
+        public void AFlipSideAndAForcedIdFollowTheirNightThroughTheRename()
+        {
+            var (testOld, testRenamed) = FlippingId(wasTest: true);
+            var prior = new DatasetSplitWriter.PriorSplit([testOld], [testOld]);
+            DatasetSplitWriter.IsTestSession(testRenamed + "|flip=a", Fraction, alwaysHeldOut: null, prior).ShouldBeTrue();
+
+            var (trainOld, trainRenamed) = FlippingId(wasTest: false);
+            var forced = new HashSet<string>(StringComparer.Ordinal) { trainOld };
+            DatasetSplitWriter.IsForced(trainRenamed, forced).ShouldBeTrue();
+            DatasetSplitWriter.IsForced(trainRenamed + "|flip=b", forced).ShouldBeTrue();
+            DatasetSplitWriter.IsTestSession(trainRenamed, Fraction, forced, prior: null).ShouldBeTrue();
+        }
+
+        [Fact]
+        public void TheFilterComponentIsTheFourthPartOfAGroupId()
+        {
+            DatasetSplitWriter.WithoutFilter("d/n|Cam|Target|Ha").ShouldBe("d/n|Cam|Target");
+            DatasetSplitWriter.WithoutFilter("d/n|Cam||Ha").ShouldBe("d/n|Cam");
+            DatasetSplitWriter.WithoutFilter("d/n|Cam|Target").ShouldBe("d/n|Cam|Target");
+            DatasetSplitWriter.WithoutFilter("d/n|Cam").ShouldBe("d/n|Cam");
+        }
+
+        [Fact]
+        public async Task ThePriorIsTheStoresLedgerAndPinnedFileAndTheWrittenSplitKeepsIt()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            Directory.CreateDirectory(Path.Combine(_dir, "stats"));
+            var (testOld, testRenamed) = FlippingId(wasTest: true);
+            var (trainOld, trainRenamed) = FlippingId(wasTest: false);
+            var ledgerPath = Path.Combine(_dir, "stats", DatasetSessionLedger.FileName);
+            foreach (var id in new[] { testOld, trainOld })
+            {
+                await DatasetSessionLedger.AppendAsync(ledgerPath, new DatasetSessionLedger.SessionLedgerEntry(id, "x", 3, DateTimeOffset.UnixEpoch, 0, "tiles/x"), ct);
+            }
+            var splitPath = Path.Combine(_dir, DatasetSplitWriter.TestSessionsFileName);
+            await DatasetSplitWriter.WriteAsync([testOld, trainOld], Fraction, splitPath, ct);
+
+            var prior = await DatasetSplitWriter.PriorSplit.ReadAsync(_dir, cancellationToken: ct);
+            prior.KnownCount.ShouldBe(2);
+            var written = await DatasetSplitWriter.WriteAsync([testRenamed, trainRenamed], Fraction, splitPath, alwaysHeldOut: null, prior, ct);
+
+            written.ShouldBe([testRenamed]);
+            DatasetSplitWriter.ReadPinned(splitPath).ShouldBe([testRenamed]);
+        }
     }
 }

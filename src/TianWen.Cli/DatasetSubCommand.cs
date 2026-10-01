@@ -81,6 +81,12 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             AllowMultipleArgumentsPerToken = true,
         };
 
+        var splitFromOpt = new Option<string?>("--split-from")
+        {
+            Description = "A store whose train/test split this bake keeps: a session it knew stays in its set " +
+                          "(matched by id, or by its id before it gained a FILTER card), a new one takes its " +
+                          "hash. Defaults to the output store itself; name the old store when baking a fresh one.",
+        };
         var rebuildSessionOpt = new Option<string[]>("--rebuild-session")
         {
             Description = "Case-insensitive wildcard(s) on the session id (repeatable): with --resume, a " +
@@ -285,7 +291,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             Options =
             {
                 archiveRootOpt, outOpt,
-                minExposureOpt, maxExposureOpt, excludeInstrumeOpt, excludeObjectOpt, excludePathOpt, holdOutOpt, rebuildSessionOpt, sessionOpt, parametersOpt, minSubsOpt,
+                minExposureOpt, maxExposureOpt, excludeInstrumeOpt, excludeObjectOpt, excludePathOpt, holdOutOpt, rebuildSessionOpt, splitFromOpt, sessionOpt, parametersOpt, minSubsOpt,
                 tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, requireDarkOpt, requireGainMatchOpt, maxDarkDeltaTOpt, hotPixelSigmaOpt, warpInterpolationOpt, softwareOpt, discoverOnlyOpt, resumeOpt, fillMissingPsfOpt, forcePsfOpt, remeasureSubsOpt, siteOpt, scratchRootOpt,
                 noStageLightsOpt, noHeaderIndexOpt,
             },
@@ -370,6 +376,11 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             if (parseResult.GetValue(holdOutOpt) is { Length: > 0 } holdOut)
             {
                 options = options with { AlwaysHeldOutSessions = [.. holdOut] };
+            }
+
+            if (parseResult.GetValue(splitFromOpt) is { Length: > 0 } splitFrom)
+            {
+                options = options with { SplitFrom = splitFrom };
             }
 
             if (parseResult.GetValue(rebuildSessionOpt) is { Length: > 0 } rebuild)

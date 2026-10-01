@@ -67,6 +67,13 @@ public sealed record DatasetBuildOptions
     public ImmutableArray<string> AlwaysHeldOutSessions { get; init; } = [];
 
     /// <summary>
+    /// The store whose split this bake keeps: a session that store knew stays in its set (matched by its id,
+    /// or by its id before it gained a <c>FILTER</c> card), a new one takes its hash. Null means the output
+    /// store itself; a fresh store names the one it replaces, or its split is drawn anew.
+    /// </summary>
+    public string? SplitFrom { get; init; }
+
+    /// <summary>
     /// Case-insensitive wildcards on the session id (the <see cref="ExcludeObjectPattern"/> matching):
     /// on a resume a matching session is rebuilt even when its inputs and recipe are unchanged.
     /// </summary>

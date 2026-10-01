@@ -169,7 +169,7 @@ public static class DatasetGradientFrameExporter
         {
             sessionByStem[Path.GetFileName(entry.TileDirRelative)] = entry.SessionId;
         }
-        var heldOut = ReadPinnedTestSessions(options.TestSessionsPath);
+        var heldOut = DatasetSplitWriter.ReadPinned(options.TestSessionsPath).ToHashSet(StringComparer.Ordinal);
         var covariates = options.GradientStorePath is { } storePath && File.Exists(storePath)
             ? await DatasetGradientStore.ReadAsync(storePath, logger, cancellationToken)
             : new Dictionary<string, DatasetGradientReport.MasterGradient>();
@@ -321,32 +321,6 @@ public static class DatasetGradientFrameExporter
         return at > 0 && sessionByStem.TryGetValue(masterStem[..at], out var night)
             ? night + "|" + ImagingSession.FlipSideKey + "=" + masterStem[(at + marker.Length)..]
             : "";
-    }
-
-    /// <summary>The ids a bake's pinned <c>test-sessions.txt</c> holds out, comments and markers stripped.</summary>
-    internal static HashSet<string> ReadPinnedTestSessions(string path)
-    {
-        var ids = new HashSet<string>(StringComparer.Ordinal);
-        if (!File.Exists(path))
-        {
-            return ids;
-        }
-        foreach (var raw in File.ReadLines(path))
-        {
-            var line = raw.Trim();
-            if (line.Length == 0 || line.StartsWith('#'))
-            {
-                continue;
-            }
-            // A marker such as "\t# FORCED" follows the id.
-            var cut = line.IndexOfAny(['\t', '#']);
-            var id = (cut < 0 ? line : line[..cut]).Trim();
-            if (id.Length > 0)
-            {
-                ids.Add(id);
-            }
-        }
-        return ids;
     }
 
     /// <summary>The coverage depth per sample: the channels' mean count over its maximum, NaN where absent.</summary>
