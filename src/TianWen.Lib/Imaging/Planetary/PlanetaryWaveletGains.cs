@@ -132,11 +132,15 @@ public static class PlanetaryWaveletGains
     /// each weighted by the stack's power inside the disk (<paramref name="stackPower"/>) times the sum of the fitted layers'
     /// transfers squared, the expected error in the bands they make.</item>
     /// </list>
+    /// The <paramref name="held"/> finest layers can be held at 1 too, for a kernel that is not measured there: their bands' error
+    /// still counts, and the other gains are fitted around them.
     /// </summary>
     public static ImmutableArray<double> Fit(ImmutableArray<double> stackPower, ImmutableArray<double> wiener, ReadOnlySpan<float> sharpDisk, ReadOnlySpan<float> blurredDisk,
-        int width, int height, MetricDisk disk, int scales = Scales, int fitted = ScoredBands)
+        int width, int height, MetricDisk disk, int scales = Scales, int fitted = ScoredBands, int held = 0)
     {
         ArgumentOutOfRangeException.ThrowIfGreaterThan(fitted, scales);
+        ArgumentOutOfRangeException.ThrowIfNegative(held);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(held, fitted);
         var (a, b) = TextureNormalEquations(stackPower, wiener, fitted);
         var (da, db) = PlanetaryCeilings.JointNormalEquations(blurredDisk, sharpDisk, width, height, disk, fitted);
         for (var j = 0; j < fitted; j++)
@@ -147,7 +151,28 @@ public static class PlanetaryWaveletGains
                 a[j, k] += da[j, k];
             }
         }
-        return Gains(PlanetaryCeilings.Solve(a, b), scales);
+        // The held gains are 1: what they put into the others' equations moves to the right-hand side.
+        var free = fitted - held;
+        var (af, bf) = (new double[free, free], new double[free]);
+        for (var j = 0; j < free; j++)
+        {
+            bf[j] = b[held + j];
+            for (var h = 0; h < held; h++)
+            {
+                bf[j] -= a[held + j, h];
+            }
+            for (var k = 0; k < free; k++)
+            {
+                af[j, k] = a[held + j, held + k];
+            }
+        }
+        var solved = PlanetaryCeilings.Solve(af, bf);
+        var gains = ImmutableArray.CreateBuilder<double>(scales);
+        for (var j = 0; j < scales; j++)
+        {
+            gains.Add(j >= held && j < fitted ? solved[j - held] : 1);
+        }
+        return gains.MoveToImmutable();
     }
 
     /// <summary>

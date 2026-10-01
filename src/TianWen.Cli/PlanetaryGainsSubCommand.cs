@@ -36,13 +36,14 @@ internal sealed class PlanetaryGainsSubCommand(IConsoleHost consoleHost, MasterP
         var windowOpt = new Option<int>("--window") { Description = "The side of the window about the disk, px.", DefaultValueFactory = _ => 256 };
         var otherStackOpt = new Option<string?>("--other-stack") { Description = "Another program's stack of the same capture (an AutoStakkert TIFF, say), read beside its sharpened result." };
         var otherSharpenedOpt = new Option<string?>("--other-sharpened") { Description = "That program's sharpened result: its rise over its own stack per band, and its undershoot." };
+        var holdOpt = new Option<int>("--hold") { Description = "Also derive with this many finest layers held at 1 (a kernel not measured there, R7 part 4's band 1).", DefaultValueFactory = _ => 0 };
         var panelOpt = new Option<string?>("--panel") { Description = "A PNG of the disk: the truth (a twin's), the stack, the derived gains with (b') and the presets as shipped, then the presets at matched noise below." };
 
         var command = new Command("planetary-gains",
             "Wavelet gains derived from a stack's own power, its halves' noise, the limb's kernel and its disk, against the presets as shipped and at matched noise (R8, #1055).")
         {
             Arguments = { inputArg },
-            Options = { truthOpt, planetOpt, framesOpt, keepOpt, telescopeOpt, wavelengthOpt, windowOpt, otherStackOpt, otherSharpenedOpt, panelOpt },
+            Options = { truthOpt, planetOpt, framesOpt, keepOpt, telescopeOpt, wavelengthOpt, windowOpt, otherStackOpt, otherSharpenedOpt, holdOpt, panelOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -121,8 +122,8 @@ internal sealed class PlanetaryGainsSubCommand(IConsoleHost consoleHost, MasterP
                 var noise = PlanetaryWaveletGains.HalvesNoise(aWindow, bWindow, size, size, disk);
                 var white = PlanetaryInverse.WhiteNoise(PlanetaryWaveletGains.Interior(stackWindow, size, size, disk), size, size);
                 var whiteNoise = ImmutableArray.CreateRange(Enumerable.Repeat(white, noise.Length));
-                ImmutableArray<double> Derive(Func<double, double> kernel, ImmutableArray<double> n) =>
-                    PlanetaryWaveletGains.Fit(power, PlanetaryWaveletGains.Wiener(power, n, kernel), diskTarget, PlanetaryInverse.Apply(diskTarget, size, size, kernel), size, size, disk);
+                ImmutableArray<double> Derive(Func<double, double> kernel, ImmutableArray<double> n, int held = 0) =>
+                    PlanetaryWaveletGains.Fit(power, PlanetaryWaveletGains.Wiener(power, n, kernel), diskTarget, PlanetaryInverse.Apply(diskTarget, size, size, kernel), size, size, disk, held: held);
 
                 var halfNoise = noise.Skip(noise.Length / 8).Take(noise.Length / 4).Average();
                 consoleHost.WriteScrollable(string.Create(inv,
@@ -142,6 +143,11 @@ internal sealed class PlanetaryGainsSubCommand(IConsoleHost consoleHost, MasterP
                 rows.Add(($"derived, (b') [{Show(derived)}]", PlanetaryWaveletGains.Apply(stackWindow, size, size, derived.AsSpan())));
                 var derivedWhite = Derive(measured, whiteNoise);
                 rows.Add(($"derived, (b'), white noise [{Show(derivedWhite)}]", PlanetaryWaveletGains.Apply(stackWindow, size, size, derivedWhite.AsSpan())));
+                if (parseResult.GetValue(holdOpt) is var hold and > 0)
+                {
+                    var held = Derive(measured, noise, hold);
+                    rows.Add(($"derived, (b'), the finest {hold} held at 1 [{Show(held)}]", PlanetaryWaveletGains.Apply(stackWindow, size, size, held.AsSpan())));
+                }
                 float[]? jointPlane = null;
                 if (truthWindow is { } tw)
                 {

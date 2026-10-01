@@ -101,6 +101,11 @@ public class PlanetaryWaveletGainsTests
         e1.ShouldBeLessThan(e0);
         e1.ShouldBeLessThan(e2);
         e1.ShouldBeLessThan(1.2 * e3);
+
+        // The finest layer held at 1: it stays at 1, and the rest are fitted around it.
+        var held = PlanetaryWaveletGains.Fit(power, wiener, sharpDisk, blurredDisk, size, size, disk, held: 1);
+        held[0].ShouldBe(1);
+        Error(PlanetaryWaveletGains.Apply(stack, size, size, held.AsSpan())).ShouldBeLessThan(e0);
     }
 
     private static double Normal(Random random) => Math.Sqrt(-2 * Math.Log(1 - random.NextDouble())) * Math.Cos(2 * Math.PI * random.NextDouble());
