@@ -7,18 +7,17 @@ using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.Planetary;
 
-/// <summary>A ghost fitted beyond a planet: a copy of it, scaled, moved and spread by an elliptical defocus annulus, beside a free round glow and the sky.</summary>
+/// <summary>A ghost fitted beyond a planet: a copy of it, scaled, moved and spread by an elliptical defocus disk, beside a free round glow and the sky.</summary>
 /// <param name="Strength">The copy's share of the planet's light, a: fixed only together with its shape beside a free round glow.</param>
 /// <param name="ShiftX">The copy's offset, px.</param>
 /// <param name="ShiftY">The copy's offset, px.</param>
 /// <param name="Radius">The defocus disk's semi-major axis, px.</param>
 /// <param name="AxisRatio">The disk's minor axis over its major, one for a round disk.</param>
 /// <param name="AngleDeg">The major axis's angle from +x, degrees, toward +y (down the image).</param>
-/// <param name="Obstruction">The annulus's hole over its outside, a defocused Newtonian pupil's secondary; zero for a filled disk.</param>
 /// <param name="Glow">The glow's share at each of <see cref="PlanetaryGhost.Source.GlowKnots"/>: its kernel is their tents, so weighted.</param>
 /// <param name="Sky">The sky left after the plane's own zero.</param>
 /// <param name="Rms">The residual's RMS over the fitted pixels.</param>
-public readonly record struct GhostFit(double Strength, double ShiftX, double ShiftY, double Radius, double AxisRatio, double AngleDeg, double Obstruction, ImmutableArray<double> Glow, double Sky, double Rms);
+public readonly record struct GhostFit(double Strength, double ShiftX, double ShiftY, double Radius, double AxisRatio, double AngleDeg, ImmutableArray<double> Glow, double Sky, double Rms);
 
 /// <summary>The glow and sky alone, no copy and no flare: what a ghost or coma has to improve on.</summary>
 public readonly record struct GlowFit(ImmutableArray<double> Glow, double Sky, double Rms);
@@ -33,14 +32,15 @@ public readonly record struct Quadrupole(double From, double To, double Amplitud
 /// R7a's ghost (docs/plans/planetary-restoration.md): a faint, sharp-edged, lopsided shell the ASI290MM's stacks carry around a planet,
 /// modelled as the comet work separated a comet from its stars, a copy of the planet itself scaled, moved and blurred by a defocus disk,
 /// beside a broad glow, both fitted beyond the planet where they are alone, and the copy subtracted everywhere, the disk included. Coma
-/// is fitted beside it as an alternative: a flare from the planet itself. The copy's disk is an ELLIPTICAL annulus (what the 2022-09-03 stacks
+/// is fitted beside it as an alternative: a flare from the planet itself. The copy's disk is ELLIPTICAL (what the 2022-09-03 stacks
 /// show once their round part is taken out: a quadrupole, ranked by filter, and almost no dipole), and the glow is any ROUND kernel
 /// (tents in radius, solved linearly). No round glow tells a copy's round part from scatter, so the copy's strength is fixed only
 /// together with its shape, and what is taken out is the copy's NON-ROUND part (<see cref="NonRound"/>), beyond the object: the
 /// shell, which is what can be told from the halo. A power law, one or two, left the twin's halo to a copy or fell apart (revisions 1,
 /// 2 and 4); the fit starts 8 px out, past the blurred limb the source misses and the elongated blur of every 2022 filter. The copy is
-/// of the planet alone (a moon's copy is a streak the data does not have), and its disk has a hole (a filled one put L's shell too
-/// near the limb, revision 6; a defocused Newtonian pupil is an annulus).
+/// of the planet alone (a moon's copy is a streak the data does not have), and the shell is taken out only where it was fitted
+/// (<see cref="Shell"/>): nearer the limb the copy is an extrapolation, which put L's shell too near it (revisions 6 and 7; a hole in the
+/// disk, a defocused Newtonian pupil's, did not move it, L fitting none).
 /// Planes here have the sky at zero and the planet's 99.5th percentile at one (<see cref="Normalise"/>).
 /// </summary>
 public static class PlanetaryGhost
@@ -272,6 +272,7 @@ public static class PlanetaryGhost
                 }
             }
             Fitted = [.. fitted];
+            Margin = margin;
             var reach = 0.4 * Math.Max(width, height);
             GlowKnots = [.. new[] { 0, 1.5, 3, 4.5, 6, 8, 10, 13, 16, 20, 25, 32, 40, 50, 64, 80, 100, 128, 160, 200, 256, 320, 400, 512 }.Where(k => k <= reach)];
             double cx = 0, cy = 0;
@@ -315,6 +316,9 @@ public static class PlanetaryGhost
 
         /// <summary>The pixels a fit is made over: the clear ones at least the margin outside the planet.</summary>
         public ImmutableArray<int> Fitted { get; }
+
+        /// <summary>How far outside the planet the fit starts, px.</summary>
+        public double Margin { get; }
 
         /// <summary>
         /// The ghost alone: <paramref name="strength"/> times the planet through a uniform elliptical annulus of semi-major axis
@@ -452,7 +456,6 @@ public static class PlanetaryGhost
         double[] best = [];
         var bestCost = double.PositiveInfinity;
         var disks = new[] { (0.95, 0.0) }.Concat(new[] { 0.0, 45, 90, 135 }.Select(a => (0.6, a))).ToArray();
-        var holes = new[] { 0.05, 0.5 };
         foreach (var dx in new[] { -8.0, 0, 8 })
         {
             foreach (var dy in new[] { -8.0, 0, 8 })
@@ -461,28 +464,24 @@ public static class PlanetaryGhost
                 {
                     foreach (var (ratio, angle) in disks)
                     {
-                        foreach (var hole in holes)
+                        var (_, cost) = projection.Solve(source.Ghost(1, dx, dy, radius, ratio, angle));
+                        if (cost < bestCost)
                         {
-                            var (_, cost) = projection.Solve(source.Ghost(1, dx, dy, radius, ratio, angle, hole));
-                            if (cost < bestCost)
-                            {
-                                (bestCost, best) = (cost, [dx, dy, radius, Math.Log((ratio - MinRatio) / (1 - ratio)), angle, Math.Log(hole / (MaxObstruction - hole))]);
-                            }
+                            (bestCost, best) = (cost, [dx, dy, radius, Math.Log((ratio - MinRatio) / (1 - ratio)), angle]);
                         }
                     }
                 }
             }
         }
-        float[] Shape(ReadOnlySpan<double> p) => source.Ghost(1, p[0], p[1], p[2], Ratio(p[3]), p[4], Obstruction(p[5]));
+        float[] Shape(ReadOnlySpan<double> p) => source.Ghost(1, p[0], p[1], p[2], Ratio(p[3]), p[4]);
         var result = LevenbergMarquardt.Fit(best, source.Fitted.Length, (p, residuals) =>
         {
             var shape = Shape(p);
             projection.Residuals(shape, projection.Solve(shape).Coefficients, residuals);
-        }, [1e-3, 1e-3, 1e-3, 1e-4, 1e-2, 1e-4], maxIterations: 60);
+        }, [1e-3, 1e-3, 1e-3, 1e-4, 1e-2], maxIterations: 60);
         var q = result.Parameters;
         var (c, final) = projection.Solve(Shape(q));
-        return new GhostFit(c[0], q[0], q[1], Math.Abs(q[2]), Ratio(q[3]), ((q[4] % 180) + 180) % 180, Obstruction(q[5]), [.. c[1..^1]], c[^1],
-            Math.Sqrt(final / source.Fitted.Length));
+        return new GhostFit(c[0], q[0], q[1], Math.Abs(q[2]), Ratio(q[3]), ((q[4] % 180) + 180) % 180, [.. c[1..^1]], c[^1], Math.Sqrt(final / source.Fitted.Length));
     }
 
     /// <summary>Coma in the ghost's place: the flare, free glow and sky that bring the object nearest <paramref name="plane"/>.</summary>
@@ -518,10 +517,25 @@ public static class PlanetaryGhost
 
     private static double Ratio(double w) => MinRatio + ((1 - MinRatio) / (1 + Math.Exp(-w)));
 
-    // The fitted hole's ceiling: past nine tenths an annulus is a thin ring, which no secondary shadows.
-    private const double MaxObstruction = 0.9;
 
-    private static double Obstruction(double v) => MaxObstruction / (1 + Math.Exp(-v));
+    /// <summary>How far inside the fit's margin the shell taken out falls to nothing, px.</summary>
+    public const double ShellTaper = 4;
+
+    /// <summary>
+    /// What is taken out of a stack: <paramref name="copy"/>'s non-round part (<see cref="NonRound"/>) where the copy was fitted, from the
+    /// fit's margin out, falling linearly to nothing over the <see cref="ShellTaper"/> px inside it. Nearer the limb the copy was never
+    /// fitted, and there every 2022-09-03 filter's own blur is elongated, which is the kernel's to take.
+    /// </summary>
+    public static float[] Shell(ReadOnlySpan<float> copy, Source source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        var shell = NonRound(copy, source);
+        for (var i = 0; i < shell.Length; i++)
+        {
+            shell[i] *= (float)Math.Clamp((source.Distance[i] - (source.Margin - ShellTaper)) / ShellTaper, 0, 1);
+        }
+        return shell;
+    }
 
     /// <summary>
     /// What of <paramref name="plane"/> is not round about <paramref name="source"/>'s object: beyond the object, each pixel less the mean
