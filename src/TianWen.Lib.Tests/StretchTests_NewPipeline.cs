@@ -55,7 +55,7 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
         await doc.DetectStarsAsync(ct);
 
         var img = doc.UnstretchedImage;
-        output.WriteLine($"Image: {img.Width}x{img.Height}x{img.ChannelCount}  stars={doc.Stars?.Count ?? 0}  HFR={doc.AverageHFR:F2}");
+        output.WriteLine($"Image: {img.Width}x{img.Height}x{img.ChannelCount}  stars={doc.Findings.Stars?.Count ?? 0}  HFD={doc.Findings.MedianHfd:F2}");
         output.WriteLine($"PerChannelBg: R={doc.PerChannelBackground[0]:F4} G={doc.PerChannelBackground[1]:F4} B={doc.PerChannelBackground[2]:F4}");
 
         if (useConvergence)
@@ -407,13 +407,13 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
         output.WriteLine($"Synthetic WCS: center=({wcs.CenterRA:F4}h, {wcs.CenterDec:F3}°)  scale={pixelScaleArcsec:F3}\"/px");
 
         var doc = await AstroImageDocument.AdoptImageAsync(bayerImage, DebayerAlgorithm.AHD, wcs, filePath: "synthetic.fits", cancellationToken: ct);
-        doc.IsPlateSolved.ShouldBeTrue();
+        doc.Findings.IsPlateSolved.ShouldBeTrue();
 
         var sw = Stopwatch.StartNew();
         await doc.DetectStarsAsync(ct);
         sw.Stop();
-        output.WriteLine($"Star detection: {doc.Stars?.Count ?? 0} stars in {sw.Elapsed.TotalMilliseconds:F0}ms");
-        (doc.Stars?.Count ?? 0).ShouldBeGreaterThan(20, "synthetic field should yield enough detections for SPCC");
+        output.WriteLine($"Star detection: {doc.Findings.Stars?.Count ?? 0} stars in {sw.Elapsed.TotalMilliseconds:F0}ms");
+        (doc.Findings.Stars?.Count ?? 0).ShouldBeGreaterThan(20, "synthetic field should yield enough detections for SPCC");
 
         // Drive the SPCC pipeline through the document: uses BuildChannelThroughputs (IMX533 QE x
         // Sony CFA per channel) + Tycho2ColorCalibration.ComputeSpectrophotometricWhiteBalance.

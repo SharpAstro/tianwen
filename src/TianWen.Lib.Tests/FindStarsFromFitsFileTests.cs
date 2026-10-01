@@ -198,13 +198,13 @@ public class FindStarsFromFitsFileTests(ITestOutputHelper testOutputHelper)
         var sw = Stopwatch.StartNew();
         await document.DetectStarsAsync(cancellationToken);
         testOutputHelper.WriteLine("DetectStarsAsync on {0} took {1:F0} ms, found {2} stars (HFR={3:F2}, FWHM={4:F2})",
-            name, sw.Elapsed.TotalMilliseconds, document.Stars?.Count ?? -1, document.AverageHFR, document.AverageFWHM);
+            name, sw.Elapsed.TotalMilliseconds, document.Findings.Stars?.Count ?? -1, document.Findings.MedianHfd, document.Findings.MedianFwhm);
 
         // then
-        document.Stars.ShouldNotBeNull();
-        document.Stars.Count.ShouldBeGreaterThanOrEqualTo(minExpectedStars);
-        document.AverageHFR.ShouldBeGreaterThan(0f);
-        document.AverageFWHM.ShouldBeGreaterThan(0f);
+        document.Findings.Stars.ShouldNotBeNull();
+        document.Findings.Stars.Count.ShouldBeGreaterThanOrEqualTo(minExpectedStars);
+        document.Findings.MedianHfd.ShouldBeGreaterThan(0f);
+        document.Findings.MedianFwhm.ShouldBeGreaterThan(0f);
     }
 
     [Theory]

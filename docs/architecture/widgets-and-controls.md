@@ -419,7 +419,8 @@ hand-place chrome at `(0,0,Width,...)`. One slider (`DrawTrackSlider` / `TrackFr
 chromeless (`ViewerState.HideChrome`), fed by `LiveFramePreviewSource : IPreviewSource` (normalises to
 `[0,1]`, subsampled median/MAD stats, `AcceptFrame(image, freezeStats)` for
 `ViewerState.FreezeStretchStats`, delegates to the shared `AstroImageDocument.ComputeStretchUniforms`;
-`ImageRendererBase.OverrideWcs` supplies the WCS). Embedded hosts call `SetSurfaceSize(w,h)` each
+the WCS is the source's own, `IPreviewSource.Findings`, which the host sets on `LiveFramePreviewSource.Findings`
+when a solve of the frame on show lands and `AcceptFrame` drops with the next frame). Embedded hosts call `SetSurfaceSize(w,h)` each
 frame, not `Resize`. **`LiveFramePreviewSource.PerChannelBackground` must be non-empty and
 channel-sized** (`ComputePostStretchBackground` indexes `[0]`; an empty array crashed the GUI;
 `LiveFramePreviewSourceTests`).

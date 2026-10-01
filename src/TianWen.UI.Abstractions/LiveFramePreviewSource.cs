@@ -207,6 +207,14 @@ namespace TianWen.UI.Abstractions
         // Nothing before the first frame: there is no picture to describe yet.
         ImageMeta? IPreviewSource.ImageMeta => _width > 0 ? _meta : null;
 
+        /// <summary>
+        /// What is known about the frame on show beyond its pixels (<see cref="IPreviewSource.Findings"/>), set by
+        /// the host on the render thread: a solve of the frame today, the node's measurements once they cross with
+        /// it (P2 of docs/plans/live-session-preview.md). <see cref="AcceptFrame"/> drops the previous frame's,
+        /// since a WCS or a star list describes the exposure it came from and no other.
+        /// </summary>
+        public FrameFindings Findings { get; set; } = FrameFindings.None;
+
         public bool AcceptFrame(Image image, bool freezeStats)
         {
             if (!image.TryLease(out var lease))
@@ -219,6 +227,7 @@ namespace TianWen.UI.Abstractions
                 CopyIn(lease.Image, freezeStats);
             }
 
+            Findings = FrameFindings.None;
             return true;
         }
 

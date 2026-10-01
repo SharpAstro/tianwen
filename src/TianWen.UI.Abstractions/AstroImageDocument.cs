@@ -48,8 +48,37 @@ public sealed class AstroImageDocument : IPreviewSource
     /// <summary>Debayered image (or raw image if it is a colour or mono image). This is the permanent base image.</summary>
     public Image UnstretchedImage { get; }
 
-    /// <summary>WCS solution, available after plate solving.</summary>
-    public WCS? Wcs { get; private set; }
+    private FrameFindings _findings;
+
+    /// <summary>
+    /// What is known about this frame beyond its pixels (<see cref="IPreviewSource.Findings"/>): its WCS, from
+    /// the file or a solve here, and the stars detected in it with their median HFD and FWHM. The stars are
+    /// <c>null</c> while detection is in progress, and empty on failure or when none were found.
+    /// </summary>
+    public FrameFindings Findings => Volatile.Read(ref _findings);
+
+    /// <summary>Records <paramref name="stars"/> as this frame's, with their medians: a detection's result, or
+    /// an empty list when one failed.</summary>
+    public void RecordStars(StarList stars) => UpdateFindings(static (findings, list) => findings.WithStars(list), stars);
+
+    // A solve and a star detection run on tasks of their own and either can land first, so each change is
+    // applied to the record it read and applied again if the other landed in between: neither drops the
+    // other's. The next record is built before the exchange, never inside it, and the change is pure, so
+    // building it twice costs nothing but the build.
+    private void UpdateFindings<TArg>(Func<FrameFindings, TArg, FrameFindings> change, TArg arg)
+    {
+        var current = Volatile.Read(ref _findings);
+        while (true)
+        {
+            var next = change(current, arg);
+            var seen = Interlocked.CompareExchange(ref _findings, next, current);
+            if (ReferenceEquals(seen, current))
+            {
+                return;
+            }
+            current = seen;
+        }
+    }
 
     /// <summary>
     /// Where this document's pixels came from in a LARGER frame, or null when they are the whole frame.
@@ -58,7 +87,7 @@ public sealed class AstroImageDocument : IPreviewSource
     /// </summary>
     /// <remarks>
     /// The document owning this rather than the viewer holding a flag is what keeps the rules in one
-    /// place: the crop button gates on it (there is nothing left to crop), <see cref="Wcs"/> has already
+    /// place: the crop button gates on it (there is nothing left to crop), the WCS (<see cref="Findings"/>) has already
     /// been translated by it, and anything wanting the original frame's pixel coordinates adds its
     /// origin. A UI flag would have to be cleared on every path that replaces the document, and the one
     /// that was missed would be a document claiming a crop it does not have.
@@ -193,15 +222,6 @@ public sealed class AstroImageDocument : IPreviewSource
 
     /// <summary>Luminance stretch stats recomputed with star mask exclusion. Only available after star detection.</summary>
     public ChannelStretchStats? StarMaskedLumaStats { get; private set; }
-
-    /// <summary>Detected stars: <c>null</c> while detection is in progress, empty on failure/no stars, populated on success.</summary>
-    public StarList? Stars { get; set; }
-
-    /// <summary>Average HFR of detected stars (median).</summary>
-    public float AverageHFR { get; private set; }
-
-    /// <summary>Average FWHM of detected stars (median).</summary>
-    public float AverageFWHM { get; private set; }
 
     /// <summary>Time taken for star detection.</summary>
     public TimeSpan StarDetectionDuration { get; private set; }
@@ -437,7 +457,6 @@ public sealed class AstroImageDocument : IPreviewSource
     /// <summary>Whether the image appears to be already stretched (e.g. processed TIFF). When true, STF should be disabled by default.</summary>
     public bool IsPreStretched { get; }
 
-    public bool IsPlateSolved => Wcs is { HasCDMatrix: true, IsApproximate: false };
 
     /// <summary>Returns true if the given file extension is a supported image format.</summary>
     public static bool IsSupportedExtension(string extension)
@@ -458,7 +477,7 @@ public sealed class AstroImageDocument : IPreviewSource
         LumaStats = statistics.LumaStats;
         _perChannelBackground = statistics.PerChannelBg;
         _lumaBackground = statistics.LumaBg;
-        Wcs = wcs;
+        _findings = FrameFindings.Placed(wcs);
         IsPreStretched = isPreStretched;
 
         // Three histograms for a Bayer mosaic, one per photosite colour taken on the mosaic in place, so
@@ -951,10 +970,10 @@ public sealed class AstroImageDocument : IPreviewSource
     public async Task<bool> PlateSolveAsync(IPlateSolverFactory solverFactory, CancellationToken cancellationToken = default)
     {
         var imageDim = UnstretchedImage.GetImageDim();
-        var result = await solverFactory.SolveFileAsync(_filePath, imageDim, searchOrigin: Wcs, cancellationToken: cancellationToken);
+        var result = await solverFactory.SolveFileAsync(_filePath, imageDim, searchOrigin: Findings.Wcs, cancellationToken: cancellationToken);
         if (result.Solution is { } wcs)
         {
-            Wcs = wcs;
+            UpdateFindings(static (findings, solved) => findings with { Wcs = solved }, wcs);
             return true;
         }
         return false;
@@ -970,14 +989,11 @@ public sealed class AstroImageDocument : IPreviewSource
             channel: UnstretchedImage.ReferenceStarChannel, snrMin: 10f, maxStars: 2000, cancellationToken: cancellationToken);
         sw.Stop();
 
-        Stars = stars;
+        RecordStars(stars);
         StarDetectionDuration = sw.Elapsed;
 
         if (stars.Count > 0)
         {
-            AverageHFR = stars.MapReduceStarProperty(SampleKind.HFD, AggregationMethod.Median);
-            AverageFWHM = stars.MapReduceStarProperty(SampleKind.FWHM, AggregationMethod.Median);
-
             // Re-scan background with star mask for more accurate boost operation
             Span<float> pedestals = stackalloc float[PerChannelStats.Length];
             for (var c = 0; c < PerChannelStats.Length; c++) { pedestals[c] = PerChannelStats[c].Pedestal; }
@@ -1049,7 +1065,7 @@ public sealed class AstroImageDocument : IPreviewSource
     public async Task<(int MatchCount, string? Diag)> ComputeColorCalibrationAsync(CancellationToken cancellationToken = default)
     {
         if (ColorCalibration.HasValue) return (0, null);
-        if (Stars is not { Count: >= 5 } starList) return (0, "Need ≥5 stars");
+        if (Findings.Stars is not { Count: >= 5 } starList) return (0, "Need ≥5 stars");
         if (starList.StarMask is not { } mask) return (0, "No star mask");
 
         var calibrateImage = UnstretchedImage;
@@ -1144,8 +1160,9 @@ public sealed class AstroImageDocument : IPreviewSource
         ICelestialObjectDB db, CancellationToken cancellationToken = default)
     {
         if (ColorCalibration.HasValue) return (0, null);
-        if (Stars is not { Count: >= 3 } starList) return (0, "Need ≥3 stars");
-        if (Wcs is not { HasCDMatrix: true } wcs) return (0, "Need plate-solved WCS");
+        var findings = Findings;
+        if (findings.Stars is not { Count: >= 3 } starList) return (0, "Need ≥3 stars");
+        if (findings.Wcs is not { HasCDMatrix: true } wcs) return (0, "Need plate-solved WCS");
 
         // SELF-INIT, the same contract CatalogPlateSolver has for the object DB: any caller works
         // without having remembered to load this upstream. LoadAsync is idempotent and the fast path

@@ -32,7 +32,7 @@ namespace TianWen.Lib.Tests
         {
             var document = await NewThreeChannelDocumentAsync();
 
-            var info = ViewerActions.ReadPixel(document, document.Wcs, 3, 2);
+            var info = ViewerActions.ReadPixel(document, document.Findings.Wcs, 3, 2);
 
             info.Values.Length.ShouldBe(3, "a composite view shows all three, so it must report all three");
             info.Values[0].ShouldBeLessThan(info.Values[1]);
@@ -44,8 +44,8 @@ namespace TianWen.Lib.Tests
         {
             var document = await NewThreeChannelDocumentAsync();
 
-            var composite = ViewerActions.ReadPixel(document, document.Wcs, 3, 2);
-            var blue = ViewerActions.ReadPixel(document, document.Wcs, 3, 2, channel: 2);
+            var composite = ViewerActions.ReadPixel(document, document.Findings.Wcs, 3, 2);
+            var blue = ViewerActions.ReadPixel(document, document.Findings.Wcs, 3, 2, channel: 2);
 
             blue.Values.Length.ShouldBe(1, "one plane read, not three");
             blue.Values[0].ShouldBe(composite.Values[2], 1e-7f, "and it must be the channel asked for");
@@ -57,17 +57,17 @@ namespace TianWen.Lib.Tests
         {
             var document = await NewThreeChannelDocumentAsync();
             var state = new ViewerState();
-            var composite = ViewerActions.ReadPixel(document, document.Wcs, 3, 2);
+            var composite = ViewerActions.ReadPixel(document, document.Findings.Wcs, 3, 2);
 
             state.ChannelView = ChannelView.Green;
-            ViewerActions.UpdateCursorInfo(document, document.Wcs, state, 3, 2);
+            ViewerActions.UpdateCursorInfo(document, document.Findings.Wcs, state, 3, 2);
 
             var info = state.CursorPixelInfo.ShouldNotBeNull();
             info.Values.Length.ShouldBe(1);
             info.Values[0].ShouldBe(composite.Values[1], 1e-7f, "Green view must report channel 1");
 
             state.ChannelView = ChannelView.Composite;
-            ViewerActions.UpdateCursorInfo(document, document.Wcs, state, 3, 2);
+            ViewerActions.UpdateCursorInfo(document, document.Findings.Wcs, state, 3, 2);
 
             state.CursorPixelInfo.ShouldNotBeNull().Values.Length.ShouldBe(3,
                 "and cycling back to composite must restore all three");
@@ -85,7 +85,7 @@ namespace TianWen.Lib.Tests
         {
             var document = await NewThreeChannelDocumentAsync();
             var state = new ViewerState { ChannelView = view };
-            ViewerActions.UpdateCursorInfo(document, document.Wcs, state, 3, 2);
+            ViewerActions.UpdateCursorInfo(document, document.Findings.Wcs, state, 3, 2);
 
             var lines = InfoPanelData.GetCursorLines(state);
 
@@ -100,7 +100,7 @@ namespace TianWen.Lib.Tests
             var document = await NewMonoDocumentAsync();
             // Mono never leaves Composite: CycleChannelView only moves for more than one channel.
             var state = new ViewerState();
-            ViewerActions.UpdateCursorInfo(document, document.Wcs, state, 3, 2);
+            ViewerActions.UpdateCursorInfo(document, document.Findings.Wcs, state, 3, 2);
 
             var lines = InfoPanelData.GetCursorLines(state);
 
@@ -168,14 +168,14 @@ namespace TianWen.Lib.Tests
             const float areaX = 100f, areaY = 50f, areaW = 200f, areaH = 150f;
 
             // Inside the pane: a real readout, which is the control for everything below.
-            ViewerActions.UpdateCursorFromScreenPosition(document, document.Wcs, state,
+            ViewerActions.UpdateCursorFromScreenPosition(document, document.Findings.Wcs, state,
                 areaX + areaW / 2f, areaY + areaH / 2f, Pane(state, areaX, areaY, areaW, areaH))
                 .ShouldBeTrue();
             state.CursorImagePosition.ShouldNotBeNull();
 
             // Over the file list (left of the pane). At zoom 40 the image extent easily spans it, so
             // the old image-bounds-only test reported a pixel here.
-            ViewerActions.UpdateCursorFromScreenPosition(document, document.Wcs, state,
+            ViewerActions.UpdateCursorFromScreenPosition(document, document.Findings.Wcs, state,
                 areaX - 40f, areaY + areaH / 2f, Pane(state, areaX, areaY, areaW, areaH))
                 .ShouldBeFalse();
             state.CursorImagePosition.ShouldBeNull();
@@ -185,20 +185,20 @@ namespace TianWen.Lib.Tests
             // repaint. One null is a fix; a null that keeps re-reporting the same null is the saving.
             for (var dy = 0; dy < 20; dy++)
             {
-                ViewerActions.UpdateCursorFromScreenPosition(document, document.Wcs, state,
+                ViewerActions.UpdateCursorFromScreenPosition(document, document.Findings.Wcs, state,
                     areaX - 40f, areaY + dy, Pane(state, areaX, areaY, areaW, areaH))
                     .ShouldBeFalse();
                 state.CursorImagePosition.ShouldBeNull();
             }
 
             // Over the toolbar (above the pane).
-            ViewerActions.UpdateCursorFromScreenPosition(document, document.Wcs, state,
+            ViewerActions.UpdateCursorFromScreenPosition(document, document.Findings.Wcs, state,
                 areaX + areaW / 2f, areaY - 10f, Pane(state, areaX, areaY, areaW, areaH))
                 .ShouldBeFalse();
             state.CursorImagePosition.ShouldBeNull();
 
             // Over the info panel (right of the pane).
-            ViewerActions.UpdateCursorFromScreenPosition(document, document.Wcs, state,
+            ViewerActions.UpdateCursorFromScreenPosition(document, document.Findings.Wcs, state,
                 areaX + areaW + 5f, areaY + areaH / 2f, Pane(state, areaX, areaY, areaW, areaH))
                 .ShouldBeFalse();
             state.CursorImagePosition.ShouldBeNull();

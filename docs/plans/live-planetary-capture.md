@@ -306,7 +306,8 @@ jog / mount / plate-solve / preview that already live there ("we also need the f
   - `ViewerState.HideChrome` -- `ComputeLayout` drops the toolbar/status rows; `Render` skips painting them.
   - `ViewerState.FreezeStretchStats` (consumer sets it from polar phase, passes to `AcceptFrame`).
   - `ImageRendererBase.OverrideWcs` -- supplies the grid + `WcsAnnotation` projection WCS for a document-less
-    live source (a plate-solved preview frame). `SetSurfaceSize(w,h)` sets the GPU projection dims without
+    live source (a plate-solved preview frame). Replaced 2026-10-01 by the source's own findings
+    (`IPreviewSource.Findings`, step 2 of P1 in `live-session-preview.md`). `SetSurfaceSize(w,h)` sets the GPU projection dims without
     `OnResize` (the embedded viewer shares the host renderer's surface). The guide reticle / polar rings stay
     consumer-drawn on top after `Render` (each `PixelWidgetBase` has its own clickable tracker, so the embedded
     viewer's `BeginFrame` doesn't wipe the host tab's clickables). Verified live: preview renders through the

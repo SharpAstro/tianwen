@@ -72,7 +72,7 @@ namespace TianWen.UI.Abstractions
         /// </remarks>
         private (double RA, double Dec)? SkyPointUnder(ViewerState state, float x, float y)
         {
-            if (!SkyBackdropActive || _document?.Wcs is not { } wcs)
+            if (!SkyBackdropActive || Findings.Wcs is not { } wcs)
             {
                 return null;
             }
@@ -101,7 +101,7 @@ namespace TianWen.UI.Abstractions
         /// </remarks>
         private bool KeepSkyPointUnder(ViewerState state, RectF32 area, (double RA, double Dec)? sky, float x, float y)
         {
-            if (sky is not { } grabbed || _document?.Wcs is not { } wcs)
+            if (sky is not { } grabbed || Findings.Wcs is not { } wcs)
             {
                 return false;
             }
@@ -699,7 +699,7 @@ namespace TianWen.UI.Abstractions
 
         private void TryStartColorCalibration(ViewerState state)
         {
-            if (_document?.Stars is { Count: >= 5 }
+            if (_document?.Findings.Stars is { Count: >= 5 }
                 && _document.ColorCalibration is null
                 && IsColour(_document)
                 && _document.TryBeginColorCalibration())
@@ -1185,7 +1185,7 @@ namespace TianWen.UI.Abstractions
             // Only redraw when cursor moves to a different image pixel (prevPos was read at entry,
             // above, and must stay there).
             // The pane and the placement, both from the single layout pass.
-            ViewerActions.UpdateCursorFromScreenPosition(_source, _document?.Wcs, state, px, py, CurrentViewportLayout(state));
+            ViewerActions.UpdateCursorFromScreenPosition(_source, Findings.Wcs, state, px, py, CurrentViewportLayout(state));
             if (state.CursorImagePosition == prevPos)
             {
                 return false;

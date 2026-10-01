@@ -95,8 +95,8 @@ public class EnhanceActionsTests
         enhanced.SourceCrop.ShouldBe(crop);
 
         // The sky did not move: the crop's origin names the same place it named in the full frame.
-        var before = source.Wcs!.Value.PixelToSky(crop.X, crop.Y).ShouldNotBeNull();
-        var after = enhanced.Wcs!.Value.PixelToSky(0, 0).ShouldNotBeNull();
+        var before = source.Findings.Wcs!.Value.PixelToSky(crop.X, crop.Y).ShouldNotBeNull();
+        var after = enhanced.Findings.Wcs!.Value.PixelToSky(0, 0).ShouldNotBeNull();
         after.RA.ShouldBe(before.RA, 1e-9);
         after.Dec.ShouldBe(before.Dec, 1e-9);
     }

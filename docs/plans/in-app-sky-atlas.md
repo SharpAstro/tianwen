@@ -580,7 +580,7 @@ locking the release scope was *"as long as we track everything we skipped in a p
     That would complete the "only what is drawn" promise for the overlay-OFF case, but it makes the
     answer depend on zoom, so it is a judgement rather than a bug. And clicking a STAR is still a
     different resolver (below).
-- **Clicking a STAR is a different resolver.** `document.Stars` holds DETECTED CENTROIDS, not
+- **Clicking a STAR is a different resolver.** The frame's stars (`IPreviewSource.Findings.Stars`) are DETECTED CENTROIDS, not
   catalogue entries, so it is a nearest-centroid search over the star list, not `FindObjectAt`. Worth
   saying because "click an object or a star" reads like one feature and is two.
 - ~~**No info panel for a viewer selection.**~~ **DONE 2026-09-11**, in two steps raised by the user in

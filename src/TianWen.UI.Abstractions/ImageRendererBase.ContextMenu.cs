@@ -122,7 +122,7 @@ namespace TianWen.UI.Abstractions
             }
 
             var fovDeg = _source is { } frame
-                ? SkyAtlasLink.FieldOfViewDeg(_document?.Wcs, frame.Width, frame.Height)
+                ? SkyAtlasLink.FieldOfViewDeg(Findings.Wcs, frame.Width, frame.Height)
                 : null;
 
             return ImageContextMenu.ItemsFor(
@@ -240,11 +240,11 @@ namespace TianWen.UI.Abstractions
         {
             var layout = CurrentViewportLayout(state);
 
-            ViewerActions.UpdateCursorFromScreenPosition(_source, _document?.Wcs, state, px, py, layout);
+            ViewerActions.UpdateCursorFromScreenPosition(_source, Findings.Wcs, state, px, py, layout);
 
             if (_source is { } source && state.CursorImagePosition is { } at)
             {
-                return ViewerActions.ReadPixel(source, _document?.Wcs, at.X, at.Y);
+                return ViewerActions.ReadPixel(source, Findings.Wcs, at.X, at.Y);
             }
 
             if (state.CursorPixelInfo is { } reported)
@@ -255,7 +255,7 @@ namespace TianWen.UI.Abstractions
             // Off the raster: the screen position back into the frame's pixel grid through the same
             // layout every overlay draws with -- its origin is the placement the quad was actually
             // drawn at, so the crop is carried -- and then the WCS.
-            if (_document?.Wcs is not { HasCDMatrix: true } wcs)
+            if (Findings.Wcs is not { HasCDMatrix: true } wcs)
             {
                 return null;
             }
@@ -563,7 +563,7 @@ namespace TianWen.UI.Abstractions
             var info = ResolveSkyPixelAt(state, px, py);
 
             var fovDeg = _source is { } frame
-                ? SkyAtlasLink.FieldOfViewDeg(_document?.Wcs, frame.Width, frame.Height)
+                ? SkyAtlasLink.FieldOfViewDeg(Findings.Wcs, frame.Width, frame.Height)
                 : null;
 
             return FindDrawnMarkerAt(px, py)

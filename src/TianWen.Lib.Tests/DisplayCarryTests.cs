@@ -385,7 +385,7 @@ public class DisplayCarryTests
 
         DisplayCarry.Apply(second, first, holdDisplay: true);
 
-        second.Stars.ShouldBeNull("stars are what a blink is looking AT; they are per frame");
+        second.Findings.Stars.ShouldBeNull("stars are what a blink is looking AT; they are per frame");
     }
 
     /// <summary>

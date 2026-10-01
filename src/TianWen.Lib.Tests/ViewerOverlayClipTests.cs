@@ -54,10 +54,10 @@ namespace TianWen.Lib.Tests
             // between the two is overlay ink that escaped.
             state.ShowStarOverlay = true;
 
-            document.Stars = Stars(centreOnly: true);
+            document.RecordStars(Stars(centreOnly: true));
             var clustered = Snapshot(viewer, document, state);
 
-            document.Stars = Stars(centreOnly: false);
+            document.RecordStars(Stars(centreOnly: false));
             var spread = Snapshot(viewer, document, state);
 
             var pane = viewer.ImageArea;

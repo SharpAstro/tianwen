@@ -92,13 +92,13 @@ public class UnitReferredImportStarDetectionTests(ITestOutputHelper output)
                 $"unitReferred={document.UnstretchedImage.SamplesAreUnitReferred}");
 
             await document.DetectStarsAsync(ct);
-            output.WriteLine($"document.Stars = {document.Stars?.Count ?? -1}, HFR={document.AverageHFR:F2}");
+            output.WriteLine($"stars = {document.Findings.Stars?.Count ?? -1}, HFD={document.Findings.MedianHfd:F2}");
 
             // Every toolbar affordance downstream is gated on this being non-empty: the star overlay,
             // the HFD/FWHM readout, Boost, Calibrate and SPCC.
-            document.Stars.ShouldNotBeNull();
-            document.Stars.Count.ShouldBeGreaterThan(PlantedStars / 2);
-            document.AverageHFR.ShouldBeGreaterThan(0f);
+            document.Findings.Stars.ShouldNotBeNull();
+            document.Findings.Stars.Count.ShouldBeGreaterThan(PlantedStars / 2);
+            document.Findings.MedianHfd.ShouldBeGreaterThan(0f);
         }
         finally
         {

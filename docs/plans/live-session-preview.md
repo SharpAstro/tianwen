@@ -2,7 +2,7 @@
 
 ## Status
 
-**IN PROGRESS** (P1 step 1 done 2026-10-01; raised by the user 2026-09-30, while testing a Canon EOS 6D through the preview: "we also need a few
+**IN PROGRESS** (P1 steps 1 and 2 done 2026-10-01; raised by the user 2026-09-30, while testing a Canon EOS 6D through the preview: "we also need a few
 more controls in the preview like show stars, HFD, FWHM, and all the other stuff, image stats, also the histogram, not
 just a Canon thing really", and a live view in the preview "which is useful beyond just planetary"). Milestone
 `live-session-preview` (#1108 to #1113 and #1124, one a section). Nothing here is Canon's: every camera the node drives previews through the same pane.
@@ -108,7 +108,12 @@ A source that is not a document gains what only needed the picture, as step 1 fo
    dim, and a dim button registers no press. They work on any picture now, and the planetary view and a SER gained
    the pointer's pixel readout. Which sources show the metadata and statistics sections is still a document's
    only, until step 3 makes it the host's.
-2. The findings record on the source; `OverrideWcs` removed.
+2. The findings record on the source; `OverrideWcs` removed (**done**, 2026-10-01: `FrameFindings` in Lib, the
+   document's `Wcs`, `Stars`, `AverageHFR`, `AverageFWHM` and `IsPlateSolved` cut into its `Findings` in one wave,
+   a solve and a detection swapping the record by compare and exchange so neither drops the other's; the live
+   source's findings set by its host and dropped with each new frame). A solved live frame's grid is now
+   labelled, as a file's is. **The status line said HFR over the median HFD**, a diameter, so it read twice the
+   radius it named; it says HFD now.
 3. The host's actions and what it offers; the three toolbar mechanisms removed.
 4. The preview pane switches its chrome on, with its own host: `RenderMiniViewerToolbar` and the pane's own Solve
    button are deleted.

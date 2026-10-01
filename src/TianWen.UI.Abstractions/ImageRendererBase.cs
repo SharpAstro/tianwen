@@ -278,12 +278,12 @@ namespace TianWen.UI.Abstractions
         public WcsAnnotation Annotation { get; set; } = WcsAnnotation.Empty;
 
         /// <summary>
-        /// A WCS to project <see cref="Annotation"/> through when the current source is NOT an
-        /// <see cref="AstroImageDocument"/> (so there is no <c>document.Wcs</c>). A document-less live preview
-        /// (polar-align solving its preview frame) sets this to the solved WCS; the still-image path ignores it
-        /// (the document's own WCS wins). Null = no override.
+        /// What is known about the frame on show beyond its pixels, from its SOURCE whatever kind it is: the WCS
+        /// the grid, the selection, the overlays, the sky and <see cref="Annotation"/> project through, and the
+        /// stars the overlay draws. It replaced an override a host set for a live frame, which a still image
+        /// ignored, so two places said where a frame was (step 2 of P1, docs/plans/live-session-preview.md).
         /// </summary>
-        public WCS? OverrideWcs { get; set; }
+        private FrameFindings Findings => _source?.Findings ?? FrameFindings.None;
 
         // -----------------------------------------------------------------------
         // Base layout constants (at 1x scale)
@@ -976,6 +976,9 @@ namespace TianWen.UI.Abstractions
             // no caching -- the fallback is "behaves exactly as it always did", not "renders wrong".
             PrepareFrame(source, state);
             var document = _document;
+            // Read once, so every overlay of this frame draws from the same findings even if a solve lands
+            // part way through it.
+            var findings = Findings;
 
             // Draw image FIRST so UI chrome paints on top of it. The stretch and the grid WCS were
             // resolved in PrepareFrame, because the cached image layer needs them before this point.
@@ -1028,12 +1031,12 @@ namespace TianWen.UI.Abstractions
             // The labels stay with their lines either way: the pane-wide pass draws the same grid from
             // the same WCS, so these still name it -- at the picture's edge rather than the pane's,
             // which is where the frame they belong to is.
-            if (state.ShowGrid && document?.Wcs is { HasCDMatrix: true } wcs)
+            if (state.ShowGrid && findings.Wcs is { HasCDMatrix: true } wcs)
             {
                 RenderGridLabels(state, wcs);
             }
 
-            if (state.ShowStarOverlay && document?.Stars is { Count: > 0 } stars)
+            if (state.ShowStarOverlay && findings.Stars is { Count: > 0 } stars)
             {
                 RenderStarOverlay(state, stars);
             }
@@ -1051,7 +1054,7 @@ namespace TianWen.UI.Abstractions
             // needs the ring's name box to keep every label off it (and to leave the selected object's
             // own label out, since the ring names it), while the ring itself has to sit over that
             // object's marker rather than under it.
-            var selectionRing = document?.Wcs is { HasCDMatrix: true } ringWcs
+            var selectionRing = findings.Wcs is { HasCDMatrix: true } ringWcs
                 ? SolveSelectionRing(state, ringWcs)
                 : null;
 
@@ -1060,7 +1063,7 @@ namespace TianWen.UI.Abstractions
             // over it (the atlas's order, SkyMapTab.DrawHoverSpot). The selection's solver rings it,
             // so the wash IS the ring a click would draw, filled.
             if (state.HoverObject is { } hovered
-                && document?.Wcs is { HasCDMatrix: true } hoverWcs
+                && findings.Wcs is { HasCDMatrix: true } hoverWcs
                 && SolveObjectRing(in hovered, state, hoverWcs) is { } wash)
             {
                 RenderHoverWash(in wash);
@@ -1085,7 +1088,7 @@ namespace TianWen.UI.Abstractions
             // the flag passed through to the gather.
             var skyOwnsOutside = SkyBackdropActive;
             if (state.ShowOverlays
-                && document?.Wcs is { HasCDMatrix: true } overlayWcs && LoadedCatalog is { } db)
+                && findings.Wcs is { HasCDMatrix: true } overlayWcs && LoadedCatalog is { } db)
             {
                 RenderOverlays(state, overlayWcs, db, selectionRing,
                     confineToFrame: skyOwnsOutside,
@@ -1115,11 +1118,9 @@ namespace TianWen.UI.Abstractions
             // Caller-driven sky annotations (polar alignment, plate-solve verification,
             // target markers, mosaic panel boundaries...). Generic primitive; the
             // renderer doesn't know what the markers represent.
-            // The annotation WCS is the document's (still image) or, for a document-less live source, the
-            // caller-supplied OverrideWcs (polar-align solves the live preview frame and hands the WCS in).
-            var annotationWcs = document?.Wcs is { HasCDMatrix: true } docWcs
-                ? docWcs
-                : (OverrideWcs is { HasCDMatrix: true } ovrWcs ? ovrWcs : null as WCS?);
+            // The annotation WCS is the frame's own, whatever its source: a still image's, or a live
+            // frame's solve (polar alignment solves the live preview frame and records it on the source).
+            var annotationWcs = findings.Wcs is { HasCDMatrix: true } frameWcs ? frameWcs : null as WCS?;
             if (!Annotation.IsEmpty && annotationWcs is { } annWcs)
             {
                 RenderWcsAnnotation(state, annWcs);
@@ -1309,9 +1310,9 @@ namespace TianWen.UI.Abstractions
                     applyColorCalibration: state.ColorCalibrationEnabled)
                 ?? new StretchUniforms(StretchMode.None, 1f, default, default, default, default, default);
 
-            // Grid WCS: the document's (still image), or the caller-supplied OverrideWcs for a
-            // document-less live source (a plate-solved preview frame). GPU grid only; the RA/Dec labels
-            // stay document-gated in RenderGridLabels (a live preview shows grid lines, not labels).
+            // Grid WCS: the frame's own, from its source's findings, a still image's or a plate-solved
+            // live frame's alike; the RA/Dec labels (RenderGridLabels) read the same, so a solved live
+            // frame's grid is labelled too.
             //
             // ONE grid, never two, and the gate is the SKY being behind the frame rather than which
             // of the sky's two grids won.
@@ -1329,9 +1330,7 @@ namespace TianWen.UI.Abstractions
             // visible only zoomed OUT, which is exactly where the handover happens.
             _preparedGridWcs = !state.ShowGrid || SkyBackdropActive
                 ? null as WCS?
-                : (document?.Wcs is { HasCDMatrix: true } w
-                    ? w
-                    : (OverrideWcs is { HasCDMatrix: true } ow ? ow : null as WCS?));
+                : (Findings.Wcs is { HasCDMatrix: true } w ? w : null as WCS?);
 
             _framePrepared = true;
             FramePreparations++;

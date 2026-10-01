@@ -377,7 +377,7 @@ namespace TianWen.Lib.Tests
             viewer.Render(document, state);
 
             // Where the object projects, in the frame's own pixel coordinates -- outside the raster.
-            var wcs = document.Wcs.ShouldNotBeNull();
+            var wcs = document.Findings.Wcs.ShouldNotBeNull();
             var px = wcs.SkyToPixel(obj.RA, obj.Dec).ShouldNotBeNull();
             (px.X < -0.5 || px.X >= ImageW - 0.5).ShouldBeTrue(
                 $"the object has to be off the sensor for this to test anything (x={px.X:F1})");
@@ -644,7 +644,7 @@ namespace TianWen.Lib.Tests
             ((int)(tapDec + 90.0)).ShouldNotBe((int)(obj.Dec + 90.0),
                 "the tap has to be in the other grid cell, or the case tests nothing");
 
-            var wcs = document.Wcs.ShouldNotBeNull();
+            var wcs = document.Findings.Wcs.ShouldNotBeNull();
             var px = wcs.SkyToPixel(obj.RA, tapDec).ShouldNotBeNull();
             var area = viewer.ImageArea;
             var layout = new ViewportLayout(
@@ -1062,7 +1062,7 @@ namespace TianWen.Lib.Tests
             var area = viewer.ImageArea;
             var cx = area.X + (area.Width * 0.5f);
             var cy = area.Y + (area.Height * 0.5f);
-            var wcs = document.Wcs.ShouldNotBeNull();
+            var wcs = document.Findings.Wcs.ShouldNotBeNull();
             var placed = viewer.Placement;
             SkyBackdropView.TryPlaceSkyPoint(in wcs, area, placed.Scale, smc.RA, smc.Dec, cx, cy,
                 placed.OffsetX, placed.OffsetY, out var ox, out var oy).ShouldBeTrue();
@@ -1211,13 +1211,13 @@ namespace TianWen.Lib.Tests
             var (viewer, state, document, obj) = await NewViewerOnAsync(renderer, index, ct);
             state.Zoom = 8f;
 
-            var wcs = document.Wcs.ShouldNotBeNull();
+            var wcs = document.Findings.Wcs.ShouldNotBeNull();
             var px = wcs.SkyToPixel(obj.RA, obj.Dec).ShouldNotBeNull();
-            document.Stars = new StarList(new ConcurrentBag<ImagedStar>(
+            document.RecordStars(new StarList(new ConcurrentBag<ImagedStar>(
             [
                 new ImagedStar(HFD: 4f, StarFWHM: 3f, SNR: 50f, Flux: 1000f,
                     XCentroid: (float)px.X, YCentroid: (float)px.Y, Ellipticity: 0f)
-            ]));
+            ])));
             return (viewer, state, document, obj, px);
         }
 

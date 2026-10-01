@@ -48,7 +48,7 @@ public static class EnhanceActions
         // where it came from. Costs one full-size copy of the kept region, against a pipeline that runs
         // for a minute and a half.
         var input = source.UnstretchedImage;
-        var wcs = source.Wcs;
+        var wcs = source.Findings.Wcs;
         if (crop is { } region)
         {
             input = input.Crop(region);
