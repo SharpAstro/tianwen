@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.Planetary;
@@ -78,11 +79,8 @@ public static class PlanetaryGhost
                 }
             }
         }
-        border.Sort();
-        var sky = border[border.Count / 2];
-        var sorted = plane.ToArray();
-        Array.Sort(sorted);
-        var peak = sorted[(int)(0.995 * (sorted.Length - 1))] - sky;
+        var sky = StatisticsHelper.NthSmallest(CollectionsMarshal.AsSpan(border), border.Count / 2);
+        var peak = StatisticsHelper.NthSmallest(plane.ToArray(), (int)(0.995 * (plane.Length - 1))) - sky;
         var result = new float[plane.Length];
         for (var i = 0; i < result.Length; i++)
         {
