@@ -160,6 +160,7 @@ var rootCommand = new RootCommand
                 services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>())).Build(),
         new PlanetaryRingingSubCommand(consoleHost).Build(),
         new PlanetaryFinestBandSubCommand(consoleHost).Build(),
+        new PlanetaryElongatedSubCommand(consoleHost).Build(),
         new PlanetaryGhostSubCommand(
             consoleHost,
             new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(

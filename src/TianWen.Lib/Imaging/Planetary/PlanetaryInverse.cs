@@ -39,9 +39,12 @@ public static class PlanetaryInverse
     /// <paramref name="stack"/>'s transfer against <paramref name="truth"/> ring by ring (both normalised, sky zero, registered): the
     /// real part of their cross spectrum over the truth's power, which the stack's noise leaves unbiased. A ring where the truth holds
     /// under <paramref name="minPowerFraction"/> of its power at the second ring reads zero, and every value is kept in [0,
-    /// <paramref name="ceiling"/>] (1.5 for a blur; a sharpening's transfer is read with a higher one).
+    /// <paramref name="ceiling"/>] (1.5 for a blur; a sharpening's transfer is read with a higher one). With <paramref name="sectorDeg"/>,
+    /// only the frequencies within <paramref name="sectorHalfWidthDeg"/> of that direction, either way along it, are read: an anisotropic
+    /// kernel's transfer along one direction (R8 follow-up 4).
     /// </summary>
-    public static RadialTransfer Measure(ReadOnlySpan<float> stack, ReadOnlySpan<float> truth, int width, int height, double minPowerFraction = 1e-6, double ceiling = 1.5)
+    public static RadialTransfer Measure(ReadOnlySpan<float> stack, ReadOnlySpan<float> truth, int width, int height, double minPowerFraction = 1e-6, double ceiling = 1.5,
+        double? sectorDeg = null, double sectorHalfWidthDeg = 30)
     {
         var n = GridFor(width, height, 0);
         var s = Transform(stack, width, height, n);
@@ -55,7 +58,7 @@ public static class PlanetaryInverse
             {
                 var sx = kx < n / 2 ? kx : kx - n;
                 var ring = (int)Math.Round(Math.Sqrt((sx * sx) + (sy * sy)));
-                if (ring >= rings)
+                if (ring >= rings || (sectorDeg is { } sector && ring > 0 && !InSector(sx, sy, sector, sectorHalfWidthDeg)))
                 {
                     continue;
                 }
@@ -118,6 +121,14 @@ public static class PlanetaryInverse
         return new RadialTransfer(values.MoveToImmutable(), psfSize / (double)factor);
     }
 
+    /// <summary>Whether the frequency (<paramref name="sx"/>, <paramref name="sy"/>) lies within <paramref name="halfWidthDeg"/> of
+    /// <paramref name="directionDeg"/> (from +x toward +y), either way along it.</summary>
+    internal static bool InSector(double sx, double sy, double directionDeg, double halfWidthDeg)
+    {
+        var off = Math.Abs((((((Math.Atan2(sy, sx) * 180 / Math.PI) - directionDeg) % 180) + 270) % 180) - 90);
+        return off <= halfWidthDeg;
+    }
+
     /// <summary>
     /// Richardson-Lucy with the isotropic <paramref name="transfer"/> over <paramref name="iterations"/> steps, the plane lifted by
     /// <paramref name="offset"/> so its sky's noise stays positive and lowered again after: each step's estimate handed to
@@ -126,9 +137,24 @@ public static class PlanetaryInverse
     public static void RichardsonLucy(ReadOnlySpan<float> plane, int width, int height, Func<double, double> transfer, int iterations, Action<int, float[]> each, double offset = 0.1)
     {
         ArgumentNullException.ThrowIfNull(transfer);
-        ArgumentNullException.ThrowIfNull(each);
         var n = GridFor(width, height, 32);
-        var kernel = KernelGrid(transfer, n);
+        RichardsonLucy(plane, width, height, KernelGrid(transfer, n), n, iterations, each, offset);
+    }
+
+    /// <summary>
+    /// Richardson-Lucy as <see cref="RichardsonLucy(ReadOnlySpan{float}, int, int, Func{double, double}, int, Action{int, float[]}, double)"/>
+    /// with a 2-D <paramref name="transfer"/> of (fx, fy), cycles a pixel: real and even, as an elongated kernel's is (R8 follow-up 4).
+    /// </summary>
+    public static void RichardsonLucy(ReadOnlySpan<float> plane, int width, int height, Func<double, double, double> transfer, int iterations, Action<int, float[]> each, double offset = 0.1)
+    {
+        ArgumentNullException.ThrowIfNull(transfer);
+        var n = GridFor(width, height, 32);
+        RichardsonLucy(plane, width, height, KernelGrid(transfer, n), n, iterations, each, offset);
+    }
+
+    private static void RichardsonLucy(ReadOnlySpan<float> plane, int width, int height, double[] kernel, int n, int iterations, Action<int, float[]> each, double offset)
+    {
+        ArgumentNullException.ThrowIfNull(each);
         var observed = new double[width * height];
         var estimate = new double[width * height];
         for (var i = 0; i < observed.Length; i++)
@@ -415,6 +441,29 @@ public static class PlanetaryInverse
         ArgumentNullException.ThrowIfNull(transfer);
         var n = GridFor(width, height, 32);
         return Filter(plane, width, height, KernelGrid(transfer, n), n);
+    }
+
+    /// <summary><paramref name="plane"/> through the 2-D <paramref name="transfer"/> of (fx, fy), cycles a pixel, real and even.</summary>
+    public static float[] Apply(ReadOnlySpan<float> plane, int width, int height, Func<double, double, double> transfer)
+    {
+        ArgumentNullException.ThrowIfNull(transfer);
+        var n = GridFor(width, height, 32);
+        return Filter(plane, width, height, KernelGrid(transfer, n), n);
+    }
+
+    // A 2-D transfer on an n-by-n grid, frequency by frequency.
+    private static double[] KernelGrid(Func<double, double, double> transfer, int n)
+    {
+        var grid = new double[n * n];
+        for (var ky = 0; ky < n; ky++)
+        {
+            var fy = (ky < n / 2 ? ky : ky - n) / (double)n;
+            for (var kx = 0; kx < n; kx++)
+            {
+                grid[(ky * n) + kx] = transfer((kx < n / 2 ? kx : kx - n) / (double)n, fy);
+            }
+        }
+        return grid;
     }
 
     // The transfer on an n-by-n grid, frequency by frequency.

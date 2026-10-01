@@ -332,13 +332,9 @@ public static class PlanetaryMoonProbe
                 {
                     continue;
                 }
-                if (sectorDeg is { } sector && ring > 0)
+                if (sectorDeg is { } sector && ring > 0 && !PlanetaryInverse.InSector(sx, sy, sector, sectorHalfWidthDeg))
                 {
-                    var off = Math.Abs(((((Math.Atan2(sy, sx) * 180 / Math.PI) - sector) % 180) + 270) % 180 - 90);
-                    if (off > sectorHalfWidthDeg)
-                    {
-                        continue;
-                    }
+                    continue;
                 }
                 var i = (ky * grid) + kx;
                 var moved = model[i] * Complex.FromPolarCoordinates(1, -2 * Math.PI * ((sx * dx) + (sy * dy)) / grid);
