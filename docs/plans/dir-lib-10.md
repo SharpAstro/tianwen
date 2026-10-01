@@ -6,7 +6,9 @@ where only P3 is left (#367). Planned 2026-09-15 (user, high priority), reviewed
 DIR.Lib 9.1 and every tianwen host (GUI, `tianwen-fits`, web, TUI). This plan ABSORBS
 [viewer-layout-engine.md](viewer-layout-engine.md) P0 (the measure seam) and
 [automatic-text-input.md](automatic-text-input.md) P3b (declarative focus), both of which turn out to be
-corners of the same missing piece.
+corners of the same missing piece. The viewer's keys became ONE declaration on 2026-10-01 (`ViewerShortcuts`),
+and what converting a key arm should and should not mean was measured: see
+[Shortcut adoption, measured](#shortcut-adoption-measured).
 
 ## The ask, in the user's words
 
@@ -1078,6 +1080,46 @@ the most-used widget in the library navigates and scrolls on a different model u
 ### T3. the chrome on the engine
 
 viewer-layout-engine P1 to P4, unchanged, now on the seam D1 shipped.
+
+## Shortcut adoption, measured
+
+An audit of 2026-09-20 found this plan's status still reading "nothing started" after three of its four
+groups had shipped, and measured what "a shortcut is a property of the node" should mean for the keys left.
+It sat on an unmerged branch until 2026-10-01, when it landed with its code.
+
+**Re-counted 2026-10-01.** `.WithShortcut` is used twice, both in the sky map (`SkyMapTab`,
+`SkyMapTab.Search`), against 81 `case InputKey.` arms: 36 in `ImageRendererBase.Input.cs` (44 at the audit;
+the declaration's routes took eight), 19 in `SkyMapTab.cs`, 11 in `PlannerTab.cs`, 5 each in `SessionTab.cs`
+and `PlannerActions.cs`, 3 in the GUI's `Program.cs` and 2 in `NightCalendarActions.cs`. A shortcut fires only
+when its node is PAINTED; the sky map is a layout tree and the viewer's chrome is hand-painted, which is why
+the two uses are where they are.
+
+**A declaration pays for itself where it removes a SECOND COPY, and not otherwise.** Both halves were tried
+against the viewer.
+
+- **It paid.** `ViewerShortcuts` is the viewer's one keyboard declaration. It collapsed three hand-kept copies
+  of every binding (the switch arms, the toolbar table, and the `?` panel's prose array, which had lost fifteen
+  bindings) into one, and the `?` panel is generated from it. A row names the button its key stands for and how
+  the key reaches it (`Press`, or `OpenMenu`; never a press on a button whose left press opens a menu,
+  `ActionsWithADropdown`), so a key and a button are one control: a key cannot act where its button is greyed
+  out, and it acts only where the host offers that button (`ViewerShortcuts.ButtonFor`; the offer table #1142
+  added beside it, `ActionOfKey`, folded into it the day it merged).
+- **It did not pay for global keys, and the attempt was reverted.** Eight arms (F11, S, I, L, G, P, F, R) moved
+  onto binding-only nodes (stretched spacers that paint nothing, the idiom `SkyMapTab.RenderSearchBinding` uses
+  for F3) built and routed, but removed no second copy: the arm was the only statement of the binding, so the
+  change traded a readable switch for a subtler mechanism. It also broke
+  `ViewerFileKeysTests.PlainS_StillTogglesTheStarOverlay`, which drives `viewer.HandleInput` directly, and that
+  is the real signal: a declared node is reachable only THROUGH the router, so the widget's own public input
+  API silently loses the key.
+
+So the arm count is not the metric. The arms worth converting are the ones attached to a control; the rest are
+better as arms, and the count stops wherever that leaves it. The 45 arms outside the viewer could move now, and
+should only where they belong to a control. The rest of T1 and T2's leftovers wait on T3: `OverlayOwnsPointer`
+(11 hits) stays until the viewer's toolbar, histogram and file list are layout trees, since a hand-painted chrome
+that resolves its hover before any overlay has drawn needs a prediction and a tree needs none; and of the five
+drag flags only `IsResizingFileList` (7 hits) is left, until the file list is a tree (`IsDraggingSplit`, which
+nothing read, went with the declaration). Ctrl+Tab and Ctrl+Shift+Tab are not outstanding: they name the NEXT
+tab, so they have no node to sit on and are answered before the router in `GuiEventHandlerBase`, by decision.
 
 ## Acceptance for the whole plan
 

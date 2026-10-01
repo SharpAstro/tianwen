@@ -317,7 +317,8 @@ exist, and the share link did not exist.
 
 **Every claim is checked against the code rather than recalled**, which matters more here than in
 any other entry: a guide is the one artefact that can be confidently wrong for a year. The shortcut
-tables come from the app's own `?` panel list (`ShortcutLines`) and from `GetToolbarButtonTooltip`,
+tables come from the app's own `?` panel list (`ShortcutLines`; generated from `ViewerShortcuts` since
+2026-10-01) and from `GetToolbarButtonTooltip`,
 the two places the app already documents itself, so the page and the program cannot drift apart on
 what a key does without one of those changing too.
 

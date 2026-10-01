@@ -1748,7 +1748,10 @@ fourth key router.
   any PAINTED node whose declared `Shortcut` matches, then the focused field, then the widget. The desktop
   (`GuiEventHandlerBase`) and the browser (`Planner.razor`) keep only what is theirs (platform binding,
   pointer position, the rail's hover repaint, rAF coalescing) and call `AfterPaint()` once the frame is
-  drawn. **A key binding is a `.WithShortcut(key, mods)` on a node, not an arm in a switch**; whether it beats
+  drawn. **A key binding that belongs to a CONTROL is declared with it**: a `.WithShortcut(key, mods)` on its
+  node, or in the viewer its row in `ViewerShortcuts`, the one table its arms, its buttons' keys and its `?`
+  panel come from; a key that is no control's stays an arm, since a declaration pays only where it removes a
+  second copy (measured: `docs/plans/dir-lib-10.md`, "Shortcut adoption, measured"). Whether a binding beats
   a focused field is `KeyChord.BeatsFocusedField` (Ctrl, Alt or F1..F12 do; a bare letter does not). Matching
   against the PAINTED tree makes a binding inside a closed panel, or a chord for a locked tab, inert.
   - Ctrl+Tab / Ctrl+Shift+Tab name the NEXT tab rather than a tab, so they are answered before the router in
