@@ -1107,6 +1107,15 @@ The Wiener filter is set to the band 3 transfer the oracle's RL reaches (noise-t
   - On the Uranus-C stacks of 2024-12-15, the same Newtonian at the same focus, the copy's strength is small beside the ASI290MM's: the shell is not a permanent feature of the telescope (the camera train's, or that night's collimation).
   - Coma or reflection: the model that leaves the smaller residual at the limb and beyond it on 2022-09-03 names the cause, and that cause decides whether the shell is subtracted (a copy) or handed to R7's kernel (coma).
   - Kill line: a ghost whose fit changes across a capture (a reflection that moves) is not one copy, and the model is revised before anything is subtracted.
+- **Clarified 2026-10-01, before it was built or measured** (`tianwen planetary-ghost`; taken up after R8's follow-ups 1 and 2, before follow-up 3, whose limb kernel on 2022-09-03's Red would carry the shell):
+  - **The stacks**: each capture stacked as R7 part 4's are (the best 5 % by the gradient, global, plain, Lanczos-3), every frame, the whole frame kept (the PIPP crops are 200 to 320 px). A colour capture is read per plane of its master.
+  - **The plane**: the sky at zero (the median of an 8 px border), the object's 99.5th percentile at one.
+  - **The copy's source**, P: the stack where it stands above 2 % of that peak, the planet and Saturn's rings alike.
+  - **The model**: a constant sky; the ghost, a times P through a uniform disk of radius rho, moved by (dx, dy); and the glow, b times P through (1 + r)^-q, unit sum. Fitted by Levenberg-Marquardt over every pixel at least 3 px outside P's mask, the border band left out.
+  - **Coma, the alternative**: c times P through a flare, a uniform line from the centre of length L at angle theta, in the ghost's place, with the same glow and sky. The model with the smaller residual over the 6 px just outside the mask, and over the rest, names the cause.
+  - **"No shell"**: in rings 2 px wide from 3 to 40 px outside the mask, the full model's residual has a mean within three standard errors of zero in every ring.
+  - **The synthetic**: R7 part 4's stack of the calibrated twin, which has the twin's scatter but no ghost, with a ghost added at a = 0.02, (dx, dy) = (5, -3) px and rho = 18 px. Recovered within 10 % in a and rho and within 1 px in the shift, and the twin itself, with nothing added, fits a ghost under a tenth of that.
+  - **The kill line, made concrete**: the first and second halves of a capture's frames, stacked and fitted apart, agree within 10 % in a and rho and within 1 px in the shift.
 
 ## R8 Wavelet gains from the measured blur and noise
 
