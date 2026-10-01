@@ -104,8 +104,8 @@ public sealed class ViewerController(
     /// <summary>
     /// The AI sharpen pipeline used by the Enhance action, or null when no AI services are wired
     /// (e.g. a minimal viewer host). Set by the host after resolving it from DI. When null the
-    /// Enhance toolbar button is hidden (the renderer's <c>EnhanceAvailable</c> flag) and the
-    /// <see cref="ToolbarAction.Enhance"/> dispatch is a no-op.
+    /// host does not offer Enhance (the renderer's <see cref="ToolbarOffer"/>), so its button is hidden,
+    /// and the <see cref="ToolbarAction.Enhance"/> dispatch is a no-op.
     /// </summary>
     public SharpenPipeline? EnhancePipeline { get; set; }
 

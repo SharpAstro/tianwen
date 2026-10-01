@@ -284,8 +284,9 @@ using var gpu = new GpuStack<VkImageRenderer>(logger, sdlWindow, (uint)pixW, (ui
         // logger the controller uses, so it is drained at shutdown and its failures reach the app log.
         Tracker = tracker,
         Logger = logger,
-        // SharpenPipeline is registered (AddRcAstroAi above), so surface the Enhance toolbar button.
-        EnhanceAvailable = true,
+        // SharpenPipeline is registered (AddRcAstroAi above), so this host offers Enhance; and it hands the
+        // viewer a sky map below (SkyBackdrop), so it offers the sky behind the frame as well.
+        Offer = ToolbarOffer.FileViewer.With(ToolbarAction.Enhance, ToolbarAction.SkyBackdrop),
         // The clipboard is a platform service, so the renderer takes it as a callback: the image
         // context menu (right-click) copies coordinates and pixel values through this.
         SetClipboardText = text => SetClipboardText(text),

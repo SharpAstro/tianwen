@@ -33,9 +33,10 @@ namespace TianWen.UI.Abstractions
             // The metadata and the statistics read the SOURCE (InfoPanelData), so any source could show
             // them; which do is still decided here, a document's only: a SER and the planetary stack show
             // only what applies to a sequence (the wavelet controls of the stacked view) -- filling the
-            // strip the layout reserves regardless. Which sources show them becomes the host's to say
-            // (step 3 of P1, docs/plans/live-session-preview.md). The white balance is a toolbar popover
-            // now, shared by both.
+            // strip the layout reserves regardless. A SER's statistics are its first frame's, which a scrub
+            // would show under every frame, so widening this waits for P3 (where the preview's readouts
+            // go, docs/plans/live-session-preview.md). The white balance is a toolbar popover now, shared
+            // by both.
             var document = source as AstroImageDocument;
 
             // Info-panel rect from the single layout pass (docked right by the Split's content Dock).

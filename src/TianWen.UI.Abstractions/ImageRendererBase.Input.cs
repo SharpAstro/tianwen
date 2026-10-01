@@ -352,8 +352,13 @@ namespace TianWen.UI.Abstractions
                     // writes -- the clean 16-bit raster -- because that is the one thing a keyboard
                     // user means by it; Ctrl+Shift+S opens the button's own menu (overlays on or off,
                     // the PNG depth), the keyboard's route to the choice the button offers on a click.
+                    // Swallowed where the host offers no Open: a plain O is the annotation, and a Ctrl+O
+                    // falling through to it would toggle the overlays.
                     case InputKey.O:
-                        PostSignal(new OpenFileSignal());
+                        if (Offer.Offers(ToolbarAction.Open))
+                        {
+                            PostSignal(new OpenFileSignal());
+                        }
                         return true;
                     // Hold / release the display mapping across frames (see ViewerState.CarryDisplayAcrossFrames).
                     // Ctrl, beside Ctrl+Space which goes back to the held frame; plain H is the histogram.
@@ -362,6 +367,10 @@ namespace TianWen.UI.Abstractions
                         state.NeedsRedraw = true;
                         return true;
                     case InputKey.S:
+                        if (!Offer.Offers(ToolbarAction.Save))
+                        {
+                            return true;
+                        }
                         if (shift)
                         {
                             return OpenToolbarDropdown(state, ToolbarAction.Save);
@@ -418,7 +427,10 @@ namespace TianWen.UI.Abstractions
                     // is tens of milliseconds and belongs off this thread.
                     if (shift)
                     {
-                        PostSignal(new AutoCropSignal());
+                        if (Offer.Offers(ToolbarAction.AutoCrop))
+                        {
+                            PostSignal(new AutoCropSignal());
+                        }
                     }
                     else if (_source is { } channelSource)
                     {
@@ -528,12 +540,18 @@ namespace TianWen.UI.Abstractions
                         state.ShowHistogram = !state.ShowHistogram;
                     }
                     return true;
+                // A key for an action only the host can run acts only where the host offers it, as its
+                // button shows only there (ToolbarOffer): where it is not offered, nothing would run what
+                // the key posted.
                 case InputKey.P:
-                    PostSignal(new PlateSolveSignal());
+                    if (Offer.Offers(ToolbarAction.PlateSolve))
+                    {
+                        PostSignal(new PlateSolveSignal());
+                    }
                     return true;
                 case InputKey.E:
-                    // AI enhance, only where a SharpenPipeline is wired (the button is hidden otherwise).
-                    if (EnhanceAvailable)
+                    // AI enhance, only where the host offers it (a SharpenPipeline is wired).
+                    if (Offer.Offers(ToolbarAction.Enhance))
                     {
                         PostSignal(new EnhanceImageSignal());
                     }

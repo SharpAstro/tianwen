@@ -210,7 +210,8 @@ Remaining steps (in order):
      raw press straight to the tab's `HandleInput` (chrome still gets first crack). This is why `VkViewerTab`
      was never wireable before. (`MouseMove`/`Up`/`Wheel` already routed to `HandleInput`.)
    - **Toolbar curation (subclass-controlled).** The button list is now `protected virtual ImmutableArray<…>
-     ToolbarButtons` on the base (render + hit-test both read it). `VkPlanetaryTab` overrides it to the
+     ToolbarButtons` on the base (render + hit-test both read it; replaced 2026-10-01 by the host's
+     `ToolbarOffer`, step 3 of P1 in `live-session-preview.md`). `VkPlanetaryTab` overrides it to the
      planetary-relevant subset (STF/Link/Params/Channel/Debayer/HDR/Fit/1:1), HIDING Open/Boost + the whole
      astrometry/star group (Plate Solve/Grid/Objects/Stars/Calibrate/NeutBg/SPCC) -- a disk has no stars,
      nothing to plate-solve, no SPCC.

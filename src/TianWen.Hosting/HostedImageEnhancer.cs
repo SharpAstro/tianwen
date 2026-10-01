@@ -23,7 +23,7 @@ namespace TianWen.Hosting;
 /// The <see cref="SharpenPipeline"/> is <b>optional</b>: it is registered only by <c>AddRcAstroAi()</c> /
 /// <c>AddTianWenAi()</c>, which a host (e.g. the functional-test host, or a headless server with no AI
 /// models) need not wire. When absent <see cref="IsAvailable"/> is <c>false</c> and the endpoint returns
-/// 503 -- mirroring the viewer's presence-gated Enhance button (renderer <c>EnhanceAvailable</c>). Resolving
+/// 503 -- mirroring the viewer's presence-gated Enhance button (a host's <c>ToolbarOffer</c>). Resolving
 /// the dependency via <c>GetService</c> (not <c>GetRequiredService</c>) is what keeps a no-AI host startable.
 /// </remarks>
 internal sealed class HostedImageEnhancer(

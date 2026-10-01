@@ -261,8 +261,8 @@ neither is reachable today.
   `VersionMajorMinor` in `src/Directory.Build.props` (see CLAUDE.md), so this is a read of
   `VersionPrefix`, not a new number to maintain. A Store user has no other way to say which build
   they are on.
-- **AI discovery status + download options.** The Enhance button is presence-gated on
-  `EnhanceAvailable`, so where no backend resolved it simply is not there, which is
+- **AI discovery status + download options.** The Enhance button is presence-gated on the
+  host's offer (`ToolbarOffer`, `EnhanceAvailable` until 2026-10-01), so where no backend resolved it simply is not there, which is
   indistinguishable from "this build has no enhance feature". The viewer should be able to report
   which backend it would use (RC-Astro vs SAS vs none), which RC products are licensed, and which
   SAS model files are missing -- plus an affordance to fetch the missing ones, because

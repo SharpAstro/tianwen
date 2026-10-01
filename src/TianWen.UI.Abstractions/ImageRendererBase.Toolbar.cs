@@ -16,121 +16,17 @@ namespace TianWen.UI.Abstractions
 {
     partial class ImageRendererBase<TSurface>
     {
-        // Full toolbar button set (label, action, group) -- the standalone FITS viewer (tianwen-fits) shows
-        // all of these. Group breaks insert extra spacing: 0 file, 1 stretch, 2 channel/debayer/curves,
-        // 3 zoom, 4 astrometry/stars/colour.
-        // Group numbers matter only by INEQUALITY with the previous button's -- a change inserts
-        // ButtonGroupSpacing -- so they are renumbered from 0 rather than the file list borrowing one.
-        // Its own group at the head is what makes it read as a window control instead of a third file
-        // action, and the leading button takes no gap of its own (prevGroup starts at -1).
-        private static readonly ImmutableArray<(string Label, ToolbarAction Action, int Group)> CoreToolbarButtons =
-        [
-            ("Files", ToolbarAction.FileList, 0),
-            ("Open", ToolbarAction.Open, 1),
-            ("Save", ToolbarAction.Save, 1),
-            ("STF", ToolbarAction.StretchToggle, 2),
-            ("Link", ToolbarAction.StretchLink, 2),
-            ("Params", ToolbarAction.StretchParams, 2),
-            ("Channel", ToolbarAction.Channel, 3),
-            ("Debayer", ToolbarAction.Debayer, 3),
-            // "Boost" and "HDR" until 8.1, side by side doing related things to the same pixels,
-            // and the second was the one label in this bar that promised what the viewer does not
-            // do -- a soft knee after the MTF, inside [0, 1], never a nit above SDR white. Folded
-            // into one popover for the reason Calibrate and SPCC folded into White balance:
-            // see ImageRendererBase.TonePanel.cs and docs/plans/hdr-display.md.
-            ("Tone", ToolbarAction.Tone, 3),
-            ("A/B", ToolbarAction.Compare, 3),
-            // One control, not two: the label is computed per frame (Fit / 1:1 / a percentage), so the
-            // text here is only the measurement seed and the widest state it has to fit.
-            ("Fit", ToolbarAction.Zoom, 4),
-            ("Crop", ToolbarAction.AutoCrop, 5),
-            ("Solve", ToolbarAction.PlateSolve, 5),
-            // One control, not two: the mark says which rung of the annotation ladder the view is on
-            // (grid / objects), and the text here is only the measurement seed.
-            ("Objects", ToolbarAction.Overlays, 5),
-            ("Stars", ToolbarAction.Stars, 5),
-            ("NeutBg", ToolbarAction.BackgroundNeutralize, 5),
-            // Mark only (three colour discs): it opens the white-balance popover, and its highlight
-            // says a white balance is in force. Last in the colour group, beside what sets one.
-            //
-            // "Calibrate" and "SPCC" used to sit here as well, and they were ONE control wearing two
-            // labels: both ran SetColorCalibrationEnabled on the same flag, so whichever you pressed
-            // lit the other. The photometric fit now lives inside this popover, next to the sliders it
-            // populates, which is also the only place that can show its provenance (method, survivor
-            // count, white reference) rather than three numbers that a grey-world guess could equally
-            // have produced.
-            ("", ToolbarAction.WhiteBalance, 5),
-        ];
-
         /// <summary>
-        /// The core set with the two optional buttons added where they belong, and the help button
-        /// last. "?" is appended HERE rather than living in the core table so every variant keeps it
-        /// last -- the Enhance table used to <c>Add()</c> past it and so ran group 5 before group 4.
+        /// The toolbar actions this viewer's host offers (<see cref="ToolbarOffer"/>): the bar shows exactly those,
+        /// in the viewer's own order, and a key for an action only a host can run acts only where it is offered.
+        /// The render and hit-test loops read it, so both stay in lock-step. <see cref="ToolbarOffer.FileViewer"/>
+        /// unless the host says otherwise, which is what a host that said nothing always got.
         /// </summary>
         /// <remarks>
-        /// The Sky button is INSERTED rather than appended, because it belongs beside the annotation
-        /// ladder it left: that one annotates the photograph, this one shows where the photograph
-        /// sits. It keeps a LABEL rather than going mark-only like the white balance, because
-        /// "where's the sky?" is the report that produced it -- an unlabelled mark on a crowded bar is
-        /// exactly as findable as the ladder rung it replaced.
+        /// Whether an offered button is DIM is the viewer's to say (<see cref="IsToolbarButtonEnabled"/>): offered
+        /// means the host could run it, enabled means this frame lets it.
         /// </remarks>
-        private static ImmutableArray<(string Label, ToolbarAction Action, int Group)> ComposeToolbar(
-            bool sky, bool enhance)
-        {
-            var buttons = CoreToolbarButtons;
-            if (sky)
-            {
-                var at = buttons.IndexOf(buttons.First(b => b.Action is ToolbarAction.Overlays)) + 1;
-                buttons = buttons.Insert(at, ("Sky", ToolbarAction.SkyBackdrop, 5));
-            }
-
-            if (enhance)
-            {
-                buttons = buttons.Add(("Enhance", ToolbarAction.Enhance, 5));
-            }
-
-            return buttons.Add(("?", ToolbarAction.Shortcuts, 6));
-        }
-
-        // The four sets, built once. Separate statics rather than an append-per-frame keep the
-        // per-frame render + hit-test loops allocation-free, which is why this is a table at all.
-        private static readonly ImmutableArray<(string Label, ToolbarAction Action, int Group)> ToolbarPlain =
-            ComposeToolbar(sky: false, enhance: false);
-        private static readonly ImmutableArray<(string Label, ToolbarAction Action, int Group)> ToolbarWithEnhance =
-            ComposeToolbar(sky: false, enhance: true);
-        private static readonly ImmutableArray<(string Label, ToolbarAction Action, int Group)> ToolbarWithSky =
-            ComposeToolbar(sky: true, enhance: false);
-        private static readonly ImmutableArray<(string Label, ToolbarAction Action, int Group)> ToolbarWithSkyAndEnhance =
-            ComposeToolbar(sky: true, enhance: true);
-
-        /// <summary>
-        /// Set by the host when an AI <see cref="TianWen.Lib.Imaging.Enhancement.SharpenPipeline"/> is wired
-        /// (e.g. tianwen-fits with AddRcAstroAi). When false the Enhance button is hidden entirely -- per the
-        /// "hide what can never apply" rule -- so a viewer with no AI services never shows a dead button.
-        /// </summary>
-        public bool EnhanceAvailable { get; set; }
-
-        /// <summary>
-        /// The toolbar buttons this viewer surfaces, in order. The base (tianwen-fits) shows the full set,
-        /// plus Enhance when <see cref="EnhanceAvailable"/> and the sky when the host gave it a map to
-        /// draw; a subclass embedding the viewer for a narrower job overrides this to a relevant subset,
-        /// so buttons that can never apply (e.g. plate solve / star detection / colour calibration on a
-        /// featureless planetary disk) are <b>hidden</b> rather than shown-but-disabled. The render +
-        /// hit-test loops read this property, so both stay in lock-step.
-        /// </summary>
-        /// <remarks>
-        /// <b>Hidden and dim mean different things here, and the sky button needs both.</b> A host that
-        /// never set <see cref="SkyBackdrop"/> -- the GUI's image tab, every chromeless embedding -- can
-        /// NEVER draw one, so the button is absent, exactly as Enhance is without an AI pipeline. A host
-        /// that can draw one, looking at a frame with no astrometric solution, can draw one LATER, so
-        /// there the button is present and dim and its tooltip says to plate solve. Collapsing the two
-        /// would either put a permanently dead control on the GUI's bar or hide the very affordance the
-        /// user went looking for when they asked where the sky was.
-        /// </remarks>
-        protected virtual ImmutableArray<(string Label, ToolbarAction Action, int Group)> ToolbarButtons =>
-            SkyBackdrop is not null
-                ? (EnhanceAvailable ? ToolbarWithSkyAndEnhance : ToolbarWithSky)
-                : (EnhanceAvailable ? ToolbarWithEnhance : ToolbarPlain);
+        public ToolbarOffer Offer { get; set; } = ToolbarOffer.FileViewer;
 
         /// <summary>
         /// Actions pulled out of the left-to-right run and laid out from the RIGHT edge instead, in
@@ -224,7 +120,7 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            var buttons = ToolbarButtons;
+            var buttons = Offer.Buttons;
             var rightAligned = RightAlignedToolbarActions;
             for (var i = 0; i < buttons.Length; i++)
             {
@@ -1117,7 +1013,7 @@ namespace TianWen.UI.Abstractions
             // the full frame and the crop that was on it.
             ToolbarAction.AutoCrop => document is { SourceCrop: null },
             ToolbarAction.ZoomFit or ToolbarAction.ZoomActual or ToolbarAction.Zoom => HasPicture,
-            // Only in the button set when EnhanceAvailable, so the gate here is just "have an image".
+            // Only on the bar where the host offers it (ToolbarOffer), so the gate here is just "have an image".
             // Re-click while a pass runs is harmless -- the controller guards on IsEnhancing.
             ToolbarAction.Enhance => document is not null,
             // Pixels, not a document: the pinned-settings comparison is just as useful on a SER
