@@ -106,6 +106,159 @@ public class PlanetaryMoonProbeTests
     }
 
     [Fact]
+    public void AnElongatedKernelReadsItsTwoDirectionsInTheirSectors()
+    {
+        // Twice as blurred along x as along y: a sector about either axis averages the transfer over its own directions.
+        const double sigmaX = 1.2, sigmaY = 0.6;
+        var plane = ElongatedMoon(48.3, 46.6, sigmaX, sigmaY);
+        static double Expected(double f, double axisDeg)
+        {
+            double sum = 0;
+            for (var k = -30; k <= 30; k++)
+            {
+                var theta = (axisDeg + k) * Math.PI / 180;
+                var (c, s) = (Math.Cos(theta), Math.Sin(theta));
+                sum += Math.Exp(-2 * Math.PI * Math.PI * f * f * ((sigmaX * sigmaX * c * c) + (sigmaY * sigmaY * s * s)));
+            }
+            return sum / 61;
+        }
+        foreach (var axis in new[] { 0.0, 90.0 })
+        {
+            var read = PlanetaryMoonProbe.Read(plane, Size, Size, 48, 47, Radius, 0, 0, _ => 1, sectorDeg: axis).ShouldNotBeNull();
+            foreach (var f in new[] { 0.1, 0.2, 0.3 })
+            {
+                TestContext.Current.TestOutputHelper?.WriteLine($"{axis} deg, {f}: read {read.Transfer.At(f):0.000}, the kernel's {Expected(f, axis):0.000}");
+                read.Transfer.At(f).ShouldBe(Expected(f, axis), 0.03);
+            }
+        }
+    }
+
+    [Fact]
+    public void AQuadraticRimTakesACurvedSkyOffAWiderSquare()
+    {
+        var plane = Moon(48.3, 46.6, Gaussian);
+        for (var j = 0; j < Size; j++)
+        {
+            for (var i = 0; i < Size; i++)
+            {
+                var (u, v) = ((i - 48) / 48.0, (j - 47) / 48.0);
+                plane[(j * Size) + i] += (float)((0.3 * u * u) - (0.2 * u * v) + (0.25 * v * v));
+            }
+        }
+
+        var read = PlanetaryMoonProbe.Read(plane, Size, Size, 48, 47, Radius, 0, 0, _ => 1, reach: 24, quadratic: true).ShouldNotBeNull();
+        read.Flux.ShouldBe(Math.PI * Radius * Radius, 0.02);
+        foreach (var f in new[] { 0.1, 0.2, 0.3, 0.4 })
+        {
+            read.Transfer.At(f).ShouldBe(Gaussian(f), 0.02);
+        }
+    }
+
+    // A uniform disk at (x, y) blurred by a Gaussian of sigmaX along x and sigmaY along y on the fine grid, then summed into pixels.
+    private static float[] ElongatedMoon(double x, double y, double sigmaX, double sigmaY)
+    {
+        var n = Size * Fine;
+        var fine = new float[n * n];
+        var reach = Radius + 1;
+        for (var l = (int)((y - reach + 0.5) * Fine); l <= (int)((y + reach + 0.5) * Fine); l++)
+        {
+            for (var k = (int)((x - reach + 0.5) * Fine); k <= (int)((x + reach + 0.5) * Fine); k++)
+            {
+                var hits = 0;
+                for (var v = 0; v < 4; v++)
+                {
+                    for (var u = 0; u < 4; u++)
+                    {
+                        var px = ((k + ((u + 0.5) / 4)) / Fine) - 0.5 - x;
+                        var py = ((l + ((v + 0.5) / 4)) / Fine) - 0.5 - y;
+                        if ((px * px) + (py * py) < Radius * Radius)
+                        {
+                            hits++;
+                        }
+                    }
+                }
+                fine[(l * n) + k] = hits / 16f;
+            }
+        }
+        var blurred = Separable(fine, n, sigmaX * Fine, sigmaY * Fine);
+        var plane = new float[Size * Size];
+        for (var j = 0; j < Size; j++)
+        {
+            for (var i = 0; i < Size; i++)
+            {
+                double sum = 0;
+                for (var l = 0; l < Fine; l++)
+                {
+                    for (var k = 0; k < Fine; k++)
+                    {
+                        sum += blurred[(((j * Fine) + l) * n) + (i * Fine) + k];
+                    }
+                }
+                plane[(j * Size) + i] = (float)(sum / (Fine * Fine));
+            }
+        }
+        return plane;
+    }
+
+    // A Gaussian blur, separably, of sigmaX samples along x and sigmaY along y.
+    private static float[] Separable(float[] plane, int n, double sigmaX, double sigmaY)
+    {
+        static double[] Kernel(double sigma)
+        {
+            var half = (int)Math.Ceiling(4 * sigma);
+            var kernel = new double[(2 * half) + 1];
+            double sum = 0;
+            for (var i = -half; i <= half; i++)
+            {
+                kernel[i + half] = Math.Exp(-0.5 * i * i / (sigma * sigma));
+                sum += kernel[i + half];
+            }
+            for (var i = 0; i < kernel.Length; i++)
+            {
+                kernel[i] /= sum;
+            }
+            return kernel;
+        }
+        var (kx, ky) = (Kernel(sigmaX), Kernel(sigmaY));
+        var (hx, hy) = (kx.Length / 2, ky.Length / 2);
+        var rows = new float[n * n];
+        for (var y = 0; y < n; y++)
+        {
+            for (var x = 0; x < n; x++)
+            {
+                double sum = 0;
+                for (var i = -hx; i <= hx; i++)
+                {
+                    var at = x + i;
+                    if (at >= 0 && at < n)
+                    {
+                        sum += kx[i + hx] * plane[(y * n) + at];
+                    }
+                }
+                rows[(y * n) + x] = (float)sum;
+            }
+        }
+        var result = new float[n * n];
+        for (var y = 0; y < n; y++)
+        {
+            for (var x = 0; x < n; x++)
+            {
+                double sum = 0;
+                for (var j = -hy; j <= hy; j++)
+                {
+                    var at = y + j;
+                    if (at >= 0 && at < n)
+                    {
+                        sum += ky[j + hy] * rows[(at * n) + x];
+                    }
+                }
+                result[(y * n) + x] = (float)sum;
+            }
+        }
+        return result;
+    }
+
+    [Fact]
     public void AHalfStackIsReadWhereItsWholeStackFoundTheMoon()
     {
         var plane = Moon(48.3, 46.6, Gaussian);

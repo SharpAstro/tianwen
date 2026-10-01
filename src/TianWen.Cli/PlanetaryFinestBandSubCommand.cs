@@ -35,12 +35,14 @@ internal sealed class PlanetaryFinestBandSubCommand(IConsoleHost consoleHost)
         var windowOpt = new Option<int>("--window") { Description = "The side of the window about the disk, px.", DefaultValueFactory = _ => 256 };
         var axisOpt = new Option<double?>("--axis") { Description = "Also read the edge along this direction (degrees from +x toward +y) and across it: an elongated kernel's two profiles." };
         var moonsOpt = new Option<double>("--moons") { Description = "Read every Galilean moon within this many radii of the centre as a near-point source (R8 follow-up 4, #1140); 0 for none." };
+        var moonReachOpt = new Option<string>("--moon-reach") { Description = "The moon read's half side, px, a comma list to read at each.", DefaultValueFactory = _ => "16" };
+        var moonQuadraticOpt = new Option<bool>("--moon-quadratic") { Description = "Take a quadratic surface off the moon read's rim, not a plane." };
 
         var command = new Command("planetary-finest-band",
             "A stack's finest band read off the limb's edge and off its spectrum against another year's map, beside a twin's oracle and the limb's kernel (R8 follow-up 3, #1139).")
         {
             Arguments = { inputArg },
-            Options = { truthOpt, mapOpt, killMapOpt, kOpt, planetOpt, framesOpt, keepOpt, telescopeOpt, wavelengthOpt, windowOpt, axisOpt, moonsOpt },
+            Options = { truthOpt, mapOpt, killMapOpt, kOpt, planetOpt, framesOpt, keepOpt, telescopeOpt, wavelengthOpt, windowOpt, axisOpt, moonsOpt, moonReachOpt, moonQuadraticOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -66,6 +68,12 @@ internal sealed class PlanetaryFinestBandSubCommand(IConsoleHost consoleHost)
             {
                 var oracle = PlanetaryInverse.Measure(stack, truth, size, size);
                 consoleHost.WriteScrollable($"    the oracle (the stack against its truth): {Row(oracle.At)}");
+                // The stack is put on its truth by the limb fit's centre; registered by the correlation instead, any shift the limb fit
+                // left is out of the oracle (a shift reads as blur at the finest frequencies).
+                var (moved, shiftX, shiftY) = new CorrelationRegistrar(truth, size).Register(stack);
+                var corrected = PlanetaryInverse.Measure(moved, truth, size, size);
+                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                    $"      registered by correlation:            {Row(corrected.At)} (the stack lay {shiftX:+0.000;-0.000}, {shiftY:+0.000;-0.000} px off its truth)"));
             }
             consoleHost.WriteScrollable($"    (b'), the limb fit's kernel:            {Row(prepared.Measured)}");
 
@@ -79,10 +87,11 @@ internal sealed class PlanetaryFinestBandSubCommand(IConsoleHost consoleHost)
                 $"    (a), the physical kernel on the edge:   {Row(physical.TransferAt)} (D/r0 {physical.ApertureOverR0:0.00}, sigma {physical.SigmaPx:0.00} px, halo {physical.Halo:0.000} of {physical.HaloWidthPx:0.0} px; the cutoff {prepared.Cutoff:0.000} cycles a pixel)"));
             if (prepared.Truth is { } truthPlane)
             {
+                // Judged where it was pre-registered, 0.1 to 0.3 cycles a pixel (step 3); past that the edge is noise.
                 var check = prepared.LimbEdge(truthPlane);
-                var worst = Frequencies.Max(f => Math.Abs(check.TransferAt(f) - 1));
+                var worst = Frequencies.Where(f => f <= 0.3).Max(f => Math.Abs(check.TransferAt(f) - 1));
                 consoleHost.WriteScrollable(string.Create(inv,
-                    $"      its self-check, the truth's edge:     {Row(check.TransferAt)} ({(worst <= 0.05 ? "holds" : "FAILS")}, within {worst:0.000} of one)"));
+                    $"      its self-check, the truth's edge:     {Row(check.TransferAt)} ({(worst <= 0.05 ? "holds" : "FAILS")}, within {worst:0.000} of one to 0.3)"));
             }
             if (parseResult.GetValue(axisOpt) is { } along)
             {
@@ -94,7 +103,8 @@ internal sealed class PlanetaryFinestBandSubCommand(IConsoleHost consoleHost)
             // (m) Each moon in the frame as a near-point source, where the ephemeris and the moons' own light put it.
             if (parseResult.GetValue(moonsOpt) is var within and > 0)
             {
-                ReadMoons(prepared, within, Row);
+                var reaches = (parseResult.GetValue(moonReachOpt) ?? "16").Split(',').Select(r => int.Parse(r, CultureInfo.InvariantCulture)).ToArray();
+                ReadMoons(prepared, within, reaches, parseResult.GetValue(moonQuadraticOpt), Row);
             }
 
             // (c) The spectrum: the stack's texture power less its halves' noise, over another year's map at the capture's geometry.
@@ -141,9 +151,10 @@ internal sealed class PlanetaryFinestBandSubCommand(IConsoleHost consoleHost)
     }
 
     // Each Galilean moon within `within` radii: named and sized by the ephemeris at the frames' middle, placed by the disk turned the way
-    // the moons themselves say, smeared by its drift over the frames, and read in the stack and its two halves (their difference is the
-    // read's noise); on the brightest, the read again with a limb darkened as mu^0.2.
-    private void ReadMoons(PlanetaryWindowedStack prepared, double within, Func<Func<double, double>, string> row)
+    // the moons themselves say, smeared by its drift over the frames, and read at each reach in the stack and its two halves (their
+    // difference is the read's noise), with the read again under a limb darkened as mu^0.2; on a twin, also on its truth, which must
+    // read one at every frequency and the light the twin put in.
+    private void ReadMoons(PlanetaryWindowedStack prepared, double within, int[] reaches, bool quadratic, Func<Func<double, double>, string> row)
     {
         var inv = CultureInfo.InvariantCulture;
         var (width, height) = (prepared.Width, prepared.Height);
@@ -167,27 +178,48 @@ internal sealed class PlanetaryFinestBandSubCommand(IConsoleHost consoleHost)
             var (x0, y0) = placement.ImagePoint(first[i].X, first[i].Y);
             var (x1, y1) = placement.ImagePoint(last[i].X, last[i].Y);
             var radius = moon.Radius * placement.EquatorialRadius;
-            var read = PlanetaryMoonProbe.Read(prepared.FullStack, width, height, x, y, radius, x1 - x0, y1 - y0, prepared.Diffraction.At);
-            if (read is null)
-            {
-                consoleHost.WriteScrollable(string.Create(inv, $"      {moon.Name}, {separation:0.00} radii, at {x:0.0}, {y:0.0}: outside the frame or not found"));
-                continue;
-            }
-            var halves = prepared.FullHalfA is { } a && prepared.FullHalfB is { } b
-                ? (PlanetaryMoonProbe.Read(a, width, height, read.X, read.Y, radius, x1 - x0, y1 - y0, prepared.Diffraction.At, searchPx: 0),
-                    PlanetaryMoonProbe.Read(b, width, height, read.X, read.Y, radius, x1 - x0, y1 - y0, prepared.Diffraction.At, searchPx: 0))
-                : (null, null);
+            var (driftX, driftY) = (x1 - x0, y1 - y0);
             consoleHost.WriteScrollable(string.Create(inv,
-                $"      {moon.Name}, {separation:0.00} radii, {2 * radius:0.00} px across, drifting {Math.Sqrt(((x1 - x0) * (x1 - x0)) + ((y1 - y0) * (y1 - y0))):0.00} px: found {read.X - x:+0.00;-0.00}, {read.Y - y:+0.00;-0.00} px from its place, flux {read.Flux:0.000}"));
-            consoleHost.WriteScrollable($"        its read:                         {row(read.Transfer.At)}");
-            if (halves is ({ } ha, { } hb))
+                $"      {moon.Name}, {separation:0.00} radii, {2 * radius:0.00} px across, drifting {Math.Sqrt((driftX * driftX) + (driftY * driftY)):0.00} px, the background {(quadratic ? "a quadratic surface" : "a plane")}:"));
+            foreach (var reach in reaches)
             {
-                consoleHost.WriteScrollable($"        its noise (half the halves' gap): {row(f => Math.Abs(ha.Transfer.At(f) - hb.Transfer.At(f)) / 2)}");
-            }
-            consoleHost.WriteScrollable($"        the model's own transfer:         {row(read.Model.At)}");
-            if (PlanetaryMoonProbe.Read(prepared.FullStack, width, height, read.X, read.Y, radius, x1 - x0, y1 - y0, prepared.Diffraction.At, searchPx: 0, limbDarkening: 0.2) is { } darkened)
-            {
-                consoleHost.WriteScrollable($"        a limb darkened as mu^0.2 moves it: {row(f => darkened.Transfer.At(f) - read.Transfer.At(f))}");
+                MoonRead? At(float[] plane, double atX, double atY, int search, double darkening = 0) =>
+                    PlanetaryMoonProbe.Read(plane, width, height, atX, atY, radius, driftX, driftY, prepared.Diffraction.At, search, darkening, reach, quadratic);
+                if (At(prepared.FullStack, x, y, 3) is not { } read)
+                {
+                    consoleHost.WriteScrollable(string.Create(inv, $"        within {reach} px, at {x:0.0}, {y:0.0}: outside the frame or not found"));
+                    continue;
+                }
+                consoleHost.WriteScrollable(string.Create(inv,
+                    $"        within {reach} px: found {read.X - x:+0.00;-0.00}, {read.Y - y:+0.00;-0.00} px from its place, flux {read.Flux:0.000}"));
+                consoleHost.WriteScrollable($"          its read:                         {row(read.Transfer.At)}");
+                if (prepared.FullHalfA is { } a && prepared.FullHalfB is { } b && At(a, read.X, read.Y, 0) is { } ha && At(b, read.X, read.Y, 0) is { } hb)
+                {
+                    consoleHost.WriteScrollable($"          its noise (half the halves' gap): {row(f => Math.Abs(ha.Transfer.At(f) - hb.Transfer.At(f)) / 2)}");
+                }
+                consoleHost.WriteScrollable($"          the model's own transfer:         {row(read.Model.At)}");
+                if (At(prepared.FullStack, read.X, read.Y, 0, 0.2) is { } darkened)
+                {
+                    consoleHost.WriteScrollable($"          a limb darkened as mu^0.2 moves it: {row(f => darkened.Transfer.At(f) - read.Transfer.At(f))}");
+                }
+                if (prepared.FullTruth is { } truth && At(truth, read.X, read.Y, 0) is { } onTruth)
+                {
+                    consoleHost.WriteScrollable(string.Create(inv,
+                        $"          its self-check, on the truth:     {row(onTruth.Transfer.At)} (flux {onTruth.Flux:0.000})"));
+                }
+                // An anisotropic kernel's two directions: the frequencies along the planet's axis (across its belts, where its own power
+                // is) and along its equator, each over the truth's read in the same sector where there is one.
+                foreach (var (name, direction) in new[] { ("along the axis", placement.NorthAngleDeg), ("along the equator", placement.NorthAngleDeg + 90) })
+                {
+                    MoonRead? Sector(float[] plane) =>
+                        PlanetaryMoonProbe.Read(plane, width, height, read.X, read.Y, radius, driftX, driftY, prepared.Diffraction.At, 0, 0, reach, quadratic, direction);
+                    if (Sector(prepared.FullStack) is { } along)
+                    {
+                        var overTruth = prepared.FullTruth is { } t && Sector(t) is { } alongTruth
+                            ? $", over the truth's {row(f => along.Transfer.At(f) / alongTruth.Transfer.At(f))}" : "";
+                        consoleHost.WriteScrollable($"          {name,-18}:             {row(along.Transfer.At)}{overTruth}");
+                    }
+                }
             }
         }
     }

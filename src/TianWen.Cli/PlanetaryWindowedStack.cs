@@ -47,6 +47,8 @@ internal sealed class PlanetaryWindowedStack : IDisposable
     /// <summary>The stack over the whole frame, normalised and registered as <see cref="Stack"/> is: where a moon beyond the window is read.</summary>
     public required float[] FullStack { get; init; }
     public float[]? FullHalfA { get; init; }
+    /// <summary>The truth over the whole frame, normalised on the stack's disk as <see cref="Truth"/> is.</summary>
+    public float[]? FullTruth { get; init; }
     public float[]? FullHalfB { get; init; }
     /// <summary>The first and the last frame's time: the span a moon drifted over.</summary>
     public required DateTimeOffset Start { get; init; }
@@ -188,6 +190,7 @@ internal sealed class PlanetaryWindowedStack : IDisposable
                 End = end,
                 HalfA = a is { } ap ? Cut(ap.Plane) : null,
                 HalfB = b is { } bp ? Cut(bp.Plane) : null,
+                FullTruth = truth is { } ft ? PlanetaryMetrics.Normalise(ft.Plane, width, height, stack.Disk) : null,
                 Truth = truth is { } tr ? Cut(PlanetaryMetrics.Normalise(tr.Plane, width, height, stack.Disk)) : null,
                 SharpDisk = Cut(sharp),
                 Diffraction = PlanetaryInverse.Diffraction(pupil, wavelengthNm * 1e-9, scale),
