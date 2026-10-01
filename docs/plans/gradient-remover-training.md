@@ -233,8 +233,12 @@ A master's edge is three different things, and a crop treats them as one:
   the 8-inch f/3 Newtonian (corners at 0.60 to 0.67 of peak). The bake's PSF store records every
   session's calibration masters by name (`Calibration`): 171 of 190 name a flat, 11 name a dark and no
   flat, and 8 record nothing (4 resumed from an earlier bake whose records predate the field, 4 the bake
-  logged as matching no dark or flat). The archive HAS flats for every one of those cameras, so these are
-  sessions the resolver attached no flat to, not sessions without flats, and why is still open. So the
+  logged as matching no dark or flat). Against the curation's own `session-calibration-map.csv`: 16 of
+  those sessions have no flat for their OPTICAL TRAIN (flats exist for the camera, through other scopes,
+  and the map says they must not transfer), and one was a header fault, Helix 2025-08-09, whose lights
+  carried the measured `FOCALLEN` 368.8 against its same-night flats' nominal 360, so the resolver refused
+  them; fixed in the archive 2026-10-01 (`_provenance/CORRECTIONS.md`), its re-bake owed. Of the map's 118
+  sessions with a flat, the other 117 resolve it or were never baked by rule (`BAD_` capture rejects). So the
   store has no hard-dark area to learn from, while a user's frame can (a full-frame sensor
   on a small refractor). The injection family therefore needs a multiplicative falloff beside the additive
   gradients, up to near-dark corners, its training label the background a remover CAN subtract (the
