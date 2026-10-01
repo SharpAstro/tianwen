@@ -131,7 +131,7 @@ namespace TianWen.UI.Abstractions
                && SkyBackdrop is not null
                && SkyTimeProvider is not null
                && SkyPlannerState is { ObjectDb: not null }
-               && _document?.Wcs is { HasCDMatrix: true };
+               && Findings.Wcs is { HasCDMatrix: true };
 
         /// <summary>
         /// Whether the coordinate grid spans the whole PANE rather than just the picture. The grid is
@@ -210,7 +210,7 @@ namespace TianWen.UI.Abstractions
                 || SkyBackdrop is not { } tab
                 || SkyPlannerState is not { } planner
                 || SkyTimeProvider is not { } clock
-                || _document?.Wcs is not { } wcs)
+                || Findings.Wcs is not { } wcs)
             {
                 // Nothing is being composited over the map on this path, so it must not go on
                 // holding a hole in its labels from the last frame that was.
@@ -326,7 +326,7 @@ namespace TianWen.UI.Abstractions
 
             // The frame's own grid, now spanning the pane: drawn with the sky's lines because it is
             // one of them here, and over the photograph for the same reason they are.
-            if (PaneWideGrid && _document?.Wcs is { HasCDMatrix: true } gridWcs)
+            if (PaneWideGrid && Findings.Wcs is { HasCDMatrix: true } gridWcs)
             {
                 var p = _placement;
                 RenderPaneWideGrid(gridWcs, area, p.OffsetX, p.OffsetY, p.DrawW, p.DrawH);

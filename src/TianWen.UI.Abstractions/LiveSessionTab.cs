@@ -272,8 +272,8 @@ namespace TianWen.UI.Abstractions
                 // Before the first Phase A solve completes (LastPolarSolve still null), fall back to the
                 // lightweight "J2000 pole preview" so the user already sees the crosshair + 30' ring while the
                 // rotation runs. Cleared when polar mode exits so the annotation doesn't leak. The annotation
-                // is on the WIDGET; its projection WCS comes from OverrideWcs (set below) since a live frame
-                // is document-less.
+                // is on the WIDGET; its projection WCS is the live frame's own, in the source's findings (set
+                // below).
                 if (state.Mode == LiveSessionMode.PolarAlign)
                 {
                     if (state.LastPolarSolve is { Overlay: { } overlay })
@@ -331,20 +331,22 @@ namespace TianWen.UI.Abstractions
                 {
                     _displayedImage = latestImage;
                     pst.NeedsTextureUpdate = true;
-                    // A fresh frame invalidates any prior solve until the user requests a new plate solve.
-                    // Without this, the grid would be drawn over a frame the WCS doesn't actually describe.
-                    viewer.OverrideWcs = null;
+                    // A fresh frame invalidates any prior solve until the user requests a new plate solve:
+                    // AcceptFrame dropped the previous frame's findings. Without that, the grid would be
+                    // drawn over a frame the WCS doesn't actually describe.
                 }
 
                 // Bind the live preview's plate-solve result whenever the displayed frame is the one that
-                // produced it. The signal handler stores the solve into LiveSessionState; we hand it to the
-                // viewer as the projection WCS (the live source is document-less, so OverrideWcs is how the
-                // GLSL grid + WcsAnnotation paths get a WCS).
+                // produced it. The signal handler stores the solve into LiveSessionState; we record it in the
+                // live source's findings, which the GLSL grid, its labels and the WcsAnnotation paths read
+                // for any source. Only when it changes: this runs every frame, and a record per frame is
+                // garbage for nothing.
                 if (state.PreviewPlateSolveResult?.Solution is { } solveWcs
                     && _displayedImage is not null
-                    && ReferenceEquals(_displayedImage, latestImage))
+                    && ReferenceEquals(_displayedImage, latestImage)
+                    && !Nullable.Equals(_previewSource.Findings.Wcs, solveWcs))
                 {
-                    viewer.OverrideWcs = solveWcs;
+                    _previewSource.Findings = _previewSource.Findings with { Wcs = solveWcs };
                 }
 
                 // Image area (below where the preview toolbar goes). The viewer projects over the full surface

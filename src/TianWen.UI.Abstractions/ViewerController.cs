@@ -381,7 +381,7 @@ public sealed class ViewerController(
                 }
                 state.HistogramLogScale = state.StretchMode is StretchMode.None;
 
-                if (newDoc.Wcs is { } wcs)
+                if (newDoc.Findings.Wcs is { } wcs)
                 {
                     logger.LogInformation("WCS: HasCD={HasCDMatrix}, Approx={IsApproximate}, Scale={PixelScale:F2}\"/px, RA={CenterRA:F4}h, Dec={CenterDec:F4}°",
                         wcs.HasCDMatrix, wcs.IsApproximate, wcs.PixelScaleArcsec, wcs.CenterRA, wcs.CenterDec);
@@ -799,7 +799,7 @@ public sealed class ViewerController(
                 break;
 
             case ToolbarAction.PlateSolve:
-                if (Document is { } solveDoc && !state.IsPlateSolving && !solveDoc.IsPlateSolved)
+                if (Document is { } solveDoc && !state.IsPlateSolving && !solveDoc.Findings.IsPlateSolved)
                 {
                     // Claim the slot HERE, on the render thread, before the work leaves it. The flag is
                     // what stops a second press starting a second solve, and once the body runs on the
@@ -1004,15 +1004,16 @@ public sealed class ViewerController(
             try
             {
                 await document.DetectStarsAsync(sdCts.Token);
-                logger.LogInformation("Detected {StarCount} stars in {Duration:F1}s (HFR={HFR:F2}, FWHM={FWHM:F2})",
-                    document.Stars?.Count ?? 0, document.StarDetectionDuration.TotalSeconds, document.AverageHFR, document.AverageFWHM);
+                var found = document.Findings;
+                logger.LogInformation("Detected {StarCount} stars in {Duration:F1}s (HFD={HFD:F2}, FWHM={FWHM:F2})",
+                    found.Stars?.Count ?? 0, document.StarDetectionDuration.TotalSeconds, found.MedianHfd, found.MedianFwhm);
                 state.NeedsRedraw = true;
             }
             catch (OperationCanceledException) { logger.LogDebug("Star detection cancelled"); }
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "Star detection failed");
-                document.Stars = StarList.Empty;
+                document.RecordStars(StarList.Empty);
                 state.StatusMessage = "Star detection failed";
                 state.NeedsRedraw = true;
             }

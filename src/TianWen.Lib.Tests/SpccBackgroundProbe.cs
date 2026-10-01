@@ -48,7 +48,7 @@ public class SpccBackgroundProbe(ITestOutputHelper output)
         // pedestal comes from MinValue instead, so these two are expected to disagree here.
         output.WriteLine($"pedestal   declared={img.Pedestal:G6}");
         output.WriteLine($"meta       instrument={meta.Instrument} sensor={meta.SensorModel} filter={meta.Filter.FilterNameForFits} sensorType={meta.SensorType}");
-        output.WriteLine($"wcs        {(doc.Wcs is { HasCDMatrix: true } ? "solved (CD matrix present)" : doc.Wcs is null ? "NONE" : "present but no CD matrix")}");
+        output.WriteLine($"wcs        {(doc.Findings.Wcs is { HasCDMatrix: true } ? "solved (CD matrix present)" : doc.Findings.Wcs is null ? "NONE" : "present but no CD matrix")}");
 
         // What is ALREADY known at open, before star detection: the stretch needs these to render the
         // first frame, so any decision taken from them is free.
@@ -70,7 +70,7 @@ public class SpccBackgroundProbe(ITestOutputHelper output)
         output.WriteLine($"scan cost  ScanBackgroundRegion {sw.Elapsed.TotalMilliseconds:F1} ms over {w}x{h}x{channels}");
 
         await doc.DetectStarsAsync(ct);
-        output.WriteLine($"stars      {doc.Stars?.Count ?? 0}");
+        output.WriteLine($"stars      {doc.Findings.Stars?.Count ?? 0}");
 
         // The star-masked background is the one background neutralisation actually consumes; taking it
         // before detection reads a different (and here, degenerate) array.

@@ -66,8 +66,8 @@ namespace TianWen.Lib.Tests
         {
             var doc = await AstroImageDocument.AdoptImageAsync(CastStarField(), DebayerAlgorithm.None, cancellationToken: ct);
             await doc.DetectStarsAsync(ct);
-            doc.Stars.ShouldNotBeNull();
-            doc.Stars!.Count.ShouldBeGreaterThanOrEqualTo(5, "the synthetic field must give the sky-bg path enough stars");
+            doc.Findings.Stars.ShouldNotBeNull();
+            doc.Findings.Stars!.Count.ShouldBeGreaterThanOrEqualTo(5, "the synthetic field must give the sky-bg path enough stars");
             // Sky-background calibration (no catalog needed) declares the cast sky neutral.
             await doc.ComputeColorCalibrationAsync(ct);
             doc.ColorCalibration.ShouldNotBeNull("the cast frame must calibrate to a triple");

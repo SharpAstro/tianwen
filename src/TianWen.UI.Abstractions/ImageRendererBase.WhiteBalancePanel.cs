@@ -322,7 +322,7 @@ namespace TianWen.UI.Abstractions
             // the user had just pressed looked like it had ignored them. The status bar said
             // "Calibrating color..." all along; the button, which is where they were looking, did not.
             var inFlight = _document?.ColorCalibrationInFlight ?? false;
-            var canCalibrate = !inFlight && _document?.Stars is { Count: >= 5 };
+            var canCalibrate = !inFlight && _document?.Findings.Stars is { Count: >= 5 };
             var calibrated = _document?.ColorCalibration is not null;
             var spccLabel = inFlight
                 ? "Calibrating..."

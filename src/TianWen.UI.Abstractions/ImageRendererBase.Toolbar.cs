@@ -535,7 +535,7 @@ namespace TianWen.UI.Abstractions
                 DrawText(box.Label, r.X + ButtonPaddingH + box.MarkWidth + MarkGap(box.MarkWidth, box.Label),
                     textY, ToolbarFontSize, inkColor);
 
-                if (hovered && GetToolbarButtonTooltip(box.Action, state, _document) is { Length: > 0 } tip)
+                if (hovered && GetToolbarButtonTooltip(box.Action, state, _document, Findings) is { Length: > 0 } tip)
                 {
                     _hoveredTooltip = (tip, r.X, r.Bottom, null);
                 }
@@ -1099,19 +1099,19 @@ namespace TianWen.UI.Abstractions
             // an already-created one: that rule disabled the button on a frame whose WCS came from its
             // own header rather than from a solve here, and a disabled button cannot warm the catalog
             // it is waiting for.
-            ToolbarAction.Overlays => document?.Wcs is { HasCDMatrix: true },
+            ToolbarAction.Overlays => Findings.Wcs is { HasCDMatrix: true },
             // The same requirement as the grid, and for a stronger reason: the backdrop has to PLACE
             // the photograph on the sky, so without a solution it would draw the wrong part of it
             // rather than nothing. As the ladder's top rung this had nowhere to be said, so the press
             // was simply ignored; dim with a tooltip is the same refusal made legible.
-            ToolbarAction.SkyBackdrop => document?.Wcs is { HasCDMatrix: true },
-            ToolbarAction.Stars => document?.Stars is { Count: > 0 },
-            ToolbarAction.ColorCalibrate => document?.Stars is { Count: >= 5 }
-                && document.Stars.StarMask is not null
+            ToolbarAction.SkyBackdrop => Findings.Wcs is { HasCDMatrix: true },
+            ToolbarAction.Stars => Findings.Stars is { Count: > 0 },
+            // The document's own action: SPCC and the grey world run on its image and its star mask.
+            ToolbarAction.ColorCalibrate => document?.Findings.Stars is { Count: >= 5, StarMask: not null }
                 && IsColour(document),
             ToolbarAction.BackgroundNeutralize => document?.PerChannelBackground is { Length: >= 3 }
                 && IsColour(document),
-            ToolbarAction.PlateSolve => document is not null && !document.IsPlateSolved,
+            ToolbarAction.PlateSolve => document is not null && !document.Findings.IsPlateSolved,
             // Disabled once an enhance has BAKED a crop in: the pixels are the crop, so there is no
             // border left to take off and no way to put one back. Reverting the enhance restores both
             // the full frame and the crop that was on it.
@@ -1168,7 +1168,7 @@ namespace TianWen.UI.Abstractions
                 // A solution is a RESULT rather than a toggle, but it is the state the eye looks
                 // for first: whether this frame has a WCS decides what the grid and the object
                 // overlay can draw at all, so it is worth carrying across the bar as a highlight.
-                ToolbarAction.PlateSolve => document?.IsPlateSolved == true,
+                ToolbarAction.PlateSolve => document?.Findings.IsPlateSolved == true,
                 ToolbarAction.AutoCrop => state.DisplayCrop is not null,
 
                 _ => false,
@@ -1824,10 +1824,12 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         /// <remarks>
         /// Takes the document as well as the state because the one thing a calibration button most
-        /// needs to report -- what the calibration MEASURED -- lives on the document, not the state.
+        /// needs to report -- what the calibration MEASURED -- lives on the document, not the state. And
+        /// the frame's findings, because whether the sky can go behind it is whether ANY source's frame is
+        /// placed, not only a document's.
         /// </remarks>
         private static string? GetToolbarButtonTooltip(
-            ToolbarAction action, ViewerState state, AstroImageDocument? document) => action switch
+            ToolbarAction action, ViewerState state, AstroImageDocument? document, FrameFindings findings) => action switch
         {
             ToolbarAction.FileList => "Show / hide the file list (L)",
             ToolbarAction.Open => "Open a FITS / TIFF / SER file",
@@ -1860,7 +1862,7 @@ namespace TianWen.UI.Abstractions
             },
             // Says WHY it is dim, which is the whole reason it is a button rather than a ladder rung:
             // the rung could refuse a press but had nowhere to explain the refusal.
-            ToolbarAction.SkyBackdrop when document?.Wcs is not { HasCDMatrix: true } =>
+            ToolbarAction.SkyBackdrop when findings.Wcs is not { HasCDMatrix: true } =>
                 "Sky behind the frame: needs an astrometric solution first -- plate solve this frame (P)",
             ToolbarAction.SkyBackdrop when state.ShowSkyBackdrop =>
                 "Sky behind the frame: on -- Y hides it (the palette picks its layers; F refits)",
@@ -2363,8 +2365,8 @@ namespace TianWen.UI.Abstractions
                 // has run there is no number, and the WORD standing where a count will be is what marks
                 // it as not-yet-run -- which is why this drops the "..." that Objects keeps: the context
                 // ladder has no count to switch to, so there the ellipsis is the only such signal.
-                ToolbarAction.Stars when document?.Stars is null => "Stars",
-                ToolbarAction.Stars when document?.Stars is { } s => $"{s.Count}",
+                ToolbarAction.Stars when Findings.Stars is null => "Stars",
+                ToolbarAction.Stars when Findings.Stars is { } s => $"{s.Count}",
                 ToolbarAction.BackgroundNeutralize when state.BackgroundNeutralizationEnabled =>
                     state.BackgroundNeutralizationStrength >= 0.9999f
                         ? $"NeutBg: {ShortMethodLabel(state.BackgroundNeutralizationMethod)}"
@@ -2376,7 +2378,7 @@ namespace TianWen.UI.Abstractions
                 // saying twice rather than leaving it to a highlight that every other button
                 // also uses for "on".
                 ToolbarAction.PlateSolve when state.IsPlateSolving => "\u2026",
-                ToolbarAction.PlateSolve when document?.IsPlateSolved == true => "\u2714",
+                ToolbarAction.PlateSolve when document?.Findings.IsPlateSolved == true => "\u2714",
                 // Unsolved is a QUESTION, because that is what an unsolved frame is -- and this
                 // button is what answers it. The word "Solve" is gone because the telescope mark
                 // says which button this is and the tooltip names the action.

@@ -93,7 +93,7 @@ namespace TianWen.UI.Abstractions
             // The atlas link is a URL stated at paint, not a callback building one at the press: a link the web
             // host renders as an anchor has to know where it goes before anyone clicks it.
             var fovDeg = _source is { } frame
-                ? SkyAtlasLink.FieldOfViewDeg(_document?.Wcs, frame.Width, frame.Height)
+                ? SkyAtlasLink.FieldOfViewDeg(Findings.Wcs, frame.Width, frame.Height)
                 : (double?)null;
             var atlasUrl = SkyAtlasLink.For(selection.RA, selection.Dec, fovDeg, _source?.ImageMeta?.ExposureStartTime,
                 selection.LinkToken);

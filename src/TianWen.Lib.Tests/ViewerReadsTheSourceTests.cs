@@ -1,7 +1,9 @@
 using System;
 using System.Linq;
+using System.Threading.Tasks;
 using DIR.Lib;
 using Shouldly;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
 using Xunit;
@@ -153,6 +155,83 @@ public class ViewerReadsTheSourceTests
         var lines = InfoPanelData.GetMetadataLines(new HeaderlessSource());
 
         lines.ToArray().ShouldBe(new[] { "Size: 4 x 3 x 1ch" });
+    }
+
+    /// <summary>Two arcseconds a pixel about the frame's centre: a CD matrix is all the overlays ask for.</summary>
+    private static WCS Solved()
+    {
+        const double scaleDeg = 2.0 / 3600.0;
+        return new WCS(5.0, -25.0)
+        {
+            CRPix1 = 20.0,
+            CRPix2 = 15.0,
+            CD1_1 = -scaleDeg,
+            CD1_2 = 0.0,
+            CD2_1 = 0.0,
+            CD2_2 = -scaleDeg,
+        };
+    }
+
+    private static StarList OneStar() => new StarList(
+    [
+        new ImagedStar(HFD: 4f, StarFWHM: 3f, SNR: 50f, Flux: 1000f, XCentroid: 20f, YCentroid: 15f, Ellipticity: 0f),
+    ]);
+
+    /// <summary>
+    /// A live frame a solve has placed gets what a placed file gets: its grid, the object overlays and its
+    /// stars, from the source's findings. A host used to hand the viewer a WCS through an override a still
+    /// image ignored, and a live frame's stars could not reach it at all.
+    /// </summary>
+    [Fact]
+    public void A_live_frame_a_solve_placed_gets_the_grid_the_overlays_and_its_stars()
+    {
+        using var renderer = new RgbaImageRenderer(SurfaceW, SurfaceH);
+        var viewer = new ViewerE2E.Surface(renderer, new SignalBus());
+        var state = NewState();
+        state.ShowGrid = true;
+        var source = LiveSource(channels: 1);
+        source.Findings = FrameFindings.Placed(Solved()).WithStars(OneStar());
+
+        viewer.Render(source, state);
+
+        viewer.PreparedGridWcs.ShouldNotBeNull("the frame's own WCS draws its grid");
+        viewer.TryGetPaintedToolbarRect(ToolbarAction.Overlays, out _).ShouldBeTrue("a placed frame can show what is on it");
+        viewer.TryGetPaintedToolbarRect(ToolbarAction.Stars, out _).ShouldBeTrue("a frame with stars can show them");
+        source.Findings.MedianHfd.ShouldBe(4f);
+        source.Findings.MedianFwhm.ShouldBe(3f);
+    }
+
+    /// <summary>
+    /// A new frame drops the previous frame's findings: a solve describes the exposure it came from, and a grid
+    /// over the next one would be drawn where that frame is not.
+    /// </summary>
+    [Fact]
+    public void A_new_live_frame_drops_the_previous_frames_findings()
+    {
+        var source = LiveSource(channels: 1);
+        source.Findings = FrameFindings.Placed(Solved());
+
+        source.AcceptFrame(Frame(channels: 1), freezeStats: false).ShouldBeTrue();
+
+        source.Findings.ShouldBeSameAs(FrameFindings.None);
+    }
+
+    /// <summary>
+    /// A document's stars and its solve are one record, and replacing the stars keeps the solve: the two run on
+    /// tasks of their own, and either may land first.
+    /// </summary>
+    [Fact]
+    public async Task A_documents_stars_and_solve_are_one_record_and_neither_replaces_the_other()
+    {
+        var document = await AstroImageDocument.AdoptImageAsync(Frame(channels: 1), wcs: Solved(),
+            cancellationToken: TestContext.Current.CancellationToken);
+        document.Findings.Wcs.ShouldNotBeNull("the WCS it was opened with");
+
+        document.RecordStars(OneStar());
+
+        document.Findings.Wcs.ShouldNotBeNull("recording the stars kept the solve");
+        document.Findings.Stars.ShouldNotBeNull().Count.ShouldBe(1);
+        ((IPreviewSource)document).Findings.ShouldBeSameAs(document.Findings, "the viewer reads the document's own record");
     }
 
     private sealed class HeaderlessSource : IPreviewSource

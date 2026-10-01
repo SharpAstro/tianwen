@@ -305,7 +305,7 @@ public class ViewerTonePopoverTests
         using var renderer = new RgbaImageRenderer(WindowW, WindowH);
         var (viewer, state, document) = await NewViewerAsync(renderer, ct);
 
-        document.Stars.ShouldBeNull("the fixture has not been through star detection");
+        document.Findings.Stars.ShouldBeNull("the fixture has not been through star detection");
         OpenPanel(viewer, state, document);
 
         IsDraggable(viewer, viewer.Boost).ShouldBeFalse();

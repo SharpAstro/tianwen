@@ -261,7 +261,7 @@ namespace TianWen.Lib.Tests
             // this test is about where the button lands, not what a calibration would produce.
             var stars = new System.Collections.Concurrent.ConcurrentBag<ImagedStar>();
             for (var i = 0; i < 5; i++) { stars.Add(default); }
-            document.Stars = new StarList(stars);
+            document.RecordStars(new StarList(stars));
 
             viewer.DpiScale = dpiScale;
             viewer.Render(document, state);
@@ -443,7 +443,7 @@ namespace TianWen.Lib.Tests
 
             var stars = new System.Collections.Concurrent.ConcurrentBag<ImagedStar>();
             for (var i = 0; i < 5; i++) { stars.Add(default); }
-            document.Stars = new StarList(stars);
+            document.RecordStars(new StarList(stars));
 
             var button = Button(viewer);
             Press(viewer, button.X + (button.Width / 2f), button.Y + (button.Height / 2f));

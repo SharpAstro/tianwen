@@ -51,11 +51,11 @@ namespace TianWen.Lib.Tests
         public async Task TheStarOverlayReachesTheFile()
         {
             var document = await NewDocumentAsync();
-            document.Stars = new StarList(
+            document.RecordStars(new StarList(
             [
                 new ImagedStar(HFD: 8f, StarFWHM: 8f, SNR: 100f, Flux: 1000f,
                     XCentroid: 48f, YCentroid: 32f, Ellipticity: 0f),
-            ]);
+            ]));
 
             var plain = NewState();
             var withStars = NewState();

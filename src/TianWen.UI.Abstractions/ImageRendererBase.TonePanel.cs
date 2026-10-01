@@ -165,7 +165,7 @@ partial class ImageRendererBase<TSurface>
 
         // The boost keeps the precondition its own toolbar button carried. Stated, rather than left
         // as a control that quietly does nothing.
-        var boostEnabled = _document?.Stars is { Count: > 0 };
+        var boostEnabled = _document?.Findings.Stars is { Count: > 0 };
 
         // The curve mode reaches the pixels ONLY through the boost, so at zero boost it names a
         // difference the picture cannot show.

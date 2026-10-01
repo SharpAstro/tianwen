@@ -324,7 +324,7 @@ namespace TianWen.UI.Abstractions
         /// </remarks>
         private float? MinZoomForBackdrop(RectF32 area)
         {
-            if (_document?.Wcs is not { HasCDMatrix: true } wcs)
+            if (Findings.Wcs is not { HasCDMatrix: true } wcs)
             {
                 return null;
             }

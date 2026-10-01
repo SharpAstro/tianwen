@@ -78,6 +78,14 @@ public interface IPreviewSource
     /// </summary>
     float SampleAt(int channel, int x, int y) => GetChannelData(channel)[(y * Width) + x];
 
+    /// <summary>
+    /// What is known about the frame on show beyond its pixels: its WCS, and its stars with their median HFD
+    /// and FWHM. The grid, the star overlay, the selection, the sky behind the frame and the status line read
+    /// it here, so a frame that is not a document gets them as soon as something knows (a solve of a live
+    /// preview, a node's measurement). <see cref="FrameFindings.None"/> where nothing does.
+    /// </summary>
+    FrameFindings Findings => FrameFindings.None;
+
     /// <summary>Computes display stretch uniforms from the (cached) statistics. Cheap to call per frame.
     /// <paramref name="manualWhiteBalance"/> is the user's WB-slider triple, composed with any auto color
     /// calibration; (1,1,1) or null leaves the existing (auto-only) behaviour bit-identical.
