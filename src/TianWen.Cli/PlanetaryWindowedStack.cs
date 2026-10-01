@@ -47,6 +47,10 @@ internal sealed class PlanetaryWindowedStack : IDisposable
     public required float[] SharpDisk { get; init; }
     public required RadialTransfer Diffraction { get; init; }
     public required double ArcsecPerPixel { get; init; }
+    /// <summary>The planet's aspect at the capture's middle.</summary>
+    public required PlanetAspect Aspect { get; init; }
+    /// <summary>The capture's middle.</summary>
+    public required DateTimeOffset When { get; init; }
 
     /// <summary>(b'): the limb fit's kernel over the pupil's diffraction, kept at most one and zero past the cutoff.</summary>
     public Func<double, double> Measured => f => Diffraction.At(f) is var d && d > 0.02 ? Math.Clamp(Wide.TransferAt(f) / d, 0, 1) : 0;
@@ -151,6 +155,8 @@ internal sealed class PlanetaryWindowedStack : IDisposable
                 SharpDisk = Cut(sharp),
                 Diffraction = PlanetaryInverse.Diffraction(pupil, wavelengthNm * 1e-9, scale),
                 ArcsecPerPixel = scale,
+                Aspect = aspect,
+                When = when,
             };
             prepared = true;
             return windowed;

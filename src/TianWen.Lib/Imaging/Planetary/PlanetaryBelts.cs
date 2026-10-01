@@ -158,7 +158,7 @@ public static class PlanetaryBelts
     /// <summary>The latitude a profile's bin <paramref name="bin"/> is centred on.</summary>
     public static double LatitudeOf(int bin) => -Reach + (bin * Step);
 
-    private static int? BinOf(double latitude)
+    internal static int? BinOf(double latitude)
     {
         var bin = (int)Math.Round((latitude + Reach) / Step);
         return bin >= 0 && bin < Bins ? bin : null;
@@ -244,6 +244,9 @@ public static class PlanetaryBelts
 /// <summary>A zonal profile, one albedo a <see cref="PlanetaryBelts.Step"/>-degree bin from 70 S (NaN where nothing fell).</summary>
 public sealed record ZonalProfile(double[] Albedo)
 {
+    /// <summary>The albedo in the bin <paramref name="latitude"/> falls in; NaN where that bin is empty or past the reach.</summary>
+    public double At(double latitude) => PlanetaryBelts.BinOf(latitude) is { } bin ? Albedo[bin] : double.NaN;
+
     /// <summary>The profile's samples as (planetographic latitude, albedo), the empty bins left out.</summary>
     public IEnumerable<(double Latitude, double Albedo)> Samples()
     {

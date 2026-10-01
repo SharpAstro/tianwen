@@ -1520,6 +1520,9 @@ Band error summed over bands 1 to 4 inside 0.9 radii, the limb's undershoot, and
     - **Its kill line**: 2024d's own power over 2022b's, both rendered at the geometry with no blur, must stay within 20 % of one from 0.1 to 0.3 cycles a pixel, or a year's texture is not the object's spectrum and (c) is not read.
   - **Pass**: on each twin, (b) and (c) within 0.05 of the oracle at 0.2 and at 0.3 cycles a pixel, and nearer it than the limb's (b'), which read 0.05 at 0.3 against 0.28 on the calibrated twin.
   - **The real capture**: (b) is also read in two sectors, along R7a's axis (120 degrees on the sensor) and across it, to say how elongated that night's kernel is in band 1.
+  - **Clarified while it was built, before anything was measured on a twin** (`PlanetaryFinestBandTests`, a limb-darkened disk of radius 50 blurred by a 1.2 px Gaussian):
+    - **The edge is read 16 px either side, under a window flat over its middle half.** Read 8 px either side under a Hann window, as written, it read the Gaussian 0.033 high at 0.2 cycles a pixel: the limb darkening's slope inside the disk runs to the window's end. At 16 px it reads it within 0.006 at 0.1, 0.2 and 0.3.
+    - **The spectrum is read on each plane less itself smoothed by a 6 px Gaussian.** The disk's own shape holds most of its power and leaks through the taper into every ring alike, which pulled a blurred texture's ratio toward one (0.398 against 0.321 at 0.2). High-passed, it reads within the two textures' own difference, 6 to 15 %, which is what another year's map can at best give.
 
 #### R8 follow-up 4: heavier probes, only if follow-up 3 falls short
 
