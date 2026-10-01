@@ -817,7 +817,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 cancellationToken: ct);
 
             consoleHost.WriteScrollable(
-                $"[gradient] measured {result.Measured} ({result.Solved} solved), skipped {result.Skipped}, failed {result.Failed}; report: {result.ReportPath}");
+                $"[gradient] measured {result.Measured} ({result.Solved} solved), skipped {result.Skipped} ({result.Backfilled} given their scale), failed {result.Failed}; report: {result.ReportPath}");
             return result.Failed > 0 && result.Measured == 0 ? 2 : 0;
         });
 
