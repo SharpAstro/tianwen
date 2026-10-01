@@ -359,5 +359,35 @@ namespace TianWen.Lib.Tests
             var u = src.ComputeStretchUniforms(StretchMode.Unlinked, StretchParameters.Default);
             u.Mode.ShouldBe(StretchMode.None);
         }
+
+        /// <summary>
+        /// A new frame of the same size is copied into the planes the source already has, and its statistics are taken
+        /// over them in place: nothing it allocates grows with the frame. Measured 2026-10-01 at about 2 KB a frame on a
+        /// 3 MB one (main: 0.65 KB; the difference is the statistics' view over the planes), after a warm-up, since the
+        /// first frames on a path also pay for its compilation. A copy of a plane would be the whole frame again.
+        /// </summary>
+        [Fact]
+        public void A_new_frame_of_the_same_size_allocates_nothing_that_grows_with_it()
+        {
+            const int w = 1000, h = 750;
+            var frames = new[] { MonoImage(w, h, (x, y) => 100f + x), MonoImage(w, h, (x, y) => 120f + y) };
+            var src = new LiveFramePreviewSource();
+            for (var i = 0; i < 60; i++)
+            {
+                src.AcceptFrame(frames[i % 2], freezeStats: false);
+            }
+
+            // The test thread's own count: AcceptFrame does its work on the caller's thread, and a test running
+            // beside this one cannot add to it.
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            const int accepted = 200;
+            for (var i = 0; i < accepted; i++)
+            {
+                src.AcceptFrame(frames[i % 2], freezeStats: false);
+            }
+            var perFrame = (GC.GetAllocatedBytesForCurrentThread() - before) / accepted;
+
+            perFrame.ShouldBeLessThan(64 * 1024, $"a {w * h * 4L:N0}-byte plane must not be allocated again per frame");
+        }
     }
 }
