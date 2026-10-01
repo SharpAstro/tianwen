@@ -224,6 +224,20 @@ A master's edge is three different things, and a crop treats them as one:
   normaliser) should leave it continuous; any step left is a frame's own gradient dropping out of the mean.
 - **The optical edge**: vignetting the flat missed, corner glow. That IS a gradient, often the frame's
   strongest, and the thing the model is for.
+- **An optically DARK area** (the owner's point, 2026-10-01): a corner past the image circle, a heavily
+  vignetted rim, an off-axis-guider prism's shadow. It is PRESENT and at full coverage depth, so the
+  presence plane cannot see it, yet it holds little or no sky; and it is MULTIPLICATIVE (sky and signal
+  dimmed together), so removing it as background can level the sky but never restore the stars and
+  nebula under it. Measured in the full store (2026-10-01): none of the bake's 37 flat masters falls below
+  half its peak illumination anywhere (blocks of about 60 to 90 px), the deepest being the QHY294C behind
+  the 8-inch f/3 Newtonian (corners at 0.60 to 0.67 of peak); four sessions were integrated with no
+  calibration at all (two ASI294MM luminance nights of 2022-06-28, the ASI462MC and the ASI585MC Helix),
+  so their masters carry their raw vignetting, and the bake does not record which flat any other session
+  took. So the store has no hard-dark area to learn from, while a user's frame can (a full-frame sensor
+  on a small refractor). The injection family therefore needs a multiplicative falloff beside the additive
+  gradients, up to near-dark corners, its training label the background a remover CAN subtract (the
+  sky's dimming), never the signal's; and the thin-band estimators below cannot tell a coverage step from
+  a dark edge that coincides with the band, so they are read only where the flat says the edge is lit.
 
 Cropping to the all-frames rectangle discards the third to avoid the first, and a model trained only on crops
 is off-distribution on every input that was not cropped, which is GraXpert's failure: its path downsamples the
