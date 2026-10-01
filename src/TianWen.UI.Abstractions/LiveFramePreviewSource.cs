@@ -204,6 +204,9 @@ namespace TianWen.UI.Abstractions
         /// freeze-off -> on edge (a one-shot recompute) and on a geometry change (forced recompute).</param>
         /// <returns><see langword="true"/> when the frame was copied in; <see langword="false"/> when its owner
         /// had already given it back, which leaves everything here as it was.</returns>
+        // Nothing before the first frame: there is no picture to describe yet.
+        ImageMeta? IPreviewSource.ImageMeta => _width > 0 ? _meta : null;
+
         public bool AcceptFrame(Image image, bool freezeStats)
         {
             if (!image.TryLease(out var lease))

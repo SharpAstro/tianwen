@@ -1057,27 +1057,42 @@ namespace TianWen.UI.Abstractions
             state.NeedsRedraw = true;
         }
 
+        /// <summary>
+        /// Whether a picture is on screen, from any source: what the stretch, channel, tone, zoom and A|B
+        /// buttons need, and all they need.
+        /// </summary>
+        /// <remarks>
+        /// They used to ask for a document, so on a source that is not one (the planetary view's, a SER's,
+        /// the live preview's) they were dim, and a dim button registers no press: six of the planetary
+        /// view's eight buttons did nothing there. Pinned by <c>ViewerReadsTheSourceTests</c>.
+        /// </remarks>
+        private bool HasPicture => ImageWidth > 0;
+
+        /// <summary>A colour frame, or a mosaic the GPU demosaics into one: the white balance's and the
+        /// colour calibration's precondition, read off the source.</summary>
+        private static bool IsColour(IPreviewSource source)
+            => source.ChannelCount >= 3 || source.SensorType is SensorType.RGGB;
+
         private bool IsToolbarButtonEnabled(ToolbarAction action, AstroImageDocument? document) => action switch
         {
             // Gate on the active source's sensor type, not on AstroImageDocument -- a SER is a
             // SerPreviewSource (document == null) but is a raw RGGB Bayer source the GPU debayers,
             // so the demosaic selector must stay enabled for it too.
             ToolbarAction.Debayer => _source?.SensorType is SensorType.RGGB,
-            ToolbarAction.Channel => document is not null && document.UnstretchedImage.ChannelCount > 1,
+            ToolbarAction.Channel => HasPicture && _source is { ChannelCount: > 1 },
             // A colour source only, on the active SOURCE rather than the document: a SER is a raw RGGB
             // mosaic the GPU debayers into colour, and it has no document. Same rule the strip's
             // section used.
-            ToolbarAction.WhiteBalance => _source is { } wbSource
-                && (wbSource.ChannelCount >= 3 || wbSource.SensorType is SensorType.RGGB),
-            // The soft clip works on any document; the boost inside needs stars and says so
+            ToolbarAction.WhiteBalance => _source is { } wbSource && IsColour(wbSource),
+            // The soft clip works on any picture; the boost inside needs stars and says so
             // itself, which is why the gate here is not the intersection of the two.
-            ToolbarAction.Tone => document is not null,
+            ToolbarAction.Tone => HasPicture,
             // There is nothing to write without a document, and a mark-only button that does nothing
             // when clicked is worse than a dimmed one: with no label, the status line is the only
             // thing that could have explained the no-op.
             ToolbarAction.Save => document is not null,
-            ToolbarAction.StretchToggle => document is not null,
-            ToolbarAction.StretchLink or ToolbarAction.StretchParams => document is not null,
+            ToolbarAction.StretchToggle => HasPicture,
+            ToolbarAction.StretchLink or ToolbarAction.StretchParams => HasPicture,
             // A WCS is the whole requirement, because the ladder's FIRST rung is the grid, which needs
             // nothing else. The rungs above it need the object database, and pressing into them is
             // what starts it loading (see CycleOverlayContext) -- which is why this no longer demands
@@ -1093,23 +1108,21 @@ namespace TianWen.UI.Abstractions
             ToolbarAction.Stars => document?.Stars is { Count: > 0 },
             ToolbarAction.ColorCalibrate => document?.Stars is { Count: >= 5 }
                 && document.Stars.StarMask is not null
-                && (document.UnstretchedImage.ChannelCount >= 3
-                    || document.UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB),
+                && IsColour(document),
             ToolbarAction.BackgroundNeutralize => document?.PerChannelBackground is { Length: >= 3 }
-                && (document.UnstretchedImage.ChannelCount >= 3
-                    || document.UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB),
+                && IsColour(document),
             ToolbarAction.PlateSolve => document is not null && !document.IsPlateSolved,
             // Disabled once an enhance has BAKED a crop in: the pixels are the crop, so there is no
             // border left to take off and no way to put one back. Reverting the enhance restores both
             // the full frame and the crop that was on it.
             ToolbarAction.AutoCrop => document is { SourceCrop: null },
-            ToolbarAction.ZoomFit or ToolbarAction.ZoomActual or ToolbarAction.Zoom => document is not null,
+            ToolbarAction.ZoomFit or ToolbarAction.ZoomActual or ToolbarAction.Zoom => HasPicture,
             // Only in the button set when EnhanceAvailable, so the gate here is just "have an image".
             // Re-click while a pass runs is harmless -- the controller guards on IsEnhancing.
             ToolbarAction.Enhance => document is not null,
             // Pixels, not a document: the pinned-settings comparison is just as useful on a SER
             // sequence (which has no document at all) as on a still.
-            ToolbarAction.Compare => ImageWidth > 0,
+            ToolbarAction.Compare => HasPicture,
             // Always available: it documents keys that work with nothing loaded (F11, Esc, L, I).
             ToolbarAction.Shortcuts => true,
             _ => true,
@@ -2263,11 +2276,9 @@ namespace TianWen.UI.Abstractions
 
         // What Auto resolved to for the frame on screen, named for the StretchLink button. Mirrors the
         // producer's inputs: colour vs mono, and whether a calibration is actually being applied.
-        private static string ResolvedAutoLabel(AstroImageDocument? document, ViewerState state)
+        private static string ResolvedAutoLabel(IPreviewSource? source, AstroImageDocument? document, ViewerState state)
         {
-            var isColour = document is { } d
-                && (d.UnstretchedImage.ChannelCount >= 3
-                    || d.UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB);
+            var isColour = source is { } s && IsColour(s);
             var calibrationActive = state.ColorCalibrationEnabled && document?.ColorCalibration is not null;
             // The same four inputs the render resolves from, or the button names a mode the picture is
             // not in -- which is the one thing a label that exists to say "Auto picked this" must not do.
@@ -2302,7 +2313,7 @@ namespace TianWen.UI.Abstractions
                 ToolbarAction.StretchLink => state.StretchMode switch
                 {
                     // Auto names what it resolved to, so the mode it picked is never a mystery.
-                    StretchMode.Auto => $"Auto ({ResolvedAutoLabel(document, state)})",
+                    StretchMode.Auto => $"Auto ({ResolvedAutoLabel(_source, document, state)})",
                     StretchMode.Linked => "Linked",
                     StretchMode.Luma => "Luma",
                     _ => "Unlinked"

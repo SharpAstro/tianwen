@@ -479,7 +479,7 @@ namespace TianWen.Lib.Tests
             state.DisplayCrop = new PixelRect(40, 30, 200, 150);
             viewer.Render(null, state);
 
-            ViewerActions.HandleToolbarAction(state, document: null, ToolbarAction.Compare,
+            ViewerActions.HandleToolbarAction(state, source: null, ToolbarAction.Compare,
                 split: viewer.Split, hasBeforePixels: false, hasCrop: viewer.HasDisplayCrop);
 
             viewer.HasDisplayCrop.ShouldBeTrue("the renderer is what knows a crop is in force");

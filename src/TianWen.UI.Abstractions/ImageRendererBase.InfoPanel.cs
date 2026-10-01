@@ -30,10 +30,12 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            // Metadata/statistics/cursor/stars are still-image (document) concerns; a SER source has no
-            // document, so those sections are skipped and the panel shows only what applies to a
-            // sequence (the wavelet controls of the stacked view) -- filling the strip the layout
-            // reserves regardless. The white balance is a toolbar popover now, shared by both.
+            // The metadata and the statistics read the SOURCE (InfoPanelData), so any source could show
+            // them; which do is still decided here, a document's only: a SER and the planetary stack show
+            // only what applies to a sequence (the wavelet controls of the stacked view) -- filling the
+            // strip the layout reserves regardless. Which sources show them becomes the host's to say
+            // (step 3 of P1, docs/plans/live-session-preview.md). The white balance is a toolbar popover
+            // now, shared by both.
             var document = source as AstroImageDocument;
 
             // Info-panel rect from the single layout pass (docked right by the Split's content Dock).
@@ -48,7 +50,7 @@ namespace TianWen.UI.Abstractions
             if (document is not null)
             {
                 DrawSectionHeading(ref y, x, "Metadata", maxTextWidth);
-                foreach (var line in InfoPanelData.GetMetadataLines(document))
+                foreach (var line in InfoPanelData.GetMetadataLines(source))
                 {
                     DrawWrappedTextLine(ref y, x, line, maxTextWidth, ViewerTheme.Palette.BodyText);
                 }
@@ -68,7 +70,7 @@ namespace TianWen.UI.Abstractions
                 {
                     // A table, not lines: the numbers line up on their decimal points in the strip's
                     // proportional face, and a colour frame is five rows where it was thirteen.
-                    var (header, rows) = InfoPanelData.GetStatisticsTable(document);
+                    var (header, rows) = InfoPanelData.GetStatisticsTable(source);
                     DrawTable(ref y, x, maxTextWidth, header, rows);
                 }
             }

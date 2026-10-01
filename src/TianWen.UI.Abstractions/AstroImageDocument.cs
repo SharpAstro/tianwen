@@ -409,6 +409,14 @@ public sealed class AstroImageDocument : IPreviewSource
     int IPreviewSource.BayerOffsetX => UnstretchedImage.ImageMeta.BayerOffsetX;
     int IPreviewSource.BayerOffsetY => UnstretchedImage.ImageMeta.BayerOffsetY;
     ReadOnlySpan<float> IPreviewSource.GetChannelData(int channel) => UnstretchedImage.GetChannelSpan(channel);
+    ImageMeta? IPreviewSource.ImageMeta => UnstretchedImage.ImageMeta;
+
+    // Read from the source raster where there is one. Not an optimisation: this runs on every mouse move,
+    // and the indexer restores evicted float planes on access -- so reading it here would rebuild 8-bit
+    // planes on the first hover and quietly undo D1 for the whole session. The values are identical rather
+    // than close: the plane was normalised by the sample-format maximum from these very bytes, so this is
+    // the same division over the same data.
+    float IPreviewSource.SampleAt(int channel, int x, int y) => SampleAt(UnstretchedImage, channel, x, y);
     int IPreviewSource.FrameCount => 1;
     int IPreviewSource.FrameIndex => 0;
     bool IPreviewSource.SelectFrame(int index) => false;
@@ -1209,64 +1217,9 @@ public sealed class AstroImageDocument : IPreviewSource
     }
 
     /// <summary>
-    /// Gets pixel information at the given display coordinates, including sky coordinates if plate-solved.
-    /// Returns raw (unstretched) values from the processedRawImage image.
-    /// </summary>
-    /// <param name="channel">
-    /// The single source channel on screen, or <c>null</c> to read every channel (a composite view).
-    /// Resolve it with <c>ChannelView.DisplayedSourceChannel</c> rather than by hand.
-    /// </param>
-    /// <remarks>
-    /// <b>This runs on every mouse move</b> (<c>ViewerActions.UpdateCursorInfo</c>), so on a large
-    /// master the channel argument is the difference between touching one float plane per move and
-    /// touching all of them. It is also what the user is looking at: reporting R, G and B while the
-    /// display is a single channel names two channels that are not on screen.
-    /// </remarks>
-    public PixelInfo GetPixelInfo(int x, int y, int? channel = null)
-    {
-        var image = UnstretchedImage;
-        if (x < 0 || x >= image.Width || y < 0 || y >= image.Height)
-        {
-            return new PixelInfo(x, y, [], null, null);
-        }
-
-        // Read from the source raster where there is one. Not an optimisation: this runs on every
-        // mouse move, and the indexer restores evicted float planes on access -- so reading it here
-        // would rebuild 8-bit planes on the first hover and quietly undo D1 for the whole session.
-        // The values are identical rather than close: the plane was normalised by the sample-format
-        // maximum from these very bytes, so this is the same division over the same data.
-        float[] values;
-        if (channel is { } single && (uint)single < (uint)image.ChannelCount)
-        {
-            values = [SampleAt(image, single, x, y)];
-        }
-        else
-        {
-            values = new float[image.ChannelCount];
-            for (var c = 0; c < image.ChannelCount; c++)
-            {
-                values[c] = SampleAt(image, c, x, y);
-            }
-        }
-
-        double? ra = null, dec = null;
-        if (Wcs is { } wcs)
-        {
-            // The centre of pixel [y, x] is (x, y) in the frame a WCS answers in; nothing to add.
-            var sky = wcs.PixelToSky(x, y);
-            if (sky.HasValue)
-            {
-                ra = sky.Value.RA;
-                dec = sky.Value.Dec;
-            }
-        }
-
-        return new PixelInfo(x, y, values, ra, dec);
-    }
-
-    /// <summary>
     /// One sample, from the source raster when the image carries one and from the float plane
-    /// otherwise.
+    /// otherwise. The pixel readout reaches it through <see cref="IPreviewSource.SampleAt"/>
+    /// (<c>ViewerActions.ReadPixel</c>).
     /// </summary>
     private static float SampleAt(Image image, int channel, int x, int y)
         => image.TryGetSourceRaster(channel, out var raster)

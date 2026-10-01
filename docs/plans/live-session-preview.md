@@ -2,7 +2,7 @@
 
 ## Status
 
-**NOT STARTED** (raised by the user 2026-09-30, while testing a Canon EOS 6D through the preview: "we also need a few
+**IN PROGRESS** (P1 step 1 done 2026-10-01; raised by the user 2026-09-30, while testing a Canon EOS 6D through the preview: "we also need a few
 more controls in the preview like show stars, HFD, FWHM, and all the other stuff, image stats, also the histogram, not
 just a Canon thing really", and a live view in the preview "which is useful beyond just planetary"). Milestone
 `live-session-preview` (#1108 to #1113 and #1124, one a section). Nothing here is Canon's: every camera the node drives previews through the same pane.
@@ -97,10 +97,17 @@ document implements the small contracts and nothing pretends to be a document.
 
 ### Steps
 
-Each its own commit, and nothing visible changes before the last; `ViewerE2E` (`tianwen-fits` run through
-`StandaloneViewerHost` without a window, at DPI 1 and 1.5) and the viewer tests hold steps 1 to 3 to that.
+Each its own commit, and nothing visible changes for a document before the last; `ViewerE2E` (`tianwen-fits` run
+through `StandaloneViewerHost` without a window, at DPI 1 and 1.5) and the viewer tests hold steps 1 to 3 to that.
+A source that is not a document gains what only needed the picture, as step 1 found.
 
-1. Geometry, metadata, the statistics table and the pixel readout through `IPreviewSource`.
+1. Geometry, metadata, the statistics table and the pixel readout through `IPreviewSource` (**done**, 2026-10-01:
+   `ImageMeta`, `SampleAt` and the measured backgrounds on the source, `ViewerActions.ReadPixel`, the toolbar's
+   `HasPicture`; pinned by `ViewerReadsTheSourceTests`). **It found the planetary view's toolbar dead**: STF, Link,
+   Params, Channel, Tone and Fit asked for a document, which its source never is, so six of its eight buttons were
+   dim, and a dim button registers no press. They work on any picture now, and the planetary view and a SER gained
+   the pointer's pixel readout. Which sources show the metadata and statistics sections is still a document's
+   only, until step 3 makes it the host's.
 2. The findings record on the source; `OverrideWcs` removed.
 3. The host's actions and what it offers; the three toolbar mechanisms removed.
 4. The preview pane switches its chrome on, with its own host: `RenderMiniViewerToolbar` and the pane's own Solve

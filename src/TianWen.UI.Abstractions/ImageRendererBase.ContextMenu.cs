@@ -121,13 +121,12 @@ namespace TianWen.UI.Abstractions
                 return ImmutableArray<ImageContextMenuItem>.Empty;
             }
 
-            var image = _document?.UnstretchedImage;
-            var fovDeg = image is { } img
-                ? SkyAtlasLink.FieldOfViewDeg(_document?.Wcs, img.Width, img.Height)
+            var fovDeg = _source is { } frame
+                ? SkyAtlasLink.FieldOfViewDeg(_document?.Wcs, frame.Width, frame.Height)
                 : null;
 
             return ImageContextMenu.ItemsFor(
-                pixel, fovDeg, image?.ImageMeta.ExposureStartTime, FindObjectAt(pixel, fovDeg),
+                pixel, fovDeg, _source?.ImageMeta?.ExposureStartTime, FindObjectAt(pixel, fovDeg),
                 state.SelectedObject);
         }
 
@@ -241,11 +240,11 @@ namespace TianWen.UI.Abstractions
         {
             var layout = CurrentViewportLayout(state);
 
-            ViewerActions.UpdateCursorFromScreenPosition(_document, state, px, py, layout);
+            ViewerActions.UpdateCursorFromScreenPosition(_source, _document?.Wcs, state, px, py, layout);
 
-            if (_document is { } document && state.CursorImagePosition is { } at)
+            if (_source is { } source && state.CursorImagePosition is { } at)
             {
-                return document.GetPixelInfo(at.X, at.Y);
+                return ViewerActions.ReadPixel(source, _document?.Wcs, at.X, at.Y);
             }
 
             if (state.CursorPixelInfo is { } reported)
@@ -563,9 +562,8 @@ namespace TianWen.UI.Abstractions
         {
             var info = ResolveSkyPixelAt(state, px, py);
 
-            var image = _document?.UnstretchedImage;
-            var fovDeg = image is { } img
-                ? SkyAtlasLink.FieldOfViewDeg(_document?.Wcs, img.Width, img.Height)
+            var fovDeg = _source is { } frame
+                ? SkyAtlasLink.FieldOfViewDeg(_document?.Wcs, frame.Width, frame.Height)
                 : null;
 
             return FindDrawnMarkerAt(px, py)
@@ -701,7 +699,7 @@ namespace TianWen.UI.Abstractions
                 ? s
                 : (CelestialObjectShape?)null;
 
-            if (_document?.UnstretchedImage.ImageMeta is { } meta
+            if (_source?.ImageMeta is { } meta
                 && FrameSiteResolver.FromHeader(in meta) is { IsKnown: true } site
                 && FrameSiteResolver.CapturedAt(in meta) is { } capturedAt)
             {

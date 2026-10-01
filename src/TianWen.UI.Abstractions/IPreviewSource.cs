@@ -15,6 +15,11 @@ namespace TianWen.UI.Abstractions;
 /// WCS overlays) stay on <see cref="AstroImageDocument"/>; the renderer reaches them by testing
 /// <c>source is AstroImageDocument</c> (null for a SER), so they are simply inactive for a video. Kept
 /// deliberately seek-agnostic so a future live-camera stream can implement it too.
+/// <para>
+/// What only needs the PICTURE reads it here, from any source: the geometry, the metadata, the statistics
+/// table and the pixel readout (step 1 of P1, docs/plans/live-session-preview.md). The live preview, a SER
+/// and the planetary stack are all sources that are not documents.
+/// </para>
 /// </para>
 /// </summary>
 public interface IPreviewSource
@@ -48,6 +53,30 @@ public interface IPreviewSource
 
     /// <summary>Luminance background level.</summary>
     float LumaBackground { get; }
+
+    /// <summary>
+    /// The per-channel background measured on THIS frame, which the statistics table reports. The same as
+    /// <see cref="PerChannelBackground"/> except where a display is held: a document whose display anchor is
+    /// another frame solves its stretch from that frame's background, and still reports its own.
+    /// </summary>
+    float[] MeasuredPerChannelBackground => PerChannelBackground;
+
+    /// <summary>The luminance background measured on this frame; see <see cref="MeasuredPerChannelBackground"/>.</summary>
+    float MeasuredLumaBackground => LumaBackground;
+
+    /// <summary>
+    /// What the frame's header or camera says about it (object, exposure, gain or ISO, filter, temperature,
+    /// when and where it was taken), or null where nothing does. The metadata lines, the context menu, the
+    /// selected object's panel and the sky behind the frame read it here, so none of them needs a document.
+    /// </summary>
+    ImageMeta? ImageMeta => null;
+
+    /// <summary>
+    /// One [0, 1] sample of the current frame, for the pixel readout, which runs on every pointer move. The
+    /// default reads <see cref="GetChannelData"/>; a source that would rebuild a whole plane to answer (a
+    /// document whose 8-bit planes are evicted) reads its own raster instead.
+    /// </summary>
+    float SampleAt(int channel, int x, int y) => GetChannelData(channel)[(y * Width) + x];
 
     /// <summary>Computes display stretch uniforms from the (cached) statistics. Cheap to call per frame.
     /// <paramref name="manualWhiteBalance"/> is the user's WB-slider triple, composed with any auto color
