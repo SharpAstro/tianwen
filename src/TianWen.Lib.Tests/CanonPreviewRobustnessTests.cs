@@ -322,6 +322,6 @@ public class CanonPreviewRobustnessTests
         await Should.ThrowAsync<InvalidOperationException>(() => PreviewCapture.CaptureAsync(
             camera, TimeSpan.FromSeconds(0.1), gain: 19, binning: 1, new FakeTimeProviderWrapper(), TestContext.Current.CancellationToken));
 
-        await camera.DidNotReceiveWithAnyArgs().StartExposureAsync(default, default, default);
+        await camera.DidNotReceiveWithAnyArgs().StartExposureAsync(default, default, TestContext.Current.CancellationToken);
     }
 }
