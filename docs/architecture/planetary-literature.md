@@ -4,11 +4,13 @@ The literature behind `docs/plans/planetary-restoration.md`, read against what R
 2026-09-30, one a theme, each entry verified against its DOI, arXiv, ADS, publisher or code page (the reviews say for each how
 far they read it, full text, method, abstract or metadata only, and list what could not be verified apart). Five of the
 citations the conclusions below lean on were checked again against their sources (Mackay 2013, Delbracio and Sapiro 2015,
-von der Luehe 1984, Lao et al. 2024, Loefdahl 2010). The reviews in full:
+von der Luehe 1984, Lao et al. 2024, Loefdahl 2010). A fourth was made on 2026-10-01, after R8, on the two problems R8 left. The
+reviews in full:
 
 - [Fourier-domain lucky imaging, frame fusion and speckle](planetary-literature/fourier-lucky-imaging.md) (theme A)
 - [Sub-pixel registration of noisy frames, and dewarping](planetary-literature/registration-and-dewarp.md) (theme B)
 - [The residual blur, measured and inverted; learned restoration](planetary-literature/blur-and-restoration.md) (theme C)
+- [The finest band's blur without a point source, and sharpening without a ring at the limb](planetary-literature/fine-band-and-ringing.md) (theme D)
 
 A number marked **derived** is arithmetic from a cited result applied to our capture, not a published figure; the reviews give
 the assumptions behind each.
