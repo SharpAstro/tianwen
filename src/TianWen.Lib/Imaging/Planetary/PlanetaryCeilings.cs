@@ -49,6 +49,23 @@ public static class PlanetaryCeilings
     public static (float[] Plane, ImmutableArray<double> Gains) PerBandJointOracle(ReadOnlySpan<float> stack, ReadOnlySpan<float> truth, int width, int height, MetricDisk disk,
         int bands = PlanetaryMetrics.Bands)
     {
+        var (a, b) = JointNormalEquations(stack, truth, width, height, disk, bands);
+        var solved = Solve(a, b);
+        var gains = new float[bands];
+        for (var k = 0; k < bands; k++)
+        {
+            gains[k] = (float)solved[k];
+        }
+        return (ATrousWaveletTransform.Decompose(stack, width, height, bands).Reconstruct(gains), [.. solved]);
+    }
+
+    /// <summary>
+    /// The least-squares system <see cref="PerBandJointOracle"/> solves: for gains x on <paramref name="stack"/>'s first
+    /// <paramref name="bands"/> a trous layers (its residual kept), the error of every band of the result against
+    /// <paramref name="truth"/>'s, summed over the pixels inside 0.9 radii, is x' a x - 2 b' x plus a constant.
+    /// </summary>
+    internal static (double[,] A, double[] B) JointNormalEquations(ReadOnlySpan<float> stack, ReadOnlySpan<float> truth, int width, int height, MetricDisk disk, int bands)
+    {
         var s = ATrousWaveletTransform.Decompose(stack, width, height, bands);
         var t = ATrousWaveletTransform.Decompose(truth, width, height, bands);
         var inside = PlanetaryMetrics.Inside(width, height, disk, PlanetaryMetrics.InnerRadii);
@@ -88,17 +105,11 @@ public static class PlanetaryCeilings
                 }
             }
         }
-        var solved = Solve(a, b);
-        var gains = new float[bands];
-        for (var k = 0; k < bands; k++)
-        {
-            gains[k] = (float)solved[k];
-        }
-        return (s.Reconstruct(gains), [.. solved]);
+        return (a, b);
     }
 
     // The n-by-n system a x = b by Gaussian elimination with partial pivoting.
-    private static double[] Solve(double[,] a, double[] b)
+    internal static double[] Solve(double[,] a, double[] b)
     {
         var n = b.Length;
         var (m, x) = ((double[,])a.Clone(), (double[])b.Clone());

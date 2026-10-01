@@ -1141,6 +1141,11 @@ The Wiener filter is set to the band 3 transfer the oracle's RL reaches (noise-t
     - **The real capture**: its rises over the stack and its undershoot, beside the presets' at matched noise.
       - The halves' agreement cannot judge it (R3's kill line), so the limb's undershoot is its one truth-free score.
       - AutoStakkert's and RegiStax's results, where the corpus holds them for this capture, are set beside it on the same two.
+    - **Revised while it was built, before anything was measured** (`PlanetaryWaveletGainsTests`). As registered, the fit failed its own unit test, a textured disk blurred by a known Gaussian, even with the Wiener filter taken from the truth's own power: 1.63 summed over bands 1 to 4, against the stack's 1.64 and the jointly fitted oracle's 1.20. Three changes, each from what that test showed:
+      - **The powers are read inside the disk**, its mean taken out and tapered to zero from 0.8 to 0.9 radii, where the bands are scored; the halves' noise likewise. Over the whole window the limb, a step of the disk's full brightness, holds most of the power at every frequency, and a Wiener filter on it asked for a gain near 20 at 0.25 cycles a pixel.
+      - **Only the four layers of the scored bands are fitted**, the two coarser left at 1 with the residual. Each coefficient is weighted by the stack's power times those four layers' transfers squared: the expected error in the bands scored, which is what the jointly fitted oracle minimises against a truth. Weighted by the power alone, the lowest frequencies set every gain.
+      - **The planet is its disk plus a texture.** The texture is stationary, as registered. The disk is deterministic: the limb fit's sharp model (`PlanetaryLimbFit.SharpModel`) against itself through the kernel, fitted as part 1's oracle fits a stack against a truth, and the two terms are summed. A gain's cost at the limb, a step just outside the scored region that no spectrum of the interior sees, is counted there. Without it the gains oscillated (0.32, 4.54, -0.66, 1.62) and left 1.89; with it they are 1.07, 2.51, 0.57, 1.08 and leave 1.25, against the oracle's 0.61, 2.64, 0.56, 1.08 and 1.20.
+      - So the derived gains are four, finest first, then 1 and 1 for the presets' six layers. The claims stand as registered.
 
 ### R8 how far a real per-band gain can reach
 
