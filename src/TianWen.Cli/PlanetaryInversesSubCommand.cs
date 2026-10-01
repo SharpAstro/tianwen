@@ -36,12 +36,13 @@ internal sealed class PlanetaryInversesSubCommand(IConsoleHost consoleHost)
         var windowOpt = new Option<int>("--window") { Description = "The side of the window about the disk the restorations are made in, px.", DefaultValueFactory = _ => 256 };
         var liftOpt = new Option<double?>("--band3-lift") { Description = "Without a truth: the rise of band 3 over the stack each inverse is set to (what the twin's own setting gave)." };
         var maxStepsOpt = new Option<int>("--max-steps") { Description = "Richardson-Lucy's most steps.", DefaultValueFactory = _ => 80 };
+        var gaussianBandOpt = new Option<int?>("--gaussian-band") { Description = "Fit the single Gaussian's width on this band alone (1 to 4) rather than on bands 1 to 4: one whose band 3 transfer is (b')'s can be set to band 3 at all." };
 
         var command = new Command("planetary-inverses",
             "A stack restored by Wiener with Conan's power-law prior, Richardson-Lucy with positivity at the sky and an L1-L2 edge-preserving prior, each with the limb's kernel and a single Gaussian of its width, all set to one band 3 transfer and scored on the limb (R8 part 2).")
         {
             Arguments = { inputArg },
-            Options = { truthOpt, planetOpt, framesOpt, keepOpt, telescopeOpt, wavelengthOpt, windowOpt, liftOpt, maxStepsOpt },
+            Options = { truthOpt, planetOpt, framesOpt, keepOpt, telescopeOpt, wavelengthOpt, windowOpt, liftOpt, maxStepsOpt, gaussianBandOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -99,14 +100,15 @@ internal sealed class PlanetaryInversesSubCommand(IConsoleHost consoleHost)
                 // The single Gaussian whose band transfers on this stack are (b')'s.
                 var bprimeTransfers = PlanetaryMetrics.Fidelity(PlanetaryInverse.Apply(stackWindow, size, size, measured), stackWindow, size, size, disk, Bands)
                     .Select(b => b.Transfer).ToImmutableArray();
-                var sigma = PlanetaryBlurProbes.EquivalentGaussianSigma(bprimeTransfers, stackWindow, size, size, disk, 1, Bands);
+                var gaussianBand = parseResult.GetValue(gaussianBandOpt);
+                var sigma = PlanetaryBlurProbes.EquivalentGaussianSigma(bprimeTransfers, stackWindow, size, size, disk, gaussianBand ?? 1, gaussianBand ?? Bands);
                 Func<double, double> gaussian = f => Math.Exp(-2 * Math.PI * Math.PI * sigma * sigma * f * f);
                 var noise = PlanetaryInverse.WhiteNoise(stackWindow, size, size);
                 var pixelNoise = Math.Sqrt(noise / (size * size));
                 var delta = pixelNoise * Math.Sqrt(2);
 
                 consoleHost.WriteScrollable(string.Create(inv,
-                    $"{Path.GetFileName(input)}: {result.FramesUsed} of {result.FramesGraded} frames by the gradient; {scale:0.0000}\"/px; (b') core {wide.CoreSigma:0.00} px with {wide.WingFraction:P1} in a {wide.WingScale:0.00} px wing, its equivalent Gaussian {sigma:0.000} px; the stack's noise {pixelNoise:0.0000} of the disk a pixel"));
+                    $"{Path.GetFileName(input)}: {result.FramesUsed} of {result.FramesGraded} frames by the gradient; {scale:0.0000}\"/px; (b') core {wide.CoreSigma:0.00} px with {wide.WingFraction:P1} in a {wide.WingScale:0.00} px wing, its equivalent Gaussian {sigma:0.000} px (bands {gaussianBand ?? 1} to {gaussianBand ?? Bands}); the stack's noise {pixelNoise:0.0000} of the disk a pixel"));
 
                 double Band3(float[] restored) => truthWindow is { } tw
                     ? PlanetaryMetrics.Fidelity(restored, tw, size, size, disk, Bands)[2].Transfer
