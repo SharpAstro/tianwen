@@ -119,6 +119,66 @@ public class PlanetaryCeilingsTests
     }
 
     [Fact]
+    public void EqualWeightsGatherAsPlainShiftAndAdd()
+    {
+        // #1083's weighted gathering with every weight one is shift-and-add, restored the same way.
+        const int size = 64;
+        var (bound, frames, prior) = Frames(Texture(size), size, Enumerable.Range(0, 8).Select(i => 0.8 + (0.25 * i)).ToArray());
+        var (plain, weighted) = (bound.NewSums(), bound.NewWeightedSums((_, _) => 1));
+        foreach (var frame in frames)
+        {
+            var back = bound.BackShift(frame);
+            plain.Add(frame, back);
+            weighted.Add(frame, back);
+        }
+        var (a, b) = (plain.ShiftAndAdd(prior), weighted.Restored(prior));
+        for (var i = 0; i < a.Length; i++)
+        {
+            (a[i] - b[i]).Magnitude.ShouldBeLessThan(1e-9 * (1 + a[i].Magnitude));
+        }
+    }
+
+    [Fact]
+    public void PerFrequencySelectionGainsNothingWhereTheSharpestFramesAreSharpestEverywhere()
+    {
+        // Round Gaussians are ordered the same at every frequency, so the sharpest frames by the whole frame are the best at each one; the
+        // blurriest instead leave the per-frequency choice a gain.
+        const int size = 64;
+        var sigmas = Enumerable.Range(0, 12).Select(i => 0.7 + (0.2 * i)).ToArray();
+        var (bound, frames, _) = Frames(Texture(size), size, sigmas);
+        var (sharpest, blurriest) = (bound.NewSelectionCeiling(0.25, 0.5, 3), bound.NewSelectionCeiling(0.25, 0.5, 3));
+        for (var i = 0; i < frames.Length; i++)
+        {
+            sharpest.Add(frames[i], i < 3);
+            blurriest.Add(frames[i], i >= frames.Length - 3);
+        }
+        TestContext.Current.TestOutputHelper?.WriteLine($"over the sharpest three {sharpest.Ratio:0.0000}, over the blurriest {blurriest.Ratio:0.0000}");
+        sharpest.Ratio.ShouldBe(1, 1e-6);
+        blurriest.Ratio.ShouldBeGreaterThan(2);
+    }
+
+    // Frames of `truth` through Gaussian PSFs of `sigmas` (a perfect telescope a point), each moved a little, prepared for a bound, with
+    // the truth's prior.
+    private static (MultiFrameBound Bound, MultiFrameBound.Frame[] Frames, double[] Prior) Frames(float[] truth, int size, double[] sigmas)
+    {
+        const int grid = 32;
+        var delta = new double[grid * grid];
+        delta[((grid / 2) * grid) + (grid / 2)] = 1;
+        var bound = new MultiFrameBound(new SyntheticPsfHeader(grid, 1, 0.5, 650e-9, 0, 5, 100, 2, 1e6, delta), size, 0, 0);
+        var random = new Random(5);
+        var frames = new MultiFrameBound.Frame[sigmas.Length];
+        for (var i = 0; i < sigmas.Length; i++)
+        {
+            var psf = Gaussian(grid, sigmas[i]);
+            var (dx, dy) = ((random.NextDouble() * 2) - 1, (random.NextDouble() * 2) - 1);
+            var plane = Convolve(truth, size, psf, grid, dx, dy);
+            var samples = plane.Select(v => (ushort)Math.Clamp(Math.Round(100 + v), 0, 65535)).ToArray();
+            frames[i] = bound.Prepare(samples, size, size, psf, dx, dy, 1);
+        }
+        return (bound, frames, bound.Prior(truth, size, size));
+    }
+
+    [Fact]
     public void GainsFittedJointlyOverTheBandsLeaveLessErrorThanOneBandAtATime()
     {
         // A trous bands overlap in frequency, so the band-by-band least-squares gains are not the best set for the bands of the result.
