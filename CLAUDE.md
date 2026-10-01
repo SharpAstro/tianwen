@@ -1036,6 +1036,11 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   **Sharpen the limb as its own channel** (follow-up 2, `planetary-dering`, `PlanetaryDering.LimbChannel`): take the limb fit's model
   through the kernel out, sharpen the residual, put the model back through the diffraction alone. The presets' ring fell under 0.015 of
   the disk and their limb profile became 11 to 64 times truer; feathering the gains at the limb removes the ring but not the rind.
+- **The finest band is read off the limb's EDGE, never the limb fit's kernel** (R8 follow-up 3, `planetary-finest-band`,
+  `PlanetaryFinestBand`): bin the stack by distance from the limb fit's outline at a tenth of a pixel, 16 px either side, the belts
+  flattened by the zonal brightness, and divide its line spread's transform by the sharp model's through the diffraction. It reads 0.3
+  cycles a pixel within 0.011 of a twin's oracle where the kernel said a fifth of it; check it on the truth's own edge first (a warped
+  stack's limb fit fails that). Another year's spectrum is no object below 0.2 cycles a pixel: the belts change by a third.
 - **A ghost is taken out as what is NOT ROUND, never as a fitted copy's strength** (R7a, `planetary-ghost`, `PlanetaryGhost`): no round glow
   tells a copy's round part from scatter, so read and remove the copy's non-round part (`PlanetaryGhost.Shell`), from where the planet's own
   blurred limb has died away (8 px past the 2 % edge), with the moons out of the copy and out of every read. A non-round read about that edge
