@@ -297,12 +297,18 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         var psfTruthOpt = new Option<bool>("--psf-truth") { Description = "Write every frame's PSF, shift and brightness beside the capture (<capture>.psf), the truth a multi-frame bound is computed against (R8 part 1; about 64 KB a frame). Mono only." };
         var moonsOpt = new Option<double>("--moons") { Description = "Every Galilean moon within this many radii of Jupiter's centre, at its place as the frames go, in the frames and the truth (R8 follow-up 4); 0 for none." };
         var moonLevelOpt = new Option<double>("--moon-level") { Description = "The moons' surface brightness over the disk's mean inside 0.8 radii.", DefaultValueFactory = _ => 1 };
+        var highR0Opt = new Option<double?>("--high-r0") { Description = "The free air at an altitude, its Fried parameter at 500 nm, cm (R4 per-point, #1071): each point of the disk looks through it at its own footprint, so the blur and the warp vary over the disk. None by default; then --warp-rms must stay 0, and <capture>.field records each frame's per-point truth." };
+        var highAltitudeOpt = new Option<double>("--high-altitude") { Description = "The layer's altitude along the line of sight, km.", DefaultValueFactory = _ => 10 };
+        var highWindOpt = new Option<double>("--high-wind") { Description = "The wind carrying the layer, m/s.", DefaultValueFactory = _ => 20 };
+        var highWindAngleOpt = new Option<double>("--high-wind-angle") { Description = "The layer's wind direction, degrees from +x toward +y.", DefaultValueFactory = _ => 30 };
+        var highOuterScaleOpt = new Option<double?>("--high-outer-scale") { Description = "The layer's outer scale, m (none for Kolmogorov)." };
+        var fieldGridOpt = new Option<int>("--field-grid") { Description = "The spacing of the points the layer's PSF is computed at, px.", DefaultValueFactory = _ => 6 };
 
         var command = new Command("planetary-degrade",
             "A synthetic capture from a global map with a real capture's own seeing, motion and camera (R2): measure the real one, make the synthetic one, measure it the same way, and compare.")
         {
             Arguments = { inputArg },
-            Options = { mapOpt, outputOpt, planetOpt, kOpt, telescopeOpt, wavelengthOpt, r0Opt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, localR0Opt, localOuterScaleOpt, localWindOpt, scatterOpt, scatterCoreOpt, realStatisticsOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, replayOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, plainOpt, framesOpt, bayerMapsOpt, bayerWavelengthsOpt, bayerKOpt, truthUpsampleOpt, spanOpt, truthAtOpt, psfTruthOpt, moonsOpt, moonLevelOpt },
+            Options = { mapOpt, outputOpt, planetOpt, kOpt, telescopeOpt, wavelengthOpt, r0Opt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, localR0Opt, localOuterScaleOpt, localWindOpt, scatterOpt, scatterCoreOpt, realStatisticsOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, replayOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, plainOpt, framesOpt, bayerMapsOpt, bayerWavelengthsOpt, bayerKOpt, truthUpsampleOpt, spanOpt, truthAtOpt, psfTruthOpt, moonsOpt, moonLevelOpt, highR0Opt, highAltitudeOpt, highWindOpt, highWindAngleOpt, highOuterScaleOpt, fieldGridOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -409,6 +415,12 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                 KeepScreenTilt = !parseResult.GetValue(replayOpt),
                 MoonsWithinRadii = parseResult.GetValue(moonsOpt),
                 MoonLevel = parseResult.GetValue(moonLevelOpt),
+                HighR0M = parseResult.GetValue(highR0Opt) / 100 ?? double.PositiveInfinity,
+                HighAltitudeM = parseResult.GetValue(highAltitudeOpt) * 1000,
+                HighWindMps = parseResult.GetValue(highWindOpt),
+                HighWindAngleDeg = parseResult.GetValue(highWindAngleOpt),
+                HighOuterScaleM = parseResult.GetValue(highOuterScaleOpt) ?? double.PositiveInfinity,
+                FieldGridPx = parseResult.GetValue(fieldGridOpt),
             };
             // The camera's own terms from the far sky, where the planet's scattered light has gone (the synthetic capture scatters
             // its own light into the ring), as they were before the camera rounded them.
@@ -423,8 +435,13 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             string Describe(DegradeOptions o, DiskPlacement at, double pixelScale) => string.Create(CultureInfo.InvariantCulture,
                 $"disk at {at.CenterX:0.00}, {at.CenterY:0.00}, R {at.EquatorialRadius:0.00} px ({pixelScale:0.0000}\"/px), north {at.NorthAngleDeg:0.0} deg; " +
                 $"r0 {o.R0M * 100:0.0} cm at 500 nm, outer scale {(double.IsPositiveInfinity(o.OuterScaleM) ? "none" : $"{o.OuterScaleM:0.#} m")}, wind {o.WindMps:0} m/s, exposure {o.ExposureSeconds * 1000:0.#} ms, defocus {o.DefocusNm:0} nm RMS, {(double.IsFinite(o.LocalR0M) ? $"a local layer of r0 {o.LocalR0M * 100:0.0} cm, outer scale {o.LocalOuterScaleM:0.00} m, drifting {o.LocalWindMps:0.#} m/s, " : "")}{(o.ScatterFraction > 0 ? $"{o.ScatterFraction * 100:0.##} % scattered with a core of {o.ScatterCoreArcsec:0.#}\", " : "")}{o.WavelengthM * 1e9:0} nm, oversampled {PlanetaryDegrade.OversampleFor(pixelScale, pupil.DiameterM, o.WavelengthM)}x; " +
-                $"camera offset {o.OffsetAdu:0.00}, read noise {o.ReadNoiseAdu:0.000} ADU, {o.ElectronsPerAdu:0.0} e-/ADU, disk {o.DiskLevelAdu:0.0} ADU; warp {o.WarpRmsPx:0.00} px; " +
+                $"camera offset {o.OffsetAdu:0.00}, read noise {o.ReadNoiseAdu:0.000} ADU, {o.ElectronsPerAdu:0.0} e-/ADU, disk {o.DiskLevelAdu:0.0} ADU; {DescribeWarp(o)}" +
                 $"{(o.KeepScreenTilt ? "the screen's tilt on the mount's drift" : "the real shifts replayed")}");
+            // The warp: the layer at an altitude's, which makes it from each point's tilt, or the one asked for.
+            static string DescribeWarp(DegradeOptions o) => o.HasHighLayer
+                ? string.Create(CultureInfo.InvariantCulture,
+                    $"a layer at {o.HighAltitudeM / 1000:0.#} km of r0 {o.HighR0M * 100:0.0} cm, outer scale {(double.IsPositiveInfinity(o.HighOuterScaleM) ? "none" : $"{o.HighOuterScaleM:0.#} m")}, wind {o.HighWindMps:0.#} m/s at {o.HighWindAngleDeg:0} deg, its PSF every {o.FieldGridPx} px (its tilts the warp); ")
+                : string.Create(CultureInfo.InvariantCulture, $"warp {o.WarpRmsPx:0.00} px; ");
 
             if (real.Layout == PlanetaryFrameLayout.SplitCfa)
             {
@@ -456,6 +473,11 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                 return 1;
             }
             var options = WithCamera(Atmosphere(parseResult.GetValue(wavelengthOpt) * 1e-9, parseResult.GetValue(kOpt)), camera, electronsPerAdu);
+            if (options.HasHighLayer && (options.WarpRmsPx > 0 || parseResult.GetValue(psfTruthOpt) || !options.KeepScreenTilt))
+            {
+                consoleHost.WriteError($"{input}: a layer at an altitude makes the warp and each point's PSF itself: leave --warp-rms at 0, and --psf-truth and --replay-shifts off");
+                return 1;
+            }
             // The seeing's motion is the screen's own tilt, on the mount's slow drift; or the real shifts, replayed whole.
             var (moveX, moveY) = options.KeepScreenTilt ? (truth.MountX, truth.MountY) : (truth.ShiftX, truth.ShiftY);
             consoleHost.WriteScrollable($"making {Path.GetFileName(output)}: {Describe(options, reference, scale)}");
@@ -468,21 +490,29 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             // PSF, for the multi-frame bound (R8).
             var warpPartial = SyntheticWarpFile.PathFor(output) + ".partial";
             var psfPartial = SyntheticPsfFile.PathFor(output) + ".partial";
+            var fieldPartial = SyntheticFieldFile.PathFor(output) + ".partial";
             var psfTruth = parseResult.GetValue(psfTruthOpt);
-            using (var warpWriter = options.WarpRmsPx > 0 ? new SyntheticWarpFile.Writer(warpPartial) : null)
+            var warped = options.WarpRmsPx > 0 || options.HasHighLayer;
+            using (var warpWriter = warped ? new SyntheticWarpFile.Writer(warpPartial) : null)
             using (var psfWriter = psfTruth ? new SyntheticPsfFile.Writer(psfPartial, SyntheticPsfHeader.For(options, scale)) : null)
+            using (var fieldWriter = options.HasHighLayer ? new SyntheticFieldFile.Writer(fieldPartial, PlanetaryDegrade.FieldPatchPx) : null)
             using (var writer = new SerWriter(partial, reader.Width, reader.Height, SerColorId.Mono, depth, instrument: "TianWen planetary-degrade"))
             {
                 var buffer = new byte[reader.Width * reader.Height * bytesPerSample];
                 var done = new Progress<int>(frames => { if (frames % 2048 < 64) { consoleHost.WriteScrollable($"    {frames} of {times.Length} frames"); } });
                 made = await PlanetaryDegrade.MakeAsync(map, planet, times, reference, scale, moveX, moveY, truth.Flux, reader.Width, reader.Height, options,
                     (index, samples) => writer.AppendFrame(Pack(samples, buffer, depth), times[index]),
-                    done, warpWriter is null ? null : (_, warp) => warpWriter.Append(warp), psfWriter is null ? null : (_, optics) => psfWriter.Append(optics), ct);
+                    done, warpWriter is null ? null : (_, warp) => warpWriter.Append(warp), psfWriter is null ? null : (_, optics) => psfWriter.Append(optics),
+                    fieldWriter is null ? null : (_, frame) => fieldWriter.Append(frame), ct);
             }
             File.Move(partial, output, overwrite: true);
-            if (options.WarpRmsPx > 0)
+            if (warped)
             {
                 File.Move(warpPartial, SyntheticWarpFile.PathFor(output), overwrite: true);
+            }
+            if (options.HasHighLayer)
+            {
+                File.Move(fieldPartial, SyntheticFieldFile.PathFor(output), overwrite: true);
             }
             if (psfTruth)
             {
@@ -518,6 +548,11 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                 if (parseResult.GetValue(psfTruthOpt))
                 {
                     consoleHost.WriteError($"{input}: --psf-truth is for a mono capture; a colour one's three passes share no one PSF");
+                    return 1;
+                }
+                if (parseResult.GetValue(highR0Opt) is not null)
+                {
+                    consoleHost.WriteError($"{input}: --high-r0 is for a mono capture (R4 per-point); a colour one records no per-point truth");
                     return 1;
                 }
                 if (mapPaths.Length != 3)
