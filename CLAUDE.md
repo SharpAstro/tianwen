@@ -1051,7 +1051,9 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   along the planet's EQUATOR (only the limb places a frame along the belts): read a kernel in sectors before calling it round. But
   that anisotropy is not measurable off the limb (part 2, `planetary-elongated`): the POLAR limb is a poor edge (darker, past the zonal
   profile's reach), and an oracle read along the equator is starved of the planet's power past 0.4 cycles a pixel, so never trust a 2-D
-  oracle interpolated from it.
+  oracle interpolated from it. A blind multi-frame deconvolution (torchmfbd, run as a reference through `planetary-lucky-frames` and
+  `planetary-score`, part 3) leaves its PSFs at the diffraction limit on these undersampled 8-bit frames: the kernel past 0.3 cycles a
+  pixel is unmeasured on a real capture, and the one probe left is a defocused burst on a night (#1155).
 - **A ghost is taken out as what is NOT ROUND, never as a fitted copy's strength** (R7a, `planetary-ghost`, `PlanetaryGhost`): no round glow
   tells a copy's round part from scatter, so read and remove the copy's non-round part (`PlanetaryGhost.Shell`), from where the planet's own
   blurred limb has died away (8 px past the 2 % edge), with the moons out of the copy and out of every read. A non-round read about that edge
