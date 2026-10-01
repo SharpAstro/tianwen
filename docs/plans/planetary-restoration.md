@@ -1116,6 +1116,29 @@ The Wiener filter is set to the band 3 transfer the oracle's RL reaches (noise-t
   - **"No shell"**: in rings 2 px wide from 3 to 40 px outside the mask, the full model's residual has a mean within three standard errors of zero in every ring.
   - **The synthetic**: R7 part 4's stack of the calibrated twin, which has the twin's scatter but no ghost, with a ghost added at a = 0.02, (dx, dy) = (5, -3) px and rho = 18 px. Recovered within 10 % in a and rho and within 1 px in the shift, and the twin itself, with nothing added, fits a ghost under a tenth of that.
   - **The kill line, made concrete**: the first and second halves of a capture's frames, stacked and fitted apart, agree within 10 % in a and rho and within 1 px in the shift.
+- **Revised 2026-10-01, after the clarified model failed its synthetic, before the runs that decide the revision** (each failure below was read on the calibrated twin; the real fits of the first model were seen and are not read):
+  - **The clarified model failed at once.** The twin, which has no ghost, fitted a copy of 0.84 of the planet, unshifted, rho 7 px: the copy stood in for the planet's own blurred limb below the 2 % threshold, which the source cuts off and which fills the first pixels past it. The injected ghost came back as 0.59 at (0.5, -0.2) px.
+  - **Four revisions failed on the twin too.** A glow with a free core (the twin fitted -0.0245); a glow free to take any round shape (0.28, shifted 1.2 px); an elliptical copy beside two power laws (-0.0061, and the power laws cancelling at their bounds); the same from 8 px out (-0.0021, close, but the pre-registered round ghost came back 21 % strong and 16 % small). Each says the same: **no round glow tells a copy's round part from scatter.** A glow free enough to fit the twin's halo takes the copy's round part, and what is left fixes the copy's strength only together with its shift or its shape.
+  - **What the stacks show once their round part is taken out** (post hoc, read by eye first, the user's lead that the 2022 Newtonian was on an alt-az mount and the 2024 and 2025 nights on an equatorial one): the quadrupole of what is not round, by band of distance past the limb (1e-4 of the peak):
+
+    | stack | 1-3 px | 3-6 | 6-10 | 10-15 | 15-20 | 20-30 | axis |
+    |---|---|---|---|---|---|---|---|
+    | calibrated twin | 1.9 | 2.4 | 0.9 | 0.3 | 0.1 | 0.2 | |
+    | 2022-09-03 L | 17.8 | 18.6 | **24.8** | **23.2** | **10.0** | 2.6 | 117 to 130 deg |
+    | 2022-09-03 R | 23.9 | 25.3 | 5.9 | 0.9 | 0.8 | 1.2 | 109 to 128 deg |
+    | 2022-09-03 G | 17.7 | 9.6 | 1.5 | 0.9 | 1.4 | 2.0 | 107 to 129 deg |
+    | 2022-09-03 B | 15.1 | 9.0 | 1.5 | 1.0 | 1.5 | 2.3 | 101 to 120 deg |
+    | 2024-12-15 Uranus-C, plane 0 (equatorial) | 0.9 | 1.8 | 2.0 | 2.2 | 1.5 | 1.0 | |
+
+    Every 2022 filter's blur is elongated against the limb along one axis on the sensor, and the equatorial night is round. It is not dispersion (R carries it as L does, where dispersion is worst in B), so a mount moving along one axis is the likelier cause, and it is blur, for a kernel to take, never a subtraction. **Only L carries it out to 20 px: that is the shell**, along the same axis, the same in both halves of the capture (24.8 against 23.6 and 25.2 at 6 to 10 px). There is almost no dipole, so the copy is not moved: an elliptical copy, or a smear along one axis, is the model. And the pre-registered synthetic (a = 0.02, rho = 18 px) was about fifty times fainter than this shell beyond 8 px, under the twin's own structure.
+  - **The model (revision 6)**: a copy of the planet through a uniform ELLIPTICAL disk (semi-major axis, axis ratio down to 0.05, angle, shift), beside a free ROUND glow (tents in radius, solved linearly) and the sky, fitted from 8 px past the planet and 10 px clear of its moons (the planet is the largest piece of the object; the moons lie along the equator, so their surroundings read as a quadrupole). **What is taken out is the copy's NON-ROUND part beyond the planet** (the copy less its mean at each distance), the shell: its round part cannot be told from scatter, and on the disk a copy spread over tens of pixels only scales it. The copy's strength is fixed only together with its shape and is not read.
+  - **Pass, read on the shell's quadrupole by band, 6 to 20 px past the limb**:
+    - the twin, plain: its fitted shell under a tenth of L's in every band;
+    - the twin with L's own fitted copy injected: the fitted shell within 10 % of the injected one's in every band where that exceeds 5e-4, its axis within 5 degrees, and the twin's quadrupole after the removal within twice the plain twin's;
+    - the kill line: L's halves' shells within 10 % in every band and their axes within 5 degrees;
+    - a shell is PRESENT only where the copy lowers the fit's RMS by more than a tenth from the glow alone and, where halves are fitted, they pass the kill line. Prediction: L only, among 2022-09-03's four; none on the Uranus-C night; the ranking L > R > G, B as the shells' 6 to 15 px quadrupole;
+    - the removal: L's quadrupole from 6 to 20 px falls under a quarter of what it was;
+    - Saturn 2022-08-27 is read but not judged: the rings below the threshold are elongated and outside the source, so a copy will lie along them.
 
 ## R8 Wavelet gains from the measured blur and noise
 
