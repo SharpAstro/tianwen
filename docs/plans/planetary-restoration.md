@@ -1312,6 +1312,52 @@ Band error against the truth, bands 1 to 4, summed, and the limb's undershoot (t
 - **What it leaves:** R8's question is answered. Gains derived from the blur and the noise reach the per-band ceiling given the kernel, and the limb's kernel is not enough for the finest bands of a capture with a still layer. #817's AUTO mode cannot adopt them with (b') as it is. The kernel's fine bands are the measurement still open (#1120, a near-point probe).
 - **R9's condition, read against this** (the plan's: "a measured gap to the RL oracle that a classical method cannot close"): **not met on this evidence.** The gap measured here is the kernel's, which a measurement could close, and with the true kernel a classical per-band filter comes within 3 to 11 % of its ceiling. A learned stage would have to learn the kernel's fine bands, the very thing no edge in these captures measures. This is the reading, not a decision: #1056 is the user's to close.
 
+### R8 follow-ups: the ring and the finest band
+
+R8 left two problems: the limb's kernel is its model's tail in the finest band, and sharpening digs a ring below the sky. A fourth literature review (`docs/architecture/planetary-literature/fine-band-and-ringing.md`, the user's request, 2026-10-01) found ways at both. They are taken as four steps, in order, each pre-registered when it starts, one branch and one PR each.
+
+#### R8 follow-up 1: the ring rule, and AutoStakkert's kernel
+
+**Issue:** #1137.
+
+- **Why:** a non-negative unit-sum kernel has a transfer of at most one at every frequency, so a restoration whose end-to-end transfer against the truth exceeds one anywhere has a composite kernel with a negative lobe, which over a bright disk on a dark sky is a ring (theme D). AutoStakkert's own sharpening of the same capture lifts the fine bands with no ring, and how is not documented.
+- **Added 2026-10-01, before it was built or measured** (`tianwen planetary-ringing`):
+  - **The restorations**, on R7 part 4's stacks of both twins (the best 150 of 3,000 by the gradient, a 256 px window):
+    - the three presets as shipped, and with their thresholds dropped at a quarter, a half and all of their boost;
+    - R8's derived gains with (b') and with the twin's true kernel, and part 1's jointly fitted oracle;
+    - the Wiener filter with Conan's prior and (b') at three noise scales a decade apart, the middle one part 2's;
+    - Richardson-Lucy at the sky with (b') at 2, 4 and 8 steps;
+    - AutoStakkert's kernel (below), carried to our grid.
+  - **For each**: the band transfers against the truth in bands 1 to 6 and the largest of them; for a linear one, the composite kernel (its filter times the stack's true transfer against the truth, taken to the image) and its negative mass, the share of its sum below zero; and R3's limb undershoot.
+  - **AutoStakkert's kernel**: its 8 % stack of 2022-09-03's Red and the `_conv` copy it sharpened (both 1.5 times drizzled), the shift-invariant kernel up to 15 by 15 taps that takes one to the other by least squares, and the residual's RMS inside 0.9 radii, over 0.9 to 1.3 radii and in the sky past 1.5. On our grid its transfer is read at two thirds of each frequency.
+  - **The claims:**
+    - Every restoration whose undershoot exceeds 0.003 has a largest band transfer above 1.02, and every one whose largest band transfer is at most 1.00 has an undershoot of at most 0.001.
+    - Over the linear restorations, the composite's negative mass ranks the undershoots with a Spearman of at least 0.8.
+    - AutoStakkert's sharpening is a linear, shift-invariant filter: the residual in the limb annulus and in the sky is at most twice the interior's. Carried to our twins it lifts no band above 1.1 against the truth and digs at most 0.002.
+    - Falsified, for the last: a residual concentrated at the limb or in the sky, a mask or a clamp rather than a kernel.
+
+#### R8 follow-up 2: the ring fixed
+
+**Issue:** #1138.
+
+- **Planned:** R8's derived gains fitted under the constraint that the composite kernel toward the pupil's diffraction PSF stays non-negative (Magain, Courbin and Sohy 1998), a small quadratic program; the limb fit's disk as its own channel with only the residual sharpened (Lucy 1994, Yuan et al. 2007); PlanetFlow's per-layer weights feathered to zero at the limb. Each against the presets as shipped and at matched noise, on both twins and the real capture. Pre-registered when it starts.
+
+#### R8 follow-up 3: the finest band measured
+
+**Issue:** #1139.
+
+- **Planned:** three ways to the kernel's finest band, each judged against the twins' true transfer at 0.3 cycles a pixel:
+  - a physical kernel built from what is known (the obstructed pupil, the pixel, the resampling kernel, the warp the alignment points leave, the air's r0 from the spectral ratio), with only a few static aberration terms and the halo fitted to the limb, in Fourier space;
+  - a direct, oversampled edge profile over the limb, its albedo flattened by the stack's zonal mean;
+  - the stack's spectrum against an OPAL map of another year at the capture's geometry, the object's slope supplied, never fitted (Fetick et al. 2020).
+- Then R8's derived gains with the best of them. Pre-registered when it starts.
+
+#### R8 follow-up 4: heavier probes, only if follow-up 3 falls short
+
+**Issue:** #1140.
+
+- **Planned:** marginal multi-frame blind deconvolution with torchmfbd (MIT; PyTorch's support for the GTX 1070 first); a Galilean moon's shadow on the disk as a near-point probe (#1120 finds the captures); a short defocused burst after a capture, driven through the focuser, simulated on the twin first.
+
 ## R9 A learned stage, only if the measurements say so
 
 **Issue:** #1056 (conditional).
