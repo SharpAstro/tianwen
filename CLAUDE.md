@@ -1029,6 +1029,10 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   `PlanetaryWaveletGains`): with a twin's true kernel they come within 3 to 11 % of the per-band ceiling, with the limb's they put 11 to
   19 on the finest layer, whose transfer is the model's tail (#1120). A gain fit also needs the planet's DISK as a term of its own
   (the limb fit's sharp model through the kernel): no spectrum of the interior sees the limb, and without it the gains oscillate.
+  **A ring below the sky is a composite kernel's negative lobe, and two things make one** (follow-up 1, `planetary-ringing`): a band lifted
+  past the truth (every linear filter that did, rang) and a steep cut (a hard-regularised Wiener rang with no band above 1.013). So hold
+  the COMPOSITE non-negative, never just the transfer under one; a floor at the sky stops both. Read a composite through a twin's true
+  kernel: through a transfer measured against the truth, its noise sets the negative mass (the stack's own blur read 0.88).
 - **Read the plan doc before touching the Canon path** -- it is a list of five things that fail
   SILENTLY. **Recentering is opt-in** (the user, 2026-09-28; it costs the loop about 15 ms a frame at full frame), and
   so is the mount jog, whose **sign is uncalibrated**.
