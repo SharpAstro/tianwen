@@ -710,6 +710,89 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
+        public async Task GivenSeveralCards_WhenMerging_ThenOnlyTheMissingOnesAreWrittenInOneRewrite()
+        {
+            var dir = CreateTempDir();
+            var (path, payload) = WriteFits(dir, "l1.fits", ["IMAGETYP= 'LIGHT'", "SITELAT =    -37.8763888888889"]);
+            var ct = TestContext.Current.CancellationToken;
+
+            var result = await FitsHeaderEditor.SetCardsAsync(path,
+                [
+                    FitsHeaderEditor.StringCard("FILTER", "Optolong L-eNhance"),
+                    FitsHeaderEditor.NumericCard("SITELAT", -37.8769444, "degrees"),
+                    FitsHeaderEditor.NumericCard("SITELONG", 145.1775, "degrees"),
+                    FitsHeaderEditor.NumericCard("SITEELEV", 77, "metres above mean sea level"),
+                ], apply: true, cancellationToken: ct);
+
+            result.Outcome.ShouldBe(FitsHeaderEditor.TagOutcome.Tagged);
+            HeaderValue(path, "FILTER").ShouldBe("Optolong L-eNhance");
+            // A site card that was already stated is kept as written, however close the merged value.
+            HeaderValue(path, "SITELAT").ShouldBe("-37.8763888888889");
+            double.Parse(HeaderValue(path, "SITELONG")!, System.Globalization.CultureInfo.InvariantCulture).ShouldBe(145.1775);
+            double.Parse(HeaderValue(path, "SITEELEV")!, System.Globalization.CultureInfo.InvariantCulture).ShouldBe(77);
+            RawCard(path, "SITELONG")!.Contains('\'').ShouldBeFalse("a number is unquoted");
+            Sha(PayloadOf(path)).ShouldBe(Sha(payload));
+        }
+
+        [Fact]
+        public async Task GivenAPlaceholder_WhenMerging_ThenOnlyANamedPlaceholderIsReplaced()
+        {
+            var dir = CreateTempDir();
+            var (none, _) = WriteFits(dir, "none.fits", ["IMAGETYP= 'LIGHT'", "FILTER  = 'NoFilter'"]);
+            var (stated, _) = WriteFits(dir, "stated.fits", ["IMAGETYP= 'LIGHT'", "FILTER  = 'Ha'"]);
+            var ct = TestContext.Current.CancellationToken;
+            var placeholders = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "None", "NoFilter" };
+            FitsHeaderEditor.CardEdit[] edits = [FitsHeaderEditor.StringCard("FILTER", "SII", replaceable: placeholders)];
+
+            (await FitsHeaderEditor.SetCardsAsync(none, edits, apply: true, cancellationToken: ct)).Outcome.ShouldBe(FitsHeaderEditor.TagOutcome.Tagged);
+            HeaderValue(none, "FILTER").ShouldBe("SII");
+
+            var before = File.ReadAllBytes(stated);
+            var kept = await FitsHeaderEditor.SetCardsAsync(stated, edits, apply: true, cancellationToken: ct);
+            kept.Outcome.ShouldBe(FitsHeaderEditor.TagOutcome.AlreadyPresent);
+            kept.Detail.ShouldBe("FILTER=Ha");
+            File.ReadAllBytes(stated).ShouldBe(before);
+        }
+
+        [Fact]
+        public async Task GivenADryRun_WhenMerging_ThenNothingIsWritten()
+        {
+            var dir = CreateTempDir();
+            var (path, _) = WriteFits(dir, "l1.fits", ["IMAGETYP= 'LIGHT'"]);
+            var before = File.ReadAllBytes(path);
+
+            var result = await FitsHeaderEditor.SetCardsAsync(path, [FitsHeaderEditor.StringCard("FILTER", "Ha")],
+                cancellationToken: TestContext.Current.CancellationToken);
+
+            result.Outcome.ShouldBe(FitsHeaderEditor.TagOutcome.Tagged);
+            File.ReadAllBytes(path).ShouldBe(before);
+        }
+
+        [Fact]
+        public async Task GivenTwoNamesForOneFrame_WhenMergingWithRelink_ThenBothNamesCarryEveryCardOnOneFile()
+        {
+            var dir = CreateTempDir();
+            var (path, payload) = WriteFits(dir, "l1.fits", ["IMAGETYP= 'LIGHT'"]);
+            var sibling = Path.Combine(dir, "pics-twin.fits");
+            LinkOrSkip(sibling, path);
+
+            var result = await FitsHeaderEditor.SetCardsAsync(path,
+                [FitsHeaderEditor.StringCard("FILTER", "UV/IR Cut"), FitsHeaderEditor.NumericCard("SITEELEV", 120)],
+                hardLinks: FitsHeaderEditor.HardLinkPolicy.Relink, apply: true,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+            result.Outcome.ShouldBe(FitsHeaderEditor.TagOutcome.TaggedAndRelinked);
+            foreach (var name in new[] { path, sibling })
+            {
+                HeaderValue(name, "FILTER").ShouldBe("UV/IR Cut");
+                HeaderValue(name, "SITEELEV").ShouldNotBeNull();
+                Sha(PayloadOf(name)).ShouldBe(Sha(payload));
+            }
+            IdentityOf(sibling).ShouldBe(IdentityOf(path));
+            IdentityOf(path).LinkCount.ShouldBe(2);
+        }
+
+        [Fact]
         public async Task GivenThreeNamesForOneFrame_WhenRelinking_ThenEveryNameCarriesTheCardAndTheyStillShareOneFile()
         {
             // More than two matters because the verification checks each remaining name against a
