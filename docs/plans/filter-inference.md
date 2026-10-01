@@ -543,3 +543,28 @@ signatures) a single pass over its calibration frames rather than three.
   this one is named rather than averaged away; 13 of the 14 reference frames come out a clean x4
   with every channel agreeing, and this ASI585 frame is the one exception, reported as
   `PER-CHANNEL MISMATCH (B=native, G=x16, R=native)`.
+
+## 9. Stars as the discriminator, and SPCC as the classifier (2026-10-01)
+
+Raised by the Uranus-C 2023-08-09 Lagoon: the bake flat-fielded it with the broadband Semi-APO set of
+2023-07-29, the session map says it is narrowband (`Unidentified-HaOIII`), and the owner does not remember
+the filter. The evidence so far is the SKY: 3.0 to 3.3 ADU/s above the floor against about 200 on the same
+camera, gain, offset, f/4.5 and target five days earlier, plus `OBJECT = 'M8 M20 OIII HA'`; the colour of
+that sky does not separate them (R/G 0.71 to 0.74 against 0.63 to 0.68), and a near-full Moon on the
+broadband night confounds the rate. Two measurements decide it without the sky, and both belong in the
+repo as code, not in another script:
+
+- **The spread of star colours** (#1146). Stars are continuum sources. Broadband, B/G follows each star's
+  temperature and spreads widely; through a dual-band filter G and B both see only the 486 to 501 nm window,
+  so every star reads nearly the same B/G, a narrow spread. Per session: per-channel aperture flux of
+  unsaturated stars found by TianWen's own detector, reported as the median and inter-quartile spread of
+  B/G and R/G, and the star flux per second (through a dual-band, roughly ten to twenty times lower). The
+  nebula-against-star contrast of `etacar_filter_class.py` (a ratio of ratios, in which the sensor's
+  response cancels) is the second number in the same pass.
+- **Naming the filter by SPCC** (#1147). Fit the session's star colours against Gaia through each
+  candidate filter's curve on the sensor's QE (`FilterCurveDatabase`, the SPCC machinery): the curve whose
+  predicted colours match is the filter. It names the filter where a ratio only separates two sessions,
+  and it is F4's classifier without a hand-built reference band table.
+
+The resolver already refuses the pairing in question: a flat whose stated filter contradicts the lights'
+is no candidate ("fix(dataset): a flat whose stated filter contradicts the lights' is no candidate").
