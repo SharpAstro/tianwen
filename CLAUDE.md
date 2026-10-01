@@ -1033,6 +1033,9 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   past the truth (every linear filter that did, rang) and a steep cut (a hard-regularised Wiener rang with no band above 1.013). So hold
   the COMPOSITE non-negative, never just the transfer under one; a floor at the sky stops both. Read a composite through a twin's true
   kernel: through a transfer measured against the truth, its noise sets the negative mass (the stack's own blur read 0.88).
+  **Sharpen the limb as its own channel** (follow-up 2, `planetary-dering`, `PlanetaryDering.LimbChannel`): take the limb fit's model
+  through the kernel out, sharpen the residual, put the model back through the diffraction alone. The presets' ring fell under 0.015 of
+  the disk and their limb profile became 11 to 64 times truer; feathering the gains at the limb removes the ring but not the rind.
 - **Read the plan doc before touching the Canon path** -- it is a list of five things that fail
   SILENTLY. **Recentering is opt-in** (the user, 2026-09-28; it costs the loop about 15 ms a frame at full frame), and
   so is the mount jog, whose **sign is uncalibrated**.
