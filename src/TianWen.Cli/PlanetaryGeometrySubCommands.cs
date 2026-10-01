@@ -294,12 +294,13 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         var bayerKOpt = new Option<string?>("--bayer-k") { Description = "Minnaert's exponent for each colour's map, red, green and blue (OPAL's: 0.999, 0.950, 0.850); --k for all three by default." };
         var spanOpt = new Option<double?>("--span-minutes") { Description = "Spread the synthetic capture's frames evenly in time over this many minutes, in their order, so the planet turns as it would over a run (R6 part 2: a de-rotation's twin). Each frame keeps the real capture's seeing; the air between two frames is no longer the next instant's." };
         var truthAtOpt = new Option<string>("--truth-at") { Description = "The instant the truth is rendered at: reference (the statistics' reference frame's) or middle (the capture's middle, where a de-rotated stack shows the planet).", DefaultValueFactory = _ => "reference" };
+        var psfTruthOpt = new Option<bool>("--psf-truth") { Description = "Write every frame's PSF, shift and brightness beside the capture (<capture>.psf), the truth a multi-frame bound is computed against (R8 part 1; about 64 KB a frame). Mono only." };
 
         var command = new Command("planetary-degrade",
             "A synthetic capture from a global map with a real capture's own seeing, motion and camera (R2): measure the real one, make the synthetic one, measure it the same way, and compare.")
         {
             Arguments = { inputArg },
-            Options = { mapOpt, outputOpt, planetOpt, kOpt, telescopeOpt, wavelengthOpt, r0Opt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, localR0Opt, localOuterScaleOpt, localWindOpt, scatterOpt, scatterCoreOpt, realStatisticsOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, replayOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, plainOpt, framesOpt, bayerMapsOpt, bayerWavelengthsOpt, bayerKOpt, truthUpsampleOpt, spanOpt, truthAtOpt },
+            Options = { mapOpt, outputOpt, planetOpt, kOpt, telescopeOpt, wavelengthOpt, r0Opt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, localR0Opt, localOuterScaleOpt, localWindOpt, scatterOpt, scatterCoreOpt, realStatisticsOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, replayOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, plainOpt, framesOpt, bayerMapsOpt, bayerWavelengthsOpt, bayerKOpt, truthUpsampleOpt, spanOpt, truthAtOpt, psfTruthOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -459,21 +460,29 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             var partial = output + ".partial";
             var bytesPerSample = depth == 8 ? 1 : 2;
             ImmutableArray<SyntheticFrame> made;
-            // A warp's truth goes beside the capture, frame by frame, for the dewarp to be scored against (R5).
+            // A warp's truth goes beside the capture, frame by frame, for the dewarp to be scored against (R5), and on request each frame's
+            // PSF, for the multi-frame bound (R8).
             var warpPartial = SyntheticWarpFile.PathFor(output) + ".partial";
+            var psfPartial = SyntheticPsfFile.PathFor(output) + ".partial";
+            var psfTruth = parseResult.GetValue(psfTruthOpt);
             using (var warpWriter = options.WarpRmsPx > 0 ? new SyntheticWarpFile.Writer(warpPartial) : null)
+            using (var psfWriter = psfTruth ? new SyntheticPsfFile.Writer(psfPartial, SyntheticPsfHeader.For(options, scale)) : null)
             using (var writer = new SerWriter(partial, reader.Width, reader.Height, SerColorId.Mono, depth, instrument: "TianWen planetary-degrade"))
             {
                 var buffer = new byte[reader.Width * reader.Height * bytesPerSample];
                 var done = new Progress<int>(frames => { if (frames % 2048 < 64) { consoleHost.WriteScrollable($"    {frames} of {times.Length} frames"); } });
                 made = await PlanetaryDegrade.MakeAsync(map, planet, times, reference, scale, moveX, moveY, truth.Flux, reader.Width, reader.Height, options,
                     (index, samples) => writer.AppendFrame(Pack(samples, buffer, depth), times[index]),
-                    done, warpWriter is null ? null : (_, warp) => warpWriter.Append(warp), ct);
+                    done, warpWriter is null ? null : (_, warp) => warpWriter.Append(warp), psfWriter is null ? null : (_, optics) => psfWriter.Append(optics), ct);
             }
             File.Move(partial, output, overwrite: true);
             if (options.WarpRmsPx > 0)
             {
                 File.Move(warpPartial, SyntheticWarpFile.PathFor(output), overwrite: true);
+            }
+            if (psfTruth)
+            {
+                File.Move(psfPartial, SyntheticPsfFile.PathFor(output), overwrite: true);
             }
 
             // The truth the synthetic capture is scored against: the same map at the reference frame's time (or the capture's
@@ -501,6 +510,11 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             async Task<int> MakeColourTwin()
             {
                 var mapPaths = CommaList(parseResult.GetValue(bayerMapsOpt));
+                if (parseResult.GetValue(psfTruthOpt))
+                {
+                    consoleHost.WriteError($"{input}: --psf-truth is for a mono capture; a colour one's three passes share no one PSF");
+                    return 1;
+                }
                 if (mapPaths.Length != 3)
                 {
                     consoleHost.WriteError($"{input}: a colour capture; pass --bayer-maps with its red, green and blue maps");

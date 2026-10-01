@@ -225,7 +225,7 @@ public static class PlanetaryInverse
         return result;
     }
 
-    private static Complex[] Transform(ReadOnlySpan<float> plane, int width, int height, int n)
+    internal static Complex[] Transform(ReadOnlySpan<float> plane, int width, int height, int n)
     {
         var field = new Complex[n * n];
         for (var y = 0; y < height; y++)
@@ -239,7 +239,7 @@ public static class PlanetaryInverse
         return field;
     }
 
-    private static int GridFor(int width, int height, int margin)
+    internal static int GridFor(int width, int height, int margin)
     {
         var n = 1;
         while (n < Math.Max(width, height) + margin)
