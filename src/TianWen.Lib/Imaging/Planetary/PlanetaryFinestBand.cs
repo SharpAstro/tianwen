@@ -160,14 +160,22 @@ public static class PlanetaryFinestBand
                 var cost = 0.0;
                 for (var i = 0; i < count; i++)
                 {
-                    var r = read[i] - kernel.TransferAt(frequencies[i]);
-                    cost += r * r;
+                    // A frequency the edge does not read is left out here as in the fit below; counted, it made every start's cost NaN.
+                    if (double.IsFinite(read[i]))
+                    {
+                        var r = read[i] - kernel.TransferAt(frequencies[i]);
+                        cost += r * r;
+                    }
                 }
                 if (cost < bestCost)
                 {
                     (bestCost, best) = (cost, start);
                 }
             }
+        }
+        if (best.Length == 0)
+        {
+            throw new ArgumentException("The edge reads nothing finite to fit a kernel to: no limb point was read.", nameof(edge));
         }
         var result = Stat.LevenbergMarquardt.Fit(best, count, (p, residuals) =>
         {
@@ -197,25 +205,27 @@ public static class PlanetaryFinestBand
 
     /// <summary>
     /// The extra Gaussian jitter <paramref name="across"/> carries over <paramref name="along"/> (R8 follow-up 4, part 2): least squares
-    /// on ln(across / along) = -2 pi^2 sigma^2 f^2 from <paramref name="from"/> to <paramref name="to"/> cycles a pixel, in steps of 0.01,
-    /// where both read above <paramref name="floor"/>; zero where the fit is not positive or nothing reads.
+    /// on ln(across / along) = c - 2 pi^2 sigma^2 f^2 from <paramref name="from"/> to <paramref name="to"/> cycles a pixel, in steps of
+    /// 0.01, where both read above <paramref name="floor"/>. The intercept c takes a level the two reads differ by (a sector's albedo held
+    /// from the nearest latitude the zonal profile reads), so it cannot pass for a jitter; zero where the slope is not a jitter's or fewer
+    /// than three frequencies read.
     /// </summary>
     public static double JitterSigma(Func<double, double> along, Func<double, double> across, double from = 0.08, double to = 0.3, double floor = 0.05)
     {
         ArgumentNullException.ThrowIfNull(along);
         ArgumentNullException.ThrowIfNull(across);
-        double numerator = 0, denominator = 0;
+        double n = 0, sx = 0, sy = 0, sxx = 0, sxy = 0;
         for (var f = from; f <= to + 1e-9; f += 0.01)
         {
             var (a, c) = (along(f), across(f));
             if (a > floor && c > floor)
             {
-                var x = 2 * Math.PI * Math.PI * f * f;
-                numerator -= Math.Log(c / a) * x;
-                denominator += x * x;
+                var (x, y) = (2 * Math.PI * Math.PI * f * f, Math.Log(c / a));
+                (n, sx, sy, sxx, sxy) = (n + 1, sx + x, sy + y, sxx + (x * x), sxy + (x * y));
             }
         }
-        return denominator > 0 && numerator > 0 ? Math.Sqrt(numerator / denominator) : 0;
+        var slope = n >= 3 ? ((n * sxy) - (sx * sy)) / ((n * sxx) - (sx * sx)) : 0;
+        return slope < 0 ? Math.Sqrt(-slope) : 0;
     }
 
     /// <summary>

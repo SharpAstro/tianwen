@@ -69,10 +69,15 @@ internal sealed class PlanetaryElongatedSubCommand(IConsoleHost consoleHost)
             // (a) the round physical kernel on the whole edge (step 3 part 2's), and (e) the elongated one off the two sectors.
             var edge = prepared.LimbEdge(stack);
             var round = PlanetaryFinestBand.FitPhysical(edge, prepared.Cutoff);
-            var (edgeAxis, edgeEquator) = (prepared.LimbEdge(stack, axisDeg), prepared.LimbEdge(stack, equatorDeg));
-            var elongated = PlanetaryFinestBand.FitElongated(edgeAxis, edgeEquator, prepared.Cutoff, equatorDeg);
+            var (edgeAxis, edgeEquator) = (prepared.LimbEdge(stack, axisDeg, holdPoles: true), prepared.LimbEdge(stack, equatorDeg, holdPoles: true));
             consoleHost.WriteScrollable($"    the edge along the axis:              {Row(edgeAxis.TransferAt)} ({edgeAxis.Counts.Sum()} pixels)");
             consoleHost.WriteScrollable($"    the edge along the equator:           {Row(edgeEquator.TransferAt)} ({edgeEquator.Counts.Sum()} pixels)");
+            if (edgeAxis.Counts.Sum() == 0 || edgeEquator.Counts.Sum() == 0)
+            {
+                consoleHost.WriteError($"{input}: a sector of the limb holds no pixel to read");
+                return 1;
+            }
+            var elongated = PlanetaryFinestBand.FitElongated(edgeAxis, edgeEquator, prepared.Cutoff, equatorDeg);
             consoleHost.WriteScrollable($"    (a), round, on the whole edge:        {Row(round.TransferAt)}");
             consoleHost.WriteScrollable(string.Create(inv,
                 $"    (e) along the axis:                   {Row(AlongAxis(elongated.TransferAt))} (D/r0 {elongated.Round.ApertureOverR0:0.00}, sigma {elongated.Round.SigmaPx:0.00} px, halo {elongated.Round.Halo:0.000} of {elongated.Round.HaloWidthPx:0.0} px)"));
