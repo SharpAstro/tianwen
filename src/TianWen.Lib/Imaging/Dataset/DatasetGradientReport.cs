@@ -917,9 +917,10 @@ namespace TianWen.Lib.Imaging.Dataset
         /// unknown. Only ever a SOLVE: a camera moved between scopes keeps whatever focal length its
         /// capture profile last said (the QHY294C in this archive sat behind several), so a scale derived
         /// from <c>FOCALLEN</c> can name the wrong field outright, and a declared <c>PIXSCALE</c> is no
-        /// better on our own masters, whose writer stamps it from that same <c>FOCALLEN</c> (the QHY183M
-        /// eta Car master declares 1.7189, which is 206.265 x 2.4 um / 288 mm, and solves to 1.7066).
-        /// Unknown stays NaN rather than becoming a guess the field-width table bins.
+        /// better on our own masters, whose writer stamps it from that same <c>FOCALLEN</c>. Even a RIGHT
+        /// focal length is only nominal: the QHY183M eta Car master declares 1.7189 (206.265 x 2.4 um /
+        /// 288 mm, a ZS61 behind its 0.8x reducer) and solves to 1.7066, 290 mm effective. Unknown stays
+        /// NaN rather than becoming a guess the field-width table bins.
         /// </summary>
         internal static (double PixelScaleArcsec, string Source) ScaleOf(WCS? solved, WCS? header) =>
             solved is { HasCDMatrix: true } fromSolve ? (fromSolve.PixelScaleArcsec, "solve")
