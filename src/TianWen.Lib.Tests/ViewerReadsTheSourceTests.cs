@@ -148,6 +148,42 @@ public class ViewerReadsTheSourceTests
         rows.Select(row => row[0]).ToArray().ShouldBe(new[] { "R", "G", "B", "Luma" });
     }
 
+    /// <summary>
+    /// The same frame, live and opened from disk, reads the same pixel and the same background: both divide by
+    /// the sensor's full scale. The live preview divided by the frame's brightest pixel, so its readout and its
+    /// statistics were relative to that pixel and disagreed with the file it saved.
+    /// </summary>
+    [Fact]
+    public async Task A_live_frame_and_the_same_frame_as_a_document_read_the_same_numbers()
+    {
+        const float sensorFullScale = 16383f;
+        // The gradient runs from 100 at (0, 0) to 100 + 39 + 29 * 40 = 1299, and the frame says so, as a camera's does.
+        const float floor = 100f;
+        const float peak = 1299f;
+        Image Declared()
+        {
+            var frame = Frame(channels: 1);
+            return new Image([frame.GetChannelArray(0)], BitDepth.Int16, maxValue: peak, minValue: floor,
+                pedestal: 0f, imageMeta: frame.ImageMeta with { SensorFullScaleAdu = sensorFullScale });
+        }
+
+        var live = new LiveFramePreviewSource();
+        live.AcceptFrame(Declared(), freezeStats: false).ShouldBeTrue();
+        var document = await AstroImageDocument.AdoptImageAsync(Declared(), cancellationToken: TestContext.Current.CancellationToken);
+
+        var fromLive = ViewerActions.ReadPixel(live, wcs: null, x: 5, y: 7).Values.ShouldHaveSingleItem();
+        var fromFile = ViewerActions.ReadPixel(document, wcs: null, x: 5, y: 7).Values.ShouldHaveSingleItem();
+
+        fromLive.ShouldBe((100f + 5 + (7 * 40)) / sensorFullScale, 1e-6f, "on the sensor's scale, not the frame's brightest pixel");
+        fromLive.ShouldBe(fromFile, 1e-6f);
+
+        var liveMedian = live.ChannelStatistics[0].Median.ShouldNotBeNull();
+        var fileMedian = ((IPreviewSource)document).ChannelStatistics[0].Median.ShouldNotBeNull();
+        liveMedian.ShouldBe(fileMedian, 1e-5, "the statistics table's numbers agree");
+        live.PerChannelBackground[0].ShouldBe(floor / sensorFullScale, 1e-6f,
+            "the stretch's pedestal is the frame's floor on the same scale as its pixels");
+    }
+
     /// <summary>A frame nothing describes still reports its size, and nothing it would have to make up.</summary>
     [Fact]
     public void A_source_with_no_header_reports_only_its_size()

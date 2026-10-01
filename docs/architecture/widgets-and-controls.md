@@ -417,7 +417,8 @@ hand-place chrome at `(0,0,Width,...)`. One slider (`DrawTrackSlider` / `TrackFr
 
 **One viewer, no mini viewer.** Live Session preview, polar-align and guide-cam host this viewer
 chromeless (`ViewerState.HideChrome`), fed by `LiveFramePreviewSource : IPreviewSource` (normalises to
-`[0,1]`, subsampled median/MAD stats, `AcceptFrame(image, freezeStats)` for
+`[0,1]` by `Image.UnitScaleDivisor`, the divisor a document of the same frame uses, never the observed peak,
+subsampled median/MAD stats taken over those normalised planes, `AcceptFrame(image, freezeStats)` for
 `ViewerState.FreezeStretchStats`, delegates to the shared `AstroImageDocument.ComputeStretchUniforms`;
 the WCS is the source's own, `IPreviewSource.Findings`, which the host sets on `LiveFramePreviewSource.Findings`
 when a solve of the frame on show lands and `AcceptFrame` drops with the next frame). Embedded hosts call `SetSurfaceSize(w,h)` each
