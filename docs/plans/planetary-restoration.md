@@ -1121,6 +1121,26 @@ The Wiener filter is set to the band 3 transfer the oracle's RL reaches (noise-t
 - **Pre-registered:**
   - The derived gains beat every preset at matched noise on per-band fidelity and pass the ringing gate.
   - Kill line: if a preset wins, the Wiener model is missing a term, most likely the resampling blur or the noise's colour; find which.
+  - **Added 2026-10-01, before the derived gains were built or measured** (`tianwen planetary-gains`, after #1085's ceilings and inverses):
+    - **The stacks**: R7 part 4's (the best 150 of 3,000 by the gradient, global, plain, Lanczos-3), on the calibrated twin and the one without its still layer, scored against their truths, and on 2022-09-03's Red. Each comes with its two halves (every other frame of the 150, `PlanetaryFrameSubset.Half`), and everything is read in a 256 px window about the disk.
+    - **The derived gains**: six a trous layers like the presets, the residual left at 1, no thresholds.
+      - The noise N(f), ring by ring, from half the halves' difference, so it carries its colour (the resampling's included).
+      - The stack's power P_S(f), ring by ring, and the kernel H(f) over the pupil's diffraction.
+      - The Wiener filter they give with no model of the object: W(f) = (1 - N/P_S)+ / H, the object's power being what the stack holds over its noise, divided by the blur, and zero where H is under 0.02 (part 2's cut).
+      - The six gains fitted JOINTLY (part 1) to W over every Fourier coefficient of the window, each weighted by the stack's power there. Under this model that weight makes the fit the gains' least expected error, so there is no knob.
+      - With two kernels: (b') over diffraction, and the twin's true ring transfer (`PlanetaryInverse.Measure`, R7 part 4's oracle), so that a miss can be told the kernel's from the method's.
+    - **The presets**, `PlanetaryDefault`, `Bandpass` and `Combo`, each two ways:
+      - as shipped, gains and thresholds;
+      - at matched noise: thresholds dropped and each gain moved to 1 + a(g - 1), with a set by bisection so that the halves' half difference, filtered by them, has the RMS inside 0.9 radii that it has filtered by the derived gains with (b').
+    - **Scored** by R3's band transfer and error in bands 1 to 4 against the truth, and by the limb's undershoot. Part 1's jointly fitted per-band oracle and part 2's Richardson-Lucy with (b') are reported beside them.
+    - **The claims**, the plan's made concrete, on both twins:
+      - The derived gains with (b') leave less error, summed over bands 1 to 4, than every preset at matched noise and as shipped.
+      - They pass the ringing gate: a limb undershoot at most 1.25 times the jointly fitted oracle's, or 0.001 of the disk if that is larger.
+      - With the twin's true kernel they come within 10 % of the jointly fitted oracle's summed error. With (b') they come within 25 %, the miss in band 1, where (b') is its model's tail (R7 part 4).
+      - The kill line, the plan's: if a preset wins at matched noise, the model is missing a term. The noise's colour is checked by deriving the gains again with a white N (`PlanetaryInverse.WhiteNoise`), reported beside.
+    - **The real capture**: its rises over the stack and its undershoot, beside the presets' at matched noise.
+      - The halves' agreement cannot judge it (R3's kill line), so the limb's undershoot is its one truth-free score.
+      - AutoStakkert's and RegiStax's results, where the corpus holds them for this capture, are set beside it on the same two.
 
 ### R8 how far a real per-band gain can reach
 
