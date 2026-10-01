@@ -2,6 +2,7 @@ using Shouldly;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.Focus;
@@ -51,18 +52,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
             phases.Enqueue(e.NewPhase);
         };
 
-        // Run session on background thread, pump time from test thread
-        var runTask = ctx.Track(Task.Run(async () => await ctx.Session.RunAsync(ctx.Token), ctx.Token));
-
-        var maxPumps = (int)(TimeSpan.FromHours(24) / subExposure);
-        for (var i = 0; i < maxPumps && !runTask.IsCompleted && !ct.IsCancellationRequested; i++)
-        {
-            await ctx.TimeProvider.SleepAsync(subExposure, ct);
-            await Task.Delay(50, ct);
-        }
-
-        runTask.IsCompleted.ShouldBeTrue("RunAsync should complete within timeout");
-        await runTask;
+        await RunToEndAsync(ctx, subExposure, ctx.Token, ct);
 
         // Verify phase order
         var phaseList = phases.ToArray();
@@ -116,18 +106,8 @@ public class SessionPhaseTests(ITestOutputHelper output)
             }
         };
 
-        // Run session: will enter Cooling then get cancelled
-        var runTask = ctx.Track(Task.Run(async () => await ctx.Session.RunAsync(cts.Token), ctx.Token));
-
-        // Pump time until complete (including warmup in Finalise)
-        while (!runTask.IsCompleted && !ct.IsCancellationRequested)
-        {
-            await ctx.TimeProvider.SleepAsync(TimeSpan.FromSeconds(1), ct);
-            await Task.Delay(10, ct);
-        }
-
-        runTask.IsCompleted.ShouldBeTrue("RunAsync should complete after abort + finalise");
-        await runTask; // propagate exceptions
+        // Run session: will enter Cooling then get cancelled, and ends once Finalise has warmed the camera
+        await RunToEndAsync(ctx, TimeSpan.FromSeconds(1), cts.Token, ct);
 
         var phaseList = phases.ToArray();
         output.WriteLine($"Phases: {string.Join(" → ", phaseList)}");
@@ -176,15 +156,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
             }
         };
 
-        var runTask = ctx.Track(Task.Run(async () => await ctx.Session.RunAsync(cts.Token), ctx.Token));
-
-        while (!runTask.IsCompleted && !ct.IsCancellationRequested)
-        {
-            await ctx.TimeProvider.SleepAsync(TimeSpan.FromSeconds(1), ct);
-            await Task.Delay(10, ct);
-        }
-
-        await runTask;
+        await RunToEndAsync(ctx, TimeSpan.FromSeconds(1), cts.Token, ct);
 
         // Cooling samples should have been recorded during cooldown and warmup
         var samples = ctx.Session.CoolingSamples;
@@ -226,15 +198,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
         using var cancelTimer = ctx.TimeProvider.CreateTimer(
             _ => cts.Cancel(), null, TimeSpan.FromSeconds(1), Timeout.InfiniteTimeSpan);
 
-        var runTask = ctx.Track(Task.Run(async () => await ctx.Session.RunAsync(cts.Token), ctx.Token));
-
-        while (!runTask.IsCompleted && !ct.IsCancellationRequested)
-        {
-            await ctx.TimeProvider.SleepAsync(TimeSpan.FromSeconds(1), ct);
-            await Task.Delay(10, ct);
-        }
-
-        await runTask;
+        await RunToEndAsync(ctx, TimeSpan.FromSeconds(1), cts.Token, ct);
 
         var transitionList = transitions.ToArray();
         output.WriteLine($"Transitions: {string.Join(", ", Array.ConvertAll(transitionList, t => $"{t.Old}→{t.New}"))}");
@@ -266,47 +230,36 @@ public class SessionPhaseTests(ITestOutputHelper output)
 
         await using var ctx = await CreateWinterSessionAsync(observations, ct);
 
-        // Track when we pass AutoFocus
-        var passedAutoFocus = false;
+        // Stopped once it leaves AutoFocus, so the run never reaches the imaging loop.
+        var leftAutoFocus = false;
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ctx.Token);
         ctx.Session.PhaseChanged += (_, e) =>
         {
             output.WriteLine($"Phase: {e.OldPhase} → {e.NewPhase}");
             if (e.OldPhase == SessionPhase.AutoFocus)
             {
-                passedAutoFocus = true;
-                // Cancel after auto-focus to avoid running the full imaging loop
+                leftAutoFocus = true;
                 cts.Cancel();
             }
         };
 
-        var runTask = ctx.Track(Task.Run(async () => await ctx.Session.RunAsync(cts.Token), ctx.Token));
+        await RunToEndAsync(ctx, TimeSpan.FromSeconds(2), cts.Token, ct);
 
-        var maxPumps = 1000;
-        for (var i = 0; i < maxPumps && !runTask.IsCompleted && !ct.IsCancellationRequested; i++)
-        {
-            await ctx.TimeProvider.SleepAsync(TimeSpan.FromSeconds(2), ct);
-            await Task.Delay(10, ct);
-        }
+        leftAutoFocus.ShouldBeTrue("the run must get through AutoFocus; the session's log above says where it stopped");
 
-        await runTask;
+        // A run is recorded only when the V-curve's fit converges (Session.AutoFocusAsync), so leaving the phase proves
+        // nothing by itself: it is left the same way when the fit fails. The samples of a fit that failed stay the
+        // session's until the next run is recorded, so they are the diagnosis.
+        var history = ctx.Session.FocusHistory;
+        history.Length.ShouldBe(1,
+            $"AutoFocus must converge and record its run; it fitted {ctx.Session.ActiveFocusSamples.Length} samples " +
+            $"({string.Join(", ", ctx.Session.ActiveFocusSamples.Select(static s => $"{s.Position}: {s.Hfd:F2}"))})");
 
-        if (passedAutoFocus)
-        {
-            var history = ctx.Session.FocusHistory;
-            output.WriteLine($"Focus history entries: {history.Length}");
-            history.Length.ShouldBeGreaterThan(0, "should have at least one focus run record");
-
-            var first = history[0];
-            output.WriteLine($"First focus run: OTA={first.OtaName}, Filter={first.FilterName}, Pos={first.BestPosition}, HFD={first.BestHfd:F2}, Curve points={first.Curve.Length}");
-            first.BestPosition.ShouldBeGreaterThan(0, "best focus position should be positive");
-            first.BestHfd.ShouldBeGreaterThan(0, "best HFD should be positive");
-            first.Curve.Length.ShouldBeGreaterThan(0, "focus curve should have sample points");
-        }
-        else
-        {
-            output.WriteLine("AutoFocus phase was not reached, test inconclusive (session may have failed earlier)");
-        }
+        var first = history[0];
+        output.WriteLine($"First focus run: OTA={first.OtaName}, Filter={first.FilterName}, Pos={first.BestPosition}, HFD={first.BestHfd:F2}, Curve points={first.Curve.Length}");
+        first.BestPosition.ShouldBeGreaterThan(0, "best focus position should be positive");
+        first.BestHfd.ShouldBeGreaterThan(0, "best HFD should be positive");
+        first.Curve.Length.ShouldBeGreaterThan(0, "focus curve should have sample points");
     }
 
     [Fact(Timeout = 120_000)]
@@ -336,16 +289,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
             frameEvents.Enqueue(e.Entry);
         };
 
-        var runTask = ctx.Track(Task.Run(async () => await ctx.Session.RunAsync(ctx.Token), ctx.Token));
-
-        var maxPumps = (int)(TimeSpan.FromHours(24) / subExposure);
-        for (var i = 0; i < maxPumps && !runTask.IsCompleted && !ct.IsCancellationRequested; i++)
-        {
-            await ctx.TimeProvider.SleepAsync(subExposure, ct);
-            await Task.Delay(50, ct);
-        }
-
-        await runTask;
+        await RunToEndAsync(ctx, subExposure, ctx.Token, ct);
 
         // Verify frames were written
         ctx.Session.TotalFramesWritten.ShouldBeGreaterThan(0, "session should have written frames");
@@ -363,6 +307,35 @@ public class SessionPhaseTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// Runs the session to its end on the cooperative pump (<c>docs/architecture/session-test-harness.md</c>): the clock
+    /// moves only once the run is parked on it, and the budget bounds a STALL, read off the run's phases and the frames
+    /// it takes, never the run's length. These tests used to sleep on the clock from the test thread beside the run,
+    /// which advanced it whether or not the run had been scheduled (#1017). <paramref name="step"/> is each advance:
+    /// a run through a whole observation is hours of fake time, and each advance costs at least a millisecond of
+    /// real time, so such a run steps by its sub-exposure.
+    /// </summary>
+    private async Task RunToEndAsync(SessionTestContext ctx, TimeSpan step, CancellationToken runToken, CancellationToken ct)
+    {
+        var phaseChanges = 0;
+        ctx.Session.PhaseChanged += (_, _) => Interlocked.Increment(ref phaseChanges);
+
+        ctx.TimeProvider.ExternalTimePump = true;
+        try
+        {
+            var runTask = ctx.Track(Task.Run(async () => await ctx.Session.RunAsync(runToken), ctx.Token));
+            var pumped = await ctx.TimeProvider.PumpUntilCompletedAsync(runTask, step, TimeSpan.FromHours(1),
+                progress: () => Volatile.Read(ref phaseChanges) * 1_000_000L + ctx.Session.LastCapturedImageNumber(0),
+                cancellationToken: ct);
+            await runTask;
+            output.WriteLine($"Pumped {pumped} of fake time in steps of {step}");
+        }
+        finally
+        {
+            ctx.TimeProvider.ExternalTimePump = false;
+        }
+    }
+
+    /// <summary>
     /// Creates a session configured for a winter night (astro dark already started)
     /// with the focuser at best focus so RoughFocus/AutoFocus can succeed.
     /// </summary>
@@ -371,7 +344,8 @@ public class SessionPhaseTests(ITestOutputHelper output)
     {
         var timeProvider = new FakeTimeProviderWrapper(WinterNight);
         var external = new FakeExternal(output, timeProvider);
-        var sp = external.BuildServiceProvider();
+        // The session's own log in the test output, so a failure says what the run did (#1017).
+        var sp = external.BuildServiceProvider(logTo: output);
         var cameraDevice = new FakeDevice(DeviceType.Camera, 1);
         var focuserDevice = new FakeDevice(DeviceType.Focuser, 1);
         var camera = new Camera(cameraDevice, sp);

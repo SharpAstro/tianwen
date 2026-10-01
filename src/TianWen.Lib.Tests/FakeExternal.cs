@@ -117,11 +117,25 @@ public class FakeExternal : IExternal
     /// no-hub path and a leaked lease would go unnoticed until it stranded a real user's rig.
     /// </para>
     /// </summary>
-    public IServiceProvider BuildServiceProvider() =>
+    public IServiceProvider BuildServiceProvider() => BuildServiceProvider(logTo: null);
+
+    /// <summary>
+    /// <see cref="BuildServiceProvider()"/>, with every logger it hands out writing to <paramref name="logTo"/> at
+    /// Information and above when one is given: a <see cref="Sequencing.Session"/> takes its logger from the provider, so
+    /// this is what puts a session's own account of a run (an AutoFocus rung's star count, a fit that did not converge)
+    /// beside a failed assertion. Without one the provider's loggers write nowhere.
+    /// </summary>
+    public IServiceProvider BuildServiceProvider(ITestOutputHelper? logTo) =>
         new ServiceCollection()
             .AddSingleton<IExternal>(this)
             .AddSingleton<ITimeProvider>(_timeProvider)
             .AddSingleton<IDeviceHub, DeviceHub>()
-            .AddLogging()
+            .AddLogging(builder =>
+            {
+                if (logTo is not null)
+                {
+                    builder.SetMinimumLevel(LogLevel.Information).AddProvider(new XUnitLoggerProvider(logTo, false));
+                }
+            })
             .BuildServiceProvider();
 }
