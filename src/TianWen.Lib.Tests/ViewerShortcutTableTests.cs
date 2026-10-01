@@ -72,7 +72,8 @@ public class ViewerShortcutTableTests
     [InlineData("F")]
     [InlineData("R")]
     [InlineData("F1")]
-    [InlineData("+ / -")]
+    [InlineData("+")]
+    [InlineData("-")]
     [InlineData("Ctrl+0")]
     [InlineData("Ctrl+1")]
     [InlineData("Space / Tab")]
@@ -93,6 +94,23 @@ public class ViewerShortcutTableTests
             ["D"] = ToolbarAction.Debayer,
             ["F1"] = ToolbarAction.Shortcuts,
             ["Ctrl+Shift+S"] = ToolbarAction.Save,
+            // Named since #1142's key table folded in: every key that stands for a button says which, so
+            // the host's offer gates it (ViewerShortcuts.ButtonFor).
+            ["Ctrl+O"] = ToolbarAction.Open,
+            ["Ctrl+S"] = ToolbarAction.Save,
+            ["O / Shift+O"] = ToolbarAction.Overlays,
+            ["G"] = ToolbarAction.Overlays,
+            ["Y"] = ToolbarAction.SkyBackdrop,
+            ["S"] = ToolbarAction.Stars,
+            ["Shift+C"] = ToolbarAction.AutoCrop,
+            ["+"] = ToolbarAction.StretchParams,
+            ["-"] = ToolbarAction.StretchParams,
+            ["B / Shift+B"] = ToolbarAction.Tone,
+            ["C"] = ToolbarAction.Channel,
+            ["P"] = ToolbarAction.PlateSolve,
+            ["E"] = ToolbarAction.Enhance,
+            ["A / Shift+A"] = ToolbarAction.Compare,
+            ["L"] = ToolbarAction.FileList,
         };
 
         foreach (var (chord, action) in expected)
@@ -119,6 +137,27 @@ public class ViewerShortcutTableTests
 
     // Modifiers are part of the chord, not decoration: Ctrl+Shift+S opens the Save menu while
     // Ctrl+S writes the file, and resolving one as the other would silently swap them.
+    /// <summary>
+    /// The button a key stands for, which the host must offer for the key to act at all: exact on the
+    /// modifiers (S is the stars, Ctrl+S the save; C the channel, Shift+C the crop), both halves of a pair
+    /// row (O and Shift+O), and nothing for a key that is the picture's own or the window's.
+    /// </summary>
+    [Fact]
+    public void EachKeyStandsForTheButtonItsRowNames()
+    {
+        ViewerShortcuts.ButtonFor(InputKey.S, InputModifier.None).ShouldBe(ToolbarAction.Stars);
+        ViewerShortcuts.ButtonFor(InputKey.S, InputModifier.Ctrl).ShouldBe(ToolbarAction.Save);
+        ViewerShortcuts.ButtonFor(InputKey.C, InputModifier.None).ShouldBe(ToolbarAction.Channel);
+        ViewerShortcuts.ButtonFor(InputKey.C, InputModifier.Shift).ShouldBe(ToolbarAction.AutoCrop);
+        ViewerShortcuts.ButtonFor(InputKey.O, InputModifier.None).ShouldBe(ToolbarAction.Overlays);
+        ViewerShortcuts.ButtonFor(InputKey.O, InputModifier.Shift).ShouldBe(ToolbarAction.Overlays, "a pair row is both halves");
+        ViewerShortcuts.ButtonFor(InputKey.O, InputModifier.Ctrl).ShouldBe(ToolbarAction.Open);
+        ViewerShortcuts.ButtonFor(InputKey.Plus, InputModifier.None).ShouldBe(ToolbarAction.StretchParams);
+        ViewerShortcuts.ButtonFor(InputKey.Plus, InputModifier.Ctrl).ShouldBeNull("Ctrl+Plus is the zoom, which no offer governs");
+        ViewerShortcuts.ButtonFor(InputKey.H, InputModifier.None).ShouldBeNull("the histogram has no button");
+        ViewerShortcuts.ButtonFor(InputKey.Escape, InputModifier.None).ShouldBeNull("the window's");
+    }
+
     [Fact]
     public void ResolutionIsExactOnModifiers()
     {
@@ -134,6 +173,9 @@ public class ViewerShortcutTableTests
     [InlineData(InputKey.Z, ToolbarAction.Zoom, ViewerShortcutRoute.OpenMenu)]
     [InlineData(InputKey.W, ToolbarAction.WhiteBalance, ViewerShortcutRoute.OpenMenu)]
     [InlineData(InputKey.F1, ToolbarAction.Shortcuts, ViewerShortcutRoute.OpenMenu)]
+    // Pressed, so the host that runs the button runs the key (the Live Session preview's node solves P).
+    [InlineData(InputKey.P, ToolbarAction.PlateSolve, ViewerShortcutRoute.Press)]
+    [InlineData(InputKey.E, ToolbarAction.Enhance, ViewerShortcutRoute.Press)]
     public void TheRoutedKeysResolveToTheirButtonAndRoute(
         InputKey key, ToolbarAction button, ViewerShortcutRoute route)
     {
@@ -149,8 +191,9 @@ public class ViewerShortcutTableTests
     // D and N name a button but keep their arms, because that button opens a dropdown.
     [InlineData(InputKey.D)]
     [InlineData(InputKey.N)]
-    [InlineData(InputKey.P)]
-    [InlineData(InputKey.E)]
+    // Named but not routed: S and C keep their arms (a toggle, a cycle), their buttons only gate them.
+    [InlineData(InputKey.S)]
+    [InlineData(InputKey.C)]
     [InlineData(InputKey.F)]
     [InlineData(InputKey.R)]
     [InlineData(InputKey.Escape)]

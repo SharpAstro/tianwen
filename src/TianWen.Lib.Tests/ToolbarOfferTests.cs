@@ -94,6 +94,8 @@ public class ToolbarOfferTests
     /// <summary>
     /// A key for an action only a host can run presses its button, and only where the host offers it: where
     /// nothing offered a solve, P posted one that nothing ran. Ctrl+O never falls through to O, the annotation.
+    /// The host says the solve can run here, since a key also follows its button's enabled state and no frame
+    /// is on show: what differs between the two cases is the offer alone.
     /// </summary>
     [Theory]
     [InlineData(true)]
@@ -105,6 +107,7 @@ public class ToolbarOfferTests
         var viewer = new ViewerE2E.Surface(renderer, bus)
         {
             Offer = offered ? ToolbarOffer.FileViewer : ToolbarOffer.Planetary,
+            HostCanRun = action => action is ToolbarAction.PlateSolve ? true : null,
         };
         var state = new ViewerState();
         viewer.Render(null, state);
