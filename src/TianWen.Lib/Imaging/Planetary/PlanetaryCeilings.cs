@@ -412,10 +412,11 @@ public sealed class MultiFrameBound
         /// <summary>The frames gathered.</summary>
         public int Count { get; private set; }
 
-        /// <summary>One more frame.</summary>
-        public void Add(Frame frame)
+        /// <summary>One more frame; <paramref name="back"/> is its <see cref="BackShift"/>, computed here when not given.</summary>
+        public void Add(Frame frame, Complex[]? back = null)
         {
             ArgumentNullException.ThrowIfNull(frame);
+            back ??= _owner.BackShift(frame);
             var weight = 1 / frame.Noise;
             for (var i = 0; i < _numerator.Length; i++)
             {
@@ -423,10 +424,8 @@ public sealed class MultiFrameBound
                 _numerator[i] += weight * Complex.Conjugate(g) * frame.Spectrum[i];
                 _denominator[i] += weight * ((g.Real * g.Real) + (g.Imaginary * g.Imaginary));
                 // At the true shift: the content moved back onto the truth's, its transfer with it.
-                var (fx, fy) = _owner.Frequency(i);
-                var back = Complex.FromPolarCoordinates(1, 2 * Math.PI * ((fx * frame.MoveX) + (fy * frame.MoveY)));
-                _sum[i] += frame.Spectrum[i] * back;
-                _sumTransfer[i] += g * back;
+                _sum[i] += frame.Spectrum[i] * back[i];
+                _sumTransfer[i] += g * back[i];
             }
             _noise += frame.Noise;
             Count++;
@@ -475,6 +474,195 @@ public sealed class MultiFrameBound
 
     /// <summary>A fresh gathering of frames.</summary>
     public Sums NewSums() => new Sums(this);
+
+    /// <summary>
+    /// The phase that moves <paramref name="frame"/>'s content back onto the truth's at every frequency of the window: computed once a
+    /// frame and handed to every gathering it is added to, which would otherwise each take a sine and a cosine a frequency.
+    /// </summary>
+    public Complex[] BackShift(Frame frame)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+        var back = new Complex[Size * Size];
+        for (var i = 0; i < back.Length; i++)
+        {
+            var (fx, fy) = Frequency(i);
+            back[i] = Complex.FromPolarCoordinates(1, 2 * Math.PI * ((fx * frame.MoveX) + (fy * frame.MoveY)));
+        }
+        return back;
+    }
+
+    /// <summary>
+    /// Frames summed at their true shifts with a weight per frame AND frequency (docs/plans/planetary-restoration.md, R4's keeps scored
+    /// after restoration, #1083): the matched weights (each frame by the magnitude of its true transfer) and Fourier burst accumulation
+    /// (each by the magnitude of its own spectrum to a power; Delbracio and Sapiro 2015). The weights are normalised per frequency, so the
+    /// sum's transfer is the weighted mean of the frames' and its noise the weighted mean of theirs over the weights' spread.
+    /// </summary>
+    public sealed class WeightedSums
+    {
+        private readonly MultiFrameBound _owner;
+        private readonly Func<Frame, int, double> _weight;
+        private readonly Complex[] _sum;
+        private readonly Complex[] _sumTransfer;
+        private readonly double[] _weights;
+        private readonly double[] _noise;
+
+        internal WeightedSums(MultiFrameBound owner, Func<Frame, int, double> weight)
+        {
+            (_owner, _weight) = (owner, weight);
+            var cells = owner.Size * owner.Size;
+            (_sum, _sumTransfer, _weights, _noise) = (new Complex[cells], new Complex[cells], new double[cells], new double[cells]);
+        }
+
+        /// <summary>One more frame; <paramref name="back"/> is its <see cref="BackShift"/>, computed here when not given.</summary>
+        public void Add(Frame frame, Complex[]? back = null)
+        {
+            ArgumentNullException.ThrowIfNull(frame);
+            back ??= _owner.BackShift(frame);
+            for (var i = 0; i < _sum.Length; i++)
+            {
+                var w = _weight(frame, i);
+                if (!(w > 0) || !double.IsFinite(w))
+                {
+                    continue;
+                }
+                _sum[i] += w * frame.Spectrum[i] * back[i];
+                _sumTransfer[i] += w * frame.Transfer[i] * back[i];
+                _weights[i] += w;
+                _noise[i] += w * w * frame.Noise;
+            }
+        }
+
+        /// <summary>The weighted sum restored by a single-image Wiener with its own 2-D transfer, as <see cref="Sums.ShiftAndAdd"/> restores a plain one.</summary>
+        public Complex[] Restored(double[] prior)
+        {
+            ArgumentNullException.ThrowIfNull(prior);
+            var result = new Complex[_sum.Length];
+            for (var i = 0; i < result.Length; i++)
+            {
+                if (!(_weights[i] > 0) || !(prior[i] > 0))
+                {
+                    continue;
+                }
+                var h = _sumTransfer[i] / _weights[i];
+                var power = (h.Real * h.Real) + (h.Imaginary * h.Imaginary);
+                var noise = _noise[i] / (_weights[i] * _weights[i]);
+                result[i] = power > 0 ? Complex.Conjugate(h) * (_sum[i] / _weights[i]) / (power + (noise / prior[i])) : Complex.Zero;
+            }
+            return result;
+        }
+    }
+
+    /// <summary>A fresh weighted gathering: <paramref name="weight"/> gives a frame's weight at the window's frequency index.</summary>
+    public WeightedSums NewWeightedSums(Func<Frame, int, double> weight)
+    {
+        ArgumentNullException.ThrowIfNull(weight);
+        return new WeightedSums(this, weight);
+    }
+
+    /// <summary>
+    /// The ceiling of per-frequency selection, noise-free (#1083; Garrel, Guyon and Baudoz 2012; Mackay 2013): over the frequencies from
+    /// <c>from</c> to <c>to</c> cycles a pixel, the mean magnitude of the true transfer of the best <c>k</c> frames chosen afresh at each
+    /// frequency, over that of the frames a whole-frame selection kept. Each frequency keeps its <c>k</c> largest magnitudes as it goes.
+    /// </summary>
+    public sealed class SelectionCeiling
+    {
+        private readonly int[] _modes;
+        private readonly float[] _best;
+        private readonly int[] _filled;
+        private readonly double[] _kept;
+        private readonly int _k;
+        private int _keptCount;
+
+        internal SelectionCeiling(MultiFrameBound owner, double from, double to, int k)
+        {
+            _k = k;
+            var modes = new System.Collections.Generic.List<int>();
+            for (var i = 0; i < owner.Size * owner.Size; i++)
+            {
+                var (fx, fy) = owner.Frequency(i);
+                var f = Math.Sqrt((fx * fx) + (fy * fy));
+                if (f >= from && f <= to)
+                {
+                    modes.Add(i);
+                }
+            }
+            _modes = [.. modes];
+            (_best, _filled, _kept) = (new float[_modes.Length * k], new int[_modes.Length], new double[_modes.Length]);
+        }
+
+        /// <summary>One more frame, and whether the whole-frame selection kept it.</summary>
+        public void Add(Frame frame, bool kept)
+        {
+            ArgumentNullException.ThrowIfNull(frame);
+            _keptCount += kept ? 1 : 0;
+            for (var m = 0; m < _modes.Length; m++)
+            {
+                var g = (float)frame.Transfer[_modes[m]].Magnitude;
+                if (kept)
+                {
+                    _kept[m] += g;
+                }
+                // The k best so far as a min-heap, its smallest at the row's start: a new one replaces it once all k are held.
+                var heap = _best.AsSpan(m * _k, _k);
+                if (_filled[m] < _k)
+                {
+                    var at = _filled[m]++;
+                    heap[at] = g;
+                    while (at > 0 && heap[(at - 1) / 2] > heap[at])
+                    {
+                        (heap[(at - 1) / 2], heap[at]) = (heap[at], heap[(at - 1) / 2]);
+                        at = (at - 1) / 2;
+                    }
+                }
+                else if (g > heap[0])
+                {
+                    heap[0] = g;
+                    for (var at = 0; ;)
+                    {
+                        var (left, right) = ((2 * at) + 1, (2 * at) + 2);
+                        var least = at;
+                        if (left < _k && heap[left] < heap[least])
+                        {
+                            least = left;
+                        }
+                        if (right < _k && heap[right] < heap[least])
+                        {
+                            least = right;
+                        }
+                        if (least == at)
+                        {
+                            break;
+                        }
+                        (heap[least], heap[at]) = (heap[at], heap[least]);
+                        at = least;
+                    }
+                }
+            }
+        }
+
+        /// <summary>The per-frequency selection's mean transfer over the whole-frame selection's, over the frequencies read.</summary>
+        public double Ratio
+        {
+            get
+            {
+                double perFrequency = 0, wholeFrame = 0;
+                for (var m = 0; m < _modes.Length; m++)
+                {
+                    double sum = 0;
+                    for (var j = 0; j < _filled[m]; j++)
+                    {
+                        sum += _best[(m * _k) + j];
+                    }
+                    perFrequency += _filled[m] > 0 ? sum / _filled[m] : 0;
+                    wholeFrame += _keptCount > 0 ? _kept[m] / _keptCount : 0;
+                }
+                return wholeFrame > 0 ? perFrequency / wholeFrame : double.NaN;
+            }
+        }
+    }
+
+    /// <summary>A fresh ceiling of per-frequency selection over <paramref name="from"/> to <paramref name="to"/> cycles a pixel, keeping <paramref name="k"/> frames a frequency.</summary>
+    public SelectionCeiling NewSelectionCeiling(double from, double to, int k) => new SelectionCeiling(this, from, to, k);
 
     /// <summary>
     /// How well the frames follow the model: in each a trous band's frequencies (band j from 2^-(j+1) to 2^-j cycles a pixel), the
