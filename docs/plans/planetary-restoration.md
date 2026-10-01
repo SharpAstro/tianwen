@@ -1153,6 +1153,20 @@ Before the gains are derived, the ceilings they are judged against:
       - The plan's, read as defined here: 5b over the 150 frames lowers the error summed over bands 1 to 4, against 5a, by under 10 % on the calibrated twin and by over 20 % on the twin without its still layer.
       - (1) reaches within 10 % of (2)'s summed error on both twins: an a trous band is narrow enough for one real gain.
       - In bands 2 to 4, (2) leaves at most 1.25 times the magnitude swap's error on the twin without its still layer. On the calibrated twin it leaves more than that: the still layer's static phase, which no real gain undoes.
+  - **Added 2026-10-01, before part 2 (the three regularised inverses) was built or measured** (`tianwen planetary-inverses`):
+    - **The stacks**: R7 part 4's (the best 150 of 3,000 by the gradient), on the calibrated twin and the one without its still layer, scored against their truths, and on 2022-09-03's Red, whose undershoot is the one truth-free check. Each is restored in a 256 px window about the disk.
+    - **The kernels**, each over the pupil's own diffraction:
+      - the limb's core with the scatter's wing ((b'), R7 part 3);
+      - a single Gaussian of the same equivalent width (R7 part 2's `EquivalentGaussianSigma`, read on the band transfers (b') gives the stack).
+    - **The inverses**, each with one knob:
+      1. **a Wiener filter with Conan et al.'s object prior**: a power law, A f^-p, fitted to the stack's own ring power less its white noise floor (read past 0.4 cycles a pixel) and over the kernel's power, between 0.02 and 0.15 cycles a pixel. The knob is a scale on the noise over that prior. It is applied in the Fourier domain; the per-band form is R8's derived gains, #1055;
+      2. **Richardson-Lucy with positivity at the sky itself**: the stack with its sky at zero, lifted by a thousandth of the disk only so a division is defined, rather than R7 part 4's tenth. The knob is the count;
+      3. **an L1-L2 edge-preserving prior** (Mugnier et al. 2004): least squares to the stack plus mu times the sum over pixels of delta^2 (t / delta - ln(1 + t / delta)), t the gradient's length and delta the noise's gradient scale (the stack's noise times the square root of two), and positivity at zero. It is solved by lagged diffusivity: each pass is a conjugate-gradient solve with the last pass's weights, delta / (delta + t). The knob is mu.
+    - **Matched at band 3**: on each twin every knob is set by bisection so the band 3 transfer is 1.00. On the real capture it is set so band 3 rises over the stack by the factor it rose by on the calibrated twin, and the knob's value is reported beside it.
+    - **The claims**, the plan's, on both twins:
+      - With the measured kernel, Richardson-Lucy leaves at most a third of the Wiener's limb undershoot, and L1-L2 at most half.
+      - With the single Gaussian, each inverse's undershoot is at least 1.5 times what it is with the measured kernel.
+      - Reported beside them: each inverse's error in bands 1 to 4, against part 1's jointly fitted per-band oracle.
 
 ### R8 results, part 1: the ceilings
 
