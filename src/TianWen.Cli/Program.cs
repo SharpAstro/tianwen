@@ -153,6 +153,11 @@ var rootCommand = new RootCommand
             new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
                 services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
                 services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>())).Build(),
+        new PlanetaryGainsSubCommand(
+            consoleHost,
+            new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
+                services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
+                services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>())).Build(),
         new PlanetaryGeometrySubCommands(consoleHost).BuildDegrade(),
         new PlanetaryMeasureSubCommand(consoleHost).Build(),
         new PlanetaryGradeSubCommand(consoleHost).Build(),
