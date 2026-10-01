@@ -389,6 +389,37 @@ public class MasterFrameBuilderTests
         FlatKeyWithFilter("Ha").SameFilterAs(FlatKeyWithFilter("H-Alpha")).ShouldBeTrue();
     }
 
+    /// <summary>
+    /// And an UNRECOGNISED filter spelled two ways is one filter too: the QHY294C 2026-08-16 flats state
+    /// <c>IDAS LPS-D3</c>, their lights <c>IDAS LPS D3</c>, and compared as text the resolver refused the
+    /// session its own flat. Punctuation, spacing and case carry no identity; letters and digits do.
+    /// </summary>
+    [Theory]
+    [InlineData("IDAS LPS-D3", "IDAS LPS D3", true)]
+    [InlineData("idas lps d3", "IDAS-LPS-D3", true)]
+    [InlineData("Optolong L-Pro", "Optolong LPro", true)]
+    [InlineData("UV/IR Cut", "UV-IR-Cut", true)]
+    [InlineData("Optolong L-Pro", "Optolong L-Ultimate 3nm", false)]
+    [InlineData("IDAS LPS-D3", "IDAS LPS-D2", false)]
+    [InlineData("IDAS LPS D3", "IDAS LPS D3 2", false)]
+    public void AnUnrecognisedFilterSpelledTwoWaysIsOneFilter(string a, string b, bool same)
+    {
+        Filter.FromName(a).IsUnknown.ShouldBeTrue("the rule is only interesting where the name is not recognised");
+        FlatKeyWithFilter(a).SameFilterAs(FlatKeyWithFilter(b)).ShouldBe(same);
+        FlatKeyWithFilter(b).SameFilterAs(FlatKeyWithFilter(a)).ShouldBe(same);
+    }
+
+    /// <summary>No filter is not a spelling of any filter: punctuation alone is not a name.</summary>
+    [Theory]
+    [InlineData("", "", true)]
+    [InlineData("", "IDAS LPS D3", false)]
+    [InlineData("-", "", true)]
+    public void SameIdentityTreatsNoLettersAsNoFilter(string a, string b, bool same)
+    {
+        Filter.SameIdentity(a, b).ShouldBe(same);
+        Filter.SameIdentity(b, a).ShouldBe(same);
+    }
+
     /// <summary>An unfiltered flat spells its slug "nofilter"; <c>Filter.None.Name</c> is the literal
     /// string "None", so under the canonical-name key that fallback was unreachable.</summary>
     [Fact]

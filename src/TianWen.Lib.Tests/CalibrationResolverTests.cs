@@ -130,6 +130,40 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
+        public void GroupCalibration_CountsAFrameReachedUnderTwoFoldersOnce_TheFirstRootsCopy()
+        {
+            // The ASI533 2024-02-10 dark-flats: a curated copy in Astro-Organized (FILTER written) and the
+            // original in Astro-Unsorted (none). Before the archive stated a filter, both landed in one
+            // group of 398 made of 199 frames; a frame is one frame, whichever names reach it.
+            static DateTimeOffset At(int second) => new DateTimeOffset(2024, 2, 10, 10, 59, second, TimeSpan.Zero);
+            var curated = Enumerable.Range(0, 3)
+                .Select(i => Cal(FrameType.DarkFlat, 0.055, 24, gain: 121, when: At(i), filter: Filter.FromName("IDAS LPS D3")) with { Path = $"D:/Astro-Organized/flats/DARKFLAT/f{i}.fits" })
+                .ToList();
+            var original = Enumerable.Range(0, 3)
+                .Select(i => Cal(FrameType.DarkFlat, 0.055, 24, gain: 121, when: At(i)) with { Path = $"D:/Astro-Unsorted/cal/DarkFlat/f{i}.fits" })
+                .ToList();
+
+            var groups = CalibrationResolver.GroupCalibration(curated.Concat(original));
+
+            var group = groups[FrameType.DarkFlat].ShouldHaveSingleItem("the original is a copy of the curated frames, not a second set");
+            group.Frames.Length.ShouldBe(3);
+            group.Frames.ShouldAllBe(f => f.Path.StartsWith("D:/Astro-Organized"), "the root listed first keeps its copy, curated header and all");
+        }
+
+        [Fact]
+        public void GroupCalibration_KeepsFramesOfOneFolderThatShareAStartTime()
+        {
+            // A sub-second exposure stamped to the whole second gives several frames of one run the same
+            // start time; a run sits in one folder, so sharing a start time there never makes a copy.
+            var when = new DateTimeOffset(2022, 1, 31, 9, 0, 0, TimeSpan.Zero);
+            var run = Enumerable.Range(0, 4)
+                .Select(i => Cal(FrameType.Flat, 0.07, 27, when: when) with { Path = $"D:/Astro-Unsorted/run/Flat/f{i}.fits" })
+                .ToList();
+
+            CalibrationResolver.GroupCalibration(run)[FrameType.Flat].ShouldHaveSingleItem().Frames.Length.ShouldBe(4);
+        }
+
+        [Fact]
         public void GroupCalibration_BucketsByTypeAndKey_IgnoresLights()
         {
             var frames = new List<FrameInfo>
@@ -710,6 +744,45 @@ namespace TianWen.Lib.Tests
             var unstated = Group(FrameType.Flat, 0.04, 14, gain: 200, instrument: Camera, telescope: "", focalLength: 180,
                 when: Utc(2023, 8, 9, 22, 0));
             CalibrationResolver.BestFlat([broadband, unstated], light).ShouldBe(unstated);
+        }
+
+        [Fact]
+        public void BestFlat_AFlatThatSpellsTheLightsFilterDifferently_IsTheLightsFilter()
+        {
+            // The QHY294C 2026-08-01 Lobster and SMC: the header merge wrote "IDAS LPS D3" into the lights,
+            // and the 2026-08-16 set the session map assigns them states "IDAS LPS-D3". Compared as text
+            // the two were two stated filters, and the cross-filter refusal left both sessions no flat.
+            const string Camera = "QHY294PROC";
+            var light = Light(180, 7, gain: 1600, instrument: Camera, telescope: "", focalLength: 800,
+                when: Utc(2026, 8, 1, 11, 0), filter: Filter.FromName("IDAS LPS D3"));
+            var own = Group(FrameType.Flat, 10.1, 7, gain: 1600, instrument: Camera, telescope: "", focalLength: 800,
+                when: Utc(2026, 8, 16, 9, 0), filter: Filter.FromName("IDAS LPS-D3"));
+
+            CalibrationResolver.BestFlat([own], light).ShouldBe(own);
+        }
+
+        [Fact]
+        public void BestFlat_LightsThatStateNoFilter_KeepTheirCampaignsFlat_WhenOnlyThatFlatStatesOne()
+        {
+            // Astro-Unsorted's 2024-02 Vela panels: SharpCap lights with no FILTER card, their campaign's
+            // 2024-02-10 set (curated, which the header merge stamped "IDAS LPS D3"), and a card-less set
+            // from 2022-12-24; both prove the lens by FOCALLEN. Charging the stated set 500 as "stated on one
+            // side" moved the panels 406 days away the night the merge ran.
+            const string Camera = "ZWO ASI533MC Pro";
+            var light = Light(120, 22, gain: 121, instrument: Camera, telescope: "", focalLength: 130, when: Utc(2024, 2, 3, 12, 0));
+            var campaign = Group(FrameType.Flat, 0.06, 22, gain: 121, instrument: Camera, telescope: "", focalLength: 130,
+                when: Utc(2024, 2, 10, 9, 0), filter: Filter.FromName("IDAS LPS D3"));
+            var yearsAway = Group(FrameType.Flat, 0.11, 22, gain: 121, instrument: Camera, telescope: "", focalLength: 130,
+                when: Utc(2022, 12, 24, 9, 0));
+
+            CalibrationResolver.BestFlat([yearsAway, campaign], light).ShouldBe(campaign);
+            CalibrationResolver.BestFlat([campaign, yearsAway], light).ShouldBe(campaign);
+
+            // Past the campaign window the stated filter is likely another campaign's, and the 500 holds:
+            // the Rosette 2024-12-29 case (BestFlat_AProvenFlatOfAnotherFilter_NeverOutranksTheLightsOwnSameNightFlat).
+            var nextYear = Group(FrameType.Flat, 0.06, 22, gain: 121, instrument: Camera, telescope: "", focalLength: 130,
+                when: Utc(2025, 2, 10, 9, 0), filter: Filter.FromName("IDAS LPS D3"));
+            CalibrationResolver.BestFlat([nextYear, yearsAway], light).ShouldBe(yearsAway);
         }
 
         [Fact]
