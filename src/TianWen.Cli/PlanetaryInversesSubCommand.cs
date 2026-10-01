@@ -249,7 +249,7 @@ internal sealed class PlanetaryInversesSubCommand(IConsoleHost consoleHost, Mast
 
     // The windows as tiles, each cut to 1.6 radii about the disk and clipped to [0, 1.3] of it, a gap of sky between them, so one
     // stretch serves every tile and an inverse that diverged cannot set it. A null is an empty tile.
-    private static Image Panel(float[]?[][] rows, int size, MetricDisk disk)
+    internal static Image Panel(float[]?[][] rows, int size, MetricDisk disk)
     {
         const int Gap = 4;
         var half = Math.Min(size / 2, (int)Math.Ceiling(1.6 * disk.Radius));
@@ -282,7 +282,7 @@ internal sealed class PlanetaryInversesSubCommand(IConsoleHost consoleHost, Mast
         return Image.FromChannel(panel, maxValue: 1.3f, minValue: 0f);
     }
 
-    private static float[] Crop(float[] plane, int width, int height, int originX, int originY, int size)
+    internal static float[] Crop(float[] plane, int width, int height, int originX, int originY, int size)
     {
         var window = new float[size * size];
         for (var y = 0; y < size; y++)
