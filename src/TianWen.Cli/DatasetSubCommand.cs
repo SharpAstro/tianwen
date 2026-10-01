@@ -905,6 +905,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                     Path.Combine(bake, "stats", DatasetSessionLedger.FileName),
                     Path.Combine(bake, DatasetSplitWriter.TestSessionsFileName),
                     store,
+                    Path.Combine(bake, "stats", DatasetPsfStore.FileName),
                     parseResult.Required(outOpt),
                     parseResult.GetValue(sizeOpt),
                     parseResult.GetValue(forceOpt)),
@@ -913,7 +914,8 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 cancellationToken: ct);
 
             consoleHost.WriteScrollable(
-                $"[gradient-export] exported {result.Exported} ({result.Test} test, {result.UnknownSplit} with no session), skipped {result.Skipped}, failed {result.Failed}; manifest: {result.ManifestPath}");
+                $"[gradient-export] exported {result.Exported} ({result.Test} test, {result.UnknownSplit} with no session; " +
+                $"{result.NoFlat} with no flat, {result.FlatUnknown} with no calibration record), skipped {result.Skipped}, failed {result.Failed}; manifest: {result.ManifestPath}");
             return result.Failed > 0 && result.Exported == 0 ? 2 : 0;
         });
 

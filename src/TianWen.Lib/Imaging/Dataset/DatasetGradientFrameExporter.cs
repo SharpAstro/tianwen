@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Geometry;
+using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Stacking;
 
 namespace TianWen.Lib.Imaging.Dataset;
@@ -34,6 +35,12 @@ namespace TianWen.Lib.Imaging.Dataset;
 /// <c>test-sessions.txt</c>, a flip side going with its night (<see cref="DatasetSplitWriter.GroupIdOf"/>).
 /// A master with no session in the bake's ledger is exported with the split <c>unknown</c>, which a
 /// trainer must never train on: it could be held-out sky.</para>
+/// <para><b>Whether a master was flat-fielded is the bake's record, not a guess.</b> The row carries the
+/// calibration the PSF store recorded for its session (the resolver's slugs) and <c>HasFlat</c> from it.
+/// A session with no flat keeps its vignetting, a multiplicative falloff the model would otherwise learn
+/// as sky, so it is not a training scene (the plan's section 3). A record written before the store
+/// captured calibration says nothing, so <c>HasFlat</c> is then null, never false: "unrecorded" is not
+/// "no flat", and a trainer that wants only flat-fielded scenes reads <c>HasFlat == true</c>.</para>
 /// <para><b>The thin band's level steps</b> are measured here, before any model (the plan's G2
 /// prediction), two ways, in the plane's own per-pixel background sigma. The band OFFSET is the median of
 /// <c>source - surface</c> over the samples the coverage says fewer frames reached against the full-depth
@@ -75,20 +82,27 @@ public static class DatasetGradientFrameExporter
     /// <param name="SessionLedgerPath">The bake's <c>stats/sessions.jsonl</c> (<see cref="DatasetSessionLedger"/>), mapping a master to its session.</param>
     /// <param name="TestSessionsPath">The bake's pinned <c>test-sessions.txt</c>.</param>
     /// <param name="GradientStorePath">G1's <c>gradient-masters.jsonl</c> for the covariates and scale, or null.</param>
+    /// <param name="PsfStorePath">The bake's <c>stats/psf-sessions.jsonl</c> (<see cref="DatasetPsfStore"/>) for each session's optical train and the calibration it was baked with, or null.</param>
     /// <param name="OutputDir">Root of the export: the manifest and <see cref="FramesDirectoryName"/>.</param>
     /// <param name="Size">The model's square input.</param>
     /// <param name="Force">Re-export masters already in the manifest.</param>
     public sealed record ExportOptions(
         ImmutableArray<string> MasterFiles, string SessionLedgerPath, string TestSessionsPath, string? GradientStorePath,
-        string OutputDir, int Size = DefaultSize, bool Force = false);
+        string? PsfStorePath, string OutputDir, int Size = DefaultSize, bool Force = false);
 
     /// <summary>Outcome of an export.</summary>
-    public sealed record ExportResult(int Exported, int Skipped, int Failed, int Test, int UnknownSplit, string ManifestPath);
+    /// <param name="NoFlat">Exported masters whose session the bake calibrated with no flat.</param>
+    /// <param name="FlatUnknown">Exported masters whose session has no calibration record (none, or one written before the field existed).</param>
+    public sealed record ExportResult(
+        int Exported, int Skipped, int Failed, int Test, int UnknownSplit, int NoFlat, int FlatUnknown, string ManifestPath);
 
     /// <summary>One exported master.</summary>
     /// <param name="Master">The master's file name, the row's key.</param>
     /// <param name="SessionId">Its session id (a flip side's carries <c>|flip=a</c> or <c>b</c>); empty when the ledger has none.</param>
     /// <param name="Split"><c>train</c>, <c>test</c>, or <see cref="UnknownSplit"/>.</param>
+    /// <param name="OpticalTrain">The session's optical train as the bake recorded it; empty when the PSF store has no record.</param>
+    /// <param name="Calibration">The masters the bake calibrated the session's frames with, by the resolver's slugs; null when unrecorded.</param>
+    /// <param name="HasFlat">Whether those frames were flat-fielded: null when <paramref name="Calibration"/> is, never read as false.</param>
     /// <param name="Camera">INSTRUME. A camera is not a field: read <paramref name="FieldWidthDeg"/> for that.</param>
     /// <param name="Filter">The filter's FITS name.</param>
     /// <param name="ObjectName">OBJECT.</param>
@@ -136,6 +150,7 @@ public static class DatasetGradientFrameExporter
     /// <param name="MoonAngleInFrameDeg">The Moon's direction in the frame.</param>
     public sealed record FrameRow(
         string Master, string SessionId, string Split,
+        string OpticalTrain, CalibrationProvenance? Calibration, bool? HasFlat,
         string Camera, string Filter, string ObjectName, string Strategy, int StackedFrames,
         int Width, int Height, int Channels,
         int Size, int FrameWidth, int FrameHeight, int OffsetX, int OffsetY, double SourcePixelsPerSample,
@@ -173,12 +188,15 @@ public static class DatasetGradientFrameExporter
         var covariates = options.GradientStorePath is { } storePath && File.Exists(storePath)
             ? await DatasetGradientStore.ReadAsync(storePath, logger, cancellationToken)
             : new Dictionary<string, DatasetGradientReport.MasterGradient>();
+        var psfBySession = options.PsfStorePath is { } psfPath && File.Exists(psfPath)
+            ? await DatasetPsfStore.ReadAsync(psfPath, logger, cancellationToken)
+            : new Dictionary<string, DatasetPsfNoiseReport.SessionPsf>();
 
         var files = options.MasterFiles
             .Where(static path => !IntegrationFitsWriter.IsMapSidecarPath(path))
             .ToImmutableArray()
             .Sort(StringComparer.OrdinalIgnoreCase);
-        int exported = 0, skipped = 0, failed = 0, test = 0, unknown = 0, index = 0;
+        int exported = 0, skipped = 0, failed = 0, test = 0, unknown = 0, noFlat = 0, flatUnknown = 0, index = 0;
         foreach (var path in files)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -198,13 +216,17 @@ public static class DatasetGradientFrameExporter
             try
             {
                 covariates.TryGetValue(key, out var record);
-                var row = await ExportMasterAsync(path, sessionId, split, record, options.OutputDir, options.Size, cancellationToken);
+                psfBySession.TryGetValue(sessionId, out var psf);
+                var row = await ExportMasterAsync(path, sessionId, split, record, psf, options.OutputDir, options.Size, cancellationToken);
                 await JsonLinesFile.AppendRecordAsync(manifestPath, row, DatasetGradientFrameJsonContext.Default.FrameRow, cancellationToken);
                 exported++;
                 test += split == "test" ? 1 : 0;
                 unknown += split == UnknownSplit ? 1 : 0;
+                noFlat += row.HasFlat == false ? 1 : 0;
+                flatUnknown += row.HasFlat is null ? 1 : 0;
+                var flat = row.HasFlat switch { true => "flat", false => "NO FLAT", null => "flat unknown" };
                 progress?.Report(
-                    $"[gradient-export] {index}/{files.Length} {key}: {split}, {row.FrameWidth}x{row.FrameHeight} at {row.SourcePixelsPerSample:F1} px/sample, " +
+                    $"[gradient-export] {index}/{files.Length} {key}: {split}, {flat}, {row.FrameWidth}x{row.FrameHeight} at {row.SourcePixelsPerSample:F1} px/sample, " +
                     $"absent {row.AbsentFraction:P1}, thin band {row.ThinBandFraction:P1} (offset {string.Join("/", row.ThinBandOffsetSigma.Select(v => v.ToString("F2")))}, " +
                     $"step {string.Join("/", row.ThinBandStepSigma.Select(v => v.ToString("F2")))} sigma over {row.ThinBandPairs} pairs), field {row.FieldWidthDeg:F1} deg");
             }
@@ -222,16 +244,17 @@ public static class DatasetGradientFrameExporter
             }
         }
 
-        return new ExportResult(exported, skipped, failed, test, unknown, manifestPath);
+        return new ExportResult(exported, skipped, failed, test, unknown, noFlat, flatUnknown, manifestPath);
     }
 
     /// <summary>
     /// Exports one master into <paramref name="outputDir"/>'s frames and returns its manifest row (not
-    /// appended). <paramref name="covariates"/> is G1's record for it, or null.
+    /// appended). <paramref name="covariates"/> is G1's record for it, <paramref name="psf"/> the bake's
+    /// PSF-store record for its session; either may be null.
     /// </summary>
     internal static async Task<FrameRow> ExportMasterAsync(
         string masterPath, string sessionId, string split, DatasetGradientReport.MasterGradient? covariates,
-        string outputDir, int size, CancellationToken cancellationToken)
+        DatasetPsfNoiseReport.SessionPsf? psf, string outputDir, int size, CancellationToken cancellationToken)
     {
         if (!Image.TryReadFitsFile(masterPath, out var master, out var headerWcs))
         {
@@ -274,8 +297,10 @@ public static class DatasetGradientFrameExporter
             var (strategy, stackedFrames) = DatasetGradientReport.ReadMasterCards(masterPath);
             var (absentFraction, thinFraction) = AreaFractions(source.Presence, depth, placement);
 
+            var calibration = psf?.Calibration;
             return new FrameRow(
                 Path.GetFileName(masterPath), sessionId, split,
+                psf?.OpticalTrain ?? "", calibration, calibration is null ? null : calibration.Flat is { Length: > 0 },
                 meta.Instrument ?? "", meta.Filter.FilterNameForFits ?? "", meta.ObjectName ?? "",
                 strategy, stackedFrames,
                 width, height, channels,
@@ -570,5 +595,8 @@ public static class DatasetGradientFrameExporter
 
 // NaN is a legitimate value here (an absent sample, an unsolved master's directions).
 [JsonSerializable(typeof(DatasetGradientFrameExporter.FrameRow))]
+// Registered explicitly, as the PSF store's context does: an AOT binary fails at RUNTIME on a type the
+// generator's walk did not emit a converter for.
+[JsonSerializable(typeof(CalibrationProvenance))]
 [JsonSourceGenerationOptions(WriteIndented = false, NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals)]
 internal partial class DatasetGradientFrameJsonContext : JsonSerializerContext;
