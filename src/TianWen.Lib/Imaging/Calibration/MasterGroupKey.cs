@@ -58,9 +58,10 @@ public sealed record MasterGroupKey(
     /// hand-spelled at five call sites (flat scoring in <c>CalibrationResolver</c> and
     /// <c>StackingPipeline</c>, twice in <c>CalibrationCoverageReport</c>, and the ghost-group log)
     /// and every one had to be found and changed to fix the <c>Unknown</c>-bucket merge. A change to
-    /// what "same filter" means now lands here or nowhere.
+    /// what "same filter" means now lands here or nowhere: two spellings of one filter are one
+    /// (<see cref="Filter.SameIdentity"/>).
     /// </summary>
-    public bool SameFilterAs(MasterGroupKey other) => FilterIdentity == other.FilterIdentity;
+    public bool SameFilterAs(MasterGroupKey other) => Filter.SameIdentity(FilterIdentity, other.FilterIdentity);
 
     /// <summary>Derives the master-group key from a single frame's parsed header.</summary>
     public static MasterGroupKey FromFrame(FrameInfo frame)

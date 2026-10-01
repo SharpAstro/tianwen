@@ -37,6 +37,44 @@ public readonly partial record struct Filter(string Name, string ShortName, stri
          : Name == Unknown.Name ? RawName?.Trim() ?? ""
          : Name;
 
+    /// <summary>
+    /// Whether two <see cref="IdentityKey"/>s name the same filter: equal in their letters and digits,
+    /// case aside, so a spelling is not a second filter.
+    /// </summary>
+    /// <remarks>
+    /// An unrecognised filter's key is its header text, and two pieces of capture software, or one
+    /// owner on two nights, spell one filter differently: a QHY294C flat set states
+    /// <c>IDAS LPS-D3</c>, its lights <c>IDAS LPS D3</c>. Compared as text, the two were two filters,
+    /// and the resolver refused the set its own lights' flat. Punctuation, spacing and case carry no
+    /// identity in a filter's name; letters and digits do (<c>L-Pro</c> is <c>LPro</c>, never
+    /// <c>L-Ultimate</c>). The key itself keeps its text, since it names the master files.
+    /// </remarks>
+    public static bool SameIdentity(string a, string b)
+    {
+        int i = 0, j = 0;
+        while (true)
+        {
+            while (i < a.Length && !char.IsLetterOrDigit(a[i]))
+            {
+                i++;
+            }
+            while (j < b.Length && !char.IsLetterOrDigit(b[j]))
+            {
+                j++;
+            }
+            if (i == a.Length || j == b.Length)
+            {
+                return i == a.Length && j == b.Length;
+            }
+            if (char.ToUpperInvariant(a[i]) != char.ToUpperInvariant(b[j]))
+            {
+                return false;
+            }
+            i++;
+            j++;
+        }
+    }
+
     public static readonly Filter None = new(nameof(None), nameof(None), nameof(None), Bandpass.None);
     public static readonly Filter Unknown = new(nameof(Unknown), nameof(Unknown), nameof(Unknown), Bandpass.None);
     public static readonly Filter Luminance = new(nameof(Luminance), "L", "Luminance", Bandpass.Luminance);

@@ -194,9 +194,46 @@ public static class CalibrationResolver
         }
     }
 
+    /// <summary>
+    /// Whether <paramref name="frame"/> is a copy of a calibration frame already met in ANOTHER folder:
+    /// the same camera, start time, exposure and size. The first one met is kept, so the root listed
+    /// first wins, which is why a bake lists the curated archive before the unsorted one.
+    /// </summary>
+    /// <remarks>
+    /// <para>Lights are deduplicated this way (<see cref="SessionDiscovery.GroupSessions"/>) and
+    /// calibration frames were not, so a frame reached under two names counted twice wherever both
+    /// names landed in one group: the ASI533 2024-02-10 dark-flats, a curated copy in Astro-Organized
+    /// and the original in Astro-Unsorted, made a group of 398 out of 199 frames, and three copies of
+    /// the 2024-07 L-Ultimate dark-flats one of 600. Which twins collided depended on whether their
+    /// FILTER cards agreed, so writing the curated filter into the archive (2026-10-01) halved those
+    /// groups and doubled the SMC 2024-09-27 flats, whose Astro-Unsorted name is a hard link that now
+    /// states the filter too.</para>
+    /// <para>Another FOLDER, not merely the same identity: a short calibration exposure stamped to the
+    /// whole second gives several frames of one run the same start time, and a run sits in one folder,
+    /// so frames that share a folder are never taken for copies. A frame with no start time proves
+    /// nothing and is always kept.</para>
+    /// </remarks>
+    internal static bool IsCopyOfAFrameSeen(
+        FrameInfo frame, Dictionary<(string Instrument, DateTimeOffset Start, TimeSpan Duration, int Width, int Height), string> firstSeenIn)
+    {
+        if (frame.Meta.ExposureStartTime == default)
+        {
+            return false;
+        }
+        var identity = (frame.Meta.Instrument ?? "", frame.Meta.ExposureStartTime, frame.Meta.ExposureDuration, frame.Width, frame.Height);
+        var folder = System.IO.Path.GetDirectoryName(frame.Path) ?? "";
+        if (firstSeenIn.TryGetValue(identity, out var seenIn))
+        {
+            return !string.Equals(seenIn, folder, StringComparison.OrdinalIgnoreCase);
+        }
+        firstSeenIn[identity] = folder;
+        return false;
+    }
+
     /// <summary>Groups the calibration frames (Bias / Dark / DarkFlat / Flat) among
     /// <paramref name="frames"/> by <see cref="MasterGroupKey"/>. Lights and anything else are
-    /// ignored. Pure: the caller passes the already-scanned archive frames (one scan feeds this and
+    /// ignored, and so is a copy of a frame met in another folder (<see cref="IsCopyOfAFrameSeen"/>).
+    /// Pure: the caller passes the already-scanned archive frames (one scan feeds this and
     /// <see cref="SessionDiscovery.GroupSessions"/>).</summary>
     public static IReadOnlyDictionary<FrameType, List<CalGroup>> GroupCalibration(IEnumerable<FrameInfo> frames)
     {
@@ -206,9 +243,14 @@ public static class CalibrationResolver
         // raw subs of the same config (it is loaded directly, they are combined). Temperature is left
         // OUT of this key and decided below, by run rather than by degree.
         var byKey = new Dictionary<(MasterGroupKey Key, CalTrain Train, bool IsMaster), List<FrameInfo>>();
+        var firstSeenIn = new Dictionary<(string Instrument, DateTimeOffset Start, TimeSpan Duration, int Width, int Height), string>();
         foreach (var frame in frames)
         {
             if (frame.FrameType is not (FrameType.Bias or FrameType.Dark or FrameType.DarkFlat or FrameType.Flat))
+            {
+                continue;
+            }
+            if (IsCopyOfAFrameSeen(frame, firstSeenIn))
             {
                 continue;
             }
@@ -493,14 +535,36 @@ public static class CalibrationResolver
     internal const double UnprovenFlatMaxDays = 14.0;
 
     /// <summary>How far a flat's filter is from the light's, as the leading ranking term. The same
-    /// filter costs nothing; a filter stated on only ONE side costs 500, since nothing says it differs.
-    /// Two stated filters that differ never reach here: <see cref="IsFlatCandidate"/> refuses them.
-    /// Treating "stated on one side" like "differs" is the optics mistake again: in Astro-Unsorted a
-    /// session whose filter comes from a sidecar ("LPS") saw its own card-less flat from that morning
-    /// as exactly as wrong as a narrowband set 575 days away, and the proven-train tier then chose the
-    /// narrowband set.</summary>
-    internal static double FlatFilterPenalty(MasterGroupKey flat, MasterGroupKey light) =>
-        flat.SameFilterAs(light) ? 0.0 : 500.0;
+    /// filter costs nothing; a filter stated on only ONE side costs 500, since nothing says it differs,
+    /// unless it is the FLAT that states it and the flat was shot within <see cref="UnprovenFlatMaxDays"/>
+    /// of the lights. Two stated filters that differ never reach here: <see cref="IsFlatCandidate"/>
+    /// refuses them. Treating "stated on one side" like "differs" is the optics mistake again: in
+    /// Astro-Unsorted a session whose filter comes from a sidecar ("LPS") saw its own card-less flat
+    /// from that morning as exactly as wrong as a narrowband set 575 days away, and the proven-train
+    /// tier then chose the narrowband set.</summary>
+    /// <remarks>
+    /// <para>Against lights that state no filter, what the flat states is evidence only through its
+    /// date. Shot in the lights' campaign, the flat's filter is most likely the lights' own, as the
+    /// window already holds for an unproven train; shot a year away, a flat that names a filter is most
+    /// likely another campaign's (the Rosette 2024-12-29 lights in Astro-Unsorted against a narrowband
+    /// set on the same lens a year later). Charging it everywhere stopped being a proxy for "another
+    /// campaign" once the curated flats all stated their filter: the 2024-02 Vela panels in
+    /// Astro-Unsorted, which state none, moved from their 2024-02-10 set (0 to 7 days) to a card-less
+    /// 2022-12-24 one (406 days) when the header merge wrote <c>IDAS LPS D3</c> into it (2026-10-01).</para>
+    /// <para>Two unstated filters still cost nothing, as before the merge, so a card-proven flat keeps
+    /// its tier over a card-less one against lights that state nothing either.</para>
+    /// </remarks>
+    /// <param name="days">Days between the flat and the lights (<see cref="DaysFromEpoch"/>); null when
+    /// either is undated, which proves no campaign.</param>
+    internal static double FlatFilterPenalty(MasterGroupKey flat, MasterGroupKey light, double? days)
+    {
+        if (flat.SameFilterAs(light))
+        {
+            return 0.0;
+        }
+        var flatStatesAloneInTheCampaign = light.FilterIdentity.Length == 0 && days <= UnprovenFlatMaxDays;
+        return flatStatesAloneInTheCampaign ? 0.0 : 500.0;
+    }
 
     /// <summary>
     /// Whether the flat and the lights both STATE a filter and the two differ: then the flat is the wrong
@@ -673,13 +737,14 @@ public static class CalibrationResolver
             // build a master, so it must not out-rank a multi-frame flat and leave the session with
             // no flat at all. A foreign master flat is exempt (loaded directly).
             if (!IsFlatCandidate(g, lightKey, lightTrain, lightStart, out var unprovenDays)) continue;
-            var filterMismatch = FlatFilterPenalty(g.Key, lightKey);
+            var daysFromLights = DaysFromEpoch(g, lightStart);
+            var filterMismatch = FlatFilterPenalty(g.Key, lightKey, daysFromLights);
             // The filter label decides first, for both kinds: a flat whose cards prove the lens but
             // state another filter must never outrank a same-night flat of the lights' own filter.
             // Then proven before date-admitted, then, within each kind, the days between the flat
             // and the lights (an undated flat sits as far out as TimeUnknownPenalty's years), and
             // only then gain and temperature, as a tie-break.
-            var days = unprovenDays ?? DaysFromEpoch(g, lightStart) ?? TimeUnknownPenalty * 365.25;
+            var days = unprovenDays ?? daysFromLights ?? TimeUnknownPenalty * 365.25;
             var tieBreak = GainPenalty(g.Key, lightKey) + TempPenalty(g.Key, lightKey);
             var rank = (Filter: filterMismatch, Tier: unprovenDays is null ? 0 : 1, Primary: days, Secondary: tieBreak);
             var order = best is null ? -1 : rank.CompareTo(bestRank);

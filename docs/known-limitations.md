@@ -660,11 +660,34 @@ optics card stated on BOTH sides and agreeing, `CalTrain.ProvesOpticsOf`) or whe
 card-proven ahead of date-proven, then the old score for the first kind and the distance for the
 second, never the closest temperature. The filter has to lead: ranked after the proof, the ASI533's
 N.I.N.A. L-Ultimate 3nm flats (whose `FOCALLEN` proves the Samyang) outranked sixteen SharpCap
-sessions' own broadband flats, one of them 0.89 days away. **And the filter term has three levels,
-for the same reason the optics do** (`FlatFilterPenalty`): the same filter, a filter stated on only
-one side, and two stated filters that differ. With the middle case scored as a full mismatch, a
-session whose filter comes from a sidecar saw its own card-less flat from that morning as exactly
-as wrong as the narrowband set 575 days away, and the proof tier picked the narrowband one.
+sessions' own broadband flats, one of them 0.89 days away. **And the filter has three answers, for
+the same reason the optics do**: the same filter costs nothing; a filter stated on only one side
+ranks behind it (`FlatFilterPenalty`); two stated filters that differ are no candidate at all
+(`StatesAnotherFilter`, the owner's call of 2026-10-01: a broadband set flat-fielded the Uranus-C
+dual-band Lagoon). With the middle case scored as a full mismatch, a session whose filter comes from
+a sidecar saw its own card-less flat from that morning as exactly as wrong as the narrowband set 575
+days away, and the proof tier picked the narrowband one.
+
+**What "the same filter" and "stated on one side" mean was settled by the archive-wide FILTER merge
+(2026-10-01)**, which found three ways the rule above misread a filled-in archive:
+- **A spelling is not a second filter** (`Filter.SameIdentity`, behind `MasterGroupKey.SameFilterAs`):
+  an unrecognised filter's identity is its header text, and the QHY294C 2026-08-16 flats state
+  `IDAS LPS-D3` while their lights now state `IDAS LPS D3`; compared as text, the refusal left both
+  2026-08-01 sessions no flat. Letters and digits are the identity, case, spacing and punctuation
+  are not.
+- **A filter stated by the FLAT alone costs nothing inside the lights' campaign** (14 days), and 500
+  beyond it. Against lights that state none, the flat's filter is evidence only through its date:
+  charged everywhere, the 2024-02 Vela panels in Astro-Unsorted moved from their 2024-02-10 set to a
+  card-less one 406 days away the moment the merge wrote `IDAS LPS D3` into it, while beyond the
+  window the 500 still keeps the Rosette 2024-12-29 lights off a narrowband set a year later.
+- **A calibration frame counts once, whichever names reach it** (`CalibrationResolver.IsCopyOfAFrameSeen`):
+  the same camera, start time, exposure and size met again in ANOTHER folder is a copy, and the
+  first root listed keeps its copy (so a bake lists the curated root first). Lights were always
+  deduplicated, calibration frames never: a curated copy and its Astro-Unsorted original made one
+  group of twice the frames wherever their FILTER cards agreed (398 from the ASI533's 199 2024-02-10
+  dark-flats, 600 from 200 for the 2024-07 L-Ultimate set), so the old masters double-counted, and
+  the merge moved which twins collided. Frames of one folder that share a start time (a short
+  exposure stamped to the whole second) are never taken for copies.
 
 **A tighter window is not the safer one.** A session refused by it falls through to whatever
 card-proven flat is left, and on the ASI533 that is a narrowband set a year away. Measured over
