@@ -54,7 +54,7 @@ public static class PlanetaryMetrics
     public const int Bands = 5;
 
     // Bands are compared inside this many radii, clear of the limb, whose edge the ringing metrics read instead.
-    private const double InnerRadii = 0.9;
+    internal const double InnerRadii = 0.9;
 
     // The sky is read beyond this many radii, past the halo.
     private const double SkyRadii = 2.5;
@@ -347,7 +347,7 @@ public static class PlanetaryMetrics
     }
 
     // The pixels inside `radii` of the disk, row-major indices.
-    private static List<int> Inside(int width, int height, MetricDisk disk, double radii)
+    internal static List<int> Inside(int width, int height, MetricDisk disk, double radii)
     {
         var inside = new List<int>();
         for (var y = 0; y < height; y++)

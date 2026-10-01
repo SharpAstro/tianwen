@@ -133,6 +133,18 @@ public sealed record DegradeOptions(Pupil Pupil, double WavelengthM)
 public readonly record struct SyntheticFrame(double ShiftX, double ShiftY, double Strehl);
 
 /// <summary>
+/// What one synthetic frame was imaged through, as <see cref="PlanetaryDegrade.MakeAsync"/> made it: the truth a multi-frame bound is
+/// computed against (docs/plans/planetary-restoration.md, R8 part 1).
+/// </summary>
+/// <param name="Psf">The frame's PSF on the fine grid, <see cref="PlanetaryDegrade.PsfGrid"/> squared samples centred on sample PsfGrid / 2
+/// in each axis, unit-sum, its tilt (the seeing's motion of the disk, where it is kept) still in it. Valid only during the call: the
+/// array is reused for a later frame.</param>
+/// <param name="ShiftX">The shift the frame was given over the reference placement, x, in pixels: the PSF's own tilt is not in it.</param>
+/// <param name="ShiftY">The same in y.</param>
+/// <param name="Brightness">The frame's light over the capture's mean.</param>
+public readonly record struct SyntheticFrameOptics(double[] Psf, double ShiftX, double ShiftY, double Brightness);
+
+/// <summary>
 /// A synthetic lucky-imaging capture made from a global map (docs/plans/planetary-restoration.md, R2). The map is rendered on
 /// the ephemeris' spheroid at the capture's geometry, sampled finely enough for the pupil's cutoff and rendered afresh as the
 /// planet turns. Each frame is that disk through the pupil and a phase screen that evolves from the last frame's
@@ -288,10 +300,13 @@ public static class PlanetaryDegrade
     /// <param name="progress">Told the frames done.</param>
     /// <param name="warps">Takes each frame's warp where the frame is, in order, when there is one: the truth a dewarp is scored
     /// against (R5 part 2).</param>
+    /// <param name="optics">Takes each frame's PSF, shift and brightness, in order, after the frame is written: the truth a multi-frame
+    /// bound is computed against (R8 part 1).</param>
     /// <param name="cancellationToken">Stops the making.</param>
     public static async Task<ImmutableArray<SyntheticFrame>> MakeAsync(PlanetMap map, CatalogIndex planet, ImmutableArray<DateTimeOffset> times, DiskPlacement reference,
         double arcsecPerPixel, ImmutableArray<double> shiftX, ImmutableArray<double> shiftY, ImmutableArray<double> brightness, int width, int height, DegradeOptions options,
-        Action<int, ushort[]> write, IProgress<int>? progress = null, Action<int, SyntheticWarp>? warps = null, CancellationToken cancellationToken = default)
+        Action<int, ushort[]> write, IProgress<int>? progress = null, Action<int, SyntheticWarp>? warps = null, Action<int, SyntheticFrameOptics>? optics = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(map);
         ArgumentNullException.ThrowIfNull(options);
@@ -388,6 +403,7 @@ public static class PlanetaryDegrade
                 {
                     warps(t, new SyntheticWarp(windowX + (int)Math.Round(shiftX[t] + blockTilts[k].X), windowY + (int)Math.Round(shiftY[t] + blockTilts[k].Y), blockWarps[k]));
                 }
+                optics?.Invoke(t, new SyntheticFrameOptics(blockPsfs[k], shiftX[t] + blockTilts[k].X, shiftY[t] + blockTilts[k].Y, brightness.IsDefaultOrEmpty ? 1 : brightness[t]));
             }
             progress?.Report(first + count);
         }
@@ -463,7 +479,7 @@ public static class PlanetaryDegrade
                             }
                         }
                     }
-                }, passProgress, p == 1 ? warps : null, cancellationToken).ConfigureAwait(false);
+                }, passProgress, p == 1 ? warps : null, cancellationToken: cancellationToken).ConfigureAwait(false);
         }
 
         for (var t = 0; t < n; t++)
@@ -659,6 +675,20 @@ public static class PlanetaryDegrade
         }
         Fft2D.Forward(kernel, fine, fine);
         return kernel;
+    }
+
+    /// <summary>
+    /// The perfect telescope's PSF on the fine grid a capture of <paramref name="options"/> at <paramref name="arcsecPerPixel"/> is made on
+    /// (<see cref="PsfGrid"/> squared samples, centred on sample PsfGrid / 2, unit-sum): the diffraction every frame's PSF holds, and the
+    /// one a diffraction-limited truth is rendered through.
+    /// </summary>
+    public static double[] DiffractionPsf(DegradeOptions options, double arcsecPerPixel)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        var pupil = options.Pupil.Rasterise(PsfGrid, PupilSpacingM(arcsecPerPixel, options));
+        var psf = new double[PsfGrid * PsfGrid];
+        ShortExposurePsf.Compute(pupil, ReadOnlySpan<double>.Empty, PsfGrid, psf);
+        return psf;
     }
 
     // A PSF's centroid over its centre sample, in fine samples.

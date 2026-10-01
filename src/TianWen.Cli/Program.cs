@@ -147,6 +147,7 @@ var rootCommand = new RootCommand
         new PlanetarySpectralRatioSubCommand(consoleHost).Build(),
         new PlanetaryBlurSubCommand(consoleHost).Build(),
         new PlanetaryInverseSubCommand(consoleHost).Build(),
+        new PlanetaryCeilingsSubCommand(consoleHost).Build(),
         new PlanetaryGeometrySubCommands(consoleHost).BuildDegrade(),
         new PlanetaryMeasureSubCommand(consoleHost).Build(),
         new PlanetaryGradeSubCommand(consoleHost).Build(),

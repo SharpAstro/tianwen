@@ -1136,6 +1136,7 @@ Before the gains are derived, the ceilings they are judged against:
       - Each is made again by `planetary-degrade --psf-truth`, which writes beside the capture every frame's PSF, the shift it was given and its brightness (`<capture>.psf`).
       - The capture made again must be byte for byte the first one.
     - **The model is checked first**: each frame's spectrum against its true transfer times the truth's, over a fixed window about the disk. If the residual in bands 2 to 4 exceeds the camera's noise by more than half, the transfer model is wrong and the multi-frame claims are not read.
+      - Clarified while it was built, before anything was measured: the residual is read in POWER, after one least-squares scale of the model, which is reported. The twin scales its object to the disk level before the blur and its truth after it, so their units differ by about 2 % (0.980 on the unit test's twin, `ATwinsFramesAreTheirTrueTransferTimesTheTruth`), and unscaled that alone put the coarse bands at 2 to 8 times the noise while the scaled reading held at 0.95 to 1.00 in every band.
     - **The stack**: R7 part 4's, the best 150 of 3,000 frames by the gradient, global, plain, Lanczos-3, registered onto the truth.
     - **The ceilings on that stack**, each scored by R3's band transfer and error in bands 1 to 4 and by the limb's undershoot:
       1. per-band oracle gains: each a trous band of the stack times the least-squares gain that brings it nearest the truth's band, inside 0.9 radii. This is the most R8's derived gains can reach;
