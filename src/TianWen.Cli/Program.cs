@@ -148,7 +148,11 @@ var rootCommand = new RootCommand
         new PlanetaryBlurSubCommand(consoleHost).Build(),
         new PlanetaryInverseSubCommand(consoleHost).Build(),
         new PlanetaryCeilingsSubCommand(consoleHost).Build(),
-        new PlanetaryInversesSubCommand(consoleHost).Build(),
+        new PlanetaryInversesSubCommand(
+            consoleHost,
+            new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
+                services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
+                services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>())).Build(),
         new PlanetaryGeometrySubCommands(consoleHost).BuildDegrade(),
         new PlanetaryMeasureSubCommand(consoleHost).Build(),
         new PlanetaryGradeSubCommand(consoleHost).Build(),
