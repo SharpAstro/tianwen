@@ -1689,6 +1689,12 @@ asked for (512 px rather than 256), so they are new twins, not step 3's with a m
        than the round oracle's. On a twin where it does not, (e) is not judged on the restorations.
     3. Past the kill line, (e) recovers at least half of what the 2-D oracle gains over the round one:
        err((a)) - err((e)) at least half of err(round oracle) - err(2-D oracle).
+  - **Clarified while it was built, before anything was measured** (the first run stopped at the axis sector, which read no pixel at all):
+    - **The polar limb is flattened by the nearest latitude the zonal profile reads** (`ZonalProfile.Held`), in the two sector reads only.
+      The profile is read inside 0.9 radii, so it never reaches the polar limb, every polar pixel's flattening was NaN, and the axis
+      sector was empty. Step 3's whole edge lost the poles the same way, silently; (a) is read as it was.
+    - **The jitter fit has an intercept**: ln(equator / axis) = c - 2 pi^2 sigma^2 f^2. A pole's albedo held from about 64 degrees can
+      put the two sectors' levels apart, and without c that difference would read as a jitter.
 
 ## R9 A learned stage, only if the measurements say so
 

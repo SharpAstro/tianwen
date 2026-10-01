@@ -247,6 +247,28 @@ public sealed record ZonalProfile(double[] Albedo)
     /// <summary>The albedo in the bin <paramref name="latitude"/> falls in; NaN where that bin is empty or past the reach.</summary>
     public double At(double latitude) => PlanetaryBelts.BinOf(latitude) is { } bin ? Albedo[bin] : double.NaN;
 
+    /// <summary>
+    /// The albedo at <paramref name="latitude"/>, or past the profile's reach the nearest latitude it reads (the polar limb, which a profile
+    /// read inside 0.9 radii never reaches; R8 follow-up 4 part 2); NaN only where the profile reads nothing at all.
+    /// </summary>
+    public double Held(double latitude)
+    {
+        if (At(latitude) is var value && double.IsFinite(value))
+        {
+            return value;
+        }
+        var nearest = double.NaN;
+        var distance = double.PositiveInfinity;
+        foreach (var (at, albedo) in Samples())
+        {
+            if (Math.Abs(at - latitude) < distance)
+            {
+                (distance, nearest) = (Math.Abs(at - latitude), albedo);
+            }
+        }
+        return nearest;
+    }
+
     /// <summary>The profile's samples as (planetographic latitude, albedo), the empty bins left out.</summary>
     public IEnumerable<(double Latitude, double Albedo)> Samples()
     {
