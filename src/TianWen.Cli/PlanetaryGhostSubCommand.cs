@@ -28,7 +28,7 @@ internal sealed class PlanetaryGhostSubCommand(IConsoleHost consoleHost, MasterP
         var capturesArg = new Argument<string[]>("captures") { Description = "SER captures of a planet.", Arity = ArgumentArity.OneOrMore };
         var framesOpt = new Option<int?>("--frames") { Description = "Only the first frames." };
         var keepOpt = new Option<double>("--keep") { Description = "The share of the frames stacked, by the gradient.", DefaultValueFactory = _ => 0.05 };
-        var injectOpt = new Option<string?>("--inject") { Description = "A ghost added before the fit, a,dx,dy,rho[,ratio,angle] (strength, shift in px, defocus semi-major axis in px, axis ratio, angle in degrees)." };
+        var injectOpt = new Option<string?>("--inject") { Description = "A ghost added before the fit, a,dx,dy,rho[,ratio,angle[,hole]] (strength, shift in px, defocus semi-major axis in px, axis ratio, angle in degrees, the annulus's hole)." };
         var halvesOpt = new Option<bool>("--halves") { Description = "Also fit the capture's first and second halves of frames apart (the kill line: one copy, not a moving one)." };
         var panelOpt = new Option<string?>("--panel") { Description = "A PNG per capture, a row a plane: the stack and the stack less the shell, twenty times brighter, and the shell, 200 times about grey." };
         var removedOpt = new Option<string?>("--removed") { Description = "A folder each plane is written to as FITS (sky zero, peak one) with the shell taken out (the fitted copy's non-round part, beyond the planet), beside the shell itself." };
@@ -49,9 +49,9 @@ internal sealed class PlanetaryGhostSubCommand(IConsoleHost consoleHost, MasterP
             if (parseResult.GetValue(injectOpt) is { } text)
             {
                 inject = [.. text.Split(',').Select(v => double.Parse(v, inv))];
-                if (inject.Length is not (4 or 6))
+                if (inject.Length is not (4 or 6 or 7))
                 {
-                    consoleHost.WriteError("--inject takes a,dx,dy,rho[,ratio,angle]");
+                    consoleHost.WriteError("--inject takes a,dx,dy,rho[,ratio,angle[,hole]]");
                     return 1;
                 }
             }
@@ -76,16 +76,17 @@ internal sealed class PlanetaryGhostSubCommand(IConsoleHost consoleHost, MasterP
                 for (var c = 0; c < planes.Count; c++)
                 {
                     var (plane, width, height) = planes[c];
+                    float[]? injected = null;
                     if (inject is { } g)
                     {
-                        var ghost = new PlanetaryGhost.Source(plane, width, height).Ghost(g[0], g[1], g[2], g[3], g.Length > 4 ? g[4] : 1, g.Length > 4 ? g[5] : 0);
+                        injected = new PlanetaryGhost.Source(plane, width, height).Ghost(g[0], g[1], g[2], g[3], g.Length > 4 ? g[4] : 1, g.Length > 4 ? g[5] : 0, g.Length > 6 ? g[6] : 0);
                         for (var i = 0; i < plane.Length; i++)
                         {
-                            plane[i] += ghost[i];
+                            plane[i] += injected[i];
                         }
                     }
                     var label = string.Create(inv, $"{name}{(planes.Count > 1 ? $" plane {c}" : "")}{(inject is null ? "" : " with a ghost added")}");
-                    var (row, shell) = Report(label, plane, width, height, margin, inv);
+                    var (row, shell) = Report(label, plane, width, height, margin, injected, inv);
                     panels.Add(row);
                     if (parseResult.GetValue(removedOpt) is { } removed)
                     {
@@ -108,9 +109,9 @@ internal sealed class PlanetaryGhostSubCommand(IConsoleHost consoleHost, MasterP
                             var (plane, width, height) = halfPlanes[c];
                             var source = new PlanetaryGhost.Source(plane, width, height, margin);
                             var fit = PlanetaryGhost.FitGhost(plane, source);
-                            var shell = PlanetaryGhost.Quadrupoles(source.Ghost(fit.Strength, fit.ShiftX, fit.ShiftY, fit.Radius, fit.AxisRatio, fit.AngleDeg), source, Bands);
+                            var shell = PlanetaryGhost.Quadrupoles(source.Ghost(fit.Strength, fit.ShiftX, fit.ShiftY, fit.Radius, fit.AxisRatio, fit.AngleDeg, fit.Obstruction), source, Bands);
                             consoleHost.WriteScrollable(string.Create(inv,
-                                $"    {half}{(halfPlanes.Count > 1 ? $" plane {c}" : "")}: ghost {fit.Strength:0.0000} at ({fit.ShiftX:0.00}, {fit.ShiftY:0.00}) px, radius {fit.Radius:0.00} px, axis ratio {fit.AxisRatio:0.00} at {fit.AngleDeg:0.0} degrees; its shell {Describe(shell, inv)}"));
+                                $"    {half}{(halfPlanes.Count > 1 ? $" plane {c}" : "")}: ghost {fit.Strength:0.0000} at ({fit.ShiftX:0.00}, {fit.ShiftY:0.00}) px, radius {fit.Radius:0.00} px, axis ratio {fit.AxisRatio:0.00} at {fit.AngleDeg:0.0} degrees, hole {fit.Obstruction:0.00}; its shell {Describe(shell, inv)}"));
                         }
                     }
                 }
@@ -146,13 +147,13 @@ internal sealed class PlanetaryGhostSubCommand(IConsoleHost consoleHost, MasterP
         string.Join(" | ", quadrupoles.Select(q => string.Create(inv, $"{q.From:0}-{q.To:0}: {q.Amplitude * 1e4:0.0}@{q.AxisDeg:0}")));
 
     // One plane's fits, its non-round part read before and after the shell is taken out, its panel row and the shell.
-    private (float[]?[] Row, float[] Shell) Report(string label, float[] plane, int width, int height, double margin, CultureInfo inv)
+    private (float[]?[] Row, float[] Shell) Report(string label, float[] plane, int width, int height, double margin, float[]? injected, CultureInfo inv)
     {
         var source = new PlanetaryGhost.Source(plane, width, height, margin);
         var glow = PlanetaryGhost.FitGlow(plane, source);
         var ghost = PlanetaryGhost.FitGhost(plane, source);
         var coma = PlanetaryGhost.FitComa(plane, source);
-        var copy = source.Ghost(ghost.Strength, ghost.ShiftX, ghost.ShiftY, ghost.Radius, ghost.AxisRatio, ghost.AngleDeg);
+        var copy = source.Ghost(ghost.Strength, ghost.ShiftX, ghost.ShiftY, ghost.Radius, ghost.AxisRatio, ghost.AngleDeg, ghost.Obstruction);
         var shell = PlanetaryGhost.NonRound(copy, source);
         var removed = plane.Select((v, i) => v - shell[i]).ToArray();
         var ghostModel = Sum(copy, source.Glow(ghost.Glow.AsSpan()), (float)ghost.Sky);
@@ -160,12 +161,16 @@ internal sealed class PlanetaryGhostSubCommand(IConsoleHost consoleHost, MasterP
         var rings = PlanetaryGhost.Rings(ghostResidual, source, margin);
         var worst = rings.Max(r => Math.Abs(r.Mean) / r.StandardError);
         consoleHost.WriteScrollable(string.Create(inv,
-            $"{label}: ghost {ghost.Strength:0.0000} at ({ghost.ShiftX:0.00}, {ghost.ShiftY:0.00}) px, radius {ghost.Radius:0.00} px, axis ratio {ghost.AxisRatio:0.00} at {ghost.AngleDeg:0.0} degrees; rms {ghost.Rms:0.00000}, the glow alone {glow.Rms:0.00000}"));
+            $"{label}: ghost {ghost.Strength:0.0000} at ({ghost.ShiftX:0.00}, {ghost.ShiftY:0.00}) px, radius {ghost.Radius:0.00} px, axis ratio {ghost.AxisRatio:0.00} at {ghost.AngleDeg:0.0} degrees, hole {ghost.Obstruction:0.00}; rms {ghost.Rms:0.00000}, the glow alone {glow.Rms:0.00000}"));
         consoleHost.WriteScrollable(string.Create(inv,
             $"    coma in its place: flare {coma.Strength:0.0000}, {coma.Length:0.0} px at {coma.AngleDeg:0.0} degrees; rms {coma.Rms:0.00000} ({(ghost.Rms <= coma.Rms ? "the ghost" : "coma")} fits better)"));
         consoleHost.WriteScrollable(string.Create(inv,
             $"    non-round, px out: amplitude 1e-4 of the peak @ long axis, degrees from +x toward +y"));
         consoleHost.WriteScrollable($"      the stack:          {Describe(PlanetaryGhost.Quadrupoles(plane, source, Bands), inv)}");
+        if (injected is not null)
+        {
+            consoleHost.WriteScrollable($"      the injected shell: {Describe(PlanetaryGhost.Quadrupoles(injected, source, Bands), inv)}");
+        }
         consoleHost.WriteScrollable($"      the copy's shell:   {Describe(PlanetaryGhost.Quadrupoles(copy, source, Bands), inv)}");
         consoleHost.WriteScrollable($"      the shell taken out: {Describe(PlanetaryGhost.Quadrupoles(removed, source, Bands), inv)}");
         consoleHost.WriteScrollable(string.Create(inv,

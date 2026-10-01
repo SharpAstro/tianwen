@@ -87,22 +87,29 @@ public class PlanetaryGhostTests
         fit.Radius.ShouldBe(12, 1.2);
     }
 
+    // An unmoved copy's strength is fixed only together with its shape beside a free round glow (its round part is the glow's to
+    // take), so what comes back is its shell: the non-round part, band by band, and its axis.
     [Fact]
-    public void AnEllipticalGhostWithNoShiftIsFittedBack()
+    public void AnEllipticalGhostsShellIsFittedBack()
     {
         var disk = Disk();
         var source = new PlanetaryGhost.Source(disk, Size, Size);
-        var ghost = source.Ghost(0.02, 0, 0, 12, 0.6, 120);
+        var ghost = source.Ghost(0.05, 0, 0, 16, 0.6, 120);
         var glow = source.Glow(0.01, 2.5, 1);
         var random = new Random(4);
         var plane = disk.Select((v, i) => v + ghost[i] + glow[i] + (float)(0.0005 * Normal(random))).ToArray();
 
-        var fit = PlanetaryGhost.FitGhost(plane, new PlanetaryGhost.Source(plane, Size, Size, Margin));
-        TestContext.Current.TestOutputHelper?.WriteLine($"strength {fit.Strength:0.0000}, shift ({fit.ShiftX:0.00}, {fit.ShiftY:0.00}), radius {fit.Radius:0.00}, axis ratio {fit.AxisRatio:0.00} at {fit.AngleDeg:0.0}, rms {fit.Rms:0.00000}");
-        fit.Strength.ShouldBe(0.02, 0.002);
-        fit.Radius.ShouldBe(12, 1.2);
-        fit.AxisRatio.ShouldBe(0.6, 0.06);
-        fit.AngleDeg.ShouldBe(120, 5);
+        var fitted = new PlanetaryGhost.Source(plane, Size, Size, Margin);
+        var fit = PlanetaryGhost.FitGhost(plane, fitted);
+        (double, double)[] bands = [(3, 8), (8, 14)];
+        var injected = PlanetaryGhost.Quadrupoles(ghost, fitted, bands);
+        var recovered = PlanetaryGhost.Quadrupoles(fitted.Ghost(fit.Strength, fit.ShiftX, fit.ShiftY, fit.Radius, fit.AxisRatio, fit.AngleDeg, fit.Obstruction), fitted, bands);
+        TestContext.Current.TestOutputHelper?.WriteLine(string.Join("; ", injected.Zip(recovered, (i, r) => $"{i.From}-{i.To}: {i.Amplitude:0.00000}@{i.AxisDeg:0} came back {r.Amplitude:0.00000}@{r.AxisDeg:0}")));
+        for (var k = 0; k < bands.Length; k++)
+        {
+            recovered[k].Amplitude.ShouldBe(injected[k].Amplitude, 0.1 * injected[k].Amplitude);
+            recovered[k].AxisDeg.ShouldBe(injected[k].AxisDeg, 3);
+        }
     }
 
     [Fact]
@@ -117,7 +124,7 @@ public class PlanetaryGhostTests
 
         var fitted = new PlanetaryGhost.Source(plane, Size, Size, Margin);
         var fit = PlanetaryGhost.FitGhost(plane, fitted);
-        var shell = PlanetaryGhost.NonRound(fitted.Ghost(fit.Strength, fit.ShiftX, fit.ShiftY, fit.Radius, fit.AxisRatio, fit.AngleDeg), fitted);
+        var shell = PlanetaryGhost.NonRound(fitted.Ghost(fit.Strength, fit.ShiftX, fit.ShiftY, fit.Radius, fit.AxisRatio, fit.AngleDeg, fit.Obstruction), fitted);
         (double, double)[] bands = [(3, 8), (8, 14)];
         var before = PlanetaryGhost.Quadrupoles(plane, fitted, bands);
         var after = PlanetaryGhost.Quadrupoles([.. plane.Select((v, i) => v - shell[i])], fitted, bands);
