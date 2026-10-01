@@ -194,6 +194,59 @@ public static class PlanetaryFinestBand
         }
         return sb > 0 ? sa / sb : double.NaN;
     }
+
+    /// <summary>
+    /// The extra Gaussian jitter <paramref name="across"/> carries over <paramref name="along"/> (R8 follow-up 4, part 2): least squares
+    /// on ln(across / along) = -2 pi^2 sigma^2 f^2 from <paramref name="from"/> to <paramref name="to"/> cycles a pixel, in steps of 0.01,
+    /// where both read above <paramref name="floor"/>; zero where the fit is not positive or nothing reads.
+    /// </summary>
+    public static double JitterSigma(Func<double, double> along, Func<double, double> across, double from = 0.08, double to = 0.3, double floor = 0.05)
+    {
+        ArgumentNullException.ThrowIfNull(along);
+        ArgumentNullException.ThrowIfNull(across);
+        double numerator = 0, denominator = 0;
+        for (var f = from; f <= to + 1e-9; f += 0.01)
+        {
+            var (a, c) = (along(f), across(f));
+            if (a > floor && c > floor)
+            {
+                var x = 2 * Math.PI * Math.PI * f * f;
+                numerator -= Math.Log(c / a) * x;
+                denominator += x * x;
+            }
+        }
+        return denominator > 0 && numerator > 0 ? Math.Sqrt(numerator / denominator) : 0;
+    }
+
+    /// <summary>
+    /// (e), the elongated kernel off the limb's edge: the physical kernel fitted to the edge read along the planet's axis
+    /// (<paramref name="axis"/>, the polar limb), times the jitter the edge read along the equator (<paramref name="equator"/>, the sunlit
+    /// limb) carries over it, along <paramref name="equatorDeg"/>.
+    /// </summary>
+    public static ElongatedKernel FitElongated(EdgeProfile axis, EdgeProfile equator, double cutoffCyclesPerPixel, double equatorDeg)
+    {
+        ArgumentNullException.ThrowIfNull(axis);
+        ArgumentNullException.ThrowIfNull(equator);
+        return new ElongatedKernel(FitPhysical(axis, cutoffCyclesPerPixel), JitterSigma(axis.TransferAt, equator.TransferAt), equatorDeg);
+    }
+
+    /// <summary>
+    /// A 2-D transfer from its reads along two directions, interpolated as a jitter would make it: its logarithm linear in the squared
+    /// sine of the frequency's angle from <paramref name="axisDeg"/>, <paramref name="along"/> there and <paramref name="across"/> a
+    /// quarter turn away (each held above 1e-4, so the logarithm is defined).
+    /// </summary>
+    public static Func<double, double, double> TwoDirections(Func<double, double> along, Func<double, double> across, double axisDeg)
+    {
+        ArgumentNullException.ThrowIfNull(along);
+        ArgumentNullException.ThrowIfNull(across);
+        return (fx, fy) =>
+        {
+            var f = Math.Sqrt((fx * fx) + (fy * fy));
+            var (a, c) = (Math.Max(along(f), 1e-4), Math.Max(across(f), 1e-4));
+            var sine = Math.Sin(Math.Atan2(fy, fx) - (axisDeg * Math.PI / 180));
+            return Math.Exp(Math.Log(a) + ((Math.Log(c) - Math.Log(a)) * sine * sine));
+        };
+    }
 }
 
 /// <summary>
@@ -223,6 +276,24 @@ public readonly record struct PhysicalKernel(double Seeing, double SigmaPx, doub
 
     /// <summary>D / r0 for the r0 the seeing term says: (A / 3.44)^(3/5).</summary>
     public double ApertureOverR0 => Math.Pow(Seeing / 3.44, 0.6);
+}
+
+/// <summary>
+/// An elongated kernel (docs/plans/planetary-restoration.md, R8 follow-up 4, part 2): a round one (step 3's physical kernel, fitted to the
+/// limb's edge along the planet's axis) times a Gaussian jitter of <paramref name="SigmaPx"/> along <paramref name="EquatorDeg"/>, the
+/// direction a frame is placed only by the limb, so a stack's registration leaves its error wider there.
+/// </summary>
+/// <param name="Round">The kernel along the axis.</param>
+/// <param name="SigmaPx">The extra jitter's sigma along the equator, px.</param>
+/// <param name="EquatorDeg">The equator's direction in the image, degrees from +x toward +y.</param>
+public readonly record struct ElongatedKernel(PhysicalKernel Round, double SigmaPx, double EquatorDeg)
+{
+    /// <summary>The transfer at the frequency (<paramref name="fx"/>, <paramref name="fy"/>), cycles a pixel.</summary>
+    public double TransferAt(double fx, double fy)
+    {
+        var along = (fx * Math.Cos(EquatorDeg * Math.PI / 180)) + (fy * Math.Sin(EquatorDeg * Math.PI / 180));
+        return Round.TransferAt(Math.Sqrt((fx * fx) + (fy * fy))) * Math.Exp(-2 * Math.PI * Math.PI * SigmaPx * SigmaPx * along * along);
+    }
 }
 
 /// <summary>

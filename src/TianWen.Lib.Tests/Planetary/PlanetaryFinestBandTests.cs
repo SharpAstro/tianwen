@@ -98,6 +98,84 @@ public class PlanetaryFinestBandTests
         }
     }
 
+    // A round Gaussian of Sigma, and an extra Gaussian jitter of 0.8 px along x: the planet's equator along x, its axis along y.
+    private const double Jitter = 0.8;
+
+    private static double Elongated(double fx, double fy) => Gaussian(Math.Sqrt((fx * fx) + (fy * fy))) * Math.Exp(-2 * Math.PI * Math.PI * Jitter * Jitter * fx * fx);
+
+    // A sector's mean of a 2-D transfer at |f|, over directions within 30 degrees of axisDeg (the modes of a ring fill it evenly).
+    private static double SectorMean(Func<double, double, double> transfer, double f, double axisDeg)
+    {
+        double sum = 0;
+        for (var k = -30; k <= 30; k++)
+        {
+            var theta = (axisDeg + k) * Math.PI / 180;
+            sum += transfer(f * Math.Cos(theta), f * Math.Sin(theta));
+        }
+        return sum / 61;
+    }
+
+    [Fact]
+    public void AnElongatedBlurIsReadOffTheEdgeInTwoSectors()
+    {
+        var sharp = Disk();
+        var blurred = PlanetaryInverse.Apply(sharp, Size, Size, Elongated);
+
+        var axis = PlanetaryFinestBand.Edge(blurred, sharp, Size, Size, Center, sunSide: 0, sectorDeg: 90);
+        var equator = PlanetaryFinestBand.Edge(blurred, sharp, Size, Size, Center, sunSide: 0, sectorDeg: 0);
+        var sigma = PlanetaryFinestBand.JitterSigma(axis.TransferAt, equator.TransferAt);
+        TestContext.Current.TestOutputHelper?.WriteLine($"the jitter read {sigma:0.000} px, put in {Jitter} px");
+        // A sector 30 degrees each way mixes a little of the other direction into each read, so the jitter reads about a tenth short.
+        sigma.ShouldBe(Jitter, 0.12);
+
+        var fit = PlanetaryFinestBand.FitElongated(axis, equator, 0.94, equatorDeg: 0);
+        foreach (var f in new[] { 0.1, 0.2, 0.3 })
+        {
+            TestContext.Current.TestOutputHelper?.WriteLine($"{f}: along x {fit.TransferAt(f, 0):0.000} (true {Elongated(f, 0):0.000}), along y {fit.TransferAt(0, f):0.000} (true {Elongated(0, f):0.000})");
+            fit.TransferAt(f, 0).ShouldBe(Elongated(f, 0), 0.04);
+            fit.TransferAt(0, f).ShouldBe(Elongated(0, f), 0.04);
+        }
+    }
+
+    [Fact]
+    public void TwoDirectionsInterpolateAJitterExactly()
+    {
+        var twoD = PlanetaryFinestBand.TwoDirections(f => Gaussian(f), f => Elongated(f, 0), axisDeg: 90);
+        foreach (var (fx, fy) in new[] { (0.1, 0.0), (0.0, 0.2), (0.15, 0.15), (-0.2, 0.1), (0.05, -0.3) })
+        {
+            twoD(fx, fy).ShouldBe(Elongated(fx, fy), 1e-9);
+        }
+    }
+
+    [Fact]
+    public void TheOracleReadInASectorIsTheKernelAlongIt()
+    {
+        var seen = Disk(Texture(1));
+        var blurred = PlanetaryInverse.Apply(seen, Size, Size, Elongated);
+        foreach (var axis in new[] { 0.0, 90.0 })
+        {
+            var read = PlanetaryInverse.Measure(blurred, seen, Size, Size, sectorDeg: axis);
+            foreach (var f in new[] { 0.1, 0.2, 0.3 })
+            {
+                TestContext.Current.TestOutputHelper?.WriteLine($"{axis} deg, {f}: read {read.At(f):0.000}, the kernel's {SectorMean(Elongated, f, axis):0.000}");
+                read.At(f).ShouldBe(SectorMean(Elongated, f, axis), 0.03);
+            }
+        }
+    }
+
+    [Fact]
+    public void RichardsonLucyWithARoundTwoDimensionalTransferIsTheRoundOne()
+    {
+        var blurred = PlanetaryInverse.Apply(Disk(Texture(1)), Size, Size, Gaussian);
+        var (round, twoD) = (new float[Size * Size], new float[Size * Size]);
+        PlanetaryInverse.RichardsonLucy(blurred, Size, Size, Gaussian, 3, (_, p) => round = p);
+        PlanetaryInverse.RichardsonLucy(blurred, Size, Size, (fx, fy) => Gaussian(Math.Sqrt((fx * fx) + (fy * fy))), 3, (_, p) => twoD = p);
+        for (var i = 0; i < round.Length; i++)
+        {
+            twoD[i].ShouldBe(round[i], 1e-6f);
+        }
+    }
+
     [Fact]
     public void ADisksSpectrumOverAnotherTextureOfItsSpectrumReadsTheBlur()
     {
