@@ -230,10 +230,12 @@ A master's edge is three different things, and a crop treats them as one:
   dimmed together), so removing it as background can level the sky but never restore the stars and
   nebula under it. Measured in the full store (2026-10-01): none of the bake's 37 flat masters falls below
   half its peak illumination anywhere (blocks of about 60 to 90 px), the deepest being the QHY294C behind
-  the 8-inch f/3 Newtonian (corners at 0.60 to 0.67 of peak); four sessions were integrated with no
-  calibration at all (two ASI294MM luminance nights of 2022-06-28, the ASI462MC and the ASI585MC Helix),
-  so their masters carry their raw vignetting, and the bake does not record which flat any other session
-  took. So the store has no hard-dark area to learn from, while a user's frame can (a full-frame sensor
+  the 8-inch f/3 Newtonian (corners at 0.60 to 0.67 of peak). The bake's PSF store records every
+  session's calibration masters by name (`Calibration`): 171 of 190 name a flat, 11 name a dark and no
+  flat, and 8 record nothing (4 resumed from an earlier bake whose records predate the field, 4 the bake
+  logged as matching no dark or flat). The archive HAS flats for every one of those cameras, so these are
+  sessions the resolver attached no flat to, not sessions without flats, and why is still open. So the
+  store has no hard-dark area to learn from, while a user's frame can (a full-frame sensor
   on a small refractor). The injection family therefore needs a multiplicative falloff beside the additive
   gradients, up to near-dark corners, its training label the background a remover CAN subtract (the
   sky's dimming), never the signal's; and the thin-band estimators below cannot tell a coverage step from
