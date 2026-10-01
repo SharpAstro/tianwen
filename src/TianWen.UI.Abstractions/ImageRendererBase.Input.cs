@@ -420,9 +420,9 @@ namespace TianWen.UI.Abstractions
                     {
                         PostSignal(new AutoCropSignal());
                     }
-                    else if (_document is not null)
+                    else if (_source is { } channelSource)
                     {
-                        ViewerActions.CycleChannelView(state, _document.UnstretchedImage.ChannelCount);
+                        ViewerActions.CycleChannelView(state, channelSource.ChannelCount);
                     }
                     return true;
                 case InputKey.D:
@@ -701,8 +701,7 @@ namespace TianWen.UI.Abstractions
         {
             if (_document?.Stars is { Count: >= 5 }
                 && _document.ColorCalibration is null
-                && (_document.UnstretchedImage.ChannelCount >= 3
-                    || _document.UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB)
+                && IsColour(_document)
                 && _document.TryBeginColorCalibration())
             {
                 state.StatusMessage = "Calibrating color...";
@@ -970,7 +969,7 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            ViewerActions.HandleToolbarAction(state, _document, action,
+            ViewerActions.HandleToolbarAction(state, _source, action,
                 split: Split, hasBeforePixels: HasBeforeImageTextures, hasCrop: HasDisplayCrop);
             if (action is ToolbarAction.ColorCalibrate)
             {
@@ -1186,7 +1185,7 @@ namespace TianWen.UI.Abstractions
             // Only redraw when cursor moves to a different image pixel (prevPos was read at entry,
             // above, and must stay there).
             // The pane and the placement, both from the single layout pass.
-            ViewerActions.UpdateCursorFromScreenPosition(_document, state, px, py, CurrentViewportLayout(state));
+            ViewerActions.UpdateCursorFromScreenPosition(_source, _document?.Wcs, state, px, py, CurrentViewportLayout(state));
             if (state.CursorImagePosition == prevPos)
             {
                 return false;
@@ -1335,7 +1334,7 @@ namespace TianWen.UI.Abstractions
                 // Truncation toward zero, so the remainder keeps its sign and a slow swipe accumulates
                 // instead of being repeatedly discarded.
                 var steps = (int)_toolbarWheelAccumulator;
-                if (ViewerActions.TryHandleToolbarWheel(state, _document, wheelAction, steps))
+                if (ViewerActions.TryHandleToolbarWheel(state, _source, wheelAction, steps))
                 {
                     _toolbarWheelAccumulator -= steps;
                     state.NeedsRedraw = true;

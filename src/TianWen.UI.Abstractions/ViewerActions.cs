@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Stacking;
@@ -357,11 +358,64 @@ public static class ViewerActions
     /// <summary>
     /// Updates cursor pixel info when the mouse moves over the image.
     /// </summary>
-    public static void UpdateCursorInfo(AstroImageDocument document, ViewerState state, int imageX, int imageY)
+    public static void UpdateCursorInfo(IPreviewSource source, WCS? wcs, ViewerState state, int imageX, int imageY)
     {
         state.CursorImagePosition = (imageX, imageY);
-        state.CursorPixelInfo = document.GetPixelInfo(imageX, imageY,
-            state.ChannelView.DisplayedSourceChannel(document.UnstretchedImage.ChannelCount));
+        state.CursorPixelInfo = ReadPixel(source, wcs, imageX, imageY,
+            state.ChannelView.DisplayedSourceChannel(source.ChannelCount));
+    }
+
+    /// <summary>
+    /// The pixel at (<paramref name="x"/>, <paramref name="y"/>) of <paramref name="source"/>: its [0, 1]
+    /// value in every channel, or in <paramref name="channel"/> alone, and where it is on the sky when
+    /// <paramref name="wcs"/> places the frame. Any source answers, not only a document.
+    /// </summary>
+    /// <param name="channel">
+    /// The single source channel on screen, or <c>null</c> to read every channel (a composite view).
+    /// Resolve it with <c>ChannelView.DisplayedSourceChannel</c> rather than by hand.
+    /// </param>
+    /// <remarks>
+    /// <b>This runs on every mouse move</b> (<see cref="UpdateCursorInfo"/>), so on a large master the
+    /// channel argument is the difference between touching one float plane per move and touching all of
+    /// them. It is also what the user is looking at: reporting R, G and B while the display is a single
+    /// channel names two channels that are not on screen. Each sample comes through
+    /// <see cref="IPreviewSource.SampleAt"/>, which a document answers from its raster.
+    /// </remarks>
+    public static PixelInfo ReadPixel(IPreviewSource source, WCS? wcs, int x, int y, int? channel = null)
+    {
+        if (x < 0 || x >= source.Width || y < 0 || y >= source.Height)
+        {
+            return new PixelInfo(x, y, [], null, null);
+        }
+
+        var channelCount = source.ChannelCount;
+        float[] values;
+        if (channel is { } single && (uint)single < (uint)channelCount)
+        {
+            values = [source.SampleAt(single, x, y)];
+        }
+        else
+        {
+            values = new float[channelCount];
+            for (var c = 0; c < channelCount; c++)
+            {
+                values[c] = source.SampleAt(c, x, y);
+            }
+        }
+
+        double? ra = null, dec = null;
+        if (wcs is { } solution)
+        {
+            // The centre of pixel [y, x] is (x, y) in the frame a WCS answers in; nothing to add.
+            var sky = solution.PixelToSky(x, y);
+            if (sky.HasValue)
+            {
+                ra = sky.Value.RA;
+                dec = sky.Value.Dec;
+            }
+        }
+
+        return new PixelInfo(x, y, values, ra, dec);
     }
 
     /// <summary>
@@ -560,10 +614,10 @@ public static class ViewerActions
     /// hit-test bug.
     /// </remarks>
     public static bool UpdateCursorFromScreenPosition(
-        AstroImageDocument? document, ViewerState state,
+        IPreviewSource? source, WCS? wcs, ViewerState state,
         float px, float py, in ViewportLayout layout)
     {
-        if (document?.UnstretchedImage is not { } image)
+        if (source is not { Width: > 0 } image)
         {
             return false;
         }
@@ -585,7 +639,7 @@ public static class ViewerActions
 
         if (imgX >= 0 && imgX < image.Width && imgY >= 0 && imgY < image.Height)
         {
-            UpdateCursorInfo(document, state, imgX, imgY);
+            UpdateCursorInfo(image, wcs, state, imgX, imgY);
             return true;
         }
 
@@ -745,7 +799,7 @@ public static class ViewerActions
     /// <para>An end-of-ramp notch still reports handled. It is a no-op the user asked for, and
     /// returning false there would fall through to whatever claims the event next.</para>
     /// </remarks>
-    public static bool TryHandleToolbarWheel(ViewerState state, AstroImageDocument? document, ToolbarAction action, int steps)
+    public static bool TryHandleToolbarWheel(ViewerState state, IPreviewSource? source, ToolbarAction action, int steps)
     {
         var reverse = steps < 0;
         var count = Math.Abs(steps);
@@ -785,9 +839,9 @@ public static class ViewerActions
                 }
                 return true;
             case ToolbarAction.Channel:
-                if (document is not null)
+                if (source is not null)
                 {
-                    var channels = document.UnstretchedImage.ChannelCount;
+                    var channels = source.ChannelCount;
                     for (var i = 0; i < count; i++) CycleChannelView(state, channels, reverse);
                 }
                 return true;
@@ -802,7 +856,7 @@ public static class ViewerActions
         }
     }
 
-    public static bool HandleToolbarAction(ViewerState state, AstroImageDocument? document, ToolbarAction action, bool reverse = false,
+    public static bool HandleToolbarAction(ViewerState state, IPreviewSource? source, ToolbarAction action, bool reverse = false,
         SplitCompareController? split = null, bool hasBeforePixels = false, bool hasCrop = false)
     {
         switch (action)
@@ -822,9 +876,9 @@ public static class ViewerActions
                 CycleStretchPreset(state, reverse);
                 return true;
             case ToolbarAction.Channel:
-                if (document is not null)
+                if (source is not null)
                 {
-                    CycleChannelView(state, document.UnstretchedImage.ChannelCount);
+                    CycleChannelView(state, source.ChannelCount);
                 }
                 return true;
             case ToolbarAction.Debayer:

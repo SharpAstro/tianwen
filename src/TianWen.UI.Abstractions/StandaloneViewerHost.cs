@@ -88,7 +88,7 @@ public sealed class StandaloneViewerHost<TSurface>
             }
 
             var reverse = button == MouseButton.Right;
-            if (!ViewerActions.HandleToolbarAction(viewerState, controller.Document, action, reverse,
+            if (!ViewerActions.HandleToolbarAction(viewerState, controller.Source, action, reverse,
                     split: viewer.Split, hasBeforePixels: viewer.HasBeforeImageTextures,
                     hasCrop: viewer.HasDisplayCrop))
             {

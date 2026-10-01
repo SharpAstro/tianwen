@@ -259,7 +259,7 @@ public class ViewerActionsTests
     {
         var state = new ViewerState();
 
-        ViewerActions.HandleToolbarAction(state, document: null, action).ShouldBeTrue();
+        ViewerActions.HandleToolbarAction(state, source: null, action).ShouldBeTrue();
     }
 
     [Theory]
@@ -270,7 +270,7 @@ public class ViewerActionsTests
     {
         var state = new ViewerState();
 
-        ViewerActions.HandleToolbarAction(state, document: null, action).ShouldBeFalse();
+        ViewerActions.HandleToolbarAction(state, source: null, action).ShouldBeFalse();
     }
 
     // --- ScanFolder ---
@@ -424,7 +424,7 @@ public class ViewerActionsTests
     {
         var state = new ViewerState();
 
-        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.Tone, steps: 1).ShouldBeTrue();
+        ViewerActions.TryHandleToolbarWheel(state, source: null, ToolbarAction.Tone, steps: 1).ShouldBeTrue();
 
         state.HdrPresetIndex.ShouldBe(1);
         state.HdrAmount.ShouldBe(ViewerState.HdrPresets[1].Amount);
@@ -443,7 +443,7 @@ public class ViewerActionsTests
         var state = new ViewerState();
         ViewerActions.SetHdrPresetIndex(state, top);
 
-        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.Tone, steps: 1).ShouldBeTrue();
+        ViewerActions.TryHandleToolbarWheel(state, source: null, ToolbarAction.Tone, steps: 1).ShouldBeTrue();
 
         state.HdrPresetIndex.ShouldBe(top);
         state.HdrAmount.ShouldBe(ViewerState.HdrPresets[top].Amount);
@@ -454,7 +454,7 @@ public class ViewerActionsTests
     {
         var state = new ViewerState();
 
-        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.Tone, steps: -1).ShouldBeTrue();
+        ViewerActions.TryHandleToolbarWheel(state, source: null, ToolbarAction.Tone, steps: -1).ShouldBeTrue();
 
         state.HdrPresetIndex.ShouldBe(0);
         state.HdrAmount.ShouldBe(ViewerState.HdrPresets[0].Amount);
@@ -487,7 +487,7 @@ public class ViewerActionsTests
 
         for (var i = 0; i < ViewerActions.StretchLinkModes.Length; i++)
         {
-            ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.StretchLink, steps: 1).ShouldBeTrue();
+            ViewerActions.TryHandleToolbarWheel(state, source: null, ToolbarAction.StretchLink, steps: 1).ShouldBeTrue();
         }
 
         state.StretchMode.ShouldBe(ViewerActions.StretchLinkModes[0]);
@@ -531,7 +531,7 @@ public class ViewerActionsTests
         var state = new ViewerState { NeedsRedraw = false };
         var boostBefore = state.CurvesBoostIndex;
 
-        ViewerActions.TryHandleToolbarWheel(state, document: null, action, steps: -1).ShouldBeFalse();
+        ViewerActions.TryHandleToolbarWheel(state, source: null, action, steps: -1).ShouldBeFalse();
 
         state.ShowGrid.ShouldBeFalse();
         state.CurvesBoostIndex.ShouldBe(boostBefore);
@@ -543,7 +543,7 @@ public class ViewerActionsTests
     {
         var state = new ViewerState();
 
-        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.Tone, steps: 3).ShouldBeTrue();
+        ViewerActions.TryHandleToolbarWheel(state, source: null, ToolbarAction.Tone, steps: 3).ShouldBeTrue();
 
         state.HdrPresetIndex.ShouldBe(3);
     }
@@ -560,7 +560,7 @@ public class ViewerActionsTests
         ViewerActions.SetHdrPresetIndex(state, 2);
         state.NeedsRedraw = false;
 
-        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.Tone, steps: 0).ShouldBeTrue();
+        ViewerActions.TryHandleToolbarWheel(state, source: null, ToolbarAction.Tone, steps: 0).ShouldBeTrue();
 
         state.HdrPresetIndex.ShouldBe(2);
     }
@@ -573,7 +573,7 @@ public class ViewerActionsTests
         var len = ViewerActions.StretchLinkModes.Length;
         var state = new ViewerState { StretchMode = ViewerActions.StretchLinkModes[0] };
 
-        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.StretchLink, steps: len).ShouldBeTrue();
+        ViewerActions.TryHandleToolbarWheel(state, source: null, ToolbarAction.StretchLink, steps: len).ShouldBeTrue();
 
         state.StretchMode.ShouldBe(ViewerActions.StretchLinkModes[0]);
     }
@@ -586,7 +586,7 @@ public class ViewerActionsTests
     {
         var state = new ViewerState { ZoomToFit = false, Zoom = 1f / 4f };
 
-        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.Zoom, steps: 1).ShouldBeTrue();
+        ViewerActions.TryHandleToolbarWheel(state, source: null, ToolbarAction.Zoom, steps: 1).ShouldBeTrue();
 
         state.Zoom.ShouldBe(1f / 3f, 0.0001f);
         state.ZoomToFit.ShouldBeFalse();
@@ -597,7 +597,7 @@ public class ViewerActionsTests
     {
         var state = new ViewerState { ZoomToFit = false, Zoom = 1f / 4f };
 
-        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.Zoom, steps: -1).ShouldBeTrue();
+        ViewerActions.TryHandleToolbarWheel(state, source: null, ToolbarAction.Zoom, steps: -1).ShouldBeTrue();
 
         state.Zoom.ShouldBe(1f / 5f, 0.0001f);
     }
@@ -609,7 +609,7 @@ public class ViewerActionsTests
     {
         var state = new ViewerState { ZoomToFit = false, Zoom = 1f / denominator };
 
-        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.Zoom, steps).ShouldBeTrue();
+        ViewerActions.TryHandleToolbarWheel(state, source: null, ToolbarAction.Zoom, steps).ShouldBeTrue();
 
         state.Zoom.ShouldBe(1f / denominator, 0.0001f);
     }
@@ -626,7 +626,7 @@ public class ViewerActionsTests
     {
         var state = new ViewerState { ZoomToFit = false, Zoom = 0.43f };
 
-        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.Zoom, steps).ShouldBeTrue();
+        ViewerActions.TryHandleToolbarWheel(state, source: null, ToolbarAction.Zoom, steps).ShouldBeTrue();
 
         state.Zoom.ShouldBe(1f / expectedDenominator, 0.0001f);
     }
@@ -641,7 +641,7 @@ public class ViewerActionsTests
     {
         var state = new ViewerState { ZoomToFit = false, Zoom = 2f };
 
-        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.Zoom, steps: 1).ShouldBeTrue();
+        ViewerActions.TryHandleToolbarWheel(state, source: null, ToolbarAction.Zoom, steps: 1).ShouldBeTrue();
 
         state.Zoom.ShouldBe(2f, 0.0001f);
     }
@@ -653,7 +653,7 @@ public class ViewerActionsTests
     {
         var state = new ViewerState { ZoomToFit = false, Zoom = 2f };
 
-        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.Zoom, steps: -1).ShouldBeTrue();
+        ViewerActions.TryHandleToolbarWheel(state, source: null, ToolbarAction.Zoom, steps: -1).ShouldBeTrue();
 
         state.Zoom.ShouldBe(1f, 0.0001f);
     }
@@ -669,7 +669,7 @@ public class ViewerActionsTests
     {
         var state = new ViewerState { ZoomToFit = true };
 
-        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.Zoom, steps: 1).ShouldBeTrue();
+        ViewerActions.TryHandleToolbarWheel(state, source: null, ToolbarAction.Zoom, steps: 1).ShouldBeTrue();
 
         state.ZoomToFit.ShouldBeFalse();
         state.Zoom.ShouldBe(1f, 0.0001f);
@@ -680,7 +680,7 @@ public class ViewerActionsTests
     {
         var state = new ViewerState { ZoomToFit = true };
 
-        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.Zoom, steps: -1).ShouldBeTrue();
+        ViewerActions.TryHandleToolbarWheel(state, source: null, ToolbarAction.Zoom, steps: -1).ShouldBeTrue();
 
         state.ZoomToFit.ShouldBeTrue();
     }
@@ -854,7 +854,7 @@ public class ViewerActionsTests
         state.ShowSkyBackdrop.ShouldBeFalse("and it toggles back off");
 
         // Through the button, which is the same one line -- the affordance, not a second path.
-        ViewerActions.HandleToolbarAction(state, document: null, ToolbarAction.SkyBackdrop).ShouldBeTrue();
+        ViewerActions.HandleToolbarAction(state, source: null, ToolbarAction.SkyBackdrop).ShouldBeTrue();
         state.ShowSkyBackdrop.ShouldBeTrue();
         state.OverlayLevel.ShouldBe(ViewerOverlayLevel.None);
     }
@@ -915,7 +915,7 @@ public class ViewerActionsTests
     {
         var state = new ViewerState();
 
-        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.Overlays, steps: 2).ShouldBeTrue();
+        ViewerActions.TryHandleToolbarWheel(state, source: null, ToolbarAction.Overlays, steps: 2).ShouldBeTrue();
 
         state.OverlayLevel.ShouldBe(ViewerOverlayLevel.Objects);
     }

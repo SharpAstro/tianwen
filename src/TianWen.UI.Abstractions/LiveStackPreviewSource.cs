@@ -335,6 +335,11 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
     public ReadOnlySpan<float> GetChannelData(int channel)
         => Img is { } img ? img.GetChannelData(channel) : ReadOnlySpan<float>.Empty;
 
+    // Before the first master the geometry is only the expected one and there are no pixels, so the readout
+    // gets no number rather than an index into an empty span.
+    float IPreviewSource.SampleAt(int channel, int x, int y) => Img is { } img ? img.SampleAt(channel, x, y) : float.NaN;
+    ImageMeta? IPreviewSource.ImageMeta => Img?.ImageMeta;
+
     public ImageHistogram[] ChannelStatistics => _doc?.ChannelStatistics ?? [];
     public float[] PerChannelBackground => _doc?.PerChannelBackground ?? [];
     public float LumaBackground => _doc?.LumaBackground ?? 0f;

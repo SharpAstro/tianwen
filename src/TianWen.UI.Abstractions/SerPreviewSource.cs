@@ -122,6 +122,9 @@ public sealed class SerPreviewSource : IPreviewSource, ISequencePlaybackSource, 
     public float[] PerChannelBackground => _statsFrame.PerChannelBackground;
     public float LumaBackground => _statsFrame.LumaBackground;
 
+    // The capture's header, as frame 0 carries it: every frame of a SER shares it but the timestamp.
+    ImageMeta? IPreviewSource.ImageMeta => ((IPreviewSource)_statsFrame).ImageMeta;
+
     public StretchUniforms ComputeStretchUniforms(
         StretchMode mode, StretchParameters parameters, LumaWeighting weighting = LumaWeighting.Rec709,
         float lumaBlend = 1f, bool normalize = false, int curvesMode = 0,

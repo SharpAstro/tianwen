@@ -77,9 +77,8 @@ namespace TianWen.UI.Abstractions
 
             var haveSiteRows = !double.IsNaN(selection.AltDeg);
             DateTimeOffset? capturedAt = null;
-            if (haveSiteRows && _document is { } doc)
+            if (haveSiteRows && _source?.ImageMeta is { } meta)
             {
-                var meta = doc.UnstretchedImage.ImageMeta;
                 capturedAt = FrameSiteResolver.CapturedAt(in meta);
             }
 
@@ -93,11 +92,10 @@ namespace TianWen.UI.Abstractions
 
             // The atlas link is a URL stated at paint, not a callback building one at the press: a link the web
             // host renders as an anchor has to know where it goes before anyone clicks it.
-            var img = _document?.UnstretchedImage;
-            var fovDeg = img is { } i
-                ? SkyAtlasLink.FieldOfViewDeg(_document?.Wcs, i.Width, i.Height)
+            var fovDeg = _source is { } frame
+                ? SkyAtlasLink.FieldOfViewDeg(_document?.Wcs, frame.Width, frame.Height)
                 : (double?)null;
-            var atlasUrl = SkyAtlasLink.For(selection.RA, selection.Dec, fovDeg, img?.ImageMeta.ExposureStartTime,
+            var atlasUrl = SkyAtlasLink.For(selection.RA, selection.Dec, fovDeg, _source?.ImageMeta?.ExposureStartTime,
                 selection.LinkToken);
 
             var actions = new ObjectInfoPanel.PanelActions(

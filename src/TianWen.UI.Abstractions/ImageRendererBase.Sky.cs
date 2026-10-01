@@ -404,12 +404,10 @@ namespace TianWen.UI.Abstractions
         /// </remarks>
         private void ApplyFrameContext(PlannerState planner)
         {
-            if (_document is not { } document)
+            if (_source?.ImageMeta is not { } meta)
             {
                 return;
             }
-
-            var meta = document.UnstretchedImage.ImageMeta;
 
             var capturedAt = FrameSiteResolver.CapturedAt(in meta);
             SkyIsAtCaptureTime = capturedAt.HasValue;

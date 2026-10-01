@@ -12,18 +12,24 @@ namespace TianWen.UI.Abstractions;
 /// </summary>
 public static class InfoPanelData
 {
-    public static List<string> GetMetadataLines(AstroImageDocument document)
+    public static List<string> GetMetadataLines(IPreviewSource source)
     {
         var lines = new List<string>();
-        var image = document.UnstretchedImage;
-        var meta = image.ImageMeta;
+        var size = $"Size: {source.Width} x {source.Height} x {source.ChannelCount}ch";
+
+        // A source with nothing to say about its frame still has a size.
+        if (source.ImageMeta is not { } meta)
+        {
+            lines.Add(size);
+            return lines;
+        }
 
         if (!string.IsNullOrEmpty(meta.ObjectName))
         {
             lines.Add($"Object: {meta.ObjectName}");
         }
 
-        lines.Add($"Size: {image.Width} x {image.Height} x {image.ChannelCount}ch");
+        lines.Add(size);
 
         if (!string.IsNullOrEmpty(meta.Telescope))
         {
@@ -116,27 +122,28 @@ public static class InfoPanelData
     /// reports what is in the frame, and while a display anchor is held those two differ.</para>
     /// </remarks>
     public static (ImmutableArray<string> Header, ImmutableArray<ImmutableArray<string>> Rows)
-        GetStatisticsTable(AstroImageDocument document)
+        GetStatisticsTable(IPreviewSource source)
     {
         var rows = ImmutableArray.CreateBuilder<ImmutableArray<string>>();
         // Keyed on the statistics, not the plane count: a Bayer mosaic carries three (one per photosite
         // colour, taken on the mosaic in place), and they are R, G, B as much as a debayered frame's are.
-        var isColour = document.ChannelStatistics.Length >= 3;
+        var statistics = source.ChannelStatistics;
+        var isColour = statistics.Length >= 3;
 
-        for (var c = 0; c < document.ChannelStatistics.Length; c++)
+        for (var c = 0; c < statistics.Length; c++)
         {
-            var stats = document.ChannelStatistics[c];
+            var stats = statistics[c];
             var label = isColour
                 ? c switch { 0 => "R", 1 => "G", 2 => "B", _ => $"Ch{c}" }
                 : $"Ch{c}";
-            var measured = document.MeasuredPerChannelBackground;
+            var measured = source.MeasuredPerChannelBackground;
             var bg = c < measured.Length ? measured[c] : measured[0];
             rows.Add([label, Compact(stats.Mean), Compact(stats.Median), Compact(stats.MAD), Compact(bg)]);
         }
 
         if (isColour)
         {
-            rows.Add(["Luma", "", "", "", Compact(document.MeasuredLumaBackground)]);
+            rows.Add(["Luma", "", "", "", Compact(source.MeasuredLumaBackground)]);
         }
 
         return (["", "mean", "med", "MAD", "bg"], rows.ToImmutable());
