@@ -1131,6 +1131,27 @@ Before the gains are derived, the ceilings they are judged against:
 - **A multi-frame Wiener with the twin's true per-frame PSFs**, the bound on anything multi-frame blind deconvolution or Fourier-domain lucky imaging could add.
 - **Three regularised inverses at a matched band 3 transfer, scored on the limb:** per-band Wiener with Conan et al. 1998's power-law object spectrum (the gain formula above with a prior the capture can fit), Richardson-Lucy on offset-subtracted electrons, and an L1-L2 edge-preserving prior (MISTRAL, Mugnier et al. 2004), each with the measured core-plus-scatter kernel and against a single Gaussian.
 - **Pre-registered:** the multi-frame Wiener oracle gains under 10 % on the calibrated twin and over 20 % with the still layer off; Richardson-Lucy and L1-L2 leave at most a third and a half of Wiener's limb undershoot; a single Gaussian rings 1.5 times more. No published quantitative ringing metric for planetary sharpening was found (Lewis 2020 measures the Mars edge-rind's width, not its depth), so R3's limb undershoot stays the penalty.
+  - **Added 2026-10-01, before part 1 (the ceilings) was built or measured** (`tianwen planetary-ceilings`):
+    - **The captures**: the calibrated twin (`red-3k-final`) and the same twin without its still layer (`r7/nostill`).
+      - Each is made again by `planetary-degrade --psf-truth`, which writes beside the capture every frame's PSF, the shift it was given and its brightness (`<capture>.psf`).
+      - The capture made again must be byte for byte the first one.
+    - **The model is checked first**: each frame's spectrum against its true transfer times the truth's, over a fixed window about the disk. If the residual in bands 2 to 4 exceeds the camera's noise by more than half, the transfer model is wrong and the multi-frame claims are not read.
+    - **The stack**: R7 part 4's, the best 150 of 3,000 frames by the gradient, global, plain, Lanczos-3, registered onto the truth.
+    - **The ceilings on that stack**, each scored by R3's band transfer and error in bands 1 to 4 and by the limb's undershoot:
+      1. per-band oracle gains: each a trous band of the stack times the least-squares gain that brings it nearest the truth's band, inside 0.9 radii. This is the most R8's derived gains can reach;
+      2. the per-ring oracle filter: over each ring, the sum of Re(T S*) over the sum of abs(S)^2. This is the best isotropic linear filter;
+      3. the magnitude swap, abs(T) with the stack's phase;
+      4. the phase swap, abs(S) with the truth's phase.
+    - **The multi-frame bound**, over the same 150 frames and over all 3,000, in the Fourier domain on that fixed window:
+      - each frame's true transfer G_i is its PSF and the scatter, over the pupil's own diffraction, at the shift it was given;
+      - 5a: the frames summed at their TRUE shifts, restored by a single-image Wiener with that sum's own 2-D transfer;
+      - 5b: the multi-frame Wiener, the sum over frames of conj(G_i) F_i over the sum of abs(G_i)^2 plus the noise over the truth's ring power, each frame weighted by its camera noise and brightness;
+      - both 5a and 5b use the truth's ring power and the camera's noise.
+      - Both know the kernels exactly, so 5b's gain over 5a is what weighting each frame per frequency can add to shift-and-add. Multi-frame deconvolution and Fourier-domain lucky imaging both do that weighting.
+    - **The claims**:
+      - The plan's, read as defined here: 5b over the 150 frames lowers the error summed over bands 1 to 4, against 5a, by under 10 % on the calibrated twin and by over 20 % on the twin without its still layer.
+      - (1) reaches within 10 % of (2)'s summed error on both twins: an a trous band is narrow enough for one real gain.
+      - In bands 2 to 4, (2) leaves at most 1.25 times the magnitude swap's error on the twin without its still layer. On the calibrated twin it leaves more than that: the still layer's static phase, which no real gain undoes.
 
 ## R9 A learned stage, only if the measurements say so
 
