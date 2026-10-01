@@ -27,7 +27,7 @@ namespace TianWen.Cli;
 /// stack at all. Without one, the estimators are ranked against the reference gain, and each score's correlation from one frame
 /// to the next says whether it follows the seeing, which is coherent over a few frames, or the noise, which is not.
 /// </summary>
-internal sealed class PlanetaryGradeSubCommand(IConsoleHost consoleHost)
+internal sealed partial class PlanetaryGradeSubCommand(IConsoleHost consoleHost)
 {
     // The FFT bands, matched to the a trous bands 1 to 4 (band j carries about 1/2^(j+1) to 1/2^j cycles a pixel).
     private static readonly FrequencyBand[] FftBands = [new(0.25, 0.5), new(0.125, 0.25), new(0.0625, 0.125), new(0.03125, 0.0625)];
@@ -44,12 +44,13 @@ internal sealed class PlanetaryGradeSubCommand(IConsoleHost consoleHost)
         var cropOpt = new Option<int>("--crop") { Description = "The edge of the square about the disk each frame is measured in, a power of two.", DefaultValueFactory = _ => 256 };
         var pipelineOpt = new Option<string>("--pipeline") { Description = "The selections also stacked by the stacker's own aligner, a comma list of sources.", DefaultValueFactory = _ => "laplacian,strehl,every" };
         var outOpt = new Option<string?>("--out") { Description = "Write the per-frame scores to this CSV, and the stacks' fidelity beside it (.stacks.csv)." };
+        var pointsOpt = new Option<bool>("--points") { Description = "Per point instead (R4 per-point, #1071): on a layered twin (planetary-degrade --high-r0) with its truth, the share of each point's true quality that is its own, each local estimator ranked against it at every point, and each point's best frames stacked against the whole frames' best at the --keep fractions." };
 
         var command = new Command("planetary-grade",
             "Scores every frame of a capture by each quality estimator and by its gain on the stack of every frame; with a synthetic capture's truth, by its true transfer too, ranks the estimators against it and stacks each selection at the same counts (R4).")
         {
             Arguments = { captureArg },
-            Options = { truthOpt, strehlOpt, planetOpt, firstOpt, framesOpt, keepOpt, cropOpt, pipelineOpt, outOpt },
+            Options = { truthOpt, strehlOpt, planetOpt, firstOpt, framesOpt, keepOpt, cropOpt, pipelineOpt, outOpt, pointsOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -82,8 +83,20 @@ internal sealed class PlanetaryGradeSubCommand(IConsoleHost consoleHost)
             var limbOptions = PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(planet, when));
             var truth = read is { } r ? Target.Of(r.Plane, r.Disk with { AxisRatio = limbOptions.AxisRatio }, width, height, size) : null;
 
+            if (parseResult.GetValue(pointsOpt))
+            {
+                if (truth is null)
+                {
+                    consoleHost.WriteError($"{input}: --points needs the layered twin's --truth");
+                    return 1;
+                }
+                var pointKeeps = parseResult.GetValue(keepOpt)?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Select(k => double.Parse(k, CultureInfo.InvariantCulture)).ToArray() ?? [];
+                return await RunPointsAsync(input, stream, first, frames, truth, pointKeeps, ct);
+            }
+
             var strehlPath = parseResult.GetValue(strehlOpt) ?? Path.ChangeExtension(input, ".frames.csv");
-            var strehl = truth is not null && File.Exists(strehlPath) ? ReadStrehl(strehlPath, first, frames) : null;
+            var strehl = truth is not null && File.Exists(strehlPath) ? ReadColumn(strehlPath, "strehl", first, frames) : null;
             consoleHost.WriteScrollable($"{Path.GetFileName(input)}: frames {first} to {first + frames - 1}, measured in {size} px about the disk"
                 + (truth is null ? "; no truth" : strehl is null ? "; no Strehl ratios" : $"; Strehl from {Path.GetFileName(strehlPath)}"));
 
@@ -174,6 +187,11 @@ internal sealed class PlanetaryGradeSubCommand(IConsoleHost consoleHost)
         public float[] Crop { get; }
 
         public MetricDisk Disk { get; }
+
+        /// <summary>The square's corner in the frame.</summary>
+        public int X0 => _x0;
+
+        public int Y0 => _y0;
 
         public int Size => _registrar.Size;
 
@@ -280,27 +298,33 @@ internal sealed class PlanetaryGradeSubCommand(IConsoleHost consoleHost)
     }
 
     // The Strehl of frames `first` onwards, numbered from zero as the window numbers them.
-    private static double[]? ReadStrehl(string path, int first, int frames)
+    // One column of a synthetic capture's record (planetary-degrade's .frames.csv) over the frames measured; NaN where a frame has
+    // none, null when the record has no such column or is not there.
+    private static double[]? ReadColumn(string path, string name, int first, int frames)
     {
-        var strehl = new double[frames];
-        Array.Fill(strehl, double.NaN);
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+        var values = new double[frames];
+        Array.Fill(values, double.NaN);
         var lines = File.ReadAllLines(path);
         var columns = lines[0].Split(',');
-        var (frameColumn, strehlColumn) = (Array.IndexOf(columns, "frame"), Array.IndexOf(columns, "strehl"));
-        if (frameColumn < 0 || strehlColumn < 0)
+        var (frameColumn, valueColumn) = (Array.IndexOf(columns, "frame"), Array.IndexOf(columns, name));
+        if (frameColumn < 0 || valueColumn < 0)
         {
             return null;
         }
         foreach (var line in lines.Skip(1))
         {
             var cells = line.Split(',');
-            if (cells.Length > Math.Max(frameColumn, strehlColumn) && int.TryParse(cells[frameColumn], CultureInfo.InvariantCulture, out var frame)
+            if (cells.Length > Math.Max(frameColumn, valueColumn) && int.TryParse(cells[frameColumn], CultureInfo.InvariantCulture, out var frame)
                 && frame >= first && frame < first + frames)
             {
-                strehl[frame - first] = double.Parse(cells[strehlColumn], CultureInfo.InvariantCulture);
+                values[frame - first] = double.Parse(cells[valueColumn], CultureInfo.InvariantCulture);
             }
         }
-        return strehl;
+        return values;
     }
 
     // Each estimator's ranking of the frames against the true ones (with a truth) or the reference gain's (without), and each
@@ -329,9 +353,9 @@ internal sealed class PlanetaryGradeSubCommand(IConsoleHost consoleHost)
         }
         consoleHost.WriteScrollable(spread.ToString());
         consoleHost.WriteScrollable(withTruth
-            ? "ranking the frames (Spearman against each true quality), and each score against itself 1 and 2 frames on:"
-            : "ranking the frames (Spearman against the reference gain in each band), and each score against itself 1 and 2 frames on:");
-        consoleHost.WriteScrollable("    " + "estimator".PadRight(20) + string.Concat(yardsticks.Select(t => t.Name.PadLeft(12))) + "lag 1".PadLeft(9) + "lag 2".PadLeft(8));
+            ? "ranking the frames (Spearman against each true quality), and each score against itself 1, 2 and 10 frames on:"
+            : "ranking the frames (Spearman against the reference gain in each band), and each score against itself 1, 2 and 10 frames on:");
+        consoleHost.WriteScrollable("    " + "estimator".PadRight(20) + string.Concat(yardsticks.Select(t => t.Name.PadLeft(12))) + "lag 1".PadLeft(9) + "lag 2".PadLeft(8) + "lag 10".PadLeft(8));
         foreach (var source in sources)
         {
             var row = new StringBuilder("    " + source.Name.PadRight(20));
@@ -341,7 +365,7 @@ internal sealed class PlanetaryGradeSubCommand(IConsoleHost consoleHost)
                 var rho = pairs.Length > 2 ? StatisticsHelper.Spearman([.. pairs.Select(i => source.Score[i])], [.. pairs.Select(i => yardstick[i])]) : double.NaN;
                 row.Append(string.Create(inv, $"{rho,12:+0.000;-0.000}"));
             }
-            row.Append(string.Create(inv, $"{Autocorrelation(source.Score, 1),9:+0.000;-0.000}{Autocorrelation(source.Score, 2),8:+0.000;-0.000}"));
+            row.Append(string.Create(inv, $"{Autocorrelation(source.Score, 1),9:+0.000;-0.000}{Autocorrelation(source.Score, 2),8:+0.000;-0.000}{Autocorrelation(source.Score, 10),8:+0.000;-0.000}"));
             consoleHost.WriteScrollable(row.ToString());
         }
     }
