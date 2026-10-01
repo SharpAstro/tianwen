@@ -1043,6 +1043,12 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   stack's limb fit fails that). Another year's spectrum is no object below 0.2 cycles a pixel: the belts change by a third.
   R8's gains through the edge improve a stack (0.92 against 1.415) where the kernel's doubled its error, but miss the true kernel's by a
   quarter to two fifths: band 1 runs to 0.5 cycles a pixel and the edge is noise past about 0.3 (step 4, #1140, is the kernel there).
+- **A moon read is the kernel's SHAPE and DIRECTIONS, never its level** (R8 follow-up 4, `planetary-finest-band --moons`,
+  `PlanetaryMoonProbe`, `GalileanMoons`): its model is analytic in frequency (a disk drawn in pixels and moved by a phase read a blur 4 %
+  high), and its normalisation is the light in its square, which a halo leaves (the twins' square held 66 to 83 % of the moon), so it
+  read every twin's oracle too high; a wider square lands its rim on the planet's glow. Three moons at three distances read the
+  registration's tilt anisoplanatism on a real capture, so a moon bounds the disk's kernel, never gives it. Every stack's kernel is wider
+  along the planet's EQUATOR (only the limb places a frame along the belts): read a kernel in sectors before calling it round.
 - **A ghost is taken out as what is NOT ROUND, never as a fitted copy's strength** (R7a, `planetary-ghost`, `PlanetaryGhost`): no round glow
   tells a copy's round part from scatter, so read and remove the copy's non-round part (`PlanetaryGhost.Shell`), from where the planet's own
   blurred limb has died away (8 px past the 2 % edge), with the moons out of the copy and out of every read. A non-round read about that edge
