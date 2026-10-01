@@ -1,7 +1,8 @@
 # Gradient-remover training (P5): flatten-and-inject
 
-**Status: NOT STARTED; design captured 2026-08-11, sharpened 2026-09-02 after the Siril and SAS Pro
-reference review. Nothing measured, nothing exported, nothing trained.** This is the P5 row of
+**Status: G0 + G1 DONE (2026-09-02/03), no model trained yet; G1 re-run on the full store under way and G2
+designed, masks not crops (2026-10-01, section 3 "Edges").** Design captured 2026-08-11, sharpened 2026-09-02
+after the Siril and SAS Pro reference review. Nothing exported, nothing trained. Tracked by #473. This is the P5 row of
 [ai-denoise-deconv.md](ai-denoise-deconv.md) (design in its section 2.6) at run-level detail. Its
 classical prerequisite is [background-extraction.md](background-extraction.md) Phases 1 and 2, and
 it competes for the same `IGradientCorrector` slot that `OnnxBackgroundExtractor` (GraXpert BGE)
@@ -36,7 +37,7 @@ fills today. Shared discipline: [model-training-roadmap.md](model-training-roadm
 | CLI surface | shipped | `tianwen image flatten` with `--save-gradient` (`src/TianWen.Cli/ImageSubCommand.cs`) |
 | Classical flattener | **SHIPPED 2026-09-02** (`ClassicalBackgroundExtractor`, also the `IGradientCorrector` that `AddTianWenAi()` falls back to when GraXpert is absent; that plan's "Implementation" section has the measurements) | [background-extraction.md](background-extraction.md); after the 2026-09-02 review the recommended Phase 2 is the sample-free robust-rejection + structure-mask + masked-low-pass-inpainting surface (AutoGradientRemoval.py), degree 2 polynomial, correction in LINEAR, level preserved |
 | Ephemerides | shipped | `MeeusMoon` (`Astrometry/Lunar/`, internal), `VSOP87a` (`Astrometry/VSOP87/`), `CatalogPlateSolver`, `FitsHeaderEditor` writing `AIRMASS` / `CENTALT` / `CENTAZ` |
-| Scenes | on disk | Retained linear session masters: 51 (`2025-2026-organized\session-masters\`, filters known) + 67 (`2025-2026-darkscaled\`). Calibrated subs are NOT retained (scratch is wiped per session), 5,908 of them per bake |
+| Scenes | on disk | **190 retained linear session masters in the full store** (`D:/Astro-Dataset/2026-09-29-full/session-masters/`, recipe 3, the same store the denoiser's E16b was built from), each with its coverage and bad-pixel sidecars and, where it rejected anything, a rejection sidecar. The two bakes G1 measured (`2025-2026-organized`, 51 masters; `2025-2026-darkscaled`, 67) were deleted in the ring-fix cleanup of 2026-09-29. Calibrated subs are still NOT retained (scratch is wiped per session) |
 | Real pairs (control) | not measured | 2.1c: same-night, same-field high-vs-low-airmass frames on zenith-crossing targets; the cards are on disk |
 
 ## 2. Hypotheses
@@ -170,6 +171,22 @@ fit's structure mask) and report both methods per stratum.
 *Prediction:* parity on sparse fields, a clear win for the net above 50 percent coverage. If the net
 does not win there either, ship the classical fit as the `IGradientCorrector` fallback and stop.
 
+**H9. Trained on the whole canvas with a presence plane and synthetic edges, the model is indifferent to
+the frame's edge, at no cost inside it** (added 2026-10-01, the owner's point: GraXpert assumes clean edges
+and its background is garbage where they are not). Design in section 3, "Edges".
+*Arms:* crop-only (each sample cut to its autocrop rectangle, no presence plane) against masked (the whole
+canvas, the presence plane as a second input, the loss over present pixels, synthetic edges drawn per
+sample).
+*Prediction:* (a) the masked arm's predicted background over the area both cover moves by at most 0.1
+background sigma RMS, and 0.5 sigma at worst within 8 model pixels of the new edge, when a synthetic ring,
+wedge or ragged border is added to a held-out master; the crop-only arm, run on the same edged input as a
+deployed model would be, moves several times more. (b) Inside the all-frames rectangle the masked arm's
+injected-gradient residual is within the seed spread of the crop-only arm's.
+*Kill:* (b) fails, the masked arm losing inside by more than the seed spread. Then the model trains
+crop-only and the runner owns the edge (fills the absent ring from the classical surface before the net,
+puts it back after), which is the weaker design because a crop discards the optical edge, where the
+strongest gradients sit.
+
 ## 3. Data and the exporter
 
 **Sample = one whole calibrated frame downsampled to model resolution, LINEAR.** GraXpert's recipe
@@ -195,6 +212,49 @@ absolute ADU. Flips and rotations applied to scene AND covariate directions toge
 
 **Held-out split by session**, the same stable hash bucket the tile bakes use, so a frame's siblings
 never leak.
+
+### Edges: masks, not crops (2026-10-01)
+
+A master's edge is three different things, and a crop treats them as one:
+
+- **The absent ring**: no sub reached it, so it holds exact zero or NaN (`Image.AbsentPixels`, border-reachable
+  only). It is not data.
+- **The thin band**: fewer subs reached it, so its level is right and its noise is up to 60 percent higher
+  (`Image.LargestCoveredRectangle` remarks). Level-matched frames (the drizzle sky reference, the AHD
+  normaliser) should leave it continuous; any step left is a frame's own gradient dropping out of the mean.
+- **The optical edge**: vignetting the flat missed, corner glow. That IS a gradient, often the frame's
+  strongest, and the thing the model is for.
+
+Cropping to the all-frames rectangle discards the third to avoid the first, and a model trained only on crops
+is off-distribution on every input that was not cropped, which is GraXpert's failure: its path downsamples the
+ring with the frame, so the zeros pull the background down at every edge. The classical fit already does the
+right thing (its block mean is NaN where no finite pixel is, and the fit excludes it). The model inherits it:
+
+1. **The exporter writes the whole canvas**, area-averaged over PRESENT pixels only, and beside it a
+   **presence plane** at model resolution: the fraction of each block's pixels that are present. Interior
+   holes are filled first (`Image.FillInteriorHolesInPlace`, the one rule), so only the edge counts as
+   absent. The presence plane is computable for ANY file, ours or a foreign master, which is why it is the
+   input: the coverage DEPTH (the sidecar's frame count, or a drizzle's weight) exists only for our own
+   masters, so it is stored beside the sample for analysis and loss weighting and never fed to the net. A
+   deploy-time input the deploy cannot supply would be the denoiser campaign's out-of-range coordinate again.
+2. **The model takes image + presence**, the two-input graph shape `convmapb` introduced
+   (`OnnxIoNames.IsImagePlusPlane`), so the export, parity and runner plumbing exist. The loss counts
+   present pixels only; injected gradients are defined over the whole canvas.
+3. **Edges are augmented**, because our own masters are kinder than the world's: the absent ring was 0.3
+   percent of a frame at G1's median. Per sample, in torch at model resolution with a supersampled mask so a
+   block on the boundary gets a fractional presence: field-rotation wedges, offset rings, ragged
+   APP-style borders, mosaic-shaped coverage, zero against NaN fill, and no edge at all (a pre-cropped
+   frame is a presence plane of ones).
+4. **The runner** downsamples the same way and puts the ring back exactly as it came, the rule the NAFNet
+   runners already keep (`CopyAbsent`).
+5. **The row records the autocrop rectangle** (`LargestCoveredRectangle` from the coverage sidecar), so
+   H9's crop-only arm is a flag in the trainer, not a second export.
+
+**Measured at G2, before any model: the thin band's level steps.** Per master, across each coverage step of
+the sidecar, the median of the flattened frame in a strip just inside against just outside, in background
+sigma. *Prediction:* under 0.1 sigma on every master of the full store, level-matching having left only a
+dropped frame's own gradient, about the gradient's range over the frame count. Steps above that are a
+stacking problem (no smooth surface removes a step) and are reported, not trained around.
 
 ## 4. Model
 
@@ -224,6 +284,10 @@ convention every reference and the existing extractor share).
   the check that the upsample and level add-back did what they claim.
 - **Level:** output median equals input median per channel (the reviewed references all preserve
   level; a model that re-baselines fails).
+- **Edge invariance** (H9): the same held-out master with and without a synthetic edge, background compared
+  over the area both cover, in background sigma. A gate on every candidate, never only on the arm that was
+  built for it. GraXpert, run from the user's own install, may be measured on it as a reference point; its
+  output is never a training target.
 - **No GraXpert output anywhere** in the loop: its weights are CC-BY-NC-SA and its outputs are not
   ours to target. The classical fit is the baseline.
 
@@ -233,14 +297,31 @@ convention every reference and the existing extractor share).
 |---|---|---|---|
 | G0 | **DONE 2026-09-02.** Background-extraction Phases 1 and 2 (the classical flattener, sample-free, linear, level-preserving) with its synthetic tests; its two reasoned thresholds were measured by G1 and both are now settled (`background-extraction.md`) | done, one day | H1 prerequisite, the baseline, the fallback |
 | G1 | **DONE 2026-09-03.** Gradient-distribution report over both bakes (118 masters, 350 planes) as a sibling of `psf-noise-report.md`: `tianwen dataset gradient-report`, `stats/gradient-report.md` + `gradient-masters.jsonl` per bake. Answered H1 (see section 2) and measured both of G0's reasoned thresholds | done, a day | H1; the injection family |
-| G2 | Whole-frame linear exporter (masters; then the `ExportWholeFrame` sub option) with covariates and fitted coefficients per row | 1 to 2 days | H2, H3 data |
+| G1b | **Under way 2026-10-01.** G1 again over the full store's 190 masters (the bakes G1 read are gone, and the store holds cameras G1 never saw, the QHY294C and SV605CC 2026 sessions among them); predictions below. Each record now carries its master's own scale (this run's solve, else the solved WCS in the master's header, else a declared `PIXSCALE`, never `FOCALLEN`) and the report bins by field width; the run started on the binary before that, and the next run gives those records their scale from the header without re-solving | ~2 h, no GPU | the injection family on today's data; the solves and covariates G2 reuses |
+| G2 | Whole-frame linear exporter (masters; then the `ExportWholeFrame` sub option) on the whole canvas with a presence plane (section 3, "Edges"), covariates joined from G1b's store, fitted coefficients and the autocrop rectangle per row; the thin band's level steps measured | 1 to 2 days | H2, H3, H9 data |
 | G3 | Airmass-pair control on the zenith-crossing sessions, no training | half a day | H7 |
-| G4 | Arm M, three seeds; nebulosity strata report; labelled comparison at full resolution on three Ha-rich masters | 3 x minutes | H2, H8 |
+| G4 | Arm M, three seeds, masked and crop-only (H9); nebulosity strata report; edge-invariance gate; labelled comparison at full resolution on three Ha-rich masters | 6 x minutes | H2, H8, H9 |
 | G5 | Arm S vs arm M | 3 x minutes plus the sub export bake (~1 h) | H3 |
 | G6 | Isotropic vs covariate-conditioned injection | 6 x minutes | H4 |
 | G7 | Site LP prior fitted from G2's sub fits; the real-frame gate | a day | H6 |
 | G8 | Covariate conditioning, only if H4 passed | 6 x minutes | H5 |
 | G9 | Export (fixed 256, opset 17, parity to torch), contract JSON, `OnnxTianWenGradientCorrector : IGradientCorrector`, routing beside `OnnxBackgroundExtractor` | 2 days | Ships |
+
+**G1b, predicted before its report existed (2026-10-01).** The same verb at the same defaults over a store
+built by a later recipe, so G1's findings should replicate in kind:
+
+- Amplitude: per-plane peak-to-peak p50 between 1.5 and 3.5 background sigma, the high tail still the
+  ASI585MC 24 mm wide field's (every master at or above 12 sigma one of them).
+- Shape: Dome still the plurality, Ramp second.
+- Direction: brightening within 45 degrees of anti-zenith on at least half the solved masters.
+- The Moon: still no better than chance within 45 degrees on moon-up masters.
+- New, and the sharper test of "amplitude is a property of the field of view": binned by each master's OWN
+  plate scale and field width, never by its camera. **A camera is not a field** (the owner's point): the
+  QHY294C moved between scopes (1.58 and 4.72 arcsec per pixel in this store, more in the archive), the
+  ASI533MC sits at 2.9, 6, 21 and 31, the ASI585MC at 1.62 to 24.1 and the Uranus-C at 2.24 to 8.66 (the
+  masters' own solved WCS, 179 of 190). G1's per-camera table therefore mixed scopes, and its "ASI585MC 11.28
+  sigma" was the 24 mm frames alone. Over field width (long side) in three bins, under 4, 4 to 10 and over 10
+  degrees, the per-master p50 amplitude rises in that order.
 
 ## 7. Integration
 
@@ -269,9 +350,10 @@ is. With this and P4 the in-house tier can run the whole canonical program.
 - **Which downsample?** Area-average is the honest choice for a background; GraXpert's exact
   resampler is not known to us and does not need to be, since our extractor derives its own
   normalisation constants and the parity that matters is ours against ours.
-- **Mono frames** are natural here (a background is a background); the exporter should write mono
-  samples as one channel and the model can be 1-channel-per-plane from the start, unlike the OSC
-  denoiser. Decide at G2.
+- **Mono frames** are natural here (a background is a background). **Decided at G2's design (2026-10-01):**
+  the exporter writes each master at its own channel count (one or three) with a presence plane per sample;
+  whether the model shares one per-plane net across channels or reads colour jointly (light pollution is
+  coloured, and the channels' gradients correlate) is G4's choice, and nothing in the export forecloses it.
 - **How the flattener's own residual artefacts enter the training pairs:** they become background the
   net must preserve (the same argument as the star remover's bootstrap plates). Injected gradients
   must be placed independently of where the flattener struggled, or the net learns that removing a
