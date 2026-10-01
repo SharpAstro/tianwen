@@ -1540,6 +1540,14 @@ Band error summed over bands 1 to 4 inside 0.9 radii, the limb's undershoot, and
   - Post hoc, not claimed: from 0.2 to 0.3 the two years agree within 5 % (1.005, 1.047), and there (c) reads 0.329, 0.773 and 0.127 at 0.3, each within 0.05 of the oracle, on all three twins. The finest band's texture is a year-free statistic where the coarse bands' is not.
 - **The real capture's finest band is there.** Its edge reads 0.207 at 0.3 cycles a pixel where the limb fit's kernel said 0.007: R8 part 3 derived its gains through a finest band the kernel's tail had put at nothing (#1120). Read along R7a's axis and across it, the edge is lower along it at 0.1 and 0.2 (0.547 against 0.575, 0.275 against 0.306), as an elongated blur would be; at 0.3 the two sectors (0.157, 0.016) are a third of the limb each, one of them beside the terminator's arc, and do not agree with the whole (0.207): too noisy to read.
 - **What it leaves**: part 2 takes the edge's transfer into R8's derived gains, beside the physical kernel (a), pre-registered when it starts.
+- **Part 2 pre-registered 2026-10-02, before any of it was measured** (`planetary-finest-band` prints (a); `planetary-gains` derives with (b) and (a)):
+  - **(a) The physical kernel**: a lucky stack's residual seeing as Fried's short-exposure transfer, exp(-A u^(5/3) (1 - u^(1/3))) with u the frequency over the cutoff D / lambda (0.942 cycles a pixel here), times a Gaussian for what the alignment leaves, beside a share of the light in a wide halo (`PhysicalKernel`). Its four numbers are fitted to the edge (b) from 0.02 to 0.35 cycles a pixel and carried on to the cutoff in that shape, where the edge is noise. Built and checked first: a kernel of this shape is fitted back within 0.01 to 0.45 cycles a pixel from an edge read only to 0.35.
+  - **The stacks** as part 1's, and R8 part 3's gains (`PlanetaryWaveletGains.Fit`, the Wiener-weighted joint fit with the disk's own term), scored as R8 part 3 scores them: the band error summed over bands 1 to 4 inside 0.9 radii.
+  - **Claims**:
+    1. (a) reads the oracle within 0.05 at 0.2 and at 0.3 cycles a pixel on the calibrated twin and on the twin without its still layer.
+    2. The gains derived with (a) come within 15 % of the same gains with the true kernel (R8 part 3: 0.648 and 0.289, read again in the same run) on both twins.
+    3. On the real 2022-09-03 Red, the gains derived with (a) keep the finest gain under 3 (with (b') it was 6.52).
+  - **Read, not claimed**: the gains with (b) itself, its noisy finest band clamped to [0, 1], and with (a) under a non-negative composite (follow-up 2's `FitNonNegative`).
 
 #### R8 follow-up 4: heavier probes, only if follow-up 3 falls short
 
