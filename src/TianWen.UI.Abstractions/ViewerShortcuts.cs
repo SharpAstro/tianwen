@@ -38,15 +38,19 @@ public enum ViewerShortcutRoute
 /// <param name="Key">The key, where the row is a single binding this table can resolve. Null for a
 /// row that documents a pair, a range, or a gesture (the wheel, a click).</param>
 /// <param name="Modifiers">Modifiers held with <paramref name="Key"/>.</param>
-/// <param name="Button">The toolbar button this chord presses, when the action HAS a button. This is
-/// the field that makes a key and a button one declaration rather than two.</param>
+/// <param name="Button">The toolbar button this chord stands for, when the action HAS a button. This is
+/// the field that makes a key and a button one declaration rather than two: the key acts only where the
+/// host offers that button (<see cref="ViewerShortcuts.ButtonFor"/>), and a routed key presses it.</param>
+/// <param name="WithShift">The row is a key and its Shift variant (<c>O / Shift+O</c>): both halves are this
+/// binding, so it is found, and gated by its button, with or without Shift.</param>
 public readonly record struct ViewerShortcut(
     string Chord,
     string Description,
     InputKey? Key = null,
     InputModifier Modifiers = InputModifier.None,
     ToolbarAction? Button = null,
-    ViewerShortcutRoute Route = ViewerShortcutRoute.None);
+    ViewerShortcutRoute Route = ViewerShortcutRoute.None,
+    bool WithShift = false);
 
 /// <summary>
 /// Every keyboard binding the FITS viewer has, declared ONCE.
@@ -76,8 +80,13 @@ public static class ViewerShortcuts
     public static readonly ImmutableArray<ViewerShortcut> All =
     [
         // ── Files ──────────────────────────────────────────────────────────────────────────────
-        new("Ctrl+O", "Open a file", InputKey.O, InputModifier.Ctrl),
-        new("Ctrl+S", "Save the image as displayed (clean, 16-bit PNG)", InputKey.S, InputModifier.Ctrl),
+        // Pressed, as P, E and Shift+C are: the dialog is the HOST's, and a key that presses its button is run by
+        // whichever host runs the button (tianwen-fits' controller; the Live Session preview's node, for P).
+        new("Ctrl+O", "Open a file", InputKey.O, InputModifier.Ctrl, ToolbarAction.Open, ViewerShortcutRoute.Press),
+        // Named, not routed: a left press on Save opens its menu, and Ctrl+S writes the clean 16-bit raster, the
+        // one thing a keyboard user means by it. Its own arm does that.
+        new("Ctrl+S", "Save the image as displayed (clean, 16-bit PNG)", InputKey.S, InputModifier.Ctrl,
+            ToolbarAction.Save),
         new("Ctrl+Shift+S", "Save menu: with overlays, PNG depth",
             InputKey.S, InputModifier.Ctrl | InputModifier.Shift, ToolbarAction.Save,
             ViewerShortcutRoute.OpenMenu),
@@ -94,24 +103,30 @@ public static class ViewerShortcuts
             Route: ViewerShortcutRoute.OpenMenu),
 
         // ── What is drawn on the picture ───────────────────────────────────────────────────────
-        new("O / Shift+O", "Annotate: WCS grid, then the catalog objects"),
-        new("G", "WCS grid on its own", InputKey.G),
+        new("O / Shift+O", "Annotate: WCS grid, then the catalog objects", InputKey.O,
+            Button: ToolbarAction.Overlays, WithShift: true),
+        new("G", "WCS grid on its own", InputKey.G, Button: ToolbarAction.Overlays),
         // Named here as well as on its own toolbar button, because it is the one viewer feature
         // that does something to the WHOLE PANE rather than to the picture, and a reader who has
         // not pressed it has no way to know the viewer can do it at all.
-        new("Y", "The sky this frame was taken from, drawn behind it", InputKey.Y),
-        new("S", "Detected stars", InputKey.S),
-        new("Shift+C", "Crop to the area every sub covered / show all", InputKey.C, InputModifier.Shift),
+        new("Y", "The sky this frame was taken from, drawn behind it", InputKey.Y, Button: ToolbarAction.SkyBackdrop),
+        new("S", "Detected stars", InputKey.S, Button: ToolbarAction.Stars),
+        // Pressed: the scan is tens of milliseconds and the host runs it off the render thread.
+        new("Shift+C", "Crop to the area every sub covered / show all", InputKey.C, InputModifier.Shift,
+            ToolbarAction.AutoCrop, ViewerShortcutRoute.Press),
 
         // ── Tone and colour ────────────────────────────────────────────────────────────────────
         new("T", "Toggle the stretch (linear / stretched)", InputKey.T,
             Button: ToolbarAction.StretchToggle, Route: ViewerShortcutRoute.Press),
-        new("+ / -", "Next / previous stretch preset"),
-        new("H / Shift+H", "Histogram / log scale"),
+        // Two rows, not a "+ / -" pair: they are two keys, and each is found by its own.
+        new("+", "Next stretch preset", InputKey.Plus, Button: ToolbarAction.StretchParams),
+        new("-", "Previous stretch preset", InputKey.Minus, Button: ToolbarAction.StretchParams),
+        new("H / Shift+H", "Histogram / log scale", InputKey.H, WithShift: true),
         // B earns a row for the reason its button was folded into Tone: the boost and the highlight
         // soft clip are one panel now, and the soft clip has no key of its own any more (H was it
         // until 2026-09-24), so the Tone button, and the wheel over it, is where to find it.
-        new("B / Shift+B", "Curves boost / curve mode (Tone; the soft clip is on its panel)"),
+        new("B / Shift+B", "Curves boost / curve mode (Tone; the soft clip is on its panel)", InputKey.B,
+            Button: ToolbarAction.Tone, WithShift: true),
         // W earns a row now that it opens a PANEL rather than toggling one flag: the sliders, the
         // photometric calibration and its provenance line all live behind it, and none of them is
         // reachable by guessing. N stays beside it because the two are the colour pair.
@@ -122,19 +137,21 @@ public static class ViewerShortcuts
         // press would open a menu where the key has always toggled. See ViewerShortcutRoute.Press.
         new("N", "Neutralise the background", InputKey.N,
             Button: ToolbarAction.BackgroundNeutralize),
-        new("C", "Cycle the channel view", InputKey.C),
+        new("C", "Cycle the channel view", InputKey.C, Button: ToolbarAction.Channel),
         // Same as N: Debayer has a dropdown, so the key keeps its arm (which still asks the
         // button's enabled predicate, the one duplication this row cannot yet remove).
         new("D", "Cycle the demosaic algorithm", InputKey.D, Button: ToolbarAction.Debayer),
 
         // ── Work on the frame ──────────────────────────────────────────────────────────────────
-        new("P", "Plate solve this frame", InputKey.P),
-        new("E", "AI enhance", InputKey.E),
-        new("A / Shift+A", "A/B compare / re-pin the before image"),
+        // Both pressed, so the host that runs the button runs the key: the preview's solve is the node's.
+        new("P", "Plate solve this frame", InputKey.P, Button: ToolbarAction.PlateSolve, Route: ViewerShortcutRoute.Press),
+        new("E", "AI enhance", InputKey.E, Button: ToolbarAction.Enhance, Route: ViewerShortcutRoute.Press),
+        new("A / Shift+A", "A/B compare / re-pin the before image", InputKey.A,
+            Button: ToolbarAction.Compare, WithShift: true),
 
         // ── Panels ─────────────────────────────────────────────────────────────────────────────
         new("I", "Info panel", InputKey.I),
-        new("L", "File list", InputKey.L),
+        new("L", "File list", InputKey.L, Button: ToolbarAction.FileList),
         new("F1", "This panel", InputKey.F1, Button: ToolbarAction.Shortcuts,
             Route: ViewerShortcutRoute.OpenMenu),
 
@@ -185,6 +202,31 @@ public static class ViewerShortcuts
         ToolbarAction.Tone,
         ToolbarAction.BackgroundNeutralize,
     ];
+
+    /// <summary>
+    /// The toolbar button a chord stands for, routed or not, or null for a key that is the picture's own
+    /// (zoom, the histogram, the info panel, a step through a sequence) or the window's (quit, full screen),
+    /// which no offer governs.
+    /// </summary>
+    /// <remarks>
+    /// The viewer acts on a key only where its host offers this button (<see cref="ToolbarOffer"/>): a key
+    /// for a button the bar does not show is not the viewer's to answer. The planetary view offers no solve,
+    /// so P posted one nothing ran; the Live Session preview offers no file list, so L stays the window's.
+    /// It replaced a second table of keys and actions (#1142's <c>ActionOfKey</c>) that agreed with this one by hand.
+    /// </remarks>
+    public static ToolbarAction? ButtonFor(InputKey key, InputModifier modifiers)
+    {
+        foreach (var s in All)
+        {
+            if (s.Button is { } button && s.Key == key
+                && (s.Modifiers == modifiers || (s.WithShift && modifiers == (s.Modifiers | InputModifier.Shift))))
+            {
+                return button;
+            }
+        }
+
+        return null;
+    }
 
     /// <summary>
     /// The routed binding for a chord, or null when no row claims it or the row routes nowhere.

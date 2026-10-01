@@ -283,33 +283,6 @@ namespace TianWen.UI.Abstractions
             };
         }
 
-        /// <summary>
-        /// The toolbar action a key stands for: what its button does, so the key acts only where the host offers the
-        /// button. Null for a key that is the picture's own (zoom, the histogram, the info panel, a step through a
-        /// sequence) or the window's (quit, full screen), which no offer governs.
-        /// </summary>
-        internal static ToolbarAction? ActionOfKey(InputKey key, bool ctrl, bool shift) => key switch
-        {
-            InputKey.O => ctrl ? ToolbarAction.Open : ToolbarAction.Overlays,
-            InputKey.S => ctrl ? ToolbarAction.Save : ToolbarAction.Stars,
-            InputKey.C when !ctrl => shift ? ToolbarAction.AutoCrop : ToolbarAction.Channel,
-            InputKey.T when !ctrl => ToolbarAction.StretchToggle,
-            InputKey.D when !ctrl => ToolbarAction.Debayer,
-            InputKey.L when !ctrl => ToolbarAction.FileList,
-            InputKey.F1 => ToolbarAction.Shortcuts,
-            InputKey.Plus or InputKey.Minus when !ctrl => ToolbarAction.StretchParams,
-            InputKey.B when !ctrl => ToolbarAction.Tone,
-            InputKey.A when !ctrl => ToolbarAction.Compare,
-            InputKey.G when !ctrl => ToolbarAction.Overlays,
-            InputKey.Y when !ctrl => ToolbarAction.SkyBackdrop,
-            InputKey.P when !ctrl => ToolbarAction.PlateSolve,
-            InputKey.E when !ctrl => ToolbarAction.Enhance,
-            InputKey.N when !ctrl => ToolbarAction.BackgroundNeutralize,
-            InputKey.W when !ctrl => ToolbarAction.WhiteBalance,
-            InputKey.Z when !ctrl => ToolbarAction.Zoom,
-            _ => null,
-        };
-
         private bool HandleViewerKey(InputKey key, InputModifier modifiers, bool repeat)
         {
             if (_state is not { } state)
@@ -356,10 +329,9 @@ namespace TianWen.UI.Abstractions
             }
 
             // A key does what its button does, and only where the host offers that button (ToolbarOffer): a key
-            // for a button the bar does not show is not this viewer's to answer, and is left to the host. The
-            // planetary view offers no solve, so P posted one nothing ran; the preview offers no file list, so L
-            // stays the window's.
-            if (ActionOfKey(key, ctrl, shift) is { } keyAction && !Offer.Offers(keyAction))
+            // for a button the bar does not show is not this viewer's to answer, and is left to the host. Which
+            // button a key stands for is the DECLARATION's (ViewerShortcuts.ButtonFor), the one table of keys.
+            if (ViewerShortcuts.ButtonFor(key, modifiers) is { } keyButton && !Offer.Offers(keyButton))
             {
                 return false;
             }
@@ -412,14 +384,11 @@ namespace TianWen.UI.Abstractions
                     case >= InputKey.D2 and <= InputKey.D9:
                         ViewerActions.ZoomTo(state, 1f / (key - InputKey.D0));
                         return true;
-                    // The two file-dialog keys every desktop app has. Ctrl+O presses the Open button, as P
-                    // and E press theirs: the dialog is the host's. Ctrl+S writes what the Save button's
-                    // right-click writes -- the clean 16-bit raster -- because that is the one thing a
-                    // keyboard user means by it; Ctrl+Shift+S opens the button's own menu (overlays on or
-                    // off, the PNG depth), the keyboard's route to the choice the button offers on a click.
-                    case InputKey.O:
-                        PressToolbarButton(state, ToolbarAction.Open, MouseButton.Left);
-                        return true;
+                    // The two file-dialog keys every desktop app has. Ctrl+O is declared as a press of the
+                    // Open button (the host runs the dialog), so it never reaches here. Ctrl+S writes what
+                    // the Save button's right-click writes -- the clean 16-bit raster -- because that is the
+                    // one thing a keyboard user means by it; Ctrl+Shift+S opens the button's own menu
+                    // (overlays on or off, the PNG depth), declared too.
                     // Hold / release the display mapping across frames (see ViewerState.CarryDisplayAcrossFrames).
                     // Ctrl, beside Ctrl+Space which goes back to the held frame; plain H is the histogram.
                     case InputKey.H:
@@ -474,14 +443,9 @@ namespace TianWen.UI.Abstractions
                     state.ShowStarOverlay = !state.ShowStarOverlay;
                     return true;
                 case InputKey.C:
-                    // Shift is the crop, because C on its own has cycled the channel view since before
-                    // there was one. Posted rather than done here for the reason P and E are: the scan
-                    // is tens of milliseconds and belongs off this thread.
-                    if (shift)
-                    {
-                        PressToolbarButton(state, ToolbarAction.AutoCrop, MouseButton.Left);
-                    }
-                    else if (_source is { } channelSource)
+                    // C on its own has cycled the channel view since before there was a crop; Shift+C, the
+                    // crop, is declared as a press of its button and never reaches here.
+                    if (_source is { } channelSource)
                     {
                         ViewerActions.CycleChannelView(state, channelSource.ChannelCount);
                     }
@@ -593,16 +557,6 @@ namespace TianWen.UI.Abstractions
                     {
                         state.ShowHistogram = !state.ShowHistogram;
                     }
-                    return true;
-                // A key for an action only the host can run PRESSES its button, so the host that runs the
-                // button runs the key: tianwen-fits' controller, the Live Session preview's node. The offer
-                // gate above has already left a key whose button is not on the bar to the host.
-                case InputKey.P:
-                    PressToolbarButton(state, ToolbarAction.PlateSolve, MouseButton.Left);
-                    return true;
-                case InputKey.E:
-                    // AI enhance, where the host offers it (a SharpenPipeline is wired).
-                    PressToolbarButton(state, ToolbarAction.Enhance, MouseButton.Left);
                     return true;
                 case InputKey.F:
                     ViewerActions.ZoomToFit(state);
