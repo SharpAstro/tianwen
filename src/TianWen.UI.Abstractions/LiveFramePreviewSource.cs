@@ -171,7 +171,8 @@ namespace TianWen.UI.Abstractions
 
             // Manual WB on a live source is purely the shader multiply (there is no auto calibration to scale
             // the stats against), mirroring the document's manual-WB semantics. Stats are already unit-scaled,
-            // so imageMaxValue is 1 (channel data is normalised to [0,1] in AcceptFrame). Luma/normalize/curves/
+            // so imageMaxValue is 1 (channel data is normalised to [0,1] by full scale in AcceptFrame, so its
+            // peak is at most 1). Luma/normalize/curves/
             // HDR/background-neutralization are document features with no live-raw analogue, so they are not
             // applied here. The static producer is the single source of the stretch math (shared with the
             // document + SER paths).
@@ -275,10 +276,15 @@ namespace TianWen.UI.Abstractions
             _bayerOffsetY = bayerY;
             _meta = meta;
 
-            // Normalise raw [0, MaxValue] samples to [0, 1] so the display path (and the linear None mode) is
-            // correct regardless of stretch mode -- the [0,1] convention every other IPreviewSource follows.
-            var maxValue = image.MaxValue > 0f ? image.MaxValue : 1f;
-            var inv = 1f / maxValue;
+            // Normalise raw samples to [0, 1] so the display path (and the linear None mode) is correct
+            // regardless of stretch mode -- the [0,1] convention every other IPreviewSource follows -- and by
+            // the divisor a DOCUMENT of the same frame uses (Image.UnitScaleDivisor: the sensor's full scale
+            // where the frame declares one, else its peak; a frame already on [0, 1] is left as it is), so the
+            // preview, its pixel readout and its statistics agree with the frame opened from disk. It divided
+            // by the observed peak, which put every number on the frame's brightest pixel, and stretched a frame
+            // already on [0, 1] with a peak of 0.8 to 1 while its statistics stayed at face value.
+            var divisor = image.HasUnitScalePeak ? 1f : image.UnitScaleDivisor;
+            var inv = divisor > 0f ? 1f / divisor : 1f;
             for (var c = 0; c < channelCount; c++)
             {
                 var src = image.GetChannelSpan(c);
@@ -310,7 +316,12 @@ namespace TianWen.UI.Abstractions
                 var stride = pixels > StatsSampleTarget ? (int)Math.Sqrt((double)pixels / StatsSampleTarget) : 1;
                 _statsStride = stride;
 
-                _stats = StretchSolver.CollectPerChannelStats(image, channelCount, stride);
+                // Over the NORMALISED planes, with the frame's own floor and peak carried onto that scale, so the
+                // statistics are in the space the planes are drawn from, as a document's are: taken over the
+                // raw frame they were peak-relative whatever the planes were divided by.
+                var normalised = new Image(_planes, BitDepth.Float32, maxValue: image.MaxValue * inv,
+                    minValue: image.MinValue * inv, pedestal: image.Pedestal * inv, imageMeta: meta);
+                _stats = StretchSolver.CollectPerChannelStats(normalised, channelCount, stride);
 
                 // The histograms the overlay draws (H) are NOT taken here: they are taken over the planes
                 // on first read (ChannelStatistics), at this same stride, and dropping them is what makes
