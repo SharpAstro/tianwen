@@ -470,6 +470,51 @@ Each metric lives in Lib and is shared by the CLI verb and the stack itself (`ti
 - the free air at an altitude, so points a few arcseconds apart look through different parts of it, calibrated against the real capture's warp (R2: 0.787 px RMS a point, its correlation length at most 9 px);
 - the quality's spread over the frames and its coherence from one to the next matched to the real capture's, both read by the reference gain.
 
+**How it is built and measured, set down 2026-10-02 before anything is built:**
+- **Part 1, the layer (`planetary-degrade --high-r0 --high-altitude --high-wind --high-outer-scale`).** A third screen, the free air at an
+  altitude h, beside the free air at the pupil and the still layer at the telescope, which stay as they are (every point of the disk
+  sees them alike). A point of the disk at angle theta from the disk's centre looks through it shifted by h theta, so its PSF differs
+  from its neighbour's once h times their separation nears the aperture.
+  - **The PSF at a grid of field points** (`--field-grid`, 6 px by default, so every other point is a 12 px alignment point) over
+    the disk and the PSF's reach, each integrated over the exposure as today's is, through the high screen at its own footprint and the
+    two common screens.
+  - **Each point's PSF split in two:** its tilt, which is the warp (interpolated smoothly between the points and applied as the warp is
+    today, a lossless screen keeping the radiance), and its tilt-removed blur, whose images are blended by the points' tent weights
+    (the interpolated-PSF model of Nagy and O'Leary 1998). Blending PSFs that carry their tilts would put two peaks where one moved.
+  - **Recorded beside the capture** (`<capture>.field`): every frame's tilt at each field point and the point's true quality in
+    each band (below), the per-point truth. A grid of PSFs a frame would be some 90 MB, so what part 3 reads is computed as the frame
+    is made.
+  - With no high layer the frames are made exactly as today, sample for sample (a test pins it); `--warp-rms` and the layer are
+    exclusive, the layer's tilts being the warp.
+  - Tested: two points' tilts decorrelate with their separation as the footprints' overlap says (a point's own tilt at zero
+    separation, near none once h times the separation passes the aperture); and a frame's tilt-removed blur varies over the disk only
+    with the layer on.
+- **Part 2, the calibration**, on 2022-09-03 Red's first 3,000 frames, from the calibrated twin with its free air split between the
+  pupil and the altitude, every statistic read against its spread over three seeds:
+  - the disk's motion by the limb (real 0.582 px), as today;
+  - the warp read plain (R5 part 1's statistic): its RMS a axis (real 0.372), lag 1 (0.173) and correlation at 9 px (+0.01);
+  - the reference gain's spread in band 2, p5 to p95 over its median (real 0.87 to 1.10), and its lag 1 (0.94) and lag 10 (0.35);
+  - and the rest of R2's table as the calibrated twin matches it (the limb's widths, the noise, the flux, the halo).
+- **Part 3, the per-point measurement (`planetary-grade --points`):**
+  - **A point's true quality** in an a trous band is its tilt-removed PSF's transfer over the diffraction limit's, weighted over the
+    band's frequencies by the truth's power in a 16 px patch about the point: the least-squares gain a noise-free frame's patch would
+    have against the truth's there, which is how R4 defined a frame's.
+  - **The points** are the twin's own field points every 12 px (the stacker's alignment-point spacing) whose 16 px patch lies wholly
+    on the disk, so the truth is read where it was computed and never interpolated.
+  - **Each estimator ranked against it**, Spearman over the frames at each point, the median over points: `FrameSharpnessMap`'s
+    smoothed Sobel energy at the point (what the alignment-point stack weights by today), the gradient on the patch, fft3 on the
+    patch, the reference gain on the patch (against the stack of every frame), and the frame's own whole-disk gradient (the per-frame
+    selection R4 measured) as the baseline.
+  - **Then stacked:** each point's best frames by the patch's reference gain against the whole frames' best by the gradient, at the
+    keeps 5, 20 and 50 %, registered onto the truth, scored by band.
+- **Pre-registered:**
+  - **The share of a point's band 2 true quality that is its own** is at least 20 % on the calibrated layered twin: with each point's
+    mean over the frames taken out (its patch's own contrast), the variance left once each frame's mean over the points is taken out
+    too, over the variance before it, over all frames and points. Kill line: under it, a point's quality is its frame's on this capture's seeing, the stacker weights per
+    frame, and per-point weighting is noise.
+  - The reference gain on a patch ranks a point's frames at least 0.1 above the frame's whole-disk gradient (median Spearman).
+  - `FrameSharpnessMap` ranks within 0.05 of the gradient on the patch (both smoothed Sobel energy).
+
 #### R4 keeps are scored after restoration
 
 **Issue:** #1083 (the literature: `docs/architecture/planetary-literature.md`, theme A). **Done 2026-10-02**: once sharpened, the best
