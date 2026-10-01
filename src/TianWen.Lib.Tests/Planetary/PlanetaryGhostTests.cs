@@ -103,7 +103,7 @@ public class PlanetaryGhostTests
         var fit = PlanetaryGhost.FitGhost(plane, fitted);
         (double, double)[] bands = [(3, 8), (8, 14)];
         var injected = PlanetaryGhost.Quadrupoles(ghost, fitted, bands);
-        var recovered = PlanetaryGhost.Quadrupoles(fitted.Ghost(fit.Strength, fit.ShiftX, fit.ShiftY, fit.Radius, fit.AxisRatio, fit.AngleDeg), fitted, bands);
+        var recovered = PlanetaryGhost.Quadrupoles(fitted.Ghost(fit.Strength, fit.ShiftX, fit.ShiftY, fit.Radius, fit.AxisRatio, fit.AngleDeg, fit.Separation), fitted, bands);
         TestContext.Current.TestOutputHelper?.WriteLine(string.Join("; ", injected.Zip(recovered, (i, r) => $"{i.From}-{i.To}: {i.Amplitude:0.00000}@{i.AxisDeg:0} came back {r.Amplitude:0.00000}@{r.AxisDeg:0}")));
         for (var k = 0; k < bands.Length; k++)
         {
@@ -124,7 +124,7 @@ public class PlanetaryGhostTests
 
         var fitted = new PlanetaryGhost.Source(plane, Size, Size, Margin);
         var fit = PlanetaryGhost.FitGhost(plane, fitted);
-        var shell = PlanetaryGhost.Shell(fitted.Ghost(fit.Strength, fit.ShiftX, fit.ShiftY, fit.Radius, fit.AxisRatio, fit.AngleDeg), fitted);
+        var shell = PlanetaryGhost.Shell(fitted.Ghost(fit.Strength, fit.ShiftX, fit.ShiftY, fit.Radius, fit.AxisRatio, fit.AngleDeg, fit.Separation), fitted);
         (double, double)[] bands = [(3, 8), (8, 14)];
         var before = PlanetaryGhost.Quadrupoles(plane, fitted, bands);
         var after = PlanetaryGhost.Quadrupoles([.. plane.Select((v, i) => v - shell[i])], fitted, bands);
@@ -144,11 +144,12 @@ public class PlanetaryGhostTests
         var flare = source.Flare(0.05, 14, 30);
         var glow = source.Glow(0.01, 2.5, 1);
         var random = new Random(5);
-        var plane = disk.Select((v, i) => v + flare[i] + glow[i] + (float)(0.0005 * Normal(random))).ToArray();
+        // Quiet, so the residual is the model's misfit: a two-part copy, moved, imitates a flare to within noise five times this.
+        var plane = disk.Select((v, i) => v + flare[i] + glow[i] + (float)(0.0001 * Normal(random))).ToArray();
 
         var fitted = new PlanetaryGhost.Source(plane, Size, Size, Margin);
         var (asGhost, asComa) = (PlanetaryGhost.FitGhost(plane, fitted), PlanetaryGhost.FitComa(plane, fitted));
-        TestContext.Current.TestOutputHelper?.WriteLine($"as a ghost rms {asGhost.Rms:0.00000}; as coma rms {asComa.Rms:0.00000}, length {asComa.Length:0.0} at {asComa.AngleDeg:0.0} degrees");
+        TestContext.Current.TestOutputHelper?.WriteLine($"as a ghost rms {asGhost.Rms:0.000000}; as coma rms {asComa.Rms:0.000000}, length {asComa.Length:0.0} at {asComa.AngleDeg:0.0} degrees");
         asComa.Rms.ShouldBeLessThan(asGhost.Rms);
     }
 
