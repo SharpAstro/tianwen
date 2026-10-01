@@ -56,7 +56,7 @@ internal sealed class PlanetaryFinestBandSubCommand(IConsoleHost consoleHost)
             {
                 return 1;
             }
-            var (disk, fit, aspect, stack, reference) = (prepared.Disk, prepared.Fit, prepared.Aspect, prepared.Stack, prepared.DiskTarget);
+            var (disk, fit, stack) = (prepared.Disk, prepared.Fit, prepared.Stack);
             string Row(Func<double, double> transfer) => string.Join(" ", Frequencies.Select(f => transfer(f).ToString("0.000", inv)));
             consoleHost.WriteScrollable(string.Create(inv,
                 $"{Path.GetFileName(input)}: {prepared.Result.FramesUsed} of {prepared.Result.FramesGraded} frames by the gradient; {prepared.ArcsecPerPixel:0.0000}\"/px; disk R {fit.EquatorialRadius:0.00} px; the transfers over the pupil's diffraction at {string.Join(", ", Frequencies.Select(f => f.ToString("0.0", inv)))} cycles a pixel"));
@@ -68,28 +68,23 @@ internal sealed class PlanetaryFinestBandSubCommand(IConsoleHost consoleHost)
             consoleHost.WriteScrollable($"    (b'), the limb fit's kernel:            {Row(prepared.Measured)}");
 
             // (b) The edge, each pixel divided by the zonal brightness at its limb point's latitude, the stack's and the model's each its own.
-            var projection = new PlanetaryProjection(aspect, new DiskPlacement(disk.X, disk.Y, fit.EquatorialRadius, fit.NorthAngleDeg));
-            Func<double, double, double> Flatten(float[] plane)
-            {
-                var zonal = PlanetaryBelts.FromImage(plane, size, size, projection, aspect.CentralMeridianIII, fit.LimbDarkening);
-                var mean = zonal.Albedo.Where(double.IsFinite).DefaultIfEmpty(double.NaN).Average();
-                return (x, y) => projection.TrySurface(x, y, out var latitude, out _, out _, out _) ? zonal.At(latitude) / mean : double.NaN;
-            }
-            var (flatStack, flatReference) = (Flatten(stack), Flatten(reference));
-            var edge = PlanetaryFinestBand.Edge(stack, reference, size, size, disk, fit.SunSide, flatStack, flatReference);
+            var edge = prepared.LimbEdge(stack);
             consoleHost.WriteScrollable(string.Create(inv,
                 $"    (b), the limb's edge:                   {Row(edge.TransferAt)} ({edge.Counts.Sum()} pixels, {edge.Counts.Min()} to {edge.Counts.Max()} a bin)"));
+            // (a) The physical kernel fitted to that edge to 0.35 cycles a pixel, carried on to the cutoff.
+            var physical = PlanetaryFinestBand.FitPhysical(edge, prepared.Cutoff);
+            consoleHost.WriteScrollable(string.Create(inv,
+                $"    (a), the physical kernel on the edge:   {Row(physical.TransferAt)} (D/r0 {physical.ApertureOverR0:0.00}, sigma {physical.SigmaPx:0.00} px, halo {physical.Halo:0.000} of {physical.HaloWidthPx:0.0} px; the cutoff {prepared.Cutoff:0.000} cycles a pixel)"));
             if (prepared.Truth is { } truthPlane)
             {
-                var check = PlanetaryFinestBand.Edge(truthPlane, reference, size, size, disk, fit.SunSide, Flatten(truthPlane), flatReference);
+                var check = prepared.LimbEdge(truthPlane);
                 var worst = Frequencies.Max(f => Math.Abs(check.TransferAt(f) - 1));
                 consoleHost.WriteScrollable(string.Create(inv,
                     $"      its self-check, the truth's edge:     {Row(check.TransferAt)} ({(worst <= 0.05 ? "holds" : "FAILS")}, within {worst:0.000} of one)"));
             }
             if (parseResult.GetValue(axisOpt) is { } along)
             {
-                var (alongEdge, acrossEdge) = (PlanetaryFinestBand.Edge(stack, reference, size, size, disk, fit.SunSide, flatStack, flatReference, along),
-                    PlanetaryFinestBand.Edge(stack, reference, size, size, disk, fit.SunSide, flatStack, flatReference, along + 90));
+                var (alongEdge, acrossEdge) = (prepared.LimbEdge(stack, along), prepared.LimbEdge(stack, along + 90));
                 consoleHost.WriteScrollable(string.Create(inv, $"      along {along:0} degrees:                  {Row(alongEdge.TransferAt)}"));
                 consoleHost.WriteScrollable(string.Create(inv, $"      across, {(along + 90) % 180:0} degrees:              {Row(acrossEdge.TransferAt)}"));
             }

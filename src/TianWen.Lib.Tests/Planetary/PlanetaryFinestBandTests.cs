@@ -72,6 +72,22 @@ public class PlanetaryFinestBandTests
     }
 
     [Fact]
+    public void APhysicalKernelFittedToTheEdgeCarriesItToTheCutoff()
+    {
+        var truth = new PhysicalKernel(12, 0.5, 0.05, 10, 0.94);
+        var sharp = Disk();
+        var blurred = PlanetaryInverse.Apply(sharp, Size, Size, truth.TransferAt);
+
+        var fit = PlanetaryFinestBand.FitPhysical(PlanetaryFinestBand.Edge(blurred, sharp, Size, Size, Center, sunSide: 0), truth.CutoffCyclesPerPixel);
+        TestContext.Current.TestOutputHelper?.WriteLine($"fitted: A {fit.Seeing:0.00} (D/r0 {fit.ApertureOverR0:0.00}), sigma {fit.SigmaPx:0.00} px, halo {fit.Halo:0.000} of {fit.HaloWidthPx:0.0} px");
+        foreach (var f in new[] { 0.1, 0.2, 0.3, 0.4, 0.45 })
+        {
+            TestContext.Current.TestOutputHelper?.WriteLine($"{f}: fitted {fit.TransferAt(f):0.000}, true {truth.TransferAt(f):0.000}");
+            fit.TransferAt(f).ShouldBe(truth.TransferAt(f), 0.03);
+        }
+    }
+
+    [Fact]
     public void TheLimbsEdgeOnItsOwnModelReadsOne()
     {
         var sharp = Disk();
