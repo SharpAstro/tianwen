@@ -15,10 +15,9 @@ public class PlanetaryLimbKernelTests
 {
     private const int Size = 224;
 
-    [Fact(Timeout = 120_000)]
-    public async System.Threading.Tasks.Task ADiskBlurredByACoreAndAWingIsFittedBackToItsTransfer()
+    [Fact]
+    public void ADiskBlurredByACoreAndAWingIsFittedBackToItsTransfer()
     {
-        await System.Threading.Tasks.Task.Yield();
         var options = new LimbFitOptions(AxisRatio: 0.935);
         var geometry = new LimbFit(111.5, 112.2, 36, 90, 1.0, 1.0, 1, 0, 0, 0, 0, [], 0, true, NorthAngleDeg: 90);
         var sharp = PlanetaryLimbFit.SharpModel(geometry, options, Size, Size);
