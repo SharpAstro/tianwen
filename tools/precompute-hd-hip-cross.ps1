@@ -10,6 +10,8 @@
 # When to run this:
 #   - Whenever any of the catalog inputs change (any *.gs.gz, hip_to_tyc.bin.lz,
 #     hd_to_tyc.bin.lz, tyc2.bin.lz, *_to_tyc_multi.json.lz, tyc2_gsc_bounds.bin.lz).
+#     NGC.gs.gz and NGC.addendum.gs.gz are not committed: the build generates them from
+#     NGC.csv.lz and NGC.addendum.csv.lz, so an OpenNGC refresh is an input change too.
 #   - When the algorithm in BuildHdHipCrossIndicesViaTyc changes (and AlgorithmVersion
 #     in HdHipCrossSnapshot.cs is bumped).
 #   - At each release cut, to make sure the shipped snapshot is fresh.
