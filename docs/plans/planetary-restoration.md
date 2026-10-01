@@ -1375,6 +1375,22 @@ R8 left two problems: the limb's kernel is its model's tail in the finest band, 
 **Issue:** #1138.
 
 - **Planned:** R8's derived gains fitted under the constraint that the composite kernel toward the pupil's diffraction PSF stays non-negative (Magain, Courbin and Sohy 1998), a small quadratic program, the composite read through the twins' true kernels (their per-frame PSFs), never through a transfer measured against the truth, whose noise follow-up 1 found sets the negative mass; a non-negative composite, not a transfer held under one, which a steep Wiener cut rings past (follow-up 1); the limb fit's disk as its own channel with only the residual sharpened (Lucy 1994, Yuan et al. 2007); PlanetFlow's per-layer weights feathered to zero at the limb. Each against the presets as shipped and at matched noise, on both twins and the real capture. Pre-registered when it starts.
+- **Added 2026-10-01, before it was built or measured** (`tianwen planetary-dering`):
+  - **The stacks**: R7 part 4's on both twins (scored against their truths) and on 2022-09-03's Red, in a 256 px window.
+  - **The sharpenings** each fix is put on: the three presets (their gains and thresholds, the thresholds carried from the master's units to the window's, where the sky is zero and the disk one), and R8's derived gains with the twin's true kernel and with (b'). The presets as shipped, sharpened on the master and clamped at its zero as the stacker does, are reported beside them.
+  - **The four fixes**:
+    1. **A floor at the sky**: the sharpened plane held at or above the sky's level (zero, normalised), the floor Richardson-Lucy and L1-L2 kept in part 2.
+    2. **The limb as its own channel** (Lucy 1994, Yuan et al. 2007): the limb fit's sharp model through (b') taken from the stack, only the residual sharpened, and the sharp model added back through the pupil's diffraction alone, which is non-negative.
+    3. **Gains feathered at the limb** (PlanetFlow): each layer's boost scaled by a weight that is one inside the disk and falls linearly to zero at the limb over 2^(j+1) px for layer j, so the sky is the stack's own.
+    4. **A non-negative composite** (Magain, Courbin and Sohy 1998): R8's derived gains refitted under the constraint that their filter times the kernel, taken to the image, is at or above zero within 15 px, a quadratic program over the four gains; with the true kernel on the twins and with (b') everywhere.
+  - **The true kernel**, on the twins, is the stack's transfer read ring by ring against the truth where the truth holds at least a thousandth of its power at the second ring, smoothed over five rings: follow-up 1 found the raw reading's ring-to-ring noise set the negative mass (the stack's own blur read 0.88). The per-frame PSFs the plan named register at shifts the stacker does not report. **A control**: through it, the stack's own composite reads a negative mass of at most 0.01, or the composite is not read.
+  - **Scored**: R3's band error in bands 1 to 4 inside 0.9 radii, the limb's undershoot, and the limb profile's error against the truth over 0.8 to 1.2 radii (a rind left inside the limb is caught there, where the undershoot cannot see it).
+  - **The claims:**
+    - The floor takes every undershoot to at most 0.001, leaves the band errors inside 0.9 radii unchanged within 1 %, and cuts the presets' limb profile error by at least a third.
+    - The limb channel takes the presets' undershoot from 0.16 to 0.32 of the disk to under 0.02 and halves their limb profile error, with the band errors inside 0.9 radii within 5 %.
+    - The feathered gains take every undershoot under 0.01, at a cost of at most 10 % in bands 1 and 2 inside 0.9 radii.
+    - The non-negative composite with the true kernel digs at most 0.001 and costs at most 5 % of the derived gains' summed error. With (b') on the calibrated twin it leaves the finest gain within 20 % of the unconstrained 11.35: a constraint on a composite is only as good as its kernel, and (b')'s finest band is its model's tail.
+    - On the real capture, every fix's undershoot and its rise over the stack per band are reported beside the presets as shipped.
 
 #### R8 follow-up 3: the finest band measured
 
