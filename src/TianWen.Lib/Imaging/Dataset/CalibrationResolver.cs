@@ -493,15 +493,28 @@ public static class CalibrationResolver
     internal const double UnprovenFlatMaxDays = 14.0;
 
     /// <summary>How far a flat's filter is from the light's, as the leading ranking term. The same
-    /// filter costs nothing; a filter stated on only ONE side costs half, since nothing says it
-    /// differs; two stated filters that differ cost the full 1000. Collapsing the middle case into
-    /// the last one is the optics mistake again: in Astro-Unsorted a session whose filter comes from a
-    /// sidecar ("LPS") saw its own card-less flat from that morning as exactly as wrong as a
-    /// narrowband set 575 days away, and the proven-train tier then chose the narrowband set.</summary>
+    /// filter costs nothing; a filter stated on only ONE side costs 500, since nothing says it differs.
+    /// Two stated filters that differ never reach here: <see cref="IsFlatCandidate"/> refuses them.
+    /// Treating "stated on one side" like "differs" is the optics mistake again: in Astro-Unsorted a
+    /// session whose filter comes from a sidecar ("LPS") saw its own card-less flat from that morning
+    /// as exactly as wrong as a narrowband set 575 days away, and the proven-train tier then chose the
+    /// narrowband set.</summary>
     internal static double FlatFilterPenalty(MasterGroupKey flat, MasterGroupKey light) =>
-        flat.SameFilterAs(light) ? 0.0
-        : flat.FilterIdentity.Length == 0 || light.FilterIdentity.Length == 0 ? 500.0
-        : 1000.0;
+        flat.SameFilterAs(light) ? 0.0 : 500.0;
+
+    /// <summary>
+    /// Whether the flat and the lights both STATE a filter and the two differ: then the flat is the wrong
+    /// optical train, filter included, and no rank can make it right.
+    /// </summary>
+    /// <remarks>
+    /// A filter mismatch used to be only the leading RANK, so a session whose only candidate was another
+    /// filter's flat still took it: the Uranus-C 2023-08-09 Lagoon, shot through a dual-band, was
+    /// flat-fielded with the broadband Semi-APO set of 2023-07-29, which printed that filter's dust on it
+    /// and left its own uncorrected. The owner's call, 2026-10-01: never. A filter stated on one side only
+    /// still ranks, because nothing says it differs.
+    /// </remarks>
+    internal static bool StatesAnotherFilter(MasterGroupKey flat, MasterGroupKey light) =>
+        flat.FilterIdentity.Length > 0 && light.FilterIdentity.Length > 0 && !flat.SameFilterAs(light);
 
     /// <summary>Days between <paramref name="target"/> and the group's capture span, zero inside it;
     /// null when either side is undated.</summary>
@@ -523,7 +536,8 @@ public static class CalibrationResolver
     /// Whether a flat group may calibrate a light at all. The one gate, shared with
     /// <see cref="CalibrationCoverageReport"/> so its candidate counts cannot disagree with the pick.
     ///
-    /// <para>Buildable, dimension-compatible, and train-compatible as before; then EITHER its cards
+    /// <para>Buildable, dimension-compatible, train-compatible, and not a filter the lights' own card
+    /// contradicts (<see cref="StatesAnotherFilter"/>); then EITHER its cards
     /// prove the optics, OR it was shot within <see cref="UnprovenFlatMaxDays"/> of the lights. The
     /// second half is what the old wildcard lacked: an unknown card was taken as a match, so a flat
     /// with no train cards was a candidate for every light on that body, and temperature then picked
@@ -535,7 +549,8 @@ public static class CalibrationResolver
         CalGroup g, MasterGroupKey lightKey, CalTrain lightTrain, DateTimeOffset lightStart, out double? unprovenDays)
     {
         unprovenDays = null;
-        if (!Buildable(g) || !DimensionCompatible(g.Key, lightKey) || !g.Train.TrainCompatibleWith(lightTrain))
+        if (!Buildable(g) || !DimensionCompatible(g.Key, lightKey) || !g.Train.TrainCompatibleWith(lightTrain)
+            || StatesAnotherFilter(g.Key, lightKey))
         {
             return false;
         }
