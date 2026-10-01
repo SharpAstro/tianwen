@@ -1025,6 +1025,10 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   on a power-law prior, holding band 3 down against a kernel about 5 % too blurred there, cut band 1 until the Wiener did worse than the
   stack it restored, while Richardson-Lucy's count lifted every band together. Its sky held at zero is what keeps Richardson-Lucy and
   L1-L2 out of the limb's trough, and that trough is (b')'s r^-3 wing more than any gain's ringing: a single Gaussian rang less.
+  **Wavelet gains derived from the blur and the noise are only as good as the kernel's finest bands** (part 3, `planetary-gains`,
+  `PlanetaryWaveletGains`): with a twin's true kernel they come within 3 to 11 % of the per-band ceiling, with the limb's they put 11 to
+  19 on the finest layer, whose transfer is the model's tail (#1120). A gain fit also needs the planet's DISK as a term of its own
+  (the limb fit's sharp model through the kernel): no spectrum of the interior sees the limb, and without it the gains oscillate.
 - **Read the plan doc before touching the Canon path** -- it is a list of five things that fail
   SILENTLY. **Recentering is opt-in** (the user, 2026-09-28; it costs the loop about 15 ms a frame at full frame), and
   so is the mount jog, whose **sign is uncalibrated**.
