@@ -7,17 +7,18 @@ using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.Planetary;
 
-/// <summary>A ghost fitted beyond a planet: a copy of it, scaled, moved and spread by an elliptical defocus disk, beside a free round glow and the sky.</summary>
+/// <summary>A ghost fitted beyond a planet: a copy of it, scaled, moved and spread by an elliptical defocus annulus, beside a free round glow and the sky.</summary>
 /// <param name="Strength">The copy's share of the planet's light, a: fixed only together with its shape beside a free round glow.</param>
 /// <param name="ShiftX">The copy's offset, px.</param>
 /// <param name="ShiftY">The copy's offset, px.</param>
 /// <param name="Radius">The defocus disk's semi-major axis, px.</param>
 /// <param name="AxisRatio">The disk's minor axis over its major, one for a round disk.</param>
 /// <param name="AngleDeg">The major axis's angle from +x, degrees, toward +y (down the image).</param>
+/// <param name="Obstruction">The annulus's hole over its outside, a defocused Newtonian pupil's secondary; zero for a filled disk.</param>
 /// <param name="Glow">The glow's share at each of <see cref="PlanetaryGhost.Source.GlowKnots"/>: its kernel is their tents, so weighted.</param>
 /// <param name="Sky">The sky left after the plane's own zero.</param>
 /// <param name="Rms">The residual's RMS over the fitted pixels.</param>
-public readonly record struct GhostFit(double Strength, double ShiftX, double ShiftY, double Radius, double AxisRatio, double AngleDeg, ImmutableArray<double> Glow, double Sky, double Rms);
+public readonly record struct GhostFit(double Strength, double ShiftX, double ShiftY, double Radius, double AxisRatio, double AngleDeg, double Obstruction, ImmutableArray<double> Glow, double Sky, double Rms);
 
 /// <summary>The glow and sky alone, no copy and no flare: what a ghost or coma has to improve on.</summary>
 public readonly record struct GlowFit(ImmutableArray<double> Glow, double Sky, double Rms);
@@ -32,12 +33,14 @@ public readonly record struct Quadrupole(double From, double To, double Amplitud
 /// R7a's ghost (docs/plans/planetary-restoration.md): a faint, sharp-edged, lopsided shell the ASI290MM's stacks carry around a planet,
 /// modelled as the comet work separated a comet from its stars, a copy of the planet itself scaled, moved and blurred by a defocus disk,
 /// beside a broad glow, both fitted beyond the planet where they are alone, and the copy subtracted everywhere, the disk included. Coma
-/// is fitted beside it as an alternative: a flare from the planet itself. The copy's disk is ELLIPTICAL (what the 2022-09-03 stacks
+/// is fitted beside it as an alternative: a flare from the planet itself. The copy's disk is an ELLIPTICAL annulus (what the 2022-09-03 stacks
 /// show once their round part is taken out: a quadrupole, ranked by filter, and almost no dipole), and the glow is any ROUND kernel
 /// (tents in radius, solved linearly). No round glow tells a copy's round part from scatter, so the copy's strength is fixed only
 /// together with its shape, and what is taken out is the copy's NON-ROUND part (<see cref="NonRound"/>), beyond the object: the
 /// shell, which is what can be told from the halo. A power law, one or two, left the twin's halo to a copy or fell apart (revisions 1,
-/// 2 and 4); the fit starts 8 px out, past the blurred limb the source misses and the elongated blur of every 2022 filter.
+/// 2 and 4); the fit starts 8 px out, past the blurred limb the source misses and the elongated blur of every 2022 filter. The copy is
+/// of the planet alone (a moon's copy is a streak the data does not have), and its disk has a hole (a filled one put L's shell too
+/// near the limb, revision 6; a defocused Newtonian pupil is an annulus).
 /// Planes here have the sky at zero and the planet's 99.5th percentile at one (<see cref="Normalise"/>).
 /// </summary>
 public static class PlanetaryGhost
@@ -216,6 +219,7 @@ public static class PlanetaryGhost
     public sealed class Source
     {
         private readonly Complex[] _object;
+        private readonly Complex[] _planet;
         private readonly int _n;
         private float[][]? _glowShapes;
 
@@ -251,6 +255,11 @@ public static class PlanetaryGhost
             }
             _n = PlanetaryInverse.GridFor(width, height, 96);
             _object = PlanetaryInverse.Transform(objectPlane, width, height, _n);
+            for (var i = 0; i < objectPlane.Length; i++)
+            {
+                objectPlane[i] = Planet[i] ? plane[i] : 0;
+            }
+            _planet = PlanetaryInverse.Transform(objectPlane, width, height, _n);
             var fitted = new List<int>();
             for (var y = Border; y < height - Border; y++)
             {
@@ -308,25 +317,28 @@ public static class PlanetaryGhost
         public ImmutableArray<int> Fitted { get; }
 
         /// <summary>
-        /// The ghost alone: <paramref name="strength"/> times the object through a uniform elliptical disk of semi-major axis
-        /// <paramref name="radius"/>, <paramref name="axisRatio"/> and <paramref name="angleDeg"/>, moved.
+        /// The ghost alone: <paramref name="strength"/> times the planet through a uniform elliptical annulus of semi-major axis
+        /// <paramref name="radius"/>, <paramref name="axisRatio"/>, <paramref name="angleDeg"/> and a hole <paramref name="obstruction"/>
+        /// of its size, moved.
         /// </summary>
-        public float[] Ghost(double strength, double shiftX, double shiftY, double radius, double axisRatio = 1, double angleDeg = 0)
+        public float[] Ghost(double strength, double shiftX, double shiftY, double radius, double axisRatio = 1, double angleDeg = 0, double obstruction = 0)
         {
             var (c, s) = (Math.Cos(angleDeg * Math.PI / 180), Math.Sin(angleDeg * Math.PI / 180));
-            return Through((fx, fy) =>
+            var hole = obstruction * obstruction;
+            return Through(_planet, (fx, fy) =>
             {
                 var (along, across) = ((fx * c) + (fy * s), (-fx * s) + (fy * c));
                 var f = Math.Sqrt((along * along) + (axisRatio * axisRatio * across * across));
-                return strength * DiskTransfer(radius, f) * Complex.FromPolarCoordinates(1, -2 * Math.PI * ((fx * shiftX) + (fy * shiftY)));
+                var annulus = (DiskTransfer(radius, f) - (hole * DiskTransfer(obstruction * radius, f))) / (1 - hole);
+                return strength * annulus * Complex.FromPolarCoordinates(1, -2 * Math.PI * ((fx * shiftX) + (fy * shiftY)));
             });
         }
 
-        /// <summary>The flare alone: <paramref name="strength"/> times the object through a uniform line from the centre.</summary>
+        /// <summary>The flare alone: <paramref name="strength"/> times the planet through a uniform line from the centre.</summary>
         public float[] Flare(double strength, double length, double angleDeg)
         {
             var (c, s) = (Math.Cos(angleDeg * Math.PI / 180), Math.Sin(angleDeg * Math.PI / 180));
-            return Through((fx, fy) =>
+            return Through(_planet, (fx, fy) =>
             {
                 var u = Math.PI * ((fx * c) + (fy * s)) * length;
                 var sinc = Math.Abs(u) < 1e-9 ? 1 : Math.Sin(u) / u;
@@ -389,9 +401,9 @@ public static class PlanetaryGhost
             return Back(field);
         }
 
-        private float[] Through(Func<double, double, Complex> transfer)
+        private float[] Through(Complex[] source, Func<double, double, Complex> transfer)
         {
-            var field = new Complex[_object.Length];
+            var field = new Complex[source.Length];
             for (var ky = 0; ky < _n; ky++)
             {
                 var fy = (ky < _n / 2 ? ky : ky - _n) / (double)_n;
@@ -399,7 +411,7 @@ public static class PlanetaryGhost
                 {
                     var fx = (kx < _n / 2 ? kx : kx - _n) / (double)_n;
                     var i = (ky * _n) + kx;
-                    field[i] = _object[i] * transfer(fx, fy);
+                    field[i] = source[i] * transfer(fx, fy);
                 }
             }
             return Back(field);
@@ -440,6 +452,7 @@ public static class PlanetaryGhost
         double[] best = [];
         var bestCost = double.PositiveInfinity;
         var disks = new[] { (0.95, 0.0) }.Concat(new[] { 0.0, 45, 90, 135 }.Select(a => (0.6, a))).ToArray();
+        var holes = new[] { 0.05, 0.5 };
         foreach (var dx in new[] { -8.0, 0, 8 })
         {
             foreach (var dy in new[] { -8.0, 0, 8 })
@@ -448,24 +461,28 @@ public static class PlanetaryGhost
                 {
                     foreach (var (ratio, angle) in disks)
                     {
-                        var (_, cost) = projection.Solve(source.Ghost(1, dx, dy, radius, ratio, angle));
-                        if (cost < bestCost)
+                        foreach (var hole in holes)
                         {
-                            (bestCost, best) = (cost, [dx, dy, radius, Math.Log((ratio - MinRatio) / (1 - ratio)), angle]);
+                            var (_, cost) = projection.Solve(source.Ghost(1, dx, dy, radius, ratio, angle, hole));
+                            if (cost < bestCost)
+                            {
+                                (bestCost, best) = (cost, [dx, dy, radius, Math.Log((ratio - MinRatio) / (1 - ratio)), angle, Math.Log(hole / (MaxObstruction - hole))]);
+                            }
                         }
                     }
                 }
             }
         }
-        float[] Shape(ReadOnlySpan<double> p) => source.Ghost(1, p[0], p[1], p[2], Ratio(p[3]), p[4]);
+        float[] Shape(ReadOnlySpan<double> p) => source.Ghost(1, p[0], p[1], p[2], Ratio(p[3]), p[4], Obstruction(p[5]));
         var result = LevenbergMarquardt.Fit(best, source.Fitted.Length, (p, residuals) =>
         {
             var shape = Shape(p);
             projection.Residuals(shape, projection.Solve(shape).Coefficients, residuals);
-        }, [1e-3, 1e-3, 1e-3, 1e-4, 1e-2], maxIterations: 60);
+        }, [1e-3, 1e-3, 1e-3, 1e-4, 1e-2, 1e-4], maxIterations: 60);
         var q = result.Parameters;
         var (c, final) = projection.Solve(Shape(q));
-        return new GhostFit(c[0], q[0], q[1], Math.Abs(q[2]), Ratio(q[3]), ((q[4] % 180) + 180) % 180, [.. c[1..^1]], c[^1], Math.Sqrt(final / source.Fitted.Length));
+        return new GhostFit(c[0], q[0], q[1], Math.Abs(q[2]), Ratio(q[3]), ((q[4] % 180) + 180) % 180, Obstruction(q[5]), [.. c[1..^1]], c[^1],
+            Math.Sqrt(final / source.Fitted.Length));
     }
 
     /// <summary>Coma in the ghost's place: the flare, free glow and sky that bring the object nearest <paramref name="plane"/>.</summary>
@@ -500,6 +517,11 @@ public static class PlanetaryGhost
     private const double MinRatio = 0.05;
 
     private static double Ratio(double w) => MinRatio + ((1 - MinRatio) / (1 + Math.Exp(-w)));
+
+    // The fitted hole's ceiling: past nine tenths an annulus is a thin ring, which no secondary shadows.
+    private const double MaxObstruction = 0.9;
+
+    private static double Obstruction(double v) => MaxObstruction / (1 + Math.Exp(-v));
 
     /// <summary>
     /// What of <paramref name="plane"/> is not round about <paramref name="source"/>'s object: beyond the object, each pixel less the mean
