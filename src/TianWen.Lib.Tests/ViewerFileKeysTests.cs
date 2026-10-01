@@ -83,12 +83,17 @@ namespace TianWen.Lib.Tests
             new ViewerState().CarryDisplayAcrossFrames.ShouldBeFalse();
         }
 
+        /// <summary>Ctrl+O presses the Open button, so the host that runs the button runs the dialog.</summary>
         [Fact]
         public void CtrlO_AsksForTheFileDialog()
         {
             var (viewer, state, bus) = NewViewer();
             var opens = 0;
-            bus.Subscribe<OpenFileSignal>(_ => opens++);
+            viewer.ToolbarPressPolicy = (_, action, _) =>
+            {
+                opens += action is ToolbarAction.Open ? 1 : 0;
+                return true;
+            };
 
             Press(viewer, bus, InputKey.O, InputModifier.Ctrl);
 
@@ -101,7 +106,11 @@ namespace TianWen.Lib.Tests
         {
             var (viewer, state, bus) = NewViewer();
             var opens = 0;
-            bus.Subscribe<OpenFileSignal>(_ => opens++);
+            viewer.ToolbarPressPolicy = (_, action, _) =>
+            {
+                opens += action is ToolbarAction.Open ? 1 : 0;
+                return true;
+            };
 
             Press(viewer, bus, InputKey.O, InputModifier.None);
 

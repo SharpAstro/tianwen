@@ -166,6 +166,14 @@ var renderer = gpu.Renderer;
 var guiRenderer = gpu.Top;
 // The atlas info panel's picture of the object, fetched on selection and cached on disk.
 guiRenderer.ObjectPictureStore = sp.GetRequiredService<IObjectPictureStore>();
+// The Live Session preview's object overlay reads the catalogue the planner loads: the same singleton, whose
+// InitDBAsync is idempotent and serialised, behind a lazy, so this starts nothing until the overlay asks.
+guiRenderer.CelestialObjectDB = new DotNext.Threading.AsyncLazy<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(async ct =>
+{
+    var db = sp.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>();
+    await db.InitDBAsync(cancellationToken: ct);
+    return db;
+});
 // The 🪐 planetary tab renders the live capture/stack via this shared controller (also driven by
 // StartVideoCaptureSignal/StopVideoCaptureSignal in AppSignalHandler).
 var planetaryCapture = sp.GetRequiredService<PlanetaryCaptureController>();

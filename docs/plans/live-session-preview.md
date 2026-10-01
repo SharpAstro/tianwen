@@ -2,7 +2,7 @@
 
 ## Status
 
-**IN PROGRESS** (P1 steps 1 to 3 done 2026-10-01; raised by the user 2026-09-30, while testing a Canon EOS 6D through the preview: "we also need a few
+**IN PROGRESS** (P1 done 2026-10-01; raised by the user 2026-09-30, while testing a Canon EOS 6D through the preview: "we also need a few
 more controls in the preview like show stars, HFD, FWHM, and all the other stuff, image stats, also the histogram, not
 just a Canon thing really", and a live view in the preview "which is useful beyond just planetary"). Milestone
 `live-session-preview` (#1108 to #1113 and #1124, one a section). Nothing here is Canon's: every camera the node drives previews through the same pane.
@@ -123,7 +123,17 @@ A source that is not a document gains what only needed the picture, as step 1 fo
    metadata and statistics stay a document's: a SER's statistics are its first frame's, so widening them waits
    for P3.
 4. The preview pane switches its chrome on, with its own host: `RenderMiniViewerToolbar` and the pane's own Solve
-   button are deleted.
+   button are deleted (**done**, 2026-10-01). The tab is the viewer's host: `ToolbarOffer.LivePreview`, a
+   `ToolbarPressPolicy` that runs the solve for the OTA whose frame is on show (`PlateSolvePreviewSignal`) and leaves
+   every other press to the viewer (the policy now answers whether it ran a press), and `HostCanRun`, which says when
+   that solve can run on a frame that is no document. The viewer is a routed child of the tab, and gets the pointer
+   and **the viewer's keys** (the user's call, 2026-10-01: the keys its tooltips name; the preview's own T, S and B
+   went), never the window's (Escape, Tab, Space, the arrows, F11). A key does what its button does and only where
+   the button is offered (`ActionOfKey`), and P, E, Shift+C and Ctrl+O PRESS their buttons, so the host that runs a
+   button runs its key: the four signals they posted are gone. The tab's copies of the viewer's pan, zoom and keys
+   went with it, the planetary view takes the viewer's keys too, and the GUI hands the preview the planner's
+   catalogue, so the objects overlay works on a solved frame. With more than one OTA a picker row stays above the
+   viewer. Pinned by `LiveSessionPreviewViewerTests`.
 
 ## P2: every preview frame is measured
 

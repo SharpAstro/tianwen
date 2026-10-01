@@ -257,6 +257,17 @@ namespace TianWen.UI.Gui
             set => _skyMapTab.PictureStore = value;
         }
 
+        /// <summary>
+        /// The object catalogue the Live Session preview's object overlay reads, set once by the host from its
+        /// services, as tianwen-fits gives its viewer one. Lazy, so setting it starts nothing: the viewer asks for
+        /// it only once the overlay reaches the objects.
+        /// </summary>
+        public DotNext.Threading.AsyncLazy<ICelestialObjectDB>? CelestialObjectDB
+        {
+            get => _previewViewer.CelestialObjectDB;
+            set => _previewViewer.CelestialObjectDB = value;
+        }
+
         /// <inheritdoc/>
         public RectF32 PlannerChartRect => _plannerTab.ChartRect;
 

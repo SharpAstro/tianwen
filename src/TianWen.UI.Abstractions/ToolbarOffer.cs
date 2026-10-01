@@ -106,6 +106,20 @@ public sealed class ToolbarOffer
         ToolbarAction.Channel, ToolbarAction.Debayer, ToolbarAction.Tone,
         ToolbarAction.ZoomFit, ToolbarAction.ZoomActual);
 
+    /// <summary>
+    /// The Live Session preview's bar, for a camera's frames as they are taken: stretch (STF / Link / Params),
+    /// channel + debayer, tone, white balance, zoom (Fit / 1:1, as the planetary view), the grid and the objects
+    /// once a solve has placed the frame, and the solve itself, which the node runs (the preview's host). Nothing
+    /// of the file viewer: no file list, Open, A|B, Enhance or crop, and no Save as seen, since the pane's own
+    /// Save writes the node's FITS. Stars join it with the node's measurements (P2 of
+    /// docs/plans/live-session-preview.md).
+    /// </summary>
+    public static readonly ToolbarOffer LivePreview = Of(
+        ToolbarAction.StretchToggle, ToolbarAction.StretchLink, ToolbarAction.StretchParams,
+        ToolbarAction.Channel, ToolbarAction.Debayer, ToolbarAction.Tone,
+        ToolbarAction.ZoomFit, ToolbarAction.ZoomActual,
+        ToolbarAction.PlateSolve, ToolbarAction.Overlays, ToolbarAction.WhiteBalance);
+
     private readonly ImmutableHashSet<ToolbarAction> _actions;
 
     private ToolbarOffer(ImmutableHashSet<ToolbarAction> actions)

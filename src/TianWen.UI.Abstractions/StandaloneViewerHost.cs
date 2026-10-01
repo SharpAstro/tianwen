@@ -80,11 +80,14 @@ public sealed class StandaloneViewerHost<TSurface>
         // The GUI's viewer tab wants none of that -- it cycles every stateful button and has no reverse --
         // and the two policies used to be two press WALKS, which is how single-click selection stayed broken
         // here after the embedded one was fixed. One hook, two policies, one walk.
+        //
+        // It runs every press, so it answers true. A key for an action only the controller can run (the solve,
+        // Enhance, the crop, Open) presses its button, so it arrives here too: one path to the controller.
         viewer.ToolbarPressPolicy = (viewerState, action, button) =>
         {
             if (button == MouseButton.Left && viewer.OpenToolbarDropdown(viewerState, action))
             {
-                return;
+                return true;
             }
 
             var reverse = button == MouseButton.Right;
@@ -94,19 +97,14 @@ public sealed class StandaloneViewerHost<TSurface>
             {
                 controller.HandleToolbarAction(action, reverse, appToken);
             }
+            return true;
         };
         viewer.AppToken = appToken;
 
-        // Signal subscriptions for the app-level actions the controller owns. The ones that need the
-        // window or the shell (exit, fullscreen, opening a URL) stay with the host that has them.
-        bus.Subscribe<PlateSolveSignal>(_ =>
-            controller.HandleToolbarAction(ToolbarAction.PlateSolve, reverse: false, appToken));
-        bus.Subscribe<EnhanceImageSignal>(_ =>
-            controller.HandleToolbarAction(ToolbarAction.Enhance, reverse: false, appToken));
-        bus.Subscribe<AutoCropSignal>(_ =>
-            controller.HandleToolbarAction(ToolbarAction.AutoCrop, reverse: false, appToken));
-        bus.Subscribe<OpenFileSignal>(_ =>
-            controller.HandleToolbarAction(ToolbarAction.Open, reverse: false, appToken));
+        // The one app-level action the renderer still reaches by posting is the save below. The solve, Enhance,
+        // the crop and Open are presses (their keys press their buttons), and reach the controller through the
+        // policy above. The ones that need the window or the shell (exit, fullscreen, opening a URL) stay with
+        // the host that has them.
 
         // The Save dropdown's two rows. The annotation is read off the renderer here rather than reached for
         // inside the controller, because the renderer is what holds it -- so a plate-solve verification or a

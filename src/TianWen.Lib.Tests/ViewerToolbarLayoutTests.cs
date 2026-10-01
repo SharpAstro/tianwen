@@ -312,7 +312,11 @@ namespace TianWen.Lib.Tests
                 .ShouldBeTrue("the help button is always on the bar");
 
             var seen = new System.Collections.Generic.List<(ToolbarAction Action, MouseButton Button)>();
-            viewer.ToolbarPressPolicy = (_, action, button) => seen.Add((action, button));
+            viewer.ToolbarPressPolicy = (_, action, button) =>
+            {
+                seen.Add((action, button));
+                return true;
+            };
 
             UiRouting.RouterFor(viewer).Handle(new InputEvent.MouseDown(
                 rect.X + rect.Width / 2f, rect.Y + rect.Height / 2f, MouseButton.Right));
@@ -340,7 +344,11 @@ namespace TianWen.Lib.Tests
             viewer.Render(null, state);
 
             var seen = new System.Collections.Generic.List<(ToolbarAction Action, MouseButton Button)>();
-            viewer.ToolbarPressPolicy = (_, action, button) => seen.Add((action, button));
+            viewer.ToolbarPressPolicy = (_, action, button) =>
+            {
+                seen.Add((action, button));
+                return true;
+            };
 
             viewer.PressToolbarButton(state, ToolbarAction.Zoom, MouseButton.Right);
 
