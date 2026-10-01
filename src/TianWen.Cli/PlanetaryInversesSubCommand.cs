@@ -9,6 +9,7 @@ using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
+using TianWen.Lib.Imaging.Stacking;
 using Console.Lib;
 using SharpAstro.Ser;
 
@@ -18,9 +19,9 @@ namespace TianWen.Cli;
 /// <c>planetary-inverses</c> (docs/plans/planetary-restoration.md, R8 part 2): a stack restored three regularised ways, a Wiener filter
 /// with Conan's power-law prior, Richardson-Lucy with positivity at the sky, and an L1-L2 edge-preserving prior, each with the limb's
 /// measured kernel and with a single Gaussian of its width, every one set to the same band 3 transfer (1.00 against a twin's truth, or
-/// a given rise over the stack on a real capture) and scored on the limb's undershoot.
+/// a given rise over the stack on a real capture) and scored on the limb's undershoot. <c>--panel</c> draws them side by side.
 /// </summary>
-internal sealed class PlanetaryInversesSubCommand(IConsoleHost consoleHost)
+internal sealed class PlanetaryInversesSubCommand(IConsoleHost consoleHost, MasterPreviewRenderer previewRenderer)
 {
     private const int Bands = 4;
 
@@ -37,12 +38,13 @@ internal sealed class PlanetaryInversesSubCommand(IConsoleHost consoleHost)
         var liftOpt = new Option<double?>("--band3-lift") { Description = "Without a truth: the rise of band 3 over the stack each inverse is set to (what the twin's own setting gave)." };
         var maxStepsOpt = new Option<int>("--max-steps") { Description = "Richardson-Lucy's most steps.", DefaultValueFactory = _ => 80 };
         var gaussianBandOpt = new Option<int?>("--gaussian-band") { Description = "Fit the single Gaussian's width on this band alone (1 to 4) rather than on bands 1 to 4: one whose band 3 transfer is (b')'s can be set to band 3 at all." };
+        var panelOpt = new Option<string?>("--panel") { Description = "A PNG of the disk: the truth (a twin's) and the stack, then Wiener, Richardson-Lucy and L1-L2 with (b'), and below them with the Gaussian, each clipped to 1.3 of the disk and stretched as one." };
 
         var command = new Command("planetary-inverses",
             "A stack restored by Wiener with Conan's power-law prior, Richardson-Lucy with positivity at the sky and an L1-L2 edge-preserving prior, each with the limb's kernel and a single Gaussian of its width, all set to one band 3 transfer and scored on the limb (R8 part 2).")
         {
             Arguments = { inputArg },
-            Options = { truthOpt, planetOpt, framesOpt, keepOpt, telescopeOpt, wavelengthOpt, windowOpt, liftOpt, maxStepsOpt, gaussianBandOpt },
+            Options = { truthOpt, planetOpt, framesOpt, keepOpt, telescopeOpt, wavelengthOpt, windowOpt, liftOpt, maxStepsOpt, gaussianBandOpt, panelOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -133,6 +135,7 @@ internal sealed class PlanetaryInversesSubCommand(IConsoleHost consoleHost)
                 }
 
                 var undershoots = new Dictionary<string, double>();
+                var restorations = new Dictionary<string, float[]>();
                 foreach (var (kernelName, transfer) in new[] { ("(b')", measured), ("Gaussian", gaussian) })
                 {
                     var (amplitude, exponent) = PlanetaryInverse.PowerLawPrior(stackWindow, size, size, transfer, noise);
@@ -159,12 +162,33 @@ internal sealed class PlanetaryInversesSubCommand(IConsoleHost consoleHost)
                 {
                     consoleHost.WriteScrollable(string.Create(inv, $"    {method}: the Gaussian's undershoot over (b')'s {U($"{method}, Gaussian") / U($"{method}, (b')"):0.000}"));
                 }
+
+                if (parseResult.GetValue(panelOpt) is { } panelPath)
+                {
+                    var methods = new[] { "Wiener with the power law", "Richardson-Lucy at the sky", "L1-L2" };
+                    var rows = new[]
+                    {
+                        new[] { truthWindow, stackWindow }.Concat(methods.Select(m => restorations[$"{m}, (b')"])).ToArray(),
+                        new float[]?[] { null, null }.Concat(methods.Select(m => restorations[$"{m}, Gaussian"])).ToArray(),
+                    };
+                    var panel = Panel(rows, size, disk);
+                    try
+                    {
+                        await previewRenderer.RenderPlanetaryAsync(panel, panelPath, gamma: 1, ct: ct);
+                    }
+                    finally
+                    {
+                        panel.Release();
+                    }
+                    consoleHost.WriteScrollable($"    wrote {panelPath}: truth, stack, Wiener, Richardson-Lucy, L1-L2; (b') above, the Gaussian below");
+                }
                 return 0;
 
                 void Report(string name, string knob, float[] restored)
                 {
                     var undershoot = PlanetaryMetrics.LimbUndershoot(restored, size, size, disk);
                     undershoots[name] = undershoot;
+                    restorations[name] = restored;
                     if (truthWindow is { } tw)
                     {
                         var bands = PlanetaryMetrics.Fidelity(restored, tw, size, size, disk, Bands);
@@ -221,6 +245,41 @@ internal sealed class PlanetaryInversesSubCommand(IConsoleHost consoleHost)
             }
         }, offset: 1e-3);
         return (at, reached ?? last);
+    }
+
+    // The windows as tiles, each cut to 1.6 radii about the disk and clipped to [0, 1.3] of it, a gap of sky between them, so one
+    // stretch serves every tile and an inverse that diverged cannot set it. A null is an empty tile.
+    private static Image Panel(float[]?[][] rows, int size, MetricDisk disk)
+    {
+        const int Gap = 4;
+        var half = Math.Min(size / 2, (int)Math.Ceiling(1.6 * disk.Radius));
+        var (centreX, centreY) = ((int)Math.Round(disk.X), (int)Math.Round(disk.Y));
+        var tile = 2 * half;
+        var columns = rows.Max(r => r.Length);
+        var panel = new float[(rows.Length * (tile + Gap)) - Gap, (columns * (tile + Gap)) - Gap];
+        for (var row = 0; row < rows.Length; row++)
+        {
+            for (var column = 0; column < rows[row].Length; column++)
+            {
+                if (rows[row][column] is not { } plane)
+                {
+                    continue;
+                }
+                for (var y = 0; y < tile; y++)
+                {
+                    var sy = centreY - half + y;
+                    for (var x = 0; x < tile; x++)
+                    {
+                        var sx = centreX - half + x;
+                        if (sx >= 0 && sy >= 0 && sx < size && sy < size)
+                        {
+                            panel[(row * (tile + Gap)) + y, (column * (tile + Gap)) + x] = Math.Clamp(plane[(sy * size) + sx], 0f, 1.3f);
+                        }
+                    }
+                }
+            }
+        }
+        return Image.FromChannel(panel, maxValue: 1.3f, minValue: 0f);
     }
 
     private static float[] Crop(float[] plane, int width, int height, int originX, int originY, int size)
