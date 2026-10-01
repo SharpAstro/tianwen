@@ -1048,7 +1048,10 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   high), and its normalisation is the light in its square, which a halo leaves (the twins' square held 66 to 83 % of the moon), so it
   read every twin's oracle too high; a wider square lands its rim on the planet's glow. Three moons at three distances read the
   registration's tilt anisoplanatism on a real capture, so a moon bounds the disk's kernel, never gives it. Every stack's kernel is wider
-  along the planet's EQUATOR (only the limb places a frame along the belts): read a kernel in sectors before calling it round.
+  along the planet's EQUATOR (only the limb places a frame along the belts): read a kernel in sectors before calling it round. But
+  that anisotropy is not measurable off the limb (part 2, `planetary-elongated`): the POLAR limb is a poor edge (darker, past the zonal
+  profile's reach), and an oracle read along the equator is starved of the planet's power past 0.4 cycles a pixel, so never trust a 2-D
+  oracle interpolated from it.
 - **A ghost is taken out as what is NOT ROUND, never as a fitted copy's strength** (R7a, `planetary-ghost`, `PlanetaryGhost`): no round glow
   tells a copy's round part from scatter, so read and remove the copy's non-round part (`PlanetaryGhost.Shell`), from where the planet's own
   blurred limb has died away (8 px past the 2 % edge), with the moons out of the copy and out of every read. A non-round read about that edge
