@@ -124,6 +124,20 @@ public sealed record DegradeOptions(Pupil Pupil, double WavelengthM)
     /// samples the one screen at its own pupil's spacing.
     /// </summary>
     public double? ScreenSpacingM { get; init; }
+
+    /// <summary>
+    /// Every Galilean moon within this many equatorial radii of Jupiter's centre, at its place (<see cref="GalileanMoons"/>) as the
+    /// frames go, in the frames and in the truth; zero for none (docs/plans/planetary-restoration.md, R8 follow-up 4). Jupiter only.
+    /// The window the frames are rendered in grows to hold them.
+    /// </summary>
+    public double MoonsWithinRadii { get; init; }
+
+    /// <summary>The moons' surface brightness over the disk's mean inside 0.8 radii, which <see cref="DiskLevelAdu"/> sets.</summary>
+    public double MoonLevel { get; init; } = 1;
+
+    /// <summary>The moons at <paramref name="utc"/>, as <see cref="MoonsWithinRadii"/> and <see cref="MoonLevel"/> ask; none for any planet but Jupiter.</summary>
+    public ImmutableArray<MoonDisk> MoonsAt(CatalogIndex planet, DateTimeOffset utc) =>
+        MoonsWithinRadii > 0 && planet == CatalogIndex.Jupiter ? MoonDisk.Galilean(utc, MoonsWithinRadii, MoonLevel) : [];
 }
 
 /// <summary>What one synthetic frame was made with: the truth a later phase measures itself against.</summary>
@@ -320,9 +334,14 @@ public static class PlanetaryDegrade
         }
 
         // The fine grid: a window of the detector around the reference disk, sampled `os` times finer, big enough for the
-        // disk, its halo, the PSF's reach and the warp.
+        // disk, its halo, the PSF's reach and the warp, and for the moons asked for wherever they go over the capture.
         var os = OversampleFor(arcsecPerPixel, options.Pupil.DiameterM, options.WavelengthM);
-        var fine = NextPowerOfTwo((int)Math.Ceiling(((2.6 * reference.EquatorialRadius) + 16) * os) + PsfGrid);
+        var reach = 1.3;
+        foreach (var moon in options.MoonsAt(planet, times[0]).AddRange(options.MoonsAt(planet, times[^1])))
+        {
+            reach = Math.Max(reach, Math.Sqrt((moon.X * moon.X) + (moon.Y * moon.Y)) + moon.Radius);
+        }
+        var fine = NextPowerOfTwo((int)Math.Ceiling(((2 * reach * reference.EquatorialRadius) + 16) * os) + PsfGrid);
         var windowPx = fine / os;
         var (windowX, windowY) = ((int)Math.Round(reference.CenterX) - (windowPx / 2), (int)Math.Round(reference.CenterY) - (windowPx / 2));
         var finePlacement = reference with
@@ -361,8 +380,8 @@ public static class PlanetaryDegrade
             var epoch = Math.Floor(middle / options.RenderEverySeconds) * options.RenderEverySeconds;
             if (objectSpectrum is null || epoch != objectEpoch)
             {
-                var aspect = PhysicalEphemeris.Compute(planet, start + TimeSpan.FromSeconds(epoch + (options.RenderEverySeconds / 2)));
-                objectSpectrum = ObjectSpectrum(map, aspect, finePlacement, fine, options);
+                var instant = start + TimeSpan.FromSeconds(epoch + (options.RenderEverySeconds / 2));
+                objectSpectrum = ObjectSpectrum(map, PhysicalEphemeris.Compute(planet, instant), finePlacement, fine, options, options.MoonsAt(planet, instant));
                 objectEpoch = epoch;
             }
 
@@ -514,11 +533,11 @@ public static class PlanetaryDegrade
         public void Report(int value) => inner.Report(((pass * frames) + value) / passes);
     }
 
-    // The map at `aspect`, on the fine grid, scaled so the disk's mean inside 0.8 radii is its level in electrons, and taken
-    // to the Fourier domain once for every frame that shares it.
-    private static Complex[] ObjectSpectrum(PlanetMap map, in PlanetAspect aspect, in DiskPlacement placement, int fine, DegradeOptions options)
+    // The map at `aspect`, with its moons, on the fine grid, scaled so the disk's mean inside 0.8 radii is its level in electrons,
+    // and taken to the Fourier domain once for every frame that shares it.
+    private static Complex[] ObjectSpectrum(PlanetMap map, in PlanetAspect aspect, in DiskPlacement placement, int fine, DegradeOptions options, ImmutableArray<MoonDisk> moons)
     {
-        var render = PlanetaryRender.Render(map, aspect, placement, fine, fine, options.MinnaertK, supersample: 2);
+        var render = PlanetaryRender.Render(map, aspect, placement, fine, fine, options.MinnaertK, supersample: 2, moons);
         double sum = 0;
         var count = 0;
         for (var y = 0; y < fine; y++)

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Immutable;
 using System.Numerics;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging.Optics;
@@ -14,7 +15,48 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// where <see cref="LimbFit.AxisAngleDeg"/> is only the axis.</param>
 /// <param name="Mirrored">Whether the image is the sky's mirror image (an odd number of reflections, or a readout flipped in
 /// one axis): east lies to the right of north instead of the left.</param>
-public readonly record struct DiskPlacement(double CenterX, double CenterY, double EquatorialRadius, double NorthAngleDeg, bool Mirrored = false);
+public readonly record struct DiskPlacement(double CenterX, double CenterY, double EquatorialRadius, double NorthAngleDeg, bool Mirrored = false)
+{
+    /// <summary>The unit vector toward the north pole in the image.</summary>
+    public (double X, double Y) North => (Math.Cos(NorthAngleDeg * Math.PI / 180), Math.Sin(NorthAngleDeg * Math.PI / 180));
+
+    /// <summary>
+    /// The unit vector toward the planet's west in the image: north turned a quarter toward +y, so with north up on a y-down screen west
+    /// is to the right, as the sky looks to the eye. A mirrored image has it the other way.
+    /// </summary>
+    public (double X, double Y) West => Mirrored ? (Math.Sin(NorthAngleDeg * Math.PI / 180), -Math.Cos(NorthAngleDeg * Math.PI / 180))
+        : (-Math.Sin(NorthAngleDeg * Math.PI / 180), Math.Cos(NorthAngleDeg * Math.PI / 180));
+
+    /// <summary>The image point <paramref name="west"/> and <paramref name="north"/> equatorial radii from the centre.</summary>
+    public (double X, double Y) ImagePoint(double west, double north) =>
+        (CenterX + (EquatorialRadius * ((west * West.X) + (north * North.X))), CenterY + (EquatorialRadius * ((west * West.Y) + (north * North.Y))));
+}
+
+/// <summary>
+/// A moon beside a planet's disk, as <see cref="GalileanMoon"/> gives it (docs/plans/planetary-restoration.md, R8 follow-up 4): a uniform
+/// disk drawn wherever the planet's own disk is not.
+/// </summary>
+/// <param name="X">Its offset toward the planet's west, along the equator, in equatorial radii.</param>
+/// <param name="Y">Its offset toward the planet's north, along the axis, in equatorial radii.</param>
+/// <param name="Radius">Its radius, in the planet's equatorial radii.</param>
+/// <param name="Level">Its surface brightness over the planet's disk's mean inside 0.8 radii.</param>
+public readonly record struct MoonDisk(double X, double Y, double Radius, double Level)
+{
+    /// <summary>Jupiter's Galilean moons at <paramref name="utc"/> within <paramref name="withinRadii"/> of its centre, each at <paramref name="level"/>.</summary>
+    public static ImmutableArray<MoonDisk> Galilean(DateTimeOffset utc, double withinRadii, double level)
+    {
+        var (moons, _) = GalileanMoons.At(utc);
+        var builder = ImmutableArray.CreateBuilder<MoonDisk>();
+        foreach (var moon in moons)
+        {
+            if (Math.Sqrt((moon.X * moon.X) + (moon.Y * moon.Y)) < withinRadii)
+            {
+                builder.Add(new MoonDisk(moon.X, moon.Y, moon.Radius, level));
+            }
+        }
+        return builder.ToImmutable();
+    }
+}
 
 /// <summary>
 /// A planet rendered from its global map at an instant (docs/plans/planetary-restoration.md, T1 and R2): the oblate spheroid
@@ -32,9 +74,11 @@ public static class PlanetaryRender
 {
     /// <summary>
     /// The scene alone, no optics: <paramref name="width"/> by <paramref name="height"/> pixels, row-major, each the mean of
-    /// <paramref name="supersample"/> squared rays across it, zero off the disk and on its night side.
+    /// <paramref name="supersample"/> squared rays across it, zero off the disk and on its night side; and <paramref name="moons"/>, each a
+    /// uniform disk where the planet's is not, as many rays to a pixel (R8 follow-up 4).
     /// </summary>
-    public static float[] Render(PlanetMap map, in PlanetAspect aspect, in DiskPlacement placement, int width, int height, double minnaertK, int supersample = 8)
+    public static float[] Render(PlanetMap map, in PlanetAspect aspect, in DiskPlacement placement, int width, int height, double minnaertK, int supersample = 8,
+        ImmutableArray<MoonDisk> moons = default)
     {
         ArgumentNullException.ThrowIfNull(map);
         ArgumentOutOfRangeException.ThrowIfLessThan(supersample, 1);
@@ -59,7 +103,59 @@ public static class PlanetaryRender
                 image[(y * width) + x] = (float)(sum / (supersample * supersample));
             }
         });
+        if (!moons.IsDefaultOrEmpty)
+        {
+            AddMoons(image, width, height, scene, placement, moons, supersample);
+        }
         return image;
+    }
+
+    // Each moon at its level over the disk's mean inside 0.8 radii, on the rays that miss the planet's disk.
+    private static void AddMoons(float[] image, int width, int height, in Scene scene, in DiskPlacement placement, ImmutableArray<MoonDisk> moons, int supersample)
+    {
+        double sum = 0;
+        var count = 0;
+        var inner = 0.64 * placement.EquatorialRadius * placement.EquatorialRadius;
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var (dx, dy) = (x - placement.CenterX, y - placement.CenterY);
+                if ((dx * dx) + (dy * dy) < inner)
+                {
+                    sum += image[(y * width) + x];
+                    count++;
+                }
+            }
+        }
+        var mean = count > 0 ? sum / count : 0;
+        var step = 1.0 / supersample;
+        foreach (var moon in moons)
+        {
+            var (cx, cy) = placement.ImagePoint(moon.X, moon.Y);
+            var r = moon.Radius * placement.EquatorialRadius;
+            var value = moon.Level * mean;
+            for (var y = Math.Max(0, (int)Math.Floor(cy - r - 1)); y <= Math.Min(height - 1, (int)Math.Ceiling(cy + r + 1)); y++)
+            {
+                for (var x = Math.Max(0, (int)Math.Floor(cx - r - 1)); x <= Math.Min(width - 1, (int)Math.Ceiling(cx + r + 1)); x++)
+                {
+                    var hits = 0;
+                    for (var j = 0; j < supersample; j++)
+                    {
+                        var py = y - 0.5 + ((j + 0.5) * step);
+                        for (var i = 0; i < supersample; i++)
+                        {
+                            var px = x - 0.5 + ((i + 0.5) * step);
+                            if (((px - cx) * (px - cx)) + ((py - cy) * (py - cy)) < r * r && !scene.OnDisk(px, py))
+                            {
+                                hits++;
+                            }
+                        }
+                    }
+                    image[(y * width) + x] += (float)(value * hits / (supersample * supersample));
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -69,7 +165,7 @@ public static class PlanetaryRender
     /// scale, as every prime-focus capture is, would otherwise alias the PSF.
     /// </summary>
     public static float[] RenderDiffracted(PlanetMap map, in PlanetAspect aspect, in DiskPlacement placement, int width, int height, double minnaertK,
-        in Pupil pupil, double wavelengthM, double arcsecPerPixel, int supersample = 4)
+        in Pupil pupil, double wavelengthM, double arcsecPerPixel, int supersample = 4, ImmutableArray<MoonDisk> moons = default)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(arcsecPerPixel);
         var nyquistArcsec = wavelengthM / (2 * pupil.DiameterM) * ShortExposurePsf.ArcsecPerRadian;
@@ -86,7 +182,7 @@ public static class PlanetaryRender
         };
         var fineWidth = width * factor;
         var fineHeight = height * factor;
-        var scene = Render(map, aspect, fine, fineWidth, fineHeight, minnaertK, supersample);
+        var scene = Render(map, aspect, fine, fineWidth, fineHeight, minnaertK, supersample, moons);
 
         const int PsfSize = 128;
         var psf = new double[PsfSize * PsfSize];
@@ -186,5 +282,8 @@ public static class PlanetaryRender
             }
             return map.Sample(latitude, west) * Math.Pow(mu0, _k) * Math.Pow(mu, _k - 1);
         }
+
+        // Whether the ray meets the planet at all, day side or night.
+        public bool OnDisk(double x, double y) => _projection.TrySurface(x, y, out _, out _, out _, out _);
     }
 }

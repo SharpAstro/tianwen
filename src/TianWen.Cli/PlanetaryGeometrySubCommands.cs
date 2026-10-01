@@ -295,12 +295,14 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         var spanOpt = new Option<double?>("--span-minutes") { Description = "Spread the synthetic capture's frames evenly in time over this many minutes, in their order, so the planet turns as it would over a run (R6 part 2: a de-rotation's twin). Each frame keeps the real capture's seeing; the air between two frames is no longer the next instant's." };
         var truthAtOpt = new Option<string>("--truth-at") { Description = "The instant the truth is rendered at: reference (the statistics' reference frame's) or middle (the capture's middle, where a de-rotated stack shows the planet).", DefaultValueFactory = _ => "reference" };
         var psfTruthOpt = new Option<bool>("--psf-truth") { Description = "Write every frame's PSF, shift and brightness beside the capture (<capture>.psf), the truth a multi-frame bound is computed against (R8 part 1; about 64 KB a frame). Mono only." };
+        var moonsOpt = new Option<double>("--moons") { Description = "Every Galilean moon within this many radii of Jupiter's centre, at its place as the frames go, in the frames and the truth (R8 follow-up 4); 0 for none." };
+        var moonLevelOpt = new Option<double>("--moon-level") { Description = "The moons' surface brightness over the disk's mean inside 0.8 radii.", DefaultValueFactory = _ => 1 };
 
         var command = new Command("planetary-degrade",
             "A synthetic capture from a global map with a real capture's own seeing, motion and camera (R2): measure the real one, make the synthetic one, measure it the same way, and compare.")
         {
             Arguments = { inputArg },
-            Options = { mapOpt, outputOpt, planetOpt, kOpt, telescopeOpt, wavelengthOpt, r0Opt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, localR0Opt, localOuterScaleOpt, localWindOpt, scatterOpt, scatterCoreOpt, realStatisticsOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, replayOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, plainOpt, framesOpt, bayerMapsOpt, bayerWavelengthsOpt, bayerKOpt, truthUpsampleOpt, spanOpt, truthAtOpt, psfTruthOpt },
+            Options = { mapOpt, outputOpt, planetOpt, kOpt, telescopeOpt, wavelengthOpt, r0Opt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, localR0Opt, localOuterScaleOpt, localWindOpt, scatterOpt, scatterCoreOpt, realStatisticsOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, replayOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, plainOpt, framesOpt, bayerMapsOpt, bayerWavelengthsOpt, bayerKOpt, truthUpsampleOpt, spanOpt, truthAtOpt, psfTruthOpt, moonsOpt, moonLevelOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -405,6 +407,8 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                 WarpLag1 = parseResult.GetValue(warpLagOpt),
                 Seed = parseResult.GetValue(seedOpt),
                 KeepScreenTilt = !parseResult.GetValue(replayOpt),
+                MoonsWithinRadii = parseResult.GetValue(moonsOpt),
+                MoonLevel = parseResult.GetValue(moonLevelOpt),
             };
             // The camera's own terms from the far sky, where the planet's scattered light has gone (the synthetic capture scatters
             // its own light into the ring), as they were before the camera rounded them.
@@ -489,7 +493,8 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             // middle, --truth-at middle) through the pupil alone, in ADU over the sky.
             var referenceTime = truthAtMiddle ? middle : times[truth.ReferenceIndex];
             var referenceAspect = PhysicalEphemeris.Compute(planet, referenceTime);
-            var truthImage = PlanetaryRender.RenderDiffracted(map, referenceAspect, reference, reader.Width, reader.Height, options.MinnaertK, pupil, options.WavelengthM, scale);
+            var truthImage = PlanetaryRender.RenderDiffracted(map, referenceAspect, reference, reader.Width, reader.Height, options.MinnaertK, pupil, options.WavelengthM, scale,
+                moons: options.MoonsAt(planet, referenceTime));
             WriteTruth(Path.ChangeExtension(output, ".truth.fits"), truthImage, reader.Width, reader.Height, reference, options, referenceTime, mapPath);
             WriteRecord(Path.ChangeExtension(output, ".frames.csv"), made);
 
@@ -642,7 +647,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                 foreach (var (name, colour, path) in new[] { ("r", red, mapPaths[0]), ("g", green, mapPaths[1]), ("b", blue, mapPaths[2]) })
                 {
                     var render = PlanetaryRender.RenderDiffracted(colour.Map, colourAspect, colour.Placement, reader.Width, reader.Height, colour.Options.MinnaertK, pupil,
-                        colour.Options.WavelengthM, sensorScale);
+                        colour.Options.WavelengthM, sensorScale, moons: colour.Options.MoonsAt(planet, colourTime));
                     WriteTruth(Path.ChangeExtension(output, $".truth.{name}.fits"), render, reader.Width, reader.Height, colour.Placement, colour.Options, colourTime, path);
                     // At a drizzle's scale: rendered there, never the 1x truth resampled (the plan's rule for R5a).
                     foreach (var upsample in CommaNumbers(parseResult.GetValue(truthUpsampleOpt)))
@@ -654,7 +659,8 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                             CenterY = ((colour.Placement.CenterY + 0.5) * upsample) - 0.5,
                             EquatorialRadius = colour.Placement.EquatorialRadius * upsample,
                         };
-                        var fine = PlanetaryRender.RenderDiffracted(colour.Map, colourAspect, at, w, h, colour.Options.MinnaertK, pupil, colour.Options.WavelengthM, sensorScale / upsample);
+                        var fine = PlanetaryRender.RenderDiffracted(colour.Map, colourAspect, at, w, h, colour.Options.MinnaertK, pupil, colour.Options.WavelengthM, sensorScale / upsample,
+                            moons: colour.Options.MoonsAt(planet, colourTime));
                         WriteTruth(Path.ChangeExtension(output, string.Create(CultureInfo.InvariantCulture, $".truth.{name}.x{upsample:0.##}.fits")), fine, w, h, at, colour.Options, colourTime, path);
                     }
                 }

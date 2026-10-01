@@ -31,14 +31,8 @@ public readonly struct PlanetaryProjection
         _centerX = placement.CenterX;
         _centerY = placement.CenterY;
         _radius = placement.EquatorialRadius;
-        var (sinN, cosN) = Math.SinCos(placement.NorthAngleDeg * Math.PI / 180);
-        _northX = cosN;
-        _northY = sinN;
-        // West is north turned a quarter toward +y: with north up on a y-down screen, west is to the right, as the sky looks to
-        // the eye. A mirrored image has it the other way.
-        var mirror = placement.Mirrored ? -1 : 1;
-        _westX = -sinN * mirror;
-        _westY = cosN * mirror;
+        (_northX, _northY) = placement.North;
+        (_westX, _westY) = placement.West;
 
         var q = 1 - aspect.Flattening;
         var d = aspect.SubObserverLatitudeCentric * Math.PI / 180;

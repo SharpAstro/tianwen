@@ -15,6 +15,9 @@ public readonly record struct GalileanMoon(string Name, double X, double Y, doub
 {
     /// <summary>The moon's angular diameter, arcseconds, from Jupiter's distance <paramref name="distanceAu"/>.</summary>
     public double DiameterArcsec(double distanceAu) => DiameterKm / (distanceAu * 149_597_870.7) * 206_264.806;
+
+    /// <summary>The moon's radius in Jupiter's equatorial radii, the unit of <see cref="X"/> and <see cref="Y"/>.</summary>
+    public double Radius => DiameterKm / 2 / PhysicalEphemeris.Radii(Catalogs.CatalogIndex.Jupiter).Equatorial;
 }
 
 /// <summary>
