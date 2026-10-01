@@ -965,6 +965,9 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   gain** (a frame's least-squares gain per a trous band on the stack of every frame, noise-unbiased) rank at +0.87 to +0.99. **Never
   judge a quality statistic read by the Laplacian**: R2's quality spread and lag 1 were noise. **Register onto a truth with
   `CorrelationRegistrar`** (not whitened, peak climbed by Newton's method), never a phase correlation, which follows the noise.
+  **A keep is chosen where it is used, after the sharpening** (#1083, `planetary-keeps`): a raw stack's best band 1 keep is 5 to 10 %,
+  a sharpened one's about half the frames (through the limb's edge a third less error on every twin). Per-frequency selection gains
+  little once restored, and Fourier burst accumulation's weights read each frame's own noise, so a Wiener on their transfer over-restores.
 - **On a single 8-bit frame phase correlation places a patch 3 times worse than a plain cross-correlation** (R5: 1.11 against
   0.35 px, `AlignmentPointMatchingTests`), and every stack is worse for it. `PlanetaryStackOptions.WhitenedCorrelation` and
   `CaptureStatisticsOptions.WhitenedCorrelation` switch the global aligner and the alignment points (whitened by default until

@@ -472,7 +472,9 @@ Each metric lives in Lib and is shared by the CLI verb and the stack itself (`ti
 
 #### R4 keeps are scored after restoration
 
-**Issue:** #1083 (the literature: `docs/architecture/planetary-literature.md`, theme A).
+**Issue:** #1083 (the literature: `docs/architecture/planetary-literature.md`, theme A). **Done 2026-10-02**: once sharpened, the best
+keep is about half the frames on every twin, where the raw stack's is 5 to 10 %; per-frequency selection and Fourier burst accumulation earn
+nothing to adopt (results below; the keep is #1072's).
 
 R4's keeps minimise the error of a raw stack, and a raw stack's band 1 error is mostly the blur R8 is there to remove. Decomposed from R4's own numbers (theme A section 1.4, derived), band 1's error^2 at a 5 % keep is about 0.34 transfer deficit, 0.06 a residual that does not average down, and 0.015 frame noise. So the keep is chosen where it is used:
 - R4's selections, per-band matched weights (each frame by its transfer) and a Fourier burst accumulation exponent sweep (Delbracio and Sapiro 2015), each scored after an oracle per-frequency Wiener, then after R8's gains;
@@ -492,6 +494,77 @@ R4's keeps minimise the error of a raw stack, and a raw stack's band 1 error is 
     transfer of the best 5 % of frames chosen afresh at each frequency, over that of the best 5 % by the gradient. Noise-free by
     construction: it reads the transfers, never a frame.
   - **Read against the claims:** band 1's error at each keep, raw and restored, its best keep; and the ceiling's excess over one.
+
+##### R4 keeps after restoration: results (2026-10-02)
+
+**Measured** with `tianwen planetary-keeps` on the three twins (3,000 frames each, every frame's PSF known), and `planetary-gains --keep`
+at the same keeps on the stacker's own stack. A second run of `planetary-keeps` reproduced every row.
+
+- **Band 1's error at each keep, the frames summed at their true shifts** (ranked by the gradient), raw, then restored by the oracle
+  Wiener with the sum's own transfer:
+
+  | Twin | | 1 % | 2 % | 5 % | 10 % | 20 % | 50 % | 100 % |
+  |---|---|---|---|---|---|---|---|---|
+  | calibrated | raw | 0.699 | 0.668 | **0.655** | 0.659 | 0.672 | 0.702 | 0.752 |
+  | | restored | 0.500 | 0.439 | 0.362 | 0.307 | 0.261 | 0.217 | **0.206** |
+  | without its still layer | raw | 0.400 | 0.324 | 0.284 | **0.274** | 0.282 | 0.313 | 0.384 |
+  | | restored | 0.331 | 0.272 | 0.211 | 0.178 | 0.152 | 0.132 | **0.127** |
+  | warped | raw | 0.833 | 0.794 | 0.783 | **0.779** | 0.782 | 0.797 | 0.823 |
+  | | restored | 0.672 | 0.617 | 0.567 | 0.529 | 0.504 | 0.480 | **0.473** |
+
+- **The stacker's own stack** (`planetary-gains --keep`), band 1's error and in brackets the four bands' sum: as stacked, after R8's gains
+  through the true kernel, and after them through the limb's edge (follow-up 3's kernel, the one a real capture can measure):
+
+  | Twin | | 1 % | 2 % | 5 % | 10 % | 20 % | 50 % | 100 % |
+  |---|---|---|---|---|---|---|---|---|
+  | calibrated | stack | 0.683 (1.430) | 0.658 (1.412) | **0.651** (1.415) | 0.657 (1.432) | 0.670 (1.460) | 0.699 (1.515) | 0.748 (1.613) |
+  | | true kernel | 0.634 (0.843) | 0.583 (0.760) | 0.499 (0.649) | 0.436 (0.578) | 0.398 (0.533) | **0.386** (0.528) | 0.445 (0.600) |
+  | | the edge | 0.710 (1.029) | 0.691 (0.989) | 0.627 (0.916) | 0.564 (0.853) | 0.510 (0.791) | **0.387** (0.601) | 0.485 (0.762) |
+  | without its still layer | stack | 0.384 (0.599) | 0.322 (0.533) | 0.293 (0.511) | **0.288** (0.512) | 0.296 (0.530) | 0.325 (0.581) | 0.388 (0.686) |
+  | | true kernel | 0.369 (0.462) | 0.299 (0.370) | 0.235 (0.289) | 0.205 (0.250) | 0.185 (0.225) | 0.171 (0.208) | **0.167** (0.204) |
+  | | the edge | 0.385 (0.528) | 0.315 (0.447) | 0.252 (0.377) | 0.224 (0.347) | 0.203 (0.323) | 0.188 (0.306) | **0.178** (0.301) |
+  | warped | stack | 0.816 (1.650) | 0.785 (1.614) | 0.776 (1.616) | **0.773** (1.622) | 0.778 (1.636) | 0.791 (1.668) | 0.817 (1.736) |
+  | | true kernel | 1.038 (1.405) | 1.034 (1.323) | 0.919 (1.160) | 0.770 (0.981) | 0.661 (0.864) | **0.558** (0.757) | 0.559 (0.782) |
+  | | the edge | 0.940 (1.382) | 0.931 (1.321) | 0.828 (1.179) | 0.711 (1.042) | 0.593 (0.906) | **0.481** (0.720) | 0.495 (0.751) |
+
+- **Weighting every frame per frequency instead of keeping some**, each restored by the oracle Wiener with its own transfer, band 1's
+  error and the sum:
+
+  | Twin | Every frame, plain | Matched weights | FBA p = 1 | p = 2 | p = 4 | p = 8 | p = 11 |
+  |---|---|---|---|---|---|---|---|
+  | calibrated | 0.206 (0.234) | **0.191** (0.219) | 0.381 (0.526) | 0.630 (0.892) | 1.000 (1.455) | 1.097 (1.776) | 0.944 (1.663) |
+  | without its still layer | 0.127 (0.143) | **0.125** (0.141) | 0.291 (0.362) | 0.508 (0.635) | 0.865 (1.086) | 1.107 (1.462) | 1.029 (1.442) |
+  | warped | 0.473 (0.656) | 0.466 (0.649) | **0.400** (0.524) | 0.433 (0.659) | 0.640 (1.112) | 0.879 (1.722) | 0.859 (1.850) |
+
+  FBA's p = 0 is the plain average and reads as it, row for row.
+- **The ceiling of per-frequency selection** in band 1, the best 150 frames at each frequency: over the 150 the gradient kept, as
+  pre-registered, 1.220, 1.091 and 1.311 on the calibrated twin, the one without its still layer and the warped one. **Post hoc, not
+  pre-registered:** over the 150 whole frames whose true band 1 transfer is highest, 1.132, 1.045 and 1.132.
+- **The claims, as pre-registered:**
+  - **Band 1's best keep moves from 5 to 10 % to half the frames or more: it holds on every twin and every reading.** Restored by the
+    oracle, every frame helps (100 % everywhere); on the stacker's own stack after R8's gains, the best keep is half the frames (calibrated,
+    warped, where 100 % ties) or all of them (without its still layer), through the true kernel and through the edge alike. Unrestored,
+    the best stays at R4's 5 to 10 %.
+  - **The ceiling of per-frequency selection is under 15 %: it holds only on the twin without its still layer** (9.1 %), and fails on
+    the calibrated twin (22.0 %) and the warped one (31.1 %).
+- **What the numbers say:**
+  - **The keep belongs to the sharpening.** A raw stack keeps few frames because its band 1 is mostly blur, and each frame added
+    blurs it more; restoration divides the blur out, and then every frame lowers the noise it has to lift. Through the edge, the kernel
+    a real capture can measure, half the frames leave a third less error than 5 % on every twin (sums 0.601 against 0.916, 0.306 against
+    0.377, 0.720 against 1.179).
+  - **The stacker's own stack is best at half the frames where the true-shift sum improves to the last**: the worst half costs the
+    stacker something the true shifts do not, which this does not separate (its registration of the worst frames is R5's).
+  - **The ceiling is mostly the gradient's ranking.** Over the truly sharpest whole frames, choosing afresh at each frequency gains
+    4.5 to 13.2 %; the rest of the pre-registered excess is frames the gradient ranked wrong, twice as many on the warped twin.
+  - **And a ceiling of transfer is not a gain in a restored stack.** Matched weights, which read each frame's true transfer at every
+    frequency, leave 1 to 7 % less band 1 error than every frame summed plainly, because the restoration already takes every frame.
+  - **Fourier burst accumulation over-restores where the transfer is exact.** Its weights read each frame's own spectrum, noise
+    included, so the weighted sum holds more than the weights' average of the frames' transfers says, and a Wiener built on that
+    average lifts band 1 past the truth (1.22 and 1.18 at p = 1) and doubles its error. On the warped twin the PSFs leave the warp out,
+    the plain restoration stops at 0.62 of band 1, and the same overshoot fills part of it: p = 1 is that twin's best row (interpretation:
+    a missing blur compensated, not a selection that gains).
+- **What it leaves:** the keep for a sharpened stack is about half the frames, and setting it is #1072's, which still waits on open
+  question 4 (the keep is measured on the twins). Per-frequency selection and FBA earn nothing to adopt. #1083 closes with this.
 
 ## R5 Alignment points and the dewarp
 
