@@ -38,9 +38,10 @@ public static class PlanetaryInverse
     /// <summary>
     /// <paramref name="stack"/>'s transfer against <paramref name="truth"/> ring by ring (both normalised, sky zero, registered): the
     /// real part of their cross spectrum over the truth's power, which the stack's noise leaves unbiased. A ring where the truth holds
-    /// under <paramref name="minPowerFraction"/> of its power at the second ring reads zero, and every value is kept in [0, 1.5].
+    /// under <paramref name="minPowerFraction"/> of its power at the second ring reads zero, and every value is kept in [0,
+    /// <paramref name="ceiling"/>] (1.5 for a blur; a sharpening's transfer is read with a higher one).
     /// </summary>
-    public static RadialTransfer Measure(ReadOnlySpan<float> stack, ReadOnlySpan<float> truth, int width, int height, double minPowerFraction = 1e-6)
+    public static RadialTransfer Measure(ReadOnlySpan<float> stack, ReadOnlySpan<float> truth, int width, int height, double minPowerFraction = 1e-6, double ceiling = 1.5)
     {
         var n = GridFor(width, height, 0);
         var s = Transform(stack, width, height, n);
@@ -67,7 +68,7 @@ public static class PlanetaryInverse
         var values = ImmutableArray.CreateBuilder<double>(rings);
         for (var r = 0; r < rings; r++)
         {
-            values.Add(power[r] > floor && power[r] > 0 ? Math.Clamp(cross[r] / power[r], 0, 1.5) : 0);
+            values.Add(power[r] > floor && power[r] > 0 ? Math.Clamp(cross[r] / power[r], 0, ceiling) : 0);
         }
         return new RadialTransfer(values.MoveToImmutable(), n);
     }

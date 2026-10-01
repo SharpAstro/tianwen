@@ -71,7 +71,7 @@ internal sealed class PlanetaryRingingSubCommand(IConsoleHost consoleHost)
             var extraGains = parseResult.GetValue(gainsOpt) ?? [];
 
             // Another program's sharpening, read first: its kernel is carried to every twin.
-            (double[] Kernel, int KernelRadius, double DiskRadius)? other = null;
+            (double[] Kernel, int KernelRadius, double DiskRadius, RadialTransfer Measured)? other = null;
             if (parseResult.GetValue(otherStackOpt) is { } otherStackPath && parseResult.GetValue(otherSharpenedOpt) is { } otherSharpenedPath)
             {
                 if (parseResult.GetValue(otherUtcOpt) is not { } otherUtc)
@@ -112,7 +112,7 @@ internal sealed class PlanetaryRingingSubCommand(IConsoleHost consoleHost)
     }
 
     // One twin: its stack, every restoration, and a row each.
-    private async Task<int> TwinAsync(string input, string truthPath, IReadOnlyList<(string Name, double[] Gains)> gainSets, (double[] Kernel, int KernelRadius, double DiskRadius)? other,
+    private async Task<int> TwinAsync(string input, string truthPath, IReadOnlyList<(string Name, double[] Gains)> gainSets, (double[] Kernel, int KernelRadius, double DiskRadius, RadialTransfer Measured)? other,
         CatalogIndex planet, int size, double keep, string telescope, double wavelengthNm, List<Row> rows, CancellationToken ct)
     {
         var inv = CultureInfo.InvariantCulture;
@@ -232,6 +232,9 @@ internal sealed class PlanetaryRingingSubCommand(IConsoleHost consoleHost)
                 var ratio = o.DiskRadius / fit.EquatorialRadius;
                 Func<double, double, Complex> carried = (fx, fy) => PlanetaryKernelFit.TransferAt(o.Kernel, o.KernelRadius, fx / ratio, fy / ratio);
                 Add(string.Create(inv, $"AutoStakkert's kernel, carried by {ratio:0.000}"), PlanetaryKernelFit.Filter(stackWindow, size, size, carried), carried);
+                // Post hoc: its transfer as measured ring by ring, carried the same way; past the last ring its stack held signal in, one.
+                Func<double, double, Complex> measuredCarried = (fx, fy) => o.Measured.At(Math.Sqrt((fx * fx) + (fy * fy)) / ratio) is var t && t > 0 ? t : 1;
+                Add(string.Create(inv, $"AutoStakkert's transfer measured ring by ring, carried by {ratio:0.000} (post hoc)"), PlanetaryKernelFit.Filter(stackWindow, size, size, measuredCarried), measuredCarried);
             }
             return 0;
         }
@@ -247,7 +250,7 @@ internal sealed class PlanetaryRingingSubCommand(IConsoleHost consoleHost)
 
     // Another program's sharpening as the kernel of its stack: fitted over the whole frame, its residual read inside 0.9 radii, over
     // 0.9 to 1.3 and past 1.5, and the scale between its grid and the limb fit's.
-    private (double[] Kernel, int KernelRadius, double DiskRadius)? OtherKernel(string stackPath, string sharpenedPath, CatalogIndex planet, DateTimeOffset when, int radius)
+    private (double[] Kernel, int KernelRadius, double DiskRadius, RadialTransfer Measured)? OtherKernel(string stackPath, string sharpenedPath, CatalogIndex planet, DateTimeOffset when, int radius)
     {
         var inv = CultureInfo.InvariantCulture;
         if (!Image.TryReadImageFile(stackPath, out var otherStack) || !Image.TryReadImageFile(sharpenedPath, out var otherSharpened))
@@ -290,6 +293,27 @@ internal sealed class PlanetaryRingingSubCommand(IConsoleHost consoleHost)
                 return count > 0 ? Math.Sqrt(sum / count) : double.NaN;
             }
             var (inside, annulus, sky) = (Rms(r => r < 0.9), Rms(r => r >= 0.9 && r < 1.3), Rms(r => r >= 1.5));
+            // Post hoc: the residual against the sharpened copy's own spread inside the disk, and the filter's transfer read ring by ring
+            // against its stack (cross spectrum over the stack's power), defined only where the stack holds signal, where a free
+            // kernel's taps are not.
+            double insideSpread;
+            {
+                double s1 = 0, s2 = 0;
+                var count = 0;
+                for (var y = 0; y < h; y++)
+                {
+                    for (var x = 0; x < w; x++)
+                    {
+                        if (disk.RadiiAt(x, y) < 0.9)
+                        {
+                            var v = target[(y * w) + x];
+                            (s1, s2, count) = (s1 + v, s2 + ((double)v * v), count + 1);
+                        }
+                    }
+                }
+                insideSpread = Math.Sqrt(Math.Max(0, (s2 / count) - ((s1 / count) * (s1 / count))));
+            }
+            var measuredTransfer = PlanetaryInverse.Measure(target, source, w, h, ceiling: 50);
             var sumK = kernel.Sum();
             var negative = -kernel.Where(k => k < 0).Sum() / sumK;
             var transfers = new[] { 0.05, 0.1, 0.2, 0.3, 0.4, 0.5 }.Select(f => PlanetaryKernelFit.TransferAt(kernel, radius, f, 0).Real);
@@ -297,7 +321,9 @@ internal sealed class PlanetaryRingingSubCommand(IConsoleHost consoleHost)
                 $"{Path.GetFileName(sharpenedPath)} as a {2 * radius + 1}x{2 * radius + 1} kernel of its stack ({w}x{h}, the disk {disk.Radius:0.0} px): sum {sumK:0.0000}, constant {constant:0.0}, its own negative mass {negative:0.000}; transfer along x at 0.05, 0.1, 0.2, 0.3, 0.4, 0.5 cycles a pixel of its grid {string.Join(", ", transfers.Select(t => t.ToString("0.000", inv)))}"));
             consoleHost.WriteScrollable(string.Create(inv,
                 $"    the residual's RMS: inside 0.9 radii {inside:0.00}, 0.9 to 1.3 radii {annulus:0.00} ({annulus / inside:0.00} of inside), past 1.5 radii {sky:0.00} ({sky / inside:0.00}); a linear, shift-invariant filter: {(annulus <= 2 * inside && sky <= 2 * inside ? "yes" : "NO")}"));
-            return (kernel, radius, disk.Radius);
+            consoleHost.WriteScrollable(string.Create(inv,
+                $"    post hoc: the residual's RMS over the sharpened copy's spread inside 0.9 radii: inside {inside / insideSpread:G3}, 0.9 to 1.3 radii {annulus / insideSpread:G3}, past 1.5 {sky / insideSpread:G3}; its transfer ring by ring at 0.05, 0.1, 0.2, 0.3, 0.4, 0.5 cycles a pixel of its grid {string.Join(", ", new[] { 0.05, 0.1, 0.2, 0.3, 0.4, 0.5 }.Select(f => measuredTransfer.At(f).ToString("0.000", inv)))}"));
+            return (kernel, radius, disk.Radius, measuredTransfer);
         }
         finally
         {
