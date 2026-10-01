@@ -24,7 +24,7 @@ internal static class ImageEndpoints
         {
             // Presence gate: AddRcAstroAi()/AddTianWenAi() registers the pipeline; a host without it
             // (no AI models) can't enhance anything, so reject with 503 -- mirrors the viewer hiding
-            // its Enhance button when no pipeline is wired (renderer EnhanceAvailable).
+            // its Enhance button when no pipeline is wired (the host's ToolbarOffer leaves it out).
             if (!enhancer.IsAvailable)
             {
                 return EnvelopeResults.Json(

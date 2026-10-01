@@ -2,7 +2,7 @@
 
 ## Status
 
-**IN PROGRESS** (P1 steps 1 and 2 done 2026-10-01; raised by the user 2026-09-30, while testing a Canon EOS 6D through the preview: "we also need a few
+**IN PROGRESS** (P1 steps 1 to 3 done 2026-10-01; raised by the user 2026-09-30, while testing a Canon EOS 6D through the preview: "we also need a few
 more controls in the preview like show stars, HFD, FWHM, and all the other stuff, image stats, also the histogram, not
 just a Canon thing really", and a live view in the preview "which is useful beyond just planetary"). Milestone
 `live-session-preview` (#1108 to #1113 and #1124, one a section). Nothing here is Canon's: every camera the node drives previews through the same pane.
@@ -114,7 +114,14 @@ A source that is not a document gains what only needed the picture, as step 1 fo
    source's findings set by its host and dropped with each new frame). A solved live frame's grid is now
    labelled, as a file's is. **The status line said HFR over the median HFD**, a diameter, so it read twice the
    radius it named; it says HFD now.
-3. The host's actions and what it offers; the three toolbar mechanisms removed.
+3. The host's actions and what it offers; the three toolbar mechanisms removed (**done**, 2026-10-01). As built, the
+   offer is a VALUE, `ToolbarOffer`: the one canonical table of buttons (order, labels, groups), from which a host
+   picks actions (`FileViewer`, `Planetary`, `With`), set as `ImageRendererBase.Offer`. Running stays where it was
+   and needed no new interface: the host's `ToolbarPressPolicy` for a press, the signal for a key, and a key for
+   an action only a host runs (Open, Save, the crop, the solve, Enhance) acts only where it is offered; Ctrl+O
+   unoffered is swallowed rather than falling through to O. Pinned by `ToolbarOfferTests`. The info panel's
+   metadata and statistics stay a document's: a SER's statistics are its first frame's, so widening them waits
+   for P3.
 4. The preview pane switches its chrome on, with its own host: `RenderMiniViewerToolbar` and the pane's own Solve
    button are deleted.
 

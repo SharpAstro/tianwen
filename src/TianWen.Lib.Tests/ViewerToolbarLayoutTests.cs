@@ -98,10 +98,11 @@ namespace TianWen.Lib.Tests
             // Gives the widget an image without a source, so the buttons gated on one are enabled.
             viewer.UploadChannelTexture(ReadOnlySpan<float>.Empty, 0, 400, 300);
             // The WIDEST button set, which is the only one worth wrapping tests around -- and the one
-            // tianwen-fits actually ships (Program.cs sets this). Left at its default false, these tests
-            // measured a bar with no Enhance button, i.e. a configuration no shipped app draws, so the
-            // wrap assertions were made against a narrower bar than any user sees.
-            viewer.EnhanceAvailable = true;
+            // tianwen-fits actually ships (Program.cs sets this), less the sky, which needs a map this
+            // surface does not have. Left at the default offer, these tests measured a bar with no Enhance
+            // button, i.e. a configuration no shipped app draws, so the wrap assertions were made against a
+            // narrower bar than any user sees.
+            viewer.Offer = ToolbarOffer.FileViewer.With(ToolbarAction.Enhance);
             return viewer;
         }
 

@@ -111,15 +111,18 @@ namespace TianWen.Lib.Tests
                 filePath: "synthetic.fits", cancellationToken: ct);
 
         /// <summary>
-        /// Gives the viewer a map to draw, which is what makes the button EXIST -- a host that never
-        /// set one (the GUI's image tab, every chromeless embedding) can never draw a backdrop, so
-        /// there the button is absent rather than dead.
+        /// Gives the viewer a map to draw and offers the button, as a host that wires a map does
+        /// (tianwen-fits) -- a host that never set one (every embedding in the GUI) can never draw a
+        /// backdrop, so it does not offer it, and there the button is absent rather than dead.
         /// </summary>
         private static void AttachSky(SkyButtonViewer viewer, RgbaImageRenderer renderer)
-            => viewer.SkyBackdrop = new SkyMapTab<RgbaImage>(renderer)
+        {
+            viewer.SkyBackdrop = new SkyMapTab<RgbaImage>(renderer)
             {
                 FontPath = FontResolver.ResolveSystemFont(),
             };
+            viewer.Offer = ToolbarOffer.FileViewer.With(ToolbarAction.SkyBackdrop);
+        }
 
         // Wide enough that the bar cannot run out of room and drop the button being asserted on, which
         // would read as the feature being absent.
