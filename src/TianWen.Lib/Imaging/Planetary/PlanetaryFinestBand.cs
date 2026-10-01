@@ -132,6 +132,55 @@ public static class PlanetaryFinestBand
     }
 
     /// <summary>
+    /// (a) The physical kernel nearest the limb's <paramref name="edge"/> (<see cref="EdgeProfile.TransferAt"/>) from
+    /// <paramref name="fromCyclesPerPixel"/> to <paramref name="toCyclesPerPixel"/> in steps of a hundredth: a coarse search over the seeing
+    /// and the Gaussian, then Levenberg-Marquardt over all four numbers. The edge is read where it is good; the kernel carries it on to the
+    /// cutoff in the shape its physics gives, where the edge is noise.
+    /// </summary>
+    public static PhysicalKernel FitPhysical(EdgeProfile edge, double cutoffCyclesPerPixel, double fromCyclesPerPixel = 0.02, double toCyclesPerPixel = 0.35)
+    {
+        ArgumentNullException.ThrowIfNull(edge);
+        var count = (int)Math.Round((toCyclesPerPixel - fromCyclesPerPixel) / 0.01) + 1;
+        var (frequencies, read) = (new double[count], new double[count]);
+        for (var i = 0; i < count; i++)
+        {
+            frequencies[i] = fromCyclesPerPixel + (i * 0.01);
+            read[i] = edge.TransferAt(frequencies[i]);
+        }
+        PhysicalKernel Kernel(ReadOnlySpan<double> p) =>
+            new PhysicalKernel(Math.Exp(p[0]), Math.Abs(p[1]), 0.5 / (1 + Math.Exp(-p[2])), Math.Exp(p[3]), cutoffCyclesPerPixel);
+        double[] best = [];
+        var bestCost = double.PositiveInfinity;
+        foreach (var seeing in new[] { 0.5, 2, 8, 30 })
+        {
+            foreach (var sigma in new[] { 0.2, 0.6, 1.2 })
+            {
+                double[] start = [Math.Log(seeing), sigma, Math.Log(0.05 / 0.45), Math.Log(10)];
+                var kernel = Kernel(start);
+                var cost = 0.0;
+                for (var i = 0; i < count; i++)
+                {
+                    var r = read[i] - kernel.TransferAt(frequencies[i]);
+                    cost += r * r;
+                }
+                if (cost < bestCost)
+                {
+                    (bestCost, best) = (cost, start);
+                }
+            }
+        }
+        var result = Stat.LevenbergMarquardt.Fit(best, count, (p, residuals) =>
+        {
+            var kernel = Kernel(p);
+            for (var i = 0; i < count; i++)
+            {
+                residuals[i] = double.IsFinite(read[i]) ? read[i] - kernel.TransferAt(frequencies[i]) : 0;
+            }
+        }, [1e-4, 1e-4, 1e-4, 1e-4], maxIterations: 200);
+        return Kernel(result.Parameters);
+    }
+
+    /// <summary>
     /// <paramref name="a"/>'s ring power over <paramref name="b"/>'s, averaged over the rings from <paramref name="from"/> to
     /// <paramref name="to"/> cycles a pixel: one map's texture against another's, the spectrum's kill line.
     /// </summary>
@@ -145,6 +194,35 @@ public static class PlanetaryFinestBand
         }
         return sb > 0 ? sa / sb : double.NaN;
     }
+}
+
+/// <summary>
+/// (a) A stack's kernel over the pupil's diffraction from what is known of its physics (R8 follow-up 3): a lucky stack's residual seeing as
+/// a short-exposure atmospheric transfer, exp(-A u^(5/3) (1 - u^(1/3))) with u the frequency over the cutoff D / lambda (Fried 1966, the
+/// tilt taken out), times a Gaussian for what the alignment leaves (the warp, the registration's scatter), beside a share of the light in a
+/// wide halo. The seeing term falls more slowly than a Gaussian toward the cutoff, which is where the limb fit's Gaussian models read band 1
+/// low.
+/// </summary>
+/// <param name="Seeing">A, 3.44 (D / r0)^(5/3) for the r0 the kept frames see.</param>
+/// <param name="SigmaPx">The Gaussian's sigma, px.</param>
+/// <param name="Halo">The halo's share of the light.</param>
+/// <param name="HaloWidthPx">The halo's Gaussian sigma, px.</param>
+/// <param name="CutoffCyclesPerPixel">The pupil's cutoff, D / lambda, in cycles a pixel.</param>
+public readonly record struct PhysicalKernel(double Seeing, double SigmaPx, double Halo, double HaloWidthPx, double CutoffCyclesPerPixel)
+{
+    /// <summary>The transfer at <paramref name="cyclesPerPixel"/>.</summary>
+    public double TransferAt(double cyclesPerPixel)
+    {
+        var u = Math.Clamp(cyclesPerPixel / CutoffCyclesPerPixel, 0, 1);
+        var seeing = Math.Exp(-Seeing * Math.Pow(u, 5.0 / 3) * (1 - Math.Pow(u, 1.0 / 3)));
+        var f2 = cyclesPerPixel * cyclesPerPixel;
+        var core = Math.Exp(-2 * Math.PI * Math.PI * SigmaPx * SigmaPx * f2);
+        var halo = Math.Exp(-2 * Math.PI * Math.PI * HaloWidthPx * HaloWidthPx * f2);
+        return ((1 - Halo) * seeing * core) + (Halo * halo);
+    }
+
+    /// <summary>D / r0 for the r0 the seeing term says: (A / 3.44)^(3/5).</summary>
+    public double ApertureOverR0 => Math.Pow(Seeing / 3.44, 0.6);
 }
 
 /// <summary>

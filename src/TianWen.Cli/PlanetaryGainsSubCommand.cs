@@ -98,6 +98,20 @@ internal sealed class PlanetaryGainsSubCommand(IConsoleHost consoleHost, MasterP
                     var held = Derive(measured, noise, hold);
                     rows.Add(($"derived, (b'), the finest {hold} held at 1 [{Show(held)}]", PlanetaryWaveletGains.Apply(stackWindow, size, size, held.AsSpan())));
                 }
+
+                // R8 follow-up 3: the limb's edge (b) and the physical kernel fitted to it (a), plain and with the composite held non-negative.
+                var edge = prepared.LimbEdge(stackWindow);
+                Func<double, double> edgeKernel = f => Math.Clamp(edge.TransferAt(f), 0, 1);
+                var physical = PlanetaryFinestBand.FitPhysical(edge, prepared.Cutoff);
+                consoleHost.WriteScrollable(string.Create(inv,
+                    $"    (a), the physical kernel on the limb's edge: D/r0 {physical.ApertureOverR0:0.00}, sigma {physical.SigmaPx:0.00} px, halo {physical.Halo:0.000} of {physical.HaloWidthPx:0.0} px; at 0.1, 0.2, 0.3, 0.4 cycles a pixel {physical.TransferAt(0.1):0.000} {physical.TransferAt(0.2):0.000} {physical.TransferAt(0.3):0.000} {physical.TransferAt(0.4):0.000}, the edge {edge.TransferAt(0.1):0.000} {edge.TransferAt(0.2):0.000} {edge.TransferAt(0.3):0.000} {edge.TransferAt(0.4):0.000}"));
+                var derivedEdge = Derive(edgeKernel, noise);
+                rows.Add(($"derived, (b) the limb's edge [{Show(derivedEdge)}]", PlanetaryWaveletGains.Apply(stackWindow, size, size, derivedEdge.AsSpan())));
+                var derivedPhysical = Derive(physical.TransferAt, noise);
+                rows.Add(($"derived, (a) the physical kernel [{Show(derivedPhysical)}]", PlanetaryWaveletGains.Apply(stackWindow, size, size, derivedPhysical.AsSpan())));
+                var derivedPhysicalNonNegative = PlanetaryWaveletGains.FitNonNegative(power, PlanetaryWaveletGains.Wiener(power, noise, physical.TransferAt), diskTarget,
+                    PlanetaryInverse.Apply(diskTarget, size, size, physical.TransferAt), size, size, disk, physical.TransferAt);
+                rows.Add(($"derived, (a) under a non-negative composite [{Show(derivedPhysicalNonNegative)}]", PlanetaryWaveletGains.Apply(stackWindow, size, size, derivedPhysicalNonNegative.AsSpan())));
                 float[]? jointPlane = null;
                 if (truthWindow is { } tw)
                 {
@@ -174,6 +188,11 @@ internal sealed class PlanetaryGainsSubCommand(IConsoleHost consoleHost, MasterP
                     consoleHost.WriteScrollable(string.Create(inv, $"    each preset's error over the derived gains': {string.Join(", ", beaten)}"));
                     consoleHost.WriteScrollable(string.Create(inv, $"    the ringing gate: undershoot {d.Undershoot:0.0000} against {gate:0.0000} ({(d.Undershoot <= gate ? "passes" : "FAILS")})"));
                     consoleHost.WriteScrollable(string.Create(inv, $"    over the jointly fitted oracle: the true kernel {o.Error / j.Error:0.000} (within 1.10?), (b') {d.Error / j.Error:0.000} (within 1.25?)"));
+                    var (pa, pb, pn) = (scores.First(s => s.Key.StartsWith("derived, (a) the physical", StringComparison.Ordinal)).Value,
+                        scores.First(s => s.Key.StartsWith("derived, (b) the limb's edge", StringComparison.Ordinal)).Value,
+                        scores.First(s => s.Key.StartsWith("derived, (a) under", StringComparison.Ordinal)).Value);
+                    consoleHost.WriteScrollable(string.Create(inv,
+                        $"    over the true kernel's derived gains: (a) {pa.Error / o.Error:0.000} (within 1.15?), (b) {pb.Error / o.Error:0.000}, (a) non-negative {pn.Error / o.Error:0.000}"));
                 }
 
                 if (parseResult.GetValue(otherStackOpt) is { } otherStackPath && parseResult.GetValue(otherSharpenedOpt) is { } otherSharpenedPath)

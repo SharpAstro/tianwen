@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry;
@@ -56,7 +57,31 @@ internal sealed class PlanetaryWindowedStack : IDisposable
     public Func<double, double> Measured => f => Diffraction.At(f) is var d && d > 0.02 ? Math.Clamp(Wide.TransferAt(f) / d, 0, 1) : 0;
 
     /// <summary>The sharp model through the pupil's diffraction alone: the truth's disk.</summary>
-    public float[] DiskTarget => PlanetaryInverse.Apply(SharpDisk, Size, Size, Diffraction.At);
+    public float[] DiskTarget => _diskTarget ??= PlanetaryInverse.Apply(SharpDisk, Size, Size, Diffraction.At);
+
+    private float[]? _diskTarget;
+
+    /// <summary>The pupil's cutoff, D / lambda, in cycles a pixel.</summary>
+    public required double Cutoff { get; init; }
+
+    /// <summary>
+    /// (b) <paramref name="plane"/>'s edge across the limb against the sharp model through the diffraction (R8 follow-up 3,
+    /// <see cref="PlanetaryFinestBand.Edge"/>), each flattened by its own zonal brightness at the latitude its limb point lies at; along
+    /// <paramref name="sectorDeg"/> and its opposite only, when given.
+    /// </summary>
+    public EdgeProfile LimbEdge(float[] plane, double? sectorDeg = null)
+    {
+        var projection = new PlanetaryProjection(Aspect, new DiskPlacement(Disk.X, Disk.Y, Fit.EquatorialRadius, Fit.NorthAngleDeg));
+        return PlanetaryFinestBand.Edge(plane, DiskTarget, Size, Size, Disk, Fit.SunSide, Flatten(plane, projection), Flatten(DiskTarget, projection), sectorDeg);
+    }
+
+    // Each limb point's brightness relative to the plane's mean, by the zonal brightness at its latitude.
+    private Func<double, double, double> Flatten(float[] plane, PlanetaryProjection projection)
+    {
+        var zonal = PlanetaryBelts.FromImage(plane, Size, Size, projection, Aspect.CentralMeridianIII, Fit.LimbDarkening);
+        var mean = zonal.Albedo.Where(double.IsFinite).DefaultIfEmpty(double.NaN).Average();
+        return (x, y) => projection.TrySurface(x, y, out var latitude, out _, out _, out _) ? zonal.At(latitude) / mean : double.NaN;
+    }
 
     /// <summary>A full-frame plane cut to the window.</summary>
     public float[] Window(float[] plane) => PlanetaryInversesSubCommand.Crop(plane, Width, Height, OriginX, OriginY, Size);
@@ -157,6 +182,7 @@ internal sealed class PlanetaryWindowedStack : IDisposable
                 ArcsecPerPixel = scale,
                 Aspect = aspect,
                 When = when,
+                Cutoff = pupil.DiameterM / (wavelengthNm * 1e-9) / TianWen.Lib.Imaging.Optics.ShortExposurePsf.ArcsecPerRadian * scale,
             };
             prepared = true;
             return windowed;
