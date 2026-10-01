@@ -44,6 +44,13 @@ internal sealed class PlanetaryWindowedStack : IDisposable
     public float[]? HalfA { get; init; }
     public float[]? HalfB { get; init; }
     public float[]? Truth { get; init; }
+    /// <summary>The stack over the whole frame, normalised and registered as <see cref="Stack"/> is: where a moon beyond the window is read.</summary>
+    public required float[] FullStack { get; init; }
+    public float[]? FullHalfA { get; init; }
+    public float[]? FullHalfB { get; init; }
+    /// <summary>The first and the last frame's time: the span a moon drifted over.</summary>
+    public required DateTimeOffset Start { get; init; }
+    public required DateTimeOffset End { get; init; }
     /// <summary>The limb fit's sharp model, moved as the stack was, in the window.</summary>
     public required float[] SharpDisk { get; init; }
     public required RadialTransfer Diffraction { get; init; }
@@ -97,7 +104,7 @@ internal sealed class PlanetaryWindowedStack : IDisposable
         using var reader = SerReader.Open(input);
         using var whole = new SerFrameStream(reader, ownsReader: false);
         using var stream = new PlanetaryFrameWindow(whole, 0, Math.Min(whole.FrameCount, frames ?? whole.FrameCount));
-        if (stream.MidCapture is not { } when)
+        if (stream.MidCapture is not { } when || stream.TimestampOf(0) is not { } start || stream.TimestampOf(stream.FrameCount - 1) is not { } end)
         {
             consoleHost.WriteError($"{input}: no timestamps");
             return null;
@@ -174,6 +181,11 @@ internal sealed class PlanetaryWindowedStack : IDisposable
                 Target = stack.Disk,
                 Disk = stack.Disk with { X = stack.Disk.X - originX, Y = stack.Disk.Y - originY },
                 Stack = Cut(stack.Plane),
+                FullStack = stack.Plane,
+                FullHalfA = a?.Plane,
+                FullHalfB = b?.Plane,
+                Start = start,
+                End = end,
                 HalfA = a is { } ap ? Cut(ap.Plane) : null,
                 HalfB = b is { } bp ? Cut(bp.Plane) : null,
                 Truth = truth is { } tr ? Cut(PlanetaryMetrics.Normalise(tr.Plane, width, height, stack.Disk)) : null,

@@ -153,7 +153,7 @@ public static class PhysicalEphemeris
     }
 
     // IAU equatorial and polar radii, km (Archinal et al. 2018, table 5).
-    private static (double Equatorial, double Polar) Radii(CatalogIndex planet) => planet switch
+    internal static (double Equatorial, double Polar) Radii(CatalogIndex planet) => planet switch
     {
         CatalogIndex.Jupiter => (71492, 66854),
         CatalogIndex.Saturn => (60268, 54364),
