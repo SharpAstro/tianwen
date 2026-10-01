@@ -129,7 +129,8 @@ A source that is not a document gains what only needed the picture, as step 1 fo
    that solve can run on a frame that is no document. The viewer is a routed child of the tab, and gets the pointer
    and **the viewer's keys** (the user's call, 2026-10-01: the keys its tooltips name; the preview's own T, S and B
    went), never the window's (Escape, Tab, Space, the arrows, F11). A key does what its button does and only where
-   the button is offered (`ActionOfKey`), and P, E, Shift+C and Ctrl+O PRESS their buttons, so the host that runs a
+   the button is offered (`ActionOfKey`, folded the same day into the viewer's one keyboard declaration,
+   `ViewerShortcuts.ButtonFor`), and P, E, Shift+C and Ctrl+O PRESS their buttons, so the host that runs a
    button runs its key: the four signals they posted are gone. The tab's copies of the viewer's pan, zoom and keys
    went with it, the planetary view takes the viewer's keys too, and the GUI hands the preview the planner's
    catalogue, so the objects overlay works on a solved frame. With more than one OTA a picker row stays above the
