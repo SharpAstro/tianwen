@@ -1,7 +1,8 @@
 # Gradient-remover training (P5): flatten-and-inject
 
-**Status: G0 + G1 DONE (2026-09-02/03), no model trained yet; G1 re-run on the full store under way and G2
-designed, masks not crops (2026-10-01, section 3 "Edges").** Design captured 2026-08-11, sharpened 2026-09-02
+**Status: G0 + G1 DONE (2026-09-02/03) and G1b DONE on the re-baked full store (2026-10-02: the passband, not
+the field below 10 degrees, orders the amplitude); G2's exporter built, masks not crops (section 3 "Edges"), its
+full export next; no model trained yet.** Design captured 2026-08-11, sharpened 2026-09-02
 after the Siril and SAS Pro reference review. Nothing exported, nothing trained. Tracked by #473. This is the P5 row of
 [ai-denoise-deconv.md](ai-denoise-deconv.md) (design in its section 2.6) at run-level detail. Its
 classical prerequisite is [background-extraction.md](background-extraction.md) Phases 1 and 2, and
@@ -322,7 +323,7 @@ convention every reference and the existing extractor share).
 |---|---|---|---|
 | G0 | **DONE 2026-09-02.** Background-extraction Phases 1 and 2 (the classical flattener, sample-free, linear, level-preserving) with its synthetic tests; its two reasoned thresholds were measured by G1 and both are now settled (`background-extraction.md`) | done, one day | H1 prerequisite, the baseline, the fallback |
 | G1 | **DONE 2026-09-03.** Gradient-distribution report over both bakes (118 masters, 350 planes) as a sibling of `psf-noise-report.md`: `tianwen dataset gradient-report`, `stats/gradient-report.md` + `gradient-masters.jsonl` per bake. Answered H1 (see section 2) and measured both of G0's reasoned thresholds | done, a day | H1; the injection family |
-| G1b | **Under way 2026-10-01.** G1 again over the full store's 190 masters (the bakes G1 read are gone, and the store holds cameras G1 never saw, the QHY294C and SV605CC 2026 sessions among them); predictions below. Each record now carries its master's own scale, only ever a solve (this run's, else the solved WCS in the master's header; never `FOCALLEN`, nor a `PIXSCALE` our writer stamps from it) and the report bins by field width; the run started on the binary before that, and the next run gives those records their scale from the header without re-solving | ~2 h, no GPU | the injection family on today's data; the solves and covariates G2 reuses |
+| G1b | **DONE 2026-10-02** (read below the phasing table: four of six predictions hold; the passband, not the field below 10 degrees, orders the amplitude). G1 again over the full store's 190 masters (the bakes G1 read are gone, and the store holds cameras G1 never saw, the QHY294C and SV605CC 2026 sessions among them); predictions below. Each record now carries its master's own scale, only ever a solve (this run's, else the solved WCS in the master's header; never `FOCALLEN`, nor a `PIXSCALE` our writer stamps from it) and the report bins by field width; the run started on the binary before that, and the next run gives those records their scale from the header without re-solving | ~2 h, no GPU | the injection family on today's data; the solves and covariates G2 reuses |
 | G2 | Whole-frame linear exporter (masters; then the `ExportWholeFrame` sub option) on the whole canvas with a presence plane (section 3, "Edges"), covariates joined from G1b's store, fitted coefficients and the autocrop rectangle per row; the thin band's level steps measured. Each row also carries its session's optical train and the calibration the bake recorded (the PSF store's `Calibration`), with `HasFlat` null where nothing was recorded, never false, so training reads `HasFlat == true` and the no-flat sessions stay out (section 3) | 1 to 2 days | H2, H3, H9 data |
 | G3 | Airmass-pair control on the zenith-crossing sessions, no training | half a day | H7 |
 | G4 | Arm M, three seeds, masked and crop-only (H9); nebulosity strata report; edge-invariance gate; labelled comparison at full resolution on three Ha-rich masters | 6 x minutes | H2, H8, H9 |
@@ -347,6 +348,41 @@ built by a later recipe, so G1's findings should replicate in kind:
   masters' own solved WCS, 179 of 190). G1's per-camera table therefore mixed scopes, and its "ASI585MC 11.28
   sigma" was the 24 mm frames alone. Over field width (long side) in three bins, under 4, 4 to 10 and over 10
   degrees, the per-master p50 amplitude rises in that order.
+
+**RESULT 2026-10-02 (G1b): four of six hold; the high tail and the field-width rise do not, and the passband
+explains what field width did not.** The verb over the re-baked store (190 masters, 185 solved, 63 moon-up,
+528 planes; every record stamped with its master's write time and measured with `--force`, the report showing
+only the masters present). Report and per-master JSONL in the store's `stats/`.
+
+- Amplitude: per-plane p-p p50 **2.53 sigma** (p5 0.73, p25 1.54, p75 4.78, p95 13.16), inside the predicted
+  1.5 to 3.5, and 6.8 % of level at the median, as G1's 8.3 % was. **Holds.**
+- Shape: Dome 222, Ramp 149, Saddle 123, Bowl 31, Flat 3 of 528 planes. **Holds.**
+- Direction: |brightening minus anti-zenith| p50 41 degrees, **54 % within 45** (180 solved masters). **Holds.**
+- The Moon: **3 % within 45** on 60 moon-up masters, p50 118. **Holds** (no better than chance), and below chance
+  as in G1. Not taken as a reversed Moon: a Moon above the target sits "up" in the frame, opposite the
+  anti-zenith the brightening follows, so the horizon relation alone pushes this statistic past 90. The
+  re-test still wants a set selected for a bright Moon well clear of the horizon.
+- **The high tail is not the ASI585 24 mm alone. Refuted.** 16 masters reach 12 sigma on a plane: 7 are wide
+  fields (the ASI585 at 24 mm, five, and the ASI533 behind a 35 mm lens, two, at 17.8 to 25.8 degrees), but 9
+  are fields of 1.8 to 6.4 degrees, among them the ASI294MM's Leo Triplet (35.9), the ASI533's Rosette,
+  Seagull and Orion of the 2024-12 to 2025-01 campaign on the 135 mm (34.9, 25.6, 23.2), comet 12P (23.2), and
+  the QHY294C's Cen A and SMC (13.7, 12.4).
+- **Field width orders amplitude only past 10 degrees. Half refuted.** Per-master p50 of the planes' mean:
+  under 4 degrees 2.51 (52 masters), 4 to 10 degrees **2.42** (124), 10 and over **7.79** (10), and the four
+  unsolved 24 mm Carina frames 14.51. Below 10 degrees the field does not order it at all.
+- **What does order it is the passband**, in background sigma: UV/IR Cut p50 6.04 (21 masters, p95 34.9),
+  Unidentified-Broadband 8.90, Baader Semi-APO 5.80, against Optolong L-Ultimate 3nm **1.70** (80 masters),
+  SII 1.93 and Unidentified-Broadband-BlueCut 2.01. Relative to the level the spread is far smaller (0.098
+  against 0.069 of level), so most of it is that a broadband sky's own sigma is small against its level: the
+  same light pollution is many more sigma through a broadband filter. The narrow-field high tail is mostly
+  broadband nights, plus the brightest nebulae (M42, Rosette, Seagull), where a degree-2 fit can take
+  frame-filling nebulosity for gradient: the fields where the flattened scene itself is least trustworthy,
+  and so the ones to inspect before G3 trains on them.
+- **For the injection family:** draw the amplitude conditioned on the passband (broadband against line or
+  light-pollution filter) and on field width past 10 degrees, in both units, sigma and fraction of level;
+  the 10-degree threshold replaces the three bins. Fit numbers: kept p50 0.80, iterations 11, ring 9.3 % of a
+  frame (the full store's drizzled masters carry wider rings than G1's bakes), a median 41 s a master single
+  threaded.
 
 ## 7. Integration
 
