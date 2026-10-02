@@ -127,6 +127,12 @@ Four rules the denoiser and gradient programmes paid for since this was written 
 - **Edges are masked, never cropped** (the gradient plan's "Edges"): no star lands on an absent pixel of the
   canvas ring, and a cell that straddles it carries the presence the stretch already respects (the NAFNet
   pre-stretch measures covered pixels only).
+- **A saturated star is injected as a STACK saturates, measured off the masters' own saturated stars**, never as a
+  hard clip of plate plus star. A stack of clipped, dithered, normalised subs gives a plateau with soft edges, often
+  one channel clipping before the others, sometimes a bloom: its level per channel, its radius against the
+  amplitude the wings extrapolate to (`ClassicalStarRemover` reads both for every saturated star it fits) and its
+  edge profile are what the injector reproduces. A net taught on hard clips learns to fill holes it will never
+  see, and leaves the real ones' rims behind.
 - **The bright tail is sampled on purpose**: the denoiser cleaned a bright level only once bright cells were
   in its pool and in its eval (E16b), and the saturated stars this remover is weakest on are 0.1 to 0.2
   percent of detections, so a cell draw proportional to the field never shows the net enough of them.
@@ -235,6 +241,21 @@ gradients; that is the owner's call once the report is in.
   its injection density per band from this.
 - **Residual by field radius** (inner third against the corners): the price of an isotropic PSF where the
   optics elongate stars, which decides whether elongation must be fitted.
+- **Fill error on known pixels** (the owner, 2026-10-02: what goes into a saturated core is the real problem).
+  Holes of the sizes the master's saturated cores were given are cut at random star-free places in the same
+  master, nebulae included, filled, and compared with the pixels that were there: the error in local sigma by
+  hole size and by the structure under it. Exact truth on real data, and the measure a better fill (patch-based,
+  or one that carries a filament's edges across) has to win on before it replaces the push-pull. On the
+  synthetic field's smooth sky the push-pull already reads 1.4 to 1.6 sigma in the core, which is two
+  independent noise fields' 1.41: on a smooth sky the fill itself adds almost nothing, and what is not known is
+  how it does on structure.
+
+**Where the hole question lands.** For the plate, a real saturated core is background in both the net's
+input and its target, so the net learns to keep it, never to make it; what the NET learns to put in a hole
+comes from the injected saturated stars, whose cores land on the plate's own pixels, so the truth under them is
+exact (section 3 says how they must saturate). The classical fill matters in two places only: where the
+builder becomes the product's AI-free remover, where the fill is what a user sees, and where a plate's filled
+cores are so many that they shape what the net calls background.
 
 The leftover measure uses the tool that did the finding, so it cannot see what the finder cannot; the
 synthetic tests are its external truth. They build a plate (a smooth nebula, noise of a master's shape),
