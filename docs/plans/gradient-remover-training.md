@@ -330,13 +330,12 @@ on the source's own stretch, from the export's frame files.
   pollution ramp and the flattened scene keeps the nebula whole: M42 at 2.5 and 4.1 degrees, the Rosette, the
   Seagull, the SII eta Car, the QHY294C's Cen A and SMC. The narrow-field high tail is real gradient on broadband
   nights, as the passband finding says, not nebulosity taken for gradient.
-- **Wide Milky Way fields do not.** On the ASI585's 24 mm Carina frames (four masters, 25.6 degrees) the surface
-  rises with the Milky Way's own large-scale glow, from the dark off-plane sky to the band, and the flattened scene
-  lifts the dark sky to the band's level: the dust lanes survive, the glow under them does not. That is exactly the
-  failure the model is to learn against, so these scenes must not teach it. **G3 keeps fields of 10 degrees and
-  wider out of its training scenes** (10 solved masters and the four unsolved Carina frames) until a fit can tell
-  glow from light pollution (the solved horizon direction, which G1b shows the gradient follows, is the obvious
-  constraint; galactic latitude is another), and may use them as qualitative test scenes.
+- **Wide Milky Way fields: judged right by the owner, so no width exclusion.** On the ASI585's 24 mm Carina
+  frames (four masters, 25.6 degrees) the surface rises from the dark off-plane sky towards the band, and Claude
+  read that as the Milky Way's own glow taken for gradient, proposing to keep fields of 10 degrees and wider out
+  of G3's training scenes. The owner judged all four flattenings golden, and the 35 mm Orion and Rim with them
+  (the review below): the rise is light pollution. Wide fields are training scenes like the rest; whether a fit
+  can still mistake glow for gradient somewhere is what the golden set will show, not a rule made in advance.
 - **The no-flat sessions show why they are excluded.** The ASI294MM's M42 of 2021-11-28 and the ASI533's of
   2022-12-03 have a dome for a surface (vignetting), and subtraction leaves their corners dark: a multiplicative
   falloff that only division mends.
@@ -354,18 +353,43 @@ on the source's own stretch, from the export's frame files.
 
 ### A golden set and a second opinion (owner, 2026-10-02)
 
-Tracked by #1164. Not started. Every change to the classical fit, and later every model, is to be judged on the
-same masters the owner has looked at, so a regression shows before it ships:
+Tracked by #1164. The verdicts exist; the check does not yet. Every change to the classical fit, and later every
+model, is to be judged on the same masters the owner has looked at, so a regression shows before it ships:
 
 - **The golden set**: masters with the owner's verdict and a note, the auto-cropped master as the input (the
-  realistic flow), good ones (Cen A of 2026-02-20 first) beside known-bad ones (the 24 mm Carina frames, the
-  flat-less M42s), so both directions are pinned.
+  realistic flow), good ones beside known-bad ones, so both directions are pinned. **The first verdicts (the
+  owner, 2026-10-02, on a review page showing each crop, both surfaces and both flattened images): 14 golden, 3
+  known-bad, 1 undecided** (the Seagull). Golden: Cen A, the Rosette, both Orions of the 135 mm campaign and the
+  35 mm one, the 24 mm eta Car and all four 24 mm Carina frames, comet 12P ("more honest about the small
+  obstruction"), the 35 mm Rim, the QHY294C SMC, the SII eta Car, the QHY178M Helix and Running Chicken. Known-bad:
+  the two flat-less M42s (over-corrected, #1165) and the Leo Triplet, for stack artefacts, clouds and a power
+  cable, not its gradient ("gradient itself okay"). **Ours judged better than GraXpert on 7** (eta Car 24 mm, Rim,
+  SMC, SII eta Car, Helix, Running Chicken, 12P), mostly because GraXpert's surface took nebulosity or a galaxy's
+  glow with it (the Helix is visible in its surface); **GraXpert better on 2**, both flat-less.
 - **The check**: re-run the current corrector on the golden crops, report each surface's change against its
   pinned one in background sigma, render the contact sheet, and fail past a tolerance on a master judged good.
   The masters live on the archive disk, so this is a local check, not CI.
 - **GraXpert as a second opinion, on crops only** (it assumes clean edges): agreement says a surface can be
   trusted, disagreement says a person should look. It is never the truth and never a training target (its
   weights are CC BY-NC-SA, read from the user's own install, for comparison only).
+- **Colour, next.** The review compared luminance (the channels' mean), which hides a colour cast either method
+  leaves: light pollution is coloured, and both fit each channel on its own. The check compares per channel.
+
+### Where the flatten and the stack can improve (owner's verdicts, 2026-10-02)
+
+What the verdicts and the owner's notes point at, each tracked:
+
+- **Vignetting without a flat** (#1165): the only cases GraXpert won. A degree-2 dome is the wrong shape for a
+  flat-topped falloff and subtraction the wrong operation for a multiplicative one; the classical extractor needs a
+  radial falloff term, divided out, chosen automatically where the bake recorded no flat.
+- **Local normalisation, then seam blending, in the integrator** (#1166): the stacker normalises each frame
+  globally (a gain on the AHD path, a sky offset on drizzle), so frames whose gradients differ leave a step where
+  one drops out (#1163). Astro Pixel Processor and PixInsight normalise locally; we do not yet.
+- **The retained masters' scale** (#1167): AHD masters are kept on an ADU-like scale and drizzled ones on [0, 1],
+  undocumented, and `image flatten` hands an AHD master back on [0, 1].
+- **Left for the model, not filed:** a residue both methods leave, the corner glow the owner saw in the QHY178M
+  Helix's upper right (amplifier glow the darks did not take), and the Leo Triplet's diagonal bands. A degree-2
+  surface cannot follow a corner; a learned one should, and the golden set will say whether it does.
 
 ## 4. Model
 
