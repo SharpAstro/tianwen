@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using TianWen.Lib.Stat;
 using TianWen.Lib.Imaging.Sources;
 
 namespace TianWen.Lib.Imaging.StarRemoval;
@@ -255,15 +257,7 @@ internal static class PointSourceFinder
     // 1.4826 x the MAD about the median of every value (RobustSigma's estimator on a short list).
     private static double RobustSigmaOf(List<float> values)
     {
-        var arr = values.ToArray();
-        Array.Sort(arr);
-        var median = arr[arr.Length / 2];
-        for (var i = 0; i < arr.Length; i++)
-        {
-            arr[i] = Math.Abs(arr[i] - median);
-        }
-        Array.Sort(arr);
-        return 1.4826 * arr[arr.Length / 2];
+        return 1.4826 * StatisticsHelper.UpperMedianAndMad(CollectionsMarshal.AsSpan(values)).Mad;
     }
 
     // The median of the rms map over present pixels, every fourth.
@@ -281,8 +275,7 @@ internal static class PointSourceFinder
         {
             return float.NaN;
         }
-        sample.Sort();
-        return sample[sample.Count / 2];
+        return StatisticsHelper.NthSmallest(CollectionsMarshal.AsSpan(sample), sample.Count / 2);
     }
 
     // A maximum over its eight neighbours; ties are broken by raster order, so a plateau yields exactly one.
@@ -342,15 +335,7 @@ internal static class PointSourceFinder
         {
             return float.NaN;
         }
-        var arr = sample.ToArray();
-        Array.Sort(arr);
-        var median = arr[arr.Length / 2];
-        for (var i = 0; i < arr.Length; i++)
-        {
-            arr[i] = Math.Abs(arr[i] - median);
-        }
-        Array.Sort(arr);
-        return 1.4826f * arr[arr.Length / 2];
+        return 1.4826f * StatisticsHelper.UpperMedianAndMad(CollectionsMarshal.AsSpan(sample)).Mad;
     }
 
     // Brightest first; a source within the radius of one already kept is the same source.

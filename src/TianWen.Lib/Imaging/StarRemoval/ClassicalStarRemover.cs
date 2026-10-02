@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -495,8 +496,7 @@ public static class ClassicalStarRemover
                 {
                     return;
                 }
-                skyValues.Sort();
-                var sky = skyValues[skyValues.Count / 2];
+                var sky = StatisticsHelper.NthSmallest(CollectionsMarshal.AsSpan(skyValues), skyValues.Count / 2);
                 var psf = field.Scaled(fit.Width);
                 var samples = new List<(float, float)>();
                 for (var p = 0; p < window.Weights.Length; p++)
@@ -1037,8 +1037,7 @@ public static class ClassicalStarRemover
             }
             static float MedianOf(List<float> list)
             {
-                list.Sort();
-                return list[list.Count / 2];
+                return StatisticsHelper.NthSmallest(CollectionsMarshal.AsSpan(list), list.Count / 2);
             }
             // The star's SYMMETRIC light: per ring, the second-lowest of eight sector medians. A star's halo, a filter's
             // reflection ring, a bloom are the same all round; a nebula, a neighbour, a spike are not, and the second-lowest
@@ -1060,13 +1059,8 @@ public static class ClassicalStarRemover
                             sectorValues.Add(MedianOf(list));
                         }
                     }
-                    sectorValues.Sort();
-                    symmetric[c][b] = sectorValues.Count switch
-                    {
-                        0 => float.NaN,
-                        1 => sectorValues[0],
-                        _ => sectorValues[1],
-                    };
+                    // The second-lowest (NaN for none, the one for one).
+                    symmetric[c][b] = StatisticsHelper.NthSmallest(CollectionsMarshal.AsSpan(sectorValues), 1);
                 }
             }
             // The sky is the symmetric profile's own level in its outermost rings; the star reaches out to the last ring
@@ -1112,8 +1106,7 @@ public static class ClassicalStarRemover
                         window.Add(excess[k]);
                     }
                 }
-                window.Sort();
-                if (window.Count > 0 && window[window.Count / 2] > 0.5 * sigma)
+                if (window.Count > 0 && StatisticsHelper.NthSmallest(CollectionsMarshal.AsSpan(window), window.Count / 2) > 0.5 * sigma)
                 {
                     reach = Math.Min(b + 4, reachMax - SkyRings);
                     break;
@@ -1166,8 +1159,7 @@ public static class ClassicalStarRemover
                             window.Add(symmetric[c][k]);
                         }
                     }
-                    window.Sort();
-                    median[b] = window.Count > 0 ? window[window.Count / 2] : double.NaN;
+                    median[b] = window.Count > 0 ? StatisticsHelper.NthSmallest(CollectionsMarshal.AsSpan(window), window.Count / 2) : double.NaN;
                 }
                 medians[c] = median;
                 smooth[c] = new double[bins];
@@ -1242,8 +1234,7 @@ public static class ClassicalStarRemover
                         tail.Add(smooth[c][b]);
                     }
                 }
-                tail.Sort();
-                floor[c] = tail.Count > 0 ? tail[tail.Count / 2] : 0.0;
+                floor[c] = tail.Count > 0 ? StatisticsHelper.NthSmallest(CollectionsMarshal.AsSpan(tail), tail.Count / 2) : 0.0;
                 // The minimum of the medians, never of the smoothed values: a mean over a steep halo sits above it (the
                 // halo is convex), and subtracted it dug a disc 0.7 sigma deep round the Horsehead master's brightest star.
                 // A minimum of noisy values errs low, which leaves light rather than taking it.
@@ -1372,8 +1363,7 @@ public static class ClassicalStarRemover
                                 sectorMeans.Add(sums[b, k] / counts[b, k]);
                             }
                         }
-                        sectorMeans.Sort();
-                        symmetric[b] = sectorMeans.Count switch { 0 => double.NaN, 1 => sectorMeans[0], _ => sectorMeans[1] };
+                        symmetric[b] = StatisticsHelper.NthSmallest(CollectionsMarshal.AsSpan(sectorMeans), 1);
                     }
                     var tail = new List<double>();
                     for (var b = Rings - SkyRings; b < Rings; b++)
@@ -1387,8 +1377,7 @@ public static class ClassicalStarRemover
                     {
                         continue;
                     }
-                    tail.Sort();
-                    var sky = tail[tail.Count / 2];
+                    var sky = StatisticsHelper.NthSmallest(CollectionsMarshal.AsSpan(tail), tail.Count / 2);
                     double score = 0;
                     var run = 0;
                     var longest = 0;
@@ -1439,8 +1428,7 @@ public static class ClassicalStarRemover
             {
                 return fallback;
             }
-            values.Sort();
-            return Math.Min(fallback, values[values.Count / 2]);
+            return Math.Min(fallback, StatisticsHelper.NthSmallest(CollectionsMarshal.AsSpan(values), values.Count / 2));
         }
 
         // The giants (saturated with a plateau of GiantPlateauRadius or more), brightest first, each with its plateau's
@@ -2655,8 +2643,7 @@ public static class ClassicalStarRemover
             {
                 return double.NaN;
             }
-            values.Sort();
-            return values[values.Count / 2];
+            return StatisticsHelper.NthSmallest(CollectionsMarshal.AsSpan(values), values.Count / 2);
         }
 
         // The hole test's false-alarm rate on this plate: the same core aperture and annulus at random places no star
