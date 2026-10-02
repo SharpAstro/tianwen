@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Immutable;
+using System.Linq;
 using System.Numerics;
+using TianWen.Lib.Astrometry;
 
 namespace TianWen.Lib.Imaging.Planetary;
 
@@ -22,6 +24,32 @@ public static class PlanetaryFinestBand
 
     /// <summary>The arc either side of the terminator's end of the equator the edge leaves out, degrees: the phase bends the limb there.</summary>
     public const double TerminatorArcDeg = 45;
+
+    /// <summary>
+    /// The edge across the limb of a planet as a stack shows it (R8 follow-up 3): <paramref name="plane"/> against <paramref name="reference"/>
+    /// (the limb fit's sharp model through the pupil's diffraction), both normalised and on <paramref name="disk"/>, each limb point flattened
+    /// by its own plane's zonal brightness at the latitude it lies across from (the belts, read off the plane through the planet's aspect).
+    /// The one read the CLI's measurements and the sharpening (<see cref="PlanetarySharpening"/>) share.
+    /// </summary>
+    /// <param name="holdPoles">Flatten a limb point past the zonal profile's reach by the nearest latitude it reads, rather than leave it out:
+    /// the polar limb, which a sector along the axis is made of (R8 follow-up 4 part 2).</param>
+    public static EdgeProfile LimbEdge(ReadOnlySpan<float> plane, ReadOnlySpan<float> reference, int width, int height, MetricDisk disk, in LimbFit fit,
+        in PlanetAspect aspect, double? sectorDeg = null, bool holdPoles = false)
+    {
+        var projection = new PlanetaryProjection(aspect, new DiskPlacement(disk.X, disk.Y, fit.EquatorialRadius, fit.NorthAngleDeg));
+        return Edge(plane, reference, width, height, disk, fit.SunSide,
+            Flatten(plane, width, height, projection, aspect.CentralMeridianIII, fit.LimbDarkening, holdPoles),
+            Flatten(reference, width, height, projection, aspect.CentralMeridianIII, fit.LimbDarkening, holdPoles), sectorDeg);
+    }
+
+    // Each limb point's brightness relative to the plane's mean, by the zonal brightness at its latitude.
+    private static Func<double, double, double> Flatten(ReadOnlySpan<float> plane, int width, int height, PlanetaryProjection projection, double centralMeridian,
+        double limbDarkening, bool holdPoles)
+    {
+        var zonal = PlanetaryBelts.FromImage(plane, width, height, projection, centralMeridian, limbDarkening);
+        var mean = zonal.Albedo.Where(double.IsFinite).DefaultIfEmpty(double.NaN).Average();
+        return (x, y) => projection.TrySurface(x, y, out var latitude, out _, out _, out _) ? (holdPoles ? zonal.Held(latitude) : zonal.At(latitude)) / mean : double.NaN;
+    }
 
     /// <summary>
     /// The edge across the limb: the mean of <paramref name="plane"/> and of <paramref name="reference"/> (the limb's sharp model through

@@ -65,6 +65,21 @@ public static class PlanetaryMetrics
     /// </summary>
     public static float[] Normalise(ReadOnlySpan<float> plane, int width, int height, MetricDisk disk)
     {
+        var (level, scale) = NormalisationLevels(plane, width, height, disk);
+        var result = new float[width * height];
+        for (var i = 0; i < result.Length; i++)
+        {
+            result[i] = (float)((plane[i] - level) / scale);
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// What <see cref="Normalise"/> divides by: the sky's level (the median past the sky's radii) and the disk's mean above it (inside
+    /// 0.8 radii); a normalised value v is <c>level + (v * scale)</c> in the plane's own units again.
+    /// </summary>
+    public static (double Level, double Scale) NormalisationLevels(ReadOnlySpan<float> plane, int width, int height, MetricDisk disk)
+    {
         var sky = new List<double>();
         double diskSum = 0;
         var diskCount = 0;
@@ -87,12 +102,7 @@ public static class PlanetaryMetrics
         }
         var level = sky.Count > 0 ? StatisticsHelper.MedianFast(sky.ToArray()) : 0;
         var scale = diskCount > 0 ? (diskSum / diskCount) - level : 1;
-        var result = new float[width * height];
-        for (var i = 0; i < result.Length; i++)
-        {
-            result[i] = (float)((plane[i] - level) / scale);
-        }
-        return result;
+        return (level, scale);
     }
 
     /// <summary>
