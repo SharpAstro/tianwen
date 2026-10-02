@@ -2157,6 +2157,27 @@ every frame it is behind by and evicts as many, and rebuilds its window when the
   3. **Lanczos-3** joins on the same two conditions against the gradient and the plain correlation.
 - **The derived sharpening of a live master** is the GUI's part of the pipeline (it needs the telescope the host knows), with its
   gains derived once a capture and reused, not each master.
+- **Read** (`planetary-live`, the code of this PR, Release; each recipe replayed for the capture's length at its own rate):
+
+  | Recipe | Red: folded a second (of 216 captured) | Red: frames a master holds | Twin: folded a second (of 250) | Twin's last master, bands 1 to 4 |
+  |---|---|---|---|---|
+  | today's | 53.6 (25 %) | 234 | 69.6 | 1.747 |
+  | the gradient | 56.1 | 235 | 68.5 | 1.702 |
+  | and plain correlation | 50.2 | 207 | 67.6 | 1.657 |
+  | and Lanczos-3 | 21.5 | 102 | 24.1 | 1.589 |
+
+  - **The gradient is adopted** (rule 1): the throughput within 5 % either way, the twin's master 1.702 against 1.747.
+  - **The plain correlation is adopted** (rule 2): the twin's master 1.657 against 1.702; today's recipe folds a quarter of the
+    frames, so the bar is two thirds of its rate, which the plain correlation clears (50.2 against 35.7 on Red, 67.6 against 46.4 on
+    the twin), its masters as often (5.0 s on Red, 4.4 s on the twin, as today's).
+  - **Lanczos-3 is not** (rule 3): it folds two fifths of today's rate (21.5 and 24.1), under the two-thirds bar, though it left the
+    twin's master the least error. It also starved the replay itself (170 frames a second delivered of 216), as it would a capture
+    loop on the same machine.
+  - **Every recipe falls behind a capture this fast, today's included** (#1174): the ring of 1,024 frames drops what the stack has not
+    folded, so nearly every master is a rebuild of the window (12 over 13 masters on Red), a master every 5 s, 4.7 s behind the newest
+    frame, holding under half its window. The first reading of the probe counted how far the window's end moved, which a rebuild
+    jumps, and so read 92 % of the capture's rate; it counts the folds since. The batch stack's own answer is the fix to try: fold only
+    the frames that grade best.
 
 ## R9 A learned stage, only if the measurements say so
 

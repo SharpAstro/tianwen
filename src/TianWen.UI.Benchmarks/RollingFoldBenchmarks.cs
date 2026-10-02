@@ -47,7 +47,7 @@ public class RollingFoldBenchmarks
             _frames[i] = Image.FromChannel(data[i], 1f, 0f);
             _regions[i] = PlanetaryDisk.BoundingBox(_frames[i]);
         }
-        var legacy = new RollingWindowOptions();
+        var legacy = RollingWindowOptions.Legacy;
         var options = Recipe switch
         {
             "legacy" => legacy,
