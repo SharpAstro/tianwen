@@ -2370,6 +2370,67 @@ The live stack folds through the same kernels, so `planetary-live` was run again
 - **Lanczos-3 still misses rule 3 on the twin** (73.7 against two thirds of 118.6), and a live default cannot ride on this machine's 16
   threads when a 4-core host folds a quarter as fast. #1174 (fold only the frames that grade best) stays the live stack's answer.
 
+### The pipeline on real captures
+
+The last of #1159's pre-registered checks ("How it is judged", above): the pipeline's limb undershoot at most 0.02 of the disk on each of
+four real captures, legacy's beside it, and the masters side by side to the owner's eye with AutoStakkert's own result where the corpus
+holds one.
+
+**How it was run** (2026-10-03, Release, this PR's code). `tianwen planetary-stack` stacked each capture twice, at its defaults and with
+`--legacy`, with the telescope R1 found for it: the 254 mm Newtonian, and for 2021-12-16 the Maksutov. `planetary-stack` now prints the
+master's truth-free readings (`PlanetaryMasterScore.Undershoot`) whenever no truth is given.
+
+| Capture | Frames | Pipeline: undershoot, rebound | Legacy: undershoot, rebound | Time, pipeline / legacy |
+|---|---|---|---|---|
+| 2022-09-03 Red (the timestamped conversion) | 12,990 | 0.0000, 0.0100 | 0.2027, 0.1410 | 310 / 90 s |
+| 2024-12-15 Uranus-C, 12:36:43 (colour) | 30,000 | 0, 0, 0; up to 0.0049 | 0.066, 0.062, 0.126; up to 0.052 | 107 / 31 s |
+| 2022-10-09 Jupiter, 10:42 (colour, a 200 px PIPP crop) | 15,011 | 0, 0, 0; up to 0.0010 | 0.103, 0.094, 0.067; up to 0.093 | 80 / 34 s |
+| 2021-12-16 Saturn, 11:24 (colour) | 11,932 | declined (below) | | 21 / 7 s |
+
+- **The rule holds on every Jupiter capture**: the pipeline's undershoot is 0 where legacy digs 0.07 to 0.20 of the disk below the sky.
+- **By eye** (the owner's call; this is what the sheet showed):
+  - On Red the pipeline matches AutoStakkert's sharpened 8 % stack (Drizzle 1.5) for detail, and legacy's deep dark ring is gone.
+  - On 2022-10-09 the pipeline shows the festoons, the Red Spot and the belts' edges, which neither legacy nor AutoStakkert's P14 shows.
+  - Two things remain. A dark trough at the limb (#1171). On the colour captures, a 2-pixel lattice over the disk (#1187, below).
+- **Red's PIPP copy carries no frame times** (SharpCap's header date is year 1). Its pipeline master therefore falls back to the preset,
+  and the output says so. The timestamped conversion is the capture R1 to R8 measured; the PIPP copy is the one AutoStakkert stacked.
+
+**Found and fixed on the way** (each set down after its symptom, so labelled post hoc):
+
+- **Saturn: the limb fit swallows the rings.**
+  - On 2021-12-16 it fitted the globe at 28.1 px with a 9 px blur. The ephemeris and the plate scale give about 18.6 px.
+  - The limb's edge then read a transfer that ROSE with frequency (0.231 at 0.1 cycles a pixel, 0.445 at 0.3), and the gains
+    oscillated (-3.8, 22.3, -9.8, 7.6).
+  - The bound freed a ring ansa as a moon (peak 0.95, 104 px above half), and the master came out green, with square blocks at the
+    ansae. Its undershoot read 0.0000: only the eye caught it.
+  - **The fix:** `PlanetaryLimbFit.Unmodelled` names a planet whose outline the fit cannot model. Saturn's sharpening then falls back to
+    `PlanetaryDefault`, and the output says why. It is never de-rotated (`DerotationFor`), which would turn the rings as if they lay on
+    the globe, and no truth-free reading is printed for it.
+  - Lifting the gate is #1184: a limb model with the rings.
+- **A tight crop has no sky for the metrics.**
+  - A 200 px PIPP crop of 2022-10-09's 150 px disk leaves no pixel past the sky's 2.5 radii. The undershoot read NaN there, and the
+    normalisation fell back to a sky of 0, where the real sky was 0.06 against a disk peak of 0.44.
+  - **The fix:** `PlanetaryMetrics.SkyLevel` now reads the sky past 2.5 radii as before, else the farthest tenth of the pixels past
+    the profile's 1.3 radii. A halo can only lift those, so the undershoot errs large, never small.
+  - On a fixture cropped to 96 px the crop reads 0.0813 against the whole frame's 0.0808. Every frame that had sky past 2.5 radii reads
+    exactly as before.
+- **The sharpening's window was padded with zeros.**
+  - `PlanetarySharpening` works in a power-of-two window about the planet: 256 px over that 200 px crop. Outside the frame it was zeros.
+  - The moon finder's sky was then mostly padding, without noise, so its 20 sigma threshold fell to its 0.01 floor. The frame's own
+    border passed as 16 moons a channel and was freed from the bound: coloured blocks along the border, up to 0.5 above the stack.
+  - **The fix:** the window mirrors the frame about its edges. `ATightCropsSharpeningLiftsNoSkyAboveTheStackOutsideTheLimb` pins it:
+    on a 130 px crop the zero padding freed 501 sky pixels, the most by 0.0054; mirrored, none.
+  - Where the window fits the frame nothing moves: the twins' bounded masters read as #1185 left them (calibrated 0.777, limb profile
+    error 0.0102), and Red's rebound 0.0100.
+
+**Found, not fixed: the colour captures' lattice (#1187).** A colour stack keeps a small 2-pixel lattice from the demosaic, locked to the
+sensor. The derived gains lift it with the finest bands:
+- Uranus-C's band 1 gain is 17.75: its Nyquist amplitude is 11 to 19 times the stack's.
+- 2022-10-09's band 2 gain is 18.3: there it is about 3 times.
+
+A mono capture has none. Bayer drizzle to the sensor grid (#1091) leaves no demosaic to lift, so #1091's pre-registered judgement on
+the colour twin, each master sharpened as the pipeline sharpens, is the measurement to run next.
+
 ## R9 A learned stage, only if the measurements say so
 
 **Issue:** #1056 (conditional).

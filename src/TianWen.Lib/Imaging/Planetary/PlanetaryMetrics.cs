@@ -76,34 +76,72 @@ public static class PlanetaryMetrics
     }
 
     /// <summary>
-    /// What <see cref="Normalise"/> divides by: the sky's level (the median past the sky's radii) and the disk's mean above it (inside
+    /// What <see cref="Normalise"/> divides by: the sky's level (<see cref="SkyLevel"/>, zero where none) and the disk's mean above it (inside
     /// 0.8 radii); a normalised value v is <c>level + (v * scale)</c> in the plane's own units again.
     /// </summary>
     public static (double Level, double Scale) NormalisationLevels(ReadOnlySpan<float> plane, int width, int height, MetricDisk disk)
     {
-        var sky = new List<double>();
         double diskSum = 0;
         var diskCount = 0;
         for (var y = 0; y < height; y++)
         {
             for (var x = 0; x < width; x++)
             {
-                var r = disk.RadiiAt(x, y);
-                var v = plane[(y * width) + x];
-                if (r >= SkyRadii)
+                if (disk.RadiiAt(x, y) < 0.8)
                 {
-                    sky.Add(v);
-                }
-                else if (r < 0.8)
-                {
-                    diskSum += v;
+                    diskSum += plane[(y * width) + x];
                     diskCount++;
                 }
             }
         }
-        var level = sky.Count > 0 ? StatisticsHelper.MedianFast(sky.ToArray()) : 0;
+        var level = SkyLevel(plane, width, height, disk) ?? 0;
         var scale = diskCount > 0 ? (diskSum / diskCount) - level : 1;
         return (level, scale);
+    }
+
+    // How far out the limb's profile is read (LimbUndershoot, LimbRebound), in equatorial radii.
+    private const double ProfileReach = 1.3;
+
+    /// <summary>
+    /// The sky's level in <paramref name="plane"/>: the median past the sky's radii (2.5). A tight crop can leave no pixel there (a
+    /// 200 px PIPP crop of 2022-10-09's 150 px Jupiter), and then it is the median of the farthest tenth of the pixels past the
+    /// limb's profile (1.3 radii), which the planet's halo still lifts, so an undershoot read against it errs large, never small
+    /// (set down 2026-10-03 after the pipeline's real-capture validation read NaN there). Null with no pixel past 1.3 radii.
+    /// </summary>
+    public static double? SkyLevel(ReadOnlySpan<float> plane, int width, int height, MetricDisk disk)
+    {
+        var sky = new List<double>();
+        var outer = new List<(double Radii, double Value)>();
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var r = disk.RadiiAt(x, y);
+                if (r >= SkyRadii)
+                {
+                    sky.Add(plane[(y * width) + x]);
+                }
+                else if (r >= ProfileReach)
+                {
+                    outer.Add((r, plane[(y * width) + x]));
+                }
+            }
+        }
+        if (sky.Count > 0)
+        {
+            return StatisticsHelper.MedianFast(sky.ToArray());
+        }
+        if (outer.Count == 0)
+        {
+            return null;
+        }
+        outer.Sort((a, b) => b.Radii.CompareTo(a.Radii));
+        var farthest = new double[Math.Max(1, outer.Count / 10)];
+        for (var i = 0; i < farthest.Length; i++)
+        {
+            farthest[i] = outer[i].Value;
+        }
+        return StatisticsHelper.MedianFast(farthest);
     }
 
     /// <summary>
@@ -242,23 +280,11 @@ public static class PlanetaryMetrics
     /// </summary>
     public static double LimbUndershoot(ReadOnlySpan<float> plane, int width, int height, MetricDisk disk)
     {
-        var profile = Profile(plane, width, height, disk, 1.0, 1.3);
-        var sky = new List<double>();
-        for (var y = 0; y < height; y++)
-        {
-            for (var x = 0; x < width; x++)
-            {
-                if (disk.RadiiAt(x, y) >= SkyRadii)
-                {
-                    sky.Add(plane[(y * width) + x]);
-                }
-            }
-        }
-        if (sky.Count == 0 || profile.Length == 0)
+        var profile = Profile(plane, width, height, disk, 1.0, ProfileReach);
+        if (SkyLevel(plane, width, height, disk) is not { } median || profile.Length == 0)
         {
             return double.NaN;
         }
-        var median = StatisticsHelper.MedianFast(sky.ToArray());
         var lowest = double.PositiveInfinity;
         foreach (var v in profile)
         {
@@ -278,7 +304,7 @@ public static class PlanetaryMetrics
     /// </summary>
     public static double LimbRebound(ReadOnlySpan<float> plane, int width, int height, MetricDisk disk)
     {
-        var profile = Profile(plane, width, height, disk, 1.0, 1.3);
+        var profile = Profile(plane, width, height, disk, 1.0, ProfileReach);
         var (lowest, rebound) = (double.PositiveInfinity, 0.0);
         foreach (var v in profile)
         {

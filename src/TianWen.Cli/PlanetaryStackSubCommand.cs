@@ -70,7 +70,7 @@ internal sealed class PlanetaryStackSubCommand(
         };
         var derotateOpt = new Option<bool>("--derotate")
         {
-            Description = "Carry every frame through the planet's rotation to the run's middle before it is stacked, however short the run (R6): over a run of minutes the belts move and the limb does not. Needs the frames' timestamps. The north is the one the run's first and last quarters agree on. Without it a run of Jupiter or Saturn is de-rotated when the planet's turn moves its disk's middle a pixel or more.",
+            Description = "Carry every frame through the planet's rotation to the run's middle before it is stacked, however short the run (R6): over a run of minutes the belts move and the limb does not. Needs the frames' timestamps. The north is the one the run's first and last quarters agree on. Without it a run of Jupiter is de-rotated when the planet's turn moves its disk's middle a pixel or more. Saturn is not de-rotated until the limb fit models its rings (#1184).",
         };
         var noDerotateOpt = new Option<bool>("--no-derotate")
         {
@@ -257,7 +257,12 @@ internal sealed class PlanetaryStackSubCommand(
             }
             if (derotate && (planet is not { } named || !PhysicalEphemeris.Supports(named)))
             {
-                consoleHost.WriteError("--derotate: name the planet to de-rotate (--planet jupiter or saturn); the capture's name does not say Jupiter or Saturn.");
+                consoleHost.WriteError("--derotate: name the planet to de-rotate (--planet jupiter); the capture's name does not say Jupiter.");
+                return 1;
+            }
+            if (derotate && planet is { } toTurn && PlanetaryLimbFit.Unmodelled(toTurn) is { } unmodelled)
+            {
+                consoleHost.WriteError($"--derotate: {unmodelled}, so a de-rotation would turn them as if they lay on the globe.");
                 return 1;
             }
 
@@ -414,6 +419,13 @@ internal sealed class PlanetaryStackSubCommand(
                 {
                     PlanetaryMasterScore.AgainstTruth(consoleHost, display, truthPath, planet ?? CatalogIndex.Jupiter, "the sharpened master");
                 }
+            }
+            // With no truth, the master shown is read truth-free (R3): the limb's undershoot below the sky and its rebound above it,
+            // what the enhanced pipeline is judged by on a real capture (#1159).
+            if (truthPath is null && planet is { } body && PhysicalEphemeris.Supports(body) && PlanetaryLimbFit.Unmodelled(body) is null
+                && PlanetaryBestStack.InstantOf(display, result.Epoch) is { } instant)
+            {
+                PlanetaryMasterScore.Undershoot(consoleHost, display, body, instant, sharpen ? "the sharpened master" : "the stack");
             }
 
             if (!parseResult.GetValue(noPngOpt))

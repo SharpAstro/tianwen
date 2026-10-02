@@ -152,9 +152,29 @@ public class PlanetarySharpeningTests
         noTelescope.Gains.ShouldBeEmpty();
         noTelescope.How.ShouldContain("aperture");
         noPlanet.Gains.ShouldBeEmpty();
-        noPlanet.How.ShouldContain("Jupiter or Saturn");
+        noPlanet.How.ShouldContain("Jupiter");
         noModel.Gains.ShouldBeEmpty();
-        noModel.How.ShouldContain("Jupiter or Saturn");
+        noModel.How.ShouldContain("Jupiter");
+    }
+
+    [Fact]
+    public void SaturnIsSharpenedByThePresetAndNotDeRotatedUntilItsRingsAreModelled()
+    {
+        // The limb fit has no rings: on 2021-12-16's Saturn it swallowed them (a globe half again too large), and the derivation
+        // read an edge whose transfer rose with frequency, freed the ring ansae as moons and turned the master green (#1184). Until
+        // the rings are modelled, Saturn takes the preset, says why, and is never de-rotated as if its rings lay on its globe.
+        var (_, stack) = NoisyStack();
+
+        var gains = PlanetaryBestStack.DeriveGains(stack, CatalogIndex.Saturn, Night, Telescope);
+        var (sharpened, how) = PlanetaryBestStack.Sharpen(stack, CatalogIndex.Saturn, Night, Telescope);
+
+        gains.Gains.ShouldBeEmpty();
+        gains.How.ShouldContain("#1184");
+        how.ShouldStartWith("PlanetaryDefault");
+        how.ShouldContain("rings");
+        PlanetaryBestStack.DerotationFor(CatalogIndex.Saturn, always: true).ShouldBeNull();
+        PlanetaryBestStack.DerotationFor(CatalogIndex.Jupiter).ShouldNotBeNull();
+        sharpened.Release();
     }
 
     // The fixture's truth and its stack: the truth blurred by the seeing, on a sky at 0.05, with a large stack's noise.
@@ -171,6 +191,48 @@ public class PlanetarySharpeningTests
             plane[i / Size, i % Size] = (float)(0.05 + (0.5 * blurred[i]) + (0.002 * PhaseScreen.Gaussian(random)));
         }
         return (truth, new Image([plane], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta()));
+    }
+
+    [Fact(Timeout = 300_000)]
+    public async Task ATightCropsSharpeningLiftsNoSkyAboveTheStackOutsideTheLimb()
+    {
+        // The sharpening works in a power-of-two window about the planet: 256 px over this 130 px crop, whose corners lie inside the
+        // sky's 2.5 radii (a 200 px PIPP crop of 2022-10-09's 150 px Jupiter, the real-capture validation). Padded with zeros, the
+        // window's sky was the padding alone, without noise, so the moons' threshold fell to its floor and the bound freed the sky's own
+        // noise peaks (on 2022-10-09, blocks of colour along the frame's edge). With the frame mirrored into the window, this moonless
+        // fixture keeps every pixel outside the limb at or under its stack, or at the sky the floor holds a dip below it to.
+        const int crop = 130, from = 31;
+        var (_, whole) = NoisyStack();
+        var plane = new float[crop, crop];
+        var source = whole.GetChannelSpan(0);
+        for (var i = 0; i < crop * crop; i++)
+        {
+            plane[i / crop, i % crop] = source[((i / crop) + from) * Size + (i % crop) + from];
+        }
+        whole.Release();
+        var stack = new Image([plane], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
+        var options = new PlanetarySharpenOptions(CatalogIndex.Jupiter, Night, Telescope) { WavelengthsNm = [650] };
+
+        var result = await Task.Run(() => PlanetarySharpening.Sharpen(stack, options), TestContext.Current.CancellationToken);
+
+        var sharpened = result.ShouldNotBeNull().Sharpened;
+        var limbOptions = PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night));
+        var disk = MetricDisk.From(PlanetaryLimbFit.Fit(stack, limbOptions).ShouldNotBeNull(), limbOptions.AxisRatio);
+        var before = stack.GetChannelSpan(0);
+        var after = sharpened.GetChannelSpan(0);
+        var (sky, _) = PlanetaryMetrics.NormalisationLevels(before, crop, crop, disk);
+        var (lifted, worst) = (0, 0.0);
+        for (var i = 0; i < before.Length; i++)
+        {
+            var lift = after[i] - Math.Max(before[i], sky);
+            if (disk.RadiiAt(i % crop, i / crop) > 1.1 && lift > 1e-5)
+            {
+                (lifted, worst) = (lifted + 1, Math.Max(worst, lift));
+            }
+        }
+        TestContext.Current.TestOutputHelper?.WriteLine($"outside 1.1 radii: {lifted} pixels lifted above the stack and the sky, the most by {worst:0.0000}");
+        lifted.ShouldBe(0);
+        sharpened.Release();
     }
 
     [Fact(Timeout = 300_000)]

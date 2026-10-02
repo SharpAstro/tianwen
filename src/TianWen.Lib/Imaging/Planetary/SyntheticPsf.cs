@@ -104,22 +104,31 @@ public static class SyntheticPsfFile
         /// <summary>A reader of <paramref name="path"/>; null when it is not a PSF file.</summary>
         public static Reader? Open(string path)
         {
-            var reader = new BinaryReader(File.OpenRead(path));
-            if (!reader.ReadBytes(Magic.Length).AsSpan().SequenceEqual(Magic))
+            // Disposed on every path but the one that hands it to the reader returned, a short file's EndOfStreamException included.
+            BinaryReader? reader = new BinaryReader(File.OpenRead(path));
+            try
             {
-                reader.Dispose();
-                return null;
+                if (!reader.ReadBytes(Magic.Length).AsSpan().SequenceEqual(Magic))
+                {
+                    return null;
+                }
+                var grid = reader.ReadInt32();
+                var oversample = reader.ReadInt32();
+                var (scale, wavelength, scatter, core) = (reader.ReadDouble(), reader.ReadDouble(), reader.ReadDouble(), reader.ReadDouble());
+                var (offset, readNoise, gain) = (reader.ReadDouble(), reader.ReadDouble(), reader.ReadDouble());
+                var diffraction = new double[grid * grid];
+                for (var i = 0; i < diffraction.Length; i++)
+                {
+                    diffraction[i] = reader.ReadDouble();
+                }
+                var opened = new Reader(reader, new SyntheticPsfHeader(grid, oversample, scale, wavelength, scatter, core, offset, readNoise, gain, diffraction));
+                reader = null;
+                return opened;
             }
-            var grid = reader.ReadInt32();
-            var oversample = reader.ReadInt32();
-            var (scale, wavelength, scatter, core) = (reader.ReadDouble(), reader.ReadDouble(), reader.ReadDouble(), reader.ReadDouble());
-            var (offset, readNoise, gain) = (reader.ReadDouble(), reader.ReadDouble(), reader.ReadDouble());
-            var diffraction = new double[grid * grid];
-            for (var i = 0; i < diffraction.Length; i++)
+            finally
             {
-                diffraction[i] = reader.ReadDouble();
+                reader?.Dispose();
             }
-            return new Reader(reader, new SyntheticPsfHeader(grid, oversample, scale, wavelength, scatter, core, offset, readNoise, gain, diffraction));
         }
 
         /// <summary>

@@ -991,8 +991,11 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   (#1159): a trous gains derived through the limb's edge against the limb fit's sharp model through the pupil's diffraction, the stack's
   white noise floor and the planet's disk, applied BOUNDED (held at the sky and, outside the limb, never brighter than the stack,
   #1168, but for a moon: a local maximum of the stack keeps its sharpening, `PlanetaryMetrics.CompactSources`, #1181; a mask against
-  the sky's noise freed the halo too, and Saturn's rings are still held, #1184); without a telescope `PlanetaryDefault` with the limb kept as
-  stacked. **It needs the planet, the instant and the telescope** (a master carries its capture's span, DATE-OBS to EXPTIME, for the
+  the sky's noise freed the halo too); without a telescope `PlanetaryDefault` with the limb kept as
+  stacked. **Saturn is declined** (`PlanetaryLimbFit.Unmodelled`, #1184): the fit swallows its rings (a globe 50 % large on 2021-12-16),
+  so its sharpening is the preset, said so, and it is never de-rotated. **The window is the frame MIRRORED, never zero-padded**: zeros
+  gave the moon finder a noiseless sky and it freed a tight crop's border (2022-10-09, `ATightCropsSharpeningLiftsNoSkyAboveTheStackOutsideTheLimb`),
+  and **the metrics' sky on a crop with none past 2.5 radii is the farthest tenth past 1.3** (`PlanetaryMetrics.SkyLevel`, which errs large). **It needs the planet, the instant and the telescope** (a master carries its capture's span, DATE-OBS to EXPTIME, for the
   instant). Measured on the twins it leaves under a third of legacy's error; the free gain fit oscillates where the edge reads the finest
   band low and still lands near the truth, while the non-negative fit leaves every twin worse than unsharpened. **Floored alone rang
   OUTSIDE the limb, above the sky, on a twin with no ghost too**, where the band error (inside 0.9 radii) and the undershoot (below the

@@ -46,10 +46,12 @@ public static class PlanetaryBestStack
 
     /// <summary>
     /// The de-rotation a capture of <paramref name="planet"/> gets: every run when <paramref name="always"/>, else once its turn moves
-    /// the disk's middle <see cref="TurnWorthDerotatingPx"/>; null for a planet with no rotation model (or none named).
+    /// the disk's middle <see cref="TurnWorthDerotatingPx"/>; null for a planet with no rotation model (or none named), and for one
+    /// whose outline the limb fit cannot model (<see cref="PlanetaryLimbFit.Unmodelled"/>: Saturn's rings, turned as if they lay on
+    /// its globe).
     /// </summary>
     public static PlanetaryDerotationOptions? DerotationFor(CatalogIndex? planet, bool always = false)
-        => planet is { } turning && PhysicalEphemeris.Supports(turning)
+        => planet is { } turning && PhysicalEphemeris.Supports(turning) && PlanetaryLimbFit.Unmodelled(turning) is null
             ? new PlanetaryDerotationOptions(turning) { MinimumTurnPx = always ? 0 : TurnWorthDerotatingPx }
             : null;
 
@@ -58,16 +60,6 @@ public static class PlanetaryBestStack
     /// (the owner's choice of 2026-10-02: a Newtonian 0.25 with its four-vane spider, a Schmidt or Maksutov Cassegrain 0.33, a
     /// Newtonian-Cassegrain 0.3, a RASA 0.4, a refractor, an astrograph or an unknown design none). Null with no aperture.
     /// </summary>
-    /// <summary>
-    /// The pupil a capture's header names (#1179): a TianWen recording writes its OTA's aperture and design in the SER header's
-    /// Telescope field (<see cref="PlanetaryCaptureName.TelescopeField"/>); null where the field names no aperture.
-    /// </summary>
-    public static Pupil? PupilOf(string? telescopeField)
-    {
-        var (apertureMm, design) = PlanetaryCaptureName.Telescope(telescopeField);
-        return PupilFor(apertureMm, design);
-    }
-
     public static Pupil? PupilFor(int? apertureMm, OpticalDesign design)
     {
         if (apertureMm is not { } mm || mm <= 0)
@@ -83,6 +75,16 @@ public static class PlanetaryBestStack
             OpticalDesign.RASA => new Pupil(diameter, ObstructionRatio: 0.4),
             _ => new Pupil(diameter),
         };
+    }
+
+    /// <summary>
+    /// The pupil a capture's header names (#1179): a TianWen recording writes its OTA's aperture and design in the SER header's
+    /// Telescope field (<see cref="PlanetaryCaptureName.TelescopeField"/>); null where the field names no aperture.
+    /// </summary>
+    public static Pupil? PupilOf(string? telescopeField)
+    {
+        var (apertureMm, design) = PlanetaryCaptureName.Telescope(telescopeField);
+        return PupilFor(apertureMm, design);
     }
 
     /// <summary>
@@ -118,16 +120,22 @@ public static class PlanetaryBestStack
     /// <paramref name="master"/> sharpened as the pipeline sharpens it: by gains derived through the limb's edge when the planet (one
     /// with a rotation model), the instant it shows (<paramref name="epoch"/>, else its own DATE-OBS and EXPTIME's middle) and the
     /// telescope are known and its limb fits; by <see cref="WaveletSharpenOptions.PlanetaryDefault"/> with the limb kept as stacked
-    /// when only the telescope is missing; by the preset alone when the planet or the time is unknown or the limb does not fit. The
-    /// words say which, and why. The caller owns the image.
+    /// when only the telescope is missing; by the preset alone when the planet or the time is unknown, its outline is not one the
+    /// limb fit models (<see cref="PlanetaryLimbFit.Unmodelled"/>: Saturn's rings) or the limb does not fit. The words say which, and
+    /// why. The caller owns the image.
     /// </summary>
     public static (Image Sharpened, string How) Sharpen(Image master, CatalogIndex? planet, DateTimeOffset? epoch, Pupil? telescope,
         ImmutableArray<double> wavelengthsNm = default, PlanetaryLimbFix? fix = null)
     {
+        if (planet is { } named && PlanetaryLimbFit.Unmodelled(named) is { } unmodelled)
+        {
+            return (WaveletSharpen.Sharpen(master, WaveletSharpenOptions.PlanetaryDefault),
+                $"PlanetaryDefault: {unmodelled}, so the sharpening is not derived");
+        }
         if (SharpenOptionsFor(master, planet, epoch, telescope, wavelengthsNm) is not { } options)
         {
             return (WaveletSharpen.Sharpen(master, WaveletSharpenOptions.PlanetaryDefault),
-                "PlanetaryDefault: the sharpening is derived only for a named Jupiter or Saturn with frame times");
+                "PlanetaryDefault: the sharpening is derived only for a named Jupiter with frame times");
         }
         if (fix is { } chosen)
         {
@@ -158,10 +166,14 @@ public static class PlanetaryBestStack
         {
             return ([], "the gains are derived only for a telescope: give its aperture");
         }
+        if (planet is { } named && PlanetaryLimbFit.Unmodelled(named) is { } unmodelled)
+        {
+            return ([], $"{unmodelled}, so no gains are derived");
+        }
         // The gains do not depend on the limb fix, which only the batch sharpening applies; floored is the cheapest to make.
         if (SharpenOptionsFor(master, planet, epoch, telescope, wavelengthsNm) is not { } options)
         {
-            return ([], "the gains are derived only for a named Jupiter or Saturn with frame times");
+            return ([], "the gains are derived only for a named Jupiter with frame times");
         }
         if (PlanetarySharpening.Sharpen(master, options with { Fix = PlanetaryLimbFix.Floored }) is not { } result)
         {
@@ -190,15 +202,23 @@ public static class PlanetaryBestStack
     public static WaveletSharpenOptions SliderOptions(ImmutableArray<float> gains)
         => new WaveletSharpenOptions { Gains = gains, HoldAtDarkest = true };
 
+    /// <summary>
+    /// The instant <paramref name="master"/> shows its planet at: the run's <paramref name="epoch"/> when it was de-rotated to one, else
+    /// the middle of its own DATE-OBS and EXPTIME, else null.
+    /// </summary>
+    public static DateTimeOffset? InstantOf(Image master, DateTimeOffset? epoch)
+    {
+        var meta = master.ImageMeta;
+        return epoch ?? (meta.ExposureStartTime.Year > 1 ? meta.ExposureStartTime + (meta.ExposureDuration / 2) : null);
+    }
+
     // The derived sharpening's options for a master, or null where it cannot be derived: no planet with a rotation model, or no
-    // instant (epoch, else the master's own DATE-OBS and EXPTIME's middle). Its wavelengths default to 550 nm on a mono master and
-    // 610, 530, 460 on a colour one.
+    // instant (InstantOf). Its wavelengths default to 550 nm on a mono master and 610, 530, 460 on a colour one.
     private static PlanetarySharpenOptions? SharpenOptionsFor(Image master, CatalogIndex? planet, DateTimeOffset? epoch, Pupil? telescope,
         ImmutableArray<double> wavelengthsNm)
     {
-        var meta = master.ImageMeta;
-        DateTimeOffset? when = epoch ?? (meta.ExposureStartTime.Year > 1 ? meta.ExposureStartTime + (meta.ExposureDuration / 2) : null);
-        if (planet is not { } body || !PhysicalEphemeris.Supports(body) || when is not { } instant)
+        if (planet is not { } body || !PhysicalEphemeris.Supports(body) || PlanetaryLimbFit.Unmodelled(body) is not null
+            || InstantOf(master, epoch) is not { } instant)
         {
             return null;
         }
