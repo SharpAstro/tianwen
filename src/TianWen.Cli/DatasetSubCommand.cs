@@ -1191,12 +1191,17 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
         {
             Description = "--mode stars: the PSF store the per-channel profiles come from; default the bake's stats/psf-sessions.jsonl.",
         };
+        var measureInjectionOpt = new Option<bool>("--measure-injection")
+        {
+            Description = "--mode stars: read every draw's injected stars back (fitted FWHM and beta, saturated plateaus and edges " +
+                          "against the master's own, placement) and write a row per session to injection-measures.jsonl.",
+        };
 
         var command = new Command("degrade",
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -1296,7 +1301,8 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 Placement: placement,
                 Profile: profile,
                 SaturatedFraction: saturatedFraction,
-                PsfStorePath: parseResult.GetValue(psfStoreOpt));
+                PsfStorePath: parseResult.GetValue(psfStoreOpt),
+                MeasureInjection: parseResult.GetValue(measureInjectionOpt));
 
             var result = await DatasetDegradationExporter.RunAsync(options, logger, ct);
             var degraded = result.Sessions.Sum(s => s.DegradedTiles);

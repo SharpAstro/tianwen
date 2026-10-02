@@ -34,6 +34,66 @@ public static partial class DatasetDegradationExporter
     /// <summary>A star is rendered out to where its light falls below this fraction of the sky's noise at the master's depth.</summary>
     public const double InjectionFloorSigma = 0.02;
 
+    /// <summary>With <see cref="Options.MeasureInjection"/>: the injected stars read back, one row per session.</summary>
+    public const string InjectionMeasureFileName = "injection-measures.jsonl";
+
+    /// <summary>An injected star is fitted back only at this significance in a channel (its peak over the sky's noise at the
+    /// master's depth) and up to <see cref="MeasureMaxSignificance"/>, R1's prediction's band.</summary>
+    public const double MeasureMinSignificance = 30.0;
+
+    /// <summary>The upper end of the band <see cref="MeasureMinSignificance"/> opens.</summary>
+    public const double MeasureMaxSignificance = 1000.0;
+
+    /// <summary>
+    /// One session's injected stars read back (docs/plans/star-remover-training.md, R1's predictions): each channel's fitted
+    /// FWHM and beta over the drawn ones at the median (unsaturated stars in the significance band, isolated from the other
+    /// injected stars), the fitted beta itself (the Gaussian arm's check), the injected saturated stars' plateaus and edges
+    /// against the master's own (<see cref="InjectionMeasure.SaturatedShape"/>, one definition), the placement, and the
+    /// pixels that passed a saturated star's clip in the noise-free render.
+    /// </summary>
+    public sealed record InjectionMeasureRow(
+        string SessionId, string Placement, string Profile, int Draws, int Requested, int Placed,
+        int[] Fitted, double[] FwhmRatio, double[] BetaRatio, double[] BetaFitted, double AxisRatioDrawn, double AxisRatioFitted,
+        int InjectedSaturated, double InjectedPlateauPx, double InjectedEdgePx, int RealSaturated, double RealPlateauPx, double RealEdgePx,
+        int ClipExceeded);
+
+    /// <summary>What one session's draws collect for its <see cref="InjectionMeasureRow"/>.</summary>
+    private sealed class InjectionMeasures
+    {
+        public InjectionMeasures(int channels)
+        {
+            FwhmRatio = new List<double>[channels];
+            BetaRatio = new List<double>[channels];
+            BetaFitted = new List<double>[channels];
+            for (var c = 0; c < channels; c++)
+            {
+                FwhmRatio[c] = new List<double>();
+                BetaRatio[c] = new List<double>();
+                BetaFitted[c] = new List<double>();
+            }
+        }
+
+        public List<double>[] FwhmRatio { get; }
+
+        public List<double>[] BetaRatio { get; }
+
+        public List<double>[] BetaFitted { get; }
+
+        public List<double> AxisRatioDrawn { get; } = new List<double>();
+
+        public List<double> AxisRatioFitted { get; } = new List<double>();
+
+        public List<SaturatedStarShape> Injected { get; } = new List<SaturatedStarShape>();
+
+        public List<SaturatedStarShape> Real { get; } = new List<SaturatedStarShape>();
+
+        public int Requested { get; set; }
+
+        public int Placed { get; set; }
+
+        public int ClipExceeded { get; set; }
+    }
+
     /// <summary>One injected star, in the cell's coordinates (pixel centres at integers), per channel where it varies.</summary>
     public sealed record InjectedStarRow(
         double X, double Y, double[] Amplitude, double[] FwhmPx, double[] Beta, double AxisRatio, double PositionAngleDeg,
@@ -172,6 +232,21 @@ public static partial class DatasetDegradationExporter
                 sessionId, population.Sites, population.AmplitudePool, population.SaturatedPool, population.MomentPool,
                 string.Join(" / ", psf.Select(static p => string.Create(CultureInfo.InvariantCulture, $"{p.Fwhm:F2} px b{p.Beta:F2}"))));
 
+            var measures = options.MeasureInjection ? new InjectionMeasures(channels) : null;
+            if (measures is not null)
+            {
+                // The master's own saturated stars, read as the injected ones will be, on its luminance.
+                var lum = Luminance(master);
+                foreach (var star in catalogue)
+                {
+                    if (star.Outcome == StarFitOutcome.Subtracted && star.Saturated
+                        && InjectionMeasure.SaturatedShape(lum, master.Width, master.Height, star.X, star.Y) is { } shape)
+                    {
+                        measures.Real.Add(shape);
+                    }
+                }
+            }
+
             var tileRows = ImmutableArray.CreateBuilder<DatasetTileExporter.TileManifestRow>();
             var degRows = ImmutableArray.CreateBuilder<DegradationRow>();
             var injectionRows = ImmutableArray.CreateBuilder<InjectionRow>();
@@ -203,7 +278,7 @@ public static partial class DatasetDegradationExporter
                 {
                     var seed = DrawSeed(options.Seed, sessionId, cell.X, cell.Y, draw);
                     var (row, injection) = InjectCell(sessionOptions, unitPlate, absent, population, cell, draw, seed, stackedFrames, fieldRadius,
-                        origMin, balances, calibrations, tilesDir, slug, sessionId);
+                        origMin, balances, calibrations, tilesDir, slug, sessionId, measures);
                     degRows.Add(row);
                     injectionRows.Add(injection);
                     tileRows.Add(new DatasetTileExporter.TileManifestRow(
@@ -216,6 +291,19 @@ public static partial class DatasetDegradationExporter
 
             await DatasetTileExporter.AppendManifestAsync(outTileManifest, tileRows.ToImmutable(), cancellationToken);
             await AppendInjectionsAsync(Path.Combine(options.OutDir, InjectionManifestFileName), injectionRows.ToImmutable(), cancellationToken);
+            if (measures is not null)
+            {
+                var measureRow = Summarise(measures, sessionId, options, selected.Count * options.Draws);
+                await File.AppendAllTextAsync(Path.Combine(options.OutDir, InjectionMeasureFileName),
+                    JsonSerializer.Serialize(measureRow, DatasetDegradationJsonContext.Default.InjectionMeasureRow) + "\n", cancellationToken);
+                logger?.LogInformation(
+                    "[degrade] {Session}: placed {Placed}/{Requested}; FWHM fitted/drawn {Fwhm}, beta {Beta} over {Fitted} stars; saturated plateau {InjectedPlateau} px against the master's {RealPlateau}, edge {InjectedEdge} against {RealEdge}; {Clip} px past a clip",
+                    sessionId, measureRow.Placed, measureRow.Requested,
+                    string.Join("/", measureRow.FwhmRatio.Select(static v => v.ToString("F3", CultureInfo.InvariantCulture))),
+                    string.Join("/", measureRow.BetaRatio.Select(static v => v.ToString("F3", CultureInfo.InvariantCulture))),
+                    string.Join("/", measureRow.Fitted),
+                    measureRow.InjectedPlateauPx, measureRow.RealPlateauPx, measureRow.InjectedEdgePx, measureRow.RealEdgePx, measureRow.ClipExceeded);
+            }
             // The degradation row last: it is what marks a session done for a resume.
             await DatasetDegradationStore.AppendAsync(outDegManifest, degRows.ToImmutable(), cancellationToken);
 
@@ -257,7 +345,8 @@ public static partial class DatasetDegradationExporter
         LinearDegradation.NoiseCalibration[] calibrations,
         string tilesDir,
         string slug,
-        string sessionId)
+        string sessionId,
+        InjectionMeasures? measures)
     {
         var size = cell.TileSize;
         var channels = unitPlate.ChannelCount;
@@ -323,6 +412,11 @@ public static partial class DatasetDegradationExporter
             }
             planes[c] = plane;
             levelPlanes[c] = level;
+        }
+
+        if (measures is not null)
+        {
+            Measure(measures, plan, local, render, basePlanes, planes, floors, size);
         }
 
         var frame = FrameForDraw(draw);
@@ -394,6 +488,138 @@ public static partial class DatasetDegradationExporter
                 s.Saturated,
                 s.Saturated ? [.. s.ClipLevels] : null))]);
         return (row, injection);
+    }
+
+    /// <summary>
+    /// Reads one draw's injected stars back off its linear planes: each unsaturated star in the significance band, clear of
+    /// the tile's edge and of every other injected star, fitted per channel on the draw minus the plate (its own noise in
+    /// it); each saturated star's plateau and edge on the draw's luminance; and any pixel the noise-free render put past a
+    /// saturated star's clip within 3 px of its centre, where the plate was under the clip.
+    /// </summary>
+    private static void Measure(
+        InjectionMeasures measures, InjectionPlan plan, InjectedStar[] stars, InjectionRender render, float[][] basePlanes, float[][,] planes,
+        double[] floors, int size)
+    {
+        measures.Requested += plan.Requested;
+        measures.Placed += plan.Placed;
+        var channels = basePlanes.Length;
+        var lum = new float[size * size];
+        for (var c = 0; c < channels; c++)
+        {
+            for (var y = 0; y < size; y++)
+            {
+                for (var x = 0; x < size; x++)
+                {
+                    lum[(y * size) + x] += planes[c][y, x] / channels;
+                }
+            }
+        }
+        float[][]? diff = null;
+        foreach (var star in stars)
+        {
+            if (star.Saturated)
+            {
+                if (InjectionMeasure.SaturatedShape(lum, size, size, star.X, star.Y) is { } shape)
+                {
+                    measures.Injected.Add(shape);
+                }
+                for (var c = 0; c < channels; c++)
+                {
+                    for (var y = Math.Max(0, (int)star.Y - 3); y <= Math.Min(size - 1, (int)star.Y + 3); y++)
+                    {
+                        for (var x = Math.Max(0, (int)star.X - 3); x <= Math.Min(size - 1, (int)star.X + 3); x++)
+                        {
+                            if ((x - star.X) * (x - star.X) + (y - star.Y) * (y - star.Y) <= 9.0
+                                && render.Planes[c][(y * size) + x] > star.ClipLevels[c] + 1e-6
+                                && basePlanes[c][(y * size) + x] < star.ClipLevels[c])
+                            {
+                                measures.ClipExceeded++;
+                            }
+                        }
+                    }
+                }
+                continue;
+            }
+            var widest = star.Profiles.Max(static p => p.FwhmPx);
+            var reach = Math.Max(4.0, 2.5 * 1.2 * widest) + 1.0;
+            if (star.X < reach || star.Y < reach || star.X > size - 1 - reach || star.Y > size - 1 - reach)
+            {
+                continue;
+            }
+            var clear = Math.Max(12.0, 4.0 * widest);
+            if (stars.Any(o => !ReferenceEquals(o, star) && ((o.X - star.X) * (o.X - star.X)) + ((o.Y - star.Y) * (o.Y - star.Y)) < clear * clear))
+            {
+                continue;
+            }
+            if (diff is null)
+            {
+                diff = new float[channels][];
+                for (var c = 0; c < channels; c++)
+                {
+                    diff[c] = new float[size * size];
+                    for (var y = 0; y < size; y++)
+                    {
+                        for (var x = 0; x < size; x++)
+                        {
+                            diff[c][(y * size) + x] = planes[c][y, x] - basePlanes[c][(y * size) + x];
+                        }
+                    }
+                }
+            }
+            for (var c = 0; c < channels; c++)
+            {
+                var significance = star.Amplitudes[c] / (floors[c] / InjectionFloorSigma);
+                if (!(significance >= MeasureMinSignificance && significance <= MeasureMaxSignificance))
+                {
+                    continue;
+                }
+                var drawn = star.Profiles[c];
+                if (InjectionMeasure.FitMoffat(diff[c], size, size, star.X, star.Y, drawn.FwhmPx * 1.2) is { Converged: true } fit)
+                {
+                    measures.FwhmRatio[c].Add(fit.FwhmPx / drawn.FwhmPx);
+                    measures.BetaRatio[c].Add(fit.Beta / drawn.Beta);
+                    measures.BetaFitted[c].Add(fit.Beta);
+                    if (c == 0)
+                    {
+                        measures.AxisRatioDrawn.Add(drawn.AxisRatio);
+                        measures.AxisRatioFitted.Add(fit.AxisRatio);
+                    }
+                }
+            }
+        }
+    }
+
+    private static InjectionMeasureRow Summarise(InjectionMeasures m, string sessionId, Options options, int draws)
+    {
+        var channels = m.FwhmRatio.Length;
+        return new InjectionMeasureRow(
+            sessionId, options.Placement.ToString(), options.Profile.ToString(), draws, m.Requested, m.Placed,
+            [.. Enumerable.Range(0, channels).Select(c => m.FwhmRatio[c].Count)],
+            [.. Enumerable.Range(0, channels).Select(c => MedianOf(m.FwhmRatio[c]))],
+            [.. Enumerable.Range(0, channels).Select(c => MedianOf(m.BetaRatio[c]))],
+            [.. Enumerable.Range(0, channels).Select(c => MedianOf(m.BetaFitted[c]))],
+            MedianOf(m.AxisRatioDrawn), MedianOf(m.AxisRatioFitted),
+            m.Injected.Count, MedianOf([.. m.Injected.Select(static s => (double)s.PlateauPx)]),
+            MedianOf([.. m.Injected.Select(static s => s.EdgePx).Where(double.IsFinite)]),
+            m.Real.Count, MedianOf([.. m.Real.Select(static s => (double)s.PlateauPx)]),
+            MedianOf([.. m.Real.Select(static s => s.EdgePx).Where(double.IsFinite)]),
+            m.ClipExceeded);
+    }
+
+    /// <summary>The mean of an image's channels, row-major.</summary>
+    private static float[] Luminance(Image image)
+    {
+        var (channels, width, height) = image.Shape;
+        var lum = new float[width * height];
+        for (var c = 0; c < channels; c++)
+        {
+            var plane = image.GetChannelSpan(c);
+            for (var i = 0; i < lum.Length; i++)
+            {
+                lum[i] += plane[i] / channels;
+            }
+        }
+        return lum;
     }
 
     private static async Task AppendInjectionsAsync(string path, ImmutableArray<InjectionRow> rows, CancellationToken cancellationToken)

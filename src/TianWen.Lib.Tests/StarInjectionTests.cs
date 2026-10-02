@@ -287,6 +287,68 @@ public class StarInjectionTests(ITestOutputHelper output)
         Should.Throw<InvalidOperationException>(() => InjectionPopulation.Build(old, image, image, 1.0, [(2.5, 3.0)], null));
     }
 
+    [Theory]
+    [InlineData(StarProfileFamily.Moffat, 3.0, 3.0, 0.8)]
+    [InlineData(StarProfileFamily.Moffat, 2.2, 2.4, 0.9)]
+    [InlineData(StarProfileFamily.Gaussian, 3.0, 3.0, 1.0)]
+    public void AStarsShapeIsFittedBackOffItsNoise(StarProfileFamily family, double fwhm, double beta, double q)
+    {
+        const int size = 48;
+        const double sigma = 0.002;
+        var profile = new StarProfile(family, fwhm, beta, q, 0.5);
+        var rng = new Random(9);
+        var plane = new float[size * size];
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                plane[(y * size) + x] = (float)((0.2 * profile.PixelMean(x, y, 24.3, 23.6)) + (sigma * StarInjection.Gaussian(rng)));
+            }
+        }
+        var fit = InjectionMeasure.FitMoffat(plane, size, size, 24.0, 24.0, fwhm * 1.2);
+        fit.ShouldNotBeNull();
+        output.WriteLine($"{family} {fwhm}/{beta}/{q}: fitted FWHM {fit.Value.FwhmPx:F3}, beta {fit.Value.Beta:F2}, q {fit.Value.AxisRatio:F3}, " +
+            $"at ({fit.Value.X:F2}, {fit.Value.Y:F2}), converged {fit.Value.Converged}");
+        fit.Value.FwhmPx.ShouldBe(fwhm, fwhm * 0.03);
+        fit.Value.AxisRatio.ShouldBe(q, 0.03);
+        fit.Value.X.ShouldBe(24.3, 0.05);
+        if (family == StarProfileFamily.Moffat)
+        {
+            fit.Value.Beta.ShouldBe(beta, beta * 0.15);
+        }
+        else
+        {
+            fit.Value.Beta.ShouldBeGreaterThan(6.0, "a Gaussian reads as a Moffat with no wings");
+        }
+    }
+
+    [Fact]
+    public void AStackedSaturatedStarsEdgeIsSofterThanAHardClips()
+    {
+        const int size = 128;
+        const double clip = 0.6;
+        var plate = new[] { Filled(size, 0.05f) };
+        var profile = StarProfile.Round(StarProfileFamily.Moffat, 2.5, 2.8);
+        var star = new InjectedStar(64.3, 63.8, [40.0], [profile], true, [clip]);
+        var stacked = StarInjection.Render(plate, size, size, null, [star], [1e-6], new Random(4)).Planes[0];
+        var hard = new float[size * size];
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                hard[(y * size) + x] = (float)Math.Min(clip, 0.05 + (40.0 * profile.PixelMean(x, y, star.X, star.Y)));
+            }
+        }
+        var soft = InjectionMeasure.SaturatedShape(stacked, size, size, star.X, star.Y);
+        var sharp = InjectionMeasure.SaturatedShape(hard, size, size, star.X, star.Y);
+        soft.ShouldNotBeNull();
+        sharp.ShouldNotBeNull();
+        output.WriteLine($"stacked: plateau {soft.Value.PlateauPx} px, edge {soft.Value.EdgePx:F1} px; hard clip: plateau {sharp.Value.PlateauPx} px, edge {sharp.Value.EdgePx:F1} px");
+        soft.Value.PlateauPx.ShouldBeLessThan(sharp.Value.PlateauPx, "the subs' scatter rounds the plateau's rim off");
+        soft.Value.EdgePx.ShouldBeGreaterThanOrEqualTo(sharp.Value.EdgePx);
+        InjectionMeasure.SaturatedShape(stacked, size, size, 20.0, 64.0).ShouldBeNull("too near the edge to read the sky");
+    }
+
     private static (InjectionPopulation Population, ImmutableArray<FittedStar> Catalogue) BuildPopulation()
     {
         const int size = 256;
