@@ -163,6 +163,28 @@ namespace TianWen.Lib.Imaging.Dataset
             string ScaleSource = "")
         {
             /// <summary>
+            /// The master file's last write when it was measured, UTC; null on a record written before this
+            /// was kept. An init property, not another positional parameter: a defaulted parameter on a public
+            /// record's constructor is a binary break.
+            /// </summary>
+            /// <remarks>
+            /// The store is keyed by file name, and a re-bake rewrites a master under the SAME name when its
+            /// session id did not change (six of the 37 the 2026-10-02 rekey re-baked), so a name alone took
+            /// the old master's measurement for the new one. A record is current only while the file is the
+            /// one it measured (<see cref="IsRecordOf"/>); a record without the stamp is taken on trust, as
+            /// before, and <c>--force</c> re-measures it.
+            /// </remarks>
+            public DateTimeOffset? MasterWrittenUtc { get; init; }
+
+            /// <summary>The last write of the master at <paramref name="path"/>, UTC, as a record stamps it.</summary>
+            public static DateTimeOffset WrittenUtcOf(string path) =>
+                new DateTimeOffset(File.GetLastWriteTimeUtc(path), TimeSpan.Zero);
+
+            /// <summary>Whether this record measured the master now at <paramref name="path"/>: no stamp (a
+            /// record older than the stamp) or the file's last write still the stamped one.</summary>
+            public bool IsRecordOf(string path) => MasterWrittenUtc is not { } written || written == WrittenUtcOf(path);
+
+            /// <summary>
             /// The long side of the frame on the sky, degrees; NaN when the scale is unknown. The amplitude
             /// follows THIS, not the camera: one camera behind several scopes is several fields.
             /// </summary>
@@ -245,7 +267,7 @@ namespace TianWen.Lib.Imaging.Dataset
                 cancellationToken.ThrowIfCancellationRequested();
                 index++;
                 var key = Path.GetFileName(path);
-                if (!options.Force && store.TryGetValue(key, out var stored))
+                if (!options.Force && store.TryGetValue(key, out var stored) && stored.IsRecordOf(path))
                 {
                     // A record written before the scale existed gets it from the master's own header:
                     // seconds of reading against a plate solve and nine fits to measure it again.
@@ -277,7 +299,8 @@ namespace TianWen.Lib.Imaging.Dataset
                     try
                     {
                         var (strategy, stackedFrames) = ReadMasterCards(path);
-                        record = await MeasureMasterAsync(image, path, strategy, stackedFrames, options.Solve ? solver : null, options.Sweep, headerWcs, logger, cancellationToken);
+                        record = await MeasureMasterAsync(image, path, strategy, stackedFrames, options.Solve ? solver : null, options.Sweep, headerWcs, logger, cancellationToken)
+                            with { MasterWrittenUtc = MasterGradient.WrittenUtcOf(path) };
                     }
                     finally
                     {
