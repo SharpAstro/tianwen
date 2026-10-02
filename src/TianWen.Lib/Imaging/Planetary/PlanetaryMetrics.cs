@@ -270,6 +270,27 @@ public static class PlanetaryMetrics
     }
 
     /// <summary>
+    /// The limb's rebound: the most <paramref name="plane"/>'s azimuthal profile (normalised, the sky zero and the disk one) climbs back
+    /// above its own running minimum going out from 1.0 to 1.3 radii. A planet's profile only falls outside its limb (the glow of its
+    /// diffraction and its blur), a stack's with it, so a rise there is a ring a sharpening put in (#1168); zero on a profile that never
+    /// climbs. The truth-free reading of what <see cref="LimbUndershoot"/>, which reads below the sky only, cannot see.
+    /// </summary>
+    public static double LimbRebound(ReadOnlySpan<float> plane, int width, int height, MetricDisk disk)
+    {
+        var profile = Profile(plane, width, height, disk, 1.0, 1.3);
+        var (lowest, rebound) = (double.PositiveInfinity, 0.0);
+        foreach (var v in profile)
+        {
+            if (double.IsFinite(v))
+            {
+                lowest = Math.Min(lowest, v);
+                rebound = Math.Max(rebound, v - lowest);
+            }
+        }
+        return double.IsFinite(lowest) ? rebound : double.NaN;
+    }
+
+    /// <summary>
     /// The RMS difference between a stack's limb profile and the truth's over 0.8 to 1.2 radii (both normalised and registered):
     /// a limb that rings, or is softer or sharper than the truth's.
     /// </summary>

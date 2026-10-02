@@ -54,7 +54,7 @@ internal static class PlanetaryMasterScore
                 var reference = PlanetaryMetrics.Normalise(truth.Plane, plane.Width, plane.Height, disk);
                 var bands = PlanetaryMetrics.Fidelity(fitted.Plane, reference, plane.Width, plane.Height, disk);
                 consoleHost.WriteScrollable(string.Create(inv,
-                    $"[planetary] {label} against the truth: transfer {string.Join(", ", bands.Select(b => b.Transfer.ToString("0.000", inv)))}; error {string.Join(", ", bands.Select(b => b.Error.ToString("0.000", inv)))} (bands 1 to 4 {bands.Take(4).Sum(b => b.Error):0.000}); undershoot {PlanetaryMetrics.LimbUndershoot(fitted.Plane, plane.Width, plane.Height, disk):0.0000}"));
+                    $"[planetary] {label} against the truth: transfer {string.Join(", ", bands.Select(b => b.Transfer.ToString("0.000", inv)))}; error {string.Join(", ", bands.Select(b => b.Error.ToString("0.000", inv)))} (bands 1 to 4 {bands.Take(4).Sum(b => b.Error):0.000}); undershoot {PlanetaryMetrics.LimbUndershoot(fitted.Plane, plane.Width, plane.Height, disk):0.0000}; limb profile error {PlanetaryMetrics.LimbProfileError(fitted.Plane, reference, plane.Width, plane.Height, disk):0.0000}; rebound {PlanetaryMetrics.LimbRebound(fitted.Plane, plane.Width, plane.Height, disk):0.0000}"));
             }
             finally
             {
@@ -77,9 +77,11 @@ internal static class PlanetaryMasterScore
             return;
         }
         var disk = MetricDisk.From(fit, limbOptions.AxisRatio);
-        var readings = Enumerable.Range(0, master.ChannelCount).Select(c =>
-            PlanetaryMetrics.LimbUndershoot(PlanetaryMetrics.Normalise(master.GetChannelSpan(c), master.Width, master.Height, disk), master.Width, master.Height, disk));
-        consoleHost.WriteScrollable(string.Create(inv, $"[planetary] {what}: limb undershoot {string.Join(", ", readings.Select(u => u.ToString("0.0000", inv)))} of the disk"));
+        var planes = Enumerable.Range(0, master.ChannelCount).Select(c => PlanetaryMetrics.Normalise(master.GetChannelSpan(c), master.Width, master.Height, disk)).ToArray();
+        var undershoots = planes.Select(p => PlanetaryMetrics.LimbUndershoot(p, master.Width, master.Height, disk));
+        var rebounds = planes.Select(p => PlanetaryMetrics.LimbRebound(p, master.Width, master.Height, disk));
+        consoleHost.WriteScrollable(string.Create(inv,
+            $"[planetary] {what}: limb undershoot {string.Join(", ", undershoots.Select(u => u.ToString("0.0000", inv)))} of the disk; rebound outside the limb {string.Join(", ", rebounds.Select(u => u.ToString("0.0000", inv)))}"));
     }
 
     /// <summary>The telescope's pupil from the options <see cref="PupilOptions"/> made, or null when none was given.</summary>
