@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 using DIR.Lib;
+using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
@@ -65,6 +66,21 @@ public class ViewerWaveletDeriveTests
         e2e.State.WaveletDerived.ShouldBeFalse();
         e2e.State.WaveletDeriveNote.ShouldBeNull();
         e2e.State.WaveletGains.ShouldBe(WaveletSharpenOptions.PlanetaryDefault.Gains);
+    }
+
+    [Fact]
+    public void ADerivationDisposedTwiceStaysQuietAndTicksNoMore()
+    {
+        // A host disposes its capture controller itself and through its service scope, and the second dispose's cancel threw on the
+        // disposed source (the functional suite's GUI harness, on #1183's CI).
+        var derivation = new WaveletDerivation();
+        var state = new ViewerState { WaveletDeriveRequested = true };
+        derivation.Dispose();
+        Should.NotThrow(derivation.Dispose);
+
+        derivation.Tick(state, source: null, capturePath: null, DateTimeOffset.UnixEpoch, NullLogger.Instance);
+        state.WaveletDeriveRequested.ShouldBeTrue("a disposed derivation takes no request");
+        state.WaveletDeriveNote.ShouldBeNull();
     }
 
     // The synthetic Jupiter capture opened and its stacked view on screen with a master in it.
