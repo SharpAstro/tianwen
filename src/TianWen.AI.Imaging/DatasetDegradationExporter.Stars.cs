@@ -289,21 +289,7 @@ public static partial class DatasetDegradationExporter
         var local = plan.Stars.Select(s => s with { X = s.X - cell.X, Y = s.Y - cell.Y }).ToArray();
         var render = StarInjection.Render(basePlanes, size, size, cellAbsent, local, floors, new Random(seed ^ 0x6d2b79f5));
 
-        // The session's noise shape, drawn per draw exactly as the other modes draw it.
-        var drawShape = options.Shape;
-        var drawSigma = options.WarpResampleSigma;
-        if (options.Shape == NoiseShape.Warped && (options.WhiteFraction > 0 || options.WarpResampleSigmaMax > options.WarpResampleSigma))
-        {
-            var shapeRng = new Random(seed ^ 0x2c1b3c6d);
-            if (shapeRng.NextDouble() < options.WhiteFraction)
-            {
-                drawShape = NoiseShape.White;
-            }
-            else if (options.WarpResampleSigmaMax > options.WarpResampleSigma)
-            {
-                drawSigma = options.WarpResampleSigma + (shapeRng.NextDouble() * (options.WarpResampleSigmaMax - options.WarpResampleSigma));
-            }
-        }
+        var (drawShape, drawSigma) = DrawNoiseShape(options, seed);
 
         // The stars' own shot noise at the master's depth: what the plate plus a star carries beyond what the plate already
         // does, on a field of the master's shape, and only the share of a saturated star's subs that did not clip.
@@ -312,9 +298,7 @@ public static partial class DatasetDegradationExporter
         var levelPlanes = new float[channels][,];
         for (var c = 0; c < channels; c++)
         {
-            var field = drawShape == NoiseShape.White
-                ? NoiseField.White(size, size, noiseRng)
-                : NoiseField.Warped(size, size, Math.Max(2, Math.Min(stackedFrames, 16)), noiseRng, drawSigma);
+            var field = NoiseFieldFor(drawShape, drawSigma, size, stackedFrames, noiseRng);
             var plane = new float[size, size];
             var level = new float[size, size];
             var calibration = calibrations[c];
