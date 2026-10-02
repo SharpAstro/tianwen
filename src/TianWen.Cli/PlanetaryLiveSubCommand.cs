@@ -118,7 +118,7 @@ internal sealed class PlanetaryLiveSubCommand(IConsoleHost consoleHost, ITimePro
     }
 
     // One master as it was published: when, the frame it was stacked to, the newest frame the ring held then, and the rebuilds so far.
-    private readonly record struct Published(TimeSpan At, int Built, int Newest, int Rebuilds, int WindowFrames);
+    private readonly record struct Published(TimeSpan At, int Built, int Newest, int Rebuilds, long Folds, int Folded);
 
     private sealed record Run(IReadOnlyList<Published> Masters, int Pushed, TimeSpan Replayed, Image? Last);
 
@@ -133,7 +133,7 @@ internal sealed class PlanetaryLiveSubCommand(IConsoleHost consoleHost, ITimePro
         var loop = Task.Run(() => LiveStackLoop.RunAsync(() => Volatile.Read(ref replaying) == 1, () => ring, options, timeProvider,
             (master, stacker, built) =>
             {
-                masters.Add(new Published(timeProvider.GetElapsedTime(start), built, ring.LatestIndex, stacker.Rebuilds, stacker.WindowFrameCount));
+                masters.Add(new Published(timeProvider.GetElapsedTime(start), built, ring.LatestIndex, stacker.Rebuilds, stacker.Folds, stacker.FoldedFrameCount));
                 Interlocked.Exchange(ref last, master)?.Release();
             },
             ex => consoleHost.WriteError($"[planetary] a live stack failed: {ex.Message}"),
@@ -186,9 +186,13 @@ internal sealed class PlanetaryLiveSubCommand(IConsoleHost consoleHost, ITimePro
         var intervals = masters.Zip(masters.Skip(1), (a, b) => (b.At - a.At).TotalMilliseconds).Order().ToArray();
         var lags = masters.Select(m => (m.Newest - m.Built) / rate * 1000).Order().ToArray();
         var (first, final) = (masters[0], masters[^1]);
-        var advanced = (final.Built - first.Built) / (final.At - first.At).TotalSeconds;
+        // Frames folded a second between the first master and the last (rebuilds' folds included), against the frames the
+        // replay actually delivered a second, which a starved process falls short of the capture's rate.
+        var folded = (final.Folds - first.Folds) / (final.At - first.At).TotalSeconds;
+        var delivered = run.Pushed / run.Replayed.TotalSeconds;
+        var held = masters.Select(m => (double)m.Folded).Order().ToArray();
         consoleHost.WriteScrollable(string.Create(inv,
-            $"[planetary] {name}: {masters.Count} masters from {run.Pushed} frames in {run.Replayed.TotalSeconds:0.0} s; interval median {Median(intervals):0} ms (p90 {Percentile(intervals, 0.9):0}); the stack advanced {advanced:0.0} frames a second against {rate:0.0} captured ({advanced / rate:P0}); behind the newest frame median {Median(lags):0} ms (p90 {Percentile(lags, 0.9):0}, last {(final.Newest - final.Built) / rate * 1000:0}); {final.Rebuilds} rebuilds; window {final.WindowFrames} frames"));
+            $"[planetary] {name}: {masters.Count} masters from {run.Pushed} frames in {run.Replayed.TotalSeconds:0.0} s ({delivered:0.0} a second delivered of {rate:0.0}); interval median {Median(intervals):0} ms (p90 {Percentile(intervals, 0.9):0}); {folded:0.0} frames folded a second ({folded / rate:P0} of the capture's); behind the newest frame median {Median(lags):0} ms (p90 {Percentile(lags, 0.9):0}); {final.Rebuilds} rebuilds over {masters.Count} masters; a master holds median {Median(held):0} frames (last {final.Folded})"));
     }
 
     private static double Median(double[] sorted) => Percentile(sorted, 0.5);

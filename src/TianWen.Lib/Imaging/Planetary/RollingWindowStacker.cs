@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using TianWen.Lib.Geometry;
 using System.Threading;
 using System.Threading.Tasks;
@@ -131,6 +132,7 @@ public sealed class RollingWindowStacker
     private int _windowStart = -1;
     private int _windowEnd = -2;  // < _windowStart so "first call" is always a rebuild
     private int _rebuilds;
+    private long _folds;
     private int _channels;
     private int _planeW;
     private int _planeH;
@@ -159,6 +161,12 @@ public sealed class RollingWindowStacker
 
     /// <summary>How many times the window has been folded again from its frames: the first stack, a jump, the reference ageing out, or a ring that dropped a frame the sum still held.</summary>
     public int Rebuilds => _rebuilds;
+
+    /// <summary>How many frames have been registered and folded in so far, rebuilds included: what the stack has done, where its window's end says only how far it has reached.</summary>
+    public long Folds => _folds;
+
+    /// <summary>The frames the window's sum holds: its frames less those graded out and those a live ring dropped before they could be folded.</summary>
+    public int FoldedFrameCount => _window.Values.Count(c => c.Weight > 0f);
 
     /// <summary>How many frames have a cached score, for the test that holds it bounded.</summary>
     internal int ScoreCacheCount => _scoreCache.Count;
@@ -378,6 +386,7 @@ public sealed class RollingWindowStacker
             var shift = aligner.Estimate(frame, PlanetaryDisk.BoundingBox(frame));
             frame.AccumulateTranslatedInto(sum, weight, (float)shift.Dx, (float)shift.Dy, score, _options.Interpolation);
             _window[index] = new Contribution(score, (float)shift.Dx, (float)shift.Dy);
+            _folds++;
         }
         finally
         {
