@@ -58,7 +58,9 @@ auto-invocable when the request matches, or via `/<name>`): `release-lib`, `rele
 (TRX + no truncation; hunts flakes), `test-filter`, `test-image-diff`, `test-output-prune`, `stack`,
 `digitize-filter`, `curate-session`, `dataset-gallery`, `plan-report` (`tools/plan-issue-report.py`, also the
 `plan-report` workflow), `tick-todo` (close a backlog ISSUE, preferably through its PR, and update CLAUDE.md,
-the plan files and memory).
+the plan files and memory), `chrome-review` (runs the read-only `.claude/agents/chrome-review.md` reviewer, on
+Sonnet, over a branch's UI diff for layout arithmetic the engine should own; run it before a PR touching
+`src/TianWen.UI.*`).
 
 ## Project Overview
 
@@ -1795,6 +1797,11 @@ rule: `docs/architecture/widgets-and-controls.md`, read it before any layout wor
 - **A box should be the engine's MEASUREMENT of its content, not a sum of the constants the body draws
   with.** State a control's widest state as `widthSample:` ON the node. What still does this by hand:
   `docs/plans/viewer-layout-engine.md` (HIGH PRIORITY).
+- **A declared node takes DESIGN units**: a `Base*` constant, never a `Foo => BaseFoo * DpiScale` property,
+  which the engine would scale a second time (the LOG label read "L..." at 2x), unless the tree is arranged
+  at `DesignScale.One`. `DeclaredLayoutTakesDesignUnitsTests` fails on a device-pixel property named where a
+  node is built; `/chrome-review` reads a diff for the rest (a value carried through a local, a box summed
+  beside a node, a test seam that measures instead of reading the painted region).
 
 ### UI Primitives: the cursor, a text field, and who holds focus
 

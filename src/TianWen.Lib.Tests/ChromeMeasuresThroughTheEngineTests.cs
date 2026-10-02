@@ -34,7 +34,6 @@ public class ChromeMeasuresThroughTheEngineTests
         ["EquipmentTab.DeviceList.cs"] = 3,
         ["EquipmentTab.ProfilePanel.cs"] = 2,
         ["ImageRendererBase.FileList.cs"] = 3,
-        ["ImageRendererBase.Histogram.cs"] = 1,
         ["ImageRendererBase.Overlays.cs"] = 5,
         ["ImageRendererBase.Toolbar.cs"] = 6,
         ["ImageRendererBase.Transport.cs"] = 3,
@@ -45,7 +44,7 @@ public class ChromeMeasuresThroughTheEngineTests
         ["VkSkyMapTab.cs"] = 4,
     };
 
-    private static readonly string[] ChromeProjects =
+    internal static readonly string[] ChromeProjects =
         ["TianWen.UI.Abstractions", "TianWen.UI.Shared", "TianWen.UI.Gui"];
 
     /// <summary>
@@ -53,7 +52,7 @@ public class ChromeMeasuresThroughTheEngineTests
     /// depth. Returns null when the sources are not beside the binary at all -- a packaged run -- and the
     /// tests below skip rather than fail, because "I cannot see the source" is not a regression.
     /// </summary>
-    private static string? FindSourceRoot()
+    internal static string? FindSourceRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null)
@@ -71,9 +70,9 @@ public class ChromeMeasuresThroughTheEngineTests
         return null;
     }
 
-    private static Dictionary<string, int> CountMeasureTextCalls(string sourceRoot)
+    /// <summary>Every C# source file of the chrome projects, build output excluded.</summary>
+    internal static IEnumerable<string> ChromeSourceFiles(string sourceRoot)
     {
-        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var project in ChromeProjects)
         {
             var projectDir = Path.Combine(sourceRoot, project);
@@ -86,11 +85,20 @@ public class ChromeMeasuresThroughTheEngineTests
                     continue;
                 }
 
-                var hits = File.ReadLines(file).Count(line => line.Contains("MeasureText", StringComparison.Ordinal));
-                if (hits > 0)
-                {
-                    counts[Path.GetFileName(file)] = hits;
-                }
+                yield return file;
+            }
+        }
+    }
+
+    private static Dictionary<string, int> CountMeasureTextCalls(string sourceRoot)
+    {
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var file in ChromeSourceFiles(sourceRoot))
+        {
+            var hits = File.ReadLines(file).Count(line => line.Contains("MeasureText", StringComparison.Ordinal));
+            if (hits > 0)
+            {
+                counts[Path.GetFileName(file)] = hits;
             }
         }
 
