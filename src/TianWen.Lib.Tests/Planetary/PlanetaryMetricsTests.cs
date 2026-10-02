@@ -109,6 +109,29 @@ public class PlanetaryMetricsTests
     }
 
     [Fact]
+    public void ARingAboveTheSkyReboundsOutsideTheLimbWhereABlurOnlyFalls()
+    {
+        // A blurred disk's profile only falls outside its limb, so it never climbs back (#1168). A faint ring laid 0.22 radii
+        // out climbs back by about its own height, above the sky, where the undershoot sees nothing.
+        var soft = Blur(Blur(Banded(), 1.0), 1.0);
+        var ringed = new float[soft.Length];
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                var d = (Disk.RadiiAt(x, y) - 1.22) * Disk.Radius;
+                ringed[(y * Size) + x] = soft[(y * Size) + x] + (float)(0.02 * Math.Exp(-(d * d) / 2));
+            }
+        }
+        var (softRebound, ringedRebound) = (PlanetaryMetrics.LimbRebound(soft, Size, Size, Disk), PlanetaryMetrics.LimbRebound(ringed, Size, Size, Disk));
+        var ringedUnder = PlanetaryMetrics.LimbUndershoot(ringed, Size, Size, Disk);
+        TestContext.Current.TestOutputHelper?.WriteLine($"rebound: blurred {softRebound:0.0000}, with a ring of 0.02 {ringedRebound:0.0000} (its undershoot {ringedUnder:0.0000})");
+        softRebound.ShouldBe(0, 1e-6);
+        ringedRebound.ShouldBe(0.02, 0.005);
+        ringedUnder.ShouldBeLessThan(0.001);
+    }
+
+    [Fact]
     public void PowerPastTheCutoffIsWhatNoiseAddsAndNothingPastNyquist()
     {
         // A blurred disk holds little power past 0.35 cycles a pixel; noise adds there. Past the grid's corner there is nothing
