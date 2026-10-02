@@ -972,7 +972,13 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   (Shift+K on a SER, #1159): the batch stack at its defaults, de-rotated by `DerotationFor`, sharpened by `Sharpen` (the fallbacks
   worded), both masters written under `OutputPaths`' names beside the capture; the telescope a profile gives through `PupilFor` (the
   owner's obstructions by design), the viewer's from its panel (`PlanetaryTelescopePersistence`). The GUI has no SER playback: its
-  planetary stack is the live capture's rolling one.
+  planetary stack is the live capture's rolling one. The planet and a mono capture's filter are the panel's choice or the name's
+  (`PlanetaryCaptureName`), said before the run: a name that gave none left the sharpening the preset's, blurred and ringed. **A
+  planetary master names its planet in `OBJECT` (`PlanetaryStackOptions.Planet`), and a frame whose `OBJECT` names a planet opens
+  LINEAR**, as a SER does: the deep-sky auto-stretch lifted a stack's 3e-5 sky thirty thousand times. **The batch stack runs on every
+  core and gives the same bits as one walk**: a fold in bands of OUTPUT rows (`ParallelFor.RunBands`, each pixel gathering into its own
+  cell), each frame's own work in batches on aligner and matcher twins (`PlanetaryFrameBatches`), folded in the order given; never
+  split a fold across FRAMES, whose sum is ordered (233 s to 55 s for 3,000 frames, byte-identical).
 - **A planetary master is sharpened by `PlanetarySharpening`, ONE routine for `planetary-stack`, `planetary-sharpen` and (next) the GUI**
   (#1159): a trous gains derived through the limb's edge against the limb fit's sharp model through the pupil's diffraction, the stack's
   white noise floor and the planet's disk, applied BOUNDED (held at the sky and, outside the limb, never brighter than the stack,
