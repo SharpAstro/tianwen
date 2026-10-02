@@ -1953,6 +1953,60 @@ seconds a run) and `planetary-score`, the best 150 of each capture's first 3,000
   - The one probe of #1140 the corpus cannot try, a defocused burst after a capture, is a bench item, #1155. #1140 closes with this part.
   - The kernel past 0.3 cycles a pixel stays unmeasured on a real capture.
 
+## The enhanced pipeline: R1 to R8 adopted as the stack's defaults
+
+**Issue:** #1159 (the user's goal, 2026-10-02: make `tianwen planetary-stack` and the GUI's planetary stack produce the measured-best
+result end to end). It adopts #1072, #1074, #1086, #1091 and #1143 and R8's derived gains, and open question 4 (answered yes the same
+day) is what lets a parameter chosen on the twin become a default.
+
+**Where the stacking happens** (mapped 2026-10-02): `tianwen planetary-stack` builds `PlanetaryStackOptions` itself, every option
+with its own default, and stacks with `LuckyImagingStacker`; the GUI's and `tianwen-fits`' SER playback, and live capture through the
+node, stack with `RollingWindowStacker`, whose registration (whitened phase correlation), resampling (bilinear) and estimator (the
+Laplacian) were fixed in code; and no product path used R8's derived gains or the limb channel (the GUI sharpens with
+`PlanetaryDefault`'s gains on six sliders that stop at 5).
+
+**What changes:**
+- **The batch stack** (`tianwen planetary-stack`, `PlanetaryStackOptions`):
+  - frames graded by the gradient (R4: +0.83 to +0.87 against the true transfer, the Laplacian +0.19), and kept at half the frames
+    when the stack is sharpened (#1083) or a tenth when it is not (R4's raw optimum, 5 to 10 % of 3,000);
+  - registered by plain cross-correlation, its peak climbed (R5 parts 1 and 3), against a stack of the best 1,000 frames (R5 part 3:
+    on the real capture the best frame's registration error variance is larger by 0.08 and 0.38 px^2);
+  - resampled by Lanczos-3 (R5 part 3: band 1's error down 0.014 to 0.024); per-point weighting as today (R5 part 1 measured it a
+    little better, 0.751 against 0.760 in band 1);
+  - a colour capture drizzled onto the sensor grid, if the measurement below says so (R5a found it better in band 1 and worse in bands
+    2 and 3 than a demosaic resampled by Lanczos-3, #1091);
+  - de-rotated when the planet's turn over the run moves the disk's centre by a pixel or more, the planet known from `--planet` or the
+    capture's name (R6: a 16-minute run halves its halves' difference; Jupiter's turn moves the centre about 0.53 px a minute);
+  - sharpened as the measurement below decides, from gains derived through the limb's edge (R8 follow-up 3: 0.916 against the
+    stack's 1.415 and the presets' 2.1 to 2.9 on the calibrated twin) and the stack's own noise floor (R8 part 3: a white noise left
+    less error than the halves'), given the telescope's pupil and the filter's wavelength; without them, `PlanetaryDefault` with the
+    limb as its own channel (R8 follow-up 2, #1143);
+  - `--legacy` restores every choice as it was (the Laplacian, a quarter, whitened, the best frame, bilinear, the demosaic, no
+    de-rotation, `PlanetaryDefault` plain).
+- **The rolling stack** (`RollingWindowOptions`: the GUI's and `tianwen-fits`' playback, the node's live run): the gradient, plain
+  correlation and Lanczos-3 as options with those defaults, except that a live capture keeps bilinear unless a frame's whole fold with
+  Lanczos-3 (graded, registered and folded in, 640 by 480 px) stays under 10 ms, the frame interval at 100 frames a second; and the
+  GUI's sharpening by the same derivation, computed off the render thread once a master changes, the sliders kept as the manual way.
+
+**How it is judged, set down 2026-10-02 before anything is built:**
+- **The sharpening first** (`planetary-dering`, which gains the edge's derived gains beside the presets'): on the calibrated twin,
+  the one without its still layer and the warped one (the first 3,000 frames, the best half by the gradient), the gains derived
+  through the limb's edge plain, floored, as the limb's own channel and feathered; the pipeline takes the one with the least band
+  error summed over the three twins among those whose limb undershoot stays at most 0.02 of the disk on the real capture
+  (2022-09-03 Red).
+- **A colour capture's drizzle** (`planetary-stack --truth` on the colour twin of 2024-12-15's Uranus-C capture, both seeds): Bayer
+  drizzle to the sensor grid is the default for a colour capture if its master leaves less error summed over the four bands and the
+  three colours than the demosaic does, each sharpened as the pipeline sharpens (so it is judged once the sharpening is built; until
+  then the demosaic stays).
+- **The pipeline against legacy**, each master sharpened as its pipeline does, the band error summed over bands 1 to 4 inside 0.9
+  radii against the truth:
+  - **On every twin the pipeline leaves less error than legacy, and on the calibrated twin less than half** (legacy's
+    `PlanetaryDefault` as shipped left 2.872 on R8's 150-frame stack).
+  - **Unsharpened, the pipeline's stack leaves less band 1 error than legacy's on every twin.**
+- **On real captures**, with no truth: 2022-09-03 Red, a 2024-12-15 Uranus-C Jupiter capture (colour), the 2021-12-16 ASI462MC Saturn,
+  and the 2022-10-09 Jupiter, beside AutoStakkert's own result where the corpus holds one. **The pipeline's limb undershoot is at most
+  0.02 of the disk** on each (legacy's presets: 0.16 to 0.26), and the masters go side by side to the user's eye.
+
 ## R9 A learned stage, only if the measurements say so
 
 **Issue:** #1056 (conditional).
