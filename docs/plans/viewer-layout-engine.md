@@ -263,7 +263,12 @@ on 2026-10-01, was given `ToolbarFontSize` and read "L..." at 2x. So the sweep i
 of its own class unless the tree is arranged at `DesignScale.One` (the toolbar's file is listed, with its
 reason). A pattern misses a device-pixel value carried through a local or a parameter, and a box summed by
 hand beside a declared node is not a pattern at all, so the `/chrome-review` skill runs a reviewer agent
-(Sonnet, read-only, `.claude/agents/chrome-review.md`) over a branch's diff for those.
+(Sonnet, read-only, `.claude/agents/chrome-review.md`) over a branch's diff for those. Nobody has to remember
+to: a Stop hook (`.claude/hooks/chrome_review_gate.py`) asks for it once whenever a session's round of
+`src/TianWen.UI.*` changes leaves a diff that was never reviewed. Measured on its first two runs, a review
+costs one to two minutes and 105k to 165k tokens; it found nothing in the fixed branch and, blind to which
+commit was wrong, all three faults of the one that shipped the LOG label (its own instructions describe that
+incident, so this shows the checklist reads the shape, not that it finds a new one).
 
 ## What this does NOT do
 
