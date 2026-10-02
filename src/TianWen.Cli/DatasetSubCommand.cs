@@ -872,7 +872,9 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
 
         var command = new Command("starless-plates",
             "Build the classical starless plate of each master (PSF subtraction plus inpainting) and report what it left: " +
-            "the residual at subtracted stars, the point sources still on the plate, and the fill measured on known pixels.")
+            "the residual at subtracted stars, the point sources still on the plate, and the fill measured on known pixels. " +
+            "Resumes: a master already in the store is skipped. Create <out>/" + DatasetStarlessReport.StopFileName +
+            " to stop before the next master.")
         {
             Options = { mastersOpt, outOpt, noPlatesOpt, probeOpt, forceOpt },
         };
@@ -910,7 +912,8 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 progress: new Progress<string>(line => consoleHost.WriteScrollable(line)),
                 cancellationToken: ct);
 
-            consoleHost.WriteScrollable($"[starless] measured {result.Measured}, skipped {result.Skipped}, failed {result.Failed}; report: {result.ReportPath}");
+            consoleHost.WriteScrollable(
+                $"[starless] {(result.Stopped ? $"STOPPED by {DatasetStarlessReport.StopFileName}: " : "")}measured {result.Measured}, skipped {result.Skipped}, failed {result.Failed}; report: {result.ReportPath}");
             return result.Failed > 0 && result.Measured == 0 ? 2 : 0;
         });
 
