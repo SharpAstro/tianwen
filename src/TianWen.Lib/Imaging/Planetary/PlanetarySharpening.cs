@@ -20,6 +20,18 @@ public enum PlanetaryLimbFix
     LimbChannel,
     Feathered,
     Bounded,
+
+    /// <summary>Outside the limb the stack as it is, but for its moons: the sharpening reaches the limb and no further (#1171).</summary>
+    HeldOutside,
+
+    /// <summary>
+    /// Bounded, and outside the limb at or above the stack times the share of its glow the planet's own model keeps through the pupil
+    /// alone (the limb model through the diffraction over the model through the stack's blur): the glow the truth has there (#1171).
+    /// </summary>
+    ModelFloor,
+
+    /// <summary>Bounded at the limb, blended to the stack as it is by 1.1 radii (#1171).</summary>
+    Blended,
 }
 
 /// <summary>
@@ -134,7 +146,7 @@ public static class PlanetarySharpening
                 var gains = options.NonNegative
                     ? PlanetaryWaveletGains.FitNonNegative(power, wiener, diskTarget, blurredDisk, size, size, disk, kernel)
                     : PlanetaryWaveletGains.Fit(power, wiener, diskTarget, blurredDisk, size, size, disk, held: FinestHeld(master.ChannelCount, c, options.ColourFinestBand) ? 1 : 0);
-                sharpened = Apply(window, size, disk, sharp, f => kernel(f) * diffraction.At(f), diffraction.At, gains.AsSpan(), [], options.Fix);
+                sharpened = Apply(window, size, disk, sharp, f => kernel(f) * diffraction.At(f), diffraction.At, gains.AsSpan(), [], options.Fix, diskTarget, blurredDisk);
                 if (c == 0)
                 {
                     (firstGains, edgeAt01, edgeAt03) = (gains, edge.TransferAt(0.1), edge.TransferAt(0.3));
@@ -177,7 +189,7 @@ public static class PlanetarySharpening
 
     // The window sharpened by the gains, the limb kept from ringing as asked.
     private static float[] Apply(float[] window, int size, MetricDisk disk, float[] sharp, Func<double, double> total, Func<double, double> diffraction,
-        ReadOnlySpan<double> gains, ReadOnlySpan<double> thresholds, PlanetaryLimbFix fix)
+        ReadOnlySpan<double> gains, ReadOnlySpan<double> thresholds, PlanetaryLimbFix fix, float[] diskTarget, float[] blurredDisk)
     {
         var (g, t) = (gains.ToArray(), thresholds.ToArray());
         return fix switch
@@ -186,6 +198,10 @@ public static class PlanetarySharpening
             PlanetaryLimbFix.LimbChannel => PlanetaryDering.LimbChannel(window, size, size, sharp, total, diffraction, p => PlanetaryDering.Sharpen(p, size, size, g, t)),
             PlanetaryLimbFix.Feathered => PlanetaryDering.Feathered(window, size, size, disk, g, t),
             PlanetaryLimbFix.Bounded => PlanetaryDering.Bounded(PlanetaryDering.Sharpen(window, size, size, g, t), window, size, size, disk),
+            PlanetaryLimbFix.HeldOutside => PlanetaryDering.Outside(PlanetaryDering.Sharpen(window, size, size, g, t), window, size, size, disk, PlanetaryDering.OutsideLimb.Stack),
+            PlanetaryLimbFix.ModelFloor => PlanetaryDering.Outside(PlanetaryDering.Sharpen(window, size, size, g, t), window, size, size, disk, PlanetaryDering.OutsideLimb.ModelFloor,
+                PlanetaryDering.GlowShare(diskTarget, blurredDisk)),
+            PlanetaryLimbFix.Blended => PlanetaryDering.Outside(PlanetaryDering.Sharpen(window, size, size, g, t), window, size, size, disk, PlanetaryDering.OutsideLimb.Blended),
             _ => PlanetaryDering.Sharpen(window, size, size, g, t),
         };
     }

@@ -49,6 +49,78 @@ public static class PlanetaryDering
         return result;
     }
 
+    /// <summary>What <see cref="Outside"/> puts outside the limb (#1171).</summary>
+    public enum OutsideLimb
+    {
+        /// <summary>The stack as it is.</summary>
+        Stack,
+
+        /// <summary>Bounded, and at or above the stack times its glow share.</summary>
+        ModelFloor,
+
+        /// <summary>Bounded at the limb, blended to the stack by 1.1 radii.</summary>
+        Blended,
+    }
+
+    /// <summary>
+    /// <see cref="Bounded"/>'s three successors measured against its dark trough at the limb (#1171), held at the sky inside the limb and
+    /// free about a moon as it is. Outside the limb: the stack as it is (<see cref="OutsideLimb.Stack"/>); bounded and at or above
+    /// <paramref name="stacked"/> times <paramref name="glowShare"/>, the share of the stack's glow the truth keeps there
+    /// (<see cref="OutsideLimb.ModelFloor"/>); or bounded at the limb and blended to the stack by 1.1 radii (<see cref="OutsideLimb.Blended"/>).
+    /// </summary>
+    public static float[] Outside(ReadOnlySpan<float> sharpened, ReadOnlySpan<float> stacked, int width, int height, MetricDisk disk, OutsideLimb outside,
+        ReadOnlySpan<float> glowShare = default, int moonReachPx = 5)
+    {
+        var moons = PlanetaryMetrics.CompactSources(stacked, width, height, disk, count: MaxMoons);
+        var result = new float[sharpened.Length];
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var i = (y * width) + x;
+                var v = Math.Max(sharpened[i], 0f);
+                var r = disk.RadiiAt(x, y);
+                if (r <= 1 || Near(moons, x, y, moonReachPx))
+                {
+                    result[i] = v;
+                    continue;
+                }
+                var stack = Math.Max(stacked[i], 0f);
+                var bounded = Math.Min(v, stack);
+                result[i] = outside switch
+                {
+                    OutsideLimb.Stack => stacked[i],
+                    OutsideLimb.ModelFloor => Math.Max(bounded, stack * (glowShare.IsEmpty ? 0f : glowShare[i])),
+                    _ => Blend(bounded, stack, r),
+                };
+            }
+        }
+        return result;
+    }
+
+    // Bounded at the limb, the stack by 1.1 radii, a smoothstep between.
+    private static float Blend(float bounded, float stack, double radii)
+    {
+        var s = Math.Clamp((radii - 1) / 0.1, 0, 1);
+        var w = (float)(s * s * (3 - (2 * s)));
+        return ((1 - w) * bounded) + (w * stack);
+    }
+
+    /// <summary>
+    /// The share of a stack's glow outside the limb the truth keeps: the planet's limb model through the pupil's diffraction alone
+    /// (<paramref name="target"/>) over the same model through the stack's measured blur (<paramref name="blurred"/>), clamped to [0, 1];
+    /// zero where the blurred model holds nothing.
+    /// </summary>
+    public static float[] GlowShare(ReadOnlySpan<float> target, ReadOnlySpan<float> blurred)
+    {
+        var share = new float[target.Length];
+        for (var i = 0; i < share.Length; i++)
+        {
+            share[i] = blurred[i] > 1e-4f ? Math.Clamp(target[i] / blurred[i], 0f, 1f) : 0f;
+        }
+        return share;
+    }
+
     /// <summary>The most compact sources <see cref="Bounded"/> lets keep their sharpening: Jupiter's four moons, Saturn's eight, with room.</summary>
     public const int MaxMoons = 16;
 
