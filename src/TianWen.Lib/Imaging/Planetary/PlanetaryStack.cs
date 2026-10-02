@@ -2,14 +2,39 @@ using System;
 
 namespace TianWen.Lib.Imaging.Planetary;
 
-/// <summary>Options for a planetary lucky-imaging stack.</summary>
+/// <summary>
+/// Options for a planetary lucky-imaging stack. The defaults are the measured best of docs/plans/planetary-restoration.md, R4 to R6
+/// (the enhanced pipeline, #1159); <see cref="Legacy"/> is every stack's recipe before it.
+/// </summary>
 public sealed record PlanetaryStackOptions
 {
-    /// <summary>Fraction of frames to keep, best-graded first (lucky imaging's "keep the sharpest N%").</summary>
-    public double KeepFraction { get; init; } = 0.25;
+    /// <summary>
+    /// The recipe every planetary stack used before the enhanced pipeline (#1159): the Laplacian keeping a quarter, phase
+    /// correlation against the best frame, bilinear resampling. Kept so an old master can be made again and a new one compared.
+    /// </summary>
+    public static PlanetaryStackOptions Legacy { get; } = new PlanetaryStackOptions
+    {
+        KeepFraction = 0.25,
+        QualityEstimator = new LaplacianEnergyEstimator(),
+        WhitenedCorrelation = true,
+        Interpolation = WarpInterpolation.Bilinear,
+        ReferenceFrames = 0,
+    };
 
-    /// <summary>The sharpness metric. Laplacian variance by default.</summary>
-    public IFrameQualityEstimator QualityEstimator { get; init; } = new LaplacianEnergyEstimator();
+    /// <summary>
+    /// Fraction of frames to keep, best-graded first (lucky imaging's "keep the sharpest N%"). Half, the default, is the best keep
+    /// for a stack that is sharpened afterwards: restoration divides the blur out, and then every frame lowers the noise it lifts
+    /// (#1083, a third less error than 5 % through the limb's edge on every twin). A stack left as it is keeps fewer, 5 to 10 %
+    /// (R4), since there each frame added blurs it more.
+    /// </summary>
+    public double KeepFraction { get; init; } = 0.5;
+
+    /// <summary>
+    /// The sharpness metric, which grades the frames and weights them. The gradient by default: at 8 bits a frame's finest scale is
+    /// its noise, and the Laplacian ranked the twin's frames at +0.19 against their true transfer where the gradient ranks them at
+    /// +0.87 (R4).
+    /// </summary>
+    public IFrameQualityEstimator QualityEstimator { get; init; } = new GradientEnergyEstimator();
 
     /// <summary>
     /// Phase-correlation tile edge for global alignment. <c>0</c> (default) auto-sizes to the next power
@@ -22,11 +47,11 @@ public sealed record PlanetaryStackOptions
 
     /// <summary>
     /// Whether the global aligner and the alignment points register by phase correlation (whitened, every frequency weighted
-    /// alike, the default) or by a plain cross-correlation. On a single 8-bit frame the finest frequencies are noise, and
-    /// whitening hands the peak to it: a 16 px patch at 2022-09-03's level is placed to 1.1 px RMS whitened, 0.35 px plain
-    /// (<c>AlignmentPointMatchingTests</c>; docs/plans/planetary-restoration.md, R5).
+    /// alike) or by a plain cross-correlation, its peak climbed (false, the default). On a single 8-bit frame the finest
+    /// frequencies are noise, and whitening hands the peak to it: a 16 px patch at 2022-09-03's level is placed to 1.1 px RMS
+    /// whitened, 0.35 px plain (<c>AlignmentPointMatchingTests</c>; docs/plans/planetary-restoration.md, R5).
     /// </summary>
-    public bool WhitenedCorrelation { get; init; } = true;
+    public bool WhitenedCorrelation { get; init; }
 
     /// <summary>
     /// Pool each alignment point's warp over the frames either side of a frame, a Gaussian of this many frames in capture order
@@ -44,21 +69,22 @@ public sealed record PlanetaryStackOptions
     public bool MedianGeometry { get; init; }
 
     /// <summary>
-    /// The kernel each frame is resampled by as it is folded in, global and alignment-point paths alike (bilinear, the default,
-    /// as every stack before R5 part 3). A stack of frames resampled bilinearly at sub-pixel phases spread evenly is blurred
-    /// by the kernel's triangle, sinc squared an axis in transfer; Lanczos-3 keeps the transfer to 0.3 cycles a pixel
-    /// (docs/plans/planetary-restoration.md, R5 part 3). Not drizzle, which scatters instead of resampling.
+    /// The kernel each frame is resampled by as it is folded in, global and alignment-point paths alike (clamped Lanczos-3, the
+    /// default; bilinear in every stack before the enhanced pipeline). A stack of frames resampled bilinearly at sub-pixel phases
+    /// spread evenly is blurred by the kernel's triangle, sinc squared an axis in transfer; Lanczos-3 keeps the transfer to 0.3
+    /// cycles a pixel, and band 1's error fell 0.014 to 0.024 (docs/plans/planetary-restoration.md, R5 part 3). Its clamp changes
+    /// nothing on a planet, which trips it nowhere. Not drizzle, which scatters instead of resampling.
     /// </summary>
-    public WarpInterpolation Interpolation { get; init; } = WarpInterpolation.Bilinear;
+    public WarpInterpolation Interpolation { get; init; } = WarpInterpolation.Lanczos3Clamped;
 
     /// <summary>
     /// Register every frame, and match every alignment point, against a stack of this many of the best-graded frames (each
-    /// aligned to the best frame first) instead of the best frame alone (0 or 1, the default). A stack carries a fraction of one
-    /// frame's noise and its local warp averaged out, and it is what AutoStakkert registers to: its session file for
-    /// 2022-09-03's Red names the best 8,572 of 12,990 frames. The plan's candidate references are the best frame, the stack
-    /// and the medians (docs/plans/planetary-restoration.md, R5).
+    /// aligned to the best frame first; 1,000, the default) instead of the best frame alone (0 or 1). A stack carries a fraction
+    /// of one frame's noise and its local warp averaged out, and it is what AutoStakkert registers to: its session file for
+    /// 2022-09-03's Red names the best 8,572 of 12,990 frames. On that capture the best frame's registration error variance was
+    /// larger than a stack of 1,000's by 0.08 and 0.38 px^2 (docs/plans/planetary-restoration.md, R5 part 3).
     /// </summary>
-    public int ReferenceFrames { get; init; }
+    public int ReferenceFrames { get; init; } = 1000;
 
     /// <summary>Maximum number of alignment points to track.</summary>
     public int MaxAlignmentPoints { get; init; } = 64;
@@ -140,4 +166,11 @@ public sealed record PlanetaryStackResult(Image Master, int ReferenceIndex, int 
 
     /// <summary>Which way round a de-rotated stack took the planet's north, and why; null for one that was not de-rotated.</summary>
     public PlanetaryNorthDecision? North { get; init; }
+
+    /// <summary>
+    /// How far the planet's turn over the capture moved the middle of its disk, px, when a de-rotation was asked for
+    /// (<see cref="PlanetaryDerotationOptions.MinimumTurnPx"/> decides from it whether one was done); NaN for a capture without frame
+    /// times, null when none was asked for.
+    /// </summary>
+    public double? TurnPx { get; init; }
 }

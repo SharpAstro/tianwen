@@ -29,6 +29,14 @@ public sealed record PlanetaryDerotationOptions(CatalogIndex Planet)
     /// 24 px disk's middle.
     /// </summary>
     public double ReferenceStepSeconds { get; init; } = 10;
+
+    /// <summary>
+    /// The least the planet's turn over the capture must move the middle of its disk, px, for the stack to carry its frames to one
+    /// epoch (0, the default, carries any capture's, and fails one without frame times). A turn under a pixel moves a frame less than
+    /// the registration places it (0.2 to 0.35 px, R5), and a de-rotation costs a limb fit and a field per frame; such a capture, or
+    /// one without frame times, is stacked as taken (<see cref="PlanetaryStackResult.TurnPx"/> says how far it turned).
+    /// </summary>
+    public double MinimumTurnPx { get; init; }
 }
 
 /// <summary>
@@ -100,6 +108,26 @@ internal sealed class FrameDerotator
         var placement = new DiskPlacement(fit.CenterX, fit.CenterY, fit.EquatorialRadius, fit.NorthAngleDeg + (options.TurnNorthOver ? 180 : 0));
         return new FrameDerotator(stream, options.Planet, PhysicalEphemeris.Compute(options.Planet, epochTime), placement, fit.LimbDarkening,
             disk.Width, disk.Height, options.ReferenceStepSeconds, alignTileSize, whiten);
+    }
+
+    /// <summary>
+    /// How far <paramref name="planet"/>'s turn over <paramref name="stream"/> moves the middle of its disk, px on
+    /// <paramref name="frame"/>'s grid: the central meridian's change from the first frame to the last, in radians, times the disk's
+    /// equatorial radius (<see cref="PlanetaryLimbFit.Start"/>, a ringed planet's rings in it) and the cosine of the latitude it is seen
+    /// from. NaN when the capture has no frame times, the planet no rotation model, or the frame no disk.
+    /// </summary>
+    internal static double TurnAtCentrePx(IPlanetaryFrameStream stream, CatalogIndex planet, Image frame)
+    {
+        if (!PhysicalEphemeris.Supports(planet) || !stream.HasTimestamps || stream.FrameCount < 2
+            || stream.TimestampOf(0) is not { } first || stream.TimestampOf(stream.FrameCount - 1) is not { } last)
+        {
+            return double.NaN;
+        }
+        var (from, to) = (PhysicalEphemeris.Compute(planet, first), PhysicalEphemeris.Compute(planet, last));
+        var turnDeg = Math.Abs(Math.IEEERemainder(to.CentralMeridianIII - from.CentralMeridianIII, 360));
+        return PlanetaryLimbFit.Start(frame.GetChannelSpan(0), frame.Width, frame.Height, PlanetaryLimbFit.OptionsFor(from).AxisRatio) is { } disk
+            ? disk.Radius * turnDeg * Math.PI / 180 * Math.Cos(from.SubObserverLatitudeCentric * Math.PI / 180)
+            : double.NaN;
     }
 
     /// <summary>The same de-rotation with the disk's north turned over, as a derotator of its own with no reference yet.</summary>

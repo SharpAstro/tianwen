@@ -183,8 +183,9 @@ only over the planet / high-signal region, never the noisy background; (2) **ban
 mid-high band, not the very top octave where noise dominates (chiefly for the FFT variant);
 (3) optional light pre-denoise + per-frame brightness normalization so frames compare fairly.
 
-- **Global score** drives frame selection (keep best N%, default 25%) and reference pick (single
-  best, then refine to a quality-weighted top-K, per decision 3).
+- **Global score** drives frame selection (keep best N%: 25% as first built; since the enhanced pipeline, #1159, half for a
+  sharpened master and a tenth for a plain one, graded by the gradient) and reference pick (single best, then refine to a
+  quality-weighted top-K, per decision 3; a stack of the best 1,000 since #1159).
 - **Per-AP local score** (same estimator over each AP patch) drives per-AP best-of selection - the
   lucky-imaging edge: different parts of the disk are sharp in different frames.
 

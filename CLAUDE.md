@@ -954,12 +954,19 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   sky's camera terms are fitted through the rounding, pixel by pixel** (`SkyByPixels`): its rounded mean is not its level, its
   spread is set by the mean alone, and a sky that slopes over the frame widens any pooled fit. **A statistic is read against its
   spread over seeds** (`--seed`): at 3,000 frames the quality's lag-1 wanders 67 % between seeds, so a 10 % band on it tests nothing.
+- **The planetary stack's defaults ARE the measured best, and today's recipe is one switch away** (the enhanced pipeline, #1159):
+  `PlanetaryStackOptions` and `RollingWindowOptions` default to the gradient, plain correlation, clamped Lanczos-3 and (batch) a
+  reference of the best 1,000 at half the frames; `.Legacy` and `planetary-stack --legacy` are the recipe before. **A test that
+  depends on one of these choices pins it** rather than inheriting a default the next measurement may move. A run is de-rotated
+  unasked only once the planet's turn moves its disk's middle a pixel (`PlanetaryDerotationOptions.MinimumTurnPx`,
+  `PlanetaryStackResult.TurnPx`), its planet read off the capture's path (`PlanetaryCaptureName`); **whether the limb fit's north
+  was right is incidental**, the run's quarters decide it (graded by the gradient, the fixture's limb fit had it upside down).
 - **A stack is scored through `PlanetaryMetrics` and `tianwen planetary-measure`** (R3), and **a truth-free metric judges a real
   capture only once it ranks candidate stacks as its truth-based twin does on a synthetic one** (Spearman at least 0.8). The limb's
   undershoot does (+0.95); the two halves' agreement does not (it sees noise, never a per-band gain or the blur), and waits on R7's
   measured PSF.
 - **A frame's quality is read in the MID bands, never the finest, and `tianwen planetary-grade` measures an estimator** (R4). At
-  8 bits a frame's finest scale is its noise: the Laplacian (the stack's default today) ranks the twin's frames at +0.19 against their
+  8 bits a frame's finest scale is its noise: the Laplacian (the stack's default until #1159) ranks the twin's frames at +0.19 against their
   true transfer, its score is white from frame to frame (lag 1 0.01, the real capture 0.08) where the seeing is coherent, and its
   selection stacks no better than none. The gradient, `FftHighBandEstimator` at 0.06 to 0.12 cycles a pixel and the **reference
   gain** (a frame's least-squares gain per a trous band on the stack of every frame, noise-unbiased) rank at +0.87 to +0.99. **Never
@@ -974,8 +981,8 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   no wind at the pupil gives the real capture's band 2 lag 10 (0.35).
 - **On a single 8-bit frame phase correlation places a patch 3 times worse than a plain cross-correlation** (R5: 1.11 against
   0.35 px, `AlignmentPointMatchingTests`), and every stack is worse for it. `PlanetaryStackOptions.WhitenedCorrelation` and
-  `CaptureStatisticsOptions.WhitenedCorrelation` switch the global aligner and the alignment points (whitened by default until
-  #1074). **A warp statistic read whitened is the matching's noise** (1 px injected moved it 0.04): read it with
+  `CaptureStatisticsOptions.WhitenedCorrelation` switch the global aligner and the alignment points (the stack plain by default
+  since #1159; the statistics, R2's calibration, still whitened). **A warp statistic read whitened is the matching's noise** (1 px injected moved it 0.04): read it with
   `--plain-correlation`, and with the one alignment-point default both verbs take (`CaptureStatisticsOptions.DefaultAlignmentPatchSize`).
 - **A dewarp is judged against the TRUE warp, at the mesh the stack applies, never at the points alone** (R5 part 2): `planetary-degrade`
   writes `<capture>.warp`, `tianwen planetary-dewarp` scores against it. On 2022-09-03 the points read 11 to 19 % of the warp and
@@ -983,7 +990,7 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   (`MedianGeometry`) change neither. A warp that varies over less than a patch cannot be followed by that patch.
 - **A stack's resampling kernel is its own blur, and a correlation's peak is CLIMBED** (R5 part 3). Bilinear at sub-pixel phases
   spread evenly averages to its triangle, sinc^2 an axis in transfer (0.81 at 0.25 cycles a pixel): `PlanetaryStackOptions.Interpolation`
-  (Lanczos-3 lifts band 1 10 to 12 %; adopting it, and a stacked reference, is #1086), pinned by `PlanetaryResamplingTests`. A disk's correlation peaks in a
+  (Lanczos-3 lifts band 1 10 to 12 %; it and a stacked reference are the defaults since #1159), pinned by `PlanetaryResamplingTests`. A disk's correlation peaks in a
   cone, and a parabola through it locked frames 0.2 px off along the belts, so the unwhitened path climbs the Fourier-interpolated
   surface (`PhaseCorrelation.ClimbPeak`, the one climb; never a second). **The three-cornered hat (`tianwen planetary-registration`)
   credits two estimators that share an error with too little, SILENTLY**: rank registrations with no truth only in a triple the
