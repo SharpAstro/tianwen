@@ -59,8 +59,10 @@ auto-invocable when the request matches, or via `/<name>`): `release-lib`, `rele
 `digitize-filter`, `curate-session`, `dataset-gallery`, `plan-report` (`tools/plan-issue-report.py`, also the
 `plan-report` workflow), `tick-todo` (close a backlog ISSUE, preferably through its PR, and update CLAUDE.md,
 the plan files and memory), `chrome-review` (runs the read-only `.claude/agents/chrome-review.md` reviewer, on
-Sonnet, over a branch's UI diff for layout arithmetic the engine should own; run it before a PR touching
-`src/TianWen.UI.*`).
+Sonnet, over a branch's UI diff for layout arithmetic the engine should own). **It is asked for mechanically**: a
+Stop hook (`.claude/settings.json`, `.claude/hooks/chrome_review_gate.py`) blocks the end of a turn ONCE when the
+branch's `src/TianWen.UI.*` diff changed in the session and that diff was never reviewed, and the continuation
+counts as the review. Answer it with the agent, or with one line saying why the change carries no layout.
 
 ## Project Overview
 

@@ -13,6 +13,10 @@ frontmatter), which is enough for a checklist review and leaves the main session
    finding a bug, open the line and confirm it; say which you confirmed and which you only passed on.
 3. **Fixing is a separate step.** Offer to fix the confirmed ones; the agent never edits.
 
+You will usually be here because the Stop hook asked (`.claude/hooks/chrome_review_gate.py`): it blocks the end of a
+turn once when the branch's `src/TianWen.UI.*` diff changed in the session and was never reviewed, and whatever the
+continuation does counts as the review, so the fixes made in answer to it do not ask again.
+
 The mechanical half of the same rules runs in CI, so this is not the only guard: `DeclaredLayoutTakesDesignUnitsTests`
 (a device-pixel property named in a statement that builds a node) and `ChromeMeasuresThroughTheEngineTests` (the
 `MeasureText` ratchet). The agent is for what a pattern cannot see: a device-pixel value carried through a local, a box
