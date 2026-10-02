@@ -967,12 +967,15 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   was right is incidental**, the run's quarters decide it (graded by the gradient, the fixture's limb fit had it upside down).
 - **A planetary master is sharpened by `PlanetarySharpening`, ONE routine for `planetary-stack`, `planetary-sharpen` and (next) the GUI**
   (#1159): a trous gains derived through the limb's edge against the limb fit's sharp model through the pupil's diffraction, the stack's
-  white noise floor and the planet's disk, applied floored at the sky; without a telescope `PlanetaryDefault` with the limb kept as
+  white noise floor and the planet's disk, applied BOUNDED (held at the sky and, outside the limb, never brighter than the stack,
+  #1168); without a telescope `PlanetaryDefault` with the limb kept as
   stacked. **It needs the planet, the instant and the telescope** (a master carries its capture's span, DATE-OBS to EXPTIME, for the
   instant). Measured on the twins it leaves under a third of legacy's error; the free gain fit oscillates where the edge reads the finest
-  band low and still lands near the truth, while the non-negative fit leaves every twin worse than unsharpened. **It rings OUTSIDE the
-  limb, above the sky, on a twin with no ghost too, and no metric yet reads there** (#1168: the band error is inside 0.9 radii, the
-  undershoot below the sky). **The edge reads its own noise floor where the seeing passes little at 0.3 cycles a pixel**, so judge it on
+  band low and still lands near the truth, while the non-negative fit leaves every twin worse than unsharpened. **Floored alone rang
+  OUTSIDE the limb, above the sky, on a twin with no ghost too**, where the band error (inside 0.9 radii) and the undershoot (below the
+  sky) never read: judge a limb fix by `LimbProfileError` on the twins AND by eye on a real capture, hard-stretched about its sky, since
+  the limb channel read truest on the twins and rang out to 1.3 radii on 2022-09-03 Red. `LimbRebound` reads a ring above the sky but
+  not a soft limb, so it failed R3's rule; a dark trough at the limb is left (#1171). **The edge reads its own noise floor where the seeing passes little at 0.3 cycles a pixel**, so judge it on
   a core-and-halo kernel, never a single Gaussian.
 - **A stack is scored through `PlanetaryMetrics` and `tianwen planetary-measure`** (R3), and **a truth-free metric judges a real
   capture only once it ranks candidate stacks as its truth-based twin does on a synthetic one** (Spearman at least 0.8). The limb's

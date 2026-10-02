@@ -26,7 +26,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var planetOpt = new Option<string?>("--planet") { Description = "jupiter or saturn; read off the file's name when not given." };
         var utcOpt = new Option<string?>("--utc") { Description = "The instant the master shows the planet at (ISO 8601, UTC); its own DATE-OBS and EXPTIME's middle when not given, else the truth's." };
         var wavelengthOpt = new Option<string?>("--wavelength") { Description = "The filter's effective wavelength, nm, a comma list for a colour master's channels (550 when not given)." };
-        var fixOpt = new Option<string>("--fix") { Description = "How the limb is kept from ringing: floored (the default, the measured choice), bounded (floored, and never brighter than the stack outside the limb), limb (the limb as its own channel), feathered, plain, or all to compare them.", DefaultValueFactory = _ => "floored" };
+        var fixOpt = new Option<string>("--fix") { Description = "How the limb is kept from ringing: bounded (the default: floored, and never brighter than the stack outside the limb), floored, limb (the limb as its own channel), feathered, plain, or all to compare them.", DefaultValueFactory = _ => "bounded" };
         var truthOpt = new Option<string?>("--truth") { Description = "A synthetic capture's truth (planetary-degrade's .truth.fits): every sharpening scored against it." };
         var outputOpt = new Option<string?>("--output", "-o") { Description = "Where the sharpened masters go (master_*_sharpened[_fix].fits); the master's folder when not given." };
         var noWriteOpt = new Option<bool>("--no-write") { Description = "Score only, write nothing." };
@@ -77,7 +77,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                 {
                     return 1;
                 }
-                var fixName = (parseResult.GetValue(fixOpt) ?? "floored").ToLowerInvariant();
+                var fixName = (parseResult.GetValue(fixOpt) ?? "bounded").ToLowerInvariant();
                 PlanetaryLimbFix[] fixes = fixName switch
                 {
                     "all" => [PlanetaryLimbFix.Plain, PlanetaryLimbFix.Floored, PlanetaryLimbFix.LimbChannel, PlanetaryLimbFix.Feathered, PlanetaryLimbFix.Bounded],

@@ -65,6 +65,7 @@ public class PlanetarySharpeningTests
     }
 
     [Theory(Timeout = 300_000)]
+    [InlineData(PlanetaryLimbFix.Bounded)]
     [InlineData(PlanetaryLimbFix.Floored)]
     [InlineData(PlanetaryLimbFix.LimbChannel)]
     public async Task ADerivedSharpeningComesCloserToTheTruthThanTheStackAndDoesNotRing(PlanetaryLimbFix fix)
@@ -100,9 +101,9 @@ public class PlanetarySharpeningTests
         var undershoot = PlanetaryMetrics.LimbUndershoot(plane, Size, Size, disk);
         TestContext.Current.TestOutputHelper?.WriteLine($"{fix}: bands 1 to 4 {before:0.000} stacked, {after:0.000} sharpened; undershoot {undershoot:0.0000}; gains {string.Join(", ", sharpened.Gains.Select(g => g.ToString("0.00")))}; edge at 0.1, 0.3 {sharpened.EdgeAtTenth:0.000}, {sharpened.EdgeAtThreeTenths:0.000} (the blur's own {Seeing(0.1):0.000}, {Seeing(0.3):0.000})");
 
-        // 1.352 to 1.172 floored (1.171 the limb as its own channel) when it was written: the edge reads this fixture's finest band
-        // high (0.46 at 0.3 cycles a pixel where the seeing passes 0.17), which holds the gains down; on the twins the same routine
-        // halved the error (docs/plans/planetary-restoration.md).
+        // 1.352 to 1.169 bounded (1.172 floored, 1.171 the limb as its own channel) when it was written: the edge reads this
+        // fixture's finest band high (0.46 at 0.3 cycles a pixel where the seeing passes 0.17), which holds the gains down; on the
+        // twins the same routine halved the error (docs/plans/planetary-restoration.md).
         after.ShouldBeLessThan(before * 0.95);
         undershoot.ShouldBeLessThan(0.02);
         sharpened.Sharpened.Release();

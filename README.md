@@ -196,7 +196,8 @@ Every default is the measured best of the planetary restoration work (`docs/plan
 pipeline): frames graded by their gradient, half kept for a sharpened master and a tenth for a plain one, registered by plain
 cross-correlation against a stack of the best 1,000, resampled by Lanczos-3, and a run of Jupiter or Saturn de-rotated once the
 planet's turn moves its disk's middle a pixel. Given the telescope (`--telescope` or `--aperture-mm`), the sharpened master's gains are
-derived from the stack itself, through the limb's edge against the telescope's diffraction, and floored at the sky; without it the
+derived from the stack itself, through the limb's edge against the telescope's diffraction, held at the sky and, outside the limb,
+never brighter than the stack; without it the
 `default` preset sharpens with the limb kept as stacked. `--legacy` stacks and sharpens as before.
 
 ```
@@ -209,7 +210,7 @@ tianwen planetary-stack <ser-file>... [-o <dir>]
     --truth <file>               # score every master against a synthetic capture's truth (planetary-degrade)
     --drizzle <scale>            # Bayer drizzle, e.g. 1.5 (sub-Bayer resolution); --drizzle-global for whole-disk
     --telescope <newtonian|maksutov>  --aperture-mm <mm> --obstruction <0..1>   # the pupil the derived sharpening needs
-    --wavelength <nm[,nm,nm]>    # the filter's (550 mono, 610,530,460 colour by default); --limb-fix <floored|limbchannel|feathered|plain>
+    --wavelength <nm[,nm,nm]>    # the filter's (550 mono, 610,530,460 colour by default); --limb-fix <bounded|floored|limbchannel|feathered|plain>
     --sharpen-preset <default|bandpass|combo>   # a fixed profile instead; or --sharpen-gains "g1,g2,..."; --no-sharpen to skip
     --global                     # whole-disk align only (skip alignment-point mesh)
     --png-gamma <g>              # high-key PNG midtones lift (default 0.75); --no-png to skip
