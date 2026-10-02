@@ -272,10 +272,25 @@ internal sealed class ViewerE2E : IDisposable
         public override void UploadImageTexture(ReadOnlySpan<float> data, int channel,
             int width, int height) { }
 
-        public override void UploadHistogramData(IPreviewSource source) { }
+        private HistogramDisplay? _histogram;
 
-        // No GPU histogram on a CPU surface, so the histogram panel and its LOG toggle are not drawn here.
-        protected override HistogramDisplay? GetHistogramDisplay() => null;
+        /// <summary>
+        /// Paint the histogram panel and its LOG toggle, from a display built the way the GPU viewer builds its own
+        /// (<c>VkImageRenderer.UploadHistogramData</c>); the quad itself draws nothing here. Off by default, so a test that is
+        /// not about the histogram keeps the image pane's top-right corner to itself.
+        /// </summary>
+        internal bool PaintsHistogram { get; set; }
+
+        public override void UploadHistogramData(IPreviewSource source)
+        {
+            if (PaintsHistogram)
+            {
+                _histogram = new HistogramDisplay(source.ChannelStatistics);
+            }
+        }
+
+        // No GPU histogram on a CPU surface unless a test asks for the panel (PaintsHistogram).
+        protected override HistogramDisplay? GetHistogramDisplay() => PaintsHistogram ? _histogram : null;
 
         /// <summary>The picture's pane, where the pan and the context menu answer.</summary>
         internal RectF32 ImageArea => ImageAreaRect;
