@@ -590,14 +590,20 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
 
     /// <summary>
     /// Starts recording every frame the capture takes for <paramref name="duration"/> into the SER file at
-    /// <paramref name="path"/> (<see cref="SerRecording"/>). Refuses in words while no capture runs, or while a recording
-    /// already goes on.
+    /// <paramref name="path"/> (<see cref="SerRecording"/>). Refuses in words while no capture runs or is prepared to, or
+    /// while a recording already goes on.
     /// </summary>
+    /// <remarks>
+    /// A PREPARED capture takes a recording too (<see cref="TryPrepare"/>): a node answers a start once the run is its own,
+    /// and the run's task starts the loop a moment later, so a recording asked for in between was refused (a functional
+    /// test failed on it on CI, 2026-10-02). A recording only queues the frames that arrive, and one armed on a capture
+    /// that never starts is ended as the capture is disposed.
+    /// </remarks>
     public bool TryStartRecording(string path, TimeSpan duration, [NotNullWhen(true)] out SerRecording? recording,
         [NotNullWhen(false)] out string? refusal)
     {
         recording = null;
-        if (!IsCapturing)
+        if (!IsCapturing && Volatile.Read(ref _prepared) is null)
         {
             refusal = "No planetary capture is running to record";
             return false;
