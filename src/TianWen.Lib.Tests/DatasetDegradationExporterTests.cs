@@ -1345,14 +1345,33 @@ namespace TianWen.Lib.Tests
                 dimmer.ShouldBe(0);
             }
 
-            // The same seed, the same bytes: every star and every tile.
-            var again = options with { OutDir = Path.Combine(_root, "stars-again") };
+            // The same seed, the same bytes: every star and every tile, and reading the stars back changes none of them.
+            var again = options with { OutDir = Path.Combine(_root, "stars-again"), MeasureInjection = true };
             (await DatasetDegradationExporter.RunAsync(again, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
             File.ReadAllText(Path.Combine(again.OutDir, DatasetDegradationExporter.InjectionManifestFileName))
                 .ShouldBe(File.ReadAllText(Path.Combine(options.OutDir, DatasetDegradationExporter.InjectionManifestFileName)));
             foreach (var row in rows)
             {
                 File.ReadAllBytes(Path.Combine(again.OutDir, row.Tile)).ShouldBe(File.ReadAllBytes(Path.Combine(options.OutDir, row.Tile)));
+            }
+
+            var measure = File.ReadAllLines(Path.Combine(again.OutDir, DatasetDegradationExporter.InjectionMeasureFileName))
+                .Where(static l => l.Length > 0)
+                .Select(static l => JsonSerializer.Deserialize<DatasetDegradationExporter.InjectionMeasureRow>(l, ManifestJson)!)
+                .Single();
+            output.WriteLine($"measured: placed {measure.Placed}/{measure.Requested}, fitted {string.Join("/", measure.Fitted)}, " +
+                $"FWHM ratio {string.Join("/", measure.FwhmRatio.Select(static v => v.ToString("F3")))}, beta ratio {string.Join("/", measure.BetaRatio.Select(static v => v.ToString("F3")))}, " +
+                $"saturated plateau {measure.InjectedPlateauPx} px ({measure.InjectedSaturated}) against the master's {measure.RealPlateauPx} ({measure.RealSaturated}), clip passed {measure.ClipExceeded}");
+            measure.Requested.ShouldBe(injections.Sum(static i => i.Requested));
+            measure.Placed.ShouldBe(measure.Requested);
+            measure.ClipExceeded.ShouldBe(0);
+            measure.Fitted.Sum().ShouldBeGreaterThan(0, "the fixture's stars sit in the significance band");
+            foreach (var (ratio, count) in measure.FwhmRatio.Zip(measure.Fitted))
+            {
+                if (count > 0)
+                {
+                    ratio.ShouldBe(1.0, 0.05, "a star is fitted back at the FWHM it was drawn with");
+                }
             }
         }
 

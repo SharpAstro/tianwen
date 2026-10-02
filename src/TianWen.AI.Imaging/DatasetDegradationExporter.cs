@@ -382,6 +382,8 @@ namespace TianWen.AI.Imaging
         /// count, the bright tail sampled on purpose.</param>
         /// <param name="PsfStorePath">Stars mode: the PSF store each session's per-channel FWHM and beta come from; null for
         /// the bake's own <c>stats/psf-sessions.jsonl</c>.</param>
+        /// <param name="MeasureInjection">Stars mode: read every draw's injected stars back and write a row per session to
+        /// <c>injection-measures.jsonl</c>, R1's predictions' checks.</param>
         public sealed record Options(
             string BakeRoot,
             string OutDir,
@@ -414,7 +416,8 @@ namespace TianWen.AI.Imaging
             InjectionPlacement Placement = InjectionPlacement.Random,
             StarProfileFamily Profile = StarProfileFamily.Moffat,
             double SaturatedFraction = 0.25,
-            string? PsfStorePath = null);
+            string? PsfStorePath = null,
+            bool MeasureInjection = false);
 
         /// <summary>What one session's export produced. <paramref name="Estimator"/> is the estimator step's
         /// own cost, null unless <see cref="Options.EstimateKernels"/>.</summary>
@@ -2272,6 +2275,7 @@ namespace TianWen.AI.Imaging
     [JsonSourceGenerationOptions(WriteIndented = false, NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals)]
     [JsonSerializable(typeof(DatasetDegradationExporter.DegradationRow))]
     [JsonSerializable(typeof(DatasetDegradationExporter.InjectionRow))]
+    [JsonSerializable(typeof(DatasetDegradationExporter.InjectionMeasureRow))]
     [JsonSerializable(typeof(DatasetTileExporter.TileManifestRow))]
     internal sealed partial class DatasetDegradationJsonContext : JsonSerializerContext
     {
