@@ -98,7 +98,9 @@ public class PlanetaryFrameDerotationTests
     {
         var capture = FrameDerotationCaptures.Capture(frames: 41, minutes: 16, seed: 5);
         using var stream = new InMemoryFrameStream(capture.Frames, capture.Times);
-        var options = new PlanetaryStackOptions { KeepFraction = 1, WhitenedCorrelation = false, Interpolation = WarpInterpolation.Lanczos3 };
+        // Against the best frame alone: a stacked reference carries every frame to the epoch once more, which the drizzle test below
+        // covers, and doubles this one's Debug time.
+        var options = new PlanetaryStackOptions { KeepFraction = 1, WhitenedCorrelation = false, Interpolation = WarpInterpolation.Lanczos3, ReferenceFrames = 0 };
         var stacker = new LuckyImagingStacker();
         var ct = TestContext.Current.CancellationToken;
 
@@ -113,10 +115,12 @@ public class PlanetaryFrameDerotationTests
         var (none, done) = (FrameDerotationCaptures.DiskRms(plain.Master, 0, truth, at), FrameDerotationCaptures.DiskRms(derotated.Master, 0, truth, at));
         TestContext.Current.TestOutputHelper?.WriteLine($"RMS against the planet at the middle, inside 0.8 radii: stacked as taken {none:0.00000}, de-rotated {done:0.00000}; {derotated.North}");
 
-        // The capture decided the north: carried to the later quarter's instant turned over, the earlier quarter is far further
-        // from it than carried the right way round, and the north it kept is the planet's.
+        // The capture decided the north: carried to the later quarter's instant the wrong way round, the earlier quarter is far
+        // further from it than carried the right way, and the north it kept is the planet's. Which of the two the limb fit had is
+        // incidental: graded by the gradient, its stack of the best frames had it upside down and the quarters turned it back.
         var north = derotated.North.ShouldNotBeNull();
-        north.AgreementAsFitted.ShouldBeLessThan(north.AgreementTurnedOver * 0.7);
+        var (right, wrong) = north.TurnedOver ? (north.AgreementTurnedOver, north.AgreementAsFitted) : (north.AgreementAsFitted, north.AgreementTurnedOver);
+        right.ShouldBeLessThan(wrong * 0.7);
         Math.IEEERemainder(north.NorthAngleDeg - Disk.NorthAngleDeg, 360).ShouldBe(0, 5);
         done.ShouldBeLessThan(none * 0.3);
     }
@@ -127,6 +131,37 @@ public class PlanetaryFrameDerotationTests
         using var stream = new InMemoryFrameStream([new float[8, 8]], [Night]);
         await Should.ThrowAsync<InvalidOperationException>(() => new LuckyImagingStacker().StackAsync(stream,
             new PlanetaryStackOptions { Derotation = new PlanetaryDerotationOptions(CatalogIndex.Jupiter), WarpPoolFrames = 2 }, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task ARunTurningLessThanItsLeastTurnIsStackedAsTaken()
+    {
+        // 16 minutes turn Jupiter 9.7 degrees, which moves a 24 px disk's middle 4 px: under a least turn of 5 px the stack is made
+        // as taken, and says how far the planet turned.
+        var capture = FrameDerotationCaptures.Capture(frames: 3, minutes: 16, seed: 2);
+        using var stream = new InMemoryFrameStream(capture.Frames, capture.Times);
+        var result = await new LuckyImagingStacker().StackGlobalAsync(stream,
+            new PlanetaryStackOptions { KeepFraction = 1, Derotation = new PlanetaryDerotationOptions(CatalogIndex.Jupiter) { MinimumTurnPx = 5 } },
+            TestContext.Current.CancellationToken);
+
+        result.Epoch.ShouldBeNull();
+        result.North.ShouldBeNull();
+        result.TurnPx.ShouldNotBeNull().ShouldBe(24 * (870.27 * 16 / 1440) * Math.PI / 180, 0.4);
+    }
+
+    [Fact]
+    public async Task AnUntimedRunUnderALeastTurnIsStackedAsTaken()
+    {
+        // A least turn asks whether the run is worth de-rotating; a run with no times cannot say, so it is stacked as taken
+        // rather than refused (with no least turn it is refused, below).
+        var capture = FrameDerotationCaptures.Capture(frames: 3, minutes: 1, seed: 1);
+        using var stream = new InMemoryFrameStream(capture.Frames);
+        var result = await new LuckyImagingStacker().StackGlobalAsync(stream,
+            new PlanetaryStackOptions { KeepFraction = 1, Derotation = new PlanetaryDerotationOptions(CatalogIndex.Jupiter) { MinimumTurnPx = 1 } },
+            TestContext.Current.CancellationToken);
+
+        result.Epoch.ShouldBeNull();
+        double.IsNaN(result.TurnPx.ShouldNotBeNull()).ShouldBeTrue();
     }
 
     [Fact]
@@ -172,6 +207,8 @@ public class PlanetaryFrameDerotationPointsTests
             PerPointQualityWeighting = false,
             AlignmentPointSpacing = 12,
             AlignmentPatchSize = 16,
+            // Against the best frame alone, as above.
+            ReferenceFrames = 0,
         };
         var stacker = new LuckyImagingStacker();
         var ct = TestContext.Current.CancellationToken;

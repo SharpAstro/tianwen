@@ -36,7 +36,7 @@ public sealed class LuckyImagingStacker
 
         var stacked = Normalize(channelAccum, weightAccum, ctx);
         var master = await FinalizeAsync(stacked, stream.Layout, options, cancellationToken).ConfigureAwait(false);
-        return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length) { Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North };
+        return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length) { Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, TurnPx = ctx.TurnPx };
     }
 
     /// <summary>
@@ -235,7 +235,7 @@ public sealed class LuckyImagingStacker
 
         var stacked = Normalize(channelAccum, weightAccum, ctx);
         var master = await FinalizeAsync(stacked, stream.Layout, options, cancellationToken).ConfigureAwait(false);
-        return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length) { Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North };
+        return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length) { Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, TurnPx = ctx.TurnPx };
     }
 
     /// <summary>
@@ -362,7 +362,7 @@ public sealed class LuckyImagingStacker
             master = WaveletSharpen.Sharpen(master, sharpen);
         }
 
-        return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length) { Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North };
+        return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length) { Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, TurnPx = ctx.TurnPx };
     }
 
     /// <summary>
@@ -435,7 +435,8 @@ public sealed class LuckyImagingStacker
         int Channels,
         ImageMeta MasterMeta,
         FrameDerotator? Derotator,
-        PlanetaryNorthDecision? North);
+        PlanetaryNorthDecision? North,
+        double? TurnPx);
 
     private static async Task<StackContext> PrepareAsync(IPlanetaryFrameStream stream, PlanetaryStackOptions options, bool includeAlignmentPoints, CancellationToken cancellationToken)
     {
@@ -459,7 +460,10 @@ public sealed class LuckyImagingStacker
         var reference = await stream.LoadAsync(referenceIndex, cancellationToken).ConfigureAwait(false);
         FrameDerotator? derotator = null;
         PlanetaryNorthDecision? north = null;
-        if (options.Derotation is { } derotation)
+        // How far the planet turns over the capture, at its disk's middle: a capture that turns it less than the options ask is
+        // stacked as taken (a NaN, no frame times, never reaches a positive least turn).
+        double? turnPx = options.Derotation is { } asked ? FrameDerotator.TurnAtCentrePx(stream, asked.Planet, reference) : null;
+        if (options.Derotation is { } derotation && (derotation.MinimumTurnPx <= 0 || turnPx >= derotation.MinimumTurnPx))
         {
             // Carried to one epoch (R6 part 2), the stack's disk is the best frame's and its reference the best frame at the
             // epoch, or a stack of the best frames each carried there. Its north is the one the capture agrees with. The
@@ -522,7 +526,7 @@ public sealed class LuckyImagingStacker
             }
 
             return new StackContext(grades, referenceIndex, selected, scoreByIndex, aligner, matcher, signalConfidence,
-                reference.Width, reference.Height, reference.ChannelCount, reference.ImageMeta, derotator, north);
+                reference.Width, reference.Height, reference.ChannelCount, reference.ImageMeta, derotator, north, turnPx);
         }
         finally
         {

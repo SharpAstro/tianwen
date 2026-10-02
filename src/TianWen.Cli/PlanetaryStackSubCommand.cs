@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
@@ -14,11 +15,12 @@ namespace TianWen.Cli;
 
 /// <summary>
 /// <c>tianwen planetary-stack &lt;ser-file&gt;...</c> -- end-to-end planetary lucky-imaging stack of a SER video, or of a
-/// run of them joined in time order (<see cref="PlanetaryFrameSequence"/>), each frame optionally carried through the planet's
-/// rotation to the run's middle first (<c>--derotate</c>, docs/plans/planetary-restoration.md, R6 part 2): grade the frames by
-/// sharpness, keep the best N%, align (global disk-COM + phase correlation,
+/// run of them joined in time order (<see cref="PlanetaryFrameSequence"/>), each frame carried through the planet's rotation to
+/// the run's middle first when the turn moves the disk's middle a pixel or more (docs/plans/planetary-restoration.md, R6 part 2):
+/// grade the frames by sharpness, keep the best, align (global disk-COM + cross-correlation against a stack of the best frames,
 /// then feature-driven alignment points + a per-AP displacement mesh), integrate with per-AP "best-of"
-/// quality weighting, and optionally wavelet-sharpen. Wraps <see cref="LuckyImagingStacker"/>. Writes the
+/// quality weighting, and optionally wavelet-sharpen. Every default is the measured best of R4 to R6 (the enhanced pipeline,
+/// #1159); <c>--legacy</c> stacks as every master before it was. Wraps <see cref="LuckyImagingStacker"/>. Writes the
 /// linear integrated master as FITS, an optional wavelet-sharpened master FITS, and a high-key planetary
 /// PNG preview via <see cref="MasterPreviewRenderer.RenderPlanetaryAsync"/> (per-channel black point +
 /// common-scale + gentle gamma -- the deep-sky MTF auto-stretch would blow a bright disk out to white;
@@ -33,6 +35,21 @@ internal sealed class PlanetaryStackSubCommand(
         Laplacian,
         Gradient,
     }
+
+    private enum Correlation
+    {
+        /// <summary>A plain cross-correlation, its peak climbed (R5's measured best on 8-bit frames).</summary>
+        Plain,
+
+        /// <summary>Phase correlation, every frequency weighted alike (every stack before the enhanced pipeline).</summary>
+        Whitened,
+    }
+
+    // How far the planet's turn must move the disk's middle, px, before the stack carries every frame to one epoch unasked.
+    private const double TurnWorthDerotatingPx = 1;
+
+    // A stack left unsharpened keeps the best tenth: R4's raw optimum, 5 to 10 % of 3,000 frames, where each frame added blurs it.
+    private const double UnsharpenedKeep = 0.1;
 
     private enum SharpenPreset
     {
@@ -55,12 +72,23 @@ internal sealed class PlanetaryStackSubCommand(
         };
         var derotateOpt = new Option<bool>("--derotate")
         {
-            Description = "Carry every frame through the planet's rotation to the run's middle before it is stacked (R6): over a run of minutes the belts move and the limb does not. Needs the frames' timestamps. The north is the one the run's first and last quarters agree on.",
+            Description = "Carry every frame through the planet's rotation to the run's middle before it is stacked, however short the run (R6): over a run of minutes the belts move and the limb does not. Needs the frames' timestamps. The north is the one the run's first and last quarters agree on. Without it a run of Jupiter or Saturn is de-rotated when the planet's turn moves its disk's middle a pixel or more.",
         };
-        var planetOpt = new Option<string>("--planet")
+        var noDerotateOpt = new Option<bool>("--no-derotate")
         {
-            Description = "The planet whose rotation --derotate takes out: jupiter or saturn.",
-            DefaultValueFactory = _ => "jupiter",
+            Description = "Stack every frame as taken, however long the run.",
+        };
+        var planetOpt = new Option<string?>("--planet")
+        {
+            Description = "The planet whose rotation is taken out: jupiter or saturn. Read off the capture's file or folder name when not given.",
+        };
+        var legacyOpt = new Option<bool>("--legacy")
+        {
+            Description = "Stack as every master before the enhanced pipeline (#1159) was: the Laplacian keeping a quarter, phase correlation against the best frame, bilinear resampling, no de-rotation. An option given beside it still applies.",
+        };
+        var truthOpt = new Option<string?>("--truth")
+        {
+            Description = "A synthetic capture's truth (planetary-degrade's .truth.fits; a colour capture's .truth.r/.g/.b.fits beside it): every master written is scored against it, R3's band transfer and error and the limb's undershoot.",
         };
         var turnNorthOverOpt = new Option<bool>("--turn-north-over")
         {
@@ -75,15 +103,13 @@ internal sealed class PlanetaryStackSubCommand(
         {
             Description = "Filename prefix for this run's outputs (e.g. 'k10_ap400'), so multiple experiments can share one output folder without colliding. Empty = no prefix.",
         };
-        var keepOpt = new Option<double>("--keep")
+        var keepOpt = new Option<double?>("--keep")
         {
-            Description = "Fraction of frames to keep, sharpest first (lucky imaging). 0.25 = best 25%.",
-            DefaultValueFactory = _ => 0.25,
+            Description = "Fraction of frames to keep, sharpest first (lucky imaging). By default half when the master is sharpened (#1083: restoration divides the blur out, and every frame then lowers the noise) and a tenth under --no-sharpen (R4); a quarter under --legacy.",
         };
-        var qualityOpt = new Option<QualityMetric>("--quality")
+        var qualityOpt = new Option<QualityMetric?>("--quality")
         {
-            Description = "Sharpness metric for grading + per-AP best-of. Laplacian variance (default) or Sobel gradient energy.",
-            DefaultValueFactory = _ => QualityMetric.Laplacian,
+            Description = "Sharpness metric for grading + per-AP best-of: gradient (Sobel energy, the default; R4 ranks 8-bit frames by it at +0.87 against their true transfer) or laplacian (variance, +0.19; the --legacy metric).",
         };
         var globalOpt = new Option<bool>("--global")
         {
@@ -154,9 +180,17 @@ internal sealed class PlanetaryStackSubCommand(
             Description = "Advanced: power-of-two patch edge phase-correlated per alignment point.",
             DefaultValueFactory = _ => 32,
         };
-        var plainOpt = new Option<bool>("--plain-correlation")
+        var correlationOpt = new Option<Correlation?>("--correlation")
         {
-            Description = "Register frames and points by a plain cross-correlation, not phase correlation (docs/plans/planetary-restoration.md, R5: 3 times better placed on a single 8-bit frame; the default until #1074).",
+            Description = "How frames and points are registered: plain (a cross-correlation, its peak climbed; the default, R5: 3 times better placed on a single 8-bit frame) or whitened (phase correlation, the --legacy registration).",
+        };
+        var interpolationOpt = new Option<WarpInterpolation?>("--interpolation")
+        {
+            Description = "The kernel each frame is resampled by as it is stacked: lanczos3clamped (the default; R5 part 3: band 1's error 0.014 to 0.024 lower), lanczos3 or bilinear (the --legacy kernel). Not drizzle, which scatters.",
+        };
+        var referenceFramesOpt = new Option<int?>("--reference-frames")
+        {
+            Description = "Register against a stack of this many of the best frames (1,000 by default, as AutoStakkert does; R5 part 3), or 0 for the best frame alone (--legacy).",
         };
         var meshSpacingOpt = new Option<float>("--mesh-spacing")
         {
@@ -172,8 +206,8 @@ internal sealed class PlanetaryStackSubCommand(
                 outputOpt, labelOpt, keepOpt, qualityOpt, globalOpt, drizzleOpt, drizzlePixfracOpt, drizzleGlobalOpt,
                 noPerPointOpt, noSignalGateOpt,
                 noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, noPngOpt, pngGammaOpt,
-                tileSizeOpt, apSpacingOpt, maxApOpt, patchSizeOpt, meshSpacingOpt, plainOpt,
-                derotateOpt, planetOpt, turnNorthOverOpt,
+                tileSizeOpt, apSpacingOpt, maxApOpt, patchSizeOpt, meshSpacingOpt, correlationOpt, interpolationOpt, referenceFramesOpt,
+                derotateOpt, noDerotateOpt, planetOpt, turnNorthOverOpt, legacyOpt, truthOpt,
             },
         };
 
@@ -187,10 +221,37 @@ internal sealed class PlanetaryStackSubCommand(
             }
             var serPath = serPaths[0];
 
-            var keep = parseResult.GetValue(keepOpt);
+            var legacy = parseResult.GetValue(legacyOpt);
+            var baseline = legacy ? PlanetaryStackOptions.Legacy : new PlanetaryStackOptions();
+            var keep = parseResult.GetValue(keepOpt)
+                ?? (!legacy && parseResult.GetValue(noSharpenOpt) ? UnsharpenedKeep : baseline.KeepFraction);
             if (keep is <= 0 or > 1)
             {
                 consoleHost.WriteError($"--keep must be in (0, 1]; got {keep}.");
+                return 1;
+            }
+            var derotate = parseResult.GetValue(derotateOpt);
+            if (derotate && parseResult.GetValue(noDerotateOpt))
+            {
+                consoleHost.WriteError("--derotate and --no-derotate ask for opposite things.");
+                return 1;
+            }
+            var planetName = parseResult.GetValue(planetOpt)?.ToLowerInvariant();
+            CatalogIndex? planet = planetName switch
+            {
+                null => PlanetaryCaptureName.Planet(serPaths[0]),
+                "jupiter" => CatalogIndex.Jupiter,
+                "saturn" => CatalogIndex.Saturn,
+                _ => null,
+            };
+            if (planetName is not null && planet is null)
+            {
+                consoleHost.WriteError($"--planet {planetName}: jupiter or saturn.");
+                return 1;
+            }
+            if (derotate && (planet is not { } named || !PhysicalEphemeris.Supports(named)))
+            {
+                consoleHost.WriteError("--derotate: name the planet to de-rotate (--planet jupiter or saturn); the capture's name does not say Jupiter or Saturn.");
                 return 1;
             }
 
@@ -238,28 +299,37 @@ internal sealed class PlanetaryStackSubCommand(
                 }
             }
 
-            var options = new PlanetaryStackOptions
+            // Every choice the options leave open is the baseline's: the pipeline's defaults, or the legacy recipe.
+            var options = baseline with
             {
                 KeepFraction = keep,
-                QualityEstimator = metric == QualityMetric.Gradient
-                    ? new GradientEnergyEstimator()
-                    : new LaplacianEnergyEstimator(),
+                QualityEstimator = metric switch
+                {
+                    QualityMetric.Gradient => new GradientEnergyEstimator(),
+                    QualityMetric.Laplacian => new LaplacianEnergyEstimator(),
+                    _ => baseline.QualityEstimator,
+                },
                 AlignTileSize = parseResult.GetValue(tileSizeOpt),
                 AlignmentPointSpacing = parseResult.GetValue(apSpacingOpt),
                 MaxAlignmentPoints = parseResult.GetValue(maxApOpt),
                 AlignmentPatchSize = RoundUpToPowerOfTwo(parseResult.GetValue(patchSizeOpt)),
                 MeshNodeSpacing = parseResult.GetValue(meshSpacingOpt),
-                WhitenedCorrelation = !parseResult.GetValue(plainOpt),
+                WhitenedCorrelation = parseResult.GetValue(correlationOpt) is { } correlation ? correlation == Correlation.Whitened : baseline.WhitenedCorrelation,
+                Interpolation = parseResult.GetValue(interpolationOpt) ?? baseline.Interpolation,
+                ReferenceFrames = parseResult.GetValue(referenceFramesOpt) ?? baseline.ReferenceFrames,
                 PerPointQualityWeighting = !parseResult.GetValue(noPerPointOpt),
                 PerPointSignalGate = !parseResult.GetValue(noSignalGateOpt),
                 Drizzle = drizzleScale > 0f
                     ? new PlanetaryDrizzleOptions(drizzleScale, parseResult.GetValue(drizzlePixfracOpt),
                         AlignmentPointMesh: !parseResult.GetValue(drizzleGlobalOpt))
                     : null,
-                Derotation = parseResult.GetValue(derotateOpt)
-                    ? new PlanetaryDerotationOptions(parseResult.GetValue(planetOpt)?.ToLowerInvariant() == "saturn" ? CatalogIndex.Saturn : CatalogIndex.Jupiter)
+                // Asked for, every run is de-rotated; otherwise a run of a planet with a rotation model is, once its turn moves the
+                // disk's middle a pixel (the stacker measures it), and never under --legacy or --no-derotate.
+                Derotation = planet is { } turning && PhysicalEphemeris.Supports(turning) && (derotate || !(legacy || parseResult.GetValue(noDerotateOpt)))
+                    ? new PlanetaryDerotationOptions(turning)
                     {
                         TurnNorthOver = parseResult.GetValue(turnNorthOverOpt),
+                        MinimumTurnPx = derotate ? 0 : TurnWorthDerotatingPx,
                     }
                     : null,
                 // The raw integrated master stays linear/unsharpened (downstream-friendly); the sharpen
@@ -281,8 +351,8 @@ internal sealed class PlanetaryStackSubCommand(
                 var mode = useDrizzle ? $"Bayer drizzle x{drizzleScale:0.0#}"
                     : useGlobal ? "global-translate"
                     : "alignment-point mesh";
-                consoleHost.WriteScrollable(
-                    $"[planetary] grading + {mode} stack, keeping best {keep:P0}...");
+                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                    $"[planetary] grading + {mode} stack{(legacy ? " (legacy)" : "")}, keeping the best {keep:P0} by {Describe(options.QualityEstimator)}, {(options.WhitenedCorrelation ? "phase" : "plain")} correlation against {(options.ReferenceFrames > 1 ? $"a stack of the best {options.ReferenceFrames}" : "the best frame")}, {options.Interpolation} resampling..."));
 
                 var stacker = new LuckyImagingStacker();
                 result = useDrizzle ? await stacker.StackDrizzleAsync(stream, options, ct)
@@ -294,6 +364,12 @@ internal sealed class PlanetaryStackSubCommand(
             consoleHost.WriteScrollable(
                 $"[planetary] {baseName}: stacked {result.FramesUsed}/{result.FramesGraded} frames " +
                 $"(reference #{result.ReferenceIndex}) in {sw.Elapsed.TotalSeconds:F1}s");
+            if (result.Epoch is null && result.TurnPx is { } turn)
+            {
+                consoleHost.WriteScrollable(double.IsNaN(turn)
+                    ? "[planetary] stacked as taken: the frames carry no times to de-rotate by"
+                    : string.Create(CultureInfo.InvariantCulture, $"[planetary] stacked as taken: the planet's turn moves its disk's middle {turn:0.00} px over the run, under the {TurnWorthDerotatingPx:0.#} px a de-rotation is worth"));
+            }
             if (result.Epoch is { } epoch && result.North is { } north)
             {
                 consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
@@ -303,6 +379,11 @@ internal sealed class PlanetaryStackSubCommand(
             var masterFits = Path.Combine(outputDir, $"{prefix}master_{baseName}.fits");
             master.WriteToFitsFile(masterFits);
             consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(masterFits)} (linear master, {master.ChannelCount}ch {master.Width}x{master.Height})");
+            var truthPath = parseResult.GetValue(truthOpt);
+            if (truthPath is not null)
+            {
+                ScoreAgainstTruth(master, truthPath, planet ?? CatalogIndex.Jupiter, "the stack");
+            }
 
             // The display image is the sharpened master when sharpening is on, else the raw master.
             var display = master;
@@ -312,6 +393,10 @@ internal sealed class PlanetaryStackSubCommand(
                 var sharpenedFits = Path.Combine(outputDir, $"{prefix}master_{baseName}_sharpened.fits");
                 display.WriteToFitsFile(sharpenedFits);
                 consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(sharpenedFits)} (wavelet-sharpened, {so.ScaleCount} scales)");
+                if (truthPath is not null)
+                {
+                    ScoreAgainstTruth(display, truthPath, planet ?? CatalogIndex.Jupiter, "the sharpened master");
+                }
             }
 
             if (!parseResult.GetValue(noPngOpt))
@@ -340,6 +425,59 @@ internal sealed class PlanetaryStackSubCommand(
         });
 
         return command;
+    }
+
+    private static string Describe(IFrameQualityEstimator estimator) => estimator switch
+    {
+        GradientEnergyEstimator => "the gradient",
+        LaplacianEnergyEstimator => "the Laplacian",
+        _ => estimator.GetType().Name,
+    };
+
+    // A master against a synthetic capture's truth, a colour at a time for a colour master (its truths .r, .g, .b beside the one
+    // named): its own limb fitted and moved onto the truth's disk, then R3's band fidelity inside 0.9 radii and the limb's
+    // undershoot, as planetary-measure scores a stack.
+    private void ScoreAgainstTruth(Image master, string truthPath, CatalogIndex planet, string what)
+    {
+        var inv = CultureInfo.InvariantCulture;
+        var colour = master.ChannelCount == 3;
+        foreach (var (channel, name) in colour ? new[] { (0, "r"), (1, "g"), (2, "b") } : [(0, "")])
+        {
+            var path = colour ? Path.ChangeExtension(truthPath, $".{name}.fits") : truthPath;
+            if (PlanetaryMeasureSubCommand.ReadTruth(path, consoleHost) is not { } truth || truth.Time is not { } when)
+            {
+                consoleHost.WriteError($"[planetary] {path}: no truth with a time to score {what} against");
+                return;
+            }
+            var limbOptions = PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(planet, when));
+            var disk = truth.Disk with { AxisRatio = limbOptions.AxisRatio };
+            var plane = colour ? master.ChannelImage(channel) : master;
+            try
+            {
+                var label = colour ? $"{what}, {name}" : what;
+                if (plane.Width * plane.Height != truth.Plane.Length)
+                {
+                    consoleHost.WriteError($"[planetary] {path}: {label} is {plane.Width} x {plane.Height}, the truth {truth.Plane.Length} px");
+                    continue;
+                }
+                if (PlanetaryMeasureSubCommand.Register(plane, limbOptions, disk) is not { } fitted)
+                {
+                    consoleHost.WriteError($"[planetary] {label}: its limb could not be fitted");
+                    continue;
+                }
+                var reference = PlanetaryMetrics.Normalise(truth.Plane, plane.Width, plane.Height, disk);
+                var bands = PlanetaryMetrics.Fidelity(fitted.Plane, reference, plane.Width, plane.Height, disk);
+                consoleHost.WriteScrollable(string.Create(inv,
+                    $"[planetary] {label} against the truth: transfer {string.Join(", ", bands.Select(b => b.Transfer.ToString("0.000", inv)))}; error {string.Join(", ", bands.Select(b => b.Error.ToString("0.000", inv)))} (sum {bands.Sum(b => b.Error):0.000}); undershoot {PlanetaryMetrics.LimbUndershoot(fitted.Plane, plane.Width, plane.Height, disk):0.0000}"));
+            }
+            finally
+            {
+                if (colour)
+                {
+                    plane.Release();
+                }
+            }
+        }
     }
 
     // The AP matcher FFTs each patch, so the patch edge must be a power of two; round up rather than throw.
