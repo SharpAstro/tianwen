@@ -2198,6 +2198,65 @@ rolling stack stays the live view; the telescope comes from the profile where th
 - **The GUI has no SER playback**: its planetary stack is the live capture's rolling stack, through the node. The derived sharpening of
   that live master (the gains derived once a capture and reused, the telescope from the profile) is the next part.
 
+#### What the first viewer run missed (the owner's report, 2026-10-02)
+
+The owner's first Best stack, of the red twin (`calibrated.ser`), came out blurred, with a dark ring round the limb. Under the Auto
+stretch it showed a grainy sky and a square about the planet. Three causes, one fix each:
+
+- **The planet came only from the capture's name**, and `calibrated` names none, so the sharpening was the preset's. Shown linear
+  beside the derived sharpening of the same master (Jupiter, a 254 mm Newtonian, 650 nm), the preset barely sharpened and dug a ring
+  below the sky. The panel now picks the planet (Auto, Jupiter, Saturn) and, for a mono capture, the filter (Auto, L, R, G, B, IR).
+  Auto is what the name gives (`PlanetaryCaptureName.Planet`, `.WavelengthNm`), and a caption says what that is before the run.
+  - The filter matters, though less than the planet: on the twin's master 650 nm left 0.670 of band error, 550 nm 0.771, against
+    1.500 unsharpened.
+- **The master opened under the deep-sky auto-stretch.** A SER opens linear on purpose, but the master it gave was a document, and a
+  document from a linear view is put back on Auto. The stack's sky noise is 3e-5 (1,500 frames averaged), which Auto lifted thirty
+  thousand times into grain, with the disk blown white.
+  - The master now names its planet in `OBJECT` (`PlanetaryStackOptions.Planet`, for `planetary-stack` and the viewer alike).
+  - A frame whose `OBJECT` names a planet or the Moon opens linear (`PlanetaryCaptureName.Named`), as a SharpCap FITS frame does too.
+- **The square is the twin's, not the stack's.** The plain mean of `calibrated.ser`'s 3,000 raw frames, unaligned, shows it, and a
+  band across the top 140 rows: `planetary-degrade` renders the blurred planet and its halo on a finite window. It is at the level of
+  1e-4, inside no metric's region, and a real capture has no such edge.
+
+### The batch stack on every core
+
+The owner saw the viewer's Best stack hold one core, and it did: 1.00 core over a 3,000-frame stack of the calibrated twin (233 s,
+Release, this 16-thread desktop, 2026-10-02). A sampled trace (`dotnet-trace`, `dotnet-sampled-thread-time`, 263 s traced) split it:
+
+| Step | Time | Share |
+|---|---|---|
+| The fold of the kept half through the mesh, clamped Lanczos-3 (`AccumulateByMeshWeightedInto`) | 151 s | 57 % |
+| Each frame's sharpness map (`FrameSharpnessMap.Build`, a 7 by 7 box re-summed at every pixel) | 45 s | 17 % |
+| The stacked reference of the best 1,000 (`AccumulateTranslatedLanczos`) | 46 s | 18 % |
+| Grading all 3,000 | 9 s | 4 % |
+| The alignment points and the global shift (FFT) | about 10 s | 4 % |
+
+Two changes, each giving the master bit for bit (both masters compared byte for byte against the one-core run's):
+
+- **A fold runs in bands of output rows** (`ParallelFor.RunBands`). Each output pixel gathers from the frame into its own cell, so its
+  sum sees the frames in the order it always did. The sharpness map's passes run the same way, its mean's sum still one ordered walk.
+- **What is each frame's own runs a batch of frames side by side** (`PlanetaryFrameBatches`): the grade; the shift, the mesh and the
+  sharpness map on an aligner and matcher twin a slot (`GlobalAligner.Twin`, `AlignmentPointMatcher.Twin`, the reference spectra shared
+  and the scratch their own). The batch is then folded in the order given. A batch is a frame a core, fewer where its frames would pass
+  256 MB. A de-rotated stack and a pooled one keep their walk (the de-rotator turns its reference along a run in capture order).
+
+| | Wall | Mean cores |
+|---|---|---|
+| One core | 233 s | 1.00 |
+| The folds in bands | 72 s | 6.1 |
+| And the frames in batches | 54.6 s | 8.3 (11 once running) |
+
+The live stack folds through the same kernels, so `planetary-live` was run again (the code of this change, Release):
+
+| Recipe | Red: folded a second (of 216), before | after | Twin: folded a second (of 250), before | after |
+|---|---|---|---|---|
+| today's live default (gradient, plain) | 50.2 | 69.7 | 67.6 | 118.6 |
+| and Lanczos-3 | 21.5 | 49.0 | 24.1 | 73.7 |
+
+- **The replay was starved less**, not more: 191 a second delivered of 216 on Red (187 before), 201 of 250 on the twin (179).
+- **Lanczos-3 still misses rule 3 on the twin** (73.7 against two thirds of 118.6), and a live default cannot ride on this machine's 16
+  threads when a 4-core host folds a quarter as fast. #1174 (fold only the frames that grade best) stays the live stack's answer.
+
 ## R9 A learned stage, only if the measurements say so
 
 **Issue:** #1056 (conditional).
