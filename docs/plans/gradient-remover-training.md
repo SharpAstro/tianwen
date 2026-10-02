@@ -1,9 +1,9 @@
 # Gradient-remover training (P5): flatten-and-inject
 
-**Status: G0 + G1 DONE (2026-09-02/03) and G1b DONE on the re-baked full store (2026-10-02: the passband, not
-the field below 10 degrees, orders the amplitude); G2's exporter built, masks not crops (section 3 "Edges"), its
-full export next; no model trained yet.** Design captured 2026-08-11, sharpened 2026-09-02
-after the Siril and SAS Pro reference review. Nothing exported, nothing trained. Tracked by #473. This is the P5 row of
+**Status: G0 + G1 DONE (2026-09-02/03); G1b and G2's master export DONE on the re-baked full store (2026-10-02:
+the passband, not the field below 10 degrees, orders the amplitude; masks not crops, section 3 "Edges"); the
+owner's first golden-set verdicts in (15 golden, 3 known-bad of 19, #1164); G3, the first training, next.**
+Design captured 2026-08-11, sharpened 2026-09-02 after the Siril and SAS Pro reference review. Tracked by #473. This is the P5 row of
 [ai-denoise-deconv.md](ai-denoise-deconv.md) (design in its section 2.6) at run-level detail. Its
 classical prerequisite is [background-extraction.md](background-extraction.md) Phases 1 and 2, and
 it competes for the same `IGradientCorrector` slot that `OnnxBackgroundExtractor` (GraXpert BGE)
@@ -358,8 +358,8 @@ model, is to be judged on the same masters the owner has looked at, so a regress
 
 - **The golden set**: masters with the owner's verdict and a note, the auto-cropped master as the input (the
   realistic flow), good ones beside known-bad ones, so both directions are pinned. **The first verdicts (the
-  owner, 2026-10-02, on a review page showing each crop, both surfaces and both flattened images): 14 golden, 3
-  known-bad, 1 undecided** (the Seagull). Golden: Cen A, the Rosette, both Orions of the 135 mm campaign and the
+  owner, 2026-10-02, on a review page showing each crop, both surfaces and both flattened images): 15 golden and
+  3 known-bad of 19.** Golden: Cen A, the Rosette, the Seagull, both Orions of the 135 mm campaign and the
   35 mm one, the 24 mm eta Car and all four 24 mm Carina frames, comet 12P ("more honest about the small
   obstruction"), the 35 mm Rim, the QHY294C SMC, the SII eta Car, the QHY178M Helix and Running Chicken. Known-bad:
   the two flat-less M42s (over-corrected, #1165) and the Leo Triplet, for stack artefacts, clouds and a power
