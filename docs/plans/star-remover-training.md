@@ -185,6 +185,85 @@ background where it removed a star.
 | R4 | Photometric gate on the stars plate | hours | H5 |
 | R5 | Export, contract JSON, `OnnxTianWenStarRemover : IStarRemover` through `ChunkedNafnetRunner`, registered in `AddTianWenAi()` and answering `IEnhancerAvailability.Serves`, so `CanonicalProgram` can take the split without RC. Opt-in first (`--ai-backend n2n`, `EnhanceBackend.N2n`); once the bright tail passes the spot checks, Auto still prefers RC and the deferred `sxt` dispatcher falls back to the in-house remover where RC is not licensed | 2 days | Ships opt-in |
 
+### R0: the classical plate builder
+
+Designed 2026-10-02, before any code. **One routine, `ClassicalStarRemover.Build`**
+(`TianWen.Lib.Imaging.StarRemoval`), returns a `StarlessPlate`: the plate, a mask of what it touched
+(subtracted, inpainted), the fitted stars and the statistics below. It makes the training plates, and if its
+report earns it, it is also the product's AI-free `IStarRemover`, as `ClassicalBackgroundExtractor` is for
+gradients; that is the owner's call once the report is in.
+
+1. **The PSF per channel is measured on the image itself** (`PsfProfileFit` on its own stars): FWHM and
+   Moffat beta per channel. The PSF store holds the same measurement; the builder never needs the store, so
+   it runs on any image.
+2. **Finding: a matched-filter peak finder of its own** (`PointSourceFinder`), because neither detector
+   does this job. `FindStarsAsync` selects stars to MEASURE: it returns nothing over a background at or below
+   zero, skips 15 px at every edge and refuses an HFD over 28, which is every big saturated star.
+   `SourceSegmentation` segments SOURCES: 64 peaks to a segment and a crowded field re-thresholded higher
+   lose the faint stars on a nebula. The finder works on the luminance, with a local sky from `BackgroundMap`
+   at a block of about 8 FWHM (at least 16 px) so it follows nebulosity, a Gaussian matched filter at the
+   PSF's width, and local maxima at 5 sigma of the filtered plane's own robust noise, merged within one
+   FWHM. Edges included: a fit uses whatever pixels are present.
+3. **Fitting, brightest first on a working copy.** A Moffat with the channel's beta, integrated over the
+   pixel (supersampled in the core, since a 1.5 px star does not blur by its label). On the luminance the
+   centre and a width scale are fitted by Levenberg-Marquardt with the amplitude, sky level and sky plane
+   solved linearly inside it; each channel then takes its own amplitude and sky linearly at its own width.
+   Below 20 sigma a candidate keeps its found centre and the field's width and is fitted linearly only.
+   **The fit is the star test**: a candidate that wants a width over 1.6 times the field's, or whose model
+   explains under half its peak, is a knot, not a star, and is left in the plate. A flat core (the top
+   pixels within 2 percent of the peak) is a saturated star and is fitted on its wings. One refinement pass
+   re-fits every star with its neighbours subtracted, then the finder runs again on the residual for stars
+   a brighter one hid.
+4. **What is inpainted**: per star, the residual pixels beyond 3 sigma where its model exceeds 1 sigma,
+   grown by a pixel; for a saturated star, the core where its model exceeds the plateau, grown by two.
+5. **The fill**: a push-pull pyramid per channel (normalised averaging down, interpolation back up) over
+   the mask, absent pixels weightless and never filled, then noise at the local rms (`BackgroundMap`) with
+   the plate's measured lag-1 correlation (a three-tap kernel solved for it), so a filled hole has the
+   plate's grain.
+
+**The report** (`tianwen dataset starless-plates`, a JSONL store and a markdown table, the shape of
+`gradient-report`), per master: stars found, subtracted, left as knots, inpainted; and four measures.
+
+- **Residual at a subtracted site**: the RMS of plate minus local sky over the pixels within one FWHM of a
+  subtracted, not inpainted star, in local sigma (pure noise reads 1), median per SNR band (5-10, 10-20,
+  20-50, 50-100, 100 and up). Its **signed bias**, the mean over the same pixels in sigma over root n.
+- **Inpaint fraction**: inpainted over present pixels.
+- **Leftover point sources**: the finder at 4 sigma on the finished plate, as a fraction of the first
+  pass's detections, per band. **This is the measure that decides whether a plate can be a target at all.**
+  A star the plate keeps is a lesson in keeping stars: an injected star and a leftover one look the same to
+  the net, so wherever leftovers rival the injected stars in number the net learns to leave stars. R1 sets
+  its injection density per band from this.
+- **Residual by field radius** (inner third against the corners): the price of an isotropic PSF where the
+  optics elongate stars, which decides whether elongation must be fitted.
+
+The leftover measure uses the tool that did the finding, so it cannot see what the finder cannot; the
+synthetic tests are its external truth. They build a plate (a smooth nebula, noise of a master's shape),
+inject Moffats of known parameters (saturated ones, close pairs, a Gaussian knot three times the PSF's
+width, stars on the absent ring's edge) and assert completeness, the residual bound, the knot kept, the ring
+untouched, and the same output twice.
+
+**The ten masters**, all from the store's held-out test split (`D:/Astro-Dataset/2026-09-29-full`): the
+QHY294C on the SWQ8 (Centaurus A, drizzled, spikes); the ASI1600MM on the FMA180 (eta Carinae, luminance,
+mono); the ASI294MM at 250 mm (Leo Triplet, luminance, mono); the SV605CC on the SH61 (the Horsehead through
+the L-Quad, demosaiced; the SMC through the L-Ultimate, drizzled and crowded); the ASI533 at 130 mm (Orion
+through the UV/IR cut and Antares through the LPS-D3, both drizzled with very bright stars; the Rim Nebula
+in SII, demosaiced); the ASI585 at 24 mm (a Milky Way field at 24 arcsec a pixel, demosaiced, undersampled);
+the Uranus-C on the FMA135 (M8 and M20, drizzled, no flat).
+
+**Predicted before the run**, over those ten, beside H1's own:
+
+- Residual at faint sites (SNR 5-20): median under 2 sigma on every master (H1). Above SNR 100: over 3 sigma
+  wherever a star was subtracted but not inpainted.
+- Signed bias: within 0.5 sigma over root n in every band below 100.
+- Inpaint fraction: under 5 percent on nine of ten; the ASI585 at 24 mm (Milky Way, 24 arcsec a pixel,
+  undersampled) is the one that may not be.
+- Leftovers: under 5 percent at SNR 10 and above on every master but the crowded fields (the SMC, the
+  24 mm Milky Way).
+- Field radius: the corners' faint residual at least 30 percent above the centre's on the camera lenses
+  (the ASI533's 135 mm, the ASI585's 24 mm), within 10 percent on the refractors (FMA180, SH61, FMA135).
+- The SWQ8's spikes are left whole outside the inpainted cores; the report states it and does not count
+  them as leftovers.
+
 ## 7. Phasing
 
 Tracked by #902.
