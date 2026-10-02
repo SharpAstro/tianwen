@@ -215,6 +215,33 @@ With no truth, two independent stacks of the same capture (disjoint frame sets, 
     - **The halves' shared detail (T2) is reported, never decided on.** The two half-stacks share the sensor's fixed pattern, which reads as detail both hold: 2022-09-03's luminance "ruled the Maksutov out" by the detail alone, at 118 mm against a 117 mm line.
   - Kill line: a miss means the limb model is wrong (limb darkening, the flattening, or the sky background), and no later phase uses the geometry until it is fixed. A cutoff matching neither aperture means the scale is wrong, or a third telescope, which the user is asked about.
 
+### The limb fit's cost (#1106)
+
+**Done** (2026-10-03). A cold `PlanetaryLimbFit.Fit` took 10 to 23 s on a real master (Release), and the best stack paid two after stacking: one in the sharpening, one in the score it prints. A probe of each search gave the reason:
+- **The searches do not waste iterations:** each converged in 11 to 34.
+- **The model is the cost:** one evaluation renders the disk supersampled over the annulus's box and blurs it twice, 7 to 15 ms on a 49 px disk and 39 ms at full scale on an 81 px one, and a cold fit makes about 1,000 of them over its four searches.
+
+**What changed, with the same bits** (`DiskModel.Evaluate`):
+- each evaluation renders, blurs and reads back its rows in parallel bands;
+- the column pass adds whole rows a tap at a time;
+- a cold fit's searches run at once, the best still chosen in their order.
+
+Every output gathers into its own cell with its taps summed first to last, so nothing changes order:
+- the probe printed every parameter of every search to the last digit unchanged on three real masters;
+- T1's three renders read exactly the numbers above;
+- `planetary-sharpen` wrote byte-identical masters for 2022-09-03 Red and 2022-10-09.
+
+| | Before | After |
+|---|---|---|
+| A cold fit, 2022-09-03 Red (49 px) | 9.3 s | 1.8 s |
+| A cold fit, 2022-10-09 (81 px, binned then refined) | 18.4 s | 3.2 s |
+| A cold fit, 2024-12-15 Uranus-C (48 px) | 10.4 s | 2.5 s |
+| `planetary-sharpen`, 2022-09-03 Red | 44.1 s | 5.7 s |
+| `planetary-sharpen`, 2022-10-09 (three channels) | 81.3 s | 13.3 s |
+| `planetary-stack` after the stack, 2022-10-09 | 49.6 s | 10.1 s |
+
+The fits include the process's start. The row-ordered column pass was kept on an alternated A/B of five runs each (medians 3.17 against 4.13 s on 2022-10-09, 1.81 against 2.14 s on Red). The issue's other candidates (a binned coarse fit for small disks too, fewer searches where the caller decides one, a cap on the clearly worse ones) each change the fit and would need T1 again, so they were not taken. `AFitIsTheSameFitEveryTimeThoughItsRowsRunAtOnce` pins that the parallel evaluation cannot change a fit.
+
 ## R2 Rendered truth and a seeing model calibrated on the capture
 
 **Issue:** #1050.
@@ -944,7 +971,7 @@ at the same keeps on the stacker's own stack. A second run of `planetary-keeps` 
 **Measured** (2026-09-30) on 2024-12-15's 16-minute run at one gain, 12:52:23 to 13:08:55: twelve captures joined in time order (`PlanetaryFrameSequence`), 311,558 frames. Every stack keeps 5 %, global, plain correlation, Lanczos-3. `PlanetaryStackOptions.Derotation` carries each frame to the run's middle, on the global, alignment-point and Bayer drizzle paths; `tianwen planetary-stack --derotate` stacks a run so, and `tianwen planetary-derotate-run` measures it.
 
 - **How a frame is carried** (`FrameDerotator`): the de-rotation to the epoch is a per-pixel field (`DerotationField`, part 1's rule and arithmetic) beneath the frame's registration in the displacement mesh the stack resamples it by, each sample relit as it lands; alignment points are cut where the rotation and the shift put them, and a drizzle's forward map takes one fixed-point step over the field, each raw sample relit before it is scattered. Every frame is registered against the reference turned to its own instant (every 10 s), so a whole-disk correlation never splits the difference between the belts and the limb.
-- **The disk comes from a stack of the best frames as taken, never one frame.** The limb does not turn with the planet, and one 8-bit frame's fit put north anywhere from 260.5 to 268.2 degrees on three of 12:56:44's best frames (a stack of 150: 263.8), which tilts every frame's rotation by the error. It is one cold limb fit a stack (#1106 has what it costs).
+- **The disk comes from a stack of the best frames as taken, never one frame.** The limb does not turn with the planet, and one 8-bit frame's fit put north anywhere from 260.5 to 268.2 degrees on three of 12:56:44's best frames (a stack of 150: 263.8), which tilts every frame's rotation by the error. It is one cold limb fit a stack, about 2 to 3 s since #1106 ("The limb fit's cost", under R1).
 - **North is decided by the capture**, as part 1 decided it by two stacks: the best frames of the run's first and last quarters, the earlier carried to the later's instant both ways round (`PlanetaryNorthDecision`). On a synthetic capture one frame's fit had it turned over.
 - **The first pass found two faults**, both fixed before the numbers below. Each half took its north from its own best frame (263.7 and 266.6 degrees), and the halves were moved onto each other with each its own: the 2.9 degrees between them turned the image, and alone put the de-rotated halves 0.018 apart, 1.56 of as taken. Two stacks of one camera now share one north, in this verb and in part 1's.
 - **The halves**, split at the run's middle (13:00:39.2) into 131,558 and 180,000 frames, 8.56 minutes apart as taken, over the 5,620 pixels inside 0.9 radii all three ways cover:

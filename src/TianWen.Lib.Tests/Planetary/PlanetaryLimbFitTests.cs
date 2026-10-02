@@ -68,6 +68,27 @@ public class PlanetaryLimbFitTests
     }
 
     [Fact]
+    public void AFitIsTheSameFitEveryTimeThoughItsRowsRunAtOnce()
+    {
+        // #1106: each model evaluation renders and blurs its rows in parallel bands (and a phased disk's searches run at once).
+        // Every output gathers into its own cell in a fixed order, so the fit must not depend on how the work was shared.
+        var image = Render(k: 0.9, phaseDeg: 0, psf: Gaussian(1.8), noise: 0.005, seed: 1);
+        var options = new LimbFitOptions(AxisRatio);
+
+        var first = FitFromRoughStart(image, options);
+        var second = FitFromRoughStart(image, options);
+
+        second.CenterX.ShouldBe(first.CenterX);
+        second.CenterY.ShouldBe(first.CenterY);
+        second.EquatorialRadius.ShouldBe(first.EquatorialRadius);
+        second.AxisAngleDeg.ShouldBe(first.AxisAngleDeg);
+        second.PsfSigma.ShouldBe(first.PsfSigma);
+        second.RmsResidual.ShouldBe(first.RmsResidual);
+        second.SunSide.ShouldBe(first.SunSide);
+        second.Iterations.ShouldBe(first.Iterations);
+    }
+
+    [Fact]
     public void TheStartFindsADiskThatFillsAFifthOfTheFrame()
     {
         // A planetary stack's disk: the case PlanetaryDisk.BoundingBox's mean-plus-three-sigma threshold gets wrong (it
