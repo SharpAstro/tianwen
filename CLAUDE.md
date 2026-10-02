@@ -946,7 +946,8 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   phase**: its brightness asymmetry is first order in the angle (10 degrees ignored put a centre 2.7 px off). Its start is
   `PlanetaryLimbFit.Start`, never `PlanetaryDisk.BoundingBox`, whose mean-plus-three-sigma threshold halves a stack's disk.
   It missed WinJUPOS's hand-set outlines by up to 1 px and 1.7 %; the evidence points at the outlines, and R2's rendered
-  truth decides.
+  truth decides. **Its model evaluation is the whole cost and runs on every core with one walk's bits** (#1106: rows gather
+  into their own cells, a cold fit's searches run at once; never a reduction across bands), 2 to 3 s a cold fit.
 - **Which telescope took a capture is read off its frames, one-sided** (R1, `tianwen planetary-aperture`): **a measured
   cutoff is only a LOWER bound** on the aperture, and **spikes say Newtonian, their absence says nothing** (a Blue read 2.4
   minutes after its Red read 18.3 through one Newtonian), least of all over a halo clipped at black. `Imaging/Optics` is R2's

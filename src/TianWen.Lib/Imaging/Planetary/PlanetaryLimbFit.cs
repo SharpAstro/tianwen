@@ -302,9 +302,12 @@ public static class PlanetaryLimbFit
         var startAxisAngleDeg = seed is null ? AxisFromShape(plane, width, height, startX, startY, startRadius, (sky + peak) / 2) : 0;
         var ends = seed is not null || options.PhaseAngleDeg <= 0 || options.SunTiltDeg == 0 ? [0.0] : new[] { 0.0, Math.PI };
 
-        LimbFit? best = null;
-        foreach (var (side, end) in Combinations(sides, ends))
+        // The searches are independent, each with its own model, so they run at once; the best is chosen in their order.
+        (int Side, double End)[] combinations = [.. Combinations(sides, ends)];
+        var candidates = new LimbFit[combinations.Length];
+        ParallelFor.Run(combinations.Length, c =>
         {
+            var (side, end) = combinations[c];
             var model = new DiskModel(pixels, width, height, options, side, startX, startY, startRadius);
             Span<double> start = seed is { } s ? s.Parameters
                 : [startX, startY, startRadius, (startAxisAngleDeg * Math.PI / 180) + end, 0.9, 1.5, peak - sky, sky, 0, 0, 0, 0.05, 3];
@@ -325,6 +328,11 @@ public static class PlanetaryLimbFit
             var candidate = new LimbFit(q[0], q[1], Math.Abs(q[2]), Normalise(north), q[4], Math.Abs(q[5]), q[6], q[7],
                 side, Math.Sqrt(2 * fit.Cost / observed.Length), observed.Length, errors, fit.Iterations, fit.Converged, q[8], q[9], q[10], north,
                 DiskModel.HaloFraction(q[11]), DiskModel.HaloRatio(q[12]) * Math.Abs(q[5]));
+            candidates[c] = candidate;
+        });
+        LimbFit? best = null;
+        foreach (var candidate in candidates)
+        {
             if (best is not { } current || candidate.RmsResidual < current.RmsResidual)
             {
                 best = candidate;
@@ -438,6 +446,11 @@ public static class PlanetaryLimbFit
     /// wings and the telescope's diffraction rings, left the radius 0.4 to 0.7 % large; the blur has a second, wider
     /// Gaussian for its wing.
     /// </para>
+    /// <para>
+    /// An evaluation is the fit's whole cost, about a thousand of them a cold fit, so it renders, blurs and reads back its rows in
+    /// parallel bands (#1106). Every output gathers into its own cell, its taps summed first to last, so the fit is bit for bit one
+    /// walk's; a reduction across bands would not be. A cold fit of the 2022-09-03 Red stack went from 9.3 to 1.8 s (Release).
+    /// </para>
     /// </summary>
     private sealed class DiskModel
     {
@@ -502,42 +515,46 @@ public static class PlanetaryLimbFit
             var (su, sv, sw) = (_sunSide * Math.Sin(phase) * Math.Cos(tilt), Math.Sin(phase) * Math.Sin(tilt), Math.Cos(phase));
             var cell = 1 / Supersample;
 
-            for (var gy = 0; gy < _gridHeight; gy++)
+            // Every cell is its own, so rows render in parallel bands with the same bits as one walk.
+            ParallelFor.RunBands(_gridHeight, (firstRow, endRow) =>
             {
-                // The cell's centre in image pixels, whose centres sit at integer coordinates.
-                var y = _gridY0 + ((gy + 0.5) * cell) - 0.5;
-                for (var gx = 0; gx < _gridWidth; gx++)
+                for (var gy = firstRow; gy < endRow; gy++)
                 {
-                    var x = _gridX0 + ((gx + 0.5) * cell) - 0.5;
-                    var (dx, dy) = (x - x0, y - y0);
-                    // Axis along theta: v is the along-axis coordinate, u the across (equatorial) one.
-                    var v = ((dx * cos) + (dy * sin)) / b;
-                    var u = ((-dx * sin) + (dy * cos)) / a;
-                    var rho2 = (u * u) + (v * v);
-                    // The fraction of the cell inside the limb, from the signed distance to it (to first order, (1 - rho^2)
-                    // over the gradient of rho^2, in pixels): a cell the limb crosses is lit in part, so the model moves
-                    // smoothly with the limb instead of jumping as it crosses a cell's centre.
-                    var gradient = 2 * Math.Sqrt((u * u / (a * a)) + (v * v / (b * b)));
-                    var coverage = gradient > 0 ? Math.Clamp(((1 - rho2) / gradient / cell) + 0.5, 0, 1) : 1;
-                    double value = 0;
-                    if (coverage > 0)
+                    // The cell's centre in image pixels, whose centres sit at integer coordinates.
+                    var y = _gridY0 + ((gy + 0.5) * cell) - 0.5;
+                    for (var gx = 0; gx < _gridWidth; gx++)
                     {
-                        // A cell the limb crosses takes the brightness just inside it.
-                        var mu = Math.Sqrt(Math.Max(1 - rho2, 0));
-                        var mu0 = (u * su) + (v * sv) + (mu * sw);
-                        if (mu0 > 0)
+                        var x = _gridX0 + ((gx + 0.5) * cell) - 0.5;
+                        var (dx, dy) = (x - x0, y - y0);
+                        // Axis along theta: v is the along-axis coordinate, u the across (equatorial) one.
+                        var v = ((dx * cos) + (dy * sin)) / b;
+                        var u = ((-dx * sin) + (dy * cos)) / a;
+                        var rho2 = (u * u) + (v * v);
+                        // The fraction of the cell inside the limb, from the signed distance to it (to first order, (1 - rho^2)
+                        // over the gradient of rho^2, in pixels): a cell the limb crosses is lit in part, so the model moves
+                        // smoothly with the limb instead of jumping as it crosses a cell's centre.
+                        var gradient = 2 * Math.Sqrt((u * u / (a * a)) + (v * v / (b * b)));
+                        var coverage = gradient > 0 ? Math.Clamp(((1 - rho2) / gradient / cell) + 0.5, 0, 1) : 1;
+                        double value = 0;
+                        if (coverage > 0)
                         {
-                            // The sine of the point's latitude on the unit sphere: its along-axis coordinate turned by the
-                            // latitude the observer looks from.
-                            var z = Math.Clamp((v * cosD) + (mu * sinD), -1, 1);
-                            var z2 = z * z;
-                            var albedo = 1 + (c1 * z) + (c2 * z2) + (c4 * z2 * z2);
-                            value = coverage * albedo * Math.Exp((k * Math.Log(mu0)) + ((k - 1) * Math.Log(Math.Max(mu, 1e-3))));
+                            // A cell the limb crosses takes the brightness just inside it.
+                            var mu = Math.Sqrt(Math.Max(1 - rho2, 0));
+                            var mu0 = (u * su) + (v * sv) + (mu * sw);
+                            if (mu0 > 0)
+                            {
+                                // The sine of the point's latitude on the unit sphere: its along-axis coordinate turned by the
+                                // latitude the observer looks from.
+                                var z = Math.Clamp((v * cosD) + (mu * sinD), -1, 1);
+                                var z2 = z * z;
+                                var albedo = 1 + (c1 * z) + (c2 * z2) + (c4 * z2 * z2);
+                                value = coverage * albedo * Math.Exp((k * Math.Log(mu0)) + ((k - 1) * Math.Log(Math.Max(mu, 1e-3))));
+                            }
                         }
+                        _grid[(gy * _gridWidth) + gx] = value;
                     }
-                    _grid[(gy * _gridWidth) + gx] = value;
                 }
-            }
+            });
 
             // The core and the wing, each a separable Gaussian over the same sharp model.
             Array.Copy(_grid, _sharp, _grid.Length);
@@ -586,47 +603,55 @@ public static class PlanetaryLimbFit
                 return;
             }
             var (cw, ch) = ((_gridWidth + bin - 1) / bin, (_gridHeight + bin - 1) / bin);
-            for (var cy = 0; cy < ch; cy++)
+            ParallelFor.RunBands(ch, (firstRow, endRow) =>
             {
-                var y1 = Math.Min((cy + 1) * bin, _gridHeight);
-                for (var cx = 0; cx < cw; cx++)
+                for (var cy = firstRow; cy < endRow; cy++)
                 {
-                    var x1 = Math.Min((cx + 1) * bin, _gridWidth);
-                    double sum = 0;
-                    var count = 0;
-                    for (var y = cy * bin; y < y1; y++)
+                    var y1 = Math.Min((cy + 1) * bin, _gridHeight);
+                    for (var cx = 0; cx < cw; cx++)
                     {
-                        for (var x = cx * bin; x < x1; x++)
+                        var x1 = Math.Min((cx + 1) * bin, _gridWidth);
+                        double sum = 0;
+                        var count = 0;
+                        for (var y = cy * bin; y < y1; y++)
                         {
-                            sum += _sharp[(y * _gridWidth) + x];
-                            count++;
+                            for (var x = cx * bin; x < x1; x++)
+                            {
+                                sum += _sharp[(y * _gridWidth) + x];
+                                count++;
+                            }
                         }
+                        _coarse[(cy * cw) + cx] = sum / count;
                     }
-                    _coarse[(cy * cw) + cx] = sum / count;
                 }
-            }
+            });
             Blur(_coarse, _coarseScratch, cw, ch, sigma / bin);
             // A cell's centre (x + 0.5) lies at (x + 0.5) / bin - 0.5 on the coarse grid.
-            for (var y = 0; y < _gridHeight; y++)
+            ParallelFor.RunBands(_gridHeight, (firstRow, endRow) =>
             {
-                var fy = Math.Clamp(((y + 0.5) / bin) - 0.5, 0, ch - 1);
-                var y0 = Math.Min((int)fy, ch - 2 < 0 ? 0 : ch - 2);
-                var ty = ch > 1 ? fy - y0 : 0;
-                for (var x = 0; x < _gridWidth; x++)
+                for (var y = firstRow; y < endRow; y++)
                 {
-                    var fx = Math.Clamp(((x + 0.5) / bin) - 0.5, 0, cw - 1);
-                    var x0 = Math.Min((int)fx, cw - 2 < 0 ? 0 : cw - 2);
-                    var tx = cw > 1 ? fx - x0 : 0;
-                    var x1 = Math.Min(x0 + 1, cw - 1);
-                    var y1 = Math.Min(y0 + 1, ch - 1);
-                    var top = (_coarse[(y0 * cw) + x0] * (1 - tx)) + (_coarse[(y0 * cw) + x1] * tx);
-                    var bottom = (_coarse[(y1 * cw) + x0] * (1 - tx)) + (_coarse[(y1 * cw) + x1] * tx);
-                    _wing[(y * _gridWidth) + x] = (top * (1 - ty)) + (bottom * ty);
+                    var fy = Math.Clamp(((y + 0.5) / bin) - 0.5, 0, ch - 1);
+                    var y0 = Math.Min((int)fy, ch - 2 < 0 ? 0 : ch - 2);
+                    var ty = ch > 1 ? fy - y0 : 0;
+                    for (var x = 0; x < _gridWidth; x++)
+                    {
+                        var fx = Math.Clamp(((x + 0.5) / bin) - 0.5, 0, cw - 1);
+                        var x0 = Math.Min((int)fx, cw - 2 < 0 ? 0 : cw - 2);
+                        var tx = cw > 1 ? fx - x0 : 0;
+                        var x1 = Math.Min(x0 + 1, cw - 1);
+                        var y1 = Math.Min(y0 + 1, ch - 1);
+                        var top = (_coarse[(y0 * cw) + x0] * (1 - tx)) + (_coarse[(y0 * cw) + x1] * tx);
+                        var bottom = (_coarse[(y1 * cw) + x0] * (1 - tx)) + (_coarse[(y1 * cw) + x1] * tx);
+                        _wing[(y * _gridWidth) + x] = (top * (1 - ty)) + (bottom * ty);
+                    }
                 }
-            }
+            });
         }
 
-        // A separable Gaussian of `sigma` cells, in place on `grid` (`width` by `height`), through `scratch`.
+        // A separable Gaussian of `sigma` cells, in place on `grid` (`width` by `height`), through `scratch`. Each pass runs its
+        // rows in parallel bands, a tap clamped to the edge only where it would leave the grid, and the column pass adds whole
+        // rows a tap at a time: every output still sums its taps from first to last, so the bits are one plain walk's.
         private static void Blur(double[] grid, double[] scratch, int width, int height, double sigma)
         {
             if (sigma < 0.05)
@@ -635,7 +660,7 @@ public static class PlanetaryLimbFit
             }
             var radius = Math.Min((int)Math.Ceiling(3.5 * sigma), Math.Max(width, height));
             var size = (2 * radius) + 1;
-            Span<double> kernel = size <= 257 ? stackalloc double[size] : new double[size];
+            var kernel = new double[size];
             double total = 0;
             for (var t = -radius; t <= radius; t++)
             {
@@ -647,33 +672,51 @@ public static class PlanetaryLimbFit
                 kernel[t] /= total;
             }
             // Rows into the scratch, then columns back.
-            for (var y = 0; y < height; y++)
+            ParallelFor.RunBands(height, (firstRow, endRow) =>
             {
-                var row = y * width;
-                for (var x = 0; x < width; x++)
+                for (var y = firstRow; y < endRow; y++)
                 {
-                    double s = 0;
+                    var source = grid.AsSpan(y * width, width);
+                    var target = scratch.AsSpan(y * width, width);
+                    for (var x = 0; x < width; x++)
+                    {
+                        double s = 0;
+                        if (x >= radius && x + radius < width)
+                        {
+                            var window = source.Slice(x - radius, size);
+                            for (var t = 0; t < size; t++)
+                            {
+                                s += kernel[t] * window[t];
+                            }
+                        }
+                        else
+                        {
+                            for (var t = -radius; t <= radius; t++)
+                            {
+                                s += kernel[t + radius] * source[Math.Clamp(x + t, 0, width - 1)];
+                            }
+                        }
+                        target[x] = s;
+                    }
+                }
+            });
+            ParallelFor.RunBands(height, (firstRow, endRow) =>
+            {
+                for (var y = firstRow; y < endRow; y++)
+                {
+                    var target = grid.AsSpan(y * width, width);
+                    target.Clear();
                     for (var t = -radius; t <= radius; t++)
                     {
-                        var xx = Math.Clamp(x + t, 0, width - 1);
-                        s += kernel[t + radius] * grid[row + xx];
+                        var weight = kernel[t + radius];
+                        var source = scratch.AsSpan(Math.Clamp(y + t, 0, height - 1) * width, width);
+                        for (var x = 0; x < width; x++)
+                        {
+                            target[x] += weight * source[x];
+                        }
                     }
-                    scratch[row + x] = s;
                 }
-            }
-            for (var y = 0; y < height; y++)
-            {
-                for (var x = 0; x < width; x++)
-                {
-                    double s = 0;
-                    for (var t = -radius; t <= radius; t++)
-                    {
-                        var yy = Math.Clamp(y + t, 0, height - 1);
-                        s += kernel[t + radius] * scratch[(yy * width) + x];
-                    }
-                    grid[(y * width) + x] = s;
-                }
-            }
+            });
         }
     }
 }
