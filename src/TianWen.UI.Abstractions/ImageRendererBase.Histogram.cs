@@ -31,6 +31,16 @@ namespace TianWen.UI.Abstractions
             return (rightEdge - histW - margin, top, histW, histH);
         }
 
+        // The LOG toggle's label, one node for the paint and the test seam. A layout node's font size is in DESIGN units (the engine
+        // scales it by DpiScale), while the box it is drawn in is in device pixels: given ToolbarFontSize, already scaled, the label was
+        // drawn DpiScale times too large for its box and read "L..." on a 2x display.
+        private Layout.Node HistogramLogLabel()
+            => Layout.Builder.Text("LOG", BaseToolbarFontSize, ViewerTheme.Palette.BodyText, hAlign: TextAlign.Center);
+
+        /// <summary>Test seam: the LOG label's measured width, as the engine draws it, and the width of the box it is drawn in.</summary>
+        internal (float Label, float Box) HistogramLogLabelFit(ViewerState state)
+            => (MeasureLayout(HistogramLogLabel(), new Layout.Size<float>(float.MaxValue, float.MaxValue)).Width, GetHistogramLogButtonRect(state).W);
+
         private (float X, float Y, float W, float H) GetHistogramLogButtonRect(ViewerState state)
         {
             var (histLeft, histTop, histW, _) = GetHistogramRect(state);
@@ -87,8 +97,7 @@ namespace TianWen.UI.Abstractions
                 var fill = state.HistogramLogScale ? HistogramLogOnBg : HistogramLogOffBg;
                 var hoverFill = state.HistogramLogScale ? HistogramLogOnHoverBg : HistogramLogOffHoverBg;
 
-                var button = Layout.Builder
-                    .Text("LOG", ToolbarFontSize, ViewerTheme.Palette.BodyText, hAlign: TextAlign.Center)
+                var button = HistogramLogLabel()
                     .Bg(fill)
                     .Clickable(new HitResult.ButtonHit("HistogramLog"),
                         _ => { state.HistogramLogScale = !state.HistogramLogScale; },
