@@ -10,17 +10,6 @@ namespace TianWen.Lib.Imaging.Planetary;
 public sealed record RollingWindowOptions
 {
     /// <summary>
-    /// The rolling stack before the enhanced pipeline (#1159): frames weighted by the Laplacian, registered by phase correlation,
-    /// resampled bilinearly. Kept so a stack can be made as it was, and the two compared.
-    /// </summary>
-    public static RollingWindowOptions Legacy { get; } = new RollingWindowOptions
-    {
-        QualityEstimator = new LaplacianEnergyEstimator(),
-        WhitenedCorrelation = true,
-        Interpolation = WarpInterpolation.Bilinear,
-    };
-
-    /// <summary>
     /// Capture-time span the window covers, measured from frame timestamps. Planetary rotation smears
     /// detail in ~3-6 min (Jupiter), so a time-bounded window tracks current seeing and never stacks
     /// across rotation. Used only when the stream has timestamps; otherwise <see cref="FallbackWindowFrames"/>.
@@ -40,26 +29,27 @@ public sealed record RollingWindowOptions
     public int MaxWindowFrames { get; init; } = 500;
 
     /// <summary>
-    /// The sharpness metric, which picks the reference and weights each frame's contribution (quality-weighted mean). The gradient
-    /// by default, as the batch stack's (<see cref="PlanetaryStackOptions.QualityEstimator"/>: at 8 bits the Laplacian ranks noise).
+    /// The sharpness metric, which picks the reference and weights each frame's contribution (quality-weighted mean). Laplacian
+    /// variance by default. The rolling stack keeps its recipe while the batch stack takes the measured best (the user,
+    /// 2026-10-02, #1159: the live stack may stay fast where the batch one is slow but best); the gradient is the batch
+    /// stack's (<see cref="PlanetaryStackOptions.QualityEstimator"/>).
     /// </summary>
-    public IFrameQualityEstimator QualityEstimator { get; init; } = new GradientEnergyEstimator();
+    public IFrameQualityEstimator QualityEstimator { get; init; } = new LaplacianEnergyEstimator();
 
     /// <summary>Correlation tile edge for global alignment. <c>0</c> auto-sizes to the reference disk.</summary>
     public int AlignTileSize { get; init; }
 
     /// <summary>
-    /// Whether frames are registered by phase correlation (whitened) or by a plain cross-correlation, its peak climbed (false, the
-    /// default), as the batch stack's <see cref="PlanetaryStackOptions.WhitenedCorrelation"/>.
+    /// Whether frames are registered by phase correlation (whitened, the default) or by a plain cross-correlation, its peak climbed
+    /// (the batch stack's, <see cref="PlanetaryStackOptions.WhitenedCorrelation"/>).
     /// </summary>
-    public bool WhitenedCorrelation { get; init; }
+    public bool WhitenedCorrelation { get; init; } = true;
 
     /// <summary>
-    /// The kernel each frame is resampled by as it is folded in (clamped Lanczos-3 by default, as the batch stack's
-    /// <see cref="PlanetaryStackOptions.Interpolation"/>). It reads 36 samples where bilinear reads 4, so a live capture whose fold
-    /// cannot keep up takes <see cref="WarpInterpolation.Bilinear"/>. An eviction folds by the same kernel, so it cancels exactly.
+    /// The kernel each frame is resampled by as it is folded in (bilinear by default; the batch stack's is clamped Lanczos-3,
+    /// <see cref="PlanetaryStackOptions.Interpolation"/>). An eviction folds by the same kernel, so it cancels exactly.
     /// </summary>
-    public WarpInterpolation Interpolation { get; init; } = WarpInterpolation.Lanczos3Clamped;
+    public WarpInterpolation Interpolation { get; init; } = WarpInterpolation.Bilinear;
 }
 
 /// <summary>

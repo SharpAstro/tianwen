@@ -2007,6 +2007,26 @@ Laplacian) were fixed in code; and no product path used R8's derived gains or th
   and the 2022-10-09 Jupiter, beside AutoStakkert's own result where the corpus holds one. **The pipeline's limb undershoot is at most
   0.02 of the disk** on each (legacy's presets: 0.16 to 0.26), and the masters go side by side to the user's eye.
 
+### The enhanced pipeline: decided and found while building (2026-10-02)
+
+- **The rolling stack keeps today's recipe** (the user, 2026-10-02): two paths are fine for now, and the batch path may be slow if it
+  gives the best stacks, but frames are many, so no step may grow faster than linearly in them. The pre-registered live criterion
+  failed clearly in any case: a frame's whole fold (graded, registered, folded) took, per frame at 512 px square (85 % of 640 by 480),
+  35 to 44 ms as it was, 67 ms with the gradient and the climbed plain correlation, and 102 ms with clamped Lanczos-3 as well
+  (`RollingFoldBenchmarks`, Release, this x64 box; at 256 px 10.6, 15.5 and 25 ms). The gradient costs nothing (11.3 against 10.6
+  ms); the climb and the kernel are the cost.
+- **The climb and the translate fold were made cheaper**, the same arithmetic: the climb's phase splits by axis, so each Newton step
+  takes a phasor per column and per row rather than a sine and cosine per frequency; a translation samples every pixel at one phase,
+  so the fold takes Lanczos-3's weights once a frame and reads the interior's taps unchecked (pinned against the general sampler at
+  every pixel). At 512 px a frame's fold with the climbed plain correlation went from 67 to 44 ms and the whole pipeline's from 102 to 57 ms against 34 ms as it was (at 256 px, 15.5 to 10.1 and 25 to 14.4 against 8.0): 1.7 times the old cost a frame, where it was three times.
+- **Lanczos-3's clamp blew up on negative data.** It is PixInsight's rule for non-negative data (each tap sorted by the sign of its
+  weighted value); on a sky at zero with its noise a positive lobe's weight went into the negative part and the clamped denominator
+  came near zero, so a stacked reference of the banded fixture read up to 1e17 and placed frames 1.9 px off. A sample with a negative
+  tap now takes the plain kernel; on non-negative data the clamp is unchanged. A real capture sits on the camera's offset, so the
+  real and synthetic captures never reached it, but a dark-subtracted deep-sky frame can.
+- **Whether the limb fit's north was right is incidental**: graded by the gradient, the 16-minute fixture's stack of best frames had it
+  upside down and the run's quarters turned it back (31 degrees against the true 30).
+
 ## R9 A learned stage, only if the measurements say so
 
 **Issue:** #1056 (conditional).

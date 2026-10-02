@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Shouldly;
 using TianWen.Lib.Imaging;
 using Xunit;
@@ -59,6 +60,57 @@ public class PlanetaryResamplingTests
     }
 
     // The pattern moved by `shift` px: a frame's pixel x holds the truth at x - shift, so sampling it at x + shift is the truth.
+    [Theory]
+    [InlineData(WarpInterpolation.Lanczos3, 2.37f, -1.61f)]
+    [InlineData(WarpInterpolation.Lanczos3Clamped, 2.37f, -1.61f)]
+    [InlineData(WarpInterpolation.Lanczos3Clamped, -3.5f, 0.25f)]
+    [InlineData(WarpInterpolation.Lanczos3, 0f, 4f)]
+    public void ATranslateFoldIsTheKernelSampledAtEveryPixel(WarpInterpolation interpolation, float dx, float dy)
+    {
+        // The fold takes the six weights an axis once for the frame and reads the interior's taps unchecked; every pixel must
+        // still be the kernel's sample at (x + dx, y + dy), the edge's and a NaN tap's included, in each channel.
+        const int size = 24;
+        var planes = Image.CreateChannelData(2, size, size);
+        var random = new Random(7);
+        for (var c = 0; c < 2; c++)
+        {
+            for (var y = 0; y < size; y++)
+            {
+                for (var x = 0; x < size; x++)
+                {
+                    // A sharp spike among smooth values, so the clamp has a negative lobe to act on.
+                    planes[c][y, x] = (x == 12 && y == 11 ? 40f : 1f) + (float)random.NextDouble();
+                }
+            }
+        }
+        planes[1][9, 15] = float.NaN;
+        var frame = new Image(planes, BitDepth.Float32, 41f, 0f, 0f, new ImageMeta());
+        var channelAccum = Image.CreateChannelData(2, size, size);
+        var weightAccum = new float[size, size];
+        frame.AccumulateTranslatedInto(channelAccum, weightAccum, dx, dy, 1f, interpolation);
+
+        var threshold = interpolation == WarpInterpolation.Lanczos3Clamped ? Image.LanczosClampingThreshold : 1f;
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                var (sx, sy) = (x + dx, y + dy);
+                var inside = sx >= 0 && sx < size && sy >= 0 && sy < size;
+                var expected = new[] { 0, 1 }.Select(c => inside ? Image.Lanczos3Value(planes[c], sx, sy, threshold) : float.NaN).ToArray();
+                if (expected.Any(float.IsNaN))
+                {
+                    weightAccum[y, x].ShouldBe(0f, $"({x}, {y})");
+                    continue;
+                }
+                weightAccum[y, x].ShouldBe(1f, $"({x}, {y})");
+                for (var c = 0; c < 2; c++)
+                {
+                    channelAccum[c][y, x].ShouldBe(expected[c], 1e-4f, $"({x}, {y}) channel {c}");
+                }
+            }
+        }
+    }
+
     private static Image Frame(double shift)
     {
         var pixels = new float[Height, Width];

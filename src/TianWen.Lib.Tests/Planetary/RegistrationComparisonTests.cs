@@ -160,7 +160,8 @@ public class RegistrationComparisonTests
             }
         }
         using var stream = new InMemoryFrameStream(planes);
-        var plain = await LuckyImagingStacker.RegisterAllAsync(stream, new PlanetaryStackOptions { WhitenedCorrelation = false }, TestContext.Current.CancellationToken);
+        // Against the best frame, which is what the climb was measured against.
+        var plain = await LuckyImagingStacker.RegisterAllAsync(stream, new PlanetaryStackOptions { WhitenedCorrelation = false, ReferenceFrames = 0 }, TestContext.Current.CancellationToken);
         var error = RegistrationComparison.DifferenceVariance(new RegistrationTrack("plain", plain.Dx, plain.Dy), new RegistrationTrack("truth", truthX, truthY));
         TestContext.Current.TestOutputHelper?.WriteLine($"noise {noise} ADU: plain correlation off by {Math.Sqrt(error.X):0.000}, {Math.Sqrt(error.Y):0.000} px RMS");
         Math.Sqrt(error.X).ShouldBeLessThan(maxErrorX);
@@ -192,7 +193,7 @@ public class RegistrationComparisonTests
         using var stream = new InMemoryFrameStream(planes);
         var ct = TestContext.Current.CancellationToken;
 
-        var single = await LuckyImagingStacker.RegisterAllAsync(stream, new PlanetaryStackOptions { WhitenedCorrelation = false }, ct);
+        var single = await LuckyImagingStacker.RegisterAllAsync(stream, new PlanetaryStackOptions { WhitenedCorrelation = false, ReferenceFrames = 0 }, ct);
         var stacked = await LuckyImagingStacker.RegisterAllAsync(stream, new PlanetaryStackOptions { WhitenedCorrelation = false, ReferenceFrames = 40 }, ct);
         var singleError = RegistrationComparison.DifferenceVariance(new RegistrationTrack("single", single.Dx, single.Dy), truth);
         var stackedError = RegistrationComparison.DifferenceVariance(new RegistrationTrack("stacked", stacked.Dx, stacked.Dy), truth);

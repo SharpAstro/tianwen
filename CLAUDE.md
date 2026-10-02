@@ -955,9 +955,13 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   spread is set by the mean alone, and a sky that slopes over the frame widens any pooled fit. **A statistic is read against its
   spread over seeds** (`--seed`): at 3,000 frames the quality's lag-1 wanders 67 % between seeds, so a 10 % band on it tests nothing.
 - **The planetary stack's defaults ARE the measured best, and today's recipe is one switch away** (the enhanced pipeline, #1159):
-  `PlanetaryStackOptions` and `RollingWindowOptions` default to the gradient, plain correlation, clamped Lanczos-3 and (batch) a
-  reference of the best 1,000 at half the frames; `.Legacy` and `planetary-stack --legacy` are the recipe before. **A test that
-  depends on one of these choices pins it** rather than inheriting a default the next measurement may move. A run is de-rotated
+  `PlanetaryStackOptions` defaults to the gradient, plain correlation, clamped Lanczos-3 and a reference of the best 1,000 at half
+  the frames; `PlanetaryStackOptions.Legacy` and `planetary-stack --legacy` are the recipe before. **The rolling stack (live capture,
+  the GUI's playback) keeps today's recipe by default**, the new choices options there (the user, 2026-10-02: two paths are fine and
+  the batch may be slow if it is best, but frames are many, so no step may grow faster than linearly in them). **A test that
+  depends on one of these choices pins it** rather than inheriting a default the next measurement may move. **Lanczos-3's clamp
+  applies only where every tap is non-negative** (`Image.Lanczos3Finish`): it is PixInsight's rule for non-negative data, and on a
+  sky at zero with its noise its denominator vanished (a stacked reference read 1e17). A run is de-rotated
   unasked only once the planet's turn moves its disk's middle a pixel (`PlanetaryDerotationOptions.MinimumTurnPx`,
   `PlanetaryStackResult.TurnPx`), its planet read off the capture's path (`PlanetaryCaptureName`); **whether the limb fit's north
   was right is incidental**, the run's quarters decide it (graded by the gradient, the fixture's limb fit had it upside down).

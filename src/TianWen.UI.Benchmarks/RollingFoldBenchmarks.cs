@@ -7,10 +7,10 @@ using TianWen.Lib.Imaging.Planetary;
 namespace TianWen.UI.Benchmarks;
 
 /// <summary>
-/// One frame's whole fold into a live rolling stack (<see cref="RollingWindowStacker"/>): graded, registered against the reference
-/// and folded in, per <see cref="Recipe"/>. The question it answers (docs/plans/planetary-restoration.md, the enhanced pipeline):
-/// whether a live capture can afford clamped Lanczos-3, which reads 36 samples a pixel where bilinear reads 4, inside 10 ms a frame
-/// (100 frames a second) at 640 by 480. <see cref="Size"/> 512 squared is 262,144 px, 85 % of that frame.
+/// One frame's whole fold, as the rolling stack (<see cref="RollingWindowStacker"/>) and the batch stack's global passes do it:
+/// graded, registered against the reference and folded in, per <see cref="Recipe"/>. What each of the enhanced pipeline's choices
+/// costs a frame (docs/plans/planetary-restoration.md): the gradient, the climbed plain correlation and clamped Lanczos-3, which
+/// reads 36 samples a pixel where bilinear reads 4. <see cref="Size"/> 512 squared is 262,144 px, 85 % of a 640 by 480 frame.
 /// </summary>
 [MemoryDiagnoser]
 [ShortRunJob]
@@ -21,8 +21,11 @@ public class RollingFoldBenchmarks
     [Params(256, 512)]
     public int Size;
 
-    /// <summary>legacy: the Laplacian, phase correlation, bilinear; plain-bilinear: the gradient and plain correlation, bilinear; pipeline: the same with clamped Lanczos-3.</summary>
-    [Params("legacy", "plain-bilinear", "pipeline")]
+    /// <summary>
+    /// legacy: the Laplacian, phase correlation, bilinear; gradient-whitened and laplacian-plain: one of the two changed, bilinear;
+    /// plain-bilinear: the gradient and plain correlation, bilinear; pipeline: the same with clamped Lanczos-3.
+    /// </summary>
+    [Params("legacy", "gradient-whitened", "laplacian-plain", "plain-bilinear", "pipeline")]
     public string Recipe = "pipeline";
 
     private Image[] _frames = null!;
@@ -44,7 +47,14 @@ public class RollingFoldBenchmarks
             _frames[i] = Image.FromChannel(data[i], 1f, 0f);
             _regions[i] = PlanetaryDisk.BoundingBox(_frames[i]);
         }
-        var options = Recipe == "legacy" ? RollingWindowOptions.Legacy : new RollingWindowOptions();
+        var legacy = new RollingWindowOptions();
+        var options = Recipe switch
+        {
+            "legacy" => legacy,
+            "gradient-whitened" => legacy with { QualityEstimator = new GradientEnergyEstimator() },
+            "laplacian-plain" => legacy with { WhitenedCorrelation = false },
+            _ => legacy with { QualityEstimator = new GradientEnergyEstimator(), WhitenedCorrelation = false, Interpolation = WarpInterpolation.Lanczos3Clamped },
+        };
         _estimator = options.QualityEstimator;
         _interpolation = Recipe == "pipeline" ? options.Interpolation : WarpInterpolation.Bilinear;
         var tile = Math.Clamp(NextPow2(Math.Max(_regions[0].Width, _regions[0].Height)), 64, 512);
