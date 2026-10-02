@@ -965,6 +965,15 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   unasked only once the planet's turn moves its disk's middle a pixel (`PlanetaryDerotationOptions.MinimumTurnPx`,
   `PlanetaryStackResult.TurnPx`), its planet read off the capture's path (`PlanetaryCaptureName`); **whether the limb fit's north
   was right is incidental**, the run's quarters decide it (graded by the gradient, the fixture's limb fit had it upside down).
+- **A planetary master is sharpened by `PlanetarySharpening`, ONE routine for `planetary-stack`, `planetary-sharpen` and (next) the GUI**
+  (#1159): a trous gains derived through the limb's edge against the limb fit's sharp model through the pupil's diffraction, the stack's
+  white noise floor and the planet's disk, applied floored at the sky; without a telescope `PlanetaryDefault` with the limb kept as
+  stacked. **It needs the planet, the instant and the telescope** (a master carries its capture's span, DATE-OBS to EXPTIME, for the
+  instant). Measured on the twins it leaves under a third of legacy's error; the free gain fit oscillates where the edge reads the finest
+  band low and still lands near the truth, while the non-negative fit leaves every twin worse than unsharpened. **It rings OUTSIDE the
+  limb, above the sky, on a twin with no ghost too, and no metric yet reads there** (#1168: the band error is inside 0.9 radii, the
+  undershoot below the sky). **The edge reads its own noise floor where the seeing passes little at 0.3 cycles a pixel**, so judge it on
+  a core-and-halo kernel, never a single Gaussian.
 - **A stack is scored through `PlanetaryMetrics` and `tianwen planetary-measure`** (R3), and **a truth-free metric judges a real
   capture only once it ranks candidate stacks as its truth-based twin does on a synthetic one** (Spearman at least 0.8). The limb's
   undershoot does (+0.95); the two halves' agreement does not (it sees noise, never a per-band gain or the blur), and waits on R7's
