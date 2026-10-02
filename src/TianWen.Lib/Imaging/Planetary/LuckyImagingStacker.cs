@@ -525,8 +525,13 @@ public sealed class LuckyImagingStacker
                 }
             }
 
+            // The master is of the whole capture, so it carries the capture's span (DATE-OBS its first frame, EXPTIME to its last), not
+            // the reference frame's: its middle is the instant a planet's aspect is read at when the master is sharpened later.
+            var masterMeta = stream.TimestampOf(0) is { } first && stream.TimestampOf(stream.FrameCount - 1) is { } last && last >= first
+                ? reference.ImageMeta with { ExposureStartTime = first, ExposureDuration = last - first }
+                : reference.ImageMeta;
             return new StackContext(grades, referenceIndex, selected, scoreByIndex, aligner, matcher, signalConfidence,
-                reference.Width, reference.Height, reference.ChannelCount, reference.ImageMeta, derotator, north, turnPx);
+                reference.Width, reference.Height, reference.ChannelCount, masterMeta, derotator, north, turnPx);
         }
         finally
         {
