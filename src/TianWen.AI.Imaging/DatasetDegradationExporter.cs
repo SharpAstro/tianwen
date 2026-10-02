@@ -733,6 +733,39 @@ namespace TianWen.AI.Imaging
         }
 
         /// <summary>
+        /// A draw's noise shape and warp width, one per DRAW and shared by its channels, from a stream of its own: the draw's
+        /// own sequence (position, level, the noise itself) is untouched, so with both options off the export is byte for
+        /// byte what it was, and with them on it differs from a fixed-shape export of the same seed in the shape and nothing
+        /// else. One rule for every mode.
+        /// </summary>
+        private static (NoiseShape Shape, double WarpSigma) DrawNoiseShape(Options options, int seed)
+        {
+            var drawShape = options.Shape;
+            var drawSigma = options.WarpResampleSigma;
+            if (options.Shape == NoiseShape.Warped
+                && (options.WhiteFraction > 0 || options.WarpResampleSigmaMax > options.WarpResampleSigma))
+            {
+                var shapeRng = new Random(seed ^ 0x2c1b3c6d);
+                if (shapeRng.NextDouble() < options.WhiteFraction)
+                {
+                    drawShape = NoiseShape.White;
+                }
+                else if (options.WarpResampleSigmaMax > options.WarpResampleSigma)
+                {
+                    drawSigma = options.WarpResampleSigma
+                        + (shapeRng.NextDouble() * (options.WarpResampleSigmaMax - options.WarpResampleSigma));
+                }
+            }
+            return (drawShape, drawSigma);
+        }
+
+        /// <summary>A square noise field of the draw's shape: white, or warped as an integration of the session's frames.</summary>
+        private static float[] NoiseFieldFor(NoiseShape shape, double warpSigma, int size, int stackedFrames, Random rng)
+            => shape == NoiseShape.White
+                ? NoiseField.White(size, size, rng)
+                : NoiseField.Warped(size, size, Math.Max(2, Math.Min(stackedFrames, 16)), rng, warpSigma);
+
+        /// <summary>
         /// The cells a session exports: its seeded sample and then its listed cells, in canonical row-major order. One rule
         /// for every mode.
         /// </summary>
@@ -1193,26 +1226,7 @@ namespace TianWen.AI.Imaging
             var minDepth = Math.Min(options.MinDepthScale, options.MasterDepthFraction * masterDepth);
             var depthScale = LogUniform(rng, minDepth, options.MaxDepthScale);
 
-            // One noise shape per DRAW, shared by its channels, from a stream of its own: the draw's own
-            // sequence (position, level, the noise itself) is untouched, so with both options off the
-            // export is byte for byte what it was, and with them on it differs from a fixed-shape export
-            // of the same seed in the shape and nothing else.
-            var drawShape = options.Shape;
-            var drawSigma = options.WarpResampleSigma;
-            if (options.Shape == NoiseShape.Warped
-                && (options.WhiteFraction > 0 || options.WarpResampleSigmaMax > options.WarpResampleSigma))
-            {
-                var shapeRng = new Random(seed ^ 0x2c1b3c6d);
-                if (shapeRng.NextDouble() < options.WhiteFraction)
-                {
-                    drawShape = NoiseShape.White;
-                }
-                else if (options.WarpResampleSigmaMax > options.WarpResampleSigma)
-                {
-                    drawSigma = options.WarpResampleSigma
-                        + (shapeRng.NextDouble() * (options.WarpResampleSigmaMax - options.WarpResampleSigma));
-                }
-            }
+            var (drawShape, drawSigma) = DrawNoiseShape(options, seed);
 
             for (var c = 0; c < channels; c++)
             {
@@ -1248,9 +1262,7 @@ namespace TianWen.AI.Imaging
                     adjacent = LinearDegradation.NoiseCalibration.AdjacentDifferenceSigma(inner, size, size);
                 }
 
-                var shape = drawShape == NoiseShape.White
-                    ? NoiseField.White(cut, cut, rng)
-                    : NoiseField.Warped(cut, cut, Math.Max(2, Math.Min(stackedFrames, 16)), rng, drawSigma);
+                var shape = NoiseFieldFor(drawShape, drawSigma, cut, stackedFrames, rng);
 
                 var channelKernel = perChannelKernels is null ? kernel : perChannelKernels[c];
                 var degraded = channelKernel is null
@@ -1373,9 +1385,7 @@ namespace TianWen.AI.Imaging
                     var windowRegion = CutClamped(unitMaster, green, windowOrigin.X - windowMargin, windowOrigin.Y - windowMargin, windowCut, windowCut);
                     var windowBlurred = greenKernel.Convolve(windowRegion, windowCut, windowCut);
                     var windowRng = new Random(seed ^ 0x5bd1e995);
-                    var windowShape = drawShape == NoiseShape.White
-                        ? NoiseField.White(windowCut, windowCut, windowRng)
-                        : NoiseField.Warped(windowCut, windowCut, Math.Max(2, Math.Min(stackedFrames, 16)), windowRng, drawSigma);
+                    var windowShape = NoiseFieldFor(drawShape, drawSigma, windowCut, stackedFrames, windowRng);
                     LinearDegradation.AddNoiseInPlace(windowBlurred, windowShape, calibrations[green], depthScale);
                     var windowPlane = new float[windowSize, windowSize];
                     for (var y = 0; y < windowSize; y++)
