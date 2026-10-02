@@ -429,6 +429,33 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact(Timeout = 60_000)]
+        public async Task TheReportShowsTheMastersPresentAndTheStoreKeepsTheGoneOnes()
+        {
+            // The 2026-10-02 rekey renamed and removed masters; the store kept their old records, and the
+            // report rendered them beside the 190 that exist (276 "masters", pre-merge ones in every table).
+            var ct = TestContext.Current.CancellationToken;
+            Directory.CreateDirectory(_dir);
+            var gone = Path.Combine(_dir, "renamed-away.fits");
+            var kept = Path.Combine(_dir, "present.fits");
+            var master = SyntheticMaster(128, 96, 4, 0.01f, 0.003f, 2e-4f, seed: 4);
+            master.WriteToFitsFile(gone);
+            master.WriteToFitsFile(kept);
+            master.Release();
+            var first = await DatasetGradientReport.RunAsync(
+                new DatasetGradientReport.RunOptions([gone, kept], _dir, Sweep: false, Solve: false), solver: null, cancellationToken: ct);
+            first.Measured.ShouldBe(2);
+            File.Delete(gone);
+
+            var again = await DatasetGradientReport.RunAsync(
+                new DatasetGradientReport.RunOptions([kept], _dir, Sweep: false, Solve: false), solver: null, cancellationToken: ct);
+
+            again.Measured.ShouldBe(0);
+            (await DatasetGradientStore.ReadAsync(again.StorePath, cancellationToken: ct)).Keys.ShouldContain("renamed-away.fits", "the store is history and keeps it");
+            var report = await File.ReadAllTextAsync(again.ReportPath, ct);
+            report.ShouldContain("- Masters: 1 ");
+        }
+
+        [Fact(Timeout = 60_000)]
         public async Task ARunMeasuresTheMasterAndNotTheSidecarsBesideIt()
         {
             var ct = TestContext.Current.CancellationToken;
