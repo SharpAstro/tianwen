@@ -350,9 +350,10 @@ public partial class Image
     /// part (sp, wp) and a negative part (sn, wn, both stored as magnitudes); with r = sn / sp, a
     /// sample whose negative lobes outweigh its positive ones (r at or above 1) is the positive lobes
     /// alone, one above the threshold has its negative part scaled by 1 - ((r - t) / (1 - t))^2, and one
-    /// below is the plain kernel. The sign is that of the weighted sample, as in PCL, so on the
-    /// non-negative data the warp sees it is the lobe's sign. Continuous in r, so no seam appears where
-    /// the clamp starts. A threshold of 1 is the plain kernel. The public surface exposes ONE value,
+    /// below is the plain kernel. The sign is that of the weighted sample, as in PCL, so on
+    /// non-negative data it is the lobe's sign; a sample with a negative tap is the plain kernel, since
+    /// there the rule's denominator can vanish (a sky at zero with its noise read 1e17). Continuous in r,
+    /// so no seam appears where the clamp starts. A threshold of 1 is the plain kernel. The public surface exposes ONE value,
     /// <see cref="LanczosClampingThreshold"/>; the parameter exists so the choice can be measured.</para>
     /// </summary>
     internal static float Lanczos3Value(float[,] plane, float x, float y, float clampThreshold = 1f)
@@ -390,6 +391,7 @@ public partial class Image
         var sn = 0f;
         var wn = 0f;
         var taps = 0;
+        var negative = false;
         for (var j = 0; j < 6; j++)
         {
             var sy = y0 - 2 + j;
@@ -416,6 +418,7 @@ public partial class Image
                 var w = wx[i] * wy[j];
                 var s = w * v;
                 taps++;
+                negative |= v < 0f;
                 if (s < 0f)
                 {
                     sn -= s;
@@ -429,12 +432,23 @@ public partial class Image
             }
         }
 
+        return Lanczos3Finish(sp, wp, sn, wn, taps, negative, clampThreshold);
+    }
+
+    // The value from the positive and negative parts of a Lanczos-3 sum, the clamp applied: Lanczos3Value's, and the
+    // translate fold's (AccumulateTranslatedLanczos). The clamp is PixInsight's rule for NON-NEGATIVE data, where a weighted
+    // sample's sign is its lobe's: a negative tap (a sky at zero with its noise, a dark-subtracted frame) puts a positive
+    // lobe's weight into the negative part, and the clamped denominator wp - c wn can then come near zero, which read 1e17 on a
+    // planetary fixture. A sample with a negative tap takes the plain kernel, sum over weight for any sign; one without is the
+    // clamp exactly as before.
+    private static float Lanczos3Finish(float sp, float wp, float sn, float wn, int taps, bool negative, float clampThreshold)
+    {
         if (taps == 0)
         {
             return float.NaN;
         }
 
-        if (clampThreshold < 1f && sn > 0f)
+        if (clampThreshold < 1f && sn > 0f && !negative)
         {
             if (sp == 0f)
             {
@@ -631,6 +645,13 @@ public partial class Image
         // Residency resolved once per operation, not once per sampled pixel.
         var planes = ResidentPlanes();
 
+        if (interpolation != WarpInterpolation.Bilinear)
+        {
+            AccumulateTranslatedLanczos(planes, channelAccum, weightAccum, dx, dy, weight,
+                interpolation == WarpInterpolation.Lanczos3Clamped ? LanczosClampingThreshold : 1f, interpolation);
+            return;
+        }
+
         Span<float> samples = stackalloc float[channels];
         for (var y = 0; y < outH; y++)
         {
@@ -665,6 +686,106 @@ public partial class Image
                 weightAccum[y, x] += weight;
             }
         }
+    }
+
+    // AccumulateTranslatedInto by Lanczos-3. A translation samples every output pixel at the same fractional phase, so the six
+    // weights an axis are taken once for the frame, and a pixel whose 36 taps all lie inside the source reads them by row with no
+    // bounds check; the taps, the NaN rule and the clamp are Lanczos3Value's, and the pixels near the edge go through it. The
+    // phase is dx's own fraction, where a sample at x + dx rounded it a little differently at every x (in the seventh digit).
+    // A planetary fold takes 36 taps a pixel where bilinear takes 4, and a live window folds every frame it shows
+    // (RollingFoldBenchmarks).
+    private void AccumulateTranslatedLanczos(float[][,] planes, float[][,] channelAccum, float[,] weightAccum, float dx, float dy, float weight,
+        float clampThreshold, WarpInterpolation interpolation)
+    {
+        var outH = weightAccum.GetLength(0);
+        var outW = weightAccum.GetLength(1);
+        var (width, height, channels) = (Width, Height, ChannelCount);
+        var (ix, iy) = ((int)MathF.Floor(dx), (int)MathF.Floor(dy));
+        Span<float> wx = stackalloc float[6];
+        Span<float> wy = stackalloc float[6];
+        Lanczos3Weights(dx - ix, wx);
+        Lanczos3Weights(dy - iy, wy);
+        Span<float> w2 = stackalloc float[36];
+        for (var j = 0; j < 6; j++)
+        {
+            for (var i = 0; i < 6; i++)
+            {
+                w2[(j * 6) + i] = wx[i] * wy[j];
+            }
+        }
+
+        // Output pixels whose taps (x + ix - 2 to x + ix + 3) all lie in the source.
+        var (xFrom, xTo) = (Math.Max(0, 2 - ix), Math.Min(outW - 1, width - 4 - ix));
+        var (yFrom, yTo) = (Math.Max(0, 2 - iy), Math.Min(outH - 1, height - 4 - iy));
+        Span<float> samples = stackalloc float[channels];
+        for (var y = 0; y < outH; y++)
+        {
+            var rowInside = y >= yFrom && y <= yTo;
+            for (var x = 0; x < outW; x++)
+            {
+                var ok = true;
+                for (var c = 0; c < channels; c++)
+                {
+                    var v = rowInside && x >= xFrom && x <= xTo
+                        ? Lanczos3Interior(MemoryMarshal.CreateReadOnlySpan(ref planes[c][0, 0], planes[c].Length), width, x + ix - 2, y + iy - 2, w2, clampThreshold)
+                        : AccumulateSample(planes[c], x + dx, y + dy, interpolation);
+                    if (float.IsNaN(v))
+                    {
+                        ok = false;
+                        break;
+                    }
+                    samples[c] = v;
+                }
+                if (!ok)
+                {
+                    continue;
+                }
+                for (var c = 0; c < channels; c++)
+                {
+                    channelAccum[c][y, x] += weight * samples[c];
+                }
+                weightAccum[y, x] += weight;
+            }
+        }
+    }
+
+    // Lanczos3Value's sum over a 6 by 6 block whose corner (x0, y0) and every tap lie inside the plane, the weights given.
+    private static float Lanczos3Interior(ReadOnlySpan<float> flat, int width, int x0, int y0, ReadOnlySpan<float> w2, float clampThreshold)
+    {
+        var sp = 0f;
+        var wp = 0f;
+        var sn = 0f;
+        var wn = 0f;
+        var taps = 0;
+        var negative = false;
+        for (var j = 0; j < 6; j++)
+        {
+            var row = flat.Slice(((y0 + j) * width) + x0, 6);
+            var weights = w2.Slice(j * 6, 6);
+            for (var i = 0; i < 6; i++)
+            {
+                var w = weights[i];
+                var v = row[i];
+                if (w == 0f || float.IsNaN(v))
+                {
+                    continue;
+                }
+                var s = w * v;
+                taps++;
+                negative |= v < 0f;
+                if (s < 0f)
+                {
+                    sn -= s;
+                    wn -= w;
+                }
+                else
+                {
+                    sp += s;
+                    wp += w;
+                }
+            }
+        }
+        return Lanczos3Finish(sp, wp, sn, wn, taps, negative, clampThreshold);
     }
 
     /// <summary>

@@ -299,6 +299,51 @@ public class WarpInterpolationTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// The clamp is PixInsight's rule for non-negative data. On a sky at zero with its noise (a dark-subtracted frame, a
+    /// planetary fixture without an offset) a negative tap put a positive lobe's weight into the negative part, the clamped
+    /// denominator came near zero, and a stack's reference read up to 1e17. A sample with a negative tap is the plain kernel; one
+    /// without is clamped as before.
+    /// </summary>
+    [Fact]
+    public void AClampedSampleWithANegativeTapIsThePlainKernel()
+    {
+        const int size = 16;
+        var random = new Random(3);
+        var plane = new float[size, size];
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                plane[y, x] = (x == 8 && y == 8 ? 50f : 0f) + (float)((random.NextDouble() - 0.5) * 2.5);
+            }
+        }
+
+        var worst = 0.0;
+        for (var i = 0; i < 400; i++)
+        {
+            var (x, y) = (3 + (random.NextDouble() * 9), 3 + (random.NextDouble() * 9));
+            var clamped = Image.Lanczos3Value(plane, (float)x, (float)y, Image.LanczosClampingThreshold);
+            var plain = Image.Lanczos3Value(plane, (float)x, (float)y);
+            float.IsFinite(clamped).ShouldBeTrue();
+            worst = Math.Max(worst, Math.Abs(clamped - plain));
+        }
+        worst.ShouldBe(0, $"a sample with a negative tap differs from the plain kernel by {worst}");
+
+        // On non-negative data the clamp still acts: the same spike over a sky lifted just clear of zero, sampled where the
+        // spike sits in a negative lobe.
+        var lifted = new float[size, size];
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                lifted[y, x] = plane[y, x] + 2f;
+            }
+        }
+        var (cx, cy) = (6.5f, 8f);
+        Image.Lanczos3Value(lifted, cx, cy, Image.LanczosClampingThreshold).ShouldNotBe(Image.Lanczos3Value(lifted, cx, cy));
+    }
+
+    /// <summary>
     /// Clamped Lanczos-3 is the default since 7.1 (decided 2026-09-12 on R1's reading and the clamp
     /// sweep), and a default is a behaviour rather than a declaration: the overload that names no
     /// kernel must warp exactly as the clamped one does, and the dataset bake must hand the registrar
