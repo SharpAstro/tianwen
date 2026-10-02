@@ -130,7 +130,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                     }
                     try
                     {
-                        var what = result.Derived ? $"derived{(nonNegative ? " non-negative" : "")}, {Describe(fix)}" : "PlanetaryDefault, the limb kept as stacked";
+                        var what = result.Derived ? $"derived{(nonNegative ? " non-negative" : "")}, {PlanetaryBestStack.Describe(fix)}" : "PlanetaryDefault, the limb kept as stacked";
                         consoleHost.WriteScrollable(string.Create(inv,
                             $"[planetary] {what}: gains {string.Join(", ", result.Gains.Select(g => g.ToString("0.00", inv)))}; the limb's edge at 0.1 and 0.3 cycles a pixel {result.EdgeAtTenth:0.000}, {result.EdgeAtThreeTenths:0.000}"));
                         if (truthPath is not null)
@@ -169,13 +169,4 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         // A colour master's truths are its colours'; the red one carries the time.
         static string colourTruth(string truthPath, Image master) => master.ChannelCount == 3 ? Path.ChangeExtension(truthPath, ".r.fits") : truthPath;
     }
-
-    internal static string Describe(PlanetaryLimbFix fix) => fix switch
-    {
-        PlanetaryLimbFix.LimbChannel => "the limb as its own channel",
-        PlanetaryLimbFix.Floored => "floored at the sky",
-        PlanetaryLimbFix.Feathered => "feathered at the limb",
-        PlanetaryLimbFix.Bounded => "bounded by the stack outside the limb",
-        _ => "plain",
-    };
 }

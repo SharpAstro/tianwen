@@ -46,9 +46,6 @@ internal sealed class PlanetaryStackSubCommand(
         Whitened,
     }
 
-    // How far the planet's turn must move the disk's middle, px, before the stack carries every frame to one epoch unasked.
-    private const double TurnWorthDerotatingPx = 1;
-
     // A stack left unsharpened keeps the best tenth: R4's raw optimum, 5 to 10 % of 3,000 frames, where each frame added blurs it.
     private const double UnsharpenedKeep = 0.1;
 
@@ -339,12 +336,8 @@ internal sealed class PlanetaryStackSubCommand(
                     : null,
                 // Asked for, every run is de-rotated; otherwise a run of a planet with a rotation model is, once its turn moves the
                 // disk's middle a pixel (the stacker measures it), and never under --legacy or --no-derotate.
-                Derotation = planet is { } turning && PhysicalEphemeris.Supports(turning) && (derotate || !(legacy || parseResult.GetValue(noDerotateOpt)))
-                    ? new PlanetaryDerotationOptions(turning)
-                    {
-                        TurnNorthOver = parseResult.GetValue(turnNorthOverOpt),
-                        MinimumTurnPx = derotate ? 0 : TurnWorthDerotatingPx,
-                    }
+                Derotation = (derotate || !(legacy || parseResult.GetValue(noDerotateOpt))) && PlanetaryBestStack.DerotationFor(planet, always: derotate) is { } rotation
+                    ? rotation with { TurnNorthOver = parseResult.GetValue(turnNorthOverOpt) }
                     : null,
                 // The raw integrated master stays linear/unsharpened (downstream-friendly); the sharpen
                 // pass is applied separately below so we can emit both the raw and sharpened masters.
@@ -382,7 +375,7 @@ internal sealed class PlanetaryStackSubCommand(
             {
                 consoleHost.WriteScrollable(double.IsNaN(turn)
                     ? "[planetary] stacked as taken: the frames carry no times to de-rotate by"
-                    : string.Create(CultureInfo.InvariantCulture, $"[planetary] stacked as taken: the planet's turn moves its disk's middle {turn:0.00} px over the run, under the {TurnWorthDerotatingPx:0.#} px a de-rotation is worth"));
+                    : string.Create(CultureInfo.InvariantCulture, $"[planetary] stacked as taken: the planet's turn moves its disk's middle {turn:0.00} px over the run, under the {PlanetaryBestStack.TurnWorthDerotatingPx:0.#} px a de-rotation is worth"));
             }
             if (result.Epoch is { } epoch && result.North is { } north)
             {
@@ -404,16 +397,13 @@ internal sealed class PlanetaryStackSubCommand(
             if (sharpen)
             {
                 var (sharpened, how) = Sharpened(master, sharpenOptions, planet, result.Epoch, wavelengthText, telescope, parseResult.GetValue(fixOpt));
-                if (sharpened is not null)
+                display = sharpened;
+                var sharpenedFits = Path.Combine(outputDir, $"{prefix}master_{baseName}_sharpened.fits");
+                display.WriteToFitsFile(sharpenedFits);
+                consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(sharpenedFits)} ({how})");
+                if (truthPath is not null)
                 {
-                    display = sharpened;
-                    var sharpenedFits = Path.Combine(outputDir, $"{prefix}master_{baseName}_sharpened.fits");
-                    display.WriteToFitsFile(sharpenedFits);
-                    consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(sharpenedFits)} ({how})");
-                    if (truthPath is not null)
-                    {
-                        PlanetaryMasterScore.AgainstTruth(consoleHost, display, truthPath, planet ?? CatalogIndex.Jupiter, "the sharpened master");
-                    }
+                    PlanetaryMasterScore.AgainstTruth(consoleHost, display, truthPath, planet ?? CatalogIndex.Jupiter, "the sharpened master");
                 }
             }
 
@@ -452,40 +442,18 @@ internal sealed class PlanetaryStackSubCommand(
         _ => estimator.GetType().Name,
     };
 
-    // The master sharpened: by a fixed profile when one was asked for (a preset, gains, or --legacy), else derived (PlanetarySharpening:
-    // the gains through the limb's edge given the telescope, PlanetaryDefault with the limb kept as stacked without it). A capture whose
-    // planet is not known, or whose limb cannot be fitted, takes PlanetaryDefault as every master before. Null when nothing was made.
-    private (Image? Sharpened, string How) Sharpened(Image master, WaveletSharpenOptions? fixedProfile, CatalogIndex? planet, DateTimeOffset? epoch,
+    // The master sharpened: by a fixed profile when one was asked for (a preset, gains, or --legacy), else as the pipeline sharpens it
+    // (PlanetaryBestStack.Sharpen, the one routine the GUI's best stack runs too).
+    private (Image Sharpened, string How) Sharpened(Image master, WaveletSharpenOptions? fixedProfile, CatalogIndex? planet, DateTimeOffset? epoch,
         string? wavelengthText, Pupil? telescope, PlanetaryLimbFix? fix)
     {
         if (fixedProfile is { } profile)
         {
             return (WaveletSharpen.Sharpen(master, profile), $"wavelet-sharpened, {profile.ScaleCount} scales");
         }
-        var meta = master.ImageMeta;
-        DateTimeOffset? when = epoch ?? (meta.ExposureStartTime.Year > 1 ? meta.ExposureStartTime + (meta.ExposureDuration / 2) : null);
-        if (planet is not { } body || !PhysicalEphemeris.Supports(body) || when is not { } instant)
-        {
-            consoleHost.WriteScrollable("[planetary] the sharpening is derived only for a named Jupiter or Saturn with frame times (--planet): PlanetaryDefault instead");
-            return (WaveletSharpen.Sharpen(master, WaveletSharpenOptions.PlanetaryDefault), "wavelet-sharpened, PlanetaryDefault");
-        }
-        double[] wavelengths = wavelengthText is null && master.ChannelCount == 3
-            ? [610, 530, 460]
-            : PlanetaryMasterScore.Wavelengths(consoleHost, wavelengthText) ?? [550];
-        var options = new PlanetarySharpenOptions(body, instant, telescope) { WavelengthsNm = [.. wavelengths] };
-        if (fix is { } chosen)
-        {
-            options = options with { Fix = chosen };
-        }
-        if (PlanetarySharpening.Sharpen(master, options) is not { } result)
-        {
-            consoleHost.WriteScrollable("[planetary] the planet's limb could not be fitted, so the sharpening cannot be derived: PlanetaryDefault instead");
-            return (WaveletSharpen.Sharpen(master, WaveletSharpenOptions.PlanetaryDefault), "wavelet-sharpened, PlanetaryDefault");
-        }
-        var inv = CultureInfo.InvariantCulture;
-        return (result.Sharpened, result.Derived
-            ? string.Create(inv, $"gains {string.Join(", ", result.Gains.Select(g => g.ToString("0.00", inv)))} derived through the limb's edge, {PlanetarySharpenSubCommand.Describe(result.Fix)}")
-            : "PlanetaryDefault with the limb kept as stacked; give --aperture-mm or --telescope for the derived sharpening");
+        System.Collections.Immutable.ImmutableArray<double> wavelengths = wavelengthText is null ? []
+            : [.. PlanetaryMasterScore.Wavelengths(consoleHost, wavelengthText) ?? [550]];
+        return PlanetaryBestStack.Sharpen(master, planet, epoch, telescope, wavelengths, fix);
     }
 
     // The AP matcher FFTs each patch, so the patch edge must be a power of two; round up rather than throw.
