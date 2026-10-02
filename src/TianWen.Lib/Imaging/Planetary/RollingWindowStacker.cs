@@ -50,6 +50,17 @@ public sealed record RollingWindowOptions
     /// <see cref="PlanetaryStackOptions.Interpolation"/>). An eviction folds by the same kernel, so it cancels exactly.
     /// </summary>
     public WarpInterpolation Interpolation { get; init; } = WarpInterpolation.Bilinear;
+
+    /// <summary>
+    /// The rolling stack's recipe before the enhanced pipeline (#1159): the Laplacian, phase correlation, bilinear. What
+    /// <c>planetary-live</c> measures every other recipe against.
+    /// </summary>
+    public static RollingWindowOptions Legacy { get; } = new RollingWindowOptions
+    {
+        QualityEstimator = new LaplacianEnergyEstimator(),
+        WhitenedCorrelation = true,
+        Interpolation = WarpInterpolation.Bilinear,
+    };
 }
 
 /// <summary>
@@ -119,6 +130,7 @@ public sealed class RollingWindowStacker
     private int _refIndex = -1;
     private int _windowStart = -1;
     private int _windowEnd = -2;  // < _windowStart so "first call" is always a rebuild
+    private int _rebuilds;
     private int _channels;
     private int _planeW;
     private int _planeH;
@@ -144,6 +156,9 @@ public sealed class RollingWindowStacker
 
     /// <summary>Number of frames currently held in the window (folded or graded-zero).</summary>
     public int WindowFrameCount => _window.Count;
+
+    /// <summary>How many times the window has been folded again from its frames: the first stack, a jump, the reference ageing out, or a ring that dropped a frame the sum still held.</summary>
+    public int Rebuilds => _rebuilds;
 
     /// <summary>How many frames have a cached score, for the test that holds it bounded.</summary>
     internal int ScoreCacheCount => _scoreCache.Count;
@@ -274,6 +289,7 @@ public sealed class RollingWindowStacker
 
     private async Task RebuildAsync(int windowStart, int f, CancellationToken cancellationToken)
     {
+        _rebuilds++;
         // 1. Pick the reference = the best-graded frame in [windowStart, f] (the integrator's output grid;
         //    every frame aligns to it). Grading is cached, so a rebuild over already-seen frames is cheap.
         var bestIndex = -1;

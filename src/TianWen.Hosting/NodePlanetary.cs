@@ -177,9 +177,6 @@ internal sealed class NodePlanetaryRun : INodeRun
     /// </summary>
     internal static readonly TimeSpan LiveFrameInterval = TimeSpan.FromMilliseconds(33);
 
-    /// <summary>How long the stack waits after one master before it stacks the next.</summary>
-    internal static readonly TimeSpan StackInterval = TimeSpan.FromMilliseconds(250);
-
     private readonly NodeFrames _frames;
     private readonly ITimeProvider _timeProvider;
     private readonly ILogger _logger;
@@ -337,58 +334,18 @@ internal sealed class NodePlanetaryRun : INodeRun
     }
 
     // Stacks the window ending at the newest frame, again and again, until the run is stopped or the capture ends by
-    // itself; each master becomes the planetary master.
-    private async Task StackAsync(CancellationToken cancellationToken)
+    // itself; each master becomes the planetary master. The loop is Lib's, one with the probe that measures it.
+    private Task StackAsync(CancellationToken cancellationToken)
     {
-        RollingWindowStacker? stacker = null;
-        LiveCameraFrameStream? stacking = null;
-        var built = -1;
-        while (Capture.IsCapturing)
-        {
-            try
+        return LiveStackLoop.RunAsync(() => Capture.IsCapturing, () => Capture.Stream, _stackOptions, _timeProvider,
+            (master, stacker, _) =>
             {
-                await _timeProvider.SleepAsync(StackInterval, cancellationToken);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                return;
-            }
-
-            if (Capture.Stream is not { } stream)
-            {
-                continue;
-            }
-            if (stacker is null || !ReferenceEquals(stream, stacking))
-            {
-                // The first frame, or a new window size, which rebuilt the stream: the stack starts again at its framing.
-                stacker = new RollingWindowStacker(stream, _stackOptions);
-                stacking = stream;
-                built = -1;
-            }
-            var latest = stream.LatestIndex;
-            if (latest <= built)
-            {
-                continue;
-            }
-
-            try
-            {
-                var master = await stacker.StackToAsync(latest, cancellationToken);
-                built = latest;
                 Volatile.Write(ref _stackedFrames, stacker.WindowFrameCount);
                 Interlocked.Increment(ref _masters);
                 _frames.Publish(FrameSources.PlanetaryMaster, master);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                return;
-            }
-            catch (Exception ex)
-            {
-                // Dropped, and the next stack starts clean, as the GUI's does: the capture goes on.
-                _logger.LogWarning(ex, "A planetary stack failed; the next one starts again");
-                stacker = null;
-            }
-        }
+            },
+            // Dropped, and the next stack starts clean, as the GUI's does: the capture goes on.
+            ex => _logger.LogWarning(ex, "A planetary stack failed; the next one starts again"),
+            cancellationToken);
     }
 }
