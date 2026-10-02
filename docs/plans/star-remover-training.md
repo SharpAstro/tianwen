@@ -391,6 +391,73 @@ Tracked by #902 with the rest of P4.0; none of it is a hole.
 - **eta Carinae's inpaint fraction** (above), and the faint stars of its Milky Way field still under the confusion
   the finder's deeper noise reaches.
 
+### R1: the injector
+
+Designed 2026-10-03, before any code, from R0's plates and the exporter as it stands
+(`DatasetDegradationExporter`, `TianWen.AI.Imaging`: P0's 256 px cells, the clean tile in slot 0 and `deg###`
+draws beside it, a `degradations.jsonl` row per draw, noise through `LinearDegradation`).
+
+**A third mode, `DegradationMode.Stars`, of the same exporter**, so it inherits the cells, the bright-cell list,
+the per-channel noise anchor (`master-calibration`), the noise field's shape, the resume and the P0-shaped
+manifest. What differs:
+
+1. **The clean tile is the STARLESS PLATE**, read from a `starless-plates` store (`--plates <dir>`, the plate of
+   `session-masters/<id>.fits` at `plates/<id>_plate.fits`, its catalogue beside it). The plates of the whole
+   pool are built once into the bake's own `starless/` folder; a session with no plate is skipped and counted.
+2. **Each draw is the plate plus injected stars plus their own noise, and nothing else**: no extra noise level,
+   no blur. Both are stretched with the TARGET's parameters (the plate's, measured once per session, H6) over the
+   MASTER's unit divisor, so an injected saturated star cannot leave [0, 1].
+3. **How many**: a cell gets as many stars as R0 subtracted in it, so the synthetic field is exactly as crowded
+   as the real one there (and a crowded master's cells are crowded), plus, in a quarter of draws, one saturated
+   star (the bright tail on purpose: 0.1 to 0.2 percent of detections would show the net almost none). Stars are
+   placed over the cell and an 8 px margin, so a tile's edge cuts stars as a real tile's does.
+4. **Where** (`--placement`): `random` (default) puts each at a uniformly random present pixel at least 3 FWHM
+   from every site R0 subtracted, drawn again up to 200 times and otherwise dropped and counted; `at-site` puts
+   them on R0's subtracted sites, jittered under half a pixel: H3's control, run once.
+5. **How bright**: a real star of the same master is drawn at random from R0's unsaturated subtracted stars and
+   its per-channel amplitudes taken whole, so the flux distribution and the colours are the field's own. A
+   saturated star takes its clip levels and its wing amplitude over its clip from one of the master's own
+   saturated stars (per channel: the core's level in the master; R0's wing amplitude over it); a master with none
+   clips at 95 percent of each channel's brightest pixel, and says so.
+6. **What shape** (`--profile`): `moffat` (default) at each channel's FWHM and beta from the master's own
+   `MasterProfiles` (the PSF store), or `gaussian` at the same FWHM, H2's arm. Elongation and position angle are
+   measured where the star lands: windowed second moments of the up to eight brightest isolated unsaturated stars
+   of R0's stars plate within 384 px. Every profile is integrated over the pixel (Gauss-Legendre, as R0's).
+7. **How a stack saturates**: as the masters showed (plateaus of 1 to 4 px at the median, edges 0.5 to 1 px from
+   90 to 50 percent, a clip level that varies from star to star and, on 18 to 24 stars of some masters, one
+   channel clipping first), a saturated star is rendered as a stack of eight virtual subs, each with its own
+   amplitude (5 percent scatter), width (5 percent) and sub-pixel offset (0.25 px), each clipped where the plate
+   plus the star passes its channel's level, and averaged. Its noise is scaled by the fraction of subs that did
+   not clip, so a plateau is quiet as a real one is.
+8. **Its noise**: the extra shot noise of the star at the master's depth, sqrt(sigma(plate + star)^2 -
+   sigma(plate)^2) through each channel's anchor, on a field of the master's shape (the session's warped noise
+   field); the plate already carries the sky's. The sigma plane beside each draw is the noise-free plate plus
+   stars at that depth.
+9. **The record**: every injected star goes into `injections.jsonl`, one row per draw (tile, cell, draw,
+   placement, profile, the shortfall, and per star: x and y in the cell, the amplitude, FWHM and beta per channel,
+   axis ratio, position angle, whether it is saturated and its clip levels), because eval is against exactly that
+   list. `degradations.jsonl` gains the mode, the counts and the placement.
+
+The load-bearing parts live in `TianWen.Lib.Imaging.StarRemoval` (the population drawn from a plate's catalogue,
+the elliptical pixel-integrated profiles, the stacked saturation, the renderer) with tests there; the exporter only
+cuts, calls and writes. R0's catalogue gains what the injector needs: each star's per-channel amplitudes and the
+model it was subtracted with (Moffat, profile or pair), since only a Moffat-fitted saturated star has a wing
+amplitude.
+
+**Predicted before the run**, over the ten R0 masters' cells (the checks a test or a report makes):
+
+- **Shape**: injected unsaturated stars of SNR 30 to 1000, fitted back on the draw minus the plate, give each
+  channel's drawn FWHM within 5 percent and beta within 15 percent at the median (Gaussian arm: a Moffat fit's beta
+  over 6).
+- **Noise**: the injected noise's band-1 over band-0 ratio (as `--measure-shape` reads it) within 0.03 of the
+  master's own half-pair ratio.
+- **Saturation**: injected saturated stars' plateau sizes and 90-to-50 percent edges read like the master's real
+  ones (the medians within a factor of 1.5), and no pixel passes its clip level.
+- **Placement**: the random arm places at least 95 percent of what it is asked to on every master but eta Carinae
+  and the 24 mm Carina field, whose crowding leaves too little room 3 FWHM from every subtracted site; no random
+  star is nearer than 3 FWHM to one.
+- **Determinism**: the same seed gives the same bytes, and the Noise and Blur modes' exports are unchanged.
+
 ## 7. Phasing
 
 Tracked by #902.
