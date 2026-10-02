@@ -2091,6 +2091,26 @@ Laplacian) were fixed in code; and no product path used R8's derived gains or th
   - **The cost:** 82 to 119 s for the pipeline's unsharpened stack and 215 to 312 s at half the frames, against legacy's 45 to 78 s
     (the reference of 1,000 and Lanczos-3 a frame, all linear in the frames).
 
+### The sharpening's ring outside the limb (#1168)
+
+Set down 2026-10-02, before any of it was measured. Every limb fix the derived sharpening offers rings outside the limb, above the
+sky: a bright rim, a trough the floor holds at the sky, a fainter second ring outside it, round, on 2022-09-03 Red and on the
+calibrated twin alike (so the sharpening's own, not the 2022 shell). Neither metric the fix was chosen by reads there.
+
+- **The readings.** On a twin, against its truth: `PlanetaryMetrics.LimbProfileError` (R3's, the azimuthal profile's RMS difference
+  from the truth's over 0.8 to 1.2 radii: it sees the ring, the trough and a soft limb alike), beside the band error inside 0.9 radii.
+  Without a truth: **the limb's rebound** (`PlanetaryMetrics.LimbRebound`), the most the azimuthal profile climbs back above its own
+  running minimum going out from 1.0 to 1.3 radii. A planet's true profile only falls outside its limb (the glow of the diffraction
+  and the blur), and so does a stack's, so a rise there is a ring; it reads 0 on a profile that never climbs.
+- **The candidates**: the four fixes as they stand (plain, floored, the limb as its own channel, feathered) and one new one,
+  **bounded**: floored at the sky, and outside the limb fit's outline (beyond 1.0 radii) never brighter than the stack it sharpened,
+  since a sharpening only moves light inward there.
+- **The rule.** The default becomes the candidate with the least `LimbProfileError` summed over the three twins, among those whose
+  band error summed over the three stays within 2 % of floored's (1.776, so at most 1.812) and whose limb undershoot on 2022-09-03
+  Red stays at most 0.02; floored stays if none beats it.
+- **The rebound is used on a real capture only if it ranks the candidates as `LimbProfileError` does**, on each twin (Spearman at
+  least 0.8, R3's rule); otherwise it is reported and not used.
+
 ## R9 A learned stage, only if the measurements say so
 
 **Issue:** #1056 (conditional).
