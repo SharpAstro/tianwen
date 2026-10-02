@@ -97,7 +97,7 @@ public static class DatasetStarlessReport
                     starsOnly.Release();
                     SourceDetectionWriter.WriteMap(Path.Combine(platesDir, stem + "_plate.inpainted.fits.gz"), SourceDetectionWriter.MaskToImage(plate.Inpainted), "INPAINTED", wcs);
                     SourceDetectionWriter.WriteMap(Path.Combine(platesDir, stem + "_plate.subtracted.fits.gz"), SourceDetectionWriter.MaskToImage(plate.Subtracted), "SUBTRACTED", wcs);
-                    await WriteStarsAsync(Path.Combine(platesDir, stem + "_plate.stars.csv"), plate.Stars, cancellationToken);
+                    await StarlessCatalogue.WriteAsync(StarlessCatalogue.PathFor(platesDir, stem), plate.Stars, cancellationToken);
                 }
                 var (channels, width, height) = image.Shape;
                 var stars = plate.Stars;
@@ -160,18 +160,6 @@ public static class DatasetStarlessReport
             min = max = 0f;
         }
         return new Image(planes, BitDepth.Float32, max, min, 0f, input.ImageMeta);
-    }
-
-    // Every point source and what the fit made of it, for the review and for a miss to be looked up.
-    private static async Task WriteStarsAsync(string path, ImmutableArray<FittedStar> stars, CancellationToken ct)
-    {
-        var sb = new StringBuilder("x,y,significance,amplitude,width,sky,sigma,outcome,saturated,inpainted,core_residual,core_bias,second_pass,hole_depth\n");
-        foreach (var s in stars)
-        {
-            sb.Append(string.Create(CultureInfo.InvariantCulture,
-                $"{s.X:F2},{s.Y:F2},{s.Significance:F1},{s.Amplitude:G5},{s.WidthScale:F3},{s.Sky:G5},{s.LocalSigma:G4},{s.Outcome},{(s.Saturated ? 1 : 0)},{(s.Inpainted ? 1 : 0)},{s.CoreResidual:F3},{s.CoreBias:F3},{(s.SecondPass ? 1 : 0)},{s.HoleDepth:F2}\n"));
-        }
-        await File.WriteAllTextAsync(path, sb.ToString(), ct);
     }
 
     /// <summary>Reads the store, last record per master winning.</summary>

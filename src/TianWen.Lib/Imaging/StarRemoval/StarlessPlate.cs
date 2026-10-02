@@ -23,6 +23,23 @@ public enum StarFitOutcome
     Merged = 4,
 }
 
+/// <summary>The model a subtracted star was taken out with.</summary>
+public enum StarFitModel
+{
+    /// <summary>Nothing was subtracted.</summary>
+    None = 0,
+
+    /// <summary>The field's Moffat (with its residual table), fitted on the core or, saturated, on the wings: its amplitude
+    /// is the model's peak, past the clip for a saturated star.</summary>
+    Moffat = 1,
+
+    /// <summary>A giant's own symmetric profile: its amplitude is the profile's first ring, not an extrapolated peak.</summary>
+    Profile = 2,
+
+    /// <summary>A blend fitted as two field-width stars: the amplitude is the brighter's.</summary>
+    Pair = 3,
+}
+
 /// <summary>One point source and what the builder did with it. Coordinates follow <see cref="ImagedStar"/>: 0-based,
 /// pixel centres at integers.</summary>
 /// <param name="X">Fitted centre on the luminance.</param>
@@ -42,9 +59,13 @@ public enum StarFitOutcome
 /// <param name="HoleDepth">Where the star was, filled or not, over its core (a saturated star's whole plateau): the mean of
 /// plate minus the plate's own median in an annulus beyond the star, in sigma over root n. Below -3 is a hole, beyond the
 /// plate's own false-alarm rate (<see cref="StarlessPlateStatistics.HoleNullRate"/>); NaN where nothing was subtracted.</param>
+/// <param name="Model">What it was subtracted with.</param>
+/// <param name="ChannelAmplitudes">Each channel's model peak above its sky (one entry for a mono image); empty where
+/// nothing was subtracted. What the injector draws a star's brightness and colour from.</param>
 public readonly record struct FittedStar(
     float X, float Y, float Significance, float Amplitude, float WidthScale, float Sky, float LocalSigma,
-    StarFitOutcome Outcome, bool Saturated, bool Inpainted, float CoreResidual, float CoreBias, bool SecondPass, float HoleDepth);
+    StarFitOutcome Outcome, bool Saturated, bool Inpainted, float CoreResidual, float CoreBias, bool SecondPass, float HoleDepth,
+    StarFitModel Model = StarFitModel.None, ImmutableArray<float> ChannelAmplitudes = default);
 
 /// <summary>One significance band of the report. Bands are on the finder's first-pass significance.</summary>
 /// <param name="SigmaLow">Lower edge, inclusive.</param>

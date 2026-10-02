@@ -2581,10 +2581,17 @@ public static class ClassicalStarRemover
                         holeDepth = (float)ChannelHoleDepth(f, holeRadius);
                     }
                 }
+                var model = f.Outcome != StarFitOutcome.Subtracted ? StarFitModel.None
+                    : f.Profile is not null ? StarFitModel.Profile
+                    : f.CompanionAmplitudes is not null ? StarFitModel.Pair
+                    : StarFitModel.Moffat;
+                var amplitudes = model == StarFitModel.None
+                    ? ImmutableArray<float>.Empty
+                    : f.ChannelAmplitudes.Select(static a => (float)a).ToImmutableArray();
                 stars.Add(new FittedStar(
                     (float)f.X, (float)f.Y, s.Significance, (float)f.Amplitude, (float)FwhmRatio(f.Width, f.Beta), (float)f.Sky, sigma,
                     f.Outcome, f.Saturated, touched || (f.Outcome == StarFitOutcome.Subtracted && inside && inpainted[cy, cx]),
-                    residual, bias, k >= secondFrom, holeDepth));
+                    residual, bias, k >= secondFrom, holeDepth, model, amplitudes));
             }
             return stars.MoveToImmutable();
         }

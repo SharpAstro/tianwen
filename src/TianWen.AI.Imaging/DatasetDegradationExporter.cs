@@ -17,6 +17,7 @@ using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Dataset;
 using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Imaging.Degradation;
+using TianWen.Lib.Imaging.StarRemoval;
 using TianWen.Lib.Stat;
 
 namespace TianWen.AI.Imaging
@@ -60,7 +61,7 @@ namespace TianWen.AI.Imaging
     /// it. The degradation PARAMETERS live in their own store beside it rather than as extra columns,
     /// keeping one authority per fact.</para>
     /// </summary>
-    public static class DatasetDegradationExporter
+    public static partial class DatasetDegradationExporter
     {
         /// <summary>Per-tile degradation parameters, one row per degraded tile.</summary>
         public const string DegradationManifestFileName = "degradations.jsonl";
@@ -79,6 +80,10 @@ namespace TianWen.AI.Imaging
 
             /// <summary>Convolve with a drawn PSF, then add noise: the deconvolver's pairs (deconvolver-training.md E2).</summary>
             Blur = 1,
+
+            /// <summary>Inject stars into a starless plate: the star remover's pairs (star-remover-training.md R1). The clean
+            /// tile is the plate, each draw the plate plus injected stars and their own noise.</summary>
+            Stars = 2,
         }
 
         /// <summary>The spatial shape of the injected noise; the one thing the H2 arms differ in.</summary>
@@ -247,7 +252,12 @@ namespace TianWen.AI.Imaging
             double? WarpSigma = null,
             string? SigmaTile = null,
             double[]? OneSubSigmaPerChannel = null,
-            double[]? BackgroundPerChannel = null);
+            double[]? BackgroundPerChannel = null,
+            int? InjectedStars = null,
+            int? InjectedSaturated = null,
+            string? Placement = null,
+            string? Profile = null,
+            int? InjectionShortfall = null);
 
         /// <summary>The extension of a tile's conditioning-plane sidecar, beside the tile.</summary>
         public const string SigmaTileExtension = ".sigma.f16";
@@ -364,6 +374,14 @@ namespace TianWen.AI.Imaging
         /// every session. A bake mixes the two integrations and their noise has two shapes: a drizzled master's half
         /// pairs read band1/band0 0.31 to 0.33 in every channel, which bilinear alone (0) makes, and a demosaiced
         /// one's 0.45, which 0.5 makes (E16b, third amendment).</param>
+        /// <param name="PlatesRoot">Stars mode: a <c>tianwen dataset starless-plates</c> output, whose <c>plates/</c> holds each
+        /// session's starless plate and its catalogue.</param>
+        /// <param name="Placement">Stars mode: random positions away from the plate's subtracted sites, or on them (H3).</param>
+        /// <param name="Profile">Stars mode: the injected stars' radial family (H2).</param>
+        /// <param name="SaturatedFraction">Stars mode: the chance that a draw gains one saturated star beyond the cell's own
+        /// count, the bright tail sampled on purpose.</param>
+        /// <param name="PsfStorePath">Stars mode: the PSF store each session's per-channel FWHM and beta come from; null for
+        /// the bake's own <c>stats/psf-sessions.jsonl</c>.</param>
         public sealed record Options(
             string BakeRoot,
             string OutDir,
@@ -391,7 +409,12 @@ namespace TianWen.AI.Imaging
             NoiseAnchorKind NoiseAnchor = NoiseAnchorKind.SubMad,
             string? ExtraCellsPath = null,
             bool ListedCellsOnly = false,
-            double? DrizzleWarpResampleSigma = null);
+            double? DrizzleWarpResampleSigma = null,
+            string? PlatesRoot = null,
+            InjectionPlacement Placement = InjectionPlacement.Random,
+            StarProfileFamily Profile = StarProfileFamily.Moffat,
+            double SaturatedFraction = 0.25,
+            string? PsfStorePath = null);
 
         /// <summary>What one session's export produced. <paramref name="Estimator"/> is the estimator step's
         /// own cost, null unless <see cref="Options.EstimateKernels"/>.</summary>
@@ -465,6 +488,7 @@ namespace TianWen.AI.Imaging
             var outTileManifest = Path.Combine(options.OutDir, DatasetTileExporter.ManifestFileName);
             var outDegManifest = Path.Combine(options.OutDir, DegradationManifestFileName);
 
+            var stars = options.Mode == DegradationMode.Stars ? await StarsContext.OpenAsync(options, logger, cancellationToken) : null;
             var cellsBySession = await ReadCellsAsync(bakeManifest, cancellationToken);
             var alreadyDone = options.Force ? [] : await ReadExportedSessionsAsync(outDegManifest, cancellationToken);
             var extraCells = options.ExtraCellsPath is { } extraPath
@@ -502,6 +526,12 @@ namespace TianWen.AI.Imaging
                     skipped++;
                     continue;
                 }
+                if (stars is not null && !stars.HasPlate(sessionId))
+                {
+                    logger?.LogWarning("[degrade] {Index}/{Total} {Session}: no starless plate, skipped", index, sessions.Count, sessionId);
+                    skipped++;
+                    continue;
+                }
                 if (options.ListedCellsOnly && extraCells.GetValueOrDefault(sessionId) is not { Count: > 0 })
                 {
                     logger?.LogInformation("[degrade] {Index}/{Total} {Session}: no listed cell, skipped (listed cells only)", index, sessions.Count, sessionId);
@@ -511,7 +541,9 @@ namespace TianWen.AI.Imaging
 
                 try
                 {
-                    var result = await ExportSessionAsync(options, sessionId, cellsBySession[sessionId], extraCells.GetValueOrDefault(sessionId), outTileManifest, outDegManifest, logger, cancellationToken);
+                    var result = stars is not null
+                        ? await ExportStarsSessionAsync(options, stars, sessionId, cellsBySession[sessionId], extraCells.GetValueOrDefault(sessionId), outTileManifest, outDegManifest, logger, cancellationToken)
+                        : await ExportSessionAsync(options, sessionId, cellsBySession[sessionId], extraCells.GetValueOrDefault(sessionId), outTileManifest, outDegManifest, logger, cancellationToken);
                     results.Add(result);
                     worstParity = Math.Max(worstParity, result.ParityMaxAbsDiff);
                     logger?.LogInformation(
@@ -555,32 +587,7 @@ namespace TianWen.AI.Imaging
                 throw new IOException($"retained master for {sessionId} could not be read");
             }
 
-            // Subsetting is a seeded SAMPLE, not a prefix. The P0 cells arrive sorted row-major, so
-            // taking the first N would take the top of the canvas: a training set drawn only from the
-            // top of every frame, with the field-radius covariate the deconvolver's H7 needs collapsed
-            // onto one edge. Seeded on the session id so a re-run picks the same cells, and re-sorted
-            // afterwards so the manifest order stays canonical.
-            var selected = options.ListedCellsOnly ? [] : SampleCells(cells, options.CellsPerSession, options.Seed, sessionId, static c => (c.X, c.Y));
-
-            // Listed cells join AFTER the sample is drawn, so the sample, and every draw's seed (a function of the
-            // cell alone), is the one an export without the list makes.
-            if (extraCells is { Count: > 0 })
-            {
-                var byPosition = cells.ToDictionary(static c => (c.X, c.Y));
-                var have = selected.Select(static c => (c.X, c.Y)).ToHashSet();
-                foreach (var position in extraCells)
-                {
-                    if (!byPosition.TryGetValue(position, out var extra))
-                    {
-                        throw new InvalidOperationException($"{sessionId}: listed cell x{position.X} y{position.Y} is not a cell of the bake");
-                    }
-                    if (have.Add(position))
-                    {
-                        selected.Add(extra);
-                    }
-                }
-                selected.Sort(static (a, b) => a.Y != b.Y ? a.Y.CompareTo(b.Y) : a.X.CompareTo(b.X));
-            }
+            var selected = SelectCells(options, sessionId, cells, extraCells);
 
             var slug = DatasetTileExporter.Sanitize(sessionId);
             var tilesDir = Path.Combine(options.OutDir, "tiles", slug);
@@ -723,6 +730,41 @@ namespace TianWen.AI.Imaging
                 }
                 master.Release();
             }
+        }
+
+        /// <summary>
+        /// The cells a session exports: its seeded sample and then its listed cells, in canonical row-major order. One rule
+        /// for every mode.
+        /// </summary>
+        private static List<CellSpec> SelectCells(Options options, string sessionId, IReadOnlyList<CellSpec> cells, HashSet<(int X, int Y)>? extraCells)
+        {
+            // Subsetting is a seeded SAMPLE, not a prefix. The P0 cells arrive sorted row-major, so
+            // taking the first N would take the top of the canvas: a training set drawn only from the
+            // top of every frame, with the field-radius covariate the deconvolver's H7 needs collapsed
+            // onto one edge. Seeded on the session id so a re-run picks the same cells, and re-sorted
+            // afterwards so the manifest order stays canonical.
+            var selected = options.ListedCellsOnly ? [] : SampleCells(cells, options.CellsPerSession, options.Seed, sessionId, static c => (c.X, c.Y));
+
+            // Listed cells join AFTER the sample is drawn, so the sample, and every draw's seed (a function of the
+            // cell alone), is the one an export without the list makes.
+            if (extraCells is { Count: > 0 })
+            {
+                var byPosition = cells.ToDictionary(static c => (c.X, c.Y));
+                var have = selected.Select(static c => (c.X, c.Y)).ToHashSet();
+                foreach (var position in extraCells)
+                {
+                    if (!byPosition.TryGetValue(position, out var extra))
+                    {
+                        throw new InvalidOperationException($"{sessionId}: listed cell x{position.X} y{position.Y} is not a cell of the bake");
+                    }
+                    if (have.Add(position))
+                    {
+                        selected.Add(extra);
+                    }
+                }
+                selected.Sort(static (a, b) => a.Y != b.Y ? a.Y.CompareTo(b.Y) : a.X.CompareTo(b.X));
+            }
+            return selected;
         }
 
         /// <summary>
@@ -2219,6 +2261,7 @@ namespace TianWen.AI.Imaging
 
     [JsonSourceGenerationOptions(WriteIndented = false, NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals)]
     [JsonSerializable(typeof(DatasetDegradationExporter.DegradationRow))]
+    [JsonSerializable(typeof(DatasetDegradationExporter.InjectionRow))]
     [JsonSerializable(typeof(DatasetTileExporter.TileManifestRow))]
     internal sealed partial class DatasetDegradationJsonContext : JsonSerializerContext
     {

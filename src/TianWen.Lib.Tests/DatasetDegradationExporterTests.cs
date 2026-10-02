@@ -9,8 +9,10 @@ using System.Threading.Tasks;
 using TianWen.AI.Imaging;
 using TianWen.AI.Imaging.Onnx;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Dataset;
 using TianWen.Lib.Imaging.Degradation;
 using TianWen.Lib.Imaging.Stacking;
+using TianWen.Lib.Imaging.StarRemoval;
 using Xunit;
 
 namespace TianWen.Lib.Tests
@@ -1239,12 +1241,238 @@ namespace TianWen.Lib.Tests
             }
         }
 
+        /// <summary>Every channel's FWHM in the Stars fixture's PSF store.</summary>
+        private const double PlateFwhm = 2.5;
+
+        /// <summary>
+        /// Beyond this distance from every injected star the Stars fixture's draw is untouched. From the render's own reach: a
+        /// 30,000 ADU saturated star, at 1.2 times its amplitude and width, falls under 0.02 of green's master noise by 29 px,
+        /// the brightest unsaturated star by 15. (While the render wrote the whole box around a star, its corners reached 41.)
+        /// </summary>
+        private const double UntouchedBeyondPx = 40.0;
+
+        /// <summary>
+        /// The Stars mode end to end (star-remover-training.md, R1): a starless plate and its catalogue beside the bake, the
+        /// master's per-channel PSF in the store. Each draw is the plate plus the stars <c>injections.jsonl</c> records and
+        /// nothing else: far from every injected star the draw is the clean tile to the bit, at every star it is brighter, a
+        /// random star keeps three FWHM from every subtracted site, and the same seed makes the same bytes.
+        /// </summary>
+        [Fact]
+        public async Task AStarsDrawIsThePlatePlusTheRecordedStarsAndNothingElse()
+        {
+            var bake = BuildBakeWithHalves();
+            var (platesRoot, sites) = await BuildPlatesStoreAsync(bake);
+            var options = new DatasetDegradationExporter.Options(bake, Path.Combine(_root, "stars"),
+                Mode: DatasetDegradationExporter.DegradationMode.Stars, Draws: 2, CellsPerSession: 0, Seed: 5,
+                NoiseAnchor: DatasetDegradationExporter.NoiseAnchorKind.MasterCalibration, PlatesRoot: platesRoot, SaturatedFraction: 1.0);
+            var result = await DatasetDegradationExporter.RunAsync(options, logger: null, TestContext.Current.CancellationToken);
+            result.Failed.ShouldBe(0);
+
+            var rows = ReadDegradationRows(options.OutDir);
+            var injections = ReadInjectionRows(options.OutDir);
+            rows.Length.ShouldBe(4, "two cells, two draws each");
+            injections.Length.ShouldBe(rows.Length);
+            var exclusion = InjectionPopulation.ExclusionFwhm * PlateFwhm;
+            foreach (var row in rows)
+            {
+                row.Mode.ShouldBe(nameof(DatasetDegradationExporter.DegradationMode.Stars));
+                row.NoiseAnchor.ShouldBe("master-calibration");
+                row.Placement.ShouldBe(nameof(InjectionPlacement.Random));
+                File.Exists(Path.Combine(options.OutDir, row.SigmaTile.ShouldNotBeNull())).ShouldBeTrue();
+                var injection = injections.Single(i => i.Tile == row.Tile);
+                injection.Stars.Length.ShouldBe(row.InjectedStars.ShouldNotBeNull());
+                injection.Placed.ShouldBe(injection.Requested, "an uncrowded frame has room for every star");
+                injection.Requested.ShouldBeGreaterThan(0);
+                row.InjectionShortfall.ShouldBe(0);
+                row.InjectedSaturated.ShouldBe(1);
+                injection.SaturatedFallback.ShouldBeFalse("the catalogue has a saturated star of its own");
+                injection.Stars.Single(static s => s.Saturated).ClipLevel.ShouldNotBeNull().Length.ShouldBe(3);
+
+                foreach (var star in injection.Stars)
+                {
+                    var fx = star.X + row.CellX;
+                    var fy = star.Y + row.CellY;
+                    sites.Min(s => Math.Sqrt(((s.X - fx) * (s.X - fx)) + ((s.Y - fy) * (s.Y - fy)))).ShouldBeGreaterThanOrEqualTo(exclusion);
+                    star.FwhmPx.ShouldAllBe(static f => f == PlateFwhm);
+                    star.AxisRatio.ShouldBe(1.0, "no catalogue star is bright enough to measure an elongation on, so every star is round");
+                }
+
+                var clean = ReadTileChannels(options.OutDir, CleanTileOf(row));
+                var drawn = ReadTileChannels(options.OutDir, row.Tile);
+                var untouched = 0;
+                var changedFar = 0;
+                for (var y = 0; y < TileSize; y++)
+                {
+                    for (var x = 0; x < TileSize; x++)
+                    {
+                        if (injection.Stars.Any(s => ((s.X - x) * (s.X - x)) + ((s.Y - y) * (s.Y - y)) < UntouchedBeyondPx * UntouchedBeyondPx))
+                        {
+                            continue;
+                        }
+                        untouched++;
+                        var i = (y * TileSize) + x;
+                        for (var c = 0; c < 3; c++)
+                        {
+                            if (drawn[c][i] != clean[c][i])
+                            {
+                                if (changedFar++ < 5)
+                                {
+                                    var nearest = injection.Stars.MinBy(s => ((s.X - x) * (s.X - x)) + ((s.Y - y) * (s.Y - y)))!;
+                                    var distance = Math.Sqrt(((nearest.X - x) * (nearest.X - x)) + ((nearest.Y - y) * (nearest.Y - y)));
+                                    output.WriteLine($"  changed x{x} y{y} c{c}: {clean[c][i]} -> {drawn[c][i]}, nearest star {distance:F1} px: " +
+                                        $"saturated {nearest.Saturated}, amplitude {string.Join("/", nearest.Amplitude.Select(static a => a.ToString("E3")))}, " +
+                                        $"clip {string.Join("/", (nearest.ClipLevel ?? []).Select(static a => a.ToString("E3")))}, row background {string.Join("/", row.BackgroundPerChannel!.Select(static a => a.ToString("E3")))}, " +
+                                        $"one sub {string.Join("/", row.OneSubSigmaPerChannel!.Select(static a => a.ToString("E3")))}, depth {row.MasterDepth:F3}");
+                                }
+                            }
+                        }
+                    }
+                }
+                var dimmer = 0;
+                var inside = injection.Stars.Where(static s => !s.Saturated && s.X >= 0 && s.Y >= 0 && s.X < TileSize - 0.5 && s.Y < TileSize - 0.5).ToArray();
+                foreach (var star in inside)
+                {
+                    var i = ((int)Math.Round(star.Y) * TileSize) + (int)Math.Round(star.X);
+                    if (Enumerable.Range(0, 3).Any(c => !(drawn[c][i] > clean[c][i])))
+                    {
+                        dimmer++;
+                    }
+                }
+                output.WriteLine($"{row.Tile}: {injection.Stars.Length} stars ({inside.Length} unsaturated inside the tile), {untouched} px far from all of them, {changedFar} of those changed, {dimmer} stars not brighter than the plate");
+                untouched.ShouldBeGreaterThan(TileSize * TileSize / 8, "the check must cover a real share of the tile");
+                changedFar.ShouldBe(0);
+                inside.Length.ShouldBeGreaterThan(0);
+                dimmer.ShouldBe(0);
+            }
+
+            // The same seed, the same bytes: every star and every tile.
+            var again = options with { OutDir = Path.Combine(_root, "stars-again") };
+            (await DatasetDegradationExporter.RunAsync(again, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            File.ReadAllText(Path.Combine(again.OutDir, DatasetDegradationExporter.InjectionManifestFileName))
+                .ShouldBe(File.ReadAllText(Path.Combine(options.OutDir, DatasetDegradationExporter.InjectionManifestFileName)));
+            foreach (var row in rows)
+            {
+                File.ReadAllBytes(Path.Combine(again.OutDir, row.Tile)).ShouldBe(File.ReadAllBytes(Path.Combine(options.OutDir, row.Tile)));
+            }
+        }
+
+        /// <summary>H3's control: at-site placement puts every star on a site the plate builder subtracted.</summary>
+        [Fact]
+        public async Task AnAtSiteStarsDrawPutsEveryStarOnASubtractedSite()
+        {
+            var bake = BuildBakeWithHalves();
+            var (platesRoot, sites) = await BuildPlatesStoreAsync(bake);
+            var options = new DatasetDegradationExporter.Options(bake, Path.Combine(_root, "stars-at-site"),
+                Mode: DatasetDegradationExporter.DegradationMode.Stars, Draws: 1, CellsPerSession: 0, Seed: 5,
+                NoiseAnchor: DatasetDegradationExporter.NoiseAnchorKind.MasterCalibration, PlatesRoot: platesRoot,
+                Placement: InjectionPlacement.AtSite, SaturatedFraction: 0.0);
+            (await DatasetDegradationExporter.RunAsync(options, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+
+            var rows = ReadDegradationRows(options.OutDir);
+            rows.ShouldAllBe(static r => r.Placement == nameof(InjectionPlacement.AtSite) && r.InjectedSaturated == 0);
+            foreach (var injection in ReadInjectionRows(options.OutDir))
+            {
+                injection.Stars.Length.ShouldBe(injection.Requested);
+                injection.Stars.Length.ShouldBeGreaterThan(0);
+                foreach (var star in injection.Stars)
+                {
+                    var fx = star.X + injection.CellX;
+                    var fy = star.Y + injection.CellY;
+                    sites.Min(s => Math.Sqrt(((s.X - fx) * (s.X - fx)) + ((s.Y - fy) * (s.Y - fy)))).ShouldBeLessThanOrEqualTo(0.36);
+                }
+            }
+        }
+
+        /// <summary>
+        /// A starless-plates store for the halves bake, as <c>tianwen dataset starless-plates</c> lays one out, and the
+        /// master's per-channel PSF in the bake's store. The plate is the fixture's sky without its stars; the catalogue
+        /// holds thirteen subtracted Moffat stars spread over the frame, one of them saturated on the master's brightest
+        /// pixel, each below the significance an elongation is measured at.
+        /// </summary>
+        private async Task<(string Root, (double X, double Y)[] Sites)> BuildPlatesStoreAsync(string bake)
+        {
+            var root = Path.Combine(_root, "plates-store");
+            var platesDir = Path.Combine(root, "plates");
+            Directory.CreateDirectory(platesDir);
+            var slug = DatasetTileExporter.Sanitize(SessionId);
+
+            var planes = new float[3][,];
+            for (var c = 0; c < 3; c++)
+            {
+                var p = new float[H, W];
+                for (var y = 0; y < H; y++)
+                {
+                    for (var x = 0; x < W; x++)
+                    {
+                        p[y, x] = 900f + (c * 120f) + (140f * x / (W - 1)) + (60f * y / (H - 1));
+                    }
+                }
+                planes[c] = p;
+            }
+            var plate = new Image(planes, BitDepth.Float32, 65535f, 0f, 0f, new ImageMeta { SensorType = SensorType.Color });
+            plate.WriteToFitsFile(Path.Combine(platesDir, slug + "_plate.fits"));
+            plate.Release();
+
+            RetainedMasterStore.TryRead(bake, SessionId, out var master, logger: null).ShouldBeTrue();
+            var red = master.GetChannelSpan(0);
+            var brightest = 0;
+            for (var i = 1; i < red.Length; i++)
+            {
+                if (red[i] > red[brightest])
+                {
+                    brightest = i;
+                }
+            }
+            master.Release();
+            var saturated = (X: (double)(brightest % W), Y: (double)(brightest / W));
+
+            var rng = new Random(21);
+            var sites = new System.Collections.Generic.List<(double X, double Y)> { saturated };
+            var stars = ImmutableArray.CreateBuilder<FittedStar>();
+            stars.Add(new FittedStar((float)saturated.X, (float)saturated.Y, 20f, 30000f, 1f, 1000f, 5f, StarFitOutcome.Subtracted, true, false,
+                float.NaN, float.NaN, false, float.NaN, StarFitModel.Moffat, [30000f, 30000f, 30000f]));
+            while (sites.Count < 13)
+            {
+                // Two decimals, as the catalogue stores a position.
+                var x = Math.Round(10 + (rng.NextDouble() * (W - 20)), 2);
+                var y = Math.Round(10 + (rng.NextDouble() * (H - 20)), 2);
+                if (sites.Any(s => ((s.X - x) * (s.X - x)) + ((s.Y - y) * (s.Y - y)) < 20.0 * 20.0))
+                {
+                    continue;
+                }
+                var amplitude = (float)(150 + (rng.NextDouble() * 1850));
+                sites.Add((x, y));
+                stars.Add(new FittedStar((float)x, (float)y, 20f, amplitude, 1f, 1000f, 5f, StarFitOutcome.Subtracted, false, false,
+                    float.NaN, float.NaN, false, float.NaN, StarFitModel.Moffat, [amplitude, 0.8f * amplitude, 0.6f * amplitude]));
+            }
+            await StarlessCatalogue.WriteAsync(StarlessCatalogue.PathFor(platesDir, slug), stars.ToImmutable(), TestContext.Current.CancellationToken);
+
+            var profile = new PsfProfileFit.Result(PlateFwhm, 3.0, 0.01, 0.02, 10);
+            Directory.CreateDirectory(Path.Combine(bake, "stats"));
+            await DatasetPsfStore.AppendAsync(Path.Combine(bake, "stats", DatasetPsfStore.FileName),
+                new DatasetPsfNoiseReport.SessionPsf(SessionId, "TestCam", [], [], [], 0.0, null, MasterProfiles: [profile, profile, profile]),
+                TestContext.Current.CancellationToken);
+            return (root, [.. sites]);
+        }
+
+        /// <summary>The manifests' own number handling: a value nothing measured (a Stars row's adjacent-difference sigma) is
+        /// written as NaN.</summary>
+        private static readonly JsonSerializerOptions ManifestJson = new JsonSerializerOptions
+        {
+            NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals,
+        };
+
+        private static ImmutableArray<DatasetDegradationExporter.InjectionRow> ReadInjectionRows(string outDir)
+            => [.. File.ReadAllLines(Path.Combine(outDir, DatasetDegradationExporter.InjectionManifestFileName))
+                .Where(static l => l.Length > 0)
+                .Select(static l => JsonSerializer.Deserialize<DatasetDegradationExporter.InjectionRow>(l, ManifestJson)!)];
+
         private static ImmutableArray<DatasetDegradationExporter.DegradationRow> ReadDegradationRows(string outDir)
         {
             var path = Path.Combine(outDir, DatasetDegradationExporter.DegradationManifestFileName);
             return [.. File.ReadAllLines(path)
                 .Where(static l => l.Length > 0)
-                .Select(static l => JsonSerializer.Deserialize<DatasetDegradationExporter.DegradationRow>(l)!)];
+                .Select(static l => JsonSerializer.Deserialize<DatasetDegradationExporter.DegradationRow>(l, ManifestJson)!)];
         }
 
         /// <summary>The clean tile that pairs with a degraded row. Derived from the ROW's cell, never
