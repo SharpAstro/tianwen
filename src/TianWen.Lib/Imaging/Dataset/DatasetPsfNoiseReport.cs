@@ -196,7 +196,9 @@ public static class DatasetPsfNoiseReport
     {
         /// <summary>
         /// Which calibration masters this session's frames were calibrated with, by the resolver's
-        /// own group slugs. Null for a record written before this was captured.
+        /// own group slugs. Null ONLY for a record written before this was captured; a session the bake
+        /// integrated with no master at all records an EMPTY provenance (<see cref="Imaging.Calibration.CalibrationProvenance.IsEmpty"/>),
+        /// so "none applied" is never read as "not recorded".
         /// </summary>
         /// <remarks>
         /// <para>An init property rather than another positional parameter: this record ships in the

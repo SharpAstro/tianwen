@@ -219,6 +219,40 @@ namespace TianWen.Lib.Tests
             File.Exists(result.ManifestPath).ShouldBeFalse();
         }
 
+        [Fact]
+        public async Task Run_ASessionBakedWithNoCalibrationMaster_RecordsThatNoneWasApplied()
+        {
+            // "Applied none" and "not recorded" are two answers. A record written before the store captured
+            // calibration is null; a session the bake integrated with no dark and no flat (the Seagull 2022-02-05
+            // HaOIII once its borrowed broadband flat was refused) records an EMPTY provenance, or every reader
+            // of the store, the gradient exporter's HasFlat among them, takes "none" for "unknown".
+            var ct = TestContext.Current.CancellationToken;
+            var root = Path.Combine(_dir, "archive");
+            var lightsDir = Path.Combine(root, "M42", "LIGHT");
+            Directory.CreateDirectory(lightsDir);
+            RgbBayerSyntheticFixture.WriteSyntheticLights(lightsDir);
+
+            var outDir = Path.Combine(_dir, "out");
+            var options = new DatasetBuildOptions
+            {
+                ArchiveRoots = [root],
+                OutputDir = outDir,
+                MinExposure = TimeSpan.FromSeconds(0.5),
+                MaxExposure = TimeSpan.FromMinutes(5),
+                MinSubsPerSession = 4,
+                TileSize = 64,
+                CellsPerSession = 20,
+                SubsPerCell = 3,
+            };
+
+            var result = await DatasetBuildRunner.RunAsync(options, logger: null, progress: null, cancellationToken: ct);
+
+            result.Registered.ShouldBe(1);
+            var record = (await DatasetPsfStore.ReadAsync(result.PsfStorePath, cancellationToken: ct)).Values.ShouldHaveSingleItem();
+            record.Calibration.ShouldNotBeNull("no master applied is a fact the store records, not a gap");
+            record.Calibration.IsEmpty.ShouldBeTrue();
+        }
+
         /// <summary>Full-file copies with shifted DATE-OBS; a second VALID session (unlike
         /// <see cref="WriteTruncatedCopies"/>, whose copies explode at register time), so the
         /// resume test has two completed sessions to checkpoint.</summary>
