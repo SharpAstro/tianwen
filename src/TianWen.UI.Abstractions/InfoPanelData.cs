@@ -169,6 +169,14 @@ public static class InfoPanelData
     /// <summary>A statistic the histogram may not have (a null median or MAD) shows as a dash.</summary>
     internal static string Compact(double? value) => value is { } v ? Compact(v) : "-";
 
+    /// <summary>
+    /// One sample as the readout prints it: the [0, 1] value the pipeline works in, then the count the source
+    /// recorded where it recorded one (<see cref="PixelInfo.FullScaleAdu"/>). It used to multiply every value
+    /// by 65535, so an 8-bit capture's 74 read as 19018 and looked like a 16-bit file.
+    /// </summary>
+    internal static string Sample(float value, float? fullScaleAdu)
+        => fullScaleAdu is { } scale ? $"{value:F4} ({value * scale:F0})" : $"{value:F4}";
+
     public static List<string> GetCursorLines(ViewerState state)
     {
         var lines = new List<string>();
@@ -191,16 +199,13 @@ public static class InfoPanelData
                     ChannelView.Channel2 => "Ch2",
                     _ => "Val"
                 };
-                lines.Add($"{label}: {v:F4} ({v * 65535.0:F0})");
+                lines.Add($"{label}: {Sample(v, info.FullScaleAdu)}");
             }
             else if (info.Values.Length >= 3)
             {
-                var r = info.Values[0];
-                var g = info.Values[1];
-                var b = info.Values[2];
-                lines.Add($"R: {r:F4} ({r * 65535.0:F0})");
-                lines.Add($"G: {g:F4} ({g * 65535.0:F0})");
-                lines.Add($"B: {b:F4} ({b * 65535.0:F0})");
+                lines.Add($"R: {Sample(info.Values[0], info.FullScaleAdu)}");
+                lines.Add($"G: {Sample(info.Values[1], info.FullScaleAdu)}");
+                lines.Add($"B: {Sample(info.Values[2], info.FullScaleAdu)}");
             }
             if (info.RA.HasValue && info.Dec.HasValue)
             {

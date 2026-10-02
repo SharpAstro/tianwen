@@ -416,7 +416,7 @@ public static class ViewerActions
             }
         }
 
-        return new PixelInfo(x, y, values, ra, dec);
+        return new PixelInfo(x, y, values, ra, dec) { FullScaleAdu = source.FullScaleAdu };
     }
 
     /// <summary>

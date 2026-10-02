@@ -125,6 +125,10 @@ public sealed class SerPreviewSource : IPreviewSource, ISequencePlaybackSource, 
     // The capture's header, as frame 0 carries it: every frame of a SER shares it but the timestamp.
     ImageMeta? IPreviewSource.ImageMeta => ((IPreviewSource)_statsFrame).ImageMeta;
 
+    // The divisor SerImageBridge.FillUnitFloat scales every frame by: 255 for an 8-bit capture, the depth's
+    // full scale for a 16-bit one.
+    float? IPreviewSource.FullScaleAdu => _reader.MaxSampleValue;
+
     public StretchUniforms ComputeStretchUniforms(
         StretchMode mode, StretchParameters parameters, LumaWeighting weighting = LumaWeighting.Rec709,
         float lumaBlend = 1f, bool normalize = false, int curvesMode = 0,

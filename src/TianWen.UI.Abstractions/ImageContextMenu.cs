@@ -126,12 +126,18 @@ namespace TianWen.UI.Abstractions
             if (pixel.Values.Length > 0)
             {
                 // Both forms in one payload, for the same reason the panel prints both: the unit value
-                // is what the pipeline works in, the 16-bit one is what a header or another tool quotes.
+                // is what the pipeline works in, the count is what a header or another tool quotes. The
+                // count is in the source's own scale (PixelInfo.FullScaleAdu), and absent where the source
+                // recorded none: a fixed 65535 named an 8-bit capture's 74 as 19018.
                 var unit = string.Join(' ', pixel.Values.Select(
                     static v => v.ToString("F6", CultureInfo.InvariantCulture)));
-                var adu = string.Join(' ', pixel.Values.Select(
-                    static v => (v * 65535.0).ToString("F0", CultureInfo.InvariantCulture)));
-                builder.Add(new ImageContextMenuItem($"Copy value   {unit}", "pixel value", $"{unit}\n{adu}"));
+                var payload = unit;
+                if (pixel.FullScaleAdu is { } scale)
+                {
+                    payload += "\n" + string.Join(' ', pixel.Values.Select(
+                        v => (v * scale).ToString("F0", CultureInfo.InvariantCulture)));
+                }
+                builder.Add(new ImageContextMenuItem($"Copy value   {unit}", "pixel value", payload));
             }
 
             builder.Add(new ImageContextMenuItem(
