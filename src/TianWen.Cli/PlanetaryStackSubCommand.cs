@@ -152,7 +152,7 @@ internal sealed class PlanetaryStackSubCommand(
         };
         var fixOpt = new Option<PlanetaryLimbFix?>("--limb-fix")
         {
-            Description = "How the derived sharpening keeps the limb from ringing: plain, floored, limbchannel or feathered (the measured choice when not given).",
+            Description = "How the derived sharpening keeps the limb from ringing: plain, floored, bounded, limbchannel or feathered (the measured choice when not given).",
         };
         var pupil = PlanetaryMasterScore.PupilOptions();
         var sharpenGainsOpt = new Option<string?>("--sharpen-gains")

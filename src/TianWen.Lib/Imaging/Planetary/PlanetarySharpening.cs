@@ -10,7 +10,8 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// <summary>
 /// How a derived sharpening keeps the limb from ringing (docs/plans/planetary-restoration.md, R8 follow-up 2): the plane sharpened as it
 /// is, held at the sky, with the limb as its own channel (the limb fit's model through the stack's blur taken out, the residual sharpened,
-/// the model put back through the pupil's diffraction alone), or with each layer's gain feathered to nothing at the limb.
+/// the model put back through the pupil's diffraction alone), with each layer's gain feathered to nothing at the limb, or held at the sky
+/// and, outside the limb, at or below the stack (#1168).
 /// </summary>
 public enum PlanetaryLimbFix
 {
@@ -18,6 +19,7 @@ public enum PlanetaryLimbFix
     Floored,
     LimbChannel,
     Feathered,
+    Bounded,
 }
 
 /// <summary>
@@ -152,6 +154,7 @@ public static class PlanetarySharpening
             PlanetaryLimbFix.Floored => PlanetaryDering.Floor(PlanetaryDering.Sharpen(window, size, size, g, t)),
             PlanetaryLimbFix.LimbChannel => PlanetaryDering.LimbChannel(window, size, size, sharp, total, diffraction, p => PlanetaryDering.Sharpen(p, size, size, g, t)),
             PlanetaryLimbFix.Feathered => PlanetaryDering.Feathered(window, size, size, disk, g, t),
+            PlanetaryLimbFix.Bounded => PlanetaryDering.Bounded(PlanetaryDering.Sharpen(window, size, size, g, t), window, size, size, disk),
             _ => PlanetaryDering.Sharpen(window, size, size, g, t),
         };
     }

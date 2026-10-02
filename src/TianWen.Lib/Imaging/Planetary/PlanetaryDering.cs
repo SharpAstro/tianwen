@@ -25,6 +25,26 @@ public static class PlanetaryDering
     }
 
     /// <summary>
+    /// <paramref name="sharpened"/> held at or above the sky and, outside <paramref name="disk"/>'s outline, at or below
+    /// <paramref name="stacked"/>, the plane it was sharpened from: a sharpening only moves light inward past the limb, so light it adds
+    /// there is its ring (#1168). The planes are the window's (the sky zero, the disk one).
+    /// </summary>
+    public static float[] Bounded(ReadOnlySpan<float> sharpened, ReadOnlySpan<float> stacked, int width, int height, MetricDisk disk)
+    {
+        var result = new float[sharpened.Length];
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var i = (y * width) + x;
+                var v = Math.Max(sharpened[i], 0f);
+                result[i] = disk.RadiiAt(x, y) > 1 ? Math.Min(v, Math.Max(stacked[i], 0f)) : v;
+            }
+        }
+        return result;
+    }
+
+    /// <summary>
     /// <paramref name="plane"/> sharpened by a trous <paramref name="gains"/> (finest first) and, where given, soft
     /// <paramref name="thresholds"/> in the plane's units: what <see cref="WaveletSharpen"/> does to a master, without its clamp.
     /// </summary>
