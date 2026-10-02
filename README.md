@@ -221,6 +221,9 @@ tianwen planetary-stack <ser-file>... [-o <dir>]
 capture's `--truth` compare the limb fixes).
 
 For interactive planetary work (live rolling-window stack + wavelet sliders), open the SER in the FITS viewer (`tianwen-fits <file.ser>`) and press `K`.
+`Shift+K` (or the info panel's Best stack button) stacks the whole capture as `planetary-stack` does, in the background, writes both
+masters beside it and opens the sharpened one; the panel's aperture and design give the derived sharpening its telescope, and are
+remembered.
 
 #### Observation Planner
 

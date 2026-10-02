@@ -53,7 +53,7 @@ internal sealed class ViewerE2E : IDisposable
             NullLogger<ViewerController>.Instance);
         Viewer = new Surface(_renderer, Bus) { DpiScale = dpiScale };
         Host = new StandaloneViewerHost<RgbaImage>(Viewer, State, Controller, Tracker, Bus,
-            NullLogger.Instance, _appCts.Token);
+            NullLogger.Instance, external: null, _appCts.Token);
         Folder = Directory.CreateTempSubdirectory("tianwen-viewer-e2e-").FullName;
     }
 

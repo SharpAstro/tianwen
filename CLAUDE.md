@@ -968,6 +968,11 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   unasked only once the planet's turn moves its disk's middle a pixel (`PlanetaryDerotationOptions.MinimumTurnPx`,
   `PlanetaryStackResult.TurnPx`), its planet read off the capture's path (`PlanetaryCaptureName`); **whether the limb fit's north
   was right is incidental**, the run's quarters decide it (graded by the gradient, the fixture's limb fit had it upside down).
+- **A recorded capture's best stack is `PlanetaryBestStack`, ONE routine for `planetary-stack` and `tianwen-fits`' Best stack**
+  (Shift+K on a SER, #1159): the batch stack at its defaults, de-rotated by `DerotationFor`, sharpened by `Sharpen` (the fallbacks
+  worded), both masters written under `OutputPaths`' names beside the capture; the telescope a profile gives through `PupilFor` (the
+  owner's obstructions by design), the viewer's from its panel (`PlanetaryTelescopePersistence`). The GUI has no SER playback: its
+  planetary stack is the live capture's rolling one.
 - **A planetary master is sharpened by `PlanetarySharpening`, ONE routine for `planetary-stack`, `planetary-sharpen` and (next) the GUI**
   (#1159): a trous gains derived through the limb's edge against the limb fit's sharp model through the pupil's diffraction, the stack's
   white noise floor and the planet's disk, applied BOUNDED (held at the sky and, outside the limb, never brighter than the stack,
@@ -1980,7 +1985,7 @@ is **no** single choke point that creates these: `IExternal.CreateSubDirectoryIn
 four of them, `Planner`/`Session` are built from `AppDataFolder` directly, `Profiles`/`Logs` off
 `SharedStaticData.CommonDataRoot`, and `models` + `lan-node-id.txt` + the node's socket and lock are resolved by
 their own owners. Add a directory here when you add one there.
-Folders (annotated tree: `docs/architecture/runtime-data.md`, **add a directory there when you add one**): `Logs/<date>/` (`<appName>_<timestamp>.log` per process and day, rolls at local midnight), `Profiles/` (`*.json`, `NeuralGuider/*.ngm`, `BacklashHistory/*.json`), `Planner/` (`<profileId>/<date>.json`, remote rigs under `rigs/<bindingId>/`), `Session/` (`<profileId>.json`), `Guider/`, `Weather/`, `ObjectImages/`, `SmallBodies/` (`comets.json` + `apparitions.json`), `models/` (AI ONNX; also finds GraXpert's model in its own cache), `Secrets/` (0600 file per device secret, non-Windows or under `TIANWEN_DATA_ROOT`), and the node's own files: `node.sock`, `node.lock` (held for the node's life, never deleted), `node-settings.json`, `node.journal` (its crash journal, gone once it holds nothing), `lan-node-id.txt` (`tianwen-server`'s stable LAN NodeId, the key remote-rig bindings persist against).
+Folders (annotated tree: `docs/architecture/runtime-data.md`, **add a directory there when you add one**): `Logs/<date>/` (`<appName>_<timestamp>.log` per process and day, rolls at local midnight), `Profiles/` (`*.json`, `NeuralGuider/*.ngm`, `BacklashHistory/*.json`), `Planner/` (`<profileId>/<date>.json`, remote rigs under `rigs/<bindingId>/`), `Session/` (`<profileId>.json`), `Guider/`, `Weather/`, `ObjectImages/`, `SmallBodies/` (`comets.json` + `apparitions.json`), `Viewer/` (`planetary-telescope.json`, `tianwen-fits`' Best stack telescope), `models/` (AI ONNX; also finds GraXpert's model in its own cache), `Secrets/` (0600 file per device secret, non-Windows or under `TIANWEN_DATA_ROOT`), and the node's own files: `node.sock`, `node.lock` (held for the node's life, never deleted), `node-settings.json`, `node.journal` (its crash journal, gone once it holds nothing), `lan-node-id.txt` (`tianwen-server`'s stable LAN NodeId, the key remote-rig bindings persist against).
 
 **Every file here has more than one PROCESS on it** (the GUI, the TUI, the CLI, the server, the viewer, MCP), so it
 is written with `IExternal.AtomicWriteJsonAsync` and read with `TryReadJsonAsync`, or `SharedFile` (`TianWen.Lib/IO`)

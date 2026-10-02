@@ -137,6 +137,13 @@ public static class PlanetaryBestStack
             : "PlanetaryDefault with the limb kept as stacked; the telescope's aperture gives the derived sharpening");
     }
 
+    /// <summary>
+    /// Where a best stack of <paramref name="baseName"/> is written in <paramref name="outputDir"/>: the linear master and the sharpened
+    /// one, under the names <c>planetary-stack</c> gives them (<paramref name="prefix"/> its <c>--label</c>).
+    /// </summary>
+    public static (string Master, string Sharpened) OutputPaths(string outputDir, string baseName, string prefix = "")
+        => (System.IO.Path.Combine(outputDir, $"{prefix}master_{baseName}.fits"), System.IO.Path.Combine(outputDir, $"{prefix}master_{baseName}_sharpened.fits"));
+
     /// <summary>A limb fix in words.</summary>
     public static string Describe(PlanetaryLimbFix fix) => fix switch
     {

@@ -11,6 +11,7 @@ using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Enhancement;
+using TianWen.Lib.Imaging.Planetary;
 using TianWen.Lib;
 
 namespace TianWen.UI.Abstractions;
@@ -119,6 +120,32 @@ public sealed class ViewerController(
 
     /// <summary>True while an AI enhance pass is in flight; used by the render loop's redraw gate.</summary>
     public bool IsEnhancePending => _enhanceTask is { IsCompleted: false };
+
+    // The best stack of the SER on screen (#1159): one run at a time, its result handed back through the task, its progress a percent
+    // the stack's thread writes and the render thread reads (an int, so the read is never torn).
+    private Task<BestStackOutcome>? _bestStackTask;
+    private CancellationTokenSource? _bestStackCts;
+    private int _bestStackPercent;
+
+    // What a finished best stack says (where it was written and how it was sharpened), held until the master it opened is on screen:
+    // the open and its texture upload each clear the status line, so set at completion it would never be read. A later file drops it.
+    private (string Path, string Message)? _bestStackNote;
+
+    // Where a finished best stack's sharpened master was written, how it was sharpened, and the capture it stacked.
+    private sealed record BestStackOutcome(string SharpenedPath, string How, string CapturePath);
+
+    /// <summary>True while a best stack is running.</summary>
+    public bool IsBestStackPending => _bestStackTask is { IsCompleted: false };
+
+    /// <summary>
+    /// Whether the best stack needs a frame: one was asked for, one finished, or its progress moved past what the panel shows. No side
+    /// effect, so the loop's redraw gate may ask it every iteration; <see cref="TickBestStack"/> acts on it between frames.
+    /// </summary>
+    public bool BestStackWantsFrame
+        => state.BestStackRequested
+            || _bestStackNote is not null
+            || _bestStackTask is { IsCompleted: true }
+            || (_bestStackTask is not null && Volatile.Read(ref _bestStackPercent) / 100.0 != state.BestStackProgress);
 
     // The raw source: the document (still) or the SerPreviewSource (SER). Always the playback driver -- the
     // SequencePlayer advances THIS even while the stacked view is shown, so the playhead keeps moving and
@@ -241,6 +268,7 @@ public sealed class ViewerController(
                     Document = null;
                     _rawSource = serSource;
                     _liveSource = liveSource;
+                    state.SequencePath = requestedPath;
                     // Stamped at ADOPTION, never at request: a superseded or failed load must not
                     // invalidate a comparison that is still valid for what is on screen.
                     state.NotifySourceReplaced();
@@ -321,6 +349,7 @@ public sealed class ViewerController(
                 LogStretchBasis("opened", newDoc);
                 _rawSource = newDoc;
                 _liveSource = null;
+                state.SequencePath = null;
 
                 // A crop is a property of the FRAME it was scanned against, not of the viewer, so a
                 // new document starts uncropped -- neither field carried a document identity to check
@@ -1109,6 +1138,119 @@ public sealed class ViewerController(
         state.NeedsRedraw = true;
     }
 
+    /// <summary>
+    /// The best stack of the SER on screen (#1159, <see cref="PlanetaryBestStack"/>, the routine <c>planetary-stack</c> runs): started
+    /// when asked (<see cref="ViewerState.BestStackRequested"/>), or the running one cancelled; its progress copied into
+    /// <see cref="ViewerState.BestStackProgress"/>; a finished run's sharpened master, written beside the capture as
+    /// <c>planetary-stack</c> writes it, opened while that capture is still the one on screen. Render thread, between frames
+    /// (<see cref="BestStackWantsFrame"/> asks for them); true when something on screen changed.
+    /// </summary>
+    public bool TickBestStack(CancellationToken appToken = default)
+    {
+        var changed = false;
+        // Said once the master it opened is the document on screen and uploaded: the open and the upload each clear the status line.
+        if (_bestStackNote is { } note && !IsLoadPending && state.RequestedFilePath is null && !state.NeedsTextureUpdate
+            && Document is { } shown && string.Equals(shown.FilePath, note.Path, StringComparison.OrdinalIgnoreCase))
+        {
+            _bestStackNote = null;
+            state.StatusMessage = note.Message;
+            changed = true;
+        }
+        if (state.BestStackRequested)
+        {
+            state.BestStackRequested = false;
+            changed = true;
+            if (_bestStackTask is { IsCompleted: false })
+            {
+                _bestStackCts?.Cancel();
+            }
+            else if (state.SequencePath is { } capture)
+            {
+                StartBestStack(capture, appToken);
+            }
+            else
+            {
+                state.StatusMessage = "Best stack: open a SER capture first";
+            }
+        }
+
+        if (_bestStackTask is not { } task)
+        {
+            return changed;
+        }
+        if (!task.IsCompleted)
+        {
+            var progress = Volatile.Read(ref _bestStackPercent) / 100.0;
+            if (state.BestStackProgress != progress)
+            {
+                state.BestStackProgress = progress;
+                changed = true;
+            }
+            return changed;
+        }
+
+        _bestStackTask = null;
+        _bestStackCts?.Dispose();
+        _bestStackCts = null;
+        state.BestStackProgress = null;
+        if (task.IsCompletedSuccessfully)
+        {
+            var outcome = task.Result;
+            var message = $"Best stack: {Path.GetFileName(outcome.SharpenedPath)} ({outcome.How})";
+            state.StatusMessage = message;
+            if (string.Equals(state.SequencePath, outcome.CapturePath, StringComparison.OrdinalIgnoreCase))
+            {
+                state.RequestedFilePath = outcome.SharpenedPath;
+                _bestStackNote = (outcome.SharpenedPath, message);
+            }
+        }
+        else if (task.IsCanceled)
+        {
+            state.StatusMessage = "Best stack cancelled";
+        }
+        else
+        {
+            logger.LogWarning(task.Exception?.GetBaseException(), "Best stack failed");
+            state.StatusMessage = $"Best stack failed: {task.Exception?.GetBaseException().Message}";
+        }
+        state.NeedsRedraw = true;
+        return true;
+    }
+
+    // The capture stacked off the render thread by the planet its name gives and the telescope the panel holds, both masters written
+    // beside it under planetary-stack's names.
+    private void StartBestStack(string capture, CancellationToken appToken)
+    {
+        _bestStackCts = CancellationTokenSource.CreateLinkedTokenSource(appToken);
+        var token = _bestStackCts.Token;
+        var options = new PlanetaryBestStackOptions(PlanetaryCaptureName.Planet(capture),
+            PlanetaryBestStack.PupilFor(state.PlanetaryApertureMm, state.PlanetaryDesign));
+        Volatile.Write(ref _bestStackPercent, 0);
+        state.BestStackProgress = 0;
+        state.StatusMessage = options.Telescope is null
+            ? "Best stack running; with no aperture given, the sharpening is the preset's"
+            : "Best stack running";
+        var progress = new SynchronousProgress<double>(fraction => Volatile.Write(ref _bestStackPercent, (int)(fraction * 100)));
+        _bestStackTask = Task.Run(async () =>
+        {
+            using var stream = SerFrameStream.Open(capture);
+            var result = await PlanetaryBestStack.RunAsync(stream, options, progress, token);
+            try
+            {
+                var (masterPath, sharpenedPath) = PlanetaryBestStack.OutputPaths(Path.GetDirectoryName(Path.GetFullPath(capture)) ?? ".",
+                    Path.GetFileNameWithoutExtension(capture));
+                result.Stack.Master.WriteToFitsFile(masterPath);
+                result.Sharpened.WriteToFitsFile(sharpenedPath);
+                return new BestStackOutcome(sharpenedPath, result.HowSharpened, capture);
+            }
+            finally
+            {
+                result.Stack.Master.Release();
+                result.Sharpened.Release();
+            }
+        }, token);
+    }
+
     public void TryApplyPendingEnhance(CancellationToken appToken = default)
     {
         if (_enhanceTask is not { IsCompleted: true } task)
@@ -1372,6 +1514,11 @@ public sealed class ViewerController(
         if (_enhanceTask is not null)
         {
             try { await _enhanceTask; } catch (OperationCanceledException) { logger.LogDebug("Enhance task cancelled during shutdown"); }
+        }
+        if (_bestStackTask is not null)
+        {
+            _bestStackCts?.Cancel();
+            try { await _bestStackTask; } catch (OperationCanceledException) { logger.LogDebug("Best stack cancelled during shutdown"); }
         }
 
         _loadCts?.Dispose();
