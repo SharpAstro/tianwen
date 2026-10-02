@@ -339,6 +339,8 @@ internal sealed class PlanetaryStackSubCommand(
                 Derotation = (derotate || !(legacy || parseResult.GetValue(noDerotateOpt))) && PlanetaryBestStack.DerotationFor(planet, always: derotate) is { } rotation
                     ? rotation with { TurnNorthOver = parseResult.GetValue(turnNorthOverOpt) }
                     : null,
+                // The planet into the master's OBJECT, which a viewer opens linear by.
+                Planet = planet,
                 // The raw integrated master stays linear/unsharpened (downstream-friendly); the sharpen
                 // pass is applied separately below so we can emit both the raw and sharpened masters.
             };

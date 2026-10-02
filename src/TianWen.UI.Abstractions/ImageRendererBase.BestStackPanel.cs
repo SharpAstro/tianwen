@@ -1,7 +1,9 @@
 using System;
 using System.Globalization;
 using DIR.Lib;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Imaging.Planetary;
 
 namespace TianWen.UI.Abstractions
 {
@@ -23,8 +25,12 @@ namespace TianWen.UI.Abstractions
             (OpticalDesign.Refractor, "Refractor"),
         ];
 
-        /// <summary>The Best stack block as one tree: the action, the aperture stepper, the design.</summary>
-        private Layout.Node BuildBestStackTree(ViewerState state)
+        /// <summary>
+        /// The Best stack block as one tree: the action, the planet, the filter (a mono capture's only), the aperture stepper, the
+        /// design. The planet and the filter default to what the capture's name gives, and a caption says what that is, so a name that
+        /// gives no planet (which leaves the sharpening the preset's) is seen before the run, not after it.
+        /// </summary>
+        private Layout.Node BuildBestStackTree(ViewerState state, bool mono)
         {
             var inv = CultureInfo.InvariantCulture;
             var running = state.BestStackProgress is not null;
@@ -74,7 +80,66 @@ namespace TianWen.UI.Abstractions
                     style, BaseFontSize)
                 .RowH(BaseFontSize + WaveletGap);
 
-            return Layout.Builder.VStack(action, stepper, design).WithGap(WaveletGap);
+            var capture = state.SequencePath;
+            var named = capture is null ? null : PlanetaryCaptureName.Planet(capture);
+            var planetCaption = state.PlanetaryBody is { } chosenBody
+                ? $"Planet: {chosenBody}"
+                : named is { } fromName ? $"Planet: {fromName}, from the name" : "Planet: none in the name, so the preset's sharpening";
+            ReadOnlySpan<Layout.ButtonGroupOption<CatalogIndex?>> planets =
+            [
+                new(null, "Auto") { Hit = new HitResult.ButtonHit("PlanetAuto") },
+                new(CatalogIndex.Jupiter, "Jupiter") { Hit = new HitResult.ButtonHit("PlanetJupiter") },
+                new(CatalogIndex.Saturn, "Saturn") { Hit = new HitResult.ButtonHit("PlanetSaturn") },
+            ];
+            var planet = Layout.Builder.ButtonGroup(planets, state.PlanetaryBody,
+                    chosenPlanet =>
+                    {
+                        state.PlanetaryBody = chosenPlanet;
+                        state.NeedsRedraw = true;
+                    },
+                    style, BaseFontSize)
+                .RowH(BaseFontSize + WaveletGap);
+            var rows = new System.Collections.Generic.List<Layout.Node>
+            {
+                action,
+                Caption(planetCaption),
+                planet,
+            };
+
+            if (mono)
+            {
+                var namedNm = capture is null ? null : PlanetaryCaptureName.WavelengthNm(capture);
+                var filterCaption = state.PlanetaryFilterNm is { } chosenNm
+                    ? string.Create(inv, $"Filter: {chosenNm:0} nm")
+                    : namedNm is { } fromNameNm
+                        ? string.Create(inv, $"Filter: {fromNameNm:0} nm, from the name")
+                        : "Filter: none in the name, so broadband (550 nm)";
+                ReadOnlySpan<Layout.ButtonGroupOption<double?>> filters =
+                [
+                    new(null, "Auto") { Hit = new HitResult.ButtonHit("FilterAuto") },
+                    new(550d, "L") { Hit = new HitResult.ButtonHit("FilterL") },
+                    new(650d, "R") { Hit = new HitResult.ButtonHit("FilterR") },
+                    new(530d, "G") { Hit = new HitResult.ButtonHit("FilterG") },
+                    new(460d, "B") { Hit = new HitResult.ButtonHit("FilterB") },
+                    new(750d, "IR") { Hit = new HitResult.ButtonHit("FilterIr") },
+                ];
+                rows.Add(Caption(filterCaption));
+                rows.Add(Layout.Builder.ButtonGroup(filters, state.PlanetaryFilterNm,
+                        chosenFilter =>
+                        {
+                            state.PlanetaryFilterNm = chosenFilter;
+                            state.NeedsRedraw = true;
+                        },
+                        style, BaseFontSize)
+                    .RowH(BaseFontSize + WaveletGap));
+            }
+
+            rows.Add(stepper);
+            rows.Add(design);
+            return Layout.Builder.VStack([.. rows]).WithGap(WaveletGap);
+
+            Layout.Node Caption(string text)
+                => Layout.Builder.Text(text, BaseFontSize, ViewerTheme.Palette.DimText).RowH(BaseFontSize + WaveletGap);
 
             Layout.Node StepButton(string glyph, string hit, Action step)
                 => FormRowLayout.StepMark(glyph, BaseFontSize, ViewerTheme.Palette.BodyText)
@@ -91,10 +156,10 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>The Best stack block, measured and painted through one context as the wavelet block is.</summary>
-        private void RenderBestStackControls(ViewerState state, ref float y, float x, float panelWidth)
+        private void RenderBestStackControls(ViewerState state, bool mono, ref float y, float x, float panelWidth)
         {
             DrawSectionHeading(ref y, x, "Best stack", panelWidth);
-            var tree = BuildBestStackTree(state);
+            var tree = BuildBestStackTree(state, mono);
             var ctx = MeasureContext();
             var measured = MeasureLayout(tree, new Layout.Size<float>(panelWidth, float.MaxValue));
             var rect = new RectF32(x, y, panelWidth, measured.Height);

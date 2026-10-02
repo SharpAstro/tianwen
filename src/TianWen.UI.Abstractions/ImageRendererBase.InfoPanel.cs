@@ -94,7 +94,7 @@ namespace TianWen.UI.Abstractions
             if (state.SequencePath is not null)
             {
                 y += FontSize;
-                RenderBestStackControls(state, ref y, x, maxTextWidth);
+                RenderBestStackControls(state, source.SensorType is SensorType.Monochrome, ref y, x, maxTextWidth);
             }
 
             // The SELECTION used to have a section here. It now floats over the picture instead

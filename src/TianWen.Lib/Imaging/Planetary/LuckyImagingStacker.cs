@@ -560,6 +560,11 @@ public sealed class LuckyImagingStacker
             var masterMeta = stream.TimestampOf(0) is { } first && stream.TimestampOf(stream.FrameCount - 1) is { } last && last >= first
                 ? reference.ImageMeta with { ExposureStartTime = first, ExposureDuration = last - first }
                 : reference.ImageMeta;
+            // And names its planet in OBJECT, where a viewer reads that it is a planetary frame (PlanetaryStackOptions.Planet).
+            if ((options.Planet ?? options.Derotation?.Planet) is { } planet)
+            {
+                masterMeta = masterMeta with { ObjectName = planet.ToString() };
+            }
             return new StackContext(grades, referenceIndex, selected, scoreByIndex, aligner, matcher, signalConfidence,
                 reference.Width, reference.Height, reference.ChannelCount, masterMeta, derotator, north, turnPx);
         }

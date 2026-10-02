@@ -38,4 +38,43 @@ public class PlanetaryCaptureNameTests
         // A word is matched whole: "satellite" is not Saturn, nor "jupiterlike" Jupiter.
         PlanetaryCaptureName.Planet(path).ShouldBeNull();
     }
+
+    [Theory]
+    [InlineData("Jupiter", "Jupiter")]
+    [InlineData("Saturn (Cassini Division)", "Saturn")]
+    [InlineData("moon", "Moon")]
+    public void AnObjectCardNamesItsPlanet(string objectName, string planet)
+    {
+        // A FITS OBJECT: SharpCap's target, a planetary stack's own.
+        PlanetaryCaptureName.Named(objectName).ShouldBe(System.Enum.Parse<CatalogIndex>(planet));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("NGC 7000")]
+    [InlineData("M 42")]
+    public void AnObjectCardNamingNoPlanetNamesNone(string? objectName)
+    {
+        PlanetaryCaptureName.Named(objectName).ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData("D:/Astro-Pics/2022/2022-09-03-1211_1_Red.ser", 650.0)]
+    [InlineData("C:/captures/2023-07-02-0728_9-U-G-Jup_pipp.ser", 530.0)]
+    [InlineData("C:/captures/Jup_IR_0730.ser", 750.0)]
+    [InlineData("C:/captures/Saturn_L_2021.ser", 550.0)]
+    public void AFileNameNamesItsFilter(string path, double nm)
+    {
+        PlanetaryCaptureName.WavelengthNm(path).ShouldBe(nm);
+    }
+
+    [Theory]
+    [InlineData("C:/temp/synthetic/r8/calibrated.ser")]
+    [InlineData("D:/Astro-Pics/Red/2022-09-03-1211_1_.ser")]
+    public void AFileNameNamingNoFilterNamesNone(string path)
+    {
+        // The file name only: a folder's filter word is too often a session's, not this capture's.
+        PlanetaryCaptureName.WavelengthNm(path).ShouldBeNull();
+    }
 }

@@ -83,6 +83,7 @@ public static class PlanetaryBestStack
         IProgress<double>? progress = null, CancellationToken cancellationToken = default)
     {
         var stackOptions = options.Stack.Derotation is null ? options.Stack with { Derotation = DerotationFor(options.Planet) } : options.Stack;
+        stackOptions = stackOptions with { Planet = stackOptions.Planet ?? options.Planet };
         using var counted = new ProgressFrameStream(stream, ExpectedLoads(stream.FrameCount, stackOptions), progress);
         var result = await new LuckyImagingStacker().StackAsync(counted, stackOptions, cancellationToken).ConfigureAwait(false);
         // The master is handed on with the result; only a sharpening that throws leaves it here to release.

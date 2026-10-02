@@ -223,7 +223,8 @@ capture's `--truth` compare the limb fixes).
 For interactive planetary work (live rolling-window stack + wavelet sliders), open the SER in the FITS viewer (`tianwen-fits <file.ser>`) and press `K`.
 `Shift+K` (or the info panel's Best stack button) stacks the whole capture as `planetary-stack` does, in the background, writes both
 masters beside it and opens the sharpened one; the panel's aperture and design give the derived sharpening its telescope, and are
-remembered.
+remembered. The planet (and a mono capture's filter) come from the capture's name, or the panel's choice where the name gives none,
+since without a planet the sharpening is only a preset. A planetary master opens linear, as a SER does.
 
 #### Observation Planner
 

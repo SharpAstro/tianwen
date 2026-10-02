@@ -1,4 +1,5 @@
 using System;
+using TianWen.Lib.Astrometry.Catalogs;
 
 namespace TianWen.Lib.Imaging.Planetary;
 
@@ -141,6 +142,13 @@ public sealed record PlanetaryStackOptions
     /// the planet along its rotation, since the limb stays where it is and the belts move. Needs every frame's time.
     /// </summary>
     public PlanetaryDerotationOptions? Derotation { get; init; }
+
+    /// <summary>
+    /// The body the capture shows, written to the master's <c>OBJECT</c> card, where a viewer reads that it is a planetary frame
+    /// (and opens it linear, as it does a SER: a deep-sky auto-stretch of a 1,500-frame stack's sky, its noise 3e-5, blew it up
+    /// thirty thousand times). The de-rotation's planet when null. Nothing in the stack itself depends on it.
+    /// </summary>
+    public CatalogIndex? Planet { get; init; }
 }
 
 /// <summary>
