@@ -2026,6 +2026,23 @@ Laplacian) were fixed in code; and no product path used R8's derived gains or th
   real and synthetic captures never reached it, but a dark-subtracted deep-sky frame can.
 - **Whether the limb fit's north was right is incidental**: graded by the gradient, the 16-minute fixture's stack of best frames had it
   upside down and the run's quarters turned it back (31 degrees against the true 30).
+- **The stacking, read on the three twins** (`planetary-stack --truth`, each twin's 3,000 frames, every master against its truth,
+  the band error inside 0.9 radii; Release, the commit that carries this table):
+
+  | Twin | Legacy band 1, sum of bands 1 to 4 | Pipeline unsharpened (a tenth kept) | Pipeline at half the frames |
+  |---|---|---|---|
+  | calibrated | 0.792, 1.706 | **0.648, 1.415** | 0.691, 1.500 |
+  | without its still layer | 0.452, 0.777 | **0.278, 0.493** | 0.313, 0.559 |
+  | warped | 0.868, 1.947 | **0.766, 1.614** | 0.786, 1.667 |
+
+  - **Unsharpened, the pipeline's stack leaves less band 1 error than legacy's on every twin: holds**, by 0.10 to 0.17, and every
+    band with it; even at half the frames its stack beats legacy's quarter.
+  - **Sharpened by `PlanetaryDefault` as shipped** (this PR does not yet change the sharpening), the pipeline's half-the-frames stack
+    and legacy's quarter end alike, both far past the truth (transfers 1.4 to 2.0 in bands 2 and 3, the limb's undershoot 0.19 to
+    0.31): 2.845 against 2.800, 3.600 against 3.525, 2.853 against 2.631. Half the frames pays only once the sharpening is derived
+    (#1083), which is the next part; until it lands, the default sharpened master is about as good as before, not better.
+  - **The cost:** 82 to 119 s for the pipeline's unsharpened stack and 215 to 312 s at half the frames, against legacy's 45 to 78 s
+    (the reference of 1,000 and Lanczos-3 a frame, all linear in the frames).
 
 ## R9 A learned stage, only if the measurements say so
 
