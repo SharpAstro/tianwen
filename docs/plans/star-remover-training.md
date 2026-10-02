@@ -384,6 +384,9 @@ Tracked by #902 with the rest of P4.0; none of it is a hole.
   left as knots: Orion's 50-sigma star beside the Trapezium, Herschel 36 in the Hourglass.
 - **Clipped nebula round a saturated star** (eta Carinae's Keyhole, the Trapezium) is filled from its boundary,
   which is darker than the clip it replaces; what was there is not in the data.
+- **An elongated saturated star** (the Horsehead's 4,933-sigma one, its plateau 3 by 5 px) keeps a brighter fill
+  where its core was: its residual past a symmetric profile is flagged and filled, and the fill takes the bright
+  ends of its elongation as its boundary. An elliptical profile would follow it.
 - **M4's core** keeps its unresolved glow and the stars on its bar, the one negative patch over 220 sigma.
 - **eta Carinae's inpaint fraction** (above), and the faint stars of its Milky Way field still under the confusion
   the finder's deeper noise reaches.
