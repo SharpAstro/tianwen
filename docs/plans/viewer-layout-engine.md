@@ -1,7 +1,8 @@
 # The chrome should not be doing its own arithmetic
 
-Status: P0, P1, P2 and P4 DONE (2026-09-16; P2 keeps `ReservedLabelWidth` on measurement, see P2); only P3
-is left, the viewer's own core file and the sky-map tab, lower value and ratcheted by P4 (issue #367).
+Status: P0, P1, P2 and P4 DONE (2026-09-16; P2 keeps `ReservedLabelWidth` on measurement, see P2). Left: P3,
+the viewer's own core file and the sky-map tab, lower value and ratcheted by P4; and P5 (added 2026-10-02), a text
+measured by its line box rather than its ink, which is a DIR.Lib change. Both are issue #367.
 Planned 2026-09-15 (user, high priority); the header said NOT STARTED until 2026-09-24.
 **P0 (the measure seam) now ships as part of [dir-lib-10.md](dir-lib-10.md) D1**, the same DIR.Lib release
 that adds the input router; P1 to P4 are unchanged and are that plan's T3.
@@ -212,6 +213,24 @@ A test over the widget assemblies asserting that a file which paints chrome does
 file list's ellipsis budget, anything inside a `drawFill`). Without it the count goes back up one
 convenient call at a time, which is how it got to 47.
 
+### P5: a text leaf measures its line box, so a button needs no RowH (DIR.Lib)
+
+**Added 2026-10-02, tracked by #367.** The engine measures a text by its INK: both renderers' `MeasureText`
+(`RgbaImageRenderer`, SdlVulkan.Renderer's `VkRenderer`) return the widest ascent plus descent of the glyphs drawn, so
+"LOG" measures its cap height (11 px at 18 px type), a label with a descender measures more, and two buttons side by
+side measure differently by what they say. So every declared text control states its height by hand, as a line box:
+`.RowH(BaseFontSize + gap)`, 31 sites across 11 files on 2026-10-02 (the tone, white balance and best-stack panels,
+the histogram's LOG toggle, the equipment tab's tables and forms). That is the same arithmetic this plan exists to
+remove, one level down: when the histogram's LOG button became a node whose box the engine measures, its width came
+from the label and its height still had to be written out, or it shrank from 22 px to 15.
+
+The fix is in DIR.Lib, not here: a text leaf measures to its FACE's line box (the font's ascent plus descent at that
+size, whatever glyphs it holds), and the ink stays available to what needs it (a label placed against a star's
+ellipse). Then a text button is `.PadX(gap)` plus a vertical padding of its own, and the `RowH` constants go. The
+cost is that it moves the measured height of every text node in every layout, the GUI's, the viewer's and the web
+host's, so it is a DIR.Lib release with a sweep of what moved (the viewer and GUI tabs compared before and after),
+never a quiet change; a terminal's cell-authored tree measures in cells and should not move at all.
+
 ## The unit rule this uncovered, which is the cost of adopting the engine
 
 **A declared tree is authored in DESIGN units.** The measure context turns them into device pixels,
@@ -237,8 +256,14 @@ tree arranged at `DesignScale.One` -- which is what `ImageRendererBase.Toolbar.c
 every measurement in that file is already device pixels and there is no `Base*` form to return to.
 
 A sweep for the rest of it -- every property whose body multiplies by `DpiScale`, matched against the
-extents handed to declared nodes -- finds no other site. `SessionConfigStyle` already passes
-`BaseFontSize`, which is the shape to copy.
+extents handed to declared nodes -- found no other site on 2026-09-16. `SessionConfigStyle` already passes
+`BaseFontSize`, which is the shape to copy. **It came back anyway**: the histogram's LOG label, made a node
+on 2026-10-01, was given `ToolbarFontSize` and read "L..." at 2x. So the sweep is a test now,
+`DeclaredLayoutTakesDesignUnitsTests`: a statement that builds a node may not name a device-pixel property
+of its own class unless the tree is arranged at `DesignScale.One` (the toolbar's file is listed, with its
+reason). A pattern misses a device-pixel value carried through a local or a parameter, and a box summed by
+hand beside a declared node is not a pattern at all, so the `/chrome-review` skill runs a reviewer agent
+(Sonnet, read-only, `.claude/agents/chrome-review.md`) over a branch's diff for those.
 
 ## What this does NOT do
 
