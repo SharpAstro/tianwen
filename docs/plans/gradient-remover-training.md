@@ -41,6 +41,31 @@ fills today. Shared discipline: [model-training-roadmap.md](model-training-roadm
 | Scenes | on disk | **190 retained linear session masters in the full store** (`D:/Astro-Dataset/2026-09-29-full/session-masters/`, recipe 3, the same store the denoiser's E16b was built from), each with its coverage and bad-pixel sidecars and, where it rejected anything, a rejection sidecar. The two bakes G1 measured (`2025-2026-organized`, 51 masters; `2025-2026-darkscaled`, 67) were deleted in the ring-fix cleanup of 2026-09-29. Calibrated subs are still NOT retained (scratch is wiped per session) |
 | Real pairs (control) | not measured | 2.1c: same-night, same-field high-vs-low-airmass frames on zenith-crossing targets; the cards are on disk |
 
+### What GraXpert does, read from its source (2026-10-02)
+
+Read from GraXpert's public source (`main` at c3bc2211, GPL-3.0) and docs, no model file opened, because the
+question is what our model must do that it does not:
+
+- **Its AI path sees the image and nothing else**: no mask, weight map or sample points (`background_extraction.py`,
+  `extract_background`). Leaving nebulosity alone is purely what its training taught it; neither the code nor the
+  docs claim it was trained for that (the relevant docs pages read "TODO").
+- **Its classical path's only protection is rejecting bright sample points**: a grid (15 per row by default), each
+  point moved to the darkest of five windows and kept only while its median is under the global median plus a
+  tolerance times the MAD of the points, one-sided; plus points added or removed by hand. No star or nebula mask.
+- **Edges, the owner's observation, confirmed**: the AI path pads by repeating the edge and has no zero-border
+  detection, so a stacking ring clips to the bottom of its input range and pulls the background down; the
+  classical path's darkest-window move prefers a dark edge, and only a crop or deleting points by hand avoids it.
+- **The model**: weights CC BY-NC-SA 4.0, crediting about 35 contributors of training images; architecture and
+  training data not stated. A separate repository, AstroAI, holds a UNet training script that adds a randomly
+  drawn background to an image minus its own background (the same shape as flatten-and-inject), but it trains at
+  224 px against inference's 256 and its export script converts a different model, so it may not be what ships;
+  it carries **no licence**, so it is read, never copied.
+
+So the gaps this plan closes are the presence plane (edges), the header covariates, division as a first-class
+mode, and nebulosity protection taught on purpose: real nebulae under a known injected gradient. That last needs
+trustworthy flattened scenes, and G1b put the brightest nebulae in the amplitude tail, where a degree-2 fit can
+take frame-filling nebulosity for gradient.
+
 ## 2. Hypotheses
 
 **H1. A classical flattener is a prerequisite AND the baseline, and it must exist before any net.**
@@ -276,11 +301,24 @@ right thing (its block mean is NaN where no finite pixel is, and the fit exclude
 5. **The row records the autocrop rectangle** (`LargestCoveredRectangle` from the coverage sidecar), so
    H9's crop-only arm is a flag in the trainer, not a second export.
 
-**Measured at G2, before any model: the thin band's level steps.** Per master, across each coverage step of
-the sidecar, the median of the flattened frame in a strip just inside against just outside, in background
-sigma. *Prediction:* under 0.1 sigma on every master of the full store, level-matching having left only a
-dropped frame's own gradient, about the gradient's range over the frame count. Steps above that are a
-stacking problem (no smooth surface removes a step) and are reported, not trained around.
+### The thin band's level steps, measured at G2
+
+Measured before any model. Per master, across each coverage step of the sidecar, the median of the flattened
+frame in a strip just inside against just outside, in background sigma. *Prediction:* under 0.1 sigma on every
+master of the full store, level-matching having left only a dropped frame's own gradient, about the gradient's
+range over the frame count. Steps above that are a stacking problem (no smooth surface removes a step) and are
+reported, not trained around.
+
+**RESULT 2026-10-02: refuted, and it concentrates in the non-drizzle path.** Tracked by #1163. Over the 118
+masters with at least 50 boundary pairs (the export's `ThinBandStepSigma`, thin sample minus the full-depth
+sample two away): worst-channel |step| p50 **0.14 sigma**, only **37 % under 0.1**, **25 over 0.5**, the worst
+10.0 (ZWO ASI294MM Cen A 2022-03-12), 3.9 (QHY178M Vela 2022-12-03) and 2.0 (ASI294MM Leo Triplet). Not the flip
+merge (2 of 12 merged-with-flips masters over 0.5). **22 of 61 `Float16Staged` (AHD + sigma clip) masters step
+by more than 0.5 sigma against 3 of 57 `BayerDrizzle`**, and 7 of 13 sessions with no flat against 18 of 105
+with one; the two overlap (the AHD masters hold every mono session and most of the old flat-less SharpCap ones),
+so the strategy is a lead, not yet a cause. Until #1163 says which, **G3 masks the thin band in its loss on
+any master whose measured step exceeds 0.5 sigma** (every frame file carries its depth plane), so the model is
+never taught to reproduce a step.
 
 ## 4. Model
 
@@ -324,7 +362,7 @@ convention every reference and the existing extractor share).
 | G0 | **DONE 2026-09-02.** Background-extraction Phases 1 and 2 (the classical flattener, sample-free, linear, level-preserving) with its synthetic tests; its two reasoned thresholds were measured by G1 and both are now settled (`background-extraction.md`) | done, one day | H1 prerequisite, the baseline, the fallback |
 | G1 | **DONE 2026-09-03.** Gradient-distribution report over both bakes (118 masters, 350 planes) as a sibling of `psf-noise-report.md`: `tianwen dataset gradient-report`, `stats/gradient-report.md` + `gradient-masters.jsonl` per bake. Answered H1 (see section 2) and measured both of G0's reasoned thresholds | done, a day | H1; the injection family |
 | G1b | **DONE 2026-10-02** (read below the phasing table: four of six predictions hold; the passband, not the field below 10 degrees, orders the amplitude). G1 again over the full store's 190 masters (the bakes G1 read are gone, and the store holds cameras G1 never saw, the QHY294C and SV605CC 2026 sessions among them); predictions below. Each record now carries its master's own scale, only ever a solve (this run's, else the solved WCS in the master's header; never `FOCALLEN`, nor a `PIXSCALE` our writer stamps from it) and the report bins by field width; the run started on the binary before that, and the next run gives those records their scale from the header without re-solving | ~2 h, no GPU | the injection family on today's data; the solves and covariates G2 reuses |
-| G2 | Whole-frame linear exporter (masters; then the `ExportWholeFrame` sub option) on the whole canvas with a presence plane (section 3, "Edges"), covariates joined from G1b's store, fitted coefficients and the autocrop rectangle per row; the thin band's level steps measured. Each row also carries its session's optical train and the calibration the bake recorded (the PSF store's `Calibration`), with `HasFlat` null where nothing was recorded, never false, so training reads `HasFlat == true` and the no-flat sessions stay out (section 3) | 1 to 2 days | H2, H3, H9 data |
+| G2 | **Masters DONE 2026-10-02**: `tianwen dataset gradient-export` over the re-baked store's 190 masters, 0 failed, 28 test by the bake's pinned split, 172 flat-fielded, 17 recorded with no flat, 1 unrecorded (Seagull 2022-02-05, baked before a session with no master recorded that as an empty provenance), 360 MB at 256 px (`C:/temp/e2/gradexport-full-2026-10-02`), 6 minutes at `--parallel 6` (byte-identical to one at a time). The thin band's steps refuted their prediction (section 3, #1163). Whole-frame linear exporter (masters; then the `ExportWholeFrame` sub option) on the whole canvas with a presence plane (section 3, "Edges"), covariates joined from G1b's store, fitted coefficients and the autocrop rectangle per row; the thin band's level steps measured. Each row also carries its session's optical train and the calibration the bake recorded (the PSF store's `Calibration`), with `HasFlat` null where nothing was recorded, never false, so training reads `HasFlat == true` and the no-flat sessions stay out (section 3) | 1 to 2 days | H2, H3, H9 data |
 | G3 | Airmass-pair control on the zenith-crossing sessions, no training | half a day | H7 |
 | G4 | Arm M, three seeds, masked and crop-only (H9); nebulosity strata report; edge-invariance gate; labelled comparison at full resolution on three Ha-rich masters | 6 x minutes | H2, H8, H9 |
 | G5 | Arm S vs arm M | 3 x minutes plus the sub export bake (~1 h) | H3 |
