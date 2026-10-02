@@ -968,6 +968,10 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   **A keep is chosen where it is used, after the sharpening** (#1083, `planetary-keeps`): a raw stack's best band 1 keep is 5 to 10 %,
   a sharpened one's about half the frames (through the limb's edge a third less error on every twin). Per-frequency selection gains
   little once restored, and Fourier burst accumulation's weights read each frame's own noise, so a Wiener on their transfer over-restores.
+- **A twin's blur varies over the disk only with a layer at an altitude** (#1071, `planetary-degrade --high-r0`, `PlanetaryDegrade.Layered`):
+  each field point's PSF splits into its tilt (the warp) and its tilt-removed blur, blended by tents; without the layer every frame is made
+  byte for byte as before. **A real capture's coherent quality needs the still layer to renew in place** (`--local-renew-ms`, about 200 ms):
+  no wind at the pupil gives the real capture's band 2 lag 10 (0.35).
 - **On a single 8-bit frame phase correlation places a patch 3 times worse than a plain cross-correlation** (R5: 1.11 against
   0.35 px, `AlignmentPointMatchingTests`), and every stack is worse for it. `PlanetaryStackOptions.WhitenedCorrelation` and
   `CaptureStatisticsOptions.WhitenedCorrelation` switch the global aligner and the alignment points (whitened by default until

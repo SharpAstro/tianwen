@@ -464,7 +464,7 @@ Each metric lives in Lib and is shared by the CLI verb and the stack itself (`ti
 
 #### R4 per-point quality needs a twin whose blur varies over the disk
 
-**Issue:** #1071.
+**Issue:** #1071. **Parked 2026-10-02**: the layered twin and the per-point tools are built, the calibration part way (below).
 
 `PlanetaryDegrade` applies one PSF to a whole frame, and the calibrated twin has no warp. On it, a point's quality is its frame's up to noise, and no per-point estimator can be ranked. The alignment-point stack weights each pixel by `FrameSharpnessMap`, a smoothed Sobel energy (the family that ranks frames well), and each frame by the Laplacian's score (which does not). Measuring the per-point half needs:
 - the free air at an altitude, so points a few arcseconds apart look through different parts of it, calibrated against the real capture's warp (R2: 0.787 px RMS a point, its correlation length at most 9 px);
@@ -514,6 +514,43 @@ Each metric lives in Lib and is shared by the CLI verb and the stack itself (`ti
     frame, and per-point weighting is noise.
   - The reference gain on a patch ranks a point's frames at least 0.1 above the frame's whole-disk gradient (median Spearman).
   - `FrameSharpnessMap` ranks within 0.05 of the gradient on the patch (both smoothed Sobel energy).
+
+##### R4 per-point: where it stands (2026-10-02, parked)
+
+**Parked** on 2026-10-02 for the enhanced pipeline (the user's goal that day): parts 1 and 3's tools are built, part 2's calibration is
+part way, and the claims are not yet read. Until they are, the alignment-point stack's per-point weighting is not a default.
+
+- **Part 1, the layer, done** (`planetary-degrade --high-r0 --high-altitude --high-wind --high-outer-scale --field-grid`,
+  `PlanetaryDegrade.Layered`, `SyntheticFieldFile`):
+  - Without the layer every frame is made as before, byte for byte (a 64-frame twin with every feature on, before and after).
+  - At no altitude the layered path makes the one-PSF frames up to one ADU (`ALayerEveryPointSeesAlikeMakesTheOnePsfFrames`).
+  - Two points' tilts correlate as von Karman theory says for their footprints' separation: 0.754, -0.293 and -0.082 at 6.25, 25 and
+    50 cm on a 1 m outer scale, against 0.775, -0.276 and -0.151 (`APointsTiltDecorrelatesFromAnothersAsTheirFootprintsPart`).
+  - A 3,000-frame twin takes about an hour (773 lit points a frame, 10 ms for each PSF and 8 for its blur): built where the pupil
+    transmits, its rows only transformed, each lit point's object patch transformed once a render.
+- **Part 3's tools, done** (`planetary-grade --points`, `PlanetaryPointQuality`, tested), and run only on a 64-frame smoke twin, which
+  measures nothing.
+- **Part 2, the calibration so far** (2022-09-03 Red's first 3,000 frames; one seed each, against the real capture):
+
+  | Twin | Pupil wind | Still layer renews | High layer | Band 2 reference gain, p5 to p95 over its median; lag 1, 2, 10 | Warp RMS, lag 1 | Disk's motion by the limb |
+  |---|---|---|---|---|---|---|
+  | real | | | | 0.868 to 1.103; 0.944, 0.852, 0.346 | 0.399, 0.151 | 0.583 px |
+  | one PSF | 3 m/s | never | none | 0.899 to 1.065; 0.888, 0.752, 0.097 | | 0.484 |
+  | one PSF | 6 m/s | never | none | 0.898 to 1.072; 0.781, 0.502, 0.087 | | 0.517 |
+  | one PSF | 3 m/s | 150 ms | none | 0.882 to 1.113; 0.903, 0.802, 0.322 | | 0.523 |
+  | one PSF | 3 m/s | 400 ms | none | 0.879 to 1.103; 0.924, 0.839, 0.455 | | 0.507 |
+  | layered A | 2 m/s | 200 ms | 13 cm at 10 km, 15 m/s | 0.901 to 1.094; 0.916, 0.838, 0.363 | 0.428, 0.069 | 0.519 |
+  | layered B | 2 m/s | 200 ms | 10 cm at 10 km, 10 m/s | 0.906 to 1.086; 0.912, 0.831, 0.353 | 0.434, 0.107 | 0.521 |
+
+  - **No wind gives the real quality's coherence; the still layer renewing in place does** (`--local-renew-ms`, about 200 ms). Frozen
+    flow at the pupil leaves band 2's lag 10 near 0.09 at 3 or 6 m/s against the real 0.35, and widens the coarse bands' spread too
+    little; renewing the layer at the telescope over 150 to 400 ms brackets both, with the frame-to-frame flux unchanged.
+  - **The high layer's warp turns over faster than the real one** at 10 to 15 m/s (lag 1 0.07 to 0.11 against 0.151), at about the
+    real RMS (0.43 against 0.40); the disk moves 11 % too little in every trial.
+  - Both layered twins match the limb's widths within 1.5 %, and the halo and sky terms as R2's twin did (the sky's finest bands and the
+    outer halo stay R2's open items).
+  - Two more trials were running when it was parked (the high layer 12 cm at 6 and 4 m/s, the pupil's outer scale 8 m); their logs are
+    `layered/cal/trialC.log` and `trialD.log` in the planetary scratch. Then three seeds of the closest, and part 3 on it.
 
 #### R4 keeps are scored after restoration
 
@@ -1967,7 +2004,8 @@ seconds a run) and `planetary-score`, the best 150 of each capture's first 3,000
    - the ASI462MC Jupiter and Saturn of 2021-12-16 (raw);
    - the 2022-10-09 Jupiter, for its AutoStakkert and WinJUPOS references.
 3. ~~The scratch root~~ **answered 2026-09-28:** `D:/Astro-Dataset/planetary`, keeping 109 GB free on `D:`. The 7z archives are unpacked one member at a time and cropped (R0). **2026-09-29:** the originals are kept, and the crops are working copies on the SSD.
-4. **May the synthetic capture choose a parameter measured on the disk alone, while its sky's finest bands stay unmatched?** R2's kill line fired on the sky ring's bands 1 to 3 (1.4 to 1.5 times the real, beyond their sampling noise) and on nothing measured on the disk (R2 part 2, the verdict). Every parameter R3 to R8 names is measured on the disk. Until this is answered, R3 builds its metrics on the synthetic capture but chooses nothing on it. **R4 asks it first:** which estimator replaces the Laplacian, and at what keep. On the twin the gradient, fft3 and the reference gain rank frames at +0.87 to +0.99 against the Laplacian's +0.19, and on the real capture the same three agree with each other truth-free while the Laplacian agrees with none, so the estimator's choice does not rest on the twin alone; the keep does.
+4. ~~May the synthetic capture choose a parameter measured on the disk alone, while its sky's finest bands stay unmatched?~~ **Answered yes
+   2026-10-02**, with the goal of adopting the measured defaults (#1072 is no longer blocked). The question as it stood: R2's kill line fired on the sky ring's bands 1 to 3 (1.4 to 1.5 times the real, beyond their sampling noise) and on nothing measured on the disk (R2 part 2, the verdict). Every parameter R3 to R8 names is measured on the disk. Until this is answered, R3 builds its metrics on the synthetic capture but chooses nothing on it. **R4 asks it first:** which estimator replaces the Laplacian, and at what keep. On the twin the gradient, fft3 and the reference gain rank frames at +0.87 to +0.99 against the Laplacian's +0.19, and on the real capture the same three agree with each other truth-free while the Laplacian agrees with none, so the estimator's choice does not rest on the twin alone; the keep does.
 
 ## Sources
 
