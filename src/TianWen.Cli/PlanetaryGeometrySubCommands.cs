@@ -274,6 +274,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         var localR0Opt = new Option<double?>("--local-r0") { Description = "A layer of turbulence at the telescope (tube, mirror), its Fried parameter at 500 nm, cm (none by default)." };
         var localOuterScaleOpt = new Option<double>("--local-outer-scale") { Description = "The local layer's outer scale, m.", DefaultValueFactory = _ => 0.25 };
         var localWindOpt = new Option<double>("--local-wind") { Description = "The local layer's drift across the pupil, m/s.", DefaultValueFactory = _ => 1 };
+        var localRenewOpt = new Option<double?>("--local-renew-ms") { Description = "The time over which the local layer renews itself in place, ms (its air boiling, R4 per-point); by default only as its drift brings the screen round." };
         var defocusOpt = new Option<double>("--defocus-nm") { Description = "The telescope's own defocus, RMS wavefront error in nm.", DefaultValueFactory = _ => 0 };
         var exposureOpt = new Option<double>("--exposure-ms") { Description = "Each frame's exposure, ms, over which the wind moves the air (0 for an instant).", DefaultValueFactory = _ => 0 };
         var gainOpt = new Option<double?>("--gain") { Description = "Electrons an ADU (else from the finest band's noise on the disk)." };
@@ -308,7 +309,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             "A synthetic capture from a global map with a real capture's own seeing, motion and camera (R2): measure the real one, make the synthetic one, measure it the same way, and compare.")
         {
             Arguments = { inputArg },
-            Options = { mapOpt, outputOpt, planetOpt, kOpt, telescopeOpt, wavelengthOpt, r0Opt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, localR0Opt, localOuterScaleOpt, localWindOpt, scatterOpt, scatterCoreOpt, realStatisticsOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, replayOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, plainOpt, framesOpt, bayerMapsOpt, bayerWavelengthsOpt, bayerKOpt, truthUpsampleOpt, spanOpt, truthAtOpt, psfTruthOpt, moonsOpt, moonLevelOpt, highR0Opt, highAltitudeOpt, highWindOpt, highWindAngleOpt, highOuterScaleOpt, fieldGridOpt },
+            Options = { mapOpt, outputOpt, planetOpt, kOpt, telescopeOpt, wavelengthOpt, r0Opt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, localR0Opt, localOuterScaleOpt, localWindOpt, localRenewOpt, scatterOpt, scatterCoreOpt, realStatisticsOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, replayOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, plainOpt, framesOpt, bayerMapsOpt, bayerWavelengthsOpt, bayerKOpt, truthUpsampleOpt, spanOpt, truthAtOpt, psfTruthOpt, moonsOpt, moonLevelOpt, highR0Opt, highAltitudeOpt, highWindOpt, highWindAngleOpt, highOuterScaleOpt, fieldGridOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -405,6 +406,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                 LocalR0M = parseResult.GetValue(localR0Opt) / 100 ?? double.PositiveInfinity,
                 LocalOuterScaleM = parseResult.GetValue(localOuterScaleOpt),
                 LocalWindMps = parseResult.GetValue(localWindOpt),
+                LocalRenewSeconds = parseResult.GetValue(localRenewOpt) / 1000,
                 ScatterFraction = parseResult.GetValue(scatterOpt),
                 ScatterCoreArcsec = parseResult.GetValue(scatterCoreOpt),
                 MinnaertK = k,
@@ -434,7 +436,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             };
             string Describe(DegradeOptions o, DiskPlacement at, double pixelScale) => string.Create(CultureInfo.InvariantCulture,
                 $"disk at {at.CenterX:0.00}, {at.CenterY:0.00}, R {at.EquatorialRadius:0.00} px ({pixelScale:0.0000}\"/px), north {at.NorthAngleDeg:0.0} deg; " +
-                $"r0 {o.R0M * 100:0.0} cm at 500 nm, outer scale {(double.IsPositiveInfinity(o.OuterScaleM) ? "none" : $"{o.OuterScaleM:0.#} m")}, wind {o.WindMps:0} m/s, exposure {o.ExposureSeconds * 1000:0.#} ms, defocus {o.DefocusNm:0} nm RMS, {(double.IsFinite(o.LocalR0M) ? $"a local layer of r0 {o.LocalR0M * 100:0.0} cm, outer scale {o.LocalOuterScaleM:0.00} m, drifting {o.LocalWindMps:0.#} m/s, " : "")}{(o.ScatterFraction > 0 ? $"{o.ScatterFraction * 100:0.##} % scattered with a core of {o.ScatterCoreArcsec:0.#}\", " : "")}{o.WavelengthM * 1e9:0} nm, oversampled {PlanetaryDegrade.OversampleFor(pixelScale, pupil.DiameterM, o.WavelengthM)}x; " +
+                $"r0 {o.R0M * 100:0.0} cm at 500 nm, outer scale {(double.IsPositiveInfinity(o.OuterScaleM) ? "none" : $"{o.OuterScaleM:0.#} m")}, wind {o.WindMps:0} m/s, exposure {o.ExposureSeconds * 1000:0.#} ms, defocus {o.DefocusNm:0} nm RMS, {(double.IsFinite(o.LocalR0M) ? $"a local layer of r0 {o.LocalR0M * 100:0.0} cm, outer scale {o.LocalOuterScaleM:0.00} m, drifting {o.LocalWindMps:0.#} m/s{(o.LocalRenewSeconds is { } renew ? $", renewing over {renew * 1000:0} ms" : "")}, " : "")}{(o.ScatterFraction > 0 ? $"{o.ScatterFraction * 100:0.##} % scattered with a core of {o.ScatterCoreArcsec:0.#}\", " : "")}{o.WavelengthM * 1e9:0} nm, oversampled {PlanetaryDegrade.OversampleFor(pixelScale, pupil.DiameterM, o.WavelengthM)}x; " +
                 $"camera offset {o.OffsetAdu:0.00}, read noise {o.ReadNoiseAdu:0.000} ADU, {o.ElectronsPerAdu:0.0} e-/ADU, disk {o.DiskLevelAdu:0.0} ADU; {DescribeWarp(o)}" +
                 $"{(o.KeepScreenTilt ? "the screen's tilt on the mount's drift" : "the real shifts replayed")}");
             // The warp: the layer at an altitude's, which makes it from each point's tilt, or the one asked for.
