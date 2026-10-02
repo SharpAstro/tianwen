@@ -168,6 +168,27 @@ public class PlanetaryMetricsTests
     }
 
     [Fact]
+    public void TheLimbsTroughIsTheDeepestFallBelowTheReferenceJustOutsideTheLimb()
+    {
+        // #1171: a dip of 0.05 laid 1.05 radii out reads 0.05 below the plane it was cut from, and nothing below itself.
+        var soft = Blur(Blur(Banded(), 1.0), 1.0);
+        var dipped = new float[soft.Length];
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                var d = (Disk.RadiiAt(x, y) - 1.05) * Disk.Radius;
+                dipped[(y * Size) + x] = soft[(y * Size) + x] - (float)(0.05 * Math.Exp(-(d * d) / 2));
+            }
+        }
+        var trough = PlanetaryMetrics.LimbTrough(dipped, soft, Size, Size, Disk);
+        TestContext.Current.TestOutputHelper?.WriteLine($"a dip of 0.05 at 1.05 radii reads {trough:0.0000}");
+        trough.ShouldBe(0.05, 0.01);
+        PlanetaryMetrics.LimbTrough(soft, soft, Size, Size, Disk).ShouldBe(0);
+        PlanetaryMetrics.LimbTrough(soft, dipped, Size, Size, Disk).ShouldBe(0, "a plane above its reference has no trough");
+    }
+
+    [Fact]
     public void PowerPastTheCutoffIsWhatNoiseAddsAndNothingPastNyquist()
     {
         // A blurred disk holds little power past 0.35 cycles a pixel; noise adds there. Past the grid's corner there is nothing

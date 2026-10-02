@@ -876,6 +876,11 @@ at the same keeps on the stacker's own stack. A second run of `planetary-keeps` 
 - **(c) holds: 3x adds nothing past the sensor grid.** Against the sensor-grid drizzle resampled to 3x it loses bands 1 and 2 (band 1's error 1.02 to 1.25, more error than the band holds signal) and gains 0.003 to 0.005 in band 3, which is the comparison's own Lanczos-3 resampling (its transfer falls toward 0.9 at the frequencies that band covers), not detail. It was compared with the resampled sensor grid, not with 1.5x.
 - **The split-half detail (T2) of the real capture is not reported**: R3 found the halves' agreement ranks noise, never the blur, so it cannot judge a stack until R7's measured PSF.
 - **What it asks of the stacker, the user's call** (#1091): Bayer drizzle to the sensor grid for a colour capture wins the finest band a colour plane cannot sample and loses a little below it to a Lanczos-3 demosaic, so the choice is tied to #1086's Lanczos-3. A smaller drop (pixfrac under 1), which should keep drizzle's band 1 without its bilinear blur below, is measured next on the same twin (#1092).
+- **Judged once sharpened, the demosaic stays the colour default** (2026-10-03, #1159's pre-registered judgement on the same twin, each master sharpened as the pipeline sharpens; in full in "A colour master's finest band", below).
+  - **The first run favoured drizzle**, by summed error over bands 1 to 4 and the three colours: 5.79 and 4.58 against the demosaic's 6.31 and 7.05.
+  - **That margin was band 1's alone**, and band 1 was broken in both arms: its derived gain (12 to 20) left it worse than the unsharpened stack in every colour, and lifted the CFA's residue into a 2-pixel lattice, which drizzle shows as much as the demosaic does.
+  - **With the finest band kept as stacked on a colour master (#1187)**, both arms improve by a third, and drizzle no longer wins on both seeds: 4.49 against the demosaic's 4.37 on seed 1, 4.45 against 4.67 on seed 2.
+  - **R5a's band 1 advantage does not survive into the sharpened master.** The default stays the Lanczos-3 demosaic; `planetary-stack --drizzle 1` remains for anyone who wants it.
 
 ## R6 De-rotation
 
@@ -2480,6 +2485,56 @@ seed, demosaiced and drizzled alike, and shows no lattice by eye on Uranus-C and
   drizzle no longer wins on both seeds. #1091 stays the owner's call, on this evidence.
 - **The live view** takes the first channel's gains (`PlanetaryBestStack.DeriveGains`), now with band 1 held, so its dials and the
   batch agree on a colour capture as before.
+
+### The trough at the limb
+
+**Issue:** #1171.
+
+The bounded fix leaves a dark trough just outside the limb: the floor holds the sharpening's first negative lobe at the sky, below
+the glow the stack has there. Stretched hard (black at the sky, white at 3 % of the disk), it shows on 2022-09-03 Red as a black
+crescent along the lower left.
+
+**The candidates and the rule, set down before they ran** (2026-10-03, `PlanetaryLimbFix`):
+- **bounded**, as today;
+- **held outside**: outside the limb, the stack as it is;
+- **model floor**: bounded, and outside the limb at or above the stack times its glow share, the planet's limb model through the
+  pupil alone over the same model through the stack's blur (`PlanetaryDering.GlowShare`): the glow the truth keeps there;
+- **blended**: bounded at the limb, blended to the stack by 1.1 radii.
+
+All four leave moons free and hold the disk at the sky inside the limb.
+
+The rule: the default becomes the candidate with the least limb profile error summed over the three twins, among those whose band error
+summed stays within 2 % of bounded's. Bounded stays if none beats it. The winner is then seen on Red, its trough lessened and no ring
+back.
+
+A truth-free reading of the trough is `PlanetaryMetrics.LimbTrough`: the profile's deepest fall below the stack between 1.0 and 1.1
+radii. It is used on Red only if it ranks the candidates as the fall below the truth does, with a Spearman of at least 0.8 on each twin.
+
+**Read** (`planetary-sharpen --fix outside --truth`, the twins' masters #1185 scored, 2022-09-03 Red's):
+
+| Candidate | Band error, summed | Limb profile error, summed | Trough below the truth (calibrated / without its still layer / warped) | Red: trough below the stack |
+|---|---|---|---|---|
+| **bounded** | **1.939** | **0.0252** | 0.0000 / 0.0020 / 0.0004 | 0.0715 |
+| held outside | 2.089 | 0.0672 | 0 / 0 / 0 | 0.0367 |
+| model floor | 1.940 | 0.0254 | 0 / 0.0009 / 0 | 0.0666 |
+| blended | 1.955 | 0.0375 | 0 / 0 / 0 | 0.0667 |
+
+- **Bounded stays.** It has the least limb profile error among the candidates within the band error's 2 %. Held outside is 7.7 % over
+  that band, and blended's limb profile error is 49 % higher.
+- **On the twins bounded has no trough against the truth** (0.0020 of the disk at most). What reads as a trough below the stack is the
+  stack's own seeing glow, taken back inward where the truth has none.
+- **The truth-free reading fails R3's rule** (Spearman -0.40, 1.00 and 0.80 on the three twins): it cannot tell a trough from the glow a
+  sharpening rightly takes back, so it judges nothing on Red.
+- **By eye on Red** (`pipeline/trough/red-trough.png` in the scratch): the crescent is one-sided, along the axis where R7a found Red's
+  blur elongated (the twins' kernels are round). So it is this capture's limb misfit, not the bounded fix's.
+  - Model floor turns it grey.
+  - Blended leaves a thin arc.
+  - Held outside removes it, at the twins' 7.7 %.
+- **Model floor ties bounded on the twins** (band +0.05 %, limb profile +0.8 %) and lightens Red's crescent. Taking it would be a choice
+  against the rule, as bounded's own was (#1168).
+- **The owner's call (2026-10-03): chase the cause first, bounded meanwhile.** The crescent's one-sidedness points at the limb fit:
+  a round blur model set against a blur elongated along one axis misplaces the outline on that side, and the bound is drawn at that
+  outline. #1171 stays open for it.
 
 ## R9 A learned stage, only if the measurements say so
 

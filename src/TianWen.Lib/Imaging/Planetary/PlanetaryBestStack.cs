@@ -240,6 +240,9 @@ public static class PlanetaryBestStack
         PlanetaryLimbFix.Floored => "floored at the sky",
         PlanetaryLimbFix.Feathered => "feathered at the limb",
         PlanetaryLimbFix.Bounded => "bounded by the stack outside the limb but for its moons",
+        PlanetaryLimbFix.HeldOutside => "the stack as it is outside the limb but for its moons",
+        PlanetaryLimbFix.ModelFloor => "bounded outside the limb, at or above the glow the planet's model keeps",
+        PlanetaryLimbFix.Blended => "bounded at the limb, blended to the stack by 1.1 radii",
         _ => "plain",
     };
 

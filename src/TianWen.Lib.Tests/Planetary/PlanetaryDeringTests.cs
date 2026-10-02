@@ -171,6 +171,46 @@ public class PlanetaryDeringTests
     }
 
     [Fact]
+    public void BoundedsSuccessorsPutTheirOwnLightOutsideTheLimbAndLeaveTheDiskAlone()
+    {
+        // #1171's three candidates against bounded's trough: inside the limb each is the sharpened plane held at the sky; outside it, the
+        // stack as it is, bounded but at or above the stack times its glow share, or bounded blended to the stack by 1.1 radii.
+        var blurred = PlanetaryInverse.Apply(SharpDisk(), Size, Size, f => Gaussian(1.6, f));
+        var sharpened = PlanetaryDering.Sharpen(blurred, Size, Size, Strong);
+        var share = Enumerable.Repeat(0.5f, Size * Size).ToArray();
+        var held = PlanetaryDering.Outside(sharpened, blurred, Size, Size, Disk, PlanetaryDering.OutsideLimb.Stack);
+        var floored = PlanetaryDering.Outside(sharpened, blurred, Size, Size, Disk, PlanetaryDering.OutsideLimb.ModelFloor, share);
+        var blended = PlanetaryDering.Outside(sharpened, blurred, Size, Size, Disk, PlanetaryDering.OutsideLimb.Blended);
+        var bounded = PlanetaryDering.Bounded(sharpened, blurred, Size, Size, Disk);
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                var (i, r) = ((y * Size) + x, Disk.RadiiAt(x, y));
+                if (r <= 1)
+                {
+                    held[i].ShouldBe(Math.Max(sharpened[i], 0f));
+                    floored[i].ShouldBe(Math.Max(sharpened[i], 0f));
+                    blended[i].ShouldBe(Math.Max(sharpened[i], 0f));
+                    continue;
+                }
+                var stack = Math.Max(blurred[i], 0f);
+                held[i].ShouldBe(blurred[i]);
+                floored[i].ShouldBeGreaterThanOrEqualTo(0.5f * stack - 1e-7f);
+                floored[i].ShouldBeLessThanOrEqualTo(stack + 1e-7f);
+                if (r >= 1.1)
+                {
+                    blended[i].ShouldBe(stack, 1e-6f);
+                }
+                else
+                {
+                    blended[i].ShouldBeInRange(Math.Min(bounded[i], stack) - 1e-6f, Math.Max(bounded[i], stack) + 1e-6f);
+                }
+            }
+        }
+    }
+
+    [Fact]
     public void SmoothingAveragesTheRingsThatHoldAReading()
     {
         var noisy = new RadialTransfer([1.0, 0.9, 1.1, 0.7, 0.9, 0.5, 0.7, 0, 0], 16);

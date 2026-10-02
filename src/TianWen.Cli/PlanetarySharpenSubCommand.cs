@@ -26,7 +26,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var planetOpt = new Option<string?>("--planet") { Description = "jupiter or saturn; read off the file's name when not given." };
         var utcOpt = new Option<string?>("--utc") { Description = "The instant the master shows the planet at (ISO 8601, UTC); its own DATE-OBS and EXPTIME's middle when not given, else the truth's." };
         var wavelengthOpt = new Option<string?>("--wavelength") { Description = "The filter's effective wavelength, nm, a comma list for a colour master's channels (550 when not given)." };
-        var fixOpt = new Option<string>("--fix") { Description = "How the limb is kept from ringing: bounded (the default: floored, and never brighter than the stack outside the limb but for its moons), floored, limb (the limb as its own channel), feathered, plain, or all to compare them.", DefaultValueFactory = _ => "bounded" };
+        var fixOpt = new Option<string>("--fix") { Description = "How the limb is kept from ringing: bounded (the default: floored, and never brighter than the stack outside the limb but for its moons), floored, limb (the limb as its own channel), feathered, plain, heldoutside, modelfloor or blended (#1171's candidates against bounded's trough), all to compare the first five, or outside to compare bounded with #1171's.", DefaultValueFactory = _ => "bounded" };
         var truthOpt = new Option<string?>("--truth") { Description = "A synthetic capture's truth (planetary-degrade's .truth.fits): every sharpening scored against it." };
         var outputOpt = new Option<string?>("--output", "-o") { Description = "Where the sharpened masters go (master_*_sharpened[_fix].fits); the master's folder when not given." };
         var noWriteOpt = new Option<bool>("--no-write") { Description = "Score only, write nothing." };
@@ -88,6 +88,11 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                     "bounded" => [PlanetaryLimbFix.Bounded],
                     "feathered" => [PlanetaryLimbFix.Feathered],
                     "limb" => [PlanetaryLimbFix.LimbChannel],
+                    "heldoutside" => [PlanetaryLimbFix.HeldOutside],
+                    "modelfloor" => [PlanetaryLimbFix.ModelFloor],
+                    "blended" => [PlanetaryLimbFix.Blended],
+                    // #1171's candidates against the trough bounded leaves at the limb.
+                    "outside" => [PlanetaryLimbFix.Bounded, PlanetaryLimbFix.HeldOutside, PlanetaryLimbFix.ModelFloor, PlanetaryLimbFix.Blended],
                     _ => [],
                 };
                 if (fixes.Length == 0)
@@ -153,11 +158,11 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                             $"[planetary] {what}: gains {string.Join(", ", result.Gains.Select(g => g.ToString("0.00", inv)))}; the limb's edge at 0.1 and 0.3 cycles a pixel {result.EdgeAtTenth:0.000}, {result.EdgeAtThreeTenths:0.000}"));
                         if (truthPath is not null)
                         {
-                            PlanetaryMasterScore.AgainstTruth(consoleHost, result.Sharpened, truthPath, body, what);
+                            PlanetaryMasterScore.AgainstTruth(consoleHost, result.Sharpened, truthPath, body, what, master);
                         }
                         else
                         {
-                            PlanetaryMasterScore.Undershoot(consoleHost, result.Sharpened, body, instant, what);
+                            PlanetaryMasterScore.Undershoot(consoleHost, result.Sharpened, body, instant, what, master);
                         }
                         if (parseResult.GetValue(slidersOpt) && result.Derived && !result.Gains.IsDefaultOrEmpty)
                         {

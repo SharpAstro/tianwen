@@ -297,6 +297,25 @@ public static class PlanetaryMetrics
     }
 
     /// <summary>
+    /// The limb's trough (#1171): how far <paramref name="plane"/>'s azimuthal profile falls below <paramref name="reference"/>'s between
+    /// 1.0 and 1.1 radii at most, zero where it never does. Against a truth, a sharpening dark just outside the limb; against the stack it
+    /// was sharpened from, the truth-free reading, which also counts the glow a sharpening rightly takes back inward.
+    /// </summary>
+    public static double LimbTrough(ReadOnlySpan<float> plane, ReadOnlySpan<float> reference, int width, int height, MetricDisk disk)
+    {
+        var (p, r) = (Profile(plane, width, height, disk, 1.0, 1.1), Profile(reference, width, height, disk, 1.0, 1.1));
+        var deepest = 0.0;
+        for (var i = 0; i < Math.Min(p.Length, r.Length); i++)
+        {
+            if (double.IsFinite(p[i]) && double.IsFinite(r[i]))
+            {
+                deepest = Math.Max(deepest, r[i] - p[i]);
+            }
+        }
+        return deepest;
+    }
+
+    /// <summary>
     /// The limb's rebound: the most <paramref name="plane"/>'s azimuthal profile (normalised, the sky zero and the disk one) climbs back
     /// above its own running minimum going out from 1.0 to 1.3 radii. A planet's profile only falls outside its limb (the glow of its
     /// diffraction and its blur), a stack's with it, so a rise there is a ring a sharpening put in (#1168); zero on a profile that never

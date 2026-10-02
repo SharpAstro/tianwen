@@ -23,7 +23,7 @@ internal static class PlanetaryMasterScore
     /// <paramref name="master"/> against <paramref name="truthPath"/> (a colour master against its truths .r, .g, .b beside it): its own limb
     /// fitted and moved onto the truth's disk, then the fidelity a band at a time and the undershoot, printed as <paramref name="what"/>.
     /// </summary>
-    public static void AgainstTruth(IConsoleHost consoleHost, Image master, string truthPath, CatalogIndex planet, string what)
+    public static void AgainstTruth(IConsoleHost consoleHost, Image master, string truthPath, CatalogIndex planet, string what, Image? stack = null)
     {
         var inv = CultureInfo.InvariantCulture;
         var colour = master.ChannelCount == 3;
@@ -55,6 +55,28 @@ internal static class PlanetaryMasterScore
                 var bands = PlanetaryMetrics.Fidelity(fitted.Plane, reference, plane.Width, plane.Height, disk);
                 consoleHost.WriteScrollable(string.Create(inv,
                     $"[planetary] {label} against the truth: transfer {string.Join(", ", bands.Select(b => b.Transfer.ToString("0.000", inv)))}; error {string.Join(", ", bands.Select(b => b.Error.ToString("0.000", inv)))} (bands 1 to 4 {bands.Take(4).Sum(b => b.Error):0.000}); undershoot {PlanetaryMetrics.LimbUndershoot(fitted.Plane, plane.Width, plane.Height, disk):0.0000}; limb profile error {PlanetaryMetrics.LimbProfileError(fitted.Plane, reference, plane.Width, plane.Height, disk):0.0000}; rebound {PlanetaryMetrics.LimbRebound(fitted.Plane, plane.Width, plane.Height, disk):0.0000}"));
+                // The limb's trough (#1171), against the truth and, given the stack it was sharpened from, against that: the truth-free twin.
+                var trough = PlanetaryMetrics.LimbTrough(fitted.Plane, reference, plane.Width, plane.Height, disk);
+                var againstStack = double.NaN;
+                if (stack is not null)
+                {
+                    var stackPlane = colour ? stack.ChannelImage(channel) : stack;
+                    try
+                    {
+                        if (PlanetaryMeasureSubCommand.Register(stackPlane, limbOptions, disk) is { } stackFitted)
+                        {
+                            againstStack = PlanetaryMetrics.LimbTrough(fitted.Plane, stackFitted.Plane, plane.Width, plane.Height, disk);
+                        }
+                    }
+                    finally
+                    {
+                        if (colour)
+                        {
+                            stackPlane.Release();
+                        }
+                    }
+                }
+                consoleHost.WriteScrollable(string.Create(inv, $"[planetary] {label}: the limb's trough below the truth {trough:0.0000}, below the stack {againstStack:0.0000}"));
                 // The moons where the truth has them (#1181): each one's peak and width here against the truth's.
                 foreach (var (x, y) in PlanetaryMetrics.CompactSources(reference, plane.Width, plane.Height, disk))
                 {
@@ -75,7 +97,7 @@ internal static class PlanetaryMasterScore
     }
 
     /// <summary><paramref name="master"/>'s limb undershoot below the sky, each channel on the disk fitted to the whole master, printed as <paramref name="what"/>.</summary>
-    public static void Undershoot(IConsoleHost consoleHost, Image master, CatalogIndex planet, DateTimeOffset when, string what)
+    public static void Undershoot(IConsoleHost consoleHost, Image master, CatalogIndex planet, DateTimeOffset when, string what, Image? stack = null)
     {
         var inv = CultureInfo.InvariantCulture;
         var limbOptions = PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(planet, when));
@@ -90,6 +112,13 @@ internal static class PlanetaryMasterScore
         var rebounds = planes.Select(p => PlanetaryMetrics.LimbRebound(p, master.Width, master.Height, disk));
         consoleHost.WriteScrollable(string.Create(inv,
             $"[planetary] {what}: limb undershoot {string.Join(", ", undershoots.Select(u => u.ToString("0.0000", inv)))} of the disk; rebound outside the limb {string.Join(", ", rebounds.Select(u => u.ToString("0.0000", inv)))}"));
+        if (stack is not null && stack.Width == master.Width && stack.Height == master.Height && stack.ChannelCount == master.ChannelCount)
+        {
+            // The limb's trough below the stack it was sharpened from (#1171), the same disk, pixel for pixel.
+            var troughs = Enumerable.Range(0, master.ChannelCount).Select(c => PlanetaryMetrics.LimbTrough(planes[c],
+                PlanetaryMetrics.Normalise(stack.GetChannelSpan(c), master.Width, master.Height, disk), master.Width, master.Height, disk));
+            consoleHost.WriteScrollable(string.Create(inv, $"[planetary] {what}: the limb's trough below the stack {string.Join(", ", troughs.Select(u => u.ToString("0.0000", inv)))}"));
+        }
         // The moons this plane shows (#1181): each one's peak and width, the first channel's.
         foreach (var (x, y) in PlanetaryMetrics.CompactSources(planes[0], master.Width, master.Height, disk))
         {
