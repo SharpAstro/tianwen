@@ -119,8 +119,10 @@ public sealed class DatasetGradientFrameExporterTests(ITestOutputHelper output) 
         depth[inStrip].ShouldBe(12f / 20f, 1e-3f);
     }
 
-    [Fact(Timeout = 60_000)]
-    public async Task ARunSplitsByTheBakesOwnPinnedFileAndResumes()
+    [Theory(Timeout = 60_000)]
+    [InlineData(1)]
+    [InlineData(4)]
+    public async Task ARunSplitsByTheBakesOwnPinnedFileAndResumes(int parallelism)
     {
         var ct = TestContext.Current.CancellationToken;
         var (night, _) = WriteMaster("Cam_Filter_Field_2026-01-01_Cam_Field", 0f);
@@ -144,7 +146,7 @@ public sealed class DatasetGradientFrameExporterTests(ITestOutputHelper output) 
 
         var outDir = Path.Combine(_dir, "export");
         var files = ImmutableArray.Create(night, side, other, orphan, IntegrationFitsWriter.CoveragePathFor(night));
-        var options = new DatasetGradientFrameExporter.ExportOptions(files, ledgerPath, pinned, GradientStorePath: null, psfPath, outDir, Size);
+        var options = new DatasetGradientFrameExporter.ExportOptions(files, ledgerPath, pinned, GradientStorePath: null, psfPath, outDir, Size, Parallelism: parallelism);
         var result = await DatasetGradientFrameExporter.RunAsync(options, cancellationToken: ct);
 
         result.Exported.ShouldBe(4);

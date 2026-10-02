@@ -872,12 +872,17 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             Description = "Export only masters whose file name contains one of these (ordinal, case-insensitive); repeatable.",
             AllowMultipleArgumentsPerToken = true,
         };
+        var parallelOpt = new Option<int>("--parallel")
+        {
+            Description = "Masters exported at once (default: a quarter of the cores). Each holds about 2 GB on a 26 MP colour master, so memory bounds it.",
+            DefaultValueFactory = _ => Math.Max(1, Environment.ProcessorCount / 4),
+        };
 
         var command = new Command("gradient-export",
             "Reduce every retained master to the gradient model's square, linear and on the whole canvas, with a " +
             "presence plane, the classical surface, the coverage depth and G1's covariates (G2).")
         {
-            Options = { bakeOpt, outOpt, sizeOpt, storeOpt, forceOpt, onlyOpt },
+            Options = { bakeOpt, outOpt, sizeOpt, storeOpt, forceOpt, onlyOpt, parallelOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -908,7 +913,8 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                     Path.Combine(bake, "stats", DatasetPsfStore.FileName),
                     parseResult.Required(outOpt),
                     parseResult.GetValue(sizeOpt),
-                    parseResult.GetValue(forceOpt)),
+                    parseResult.GetValue(forceOpt),
+                    parseResult.GetValue(parallelOpt)),
                 logger,
                 progress: new Progress<string>(line => consoleHost.WriteScrollable(line)),
                 cancellationToken: ct);
