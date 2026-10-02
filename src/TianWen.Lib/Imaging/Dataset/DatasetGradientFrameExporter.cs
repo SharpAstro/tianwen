@@ -86,9 +86,11 @@ public static class DatasetGradientFrameExporter
     /// <param name="OutputDir">Root of the export: the manifest and <see cref="FramesDirectoryName"/>.</param>
     /// <param name="Size">The model's square input.</param>
     /// <param name="Force">Re-export masters already in the manifest.</param>
+    /// <param name="Parallelism">Masters exported at once; each holds its master, a filled copy and the fit (about 2 GB on
+    /// a 26 MP colour master), so memory, not cores, is the bound.</param>
     public sealed record ExportOptions(
         ImmutableArray<string> MasterFiles, string SessionLedgerPath, string TestSessionsPath, string? GradientStorePath,
-        string? PsfStorePath, string OutputDir, int Size = DefaultSize, bool Force = false);
+        string? PsfStorePath, string OutputDir, int Size = DefaultSize, bool Force = false, int Parallelism = 1);
 
     /// <summary>Outcome of an export.</summary>
     /// <param name="NoFlat">Exported masters whose session the bake calibrated with no flat.</param>
@@ -201,18 +203,23 @@ public static class DatasetGradientFrameExporter
             .Where(static path => !IntegrationFitsWriter.IsMapSidecarPath(path))
             .ToImmutableArray()
             .Sort(StringComparer.OrdinalIgnoreCase);
-        int exported = 0, skipped = 0, failed = 0, test = 0, unknown = 0, noFlat = 0, flatUnknown = 0, index = 0;
-        foreach (var path in files)
+        int exported = 0, skipped = 0, failed = 0, test = 0, unknown = 0, noFlat = 0, flatUnknown = 0;
+        // Masters run Parallelism at a time: one master's work is mostly serial, so a single pass used 0.9 of
+        // sixteen cores (G1b, 2026-10-02). A row is one manifest line, so its append takes the gate, or two
+        // racing appends could interleave; everything else a master touches is its own.
+        using var manifestGate = new SemaphoreSlim(1, 1);
+        var work = files.Select(static (path, i) => (Path: path, Index: i + 1));
+        var parallel = new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, options.Parallelism), CancellationToken = cancellationToken };
+        await Parallel.ForEachAsync(work, parallel, async (item, ct) =>
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            index++;
+            var (path, index) = item;
             var key = Path.GetFileName(path);
             if (!options.Force && done.TryGetValue(key, out var existing) && File.Exists(Path.Combine(options.OutputDir, existing.File))
                 && existing.MasterWrittenUtc == DatasetGradientReport.MasterGradient.WrittenUtcOf(path))
             {
-                skipped++;
+                Interlocked.Increment(ref skipped);
                 progress?.Report($"[gradient-export] {index}/{files.Length} in manifest, skipped: {key}");
-                continue;
+                return;
             }
 
             var sessionId = SessionIdOf(Path.GetFileNameWithoutExtension(path), sessionByStem);
@@ -223,14 +230,34 @@ public static class DatasetGradientFrameExporter
             {
                 covariates.TryGetValue(key, out var record);
                 psfBySession.TryGetValue(sessionId, out var psf);
-                var row = await ExportMasterAsync(path, sessionId, split, record, psf, options.OutputDir, options.Size, cancellationToken)
+                var row = await ExportMasterAsync(path, sessionId, split, record, psf, options.OutputDir, options.Size, ct)
                     with { MasterWrittenUtc = DatasetGradientReport.MasterGradient.WrittenUtcOf(path) };
-                await JsonLinesFile.AppendRecordAsync(manifestPath, row, DatasetGradientFrameJsonContext.Default.FrameRow, cancellationToken);
-                exported++;
-                test += split == "test" ? 1 : 0;
-                unknown += split == UnknownSplit ? 1 : 0;
-                noFlat += row.HasFlat == false ? 1 : 0;
-                flatUnknown += row.HasFlat is null ? 1 : 0;
+                await manifestGate.WaitAsync(ct);
+                try
+                {
+                    await JsonLinesFile.AppendRecordAsync(manifestPath, row, DatasetGradientFrameJsonContext.Default.FrameRow, ct);
+                }
+                finally
+                {
+                    manifestGate.Release();
+                }
+                Interlocked.Increment(ref exported);
+                if (split == "test")
+                {
+                    Interlocked.Increment(ref test);
+                }
+                if (split == UnknownSplit)
+                {
+                    Interlocked.Increment(ref unknown);
+                }
+                if (row.HasFlat == false)
+                {
+                    Interlocked.Increment(ref noFlat);
+                }
+                if (row.HasFlat is null)
+                {
+                    Interlocked.Increment(ref flatUnknown);
+                }
                 var flat = row.HasFlat switch { true => "flat", false => "NO FLAT", null => "flat unknown" };
                 progress?.Report(
                     $"[gradient-export] {index}/{files.Length} {key}: {split}, {flat}, {row.FrameWidth}x{row.FrameHeight} at {row.SourcePixelsPerSample:F1} px/sample, " +
@@ -245,11 +272,11 @@ public static class DatasetGradientFrameExporter
             {
                 // Fault-isolated per master, as the report is: one pathological file must not cost the
                 // other hundred and eighty their export.
-                failed++;
+                Interlocked.Increment(ref failed);
                 logger?.LogError(ex, "Gradient export: {Master} failed", key);
                 progress?.Report($"[gradient-export] {index}/{files.Length} FAILED {key}: {ex.Message}");
             }
-        }
+        });
 
         return new ExportResult(exported, skipped, failed, test, unknown, noFlat, flatUnknown, manifestPath);
     }
