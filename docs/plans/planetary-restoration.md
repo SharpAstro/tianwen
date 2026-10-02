@@ -2024,6 +2024,14 @@ Laplacian) were fixed in code; and no product path used R8's derived gains or th
   came near zero, so a stacked reference of the banded fixture read up to 1e17 and placed frames 1.9 px off. A sample with a negative
   tap now takes the plain kernel; on non-negative data the clamp is unchanged. A real capture sits on the camera's offset, so the
   real and synthetic captures never reached it, but a dark-subtracted deep-sky frame can.
+- **The sharpening is measured on the product's own master, set down 2026-10-02 before it was run.** The pre-registration named
+  `planetary-dering`, which sharpens a global stack of its own; the variants are instead read by `tianwen planetary-sharpen --fix all
+  --truth` on each twin's pipeline master at half the frames (the alignment-point stack `planetary-stack` makes), through
+  `PlanetarySharpening`, the routine the product runs: the edge's derived gains with the stack's white noise floor, plain, floored, with
+  the limb as its own channel and feathered. The rule is the one registered: the least band error summed over the three twins among the
+  variants whose limb undershoot on 2022-09-03 Red's pipeline master stays at most 0.02. Without a telescope the fallback is
+  `PlanetaryDefault` with the limb as its own channel put back through the stack's own blur (no pupil, so no diffraction to put it back
+  through), which keeps the limb as stacked.
 - **Whether the limb fit's north was right is incidental**: graded by the gradient, the 16-minute fixture's stack of best frames had it
   upside down and the run's quarters turned it back (31 degrees against the true 30).
 - **The stacking, read on the three twins** (`planetary-stack --truth`, each twin's 3,000 frames, every master against its truth,
