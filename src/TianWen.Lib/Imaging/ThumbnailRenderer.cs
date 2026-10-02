@@ -119,15 +119,7 @@ namespace TianWen.Lib.Imaging
             var small = rgb.Downsample(factor);
             (channels, width, height) = small.Shape;
 
-            var isColour = channels >= 3;
-            var mode = StretchMode.Auto.ResolveAuto(isColour, calibrationActive: false);
-            var stats = StretchSolver.CollectPerChannelStats(small, channels);
-            var uniforms = StretchSolver.ComputeStretchUniforms(
-                mode,
-                StretchParameters.Default,
-                stats,
-                lumaStats: null,
-                small.MaxValue);
+            var uniforms = Uniforms(small, image.ImageMeta);
 
             var rgba = new byte[width * height * 4];
             small.RenderStretchedRgba(uniforms, rgba);
@@ -145,6 +137,25 @@ namespace TianWen.Lib.Imaging
             var output = new byte[outWidth * outHeight * 4];
             BoxDownsample(rgba, width, height, output, outWidth, outHeight);
             return new ThumbnailRaster(output, outWidth, outHeight);
+        }
+
+        // The stretch the viewer opens the frame in (StretchMode.ForFrame): a planet's frame in the planetary stretch, anything else
+        // in the auto-stretch, resolved as the viewer resolves it for a frame with no calibration.
+        private static StretchUniforms Uniforms(Image small, ImageMeta meta)
+        {
+            if (StretchMode.ForFrame(meta, StretchMode.Auto) is StretchMode.Planetary)
+            {
+                return small.ComputePlanetaryStretchUniforms();
+            }
+            var channels = small.ChannelCount;
+            var mode = StretchMode.Auto.ResolveAuto(isColour: channels >= 3, calibrationActive: false);
+            var stats = StretchSolver.CollectPerChannelStats(small, channels);
+            return StretchSolver.ComputeStretchUniforms(
+                mode,
+                StretchParameters.Default,
+                stats,
+                lumaStats: null,
+                small.MaxValue);
         }
 
         /// <summary>Sniffs the container and decodes one frame; internal so the tests can pin the dispatch.</summary>

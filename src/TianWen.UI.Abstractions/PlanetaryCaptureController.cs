@@ -42,6 +42,9 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
     private Task? _run;
     private int _stopAsked;
 
+    // The live master's Derive: the derived sharpening's gains, seeded into the wavelet sliders (#1159), one with the viewer's.
+    private readonly WaveletDerivation _derivation = new WaveletDerivation();
+
     public PlanetaryCaptureController(ViewerState state, ITimeProvider timeProvider, ILogger<PlanetaryCaptureController> logger)
     {
         _state = state;
@@ -264,6 +267,8 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
             return false;
         }
 
+        // A finished derivation seeds the sliders before their params are pushed; a Derive asked for starts one over the live master.
+        _derivation.Tick(_state, live, capturePath: null, _timeProvider.GetUtcNow(), _logger);
         if (_state.WaveletDirty)
         {
             live.SetSharpen(_state.BuildWaveletOptions());
@@ -325,10 +330,25 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
         }
         Interlocked.Exchange(ref _nextSource, null)?.Dispose();
         Interlocked.Exchange(ref _pendingLiveFrame, null)?.Release();
+        _derivation.Dispose();
         if (_source is { } source)
         {
             await source.DisposeAsync().ConfigureAwait(false);
         }
         _source = null;
+    }
+
+    /// <summary>
+    /// The telescope the derived sharpening of this capture's masters assumes, from the profile's OTA <paramref name="otaIndex"/>: its
+    /// aperture and design, the owner's choice of 2026-10-02 (the telescope from the profile). Leaves the panel's as it is where the
+    /// profile gives no aperture.
+    /// </summary>
+    public void SeedTelescope(ProfileData? profile, int otaIndex)
+    {
+        if (profile is { } data && (uint)otaIndex < (uint)data.OTAs.Length && data.OTAs[otaIndex] is { Aperture: > 0 } ota)
+        {
+            _state.PlanetaryApertureMm = ota.Aperture;
+            _state.PlanetaryDesign = ota.OpticalDesign;
+        }
     }
 }

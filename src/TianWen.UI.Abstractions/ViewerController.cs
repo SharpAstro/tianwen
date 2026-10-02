@@ -127,6 +127,9 @@ public sealed class ViewerController(
     private CancellationTokenSource? _bestStackCts;
     private int _bestStackPercent;
 
+    // The stacked view's Derive: the derived sharpening's gains for the master on show, seeded into the wavelet sliders (#1159).
+    private readonly WaveletDerivation _derivation = new WaveletDerivation();
+
     // What a finished best stack says (where it was written and how it was sharpened), held until the master it opened is on screen:
     // the open and its texture upload each clear the status line, so set at completion it would never be read. A later file drops it.
     private (string Path, string Message)? _bestStackNote;
@@ -393,13 +396,15 @@ public sealed class ViewerController(
                 // one, so a selection made before it is still about the object on screen.
                 state.SelectedObject = null;
 
-                // Disable stretch for pre-stretched images and planetary frames, re-enable for linear images. A planetary frame
-                // (its OBJECT names a planet or the Moon: a planetary stack's master, a SharpCap FITS frame) opens linear for the
-                // reason a SER does above: the deep-sky auto-stretch lifts the sky's median to a quarter, and a 1,500-frame stack's
-                // sky, its noise 3e-5, came up thirty thousand times as grain with the disk blown white (reported 2026-10-02).
-                if (newDoc.IsPreStretched || PlanetaryCaptureName.Named(newDoc.UnstretchedImage.ImageMeta.ObjectName) is not null)
+                // No stretch for a pre-stretched image, the planetary stretch for a planet's frame (StretchMode.ForFrame, which the
+                // Explorer thumbnail asks too), and the auto-stretch back for a deep-sky frame after either.
+                if (newDoc.IsPreStretched)
                 {
                     state.StretchMode = StretchMode.None;
+                }
+                else if (StretchMode.ForFrame(newDoc.UnstretchedImage.ImageMeta, StretchMode.None) is StretchMode.Planetary)
+                {
+                    state.StretchMode = StretchMode.Planetary;
                 }
                 else if (state.StretchMode is StretchMode.Linked or StretchMode.Luma
                     && newDoc.UnstretchedImage.ChannelCount < 3)
@@ -407,7 +412,7 @@ public sealed class ViewerController(
                     // Switch from color to mono: Linked/Luma need 3+ channels
                     state.StretchMode = StretchMode.Unlinked;
                 }
-                else if (state.StretchMode is StretchMode.None && !newDoc.IsPreStretched)
+                else if (state.StretchMode is StretchMode.None or StretchMode.Planetary)
                 {
                     state.StretchMode = ViewerActions.DefaultStretchMode;
                 }
@@ -1231,11 +1236,15 @@ public sealed class ViewerController(
         var filterNm = state.PlanetaryFilterNm ?? PlanetaryCaptureName.WavelengthNm(capture);
         Volatile.Write(ref _bestStackPercent, 0);
         state.BestStackProgress = 0;
-        state.StatusMessage = options.Planet is null
-            ? "Best stack running; with no planet named or chosen, the sharpening is the preset's"
-            : options.Telescope is null
-                ? "Best stack running; with no aperture given, the sharpening is the preset's"
-                : "Best stack running";
+        state.StatusMessage = "Best stack running";
+        if (options.Planet is null)
+        {
+            state.StatusMessage = "Best stack running; with no planet named or chosen, the sharpening is the preset's";
+        }
+        else if (options.Telescope is null)
+        {
+            state.StatusMessage = "Best stack running; with no aperture given, the sharpening is the preset's";
+        }
         var progress = new SynchronousProgress<double>(fraction => Volatile.Write(ref _bestStackPercent, (int)(fraction * 100)));
         _bestStackTask = Task.Run(async () =>
         {
@@ -1426,6 +1435,8 @@ public sealed class ViewerController(
         {
             // Push changed wavelet-sharpen params (null = off); the source re-sharpens the cached master
             // off-thread without re-stacking. Cheap no-op compare via the dirty flag, so this runs per tick.
+            // A finished derivation seeds the sliders before their params are pushed; a Derive asked for starts one.
+            _derivation.Tick(state, live, state.SequencePath, timeProvider.GetUtcNow(), logger);
             if (state.WaveletDirty)
             {
                 live.SetSharpen(state.BuildWaveletOptions());
@@ -1528,6 +1539,7 @@ public sealed class ViewerController(
             _bestStackCts?.Cancel();
             try { await _bestStackTask; } catch (OperationCanceledException) { logger.LogDebug("Best stack cancelled during shutdown"); }
         }
+        _derivation.Dispose();
 
         _loadCts?.Dispose();
         foreach (var d in _pendingDispose)

@@ -977,11 +977,15 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   planetary stack is the live capture's rolling one. The planet and a mono capture's filter are the panel's choice or the name's
   (`PlanetaryCaptureName`), said before the run: a name that gave none left the sharpening the preset's, blurred and ringed. **A
   planetary master names its planet in `OBJECT` (`PlanetaryStackOptions.Planet`), and a frame whose `OBJECT` names a planet opens
-  LINEAR**, as a SER does: the deep-sky auto-stretch lifted a stack's 3e-5 sky thirty thousand times. **The batch stack runs on every
+  in `StretchMode.Planetary`**, the stretch `planetary-stack`'s preview is rendered with (`StretchMode.ForFrame`, ONE rule for the
+  viewer, the thumbnail and `tianwen view`): the deep-sky auto-stretch lifted a stack's 3e-5 sky thirty thousand times, and linear
+  showed its 0.07-to-0.3 range as a dim disk on a grey sky. **The batch stack runs on every
   core and gives the same bits as one walk**: a fold in bands of OUTPUT rows (`ParallelFor.RunBands`, each pixel gathering into its own
   cell), each frame's own work in batches on aligner and matcher twins (`PlanetaryFrameBatches`), folded in the order given; never
   split a fold across FRAMES, whose sum is ordered (233 s to 55 s for 3,000 frames, byte-identical).
-- **A planetary master is sharpened by `PlanetarySharpening`, ONE routine for `planetary-stack`, `planetary-sharpen` and (next) the GUI**
+- **A planetary master is sharpened by `PlanetarySharpening`, ONE routine for `planetary-stack`, `planetary-sharpen` and the live view's
+  Derive** (`PlanetaryBestStack.DeriveGains` seeds the wavelet dials through `WaveletDerivation`, ONE for the viewer's stacked view and
+  the GUI's capture; the dials hold at the darkest level, `HoldAtDarkest`, and match the FLOORED fix on every twin, not the bounded one)
   (#1159): a trous gains derived through the limb's edge against the limb fit's sharp model through the pupil's diffraction, the stack's
   white noise floor and the planet's disk, applied BOUNDED (held at the sky and, outside the limb, never brighter than the stack,
   #1168); without a telescope `PlanetaryDefault` with the limb kept as
@@ -1743,8 +1747,8 @@ measurements: `docs/architecture/stretch-pipeline.md`** (and `stacking-render-pi
   end-to-end guard.
 - **`Linked`/`Unlinked` mean what they mean in PixInsight, and the difference lives ENTIRELY in the
   uniforms.** Never re-derive a per-channel curve in the Linked branch.
-- **`StretchMode.Auto` is a UI intent, resolved before any `StretchUniforms` is built, never a shader
-  mode**, and **every renderer must resolve through it, headless included** -- a literal
+- **`StretchMode.Auto` (and `.Planetary`, resolved by the document from the frame's percentiles) is a UI
+  intent, resolved before any `StretchUniforms` is built, never a shader mode**, and **every renderer must resolve through it, headless included** -- a literal
   `StretchMode.Linked` in `MasterPreviewRenderer` once bypassed the narrowband line-selective veto and
   clipped red to zero on 5 of 139 gallery cards. Resolver, the four inputs, and the measurements:
   `docs/architecture/stretch-pipeline.md`.

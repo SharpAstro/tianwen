@@ -31,12 +31,13 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var outputOpt = new Option<string?>("--output", "-o") { Description = "Where the sharpened masters go (master_*_sharpened[_fix].fits); the master's folder when not given." };
         var noWriteOpt = new Option<bool>("--no-write") { Description = "Score only, write nothing." };
         var fitOpt = new Option<string>("--fit") { Description = "How the gains are fitted: free, nonnegative (their composite through the kernel held at or above zero), or both to compare them.", DefaultValueFactory = _ => "free" };
+        var slidersOpt = new Option<bool>("--sliders") { Description = "Also sharpen as a live view's wavelet sliders do once a derivation seeds them (the same gains over the whole master, no denoise, held at its darkest level) and score that too: whether the live view reaches the derived sharpening." };
         var pupil = PlanetaryMasterScore.PupilOptions();
 
         var command = new Command("planetary-sharpen", "Sharpen a planetary master again, by gains derived through the limb's edge (R8), the limb kept from ringing.")
         {
             Arguments = { masterArg },
-            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, truthOpt, outputOpt, noWriteOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope },
+            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -140,6 +141,27 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                         else
                         {
                             PlanetaryMasterScore.Undershoot(consoleHost, result.Sharpened, body, instant, what);
+                        }
+                        if (parseResult.GetValue(slidersOpt) && result.Derived && !result.Gains.IsDefaultOrEmpty)
+                        {
+                            // The live view's path: one set of gains over the whole master, no limb fit a master.
+                            var slid = WaveletSharpen.Sharpen(master, PlanetaryBestStack.SliderOptions([.. result.Gains.Select(g => (float)g)]));
+                            try
+                            {
+                                const string sliders = "the live view's sliders, the same gains held at the darkest";
+                                if (truthPath is not null)
+                                {
+                                    PlanetaryMasterScore.AgainstTruth(consoleHost, slid, truthPath, body, sliders);
+                                }
+                                else
+                                {
+                                    PlanetaryMasterScore.Undershoot(consoleHost, slid, body, instant, sliders);
+                                }
+                            }
+                            finally
+                            {
+                                slid.Release();
+                            }
                         }
                         if (!parseResult.GetValue(noWriteOpt))
                         {

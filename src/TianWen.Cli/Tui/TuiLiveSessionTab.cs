@@ -813,6 +813,7 @@ internal sealed class TuiLiveSessionTab(
             StretchMode.Unlinked => "Unl",
             StretchMode.Linked => "Lnk",
             StretchMode.Luma => "Lum",
+            StretchMode.Planetary => "Pln",
             _ => "?"
         };
         var boostLabel = _viewerState.CurvesBoost > 0 ? $"B:{_viewerState.CurvesBoost:F0}%" : "B:Off";

@@ -295,6 +295,9 @@ public sealed class AstroImageDocument : IPreviewSource
 
     private readonly bool _hasDuplicateChannels;
 
+    // The high-key planetary stretch of this frame (StretchMode.Planetary), the one planetary-stack's preview renders with.
+    private readonly Lazy<StretchUniforms> _planetaryStretch;
+
     /// <summary>
     /// Provenance for <see cref="ColorCalibration"/>: which method produced it, how many stars it
     /// stood on, and what it declared white. Null until a calibration has run.
@@ -500,6 +503,14 @@ public sealed class AstroImageDocument : IPreviewSource
         // rebuild, and it must not happen on the render thread. An ordinary frame exits at the first
         // differing pixel; only a genuinely duplicated pair is scanned in full.
         _hasDuplicateChannels = image.ChannelCount > 1 && image.IndependentChannelCount() < image.ChannelCount;
+
+        // The planetary stretch reads two percentiles off every pixel, so it is taken once, and here, off the render thread, for a
+        // frame that opens in it (StretchMode.ForFrame); any other frame takes it on the first render that asks.
+        _planetaryStretch = new Lazy<StretchUniforms>(() => image.ComputePlanetaryStretchUniforms());
+        if (StretchMode.ForFrame(image.ImageMeta, StretchMode.None) is StretchMode.Planetary)
+        {
+            _ = _planetaryStretch.Value;
+        }
 
         // D1: the stats pass was the last thing that needed the float planes at load, and for a
         // document whose source was 8-bit they are pure duplication of a raster that can rebuild them
@@ -857,6 +868,18 @@ public sealed class AstroImageDocument : IPreviewSource
         var autoWb = applyColorCalibration ? ColorCalibration : null;
         var shaderWb = StretchSolver.ComposeWhiteBalance(autoWb, manualWhiteBalance);
 
+        if (mode is StretchMode.Planetary)
+        {
+            // planetary-stack's preview stretch, from the frame's own percentiles. Only the MANUAL white balance applies: a planet has
+            // no stars to calibrate on, and its common scale already keeps the stack's colour as stacked.
+            var planetary = Basis._planetaryStretch.Value with
+            {
+                LumaWeights = weights,
+                WhiteBalance = manualWhiteBalance ?? (1f, 1f, 1f),
+            };
+            return WithDisplayOptions(planetary, lumaBlend, normalize, curvesMode, curveLut, curvesBoost, curvesMidpoint, hdrAmount, hdrKnee);
+        }
+
         // Resolve the Auto intent here, where both inputs are known: whether this frame is colour, and
         // whether a calibration is actually being applied to it. A calibrated colour frame renders
         // Linked so the WB shows; an uncalibrated one Unlinked so each channel's background neutralises.
@@ -921,6 +944,13 @@ public sealed class AstroImageDocument : IPreviewSource
         // longer arrived.
         var uniforms = ComputeStretchUniforms(mode, new StretchParameters(factor, clipping), stats, luma,
             Basis.UnstretchedImage.MaxValue, autoWb, weights, shaderWb, bgNeut);
+        return WithDisplayOptions(uniforms, lumaBlend, normalize, curvesMode, curveLut, curvesBoost, curvesMidpoint, hdrAmount, hdrKnee);
+    }
+
+    // The luma blend and the post-stretch normalisation, which apply to any stretch's uniforms alike.
+    private StretchUniforms WithDisplayOptions(StretchUniforms uniforms, float lumaBlend, bool normalize, int curvesMode,
+        System.ReadOnlySpan<float> curveLut, float curvesBoost, float curvesMidpoint, float hdrAmount, float hdrKnee)
+    {
         if (lumaBlend != 1f)
         {
             uniforms = uniforms with { LumaBlend = System.Math.Clamp(lumaBlend, 0f, 1f) };

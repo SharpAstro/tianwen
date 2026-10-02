@@ -110,6 +110,70 @@ public class PlanetarySharpeningTests
     }
 
     [Fact(Timeout = 300_000)]
+    public async Task TheLiveSlidersSeededWithTheDerivedGainsSharpenAsTheDerivedSharpeningDoes()
+    {
+        // The live view's Derive (#1159): the gains derived once, then every master sharpened through the sliders, which cannot fit a limb
+        // a master. Measured equal on the three twins (docs/plans/planetary-restoration.md, "The live view's derived sharpening"); here,
+        // within a hundredth of the batch's floored sharpening on this fixture.
+        var ct = TestContext.Current.CancellationToken;
+        var (truth, stack) = NoisyStack();
+
+        var (gains, how) = await Task.Run(() => PlanetaryBestStack.DeriveGains(stack, CatalogIndex.Jupiter, Night, Telescope, [650]), ct);
+        gains.Length.ShouldBe(6, how);
+        var batch = await Task.Run(() => PlanetarySharpening.Sharpen(stack,
+            new PlanetarySharpenOptions(CatalogIndex.Jupiter, Night, Telescope) { WavelengthsNm = [650], Fix = PlanetaryLimbFix.Floored }), ct);
+        var floored = batch.ShouldNotBeNull();
+        var sliders = WaveletSharpen.Sharpen(stack, PlanetaryBestStack.SliderOptions(gains));
+
+        var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night);
+        var limbOptions = PlanetaryLimbFit.OptionsFor(aspect);
+        var disk = MetricDisk.From(PlanetaryLimbFit.Fit(stack, limbOptions).ShouldNotBeNull(), limbOptions.AxisRatio);
+        var reference = PlanetaryMetrics.Normalise(truth, Size, Size, disk);
+        double Error(Image image) => PlanetaryMetrics.Fidelity(PlanetaryMetrics.Normalise(image.GetChannelSpan(0), Size, Size, disk), reference, Size, Size, disk).Take(4).Sum(b => b.Error);
+        var (batchError, sliderError) = (Error(floored.Sharpened), Error(sliders));
+        var undershoot = PlanetaryMetrics.LimbUndershoot(PlanetaryMetrics.Normalise(sliders.GetChannelSpan(0), Size, Size, disk), Size, Size, disk);
+        TestContext.Current.TestOutputHelper?.WriteLine($"{how}: the batch, floored, bands 1 to 4 {batchError:0.000}; the sliders {sliderError:0.000}, undershoot {undershoot:0.0000}");
+
+        sliderError.ShouldBe(batchError, 0.01);
+        undershoot.ShouldBeLessThan(0.02);
+        floored.Sharpened.Release();
+        sliders.Release();
+    }
+
+    [Fact]
+    public void DerivingTheGainsSaysWhyWhenItDerivesNone()
+    {
+        var (_, stack) = NoisyStack();
+
+        var noTelescope = PlanetaryBestStack.DeriveGains(stack, CatalogIndex.Jupiter, Night, telescope: null);
+        var noPlanet = PlanetaryBestStack.DeriveGains(stack, planet: null, Night, Telescope);
+        var noModel = PlanetaryBestStack.DeriveGains(stack, CatalogIndex.Mars, Night, Telescope);
+
+        noTelescope.Gains.ShouldBeEmpty();
+        noTelescope.How.ShouldContain("aperture");
+        noPlanet.Gains.ShouldBeEmpty();
+        noPlanet.How.ShouldContain("Jupiter or Saturn");
+        noModel.Gains.ShouldBeEmpty();
+        noModel.How.ShouldContain("Jupiter or Saturn");
+    }
+
+    // The fixture's truth and its stack: the truth blurred by the seeing, on a sky at 0.05, with a large stack's noise.
+    private static (float[] Truth, Image Stack) NoisyStack()
+    {
+        var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night);
+        var scale = aspect.AngularDiameterArcsec / 2 / Placement.EquatorialRadius;
+        var truth = PlanetaryRender.RenderDiffracted(BeltedMap(), aspect, Placement, Size, Size, 0.95, Telescope, Wavelength, scale);
+        var blurred = PlanetaryInverse.Apply(truth, Size, Size, Seeing);
+        var random = new Random(5);
+        var plane = new float[Size, Size];
+        for (var i = 0; i < blurred.Length; i++)
+        {
+            plane[i / Size, i % Size] = (float)(0.05 + (0.5 * blurred[i]) + (0.002 * PhaseScreen.Gaussian(random)));
+        }
+        return (truth, new Image([plane], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta()));
+    }
+
+    [Fact(Timeout = 300_000)]
     public async Task WithoutATelescopeThePresetSharpensWithTheLimbKeptAsStacked()
     {
         var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night);

@@ -72,7 +72,9 @@ internal class ViewSubCommand(
         }
 
         // Apply default stretch for linear images
-        state.StretchMode = document.IsPreStretched ? StretchMode.None : ViewerActions.DefaultStretchMode;
+        state.StretchMode = document.IsPreStretched
+            ? StretchMode.None
+            : StretchMode.ForFrame(document.UnstretchedImage.ImageMeta, ViewerActions.DefaultStretchMode);
 
         var termW = terminal.Size.Width;
         var termH = terminal.Size.Height;

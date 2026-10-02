@@ -141,6 +141,45 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
+        public async Task APlanetsMasterIsRenderedInThePlanetaryStretchAsTheViewerOpensIt()
+        {
+            // A planetary master: a sky at 0.066 with noise of a few 1e-4, a textured disk up to about 0.3, OBJECT the planet. The
+            // deep-sky auto-stretch lifts that sky to a quarter as grain (reported in the viewer, 2026-10-02); the thumbnail must show
+            // what the viewer opens it in (StretchMode.ForFrame): planetary-stack's preview stretch, byte for byte.
+            const int n = 64;
+            var plane = new float[n, n];
+            var random = new Random(3);
+            for (var y = 0; y < n; y++)
+            {
+                for (var x = 0; x < n; x++)
+                {
+                    var (dx, dy) = (x - 32, y - 32);
+                    plane[y, x] = (dx * dx) + (dy * dy) < 18 * 18
+                        ? 0.2f + (0.1f * MathF.Sin(y * 0.5f))
+                        : 0.066f + (0.0003f * (float)(random.NextDouble() - 0.5));
+                }
+            }
+            Image Master(string objectName) => new Image([(float[,])plane.Clone()], BitDepth.Float32, 0.3f, 0f, 0f,
+                new ImageMeta("e2e", DateTimeOffset.UnixEpoch, TimeSpan.FromSeconds(1), FrameType.Light, "",
+                    0f, 0f, -1, -1, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0,
+                    RowOrder.TopDown, float.NaN, float.NaN, ObjectName: objectName));
+
+            var planet = Master("Jupiter");
+            StretchMode.ForFrame(planet.ImageMeta, StretchMode.Auto).ShouldBe(StretchMode.Planetary);
+            var thumb = await ThumbnailRenderer.RenderAsync(planet, 256, TestContext.Current.CancellationToken);
+            var expected = new byte[n * n * 4];
+            planet.RenderStretchedRgba(planet.ComputePlanetaryStretchUniforms(), expected);
+            thumb.Rgba.AsSpan().SequenceEqual(expected).ShouldBeTrue("the thumbnail is the planetary stretch's rendering");
+            thumb.Rgba[0].ShouldBeLessThan((byte)10, "the sky is black, as in the preview");
+
+            // Unnamed, the same pixels take the auto-stretch, which is what lifted the sky.
+            var unnamed = Master("");
+            StretchMode.ForFrame(unnamed.ImageMeta, StretchMode.Auto).ShouldBe(StretchMode.Auto);
+            var deepSky = await ThumbnailRenderer.RenderAsync(unnamed, 256, TestContext.Current.CancellationToken);
+            deepSky.Rgba[0].ShouldBeGreaterThan((byte)30, "the auto-stretch puts the sky's median at a quarter");
+        }
+
+        [Fact]
         public void TheShellIdentitiesAreTheDocumentedOnes()
         {
             // The handler id is the shell's well-known IThumbnailProvider GUID; the CLSID is ours and must

@@ -29,6 +29,9 @@ public sealed class ViewerState
     }
 
     public StretchMode StretchMode { get; set; } = ViewerActions.DefaultStretchMode;
+
+    /// <summary>The stretch the linear toggle (T) left, and goes back to (<see cref="ViewerActions.ToggleStretch"/>).</summary>
+    public StretchMode StretchModeBeforeLinear { get; set; } = ViewerActions.DefaultStretchMode;
     public StretchParameters StretchParameters { get; set; } = StretchParameters.Default;
     public ChannelView ChannelView { get; set; } = ChannelView.Composite;
     public DebayerAlgorithm DebayerAlgorithm { get; set; } = ViewerActions.DefaultDebayerAlgorithm;
@@ -420,13 +423,38 @@ public sealed class ViewerState
     /// pull up limb / sensor grain.
     /// </summary>
     public WaveletSharpenOptions? BuildWaveletOptions()
-        => WaveletSharpenEnabled
-            ? new WaveletSharpenOptions
+    {
+        // Derived gains sharpen as the derived sharpening does (no denoise, held at the darkest): measured equal to it on every twin.
+        if (WaveletSharpenEnabled && WaveletDerived)
+        {
+            return TianWen.Lib.Imaging.Planetary.PlanetaryBestStack.SliderOptions(WaveletGains);
+        }
+        if (WaveletSharpenEnabled)
+        {
+            return new WaveletSharpenOptions
             {
                 Gains = WaveletGains,
                 DenoiseThresholds = WaveletSharpenOptions.PlanetaryDefault.DenoiseThresholds,
-            }
-            : null;
+            };
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Whether <see cref="WaveletGains"/> came from a derivation (the Derive button: the gains the derived sharpening would use for the
+    /// master on show, docs/plans/planetary-restoration.md, "The live view's derived sharpening"). Derived gains sharpen with no denoise and
+    /// held at the darkest level, as the batch's floored sharpening does; Reset puts the preset back and clears it. Moving a slider keeps it.
+    /// </summary>
+    public bool WaveletDerived { get; set; }
+
+    /// <summary>Set by the Derive button; the controller starts a derivation over the master on show, or ignores it while one runs, and clears it.</summary>
+    public bool WaveletDeriveRequested { get; set; }
+
+    /// <summary>True while a derivation runs (about 35 s, in the background). Written by the controller.</summary>
+    public bool WaveletDeriving { get; set; }
+
+    /// <summary>What the last derivation did, in words: what the gains were derived for, or why none were. Null before any, and after Reset.</summary>
+    public string? WaveletDeriveNote { get; set; }
 
     // --- Best stack (a recorded capture stacked whole, as planetary-stack stacks it, #1159) ---
 
@@ -727,6 +755,7 @@ public sealed class ViewerState
         HdrKnee = HdrKnee,
         WaveletSharpenEnabled = WaveletSharpenEnabled,
         WaveletGains = WaveletGains,
+        WaveletDerived = WaveletDerived,
 
         // The overlays -- the whole reason this export exists.
         ShowGrid = ShowGrid,

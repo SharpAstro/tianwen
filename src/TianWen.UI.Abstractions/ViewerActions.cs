@@ -23,9 +23,21 @@ namespace TianWen.UI.Abstractions;
 /// </summary>
 public static class ViewerActions
 {
+    /// <summary>
+    /// Linear and back: back to the stretch it left (<see cref="ViewerState.StretchModeBeforeLinear"/>), so a planet's master
+    /// toggled off and on is in the planetary stretch again, never the deep-sky default.
+    /// </summary>
     public static void ToggleStretch(ViewerState state)
     {
-        state.StretchMode = state.StretchMode is StretchMode.None ? DefaultStretchMode : StretchMode.None;
+        if (state.StretchMode is StretchMode.None)
+        {
+            state.StretchMode = state.StretchModeBeforeLinear;
+        }
+        else
+        {
+            state.StretchModeBeforeLinear = state.StretchMode;
+            state.StretchMode = StretchMode.None;
+        }
         state.HistogramLogScale = state.StretchMode is StretchMode.None;
         state.NeedsRedraw = true;
     }
@@ -33,9 +45,10 @@ public static class ViewerActions
     // Cycle order for stretch link: excludes None. Internal so the dropdown
     // selector in <see cref="ImageRendererBase{TSurface}"/> can reuse the same
     // mode list (single source of truth: cycle order matches dropdown order).
-    // Auto leads, and is the default (see DefaultStretchMode).
+    // Auto leads, and is the default (see DefaultStretchMode). Planetary last: a planet's frame opens in it
+    // (StretchMode.ForFrame), and any other frame may be shown in it by choice.
     internal static readonly StretchMode[] StretchLinkModes =
-        [StretchMode.Auto, StretchMode.Linked, StretchMode.Unlinked, StretchMode.Luma];
+        [StretchMode.Auto, StretchMode.Linked, StretchMode.Unlinked, StretchMode.Luma, StretchMode.Planetary];
 
     /// <summary>
     /// What a viewer shows when it has to pick a stretch for itself: first entry of

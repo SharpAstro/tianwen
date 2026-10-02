@@ -224,7 +224,10 @@ For interactive planetary work (live rolling-window stack + wavelet sliders), op
 `Shift+K` (or the info panel's Best stack button) stacks the whole capture as `planetary-stack` does, in the background, writes both
 masters beside it and opens the sharpened one; the panel's aperture and design give the derived sharpening its telescope, and are
 remembered. The planet (and a mono capture's filter) come from the capture's name, or the panel's choice where the name gives none,
-since without a planet the sharpening is only a preset. A planetary master opens linear, as a SER does.
+since without a planet the sharpening is only a preset. A planetary master opens in the planetary stretch, the one `planetary-stack`'s
+PNG preview is drawn with (also on the stretch menu for any frame). In the stacked view, Derive works out the derived sharpening's
+gains for the master on show (about half a minute) and seeds the six wavelet sliders with them; the GUI's planetary capture has the
+same button, its telescope taken from the profile.
 
 #### Observation Planner
 

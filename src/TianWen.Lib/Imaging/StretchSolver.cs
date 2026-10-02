@@ -57,7 +57,9 @@ public static class StretchSolver
         // not reach here; if one ever does, treat it as Linked rather than write mode 4 into a uniform
         // the shader has no branch for. Not the resolution point on purpose: this layer is pure math and
         // knows nothing about whether a calibration is active.
-        if (mode is StretchMode.Auto)
+        // Planetary likewise: its producer resolves it from the frame's percentiles (Image.ComputePlanetaryStretchUniforms), which
+        // these statistics do not carry.
+        if (mode is StretchMode.Auto or StretchMode.Planetary)
         {
             mode = StretchMode.Linked;
         }

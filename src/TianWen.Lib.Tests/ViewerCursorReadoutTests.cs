@@ -151,7 +151,7 @@ namespace TianWen.Lib.Tests
             plane[0, 0] = 255f;
             plane[2, 3] = 74f;
             var document = await AstroImageDocument.AdoptImageAsync(
-                new Image([plane], BitDepth.Int8, 255f, 0f, 0f, Meta(SensorType.Monochrome)), DebayerAlgorithm.None);
+                new Image([plane], BitDepth.Int8, 255f, 0f, 0f, Meta(SensorType.Monochrome)), DebayerAlgorithm.None, cancellationToken: TestContext.Current.CancellationToken);
             var state = new ViewerState();
             ViewerActions.UpdateCursorInfo(document, document.Findings.Wcs, state, 3, 2);
 
@@ -167,7 +167,7 @@ namespace TianWen.Lib.Tests
             plane[0, 0] = 0.9f;
             plane[2, 3] = 0.25f;
             var document = await AstroImageDocument.AdoptImageAsync(
-                new Image([plane], BitDepth.Float32, 0.9f, 0f, 0f, Meta(SensorType.Monochrome)), DebayerAlgorithm.None);
+                new Image([plane], BitDepth.Float32, 0.9f, 0f, 0f, Meta(SensorType.Monochrome)), DebayerAlgorithm.None, cancellationToken: TestContext.Current.CancellationToken);
             var state = new ViewerState();
             ViewerActions.UpdateCursorInfo(document, document.Findings.Wcs, state, 3, 2);
 

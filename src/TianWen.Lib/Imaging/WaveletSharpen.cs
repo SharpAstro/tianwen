@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using System.Runtime.InteropServices;
+using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging;
 
@@ -27,6 +28,18 @@ public sealed record WaveletSharpenOptions
     /// can drive values below zero or past the white point, so clamping is on by default.
     /// </summary>
     public bool Clamp { get; init; } = true;
+
+    /// <summary>
+    /// Hold each channel's output at or above the source's darkest level, its <see cref="DarkestQuantile"/> (with
+    /// <see cref="Clamp"/>). A sharpening's undershoot below anything the stack recorded is ringing: the dark ring a planetary
+    /// preset dug below the sky at the limb, which a floor at the sky stopped in every measured case (docs/plans/
+    /// planetary-restoration.md, R8 follow-up 1). The darkest level rather than a sky estimate, so a disk that fills the
+    /// frame (the Moon) loses nothing it recorded.
+    /// </summary>
+    public bool HoldAtDarkest { get; init; }
+
+    /// <summary>The quantile <see cref="HoldAtDarkest"/> reads the darkest level at: robust to a few dead pixels.</summary>
+    public const double DarkestQuantile = 0.001;
 
     /// <summary>Number of detail scales (= <see cref="Gains"/> length).</summary>
     public int ScaleCount => Gains.Length;
@@ -155,6 +168,8 @@ public static class WaveletSharpen
             {
                 for (var c = 0; c < channels; c++)
                 {
+                    // The darkest level read before the reconstruction overwrites the output plane, which doubles as scratch.
+                    var floor = options.Clamp && options.HoldAtDarkest ? MathF.Min(DarkestLevel(source.GetChannelSpan(c)), clampMax) : 0f;
                     ATrousWaveletTransform.DecomposeAndReconstructInto(
                         source.GetChannelSpan(c), w, h, gains, thresholds, data[c], c0, next, details);
                     var dst = MemoryMarshal.CreateSpan(ref data[c][0, 0], data[c].Length);
@@ -162,7 +177,7 @@ public static class WaveletSharpen
                     {
                         for (var i = 0; i < dst.Length; i++)
                         {
-                            dst[i] = Math.Clamp(dst[i], 0f, clampMax);
+                            dst[i] = Math.Clamp(dst[i], floor, clampMax);
                         }
                     }
                 }
@@ -180,6 +195,21 @@ public static class WaveletSharpen
 
         return new Image(data, source.BitDepth, source.MaxValue, source.MinValue, source.Pedestal, source.ImageMeta,
             source.SamplesAreUnitReferred);
+    }
+
+    // A channel's darkest level, its DarkestQuantile, never below 0 nor above the clamp's ceiling; NaN samples are left out.
+    private static float DarkestLevel(ReadOnlySpan<float> plane)
+    {
+        var buffer = new float[plane.Length];
+        var n = 0;
+        foreach (var v in plane)
+        {
+            if (!float.IsNaN(v))
+            {
+                buffer[n++] = v;
+            }
+        }
+        return n == 0 ? 0f : MathF.Max(0f, StatisticsHelper.PercentileFast(buffer.AsSpan(0, n), WaveletSharpenOptions.DarkestQuantile));
     }
 
     // Every gain 1 and no denoise: the reconstruction is the input itself.

@@ -6,6 +6,7 @@ using SharpAstro.Ser;
 using Shouldly;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
+using TianWen.UI.Abstractions;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
@@ -42,9 +43,14 @@ public class ViewerBestStackTests
         e2e.State.SequencePath.ShouldBeNull();
         // No telescope given, so the sharpening is the preset's, and the note says so.
         e2e.State.StatusMessage.ShouldNotBeNull().ShouldContain("PlanetaryDefault");
-        // The master names its planet, and opens linear as the capture did, never under the deep-sky auto-stretch.
-        e2e.Controller.Document.ShouldNotBeNull().UnstretchedImage.ImageMeta.ObjectName.ShouldBe("Jupiter");
-        e2e.State.StretchMode.ShouldBe(StretchMode.None);
+        // The master names its planet, and opens in the stretch planetary-stack's preview is rendered with, never the deep-sky
+        // auto-stretch: the same uniforms, so the viewer shows what the PNG shows.
+        var document = e2e.Controller.Document.ShouldNotBeNull();
+        document.UnstretchedImage.ImageMeta.ObjectName.ShouldBe("Jupiter");
+        e2e.State.StretchMode.ShouldBe(StretchMode.Planetary);
+        var shown = document.ComputeStretchUniforms(e2e.State.StretchMode, e2e.State.StretchParameters);
+        var preview = document.UnstretchedImage.ComputePlanetaryStretchUniforms();
+        (shown.Mode, shown.Pedestal, shown.Rescale, shown.Midtones).ShouldBe((preview.Mode, preview.Pedestal, preview.Rescale, preview.Midtones));
     }
 
     [Theory(Timeout = 180_000)]
@@ -65,13 +71,13 @@ public class ViewerBestStackTests
             "the best stack's sharpened master to open", ct);
 
         e2e.Controller.Document.ShouldNotBeNull().UnstretchedImage.ImageMeta.ObjectName.ShouldBe("Jupiter");
-        e2e.State.StretchMode.ShouldBe(StretchMode.None);
+        e2e.State.StretchMode.ShouldBe(StretchMode.Planetary);
     }
 
     [Theory(Timeout = 60_000)]
     [InlineData(1f)]
     [InlineData(1.5f)]
-    public async Task AFrameWhoseObjectNamesAPlanetOpensLinearAfterADeepSkyFrame(float dpi)
+    public async Task AFrameWhoseObjectNamesAPlanetOpensInThePlanetaryStretchBetweenDeepSkyFrames(float dpi)
     {
         using var e2e = ViewerE2E.Start(dpi);
         var ct = TestContext.Current.CancellationToken;
@@ -87,12 +93,21 @@ public class ViewerBestStackTests
                 0f, 0f, -1, -1, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0,
                 RowOrder.TopDown, float.NaN, float.NaN, ObjectName: "Jupiter")).WriteToFitsFile(planetary);
         await e2e.OpenAsync(planetary, ct);
+        e2e.State.StretchMode.ShouldBe(StretchMode.Planetary, "a planet's frame opens in the planetary stretch");
 
-        e2e.State.StretchMode.ShouldBe(StretchMode.None, "a planetary frame opens linear, as a SER does");
+        // T to linear and back returns to the planetary stretch, not the deep-sky default.
+        e2e.Key(InputKey.T);
+        e2e.State.StretchMode.ShouldBe(StretchMode.None);
+        e2e.Key(InputKey.T);
+        e2e.State.StretchMode.ShouldBe(StretchMode.Planetary);
+
+        // And a deep-sky frame after it takes the auto-stretch again.
+        await e2e.OpenAsync(e2e.WriteColourFits("deep-sky-2.fits", level: 7f), ct);
+        e2e.State.StretchMode.ShouldBe(ViewerActions.DefaultStretchMode);
     }
 
     // A short Jupiter capture: a textured disk wandering a pixel or two, 8 bits, a frame every 10 ms.
-    private static string WriteCapture(string path)
+    internal static string WriteCapture(string path)
     {
         const int n = 96, frames = 32;
         var random = new Random(7);

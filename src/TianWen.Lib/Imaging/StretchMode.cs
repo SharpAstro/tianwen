@@ -1,3 +1,5 @@
+using TianWen.Lib.Imaging.Planetary;
+
 namespace TianWen.Lib.Imaging;
 
 public enum StretchMode
@@ -14,7 +16,15 @@ public enum StretchMode
     /// stretch (which only ever sees None/Linked/Unlinked/Luma). Deliberately LAST so the numeric values
     /// the shader reads for the real modes are unchanged. Resolution: <see cref="StretchModeExtensions.ResolveAuto"/>.
     /// </summary>
-    Auto
+    Auto,
+
+    /// <summary>
+    /// The high-key planetary stretch (<see cref="Image.ComputePlanetaryStretchUniforms"/>): black at each channel's 0.5th percentile,
+    /// white at the 99.9th on one common scale, a gamma of 0.75. The one <c>planetary-stack</c>'s preview is rendered with, so a
+    /// planet's master looks the same in the viewer as in its PNG. A UI intent like <see cref="Auto"/>: the producer resolves it to
+    /// <see cref="Unlinked"/> uniforms from the frame's own percentiles, and it never reaches the shader.
+    /// </summary>
+    Planetary
 }
 
 /// <summary>
@@ -81,5 +91,24 @@ public static class StretchModeExtensions
                 : colourIsNotPhotometric && calibrationActive ? StretchMode.Unlinked
                 : calibrationActive || channelsAlreadyAgree ? StretchMode.Linked
                 : StretchMode.Unlinked;
+    }
+
+    extension(StretchMode)
+    {
+        /// <summary>
+        /// The ONE rule for which stretch a frame opens in when it is not pre-stretched: <see cref="StretchMode.Planetary"/> for a
+        /// planet's frame (its <c>OBJECT</c> names a planet or the Moon: a planetary stack's master, a SharpCap FITS frame), else
+        /// <paramref name="otherwise"/>. The viewer and the Explorer thumbnail both ask it, so a master shows the same in both. A
+        /// deep-sky auto-stretch lifts a planet's sky to a quarter: a 1,500-frame stack's sky, its noise 3e-5, came up thirty
+        /// thousand times as grain with the disk blown white (reported 2026-10-02).
+        /// </summary>
+        public static StretchMode ForFrame(ImageMeta meta, StretchMode otherwise)
+        {
+            if (PlanetaryCaptureName.Named(meta.ObjectName) is not null)
+            {
+                return StretchMode.Planetary;
+            }
+            return otherwise;
+        }
     }
 }

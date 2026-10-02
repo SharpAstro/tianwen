@@ -15,9 +15,11 @@ namespace TianWen.UI.Abstractions
     partial class ImageRendererBase<TSurface>
     {
         // 6 a-trous detail scales, finest first. Linear gain in [0, WaveletGainMax]; neutral 1.0. Only
-        // drawn for the live stacked view.
+        // drawn for the live stacked view. The range holds what a derivation seeds: 9.7 on the finest band of the warped
+        // twin (docs/plans/planetary-restoration.md, "The live view's derived sharpening"); a gain past either end is kept as
+        // derived and only its dial rests at the end.
         private const int WaveletBandCount = 6;
-        private const float WaveletGainMax = 5f;
+        private const float WaveletGainMax = 10f;
 
         // -----------------------------------------------------------------------
         // Info panel
@@ -82,6 +84,13 @@ namespace TianWen.UI.Abstractions
             // statistics, and the button can say from across the bar what the section could not,
             // that a white balance is in force.
 
+            // The planet and telescope both the Best stack and the live view's Derive sharpen for (#1159), once, above both.
+            if (state.ShowStacked || state.SequencePath is not null)
+            {
+                y += FontSize;
+                RenderTelescopeControls(state, source.SensorType is SensorType.Monochrome, ref y, x, maxTextWidth);
+            }
+
             // Wavelet-sharpen layer sliders -- only for the live stacked view (they re-sharpen the stacked
             // master; they have no effect on a raw frame).
             if (state.ShowStacked)
@@ -94,7 +103,7 @@ namespace TianWen.UI.Abstractions
             if (state.SequencePath is not null)
             {
                 y += FontSize;
-                RenderBestStackControls(state, source.SensorType is SensorType.Monochrome, ref y, x, maxTextWidth);
+                RenderBestStackControls(state, ref y, x, maxTextWidth);
             }
 
             // The SELECTION used to have a section here. It now floats over the picture instead
@@ -206,13 +215,30 @@ namespace TianWen.UI.Abstractions
                         onPress: () =>
                         {
                             state.WaveletGains = WaveletSharpenOptions.PlanetaryDefault.Gains;
+                            state.WaveletDerived = false;
+                            state.WaveletDeriveNote = null;
                             state.WaveletDirty = true;
                             state.NeedsRedraw = true;
                         }),
+                    // The derived sharpening's gains for the master on show, worked out in the background and seeded into the
+                    // dials (#1159): the planet and telescope come from the section above.
+                    PanelButton(state.WaveletDeriving ? "Deriving..." : "Derive", "WaveletDerive", enabled: !state.WaveletDeriving,
+                        onPress: () =>
+                        {
+                            state.WaveletDeriveRequested = true;
+                            state.NeedsRedraw = true;
+                        },
+                        widthSample: "Deriving..."),
                     Layout.Builder.Spacer().HStar())
                 .WithGap(WaveletGap)
                 .CrossCenter()
                 .RowH(BaseFontSize + WaveletGap));
+
+            var caption = state.WaveletDeriving ? "Deriving the gains from this master, about half a minute" : state.WaveletDeriveNote;
+            if (caption is not null)
+            {
+                rows.Add(Layout.Builder.Text(caption, BaseFontSize, ViewerTheme.Palette.DimText).RowH(BaseFontSize + WaveletGap));
+            }
 
             for (var b = 0; b < WaveletBandCount && b < gains.Length; b++)
             {
