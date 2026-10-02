@@ -56,6 +56,7 @@ public static class ClassicalStarRemover
     private const int HaloSearchOffset = 12;
     private const double CompressedCoreFraction = 0.8;
     internal const float HoleSigma = 3f;
+    private const double SkyAnnulusMax = 40.0;
     private const float DefaultBeta = 3f;
     private const float DefaultFwhm = 2.5f;
     private static readonly double[] WidthGrid = { 0.7, 0.85, 1.0, 1.2, 1.4, 2.0 };
@@ -1727,6 +1728,11 @@ public static class ClassicalStarRemover
             }
         }
 
+        // Where a star's sky annulus starts: past where its light falls to the level asked about, at most SkyAnnulusMax px out,
+        // and never inside what it must clear. A giant's plateau can pass the cap on its own (eta Carinae at 288 mm, 67 px),
+        // where a clamp whose floor passed its ceiling threw and failed the master. Below the cap it IS that clamp.
+        private static double SkyAnnulus(double reach, double clear) => Math.Max(clear, Math.Min(reach, SkyAnnulusMax));
+
         // When a subtracted star's core in one channel sits more than HoleSigma (sigma over root n) below that channel's
         // median in an annulus beyond the star: the radius out to which the plate is still below its sky (rings averaging
         // under -0.5 sigma). Null when there is no hole.
@@ -1746,7 +1752,7 @@ public static class ClassicalStarRemover
                 core = Math.Max(core, CoreRadius(f, _rms[cy * _width + cx]));
             }
             var amplitude = Math.Abs(f.ChannelAmplitudes[channel]);
-            var annulus = Math.Clamp(ReachAt(f, sigma, channel) + 2.0, core + 2.0, 40.0);
+            var annulus = SkyAnnulus(ReachAt(f, sigma, channel) + 2.0, core + 2.0);
             var plane = _work[channel];
             var sky = AnnulusMedianPlane(plane, f.X, f.Y, annulus, annulus + 6.0);
             if (!double.IsFinite(sky))
@@ -1814,7 +1820,7 @@ public static class ClassicalStarRemover
                 }
                 var psf = ChannelPsf(c, f.Width, f.Beta);
                 var core = Math.Max(Math.Max(1.5, psf.Fwhm), f.Saturated ? holeRadius : 0.0);
-                var annulus = Math.Clamp(ReachAt(f, sigma, c) + 2.0, core + 2.0, 40.0);
+                var annulus = SkyAnnulus(ReachAt(f, sigma, c) + 2.0, core + 2.0);
                 var sky = AnnulusMedianPlane(_work[c], f.X, f.Y, annulus, annulus + 6.0);
                 if (!double.IsFinite(sky))
                 {
@@ -2538,7 +2544,7 @@ public static class ClassicalStarRemover
                     // the model lacks, and against it almost any core read as a hole (the first ten-master run).
                     var radius = Math.Max(1.0, psf.Fwhm);
                     var holeRadius = f.Saturated ? Math.Max(radius, CoreRadius(f, sigma)) : radius;
-                    var annulus = Math.Clamp(ReachAt(f, sigma) + 2.0, Math.Max(holeRadius + 2.0, 3.0 * psf.Fwhm), 40.0);
+                    var annulus = SkyAnnulus(ReachAt(f, sigma) + 2.0, Math.Max(holeRadius + 2.0, 3.0 * psf.Fwhm));
                     var plateSky = AnnulusMedian(f.X, f.Y, annulus, annulus + 6.0);
                     var r = (int)Math.Ceiling(holeRadius);
                     double sum = 0, sum2 = 0, holeSum = 0;
@@ -2601,7 +2607,7 @@ public static class ClassicalStarRemover
         private double? CoreBelowSky(in Fit f, MoffatPsf psf, double sigma)
         {
             var radius = Math.Max(1.5, psf.Fwhm);
-            var annulus = Math.Clamp(psf.RadiusAtLevel(f.Amplitude, sigma) + 2.0, radius + 2.0, 40.0);
+            var annulus = SkyAnnulus(psf.RadiusAtLevel(f.Amplitude, sigma) + 2.0, radius + 2.0);
             var sky = AnnulusMedian(f.X, f.Y, annulus, annulus + 6.0);
             if (!double.IsFinite(sky))
             {
