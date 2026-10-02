@@ -189,6 +189,26 @@ public class PlanetaryMetricsTests
     }
 
     [Fact]
+    public void AnOutlineOffTheDisksCentreReadsAsTheFirstHarmonicOfItsHalfLevelRadii()
+    {
+        // #1171's sector reading: the same disk read against an outline moved 1 px along +x reads its edge further out at 180 degrees
+        // than at 0, a first harmonic at 180 degrees and no second to speak of. Its size is about three quarters of the offset, not all
+        // of it: the half level is taken against the level just inside the limb, which the limb's darkening moves with the outline too.
+        var soft = Blur(Blur(Banded(), 1.0), 1.0);
+        var moved = Disk with { X = Disk.X + 1 };
+        var centred = PlanetaryMetrics.SectorHalfLevelRadii(soft, Size, Size, Disk, 16);
+        var off = PlanetaryMetrics.SectorHalfLevelRadii(soft, Size, Size, moved, 16);
+        var (a1, p1) = PlanetaryMetrics.Harmonic(off, 1);
+        var (a2, _) = PlanetaryMetrics.Harmonic(off, 2);
+        var (c1, _) = PlanetaryMetrics.Harmonic(centred, 1);
+        TestContext.Current.TestOutputHelper?.WriteLine($"centred: first harmonic {c1:0.0000}; moved 1 px: first {a1:0.0000} radii at {p1:0.0} deg, second {a2:0.0000}");
+        c1.ShouldBeLessThan(0.004);
+        (a1 * Disk.Radius).ShouldBeInRange(0.6, 1.0, "px of a 1 px offset");
+        p1.ShouldBe(180, 15);
+        a2.ShouldBeLessThan(a1 / 4);
+    }
+
+    [Fact]
     public void PowerPastTheCutoffIsWhatNoiseAddsAndNothingPastNyquist()
     {
         // A blurred disk holds little power past 0.35 cycles a pixel; noise adds there. Past the grid's corner there is nothing

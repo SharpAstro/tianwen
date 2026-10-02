@@ -2532,9 +2532,51 @@ radii. It is used on Red only if it ranks the candidates as the fall below the t
   - Held outside removes it, at the twins' 7.7 %.
 - **Model floor ties bounded on the twins** (band +0.05 %, limb profile +0.8 %) and lightens Red's crescent. Taking it would be a choice
   against the rule, as bounded's own was (#1168).
-- **The owner's call (2026-10-03): chase the cause first, bounded meanwhile.** The crescent's one-sidedness points at the limb fit:
-  a round blur model set against a blur elongated along one axis misplaces the outline on that side, and the bound is drawn at that
-  outline. #1171 stays open for it.
+- **The owner's call (2026-10-03): chase the cause first, bounded meanwhile.**
+
+#### The cause, and the fix
+
+**The cause is the sharpening's side lobes outside the limb, not a misfit.** A reading of the limb sector by sector
+(`tianwen planetary-limb-sectors`, `PlanetaryMetrics.SectorHalfLevelRadii` and `Harmonic`) set two hypotheses down before it ran:
+- an outline off the planet's centre (H1): a first harmonic of at least 0.005 radii, the deepest trough within 45 degrees of the
+  sector whose edge lies furthest inside the outline;
+- a misshapen one (H2): a second harmonic dominating;
+- the calibrated twin under 0.002 radii in both.
+
+Both fell. Red reads a first harmonic of 0.0073 radii at 74 degrees and the deepest trough at 101 degrees, 135 degrees from that
+sector, and the calibrated and warped twins read the same: 0.0073 and 0.0072 radii at 64 degrees, the deepest trough at 101. The twins
+have a round blur and an exact outline, so the harmonic is the lighting (the lit limb is brighter, so its edge crosses half level
+further out), not a misfit. Red's second harmonic, 0.0035 radii (0.17 px), is twice the twins' and far too small to matter.
+
+Set beside the twin's truth at Red's stretch, bounded's limb is a black band and then faint bright arcs, where the truth is a sharp
+disk in a faint smooth glow:
+- **the black band** is the floor holding the sharpening's negative lobe at the sky;
+- **the arcs** are its positive lobes, which the bound lets through up to the stack's seeing glow, far brighter than the truth's;
+- **the one-sidedness** follows the lighting, the lobes scaling with the limb's brightness, on the twin as on Red.
+
+An earlier reading here, that the crescent ran along Red's elongated blur from a misfit outline, was wrong: the twins have neither.
+
+**The candidates that followed, each under the same rule, set down before it ran:**
+
+| Candidate | Band error, summed | Limb profile error, summed | By eye |
+|---|---|---|---|
+| bounded | 1.939 | 0.0252 | the black band and the arcs |
+| model glow: the stack times the model's glow share | 1.933 | 0.0189 | rings back out to 1.4 radii: the share divides by a model that falls to nothing, and carries its Airy rings |
+| model outside: the planet's model through the pupil | 1.929 | 0.0159 | a clean limb; a square seam at the window's edge at a deep stretch |
+| glow swapped: the stack less the model through its blur, plus the model through the pupil | 1.935 | 0.0244 | no seam, but a halo with rings: the stack's glow has wider wings than the kernel's |
+| **model feathered: the model out to 1.5 radii, the stack by the window's inscribed circle** | **1.929** | **0.0159** | **a clean limb, no ring, no seam** |
+
+- **Model feathered is the default** (`PlanetaryLimbFix.ModelFeathered`). It has the least limb profile error within the band error's
+  2 %, 37 % under bounded's, and passes the eye check:
+  - on the twins it looks like the truth;
+  - on Red, the crescent is gone and the moon kept;
+  - at a deep sky stretch there is no seam, only the spider's own spikes far out, which the stack carries;
+  - on both colour captures the dark ring is gone, the limb clean at 6x (the blue fringe on 2022-10-09 is the dispersion R5a
+    measured, in both).
+- **The limb profile error stops at 1.2 radii**, which is why model glow and model outside could read best while ringing or seaming
+  further out: the eye check out to 1.6 radii and over the whole frame is what caught both.
+- **The owner had chosen bounded against the rule (#1168).** This takes it back by the rule and the eye together, for the cause the
+  owner asked to be found.
 
 ## R9 A learned stage, only if the measurements say so
 

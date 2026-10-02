@@ -60,6 +60,18 @@ public static class PlanetaryDering
 
         /// <summary>Bounded at the limb, blended to the stack by 1.1 radii.</summary>
         Blended,
+
+        /// <summary>The stack times its glow share: the glow the truth has, none of the sharpening.</summary>
+        ModelGlow,
+
+        /// <summary>The planet's model through the pupil alone.</summary>
+        Model,
+
+        /// <summary>The stack less the model through its blur, plus the model through the pupil alone.</summary>
+        GlowSwapped,
+
+        /// <summary>The model out to 1.5 radii, blended to the stack by the plane's inscribed circle (at most 2.5 radii).</summary>
+        ModelFeathered,
     }
 
     /// <summary>
@@ -69,9 +81,12 @@ public static class PlanetaryDering
     /// (<see cref="OutsideLimb.ModelFloor"/>); or bounded at the limb and blended to the stack by 1.1 radii (<see cref="OutsideLimb.Blended"/>).
     /// </summary>
     public static float[] Outside(ReadOnlySpan<float> sharpened, ReadOnlySpan<float> stacked, int width, int height, MetricDisk disk, OutsideLimb outside,
-        ReadOnlySpan<float> glowShare = default, int moonReachPx = 5)
+        ReadOnlySpan<float> glowShare = default, int moonReachPx = 5, ReadOnlySpan<float> model = default, ReadOnlySpan<float> blurredModel = default)
     {
         var moons = PlanetaryMetrics.CompactSources(stacked, width, height, disk, count: MaxMoons);
+        // Where ModelFeathered hands the model back to the stack: by the plane's inscribed circle, at most 2.5 radii, from 0.5 radii inside it.
+        var featherEnd = Math.Min(2.5, ((Math.Min(width, height) / 2.0) - 4) / disk.Radius);
+        var featherStart = Math.Max(1.0, Math.Min(1.5, featherEnd - 0.5));
         var result = new float[sharpened.Length];
         for (var y = 0; y < height; y++)
         {
@@ -91,11 +106,23 @@ public static class PlanetaryDering
                 {
                     OutsideLimb.Stack => stacked[i],
                     OutsideLimb.ModelFloor => Math.Max(bounded, stack * (glowShare.IsEmpty ? 0f : glowShare[i])),
+                    OutsideLimb.ModelGlow => stack * (glowShare.IsEmpty ? 0f : glowShare[i]),
+                    OutsideLimb.Model => model.IsEmpty ? bounded : Math.Max(model[i], 0f),
+                    OutsideLimb.GlowSwapped => model.IsEmpty || blurredModel.IsEmpty ? bounded : stacked[i] - blurredModel[i] + model[i],
+                    OutsideLimb.ModelFeathered => model.IsEmpty ? bounded : Feather(Math.Max(model[i], 0f), stacked[i], r, featherStart, featherEnd),
                     _ => Blend(bounded, stack, r),
                 };
             }
         }
         return result;
+    }
+
+    // The model to `start` radii, the stack from `end`, a smoothstep between.
+    private static float Feather(float model, float stack, double radii, double start, double end)
+    {
+        var s = end > start ? Math.Clamp((radii - start) / (end - start), 0, 1) : 1;
+        var w = (float)(s * s * (3 - (2 * s)));
+        return ((1 - w) * model) + (w * stack);
     }
 
     // Bounded at the limb, the stack by 1.1 radii, a smoothstep between.
