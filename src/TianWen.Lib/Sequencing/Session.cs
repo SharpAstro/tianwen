@@ -678,6 +678,46 @@ internal partial record Session(
         _guideSamples.Add(sample);
     }
 
+    /// <summary>
+    /// Records one guide correction as a guide sample, stamped with the guide FRAME's time
+    /// (<see cref="Devices.Guider.IGuider.GuideCorrectionEvent"/>), so <see cref="GuideStatistics.OverExposure"/>
+    /// reduces real corrections and <c>GUIDEN</c> counts guide frames, not polls (#821). Runs on the
+    /// guider's thread: <see cref="_guideSamples"/> is the lock-free <see cref="CircularBuffer{T}"/>, so no lock.
+    /// <para>A correction with no measured error appends nothing (null is not zero), and a pending dither
+    /// mark waits for the next real sample.</para>
+    /// </summary>
+    private void OnGuideCorrection(object? sender, Devices.Guider.GuideCorrectionEventArgs e)
+    {
+        if (e is not { RaError: { } raErr, DecError: { } decErr })
+        {
+            return;
+        }
+
+        var isDither = Interlocked.Exchange(ref _ditherPending, false);
+        var isSettling = _guiderState is "Settling";
+        AppendGuideErrorSample(new GuideErrorSample(
+            e.FrameTime, raErr, decErr, e.RaCorrectionMs, e.DecCorrectionMs, isDither, isSettling));
+    }
+
+    /// <summary>
+    /// Records <paramref name="guider"/>'s corrections as guide samples until disposed. Taken for the
+    /// stretches where guide samples were polled before (#821): the imaging loop and the guider's
+    /// calibration and first settle (<see cref="GuideStatsPoller"/>).
+    /// </summary>
+    private GuideCorrectionListener ListenForGuideCorrections(Devices.Guider.IGuider guider)
+    {
+        var handler = new EventHandler<Devices.Guider.GuideCorrectionEventArgs>(OnGuideCorrection);
+        guider.GuideCorrectionEvent += handler;
+        return new GuideCorrectionListener(guider, handler);
+    }
+
+    private readonly struct GuideCorrectionListener(
+        Devices.Guider.IGuider guider,
+        EventHandler<Devices.Guider.GuideCorrectionEventArgs> handler) : IDisposable
+    {
+        public void Dispose() => guider.GuideCorrectionEvent -= handler;
+    }
+
     internal void UpdateGuideStats(GuideStats stats)
     {
         _lastGuideStats = stats;
@@ -874,9 +914,12 @@ internal partial record Session(
     {
         private readonly CancellationTokenSource _cts;
         private readonly Task _task;
+        private readonly GuideCorrectionListener _corrections;
 
         public GuideStatsPoller(Session session, Devices.Guider.IGuider guider, ITimeProvider timeProvider, CancellationToken parentToken)
         {
+            // The guide samples come from the guider's own corrections, not from this poll (#821).
+            _corrections = session.ListenForGuideCorrections(guider);
             _cts = CancellationTokenSource.CreateLinkedTokenSource(parentToken);
             _task = Task.Run(async () =>
             {
@@ -889,22 +932,9 @@ internal partial record Session(
                         session.UpdateGuiderState(appState);
                         session._guiderSettleProgress = await guider.GetSettleProgressAsync(ct);
 
-                        var stats = await guider.GetStatsAsync(ct);
-                        if (stats is { } gs)
+                        if (await guider.GetStatsAsync(ct) is { } gs)
                         {
                             session.UpdateGuideStats(gs);
-                        }
-
-                        // No last error means no sample: null is not zero (#821).
-                        if (stats is { LastRaErr: { } raErr, LastDecErr: { } decErr } measured)
-                        {
-                            var isDither = session._ditherPending;
-                            if (isDither) session._ditherPending = false;
-                            var isSettling = session._guiderState is "Settling";
-                            session.AppendGuideErrorSample(new GuideErrorSample(
-                                timeProvider.GetUtcNow(), raErr, decErr,
-                                measured.LastRaPulseMs ?? 0, measured.LastDecPulseMs ?? 0,
-                                isDither, isSettling));
                         }
                     }
                     catch (OperationCanceledException) { break; }
@@ -920,6 +950,7 @@ internal partial record Session(
             await _cts.CancelAsync();
             try { await _task; } catch { /* expected */ }
             _cts.Dispose();
+            _corrections.Dispose();
         }
     }
 }

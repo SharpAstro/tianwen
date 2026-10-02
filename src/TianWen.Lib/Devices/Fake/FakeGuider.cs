@@ -116,6 +116,28 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
     public event EventHandler<GuiderStateChangedEventArgs>? GuiderStateChangedEvent;
 #pragma warning restore CS0067
 
+    /// <inheritdoc/>
+    public event EventHandler<GuideCorrectionEventArgs>? GuideCorrectionEvent;
+
+    private double ArcsecPerPixel => _camera is { PixelSizeX: > 0, FocalLength: > 0 }
+        ? Astrometry.CoordinateUtils.PixelScaleArcsec(_camera.PixelSizeX, _camera.FocalLength)
+        : DefaultPixelScale;
+
+    /// <summary>
+    /// The guide loop's correction as <see cref="GuideCorrectionEvent"/>, in arcseconds, mirroring
+    /// <see cref="BuiltInGuiderDriver"/>. Under <see cref="ReportsNoLastError"/> the correction is still
+    /// reported, with no measured error, so a session's "null is not zero" rule is what a test exercises.
+    /// </summary>
+    private void OnGuideLoopCorrected(GuideLoopCorrection c)
+    {
+        var scale = ArcsecPerPixel;
+        GuideCorrectionEvent?.Invoke(this, new GuideCorrectionEventArgs(
+            c.FrameTime,
+            ReportsNoLastError ? null : c.RaErrorPx * scale,
+            ReportsNoLastError ? null : c.DecErrorPx * scale,
+            c.RaPulseMs, c.DecPulseMs));
+    }
+
     private GuiderState CurrentState => (GuiderState)Interlocked.CompareExchange(ref _state, 0, 0);
 
     private bool TryTransition(GuiderState from, GuiderState to)
@@ -233,9 +255,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
         }
 
         var tracker = _guideLoop?.ErrorTracker;
-        var scale = _camera is { PixelSizeX: > 0, FocalLength: > 0 }
-            ? Astrometry.CoordinateUtils.PixelScaleArcsec(_camera.PixelSizeX, _camera.FocalLength)
-            : DefaultPixelScale;
+        var scale = ArcsecPerPixel;
         return ValueTask.FromResult<GuideStats?>(new GuideStats
         {
             // Recent rolling-window stats (not all-time) so the panel reflects current guide
@@ -516,6 +536,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
             var guideLoop = new GuideLoop(pulseTarget, tracker, pController, TimeProvider);
             // CameraAngle=0 (RA along +x), Dec orthogonal at +90deg, unit rates.
             guideLoop.SetCalibration(new GuiderCalibrationResult(0, Math.PI / 2.0, 1.0, 1.0, 0, 0, 0));
+            guideLoop.Corrected += OnGuideLoopCorrected;
             _guideLoop = guideLoop;
 
             var declination = await mount.GetDeclinationAsync(ct);

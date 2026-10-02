@@ -1536,8 +1536,10 @@ pixel-scale precedence and the guiding cards:
   bin-1 fixture sees none of it; test on a bin-2 frame, with a hand-set foreign `XPIXSZ`.
 - **A light carries the guiding quality of ITS OWN exposure** (`ImageMeta.Guiding`;
   `GUIDERMS`/`GUIRMSRA`/`GUIRMSDE`/`GUIDEPK`/`GUIDEN`, arcsec, ours alone): `GuideStatistics.OverExposure`
-  reduces `Session.GuideSamples` over the exposure window, **never a rolling session average**; null is
-  not zero (an unguided rig writes NO cards); `GUIDEPK` catches the single gust RMS hides. Stamped via
+  reduces `Session.GuideSamples` over the exposure window, **never a rolling session average**; **a sample is
+  one guide CORRECTION** (`IGuider.GuideCorrectionEvent`, stamped with the guide frame's time, every driver
+  raises it), **never a poll of `GetStatsAsync`** (#821), so `GUIDEN` counts guide frames; null is
+  not zero (an unguided rig writes NO cards, an unmeasured correction appends nothing); `GUIDEPK` catches the single gust RMS hides. Stamped via
   `ICameraDriver.GuideStats` just before `GetImageAsync`. Pinned by `GuideStatisticsTests` +
   `SessionImagingTests`.
 

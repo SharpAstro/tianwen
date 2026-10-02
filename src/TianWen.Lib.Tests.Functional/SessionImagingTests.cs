@@ -1,5 +1,7 @@
 using Shouldly;
 using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
@@ -155,20 +157,134 @@ public class SessionImagingTests(ITestOutputHelper output)
     public async Task GivenGuiderWithNoLastErrorWhenFrameWrittenThenItCarriesNoGuideCards()
     {
         var ct = TestContext.Current.CancellationToken;
-        var subExposure = TimeSpan.FromSeconds(30);
-        var observations = new[]
-        {
-            new ScheduledObservation(
-                new Target(16.695, 36.46, "M13", null),
-                new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero),
-                TimeSpan.FromMinutes(5),
-                AcrossMeridian: false,
-                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
-                Gain: 0,
-                Offset: 0)
-        };
+        await using var ctx = await CreateImagingSessionAsync(
+            observations: GuidedObservation(TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(5)), cancellationToken: ct);
 
-        await using var ctx = await CreateImagingSessionAsync(observations: observations, cancellationToken: ct);
+        var (frames, corrections) = await RunGuidedImagingLoopAsync(ctx, reportsNoLastError: true, ct);
+
+        frames.Length.ShouldBeGreaterThan(0, "the loop should have written at least one light");
+        corrections.Count.ShouldBeGreaterThan(0, "the guider should have corrected, only without a measured error");
+
+        ctx.Session.GuideSamples.Length.ShouldBe(0, "no measured error, so no guide sample");
+        foreach (var frame in frames)
+        {
+            Image.TryReadFitsHeader(frame, out var info).ShouldBeTrue($"{frame} should be a readable FITS");
+            info.Meta.Guiding.ShouldBeNull($"{frame} must not carry guide cards built from invented samples");
+        }
+    }
+
+    /// <summary>
+    /// A light's <c>GUIDEN</c> counts the guide corrections made while its shutter was open, whatever the
+    /// imaging tick is. The session used to poll the guider once per tick, so every light carried about
+    /// six samples (sub / tick), however many guide frames its exposure held: GUIDEN counted polls (#821).
+    /// Under the external pump the fake guider corrects every 5 to 15 s of fake time, fewer than six times a
+    /// sub, so a polled count is out of range on every guided light.
+    /// <para>A guide frame is stamped with the middle of its exposure, so the one straddling the light's
+    /// close is reported after the light was stamped: GUIDEN may be one short of the count, never over.</para>
+    /// </summary>
+    [Theory(Timeout = 180_000)]
+    [InlineData(30, 5, true)]
+    // A 6 s sub (a 1 s tick) is shorter than the pumped guide cadence, so its one correction is usually
+    // reported after the light was stamped; it still pins that no light is stamped with a polled count.
+    [InlineData(6, 2, false)]
+    public async Task GivenAGuiderCorrectingNTimesInAnExposureWhenTheLightIsWrittenThenItsGuidenIsN(int subSeconds, int minutes, bool expectCards)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var ctx = await CreateImagingSessionAsync(
+            observations: GuidedObservation(TimeSpan.FromSeconds(subSeconds), TimeSpan.FromMinutes(minutes)), cancellationToken: ct);
+
+        var (frames, corrections) = await RunGuidedImagingLoopAsync(ctx, reportsNoLastError: false, ct);
+        frames.Length.ShouldBeGreaterThan(0, "the loop should have written at least one light");
+
+        var checkedLights = 0;
+        var exactLights = 0;
+        var lastRecorded = ctx.Session.GuideSamples.Select(s => s.Timestamp).DefaultIfEmpty().Max();
+        foreach (var frame in frames)
+        {
+            Image.TryReadFitsHeader(frame, out var info).ShouldBeTrue($"{frame} should be a readable FITS");
+            // The session's own window: the exposure's start for the configured sub. The header's EXPTIME
+            // is the fake camera's elapsed time, which is not the window the session reduces over.
+            var start = info.Meta.ExposureStartTime;
+            var end = start + TimeSpan.FromSeconds(subSeconds);
+            var n = corrections.Count(c => c.FrameTime >= start && c.FrameTime <= end);
+            var guiden = info.Meta.Guiding?.SampleCount ?? 0;
+            var recorded = GuideStatistics.OverExposure(ctx.Session.GuideSamples, start, TimeSpan.FromSeconds(subSeconds))?.SampleCount ?? 0;
+            output.WriteLine($"{Path.GetFileName(frame)}: [{start:O}, {end:O}] corrections={n} recorded={recorded} GUIDEN={guiden}");
+
+            // Exact: the session holds one sample per correction in the exposure, no more, no fewer -- for
+            // every light the session saw a LATER correction after. The guider reports in order on one
+            // thread, so that later one proves every correction in the exposure reached the session before
+            // it stopped listening at the loop's end.
+            if (lastRecorded > end)
+            {
+                recorded.ShouldBe(n, $"{frame}: the session must record each of the {n} guide corrections in its exposure once");
+                exactLights++;
+            }
+            else
+            {
+                recorded.ShouldBeLessThanOrEqualTo(n, $"{frame}: the session must never record a guide correction twice");
+            }
+            // The header was stamped as the shutter closed, so a correction reported after that (its guide
+            // frame still being read, or the guider's thread behind the pump) is missing from it, but a
+            // polled count, ~sub / tick, was over on nearly every light.
+            guiden.ShouldBeLessThanOrEqualTo(n,
+                $"{frame}: GUIDEN must count the {n} guide corrections in its exposure, not the imaging loop's polls");
+            if (guiden >= 1)
+            {
+                checkedLights++;
+            }
+        }
+
+        if (expectCards)
+        {
+            checkedLights.ShouldBeGreaterThan(0, "at least one light should carry the guide corrections made while its shutter was open");
+        }
+        exactLights.ShouldBeGreaterThan(0, "at least one light should be checked for its exact correction count");
+    }
+
+    /// <summary>
+    /// A guide sample is stamped with its guide frame's time, never with the time the session read it, and
+    /// no guide frame is recorded twice (#821).
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task GivenAGuidedImagingLoopWhenSamplesAreRecordedThenEachIsStampedWithItsGuideFramesTime()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var ctx = await CreateImagingSessionAsync(
+            observations: GuidedObservation(TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(3)), cancellationToken: ct);
+
+        var (_, corrections) = await RunGuidedImagingLoopAsync(ctx, reportsNoLastError: false, ct);
+
+        var samples = ctx.Session.GuideSamples;
+        samples.Length.ShouldBeGreaterThan(0, "a guided loop records guide samples");
+
+        var frameTimes = corrections.Select(c => c.FrameTime).ToHashSet();
+        foreach (var sample in samples)
+        {
+            frameTimes.ShouldContain(sample.Timestamp, "a sample's time is its guide frame's, not a poll's");
+        }
+        samples.Select(s => s.Timestamp).Distinct().Count().ShouldBe(samples.Length, "no guide frame is recorded twice");
+    }
+
+    private static ScheduledObservation[] GuidedObservation(TimeSpan subExposure, TimeSpan duration) =>
+    [
+        new ScheduledObservation(
+            new Target(16.695, 36.46, "M13", null),
+            new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero),
+            duration,
+            AcrossMeridian: false,
+            FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
+            Gain: 0,
+            Offset: 0)
+    ];
+
+    /// <summary>
+    /// Starts the fake guider, runs one imaging loop under the external time pump and returns the lights it
+    /// wrote with every correction the guider reported (recorded on the guider's thread).
+    /// </summary>
+    private static async Task<(string[] Frames, IReadOnlyCollection<Devices.Guider.GuideCorrectionEventArgs> Corrections)> RunGuidedImagingLoopAsync(
+        SessionTestContext ctx, bool reportsNoLastError, CancellationToken ct)
+    {
         ctx.External.MaxFitsWrites = 100;
 
         var lightsRoot = ctx.External.ImageOutputFolder.FullName;
@@ -181,7 +297,9 @@ public class SessionImagingTests(ITestOutputHelper output)
         await mount.EnsureTrackingAsync(cancellationToken: ct);
 
         var guider = (FakeGuider)ctx.Session.Setup.Guider.Driver;
-        guider.ReportsNoLastError = true;
+        guider.ReportsNoLastError = reportsNoLastError;
+        var corrections = new ConcurrentQueue<Devices.Guider.GuideCorrectionEventArgs>();
+        guider.GuideCorrectionEvent += (_, e) => corrections.Enqueue(e);
         await guider.GuideAsync(0.3, 3, 30, ct);
         await ctx.TimeProvider.SleepAsync(TimeSpan.FromSeconds(4), ct);
 
@@ -196,15 +314,7 @@ public class SessionImagingTests(ITestOutputHelper output)
         imagingTask.IsCompleted.ShouldBeTrue("imaging loop should have completed within timeout");
         await imagingTask;
 
-        var frames = Directory.GetFiles(lightsRoot, "frame_*.fits", SearchOption.AllDirectories);
-        frames.Length.ShouldBeGreaterThan(0, "the loop should have written at least one light");
-
-        ctx.Session.GuideSamples.Length.ShouldBe(0, "no measured error, so no guide sample");
-        foreach (var frame in frames)
-        {
-            Image.TryReadFitsHeader(frame, out var info).ShouldBeTrue($"{frame} should be a readable FITS");
-            info.Meta.Guiding.ShouldBeNull($"{frame} must not carry guide cards built from invented samples");
-        }
+        return (Directory.GetFiles(lightsRoot, "frame_*.fits", SearchOption.AllDirectories), corrections.ToArray());
     }
 
     /// <summary>

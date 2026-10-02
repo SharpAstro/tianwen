@@ -60,6 +60,28 @@ internal sealed class GuideLoop
     private int _publishedFrameCount;
 
     /// <summary>
+    /// Raised once per frame the loop corrects on, on the loop's own thread, after the correction is
+    /// computed and before it is applied: the frame's time, its error in mount-axis PIXELS and the
+    /// pulse answering it. The drivers scale it to arcseconds and raise
+    /// <see cref="IGuider.GuideCorrectionEvent"/> from it (#821). A frame that found no star corrects
+    /// nothing and raises nothing.
+    /// </summary>
+    internal event Action<GuideLoopCorrection>? Corrected;
+
+    /// <summary>
+    /// The instant a guide frame describes: the middle of its exposure, since a centroid is the star's
+    /// average position over it. A frame with no recorded start (none of today's drivers) falls back to
+    /// now, which is when it was measured.
+    /// </summary>
+    internal static DateTimeOffset FrameTimeOf(Image frame, ITimeProvider timeProvider)
+    {
+        var meta = frame.ImageMeta;
+        return meta.ExposureStartTime == default
+            ? timeProvider.GetUtcNow()
+            : meta.ExposureStartTime + meta.ExposureDuration / 2;
+    }
+
+    /// <summary>
     /// How many frames this loop has published, counted where <see cref="LastFrame"/> is assigned so it
     /// cannot drift from what a reader can actually see.
     /// <para>
@@ -417,6 +439,7 @@ internal sealed class GuideLoop
                 // at a spent frame for the whole capture, so any borrower in that window (the hosted
                 // preview, the guider save path) lost its TryLease for no better reason than timing.
                 var frame = await captureFrame(cancellationToken);
+                var frameTime = FrameTimeOf(frame, _timeProvider);
                 var superseded = LastFrame;
                 LastFrame = frame;
                 superseded?.Release();
@@ -603,6 +626,20 @@ internal sealed class GuideLoop
                 _guideFrameCount++;
 
                 LastCorrection = correction;
+
+                // One report per corrected frame, stamped with the frame's own time (#821). A subscriber
+                // that throws must not stop guiding.
+                if (Corrected is { } corrected)
+                {
+                    try
+                    {
+                        corrected(new GuideLoopCorrection(frameTime, raErrorPx, decErrorPx, correction.RaPulseMs, correction.DecPulseMs));
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger?.LogWarning(ex, "GuideLoop: a guide-correction subscriber threw; guiding continues.");
+                    }
+                }
 
                 // Apply both corrections as ONE operation. They came from one star measurement at
                 // one instant, so the composite overlaps them where the mount allows it (GSS #76)
@@ -802,3 +839,13 @@ internal sealed class GuideLoop
         return _timeProvider.GetTimestamp() / (double)_timeProvider.TimestampFrequency;
     }
 }
+
+/// <summary>
+/// One correction of <see cref="GuideLoop"/>, in mount-axis pixels: see <see cref="GuideLoop.Corrected"/>.
+/// </summary>
+internal readonly record struct GuideLoopCorrection(
+    DateTimeOffset FrameTime,
+    double RaErrorPx,
+    double DecErrorPx,
+    double RaPulseMs,
+    double DecPulseMs);

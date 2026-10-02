@@ -251,15 +251,43 @@ Two things would consume it:
 
 ### 7. Telemetry per correction, not per poll
 
-Tracked by #821.
+Tracked by #821. **Done**: the synthetic fallback went in #942 and the per-correction event in the PR that closed
+#821.
 
-`Session.GuideSamples` is filled by polling `GetStatsAsync` once per imaging tick. The tick is
-`clamp(GCD(exposures) / 6, 1, 5)` seconds, and each sample is stamped at the time of the poll. When a driver has no
-last error, the loop appends `RMS · random(-1, 1)` instead (`Session.Imaging.cs`, "fall back to synthetic"), and
-`GuideStatistics.OverExposure` reduces those samples into `GUIDERMS`.
+**What it was.** `Session.GuideSamples` was filled by polling `GetStatsAsync` once per imaging tick. The tick is
+`clamp(GCD(exposures) / 6, 1, 5)` seconds, and each sample was stamped at the time of the poll, so a guide frame
+could be sampled twice or missed and `GUIDEN` counted polls. When a driver had no last error, the loop appended
+`RMS · random(-1, 1)` instead, and `GuideStatistics.OverExposure` reduced those samples into `GUIDERMS`.
 
-A video guider that corrects about once a second needs a sample per correction, raised as an event by the guider.
-The synthetic fallback must go: null is not zero, which is the rule `GUIDERMS` itself is built on.
+**What was built.**
+
+- **`IGuider.GuideCorrectionEvent`** (`GuideCorrectionEventArgs`) is raised once per guide correction, on the
+  guider's thread. It carries the guide frame's time and the RA and Dec error in arcseconds, the units
+  `GuideErrorSample` uses, plus the signed pulses. `GuidingErrorEvent` stays the failure report.
+- **The in-process guiders raise it from `GuideLoop.Corrected`**, once per frame the loop corrects on (a frame with no
+  star corrects nothing and raises nothing). `BuiltInGuiderDriver` and `FakeGuider` scale the loop's pixels by their
+  plate scale. The frame's time is the middle of its exposure (`GuideLoop.FrameTimeOf`), the instant a centroid
+  describes.
+- **`OpenPHD2GuiderDriver` raises it from each `GuideStep`**, stamped with the event's own `Timestamp`. A step's
+  distances are in pixels, and the event reader cannot make an RPC, so `GuideAsync` reads `get_pixel_scale` ahead.
+  With no scale known, the step is reported unmeasured. Before this, the polled PHD2 samples were pixels labelled
+  arcseconds.
+- **The session subscribes for the stretches it used to poll**: the imaging loop and `GuideStatsPoller` (calibration
+  and the first settle). It appends to `_guideSamples`, the lock-free `CircularBuffer`, with no lock. The polls keep
+  only the guider panel's RMS. #942's rule holds: a correction with no measured error appends nothing, and a pending
+  dither mark waits for the next real sample.
+
+So `GuideStatistics.OverExposure` reduces real corrections, and `GUIDEN` counts guide frames.
+
+**What the tests found.**
+
+- A light is stamped as its shutter closes. A guide frame straddling that close is reported after the stamp, so
+  `GUIDEN` can be short of the corrections in the exposure, never over. In the fake-time harness the guider's thread
+  can trail the pump by more than one frame.
+- `SessionImagingTests` therefore checks the exact count on the session's own record, and checks that the header
+  never exceeds it.
+- The fake camera's `EXPTIME` is its elapsed time, not the configured sub, so the window is taken from the session's
+  sub.
 
 ## What would actually need building
 
