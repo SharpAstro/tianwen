@@ -957,8 +957,11 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
 - **The planetary stack's defaults ARE the measured best, and today's recipe is one switch away** (the enhanced pipeline, #1159):
   `PlanetaryStackOptions` defaults to the gradient, plain correlation, clamped Lanczos-3 and a reference of the best 1,000 at half
   the frames; `PlanetaryStackOptions.Legacy` and `planetary-stack --legacy` are the recipe before. **The rolling stack (live capture,
-  the GUI's playback) keeps today's recipe by default**, the new choices options there (the user, 2026-10-02: two paths are fine and
-  the batch may be slow if it is best, but frames are many, so no step may grow faster than linearly in them). **A test that
+  the GUI's playback) takes the gradient and the plain correlation, never Lanczos-3** (`RollingWindowOptions`, `.Legacy` the recipe
+  before), measured as it runs by `tianwen planetary-live` through the node's own loop (`LiveStackLoop`): Lanczos-3 folded two fifths
+  as many frames a second. **Judge a live stack by the frames it FOLDS a second, never by how far its window's end moved**, which a
+  rebuild jumps: at 216 frames a second every recipe folds a quarter of them and rebuilds on nearly every master (#1174). Frames are
+  many, so no step may grow faster than linearly in them (the user, 2026-10-02). **A test that
   depends on one of these choices pins it** rather than inheriting a default the next measurement may move. **Lanczos-3's clamp
   applies only where every tap is non-negative** (`Image.Lanczos3Finish`): it is PixInsight's rule for non-negative data, and on a
   sky at zero with its noise its denominator vanished (a stacked reference read 1e17). A run is de-rotated

@@ -30,25 +30,26 @@ public sealed record RollingWindowOptions
     public int MaxWindowFrames { get; init; } = 500;
 
     /// <summary>
-    /// The sharpness metric, which picks the reference and weights each frame's contribution (quality-weighted mean). Laplacian
-    /// variance by default. The rolling stack keeps its recipe while the batch stack takes the measured best (the user,
-    /// 2026-10-02, #1159: the live stack may stay fast where the batch one is slow but best); the gradient is the batch
-    /// stack's (<see cref="PlanetaryStackOptions.QualityEstimator"/>).
+    /// The sharpness metric, which picks the reference and weights each frame's contribution (quality-weighted mean): the gradient,
+    /// the batch stack's (<see cref="PlanetaryStackOptions.QualityEstimator"/>), since it cost the live stack nothing and its last
+    /// master less error (planetary-live, docs/plans/planetary-restoration.md, "The live stack, given the batch stack's learnings").
     /// </summary>
-    public IFrameQualityEstimator QualityEstimator { get; init; } = new LaplacianEnergyEstimator();
+    public IFrameQualityEstimator QualityEstimator { get; init; } = new GradientEnergyEstimator();
 
     /// <summary>Correlation tile edge for global alignment. <c>0</c> auto-sizes to the reference disk.</summary>
     public int AlignTileSize { get; init; }
 
     /// <summary>
-    /// Whether frames are registered by phase correlation (whitened, the default) or by a plain cross-correlation, its peak climbed
-    /// (the batch stack's, <see cref="PlanetaryStackOptions.WhitenedCorrelation"/>).
+    /// Whether frames are registered by phase correlation (whitened) or by a plain cross-correlation, its peak climbed (the default,
+    /// the batch stack's, <see cref="PlanetaryStackOptions.WhitenedCorrelation"/>): it left the live stack's last master less error
+    /// and kept nine tenths of its throughput.
     /// </summary>
-    public bool WhitenedCorrelation { get; init; } = true;
+    public bool WhitenedCorrelation { get; init; }
 
     /// <summary>
     /// The kernel each frame is resampled by as it is folded in (bilinear by default; the batch stack's is clamped Lanczos-3,
-    /// <see cref="PlanetaryStackOptions.Interpolation"/>). An eviction folds by the same kernel, so it cancels exactly.
+    /// <see cref="PlanetaryStackOptions.Interpolation"/>, which a live stack keeping up with a fast capture cannot afford: it folded
+    /// two fifths as many frames a second). An eviction folds by the same kernel, so it cancels exactly.
     /// </summary>
     public WarpInterpolation Interpolation { get; init; } = WarpInterpolation.Bilinear;
 

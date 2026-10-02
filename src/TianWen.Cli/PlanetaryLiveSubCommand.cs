@@ -18,8 +18,9 @@ namespace TianWen.Cli;
 /// <c>tianwen planetary-live &lt;capture.ser&gt;</c>: how the live stack keeps up with a capture, measured as it runs. The capture is
 /// replayed into the node's own ring (<see cref="LiveCameraFrameStream"/>, sized as <see cref="PlanetaryCapture"/> sizes it) at its
 /// own frame rate, read off its timestamps, while the node's own loop (<see cref="LiveStackLoop"/>) stacks to the newest frame, for
-/// each recipe asked: the masters' interval, the frames the stack advances a second against the capture's, how far behind the
-/// newest frame each master is, the window's rebuilds, and, given a synthetic capture's truth, the last master's fidelity
+/// each recipe asked: the masters' interval, the frames the stack folds a second against the capture's, how far behind the newest
+/// frame each master is, the window's rebuilds, the frames each master holds, and, given a synthetic capture's truth, the last
+/// master's fidelity
 /// (docs/plans/planetary-restoration.md, "The live stack, given the batch stack's learnings").
 /// </summary>
 internal sealed class PlanetaryLiveSubCommand(IConsoleHost consoleHost, ITimeProvider timeProvider)
@@ -117,7 +118,8 @@ internal sealed class PlanetaryLiveSubCommand(IConsoleHost consoleHost, ITimePro
         return command;
     }
 
-    // One master as it was published: when, the frame it was stacked to, the newest frame the ring held then, and the rebuilds so far.
+    // One master as it was published: when, the frame it was stacked to, the newest frame the ring held then, the rebuilds and folds
+    // so far, and the frames its sum holds.
     private readonly record struct Published(TimeSpan At, int Built, int Newest, int Rebuilds, long Folds, int Folded);
 
     private sealed record Run(IReadOnlyList<Published> Masters, int Pushed, TimeSpan Replayed, Image? Last);
