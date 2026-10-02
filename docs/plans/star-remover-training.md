@@ -1,8 +1,9 @@
 # Star-remover training (P4): the inject-and-remove bootstrap
 
-**Status: NOT STARTED, and now the first of the model plans in priority (the owner, 2026-10-02: #902 is
-`priority:high`, above the gradient plan's de-vignetting model). Nothing built; R0 is next and needs no
-GPU.** Design captured in [ai-denoise-deconv.md](ai-denoise-deconv.md) section 2.5, restated here at run
+**Status: R0 BUILT (2026-10-03), the first of the model plans in priority (the owner, 2026-10-02: #902 is
+`priority:high`, above the gradient plan's de-vignetting model). The classical plate builder and its report
+run on the ten held-out masters with holes below their null on every one ([R0 results](#r0-results-2026-10-03));
+R1, the injector, is next.** Design captured in [ai-denoise-deconv.md](ai-denoise-deconv.md) section 2.5, restated here at run
 level 2026-09-02 and reviewed against the code and the store on 2026-10-02 (section 9). It was written as
 the LAST of the four imaging models because it waited on three things, and all three are in place: the
 deconvolver programme's PSF distribution (P2.0 done 2026-09-06; the re-baked store measures it per channel),
@@ -53,7 +54,7 @@ A user's Newtonian is common, so what v1 does with spikes is section 8's first q
 | Star detection + measurement | shipped | `FindStarsAsync`, `ImagedStar` (HFD, FWHM via `HalfMaxDiameter`, eccentricity), `PsfProfileFit`, and the deblender: "the star mask splits into a footprint and a claim, so a close companion is measured", "two tight stars are two stars, by fitting the aperture instead of sizing it", then `BackgroundMap` / `SourceSegmentation` (the Background2D and detect_sources shapes) and the crowded-field rule (a large segment with many maxima is a field, not a source) |
 | PSF distribution | measured, current | The re-baked store's `stats/psf-sessions.jsonl` (`D:/Astro-Dataset/2026-09-29-full`, recipe 3): `MasterProfiles` per channel (Moffat FWHM and beta, the wing at 2 and 3 FWHM, the Moffat and Gaussian fits' log RMS; three profiles on 338 records, one on the 42 mono ones), `BinsByChannel` (ellipticity by radius), the train on every record. Measured ON the master, so the warp and demosaic (or drizzle) widening is already in it, which is what an injector into a master needs. Saturation fraction 0.1 to 0.2 percent of detections |
 | Degradation exporter | shipped, two of three modes | `DatasetDegradationExporter` (`tianwen dataset degrade`): `DegradationMode.Noise` (denoiser) and `Blur` (deconvolver), the noise anchored per channel on each master's recorded calibration and shaped by its integration (`NoiseShape.Warped`, E16b). Star injection is the third mode, R1 |
-| Classical starless plate | NOT built | PSF-fit subtraction at detections plus multi-scale inpaint. Masking exists (`StarMask`, `ScanBackgroundRegion`, the segmentation's footprints), and so does ONE inpainter, low-pass only: the classical background extractor's masked inpainted surface (`RobustBackgroundFit`, `SurfaceRefinement`). It fills a hole on smooth sky; a hole on nebula structure needs the multi-scale fill R0 builds |
+| Classical starless plate | built (R0) | `ClassicalStarRemover` (`TianWen.Lib.Imaging.StarRemoval`) with its finder (`PointSourceFinder`), fill (`HoleFill` over `PushPullFill`) and fill probe (`StarlessFillProbe`); `tianwen dataset starless-plates` writes the starless and stars-only plates and the report. Not yet an `IStarRemover` (the owner's call, section 6) |
 | Bright-tail morphology | measured elsewhere | the "bright end scrambled by saturation" note on the Vela field; flat-topped cores give unstable centroids |
 
 ## 2. Hypotheses
@@ -295,6 +296,97 @@ the Uranus-C on the FMA135 (M8 and M20, drizzled, no flat).
   (the ASI533's 135 mm, the ASI585's 24 mm), within 10 percent on the refractors (FMA180, SH61, FMA135).
 - The SWQ8's spikes are left whole outside the inpainted cores; the report states it and does not count
   them as leftovers.
+
+#### R0 results, 2026-10-03
+
+`tianwen dataset starless-plates` over the ten masters, every plate pair also inspected by eye at its brightest
+star, at its worst negative patch of the stars plate, at its worst dip of the starless one and at a fixed field
+spot. Holes are cores more than 3 sigma over root n below the plate's own annulus sky, as a percentage of each
+band, beside the same test at random star-free places of the plate (the null, which correlated noise and crowding
+raise); residual is in local sigma (noise reads 1).
+
+| Master | found | inpaint | holes 5-20 / 20-100 / 100+ (null) | residual 5-10 / 10-20 / 100+ | bias 5-20 | leftover 10-20 / 20+ |
+|---|---|---|---|---|---|---|
+| Centaurus A (QHY294C, SWQ8) | 44,163 | 6.1 % | 0.30 / 0.29 / 1.07 (6.10) | 0.81 / 0.93 / 2.01 | 0.09 | 0.01 / 0.01 |
+| eta Carinae (ASI1600MM, L) | 160,162 | 37.7 % | 0.79 / 1.43 / 2.54 (11.25) | 1.59 / 2.00 / - | 0.21 | 0.02 / 0.02 |
+| Leo Triplet (ASI294MM, L) | 16,027 | 1.2 % | 0.25 / 0.00 / 0.32 (0.35) | 0.77 / 0.90 / 1.99 | 0.10 | 0.03 / 0.10 |
+| Horsehead (SV605CC, L-Quad) | 14,170 | 2.8 % | 0.74 / 1.12 / 1.92 (15.00) | 0.76 / 0.92 / - | 0.37 | 0.02 / 0.00 |
+| SMC (SV605CC, L-Ultimate) | 25,311 | 1.5 % | 0.17 / 0.40 / 2.36 (7.00) | 0.80 / 0.89 / 1.55 | 0.35 | 0.04 / 0.03 |
+| Orion (ASI533, UV/IR) | 34,156 | 5.9 % | 0.04 / 0.18 / 0.31 (4.35) | 0.88 / 1.14 / 2.39 | 0.24 | 0.01 / 0.00 |
+| Antares (ASI533, LPS-D3) | 60,294 | 6.6 % | 0.03 / 0.47 / 0.85 (4.85) | 0.85 / 1.07 / 2.11 | 0.47 | 0.01 / 0.01 |
+| Rim Nebula (ASI533, SII) | 58,702 | 6.3 % | 0.10 / 0.91 / 2.93 (12.90) | 0.97 / 1.42 / - | 0.88 | 0.05 / 0.03 |
+| Carina, 24 mm (ASI585) | 56,518 | 14.0 % | 0.87 / 2.81 / 8.62 (25.80) | 1.08 / 1.57 / - | 1.53 | 0.01 / 0.01 |
+| M8 + M20 (Uranus-C, FMA135) | 23,677 | 12.8 % | 0.39 / 1.84 / 3.70 (11.10) | 0.92 / 1.21 / - | 1.05 | 0.01 / 0.01 |
+
+Against what was predicted before the run:
+
+- **Holes: below the null on every master and every band**, which is the goal's one forbidden artefact. The
+  stars-only plate (input minus starless) holds no negative patch summing past 220 sigma on any master but
+  Antares, whose 517 is M4's unresolved core.
+- **Residual at faint sites under 2 sigma: held** (eta Carinae's 10-20 band is the edge, at 2.00). **Above SNR
+  100 it was predicted over 3 sigma and is 1.5 to 2.4**: the bright stars fit better than expected.
+- **Bias within 0.5 sigma over root n below SNR 100: held on seven, missed on three**, all positive (light left,
+  never taken): the Rim Nebula 0.88, M8 + M20 1.05, the 24 mm Carina field 1.53, the three crowded or nebulous
+  fields.
+- **Inpaint under 5 percent on nine of ten: wrong, three of ten.** The fill is the price of the hole rule: a core
+  whose misfit is not noise is filled rather than left, and crowded fields have many. eta Carinae's 37.7 percent
+  is a third of a confusion-limited Milky Way field; R1 has to weigh what a third of a target made by the fill
+  teaches before that master enters the plates.
+- **Leftovers under 5 percent at SNR 10 and up: held** everywhere but the Leo Triplet's 20+ band (0.10, the
+  galaxies' cores and HII regions the fit calls knots, as it should).
+- **Field radius: half right.** The refractors' corners sit within 10 percent of their centres (FMA180 7, SH61 6
+  to 8, FMA135 within noise). The camera lenses were predicted 30 percent and more and read 12 to 25 (the 135 mm)
+  and 1 (the 24 mm, whose stars are wide everywhere).
+- **Spikes: left whole**, as decided; a giant's subtraction never digs between them (below).
+
+#### What the ten masters taught the builder
+
+Each was found on one master by eye and measured before it was fixed; none is specific to that master.
+
+- **A saturated star needs a halo test, and the test reads the ring past its fit window**, never the background
+  map at the star, which a bright star raises under itself. A wing fit whose sky is far from that ring holds light
+  the field's Moffat cannot (the Horsehead's 4,933-sigma star: a sky 1,100 below, 2e6 for a 65,000 plateau, a blob
+  and four over-subtracted lobes); it takes its own symmetric profile instead.
+- **Saturation is the full scale, not only a flat top**: a clipped star stacked over sub-pixel shifts has a round
+  top (9 Sgr, 0.98 of 0.99, fitted unsaturated at 1.61 times the field's width and left as a knot).
+- **A giant's profile is the star's, not its surroundings'.** It is monotone, it ends where it flattens and is
+  measured against that level, never a sky 100 px out; it falls no slower than the inverse square of its radius
+  (the aureole's far wing); and it never takes a pixel more than 2 sigma below its level. Without the first three,
+  nebula round eta Carinae (at 600 and at 24 mm) and 9 Sgr went into the stars plate and left dark discs; without
+  the last, the Antares-field giant's 18 spikes had notches 4 to 20 sigma deep between them. Smoothing a halo
+  before the minimum is wrong: a mean over a convex halo sits above it and dug a 0.7 sigma disc.
+- **A giant's core is filled to its plateau's farthest pixel**, and its residual is flagged only where it dominates,
+  against the plate around it (flagged to its full reach against the far sky, M42's nebula was filled as a disc
+  110 px across).
+- **A wide source is tried as a blend before it is called a knot**: two field-width stars along its long axis (the
+  brightest Centaurus A "knots", 672 and 402 sigma, are doubles 3 px apart).
+- **In a crowded field the filtered plane's spread is the stars, not the noise.** The finder's noise is capped by
+  what the plane's lag-1 and lag-2 differences predict for a correlated noise (within 8 percent of the measured on
+  every sparse field; eta Carinae's 107 to 149 against a prediction of 47), and the find on the residual repeats
+  until a pass adds under a tenth of the one before: eta Carinae went from 73,605 sources to 160,162.
+- **A fill may not rise above the data**: a star only adds light, so a fill more than 3 local sigma above the
+  pixel it replaces takes the data's value. The local sigma there, and the fill's grain, come from the local
+  differences too, because the rms map counts a nebula's structure and a crowd's faint stars as noise (the
+  Trapezium's fill sat 0.26 above data whose noise is a hundredth of that; its negative patch went from 1,487 sigma
+  to 34).
+- **A core misfit alternates sign from pixel to pixel**, which a three-pixel mean averages away, so a pixel beyond
+  5 sigma inside a footprint is flagged on its own (eta Carinae's +-3,000 ADU cores).
+- **Edges and refits**: a NaN of the absent canvas no longer makes a plateau NaN (a 700-sigma star at Orion's
+  edge was left whole), a centre fitted past the edge is no drift, and a refinement that fails puts back the fit
+  it was meant to improve.
+
+#### What R0 leaves
+
+Tracked by #902 with the rest of P4.0; none of it is a hole.
+
+- **Diffraction spikes** stay, section 8's open question.
+- **Stars on a steep, bright nebula** that fit wider than 1.6 times the field (a curved sky under a planar one) are
+  left as knots: Orion's 50-sigma star beside the Trapezium, Herschel 36 in the Hourglass.
+- **Clipped nebula round a saturated star** (eta Carinae's Keyhole, the Trapezium) is filled from its boundary,
+  which is darker than the clip it replaces; what was there is not in the data.
+- **M4's core** keeps its unresolved glow and the stars on its bar, the one negative patch over 220 sigma.
+- **eta Carinae's inpaint fraction** (above), and the faint stars of its Milky Way field still under the confusion
+  the finder's deeper noise reaches.
 
 ## 7. Phasing
 

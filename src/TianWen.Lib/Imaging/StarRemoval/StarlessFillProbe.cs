@@ -80,7 +80,7 @@ public static class StarlessFillProbe
             {
                 filled[c] = (float[])original[c].Clone();
             }
-            HoleFill.Fill(filled, width, height, holes, absent, fwhm, seed + radius, cancellationToken);
+            HoleFill.Fill(filled, width, height, holes, absent, fwhm, seed + radius, ceiling: null, cancellationToken);
             var filledLum = Luminance(filled, width * height);
 
             var smooth = new List<float>();

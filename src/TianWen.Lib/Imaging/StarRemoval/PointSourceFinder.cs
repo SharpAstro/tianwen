@@ -27,7 +27,9 @@ internal readonly record struct PointSource(float X, float Y, int PeakX, int Pea
 /// source, the saturated and the faint and those at the edge, and decide later (by fitting) which are stars.</para>
 /// <para>The noise of the filtered plane is measured, not derived: a master's noise is correlated (warp and demosaic
 /// or drizzle), so the white-noise reduction of a Gaussian filter would overstate the significance. The ratio of the
-/// filtered plane to the sky's rms map is scaled by its own MAD.</para>
+/// filtered plane to the sky's rms map is scaled by its own MAD, capped by the noise the plane's differences predict
+/// for a correlated noise (<see cref="PredictedFilteredNoise"/>): in a crowded field the MAD is the confusion of faint
+/// stars, which the differences barely see.</para>
 /// </remarks>
 internal static class PointSourceFinder
 {
@@ -62,6 +64,15 @@ internal static class PointSourceFinder
             filtered[i] = rms[i] > 0f ? filtered[i] / rms[i] : 0f;
         }
         var noise = RobustSigma(filtered, absent, width);
+        // In a crowded field the filtered plane's spread is the faint stars themselves, not noise (eta Car's Milky Way
+        // read 107 to 149 where its noise predicts 47), and every star under that confusion was missed. The noise the
+        // differences predict is blind to it, so it caps the measured one; on a sparse field the two agree within 8 %.
+        var predicted = PredictedFilteredNoise(plane, width, height, absent, sigma);
+        var typicalRms = TypicalRms(rms, absent, width);
+        if (predicted > 0 && typicalRms > 0f)
+        {
+            noise = Math.Min(noise, (float)(ConfusionSafety * predicted / typicalRms));
+        }
         if (!(noise > 0f))
         {
             return (Array.Empty<PointSource>(), sky);
@@ -90,8 +101,189 @@ internal static class PointSourceFinder
         return (Merge(found, Math.Max(1.5, fwhm), width, height), sky);
     }
 
+    /// <summary>The margin on <see cref="PredictedFilteredNoise"/>, which reads a sparse field's filtered noise 5 to 8 % low.</summary>
+    internal const double ConfusionSafety = 1.15;
+
     private static bool IsAbsent(BitMatrix? absent, int index, int width)
         => absent is { } mask && mask[index / width, index % width];
+
+    /// <summary>
+    /// The noise a Gaussian filter of <paramref name="filterSigma"/> pixels leaves on <paramref name="plane"/>, from
+    /// pixel differences alone: the noise taken as white noise through a Gaussian of width s (a master's warp and
+    /// demosaic), whose lag-1 and lag-2 difference spreads fix s and the pixel sigma, after which the filter's output
+    /// noise is sigma s / sqrt(filterSigma^2 + s^2). Differences see a star only on its steep core, so a crowded field's
+    /// confusion, which the filtered plane's own spread counts as noise, barely reaches it. NaN when the two spreads do
+    /// not fit the model.
+    /// </summary>
+    internal static double PredictedFilteredNoise(ReadOnlySpan<float> plane, int width, int height, BitMatrix? absent, double filterSigma)
+    {
+        var (pixelSigma, correlationWidth) = DifferenceNoise(plane, width, height, absent);
+        return pixelSigma * correlationWidth / Math.Sqrt(filterSigma * filterSigma + correlationWidth * correlationWidth);
+    }
+
+    /// <summary>
+    /// The pixel noise of <paramref name="plane"/> and its correlation width, from the spreads of its lag-1 and lag-2
+    /// differences under the model of <see cref="PredictedFilteredNoise"/>; NaN for both when they do not fit it.
+    /// </summary>
+    internal static (double PixelSigma, double CorrelationWidth) DifferenceNoise(ReadOnlySpan<float> plane, int width, int height, BitMatrix? absent)
+    {
+        var lag1 = new List<float>();
+        var lag2 = new List<float>();
+        for (var y = 0; y < height; y += 2)
+        {
+            for (var x = 0; x + 2 < width; x++)
+            {
+                var i = y * width + x;
+                float a = plane[i], b = plane[i + 1], c = plane[i + 2];
+                if (!float.IsFinite(a) || !float.IsFinite(b) || !float.IsFinite(c)
+                    || IsAbsent(absent, i, width) || IsAbsent(absent, i + 1, width) || IsAbsent(absent, i + 2, width))
+                {
+                    continue;
+                }
+                lag1.Add(b - a);
+                lag2.Add(c - a);
+            }
+        }
+        if (lag1.Count < 1000)
+        {
+            return (double.NaN, double.NaN);
+        }
+        var d1 = RobustSigma(lag1.ToArray(), null, 1);
+        var d2 = RobustSigma(lag2.ToArray(), null, 1);
+        if (!(d1 > 0f) || !(d2 > 0f))
+        {
+            return (double.NaN, double.NaN);
+        }
+        var q = (double)d2 * d2 / ((double)d1 * d1);
+        static double Rho(double k, double s) => Math.Exp(-k * k / (4.0 * s * s));
+        static double Ratio(double s) => (1.0 - Rho(2, s)) / (1.0 - Rho(1, s));
+        double lo = 0.05, hi = 20.0;
+        if (!(q > Ratio(lo)) || !(q < Ratio(hi)))
+        {
+            return (double.NaN, double.NaN);
+        }
+        for (var it = 0; it < 60; it++)
+        {
+            var mid = 0.5 * (lo + hi);
+            if (Ratio(mid) < q)
+            {
+                lo = mid;
+            }
+            else
+            {
+                hi = mid;
+            }
+        }
+        var width0 = 0.5 * (lo + hi);
+        return (Math.Sqrt((double)d1 * d1 / (2.0 * (1.0 - Rho(1, width0)))), width0);
+    }
+
+    /// <summary>
+    /// The pixel noise of <paramref name="plane"/> per cell of <paramref name="block"/> pixels, interpolated between
+    /// cell centres: each cell's lag-1 difference spread, scaled by the correlation width the whole plane's differences
+    /// give (<see cref="DifferenceNoise"/>). Blind, as differences are, to the structure and the confusion a cell's own
+    /// spread counts as noise. Null when the plane's differences do not fit the model.
+    /// </summary>
+    internal static float[]? DifferenceNoiseMap(ReadOnlySpan<float> plane, int width, int height, BitMatrix? absent, int block)
+    {
+        var (pixelSigma, correlationWidth) = DifferenceNoise(plane, width, height, absent);
+        if (!(pixelSigma > 0) || !(correlationWidth > 0))
+        {
+            return null;
+        }
+        var scale = 1.0 / Math.Sqrt(2.0 * (1.0 - Math.Exp(-1.0 / (4.0 * correlationWidth * correlationWidth))));
+        var cellsX = (width + block - 1) / block;
+        var cellsY = (height + block - 1) / block;
+        var cells = new float[cellsX * cellsY];
+        var diffs = new List<float>(2 * block * block);
+        for (var cy = 0; cy < cellsY; cy++)
+        {
+            for (var cx = 0; cx < cellsX; cx++)
+            {
+                diffs.Clear();
+                for (var y = cy * block; y < Math.Min(height, (cy + 1) * block); y++)
+                {
+                    for (var x = cx * block; x < Math.Min(width, (cx + 1) * block); x++)
+                    {
+                        var i = y * width + x;
+                        if (IsAbsent(absent, i, width) || !float.IsFinite(plane[i]))
+                        {
+                            continue;
+                        }
+                        if (x + 1 < width && !IsAbsent(absent, i + 1, width) && float.IsFinite(plane[i + 1]))
+                        {
+                            diffs.Add(plane[i + 1] - plane[i]);
+                        }
+                        if (y + 1 < height && !IsAbsent(absent, i + width, width) && float.IsFinite(plane[i + width]))
+                        {
+                            diffs.Add(plane[i + width] - plane[i]);
+                        }
+                    }
+                }
+                cells[cy * cellsX + cx] = diffs.Count >= 32 ? (float)(scale * RobustSigmaOf(diffs)) : float.NaN;
+            }
+        }
+        // A cell with too few present pixels takes the whole plane's value.
+        for (var k = 0; k < cells.Length; k++)
+        {
+            if (!(cells[k] > 0f))
+            {
+                cells[k] = (float)pixelSigma;
+            }
+        }
+        var map = new float[width * height];
+        for (var y = 0; y < height; y++)
+        {
+            var fy = Math.Clamp((y + 0.5) / block - 0.5, 0.0, cellsY - 1.0);
+            var y0 = (int)fy;
+            var y1 = Math.Min(y0 + 1, cellsY - 1);
+            var ty = fy - y0;
+            for (var x = 0; x < width; x++)
+            {
+                var fx = Math.Clamp((x + 0.5) / block - 0.5, 0.0, cellsX - 1.0);
+                var x0 = (int)fx;
+                var x1 = Math.Min(x0 + 1, cellsX - 1);
+                var tx = fx - x0;
+                map[y * width + x] = (float)(
+                    (1 - ty) * ((1 - tx) * cells[y0 * cellsX + x0] + tx * cells[y0 * cellsX + x1])
+                    + ty * ((1 - tx) * cells[y1 * cellsX + x0] + tx * cells[y1 * cellsX + x1]));
+            }
+        }
+        return map;
+    }
+
+    // 1.4826 x the MAD about the median of every value (RobustSigma's estimator on a short list).
+    private static double RobustSigmaOf(List<float> values)
+    {
+        var arr = values.ToArray();
+        Array.Sort(arr);
+        var median = arr[arr.Length / 2];
+        for (var i = 0; i < arr.Length; i++)
+        {
+            arr[i] = Math.Abs(arr[i] - median);
+        }
+        Array.Sort(arr);
+        return 1.4826 * arr[arr.Length / 2];
+    }
+
+    // The median of the rms map over present pixels, every fourth.
+    internal static float TypicalRms(float[] rms, BitMatrix? absent, int width)
+    {
+        var sample = new List<float>(rms.Length / 4 + 1);
+        for (var i = 0; i < rms.Length; i += 4)
+        {
+            if (!IsAbsent(absent, i, width) && rms[i] > 0f)
+            {
+                sample.Add(rms[i]);
+            }
+        }
+        if (sample.Count == 0)
+        {
+            return float.NaN;
+        }
+        sample.Sort();
+        return sample[sample.Count / 2];
+    }
 
     // A maximum over its eight neighbours; ties are broken by raster order, so a plateau yields exactly one.
     private static bool IsLocalMaximum(float[] z, int width, int height, int x, int y, float value)
