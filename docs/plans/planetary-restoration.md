@@ -2429,7 +2429,57 @@ sensor. The derived gains lift it with the finest bands:
 - 2022-10-09's band 2 gain is 18.3: there it is about 3 times.
 
 A mono capture has none. Bayer drizzle to the sensor grid (#1091) leaves no demosaic to lift, so #1091's pre-registered judgement on
-the colour twin, each master sharpened as the pipeline sharpens, is the measurement to run next.
+the colour twin, each master sharpened as the pipeline sharpens, is the measurement to run next. It ran next, and found otherwise
+(below).
+
+### A colour master's finest band
+
+**Issue:** #1187. It also re-ran #1091's judgement.
+
+**#1091's judgement, first.** It was run as registered on R5a's colour twin of 12:36:43 (twin 5, `uc-g4`, and its second seed): the
+pipeline's master, demosaiced and with `--drizzle 1`, each sharpened as the pipeline sharpens. Summed over bands 1 to 4 and the three
+colours, drizzle left 5.79 and 4.58 against the demosaic's 6.31 and 7.05, so the rule's letter held. It was not adopted:
+
+- in both arms, every colour and both seeds, the sharpened band 1 was WORSE than the unsharpened stack's (red 2.26 against 0.94);
+- the margin was band 1's alone;
+- both sharpened masters show the lattice by eye, so drizzle is not #1187's remedy.
+
+The derived band 1 gains (12 to 20) lift what lies above a colour plane's own Nyquist: a red or blue photosite every second pixel, so
+its band 1 (0.25 to 0.5 cycles a pixel) holds little but noise and the CFA's residue. A luminance Nyquist reading misses that lattice,
+which is chromatic and cancels in the channels' average: read it per channel.
+
+**The candidates and the rule, set down before they ran** (2026-10-03, `PlanetarySharpenOptions.ColourFinestBand`):
+- derived, as before;
+- held: band 1 kept as stacked on every colour, the other gains fitted around it (`PlanetaryWaveletGains.Fit`'s `held`);
+- held but green: held on red and blue only, since green's quincunx samples a little finer.
+
+The colour default becomes the candidate with the least error summed over bands 1 to 4 and the three colours that beats derived on each
+seed, demosaiced and drizzled alike, and shows no lattice by eye on Uranus-C and 2022-10-09. A mono master is untouched by construction.
+
+**Read** (`planetary-sharpen --fix bounded --colour-finest all --truth`, the twin's four pipeline masters; the summed error):
+
+| Master | The stack | Derived | **Held** | Held but green |
+|---|---|---|---|---|
+| demosaiced, seed 1 | 6.53 | 6.31 | **4.37** | 4.67 |
+| demosaiced, seed 2 | 6.37 | 7.05 | **4.67** | 5.02 |
+| drizzled, seed 1 | 6.59 | 5.79 | **4.49** | 4.29 |
+| drizzled, seed 2 | 6.42 | 4.58 | **4.45** | 4.27 |
+| all four | | 23.73 | **17.99** | 18.24 |
+
+- **Held is the default.** Both held variants beat derived on every master. Held leaves the least over all four, and the least on the
+  demosaic, the pipeline's default, on both seeds. Held but green wins only drizzled.
+- **Band 1's error now falls below the stack's** (red 0.85 against 0.94; derived 2.26).
+- **By eye**: on Uranus-C, derived and held but green carry the lattice (green is half the luminance) and held does not, with the belts'
+  detail kept. On 2022-10-09, read per channel at Nyquist:
+  - the stack has 0.0006 along x;
+  - derived lifts it three times;
+  - held leaves the stack's own 0.0006.
+
+  #1187's done criterion was "within twice its stack's".
+- **#1091's judgement, run again with held: the demosaic stays.** Seed 1 now favours the demosaic (4.37 against drizzle's 4.49), so
+  drizzle no longer wins on both seeds. #1091 stays the owner's call, on this evidence.
+- **The live view** takes the first channel's gains (`PlanetaryBestStack.DeriveGains`), now with band 1 held, so its dials and the
+  batch agree on a colour capture as before.
 
 ## R9 A learned stage, only if the measurements say so
 

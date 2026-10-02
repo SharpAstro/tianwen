@@ -23,6 +23,19 @@ public enum PlanetaryLimbFix
 }
 
 /// <summary>
+/// What a colour master's finest a trous band (0.25 to 0.5 cycles a pixel) gets (#1187): its derived gain, or held at 1, as stacked, on
+/// every colour, or on red and blue only. That band lies above a colour plane's own Nyquist (a red or blue photosite every second pixel,
+/// green's quincunx somewhat finer), where a colour stack holds little but noise and the CFA's residue, which a derived gain of 12 to 20
+/// lifted into a 2-pixel lattice over the disk (2024-12-15 Uranus-C, 2022-10-09, the colour twin; a mono master has none).
+/// </summary>
+public enum PlanetaryColourFinestBand
+{
+    Derived,
+    Held,
+    HeldButGreen,
+}
+
+/// <summary>
 /// What a planetary master is sharpened against: the planet and the instant its aspect is read at, and the telescope's pupil and each
 /// channel's wavelength, which set the diffraction the limb's edge is read over (R8 follow-up 3). Without a pupil the gains cannot be
 /// derived, and <see cref="PlanetarySharpening.Sharpen"/> sharpens by <see cref="WaveletSharpenOptions.PlanetaryDefault"/> with the limb kept
@@ -51,6 +64,15 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
     /// blurs (1.840 to 1.992 against the stack's 1.500 to 1.667 on the twins).
     /// </summary>
     public bool NonNegative { get; init; }
+
+    /// <summary>
+    /// What a colour (three-channel) master's finest band gets (<see cref="PlanetaryColourFinestBand"/>); a mono master's is always derived.
+    /// Held, the other gains are fitted around it (<see cref="PlanetaryWaveletGains.Fit"/>'s <c>held</c>), never set after a free fit.
+    /// Held on every colour by default (#1187, docs/plans/planetary-restoration.md, "A colour master's finest band"): on the colour twin's
+    /// two seeds it left 4.37 and 4.67 of error over bands 1 to 4 and the three colours where the derived band left 6.31 and 7.05 (the
+    /// stack 6.53 and 6.37), and the lattice on the real colour captures went with it.
+    /// </summary>
+    public PlanetaryColourFinestBand ColourFinestBand { get; init; } = PlanetaryColourFinestBand.Held;
 }
 
 /// <summary>A sharpened master and how it was sharpened: the first channel's derived gains (empty for the preset) and its edge's transfer.</summary>
@@ -111,7 +133,7 @@ public static class PlanetarySharpening
                 var blurredDisk = PlanetaryInverse.Apply(diskTarget, size, size, kernel);
                 var gains = options.NonNegative
                     ? PlanetaryWaveletGains.FitNonNegative(power, wiener, diskTarget, blurredDisk, size, size, disk, kernel)
-                    : PlanetaryWaveletGains.Fit(power, wiener, diskTarget, blurredDisk, size, size, disk);
+                    : PlanetaryWaveletGains.Fit(power, wiener, diskTarget, blurredDisk, size, size, disk, held: FinestHeld(master.ChannelCount, c, options.ColourFinestBand) ? 1 : 0);
                 sharpened = Apply(window, size, disk, sharp, f => kernel(f) * diffraction.At(f), diffraction.At, gains.AsSpan(), [], options.Fix);
                 if (c == 0)
                 {
@@ -144,6 +166,14 @@ public static class PlanetarySharpening
         var image = new Image(planes, BitDepth.Float32, master.MaxValue, master.MinValue, master.Pedestal, master.ImageMeta);
         return new PlanetarySharpenResult(image, derived, derived ? options.Fix : PlanetaryLimbFix.LimbChannel, firstGains, edgeAt01, edgeAt03);
     }
+
+    // Whether channel `c` of a master of `channels` keeps its finest band as stacked.
+    private static bool FinestHeld(int channels, int c, PlanetaryColourFinestBand finest) => channels == 3 && finest switch
+    {
+        PlanetaryColourFinestBand.Held => true,
+        PlanetaryColourFinestBand.HeldButGreen => c != 1,
+        _ => false,
+    };
 
     // The window sharpened by the gains, the limb kept from ringing as asked.
     private static float[] Apply(float[] window, int size, MetricDisk disk, float[] sharp, Func<double, double> total, Func<double, double> diffraction,

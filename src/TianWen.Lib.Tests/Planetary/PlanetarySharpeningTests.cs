@@ -235,6 +235,38 @@ public class PlanetarySharpeningTests
         sharpened.Release();
     }
 
+    [Fact(Timeout = 600_000)]
+    public async Task AColourMastersFinestBandIsKeptAsStackedAndAMonoOnesDerived()
+    {
+        // #1187: a colour plane samples every second pixel, so its finest band (0.25 to 0.5 cycles a pixel) holds little but noise and
+        // the CFA's residue, and a derived gain of 12 to 20 lifted it into a lattice over the disk. A colour master keeps that band as
+        // stacked, its other gains fitted around it; a mono master's is derived as before.
+        var ct = TestContext.Current.CancellationToken;
+        var (_, mono) = NoisyStack();
+        var plane = mono.GetChannelSpan(0);
+        var colourPlanes = Image.CreateChannelData(3, Size, Size);
+        for (var c = 0; c < 3; c++)
+        {
+            for (var i = 0; i < plane.Length; i++)
+            {
+                colourPlanes[c][i / Size, i % Size] = plane[i];
+            }
+        }
+        var colour = new Image(colourPlanes, BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
+        var options = new PlanetarySharpenOptions(CatalogIndex.Jupiter, Night, Telescope) { WavelengthsNm = [650] };
+
+        var monoResult = await Task.Run(() => PlanetarySharpening.Sharpen(mono, options), ct);
+        var colourResult = await Task.Run(() => PlanetarySharpening.Sharpen(colour, options), ct);
+
+        var (monoGains, colourGains) = (monoResult.ShouldNotBeNull().Gains, colourResult.ShouldNotBeNull().Gains);
+        TestContext.Current.TestOutputHelper?.WriteLine($"mono gains {string.Join(", ", monoGains.Select(g => g.ToString("0.00")))}; colour {string.Join(", ", colourGains.Select(g => g.ToString("0.00")))}");
+        Math.Abs(monoGains[0] - 1).ShouldBeGreaterThan(0.01, "a mono master's finest band is derived");
+        colourGains[0].ShouldBe(1);
+        Math.Abs(colourGains[1] - 1).ShouldBeGreaterThan(0.01, "the other gains are still derived, around the held band");
+        monoResult.Sharpened.Release();
+        colourResult.Sharpened.Release();
+    }
+
     [Fact(Timeout = 300_000)]
     public async Task WithoutATelescopeThePresetSharpensWithTheLimbKeptAsStacked()
     {

@@ -31,13 +31,14 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var outputOpt = new Option<string?>("--output", "-o") { Description = "Where the sharpened masters go (master_*_sharpened[_fix].fits); the master's folder when not given." };
         var noWriteOpt = new Option<bool>("--no-write") { Description = "Score only, write nothing." };
         var fitOpt = new Option<string>("--fit") { Description = "How the gains are fitted: free, nonnegative (their composite through the kernel held at or above zero), or both to compare them.", DefaultValueFactory = _ => "free" };
+        var finestOpt = new Option<string>("--colour-finest") { Description = "A colour master's finest band (#1187): held (as stacked on every colour, the default), derived (its derived gain), heldbutgreen (as stacked on red and blue), or all to compare them.", DefaultValueFactory = _ => "held" };
         var slidersOpt = new Option<bool>("--sliders") { Description = "Also sharpen as a live view's wavelet sliders do once a derivation seeds them (the same gains over the whole master, no denoise, held at its darkest level) and score that too: whether the live view reaches the derived sharpening." };
         var pupil = PlanetaryMasterScore.PupilOptions();
 
         var command = new Command("planetary-sharpen", "Sharpen a planetary master again, by gains derived through the limb's edge (R8), the limb kept from ringing.")
         {
             Arguments = { masterArg },
-            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope },
+            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -119,19 +120,35 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                     consoleHost.WriteError($"--fit {fitName}: free, nonnegative or both");
                     return 1;
                 }
+                var finestName = (parseResult.GetValue(finestOpt) ?? "held").ToLowerInvariant();
+                PlanetaryColourFinestBand[] finests = finestName switch
+                {
+                    "all" => [PlanetaryColourFinestBand.Derived, PlanetaryColourFinestBand.Held, PlanetaryColourFinestBand.HeldButGreen],
+                    "derived" => [PlanetaryColourFinestBand.Derived],
+                    "held" => [PlanetaryColourFinestBand.Held],
+                    "heldbutgreen" => [PlanetaryColourFinestBand.HeldButGreen],
+                    _ => [],
+                };
+                if (finests.Length == 0)
+                {
+                    consoleHost.WriteError($"--colour-finest {finestName}: derived, held, heldbutgreen or all");
+                    return 1;
+                }
                 var outputDir = parseResult.GetValue(outputOpt) ?? Path.GetDirectoryName(Path.GetFullPath(path)) ?? ".";
-                var variants = (options.Pupil is null ? [PlanetaryLimbFix.LimbChannel] : fixes).SelectMany(f => fits.Select(n => (Fix: f, NonNegative: n))).ToArray();
-                foreach (var (fix, nonNegative) in variants)
+                var variants = (options.Pupil is null ? [PlanetaryLimbFix.LimbChannel] : fixes)
+                    .SelectMany(f => fits.SelectMany(n => finests.Select(b => (Fix: f, NonNegative: n, Finest: b)))).ToArray();
+                foreach (var (fix, nonNegative, finest) in variants)
                 {
                     ct.ThrowIfCancellationRequested();
-                    if (PlanetarySharpening.Sharpen(master, options with { Fix = fix, NonNegative = nonNegative }) is not { } result)
+                    if (PlanetarySharpening.Sharpen(master, options with { Fix = fix, NonNegative = nonNegative, ColourFinestBand = finest }) is not { } result)
                     {
                         consoleHost.WriteError($"{path}: the planet's limb could not be fitted");
                         return 1;
                     }
                     try
                     {
-                        var what = result.Derived ? $"derived{(nonNegative ? " non-negative" : "")}, {PlanetaryBestStack.Describe(fix)}" : "PlanetaryDefault, the limb kept as stacked";
+                        var finestWords = finests.Length > 1 ? $", the colour's finest band {finest.ToString().ToLowerInvariant()}" : "";
+                        var what = result.Derived ? $"derived{(nonNegative ? " non-negative" : "")}, {PlanetaryBestStack.Describe(fix)}{finestWords}" : "PlanetaryDefault, the limb kept as stacked";
                         consoleHost.WriteScrollable(string.Create(inv,
                             $"[planetary] {what}: gains {string.Join(", ", result.Gains.Select(g => g.ToString("0.00", inv)))}; the limb's edge at 0.1 and 0.3 cycles a pixel {result.EdgeAtTenth:0.000}, {result.EdgeAtThreeTenths:0.000}"));
                         if (truthPath is not null)
@@ -167,7 +184,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                         {
                             Directory.CreateDirectory(outputDir);
                             var file = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(path) + "_sharpened"
-                                + (variants.Length > 1 ? "_" + fix.ToString().ToLowerInvariant() + (nonNegative ? "_nonnegative" : "") : "") + ".fits");
+                                + (variants.Length > 1 ? "_" + fix.ToString().ToLowerInvariant() + (nonNegative ? "_nonnegative" : "") + (finests.Length > 1 ? "_" + finest.ToString().ToLowerInvariant() : "") : "") + ".fits");
                             result.Sharpened.WriteToFitsFile(file);
                             var png = Path.ChangeExtension(file, ".png");
                             await previewRenderer.RenderPlanetaryAsync(result.Sharpened, png, gamma: 0.75, ct: ct);
