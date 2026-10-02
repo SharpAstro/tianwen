@@ -491,6 +491,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 buildCommand,
                 BuildReportCommand(consoleHost),
                 BuildGradientReportCommand(),
+                BuildStarlessPlatesCommand(),
                 BuildGradientExportCommand(),
                 BuildDegradeCommand(),
                 BuildBrightCellsCommand(),
@@ -830,6 +831,85 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
 
             consoleHost.WriteScrollable(
                 $"[gradient] measured {result.Measured} ({result.Solved} solved), skipped {result.Skipped} ({result.Backfilled} given their scale), failed {result.Failed}; report: {result.ReportPath}");
+            return result.Failed > 0 && result.Measured == 0 ? 2 : 0;
+        });
+
+        return command;
+    }
+
+    /// <summary>
+    /// <c>tianwen dataset starless-plates</c>: every named master through the classical starless plate builder, its
+    /// plate and fill mask written, its measures (residual at subtracted sites, leftovers, the fill on known pixels)
+    /// in a JSONL store and a markdown table (docs/plans/star-remover-training.md, R0).
+    /// </summary>
+    private Command BuildStarlessPlatesCommand()
+    {
+        var mastersOpt = new Option<string[]>("--masters")
+        {
+            Description = "A directory of master FITS files (not recursive) or a single master; repeatable.",
+            Required = true,
+            AllowMultipleArgumentsPerToken = true,
+        };
+        var outOpt = new Option<string>("--out", "-o")
+        {
+            Description = "Output root; plates land under <out>/plates, the store and report under <out>/stats.",
+            Required = true,
+        };
+        var noPlatesOpt = new Option<bool>("--no-plates")
+        {
+            Description = "Measure only; do not write the plates and their masks.",
+        };
+        var probeOpt = new Option<int>("--probe-holes")
+        {
+            Description = "Holes per radius for the fill probe on known pixels (0 skips it).",
+            DefaultValueFactory = _ => 100,
+        };
+        var forceOpt = new Option<bool>("--force")
+        {
+            Description = "Measure masters already in the store again (the new record wins; nothing is erased).",
+        };
+
+        var command = new Command("starless-plates",
+            "Build the classical starless plate of each master (PSF subtraction plus inpainting) and report what it left: " +
+            "the residual at subtracted stars, the point sources still on the plate, and the fill measured on known pixels.")
+        {
+            Options = { mastersOpt, outOpt, noPlatesOpt, probeOpt, forceOpt },
+        };
+
+        command.SetAction(async (parseResult, ct) =>
+        {
+            var files = ImmutableArray.CreateBuilder<string>();
+            foreach (var entry in parseResult.GetValue(mastersOpt) ?? [])
+            {
+                if (Directory.Exists(entry))
+                {
+                    files.AddRange(FileEnumeration.EnumerateFiles(entry, MasterExtensions, recursive: false)
+                        .Where(static f => !TianWen.Lib.Imaging.Stacking.IntegrationFitsWriter.IsMapSidecarPath(f)));
+                }
+                else if (File.Exists(entry))
+                {
+                    files.Add(entry);
+                }
+                else
+                {
+                    consoleHost.WriteError($"--masters entry does not exist: {entry}");
+                    return 1;
+                }
+            }
+            if (files.Count == 0)
+            {
+                consoleHost.WriteError("No master FITS files found under --masters.");
+                return 1;
+            }
+
+            var result = await DatasetStarlessReport.RunAsync(
+                new DatasetStarlessReport.RunOptions(files.ToImmutable(), parseResult.Required(outOpt),
+                    WritePlates: !parseResult.GetValue(noPlatesOpt), ProbeHoles: parseResult.GetValue(probeOpt), Force: parseResult.GetValue(forceOpt)),
+                logger,
+                progress: new Progress<string>(line => consoleHost.WriteScrollable(line)),
+                cancellationToken: ct);
+
+            consoleHost.WriteScrollable($"[starless] measured {result.Measured}, skipped {result.Skipped}, failed {result.Failed}; report: {result.ReportPath}");
             return result.Failed > 0 && result.Measured == 0 ? 2 : 0;
         });
 
