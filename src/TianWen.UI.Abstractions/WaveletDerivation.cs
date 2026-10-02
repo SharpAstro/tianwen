@@ -18,6 +18,7 @@ internal sealed class WaveletDerivation : IDisposable
 {
     private readonly CancellationTokenSource _cts = new CancellationTokenSource();
     private Task<(ImmutableArray<float> Gains, string How)>? _task;
+    private int _disposed;
 
     /// <summary>
     /// Render thread, each tick of a live view: applies a finished derivation to <paramref name="state"/> (its gains to the sliders, or the
@@ -27,6 +28,10 @@ internal sealed class WaveletDerivation : IDisposable
     /// </summary>
     public void Tick(ViewerState state, LiveStackPreviewSource? source, string? capturePath, DateTimeOffset now, ILogger logger)
     {
+        if (Volatile.Read(ref _disposed) != 0)
+        {
+            return;
+        }
         if (_task is { IsCompleted: true } done)
         {
             _task = null;
@@ -92,9 +97,16 @@ internal sealed class WaveletDerivation : IDisposable
         }, token);
     }
 
-    /// <summary>A derivation running is abandoned: its result is never applied.</summary>
+    /// <summary>
+    /// A derivation running is abandoned: its result is never applied. Safe to call again, as a host disposes its capture controller
+    /// both itself and through its service scope (the functional suite's GUI harness did, and the second cancel threw).
+    /// </summary>
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
         _cts.Cancel();
         _cts.Dispose();
     }
