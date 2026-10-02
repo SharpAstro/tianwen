@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.StarRemoval;
 
@@ -89,15 +91,9 @@ internal sealed class RadialCorrection
         {
             if (buckets[b] is { Count: var count } list && count >= minSamples)
             {
-                list.Sort();
-                var median = list[count / 2];
-                var deviations = new float[count];
-                for (var k = 0; k < count; k++)
-                {
-                    deviations[k] = Math.Abs(list[k] - median);
-                }
-                Array.Sort(deviations);
-                var standardError = 1.2533 * 1.4826 * deviations[count / 2] / Math.Sqrt(count);
+                // The bucket is left holding its deviations; nothing reads it after this.
+                var (median, mad) = StatisticsHelper.UpperMedianAndMad(CollectionsMarshal.AsSpan(list));
+                var standardError = 1.2533 * 1.4826 * mad / Math.Sqrt(count);
                 medians[b] = Math.Abs(median) > 3.0 * standardError ? median : 0f;
             }
         }
@@ -109,9 +105,8 @@ internal sealed class RadialCorrection
             {
                 window.Add(medians[k]);
             }
-            window.Sort();
             var taper = Math.Clamp((bins - b) / (0.2 * bins), 0.0, 1.0);
-            table[b] = (float)(window[window.Count / 2] * taper);
+            table[b] = (float)(StatisticsHelper.NthSmallest(CollectionsMarshal.AsSpan(window), window.Count / 2) * taper);
         }
         return new RadialCorrection(table, referenceAlpha, stars);
     }
