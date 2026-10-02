@@ -1,3 +1,4 @@
+using System.IO;
 using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Devices;
@@ -15,7 +16,9 @@ public class PlanetaryTelescopePersistenceTests(ITestOutputHelper output)
     [Fact]
     public async Task ASavedTelescopeComesBackAndNothingSavedLeavesTheDefaults()
     {
-        var external = new FakeExternal(output);
+        // A folder of its own: the caller-named one FakeExternal defaults to outlives a run, and its file would read as already saved.
+        var root = Directory.CreateTempSubdirectory("tianwen-telescope-");
+        var external = new FakeExternal(output, root);
         var ct = TestContext.Current.CancellationToken;
 
         var fresh = new ViewerState();
@@ -30,6 +33,7 @@ public class PlanetaryTelescopePersistenceTests(ITestOutputHelper output)
         await PlanetaryTelescopePersistence.LoadAsync(restored, external, ct);
         restored.PlanetaryApertureMm.ShouldBe(203);
         restored.PlanetaryDesign.ShouldBe(OpticalDesign.SCT);
+        root.Delete(recursive: true);
     }
 
     [Fact]
