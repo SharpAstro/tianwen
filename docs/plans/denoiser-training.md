@@ -2752,3 +2752,21 @@ crowded field. At a third of the registered dose, with the all-shot noise model 
 by up to 30 percent, the effect is large enough that more bright nebular cells (the sky split the plan names) and the
 two-term noise model (E16c) are now clearly worth their cost. `convmapb` is the candidate to compare against the shipped
 model; that decision is the owner's.
+
+### E16c: a two-term (shot plus read) noise model with a single-frame read share
+
+Tracked by #1160. Not started.
+
+**Why.** The degrade export and the runner's conditioning plane share one noise model, all shot noise
+(`StretchedNoise.Plane`: variance = sigma_bg^2 * clamp(L / bg, 0.25, 1000)), and E16b measured what it costs (the
+"Level" bullet of the E16b amendment above): on the four narrowband nights with diffuse signal, a two-term fit
+`var = a * L / bg + b` on the half pairs puts the read share at the background at 0.26 to 0.65, so bright narrowband
+structure is over-injected by up to 30 percent in sigma, and the plane tells the model so.
+
+**What it takes.** The read share has to come from a SINGLE frame, since the runner computes the plane for any input
+and only nine sessions have halves. So, in order: an estimator from one retained master; its validation against the
+half-pair fit on those nine sessions, per channel, with the tolerance written down first; then the two-term model
+through both halves of the one model at once (`StretchedNoise.Plane` at export and in the runner), never one side
+alone; then E16c trained against E16b's arm. Star fields cannot be read this way (their bright bins are star cores,
+where the halves' different seeing adds structure and the fits go negative), so the estimator must answer "no
+estimate" there rather than guess.
