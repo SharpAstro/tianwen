@@ -344,6 +344,28 @@ on the source's own stretch, from the export's frame files.
   with gradient left in it); comet 12P's frame has an obstruction darkening one corner, present pixels with no
   sky (the fourth edge, section 3); and the thin-band steps of #1163 are visible by eye on the QHY178M Helix and
   the QHY294C SMC.
+- **The realistic flow, auto-crop first** (the owner's point: a user crops, then flattens). `tianwen image
+  autocrop` then `image flatten --backend classical` on the same 19 masters, and `--backend graxpert` on the same
+  crops for a second opinion. On the strong light-polluted fields the two surfaces agree to under 3 % of their
+  range (Cen A, which the owner judged very good, 2 %). They part on the flat-less ASI294MM M42, where the
+  degree-2 dome bulges in the centre real vignetting does not have and over-corrects it into a dark spot while
+  GraXpert's surface follows the falloff, and on the SMC and Running Chicken, where GraXpert's surface bulges
+  under the nebula and ours does not.
+
+### A golden set and a second opinion (owner, 2026-10-02)
+
+Tracked by #1164. Not started. Every change to the classical fit, and later every model, is to be judged on the
+same masters the owner has looked at, so a regression shows before it ships:
+
+- **The golden set**: masters with the owner's verdict and a note, the auto-cropped master as the input (the
+  realistic flow), good ones (Cen A of 2026-02-20 first) beside known-bad ones (the 24 mm Carina frames, the
+  flat-less M42s), so both directions are pinned.
+- **The check**: re-run the current corrector on the golden crops, report each surface's change against its
+  pinned one in background sigma, render the contact sheet, and fail past a tolerance on a master judged good.
+  The masters live on the archive disk, so this is a local check, not CI.
+- **GraXpert as a second opinion, on crops only** (it assumes clean edges): agreement says a surface can be
+  trusted, disagreement says a person should look. It is never the truth and never a training target (its
+  weights are CC BY-NC-SA, read from the user's own install, for comparison only).
 
 ## 4. Model
 
