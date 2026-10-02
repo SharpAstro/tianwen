@@ -28,4 +28,21 @@ internal static class ParallelFor
             ExceptionDispatchInfo.Capture(wrapped.InnerExceptions[0]).Throw();
         }
     }
+
+    /// <summary>
+    /// <paramref name="body"/> over [0, <paramref name="count"/>) in contiguous bands, a few per core, each given as its first
+    /// index and one past its last: for a kernel whose rows are independent, so a band's set-up (a stackalloc, a span) is paid
+    /// once a band rather than once a row. A kernel that only GATHERS into its own row, as a stack's fold does, gives the same
+    /// bits in bands as in one walk, since no output pixel's sum changes order.
+    /// </summary>
+    public static void RunBands(int count, Action<int, int> body)
+    {
+        if (count <= 0)
+        {
+            return;
+        }
+
+        var bands = Math.Min(count, Environment.ProcessorCount * 4);
+        Run(bands, b => body((int)((long)b * count / bands), (int)((long)(b + 1) * count / bands)));
+    }
 }

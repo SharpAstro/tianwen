@@ -76,33 +76,32 @@ public sealed class LuckyImagingStacker
     }
 
     // The global path's integration, shared: each frame aligned to the reference's disk and added with its weight (a frame
-    // weighted zero or less is skipped). Returns how many were added.
+    // weighted zero or less is skipped). Returns how many were added. The shifts are estimated a batch of frames side by side,
+    // each slot on an aligner twin of its own, and the frames added in the order given (PlanetaryFrameBatches).
     private static async Task<int> AccumulateGlobalAsync(IPlanetaryFrameStream stream, ImmutableArray<int> frames, GlobalAligner aligner, Func<int, float> weightOf,
         float[][,] channelAccum, float[,] weightAccum, WarpInterpolation interpolation, CancellationToken cancellationToken)
     {
-        var used = 0;
+        var weighted = Weighted(frames, weightOf);
+        var aligners = new GlobalAligner?[PlanetaryFrameBatches.MaxSlots];
+        await PlanetaryFrameBatches.RunAsync(stream, weighted,
+            (frame, _, slot) => (aligners[slot] ??= aligner.Twin()).Estimate(frame, PlanetaryDisk.BoundingBox(frame)),
+            (frame, index, shift) => frame.AccumulateTranslatedInto(channelAccum, weightAccum, (float)shift.Dx, (float)shift.Dy, weightOf(index), interpolation),
+            cancellationToken).ConfigureAwait(false);
+        return weighted.Length;
+    }
+
+    // The frames a stack adds, in the order given: those weighted above zero.
+    private static ImmutableArray<int> Weighted(ImmutableArray<int> frames, Func<int, float> weightOf)
+    {
+        var weighted = ImmutableArray.CreateBuilder<int>(frames.Length);
         foreach (var index in frames)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var weight = weightOf(index);
-            if (weight <= 0f)
+            if (weightOf(index) > 0f)
             {
-                continue;
-            }
-
-            var frame = await stream.LoadAsync(index, cancellationToken).ConfigureAwait(false);
-            try
-            {
-                var shift = aligner.Estimate(frame, PlanetaryDisk.BoundingBox(frame));
-                frame.AccumulateTranslatedInto(channelAccum, weightAccum, (float)shift.Dx, (float)shift.Dy, weight, interpolation);
-                used++;
-            }
-            finally
-            {
-                frame.Release();
+                weighted.Add(index);
             }
         }
-        return used;
+        return weighted.ToImmutable();
     }
 
     // The global path's integration for frames carried to one epoch (R6 part 2): each frame registered onto the stack's disk
@@ -184,53 +183,84 @@ public sealed class LuckyImagingStacker
             : null;
         var points = new AlignmentPointShift[matcher.AlignmentPoints.Length];
 
-        var used = 0;
-        foreach (var index in ctx.Derotator is null ? ctx.Selected : InCaptureOrder(ctx.Selected))
+        // A frame folded through its mesh, best-of weighted by its own sharpness map when one was made.
+        void Fold(Image frame, DisplacementMesh mesh, float[,]? quality, float weight)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var weight = ctx.ScoreByIndex[index];
-            if (weight <= 0f)
+            if (quality is not null)
             {
-                continue;
+                frame.AccumulateByMeshWeightedInto(channelAccum, weightAccum, mesh, quality, weight, ctx.SignalConfidence, options.Interpolation);
             }
-
-            var frame = await stream.LoadAsync(index, cancellationToken).ConfigureAwait(false);
-            try
+            else
             {
-                DisplacementMesh mesh;
-                if (ctx.Derotator is { } derotator)
+                frame.AccumulateByMeshInto(channelAccum, weightAccum, mesh, weight, options.Interpolation);
+            }
+        }
+
+        // The walk a de-rotated or a pooled stack keeps, a frame at a time in its own order: the de-rotator turns its reference
+        // along a run of frames in capture order, and the pooled points were read for every frame up front.
+        async Task<int> WalkAsync(ImmutableArray<int> order, Func<Image, int, DisplacementMesh> meshOf)
+        {
+            var walked = 0;
+            foreach (var index in order)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var weight = ctx.ScoreByIndex[index];
+                if (weight <= 0f)
                 {
-                    // Each point matched where the rotation and the shift put it, over the frame's de-rotation (R6 part 2).
-                    var shift = derotator.Shift(frame, index);
-                    mesh = matcher.BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, derotator.FieldFor(index), options.MeshNodeSpacing, options.MeshInfluence);
-                }
-                else if (tracks is not null)
-                {
-                    var (gx, gy) = tracks.GlobalShift(index);
-                    tracks.Points(index, options.WarpPoolFrames, options.MedianGeometry, points);
-                    mesh = matcher.BuildMesh((float)gx, (float)gy, points, options.MeshNodeSpacing, options.MeshInfluence);
-                }
-                else
-                {
-                    var shift = ctx.Aligner.Estimate(frame, PlanetaryDisk.BoundingBox(frame));
-                    mesh = matcher.BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, options.MeshNodeSpacing, options.MeshInfluence);
-                }
-                if (options.PerPointQualityWeighting)
-                {
-                    var quality = FrameSharpnessMap.Build(frame);
-                    frame.AccumulateByMeshWeightedInto(channelAccum, weightAccum, mesh, quality, weight, ctx.SignalConfidence, options.Interpolation);
-                }
-                else
-                {
-                    frame.AccumulateByMeshInto(channelAccum, weightAccum, mesh, weight, options.Interpolation);
+                    continue;
                 }
 
-                used++;
+                var frame = await stream.LoadAsync(index, cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    Fold(frame, meshOf(frame, index), options.PerPointQualityWeighting ? FrameSharpnessMap.Build(frame) : null, weight);
+                    walked++;
+                }
+                finally
+                {
+                    frame.Release();
+                }
             }
-            finally
+            return walked;
+        }
+
+        int used;
+        if (ctx.Derotator is { } derotator)
+        {
+            // Each point matched where the rotation and the shift put it, over the frame's de-rotation (R6 part 2).
+            used = await WalkAsync(InCaptureOrder(ctx.Selected), (frame, index) =>
             {
-                frame.Release();
-            }
+                var shift = derotator.Shift(frame, index);
+                return matcher.BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, derotator.FieldFor(index), options.MeshNodeSpacing, options.MeshInfluence);
+            }).ConfigureAwait(false);
+        }
+        else if (tracks is not null)
+        {
+            used = await WalkAsync(ctx.Selected, (_, index) =>
+            {
+                var (gx, gy) = tracks.GlobalShift(index);
+                tracks.Points(index, options.WarpPoolFrames, options.MedianGeometry, points);
+                return matcher.BuildMesh((float)gx, (float)gy, points, options.MeshNodeSpacing, options.MeshInfluence);
+            }).ConfigureAwait(false);
+        }
+        else
+        {
+            // The common path, a batch of frames side by side (PlanetaryFrameBatches): each frame's shift, mesh and sharpness map
+            // made in a slot of its own, on aligner and matcher twins, then folded in selection order, so the master is the one a
+            // frame-by-frame walk makes, bit for bit.
+            var weighted = Weighted(ctx.Selected, index => ctx.ScoreByIndex[index]);
+            var aligners = new GlobalAligner?[PlanetaryFrameBatches.MaxSlots];
+            var matchers = new AlignmentPointMatcher?[PlanetaryFrameBatches.MaxSlots];
+            await PlanetaryFrameBatches.RunAsync(stream, weighted,
+                (frame, _, slot) =>
+                {
+                    var shift = (aligners[slot] ??= ctx.Aligner.Twin()).Estimate(frame, PlanetaryDisk.BoundingBox(frame));
+                    var mesh = (matchers[slot] ??= matcher.Twin()).BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, options.MeshNodeSpacing, options.MeshInfluence);
+                    return (Mesh: mesh, Quality: options.PerPointQualityWeighting ? FrameSharpnessMap.Build(frame) : null);
+                },
+                (frame, index, prepared) => Fold(frame, prepared.Mesh, prepared.Quality, ctx.ScoreByIndex[index]),
+                cancellationToken).ConfigureAwait(false);
+            used = weighted.Length;
         }
 
         var stacked = Normalize(channelAccum, weightAccum, ctx);
