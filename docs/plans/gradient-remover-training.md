@@ -391,6 +391,47 @@ What the verdicts and the owner's notes point at, each tracked:
   Helix's upper right (amplifier glow the darks did not take), and the Leo Triplet's diagonal bands. A degree-2
   surface cannot follow a corner; a learned one should, and the golden set will say whether it does.
 
+### A de-vignetting model, checked against the flat (owner's proposal, 2026-10-02)
+
+The owner's idea: a second model, trained on what a flat removes, so that a session without a flat goes
+through it and then the gradient model and comes out as its flat-fielded twin does through the gradient model
+alone. **The order is the physics**: a sub is `(signal + sky) x V + dark`, the vignetting `V` multiplying the
+added sky glow, so divide first and subtract second, and the gradient model keeps training on flat-fielded
+masters only, as section 3 already requires. The test is `G(D(stack without its flat))` against
+`G(stack with it)`, in background sigma, per channel. Tracked as #1169.
+
+What makes it work and what it costs, read off the store and the G2 export (2026-10-02):
+
+- **The target needs no second integration of the lights.** A master flat is normalised to mean 1 per Bayer
+  colour (`MasterFrameBuilder.BuildFlatMasterAsync`), so it carries shape and not colour, and to within the
+  per-frame normalisation and rejection a session's master without its flat is its flat-fielded master times
+  `V_eff`: the master flat carried through each frame's registration warp and averaged as the lights are.
+  `V_eff` is the flat itself only for a stack that never turned. A meridian flip averages the flat with its own
+  half turn, and field rotation blurs it about the rotation centre (the QHY294C SMC), so it cannot be read off
+  the store as it stands: the store keeps its 60 master flats but no per-frame transforms (no stack manifest is
+  retained), and nothing can integrate a session with its flat left out today. Producing `V_eff` is one more
+  warped plane per frame in the bake, beside the coverage plane, not a second pass over the lights.
+- **A real integration without the flat is the end-to-end truth, not the training data.** It is needed only
+  for the held-out sessions that have flats, where it is the comparison above, and where it also measures how
+  far `master x V_eff` sits from the real thing (the normalisation and rejection then see vignetted frames).
+- **Only the smooth part is learnable, and only it is compared.** A flat also takes dust donuts and the pixel
+  response; a 256 px model cannot place a dust mote, so the target is `V_eff` low-passed to the gradient model's
+  scale, the comparison is made at that scale, and dust stays a residual the flat-less path keeps, reported on
+  its own rather than counted against the model.
+- **The deploy cases are on trains the model would never see.** Of the 17 masters baked without a flat, 12 sit
+  on an optical train (as the export names it) with no flat-fielded master in the store: the ASI533 at 250 mm
+  (three, among them the known-bad M42), the QHY178M bare and at 138 mm (three), the QHY183M, the Uranus-C
+  behind the FMA135 and the RC51, the ASI462MC, and the ASI585 at 24 and at 181 mm (the 24 mm one may be the
+  25 mm train's lens, which the names cannot tell). Only 5 share a train with flat-fielded masters: the ASI294MM
+  bare and at 250 mm (two each, the other known-bad M42 among them) and the Uranus-C at 180 mm. The 172
+  flat-fielded masters carry 24 train names and fewer real trains: three of the names are the ASI533 at 130 mm,
+  most likely the one Samyang 135, and hold 96 of the 172 between them. So an honest evaluation holds out whole trains, never sessions, or the
+  model learns which train it is looking at and calls that de-vignetting.
+- **Two baselines it must beat.** The classical flat-topped falloff of #1165; and, for the masters on a train
+  that has flats, that train's nearest master flat in time, low-passed. Vignetting belongs to the optics and
+  changes when the spacing or the train does; the resolver refuses such a flat past 14 days for its dust, which
+  the low pass removes.
+
 ## 4. Model
 
 Small. GraXpert's BGE is a 217 MB graph; a background predictor at 256 px does not need it. Start with
