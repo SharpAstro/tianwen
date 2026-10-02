@@ -256,6 +256,14 @@ namespace TianWen.Lib.Imaging.Dataset
                 .Where(static path => !IntegrationFitsWriter.IsMapSidecarPath(path))
                 .ToImmutableArray()
                 .Sort(StringComparer.OrdinalIgnoreCase);
+            // The store is append-only history, so it keeps records of masters that are gone: a rekey renames
+            // a master (its record follows under the new name, the old one stays) and removes the ones it
+            // re-bakes under a new name. The 2026-10-02 rekey left 86 such records beside 190 masters, and
+            // rendered with the rest they put pre-merge masters (no filter, no scale) into every table. The
+            // report shows a master that EXISTS in a folder this run read from, and the store keeps the rest.
+            var folders = files.Select(static path => Path.GetDirectoryName(path) ?? "").Distinct(StringComparer.OrdinalIgnoreCase).ToImmutableArray();
+            IEnumerable<MasterGradient> Present() =>
+                store.Values.Where(record => folders.Any(folder => File.Exists(Path.Combine(folder, record.Master))));
             var measured = 0;
             var skipped = 0;
             var backfilled = 0;
@@ -316,7 +324,7 @@ namespace TianWen.Lib.Imaging.Dataset
                     }
                     progress?.Report(string.Create(CultureInfo.InvariantCulture,
                         $"[gradient] {index}/{files.Length} {key}: p-p {record.MeanPeakToPeakSigma:F1} sigma ({record.MeanPeakToPeakRelative:P1} of level), {record.DominantShape}, brightening {record.BrighteningAngleDeg:F0} deg, kept {record.MeanKeptFraction:F2}, alt {record.AltitudeDeg:F0}, moon {record.MoonAltitudeDeg:F0} deg / {record.MoonIllumination:P0}, {(record.Solved ? "solved" : "unsolved")}, {record.ElapsedMs} ms"));
-                    await WriteMarkdownAsync(store.Values, reportPath, cancellationToken);
+                    await WriteMarkdownAsync(Present(), reportPath, cancellationToken);
                 }
                 catch (OperationCanceledException)
                 {
@@ -334,8 +342,8 @@ namespace TianWen.Lib.Imaging.Dataset
 
             if (measured == 0 && store.Count > 0)
             {
-                // A run that only skipped still leaves a report that matches the store.
-                await WriteMarkdownAsync(store.Values, reportPath, cancellationToken);
+                // A run that only skipped still leaves a report that matches the masters present.
+                await WriteMarkdownAsync(Present(), reportPath, cancellationToken);
             }
 
             return new RunResult(measured, skipped, failed, solved, storePath, reportPath, backfilled);
