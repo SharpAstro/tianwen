@@ -74,24 +74,32 @@ public static class PlanetaryCaptureName
         return null;
     }
 
-    private static bool Is(string word, string name) => word.Equals(name, StringComparison.OrdinalIgnoreCase);
-
     private static CatalogIndex? PlanetWord(string word)
-        => Is(word, "jupiter") || Is(word, "jup") ? CatalogIndex.Jupiter
-            : Is(word, "saturn") || Is(word, "sat") ? CatalogIndex.Saturn
-            : Is(word, "mars") ? CatalogIndex.Mars
-            : Is(word, "venus") ? CatalogIndex.Venus
-            : Is(word, "mercury") ? CatalogIndex.Mercury
-            : Is(word, "uranus") ? CatalogIndex.Uranus
-            : Is(word, "neptune") ? CatalogIndex.Neptune
-            : Is(word, "moon") || Is(word, "luna") ? CatalogIndex.Moon
-            : null;
+    {
+        return word.ToLowerInvariant() switch
+        {
+            "jupiter" or "jup" => CatalogIndex.Jupiter,
+            "saturn" or "sat" => CatalogIndex.Saturn,
+            "mars" => CatalogIndex.Mars,
+            "venus" => CatalogIndex.Venus,
+            "mercury" => CatalogIndex.Mercury,
+            "uranus" => CatalogIndex.Uranus,
+            "neptune" => CatalogIndex.Neptune,
+            "moon" or "luna" => CatalogIndex.Moon,
+            _ => null,
+        };
+    }
 
     private static double? FilterWord(string word)
-        => Is(word, "red") || Is(word, "r") ? 650
-            : Is(word, "green") || Is(word, "g") ? 530
-            : Is(word, "blue") || Is(word, "b") ? 460
-            : Is(word, "ir") ? 750
-            : Is(word, "l") || Is(word, "lum") || Is(word, "luminance") ? 550
-            : null;
+    {
+        return word.ToLowerInvariant() switch
+        {
+            "red" or "r" => 650,
+            "green" or "g" => 530,
+            "blue" or "b" => 460,
+            "ir" => 750,
+            "l" or "lum" or "luminance" => 550,
+            _ => null,
+        };
+    }
 }

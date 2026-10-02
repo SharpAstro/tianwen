@@ -2195,8 +2195,11 @@ rolling stack stays the live view; the telescope comes from the profile where th
   Maksutov 0.33, a Newtonian-Cassegrain 0.3, a RASA 0.4, a refractor none). The viewer has no profile and no text input, so its panel
   steps the aperture through the common ones (60 to 508 mm, or none) and picks the design (Newtonian, SCT / Mak, refractor), remembered
   in `Viewer/planetary-telescope.json`.
+- **A recording should say all of this itself** (#1179): a TianWen recording records no planet, filter or telescope, so its Best stack
+  takes the preset unless the panel is set by hand. The planet and filter go in the file's name (which `PlanetaryCaptureName` already
+  reads) and the telescope in the SER header's Telescope field, not a sidecar (#738: SharpCap's sidecars did not survive curation).
 - **The GUI has no SER playback**: its planetary stack is the live capture's rolling stack, through the node. The derived sharpening of
-  that live master (the gains derived once a capture and reused, the telescope from the profile) is the next part.
+  that live master is the Derive button ("The live view's derived sharpening", below).
 
 #### What the first viewer run missed (the owner's report, 2026-10-02)
 
@@ -2213,10 +2216,78 @@ stretch it showed a grainy sky and a square about the planet. Three causes, one 
   document from a linear view is put back on Auto. The stack's sky noise is 3e-5 (1,500 frames averaged), which Auto lifted thirty
   thousand times into grain, with the disk blown white.
   - The master now names its planet in `OBJECT` (`PlanetaryStackOptions.Planet`, for `planetary-stack` and the viewer alike).
-  - A frame whose `OBJECT` names a planet or the Moon opens linear (`PlanetaryCaptureName.Named`), as a SharpCap FITS frame does too.
+  - A frame whose `OBJECT` names a planet or the Moon opened linear (`PlanetaryCaptureName.Named`), as a SharpCap FITS frame does too.
+    Linear was still not the look the owner had been shown: it is the planetary stretch since ("The planetary stretch in the viewer").
 - **The square is the twin's, not the stack's.** The plain mean of `calibrated.ser`'s 3,000 raw frames, unaligned, shows it, and a
   band across the top 140 rows: `planetary-degrade` renders the blurred planet and its halo on a finite window. It is at the level of
   1e-4, inside no metric's region, and a real capture has no such edge.
+
+#### The planetary stretch in the viewer
+
+The owner's goal of 2026-10-02: the viewer's Best stack should look like the comparison shown earlier, 2022-09-03 Red stacked and
+sharpened by the derived gains (Jupiter, a 254 mm Newtonian, 650 nm). That comparison was rendered with `planetary-stack`'s preview
+stretch (`Image.ComputePlanetaryStretchUniforms`: black at each channel's 0.5th percentile, white at the 99.9th on one common scale, a
+gamma of 0.75), and the master's sky sits at 0.066 with its disk peaking at 0.29 to 0.32, so the linear view the viewer opened it in
+showed a dim, flat disk on a grey sky. The data was never the difference.
+
+- **`StretchMode.Planetary`** is that stretch as a viewer mode: a UI intent like `Auto`, resolved by the document to `Unlinked` uniforms
+  from the frame's own percentiles (taken once, at open and off the render thread for a planet's frame), so it never reaches the
+  shader. Only a manual white balance applies, a planet having no stars to calibrate on. It is the stretch menu's last entry, so any
+  frame may be shown in it by choice.
+- **`StretchMode.ForFrame` is the ONE rule for which frames open in it**: a frame whose `OBJECT` names a planet or the Moon.
+  `tianwen-fits`, the Explorer thumbnail and `tianwen view` all ask it, so a master's thumbnail is its preview. A deep-sky frame
+  opened after one goes back to `Auto`, and the linear toggle (T) returns to the stretch it left.
+- **What it does to the real capture** is in "The best stack of a real capture, as the viewer shows it", below.
+
+#### The best stack of a real capture, as the viewer shows it
+
+`ViewerBestStackProbe` (on demand, `TIANWEN_BEST_STACK_PROBE`) runs the viewer's Best stack of a real capture as `tianwen-fits` runs
+it: the SER dropped, the panel's planet and telescope set, Shift+K, and the master it opens drawn through the CPU mirror of the shader
+with the uniforms the viewer computes. On 2022-09-03 Red (12,990 frames of 800 by 600, Jupiter, a 254 mm Newtonian, 650 nm from the
+name; the code of this change, Release, with another session's tests on the machine):
+
+- **The whole run took 248 s**, stack and derived sharpening, against the twin's 55 s for 3,000 frames: linear in the frames.
+- **The gains came out 12.71, -0.27, 1.23, 0.79** against the example's 13.06, -0.39, 1.26, 0.79; the viewer's Newtonian is 25 %
+  obstructed by design, `planetary-sharpen --telescope newtonian` the owner's 58 mm in 254.
+- **The disk matches the example**: inside it, the two drawn with the same stretch correlate at 0.9989, an RMS difference of 0.0082 of
+  white. The viewer draws its master exactly as the stretch says (the script's power-law gamma lifts the sky a shade the shader's
+  curve does not).
+- **Two differences remain, both the bounded fix's** (#1168, the default since the example was drawn): the ring outside the limb is
+  gone, and so is the moon's sharpening. Bounded holds everything outside the limb at the stack, the moon beside Jupiter included (peak
+  0.024 above the sky over 12 px, where the floored example made it 0.101 over 4 px), and it would hold Saturn's rings the same way.
+  Holding only what the planet explains there is #1181.
+
+### The live view's derived sharpening
+
+The owner's choice of 2026-10-02 for the live view (the viewer's stacked view of a SER, K, and the GUI's planetary capture): a Derive
+button works out the derived sharpening's gains for the master on show, in the background (about half a minute), and seeds the six
+wavelet dials with them; every later master is then sharpened by the dials, at the cost of a wavelet pass. The telescope is the panel's,
+which the GUI seeds from the profile's OTA as a capture starts (`PlanetaryCaptureController.SeedTelescope`).
+
+- **The pieces**: `PlanetaryBestStack.DeriveGains` (the batch's derivation, the reason in words when it derives none: no telescope, no
+  named Jupiter or Saturn with frame times, no limb fitted), `PlanetaryBestStack.SliderOptions` (the gains as the dials apply them) and
+  `WaveletDerivation` (UI), ONE for the viewer and the GUI. Reset puts the preset back and forgets the derivation.
+- **The dials apply derived gains as the derived sharpening does**: no denoise, and held at the darkest level the frame records
+  (`WaveletSharpenOptions.HoldAtDarkest`, its 0.001 quantile). The floored fix holds at the sky the limb fit finds, which a wavelet pass
+  on a live master has no limb fit for; the darkest recorded level stands in for it.
+- **The rule, set before measuring**: the dials seeded with a twin's derived gains must leave the band error (bands 1 to 4, inside 0.9
+  radii) within 0.01 of the batch's floored derived sharpening of the same master, and the limb's undershoot under 0.02, on every twin.
+  `planetary-sharpen --sliders` reads both (the code of this change, Release, each twin's pipeline master):
+
+  | Twin | Stacked | Floored derived sharpening | The dials, seeded | Undershoot (dials) |
+  |---|---|---|---|---|
+  | calibrated | 1.500 | 0.664 | 0.664 | 0.0000 |
+  | nostill | 0.559 | 0.292 | 0.292 | 0.0000 |
+  | warped | 1.667 | 0.820 | 0.820 | 0.0000 |
+
+  It passes: the dials sharpen as the floored derived sharpening does, band for band (the warped twin's finest band 0.544 against
+  0.543). They do not reproduce the batch default, `Bounded`, whose hold outside the limb needs the limb fit (#1168); a live master
+  keeps the floored ring outside the limb at its rebound, 0.0052 on the calibrated twin.
+- **A derived gain can pass a dial's end** (9.7 on the warped twin's finest band, -0.65 on its second; 13.1 and -0.39 on the real Red
+  capture): the gain is kept as derived and only its dial rests at the end of the track (0 to 10).
+- **Pinned** by `PlanetarySharpeningTests.TheLiveSlidersSeededWithTheDerivedGainsSharpenAsTheDerivedSharpeningDoes` and, through the
+  host, `ViewerWaveletDeriveTests`. The latter found the e2e harness never asked the loop's `WantsFrame`, which ticks SER playback and
+  the stacked view's stack, so no stacked view had ever built a master there; `ViewerE2E.Frame` asks it now.
 
 ### The batch stack on every core
 

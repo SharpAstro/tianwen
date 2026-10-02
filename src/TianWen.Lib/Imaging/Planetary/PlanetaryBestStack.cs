@@ -114,15 +114,11 @@ public static class PlanetaryBestStack
     public static (Image Sharpened, string How) Sharpen(Image master, CatalogIndex? planet, DateTimeOffset? epoch, Pupil? telescope,
         ImmutableArray<double> wavelengthsNm = default, PlanetaryLimbFix? fix = null)
     {
-        var meta = master.ImageMeta;
-        DateTimeOffset? when = epoch ?? (meta.ExposureStartTime.Year > 1 ? meta.ExposureStartTime + (meta.ExposureDuration / 2) : null);
-        if (planet is not { } body || !PhysicalEphemeris.Supports(body) || when is not { } instant)
+        if (SharpenOptionsFor(master, planet, epoch, telescope, wavelengthsNm) is not { } options)
         {
             return (WaveletSharpen.Sharpen(master, WaveletSharpenOptions.PlanetaryDefault),
                 "PlanetaryDefault: the sharpening is derived only for a named Jupiter or Saturn with frame times");
         }
-        ImmutableArray<double> wavelengths = !wavelengthsNm.IsDefaultOrEmpty ? wavelengthsNm : master.ChannelCount == 3 ? [610, 530, 460] : [550];
-        var options = new PlanetarySharpenOptions(body, instant, telescope) { WavelengthsNm = wavelengths };
         if (fix is { } chosen)
         {
             options = options with { Fix = chosen };
@@ -136,6 +132,68 @@ public static class PlanetaryBestStack
         return (result.Sharpened, result.Derived
             ? string.Create(inv, $"gains {string.Join(", ", result.Gains.Select(g => g.ToString("0.00", inv)))} derived through the limb's edge, {Describe(result.Fix)}")
             : "PlanetaryDefault with the limb kept as stacked; the telescope's aperture gives the derived sharpening");
+    }
+
+    /// <summary>
+    /// The gains <see cref="Sharpen"/> would derive for <paramref name="master"/>, finest scale first, for a live view's wavelet sliders
+    /// to sharpen every later master with (<see cref="SliderOptions"/>): the derivation is the slow part (about 35 s), the gains are
+    /// cheap to apply. Empty with the reason in words where nothing is derived: no telescope, no planet with a rotation model, no
+    /// time, or a limb that does not fit. A colour master's gains are its first channel's.
+    /// </summary>
+    public static (ImmutableArray<float> Gains, string How) DeriveGains(Image master, CatalogIndex? planet, DateTimeOffset? epoch,
+        Pupil? telescope, ImmutableArray<double> wavelengthsNm = default)
+    {
+        ArgumentNullException.ThrowIfNull(master);
+        if (telescope is not { } pupil)
+        {
+            return ([], "the gains are derived only for a telescope: give its aperture");
+        }
+        // The gains do not depend on the limb fix, which only the batch sharpening applies; floored is the cheapest to make.
+        if (SharpenOptionsFor(master, planet, epoch, telescope, wavelengthsNm) is not { } options)
+        {
+            return ([], "the gains are derived only for a named Jupiter or Saturn with frame times");
+        }
+        if (PlanetarySharpening.Sharpen(master, options with { Fix = PlanetaryLimbFix.Floored }) is not { } result)
+        {
+            return ([], "the planet's limb could not be fitted");
+        }
+        try
+        {
+            var inv = CultureInfo.InvariantCulture;
+            return result.Derived && !result.Gains.IsDefaultOrEmpty
+                ? ([.. result.Gains.Select(g => (float)g)], string.Create(inv,
+                    $"derived for {options.Planet} through a {pupil.DiameterM * 1000:0} mm pupil at {options.WavelengthsNm[0]:0} nm"))
+                : ([], "the gains could not be derived");
+        }
+        finally
+        {
+            result.Sharpened.Release();
+        }
+    }
+
+    /// <summary>
+    /// A live view's wavelet sliders set to derived <paramref name="gains"/>: the same a trous gains as the derived sharpening, no
+    /// denoise (the derivation weighed the noise already), each channel held at its darkest level (the limb floored, the owner's
+    /// choice of 2026-10-02 for the live view, which cannot afford a limb fit a master). One builder, so the GUI's sliders and
+    /// <c>planetary-sharpen --sliders</c>, which measures them, sharpen alike.
+    /// </summary>
+    public static WaveletSharpenOptions SliderOptions(ImmutableArray<float> gains)
+        => new WaveletSharpenOptions { Gains = gains, HoldAtDarkest = true };
+
+    // The derived sharpening's options for a master, or null where it cannot be derived: no planet with a rotation model, or no
+    // instant (epoch, else the master's own DATE-OBS and EXPTIME's middle). Its wavelengths default to 550 nm on a mono master and
+    // 610, 530, 460 on a colour one.
+    private static PlanetarySharpenOptions? SharpenOptionsFor(Image master, CatalogIndex? planet, DateTimeOffset? epoch, Pupil? telescope,
+        ImmutableArray<double> wavelengthsNm)
+    {
+        var meta = master.ImageMeta;
+        DateTimeOffset? when = epoch ?? (meta.ExposureStartTime.Year > 1 ? meta.ExposureStartTime + (meta.ExposureDuration / 2) : null);
+        if (planet is not { } body || !PhysicalEphemeris.Supports(body) || when is not { } instant)
+        {
+            return null;
+        }
+        ImmutableArray<double> wavelengths = !wavelengthsNm.IsDefaultOrEmpty ? wavelengthsNm : master.ChannelCount == 3 ? [610, 530, 460] : [550];
+        return new PlanetarySharpenOptions(body, instant, telescope) { WavelengthsNm = wavelengths };
     }
 
     /// <summary>

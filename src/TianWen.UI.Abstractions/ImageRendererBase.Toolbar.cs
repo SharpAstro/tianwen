@@ -2191,6 +2191,7 @@ namespace TianWen.UI.Abstractions
                     StretchMode.Auto => $"Auto ({ResolvedAutoLabel(_source, document, state)})",
                     StretchMode.Linked => "Linked",
                     StretchMode.Luma => "Luma",
+                    StretchMode.Planetary => "Planetary",
                     _ => "Unlinked"
                 },
                 ToolbarAction.StretchParams => $"{state.StretchParameters}",

@@ -121,6 +121,12 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
     /// </summary>
     public Image? DisplayMaster => _displayMaster;
 
+    /// <summary>
+    /// The latest UN-sharpened stacker output, in the stack's own linear scale, or null before the first: what a derivation of the
+    /// wavelet gains reads (<see cref="WaveletDerivation"/>), which takes a lease on it for its run. Render thread only.
+    /// </summary>
+    internal Image? RawMaster => _rawMaster;
+
     /// <summary>True while a background stack is running (the stream's reader is in use -- don't dispose).</summary>
     public bool IsBusy => _stackTask is { IsCompleted: false };
 

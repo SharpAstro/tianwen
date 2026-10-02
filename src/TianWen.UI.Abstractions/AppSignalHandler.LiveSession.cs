@@ -250,6 +250,8 @@ namespace TianWen.UI.Abstractions
                 // controls it.
                 if (CommandTargetOrSay("A planetary capture") is not { } target) return;
                 var (node, view) = (target.Node, target.View);
+                // The derived sharpening's telescope is the one the view on show is planned with.
+                planetaryCapture.SeedTelescope(ProfileOnShow?.Data, sig.OtaIndex);
 
                 RunTracked("StartPlanetaryCapture", "Planetary capture failed to start", async ct =>
                 {

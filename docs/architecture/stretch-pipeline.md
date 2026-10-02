@@ -65,6 +65,11 @@ curve in the Linked branch.**
 
 ## `StretchMode.Auto` is a UI intent, never a shader mode
 
+(`StretchMode.Planetary` is the second: the high-key planetary stretch `planetary-stack`'s preview is drawn with, resolved by the
+document to `Unlinked` uniforms from the frame's own percentiles (`Image.ComputePlanetaryStretchUniforms`), and the mode a frame
+whose `OBJECT` names a planet opens in, by ONE rule, `StretchMode.ForFrame`, for the viewer, the thumbnail and `tianwen view`.
+`docs/plans/planetary-restoration.md`, "The planetary stretch in the viewer".)
+
 It is resolved to a concrete mode before any `StretchUniforms` is built. Auto is LAST in the enum so
 the shader's numeric values for None/Linked/Unlinked/Luma are unchanged, and `StretchSolver` maps a
 stray Auto to Linked as a backstop.

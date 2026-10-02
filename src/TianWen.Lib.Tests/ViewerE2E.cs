@@ -84,12 +84,15 @@ internal sealed class ViewerE2E : IDisposable
     internal int ExitRequests => _exitRequests;
 
     /// <summary>
-    /// One iteration of the loop, in <c>Program.cs</c>'s order: the between-frames step, the paint, the
-    /// after-frame step. Drawn unconditionally, where the loop would ask <c>WantsFrame</c> first: a frame
-    /// nobody needed changes nothing, and skipping one a test did need would hide what it checks.
+    /// One iteration of the loop, in <c>Program.cs</c>'s order: the redraw question, the between-frames step,
+    /// the paint, the after-frame step. Drawn unconditionally, whatever <c>WantsFrame</c> answers: a frame
+    /// nobody needed changes nothing, and skipping one a test did need would hide what it checks. But the
+    /// question is ASKED, because asking it has effects the loop relies on (SER playback and the stacked
+    /// view's stack are ticked there): without it a stacked view never built a master here.
     /// </summary>
     internal void Frame()
     {
+        _ = Host.WantsFrame();
         Host.BeforeFrame();
         Viewer.Render(Controller.Source, State);
         Host.AfterFrame();
