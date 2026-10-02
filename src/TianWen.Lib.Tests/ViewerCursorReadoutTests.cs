@@ -1,5 +1,8 @@
 using System;
+using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
+using SharpAstro.Ser;
 using Shouldly;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging;
@@ -105,6 +108,72 @@ namespace TianWen.Lib.Tests
             var lines = InfoPanelData.GetCursorLines(state);
 
             lines.ShouldContain(line => line.StartsWith("Val: ", StringComparison.Ordinal));
+        }
+
+        /// <summary>
+        /// The count beside a value is in the capture's OWN scale. It was a fixed x65535, so an 8-bit SER's 74 read as 19018 and
+        /// looked like a 16-bit file (reported 2026-10-02 in tianwen-fits). Through the real source, which scales by the depth.
+        /// </summary>
+        [Fact]
+        public async Task AnEightBitCaptureQuotesItsOwnCounts()
+        {
+            var folder = Directory.CreateTempSubdirectory("tianwen-readout-");
+            try
+            {
+                var path = Path.Combine(folder.FullName, "capture.ser");
+                using (var writer = new SerWriter(path, Width, Height, SerColorId.Mono, 8))
+                {
+                    var frame = new byte[Width * Height];
+                    Array.Fill(frame, (byte)10);
+                    frame[(2 * Width) + 3] = 74;
+                    writer.AppendFrame(frame, DateTimeOffset.UnixEpoch);
+                }
+
+                await using var source = await SerPreviewSource.OpenAsync(path, new FakeTimeProviderWrapper(), TestContext.Current.CancellationToken);
+                var state = new ViewerState();
+                ViewerActions.UpdateCursorInfo(source, null, state, 3, 2);
+
+                state.CursorPixelInfo.ShouldNotBeNull().FullScaleAdu.ShouldBe(255f);
+                InfoPanelData.GetCursorLines(state).ShouldContain(line => line.StartsWith("Val: ", StringComparison.Ordinal)
+                    && line.EndsWith(" (74)", StringComparison.Ordinal));
+            }
+            finally
+            {
+                folder.Delete(recursive: true);
+            }
+        }
+
+        /// <summary>A document quotes the counts its file recorded: the divisor it scaled by, read before the scaling spends it.</summary>
+        [Fact]
+        public async Task AnEightBitFrameQuotesItsOwnCounts()
+        {
+            var plane = new float[Height, Width];
+            plane[0, 0] = 255f;
+            plane[2, 3] = 74f;
+            var document = await AstroImageDocument.AdoptImageAsync(
+                new Image([plane], BitDepth.Int8, 255f, 0f, 0f, Meta(SensorType.Monochrome)), DebayerAlgorithm.None);
+            var state = new ViewerState();
+            ViewerActions.UpdateCursorInfo(document, document.Findings.Wcs, state, 3, 2);
+
+            document.FullScaleAdu.ShouldBe(255f);
+            InfoPanelData.GetCursorLines(state).ShouldContain(line => line.EndsWith(" (74)", StringComparison.Ordinal));
+        }
+
+        /// <summary>A frame already on [0, 1] (a written master) recorded no count, so the readout quotes none rather than inventing a 16-bit one.</summary>
+        [Fact]
+        public async Task AFrameOnTheUnitScaleQuotesNoCount()
+        {
+            var plane = new float[Height, Width];
+            plane[0, 0] = 0.9f;
+            plane[2, 3] = 0.25f;
+            var document = await AstroImageDocument.AdoptImageAsync(
+                new Image([plane], BitDepth.Float32, 0.9f, 0f, 0f, Meta(SensorType.Monochrome)), DebayerAlgorithm.None);
+            var state = new ViewerState();
+            ViewerActions.UpdateCursorInfo(document, document.Findings.Wcs, state, 3, 2);
+
+            document.FullScaleAdu.ShouldBeNull();
+            var value = InfoPanelData.GetCursorLines(state).Where(line => line.StartsWith("Val: ", StringComparison.Ordinal)).ShouldHaveSingleItem();
+            value.ShouldNotContain("(");
         }
 
         /// <summary>

@@ -79,6 +79,14 @@ public interface IPreviewSource
     float SampleAt(int channel, int x, int y) => GetChannelData(channel)[(y * Width) + x];
 
     /// <summary>
+    /// What a [0, 1] sample of 1 stands for in the units the file or camera recorded: the divisor the source
+    /// scaled its samples by (a SER's full scale for its depth, a frame's <c>Image.UnitScaleDivisor</c>), or
+    /// null where the samples were on [0, 1] already (a written master, an enhanced result) and no count was
+    /// recorded. The pixel readout quotes counts only through it.
+    /// </summary>
+    float? FullScaleAdu => null;
+
+    /// <summary>
     /// What is known about the frame on show beyond its pixels: its WCS, and its stars with their median HFD
     /// and FWHM. The grid, the star overlay, the selection, the sky behind the frame and the status line read
     /// it here, so a frame that is not a document gets them as soon as something knows (a solve of a live

@@ -48,16 +48,26 @@ namespace TianWen.Lib.Tests
             items.Select(i => i.Description).ShouldBe(["pixel value", "pixel position"]);
         }
 
-        [Fact]
-        public void TheValueItemCarriesEveryChannelInBothScales()
+        [Theory]
+        [InlineData(65535f, "16384 32768 49151")]
+        [InlineData(255f, "64 128 191")]
+        public void TheValueItemCarriesEveryChannelInBothScales(float fullScale, string counts)
         {
-            var items = ImageContextMenu.ItemsFor(Pixel([0.25f, 0.5f, 0.75f]));
+            var items = ImageContextMenu.ItemsFor(Pixel([0.25f, 0.5f, 0.75f]) with { FullScaleAdu = fullScale });
 
             var value = items.First(i => i.Description == "pixel value");
             var lines = value.Payload.Split('\n');
             lines[0].ShouldBe("0.250000 0.500000 0.750000");
-            // The 16-bit form the info pane prints beside each channel, so the two agree.
-            lines[1].ShouldBe("16384 32768 49151");
+            // The counts the info pane prints beside each channel, in the source's own scale, so the two agree.
+            lines[1].ShouldBe(counts);
+        }
+
+        [Fact]
+        public void AValueWithNoRecordedScaleCopiesNoCounts()
+        {
+            // A frame already on [0, 1] recorded no count; a 16-bit one invented for it would read as a fact about the file.
+            var value = ImageContextMenu.ItemsFor(Pixel([0.25f])).First(i => i.Description == "pixel value");
+            value.Payload.ShouldBe("0.250000");
         }
 
         [Fact]

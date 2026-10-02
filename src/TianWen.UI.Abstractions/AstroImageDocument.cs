@@ -457,6 +457,13 @@ public sealed class AstroImageDocument : IPreviewSource
     /// <summary>Whether the image appears to be already stretched (e.g. processed TIFF). When true, STF should be disabled by default.</summary>
     public bool IsPreStretched { get; }
 
+    /// <summary>
+    /// The divisor the file's samples were scaled to [0, 1] by when the document adopted them (its
+    /// <c>Image.UnitScaleDivisor</c>), or null where they were on [0, 1] already: see
+    /// <see cref="IPreviewSource.FullScaleAdu"/>.
+    /// </summary>
+    public float? FullScaleAdu { get; private init; }
+
 
     /// <summary>Returns true if the given file extension is a supported image format.</summary>
     public static bool IsSupportedExtension(string extension)
@@ -563,6 +570,10 @@ public sealed class AstroImageDocument : IPreviewSource
         // the SER answer is not reachable from this path.
         algorithm = algorithm.ResolveAuto(image);
 
+        // Read BEFORE the in-place scaling below, which spends it: the count a sample of 1 stands for, so the
+        // pixel readout quotes the file's own counts. Null for a frame already on [0, 1], which has none.
+        float? fullScaleAdu = image.HasUnitScalePeak || image.UnitScaleDivisor <= 0f ? null : image.UnitScaleDivisor;
+
         DebayerAlgorithm actualAlgorithm;
         if (image.ImageMeta.SensorType is SensorType.RGGB && algorithm is not DebayerAlgorithm.None)
         {
@@ -607,6 +618,7 @@ public sealed class AstroImageDocument : IPreviewSource
         {
             SourceCrop = sourceCrop,
             InteriorHolesFilled = interiorHolesFilled,
+            FullScaleAdu = fullScaleAdu,
         };
     }
 

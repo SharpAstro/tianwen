@@ -49,6 +49,7 @@ namespace TianWen.UI.Abstractions
         // The frame's metadata, for the view the display histograms are taken over: its sensor type and
         // Bayer offsets decide the channel rule there exactly as they did on the frame.
         private ImageMeta _meta;
+        private float? _fullScaleAdu;
         private int _statsStride = 1;
 
         private ChannelStretchStats[] _stats = [];
@@ -208,6 +209,9 @@ namespace TianWen.UI.Abstractions
         // Nothing before the first frame: there is no picture to describe yet.
         ImageMeta? IPreviewSource.ImageMeta => _width > 0 ? _meta : null;
 
+        // The divisor CopyIn scaled the frame on show by, so the readout quotes the camera's counts.
+        float? IPreviewSource.FullScaleAdu => _width > 0 ? _fullScaleAdu : null;
+
         /// <summary>
         /// What is known about the frame on show beyond its pixels (<see cref="IPreviewSource.Findings"/>), set by
         /// the host on the render thread: a solve of the frame today, the node's measurements once they cross with
@@ -285,6 +289,7 @@ namespace TianWen.UI.Abstractions
             // already on [0, 1] with a peak of 0.8 to 1 while its statistics stayed at face value.
             var divisor = image.HasUnitScalePeak ? 1f : image.UnitScaleDivisor;
             var inv = divisor > 0f ? 1f / divisor : 1f;
+            _fullScaleAdu = image.HasUnitScalePeak || divisor <= 0f ? null : divisor;
             for (var c = 0; c < channelCount; c++)
             {
                 var src = image.GetChannelSpan(c);
