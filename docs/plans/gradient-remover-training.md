@@ -320,6 +320,31 @@ so the strategy is a lead, not yet a cause. Until #1163 says which, **G3 masks t
 any master whose measured step exceeds 0.5 sigma** (every frame file carries its depth plane), so the model is
 never taught to reproduce a step.
 
+### Which flattened scenes can be trusted (G2 check, 2026-10-02)
+
+G1b put the brightest nebulae in the amplitude tail, so before any training pair is built on a flattened scene
+the 16 masters past 12 sigma, and three typical ones, were looked at: source, fitted surface and flattened scene
+on the source's own stretch, from the export's frame files.
+
+- **Narrow fields keep their nebulae.** On every field under about 6.5 degrees the surface is a smooth light
+  pollution ramp and the flattened scene keeps the nebula whole: M42 at 2.5 and 4.1 degrees, the Rosette, the
+  Seagull, the SII eta Car, the QHY294C's Cen A and SMC. The narrow-field high tail is real gradient on broadband
+  nights, as the passband finding says, not nebulosity taken for gradient.
+- **Wide Milky Way fields do not.** On the ASI585's 24 mm Carina frames (four masters, 25.6 degrees) the surface
+  rises with the Milky Way's own large-scale glow, from the dark off-plane sky to the band, and the flattened scene
+  lifts the dark sky to the band's level: the dust lanes survive, the glow under them does not. That is exactly the
+  failure the model is to learn against, so these scenes must not teach it. **G3 keeps fields of 10 degrees and
+  wider out of its training scenes** (10 solved masters and the four unsolved Carina frames) until a fit can tell
+  glow from light pollution (the solved horizon direction, which G1b shows the gradient follows, is the obvious
+  constraint; galactic latitude is another), and may use them as qualitative test scenes.
+- **The no-flat sessions show why they are excluded.** The ASI294MM's M42 of 2021-11-28 and the ASI533's of
+  2022-12-03 have a dome for a surface (vignetting), and subtraction leaves their corners dark: a multiplicative
+  falloff that only division mends.
+- **Smaller notes.** The ASI294MM Leo Triplet keeps diagonal bands no degree-2 surface follows (a flattened scene
+  with gradient left in it); comet 12P's frame has an obstruction darkening one corner, present pixels with no
+  sky (the fourth edge, section 3); and the thin-band steps of #1163 are visible by eye on the QHY178M Helix and
+  the QHY294C SMC.
+
 ## 4. Model
 
 Small. GraXpert's BGE is a 217 MB graph; a background predictor at 256 px does not need it. Start with
