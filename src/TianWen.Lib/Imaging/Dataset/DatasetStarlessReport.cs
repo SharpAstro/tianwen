@@ -27,6 +27,15 @@ public static class DatasetStarlessReport
     /// <summary>The markdown report's file name under <c>&lt;out&gt;/stats/</c>.</summary>
     public const string ReportFileName = "starless-plates.md";
 
+    /// <summary>
+    /// The stop file, in the output root: create it and the run stops before its NEXT master, the one in progress finished
+    /// and recorded, so the next run (which skips every master the store holds) picks up exactly there. The run deletes the
+    /// file as it honours it, and one left over from an earlier stop is cleared, with a warning, when a run starts.
+    /// </summary>
+    /// <remarks>It exists so a run over a whole pool, hours long, can be ended without ending the process, as the bake's
+    /// <c>build.stop</c> does: a killed run leaves the master in progress with its plate written and no record.</remarks>
+    public const string StopFileName = "starless.stop";
+
     /// <summary>What to run.</summary>
     /// <param name="Masters">The master FITS files.</param>
     /// <param name="OutputRoot">Plates land in <c>plates/</c>, the store and the report in <c>stats/</c>.</param>
@@ -36,7 +45,7 @@ public static class DatasetStarlessReport
     public sealed record RunOptions(ImmutableArray<string> Masters, string OutputRoot, bool WritePlates = true, int ProbeHoles = 100, bool Force = false);
 
     /// <summary>What a run did.</summary>
-    public sealed record RunResult(int Measured, int Skipped, int Failed, string ReportPath);
+    public sealed record RunResult(int Measured, int Skipped, int Failed, string ReportPath, bool Stopped = false);
 
     /// <summary>One master's record in the store.</summary>
     /// <param name="Master">The master's file name.</param>
@@ -62,8 +71,16 @@ public static class DatasetStarlessReport
         var storePath = Path.Combine(statsDir, StoreFileName);
         var reportPath = Path.Combine(statsDir, ReportFileName);
         var store = await ReadAsync(storePath, logger, cancellationToken);
+        var stopPath = Path.Combine(options.OutputRoot, StopFileName);
+        if (File.Exists(stopPath))
+        {
+            File.Delete(stopPath);
+            logger?.LogWarning("A stop file from an earlier run was cleared: {Path}", stopPath);
+            progress?.Report($"[starless] cleared a stop file left by an earlier run ({stopPath})");
+        }
 
         int measured = 0, skipped = 0, failed = 0;
+        var stopped = false;
         foreach (var path in options.Masters)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -72,6 +89,15 @@ public static class DatasetStarlessReport
             {
                 skipped++;
                 continue;
+            }
+            // Between masters only: the one before has its plate and its record, so stopping leaves nothing half done.
+            if (File.Exists(stopPath))
+            {
+                File.Delete(stopPath);
+                stopped = true;
+                logger?.LogInformation("Stop file found before {Master}; stopping", name);
+                progress?.Report($"[starless] {StopFileName} found: stopping before {name}; every master before it is complete");
+                break;
             }
             try
             {
@@ -127,7 +153,7 @@ public static class DatasetStarlessReport
             }
         }
         await WriteMarkdownAsync(reportPath, store.Values, cancellationToken);
-        return new RunResult(measured, skipped, failed, reportPath);
+        return new RunResult(measured, skipped, failed, reportPath, stopped);
     }
 
     private static Image StarsOnly(Image input, Image starless)
