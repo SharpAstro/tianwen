@@ -2027,7 +2027,7 @@ Laplacian) were fixed in code; and no product path used R8's derived gains or th
 - **Whether the limb fit's north was right is incidental**: graded by the gradient, the 16-minute fixture's stack of best frames had it
   upside down and the run's quarters turned it back (31 degrees against the true 30).
 - **The stacking, read on the three twins** (`planetary-stack --truth`, each twin's 3,000 frames, every master against its truth,
-  the band error inside 0.9 radii; Release, the commit that carries this table):
+  the band error inside 0.9 radii; Release, the code of this PR):
 
   | Twin | Legacy band 1, sum of bands 1 to 4 | Pipeline unsharpened (a tenth kept) | Pipeline at half the frames |
   |---|---|---|---|
