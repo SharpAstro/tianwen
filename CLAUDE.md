@@ -989,9 +989,13 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   Derive** (`PlanetaryBestStack.DeriveGains` seeds the wavelet dials through `WaveletDerivation`, ONE for the viewer's stacked view and
   the GUI's capture; the dials hold at the darkest level, `HoldAtDarkest`, and match the FLOORED fix on every twin, not the bounded one)
   (#1159): a trous gains derived through the limb's edge against the limb fit's sharp model through the pupil's diffraction, the stack's
-  white noise floor and the planet's disk, applied BOUNDED (held at the sky and, outside the limb, never brighter than the stack,
-  #1168, but for a moon: a local maximum of the stack keeps its sharpening, `PlanetaryMetrics.CompactSources`, #1181; a mask against
-  the sky's noise freed the halo too); without a telescope `PlanetaryDefault` with the limb kept as
+  white noise floor and the planet's disk, with **no sharpening drawn outside the limb** (#1171, `PlanetaryLimbFix.ModelFeathered`):
+  there the planet's own model through the pupil, the truth's smooth diffraction glow, feathered back to the stack from 1.5 radii to
+  the window's inscribed circle, but for a moon (a local maximum of the stack keeps its sharpening, `PlanetaryMetrics.CompactSources`,
+  #1181). The sharpening's side lobes outside the limb WERE the dark limb: bounded (#1168) floored the negative one at the sky, a black
+  band, and let the positive ones through up to the stack's seeing glow, faint arcs, strongest on the lit side (the twins show the same,
+  so it is never a capture's misfit). A model swapped in without the feather left a square seam at the window's edge at a deep stretch,
+  and anything divided by a model that falls to nothing rang. Without a telescope `PlanetaryDefault` with the limb kept as
   stacked. **Saturn is declined** (`PlanetaryLimbFit.Unmodelled`, #1184): the fit swallows its rings (a globe 50 % large on 2021-12-16),
   so its sharpening is the preset, said so, and it is never de-rotated. **The window is the frame MIRRORED, never zero-padded**: zeros
   gave the moon finder a noiseless sky and it freed a tight crop's border (2022-10-09, `ATightCropsSharpeningLiftsNoSkyAboveTheStackOutsideTheLimb`),

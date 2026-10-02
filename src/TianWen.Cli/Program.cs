@@ -167,6 +167,7 @@ var rootCommand = new RootCommand
         new PlanetaryRingingSubCommand(consoleHost).Build(),
         new PlanetaryFinestBandSubCommand(consoleHost).Build(),
         new PlanetaryElongatedSubCommand(consoleHost).Build(),
+        new PlanetaryLimbSectorsSubCommand(consoleHost).Build(),
         new PlanetaryMfbdSubCommands(consoleHost).BuildLuckyFrames(),
         new PlanetaryMfbdSubCommands(consoleHost).BuildScore(),
         new PlanetaryKeepsSubCommand(consoleHost).Build(),

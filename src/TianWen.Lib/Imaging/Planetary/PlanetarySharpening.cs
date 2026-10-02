@@ -32,6 +32,32 @@ public enum PlanetaryLimbFix
 
     /// <summary>Bounded at the limb, blended to the stack as it is by 1.1 radii (#1171).</summary>
     Blended,
+
+    /// <summary>
+    /// Outside the limb the glow the truth has there, never the sharpening: the stack times the share of its glow the planet's own model
+    /// keeps through the pupil alone, but for its moons (#1171). The sharpening's side lobes outside the limb are what made the dark band
+    /// (the negative lobe floored at the sky) and the faint bright arcs beyond it (the positive ones, let through up to the stack's glow).
+    /// </summary>
+    ModelGlow,
+
+    /// <summary>
+    /// Outside the limb the planet's own model through the pupil alone, the smooth diffraction glow the truth has there, but for its moons
+    /// (#1171): neither the sharpening's side lobes nor the stack's seeing glow, and nothing divided by a model that falls to nothing.
+    /// </summary>
+    ModelOutside,
+
+    /// <summary>
+    /// Outside the limb the stack with its glow swapped: the planet's model through the stack's blur taken out and the same model through
+    /// the pupil alone put in, but for its moons (#1171). The stack's noise, its sky and anything faint beyond the planet stay, so the
+    /// sharpening's window leaves no seam, while the seeing glow and the sharpening's side lobes go.
+    /// </summary>
+    GlowSwapped,
+
+    /// <summary>
+    /// <see cref="ModelOutside"/> out to 1.5 radii, blended to the stack as it is by the sharpening window's inscribed circle (at most
+    /// 2.5 radii), but for its moons (#1171): the model's clean limb without the square seam the window's edge left at a deep stretch.
+    /// </summary>
+    ModelFeathered,
 }
 
 /// <summary>
@@ -62,12 +88,14 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
     public ImmutableArray<double> WavelengthsNm { get; init; } = [550];
 
     /// <summary>
-    /// How the limb is kept from ringing: bounded, held at the sky and outside the limb never brighter than the stack but for its moons
-    /// (the owner's choice of 2026-10-02, #1168, the moons #1181; docs/plans/planetary-restoration.md, "The sharpening's ring outside the limb"). Floored alone left
-    /// a ring above the sky; the limb as its own channel read a little truer on the twins (limb profile error 0.0254 against 0.0270)
-    /// but rang out to 1.3 radii on 2022-09-03 Red; bounded keeps floored's band error (1.777 against 1.776) without the outer ring.
+    /// How the limb is kept from ringing: outside the limb the planet's own model through the pupil, feathered back to the stack far out,
+    /// but for its moons (#1171; docs/plans/planetary-restoration.md, "The trough at the limb"). The sharpening's side lobes outside the
+    /// limb were the cause of the dark limb: bounded (#1168) held the negative one at the sky, a black band, and let the positive ones
+    /// through up to the stack's seeing glow, faint arcs, strongest on the lit side. Drawing no sharpening there and the truth's smooth
+    /// diffraction glow instead took the twins' limb profile error from 0.0252 to 0.0159 at a band error of 1.929 against 1.939, with no
+    /// band, no ring and no seam by eye on the twins, 2022-09-03 Red and both colour captures.
     /// </summary>
-    public PlanetaryLimbFix Fix { get; init; } = PlanetaryLimbFix.Bounded;
+    public PlanetaryLimbFix Fix { get; init; } = PlanetaryLimbFix.ModelFeathered;
 
     /// <summary>
     /// Fit the gains with their composite through the kernel held non-negative (<see cref="PlanetaryWaveletGains.FitNonNegative"/>, R8
@@ -202,6 +230,14 @@ public static class PlanetarySharpening
             PlanetaryLimbFix.ModelFloor => PlanetaryDering.Outside(PlanetaryDering.Sharpen(window, size, size, g, t), window, size, size, disk, PlanetaryDering.OutsideLimb.ModelFloor,
                 PlanetaryDering.GlowShare(diskTarget, blurredDisk)),
             PlanetaryLimbFix.Blended => PlanetaryDering.Outside(PlanetaryDering.Sharpen(window, size, size, g, t), window, size, size, disk, PlanetaryDering.OutsideLimb.Blended),
+            PlanetaryLimbFix.ModelGlow => PlanetaryDering.Outside(PlanetaryDering.Sharpen(window, size, size, g, t), window, size, size, disk, PlanetaryDering.OutsideLimb.ModelGlow,
+                PlanetaryDering.GlowShare(diskTarget, blurredDisk)),
+            PlanetaryLimbFix.ModelOutside => PlanetaryDering.Outside(PlanetaryDering.Sharpen(window, size, size, g, t), window, size, size, disk, PlanetaryDering.OutsideLimb.Model,
+                model: diskTarget),
+            PlanetaryLimbFix.GlowSwapped => PlanetaryDering.Outside(PlanetaryDering.Sharpen(window, size, size, g, t), window, size, size, disk, PlanetaryDering.OutsideLimb.GlowSwapped,
+                model: diskTarget, blurredModel: blurredDisk),
+            PlanetaryLimbFix.ModelFeathered => PlanetaryDering.Outside(PlanetaryDering.Sharpen(window, size, size, g, t), window, size, size, disk, PlanetaryDering.OutsideLimb.ModelFeathered,
+                model: diskTarget),
             _ => PlanetaryDering.Sharpen(window, size, size, g, t),
         };
     }

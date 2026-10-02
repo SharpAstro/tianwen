@@ -65,6 +65,7 @@ public class PlanetarySharpeningTests
     }
 
     [Theory(Timeout = 300_000)]
+    [InlineData(PlanetaryLimbFix.ModelFeathered)]
     [InlineData(PlanetaryLimbFix.Bounded)]
     [InlineData(PlanetaryLimbFix.Floored)]
     [InlineData(PlanetaryLimbFix.LimbChannel)]
@@ -211,7 +212,8 @@ public class PlanetarySharpeningTests
         }
         whole.Release();
         var stack = new Image([plane], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
-        var options = new PlanetarySharpenOptions(CatalogIndex.Jupiter, Night, Telescope) { WavelengthsNm = [650] };
+        // Bounded's moon finder is what the zero padding fooled; the default fix draws no sharpening outside the limb at all.
+        var options = new PlanetarySharpenOptions(CatalogIndex.Jupiter, Night, Telescope) { WavelengthsNm = [650], Fix = PlanetaryLimbFix.Bounded };
 
         var result = await Task.Run(() => PlanetarySharpening.Sharpen(stack, options), TestContext.Current.CancellationToken);
 

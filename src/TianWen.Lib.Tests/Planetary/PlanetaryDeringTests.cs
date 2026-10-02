@@ -182,6 +182,9 @@ public class PlanetaryDeringTests
         var floored = PlanetaryDering.Outside(sharpened, blurred, Size, Size, Disk, PlanetaryDering.OutsideLimb.ModelFloor, share);
         var blended = PlanetaryDering.Outside(sharpened, blurred, Size, Size, Disk, PlanetaryDering.OutsideLimb.Blended);
         var bounded = PlanetaryDering.Bounded(sharpened, blurred, Size, Size, Disk);
+        // The default (#1171): the model out to 1.5 radii, the stack by the plane's inscribed circle (here 2.5 radii, 50 of 64 px).
+        var model = PlanetaryInverse.Apply(SharpDisk(), Size, Size, f => Gaussian(0.5, f));
+        var feathered = PlanetaryDering.Outside(sharpened, blurred, Size, Size, Disk, PlanetaryDering.OutsideLimb.ModelFeathered, model: model);
         for (var y = 0; y < Size; y++)
         {
             for (var x = 0; x < Size; x++)
@@ -189,12 +192,21 @@ public class PlanetaryDeringTests
                 var (i, r) = ((y * Size) + x, Disk.RadiiAt(x, y));
                 if (r <= 1)
                 {
+                    feathered[i].ShouldBe(Math.Max(sharpened[i], 0f));
                     held[i].ShouldBe(Math.Max(sharpened[i], 0f));
                     floored[i].ShouldBe(Math.Max(sharpened[i], 0f));
                     blended[i].ShouldBe(Math.Max(sharpened[i], 0f));
                     continue;
                 }
                 var stack = Math.Max(blurred[i], 0f);
+                if (r <= 1.5)
+                {
+                    feathered[i].ShouldBe(Math.Max(model[i], 0f), "the model, never the sharpening, out to 1.5 radii");
+                }
+                else if (r >= 2.5)
+                {
+                    feathered[i].ShouldBe(blurred[i], 1e-6f);
+                }
                 held[i].ShouldBe(blurred[i]);
                 floored[i].ShouldBeGreaterThanOrEqualTo(0.5f * stack - 1e-7f);
                 floored[i].ShouldBeLessThanOrEqualTo(stack + 1e-7f);

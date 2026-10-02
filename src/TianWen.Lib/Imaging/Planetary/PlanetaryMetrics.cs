@@ -316,6 +316,129 @@ public static class PlanetaryMetrics
     }
 
     /// <summary>
+    /// The limb read sector by sector (#1171): for each of <paramref name="sectors"/> position angles (sector k centred on
+    /// <c>(k + 0.5) * 360 / sectors</c> degrees, from +x toward +y), the radius in radii of <paramref name="disk"/> at which
+    /// <paramref name="plane"/>'s profile in that sector falls through half its level just inside the limb (0.85 to 0.9 radii), read
+    /// outward from 0.9 radii and interpolated between rings of 0.02 radii; NaN where it never falls that far. A correct outline reads
+    /// alike in every sector; one off the planet's centre reads a first harmonic (<see cref="Harmonic"/>), a misshapen one a second.
+    /// </summary>
+    public static double[] SectorHalfLevelRadii(ReadOnlySpan<float> plane, int width, int height, MetricDisk disk, int sectors)
+    {
+        const double inner = 0.8, outer = 1.4, step = 0.02;
+        var profiles = SectorProfiles(plane, width, height, disk, sectors, inner, outer, step);
+        var radii = new double[sectors];
+        for (var k = 0; k < sectors; k++)
+        {
+            var profile = profiles[k];
+            var (levelSum, levelCount) = (0.0, 0);
+            for (var i = 0; i < profile.Length; i++)
+            {
+                var r = inner + ((i + 0.5) * step);
+                if (r >= 0.85 && r < 0.9 && double.IsFinite(profile[i]))
+                {
+                    (levelSum, levelCount) = (levelSum + profile[i], levelCount + 1);
+                }
+            }
+            radii[k] = double.NaN;
+            if (levelCount == 0)
+            {
+                continue;
+            }
+            var half = levelSum / levelCount / 2;
+            for (var i = 1; i < profile.Length; i++)
+            {
+                var (r0, r1) = (inner + ((i - 0.5) * step), inner + ((i + 0.5) * step));
+                if (r0 < 0.9 || !double.IsFinite(profile[i - 1]) || !double.IsFinite(profile[i]))
+                {
+                    continue;
+                }
+                if (profile[i - 1] >= half && profile[i] < half)
+                {
+                    radii[k] = r0 + ((r1 - r0) * (profile[i - 1] - half) / (profile[i - 1] - profile[i]));
+                    break;
+                }
+            }
+        }
+        return radii;
+    }
+
+    /// <summary>The limb's trough (<see cref="LimbTrough"/>) sector by sector, the sectors as <see cref="SectorHalfLevelRadii"/> takes them.</summary>
+    public static double[] SectorTroughs(ReadOnlySpan<float> plane, ReadOnlySpan<float> reference, int width, int height, MetricDisk disk, int sectors)
+    {
+        var (p, r) = (SectorProfiles(plane, width, height, disk, sectors, 1.0, 1.1, 0.01), SectorProfiles(reference, width, height, disk, sectors, 1.0, 1.1, 0.01));
+        var troughs = new double[sectors];
+        for (var k = 0; k < sectors; k++)
+        {
+            for (var i = 0; i < p[k].Length; i++)
+            {
+                if (double.IsFinite(p[k][i]) && double.IsFinite(r[k][i]))
+                {
+                    troughs[k] = Math.Max(troughs[k], r[k][i] - p[k][i]);
+                }
+            }
+        }
+        return troughs;
+    }
+
+    /// <summary>
+    /// The <paramref name="order"/>-th harmonic of <paramref name="values"/> read at evenly spaced position angles (value k at
+    /// <c>(k + 0.5) * 360 / n</c> degrees): its amplitude (half the peak-to-peak of that harmonic alone) and the angle, degrees, of its
+    /// first maximum. Values that are NaN are left out.
+    /// </summary>
+    public static (double Amplitude, double AngleDeg) Harmonic(ReadOnlySpan<double> values, int order)
+    {
+        var (re, im, count) = (0.0, 0.0, 0);
+        for (var k = 0; k < values.Length; k++)
+        {
+            if (!double.IsFinite(values[k]))
+            {
+                continue;
+            }
+            var theta = order * (k + 0.5) * 2 * Math.PI / values.Length;
+            (re, im, count) = (re + (values[k] * Math.Cos(theta)), im + (values[k] * Math.Sin(theta)), count + 1);
+        }
+        if (count == 0)
+        {
+            return (double.NaN, double.NaN);
+        }
+        var angle = Math.Atan2(im, re) * 180 / Math.PI / order;
+        return (2 * Math.Sqrt((re * re) + (im * im)) / count, ((angle % (360.0 / order)) + (360.0 / order)) % (360.0 / order));
+    }
+
+    // Each sector's azimuthal profile from `inner` to `outer` radii in rings of `step`, sector k holding the position angles from
+    // k * 360 / sectors to (k + 1) * 360 / sectors degrees (from +x toward +y).
+    private static double[][] SectorProfiles(ReadOnlySpan<float> plane, int width, int height, MetricDisk disk, int sectors, double inner, double outer, double step)
+    {
+        var rings = (int)Math.Round((outer - inner) / step);
+        var (sum, count) = (new double[sectors, rings], new int[sectors, rings]);
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var ring = (int)Math.Floor((disk.RadiiAt(x, y) - inner) / step);
+                if (ring < 0 || ring >= rings)
+                {
+                    continue;
+                }
+                var angle = Math.Atan2(y - disk.Y, x - disk.X) * 180 / Math.PI;
+                var sector = Math.Min(sectors - 1, (int)Math.Floor(((angle + 360) % 360) / (360.0 / sectors)));
+                sum[sector, ring] += plane[(y * width) + x];
+                count[sector, ring]++;
+            }
+        }
+        var profiles = new double[sectors][];
+        for (var k = 0; k < sectors; k++)
+        {
+            profiles[k] = new double[rings];
+            for (var i = 0; i < rings; i++)
+            {
+                profiles[k][i] = count[k, i] > 0 ? sum[k, i] / count[k, i] : double.NaN;
+            }
+        }
+        return profiles;
+    }
+
+    /// <summary>
     /// The limb's rebound: the most <paramref name="plane"/>'s azimuthal profile (normalised, the sky zero and the disk one) climbs back
     /// above its own running minimum going out from 1.0 to 1.3 radii. A planet's profile only falls outside its limb (the glow of its
     /// diffraction and its blur), a stack's with it, so a rise there is a ring a sharpening put in (#1168); zero on a profile that never

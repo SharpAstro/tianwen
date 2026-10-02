@@ -243,6 +243,10 @@ public static class PlanetaryBestStack
         PlanetaryLimbFix.HeldOutside => "the stack as it is outside the limb but for its moons",
         PlanetaryLimbFix.ModelFloor => "bounded outside the limb, at or above the glow the planet's model keeps",
         PlanetaryLimbFix.Blended => "bounded at the limb, blended to the stack by 1.1 radii",
+        PlanetaryLimbFix.ModelGlow => "outside the limb the glow the planet's model keeps, none of the sharpening",
+        PlanetaryLimbFix.ModelOutside => "outside the limb the planet's model through the pupil",
+        PlanetaryLimbFix.GlowSwapped => "outside the limb the stack with the seeing glow swapped for the pupil's",
+        PlanetaryLimbFix.ModelFeathered => "outside the limb the planet's model through the pupil, feathered to the stack far out",
         _ => "plain",
     };
 
