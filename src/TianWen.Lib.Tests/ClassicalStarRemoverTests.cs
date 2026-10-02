@@ -237,6 +237,11 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
         // What a fit leaves is its own noise (an amplitude and a centre read through correlated noise), the same in sigma
         // at any brightness. A model error grows with the star instead, so the brightest band against the faintest is the
         // test of the model, and the faintest's level the test that nothing else is added.
+        // No holes: a subtracted star's core more than 3 sigma over root n below its sky is the plate's one forbidden
+        // artefact; noise alone puts about 0.1 percent of cores there.
+        var holes = stats.Bands.Sum(static b => b.Holes);
+        output.WriteLine($"holes {holes} of {stats.Bands.Sum(static b => b.Subtracted)} subtracted");
+        holes.ShouldBeLessThan(Math.Max(3, stats.Bands.Sum(static b => b.Subtracted) / 100));
         completeness.ShouldBeGreaterThan(0.95);
         bandMedians[2].ShouldBeLessThan(1.2 * bandMedians[0]);
         bandMedians[0].ShouldBeLessThan(0.6);

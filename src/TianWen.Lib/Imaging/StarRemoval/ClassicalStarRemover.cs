@@ -38,6 +38,8 @@ public static class ClassicalStarRemover
     private const int MaxFitRadius = 96;
     private const int TileSize = 2 * MaxSubtractRadius;
     private const int RefinementPasses = 2;
+    private const double CompressedCoreFraction = 0.8;
+    internal const float HoleSigma = 3f;
     private const float DefaultBeta = 3f;
     private const float DefaultFwhm = 2.5f;
     private static readonly double[] WidthGrid = { 0.7, 1.0, 1.4, 2.0 };
@@ -100,7 +102,7 @@ public static class ClassicalStarRemover
         public double X, Y, Width, Amplitude, Sky, SkyX, SkyY;
         public int WindowX, WindowY, FitRadius, SubtractRadius;
         public double[] ChannelAmplitudes;
-        public double Plateau;
+        public double Plateau, Beta;
         public bool Saturated;
         public StarFitOutcome Outcome;
     }
@@ -122,10 +124,25 @@ public static class ClassicalStarRemover
         private double _beta = lumPsf.Beta;
 
         // The field's PSF at a star's relative width: the luminance's, and each channel's at its measured FWHM ratio.
-        private MoffatPsf LumPsf(double width) => new MoffatPsf(_lumAlpha * width, _beta);
+        private MoffatPsf LumPsf(double width, double beta = 0) => new MoffatPsf(_lumAlpha * width, beta > 0 ? beta : _beta);
 
-        private MoffatPsf ChannelPsf(int channel, double width)
-            => _channels == 1 ? LumPsf(width) : new MoffatPsf(_lumAlpha * width * fwhm[channel] / fwhm[_channels], _beta);
+        private MoffatPsf ChannelPsf(int channel, double width, double beta = 0)
+            => _channels == 1 ? LumPsf(width, beta) : new MoffatPsf(_lumAlpha * width * fwhm[channel] / fwhm[_channels], beta > 0 ? beta : _beta);
+
+        // A star's FWHM over the field's: what the knot test reads, so a bright star whose wings want a lower beta is
+        // judged by its core, not by how far a fixed-beta model had to widen to follow them.
+        private double FwhmRatio(double width, double beta) => LumPsf(width, beta).Fwhm / LumPsf(1.0).Fwhm;
+
+        private double BetaOf(in LinearResult r) => double.IsFinite(r.Beta) && r.Beta > 0 ? r.Beta : _beta;
+
+        // A star's own beta is kept only where it describes a star: physical, and with an FWHM a star of this field can
+        // have. On an undersampled star a free beta trades a tiny core against heavy wings (252 bright stars of the
+        // Centaurus A master came out "too narrow" that way); the field's beta then decides.
+        private LinearResult? AcceptedBetaFit(LinearResult? fit)
+            => fit is { Beta: > 1.2 and < 20.0 } r && FwhmRatio(r.Width, r.Beta) is var ratio
+                && ratio >= options.MinWidthScale && ratio <= options.MaxWidthScale
+                ? r
+                : null;
 
         public StarlessPlate Run(Stopwatch sw)
         {
@@ -194,6 +211,7 @@ public static class ClassicalStarRemover
                 ct.ThrowIfCancellationRequested();
             }
 
+            MergeCoreFragments(all, fitList);
             var inpainted = BuildInpaintMask(fitList);
             var subtracted = BuildSubtractedMask(fitList);
             var correlation = FillHoles(inpainted);
@@ -206,7 +224,7 @@ public static class ClassicalStarRemover
             }
 
             var stars = Describe(sources, fitList, secondFrom, inpainted);
-            var statistics = Measure(stars, inpainted, correlation, sw);
+            var statistics = Measure(stars, inpainted, subtracted, correlation, sw);
             var plate = BuildPlate();
             logger?.LogInformation(
                 "ClassicalStarRemover: {W}x{H}x{C}: {Found} point sources, {Subtracted} subtracted, {Knots} left as structure, inpaint {Inpaint:P2}, field width scale {Scale:F3}, {Ms} ms.",
@@ -355,6 +373,10 @@ public static class ClassicalStarRemover
             var sky = _sky[index];
             fit.Saturated = IsSaturated(s, out var plateau);
             fit.Plateau = plateau;
+            if (!fit.Saturated && s.Significance >= options.BetaFitSigma && CoreIsCompressed(s, sigma, sky, plateau))
+            {
+                fit.Saturated = true;
+            }
 
             var startX = previous?.X ?? s.X;
             var startY = previous?.Y ?? s.Y;
@@ -377,16 +399,22 @@ public static class ClassicalStarRemover
                 // far from the centre a Moffat is a power law in r, so width and amplitude trade freely (a free width
                 // ran to 0.03 of the field's with an amplitude of 5e9). It has the field's PSF; only its centre and
                 // amplitude are read from the wings.
+                // From BetaFitSigma up a star's own beta is fitted too: a bright star's wings (halo, scatter, its
+                // spikes) are wider than the field's mean profile, and at a fixed beta the fit can only follow them by
+                // widening the core, which called an 11,833-sigma star a knot at 1.72 times the field's width.
                 result = fit.Saturated
                     ? FitNonlinear(window, _lumAlpha, _beta, startX, startY, fitBeta: false, fitWidth: false)
-                    : s.Significance >= options.NonlinearFitSigma
-                        ? FitNonlinear(window, _lumAlpha, _beta, startX, startY, fitBeta: false)
-                        : FitOnGrid(window, _lumAlpha, _beta, startX, startY, out _);
+                    : s.Significance >= options.BetaFitSigma
+                        ? AcceptedBetaFit(FitNonlinear(window, _lumAlpha, _beta, startX, startY, fitBeta: true))
+                            ?? FitNonlinear(window, _lumAlpha, _beta, startX, startY, fitBeta: false)
+                        : s.Significance >= options.NonlinearFitSigma
+                            ? FitNonlinear(window, _lumAlpha, _beta, startX, startY, fitBeta: false)
+                            : FitOnGrid(window, _lumAlpha, _beta, startX, startY, out _);
                 if (result is not { } r || !(r.Amplitude > 0))
                 {
                     return fit;
                 }
-                var wanted = LumPsf(r.Width).RadiusAtLevel(r.Amplitude, sigma);
+                var wanted = LumPsf(r.Width, BetaOf(r)).RadiusAtLevel(r.Amplitude, sigma);
                 if (wanted <= radius * 1.3 || radius >= MaxFitRadius)
                 {
                     break;
@@ -403,6 +431,7 @@ public static class ClassicalStarRemover
             fit.X = final.X;
             fit.Y = final.Y;
             fit.Width = final.Width;
+            fit.Beta = BetaOf(final);
             fit.Amplitude = final.Amplitude;
             fit.Sky = final.Sky;
             fit.SkyX = final.SkyX;
@@ -415,12 +444,13 @@ public static class ClassicalStarRemover
             {
                 return fit;
             }
-            if (final.Width > options.MaxWidthScale)
+            var ratio = FwhmRatio(final.Width, fit.Beta);
+            if (ratio > options.MaxWidthScale)
             {
                 fit.Outcome = StarFitOutcome.Knot;
                 return fit;
             }
-            if (final.Width < options.MinWidthScale)
+            if (ratio < options.MinWidthScale)
             {
                 fit.Outcome = StarFitOutcome.TooNarrow;
                 return fit;
@@ -432,7 +462,7 @@ public static class ClassicalStarRemover
                 if (px >= 0 && px < _width && py >= 0 && py < _height)
                 {
                     var observed = _lum[py * _width + px] - final.SkyAt(px, py);
-                    var modelled = final.Amplitude * LumPsf(final.Width).PixelMean(px, py, final.X, final.Y);
+                    var modelled = final.Amplitude * LumPsf(final.Width, fit.Beta).PixelMean(px, py, final.X, final.Y);
                     if (observed > 0 && modelled < options.MinPeakExplained * observed)
                     {
                         fit.Outcome = StarFitOutcome.Knot;
@@ -451,10 +481,11 @@ public static class ClassicalStarRemover
                     : SolveLinear(crowdedWindow, LumPsf(1.0), final.X, final.Y);
                 if (fixedWidth is { } fw && fw.Amplitude > 0 && Math.Abs(fw.X - s.X) <= 2.0 && Math.Abs(fw.Y - s.Y) <= 2.0)
                 {
-                    final = fw with { Width = 1.0 };
+                    final = fw with { Width = 1.0, Beta = _beta };
                     fit.X = final.X;
                     fit.Y = final.Y;
                     fit.Width = 1.0;
+                    fit.Beta = _beta;
                     fit.Amplitude = final.Amplitude;
                     fit.Sky = final.Sky;
                     fit.SkyX = final.SkyX;
@@ -465,7 +496,7 @@ public static class ClassicalStarRemover
             }
 
             fit.SubtractRadius = (int)Math.Clamp(
-                Math.Ceiling(LumPsf(final.Width).RadiusAtLevel(final.Amplitude, 0.1 * sigma)),
+                Math.Ceiling(LumPsf(final.Width, fit.Beta).RadiusAtLevel(final.Amplitude, 0.1 * sigma)),
                 final.Radius, MaxSubtractRadius);
             if (_channels == 1)
             {
@@ -476,13 +507,72 @@ public static class ClassicalStarRemover
                 for (var c = 0; c < _channels; c++)
                 {
                     fit.ChannelAmplitudes[c] = CutWindow(s, final.Radius, saturationCut, final.X, final.Y, _work[c]) is { } cw
-                        ? SolveLinear(cw, ChannelPsf(c, final.Width), final.X, final.Y).Amplitude
+                        ? SolveLinear(cw, ChannelPsf(c, final.Width, fit.Beta), final.X, final.Y).Amplitude
                         : 0.0;
                 }
             }
             fit.Outcome = StarFitOutcome.Subtracted;
             AddModel(fit, -1);
             return fit;
+        }
+
+        // A core fainter than its own wings predict is saturated, hard or soft: the wings alone (below half the peak)
+        // fitted at the field's PSF, their predicted peak against the observed one. The flat-top test needs five pixels
+        // within 2 percent of the peak, which an undersampled star never has: an 11,833-sigma star at 2.3 px FWHM, its
+        // fitted peak past the master's full scale, was fitted as a star 1.72 times too wide and left as a knot.
+        private bool CoreIsCompressed(PointSource s, double sigma, double sky, double peak)
+        {
+            var above = peak - sky;
+            if (!(above > 0))
+            {
+                return false;
+            }
+            var radius = LumPsf(1.0).RadiusAtLevel(above, sigma);
+            if (CutWindow(s, radius, sky + 0.5 * above) is not { } wings
+                || FitNonlinear(wings, _lumAlpha, _beta, s.X, s.Y, fitBeta: false, fitWidth: false) is not { } w
+                || !(w.Amplitude > 0))
+            {
+                return false;
+            }
+            var predicted = w.Amplitude * LumPsf(1.0).PixelMean(s.PeakX, s.PeakY, w.X, w.Y) + w.SkyAt(s.PeakX, s.PeakY) - sky;
+            return above < CompressedCoreFraction * predicted;
+        }
+
+        // A bright star's core has more than one local maximum (a saturated plateau's rim, a real PSF's lumps), and the
+        // finder's one-FWHM merge leaves the outer ones: 252 on the Centaurus A master, every one 1.7 to 2.9 px from a star
+        // of over 10,000 sigma. A non-star peak within 1.5 FWHM of a subtracted star ten times its significance (plus the
+        // core, where that star is saturated) is part of it; counted as a source of its own it would fill the bright
+        // band with false "too narrow" ones.
+        private void MergeCoreFragments(PointSource[] sources, List<Fit> fits)
+        {
+            var reach = Math.Max(2.0, 1.5 * lumPsf.Fwhm);
+            var grid = new PointGrid(sources, 8.0);
+            for (var k = 0; k < sources.Length; k++)
+            {
+                var f = fits[k];
+                if (f.Outcome != StarFitOutcome.Subtracted)
+                {
+                    continue;
+                }
+                var radius = reach;
+                if (f.Saturated)
+                {
+                    var cx = (int)Math.Clamp(Math.Round(f.X), 0, _width - 1);
+                    var cy = (int)Math.Clamp(Math.Round(f.Y), 0, _height - 1);
+                    var sigma = Math.Max(_rms[cy * _width + cx], 1e-12);
+                    radius += LumPsf(f.Width, f.Beta).RadiusAtLevel(f.Amplitude, Math.Max(f.Plateau - f.Sky, sigma));
+                }
+                var star = sources[k];
+                grid.ForEachWithin(f.X, f.Y, radius, j =>
+                {
+                    if (j != k && fits[j].Outcome != StarFitOutcome.Subtracted && sources[j].Significance * 10f <= star.Significance)
+                    {
+                        var merged = fits[j];
+                        merged.Outcome = StarFitOutcome.Merged;
+                        fits[j] = merged;
+                    }
+                });
+            }
         }
 
         private int CountPlateau(PointSource s, double plateau, double sky)
@@ -521,7 +611,7 @@ public static class ClassicalStarRemover
                 {
                     continue;
                 }
-                var psf = ChannelPsf(c, fit.Width);
+                var psf = ChannelPsf(c, fit.Width, fit.Beta);
                 var plane = _work[c];
                 for (var y = y0; y <= y1; y++)
                 {
@@ -608,6 +698,33 @@ public static class ClassicalStarRemover
             }
 
             private static long Key(int cx, int cy) => ((long)cy << 32) ^ (uint)cx;
+
+            public void ForEachWithin(double x, double y, double radius, Action<int> visit)
+            {
+                var reach = (int)Math.Ceiling(radius / _cell);
+                var cx = (int)Math.Floor(x / _cell);
+                var cy = (int)Math.Floor(y / _cell);
+                var r2 = radius * radius;
+                for (var gy = cy - reach; gy <= cy + reach; gy++)
+                {
+                    for (var gx = cx - reach; gx <= cx + reach; gx++)
+                    {
+                        if (!_cells.TryGetValue(Key(gx, gy), out var list))
+                        {
+                            continue;
+                        }
+                        foreach (var i in list)
+                        {
+                            var dx = _points[i].X - x;
+                            var dy = _points[i].Y - y;
+                            if (dx * dx + dy * dy <= r2)
+                            {
+                                visit(i);
+                            }
+                        }
+                    }
+                }
+            }
 
             public bool AnyWithin(double x, double y, double radius, int except = -1)
             {
@@ -842,7 +959,7 @@ public static class ClassicalStarRemover
                 var cx = (int)Math.Round(f.X);
                 var cy = (int)Math.Round(f.Y);
                 var sigma = Math.Max(_rms[Math.Clamp(cy, 0, _height - 1) * _width + Math.Clamp(cx, 0, _width - 1)], 1e-12);
-                var r = (int)Math.Ceiling(LumPsf(f.Width).RadiusAtLevel(f.Amplitude, 0.1 * sigma));
+                var r = (int)Math.Ceiling(LumPsf(f.Width, f.Beta).RadiusAtLevel(f.Amplitude, 0.1 * sigma));
                 StampDisc(mask, cx, cy, Math.Min(r, f.SubtractRadius));
             }
             return mask;
@@ -891,7 +1008,7 @@ public static class ClassicalStarRemover
                 var cy = (int)Math.Round(f.Y);
                 var centre = Math.Clamp(cy, 0, _height - 1) * _width + Math.Clamp(cx, 0, _width - 1);
                 var sigma = Math.Max(_rms[centre], 1e-12);
-                var psf = LumPsf(f.Width);
+                var psf = LumPsf(f.Width, f.Beta);
                 var reach = Math.Max(psf.RadiusAtLevel(f.Amplitude, sigma), 1.5 * psf.Fwhm);
                 var r = (int)Math.Ceiling(reach);
                 for (var y = Math.Max(0, cy - r); y <= Math.Min(_height - 1, cy + r); y++)
@@ -972,100 +1089,9 @@ public static class ClassicalStarRemover
             return dst;
         }
 
-        // Push-pull per channel, then noise at the channel's local rms with its measured lag-1 correlation.
+        // The one fill (HoleFill): push-pull, then the plate's grain.
         private ImmutableArray<float> FillHoles(BitMatrix holes)
-        {
-            var correlation = new float[_channels];
-            if (!holes.Any())
-            {
-                return correlation.ToImmutableArray();
-            }
-            var excluded = new BitMatrix(_height, _width);
-            for (var y = 0; y < _height; y++)
-            {
-                for (var x = 0; x < _width; x++)
-                {
-                    excluded[y, x] = holes[y, x] || IsAbsent(x, y);
-                }
-            }
-            for (var c = 0; c < _channels; c++)
-            {
-                ct.ThrowIfCancellationRequested();
-                var plane = _work[c];
-                var skyMap = BackgroundMap.Estimate(plane, _width, _height, excluded, new BackgroundMapOptions(BlockSize: PointSourceFinder.SkyBlockFor(lumPsf.Fwhm)));
-                var rms = new float[plane.Length];
-                skyMap.FillRms(rms);
-                var rho = Math.Clamp(LagOneCorrelation(plane, rms, excluded), 0f, 0.7f);
-                correlation[c] = rho;
-                var a = rho > 1e-3f ? (1.0 - Math.Sqrt(1.0 - 2.0 * rho * rho)) / (2.0 * rho) : 0.0;
-                var norm = 1.0 + 2.0 * a * a;
-                PushPullFill.Fill(plane, _width, _height, holes, _absent);
-                for (var y = 0; y < _height; y++)
-                {
-                    for (var x = 0; x < _width; x++)
-                    {
-                        if (!holes[y, x] || IsAbsent(x, y))
-                        {
-                            continue;
-                        }
-                        double g = 0;
-                        for (var j = -1; j <= 1; j++)
-                        {
-                            var ky = j == 0 ? 1.0 : a;
-                            for (var i = -1; i <= 1; i++)
-                            {
-                                var kx = i == 0 ? 1.0 : a;
-                                if (kx * ky != 0)
-                                {
-                                    g += kx * ky * HashGaussian(options.Seed, c, x + i, y + j);
-                                }
-                            }
-                        }
-                        plane[y * _width + x] += (float)(rms[y * _width + x] * g / norm);
-                    }
-                }
-            }
-            return correlation.ToImmutableArray();
-        }
-
-        // 1 - var(first difference) / (2 var) over present, unexcluded sky, both robust and in the rms map's units.
-        private float LagOneCorrelation(float[] plane, float[] rms, BitMatrix excluded)
-        {
-            var diffs = new List<float>();
-            for (var y = 0; y < _height; y += 2)
-            {
-                for (var x = 0; x + 1 < _width; x += 2)
-                {
-                    if (excluded[y, x] || excluded[y, x + 1] || !(rms[y * _width + x] > 0))
-                    {
-                        continue;
-                    }
-                    diffs.Add((plane[y * _width + x + 1] - plane[y * _width + x]) / rms[y * _width + x]);
-                }
-            }
-            var s = PointSourceFinder.RobustSigma(diffs.ToArray(), null, 1);
-            return float.IsFinite(s) ? 1f - s * s / 2f : 0f;
-        }
-
-        // A standard normal from a counter-based hash (SplitMix64 then Box-Muller): the same pixel draws the same value
-        // on any thread.
-        private static double HashGaussian(int seed, int channel, int x, int y)
-        {
-            var key = unchecked((ulong)(uint)seed * 0x9E3779B97F4A7C15UL ^ ((ulong)(uint)channel << 58) ^ ((ulong)(uint)y << 29) ^ (uint)x);
-            var a = SplitMix(ref key);
-            var b = SplitMix(ref key);
-            var u1 = ((a >> 11) + 0.5) / (1UL << 53);
-            var u2 = (b >> 11) / (double)(1UL << 53);
-            return Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Cos(2.0 * Math.PI * u2);
-        }
-
-        private static ulong SplitMix(ref ulong state)
-        {
-            var z = state += 0x9E3779B97F4A7C15UL;
-            z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9UL;
-            z = (z ^ (z >> 27)) * 0x94D049BB133111EBUL;
-            return z ^ (z >> 31);
-        }
+            => HoleFill.Fill(_work, _width, _height, holes, _absent, lumPsf.Fwhm, options.Seed, ct);
 
         private ImmutableArray<FittedStar> Describe(List<PointSource> sources, List<Fit> fits, int secondFrom, BitMatrix inpainted)
         {
@@ -1078,32 +1104,43 @@ public static class ClassicalStarRemover
                 var cy = (int)Math.Round(f.Y);
                 var inside = cx >= 0 && cx < _width && cy >= 0 && cy < _height;
                 var sigma = inside ? _rms[cy * _width + cx] : float.NaN;
-                var psf = LumPsf(f.Width);
+                var psf = LumPsf(f.Width, f.Beta);
                 var touched = false;
                 var residual = float.NaN;
                 var bias = float.NaN;
+                var holeDepth = float.NaN;
                 if (f.Outcome == StarFitOutcome.Subtracted && inside && sigma > 0)
                 {
+                    // The residual and bias read the subtraction where nothing was filled (one FWHM); the hole depth reads
+                    // what the plate shows where the star was, filled or not, over its whole core.
                     var radius = Math.Max(1.0, psf.Fwhm);
-                    var r = (int)Math.Ceiling(radius);
-                    double sum = 0, sum2 = 0;
-                    var count = 0;
-                    for (var y = Math.Max(0, cy - r); y <= Math.Min(_height - 1, cy + r) && !touched; y++)
+                    var holeRadius = f.Saturated ? Math.Max(radius, psf.RadiusAtLevel(f.Amplitude, Math.Max(f.Plateau - f.Sky, sigma))) : radius;
+                    var r = (int)Math.Ceiling(holeRadius);
+                    double sum = 0, sum2 = 0, holeSum = 0;
+                    int count = 0, holeCount = 0;
+                    for (var y = Math.Max(0, cy - r); y <= Math.Min(_height - 1, cy + r); y++)
                     {
                         for (var x = Math.Max(0, cx - r); x <= Math.Min(_width - 1, cx + r); x++)
                         {
                             var dx = x - f.X;
                             var dy = y - f.Y;
-                            if (dx * dx + dy * dy > radius * radius || IsAbsent(x, y))
+                            var d2 = dx * dx + dy * dy;
+                            if (d2 > holeRadius * holeRadius || IsAbsent(x, y))
+                            {
+                                continue;
+                            }
+                            var v = (_lum[y * _width + x] - (f.Sky + f.SkyX * (x - f.WindowX) + f.SkyY * (y - f.WindowY))) / sigma;
+                            holeSum += v;
+                            holeCount++;
+                            if (d2 > radius * radius)
                             {
                                 continue;
                             }
                             if (inpainted[y, x])
                             {
                                 touched = true;
-                                break;
+                                continue;
                             }
-                            var v = (_lum[y * _width + x] - (f.Sky + f.SkyX * (x - f.WindowX) + f.SkyY * (y - f.WindowY))) / sigma;
                             sum += v;
                             sum2 += v * v;
                             count++;
@@ -1114,16 +1151,20 @@ public static class ClassicalStarRemover
                         residual = (float)Math.Sqrt(sum2 / count);
                         bias = (float)(sum / Math.Sqrt(count));
                     }
+                    if (holeCount > 0)
+                    {
+                        holeDepth = (float)(holeSum / Math.Sqrt(holeCount));
+                    }
                 }
                 stars.Add(new FittedStar(
-                    (float)f.X, (float)f.Y, s.Significance, (float)f.Amplitude, (float)f.Width, (float)f.Sky, sigma,
+                    (float)f.X, (float)f.Y, s.Significance, (float)f.Amplitude, (float)FwhmRatio(f.Width, f.Beta), (float)f.Sky, sigma,
                     f.Outcome, f.Saturated, touched || (f.Outcome == StarFitOutcome.Subtracted && inside && inpainted[cy, cx]),
-                    residual, bias, k >= secondFrom));
+                    residual, bias, k >= secondFrom, holeDepth));
             }
             return stars.MoveToImmutable();
         }
 
-        private StarlessPlateStatistics Measure(ImmutableArray<FittedStar> stars, BitMatrix inpainted, ImmutableArray<float> correlation, Stopwatch sw)
+        private StarlessPlateStatistics Measure(ImmutableArray<FittedStar> stars, BitMatrix inpainted, BitMatrix subtracted, ImmutableArray<float> correlation, Stopwatch sw)
         {
             var (leftovers, _) = PointSourceFinder.Find(_lum, _width, _height, _absent, lumPsf.Fwhm, options.LeftoverSigma);
             var bands = ImmutableArray.CreateBuilder<StarlessBand>(BandEdges.Length - 1);
@@ -1131,14 +1172,16 @@ public static class ClassicalStarRemover
             {
                 var lo = BandEdges[b];
                 var hi = BandEdges[b + 1];
-                var inBand = stars.Where(s => !s.SecondPass && s.Significance >= lo && s.Significance < hi).ToArray();
+                var inBand = stars.Where(s => !s.SecondPass && s.Outcome != StarFitOutcome.Merged && s.Significance >= lo && s.Significance < hi).ToArray();
                 var clean = inBand.Where(static s => s.Outcome == StarFitOutcome.Subtracted && float.IsFinite(s.CoreResidual)).ToArray();
                 bands.Add(new StarlessBand(
                     lo, hi, inBand.Length,
                     inBand.Count(static s => s.Outcome == StarFitOutcome.Subtracted),
                     inBand.Count(static s => s.Outcome is StarFitOutcome.Knot or StarFitOutcome.TooNarrow),
                     inBand.Count(static s => s.Outcome == StarFitOutcome.Subtracted && s.Inpainted),
+                    inBand.Count(static s => s.HoleDepth < -HoleSigma),
                     leftovers.Count(l => l.Significance >= lo && l.Significance < hi),
+                    leftovers.Count(l => l.Significance >= lo && l.Significance < hi && !subtracted[l.PeakY, l.PeakX]),
                     Median(clean.Select(static s => s.CoreResidual)),
                     Median(clean.Select(static s => s.CoreBias))));
             }

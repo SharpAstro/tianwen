@@ -17,6 +17,10 @@ public enum StarFitOutcome
 
     /// <summary>The fit found no positive star there.</summary>
     NoFit = 3,
+
+    /// <summary>Inside a saturated star's core: a second peak on its plateau's edge, part of that star (its core is
+    /// inpainted), not a source of its own.</summary>
+    Merged = 4,
 }
 
 /// <summary>One point source and what the builder did with it. Coordinates follow <see cref="ImagedStar"/>: 0-based,
@@ -25,7 +29,7 @@ public enum StarFitOutcome
 /// <param name="Y">Fitted centre on the luminance.</param>
 /// <param name="Significance">The finder's matched-filter significance, in sigma.</param>
 /// <param name="Amplitude">The luminance model's peak above the local sky, in the plane's units.</param>
-/// <param name="WidthScale">The star's width relative to the field's (1 is a typical star of this image).</param>
+/// <param name="WidthScale">The star's FWHM over the field's (1 is a typical star of this image); what the knot test reads.</param>
 /// <param name="Sky">The local sky the fit found under the star, luminance.</param>
 /// <param name="LocalSigma">The sky noise at the star, luminance.</param>
 /// <param name="Outcome">What the fit decided.</param>
@@ -35,9 +39,12 @@ public enum StarFitOutcome
 /// sigma (pure noise reads 1); NaN where it was inpainted or not subtracted.</param>
 /// <param name="CoreBias">The mean of the same pixels in sigma over root n; NaN likewise.</param>
 /// <param name="SecondPass">Found only on the residual of the first pass, beside a brighter star.</param>
+/// <param name="HoleDepth">Where the star was, filled or not, over its core (a saturated star's whole plateau): the mean of
+/// plate minus its local sky in sigma over root n. Below -3 is a hole, which the starless plate must not have; NaN where
+/// nothing was subtracted.</param>
 public readonly record struct FittedStar(
     float X, float Y, float Significance, float Amplitude, float WidthScale, float Sky, float LocalSigma,
-    StarFitOutcome Outcome, bool Saturated, bool Inpainted, float CoreResidual, float CoreBias, bool SecondPass);
+    StarFitOutcome Outcome, bool Saturated, bool Inpainted, float CoreResidual, float CoreBias, bool SecondPass, float HoleDepth);
 
 /// <summary>One significance band of the report. Bands are on the finder's first-pass significance.</summary>
 /// <param name="SigmaLow">Lower edge, inclusive.</param>
@@ -46,11 +53,15 @@ public readonly record struct FittedStar(
 /// <param name="Subtracted">Fitted as stars and subtracted.</param>
 /// <param name="Knots">Left in the plate as structure (wider, or narrower, than a star).</param>
 /// <param name="Inpainted">Subtracted stars that also had pixels inpainted.</param>
+/// <param name="Holes">Subtracted stars whose core in the plate sits more than 3 sigma over root n below their own sky
+/// (<see cref="FittedStar.HoleDepth"/>): the holes a starless plate must not have.</param>
 /// <param name="Leftover">Point sources the finder still sees in the finished plate, at this band's significance.</param>
+/// <param name="LeftoverAway">Of those, the ones outside every subtracted star's footprint: a source never subtracted (a
+/// missed star, a spike), where the rest are what a subtraction left.</param>
 /// <param name="ResidualMedian">Median <see cref="FittedStar.CoreResidual"/> over subtracted, not inpainted stars.</param>
 /// <param name="BiasMedian">Median <see cref="FittedStar.CoreBias"/> over the same stars.</param>
 public readonly record struct StarlessBand(
-    float SigmaLow, float SigmaHigh, int Found, int Subtracted, int Knots, int Inpainted, int Leftover,
+    float SigmaLow, float SigmaHigh, int Found, int Subtracted, int Knots, int Inpainted, int Holes, int Leftover, int LeftoverAway,
     float ResidualMedian, float BiasMedian)
 {
     /// <summary>Leftovers as a fraction of what was found in the band.</summary>
@@ -92,8 +103,10 @@ public sealed record StarlessPlate(
 /// <param name="LeftoverSigma">The finder's threshold on the finished plate for the leftover count.</param>
 /// <param name="NonlinearFitSigma">From this significance up, a star's centre and width are fitted; below, the found
 /// centre is kept and the width chosen from a coarse grid.</param>
-/// <param name="MaxWidthScale">A candidate wider than this times the field's stars is a knot.</param>
-/// <param name="MinWidthScale">A candidate narrower than this times the field's stars is not a star.</param>
+/// <param name="BetaFitSigma">From this significance up, a star's own Moffat beta is fitted as well, so a bright star's
+/// wider wings are modelled and its core width judged by its FWHM, not by how far a fixed-beta model had to widen.</param>
+/// <param name="MaxWidthScale">A candidate whose FWHM is more than this times the field's is a knot.</param>
+/// <param name="MinWidthScale">A candidate whose FWHM is less than this times the field's is not a star.</param>
 /// <param name="MinPeakExplained">A candidate whose model explains less than this fraction of its peak is a knot.</param>
 /// <param name="InpaintSigma">A residual beyond this (in the smoothed residual's own noise) inside a star's footprint is
 /// inpainted.</param>
@@ -103,6 +116,7 @@ public sealed record StarlessPlateOptions(
     float DetectionSigma = 5f,
     float LeftoverSigma = 4f,
     float NonlinearFitSigma = 20f,
+    float BetaFitSigma = 100f,
     float MaxWidthScale = 1.6f,
     float MinWidthScale = 0.5f,
     float MinPeakExplained = 0.5f,

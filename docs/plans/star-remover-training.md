@@ -14,6 +14,13 @@ step. Until its gates pass, `IStarRemover` is RC-Astro (`sxt`) when licensed, el
 program runs whole-frame, `--split-plates` writes no plates and `--remove-stars` refuses, and with it the
 comet layer.
 
+**The goal (the owner, 2026-10-02): stellar extraction into two plates, a stars-only plate and a non-stellar
+plate, with no star holes.** The two are the additive split the pipeline already uses (`RemoveStarsStep`,
+stars = input minus starless), so they add back to the input exactly; what decides quality is the starless
+plate, and its one forbidden artefact is a hole: a star's core left darker than the sky around it, by
+over-subtraction or by a fill that misses its surroundings. Every stage measures it (R0's "Holes", the fill
+probe, the net's spot checks).
+
 Companions: [deconvolver-training.md](deconvolver-training.md) (the PSF family the injector uses),
 [gradient-remover-training.md](gradient-remover-training.md) (the flatten step),
 [model-training-roadmap.md](model-training-roadmap.md).
@@ -234,6 +241,10 @@ gradients; that is the owner's call once the report is in.
   subtracted, not inpainted star, in local sigma (pure noise reads 1), median per SNR band (5-10, 10-20,
   20-50, 50-100, 100 and up). Its **signed bias**, the mean over the same pixels in sigma over root n.
 - **Inpaint fraction**: inpainted over present pixels.
+- **Holes** (the goal's one forbidden artefact, added 2026-10-02): a subtracted star whose core in the plate, filled
+  or not and over a saturated star's whole plateau, sits more than 3 sigma over root n below its own fitted sky.
+  Noise alone puts about 0.1 percent of cores there (the synthetic field: 3 of 826). The verb writes the stars-only
+  plate beside the starless one (input minus plate), so the pair is the deliverable, not only the plate.
 - **Leftover point sources**: the finder at 4 sigma on the finished plate, as a fraction of the first
   pass's detections, per band. **This is the measure that decides whether a plate can be a target at all.**
   A star the plate keeps is a lesson in keeping stars: an injected star and a leftover one look the same to
