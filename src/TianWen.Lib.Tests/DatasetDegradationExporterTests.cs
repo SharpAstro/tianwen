@@ -1286,7 +1286,10 @@ namespace TianWen.Lib.Tests
                 row.InjectionShortfall.ShouldBe(0);
                 row.InjectedSaturated.ShouldBe(1);
                 injection.SaturatedFallback.ShouldBeFalse("the catalogue has a saturated star of its own");
-                injection.Stars.Single(static s => s.Saturated).ClipLevel.ShouldNotBeNull().Length.ShouldBe(3);
+                var clips = injection.Stars.Single(static s => s.Saturated).ClipLevel.ShouldNotBeNull();
+                clips.Length.ShouldBe(3);
+                double.IsFinite(clips[0]).ShouldBeTrue("red clipped");
+                clips[1].ShouldBe(double.PositiveInfinity, "green was not clipped, so it takes no level");
 
                 foreach (var star in injection.Stars)
                 {
@@ -1375,6 +1378,27 @@ namespace TianWen.Lib.Tests
             }
         }
 
+        /// <summary>
+        /// A line filter on a colour sensor leaves a channel too few stars for the PSF store to measure (the Rim Nebula's SII
+        /// night has no blue profile): that channel takes the nearest measured channel's profile, and the session exports.
+        /// </summary>
+        [Fact]
+        public async Task AChannelThePsfStoreCouldNotMeasureBorrowsItsNearestMeasuredChannel()
+        {
+            var bake = BuildBakeWithHalves();
+            var (platesRoot, _) = await BuildPlatesStoreAsync(bake,
+                [new PsfProfileFit.Result(2.5, 3.0, 0.01, 0.02, 10), new PsfProfileFit.Result(3.0, 2.5, 0.01, 0.02, 10), null]);
+            var options = new DatasetDegradationExporter.Options(bake, Path.Combine(_root, "stars-borrowed"),
+                Mode: DatasetDegradationExporter.DegradationMode.Stars, Draws: 1, CellsPerSession: 0, Seed: 5,
+                NoiseAnchor: DatasetDegradationExporter.NoiseAnchorKind.MasterCalibration, PlatesRoot: platesRoot);
+            (await DatasetDegradationExporter.RunAsync(options, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+
+            var stars = ReadInjectionRows(options.OutDir).SelectMany(static i => i.Stars).ToArray();
+            stars.ShouldNotBeEmpty();
+            stars.ShouldAllBe(static s => s.FwhmPx[0] == 2.5 && s.FwhmPx[1] == 3.0 && s.FwhmPx[2] == 3.0, "blue takes green's profile, its nearest");
+            stars.ShouldAllBe(static s => s.Beta[2] == 2.5);
+        }
+
         /// <summary>H3's control: at-site placement puts every star on a site the plate builder subtracted.</summary>
         [Fact]
         public async Task AnAtSiteStarsDrawPutsEveryStarOnASubtractedSite()
@@ -1408,7 +1432,8 @@ namespace TianWen.Lib.Tests
         /// holds thirteen subtracted Moffat stars spread over the frame, one of them saturated on the master's brightest
         /// pixel, each below the significance an elongation is measured at.
         /// </summary>
-        private async Task<(string Root, (double X, double Y)[] Sites)> BuildPlatesStoreAsync(string bake)
+        private async Task<(string Root, (double X, double Y)[] Sites)> BuildPlatesStoreAsync(
+            string bake, PsfProfileFit.Result?[]? profiles = null)
         {
             var root = Path.Combine(_root, "plates-store");
             var platesDir = Path.Combine(root, "plates");
@@ -1448,8 +1473,10 @@ namespace TianWen.Lib.Tests
             var rng = new Random(21);
             var sites = new System.Collections.Generic.List<(double X, double Y)> { saturated };
             var stars = ImmutableArray.CreateBuilder<FittedStar>();
+            // Saturated in red alone, as the master's brightest pixel is (each channel's stars are its own in this fixture):
+            // green and blue carry the faint wing amplitude of a channel the star did not clip, so they take no clip.
             stars.Add(new FittedStar((float)saturated.X, (float)saturated.Y, 20f, 30000f, 1f, 1000f, 5f, StarFitOutcome.Subtracted, true, false,
-                float.NaN, float.NaN, false, float.NaN, StarFitModel.Moffat, [30000f, 30000f, 30000f]));
+                float.NaN, float.NaN, false, float.NaN, StarFitModel.Moffat, [30000f, 5f, 5f]));
             while (sites.Count < 13)
             {
                 // Two decimals, as the catalogue stores a position.
@@ -1469,7 +1496,7 @@ namespace TianWen.Lib.Tests
             var profile = new PsfProfileFit.Result(PlateFwhm, 3.0, 0.01, 0.02, 10);
             Directory.CreateDirectory(Path.Combine(bake, "stats"));
             await DatasetPsfStore.AppendAsync(Path.Combine(bake, "stats", DatasetPsfStore.FileName),
-                new DatasetPsfNoiseReport.SessionPsf(SessionId, "TestCam", [], [], [], 0.0, null, MasterProfiles: [profile, profile, profile]),
+                new DatasetPsfNoiseReport.SessionPsf(SessionId, "TestCam", [], [], [], 0.0, null, MasterProfiles: profiles ?? [profile, profile, profile]),
                 TestContext.Current.CancellationToken);
             return (root, [.. sites]);
         }

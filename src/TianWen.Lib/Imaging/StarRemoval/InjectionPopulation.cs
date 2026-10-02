@@ -45,6 +45,14 @@ public sealed class InjectionPopulation
     /// pixel.</summary>
     public const double FallbackClipFraction = 0.95;
 
+    /// <summary>
+    /// A saturated star clipped a channel where the amplitude its wings were fitted with passes its core's height above the
+    /// plate by this factor; otherwise that channel takes no clip. A core is only a clip level where it was cut: a line
+    /// filter's dark channel holds the star at the sky, and as a level there it flattened every neighbour under the
+    /// footprint, and an unclipped bright channel's core is only the star's own peak.
+    /// </summary>
+    public const double ClippedWingExcess = 1.2;
+
     private readonly int _width;
     private readonly int _height;
     private readonly int _channels;
@@ -126,11 +134,15 @@ public sealed class InjectionPopulation
         {
             planes[c] = master.GetChannelSpan(c).ToArray();
         }
+        var platePlanes = new float[channels][];
+        for (var c = 0; c < channels; c++)
+        {
+            platePlanes[c] = plate.GetChannelSpan(c).ToArray();
+        }
         var saturated = catalogue
             .Where(s => Usable(s, channels) && s.Saturated)
-            .Select(s => (Amplitudes: s.ChannelAmplitudes.Select(a => Math.Max(0.0, a) * scale).ToImmutableArray(),
-                Clips: Enumerable.Range(0, channels).Select(c => CoreMax(planes[c], width, height, s.X, s.Y, 3.0) * scale).ToImmutableArray()))
-            .Where(static t => t.Clips.All(static v => double.IsFinite(v) && v > 0))
+            .Select(s => SaturatedEntry(s, planes, platePlanes, width, height, scale))
+            .Where(static t => t.Clips.Any(double.IsFinite) && t.Clips.All(static v => v > 0))
             .ToArray();
         var fallbackClips = Enumerable.Range(0, channels)
             .Select(c => FallbackClipFraction * planes[c].Where(float.IsFinite).DefaultIfEmpty(0f).Max() * scale)
@@ -309,6 +321,27 @@ public sealed class InjectionPopulation
         im /= nearest.Length;
         var e = Math.Min(0.95, Math.Sqrt(re * re + im * im));
         return (Math.Sqrt(1.0 - e * e), 0.5 * Math.Atan2(im, re));
+    }
+
+    // A saturated star's amplitudes and, per channel, its clip: the core's height where the wings extrapolate past it
+    // (ClippedWingExcess), else none (positive infinity). A core that does not stand above the plate is no level either.
+    private static (ImmutableArray<double> Amplitudes, ImmutableArray<double> Clips) SaturatedEntry(
+        FittedStar s, float[][] planes, float[][] platePlanes, int width, int height, double scale)
+    {
+        var channels = planes.Length;
+        var amplitudes = s.ChannelAmplitudes.Select(a => Math.Max(0.0, a) * scale).ToImmutableArray();
+        var clips = ImmutableArray.CreateBuilder<double>(channels);
+        var ix = Math.Clamp((int)Math.Round(s.X), 0, width - 1);
+        var iy = Math.Clamp((int)Math.Round(s.Y), 0, height - 1);
+        for (var c = 0; c < channels; c++)
+        {
+            var core = CoreMax(planes[c], width, height, s.X, s.Y, 3.0) * scale;
+            var floor = platePlanes[c][(iy * width) + ix] * scale;
+            clips.Add(double.IsFinite(core) && double.IsFinite(floor) && core > floor && amplitudes[c] > ClippedWingExcess * (core - floor)
+                ? core
+                : double.PositiveInfinity);
+        }
+        return (amplitudes, clips.MoveToImmutable());
     }
 
     // The brightest finite pixel within r of a point.
