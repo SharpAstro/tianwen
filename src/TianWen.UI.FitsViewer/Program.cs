@@ -366,7 +366,8 @@ using var cts = new CancellationTokenSource();
 // The input router, this host's toolbar policy, the between-frames steps and the controller's signals.
 // They live in StandaloneViewerHost rather than here so the end-to-end tests construct the SAME wiring
 // the window runs; everything left in this file is the window, the GPU, the instance gate and tracing.
-var host = new StandaloneViewerHost<VulkanContext>(imageRenderer, state, controller, tracker, bus, logger, cts.Token);
+var host = new StandaloneViewerHost<VulkanContext>(imageRenderer, state, controller, tracker, bus, logger,
+    sp.GetRequiredService<TianWen.Lib.Devices.IExternal>(), cts.Token);
 
 // The cached image layer is a render pass of its own, and render passes cannot nest -- so it has
 // to be recorded before the main one opens, which is what this hook is. PrepareFrame decides the

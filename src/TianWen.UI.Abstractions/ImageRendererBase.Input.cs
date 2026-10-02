@@ -471,6 +471,14 @@ namespace TianWen.UI.Abstractions
                 case InputKey.I:
                     state.ShowInfoPanel = !state.ShowInfoPanel;
                     return true;
+                case InputKey.K when shift:
+                    // The whole capture stacked as planetary-stack stacks it, or the run going on cancelled (a SER only).
+                    if (state.SequencePath is not null)
+                    {
+                        state.BestStackRequested = true;
+                        state.NeedsRedraw = true;
+                    }
+                    return true;
                 case InputKey.K:
                     // Toggle the live rolling-window stack vs the raw frame (sequence-only). The controller
                     // keeps showing the raw frame until the first master is built.

@@ -2,6 +2,8 @@ using System.Threading;
 using DIR.Lib;
 using Microsoft.Extensions.Logging;
 
+using TianWen.Lib.Devices;
+
 namespace TianWen.UI.Abstractions;
 
 /// <summary>
@@ -31,10 +33,12 @@ public sealed class StandaloneViewerHost<TSurface>
     private readonly BackgroundTaskTracker _tracker;
     private readonly SignalBus _bus;
     private readonly ILogger _logger;
+    private readonly IExternal? _external;
     private readonly CancellationToken _appToken;
 
+    /// <param name="external">Where the Best stack panel's telescope is remembered; null keeps it for the run only (a test).</param>
     public StandaloneViewerHost(ImageRendererBase<TSurface> viewer, ViewerState state, ViewerController controller,
-        BackgroundTaskTracker tracker, SignalBus bus, ILogger logger, CancellationToken appToken)
+        BackgroundTaskTracker tracker, SignalBus bus, ILogger logger, IExternal? external, CancellationToken appToken)
     {
         _viewer = viewer;
         _state = state;
@@ -42,7 +46,13 @@ public sealed class StandaloneViewerHost<TSurface>
         _tracker = tracker;
         _bus = bus;
         _logger = logger;
+        _external = external;
         _appToken = appToken;
+
+        if (external is not null)
+        {
+            tracker.Run(() => PlanetaryTelescopePersistence.LoadAsync(state, external, appToken), "Restore the Best stack telescope");
+        }
 
         // Keys go through the engine's router, which answers the three things every surface answers the
         // same way -- an overlay that claimed the keyboard, a chord declared on a painted node, the focused
@@ -199,6 +209,9 @@ public sealed class StandaloneViewerHost<TSurface>
         _controller.TryApplyPendingEnhance(_appToken);
         _controller.TryApplyPendingCrop();
 
+        // Start, cancel, report or finish the best stack of the SER on screen; a finished run asks for its sharpened master.
+        _controller.TickBestStack(_appToken);
+
         if (_state.NeedsReprocess)
         {
             ViewerActions.Reprocess(_state);
@@ -227,7 +240,7 @@ public sealed class StandaloneViewerHost<TSurface>
         var playback = _controller.TickPlayback();
         var blinked = _controller.TickBlink();
         var skyMoved = _viewer.TakeSkyRedrawRequest();
-        return playback || blinked || skyMoved
+        return playback || blinked || skyMoved || _controller.BestStackWantsFrame
             || _state.NeedsRedraw || _state.NeedsTextureUpdate || _state.RequestedFilePath is not null
             || _controller.IsLoadPending;
     }
@@ -238,6 +251,14 @@ public sealed class StandaloneViewerHost<TSurface>
         _bus.ProcessPending();
         _state.NeedsRedraw = false;
         _controller.ReleaseCompletedTasks();
+        if (_state.PlanetaryTelescopeChanged)
+        {
+            _state.PlanetaryTelescopeChanged = false;
+            if (_external is { } external)
+            {
+                _tracker.Run(() => PlanetaryTelescopePersistence.SaveAsync(_state, external, _appToken), "Save the Best stack telescope");
+            }
+        }
     }
 
     // The press walk this host used to carry is gone: every region it branched on now acts for itself --

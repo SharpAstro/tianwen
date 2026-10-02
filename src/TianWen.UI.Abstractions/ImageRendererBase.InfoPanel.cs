@@ -90,6 +90,13 @@ namespace TianWen.UI.Abstractions
                 RenderWaveletControls(state, ref y, x, maxTextWidth);
             }
 
+            // The whole capture stacked as planetary-stack stacks it, for a SER (#1159).
+            if (state.SequencePath is not null)
+            {
+                y += FontSize;
+                RenderBestStackControls(state, ref y, x, maxTextWidth);
+            }
+
             // The SELECTION used to have a section here. It now floats over the picture instead
             // (ImageRendererBase.SelectionPanel.cs), with a dedicated info panel shared with the sky
             // atlas -- Alt/Az and rise/transit/set included, which this strip never had room for.

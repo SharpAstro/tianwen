@@ -5,6 +5,7 @@ using System.Collections.Immutable;
 using DIR.Lib;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Enhancement;
+using TianWen.Lib.Devices;
 
 namespace TianWen.UI.Abstractions;
 
@@ -426,6 +427,58 @@ public sealed class ViewerState
                 DenoiseThresholds = WaveletSharpenOptions.PlanetaryDefault.DenoiseThresholds,
             }
             : null;
+
+    // --- Best stack (a recorded capture stacked whole, as planetary-stack stacks it, #1159) ---
+
+    /// <summary>The SER the sequence on screen was opened from; null for any other file. What a best stack stacks.</summary>
+    public string? SequencePath { get; set; }
+
+    /// <summary>Set by the Best stack button or Shift+K; the controller starts the run, or cancels the one running, and clears it.</summary>
+    public bool BestStackRequested { get; set; }
+
+    /// <summary>The running best stack's progress, 0 to 1, or null when none runs. Written by the controller each tick.</summary>
+    public double? BestStackProgress { get; set; }
+
+    /// <summary>
+    /// The telescope's aperture, mm, stepped through <see cref="PlanetaryApertures"/> in the Best stack panel: the derived sharpening's
+    /// diffraction needs it. Null for no telescope, which sharpens by the preset with the limb kept.
+    /// </summary>
+    public int? PlanetaryApertureMm { get; set; }
+
+    /// <summary>Set when the panel's telescope changes, so the host saves it (<see cref="PlanetaryTelescopePersistence"/>); cleared once saved.</summary>
+    public bool PlanetaryTelescopeChanged { get; set; }
+
+    /// <summary>The apertures the panel steps through, mm: the common amateur ones from a 60 mm refractor to a 20 inch reflector.</summary>
+    public static readonly int[] PlanetaryApertures = [60, 70, 80, 90, 102, 115, 127, 150, 180, 203, 235, 254, 279, 305, 356, 400, 457, 508];
+
+    /// <summary>The next aperture up (<paramref name="up"/>) or down from <see cref="PlanetaryApertureMm"/>; below the smallest is none.</summary>
+    public int? SteppedAperture(bool up)
+    {
+        var current = PlanetaryApertureMm;
+        if (up)
+        {
+            foreach (var mm in PlanetaryApertures)
+            {
+                if (current is not { } at || mm > at)
+                {
+                    return mm;
+                }
+            }
+            return current;
+        }
+        int? below = null;
+        foreach (var mm in PlanetaryApertures)
+        {
+            if (current is { } at && mm < at)
+            {
+                below = mm;
+            }
+        }
+        return below;
+    }
+
+    /// <summary>The telescope's design, whose usual central obstruction the derived sharpening assumes (<see cref="TianWen.Lib.Imaging.Planetary.PlanetaryBestStack.PupilFor"/>).</summary>
+    public OpticalDesign PlanetaryDesign { get; set; } = OpticalDesign.Newtonian;
 
     /// <summary>Selectable playback rates (fps) cycled by the transport speed control / Up-Down keys.</summary>
     public static readonly float[] PlaybackRates = [1f, 5f, 10f, 15f, 24f, 30f, 50f, 75f, 100f, 150f, 200f];

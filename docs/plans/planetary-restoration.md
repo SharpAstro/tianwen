@@ -2179,6 +2179,25 @@ every frame it is behind by and evicts as many, and rebuilds its window when the
     jumps, and so read 92 % of the capture's rate; it counts the folds since. The batch stack's own answer is the fix to try: fold only
     the frames that grade best.
 
+### The best stack in the viewer
+
+The owner's choices of 2026-10-02: a recorded capture gets a "Best stack" action that runs the batch pipeline, slow and best, while the
+rolling stack stays the live view; the telescope comes from the profile where there is one. What shipped (#1159):
+
+- **One routine, `PlanetaryBestStack`** (Lib), for `planetary-stack` and the viewer: the batch stack at its defaults, de-rotated by
+  `DerotationFor` (a turn of a pixel or more), sharpened by `Sharpen` (derived through the limb's edge given the planet, the time and
+  the telescope; the preset with the limb kept without the telescope; the preset alone without the planet or the time, each fallback
+  worded), both masters written under `OutputPaths`' names. Its progress is read off the frames the stack loads against those it will.
+- **`tianwen-fits`**: Shift+K or the info panel's Best stack button on a SER runs it in the background, its progress on the button
+  (a second press cancels), writes both masters beside the capture and opens the sharpened one, saying how it was sharpened once it is
+  on screen. The planet comes from the capture's name (`PlanetaryCaptureName`), the time from its frames.
+- **The telescope**: `PupilFor(aperture, design)`, the central obstruction by design (a Newtonian 0.25 with its spider, an SCT or a
+  Maksutov 0.33, a Newtonian-Cassegrain 0.3, a RASA 0.4, a refractor none). The viewer has no profile and no text input, so its panel
+  steps the aperture through the common ones (60 to 508 mm, or none) and picks the design (Newtonian, SCT / Mak, refractor), remembered
+  in `Viewer/planetary-telescope.json`.
+- **The GUI has no SER playback**: its planetary stack is the live capture's rolling stack, through the node. The derived sharpening of
+  that live master (the gains derived once a capture and reused, the telescope from the profile) is the next part.
+
 ## R9 A learned stage, only if the measurements say so
 
 **Issue:** #1056 (conditional).

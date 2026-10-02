@@ -383,7 +383,7 @@ internal sealed class PlanetaryStackSubCommand(
                     $"[planetary] every frame carried to {epoch:yyyy-MM-dd HH:mm:ss.f} UTC, north at {north.NorthAngleDeg:0.0} deg (the run's quarters {north.AgreementAsFitted:0.00000} apart with the limb fit's north, {north.AgreementTurnedOver:0.00000} turned over)"));
             }
 
-            var masterFits = Path.Combine(outputDir, $"{prefix}master_{baseName}.fits");
+            var (masterFits, sharpenedFits) = PlanetaryBestStack.OutputPaths(outputDir, baseName, prefix);
             master.WriteToFitsFile(masterFits);
             consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(masterFits)} (linear master, {master.ChannelCount}ch {master.Width}x{master.Height})");
             var truthPath = parseResult.GetValue(truthOpt);
@@ -398,7 +398,6 @@ internal sealed class PlanetaryStackSubCommand(
             {
                 var (sharpened, how) = Sharpened(master, sharpenOptions, planet, result.Epoch, wavelengthText, telescope, parseResult.GetValue(fixOpt));
                 display = sharpened;
-                var sharpenedFits = Path.Combine(outputDir, $"{prefix}master_{baseName}_sharpened.fits");
                 display.WriteToFitsFile(sharpenedFits);
                 consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(sharpenedFits)} ({how})");
                 if (truthPath is not null)
