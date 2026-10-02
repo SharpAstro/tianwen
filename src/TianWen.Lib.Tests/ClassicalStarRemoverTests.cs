@@ -32,7 +32,7 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
 
     private sealed record Field(Image Image, float[][] Truth, List<Injected> Stars, (double X, double Y, double Peak, double Fwhm) Knot);
 
-    private static Field MakeField(int channels, int seed = 7)
+    private static Field MakeField(int channels, int seed = 7, (double X, double Y, double Peak)? giant = null)
     {
         var rng = new Random(seed);
         var alpha = Fwhm / (2.0 * Math.Sqrt(Math.Pow(2.0, 1.0 / Beta) - 1.0));
@@ -76,6 +76,10 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
         stars.Add(new Injected(300.0, 450.0, 40 * Sigma, false));
         stars.Add(new Injected(304.0, 450.0, 20 * Sigma, false));
         stars.Add(new Injected(Ring + 4.0, 500.0, 60 * Sigma, false));
+        if (giant is { } g)
+        {
+            stars.Add(new Injected(g.X, g.Y, g.Peak, true));
+        }
 
         var planes = new float[channels][,];
         var gains = channels == 3 ? new[] { 0.8, 1.0, 0.6 } : new[] { 1.0 };
@@ -279,6 +283,39 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
             core.ShouldBeLessThan(3.0);
             wings.ShouldBeLessThan(3.0);
         }
+    }
+
+    [Fact(Timeout = 300_000)]
+    public async Task AGiantWhosePlateauPassesTheSkyAnnulusCapIsTakenAndLeavesNoHole()
+    {
+        // A plateau about 45 px in radius, wider than the 40 px a star's sky annulus is capped at, as eta Carinae's is at
+        // 288 mm (67 px): every annulus clamp's floor passed its ceiling there, and the master failed.
+        var field = MakeField(1, giant: (512.0, 512.0, 1.0e7));
+        var plate = await ClassicalStarRemover.BuildAsync(field.Image, cancellationToken: TestContext.Current.CancellationToken);
+
+        var fitted = Nearest(plate, 512.0, 512.0, 3.0);
+        fitted.ShouldNotBeNull();
+        var plateau = 0;
+        var truthPlane = field.Truth[0];
+        var platePlane = plate.Plate.GetChannelSpan(0);
+        double sum = 0;
+        for (var y = 512 - 45; y <= 512 + 45; y++)
+        {
+            for (var x = 512 - 45; x <= 512 + 45; x++)
+            {
+                if ((x - 512) * (x - 512) + (y - 512) * (y - 512) <= 40 * 40)
+                {
+                    sum += (platePlane[y * Size + x] - truthPlane[y * Size + x]) / Sigma;
+                    plateau++;
+                }
+            }
+        }
+        var bias = sum / plateau;
+        output.WriteLine($"giant: {fitted.Value.Outcome} saturated={fitted.Value.Saturated} inpainted={fitted.Value.Inpainted}; plate minus truth over its 40 px core {bias:F2} sigma a pixel");
+        fitted.Value.Outcome.ShouldBe(StarFitOutcome.Subtracted);
+        fitted.Value.Saturated.ShouldBeTrue();
+        fitted.Value.Inpainted.ShouldBeTrue();
+        Math.Abs(bias).ShouldBeLessThan(1.0, "the giant's core is neither a hole nor a glow");
     }
 
     [Fact(Timeout = 300_000)]

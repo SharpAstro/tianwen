@@ -484,6 +484,12 @@ Three things the tests found while it was built, each fixed and pinned:
   too and now says what it is. It is harmless to the injector (a net learns to remove whatever is rendered) and
   0.3 sigma on an 800-sigma 1.5 px star for R0.
 
+The pool's plates found a fourth, in R0: **a giant whose plateau passes 40 px failed its master.** Every sky
+annulus was a clamp of the star's reach between what it must clear and 40 px, and eta Carinae at 288 mm (QHY183M,
+SII) has a 67 px plateau, so the clamp's floor passed its ceiling and threw. The annulus now clears the core first
+and caps only the reach (`SkyAnnulus`, the clamp itself below the cap, so every plate already built is unchanged);
+a synthetic giant of 45 px leaves its core 0.15 sigma under the truth.
+
 ## 7. Phasing
 
 Tracked by #902.
