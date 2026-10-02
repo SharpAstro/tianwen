@@ -1,15 +1,18 @@
 # Star-remover training (P4): the inject-and-remove bootstrap
 
-**Status: NOT STARTED; design captured in [ai-denoise-deconv.md](ai-denoise-deconv.md) section 2.5,
-restated here at run level 2026-09-02. Nothing built.** It is deliberately the LAST of the four
-imaging models: it needs the deconvolver programme's PSF distribution (the injector draws from it),
-it needs the classical flattener (a plate with a gradient is a worse bootstrap plate), and the
-starless plate is the pipeline's workhorse intermediate (`RemoveStarsStep`, `--split-plates`, the
-star/starless dual stretch), so a weak in-house remover would degrade every downstream step. Until
-its gates pass, `IStarRemover` is RC-Astro (`sxt`) when licensed, else NOTHING: the SAS
+**Status: NOT STARTED, and now the first of the model plans in priority (the owner, 2026-10-02: #902 is
+`priority:high`, above the gradient plan's de-vignetting model). Nothing built; R0 is next and needs no
+GPU.** Design captured in [ai-denoise-deconv.md](ai-denoise-deconv.md) section 2.5, restated here at run
+level 2026-09-02 and reviewed against the code and the store on 2026-10-02 (section 9). It was written as
+the LAST of the four imaging models because it waited on three things, and all three are in place: the
+deconvolver programme's PSF distribution (P2.0 done 2026-09-06; the re-baked store measures it per channel),
+the classical flattener (shipped 2026-09-02), and the owner's call on its order, raised when the SAS tier
+went. The starless plate is the pipeline's workhorse intermediate (`RemoveStarsStep`, `--split-plates`, the
+star/starless dual stretch, the comet layer), so a weak in-house remover would degrade every downstream
+step. Until its gates pass, `IStarRemover` is RC-Astro (`sxt`) when licensed, else NOTHING: the SAS
 `darkstar_*_AI4` fallback went with that tier on 2026-09-26, so without StarXTerminator the canonical
-program runs whole-frame, `--split-plates` writes no plates and `--remove-stars` refuses. Whether that
-moves this plan up the order is the user's call, raised 2026-09-26.
+program runs whole-frame, `--split-plates` writes no plates and `--remove-stars` refuses, and with it the
+comet layer.
 
 Companions: [deconvolver-training.md](deconvolver-training.md) (the PSF family the injector uses),
 [gradient-remover-training.md](gradient-remover-training.md) (the flatten step),
@@ -25,19 +28,25 @@ requires is that the injected stars' positions be UNCORRELATED with the residual
 learns "removing a star reveals an artefact" (Croman's "the network will faithfully learn all of your
 mistakes").
 
-Two archive properties make this narrower than a general remover's problem: every optic in it is
-refractive (Samyang 135, ZS61, FMA180, SH61), so no spider vanes and no diffraction spikes, and the
-PSF family is measured per (train, filter, channel) already.
+Two archive properties make this narrower than a general remover's problem: almost every optic in it is
+refractive (Samyang 135, ZS61, FMA180, SH61, SV545, RedCat 51), so almost no spider vanes or diffraction
+spikes, and the PSF family is measured per (train, filter, channel) already. **Almost, not every** (found in
+the 2026-10-02 review): the QHY294C's SWQ8 at 600 mm is a Newtonian, and every one of the eight brightest
+stars in its 2026-02-20 Centaurus A master carries a four-point spike. Three masters in the store are on it
+(Centaurus A, omega Centauri, the Running Chicken, all 2026-02-20). Spikes are fixed to the optic: their
+orientation follows the sensor's rotation against the vanes and their length grows with the star's flux.
+A user's Newtonian is common, so what v1 does with spikes is section 8's first question.
 
 ## 1. What exists, with pointers
 
 | Piece | State | Where |
 |---|---|---|
 | The role and contract | shipped | `IStarRemover : IImageEnhancer`; `RemoveStarsStep`'s additive split `stars = input - starless`; `SharpenPipeline` retention via `SharpenIntermediates.StarsAndStarlessLineage` |
-| Today's implementations | shipped | `RcAstroStarRemover` (CLI, licensed), `OnnxStarRemover` (`darkstar_color_AI4.onnx` / `darkstar_mono_AI4.onnx`, both 3-channel) through `ChunkedNafnetRunner` in the STRETCHED domain |
-| Star detection + measurement | shipped | `FindStarsAsync`, `ImagedStar` (HFD, FWHM via `HalfMaxDiameter`, eccentricity), the deblender (`e2ad9c4e`..`c164f762`), `PsfProfileFit` |
-| PSF distribution | measured | `SessionPsf.MasterProfiles[]` per channel (Moffat FWHM, beta), `BinsByChannel` (ellipticity by radius), saturation fraction 0.1 to 0.2 percent of detections |
-| Classical starless plate | NOT built | PSF-fit subtraction at detections plus multi-scale inpaint; the `StarMask` / `ScanBackgroundRegion` machinery exists for masking, no inpainter exists |
+| Today's implementation | shipped | `RcAstroStarRemover` (the `sxt` CLI, licensed) behind the deferred `sxt` dispatcher (`DeferredEnhancer`, "RC-Astro only until TianWen's own"), and nothing else: `OnnxStarRemover` and the SAS `darkstar_*_AI4` weights went with that tier on 2026-09-26. The split has two modes, `RecombineMode.Additive` (the default, `stars = input - starless`) and `Screen` (`Unscreen`) |
+| Star detection + measurement | shipped | `FindStarsAsync`, `ImagedStar` (HFD, FWHM via `HalfMaxDiameter`, eccentricity), `PsfProfileFit`, and the deblender: "the star mask splits into a footprint and a claim, so a close companion is measured", "two tight stars are two stars, by fitting the aperture instead of sizing it", then `BackgroundMap` / `SourceSegmentation` (the Background2D and detect_sources shapes) and the crowded-field rule (a large segment with many maxima is a field, not a source) |
+| PSF distribution | measured, current | The re-baked store's `stats/psf-sessions.jsonl` (`D:/Astro-Dataset/2026-09-29-full`, recipe 3): `MasterProfiles` per channel (Moffat FWHM and beta, the wing at 2 and 3 FWHM, the Moffat and Gaussian fits' log RMS; three profiles on 338 records, one on the 42 mono ones), `BinsByChannel` (ellipticity by radius), the train on every record. Measured ON the master, so the warp and demosaic (or drizzle) widening is already in it, which is what an injector into a master needs. Saturation fraction 0.1 to 0.2 percent of detections |
+| Degradation exporter | shipped, two of three modes | `DatasetDegradationExporter` (`tianwen dataset degrade`): `DegradationMode.Noise` (denoiser) and `Blur` (deconvolver), the noise anchored per channel on each master's recorded calibration and shaped by its integration (`NoiseShape.Warped`, E16b). Star injection is the third mode, R1 |
+| Classical starless plate | NOT built | PSF-fit subtraction at detections plus multi-scale inpaint. Masking exists (`StarMask`, `ScanBackgroundRegion`, the segmentation's footprints), and so does ONE inpainter, low-pass only: the classical background extractor's masked inpainted surface (`RobustBackgroundFit`, `SurfaceRefinement`). It fills a hole on smooth sky; a hole on nebula structure needs the multi-scale fill R0 builds |
 | Bright-tail morphology | measured elsewhere | the "bright end scrambled by saturation" note on the Vela field; flat-topped cores give unstable centroids |
 
 ## 2. Hypotheses
@@ -48,8 +57,10 @@ stars land independently of them.
 *Test:* build the plate for ten held-out masters; measure the residual at subtracted-star sites (in
 background MAD) and the fraction of the frame the inpaint touched.
 *Prediction:* residuals under 2 MAD at faint sites, visible rings at the bright saturated tail (which
-is why the bright tail is the known hard case and RC/SAS stay preferred there), inpaint area under 5
-percent of the frame.
+is why the bright tail is the known hard case and RC stays preferred there), inpaint area under 5
+percent of the frame. The ten masters span what the store holds: AHD and drizzled, OSC and mono,
+broadband and line filters, a crowded field (omega Centauri), nebula-rich fields, and the SWQ8's
+Centaurus A for its spikes, which no PSF fit takes and the report states rather than hides.
 *Kill:* residuals dominate the plate. Then a plain masked-inpaint (no PSF fit) is the plate, and the
 first-generation net's job shrinks to faint and medium stars only.
 
@@ -98,11 +109,32 @@ from the master's own detection density so the synthetic field is as crowded as 
 with a Moffat core from the per-channel distribution, elongation and PA from the radius bin the cell
 sits in, a flux drawn from the master's own detected-flux distribution extended into the saturated
 tail with a clipped flat top plus a bloom model; place at uniform random positions at least 3 FWHM
-from any subtracted site; add electron-domain noise; `ToUnitRange`, `ApplyInputStretch` with the
-target's parameters; cut cells. Record every injected star (position, flux, FWHM, beta, saturated
+from any subtracted site; add the injected stars' own shot noise; `ToUnitRange`, `ApplyInputStretch` with
+the target's parameters; cut cells. Record every injected star (position, flux, FWHM, beta, saturated
 flag) in the manifest row, because eval is against exactly that list.
 
-Held-out split by session, as everywhere.
+Four rules the denoiser and gradient programmes paid for since this was written (2026-10-02 review):
+
+- **An injected star's noise must have its master's SHAPE**, through the exporter's existing noise path
+  (the per-channel anchor on the master's recorded calibration, `NoiseShape.Warped` for its integration).
+  A master's noise is correlated (band 1 over band 0 of a half pair 0.45 on a demosaiced master, 0.31 to
+  0.33 on a drizzled one, against white noise's 0.22; `tianwen dataset degrade --measure-shape`), so a star
+  injected with white noise is recognisable by its texture alone, and a net that learns "a star with white noise is the one to
+  remove" leaves every real star in place.
+- **Draw the profile from `MasterProfiles`, never the subs', and integrate it over the pixel.** The master's
+  profile already carries the warp kernel and the demosaic or drizzle; a sub-2 px profile sampled at pixel
+  centres does not blur by its label.
+- **Edges are masked, never cropped** (the gradient plan's "Edges"): no star lands on an absent pixel of the
+  canvas ring, and a cell that straddles it carries the presence the stretch already respects (the NAFNet
+  pre-stretch measures covered pixels only).
+- **The bright tail is sampled on purpose**: the denoiser cleaned a bright level only once bright cells were
+  in its pool and in its eval (E16b), and the saturated stars this remover is weakest on are 0.1 to 0.2
+  percent of detections, so a cell draw proportional to the field never shows the net enough of them.
+
+Held-out split by session, as everywhere, and one whole TRAIN held out besides: the store's PSFs and star
+populations are train-specific (96 of the 172 flat-fielded masters are the ASI533 at 130 mm, most likely one
+Samyang 135), users bring optics the archive never saw, and only a held-out train says whether the remover
+learned stars or this archive's stars.
 
 ## 4. Model and recipe
 
@@ -113,6 +145,19 @@ penalty on the implied stars plate (H5). Stretched domain through `ChunkedNafnet
 inference, so the tile-256 / stride-16 / overlap-64 constraints hold by construction. NAFNet-class
 capacity only if the U-Net plateaus on completeness while the plate quality is not the limit.
 
+**Start from the recipe that shipped, not the one this was written against** (2026-10-02 review): the
+denoiser's `convmapb_s2` (D6 in [denoiser-training.md](denoiser-training.md)) is the same U-Net family
+trained to convergence with seeds interleaved, the bright cells in pool and eval, and a conditioning plane
+the runner computes as the eval did (`N2nLinearRunner`, `OnnxIoNames.IsImagePlusPlane`). Its export,
+parity fixture and runner path are the template R5 follows.
+
+**One alternative structure, held for H4's kill:** the third-party architectures read in the SAS study
+([model-training-roadmap.md](model-training-roadmap.md) section 8, item 7) separate a positive subtractive
+star layer from a gated inpaint branch that takes the hole mask as an input. That is R0's own structure
+(subtract, then fill) learned end to end, and the hole mask is something we have exactly (the injected
+footprints in training, the detections at inference). It is an arm only if the plain U-Net starts inventing
+background where it removed a star.
+
 ## 5. Metrics and gates
 
 - **Injected-star removal completeness** by flux bin (residual at the injected position under 1 MAD),
@@ -121,10 +166,13 @@ capacity only if the U-Net plateaus on completeness while the plate quality is n
   RMS in MAD units, gate at 1.
 - **Stars-plate flux conservation** (H5).
 - **Real-star spot checks at 1:1** on held-out masters: bright saturated stars, close pairs (the
-  deblender's domain), stars on nebulosity. Human adjudication with a labelled comparison image;
-  RC/SAS outputs never in the frame as a reference.
+  deblender's domain), stars on nebulosity, and spikes on the SWQ8 masters. Human adjudication with a
+  labelled comparison image; RC outputs never in the frame as a reference. The gradient plan's golden-set
+  page is the shape for it (a private review page, each master's panels side by side, the owner's verdict
+  stored with the page and read back): the owner's verdicts become the set every later generation is
+  re-checked against, which is what H4's "preservation does not degrade" needs to be measurable.
 - **Nebulosity at 4-16 px** held at parity (the remover must not eat knots).
-- **No RC or SAS output** anywhere in the loop.
+- **No RC output** anywhere in the loop.
 
 ## 6. Experiments, in order
 
@@ -135,7 +183,7 @@ capacity only if the U-Net plateaus on completeness while the plate quality is n
 | R2 | Gaussian vs Moffat injection, three seeds each; random vs at-site control; posted 1:1 comparison | 4 x 3 x ~11 min | H2, H3 |
 | R3 | Self-refinement, two further generations | 2 x 3 x ~11 min plus plate rebuilds | H4 |
 | R4 | Photometric gate on the stars plate | hours | H5 |
-| R5 | Export, contract JSON, `OnnxTianWenStarRemover : IStarRemover` through `ChunkedNafnetRunner`; opt-in behind the in-house backend flag; RC/SAS stay Auto-preferred until the bright tail passes spot checks | 2 days | Ships opt-in |
+| R5 | Export, contract JSON, `OnnxTianWenStarRemover : IStarRemover` through `ChunkedNafnetRunner`, registered in `AddTianWenAi()` and answering `IEnhancerAvailability.Serves`, so `CanonicalProgram` can take the split without RC. Opt-in first (`--ai-backend n2n`, `EnhanceBackend.N2n`); once the bright tail passes the spot checks, Auto still prefers RC and the deferred `sxt` dispatcher falls back to the in-house remover where RC is not licensed | 2 days | Ships opt-in |
 
 ## 7. Phasing
 
@@ -151,11 +199,33 @@ Tracked by #902.
 
 ## 8. Open questions
 
-- **Dependency on P2:** the injector's PSF family is the deconvolver programme's E0 (re-measured
-  store) plus its per-(train, filter, channel) fit; do not start R1 before P2.0 has run.
+- **Diffraction spikes (the owner's decision, open).** Three masters (the SWQ8 Newtonian) carry them and
+  a PSF fit takes none of them. Either v1 leaves them: the SWQ8 masters stay out of the plates and the
+  training, one stays in the spot checks so what v1 does to a spike is seen, and the limit is documented;
+  or the injector models them (orientation measured off those masters against the sensor, length grown
+  with flux) and R0 subtracts them. The first is the recommendation: three masters cannot teach a spike
+  model that generalises to other vanes, and a spike left whole is honest where a half-removed one is not.
 - **The bright saturated tail** is the acknowledged hard case; whether v1 should refuse it (leave stars
   above a flux threshold in place, documented) or attempt it is a product decision for R2's spot
   checks.
-- **Comet-registered stacking** (P6 in the programme doc) is the P4 unlock: star-remove subs,
-  integrate on the ephemeris position, recombine a star-registered stars plate. It is why the
-  additive split has to be photometric, not only cosmetic.
+- **Comet-registered stacking shipped** (`tianwen stack --comet`; `--remove-stars` builds the comet layer
+  from per-frame star-removed plates), on RC alone. So this remover is what gives a user without
+  StarXTerminator a comet layer at all, and per-frame use is why the additive split has to be photometric,
+  not only cosmetic (H5): every sub's stars plate is recombined on a star-registered grid.
+- **Met since 2026-09-02, kept for the record:** the dependency on P2 (P2.0 done 2026-09-06; R1 draws from
+  the re-baked store's per-channel profiles) and on the flattener (shipped 2026-09-02).
+
+## 9. Review, 2026-10-02
+
+The plan read against the code and the store when the owner moved it up the order. What changed:
+
+- **Order**: no longer last; the three things it waited on are in place (status line).
+- **Wrong**: "every optic is refractive, no spikes" (the SWQ8 is a Newtonian, section 0); "no inpainter
+  exists" (a low-pass one does, section 1); `OnnxStarRemover` and the SAS fallback (gone 2026-09-26). The
+  deblender was cited by commit hash, which the docs never do; it is cited by subject now.
+- **Added from the denoiser and gradient programmes**: the injected noise in its master's shape, the
+  profile from the master's own measurement integrated over the pixel, edges masked, the bright tail
+  sampled on purpose, a held-out train (section 3); the shipped denoiser as the recipe and R5's template,
+  the two-branch structure held for H4's kill (section 4); the golden-set page for the spot checks
+  (section 5); R5's wiring through `IEnhancerAvailability` and the `sxt` dispatcher (section 6).
+- **Unchanged**: the inject-and-remove bootstrap, H1 to H6, the phasing. R0 is next, CPU only.
