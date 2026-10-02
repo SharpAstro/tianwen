@@ -85,6 +85,36 @@ public class PlanetaryDeringTests
     }
 
     [Fact]
+    public void ABoundedSharpeningAddsNoLightOutsideTheLimbAndKeepsTheDisksBoost()
+    {
+        // Sharpened plainly, the blurred disk rings outside its limb, above the sky as well as below it (#1168); bounded, it is never
+        // brighter there than the stack nor below the sky, and no ring climbs back outside the limb. Inside, the boost is the plain one.
+        var blurred = PlanetaryInverse.Apply(SharpDisk(), Size, Size, f => Gaussian(1.6, f));
+        var plain = PlanetaryDering.Sharpen(blurred, Size, Size, Strong);
+        var bounded = PlanetaryDering.Bounded(plain, blurred, Size, Size, Disk);
+        var (plainRebound, boundedRebound) = (PlanetaryMetrics.LimbRebound(plain, Size, Size, Disk), PlanetaryMetrics.LimbRebound(bounded, Size, Size, Disk));
+        TestContext.Current.TestOutputHelper?.WriteLine($"rebound outside the limb: sharpened {plainRebound:0.0000}, bounded {boundedRebound:0.0000}");
+        plainRebound.ShouldBeGreaterThan(0.01);
+        boundedRebound.ShouldBeLessThan(plainRebound / 10);
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                var i = (y * Size) + x;
+                bounded[i].ShouldBeGreaterThanOrEqualTo(0f);
+                if (Disk.RadiiAt(x, y) > 1)
+                {
+                    bounded[i].ShouldBeLessThanOrEqualTo(Math.Max(blurred[i], 0f));
+                }
+                else
+                {
+                    bounded[i].ShouldBe(Math.Max(plain[i], 0f));
+                }
+            }
+        }
+    }
+
+    [Fact]
     public void ACompositeHeldNonNegativeStaysSo()
     {
         Func<double, double> kernel = f => Gaussian(1.6, f);
