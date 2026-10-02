@@ -393,8 +393,11 @@ public sealed class ViewerController(
                 // one, so a selection made before it is still about the object on screen.
                 state.SelectedObject = null;
 
-                // Disable stretch for pre-stretched images, re-enable for linear images
-                if (newDoc.IsPreStretched)
+                // Disable stretch for pre-stretched images and planetary frames, re-enable for linear images. A planetary frame
+                // (its OBJECT names a planet or the Moon: a planetary stack's master, a SharpCap FITS frame) opens linear for the
+                // reason a SER does above: the deep-sky auto-stretch lifts the sky's median to a quarter, and a 1,500-frame stack's
+                // sky, its noise 3e-5, came up thirty thousand times as grain with the disk blown white (reported 2026-10-02).
+                if (newDoc.IsPreStretched || PlanetaryCaptureName.Named(newDoc.UnstretchedImage.ImageMeta.ObjectName) is not null)
                 {
                     state.StretchMode = StretchMode.None;
                 }
@@ -1217,24 +1220,29 @@ public sealed class ViewerController(
         return true;
     }
 
-    // The capture stacked off the render thread by the planet its name gives and the telescope the panel holds, both masters written
-    // beside it under planetary-stack's names.
+    // The capture stacked off the render thread by the planet the panel chose or its name gives, the filter likewise for a mono
+    // capture, and the telescope the panel holds, both masters written beside it under planetary-stack's names.
     private void StartBestStack(string capture, CancellationToken appToken)
     {
         _bestStackCts = CancellationTokenSource.CreateLinkedTokenSource(appToken);
         var token = _bestStackCts.Token;
-        var options = new PlanetaryBestStackOptions(PlanetaryCaptureName.Planet(capture),
+        var options = new PlanetaryBestStackOptions(state.PlanetaryBody ?? PlanetaryCaptureName.Planet(capture),
             PlanetaryBestStack.PupilFor(state.PlanetaryApertureMm, state.PlanetaryDesign));
+        var filterNm = state.PlanetaryFilterNm ?? PlanetaryCaptureName.WavelengthNm(capture);
         Volatile.Write(ref _bestStackPercent, 0);
         state.BestStackProgress = 0;
-        state.StatusMessage = options.Telescope is null
-            ? "Best stack running; with no aperture given, the sharpening is the preset's"
-            : "Best stack running";
+        state.StatusMessage = options.Planet is null
+            ? "Best stack running; with no planet named or chosen, the sharpening is the preset's"
+            : options.Telescope is null
+                ? "Best stack running; with no aperture given, the sharpening is the preset's"
+                : "Best stack running";
         var progress = new SynchronousProgress<double>(fraction => Volatile.Write(ref _bestStackPercent, (int)(fraction * 100)));
         _bestStackTask = Task.Run(async () =>
         {
             using var stream = SerFrameStream.Open(capture);
-            var result = await PlanetaryBestStack.RunAsync(stream, options, progress, token);
+            // A filter is one wavelength for every channel, so only a mono capture takes it; a colour one is sharpened per channel.
+            var runOptions = filterNm is { } nm && stream.Layout == PlanetaryFrameLayout.Mono ? options with { WavelengthsNm = [nm] } : options;
+            var result = await PlanetaryBestStack.RunAsync(stream, runOptions, progress, token);
             try
             {
                 var (masterPath, sharpenedPath) = PlanetaryBestStack.OutputPaths(Path.GetDirectoryName(Path.GetFullPath(capture)) ?? ".",

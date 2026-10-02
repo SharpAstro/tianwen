@@ -480,6 +480,21 @@ public sealed class ViewerState
     /// <summary>The telescope's design, whose usual central obstruction the derived sharpening assumes (<see cref="TianWen.Lib.Imaging.Planetary.PlanetaryBestStack.PupilFor"/>).</summary>
     public OpticalDesign PlanetaryDesign { get; set; } = OpticalDesign.Newtonian;
 
+    /// <summary>
+    /// The planet the Best stack is for, or null to take the one the capture's name gives (<see cref="TianWen.Lib.Imaging.Planetary.PlanetaryCaptureName.Planet"/>).
+    /// The derived sharpening needs it: a capture whose name gives none fell back to the preset, which barely sharpened and ringed
+    /// below the sky at the limb (reported 2026-10-02 on a twin named "calibrated"). Kept while the viewer runs, not saved.
+    /// </summary>
+    public TianWen.Lib.Astrometry.Catalogs.CatalogIndex? PlanetaryBody { get; set; }
+
+    /// <summary>
+    /// The filter a MONO capture was taken through, as its effective wavelength in nm, or null to take the one the capture's name
+    /// gives (<see cref="TianWen.Lib.Imaging.Planetary.PlanetaryCaptureName.WavelengthNm"/>), else broadband: the sharpening's
+    /// diffraction scales with it (on the red twin 650 nm left 0.670 of error, 550 nm 0.771). A colour capture is sharpened per
+    /// channel and takes no filter.
+    /// </summary>
+    public double? PlanetaryFilterNm { get; set; }
+
     /// <summary>Selectable playback rates (fps) cycled by the transport speed control / Up-Down keys.</summary>
     public static readonly float[] PlaybackRates = [1f, 5f, 10f, 15f, 24f, 30f, 50f, 75f, 100f, 150f, 200f];
 

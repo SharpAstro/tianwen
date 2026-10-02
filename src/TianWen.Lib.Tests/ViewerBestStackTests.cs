@@ -4,6 +4,8 @@ using System.Threading.Tasks;
 using DIR.Lib;
 using SharpAstro.Ser;
 using Shouldly;
+using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Imaging;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
@@ -40,6 +42,53 @@ public class ViewerBestStackTests
         e2e.State.SequencePath.ShouldBeNull();
         // No telescope given, so the sharpening is the preset's, and the note says so.
         e2e.State.StatusMessage.ShouldNotBeNull().ShouldContain("PlanetaryDefault");
+        // The master names its planet, and opens linear as the capture did, never under the deep-sky auto-stretch.
+        e2e.Controller.Document.ShouldNotBeNull().UnstretchedImage.ImageMeta.ObjectName.ShouldBe("Jupiter");
+        e2e.State.StretchMode.ShouldBe(StretchMode.None);
+    }
+
+    [Theory(Timeout = 180_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task ACaptureWhoseNameGivesNoPlanetTakesThePlanetChosenInThePanel(float dpi)
+    {
+        // A twin named "calibrated" gave the run no planet, so its sharpening was the preset's (reported 2026-10-02).
+        using var e2e = ViewerE2E.Start(dpi);
+        var ct = TestContext.Current.CancellationToken;
+        var capture = WriteCapture(Path.Combine(e2e.Folder, "calibrated.ser"));
+        e2e.Host.HandleDropFile(capture);
+        await e2e.PumpUntilAsync(() => e2e.State.SequencePath == capture, "the capture to open", ct);
+
+        e2e.State.PlanetaryBody = CatalogIndex.Jupiter;
+        e2e.Key(InputKey.K, InputModifier.Shift);
+        await e2e.PumpUntilAsync(() => e2e.IsShowing(Path.Combine(e2e.Folder, "master_calibrated_sharpened.fits")),
+            "the best stack's sharpened master to open", ct);
+
+        e2e.Controller.Document.ShouldNotBeNull().UnstretchedImage.ImageMeta.ObjectName.ShouldBe("Jupiter");
+        e2e.State.StretchMode.ShouldBe(StretchMode.None);
+    }
+
+    [Theory(Timeout = 60_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task AFrameWhoseObjectNamesAPlanetOpensLinearAfterADeepSkyFrame(float dpi)
+    {
+        using var e2e = ViewerE2E.Start(dpi);
+        var ct = TestContext.Current.CancellationToken;
+        var deepSky = e2e.WriteColourFits("deep-sky.fits");
+        await e2e.OpenAsync(deepSky, ct);
+        e2e.State.StretchMode.ShouldNotBe(StretchMode.None, "a deep-sky frame takes the auto-stretch");
+
+        var plane = new float[64, 64];
+        plane[32, 32] = 0.8f;
+        var planetary = Path.Combine(e2e.Folder, "planetary.fits");
+        new Image([plane], BitDepth.Float32, 0.8f, 0f, 0f,
+            new ImageMeta("e2e", DateTimeOffset.UnixEpoch, TimeSpan.FromSeconds(1), FrameType.Light, "",
+                0f, 0f, -1, -1, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0,
+                RowOrder.TopDown, float.NaN, float.NaN, ObjectName: "Jupiter")).WriteToFitsFile(planetary);
+        await e2e.OpenAsync(planetary, ct);
+
+        e2e.State.StretchMode.ShouldBe(StretchMode.None, "a planetary frame opens linear, as a SER does");
     }
 
     // A short Jupiter capture: a textured disk wandering a pixel or two, 8 bits, a frame every 10 ms.
