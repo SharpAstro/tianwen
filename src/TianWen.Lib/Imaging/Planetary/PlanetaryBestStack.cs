@@ -58,6 +58,16 @@ public static class PlanetaryBestStack
     /// (the owner's choice of 2026-10-02: a Newtonian 0.25 with its four-vane spider, a Schmidt or Maksutov Cassegrain 0.33, a
     /// Newtonian-Cassegrain 0.3, a RASA 0.4, a refractor, an astrograph or an unknown design none). Null with no aperture.
     /// </summary>
+    /// <summary>
+    /// The pupil a capture's header names (#1179): a TianWen recording writes its OTA's aperture and design in the SER header's
+    /// Telescope field (<see cref="PlanetaryCaptureName.TelescopeField"/>); null where the field names no aperture.
+    /// </summary>
+    public static Pupil? PupilOf(string? telescopeField)
+    {
+        var (apertureMm, design) = PlanetaryCaptureName.Telescope(telescopeField);
+        return PupilFor(apertureMm, design);
+    }
+
     public static Pupil? PupilFor(int? apertureMm, OpticalDesign design)
     {
         if (apertureMm is not { } mm || mm <= 0)

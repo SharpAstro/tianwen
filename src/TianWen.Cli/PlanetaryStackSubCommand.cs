@@ -308,7 +308,14 @@ internal sealed class PlanetaryStackSubCommand(
             }
 
             var wavelengthText = parseResult.GetValue(wavelengthOpt);
+            // The telescope the options give, else the one the capture's header names (a TianWen recording's, #1179).
             var telescope = PlanetaryMasterScore.PupilFrom(parseResult, pupil);
+            if (telescope is null && HeaderPupil(serPath) is { } fromCapture)
+            {
+                telescope = fromCapture;
+                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                    $"[planetary] the telescope from the capture's header: a {fromCapture.DiameterM * 1000:0} mm pupil {fromCapture.ObstructionRatio:P0} obstructed"));
+            }
 
             // Every choice the options leave open is the baseline's: the pipeline's defaults, or the legacy recipe.
             var options = baseline with
@@ -398,7 +405,8 @@ internal sealed class PlanetaryStackSubCommand(
             var display = master;
             if (sharpen)
             {
-                var (sharpened, how) = Sharpened(master, sharpenOptions, planet, result.Epoch, wavelengthText, telescope, parseResult.GetValue(fixOpt));
+                var (sharpened, how) = Sharpened(master, sharpenOptions, planet, result.Epoch, wavelengthText, PlanetaryCaptureName.WavelengthNm(serPath), telescope,
+                    parseResult.GetValue(fixOpt));
                 display = sharpened;
                 display.WriteToFitsFile(sharpenedFits);
                 consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(sharpenedFits)} ({how})");
@@ -445,16 +453,35 @@ internal sealed class PlanetaryStackSubCommand(
 
     // The master sharpened: by a fixed profile when one was asked for (a preset, gains, or --legacy), else as the pipeline sharpens it
     // (PlanetaryBestStack.Sharpen, the one routine the GUI's best stack runs too).
+    // The filter word in a mono capture's name stands in for --wavelength, as the viewer's best stack takes it (#1179).
     private (Image Sharpened, string How) Sharpened(Image master, WaveletSharpenOptions? fixedProfile, CatalogIndex? planet, DateTimeOffset? epoch,
-        string? wavelengthText, Pupil? telescope, PlanetaryLimbFix? fix)
+        string? wavelengthText, double? nameWavelengthNm, Pupil? telescope, PlanetaryLimbFix? fix)
     {
         if (fixedProfile is { } profile)
         {
             return (WaveletSharpen.Sharpen(master, profile), $"wavelet-sharpened, {profile.ScaleCount} scales");
         }
-        System.Collections.Immutable.ImmutableArray<double> wavelengths = wavelengthText is null ? []
-            : [.. PlanetaryMasterScore.Wavelengths(consoleHost, wavelengthText) ?? [550]];
+        System.Collections.Immutable.ImmutableArray<double> wavelengths = [];
+        if (wavelengthText is not null)
+        {
+            wavelengths = [.. PlanetaryMasterScore.Wavelengths(consoleHost, wavelengthText) ?? [550]];
+        }
+        else if (nameWavelengthNm is { } nm && master.ChannelCount == 1)
+        {
+            wavelengths = [nm];
+        }
         return PlanetaryBestStack.Sharpen(master, planet, epoch, telescope, wavelengths, fix);
+    }
+
+    // The pupil a SER capture's header names, or null (a file that is not one, or names none).
+    private static Pupil? HeaderPupil(string serPath)
+    {
+        if (!serPath.EndsWith(".ser", StringComparison.OrdinalIgnoreCase) || !File.Exists(serPath))
+        {
+            return null;
+        }
+        using var reader = SharpAstro.Ser.SerReader.Open(serPath);
+        return PlanetaryBestStack.PupilOf(reader.Header.Telescope);
     }
 
     // The AP matcher FFTs each patch, so the patch edge must be a power of two; round up rather than throw.

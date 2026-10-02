@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TianWen.Hosting.Api;
 using TianWen.Hosting.Dto;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
@@ -123,9 +124,10 @@ internal sealed class NodePlanetary(IDeviceHub hub, NodeJobs jobs, IHostedSessio
 
     /// <summary>
     /// Starts recording the capture going on to a SER file under the node's image folder
-    /// (<see cref="PlanetaryCapture.RecordingPath"/>); it finishes its duration whether or not anyone watches.
+    /// (<see cref="PlanetaryCapture.RecordingPath"/>), named for the planet the profile's mount points at and the filter in the
+    /// OTA's wheel, its header naming the camera and the telescope (#1179); it finishes its duration whether or not anyone watches.
     /// </summary>
-    public ResponseEnvelope<PlanetaryStateDto> Record(PlanetaryRecordRequestDto request)
+    public async Task<ResponseEnvelope<PlanetaryStateDto>> RecordAsync(PlanetaryRecordRequestDto request, CancellationToken cancellationToken)
     {
         if (!double.IsFinite(request.DurationSeconds) || request.DurationSeconds <= 0)
         {
@@ -136,7 +138,9 @@ internal sealed class NodePlanetary(IDeviceHub hub, NodeJobs jobs, IHostedSessio
             return ResponseEnvelope<PlanetaryStateDto>.NotFound("No planetary capture is running to record");
         }
 
-        var path = PlanetaryCapture.RecordingPath(external, run.OtaIndex, timeProvider.GetUtcNow());
+        var now = timeProvider.GetUtcNow();
+        var (planet, filter) = await run.IdentifyAsync(hub, logger, now, cancellationToken);
+        var path = PlanetaryCapture.RecordingPath(external, run.OtaIndex, now, planet, filter);
         if (!run.TryStartRecording(path, TimeSpan.FromSeconds(request.DurationSeconds), out var refusal))
         {
             return ResponseEnvelope<PlanetaryStateDto>.Fail(refusal, 409);
@@ -184,6 +188,10 @@ internal sealed class NodePlanetaryRun : INodeRun
     private readonly FrameSampler _live;
     private int _otaIndex;
     private string _camera = "";
+    // What a recording is named for (#1179): the profile's mount, the OTA's filter wheel and the site, from the prepare.
+    private Uri? _mountUri;
+    private Uri? _filterWheelUri;
+    private (double Latitude, double Longitude) _site;
     private int _roiWidth;
     private int _roiHeight;
     private int _masters;
@@ -214,6 +222,26 @@ internal sealed class NodePlanetaryRun : INodeRun
 
     /// <summary>The OTA whose camera streams.</summary>
     internal int OtaIndex => _otaIndex;
+
+    /// <summary>
+    /// What a recording made at <paramref name="utc"/> is named for (#1179): the body the profile's mount points at
+    /// (<see cref="PlanetaryCaptureName.PointedAt"/>) and the filter the OTA's wheel holds in the beam, each null where there is no such
+    /// device, it does not answer, or the mount points at no planet. Reads only: the capture claims the camera alone.
+    /// </summary>
+    public async ValueTask<(CatalogIndex? Planet, string? Filter)> IdentifyAsync(IDeviceHub hub, ILogger logger, DateTimeOffset utc, CancellationToken cancellationToken)
+    {
+        CatalogIndex? planet = null;
+        if (_mountUri is { } mountUri && await hub.ReadMountAsync(mountUri, toJ2000: null, logger, cancellationToken) is { } mount)
+        {
+            planet = PlanetaryCaptureName.PointedAt(mount.RightAscension, mount.Declination, utc, _site.Latitude, _site.Longitude);
+        }
+        string? filter = null;
+        if (_filterWheelUri is { } wheelUri && await hub.ReadFilterWheelAsync(wheelUri, logger, cancellationToken) is { FilterName: { Length: > 0 } name })
+        {
+            filter = name;
+        }
+        return (planet, filter);
+    }
 
     /// <summary>Starts recording what the capture streams (<see cref="PlanetaryCapture.TryStartRecording"/>).</summary>
     public bool TryStartRecording(string path, TimeSpan duration, [NotNullWhen(false)] out string? refusal)
@@ -258,6 +286,10 @@ internal sealed class NodePlanetaryRun : INodeRun
         }
         _otaIndex = request.OtaIndex;
         _camera = Capture.Camera?.Name ?? "";
+        var ota = profile.OTAs[request.OtaIndex];
+        _mountUri = profile.Mount is { Scheme: not "none" } mount ? mount : null;
+        _filterWheelUri = ota.FilterWheel is { Scheme: not "none" } wheel ? wheel : null;
+        _site = (profile.SiteLatitude ?? 0, profile.SiteLongitude ?? 0);
         (_roiWidth, _roiHeight) = roi;
         return true;
     }

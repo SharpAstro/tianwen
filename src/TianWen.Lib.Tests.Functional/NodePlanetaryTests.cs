@@ -6,8 +6,11 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using SharpAstro.Ser;
 using TianWen.Hosting;
 using TianWen.Hosting.Dto;
+using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.VSOP87;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Imaging;
@@ -266,6 +269,54 @@ public class NodePlanetaryTests(ITestOutputHelper outputHelper)
         var ended = (await client.StopPlanetaryAsync(ct)).Value.ShouldNotBeNull();
         var last = ended.Recording.ShouldNotBeNull();
         (last.EndReason, last.Written).ShouldBe(("the capture ended", true));
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task ARecordingIsNamedForThePlanetTheMountIsOnAndTheFilterAndItsHeaderSaysTheTelescope()
+    {
+        // #1179: a recording said nothing of what it was taken of or through, so its best stack fell back to the preset unless
+        // the planet and the telescope were set by hand. The node reads the mount and the wheel as it starts one.
+        var ct = TestContext.Current.CancellationToken;
+        await using var node = await PlanetaryNodeAsync(NodeRunWatchOptions.Default.DetachGrace, ct);
+        var mount = new FakeDevice(DeviceType.Mount, 1);
+        var wheel = new FakeDevice(DeviceType.FilterWheel, 1);
+        var ota = new OTAData("Test OTA", 1200, Camera.DeviceUri, null, null, wheel.DeviceUri, null, null, Aperture: 254,
+            OpticalDesign: OpticalDesign.Newtonian);
+        var profile = new Profile(Guid.NewGuid(), "Test rig",
+            new ProfileData(mount.DeviceUri, NoneDevice.Instance.DeviceUri, [ota], SiteLatitude: 48.2, SiteLongitude: 16.3));
+        await profile.SaveAsync(node.External, ct);
+        await node.Node.SetActiveProfileAsync(profile.ProfileId, ct);
+        var hub = node.App.Services.GetRequiredService<IDeviceHub>();
+        await hub.ConnectAsync(Camera, ct);
+        var mountDriver = (IMountDriver)await hub.ConnectAsync(mount, ct);
+        var wheelDriver = (IFilterWheelDriver)await hub.ConnectAsync(wheel, ct);
+
+        // On Jupiter where it is now, through the red filter (the fake wheel's second).
+        var now = node.App.Services.GetRequiredService<ITimeProvider>().GetUtcNow();
+        VSOP87a.Reduce(CatalogIndex.Jupiter, now, 48.2, 16.3, out var ra, out var dec, out _, out _, out _).ShouldBeTrue();
+        await mountDriver.SetTrackingAsync(true, ct);
+        await mountDriver.SyncRaDecAsync(ra, dec, ct);
+        await wheelDriver.BeginMoveAsync(1, ct);
+        await UntilAsync<string>("the wheel at its red filter", async token =>
+        {
+            var position = await wheelDriver.GetPositionAsync(token);
+            return (position == 1 ? "red" : null, $"at {position}");
+        }, ct);
+
+        var client = ClientOf(node);
+        (await client.StartPlanetaryAsync(Default, ct)).IsSuccess.ShouldBeTrue();
+        var recording = await client.StartPlanetaryRecordingAsync(new PlanetaryRecordRequestDto { DurationSeconds = 1 }, ct);
+        recording.IsSuccess.ShouldBeTrue(recording.Error);
+        var path = recording.Value.ShouldNotBeNull().Recording.ShouldNotBeNull().Path;
+        Path.GetFileName(path).ShouldStartWith("Jupiter_Red_");
+        await UntilStateAsync(client, "the recording to be written", s => s.Recording is { Written: true }, ct);
+
+        // What the best stack reads back: the planet and the filter from the name, the telescope from the header.
+        PlanetaryCaptureName.Planet(path).ShouldBe(CatalogIndex.Jupiter);
+        PlanetaryCaptureName.WavelengthNm(path).ShouldBe(650);
+        using var reader = SerReader.Open(path);
+        reader.Header.Telescope.ShouldBe("254 mm f/4.7 Newtonian, Test OTA");
+        PlanetaryBestStack.PupilOf(reader.Header.Telescope).ShouldNotBeNull().DiameterM.ShouldBe(0.254, 1e-9);
     }
 
     [Fact(Timeout = 60_000)]

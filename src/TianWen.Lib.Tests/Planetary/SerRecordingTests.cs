@@ -62,6 +62,20 @@ public class SerRecordingTests
     }
 
     [Fact(Timeout = 30_000)]
+    public async Task ItsHeaderNamesTheCameraAndTheTelescope()
+    {
+        // So its best stack knows the optics without being told (#1179).
+        var path = NewPath();
+        var recording = new SerRecording(path, T0, T0 + TimeSpan.FromMinutes(1), NullLogger.Instance, "ZWO ASI290MM", "254 mm f/4.7 Newtonian");
+        recording.TryAppend(Mosaic(1000), T0).ShouldBeTrue();
+        recording.End("done");
+        await recording.Completion.WaitAsync(TestContext.Current.CancellationToken);
+
+        using var reader = SerReader.Open(path);
+        (reader.Header.Instrument, reader.Header.Telescope).ShouldBe(("ZWO ASI290MM", "254 mm f/4.7 Newtonian"));
+    }
+
+    [Fact(Timeout = 30_000)]
     public async Task AFrameArrivingAtItsEndEndsIt()
     {
         var path = NewPath();

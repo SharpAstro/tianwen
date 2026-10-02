@@ -975,7 +975,7 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
 - **A recorded capture's best stack is `PlanetaryBestStack`, ONE routine for `planetary-stack` and `tianwen-fits`' Best stack**
   (Shift+K on a SER, #1159): the batch stack at its defaults, de-rotated by `DerotationFor`, sharpened by `Sharpen` (the fallbacks
   worded), both masters written under `OutputPaths`' names beside the capture; the telescope a profile gives through `PupilFor` (the
-  owner's obstructions by design), the viewer's from its panel (`PlanetaryTelescopePersistence`). The GUI has no SER playback: its
+  owner's obstructions by design), the viewer's from its panel (`PlanetaryTelescopePersistence`) or the capture's own header (#1179). The GUI has no SER playback: its
   planetary stack is the live capture's rolling one. The planet and a mono capture's filter are the panel's choice or the name's
   (`PlanetaryCaptureName`), said before the run: a name that gave none left the sharpening the preset's, blurred and ringed. **A
   planetary master names its planet in `OBJECT` (`PlanetaryStackOptions.Planet`), and a frame whose `OBJECT` names a planet opens
@@ -1135,7 +1135,9 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   `AddNodeSharedMemory`, or a section the system refuses gets bytes, and `FRAME-AVAILABLE` stays a hint.
   **A recording to disk (`SerRecording`) never slows the capture**:
   the loop converts and queues, a writer task of its own does the disk, and a frame the disk cannot take is dropped
-  and counted. It finishes its duration unwatched.
+  and counted. It finishes its duration unwatched. **It says what it was taken of and through** (#1179): its name is the planet
+  the mount points at and the filter in the beam (`PlanetaryCaptureName.RecordingFileName`, `PointedAt`), its SER header the camera
+  and the OTA's telescope (`TelescopeField`), which the viewer's Best stack and `planetary-stack` read back.
   It claims only the camera, so **a recenter nudge asks `DeviceOwnershipGate` over the mount first**.
 
 ### AI Image Enhancement: RC-Astro (CLI) + TianWen's own models (ONNX)

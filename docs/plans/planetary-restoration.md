@@ -2195,9 +2195,17 @@ rolling stack stays the live view; the telescope comes from the profile where th
   Maksutov 0.33, a Newtonian-Cassegrain 0.3, a RASA 0.4, a refractor none). The viewer has no profile and no text input, so its panel
   steps the aperture through the common ones (60 to 508 mm, or none) and picks the design (Newtonian, SCT / Mak, refractor), remembered
   in `Viewer/planetary-telescope.json`.
-- **A recording should say all of this itself** (#1179): a TianWen recording records no planet, filter or telescope, so its Best stack
-  takes the preset unless the panel is set by hand. The planet and filter go in the file's name (which `PlanetaryCaptureName` already
-  reads) and the telescope in the SER header's Telescope field, not a sidecar (#738: SharpCap's sidecars did not survive curation).
+- **A recording says all of this itself** (#1179), not in a sidecar (#738: SharpCap's sidecars did not survive curation):
+  - **its name** is the planet the profile's mount points at (`PlanetaryCaptureName.PointedAt`, the nearest of the planets and the Moon
+    within 1.5 degrees, of date or J2000) and the filter the OTA's wheel holds, then the start and the OTA
+    (`Jupiter_Red_2026-10-02T12_11_08_OTA1.ser`), which `PlanetaryCaptureName` reads back;
+  - **its SER header** names the camera (Instrument) and the OTA's aperture, focal ratio, design and name (Telescope,
+    `PlanetaryCaptureName.TelescopeField`, `254 mm f/4.7 Newtonian, SW 250PDS`, 40 characters at most);
+  - **the readers**: the viewer seeds the panel's telescope from the header when a capture names one (the panel's own otherwise), and
+    `planetary-stack` takes it (`PlanetaryBestStack.PupilOf`) when no `--telescope` or `--aperture-mm` is given, and a mono capture's
+    filter from its name when no `--wavelength` is.
+  A third-party capture keeps what its software wrote: SharpCap's `CameraSettings.txt` names the filter wheel's slot but no telescope,
+  and is not read yet.
 - **The GUI has no SER playback**: its planetary stack is the live capture's rolling stack, through the node. The derived sharpening of
   that live master is the Derive button ("The live view's derived sharpening", below).
 
