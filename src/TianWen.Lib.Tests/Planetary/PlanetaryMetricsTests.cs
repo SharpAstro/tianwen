@@ -132,6 +132,42 @@ public class PlanetaryMetricsTests
     }
 
     [Fact]
+    public void ATightCropStillReadsItsUndershootAgainstTheFarthestSky()
+    {
+        // A 200 px PIPP crop of a 150 px disk leaves no pixel past the sky's 2.5 radii, and the undershoot read NaN there (the
+        // real-capture validation, 2026-10-03). Cropped to 96 px, this disk's corners are 2.27 radii out: the sky is then read off the
+        // farthest pixels, which a halo can only lift, so the crop's undershoot is the whole frame's or larger, never smaller.
+        const int crop = 96, from = 16;
+        var croppedDisk = Disk with { X = Disk.X - from, Y = Disk.Y - from };
+        var truth = Blur(Banded(), 1.0);
+        var soft = Blur(truth, 1.0);
+        var smooth = Blur(soft, 2.0);
+        var sharpened = soft.Select((v, i) => v + (2 * (v - smooth[i]))).ToArray();
+        var random = new Random(5);
+        var (plain, rung) = (Noisy(soft, 0.01, random), Noisy(sharpened, 0.01, random));
+        float[] Cropped(float[] plane)
+        {
+            var window = new float[crop * crop];
+            for (var y = 0; y < crop; y++)
+            {
+                Array.Copy(plane, ((y + from) * Size) + from, window, y * crop, crop);
+            }
+            return window;
+        }
+
+        var whole = PlanetaryMetrics.LimbUndershoot(rung, Size, Size, Disk);
+        var cropped = PlanetaryMetrics.LimbUndershoot(Cropped(rung), crop, crop, croppedDisk);
+        var plainCropped = PlanetaryMetrics.LimbUndershoot(Cropped(plain), crop, crop, croppedDisk);
+        TestContext.Current.TestOutputHelper?.WriteLine($"sharpened: whole {whole:0.0000}, cropped {cropped:0.0000}; blurred, cropped {plainCropped:0.0000}");
+
+        double.IsFinite(cropped).ShouldBeTrue();
+        cropped.ShouldBeGreaterThanOrEqualTo(whole - 0.002);
+        cropped.ShouldBeLessThan(whole + 0.01);
+        plainCropped.ShouldBeLessThan(0.01);
+        PlanetaryMetrics.SkyLevel(Cropped(rung), crop, crop, croppedDisk).ShouldNotBeNull();
+    }
+
+    [Fact]
     public void PowerPastTheCutoffIsWhatNoiseAddsAndNothingPastNyquist()
     {
         // A blurred disk holds little power past 0.35 cycles a pixel; noise adds there. Past the grid's corner there is nothing

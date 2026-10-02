@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using TianWen.Lib.Astrometry;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.Planetary;
@@ -78,6 +79,17 @@ public readonly record struct LimbFit(
 public static class PlanetaryLimbFit
 {
     private const double Supersample = 2;
+
+    /// <summary>
+    /// Why the fit cannot stand for <paramref name="planet"/>'s outline, or null where it can. Saturn's rings lie outside its globe and
+    /// are not in the model, so a fit swallows them: on 2021-12-16's Saturn it put the globe's radius at 28.1 px, half again the
+    /// 18.6 px the ephemeris and the plate scale give, with a 9 px blur. Everything read off the outline goes with it (the derived
+    /// sharpening's edge, its bound and moons, a de-rotation's spheroid), so those decline such a planet until the rings are modelled
+    /// (#1184).
+    /// </summary>
+    public static string? Unmodelled(CatalogIndex planet) => planet is CatalogIndex.Saturn
+        ? "Saturn's rings are not in the limb fit's model yet (#1184)"
+        : null;
 
     /// <summary>
     /// The apparent polar over equatorial radius of an oblate planet seen from a planetocentric latitude

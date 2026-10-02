@@ -179,27 +179,29 @@ public static class PlanetarySharpening
         };
     }
 
-    // The square of `size` at (x0, y0) of a full-frame plane, zero outside the frame (the normalised sky).
+    // The square of `size` at (x0, y0) of a full-frame plane, the frame mirrored about its edges where the square runs past them. Never
+    // padded with zeros: a 200 px crop of a 150 px disk sits in a 256 px window, and zeros there were a step at the frame's edge for
+    // the sharpening to ring on and a sky without noise for the moons' threshold, which then took the frame's edge for 16 moons a
+    // channel and freed it unbounded (the real-capture validation, 2026-10-03).
     private static float[] Cut(ReadOnlySpan<float> plane, int width, int height, int x0, int y0, int size)
     {
         var window = new float[size * size];
         for (var y = 0; y < size; y++)
         {
-            var sy = y0 + y;
-            if (sy < 0 || sy >= height)
-            {
-                continue;
-            }
+            var sy = Mirrored(y0 + y, height);
             for (var x = 0; x < size; x++)
             {
-                var sx = x0 + x;
-                if (sx >= 0 && sx < width)
-                {
-                    window[(y * size) + x] = plane[(sy * width) + sx];
-                }
+                window[(y * size) + x] = plane[(sy * width) + Mirrored(x0 + x, width)];
             }
         }
         return window;
+    }
+
+    // An index mirrored into [0, n), the edge sample repeated (..., 1, 0 | 0, 1, ..., n - 1 | n - 1, n - 2, ...).
+    private static int Mirrored(int i, int n)
+    {
+        var m = ((i % (2 * n)) + (2 * n)) % (2 * n);
+        return m < n ? m : (2 * n) - 1 - m;
     }
 
     // The master's plane with the sharpened window put back in its units.
