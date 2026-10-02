@@ -40,8 +40,8 @@ public enum StarFitOutcome
 /// <param name="CoreBias">The mean of the same pixels in sigma over root n; NaN likewise.</param>
 /// <param name="SecondPass">Found only on the residual of the first pass, beside a brighter star.</param>
 /// <param name="HoleDepth">Where the star was, filled or not, over its core (a saturated star's whole plateau): the mean of
-/// plate minus its local sky in sigma over root n. Below -3 is a hole, which the starless plate must not have; NaN where
-/// nothing was subtracted.</param>
+/// plate minus the plate's own median in an annulus beyond the star, in sigma over root n. Below -3 is a hole, beyond the
+/// plate's own false-alarm rate (<see cref="StarlessPlateStatistics.HoleNullRate"/>); NaN where nothing was subtracted.</param>
 public readonly record struct FittedStar(
     float X, float Y, float Significance, float Amplitude, float WidthScale, float Sky, float LocalSigma,
     StarFitOutcome Outcome, bool Saturated, bool Inpainted, float CoreResidual, float CoreBias, bool SecondPass, float HoleDepth);
@@ -82,12 +82,14 @@ public readonly record struct StarlessBand(
 /// the measured FWHM becomes once the model is integrated over the pixel.</param>
 /// <param name="FieldBeta">The Moffat beta fitted on the same stars, which every subtraction uses; the stacked profile's
 /// <paramref name="MoffatBeta"/> only seeds it.</param>
+/// <param name="HoleNullRate">The hole test's false-alarm rate on this plate: the fraction of random star-free apertures
+/// reading below -3 the same way; a band's holes count only as an excess over it.</param>
 /// <param name="NoiseCorrelation">The lag-1 correlation of each channel's sky noise, which the fill's grain matches.</param>
 /// <param name="Seconds">Wall time of the build.</param>
 public sealed record StarlessPlateStatistics(
     ImmutableArray<StarlessBand> Bands, float InpaintFraction, int LeftoverNearThreshold,
     float FaintResidualCentre, float FaintResidualCorners, ImmutableArray<float> FwhmPx, ImmutableArray<float> MoffatBeta,
-    float FieldWidthScale, float FieldBeta, ImmutableArray<float> NoiseCorrelation, double Seconds);
+    float FieldWidthScale, float FieldBeta, float HoleNullRate, ImmutableArray<float> NoiseCorrelation, double Seconds);
 
 /// <summary>What <see cref="ClassicalStarRemover.BuildAsync"/> returns: the starless plate and the record of what made it.</summary>
 /// <param name="Plate">The starless plate, same shape, units, pedestal and metadata as the input.</param>
