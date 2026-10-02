@@ -18,7 +18,7 @@ namespace TianWen.UI.Abstractions
         /// <summary>The designs the panel offers, each with the central obstruction the sharpening assumes for it.</summary>
         private static readonly (OpticalDesign Design, string Label)[] BestStackDesigns =
         [
-            (OpticalDesign.Newtonian, "Newtonian"),
+            (OpticalDesign.Newtonian, "Newton"),
             (OpticalDesign.SCT, "SCT / Mak"),
             (OpticalDesign.Refractor, "Refractor"),
         ];
