@@ -2039,6 +2039,38 @@ Laplacian) were fixed in code; and no product path used R8's derived gains or th
   follow-up 1) it zeroed the noise's bands there and cut the error to 1.10. Rule: the non-negative fit replaces the free one if, with the
   limb fix the registered rule chooses, its band error summed over the three twins is within 10 % of the free fit's and its limb undershoot
   on the real capture stays at most 0.02; a sharpening that can make a stack worse is not a default.
+- **The sharpening, read** (`planetary-sharpen --fix all --truth` on each twin's pipeline master at half the frames, 2022-09-03 Red's
+  pipeline master for the undershoot; the telescope the twins were made with, 254 mm, 650 nm; bands 1 to 4 against the truth):
+
+  | Twin | Stack | Plain | Floored | Limb channel | Feathered | Legacy (quarter, `PlanetaryDefault`) |
+  |---|---|---|---|---|---|---|
+  | calibrated | 1.500 | 0.664 | 0.664 | 0.675 | 0.732 | 2.800 |
+  | without its still layer | 0.559 | 0.292 | 0.292 | 0.301 | 0.289 | 3.525 |
+  | warped | 1.667 | 0.820 | 0.820 | 0.827 | 0.907 | 2.631 |
+  | summed | | **1.776** | **1.776** | 1.803 | 1.928 | |
+  | real capture's undershoot | 0 | 0 | 0 | 0.0013 | 0 | (a deep ring) |
+
+  - **The registered rule chooses plain or floored** (every variant keeps the real capture's undershoot under 0.02); they tie to the
+    digit, and **floored is the default**, the floor taking away only what digs below the sky.
+  - **The pipeline against legacy, each sharpened as its pipeline sharpens: holds on every twin, and on the calibrated twin by far more
+    than half** (0.664 against 2.800; 0.292 against 3.525; 0.820 against 2.631).
+  - **The non-negative fit fails its rule by far** (post hoc, set down before it ran): it switches the finest band off (a gain of -0.01 to
+    0.02) and leaves every twin WORSE than its stack unsharpened. Floored, 2.071, 1.629 and 2.217 (5.917 summed against the free fit's
+    1.776; the stacks 1.500, 0.559, 1.667); its best fix on each twin still 1.840, 1.540 and 1.992. The free fit stays.
+  - **The free fit's gains oscillate** where the edge reads the finest band low (the warped twin 9.70 and -0.65, the real capture 13.06
+    and -0.39), and its composite still lands near the truth on the twins (transfers 0.97 to 1.12).
+  - **Every fix rings OUTSIDE the limb, above the sky, where neither metric reads** (#1168). Stretched with black at the sky and white at
+    3 % of the disk above it, the floored master shows a bright rim, a trough the floor holds at the sky, and a fainter second bright ring
+    outside it, on 2022-09-03 Red and the same, round and concentric, on the calibrated twin, which carries no ghost and whose truth shows
+    only the diffraction glow. So it is the sharpening's own, lifting the finest bands 2 to 13 times across the limb's step (on that twin
+    with no negative gain: 4.63, 1.97, 1.36, 0.82), not the 2022 shell (R7a's is a one-sided smear). The limb as its own channel puts many
+    rings well out on the real capture, more than on the twin. The band error reads inside 0.9 radii and the undershoot below the sky
+    only, so both scored it 0. Legacy's preset still digs its ring 0.16 to 0.26 of the disk BELOW the sky.
+  - **The limb's edge over-reads the finest band where the seeing passes little there.** On the sharpening test's rendered Jupiter a single
+    Gaussian of 1.4 px passes 0.03 at 0.3 cycles a pixel and the edge read 0.30, its own noise floor, and the derived gains made that
+    stack worse. The edge reads 0.09 to 0.68 there on the twins and the real capture, and the test's core-and-halo kernel (it passes 0.17)
+    is sharpened toward the truth (1.352 to 1.172). A planet with too little fine texture for the disk term's limb gains to stay out of
+    the noise is the same case.
 - **Whether the limb fit's north was right is incidental**: graded by the gradient, the 16-minute fixture's stack of best frames had it
   upside down and the run's quarters turned it back (31 degrees against the true 30).
 - **The stacking, read on the three twins** (`planetary-stack --truth`, each twin's 3,000 frames, every master against its truth,

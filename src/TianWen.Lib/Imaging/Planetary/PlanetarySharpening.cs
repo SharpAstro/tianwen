@@ -34,13 +34,18 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
     /// <summary>Each channel's effective wavelength, nm, the last repeated for any channel beyond it (550 nm, a broadband luminance).</summary>
     public ImmutableArray<double> WavelengthsNm { get; init; } = [550];
 
-    /// <summary>How the limb is kept from ringing (the measured choice, docs/plans/planetary-restoration.md, the enhanced pipeline).</summary>
-    public PlanetaryLimbFix Fix { get; init; } = PlanetaryLimbFix.LimbChannel;
+    /// <summary>
+    /// How the limb is kept from ringing: floored at the sky, the measured choice (docs/plans/planetary-restoration.md, the enhanced
+    /// pipeline): plain and floored tied for the least error over the three twins (1.776, the limb as its own channel 1.803, feathered
+    /// 1.928), every one under 0.02 of undershoot on the real capture, and the floor can only take away what digs below the sky.
+    /// </summary>
+    public PlanetaryLimbFix Fix { get; init; } = PlanetaryLimbFix.Floored;
 
     /// <summary>
     /// Fit the gains with their composite through the kernel held non-negative (<see cref="PlanetaryWaveletGains.FitNonNegative"/>, R8
-    /// follow-up 1) rather than free: where the edge reads the finest band low, the free fit meets the Wiener's steep boost with one
-    /// large gain and a negative one beside it (9.70 and -0.65 on the warped twin).
+    /// follow-up 1) rather than free. Measured and not adopted: the free fit meets a steep Wiener boost with one large gain and a negative
+    /// one beside it (9.70 and -0.65 on the warped twin) yet lands near the truth, while the held fit switches the finest band off and
+    /// blurs (1.840 to 1.992 against the stack's 1.500 to 1.667 on the twins).
     /// </summary>
     public bool NonNegative { get; init; }
 }

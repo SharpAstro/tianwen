@@ -8,6 +8,7 @@ using Console.Lib;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
+using TianWen.Lib.Imaging.Stacking;
 
 namespace TianWen.Cli;
 
@@ -17,7 +18,7 @@ namespace TianWen.Cli;
 /// limb kept from ringing). With <c>--fix all</c> and a synthetic capture's <c>--truth</c> it is also how the enhanced pipeline's
 /// sharpening was chosen (docs/plans/planetary-restoration.md).
 /// </summary>
-internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost)
+internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, MasterPreviewRenderer previewRenderer)
 {
     public Command Build()
     {
@@ -25,7 +26,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost)
         var planetOpt = new Option<string?>("--planet") { Description = "jupiter or saturn; read off the file's name when not given." };
         var utcOpt = new Option<string?>("--utc") { Description = "The instant the master shows the planet at (ISO 8601, UTC); its own DATE-OBS and EXPTIME's middle when not given, else the truth's." };
         var wavelengthOpt = new Option<string?>("--wavelength") { Description = "The filter's effective wavelength, nm, a comma list for a colour master's channels (550 when not given)." };
-        var fixOpt = new Option<string>("--fix") { Description = "How the limb is kept from ringing: limb (the limb as its own channel), floored, feathered, plain, or all to compare them.", DefaultValueFactory = _ => "limb" };
+        var fixOpt = new Option<string>("--fix") { Description = "How the limb is kept from ringing: floored (the default, the measured choice), limb (the limb as its own channel), feathered, plain, or all to compare them.", DefaultValueFactory = _ => "floored" };
         var truthOpt = new Option<string?>("--truth") { Description = "A synthetic capture's truth (planetary-degrade's .truth.fits): every sharpening scored against it." };
         var outputOpt = new Option<string?>("--output", "-o") { Description = "Where the sharpened masters go (master_*_sharpened[_fix].fits); the master's folder when not given." };
         var noWriteOpt = new Option<bool>("--no-write") { Description = "Score only, write nothing." };
@@ -38,14 +39,14 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost)
             Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, truthOpt, outputOpt, noWriteOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope },
         };
 
-        command.SetAction((parseResult, ct) =>
+        command.SetAction(async (parseResult, ct) =>
         {
             var inv = CultureInfo.InvariantCulture;
             var path = parseResult.GetValue(masterArg) ?? "";
             if (!Image.TryReadFitsFile(path, out var master))
             {
                 consoleHost.WriteError($"{path}: not a readable FITS image");
-                return Task.FromResult(1);
+                return 1;
             }
             try
             {
@@ -60,7 +61,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost)
                 if (planet is not { } body)
                 {
                     consoleHost.WriteError($"{path}: name the planet (--planet jupiter or saturn)");
-                    return Task.FromResult(1);
+                    return 1;
                 }
                 var truthPath = parseResult.GetValue(truthOpt);
                 var meta = master.ImageMeta;
@@ -70,13 +71,13 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost)
                 if (when is not { } instant)
                 {
                     consoleHost.WriteError($"{path}: no time in its header; give --utc");
-                    return Task.FromResult(1);
+                    return 1;
                 }
                 if (PlanetaryMasterScore.Wavelengths(consoleHost, parseResult.GetValue(wavelengthOpt)) is not { } wavelengths)
                 {
-                    return Task.FromResult(1);
+                    return 1;
                 }
-                var fixName = (parseResult.GetValue(fixOpt) ?? "limb").ToLowerInvariant();
+                var fixName = (parseResult.GetValue(fixOpt) ?? "floored").ToLowerInvariant();
                 PlanetaryLimbFix[] fixes = fixName switch
                 {
                     "all" => [PlanetaryLimbFix.Plain, PlanetaryLimbFix.Floored, PlanetaryLimbFix.LimbChannel, PlanetaryLimbFix.Feathered],
@@ -89,7 +90,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost)
                 if (fixes.Length == 0)
                 {
                     consoleHost.WriteError($"--fix {fixName}: limb, floored, feathered, plain or all");
-                    return Task.FromResult(1);
+                    return 1;
                 }
                 var options = new PlanetarySharpenOptions(body, instant, PlanetaryMasterScore.PupilFrom(parseResult, pupil)) { WavelengthsNm = [.. wavelengths] };
                 consoleHost.WriteScrollable(string.Create(inv,
@@ -114,7 +115,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost)
                 if (fits.Length == 0)
                 {
                     consoleHost.WriteError($"--fit {fitName}: free, nonnegative or both");
-                    return Task.FromResult(1);
+                    return 1;
                 }
                 var outputDir = parseResult.GetValue(outputOpt) ?? Path.GetDirectoryName(Path.GetFullPath(path)) ?? ".";
                 var variants = (options.Pupil is null ? [PlanetaryLimbFix.LimbChannel] : fixes).SelectMany(f => fits.Select(n => (Fix: f, NonNegative: n))).ToArray();
@@ -124,7 +125,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost)
                     if (PlanetarySharpening.Sharpen(master, options with { Fix = fix, NonNegative = nonNegative }) is not { } result)
                     {
                         consoleHost.WriteError($"{path}: the planet's limb could not be fitted");
-                        return Task.FromResult(1);
+                        return 1;
                     }
                     try
                     {
@@ -145,7 +146,9 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost)
                             var file = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(path) + "_sharpened"
                                 + (variants.Length > 1 ? "_" + fix.ToString().ToLowerInvariant() + (nonNegative ? "_nonnegative" : "") : "") + ".fits");
                             result.Sharpened.WriteToFitsFile(file);
-                            consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(file)}");
+                            var png = Path.ChangeExtension(file, ".png");
+                            await previewRenderer.RenderPlanetaryAsync(result.Sharpened, png, gamma: 0.75, ct: ct);
+                            consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(file)} and its high-key preview {Path.GetFileName(png)}");
                         }
                     }
                     finally
@@ -153,7 +156,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost)
                         result.Sharpened.Release();
                     }
                 }
-                return Task.FromResult(0);
+                return 0;
             }
             finally
             {
