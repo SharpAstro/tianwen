@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using System.Numerics;
 using TianWen.Lib.Stat;
 
@@ -288,6 +289,133 @@ public static class PlanetaryMetrics
             }
         }
         return double.IsFinite(lowest) ? rebound : double.NaN;
+    }
+
+    /// <summary>
+    /// The brightest compact sources outside <paramref name="disk"/>'s limb (a moon, a star), brightest first and at least
+    /// <paramref name="apartPx"/> apart: local maxima beyond 1.05 radii whose peak stands above the median of the box about them
+    /// (<see cref="SourcePeak"/>) by more than <paramref name="sigmas"/> times the sky's robust noise beyond <see cref="SkyRadii"/>, and by
+    /// at least <paramref name="minimumPeak"/> (in the plane's units; the disk is one in a normalised plane), which a stack whose sky is
+    /// all but noiseless still needs (#1181: the bounded limb fix lets these keep their sharpening, and the limb fixes are scored by them).
+    /// </summary>
+    public static ImmutableArray<(int X, int Y)> CompactSources(ReadOnlySpan<float> plane, int width, int height, MetricDisk disk, int count = 3,
+        double sigmas = 20, int apartPx = 12, double minimumPeak = 0.01)
+    {
+        var sky = new List<float>();
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                if (disk.RadiiAt(x, y) >= SkyRadii)
+                {
+                    sky.Add(plane[(y * width) + x]);
+                }
+            }
+        }
+        if (sky.Count == 0)
+        {
+            return [];
+        }
+        var values = sky.ToArray();
+        var median = StatisticsHelper.MedianFast(values);
+        for (var i = 0; i < values.Length; i++)
+        {
+            values[i] = Math.Abs(values[i] - median);
+        }
+        var noise = 1.4826 * StatisticsHelper.MedianFast(values);
+        var candidates = new List<(int X, int Y, double Peak)>();
+        for (var y = 1; y < height - 1; y++)
+        {
+            for (var x = 1; x < width - 1; x++)
+            {
+                var v = plane[(y * width) + x];
+                if (v <= median + Math.Max(sigmas * noise, minimumPeak) || disk.RadiiAt(x, y) <= 1.05 || !IsLocalMaximum(plane, width, x, y))
+                {
+                    continue;
+                }
+                var (peak, _) = SourcePeak(plane, width, height, x, y);
+                if (peak > Math.Max(sigmas * noise, minimumPeak))
+                {
+                    candidates.Add((x, y, peak));
+                }
+            }
+        }
+        var chosen = ImmutableArray.CreateBuilder<(int X, int Y)>();
+        foreach (var c in candidates.OrderByDescending(c => c.Peak))
+        {
+            if (chosen.Count == count)
+            {
+                break;
+            }
+            if (chosen.All(s => Math.Abs(s.X - c.X) >= apartPx || Math.Abs(s.Y - c.Y) >= apartPx))
+            {
+                chosen.Add((c.X, c.Y));
+            }
+        }
+        return chosen.ToImmutable();
+    }
+
+    /// <summary>
+    /// A compact source's peak at (<paramref name="x"/>, <paramref name="y"/>), the brightest pixel within 2 px, above the median of the
+    /// 25 px box about it, and how many pixels of the 13 px box stand above half that peak: its height and its width, in the plane's units.
+    /// </summary>
+    public static (double Peak, int HalfPeakPixels) SourcePeak(ReadOnlySpan<float> plane, int width, int height, int x, int y)
+    {
+        var box = new List<float>();
+        for (var dy = -12; dy <= 12; dy++)
+        {
+            for (var dx = -12; dx <= 12; dx++)
+            {
+                var (sx, sy) = (x + dx, y + dy);
+                if (sx >= 0 && sx < width && sy >= 0 && sy < height)
+                {
+                    box.Add(plane[(sy * width) + sx]);
+                }
+            }
+        }
+        var level = StatisticsHelper.MedianFast(box.ToArray());
+        var top = float.NegativeInfinity;
+        for (var dy = -2; dy <= 2; dy++)
+        {
+            for (var dx = -2; dx <= 2; dx++)
+            {
+                var (sx, sy) = (x + dx, y + dy);
+                if (sx >= 0 && sx < width && sy >= 0 && sy < height)
+                {
+                    top = Math.Max(top, plane[(sy * width) + sx]);
+                }
+            }
+        }
+        var peak = top - level;
+        var above = 0;
+        for (var dy = -6; dy <= 6; dy++)
+        {
+            for (var dx = -6; dx <= 6; dx++)
+            {
+                var (sx, sy) = (x + dx, y + dy);
+                if (sx >= 0 && sx < width && sy >= 0 && sy < height && plane[(sy * width) + sx] - level > peak / 2)
+                {
+                    above++;
+                }
+            }
+        }
+        return (peak, above);
+    }
+
+    private static bool IsLocalMaximum(ReadOnlySpan<float> plane, int width, int x, int y)
+    {
+        var v = plane[(y * width) + x];
+        for (var dy = -1; dy <= 1; dy++)
+        {
+            for (var dx = -1; dx <= 1; dx++)
+            {
+                if ((dx != 0 || dy != 0) && plane[((y + dy) * width) + x + dx] > v)
+                {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     /// <summary>

@@ -990,7 +990,8 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   the GUI's capture; the dials hold at the darkest level, `HoldAtDarkest`, and match the FLOORED fix on every twin, not the bounded one)
   (#1159): a trous gains derived through the limb's edge against the limb fit's sharp model through the pupil's diffraction, the stack's
   white noise floor and the planet's disk, applied BOUNDED (held at the sky and, outside the limb, never brighter than the stack,
-  #1168); without a telescope `PlanetaryDefault` with the limb kept as
+  #1168, but for a moon: a local maximum of the stack keeps its sharpening, `PlanetaryMetrics.CompactSources`, #1181; a mask against
+  the sky's noise freed the halo too, and Saturn's rings are still held, #1184); without a telescope `PlanetaryDefault` with the limb kept as
   stacked. **It needs the planet, the instant and the telescope** (a master carries its capture's span, DATE-OBS to EXPTIME, for the
   instant). Measured on the twins it leaves under a third of legacy's error; the free gain fit oscillates where the edge reads the finest
   band low and still lands near the truth, while the non-negative fit leaves every twin worse than unsharpened. **Floored alone rang
