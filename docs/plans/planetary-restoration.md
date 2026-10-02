@@ -2131,6 +2131,33 @@ calibrated twin alike (so the sharpening's own, not the 2022 shell). Neither met
     outside the limb. What it leaves is the first lobe, a thin dark trough at the limb that the floor holds at the sky, below the stack's
     glow there: #1171.
 
+### The live stack, given the batch stack's learnings
+
+Set down 2026-10-02, before any of it was measured. The owner kept the rolling stack (live capture, the GUI's and `tianwen-fits`'
+playback) on its recipe while the batch stack took the measured best, then asked for the batch stack's learnings in it wherever they
+are cheap enough. The per-frame fold costs are known (`RollingFoldBenchmarks`, above: the gradient free, the climbed plain correlation
+1.3 times today's fold at 512 px, with clamped Lanczos-3 1.7 times); what they do to a LIVE stack is not, since the rolling stack folds
+every frame it is behind by and evicts as many, and rebuilds its window when the node's ring has dropped frames it still holds.
+
+- **The tool**: `tianwen planetary-live`, which replays a SER into the node's own ring (`LiveCameraFrameStream`, sized as
+  `PlanetaryCapture` sizes it) at the capture's own frame rate, read off its timestamps, while the node's own stacking loop (hoisted
+  from `NodePlanetary` into Lib, so the probe and the node run one loop) stacks to the newest frame every 250 ms. It reports the
+  masters' interval, the frames folded a second against the frames captured, the lag behind the newest frame at each master, the
+  window rebuilds, and, given a synthetic capture's truth, the last master's band error inside 0.9 radii.
+- **The recipes**: today's (the Laplacian, phase correlation, bilinear); the gradient alone; the gradient and the climbed plain
+  correlation; and the batch stack's three (with clamped Lanczos-3).
+- **The captures**: 2022-09-03 Red (800 by 600, 8 bits, 12,990 frames) and its calibrated twin with its truth, each replayed for 90 s.
+- **The rules**, each recipe against the one before it:
+  1. **The gradient** replaces the Laplacian if the live stack keeps its throughput (frames folded a second within 10 % of today's) and
+     the twin's last master leaves no more band error than today's.
+  2. **The plain correlation** joins if the twin's last master leaves less band error than with the gradient alone, and the live
+     stack still keeps up: if today's recipe folds every captured frame (at least 95 % of the capture rate), the new one must too;
+     otherwise it must fold at least two thirds as many frames a second as today's, and its masters come no more than 1.5 times as
+     far apart.
+  3. **Lanczos-3** joins on the same two conditions against the gradient and the plain correlation.
+- **The derived sharpening of a live master** is the GUI's part of the pipeline (it needs the telescope the host knows), with its
+  gains derived once a capture and reused, not each master.
+
 ## R9 A learned stage, only if the measurements say so
 
 **Issue:** #1056 (conditional).
