@@ -2255,7 +2255,41 @@ name; the code of this change, Release, with another session's tests on the mach
 - **Two differences remain, both the bounded fix's** (#1168, the default since the example was drawn): the ring outside the limb is
   gone, and so is the moon's sharpening. Bounded holds everything outside the limb at the stack, the moon beside Jupiter included (peak
   0.024 above the sky over 12 px, where the floored example made it 0.101 over 4 px), and it would hold Saturn's rings the same way.
-  Holding only what the planet explains there is #1181.
+  Holding only what the planet explains there is #1181, below.
+- **After #1181** (the probe again, the code of that change): the disk correlates with the example's at 1.0000, an RMS difference of
+  0.0004 of white, and the moon is 0.0998 over 4 px against the example's 0.1014 over 4. What is left is the ring the example shows
+  outside the limb and the viewer's master does not, which is the bounded fix doing what the owner chose it for.
+
+#### The moons under the bounded fix
+
+#1181. The bound holds everything outside the limb at the stack, the moons with it. The rule, set in the issue before measuring, on the
+three twins that carry the Galilean moons (`r8m`: calibrated, nostill, warped, 3,000 frames each, stacked by the pipeline) and on
+2022-09-03 Red's viewer master: the ring stays gone (limb profile error and rebound no worse than bounded's on every twin), the moon comes
+back (its peak within 10 % of floored's, its width no further from the truth's), and the disk is untouched. `planetary-sharpen` now reads
+each moon (`PlanetaryMetrics.CompactSources`, `SourcePeak`) beside the limb's metrics. Three candidates, each holding outside the limb
+except where its mask frees the light (the code of this change, Release):
+
+| | Floored | Bounded | 1: above the planet's model | 2: above its own median | 3: about a local maximum |
+|---|---|---|---|---|---|
+| calibrated: limb profile, rebound | 0.0112, 0.0052 | 0.0102, 0.0023 | 0.0112, 0.0052 | 0.0112, 0.0051 | 0.0102, 0.0023 |
+| calibrated: the moon's peak (truth 0.490) | 0.524 | 0.159 | 0.524 | 0.524 | 0.525 |
+| nostill: limb profile, rebound | 0.0045, 0 | 0.0043, 0 | 0.0045, 0 | 0.0045, 0 | 0.0043, 0 |
+| nostill: the moon's peak | 0.506 | 0.368 | 0.506 | 0.506 | 0.506 |
+| warped: limb profile, rebound | 0.0129, 0.0058 | 0.0107, 0.0029 | 0.0129, 0.0057 | 0.0128, 0.0054 | 0.0107, 0.0029 |
+| warped: the moon's peak | 0.428 | 0.112 | 0.428 | 0.428 | 0.429 |
+| 2022-09-03 Red: rebound | 0.0120 | 0.0101 | 0.0120 | 0.0120 | 0.0100 |
+| 2022-09-03 Red: the moon's peak | 0.550 | 0.131 | 0.550 | 0.550 | 0.551 |
+
+- **The first two brought the ring back**: each freed what stood above the far sky's noise by five sigmas, the stack above the limb
+  fit's model through the kernel (1) or above its own 11 px median (2), and a 1,500-frame stack's sky is so quiet that the halo's own
+  shape crosses that line all round the limb.
+- **The third passes**: only a local maximum of the stack beyond 1.05 radii that stands above its own neighbourhood by twenty sigmas
+  and a hundredth of the disk is a moon, and 5 px about it are free. The planet's halo only falls away from the limb, so it holds no
+  maximum. Its masters differ from bounded's in 9 to 16 pixels about the moon and are bit for bit bounded's everywhere else; the band
+  score's 0.001 on the calibrated twin (0.454 against 0.453 in band 1) is the score's own limb-fit registration seeing the brighter moon,
+  read after the measurement from that comparison.
+- **Adopted as `Bounded` itself** (`PlanetaryDering.Bounded`), so the owner's choice keeps its name; the two failed candidates are not
+  kept. Saturn's rings are not compact, so the bound still holds them: #1184.
 
 ### The live view's derived sharpening
 

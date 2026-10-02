@@ -55,6 +55,14 @@ internal static class PlanetaryMasterScore
                 var bands = PlanetaryMetrics.Fidelity(fitted.Plane, reference, plane.Width, plane.Height, disk);
                 consoleHost.WriteScrollable(string.Create(inv,
                     $"[planetary] {label} against the truth: transfer {string.Join(", ", bands.Select(b => b.Transfer.ToString("0.000", inv)))}; error {string.Join(", ", bands.Select(b => b.Error.ToString("0.000", inv)))} (bands 1 to 4 {bands.Take(4).Sum(b => b.Error):0.000}); undershoot {PlanetaryMetrics.LimbUndershoot(fitted.Plane, plane.Width, plane.Height, disk):0.0000}; limb profile error {PlanetaryMetrics.LimbProfileError(fitted.Plane, reference, plane.Width, plane.Height, disk):0.0000}; rebound {PlanetaryMetrics.LimbRebound(fitted.Plane, plane.Width, plane.Height, disk):0.0000}"));
+                // The moons where the truth has them (#1181): each one's peak and width here against the truth's.
+                foreach (var (x, y) in PlanetaryMetrics.CompactSources(reference, plane.Width, plane.Height, disk))
+                {
+                    var (peak, wide) = PlanetaryMetrics.SourcePeak(fitted.Plane, plane.Width, plane.Height, x, y);
+                    var (truthPeak, truthWide) = PlanetaryMetrics.SourcePeak(reference, plane.Width, plane.Height, x, y);
+                    consoleHost.WriteScrollable(string.Create(inv,
+                        $"[planetary] {label}, the moon at ({x}, {y}): peak {peak:0.0000} against the truth's {truthPeak:0.0000}, {wide} px above half against {truthWide}"));
+                }
             }
             finally
             {
@@ -82,6 +90,12 @@ internal static class PlanetaryMasterScore
         var rebounds = planes.Select(p => PlanetaryMetrics.LimbRebound(p, master.Width, master.Height, disk));
         consoleHost.WriteScrollable(string.Create(inv,
             $"[planetary] {what}: limb undershoot {string.Join(", ", undershoots.Select(u => u.ToString("0.0000", inv)))} of the disk; rebound outside the limb {string.Join(", ", rebounds.Select(u => u.ToString("0.0000", inv)))}"));
+        // The moons this plane shows (#1181): each one's peak and width, the first channel's.
+        foreach (var (x, y) in PlanetaryMetrics.CompactSources(planes[0], master.Width, master.Height, disk))
+        {
+            var (peak, wide) = PlanetaryMetrics.SourcePeak(planes[0], master.Width, master.Height, x, y);
+            consoleHost.WriteScrollable(string.Create(inv, $"[planetary] {what}, the moon at ({x}, {y}): peak {peak:0.0000}, {wide} px above half"));
+        }
     }
 
     /// <summary>The telescope's pupil from the options <see cref="PupilOptions"/> made, or null when none was given.</summary>

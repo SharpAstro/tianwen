@@ -209,7 +209,7 @@ public static class PlanetaryBestStack
         PlanetaryLimbFix.LimbChannel => "the limb as its own channel",
         PlanetaryLimbFix.Floored => "floored at the sky",
         PlanetaryLimbFix.Feathered => "feathered at the limb",
-        PlanetaryLimbFix.Bounded => "bounded by the stack outside the limb",
+        PlanetaryLimbFix.Bounded => "bounded by the stack outside the limb but for its moons",
         _ => "plain",
     };
 

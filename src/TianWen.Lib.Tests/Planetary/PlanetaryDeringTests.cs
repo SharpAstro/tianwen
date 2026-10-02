@@ -115,6 +115,41 @@ public class PlanetaryDeringTests
     }
 
     [Fact]
+    public void ABoundedSharpeningSharpensAMoonAndStillHoldsTheHalo()
+    {
+        // The bound held a moon outside the limb as stacked (2022-09-03 Red: 0.024 above the sky where floored made it 0.101, #1181).
+        // A moon is a local maximum of the stack and the planet's halo is not, so the moon keeps its sharpening and the halo stays held.
+        var scene = SharpDisk();
+        var (mx, my) = (113, 64);
+        for (var dy = -1; dy <= 1; dy++)
+        {
+            for (var dx = -1; dx <= 1; dx++)
+            {
+                scene[((my + dy) * Size) + mx + dx] = 0.6f;
+            }
+        }
+        var blurred = PlanetaryInverse.Apply(scene, Size, Size, f => Gaussian(1.6, f));
+        var plain = PlanetaryDering.Sharpen(blurred, Size, Size, Strong);
+        var bounded = PlanetaryDering.Bounded(plain, blurred, Size, Size, Disk);
+
+        var at = (my * Size) + mx;
+        TestContext.Current.TestOutputHelper?.WriteLine($"the moon's peak: stacked {blurred[at]:0.000}, sharpened {plain[at]:0.000}, bounded {bounded[at]:0.000}");
+        plain[at].ShouldBeGreaterThan(blurred[at] * 1.5f, "the sharpening lifts the moon");
+        bounded[at].ShouldBe(plain[at], "and the bound leaves it lifted");
+        PlanetaryMetrics.LimbRebound(bounded, Size, Size, Disk).ShouldBeLessThan(PlanetaryMetrics.LimbRebound(plain, Size, Size, Disk) / 10);
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                if (Disk.RadiiAt(x, y) > 1 && ((x - mx) * (x - mx)) + ((y - my) * (y - my)) > 25)
+                {
+                    bounded[(y * Size) + x].ShouldBeLessThanOrEqualTo(Math.Max(blurred[(y * Size) + x], 0f));
+                }
+            }
+        }
+    }
+
+    [Fact]
     public void ACompositeHeldNonNegativeStaysSo()
     {
         Func<double, double> kernel = f => Gaussian(1.6, f);

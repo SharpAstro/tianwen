@@ -27,10 +27,15 @@ public static class PlanetaryDering
     /// <summary>
     /// <paramref name="sharpened"/> held at or above the sky and, outside <paramref name="disk"/>'s outline, at or below
     /// <paramref name="stacked"/>, the plane it was sharpened from: a sharpening only moves light inward past the limb, so light it adds
-    /// there is its ring (#1168). The planes are the window's (the sky zero, the disk one).
+    /// there is its ring (#1168). Except about a moon (#1181): within <paramref name="moonReachPx"/> of each compact source
+    /// <see cref="PlanetaryMetrics.CompactSources"/> finds in the stack (a local maximum beyond 1.05 radii standing above its own
+    /// neighbourhood), its sharpening stands. A planet's halo only falls away from the limb, so it holds no such maximum and stays held;
+    /// held too, the moon beside Jupiter on 2022-09-03 was left as stacked (peak 0.024 above the sky against the floored 0.101). The
+    /// planes are the window's (the sky zero, the disk one).
     /// </summary>
-    public static float[] Bounded(ReadOnlySpan<float> sharpened, ReadOnlySpan<float> stacked, int width, int height, MetricDisk disk)
+    public static float[] Bounded(ReadOnlySpan<float> sharpened, ReadOnlySpan<float> stacked, int width, int height, MetricDisk disk, int moonReachPx = 5)
     {
+        var moons = PlanetaryMetrics.CompactSources(stacked, width, height, disk, count: MaxMoons);
         var result = new float[sharpened.Length];
         for (var y = 0; y < height; y++)
         {
@@ -38,10 +43,26 @@ public static class PlanetaryDering
             {
                 var i = (y * width) + x;
                 var v = Math.Max(sharpened[i], 0f);
-                result[i] = disk.RadiiAt(x, y) > 1 ? Math.Min(v, Math.Max(stacked[i], 0f)) : v;
+                result[i] = disk.RadiiAt(x, y) > 1 && !Near(moons, x, y, moonReachPx) ? Math.Min(v, Math.Max(stacked[i], 0f)) : v;
             }
         }
         return result;
+    }
+
+    /// <summary>The most compact sources <see cref="Bounded"/> lets keep their sharpening: Jupiter's four moons, Saturn's eight, with room.</summary>
+    public const int MaxMoons = 16;
+
+    // Whether (x, y) lies within reach of one of the sources.
+    private static bool Near(ImmutableArray<(int X, int Y)> sources, int x, int y, int reach)
+    {
+        foreach (var (sx, sy) in sources)
+        {
+            if (((x - sx) * (x - sx)) + ((y - sy) * (y - sy)) <= reach * reach)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>
