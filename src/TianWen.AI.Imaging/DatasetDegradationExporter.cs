@@ -1601,89 +1601,80 @@ namespace TianWen.AI.Imaging
         }
 
         /// <summary>
-        /// Measures band1/band0 for the injected draws and, with the identical code, for the real sub
-        /// and half-master pairs of the same bake. Scene-free by differencing two frames of one scene,
-        /// which is the only way to see noise shape without the nebulosity in the bands.
+        /// Measures band1/band0 for the injected draws and, with the identical code, for the real sub and half-master pairs of
+        /// the SAME sessions in the bake, per session and pooled. Scene-free by differencing two frames of one scene, which is
+        /// the only way to see noise shape without the nebulosity in the bands. The references are the exported sessions' own:
+        /// taken from the first cells of the whole bake, they set one set of sessions' injected noise against another's masters
+        /// (R1's check read 0.387 against 0.257 so).
         /// </summary>
         /// <param name="degradedRoot">An exported degraded cache.</param>
         /// <param name="bakeRoot">The bake it came from, for the real-pair references. Null to skip them.</param>
-        /// <param name="maxCells">Cells to sample per population.</param>
+        /// <param name="maxCells">Cells to sample per session and population.</param>
         public static async Task<ImmutableArray<ShapeMeasurement>> MeasureShapeAsync(
             string degradedRoot,
             string? bakeRoot,
             int maxCells = 64,
             CancellationToken cancellationToken = default)
         {
-            var measurements = ImmutableArray.CreateBuilder<ShapeMeasurement>();
-
             var degraded = await ReadCellsAsync(Path.Combine(degradedRoot, DatasetTileExporter.ManifestFileName), cancellationToken);
-            var injected = new List<double[]>();
-            var pairs = 0;
-            foreach (var (_, cells) in degraded)
+            var real = bakeRoot is not null && File.Exists(Path.Combine(bakeRoot, DatasetTileExporter.ManifestFileName))
+                ? await ReadCellsAsync(Path.Combine(bakeRoot, DatasetTileExporter.ManifestFileName), cancellationToken)
+                : null;
+
+            var pooled = (Injected: new List<double[]>(), Sub: new List<double[]>(), Half: new List<double[]>());
+            var perSession = ImmutableArray.CreateBuilder<ShapeMeasurement>();
+            foreach (var sessionId in degraded.Keys.Order(StringComparer.Ordinal))
             {
-                foreach (var cell in cells)
+                var injected = new List<double[]>();
+                foreach (var cell in degraded[sessionId])
                 {
-                    if (pairs >= maxCells)
+                    if (injected.Count >= maxCells)
                     {
                         break;
                     }
-                    if (cell.OtherTiles.Count < 2)
-                    {
-                        continue;
-                    }
-                    var bands = DifferenceBands(degradedRoot, cell.OtherTiles[0], cell.OtherTiles[1], cell.TileSize);
-                    if (bands is not null)
+                    if (cell.OtherTiles.Count >= 2 && DifferenceBands(degradedRoot, cell.OtherTiles[0], cell.OtherTiles[1], cell.TileSize) is { } bands)
                     {
                         injected.Add(bands);
-                        pairs++;
                     }
                 }
-                if (pairs >= maxCells)
-                {
-                    break;
-                }
-            }
-            measurements.Add(Summarise("injected draws", injected));
-
-            if (bakeRoot is not null && File.Exists(Path.Combine(bakeRoot, DatasetTileExporter.ManifestFileName)))
-            {
-                var real = await ReadCellsAsync(Path.Combine(bakeRoot, DatasetTileExporter.ManifestFileName), cancellationToken);
                 var subBands = new List<double[]>();
                 var halfBands = new List<double[]>();
-                var subPairs = 0;
-                var halfPairs = 0;
-                foreach (var (_, cells) in real)
+                if (bakeRoot is not null && real is not null && real.TryGetValue(sessionId, out var realCells))
                 {
-                    foreach (var cell in cells)
+                    foreach (var cell in realCells)
                     {
-                        if (subPairs < maxCells && cell.OtherTiles.Count >= 2)
+                        if (subBands.Count < maxCells && cell.OtherTiles.Count >= 2
+                            && DifferenceBands(bakeRoot, cell.OtherTiles[0], cell.OtherTiles[1], cell.TileSize) is { } sub)
                         {
-                            var b = DifferenceBands(bakeRoot, cell.OtherTiles[0], cell.OtherTiles[1], cell.TileSize);
-                            if (b is not null)
-                            {
-                                subBands.Add(b);
-                                subPairs++;
-                            }
+                            subBands.Add(sub);
                         }
-                        if (halfPairs < maxCells && cell.HalfATile is { } ha && cell.HalfBTile is { } hb)
+                        if (halfBands.Count < maxCells && cell.HalfATile is { } ha && cell.HalfBTile is { } hb
+                            && DifferenceBands(bakeRoot, ha, hb, cell.TileSize) is { } half)
                         {
-                            var b = DifferenceBands(bakeRoot, ha, hb, cell.TileSize);
-                            if (b is not null)
-                            {
-                                halfBands.Add(b);
-                                halfPairs++;
-                            }
+                            halfBands.Add(half);
                         }
-                    }
-                    if (subPairs >= maxCells && halfPairs >= maxCells)
-                    {
-                        break;
+                        if (subBands.Count >= maxCells && halfBands.Count >= maxCells)
+                        {
+                            break;
+                        }
                     }
                 }
-                measurements.Add(Summarise("real sub pairs", subBands));
-                measurements.Add(Summarise("real half-master pairs", halfBands));
+                var name = sessionId.Split('|')[0];
+                perSession.Add(Summarise($"{name} injected", injected));
+                perSession.Add(Summarise($"{name} half-master", halfBands));
+                pooled.Injected.AddRange(injected);
+                pooled.Sub.AddRange(subBands);
+                pooled.Half.AddRange(halfBands);
             }
 
+            var measurements = ImmutableArray.CreateBuilder<ShapeMeasurement>();
+            measurements.Add(Summarise("injected draws", pooled.Injected));
+            if (real is not null)
+            {
+                measurements.Add(Summarise("real sub pairs", pooled.Sub));
+                measurements.Add(Summarise("real half-master pairs", pooled.Half));
+            }
+            measurements.AddRange(perSession);
             return measurements.ToImmutable();
         }
 

@@ -172,6 +172,22 @@ public class StarInjectionTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void ANeighbourOnASaturatedPlateauClipsWithIt()
+    {
+        // The sensor clips the sum: a bright unsaturated star 2 px off a saturated one's centre must not stand above the clip.
+        const int size = 64;
+        const double clip = 0.5;
+        var plate = new[] { Filled(size, 0.05f) };
+        var profile = StarProfile.Round(StarProfileFamily.Moffat, 2.5, 3.0);
+        var saturated = new InjectedStar(32.0, 32.0, [30.0], [profile], true, [clip]);
+        var neighbour = new InjectedStar(34.0, 32.0, [0.8], [profile], false, []);
+        var render = StarInjection.Render(plate, size, size, null, [neighbour, saturated], [1e-6], new Random(5));
+        var peak = render.Planes[0].Max();
+        output.WriteLine($"peak {peak:F4} against the clip {clip}");
+        peak.ShouldBeLessThanOrEqualTo((float)clip + 1e-6f);
+    }
+
+    [Fact]
     public void TheSameSeedGivesTheSameSaturatedStar()
     {
         const int size = 40;

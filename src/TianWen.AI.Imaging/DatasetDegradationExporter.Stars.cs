@@ -150,19 +150,42 @@ public static partial class DatasetDegradationExporter
 
         public bool HasPlate(string sessionId) => File.Exists(PlatePath(sessionId)) && File.Exists(CataloguePath(sessionId));
 
-        /// <summary>Each channel's FWHM and Moffat beta from the master's own profile fits.</summary>
-        public (double Fwhm, double Beta)[] ChannelPsf(string sessionId, int channels)
+        /// <summary>
+        /// Each channel's FWHM and Moffat beta from the master's own profile fits. A channel the store could not measure takes
+        /// the nearest measured channel's (the lower one on a tie): a line filter on a colour sensor leaves a channel too few
+        /// stars to stack (the Rim Nebula's SII night has no blue profile), and its stars are still there to inject. Each
+        /// borrowing is named in <paramref name="borrowed"/>; a session with no measured channel at all is refused.
+        /// </summary>
+        public (double Fwhm, double Beta)[] ChannelPsf(string sessionId, int channels, out string? borrowed)
         {
+            borrowed = null;
             if (!Psf.TryGetValue(sessionId, out var record) || record.MasterProfiles is not { } profiles || profiles.Length != channels)
             {
                 throw new InvalidOperationException($"{sessionId}: the PSF store has no per-channel master profile for this session");
             }
+            static bool Measured(PsfProfileFit.Result? p) => p is { } r && r.Fwhm > 0 && r.MoffatBeta > 0;
             var result = new (double, double)[channels];
             for (var c = 0; c < channels; c++)
             {
-                if (profiles[c] is not { } p || !(p.Fwhm > 0) || !(p.MoffatBeta > 0))
+                var source = -1;
+                for (var d = 0; d < channels && source < 0; d++)
                 {
-                    throw new InvalidOperationException($"{sessionId}: channel {c} has no measured master profile");
+                    if (c - d >= 0 && Measured(profiles[c - d]))
+                    {
+                        source = c - d;
+                    }
+                    else if (c + d < channels && Measured(profiles[c + d]))
+                    {
+                        source = c + d;
+                    }
+                }
+                if (source < 0 || profiles[source] is not { } p)
+                {
+                    throw new InvalidOperationException($"{sessionId}: no channel has a measured master profile");
+                }
+                if (source != c)
+                {
+                    borrowed = (borrowed is null ? "" : borrowed + ", ") + $"channel {c} from channel {source}";
                 }
                 result[c] = (p.Fwhm, p.MoffatBeta);
             }
@@ -201,7 +224,11 @@ public static partial class DatasetDegradationExporter
             }
             var catalogue = await StarlessCatalogue.ReadAsync(stars.CataloguePath(sessionId), cancellationToken);
             var channels = master.ChannelCount;
-            var psf = stars.ChannelPsf(sessionId, channels);
+            var psf = stars.ChannelPsf(sessionId, channels, out var borrowed);
+            if (borrowed is not null)
+            {
+                logger?.LogWarning("[degrade] {Session}: the PSF store measured no profile for {Borrowed}", sessionId, borrowed);
+            }
 
             var selected = SelectCells(options, sessionId, cells, extraCells);
             var slug = DatasetTileExporter.Sanitize(sessionId);

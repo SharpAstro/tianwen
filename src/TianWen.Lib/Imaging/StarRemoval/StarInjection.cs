@@ -13,8 +13,8 @@ namespace TianWen.Lib.Imaging.StarRemoval;
 /// wings extrapolate to, past its clip.</param>
 /// <param name="Profiles">Each channel's profile.</param>
 /// <param name="Saturated">Rendered as a stack saturates (<see cref="StarInjection"/>).</param>
-/// <param name="ClipLevels">Each channel's clip level, the plate plus the star never passing it; empty for an unsaturated
-/// star.</param>
+/// <param name="ClipLevels">Each channel's clip level, the plate plus the star never passing it; positive infinity for a
+/// channel the star does not clip; empty for an unsaturated star.</param>
 public sealed record InjectedStar(
     double X, double Y, ImmutableArray<double> Amplitudes, ImmutableArray<StarProfile> Profiles, bool Saturated,
     ImmutableArray<double> ClipLevels);
@@ -53,7 +53,8 @@ public static class StarInjection
     /// <paramref name="width"/> by <paramref name="height"/>). Pixels in <paramref name="absent"/> are never touched. A star
     /// is rendered out to where its light falls below <paramref name="floors"/> (per channel, the plate's units), and no
     /// pixel past that radius is written. The
-    /// unsaturated stars go in first, so a saturated one clips against everything beneath it; <paramref name="rng"/> draws
+    /// unsaturated stars go in first, so a saturated one's clip takes an unsaturated neighbour on its plateau with it, as the
+    /// sensor clips the sum (only the plate itself is never darkened); <paramref name="rng"/> draws
     /// the virtual subs only, so the render of an unsaturated field does not consume it.
     /// </summary>
     public static InjectionRender Render(
@@ -85,7 +86,7 @@ public static class StarInjection
         {
             if (star.Saturated)
             {
-                RenderSaturated(planes, unclipped, width, height, absent, star, floors, rng);
+                RenderSaturated(plate, planes, unclipped, width, height, absent, star, floors, rng);
             }
         }
         return new InjectionRender(planes, unclipped);
@@ -122,7 +123,8 @@ public static class StarInjection
     }
 
     private static void RenderSaturated(
-        float[][] planes, float[][] unclipped, int width, int height, BitMatrix? absent, InjectedStar star, IReadOnlyList<double> floors, Random rng)
+        IReadOnlyList<float[]> plate, float[][] planes, float[][] unclipped, int width, int height, BitMatrix? absent, InjectedStar star,
+        IReadOnlyList<double> floors, Random rng)
     {
         var channels = planes.Length;
         Span<double> ampScale = stackalloc double[VirtualSubs];
@@ -165,8 +167,11 @@ public static class StarInjection
                 for (var c = 0; c < channels; c++)
                 {
                     var below = planes[c][i];
-                    // A plate already above the level (it should not be) is not darkened by the clip.
-                    var clip = Math.Max(star.ClipLevels[c], below);
+                    // The sensor clips the SUM, so an injected neighbour on the plateau clips with it (clipped against
+                    // everything beneath, one stood above the clip: 3 pixels on Centaurus A's checks); only a plate already
+                    // above the level (it should not be) is left as it is. A channel the star did not clip has no level
+                    // (positive infinity, InjectionPopulation), so nothing clips there.
+                    var clip = Math.Max(star.ClipLevels[c], plate[c][i]);
                     double sum = 0;
                     var clipped = 0;
                     for (var k = 0; k < VirtualSubs; k++)
