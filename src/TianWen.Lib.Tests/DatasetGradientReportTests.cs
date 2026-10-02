@@ -405,6 +405,30 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact(Timeout = 60_000)]
+        public async Task AMasterReBakedUnderItsOwnNameIsMeasuredAgain()
+        {
+            // The 2026-10-02 re-bake rewrote six masters under their old names; keyed by name alone, the store
+            // kept the old masters' measurements for them. A record is current only while its file is.
+            var ct = TestContext.Current.CancellationToken;
+            Directory.CreateDirectory(_dir);
+            var path = Path.Combine(_dir, "session.fits");
+            var master = SyntheticMaster(128, 96, 4, 0.01f, 0.003f, 2e-4f, seed: 3);
+            master.WriteToFitsFile(path);
+            master.Release();
+            var options = new DatasetGradientReport.RunOptions([path], _dir, Sweep: false, Solve: false);
+
+            var first = await DatasetGradientReport.RunAsync(options, solver: null, cancellationToken: ct);
+            first.Measured.ShouldBe(1);
+            var stored = (await DatasetGradientStore.ReadAsync(first.StorePath, cancellationToken: ct))["session.fits"];
+            stored.MasterWrittenUtc.ShouldBe(DatasetGradientReport.MasterGradient.WrittenUtcOf(path));
+
+            (await DatasetGradientReport.RunAsync(options, solver: null, cancellationToken: ct)).Measured.ShouldBe(0, "the same file is not measured twice");
+
+            File.SetLastWriteTimeUtc(path, File.GetLastWriteTimeUtc(path).AddHours(1));
+            (await DatasetGradientReport.RunAsync(options, solver: null, cancellationToken: ct)).Measured.ShouldBe(1, "a rewritten master is a new master");
+        }
+
+        [Fact(Timeout = 60_000)]
         public async Task ARunMeasuresTheMasterAndNotTheSidecarsBesideIt()
         {
             var ct = TestContext.Current.CancellationToken;

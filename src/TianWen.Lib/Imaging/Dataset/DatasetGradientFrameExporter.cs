@@ -163,7 +163,12 @@ public static class DatasetGradientFrameExporter
         double PixelScaleArcsec, string ScaleSource, double FieldWidthDeg,
         bool HasCovariates, DateTimeOffset Epoch, double AltitudeDeg, double AzimuthDeg, double Airmass,
         double ParallacticAngleDeg, double HorizonAngleInFrameDeg,
-        double MoonAltitudeDeg, double MoonIllumination, double MoonSeparationDeg, double MoonAngleInFrameDeg);
+        double MoonAltitudeDeg, double MoonIllumination, double MoonSeparationDeg, double MoonAngleInFrameDeg)
+    {
+        /// <summary>The master file's last write when it was exported, UTC (<see cref="DatasetGradientReport.MasterGradient.WrittenUtcOf"/>).
+        /// A row is reused only while the master is that file: a re-bake rewrites a master under its own name.</summary>
+        public DateTimeOffset? MasterWrittenUtc { get; init; }
+    }
 
     /// <summary>
     /// Exports every master not already in the manifest, appending each row as it completes, so a stopped
@@ -202,7 +207,8 @@ public static class DatasetGradientFrameExporter
             cancellationToken.ThrowIfCancellationRequested();
             index++;
             var key = Path.GetFileName(path);
-            if (!options.Force && done.TryGetValue(key, out var existing) && File.Exists(Path.Combine(options.OutputDir, existing.File)))
+            if (!options.Force && done.TryGetValue(key, out var existing) && File.Exists(Path.Combine(options.OutputDir, existing.File))
+                && existing.MasterWrittenUtc == DatasetGradientReport.MasterGradient.WrittenUtcOf(path))
             {
                 skipped++;
                 progress?.Report($"[gradient-export] {index}/{files.Length} in manifest, skipped: {key}");
@@ -217,7 +223,8 @@ public static class DatasetGradientFrameExporter
             {
                 covariates.TryGetValue(key, out var record);
                 psfBySession.TryGetValue(sessionId, out var psf);
-                var row = await ExportMasterAsync(path, sessionId, split, record, psf, options.OutputDir, options.Size, cancellationToken);
+                var row = await ExportMasterAsync(path, sessionId, split, record, psf, options.OutputDir, options.Size, cancellationToken)
+                    with { MasterWrittenUtc = DatasetGradientReport.MasterGradient.WrittenUtcOf(path) };
                 await JsonLinesFile.AppendRecordAsync(manifestPath, row, DatasetGradientFrameJsonContext.Default.FrameRow, cancellationToken);
                 exported++;
                 test += split == "test" ? 1 : 0;
