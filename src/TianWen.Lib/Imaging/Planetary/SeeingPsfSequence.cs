@@ -113,7 +113,7 @@ internal sealed class SeeingPsfSequence
             ? new EvolvingPhaseScreen(_screenSamples, screenSpacing, options.LocalR0M, new Random(options.Seed + 2), options.LocalOuterScaleM)
             : null;
         _localPhase = _local is null ? [] : new double[_screenSamples * _screenSamples];
-        _localRenewSeconds = _local is null ? double.PositiveInfinity : _local.SizeM / Math.Max(options.LocalWindMps, 1e-3) / 3;
+        _localRenewSeconds = _local is null ? double.PositiveInfinity : options.LocalRenewSeconds ?? (_local.SizeM / Math.Max(options.LocalWindMps, 1e-3) / 3);
         _localWind = (options.LocalWindMps * Math.Cos((options.WindAngleDeg + 90) * Math.PI / 180), options.LocalWindMps * Math.Sin((options.WindAngleDeg + 90) * Math.PI / 180));
         _screenPhase = new double[_screenSamples * _screenSamples];
 

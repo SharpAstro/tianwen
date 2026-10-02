@@ -56,6 +56,13 @@ public sealed record DegradeOptions(Pupil Pupil, double WavelengthM)
     /// <summary>How fast the local layer's air drifts across the pupil, in metres a second (zero holds it still).</summary>
     public double LocalWindMps { get; init; } = 1;
 
+    /// <summary>
+    /// The time over which the local layer renews itself in place, in seconds (its modes' correlation falling to 1/e), whatever it drifts:
+    /// the tube's air boiling rather than blowing past (R4 per-point, #1071). Null, the default, renews it only as its drift brings the
+    /// periodic screen round, so still air stays the same air.
+    /// </summary>
+    public double? LocalRenewSeconds { get; init; }
+
     /// <summary>The wind that carries the phase screen across the pupil, in metres a second.</summary>
     public double WindMps { get; init; } = 10;
 
