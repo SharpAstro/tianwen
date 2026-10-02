@@ -38,6 +38,13 @@ public sealed class GlobalAligner
         _spectrumScratch = new Complex[tileSize * tileSize];
     }
 
+    /// <summary>
+    /// An aligner on the same reference with scratch of its own, for another thread: <see cref="Estimate"/> writes this one's
+    /// scratch, so two threads never share one, while the reference spectrum, read only, is shared. It estimates exactly as
+    /// this one does, since every call overwrites its scratch in full.
+    /// </summary>
+    internal GlobalAligner Twin() => new GlobalAligner(_tileSize, _referenceSpectrum, _refCenterX, _refCenterY, _whiten);
+
     /// <summary>The power-of-two tile edge used for phase correlation.</summary>
     public int TileSize => _tileSize;
 

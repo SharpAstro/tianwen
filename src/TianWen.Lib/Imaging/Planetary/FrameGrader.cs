@@ -38,19 +38,23 @@ public sealed class FrameGrader(IFrameQualityEstimator estimator)
             return ImmutableArray<FrameGrade>.Empty;
         }
 
+        // A batch of frames graded side by side (PlanetaryFrameBatches): a grade is the frame's own, and every estimator takes
+        // its scratch per call, so the grades are the ones a frame-by-frame walk gives.
+        var scores = new float[count];
+        var every = ImmutableArray.CreateBuilder<int>(count);
+        for (var i = 0; i < count; i++)
+        {
+            every.Add(i);
+        }
+        await PlanetaryFrameBatches.RunAsync(stream, every.MoveToImmutable(),
+            (image, _, _) => Grade(estimator, image, region),
+            (_, index, score) => scores[index] = score,
+            cancellationToken).ConfigureAwait(false);
+
         var grades = ImmutableArray.CreateBuilder<FrameGrade>(count);
         for (var i = 0; i < count; i++)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var image = await stream.LoadAsync(i, cancellationToken).ConfigureAwait(false);
-            try
-            {
-                grades.Add(new FrameGrade(i, Grade(estimator, image, region)));
-            }
-            finally
-            {
-                image.Release();
-            }
+            grades.Add(new FrameGrade(i, scores[i]));
         }
 
         return grades.MoveToImmutable();

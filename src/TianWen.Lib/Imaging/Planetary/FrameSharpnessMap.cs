@@ -22,61 +22,81 @@ public static class FrameSharpnessMap
         int w = frame.Width, h = frame.Height, channels = frame.ChannelCount;
         var inv = 1f / channels;
 
-        // Luminance proxy.
+        // Every pass but the mean runs in bands of rows (ParallelFor.RunBands): each pixel is computed from the plane before
+        // it exactly as in one walk, so the map is the same bit for bit, and the blur's 49 taps a pixel were 17 % of a
+        // 3,000-frame stack's time in one walk (2026-10-02). Luminance proxy, the channels added in order at each pixel.
+        // The planes resolved once, before the bands, never by each band (residency is the frame's to resolve).
+        var planes = frame.ResidentPlanes();
         var luma = new float[h, w];
-        for (var c = 0; c < channels; c++)
+        ParallelFor.RunBands(h, (yStart, yEnd) =>
         {
-            var span = frame.GetChannelSpan(c);
-            for (var y = 0; y < h; y++)
+            for (var c = 0; c < channels; c++)
             {
-                var row = y * w;
-                for (var x = 0; x < w; x++)
+                var plane = planes[c];
+                for (var y = yStart; y < yEnd; y++)
                 {
-                    luma[y, x] += span[row + x] * inv;
+                    for (var x = 0; x < w; x++)
+                    {
+                        luma[y, x] += plane[y, x] * inv;
+                    }
                 }
             }
-        }
+        });
 
         // Raw Sobel gradient energy.
         var energy = new float[h, w];
-        for (var y = 1; y < h - 1; y++)
+        ParallelFor.RunBands(Math.Max(0, h - 2), (bandStart, bandEnd) =>
         {
-            for (var x = 1; x < w - 1; x++)
+            for (var y = bandStart + 1; y < bandEnd + 1; y++)
             {
-                var gx = (luma[y - 1, x + 1] + (2f * luma[y, x + 1]) + luma[y + 1, x + 1])
-                       - (luma[y - 1, x - 1] + (2f * luma[y, x - 1]) + luma[y + 1, x - 1]);
-                var gy = (luma[y + 1, x - 1] + (2f * luma[y + 1, x]) + luma[y + 1, x + 1])
-                       - (luma[y - 1, x - 1] + (2f * luma[y - 1, x]) + luma[y - 1, x + 1]);
-                energy[y, x] = (gx * gx) + (gy * gy);
+                for (var x = 1; x < w - 1; x++)
+                {
+                    var gx = (luma[y - 1, x + 1] + (2f * luma[y, x + 1]) + luma[y + 1, x + 1])
+                           - (luma[y - 1, x - 1] + (2f * luma[y, x - 1]) + luma[y + 1, x - 1]);
+                    var gy = (luma[y + 1, x - 1] + (2f * luma[y + 1, x]) + luma[y + 1, x + 1])
+                           - (luma[y - 1, x - 1] + (2f * luma[y - 1, x]) + luma[y - 1, x + 1]);
+                    energy[y, x] = (gx * gx) + (gy * gy);
+                }
             }
-        }
+        });
 
-        // Box-blur to a regional sharpness, then normalise to unit mean.
+        // Box-blur to a regional sharpness.
         var map = new float[h, w];
+        ParallelFor.RunBands(h, (yStart, yEnd) =>
+        {
+            for (var y = yStart; y < yEnd; y++)
+            {
+                for (var x = 0; x < w; x++)
+                {
+                    float acc = 0;
+                    var cnt = 0;
+                    var y0 = Math.Max(0, y - smoothRadius);
+                    var y1 = Math.Min(h - 1, y + smoothRadius);
+                    var x0 = Math.Max(0, x - smoothRadius);
+                    var x1 = Math.Min(w - 1, x + smoothRadius);
+                    for (var yy = y0; yy <= y1; yy++)
+                    {
+                        for (var xx = x0; xx <= x1; xx++)
+                        {
+                            acc += energy[yy, xx];
+                            cnt++;
+                        }
+                    }
+
+                    map[y, x] = acc / cnt;
+                }
+            }
+        });
+
+        // Then normalise to unit mean, its sum taken in one walk in row order, as it always was: a sum is the one step whose
+        // bits depend on the order it is taken in.
         double sum = 0;
         var n = 0;
         for (var y = 0; y < h; y++)
         {
             for (var x = 0; x < w; x++)
             {
-                float acc = 0;
-                var cnt = 0;
-                var y0 = Math.Max(0, y - smoothRadius);
-                var y1 = Math.Min(h - 1, y + smoothRadius);
-                var x0 = Math.Max(0, x - smoothRadius);
-                var x1 = Math.Min(w - 1, x + smoothRadius);
-                for (var yy = y0; yy <= y1; yy++)
-                {
-                    for (var xx = x0; xx <= x1; xx++)
-                    {
-                        acc += energy[yy, xx];
-                        cnt++;
-                    }
-                }
-
-                var v = acc / cnt;
-                map[y, x] = v;
-                sum += v;
+                sum += map[y, x];
                 n++;
             }
         }

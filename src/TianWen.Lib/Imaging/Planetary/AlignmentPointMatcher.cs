@@ -44,6 +44,12 @@ public sealed class AlignmentPointMatcher
         _spectrumScratch = new Complex[patchSize * patchSize];
     }
 
+    /// <summary>
+    /// A matcher on the same reference points with scratch of its own, for another thread: <see cref="Match(Image, float, float, DerotationField?, Span{AlignmentPointShift})"/>
+    /// writes this one's scratch, while the reference spectra, read only, are shared. It matches exactly as this one does.
+    /// </summary>
+    internal AlignmentPointMatcher Twin() => new AlignmentPointMatcher(_patchSize, _width, _height, _apCenters, _referenceSpectra, _whiten);
+
     /// <summary>The alignment-point centres being tracked (reference-frame coordinates).</summary>
     public ImmutableArray<PixelPoint> AlignmentPoints => _apCenters;
 

@@ -946,9 +946,10 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
     /// The array is a snapshot: it holds the planes themselves, so it cannot be invalidated by a
     /// release landing mid-loop the way a re-read of the channel array could. That is deliberate --
     /// a guarantee of residency must not outlive the operation that established it, and holding the
-    /// arrays is what makes the guarantee true rather than merely claimed.
+    /// arrays is what makes the guarantee true rather than merely claimed. A kernel that runs in bands takes it once,
+    /// before them, so the bands never resolve residency against each other.
     /// </remarks>
-    private float[][,] ResidentPlanes()
+    internal float[][,] ResidentPlanes()
     {
         var planes = Planes;
         var arrays = new float[planes.Length][,];

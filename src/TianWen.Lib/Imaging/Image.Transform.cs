@@ -652,40 +652,45 @@ public partial class Image
             return;
         }
 
-        Span<float> samples = stackalloc float[channels];
-        for (var y = 0; y < outH; y++)
+        // In bands of output rows: each pixel gathers from the frame into its own cell, so a band's pixels sum as they did in
+        // one walk, bit for bit (ParallelFor.RunBands).
+        ParallelFor.RunBands(outH, (yStart, yEnd) =>
         {
-            var sy = y + dy;
-            for (var x = 0; x < outW; x++)
+            Span<float> samples = stackalloc float[channels];
+            for (var y = yStart; y < yEnd; y++)
             {
-                var sx = x + dx;
-
-                var ok = true;
-                for (var c = 0; c < channels; c++)
+                var sy = y + dy;
+                for (var x = 0; x < outW; x++)
                 {
-                    var v = AccumulateSample(planes[c], sx, sy, interpolation);
-                    if (float.IsNaN(v))
+                    var sx = x + dx;
+
+                    var ok = true;
+                    for (var c = 0; c < channels; c++)
                     {
-                        ok = false;
-                        break;
+                        var v = AccumulateSample(planes[c], sx, sy, interpolation);
+                        if (float.IsNaN(v))
+                        {
+                            ok = false;
+                            break;
+                        }
+
+                        samples[c] = v;
                     }
 
-                    samples[c] = v;
-                }
+                    if (!ok)
+                    {
+                        continue;
+                    }
 
-                if (!ok)
-                {
-                    continue;
-                }
+                    for (var c = 0; c < channels; c++)
+                    {
+                        channelAccum[c][y, x] += weight * samples[c];
+                    }
 
-                for (var c = 0; c < channels; c++)
-                {
-                    channelAccum[c][y, x] += weight * samples[c];
+                    weightAccum[y, x] += weight;
                 }
-
-                weightAccum[y, x] += weight;
             }
-        }
+        });
     }
 
     // AccumulateTranslatedInto by Lanczos-3. A translation samples every output pixel at the same fractional phase, so the six
@@ -705,7 +710,8 @@ public partial class Image
         Span<float> wy = stackalloc float[6];
         Lanczos3Weights(dx - ix, wx);
         Lanczos3Weights(dy - iy, wy);
-        Span<float> w2 = stackalloc float[36];
+        // An array, not a stackalloc: the bands below share it, and a lambda cannot capture a span.
+        var w2 = new float[36];
         for (var j = 0; j < 6; j++)
         {
             for (var i = 0; i < 6; i++)
@@ -717,36 +723,40 @@ public partial class Image
         // Output pixels whose taps (x + ix - 2 to x + ix + 3) all lie in the source.
         var (xFrom, xTo) = (Math.Max(0, 2 - ix), Math.Min(outW - 1, width - 4 - ix));
         var (yFrom, yTo) = (Math.Max(0, 2 - iy), Math.Min(outH - 1, height - 4 - iy));
-        Span<float> samples = stackalloc float[channels];
-        for (var y = 0; y < outH; y++)
+        // In bands of output rows, bit for bit as one walk (ParallelFor.RunBands).
+        ParallelFor.RunBands(outH, (yStart, yEnd) =>
         {
-            var rowInside = y >= yFrom && y <= yTo;
-            for (var x = 0; x < outW; x++)
+            Span<float> samples = stackalloc float[channels];
+            for (var y = yStart; y < yEnd; y++)
             {
-                var ok = true;
-                for (var c = 0; c < channels; c++)
+                var rowInside = y >= yFrom && y <= yTo;
+                for (var x = 0; x < outW; x++)
                 {
-                    var v = rowInside && x >= xFrom && x <= xTo
-                        ? Lanczos3Interior(MemoryMarshal.CreateReadOnlySpan(ref planes[c][0, 0], planes[c].Length), width, x + ix - 2, y + iy - 2, w2, clampThreshold)
-                        : AccumulateSample(planes[c], x + dx, y + dy, interpolation);
-                    if (float.IsNaN(v))
+                    var ok = true;
+                    for (var c = 0; c < channels; c++)
                     {
-                        ok = false;
-                        break;
+                        var v = rowInside && x >= xFrom && x <= xTo
+                            ? Lanczos3Interior(MemoryMarshal.CreateReadOnlySpan(ref planes[c][0, 0], planes[c].Length), width, x + ix - 2, y + iy - 2, w2, clampThreshold)
+                            : AccumulateSample(planes[c], x + dx, y + dy, interpolation);
+                        if (float.IsNaN(v))
+                        {
+                            ok = false;
+                            break;
+                        }
+                        samples[c] = v;
                     }
-                    samples[c] = v;
+                    if (!ok)
+                    {
+                        continue;
+                    }
+                    for (var c = 0; c < channels; c++)
+                    {
+                        channelAccum[c][y, x] += weight * samples[c];
+                    }
+                    weightAccum[y, x] += weight;
                 }
-                if (!ok)
-                {
-                    continue;
-                }
-                for (var c = 0; c < channels; c++)
-                {
-                    channelAccum[c][y, x] += weight * samples[c];
-                }
-                weightAccum[y, x] += weight;
             }
-        }
+        });
     }
 
     // Lanczos3Value's sum over a 6 by 6 block whose corner (x0, y0) and every tap lie inside the plane, the weights given.
@@ -851,42 +861,46 @@ public partial class Image
         // Residency resolved once per operation, not once per sampled pixel.
         var planes = ResidentPlanes();
 
-        Span<float> samples = stackalloc float[channels];
-        for (var y = 0; y < outH; y++)
+        // In bands of output rows, bit for bit as one walk (ParallelFor.RunBands): the mesh is read only.
+        ParallelFor.RunBands(outH, (yStart, yEnd) =>
         {
-            for (var x = 0; x < outW; x++)
+            Span<float> samples = stackalloc float[channels];
+            for (var y = yStart; y < yEnd; y++)
             {
-                var (ox, oy) = mesh.Sample(x, y);
-                var sx = x + ox;
-                var sy = y + oy;
-
-                var ok = true;
-                for (var c = 0; c < channels; c++)
+                for (var x = 0; x < outW; x++)
                 {
-                    var v = AccumulateSample(planes[c], sx, sy, interpolation);
-                    if (float.IsNaN(v))
+                    var (ox, oy) = mesh.Sample(x, y);
+                    var sx = x + ox;
+                    var sy = y + oy;
+
+                    var ok = true;
+                    for (var c = 0; c < channels; c++)
                     {
-                        ok = false;
-                        break;
+                        var v = AccumulateSample(planes[c], sx, sy, interpolation);
+                        if (float.IsNaN(v))
+                        {
+                            ok = false;
+                            break;
+                        }
+
+                        samples[c] = v;
                     }
 
-                    samples[c] = v;
-                }
+                    if (!ok)
+                    {
+                        continue;
+                    }
 
-                if (!ok)
-                {
-                    continue;
-                }
+                    var gain = relit ? weight * mesh.RelightAt(x, y) : weight;
+                    for (var c = 0; c < channels; c++)
+                    {
+                        channelAccum[c][y, x] += gain * samples[c];
+                    }
 
-                var gain = relit ? weight * mesh.RelightAt(x, y) : weight;
-                for (var c = 0; c < channels; c++)
-                {
-                    channelAccum[c][y, x] += gain * samples[c];
+                    weightAccum[y, x] += weight;
                 }
-
-                weightAccum[y, x] += weight;
             }
-        }
+        });
     }
 
     /// <summary>
@@ -919,57 +933,62 @@ public partial class Image
         var height = Height;
         var relit = mesh.Derotation is not null;
 
-        Span<float> samples = stackalloc float[channels];
-        for (var y = 0; y < outH; y++)
+        // In bands of output rows, bit for bit as one walk (ParallelFor.RunBands): the mesh, the quality map and the gate are
+        // read only. The batch stack's fold, and most of its time in one walk (57 % of a 3,000-frame stack, 2026-10-02).
+        ParallelFor.RunBands(outH, (yStart, yEnd) =>
         {
-            for (var x = 0; x < outW; x++)
+            Span<float> samples = stackalloc float[channels];
+            for (var y = yStart; y < yEnd; y++)
             {
-                var (ox, oy) = mesh.Sample(x, y);
-                var sx = x + ox;
-                var sy = y + oy;
-
-                var ok = true;
-                for (var c = 0; c < channels; c++)
+                for (var x = 0; x < outW; x++)
                 {
-                    var v = AccumulateSample(planes[c], sx, sy, interpolation);
-                    if (float.IsNaN(v))
+                    var (ox, oy) = mesh.Sample(x, y);
+                    var sx = x + ox;
+                    var sy = y + oy;
+
+                    var ok = true;
+                    for (var c = 0; c < channels; c++)
                     {
-                        ok = false;
-                        break;
+                        var v = AccumulateSample(planes[c], sx, sy, interpolation);
+                        if (float.IsNaN(v))
+                        {
+                            ok = false;
+                            break;
+                        }
+
+                        samples[c] = v;
                     }
 
-                    samples[c] = v;
-                }
+                    if (!ok)
+                    {
+                        continue;
+                    }
 
-                if (!ok)
-                {
-                    continue;
-                }
+                    var qx = Math.Clamp((int)MathF.Round(sx), 0, width - 1);
+                    var qy = Math.Clamp((int)MathF.Round(sy), 0, height - 1);
+                    var localQ = frameLocalQuality[qy, qx];
+                    // Gate the per-pixel sharpness weight by output-space signal confidence: blend toward a
+                    // uniform weight (1) wherever there is little real signal, so faint regions are an unbiased
+                    // mean instead of a brightness-biased "best-of" that amplifies the halo.
+                    var q = signalConfidence is null
+                        ? localQ
+                        : (signalConfidence[y, x] * localQ) + (1f - signalConfidence[y, x]);
+                    var weight = globalWeight * q;
+                    if (weight <= 0f)
+                    {
+                        continue;
+                    }
 
-                var qx = Math.Clamp((int)MathF.Round(sx), 0, width - 1);
-                var qy = Math.Clamp((int)MathF.Round(sy), 0, height - 1);
-                var localQ = frameLocalQuality[qy, qx];
-                // Gate the per-pixel sharpness weight by output-space signal confidence: blend toward a
-                // uniform weight (1) wherever there is little real signal, so faint regions are an unbiased
-                // mean instead of a brightness-biased "best-of" that amplifies the halo.
-                var q = signalConfidence is null
-                    ? localQ
-                    : (signalConfidence[y, x] * localQ) + (1f - signalConfidence[y, x]);
-                var weight = globalWeight * q;
-                if (weight <= 0f)
-                {
-                    continue;
-                }
+                    var gain = relit ? weight * mesh.RelightAt(x, y) : weight;
+                    for (var c = 0; c < channels; c++)
+                    {
+                        channelAccum[c][y, x] += gain * samples[c];
+                    }
 
-                var gain = relit ? weight * mesh.RelightAt(x, y) : weight;
-                for (var c = 0; c < channels; c++)
-                {
-                    channelAccum[c][y, x] += gain * samples[c];
+                    weightAccum[y, x] += weight;
                 }
-
-                weightAccum[y, x] += weight;
             }
-        }
+        });
     }
 
     /// <summary>
