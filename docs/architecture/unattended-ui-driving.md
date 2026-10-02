@@ -198,6 +198,7 @@ cases at both scales. The remaining cases passed in each run, so each assertion 
 names.
 
 **What it cannot see**, by construction: SDL's event pump, the Vulkan upload and draw (so the picture
-itself, the histogram panel and its LOG toggle, which only exist with a GPU histogram), the window, the
-instance gate. The GPU side has its own tests and the live inspector above. The file dialog and the plate
+itself, and the histogram's own curve), the window, the instance gate. The histogram PANEL and its LOG
+toggle are painted when a test asks (`Surface.PaintsHistogram`), from a display built the way the GPU
+viewer builds its own, so a test reads and presses the toggle where it is drawn. The GPU side has its own tests and the live inspector above. The file dialog and the plate
 solver are substitutes, because one waits on a human and the other on a catalogue.

@@ -31,24 +31,34 @@ namespace TianWen.UI.Abstractions
             return (rightEdge - histW - margin, top, histW, histH);
         }
 
-        // The LOG toggle's label, one node for the paint and the test seam. A layout node's font size is in DESIGN units (the engine
-        // scales it by DpiScale), while the box it is drawn in is in device pixels: given ToolbarFontSize, already scaled, the label was
-        // drawn DpiScale times too large for its box and read "L..." on a 2x display.
-        private Layout.Node HistogramLogLabel()
-            => Layout.Builder.Text("LOG", BaseToolbarFontSize, ViewerTheme.Palette.BodyText, hAlign: TextAlign.Center);
-
-        /// <summary>Test seam: the LOG label's measured width, as the engine draws it, and the width of the box it is drawn in.</summary>
-        internal (float Label, float Box) HistogramLogLabelFit(ViewerState state)
-            => (MeasureLayout(HistogramLogLabel(), new Layout.Size<float>(float.MaxValue, float.MaxValue)).Width, GetHistogramLogButtonRect(state).W);
-
-        private (float X, float Y, float W, float H) GetHistogramLogButtonRect(ViewerState state)
+        // The LOG toggle, declared whole: its label, its padding and its corner of the histogram. The engine measures the box FROM the
+        // label and places it, so there is no second statement of its size to disagree with the first. There was one: the box was summed
+        // by hand in device pixels around a label the engine scales from DESIGN units, the label was given the already scaled size, and
+        // it was drawn DpiScale times too large for its box and read "L..." on a 2x display. Every size here is in design units.
+        //
+        // The hover CONDITION is still the viewer's own prediction, and has to be: hover is resolved at PAINT time, this surface paints
+        // before the popovers, and an open popover claims the pointer only when IT paints. The host cannot declare the claim itself --
+        // the claim is per WINDOW, and in the GUI this viewer is one widget among several (see the note at the top of Render). So the
+        // prediction is consulted ONCE here, on the node, instead of being folded into a hand-computed hover boolean; .Bg always sets a
+        // value, which is why the hover colour is applied conditionally rather than passed as default.
+        private Layout.Node HistogramLogButton(ViewerState state)
         {
-            var (histLeft, histTop, histW, _) = GetHistogramRect(state);
-            var btnW = MeasureText("LOG", ToolbarFontSize) + ButtonPaddingH;
-            var btnH = ToolbarFontSize + 4f * DpiScale;
-            var btnX = histLeft + histW - btnW - 2f * DpiScale;
-            var btnY = histTop + 2f * DpiScale;
-            return (btnX, btnY, btnW, btnH);
+            var button = Layout.Builder.Text("LOG", BaseToolbarFontSize, ViewerTheme.Palette.BodyText, hAlign: TextAlign.Center)
+                .PadX(BaseButtonPaddingH / 2f)
+                // A line box, as the viewer's other declared buttons have (the tone and white balance panels): the engine measures a
+                // text by its INK, which for "LOG" is its cap height alone.
+                .RowH(BaseToolbarFontSize + 4f)
+                .Bg(state.HistogramLogScale ? HistogramLogOnBg : HistogramLogOffBg)
+                .Clickable(new HitResult.ButtonHit("HistogramLog"),
+                    _ => { state.HistogramLogScale = !state.HistogramLogScale; },
+                    CursorKind.Pointer);
+
+            if (!state.OverlayOwnsPointer)
+            {
+                button = button.BgHover(state.HistogramLogScale ? HistogramLogOnHoverBg : HistogramLogOffHoverBg);
+            }
+
+            return Layout.Builder.Anchored(button, Layout.DockSide.Right, margin: 2f);
         }
 
         private void RenderHistogram(IPreviewSource source, ViewerState state)
@@ -80,35 +90,13 @@ namespace TianWen.UI.Abstractions
                 histLeft, histTop, histLeft + histW, histTop + histH, Width, Height);
 
             // The LOG button is a DECLARED node, not four hand-laid rects. The engine measures it,
-            // paints it, resolves its hover and binds its click from the one arranged rect, so the
-            // draw and the hit test cannot disagree -- which is the whole reason the chrome is moving
-            // to trees (docs/plans/viewer-layout-engine.md).
-            //
-            // The hover CONDITION is still the viewer's own prediction, and has to be: hover is
-            // resolved at PAINT time, this surface paints before the popovers, and an open popover
-            // claims the pointer only when IT paints. The host cannot declare the claim itself --
-            // the claim is per WINDOW, and in the GUI this viewer is one widget among several (see
-            // the note at the top of Render). So the prediction is consulted ONCE here, on the node,
-            // instead of being folded into a hand-computed hover boolean; .Bg always sets a value,
-            // which is why the hover colour is applied conditionally rather than passed as default.
+            // places it, paints it, resolves its hover and binds its click from the one arranged rect,
+            // so the draw and the hit test cannot disagree -- which is the whole reason the chrome is
+            // moving to trees (docs/plans/viewer-layout-engine.md). It is arranged into the histogram's
+            // own rect and pins itself to the corner (HistogramLogButton).
             if (!string.IsNullOrEmpty(FontPath))
             {
-                var (bx, by, bw, bh) = GetHistogramLogButtonRect(state);
-                var fill = state.HistogramLogScale ? HistogramLogOnBg : HistogramLogOffBg;
-                var hoverFill = state.HistogramLogScale ? HistogramLogOnHoverBg : HistogramLogOffHoverBg;
-
-                var button = HistogramLogLabel()
-                    .Bg(fill)
-                    .Clickable(new HitResult.ButtonHit("HistogramLog"),
-                        _ => { state.HistogramLogScale = !state.HistogramLogScale; },
-                        CursorKind.Pointer);
-
-                if (!state.OverlayOwnsPointer)
-                {
-                    button = button.BgHover(hoverFill);
-                }
-
-                RenderLayout(button, new RectF32(bx, by, bw, bh));
+                RenderLayout(HistogramLogButton(state), new RectF32(histLeft, histTop, histW, histH));
             }
         }
 
