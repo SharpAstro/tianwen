@@ -261,6 +261,17 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     public event EventHandler<GuiderStateChangedEventArgs>? GuiderStateChangedEvent;
 #pragma warning restore CS0067
 
+    /// <inheritdoc/>
+    public event EventHandler<GuideCorrectionEventArgs>? GuideCorrectionEvent;
+
+    /// <summary>The guide loop's correction, in arcseconds, as <see cref="GuideCorrectionEvent"/> (#821).</summary>
+    private void OnGuideLoopCorrected(GuideLoopCorrection c)
+    {
+        var scale = GuiderPixelScale; // px → arcsec
+        GuideCorrectionEvent?.Invoke(this, new GuideCorrectionEventArgs(
+            c.FrameTime, c.RaErrorPx * scale, c.DecErrorPx * scale, c.RaPulseMs, c.DecPulseMs));
+    }
+
     private GuiderState CurrentState => (GuiderState)Interlocked.CompareExchange(ref _state, 0, 0);
 
     private bool TryTransition(GuiderState from, GuiderState to)
@@ -760,6 +771,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
                 var guideLoop = new GuideLoop(pulseTarget, tracker, pController, TimeProvider, Logger);
                 guideLoop.SetCalibration(calResult.Value);
+                guideLoop.Corrected += OnGuideLoopCorrected;
 
                 // Enable neural guide model with online learning if configured (and not disabled
                 // after a divergence-triggered recalibration -- a suspect model must not be reloaded).

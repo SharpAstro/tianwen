@@ -409,6 +409,9 @@ internal partial record Session
 
         using var ticker = new PeriodicTimer(tickDuration, _timeProvider.System);
 
+        // Every guide correction while this loop runs is a guide sample (#821).
+        using var guideCorrections = ListenForGuideCorrections(guider.Driver);
+
         // When the guider is not guiding, this stamps when it first dropped out so we can tell a
         // brief in-place recovery (defer to it) from a stuck/stopped guider (restart). Reset
         // whenever guiding is healthy or after a successful restart. See DecideGuiderIntervention.
@@ -438,32 +441,20 @@ internal partial record Session
             try { _guiderSettleProgress = await guider.Driver.GetSettleProgressAsync(cancellationToken); } catch { /* ignore */ }
             try { _guideExposure = await guider.Driver.ExposureTimeAsync(cancellationToken); } catch { /* ignore */ }
 
-            // Poll guide stats each tick for the guide graph (also during settling, guide loop still corrects)
+            // Poll the guide stats each tick for the guider panel's RMS (also during settling, the guide
+            // loop still corrects). The guide SAMPLES are not polled: they come from the guider's own
+            // corrections (guideCorrections above), one per guide frame at the frame's time (#821).
             var isSettlingOrGuiding = isGuiding || _guiderState is "Settling";
             if (isSettlingOrGuiding)
             {
-                GuideStats? guideStats = null;
-                try { guideStats = await guider.Driver.GetStatsAsync(cancellationToken); } catch { /* ignore */ }
-                if (guideStats is { } gs)
+                try
                 {
-                    UpdateGuideStats(gs);
+                    if (await guider.Driver.GetStatsAsync(cancellationToken) is { } gs)
+                    {
+                        UpdateGuideStats(gs);
+                    }
                 }
-
-                // A sample is a MEASURED error or nothing. With no last error the guider has not
-                // measured one yet (or cannot say), and anything stood in for it -- a zero before the
-                // first measurement, the RMS scaled by a random number after -- is read by
-                // GuideStatistics.OverExposure as real guiding: null is not zero (#821). The dither
-                // mark stays pending for the next real sample.
-                if (guideStats is { LastRaErr: { } raErr, LastDecErr: { } decErr } measured)
-                {
-                    var isDither = _ditherPending;
-                    if (isDither) _ditherPending = false;
-                    var isSettling = _guiderState is "Settling";
-                    AppendGuideErrorSample(new GuideErrorSample(
-                        _timeProvider.GetUtcNow(), raErr, decErr,
-                        measured.LastRaPulseMs ?? 0, measured.LastDecPulseMs ?? 0,
-                        isDither, isSettling));
-                }
+                catch { /* ignore */ }
             }
 
             if (isGuiding)

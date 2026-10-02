@@ -446,6 +446,15 @@ public interface IGuider : IDeviceDriver
     event EventHandler<GuiderStateChangedEventArgs>? GuiderStateChangedEvent;
 
     /// <summary>
+    /// Raised once per guide correction, on the guider's thread, with the error that guide frame measured
+    /// and the frame's own time. This is the guide-sample source a session records from
+    /// (<c>Session.GuideSamples</c>, the light's <c>GUIDE*</c> cards); polling <see cref="GetStatsAsync"/>
+    /// samples a guide frame twice or misses it (#821). Not a failure report: that is
+    /// <see cref="GuidingErrorEvent"/>.
+    /// </summary>
+    event EventHandler<GuideCorrectionEventArgs>? GuideCorrectionEvent;
+
+    /// <summary>
     /// Snapshot of the most recent guide frame as an <see cref="Image"/> (mono, [0,1] normalized).
     /// Null if no frame available or guider doesn't expose frames (e.g., PHD2).
     /// Zero-copy: wraps the internal float[,] buffer directly.

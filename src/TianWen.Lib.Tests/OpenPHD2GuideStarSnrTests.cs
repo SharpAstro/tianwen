@@ -5,6 +5,7 @@ using System;
 using System.Text.Json;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Devices.OpenPHD2;
 using Xunit;
 
@@ -75,6 +76,47 @@ public class OpenPHD2GuideStarSnrTests
         await FeedAsync(driver, GuidingStopped);
 
         driver.GuideStarSNR.ShouldBeNull();
+    }
+
+    /// <summary>
+    /// Each GuideStep is one correction, raised with the EVENT's own timestamp and its pixel distances in
+    /// arcseconds, the pulses signed West / North positive (#821): the session records it as one guide
+    /// sample, instead of polling the stats once per imaging tick.
+    /// </summary>
+    [Fact]
+    public async Task AGuideStepRaisesOneCorrectionStampedWithItsOwnTimestamp()
+    {
+        var driver = CreateDriver();
+        driver.ArcsecPerPixel = 2.0;
+        var corrections = new System.Collections.Generic.List<GuideCorrectionEventArgs>();
+        driver.GuideCorrectionEvent += (_, e) => corrections.Add(e);
+
+        await FeedAsync(driver, GuideStep);
+
+        var c = corrections.ShouldHaveSingleItem();
+        c.FrameTime.ShouldBe(DateTimeOffset.FromUnixTimeMilliseconds(1480000000123));
+        c.RaError.ShouldBe(0.5);
+        c.DecError.ShouldBe(-0.24);
+        c.RaCorrectionMs.ShouldBe(-110); // East
+        c.DecCorrectionMs.ShouldBe(40);  // North
+    }
+
+    /// <summary>
+    /// Without a pixel scale a GuideStep's distance is in pixels, which a guide sample in arcseconds must
+    /// not carry: the correction is reported unmeasured, and a session records nothing for it.
+    /// </summary>
+    [Fact]
+    public async Task AGuideStepWithNoPixelScaleIsReportedUnmeasured()
+    {
+        var driver = CreateDriver();
+        var corrections = new System.Collections.Generic.List<GuideCorrectionEventArgs>();
+        driver.GuideCorrectionEvent += (_, e) => corrections.Add(e);
+
+        await FeedAsync(driver, GuideStep);
+
+        var c = corrections.ShouldHaveSingleItem();
+        c.RaError.ShouldBeNull();
+        c.DecError.ShouldBeNull();
     }
 
     [Fact]

@@ -199,6 +199,9 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
             {
                 Stats = stats;
             }
+
+            // One correction per GuideStep, settling steps included (they are flagged by the session).
+            RaiseGuideCorrection(@event.RootElement);
         }
         else if (eventName is "SettleBegin")
         {
@@ -552,6 +555,17 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
             Status = 0
         };
 
+        // Read the pixel scale ahead of the GuideSteps it converts (see _arcsecPerPixel). Best effort:
+        // without it a step is reported unmeasured, which records nothing, and guiding is unaffected.
+        try
+        {
+            await PixelScaleAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Logger.LogWarning(ex, "PHD2: could not read the pixel scale; guide steps will carry no error in arcseconds.");
+        }
+
         using var @lock = await _sync.AcquireLockAsync(cancellationToken).ConfigureAwait(false);
 
         if (Settle != null && !Settle.Done)
@@ -821,7 +835,66 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
         EnsureConnected();
 
         using var response = await CallAsync("get_pixel_scale", cancellationToken).ConfigureAwait(false);
-        return response.RootElement.GetProperty("result").GetDouble();
+        var scale = response.RootElement.GetProperty("result").GetDouble();
+        ArcsecPerPixel = scale;
+        return scale;
+    }
+
+    /// <summary>
+    /// PHD2's pixel scale (arcsec per pixel) as last read, NaN while unknown (a non-positive or non-finite
+    /// value is stored as unknown). A <c>GuideStep</c> reports its error in pixels and arrives on the event
+    /// reader, which cannot make an RPC of its own, so the scale is read ahead (<see cref="GuideAsync"/>)
+    /// and the step converted with it.
+    /// </summary>
+    internal double ArcsecPerPixel
+    {
+        get => Volatile.Read(ref _arcsecPerPixel);
+        set => Volatile.Write(ref _arcsecPerPixel, double.IsFinite(value) && value > 0 ? value : double.NaN);
+    }
+
+    private double _arcsecPerPixel = double.NaN;
+
+    /// <summary>
+    /// Raises <see cref="GuideCorrectionEvent"/> for one PHD2 <c>GuideStep</c>, stamped with the event's own
+    /// <c>Timestamp</c> (#821). With no pixel scale known, or a distance PHD2 did not send, the step is
+    /// reported with no measured error, which a session records as nothing rather than as pixels mislabelled
+    /// arcseconds.
+    /// </summary>
+    private void RaiseGuideCorrection(JsonElement step)
+    {
+        if (GuideCorrectionEvent is not { } handler)
+        {
+            return;
+        }
+
+        var frameTime = step.TryGetProperty("Timestamp", out var ts) && ts.ValueKind is JsonValueKind.Number
+            ? DateTimeOffset.FromUnixTimeMilliseconds((long)Math.Round(ts.GetDouble() * 1000.0))
+            : TimeProvider.GetUtcNow();
+
+        var scale = ArcsecPerPixel;
+        double? raError = !double.IsNaN(scale) && TryGetFinite(step, "RADistanceRaw") is { } ra ? ra * scale : null;
+        double? decError = !double.IsNaN(scale) && TryGetFinite(step, "DECDistanceRaw") is { } dec ? dec * scale : null;
+
+        handler(this, new GuideCorrectionEventArgs(
+            frameTime, raError, decError,
+            SignedPulseMs(step, "RADuration", "RADirection", positive: "West"),
+            SignedPulseMs(step, "DECDuration", "DECDirection", positive: "North")));
+
+        static double? TryGetFinite(JsonElement e, string name)
+            => e.TryGetProperty(name, out var v) && v.ValueKind is JsonValueKind.Number && v.GetDouble() is var d && double.IsFinite(d) ? d : null;
+
+        static double SignedPulseMs(JsonElement e, string durationName, string directionName, string positive)
+        {
+            if (TryGetFinite(e, durationName) is not { } ms)
+            {
+                return 0;
+            }
+
+            return e.TryGetProperty(directionName, out var dir) && dir.ValueKind is JsonValueKind.String
+                && !string.Equals(dir.GetString(), positive, StringComparison.OrdinalIgnoreCase)
+                ? -ms
+                : ms;
+        }
     }
 
     public async ValueTask<(int Width, int Height)?> CameraFrameSizeAsync(CancellationToken cancellationToken = default)
@@ -873,6 +946,9 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
     public event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
 
     public event EventHandler<GuiderStateChangedEventArgs>? GuiderStateChangedEvent;
+
+    /// <inheritdoc/>
+    public event EventHandler<GuideCorrectionEventArgs>? GuideCorrectionEvent;
 
     protected virtual void OnGuiderStateChangedEvent(GuiderStateChangedEventArgs eventArgs) => GuiderStateChangedEvent?.Invoke(this, eventArgs);
 
