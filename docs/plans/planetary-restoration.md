@@ -2110,6 +2110,26 @@ calibrated twin alike (so the sharpening's own, not the 2022 shell). Neither met
   Red stays at most 0.02; floored stays if none beats it.
 - **The rebound is used on a real capture only if it ranks the candidates as `LimbProfileError` does**, on each twin (Spearman at
   least 0.8, R3's rule); otherwise it is reported and not used.
+- **Read** (`planetary-sharpen --fix all --truth`, each twin's pipeline master at half the frames, 2022-09-03 Red's for the real
+  capture; the code of this PR, Release):
+
+  | Fix | Limb profile error, calibrated / without its still layer / warped | Summed | Band error summed | Red: undershoot, rebound |
+  |---|---|---|---|---|
+  | plain, floored | 0.0115 / 0.0044 / 0.0139 | 0.0298 | 1.776 | 0, 0.0120 (plain 0.0133) |
+  | limb channel | 0.0102 / 0.0041 / 0.0111 | **0.0254** | 1.803 | 0.0013, 0.0188 |
+  | feathered | 0.0307 / 0.0095 / 0.0324 | 0.0726 | 1.928 | 0, 0 |
+  | **bounded** | 0.0103 / 0.0043 / 0.0124 | 0.0270 | 1.777 | 0, 0.0101 |
+  | the stack, unsharpened | 0.0327 / 0.0097 / 0.0344 | 0.0768 | 3.726 | 0, 0 |
+
+  - **The rebound fails R3's rule**: it reads a ring above the sky and not a soft limb, so it ranks feathered, which has no ring and the
+    softest limb, best: a Spearman against the limb profile error of -0.16, -0.73 and -0.68 on the three twins. It is reported, not used.
+  - **The registered rule picks the limb channel** (the least limb profile error among the fixes within 2 % of floored's band error,
+    its undershoot on Red 0.0013). **On 2022-09-03 Red it rings out to about 1.3 radii**, stretched with black at the sky and white
+    at 3 % of the disk, more than floored; the rule's only real-capture gate, the undershoot, reads below the sky and cannot see it.
+  - **Bounded is the default, the owner's choice against the rule (2026-10-02), labelled post hoc**: second on the twins (6 % more limb
+    profile error than the limb channel, 9 % less than floored), floored's band error within 0.001 (1.777), and on Red only the stack's own glow
+    outside the limb. What it leaves is the first lobe, a thin dark trough at the limb that the floor holds at the sky, below the stack's
+    glow there: #1171.
 
 ## R9 A learned stage, only if the measurements say so
 

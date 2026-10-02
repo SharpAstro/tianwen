@@ -37,11 +37,12 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
     public ImmutableArray<double> WavelengthsNm { get; init; } = [550];
 
     /// <summary>
-    /// How the limb is kept from ringing: floored at the sky, the measured choice (docs/plans/planetary-restoration.md, the enhanced
-    /// pipeline): plain and floored tied for the least error over the three twins (1.776, the limb as its own channel 1.803, feathered
-    /// 1.928), every one under 0.02 of undershoot on the real capture, and the floor can only take away what digs below the sky.
+    /// How the limb is kept from ringing: bounded, held at the sky and outside the limb never brighter than the stack (the owner's
+    /// choice of 2026-10-02, #1168; docs/plans/planetary-restoration.md, "The sharpening's ring outside the limb"). Floored alone left
+    /// a ring above the sky; the limb as its own channel read a little truer on the twins (limb profile error 0.0254 against 0.0270)
+    /// but rang out to 1.3 radii on 2022-09-03 Red; bounded keeps floored's band error (1.777 against 1.776) without the outer ring.
     /// </summary>
-    public PlanetaryLimbFix Fix { get; init; } = PlanetaryLimbFix.Floored;
+    public PlanetaryLimbFix Fix { get; init; } = PlanetaryLimbFix.Bounded;
 
     /// <summary>
     /// Fit the gains with their composite through the kernel held non-negative (<see cref="PlanetaryWaveletGains.FitNonNegative"/>, R8
