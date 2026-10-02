@@ -458,6 +458,32 @@ amplitude.
   star is nearer than 3 FWHM to one.
 - **Determinism**: the same seed gives the same bytes, and the Noise and Blur modes' exports are unchanged.
 
+#### R1 as built (2026-10-03)
+
+`tianwen dataset degrade --mode stars --plates <store> [--placement random|at-site] [--profile moffat|gaussian]
+[--saturated-fraction 0.25] [--psf-store <jsonl>]`, the noise anchor defaulting to `master-calibration`, the only
+one it takes. The pieces are `StarProfile`, `StarInjection` and `InjectionPopulation` in
+`TianWen.Lib.Imaging.StarRemoval`, and `StarlessCatalogue`, which now carries each star's model and per-channel
+amplitudes (a catalogue from before reads back with neither, and the injector refuses it rather than guessing).
+Two details differ from the design above. A cell's count is R0's count in the cell scaled to the cell plus its
+margin, so the margin is as crowded as the cell. And an injected star's elongation comes from the NEAREST eight
+measured stars within 384 px (unsaturated, isolated by 3 FWHM, significance 30 to 1000), not the brightest eight,
+because elongation varies over a field (tilt, coma) and the nearest are the sample that shares it.
+
+Three things the tests found while it was built, each fixed and pinned:
+
+- **A windowed moment reads every star rounder than it is.** Through a circular window of two FWHM a star of axis
+  ratio 0.6 read 0.677 (the angle exactly), because the window cuts the wings harder along the major axis. The
+  population now reads each measurement back through the same window applied to the master's own model profile
+  (a table over axis ratios, four sub-pixel centres): 0.596.
+- **The render's reach was the box around a star, not its radius.** The corners reach 1.4 radii, past where the
+  light is under the floor, and the sliver of noise added there flipped two f16 values 41 px from a saturated star
+  whose reach is 29. The reach is now a circle; far from every injected star a draw is the clean tile to the bit.
+- **The pixel-mean rule (three-point Gauss-Legendre, R0's) errs in the core pixel of a sharp star**: 1.3e-4 of
+  the peak at 1.8 px FWHM and 4e-4 at 1.5 px, against 1e-5 at 3 px. `MoffatPsf`'s remark claimed 1e-5 at 1.5 px
+  too and now says what it is. It is harmless to the injector (a net learns to remove whatever is rendered) and
+  0.3 sigma on an 800-sigma 1.5 px star for R0.
+
 ## 7. Phasing
 
 Tracked by #902.

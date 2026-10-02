@@ -996,13 +996,19 @@ public static class DatasetTileExporter
         return divisor > 1f ? divisor : 1f;
     }
 
-    internal static Image ToUnitRange(Image img)
+    internal static Image ToUnitRange(Image img) => ToUnitRange(img, UnitDivisor(img));
+
+    /// <summary>
+    /// <paramref name="img"/> divided by ANOTHER frame's <paramref name="divisor"/>: how a starless plate is put on its
+    /// master's scale, so a star injected into it at the master's clip level stays inside [0, 1] (the plate's own maximum
+    /// lies far below the master's, its saturated stars taken out).
+    /// </summary>
+    internal static Image ToUnitRange(Image img, float divisor)
     {
         var w = img.Width;
         var h = img.Height;
         var channelCount = img.ChannelCount;
 
-        var divisor = UnitDivisor(img);
         if (divisor == 1f) // already in [0, 1] (or an empty frame)
         {
             return img;

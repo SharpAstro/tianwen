@@ -46,9 +46,9 @@ internal readonly record struct MoffatPsf(double Alpha, double Beta)
     /// <summary>The mean of the profile over pixel (<paramref name="px"/>, <paramref name="py"/>) for a star centred at
     /// (<paramref name="cx"/>, <paramref name="cy"/>).</summary>
     /// <remarks>Gauss-Legendre per axis, three points within 4 px of the centre, two within 8, the centre beyond:
-    /// measured against a 64x64 midpoint reference on a beta-3 Moffat of 1.5 and 3 px FWHM, it errs by about 1e-5 of the
-    /// peak everywhere, where 4x4 midpoint sampling erred by up to 7e-3. A bright star needs that: an 800-sigma star
-    /// modelled 0.1 percent wrong leaves 0.8 sigma behind.</remarks>
+    /// measured against a 64x64 midpoint reference on a beta-3 Moffat, it errs by about 1e-5 of the peak at 3 px FWHM and,
+    /// in the core pixel alone, by up to 4e-4 at 1.5 px (a star centred on a pixel), where 4x4 midpoint sampling erred by
+    /// up to 7e-3. A bright star needs that: an 800-sigma star modelled 0.1 percent wrong leaves 0.8 sigma behind.</remarks>
     public double PixelMean(int px, int py, double cx, double cy)
     {
         var dx = px - cx;

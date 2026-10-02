@@ -12,6 +12,7 @@ using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Dataset;
 using TianWen.Lib.Imaging.Degradation;
+using TianWen.Lib.Imaging.StarRemoval;
 using TianWen.Lib.IO;
 using TianWen.UI.Abstractions;
 
@@ -1034,7 +1035,8 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
         };
         var modeOpt = new Option<string>("--mode")
         {
-            Description = "noise (denoiser E1: inject noise only) or blur (deconvolver E2: PSF blur, then noise).",
+            Description = "noise (denoiser E1: inject noise only), blur (deconvolver E2: PSF blur, then noise) or stars " +
+                          "(star remover R1: stars injected into each session's starless plate; needs --plates).",
             DefaultValueFactory = _ => "noise",
         };
         var shapeOpt = new Option<string>("--shape")
@@ -1147,8 +1149,8 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "0's calibration for every channel; every export up to E16a), master-calibration (each session on " +
                           "its master's own recorded per-channel calibration; E16b), sub-calibrations (each cell on its subs' " +
                           "recorded calibrations, which misses a master's scale and a drizzle's depth) or half-pairs (each " +
-                          "session on its half pairs' scatter over quiet sky; only sessions the bake halved).",
-            DefaultValueFactory = _ => "sub-mad",
+                          "session on its half pairs' scatter over quiet sky; only sessions the bake halved). Default sub-mad, " +
+                          "master-calibration for --mode stars (the only one it takes).",
         };
         var extraCellsOpt = new Option<string>("--extra-cells")
         {
@@ -1160,12 +1162,38 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             Description = "With --extra-cells: export each session's listed cells and no sample, how a session joins an " +
                           "arm for its bright cells alone. A session with none listed is skipped.",
         };
+        var platesOpt = new Option<string>("--plates")
+        {
+            Description = "--mode stars: a tianwen dataset starless-plates output, whose plates/ holds each session's starless " +
+                          "plate and catalogue. A session without one is skipped.",
+        };
+        var placementOpt = new Option<string>("--placement")
+        {
+            Description = "--mode stars: random (default; uniform, at least 3 FWHM from every subtracted site) or at-site " +
+                          "(on the plate's subtracted sites: H3's control, run once).",
+            DefaultValueFactory = _ => "random",
+        };
+        var profileOpt = new Option<string>("--profile")
+        {
+            Description = "--mode stars: moffat (default; each channel's FWHM and beta from the PSF store) or gaussian (the " +
+                          "same FWHM: H2's arm).",
+            DefaultValueFactory = _ => "moffat",
+        };
+        var saturatedFractionOpt = new Option<double>("--saturated-fraction")
+        {
+            Description = "--mode stars: the chance a draw gains one saturated star beyond the cell's own count.",
+            DefaultValueFactory = _ => 0.25,
+        };
+        var psfStoreOpt = new Option<string>("--psf-store")
+        {
+            Description = "--mode stars: the PSF store the per-channel profiles come from; default the bake's stats/psf-sessions.jsonl.",
+        };
 
         var command = new Command("degrade",
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -1173,7 +1201,31 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             var modeText = parseResult.GetValue(modeOpt) ?? "noise";
             if (!Enum.TryParse<DatasetDegradationExporter.DegradationMode>(modeText, ignoreCase: true, out var mode))
             {
-                consoleHost.WriteError($"--mode must be noise or blur, got '{modeText}'");
+                consoleHost.WriteError($"--mode must be noise, blur or stars, got '{modeText}'");
+                return 1;
+            }
+            var plates = parseResult.GetValue(platesOpt);
+            if (mode == DatasetDegradationExporter.DegradationMode.Stars && plates is null)
+            {
+                consoleHost.WriteError("--mode stars injects into starless plates; pass --plates (a tianwen dataset starless-plates output)");
+                return 1;
+            }
+            var placementText = (parseResult.GetValue(placementOpt) ?? "random").Replace("-", "", StringComparison.Ordinal);
+            if (!Enum.TryParse<InjectionPlacement>(placementText, ignoreCase: true, out var placement))
+            {
+                consoleHost.WriteError($"--placement must be random or at-site, got '{parseResult.GetValue(placementOpt)}'");
+                return 1;
+            }
+            var profileText = parseResult.GetValue(profileOpt) ?? "moffat";
+            if (!Enum.TryParse<StarProfileFamily>(profileText, ignoreCase: true, out var profile))
+            {
+                consoleHost.WriteError($"--profile must be moffat or gaussian, got '{profileText}'");
+                return 1;
+            }
+            var saturatedFraction = parseResult.GetValue(saturatedFractionOpt);
+            if (saturatedFraction is < 0 or > 1)
+            {
+                consoleHost.WriteError($"--saturated-fraction must be in [0, 1], got {saturatedFraction}");
                 return 1;
             }
             var shapeText = parseResult.GetValue(shapeOpt) ?? "white";
@@ -1194,7 +1246,8 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 consoleHost.WriteError("--white-fraction and --warp-sigma-max vary a WARPED export's shape; pass --shape warped");
                 return 1;
             }
-            var anchorText = (parseResult.GetValue(noiseAnchorOpt) ?? "sub-mad").Replace("-", "", StringComparison.Ordinal);
+            var anchorText = (parseResult.GetValue(noiseAnchorOpt)
+                ?? (mode == DatasetDegradationExporter.DegradationMode.Stars ? "master-calibration" : "sub-mad")).Replace("-", "", StringComparison.Ordinal);
             if (!Enum.TryParse<DatasetDegradationExporter.NoiseAnchorKind>(anchorText, ignoreCase: true, out var noiseAnchor))
             {
                 consoleHost.WriteError($"--noise-anchor must be sub-mad, master-calibration, sub-calibrations or half-pairs, got '{parseResult.GetValue(noiseAnchorOpt)}'");
@@ -1235,7 +1288,12 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 NoiseAnchor: noiseAnchor,
                 ExtraCellsPath: extraCells,
                 ListedCellsOnly: listedOnly,
-                DrizzleWarpResampleSigma: parseResult.GetValue(warpSigmaDrizzleOpt));
+                DrizzleWarpResampleSigma: parseResult.GetValue(warpSigmaDrizzleOpt),
+                PlatesRoot: plates,
+                Placement: placement,
+                Profile: profile,
+                SaturatedFraction: saturatedFraction,
+                PsfStorePath: parseResult.GetValue(psfStoreOpt));
 
             var result = await DatasetDegradationExporter.RunAsync(options, logger, ct);
             var degraded = result.Sessions.Sum(s => s.DegradedTiles);
