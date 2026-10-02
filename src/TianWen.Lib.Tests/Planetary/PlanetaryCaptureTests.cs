@@ -186,6 +186,50 @@ public class PlanetaryCaptureTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 30_000)]
+    public async Task ARecordingAskedForBeforeAPreparedCaptureStartsRecordsItsFrames()
+    {
+        // A node answers a start once the run is its own, and the run's task starts the loop a moment later: a recording asked
+        // for in that gap was refused ("No planetary capture is running to record"), which failed a functional test on CI.
+        var ct = TestContext.Current.CancellationToken;
+        var (hub, profile, _) = await RigAsync(ct);
+        await using var capture = new PlanetaryCapture(new FakeTimeProviderWrapper(), NullLogger.Instance);
+        capture.ArmFrameGate();
+        capture.TryPrepare(Request, profile, hub, out _, out var refusal).ShouldBeTrue(refusal);
+        var path = Path.Combine(Directory.CreateTempSubdirectory("twser").FullName, "capture.ser");
+
+        capture.IsCapturing.ShouldBeFalse("prepared is not started");
+        capture.TryStartRecording(path, TimeSpan.FromHours(1), out var recording, out refusal).ShouldBeTrue(refusal);
+        capture.StartPrepared(ct).ShouldBeTrue();
+        for (var i = 0; i < 2; i++)
+        {
+            var next = capture.WaitForNextFrameAsync(ct);
+            capture.StepFrame();
+            await next;
+        }
+
+        await capture.StopAsync(ct);
+        await recording.Completion.WaitAsync(ct);
+
+        (recording.EndReason, recording.FramesWritten).ShouldBe(("the capture ended", 2));
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task ARecordingOnACaptureThatNeverStartsEndsAsItIsDisposed()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (hub, profile, _) = await RigAsync(ct);
+        var capture = new PlanetaryCapture(new FakeTimeProviderWrapper(), NullLogger.Instance);
+        capture.TryPrepare(Request, profile, hub, out _, out var refusal).ShouldBeTrue(refusal);
+        var path = Path.Combine(Directory.CreateTempSubdirectory("twser").FullName, "capture.ser");
+        capture.TryStartRecording(path, TimeSpan.FromHours(1), out var recording, out refusal).ShouldBeTrue(refusal);
+
+        await capture.DisposeAsync();
+        await recording.Completion.WaitAsync(ct);
+
+        (recording.IsRecording, recording.FramesWritten).ShouldBe((false, 0));
+    }
+
+    [Fact(Timeout = 30_000)]
     public async Task APreparedCaptureStartsOnTheTokenItIsGivenAndGivesTheCameraBackAsItEnds()
     {
         var ct = TestContext.Current.CancellationToken;
