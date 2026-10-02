@@ -141,6 +141,9 @@ public sealed class SerPreviewSource : IPreviewSource, ISequencePlaybackSource, 
 
     public int FrameCount => _reader.FrameCount;
 
+    /// <summary>The capture's header's Telescope field, which a TianWen recording fills with its optics (#1179).</summary>
+    public string Telescope => _reader.Header.Telescope;
+
     /// <summary>SER is a planetary/lunar capture stream; see <see cref="IPreviewSource.IsVideoStream"/>.</summary>
     public bool IsVideoStream => true;
     public int FrameIndex => _frameIndex;

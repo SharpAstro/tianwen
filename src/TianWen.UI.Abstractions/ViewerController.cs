@@ -277,6 +277,16 @@ public sealed class ViewerController(
                     state.NotifySourceReplaced();
                     state.ShowStacked = false; // a fresh file starts on the raw view (its stack has no master yet)
                     state.IsSequence = true;
+                    // A capture that says which telescope took it (a TianWen recording's header, #1179) gives the Best stack its
+                    // telescope; one that says none leaves the panel's own.
+                    if (PlanetaryCaptureName.Telescope(serSource.Telescope) is { ApertureMm: { } apertureMm } telescope)
+                    {
+                        state.PlanetaryApertureMm = apertureMm;
+                        if (telescope.Design is not OpticalDesign.Unknown)
+                        {
+                            state.PlanetaryDesign = telescope.Design;
+                        }
+                    }
                     state.FrameCount = serSource.FrameCount;
                     state.FrameIndex = 0;
                     state.IsPlaying = serSource.FrameCount > 1;

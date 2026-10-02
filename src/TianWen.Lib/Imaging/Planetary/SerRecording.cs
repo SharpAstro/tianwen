@@ -40,16 +40,25 @@ public sealed class SerRecording
     private int _depth;
     private bool _shaped;
 
+    private readonly string _instrument;
+    private readonly string _telescope;
+
     private int _written;
     private int _dropped;
     private int _ended;
     private volatile string? _endReason;
     private volatile string? _failure;
 
-    /// <summary>A recording to <paramref name="path"/> of every frame that arrives before <paramref name="endsAt"/>.</summary>
-    public SerRecording(string path, DateTimeOffset startedAt, DateTimeOffset endsAt, ILogger logger)
+    /// <summary>
+    /// A recording to <paramref name="path"/> of every frame that arrives before <paramref name="endsAt"/>, its header naming the camera
+    /// (<paramref name="instrument"/>) and the telescope (<paramref name="telescope"/>, <see cref="PlanetaryCaptureName.TelescopeField"/>)
+    /// it was taken with, so its best stack knows the optics (#1179).
+    /// </summary>
+    public SerRecording(string path, DateTimeOffset startedAt, DateTimeOffset endsAt, ILogger logger, string? instrument = null, string? telescope = null)
     {
         Path = path;
+        _instrument = string.IsNullOrEmpty(instrument) ? "TianWen" : instrument;
+        _telescope = telescope ?? "";
         StartedAt = startedAt;
         EndsAt = endsAt;
         _logger = logger;
@@ -150,7 +159,7 @@ public sealed class SerRecording
                     if (writer is null)
                     {
                         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Path) ?? ".");
-                        writer = new SerWriter(Path, _width, _height, _color, pixelDepthPerPlane: _depth, instrument: "TianWen");
+                        writer = new SerWriter(Path, _width, _height, _color, pixelDepthPerPlane: _depth, instrument: _instrument, telescope: _telescope);
                     }
                     writer.AppendFrame(bytes.AsSpan(0, (int)writer.FrameSizeBytes), arrived);
                     Interlocked.Increment(ref _written);

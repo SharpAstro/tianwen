@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TianWen.DAL;
 using TianWen.Lib.Astrometry;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Imaging.Planetary;
@@ -281,6 +282,8 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
             refusal = "Connect a camera to start a planetary capture";
             return false;
         }
+        // What a recording's header says it was taken through (#1179).
+        Volatile.Write(ref _telescopeField, PlanetaryCaptureName.TelescopeField(ota));
 
         // Claimed for the length of the capture, before the ROI touches the camera: streaming video off a camera a flat
         // run is metering would fight it frame for frame (P0c item 2 of docs/plans/hardware-in-the-server.md). Only the
@@ -584,6 +587,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
     // ── Recording to disk (P5 part 5d) ────────────────────────────────────────────────────────────────────────────
 
     private volatile SerRecording? _recording;
+    private string _telescopeField = "";
 
     /// <summary>The recording going on, or the last one to end, until the next starts; null before any.</summary>
     public SerRecording? Recording => _recording;
@@ -615,7 +619,8 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         }
 
         var now = timeProvider.GetUtcNow();
-        recording = new SerRecording(path, now, now + duration, logger);
+        // The header names the camera and the telescope, so the recording's best stack knows the optics (#1179).
+        recording = new SerRecording(path, now, now + duration, logger, Camera?.Name, Volatile.Read(ref _telescopeField));
         _recording = recording;
         refusal = null;
         logger.LogInformation("Planetary capture recording to {Path} for {Duration}", path, duration);
@@ -627,13 +632,14 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
 
     /// <summary>
     /// Where a recording of OTA <paramref name="otaIndex"/>'s capture starting at <paramref name="utcNow"/> goes, beside the
-    /// snapshots (<c>PreviewCapture.SaveSnapshotAsync</c>): <c>Planetary/&lt;date&gt;/planetary_&lt;time&gt;_OTA&lt;n&gt;.ser</c>
-    /// under the image folder.
+    /// snapshots (<c>PreviewCapture.SaveSnapshotAsync</c>): <c>Planetary/&lt;date&gt;/</c> under the image folder, named for the
+    /// <paramref name="planet"/> the mount points at and the <paramref name="filterName"/> it is taken through, where known
+    /// (<see cref="PlanetaryCaptureName.RecordingFileName"/>, #1179).
     /// </summary>
-    public static string RecordingPath(IExternal external, int otaIndex, DateTimeOffset utcNow)
+    public static string RecordingPath(IExternal external, int otaIndex, DateTimeOffset utcNow, CatalogIndex? planet = null, string? filterName = null)
         => System.IO.Path.Combine(external.ImageOutputFolder.FullName, "Planetary",
             utcNow.ToString("yyyy-MM-dd", System.Globalization.DateTimeFormatInfo.InvariantInfo),
-            external.GetSafeFileName($"planetary_{utcNow:yyyy-MM-ddTHH_mm_ss}_OTA{otaIndex + 1}.ser"));
+            external.GetSafeFileName(PlanetaryCaptureName.RecordingFileName(planet, filterName, utcNow, otaIndex)));
 
     // ── Live capture controls (a host stages; the capture loop drains + applies) ─────────────────────────────────
     // The "adjustable while capturing" knobs, mirroring how a real planetary capture lets you tune exposure / gain / ROI

@@ -1,5 +1,8 @@
+using System;
 using Shouldly;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.VSOP87;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging.Planetary;
 using Xunit;
 
@@ -76,5 +79,52 @@ public class PlanetaryCaptureNameTests
     {
         // The file name only: a folder's filter word is too often a session's, not this capture's.
         PlanetaryCaptureName.WavelengthNm(path).ShouldBeNull();
+    }
+
+    private static readonly DateTimeOffset Utc = new DateTimeOffset(2022, 9, 3, 12, 11, 8, TimeSpan.Zero);
+
+    [Fact]
+    public void ARecordingsNameSaysItsPlanetAndFilterAndReadsBack()
+    {
+        // A TianWen recording names what it was taken of and through (#1179), the words the reader takes back.
+        var name = PlanetaryCaptureName.RecordingFileName(CatalogIndex.Jupiter, "Red", Utc, otaIndex: 0);
+        name.ShouldBe("Jupiter_Red_2022-09-03T12_11_08_OTA1.ser");
+        var path = "C:/Planetary/2022-09-03/" + name;
+        PlanetaryCaptureName.Planet(path).ShouldBe(CatalogIndex.Jupiter);
+        PlanetaryCaptureName.WavelengthNm(path).ShouldBe(650);
+
+        // What is not known is left out, and a filter's name keeps its letters and digits.
+        PlanetaryCaptureName.RecordingFileName(null, null, Utc, otaIndex: 1).ShouldBe("2022-09-03T12_11_08_OTA2.ser");
+        PlanetaryCaptureName.RecordingFileName(CatalogIndex.Saturn, "IR 685/nm", Utc, otaIndex: 0).ShouldBe("Saturn_IR685nm_2022-09-03T12_11_08_OTA1.ser");
+    }
+
+    [Fact]
+    public void AMountOnAPlanetNamesItAndOneOffItNamesNone()
+    {
+        // Jupiter where it stood on 2022-09-03 from 48.2 N, 16.3 E, of date (as most mounts report) and in J2000.
+        VSOP87a.Reduce(CatalogIndex.Jupiter, Utc, 48.2, 16.3, out var ra, out var dec, out _, out _, out _).ShouldBeTrue();
+        VSOP87a.ReduceJ2000(CatalogIndex.Jupiter, Utc, out var raJ2000, out var decJ2000, out _).ShouldBeTrue();
+        PlanetaryCaptureName.PointedAt(ra, dec, Utc, 48.2, 16.3).ShouldBe(CatalogIndex.Jupiter);
+        PlanetaryCaptureName.PointedAt(raJ2000, decJ2000, Utc, 48.2, 16.3).ShouldBe(CatalogIndex.Jupiter);
+        PlanetaryCaptureName.PointedAt(ra, dec + 0.5, Utc, 48.2, 16.3).ShouldBe(CatalogIndex.Jupiter, "half a degree off, the mount's own pointing");
+        PlanetaryCaptureName.PointedAt(ra, dec + 5, Utc, 48.2, 16.3).ShouldBeNull("five degrees off is no planet");
+        PlanetaryCaptureName.PointedAt(double.NaN, dec, Utc, 48.2, 16.3).ShouldBeNull("a mount that did not answer");
+    }
+
+    [Fact]
+    public void ATelescopeFieldSaysTheOpticsAndReadsBack()
+    {
+        var ota = new OTAData("SW 250PDS", 1200, new Uri("camera://fake/1"), null, null, null, null, null, Aperture: 254,
+            OpticalDesign: OpticalDesign.Newtonian);
+        var field = PlanetaryCaptureName.TelescopeField(ota);
+        field.ShouldBe("254 mm f/4.7 Newtonian, SW 250PDS");
+        field.Length.ShouldBeLessThanOrEqualTo(PlanetaryCaptureName.SerFieldLength);
+        PlanetaryCaptureName.Telescope(field).ShouldBe(((int?)254, OpticalDesign.Newtonian));
+
+        // A long name is cut at the field's length, a typed one is read too, and one naming no aperture reads none.
+        PlanetaryCaptureName.TelescopeField(ota with { Name = new string('x', 60) }).Length.ShouldBe(PlanetaryCaptureName.SerFieldLength);
+        PlanetaryCaptureName.Telescope("C11 SCT 280mm").ShouldBe(((int?)280, OpticalDesign.SCT));
+        PlanetaryCaptureName.Telescope("TianWen").ShouldBe(((int?)null, OpticalDesign.Unknown));
+        PlanetaryCaptureName.TelescopeField(ota with { Aperture = null }).ShouldBe("SW 250PDS");
     }
 }

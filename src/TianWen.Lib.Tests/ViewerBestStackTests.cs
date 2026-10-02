@@ -106,13 +106,36 @@ public class ViewerBestStackTests
         e2e.State.StretchMode.ShouldBe(ViewerActions.DefaultStretchMode);
     }
 
+    [Theory(Timeout = 60_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task ACaptureWhoseHeaderNamesItsTelescopeGivesTheBestStackThatTelescope(float dpi)
+    {
+        // A TianWen recording says in its header which telescope took it (#1179), and its best stack needs no telescope set by hand.
+        using var e2e = ViewerE2E.Start(dpi);
+        var ct = TestContext.Current.CancellationToken;
+        e2e.State.PlanetaryApertureMm = null;
+        e2e.State.PlanetaryDesign = TianWen.Lib.Devices.OpticalDesign.Refractor;
+        var capture = WriteCapture(Path.Combine(e2e.Folder, "Jupiter_Red_2024-12-15T12_56_44_OTA1.ser"), telescope: "254 mm f/4.7 Newtonian, Test OTA");
+        e2e.Host.HandleDropFile(capture);
+        await e2e.PumpUntilAsync(() => e2e.State.SequencePath == capture, "the capture to open", ct);
+
+        (e2e.State.PlanetaryApertureMm, e2e.State.PlanetaryDesign).ShouldBe(((int?)254, TianWen.Lib.Devices.OpticalDesign.Newtonian));
+
+        // A capture that names none leaves the panel's own.
+        var other = WriteCapture(Path.Combine(e2e.Folder, "calibrated.ser"));
+        e2e.Host.HandleDropFile(other);
+        await e2e.PumpUntilAsync(() => e2e.State.SequencePath == other, "the second capture to open", ct);
+        e2e.State.PlanetaryApertureMm.ShouldBe(254);
+    }
+
     // A short Jupiter capture: a textured disk wandering a pixel or two, 8 bits, a frame every 10 ms.
-    internal static string WriteCapture(string path)
+    internal static string WriteCapture(string path, string telescope = "")
     {
         const int n = 96, frames = 32;
         var random = new Random(7);
         var start = new DateTimeOffset(2024, 12, 15, 12, 56, 44, TimeSpan.Zero);
-        using (var writer = new SerWriter(path, n, n, SerColorId.Mono, 8))
+        using (var writer = new SerWriter(path, n, n, SerColorId.Mono, 8, telescope: telescope))
         {
             var frame = new byte[n * n];
             for (var i = 0; i < frames; i++)

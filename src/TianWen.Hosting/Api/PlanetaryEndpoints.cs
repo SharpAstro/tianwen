@@ -26,9 +26,10 @@ internal static class PlanetaryEndpoints
         routes.MapDelete("/api/v1/planetary", async (NodePlanetary planetary, CancellationToken ct) =>
             EnvelopeResults.Json(await planetary.StopAsync(ct), HostingJsonContext.Default.ResponseEnvelopePlanetaryStateDto));
 
-        // A recording of the capture going on (P5 part 5d): it finishes its duration unwatched, and a stop ends it sooner.
-        routes.MapPost("/api/v1/planetary/record", (PlanetaryRecordRequestDto request, NodePlanetary planetary) =>
-            EnvelopeResults.Json(planetary.Record(request), HostingJsonContext.Default.ResponseEnvelopePlanetaryStateDto));
+        // A recording of the capture going on (P5 part 5d): it finishes its duration unwatched, and a stop ends it sooner. Named
+        // for the planet the mount points at and the filter in the beam, which it reads first (#1179).
+        routes.MapPost("/api/v1/planetary/record", async (PlanetaryRecordRequestDto request, NodePlanetary planetary, CancellationToken ct) =>
+            EnvelopeResults.Json(await planetary.RecordAsync(request, ct), HostingJsonContext.Default.ResponseEnvelopePlanetaryStateDto));
 
         routes.MapDelete("/api/v1/planetary/record", (NodePlanetary planetary) =>
             EnvelopeResults.Json(planetary.StopRecording(), HostingJsonContext.Default.ResponseEnvelopePlanetaryStateDto));
