@@ -7,6 +7,7 @@ using System.Linq;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Optics;
 using TianWen.Lib.Imaging.Planetary;
 using TianWen.Lib.Imaging.Stacking;
 using TianWen.UI.Abstractions;
@@ -139,13 +140,21 @@ internal sealed class PlanetaryStackSubCommand(
         };
         var noSharpenOpt = new Option<bool>("--no-sharpen")
         {
-            Description = "Skip wavelet sharpening. By default a mild a-trous sharpen (PlanetaryDefault, or --sharpen-gains) is applied to a separate master_*_sharpened.fits and to the PNG; the raw linear master is never sharpened.",
+            Description = "Skip sharpening. By default the master is sharpened into a separate master_*_sharpened.fits and the PNG: by gains derived from the stack through the limb's edge when the telescope is given (--aperture-mm or --telescope, R8), else by PlanetaryDefault with the limb kept as stacked; the raw linear master is never sharpened.",
         };
-        var sharpenPresetOpt = new Option<SharpenPreset>("--sharpen-preset")
+        var sharpenPresetOpt = new Option<SharpenPreset?>("--sharpen-preset")
         {
-            Description = "Wavelet sharpening profile (an a-trous decomposition is a bank of frequency bands; the preset is the gain curve over them): 'default' boosts the finest band hardest; 'bandpass' boosts the mid belt-structure band and holds the finest down (cleaner belt detail, less limb noise); 'combo' boosts fine AND mid in one pass (AutoStakkert-sharpen + bandpass). Ignored under --no-sharpen or when --sharpen-gains is given.",
-            DefaultValueFactory = _ => SharpenPreset.Default,
+            Description = "Sharpen by a fixed wavelet profile instead of the derived gains (an a-trous decomposition is a bank of frequency bands; the preset is the gain curve over them): 'default' boosts the finest band hardest; 'bandpass' boosts the mid belt-structure band and holds the finest down; 'combo' boosts fine AND mid in one pass. Ignored under --no-sharpen or when --sharpen-gains is given; --legacy sharpens by 'default'.",
         };
+        var wavelengthOpt = new Option<string?>("--wavelength")
+        {
+            Description = "The filter's effective wavelength, nm, for the derived sharpening's diffraction: one for a mono capture (550, a broadband luminance, when not given), a comma list for a colour one's channels (610, 530, 460 when not given).",
+        };
+        var fixOpt = new Option<PlanetaryLimbFix?>("--limb-fix")
+        {
+            Description = "How the derived sharpening keeps the limb from ringing: plain, floored, limbchannel or feathered (the measured choice when not given).",
+        };
+        var pupil = PlanetaryMasterScore.PupilOptions();
         var sharpenGainsOpt = new Option<string?>("--sharpen-gains")
         {
             Description = "Override the wavelet per-scale gains as a comma list, finest scale first (e.g. '2,1.8,1.4,1.1,1'). Length sets the scale count. Takes precedence over --sharpen-preset. Ignored under --no-sharpen.",
@@ -205,7 +214,7 @@ internal sealed class PlanetaryStackSubCommand(
             {
                 outputOpt, labelOpt, keepOpt, qualityOpt, globalOpt, drizzleOpt, drizzlePixfracOpt, drizzleGlobalOpt,
                 noPerPointOpt, noSignalGateOpt,
-                noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, noPngOpt, pngGammaOpt,
+                noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, wavelengthOpt, fixOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, noPngOpt, pngGammaOpt,
                 tileSizeOpt, apSpacingOpt, maxApOpt, patchSizeOpt, meshSpacingOpt, correlationOpt, interpolationOpt, referenceFramesOpt,
                 derotateOpt, noDerotateOpt, planetOpt, turnNorthOverOpt, legacyOpt, truthOpt,
             },
@@ -265,7 +274,8 @@ internal sealed class PlanetaryStackSubCommand(
             var drizzleScale = parseResult.GetValue(drizzleOpt);
             var useDrizzle = drizzleScale > 0f;
 
-            // Parse the optional wavelet gains override before doing any heavy work so a typo fails fast.
+            // Parse the optional wavelet gains override before doing any heavy work so a typo fails fast. A fixed profile (a preset, the
+            // gains given, or --legacy) sharpens as every master before the enhanced pipeline; otherwise the sharpening is derived.
             var sharpen = !parseResult.GetValue(noSharpenOpt);
             WaveletSharpenOptions? sharpenOptions = null;
             if (sharpen)
@@ -277,7 +287,8 @@ internal sealed class PlanetaryStackSubCommand(
                     {
                         SharpenPreset.Bandpass => WaveletSharpenOptions.Bandpass,
                         SharpenPreset.Combo => WaveletSharpenOptions.Combo,
-                        _ => WaveletSharpenOptions.PlanetaryDefault,
+                        SharpenPreset.Default => WaveletSharpenOptions.PlanetaryDefault,
+                        _ => legacy ? WaveletSharpenOptions.PlanetaryDefault : null,
                     };
                 }
                 else if (TryParseGains(gainsArg, out var gains))
@@ -298,6 +309,9 @@ internal sealed class PlanetaryStackSubCommand(
                     return 1;
                 }
             }
+
+            var wavelengthText = parseResult.GetValue(wavelengthOpt);
+            var telescope = PlanetaryMasterScore.PupilFrom(parseResult, pupil);
 
             // Every choice the options leave open is the baseline's: the pipeline's defaults, or the legacy recipe.
             var options = baseline with
@@ -382,20 +396,24 @@ internal sealed class PlanetaryStackSubCommand(
             var truthPath = parseResult.GetValue(truthOpt);
             if (truthPath is not null)
             {
-                ScoreAgainstTruth(master, truthPath, planet ?? CatalogIndex.Jupiter, "the stack");
+                PlanetaryMasterScore.AgainstTruth(consoleHost, master, truthPath, planet ?? CatalogIndex.Jupiter, "the stack");
             }
 
             // The display image is the sharpened master when sharpening is on, else the raw master.
             var display = master;
-            if (sharpenOptions is { } so)
+            if (sharpen)
             {
-                display = WaveletSharpen.Sharpen(master, so);
-                var sharpenedFits = Path.Combine(outputDir, $"{prefix}master_{baseName}_sharpened.fits");
-                display.WriteToFitsFile(sharpenedFits);
-                consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(sharpenedFits)} (wavelet-sharpened, {so.ScaleCount} scales)");
-                if (truthPath is not null)
+                var (sharpened, how) = Sharpened(master, sharpenOptions, planet, result.Epoch, wavelengthText, telescope, parseResult.GetValue(fixOpt));
+                if (sharpened is not null)
                 {
-                    ScoreAgainstTruth(display, truthPath, planet ?? CatalogIndex.Jupiter, "the sharpened master");
+                    display = sharpened;
+                    var sharpenedFits = Path.Combine(outputDir, $"{prefix}master_{baseName}_sharpened.fits");
+                    display.WriteToFitsFile(sharpenedFits);
+                    consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(sharpenedFits)} ({how})");
+                    if (truthPath is not null)
+                    {
+                        PlanetaryMasterScore.AgainstTruth(consoleHost, display, truthPath, planet ?? CatalogIndex.Jupiter, "the sharpened master");
+                    }
                 }
             }
 
@@ -434,50 +452,40 @@ internal sealed class PlanetaryStackSubCommand(
         _ => estimator.GetType().Name,
     };
 
-    // A master against a synthetic capture's truth, a colour at a time for a colour master (its truths .r, .g, .b beside the one
-    // named): its own limb fitted and moved onto the truth's disk, then R3's band fidelity inside 0.9 radii and the limb's
-    // undershoot, as planetary-measure scores a stack.
-    private void ScoreAgainstTruth(Image master, string truthPath, CatalogIndex planet, string what)
+    // The master sharpened: by a fixed profile when one was asked for (a preset, gains, or --legacy), else derived (PlanetarySharpening:
+    // the gains through the limb's edge given the telescope, PlanetaryDefault with the limb kept as stacked without it). A capture whose
+    // planet is not known, or whose limb cannot be fitted, takes PlanetaryDefault as every master before. Null when nothing was made.
+    private (Image? Sharpened, string How) Sharpened(Image master, WaveletSharpenOptions? fixedProfile, CatalogIndex? planet, DateTimeOffset? epoch,
+        string? wavelengthText, Pupil? telescope, PlanetaryLimbFix? fix)
     {
-        var inv = CultureInfo.InvariantCulture;
-        var colour = master.ChannelCount == 3;
-        foreach (var (channel, name) in colour ? new[] { (0, "r"), (1, "g"), (2, "b") } : [(0, "")])
+        if (fixedProfile is { } profile)
         {
-            var path = colour ? Path.ChangeExtension(truthPath, $".{name}.fits") : truthPath;
-            if (PlanetaryMeasureSubCommand.ReadTruth(path, consoleHost) is not { } truth || truth.Time is not { } when)
-            {
-                consoleHost.WriteError($"[planetary] {path}: no truth with a time to score {what} against");
-                return;
-            }
-            var limbOptions = PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(planet, when));
-            var disk = truth.Disk with { AxisRatio = limbOptions.AxisRatio };
-            var plane = colour ? master.ChannelImage(channel) : master;
-            try
-            {
-                var label = colour ? $"{what}, {name}" : what;
-                if (plane.Width * plane.Height != truth.Plane.Length)
-                {
-                    consoleHost.WriteError($"[planetary] {path}: {label} is {plane.Width} x {plane.Height}, the truth {truth.Plane.Length} px");
-                    continue;
-                }
-                if (PlanetaryMeasureSubCommand.Register(plane, limbOptions, disk) is not { } fitted)
-                {
-                    consoleHost.WriteError($"[planetary] {label}: its limb could not be fitted");
-                    continue;
-                }
-                var reference = PlanetaryMetrics.Normalise(truth.Plane, plane.Width, plane.Height, disk);
-                var bands = PlanetaryMetrics.Fidelity(fitted.Plane, reference, plane.Width, plane.Height, disk);
-                consoleHost.WriteScrollable(string.Create(inv,
-                    $"[planetary] {label} against the truth: transfer {string.Join(", ", bands.Select(b => b.Transfer.ToString("0.000", inv)))}; error {string.Join(", ", bands.Select(b => b.Error.ToString("0.000", inv)))} (sum {bands.Sum(b => b.Error):0.000}); undershoot {PlanetaryMetrics.LimbUndershoot(fitted.Plane, plane.Width, plane.Height, disk):0.0000}"));
-            }
-            finally
-            {
-                if (colour)
-                {
-                    plane.Release();
-                }
-            }
+            return (WaveletSharpen.Sharpen(master, profile), $"wavelet-sharpened, {profile.ScaleCount} scales");
         }
+        var meta = master.ImageMeta;
+        DateTimeOffset? when = epoch ?? (meta.ExposureStartTime.Year > 1 ? meta.ExposureStartTime + (meta.ExposureDuration / 2) : null);
+        if (planet is not { } body || !PhysicalEphemeris.Supports(body) || when is not { } instant)
+        {
+            consoleHost.WriteScrollable("[planetary] the sharpening is derived only for a named Jupiter or Saturn with frame times (--planet): PlanetaryDefault instead");
+            return (WaveletSharpen.Sharpen(master, WaveletSharpenOptions.PlanetaryDefault), "wavelet-sharpened, PlanetaryDefault");
+        }
+        double[] wavelengths = wavelengthText is null && master.ChannelCount == 3
+            ? [610, 530, 460]
+            : PlanetaryMasterScore.Wavelengths(consoleHost, wavelengthText) ?? [550];
+        var options = new PlanetarySharpenOptions(body, instant, telescope) { WavelengthsNm = [.. wavelengths] };
+        if (fix is { } chosen)
+        {
+            options = options with { Fix = chosen };
+        }
+        if (PlanetarySharpening.Sharpen(master, options) is not { } result)
+        {
+            consoleHost.WriteScrollable("[planetary] the planet's limb could not be fitted, so the sharpening cannot be derived: PlanetaryDefault instead");
+            return (WaveletSharpen.Sharpen(master, WaveletSharpenOptions.PlanetaryDefault), "wavelet-sharpened, PlanetaryDefault");
+        }
+        var inv = CultureInfo.InvariantCulture;
+        return (result.Sharpened, result.Derived
+            ? string.Create(inv, $"gains {string.Join(", ", result.Gains.Select(g => g.ToString("0.00", inv)))} derived through the limb's edge, {PlanetarySharpenSubCommand.Describe(result.Fix)}")
+            : "PlanetaryDefault with the limb kept as stacked; give --aperture-mm or --telescope for the derived sharpening");
     }
 
     // The AP matcher FFTs each patch, so the patch edge must be a power of two; round up rather than throw.

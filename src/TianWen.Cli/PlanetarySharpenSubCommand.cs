@@ -29,12 +29,13 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost)
         var truthOpt = new Option<string?>("--truth") { Description = "A synthetic capture's truth (planetary-degrade's .truth.fits): every sharpening scored against it." };
         var outputOpt = new Option<string?>("--output", "-o") { Description = "Where the sharpened masters go (master_*_sharpened[_fix].fits); the master's folder when not given." };
         var noWriteOpt = new Option<bool>("--no-write") { Description = "Score only, write nothing." };
+        var fitOpt = new Option<string>("--fit") { Description = "How the gains are fitted: free, nonnegative (their composite through the kernel held at or above zero), or both to compare them.", DefaultValueFactory = _ => "free" };
         var pupil = PlanetaryMasterScore.PupilOptions();
 
         var command = new Command("planetary-sharpen", "Sharpen a planetary master again, by gains derived through the limb's edge (R8), the limb kept from ringing.")
         {
             Arguments = { masterArg },
-            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, truthOpt, outputOpt, noWriteOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope },
+            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, truthOpt, outputOpt, noWriteOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope },
         };
 
         command.SetAction((parseResult, ct) =>
@@ -102,18 +103,32 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost)
                     PlanetaryMasterScore.Undershoot(consoleHost, master, body, instant, "the master as stacked");
                 }
 
+                var fitName = (parseResult.GetValue(fitOpt) ?? "free").ToLowerInvariant();
+                bool[] fits = fitName switch
+                {
+                    "both" => [false, true],
+                    "free" => [false],
+                    "nonnegative" => [true],
+                    _ => [],
+                };
+                if (fits.Length == 0)
+                {
+                    consoleHost.WriteError($"--fit {fitName}: free, nonnegative or both");
+                    return Task.FromResult(1);
+                }
                 var outputDir = parseResult.GetValue(outputOpt) ?? Path.GetDirectoryName(Path.GetFullPath(path)) ?? ".";
-                foreach (var fix in options.Pupil is null ? [PlanetaryLimbFix.LimbChannel] : fixes)
+                var variants = (options.Pupil is null ? [PlanetaryLimbFix.LimbChannel] : fixes).SelectMany(f => fits.Select(n => (Fix: f, NonNegative: n))).ToArray();
+                foreach (var (fix, nonNegative) in variants)
                 {
                     ct.ThrowIfCancellationRequested();
-                    if (PlanetarySharpening.Sharpen(master, options with { Fix = fix }) is not { } result)
+                    if (PlanetarySharpening.Sharpen(master, options with { Fix = fix, NonNegative = nonNegative }) is not { } result)
                     {
                         consoleHost.WriteError($"{path}: the planet's limb could not be fitted");
                         return Task.FromResult(1);
                     }
                     try
                     {
-                        var what = result.Derived ? $"derived, {Describe(fix)}" : "PlanetaryDefault, the limb kept as stacked";
+                        var what = result.Derived ? $"derived{(nonNegative ? " non-negative" : "")}, {Describe(fix)}" : "PlanetaryDefault, the limb kept as stacked";
                         consoleHost.WriteScrollable(string.Create(inv,
                             $"[planetary] {what}: gains {string.Join(", ", result.Gains.Select(g => g.ToString("0.00", inv)))}; the limb's edge at 0.1 and 0.3 cycles a pixel {result.EdgeAtTenth:0.000}, {result.EdgeAtThreeTenths:0.000}"));
                         if (truthPath is not null)
@@ -127,7 +142,8 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost)
                         if (!parseResult.GetValue(noWriteOpt))
                         {
                             Directory.CreateDirectory(outputDir);
-                            var file = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(path) + "_sharpened" + (fixes.Length > 1 ? "_" + fix.ToString().ToLowerInvariant() : "") + ".fits");
+                            var file = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(path) + "_sharpened"
+                                + (variants.Length > 1 ? "_" + fix.ToString().ToLowerInvariant() + (nonNegative ? "_nonnegative" : "") : "") + ".fits");
                             result.Sharpened.WriteToFitsFile(file);
                             consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(file)}");
                         }

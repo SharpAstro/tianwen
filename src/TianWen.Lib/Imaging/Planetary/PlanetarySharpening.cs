@@ -36,6 +36,13 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
 
     /// <summary>How the limb is kept from ringing (the measured choice, docs/plans/planetary-restoration.md, the enhanced pipeline).</summary>
     public PlanetaryLimbFix Fix { get; init; } = PlanetaryLimbFix.LimbChannel;
+
+    /// <summary>
+    /// Fit the gains with their composite through the kernel held non-negative (<see cref="PlanetaryWaveletGains.FitNonNegative"/>, R8
+    /// follow-up 1) rather than free: where the edge reads the finest band low, the free fit meets the Wiener's steep boost with one
+    /// large gain and a negative one beside it (9.70 and -0.65 on the warped twin).
+    /// </summary>
+    public bool NonNegative { get; init; }
 }
 
 /// <summary>A sharpened master and how it was sharpened: the first channel's derived gains (empty for the preset) and its edge's transfer.</summary>
@@ -92,8 +99,11 @@ public static class PlanetarySharpening
                 var power = PlanetaryWaveletGains.StackPower(window, size, size, disk);
                 var white = PlanetaryInverse.WhiteNoise(PlanetaryWaveletGains.Interior(window, size, size, disk), size, size);
                 var noise = ImmutableArray.CreateRange(Enumerable.Repeat(white, power.Length));
-                var gains = PlanetaryWaveletGains.Fit(power, PlanetaryWaveletGains.Wiener(power, noise, kernel), diskTarget,
-                    PlanetaryInverse.Apply(diskTarget, size, size, kernel), size, size, disk);
+                var wiener = PlanetaryWaveletGains.Wiener(power, noise, kernel);
+                var blurredDisk = PlanetaryInverse.Apply(diskTarget, size, size, kernel);
+                var gains = options.NonNegative
+                    ? PlanetaryWaveletGains.FitNonNegative(power, wiener, diskTarget, blurredDisk, size, size, disk, kernel)
+                    : PlanetaryWaveletGains.Fit(power, wiener, diskTarget, blurredDisk, size, size, disk);
                 sharpened = Apply(window, size, disk, sharp, f => kernel(f) * diffraction.At(f), diffraction.At, gains.AsSpan(), [], options.Fix);
                 if (c == 0)
                 {

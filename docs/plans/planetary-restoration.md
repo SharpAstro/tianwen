@@ -2032,6 +2032,13 @@ Laplacian) were fixed in code; and no product path used R8's derived gains or th
   variants whose limb undershoot on 2022-09-03 Red's pipeline master stays at most 0.02. Without a telescope the fallback is
   `PlanetaryDefault` with the limb as its own channel put back through the stack's own blur (no pupil, so no diffraction to put it back
   through), which keeps the limb as stacked.
+- **Post hoc, set down 2026-10-02 before it was measured on the twins: the gains fitted with their composite held non-negative.** The
+  free fit (`PlanetaryWaveletGains.Fit`) meets a steep Wiener boost with one large gain and a negative one beside it where the edge reads
+  the finest band low: 9.70 and -0.65 on the warped twin, where it still halves the error, but on the sharpening test's rendered Jupiter
+  (a 1.4 px Gaussian, 1 % noise) it made the stack worse (3.18 to 4.56, a gain of -0.36). Held non-negative (`FitNonNegative`, R8
+  follow-up 1) it zeroed the noise's bands there and cut the error to 1.10. Rule: the non-negative fit replaces the free one if, with the
+  limb fix the registered rule chooses, its band error summed over the three twins is within 10 % of the free fit's and its limb undershoot
+  on the real capture stays at most 0.02; a sharpening that can make a stack worse is not a default.
 - **Whether the limb fit's north was right is incidental**: graded by the gradient, the 16-minute fixture's stack of best frames had it
   upside down and the run's quarters turned it back (31 degrees against the true 30).
 - **The stacking, read on the three twins** (`planetary-stack --truth`, each twin's 3,000 frames, every master against its truth,
