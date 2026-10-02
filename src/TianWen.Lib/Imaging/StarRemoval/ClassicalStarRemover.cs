@@ -38,11 +38,14 @@ public static class ClassicalStarRemover
     private const int MaxFitRadius = 96;
     private const int TileSize = 2 * MaxSubtractRadius;
     private const int RefinementPasses = 2;
+    private const int HoleSweepRounds = 3;
     private const double CompressedCoreFraction = 0.8;
     internal const float HoleSigma = 3f;
     private const float DefaultBeta = 3f;
     private const float DefaultFwhm = 2.5f;
-    private static readonly double[] WidthGrid = { 0.7, 1.0, 1.4, 2.0 };
+    private static readonly double[] WidthGrid = { 0.7, 0.85, 1.0, 1.2, 1.4, 2.0 };
+    private const float MaxSeedBeta = 6f;
+    private const double SizingBeta = 4.0;
     private static readonly float[] BandEdges = { 5f, 10f, 20f, 50f, 100f, float.PositiveInfinity };
 
     /// <summary>
@@ -74,7 +77,10 @@ public static class ClassicalStarRemover
         }
         fwhm[channels] = (float)fwhm.Take(channels).Average();
         beta[channels] = (float)beta.Take(channels).Average();
-        var lumPsf = new MoffatPsf(MoffatPsf.AlphaFor(fwhm[channels], beta[channels]), beta[channels]);
+        // The stacked profile only seeds beta: it reads the grid's ceiling (24.95, a Gaussian) on half the store's
+        // masters, and a seed that light would size every calibration window to the core alone.
+        var seedBeta = Math.Min(beta[channels], MaxSeedBeta);
+        var lumPsf = new MoffatPsf(MoffatPsf.AlphaFor(fwhm[channels], seedBeta), seedBeta);
 
         return await Task.Run(
             () => new Builder(image, options, lumPsf, fwhm, beta, logger, cancellationToken).Run(sw),
@@ -122,18 +128,49 @@ public static class ClassicalStarRemover
         private double _fieldScale = 1.0;
         private double _lumAlpha = lumPsf.Alpha;
         private double _beta = lumPsf.Beta;
+        private RadialCorrection? _correction;
+        private double[] _channelAlpha = Array.Empty<double>();
+        private double[] _channelBeta = Array.Empty<double>();
+        private RadialCorrection?[] _channelCorrection = Array.Empty<RadialCorrection?>();
+        private float[][] _channelRms = Array.Empty<float[]>();
 
         // The field's PSF at a star's relative width: the luminance's, and each channel's at its measured FWHM ratio.
         private MoffatPsf LumPsf(double width, double beta = 0) => new MoffatPsf(_lumAlpha * width, beta > 0 ? beta : _beta);
 
+        // Each colour channel has its own PSF, calibrated on its own plane: a refractor's red is often much wider than its
+        // green (the SMC master's red star was a broad low disc beside a sharp green one), and red derived from the
+        // luminance by one FWHM ratio was over-subtracted into a hole.
         private MoffatPsf ChannelPsf(int channel, double width, double beta = 0)
-            => _channels == 1 ? LumPsf(width, beta) : new MoffatPsf(_lumAlpha * width * fwhm[channel] / fwhm[_channels], beta > 0 ? beta : _beta);
+            => _channels == 1 ? LumPsf(width, beta)
+                : _channelAlpha.Length == _channels ? new MoffatPsf(_channelAlpha[channel] * width, _channelBeta[channel])
+                : new MoffatPsf(_lumAlpha * width * fwhm[channel] / fwhm[_channels], beta > 0 ? beta : _beta);
+
+        private RadialCorrection? ChannelCorrection(int channel)
+            => _channels == 1 ? _correction : _channelCorrection.Length == _channels ? _channelCorrection[channel] : _correction;
+
+        private double ModelChannel(int channel, MoffatPsf psf, int x, int y, double cx, double cy)
+            => ChannelCorrection(channel) is { } t ? t.Model(psf, x, y, cx, cy) : psf.PixelMean(x, y, cx, cy);
 
         // A star's FWHM over the field's: what the knot test reads, so a bright star whose wings want a lower beta is
         // judged by its core, not by how far a fixed-beta model had to widen to follow them.
         private double FwhmRatio(double width, double beta) => LumPsf(width, beta).Fwhm / LumPsf(1.0).Fwhm;
 
         private double BetaOf(in LinearResult r) => double.IsFinite(r.Beta) && r.Beta > 0 ? r.Beta : _beta;
+
+        // A star's model at a pixel, peak 1: the Moffat with the field's residual table added once it exists.
+        private double Model(MoffatPsf psf, int x, int y, double cx, double cy)
+            => _correction is { } c ? c.Model(psf, x, y, cx, cy) : psf.PixelMean(x, y, cx, cy);
+
+        // A fit window reaches where the star falls to the noise, sized as if beta were at most 4 and never under 4
+        // FWHM: a window sized from a light-winged beta holds the core alone, and the wings that would correct beta
+        // are never seen.
+        private double WindowRadius(double amplitude, double sigma, double width = 1.0)
+        {
+            var fwhmPx = LumPsf(width).Fwhm;
+            var sizing = Math.Min(_beta, SizingBeta);
+            var psf = new MoffatPsf(MoffatPsf.AlphaFor(fwhmPx, sizing), sizing);
+            return Math.Max(psf.RadiusAtLevel(amplitude, sigma), 4.0 * fwhmPx);
+        }
 
         // A star's own beta is kept only where it describes a star: physical, and with an FWHM a star of this field can
         // have. On an undersampled star a free beta trades a tiny core against heavy wings (252 bright stars of the
@@ -168,8 +205,11 @@ public static class ClassicalStarRemover
             skyMap.FillBackground(_sky);
             ct.ThrowIfCancellationRequested();
 
-            (_fieldScale, _beta) = CalibrateFieldPsf(found);
-            _lumAlpha = lumPsf.Alpha * _fieldScale;
+            (_lumAlpha, _beta) = CalibratePlane(found, _lum, lumPsf);
+            _fieldScale = _lumAlpha / lumPsf.Alpha;
+            _correction = BuildRadialCorrection(found, _lum, LumPsf(1.0));
+            CalibrateChannels(found);
+            logger?.LogDebug("ClassicalStarRemover: radial correction from {Stars} stars, reach {Reach:F1} px.", _correction?.Stars ?? 0, _correction?.Reach ?? 0);
             var fits = new Fit[found.Length];
             var firstCrowded = Crowding(found);
             RunTiled(found.Length, i => (found[i].X, found[i].Y), i => fits[i] = FitAndSubtract(found[i], null, firstCrowded[i]));
@@ -215,13 +255,9 @@ public static class ClassicalStarRemover
             var inpainted = BuildInpaintMask(fitList);
             var subtracted = BuildSubtractedMask(fitList);
             var correlation = FillHoles(inpainted);
-            if (_channels > 1)
-            {
-                for (var i = 0; i < n; i++)
-                {
-                    _lum[i] = (_work[0][i] + _work[1][i] + _work[2][i]) / 3f;
-                }
-            }
+            RefreshLuminance();
+            SweepHoles(fitList, inpainted);
+            _channelRms = ChannelRms();
 
             var stars = Describe(sources, fitList, secondFrom, inpainted);
             var statistics = Measure(stars, inpainted, subtracted, correlation, sw);
@@ -278,7 +314,7 @@ public static class ClassicalStarRemover
         // a width and a beta fitted together, before anything is subtracted. The stacked profile only seeds it: measured
         // on pixel samples with alpha tied to its half-maximum crossing, it read beta 4.0 off a field rendered at 3.0, and
         // a beta that wrong leaves every bright star a ring.
-        private (double Scale, double Beta) CalibrateFieldPsf(PointSource[] found)
+        private (double Alpha, double Beta) CalibratePlane(PointSource[] found, float[] plane, MoffatPsf seed)
         {
             var isolation = 3.0 * lumPsf.Fwhm;
             var grid = new PointGrid(found, isolation);
@@ -293,15 +329,28 @@ public static class ClassicalStarRemover
             }
             if (picks.Count < 10)
             {
-                return (1.0, lumPsf.Beta);
+                return (seed.Alpha, seed.Beta);
             }
             var scales = new double[picks.Count];
             var betas = new double[picks.Count];
             ParallelFor.Run(picks.Count, i =>
             {
                 var s = picks[i];
-                var window = CutWindow(s, 1.5 * lumPsf.RadiusAtLevel(s.Peak, Math.Max(_rms[s.PeakY * _width + s.PeakX], 1e-12)), saturationCut: double.PositiveInfinity);
-                var fitted = window is { } w ? FitNonlinear(w, lumPsf.Alpha, lumPsf.Beta, s.X, s.Y, fitBeta: true) : null;
+                var window = CutWindow(s, 1.5 * WindowRadius(s.Peak, Math.Max(_rms[s.PeakY * _width + s.PeakX], 1e-12)), saturationCut: double.PositiveInfinity, plane: plane);
+                // Nothing is subtracted yet, so a window wide enough to see the wings also holds its neighbours' light:
+                // pixels within 2 FWHM of any other source take no part (with them a field rendered at beta 3.0 read 3.31).
+                if (window is { } cw)
+                {
+                    var self = Array.IndexOf(found, s);
+                    for (var p = 0; p < cw.Weights.Length; p++)
+                    {
+                        if (cw.Weights[p] > 0 && grid.AnyWithin(cw.Xs[p], cw.Ys[p], 2.0 * lumPsf.Fwhm, except: self))
+                        {
+                            cw.Weights[p] = 0;
+                        }
+                    }
+                }
+                var fitted = window is { } w ? FitNonlinear(w, seed.Alpha, seed.Beta, s.X, s.Y, fitBeta: true) : null;
                 (scales[i], betas[i]) = fitted is { } r ? (r.Width, r.Beta) : (double.NaN, double.NaN);
             });
             var good = Enumerable.Range(0, picks.Count)
@@ -309,13 +358,116 @@ public static class ClassicalStarRemover
                 .ToArray();
             if (good.Length < 10)
             {
-                return (1.0, lumPsf.Beta);
+                return (seed.Alpha, seed.Beta);
             }
             var scale = good.Select(i => scales[i]).OrderBy(static v => v).ElementAt(good.Length / 2);
             var beta = good.Select(i => betas[i]).OrderBy(static v => v).ElementAt(good.Length / 2);
-            logger?.LogDebug("ClassicalStarRemover: field PSF from {Stars} stars: width scale {Scale:F3}, beta {Beta:F2} (stacked profile {Seed:F2}).",
-                good.Length, scale, beta, lumPsf.Beta);
-            return (scale, beta);
+            logger?.LogDebug("ClassicalStarRemover: field PSF from {Stars} stars: width scale {Scale:F3}, beta {Beta:F2} (seed {Seed:F2}).",
+                good.Length, scale, beta, seed.Beta);
+            return (seed.Alpha * scale, beta);
+        }
+
+        // The field's residual table: bright, unsaturated, isolated stars fitted at the field's Moffat (their own centre and
+        // width), each pixel's departure from it over the star's amplitude, against a sky read beyond the table's reach so
+        // a halo the fit's sky would absorb is counted; pixels near any other source take no part.
+        private RadialCorrection? BuildRadialCorrection(PointSource[] found, float[] plane, MoffatPsf field)
+        {
+            var fwhmPx = field.Fwhm;
+            var reach = Math.Min(40.0, 10.0 * fwhmPx);
+            var isolation = 3.0 * fwhmPx;
+            var grid = new PointGrid(found, isolation);
+            var picks = new List<int>();
+            for (var k = 0; k < found.Length && picks.Count < 400; k++)
+            {
+                var s = found[k];
+                if (s.Significance is >= 50f and <= 3000f && !IsSaturated(s, out _) && !grid.AnyWithin(s.X, s.Y, isolation, except: k))
+                {
+                    picks.Add(k);
+                }
+            }
+            var perStar = new List<(float Distance, float Residual)>?[picks.Count];
+            ParallelFor.Run(picks.Count, i =>
+            {
+                var k = picks[i];
+                var s = found[k];
+                if (CutWindow(s, reach + 8.0, double.PositiveInfinity, plane: plane) is not { } window)
+                {
+                    return;
+                }
+                for (var p = 0; p < window.Weights.Length; p++)
+                {
+                    if (window.Weights[p] > 0 && grid.AnyWithin(window.Xs[p], window.Ys[p], 2.0 * fwhmPx, except: k))
+                    {
+                        window.Weights[p] = 0;
+                    }
+                }
+                if (FitNonlinear(window, field.Alpha, field.Beta, s.X, s.Y, fitBeta: false) is not { Amplitude: > 0 } fit
+                    || fit.Width is < 0.7 or > 1.4)
+                {
+                    return;
+                }
+                var skyValues = new List<double>();
+                for (var p = 0; p < window.Weights.Length; p++)
+                {
+                    var d = Math.Sqrt((window.Xs[p] - fit.X) * (window.Xs[p] - fit.X) + (window.Ys[p] - fit.Y) * (window.Ys[p] - fit.Y));
+                    if (window.Weights[p] > 0 && d >= reach && d <= reach + 8.0)
+                    {
+                        skyValues.Add(window.Values[p]);
+                    }
+                }
+                if (skyValues.Count < 30)
+                {
+                    return;
+                }
+                skyValues.Sort();
+                var sky = skyValues[skyValues.Count / 2];
+                var psf = field.Scaled(fit.Width);
+                var samples = new List<(float, float)>();
+                for (var p = 0; p < window.Weights.Length; p++)
+                {
+                    var d = Math.Sqrt((window.Xs[p] - fit.X) * (window.Xs[p] - fit.X) + (window.Ys[p] - fit.Y) * (window.Ys[p] - fit.Y));
+                    if (window.Weights[p] > 0 && d < reach)
+                    {
+                        var model = psf.PixelMean(window.Xs[p], window.Ys[p], fit.X, fit.Y);
+                        samples.Add(((float)(d / fit.Width), (float)((window.Values[p] - sky - fit.Amplitude * model) / fit.Amplitude)));
+                    }
+                }
+                perStar[i] = samples;
+            });
+            var pooled = new List<(float Distance, float Residual)>();
+            var stars = 0;
+            foreach (var list in perStar)
+            {
+                if (list is { Count: > 0 })
+                {
+                    pooled.AddRange(list);
+                    stars++;
+                }
+            }
+            return RadialCorrection.Build(pooled, reach, field.Alpha, stars);
+        }
+
+        private void CalibrateChannels(PointSource[] found)
+        {
+            _channelAlpha = new double[_channels];
+            _channelBeta = new double[_channels];
+            _channelCorrection = new RadialCorrection?[_channels];
+            if (_channels == 1)
+            {
+                _channelAlpha[0] = _lumAlpha;
+                _channelBeta[0] = _beta;
+                _channelCorrection[0] = _correction;
+                return;
+            }
+            for (var c = 0; c < _channels; c++)
+            {
+                var seed = new MoffatPsf(_lumAlpha * fwhm[c] / fwhm[_channels], _beta);
+                (_channelAlpha[c], _channelBeta[c]) = CalibratePlane(found, _work[c], seed);
+                var field = new MoffatPsf(_channelAlpha[c], _channelBeta[c]);
+                _channelCorrection[c] = BuildRadialCorrection(found, _work[c], field);
+                logger?.LogDebug("ClassicalStarRemover: channel {Channel}: FWHM {Fwhm:F2} px, beta {Beta:F2}, table from {Stars} stars.",
+                    c, field.Fwhm, field.Beta, _channelCorrection[c]?.Stars ?? 0);
+            }
         }
 
         private bool IsSaturated(PointSource s, out double plateau)
@@ -381,7 +533,7 @@ public static class ClassicalStarRemover
             var startX = previous?.X ?? s.X;
             var startY = previous?.Y ?? s.Y;
             var amplitude = previous?.Amplitude ?? (fit.Saturated ? 4.0 * (plateau - sky) : Math.Max(s.Peak, sigma));
-            var radius = LumPsf(1.0).RadiusAtLevel(amplitude, sigma);
+            var radius = WindowRadius(amplitude, sigma);
             if (fit.Saturated)
             {
                 radius = Math.Max(radius, 4.0 * lumPsf.Fwhm + 3.0 * Math.Sqrt(CountPlateau(s, plateau, sky) / Math.PI));
@@ -403,18 +555,18 @@ public static class ClassicalStarRemover
                 // spikes) are wider than the field's mean profile, and at a fixed beta the fit can only follow them by
                 // widening the core, which called an 11,833-sigma star a knot at 1.72 times the field's width.
                 result = fit.Saturated
-                    ? FitNonlinear(window, _lumAlpha, _beta, startX, startY, fitBeta: false, fitWidth: false)
-                    : s.Significance >= options.BetaFitSigma
+                    ? FitNonlinear(window, _lumAlpha, _beta, startX, startY, fitBeta: false, fitWidth: false, corr: _correction)
+                    : s.Significance >= options.BetaFitSigma && _correction is null
                         ? AcceptedBetaFit(FitNonlinear(window, _lumAlpha, _beta, startX, startY, fitBeta: true))
                             ?? FitNonlinear(window, _lumAlpha, _beta, startX, startY, fitBeta: false)
                         : s.Significance >= options.NonlinearFitSigma
-                            ? FitNonlinear(window, _lumAlpha, _beta, startX, startY, fitBeta: false)
-                            : FitOnGrid(window, _lumAlpha, _beta, startX, startY, out _);
+                            ? FitNonlinear(window, _lumAlpha, _beta, startX, startY, fitBeta: false, corr: _correction)
+                            : FitOnGrid(window, _lumAlpha, _beta, startX, startY, out _, _correction);
                 if (result is not { } r || !(r.Amplitude > 0))
                 {
                     return fit;
                 }
-                var wanted = LumPsf(r.Width, BetaOf(r)).RadiusAtLevel(r.Amplitude, sigma);
+                var wanted = WindowRadius(r.Amplitude, sigma, r.Width);
                 if (wanted <= radius * 1.3 || radius >= MaxFitRadius)
                 {
                     break;
@@ -462,7 +614,7 @@ public static class ClassicalStarRemover
                 if (px >= 0 && px < _width && py >= 0 && py < _height)
                 {
                     var observed = _lum[py * _width + px] - final.SkyAt(px, py);
-                    var modelled = final.Amplitude * LumPsf(final.Width, fit.Beta).PixelMean(px, py, final.X, final.Y);
+                    var modelled = final.Amplitude * Model(LumPsf(final.Width, fit.Beta), px, py, final.X, final.Y);
                     if (observed > 0 && modelled < options.MinPeakExplained * observed)
                     {
                         fit.Outcome = StarFitOutcome.Knot;
@@ -477,8 +629,8 @@ public static class ClassicalStarRemover
             if (crowded && CutWindow(s, final.Radius, saturationCut, final.X, final.Y) is { } crowdedWindow)
             {
                 var fixedWidth = s.Significance >= options.NonlinearFitSigma || fit.Saturated
-                    ? FitNonlinear(crowdedWindow, _lumAlpha, _beta, final.X, final.Y, fitBeta: false, fitWidth: false)
-                    : SolveLinear(crowdedWindow, LumPsf(1.0), final.X, final.Y);
+                    ? FitNonlinear(crowdedWindow, _lumAlpha, _beta, final.X, final.Y, fitBeta: false, fitWidth: false, corr: _correction)
+                    : SolveLinear(crowdedWindow, LumPsf(1.0), final.X, final.Y, _correction);
                 if (fixedWidth is { } fw && fw.Amplitude > 0 && Math.Abs(fw.X - s.X) <= 2.0 && Math.Abs(fw.Y - s.Y) <= 2.0)
                 {
                     final = fw with { Width = 1.0, Beta = _beta };
@@ -496,7 +648,8 @@ public static class ClassicalStarRemover
             }
 
             fit.SubtractRadius = (int)Math.Clamp(
-                Math.Ceiling(LumPsf(final.Width, fit.Beta).RadiusAtLevel(final.Amplitude, 0.1 * sigma)),
+                Math.Ceiling(Math.Max(LumPsf(final.Width, fit.Beta).RadiusAtLevel(final.Amplitude, 0.1 * sigma),
+                    _correction is { } table ? table.Reach * final.Width : 0.0)),
                 final.Radius, MaxSubtractRadius);
             if (_channels == 1)
             {
@@ -507,7 +660,7 @@ public static class ClassicalStarRemover
                 for (var c = 0; c < _channels; c++)
                 {
                     fit.ChannelAmplitudes[c] = CutWindow(s, final.Radius, saturationCut, final.X, final.Y, _work[c]) is { } cw
-                        ? SolveLinear(cw, ChannelPsf(c, final.Width, fit.Beta), final.X, final.Y).Amplitude
+                        ? SolveLinear(cw, ChannelPsf(c, final.Width, fit.Beta), final.X, final.Y, ChannelCorrection(c)).Amplitude
                         : 0.0;
                 }
             }
@@ -529,12 +682,12 @@ public static class ClassicalStarRemover
             }
             var radius = LumPsf(1.0).RadiusAtLevel(above, sigma);
             if (CutWindow(s, radius, sky + 0.5 * above) is not { } wings
-                || FitNonlinear(wings, _lumAlpha, _beta, s.X, s.Y, fitBeta: false, fitWidth: false) is not { } w
+                || FitNonlinear(wings, _lumAlpha, _beta, s.X, s.Y, fitBeta: false, fitWidth: false, corr: _correction) is not { } w
                 || !(w.Amplitude > 0))
             {
                 return false;
             }
-            var predicted = w.Amplitude * LumPsf(1.0).PixelMean(s.PeakX, s.PeakY, w.X, w.Y) + w.SkyAt(s.PeakX, s.PeakY) - sky;
+            var predicted = w.Amplitude * Model(LumPsf(1.0), s.PeakX, s.PeakY, w.X, w.Y) + w.SkyAt(s.PeakX, s.PeakY) - sky;
             return above < CompressedCoreFraction * predicted;
         }
 
@@ -623,7 +776,7 @@ public static class ClassicalStarRemover
                         {
                             continue;
                         }
-                        plane[y * _width + x] += (float)(sign * a * psf.PixelMean(x, y, fit.X, fit.Y));
+                        plane[y * _width + x] += (float)(sign * a * ModelChannel(c, psf, x, y, fit.X, fit.Y));
                     }
                 }
             }
@@ -641,6 +794,182 @@ public static class ClassicalStarRemover
         }
 
         private bool IsAbsent(int x, int y) => _absent is { } a && a[y, x];
+
+        private void RefreshLuminance()
+        {
+            if (_channels == 1)
+            {
+                return;
+            }
+            for (var i = 0; i < _lum.Length; i++)
+            {
+                _lum[i] = (_work[0][i] + _work[1][i] + _work[2][i]) / 3f;
+            }
+        }
+
+        private float[][] ChannelRms()
+        {
+            var rms = new float[_channels][];
+            for (var c = 0; c < _channels; c++)
+            {
+                var map = BackgroundMap.Estimate(_work[c], _width, _height, _absent, new BackgroundMapOptions(BlockSize: PointSourceFinder.SkyBlockFor(lumPsf.Fwhm)));
+                rms[c] = new float[_width * _height];
+                map.FillRms(rms[c]);
+            }
+            return rms;
+        }
+
+        // The goal's guarantee: no star leaves a hole in any channel. After the fill, every subtracted star's core is read
+        // per channel against the plate's own sky in an annulus beyond it; where it sits more than HoleSigma below, the
+        // fill disc grows ring by ring until the plate is back at its sky, and is filled again from beyond that. The first
+        // fill alone could not promise it: a pixel the mask missed at a star's centre, over-subtracted, was a known pixel to
+        // the fill and dragged the whole disc down with it.
+        private void SweepHoles(List<Fit> fits, BitMatrix inpainted)
+        {
+            for (var round = 0; round < HoleSweepRounds; round++)
+            {
+                ct.ThrowIfCancellationRequested();
+                var rms = ChannelRms();
+                var discs = new System.Collections.Concurrent.ConcurrentBag<(int X, int Y, double R)>();
+                ParallelFor.Run(fits.Count, k =>
+                {
+                    var f = fits[k];
+                    if (f.Outcome != StarFitOutcome.Subtracted)
+                    {
+                        return;
+                    }
+                    var grow = 0.0;
+                    for (var c = 0; c < _channels; c++)
+                    {
+                        if (HoleRadius(f, c, rms[c]) is { } r && r > grow)
+                        {
+                            grow = r;
+                        }
+                    }
+                    if (grow > 0)
+                    {
+                        discs.Add(((int)Math.Round(f.X), (int)Math.Round(f.Y), grow));
+                    }
+                });
+                if (discs.IsEmpty)
+                {
+                    return;
+                }
+                var added = new BitMatrix(_height, _width);
+                foreach (var (x, y, r) in discs)
+                {
+                    StampDisc(added, x, y, r + 1.0);
+                }
+                for (var y = 0; y < _height; y++)
+                {
+                    for (var x = 0; x < _width; x++)
+                    {
+                        if (added[y, x])
+                        {
+                            inpainted[y, x] = true;
+                        }
+                    }
+                }
+                HoleFill.Fill(_work, _width, _height, added, _absent, lumPsf.Fwhm, options.Seed + round + 1, ct);
+                RefreshLuminance();
+                logger?.LogDebug("ClassicalStarRemover: hole sweep {Round}: {Holes} cores below their sky, refilled.", round + 1, discs.Count);
+            }
+        }
+
+        // When a subtracted star's core in one channel sits more than HoleSigma (sigma over root n) below that channel's
+        // median in an annulus beyond the star: the radius out to which the plate is still below its sky (rings averaging
+        // under -0.5 sigma). Null when there is no hole.
+        private double? HoleRadius(in Fit f, int channel, float[] rms)
+        {
+            var cx = (int)Math.Clamp(Math.Round(f.X), 0, _width - 1);
+            var cy = (int)Math.Clamp(Math.Round(f.Y), 0, _height - 1);
+            var sigma = rms[cy * _width + cx];
+            if (!(sigma > 0))
+            {
+                return null;
+            }
+            var psf = ChannelPsf(channel, f.Width, f.Beta);
+            var core = Math.Max(1.5, psf.Fwhm);
+            if (f.Saturated)
+            {
+                core = Math.Max(core, LumPsf(f.Width, f.Beta).RadiusAtLevel(f.Amplitude, Math.Max(f.Plateau - f.Sky, _rms[cy * _width + cx])));
+            }
+            var amplitude = Math.Abs(f.ChannelAmplitudes[channel]);
+            var annulus = Math.Clamp(psf.RadiusAtLevel(amplitude, sigma) + 2.0, core + 2.0, 40.0);
+            var plane = _work[channel];
+            var sky = AnnulusMedianPlane(plane, f.X, f.Y, annulus, annulus + 6.0);
+            if (!double.IsFinite(sky))
+            {
+                return null;
+            }
+            if (RingMean(plane, f.X, f.Y, 0.0, core, sky, sigma, out var n) * Math.Sqrt(n) >= -HoleSigma || n == 0)
+            {
+                return null;
+            }
+            var radius = core;
+            for (var ring = Math.Ceiling(core); ring < annulus; ring += 1.0)
+            {
+                radius = ring + 1.0;
+                if (RingMean(plane, f.X, f.Y, ring, ring + 1.0, sky, sigma, out var m) >= -0.5 || m == 0)
+                {
+                    radius = ring;
+                    break;
+                }
+            }
+            return radius;
+        }
+
+        // The mean of (plane - sky) / sigma over pixels inner <= d < outer from the centre (inner 0 includes the centre).
+        private double RingMean(float[] plane, double cx, double cy, double inner, double outer, double sky, double sigma, out int count)
+        {
+            double sum = 0;
+            count = 0;
+            var r = (int)Math.Ceiling(outer);
+            var x0 = (int)Math.Round(cx);
+            var y0 = (int)Math.Round(cy);
+            for (var y = Math.Max(0, y0 - r); y <= Math.Min(_height - 1, y0 + r); y++)
+            {
+                for (var x = Math.Max(0, x0 - r); x <= Math.Min(_width - 1, x0 + r); x++)
+                {
+                    var d2 = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+                    if (d2 >= inner * inner && d2 < outer * outer && !IsAbsent(x, y) && float.IsFinite(plane[y * _width + x]))
+                    {
+                        sum += (plane[y * _width + x] - sky) / sigma;
+                        count++;
+                    }
+                }
+            }
+            return count > 0 ? sum / count : 0.0;
+        }
+
+        // The worst channel's core, filled or not, in sigma over root n against its own annulus sky.
+        private double ChannelHoleDepth(in Fit f, double holeRadius)
+        {
+            var cx = (int)Math.Clamp(Math.Round(f.X), 0, _width - 1);
+            var cy = (int)Math.Clamp(Math.Round(f.Y), 0, _height - 1);
+            var worst = double.PositiveInfinity;
+            for (var c = 0; c < _channels; c++)
+            {
+                var sigma = _channelRms[c][cy * _width + cx];
+                if (!(sigma > 0))
+                {
+                    continue;
+                }
+                var psf = ChannelPsf(c, f.Width, f.Beta);
+                var annulus = Math.Clamp(psf.RadiusAtLevel(Math.Abs(f.ChannelAmplitudes[c]), sigma) + 2.0, holeRadius + 2.0, 40.0);
+                var sky = AnnulusMedianPlane(_work[c], f.X, f.Y, annulus, annulus + 6.0);
+                if (!double.IsFinite(sky))
+                {
+                    continue;
+                }
+                var mean = RingMean(_work[c], f.X, f.Y, 0.0, holeRadius, sky, sigma, out var n);
+                if (n > 0)
+                {
+                    worst = Math.Min(worst, mean * Math.Sqrt(n));
+                }
+            }
+            return double.IsFinite(worst) ? worst : double.NaN;
+        }
 
         /// <summary>A square window of a plane about a star: its pixels, their weights and their coordinates.</summary>
         private sealed record Window(int CentreX, int CentreY, int Radius, int[] Xs, int[] Ys, double[] Values, double[] Weights);
@@ -769,13 +1098,13 @@ public static class ClassicalStarRemover
 
         // Centre and width (and with fitBeta, beta) by Levenberg-Marquardt, with amplitude and sky solved linearly inside
         // each evaluation. Width and beta are fitted as logarithms, so neither can go negative.
-        private static LinearResult? FitNonlinear(Window w, double alpha, double beta, double x0, double y0, bool fitBeta, bool fitWidth = true)
+        private static LinearResult? FitNonlinear(Window w, double alpha, double beta, double x0, double y0, bool fitBeta, bool fitWidth = true, RadialCorrection? corr = null)
         {
             var n = w.Values.Length;
             MoffatPsf Psf(ReadOnlySpan<double> p) => new MoffatPsf(fitWidth ? alpha * Math.Exp(p[2]) : alpha, fitBeta ? Math.Exp(p[3]) : beta);
             void Residuals(ReadOnlySpan<double> p, Span<double> dst)
             {
-                var r = SolveLinear(w, Psf(p), p[0], p[1], dst);
+                var r = SolveLinear(w, Psf(p), p[0], p[1], corr, dst);
                 if (!double.IsFinite(r.Cost))
                 {
                     dst.Fill(1e6);
@@ -790,19 +1119,19 @@ public static class ClassicalStarRemover
                 return null;
             }
             var psf = Psf(p);
-            var final = SolveLinear(w, psf, p[0], p[1]);
+            var final = SolveLinear(w, psf, p[0], p[1], corr);
             return final with { Width = fitWidth ? Math.Exp(p[2]) : 1.0, Beta = psf.Beta };
         }
 
         // Below the non-linear threshold: the found centre, and the best of a coarse grid of widths. A wide width wins
         // only when it is decisively better, so noise cannot call a faint star a knot.
-        private static LinearResult? FitOnGrid(Window w, double alpha, double beta, double x0, double y0, out double gain)
+        private static LinearResult? FitOnGrid(Window w, double alpha, double beta, double x0, double y0, out double gain, RadialCorrection? corr = null)
         {
             LinearResult? best = null;
             LinearResult? typical = null;
             foreach (var scale in WidthGrid)
             {
-                var r = SolveLinear(w, new MoffatPsf(alpha * scale, beta), x0, y0) with { Width = scale };
+                var r = SolveLinear(w, new MoffatPsf(alpha * scale, beta), x0, y0, corr) with { Width = scale };
                 if (scale == 1.0)
                 {
                     typical = r;
@@ -813,13 +1142,31 @@ public static class ClassicalStarRemover
                 }
             }
             gain = typical is { } t && best is { } bb ? t.Cost - bb.Cost : 0.0;
-            // Cost is half the weighted sum of squares in the plane's units; compare in the window's own noise.
-            if (best is { } chosen && typical is { } typ && chosen.Width != 1.0)
+            // A width under the knot gate is taken as fitted. One at or past it calls the source structure, so it must
+            // beat the best star-like width decisively (Cost is half the weighted sum of squares in the plane's units,
+            // compared in the window's own noise), or noise would call a faint star a knot.
+            if (best is { Width: >= 1.4 } wide)
             {
-                var noise2 = Math.Max(typ.Cost * 2.0 / Math.Max(1, w.Weights.Count(static v => v > 0)), 1e-30);
-                if (gain * 2.0 / noise2 < 25.0)
+                LinearResult? starLike = null;
+                foreach (var scale in WidthGrid)
                 {
-                    return typ;
+                    if (scale >= 1.4)
+                    {
+                        continue;
+                    }
+                    var r = SolveLinear(w, new MoffatPsf(alpha * scale, beta), x0, y0, corr) with { Width = scale };
+                    if (starLike is not { } sl || r.Cost < sl.Cost)
+                    {
+                        starLike = r;
+                    }
+                }
+                if (starLike is { } star)
+                {
+                    var noise2 = Math.Max(star.Cost * 2.0 / Math.Max(1, w.Weights.Count(static v => v > 0)), 1e-30);
+                    if ((star.Cost - wide.Cost) * 2.0 / noise2 < 25.0)
+                    {
+                        return star;
+                    }
                 }
             }
             return best;
@@ -827,7 +1174,7 @@ public static class ClassicalStarRemover
 
         // Solves amplitude, sky level and sky slope by weighted least squares for a fixed PSF and centre; writes the
         // weighted residuals into destination when given.
-        private static LinearResult SolveLinear(Window w, MoffatPsf psf, double x0, double y0, Span<double> destination = default)
+        private static LinearResult SolveLinear(Window w, MoffatPsf psf, double x0, double y0, RadialCorrection? corr = null, Span<double> destination = default)
         {
             Span<double> ata = stackalloc double[16];
             Span<double> atb = stackalloc double[4];
@@ -842,7 +1189,7 @@ public static class ClassicalStarRemover
                 {
                     continue;
                 }
-                var p = psf.PixelMean(w.Xs[i], w.Ys[i], x0, y0);
+                var p = corr is null ? psf.PixelMean(w.Xs[i], w.Ys[i], x0, y0) : corr.Model(psf, w.Xs[i], w.Ys[i], x0, y0);
                 basis[i] = p;
                 row[0] = p;
                 row[1] = 1.0;
@@ -1038,6 +1385,12 @@ public static class ClassicalStarRemover
                     var core = psf.RadiusAtLevel(f.Amplitude, Math.Max(f.Plateau - f.Sky, sigma));
                     StampDisc(mask, cx, cy, core + 2.0);
                 }
+                else if (CoreBelowSky(f, psf, sigma) is { } holeRadius)
+                {
+                    // The goal's one forbidden artefact: a core left below the plate's own sky around it. Filled from
+                    // around instead of left as subtracted.
+                    StampDisc(mask, cx, cy, holeRadius + 1.0);
+                }
             }
             mask.DilateSquare(1);
             if (_absent is { } absent)
@@ -1112,9 +1465,13 @@ public static class ClassicalStarRemover
                 if (f.Outcome == StarFitOutcome.Subtracted && inside && sigma > 0)
                 {
                     // The residual and bias read the subtraction where nothing was filled (one FWHM); the hole depth reads
-                    // what the plate shows where the star was, filled or not, over its whole core.
+                    // what the plate shows where the star was, filled or not, over its whole core. Both against the
+                    // plate's own sky in an annulus beyond the star: the sky the star's fit found absorbs whatever halo
+                    // the model lacks, and against it almost any core read as a hole (the first ten-master run).
                     var radius = Math.Max(1.0, psf.Fwhm);
                     var holeRadius = f.Saturated ? Math.Max(radius, psf.RadiusAtLevel(f.Amplitude, Math.Max(f.Plateau - f.Sky, sigma))) : radius;
+                    var annulus = Math.Clamp(psf.RadiusAtLevel(f.Amplitude, sigma) + 2.0, Math.Max(holeRadius + 2.0, 3.0 * psf.Fwhm), 40.0);
+                    var plateSky = AnnulusMedian(f.X, f.Y, annulus, annulus + 6.0);
                     var r = (int)Math.Ceiling(holeRadius);
                     double sum = 0, sum2 = 0, holeSum = 0;
                     int count = 0, holeCount = 0;
@@ -1129,7 +1486,7 @@ public static class ClassicalStarRemover
                             {
                                 continue;
                             }
-                            var v = (_lum[y * _width + x] - (f.Sky + f.SkyX * (x - f.WindowX) + f.SkyY * (y - f.WindowY))) / sigma;
+                            var v = (_lum[y * _width + x] - plateSky) / sigma;
                             holeSum += v;
                             holeCount++;
                             if (d2 > radius * radius)
@@ -1153,7 +1510,7 @@ public static class ClassicalStarRemover
                     }
                     if (holeCount > 0)
                     {
-                        holeDepth = (float)(holeSum / Math.Sqrt(holeCount));
+                        holeDepth = (float)ChannelHoleDepth(f, holeRadius);
                     }
                 }
                 stars.Add(new FittedStar(
@@ -1162,6 +1519,112 @@ public static class ClassicalStarRemover
                     residual, bias, k >= secondFrom, holeDepth));
             }
             return stars.MoveToImmutable();
+        }
+
+        // The core radius when a subtracted star's core, on the working plate, sits more than HoleSigma (in sigma over
+        // root n) below the plate's median in an annulus beyond the star; null when it does not.
+        private double? CoreBelowSky(in Fit f, MoffatPsf psf, double sigma)
+        {
+            var radius = Math.Max(1.5, psf.Fwhm);
+            var annulus = Math.Clamp(psf.RadiusAtLevel(f.Amplitude, sigma) + 2.0, radius + 2.0, 40.0);
+            var sky = AnnulusMedian(f.X, f.Y, annulus, annulus + 6.0);
+            if (!double.IsFinite(sky))
+            {
+                return null;
+            }
+            double sum = 0;
+            var n = 0;
+            var r = (int)Math.Ceiling(radius);
+            var cx = (int)Math.Round(f.X);
+            var cy = (int)Math.Round(f.Y);
+            for (var y = Math.Max(0, cy - r); y <= Math.Min(_height - 1, cy + r); y++)
+            {
+                for (var x = Math.Max(0, cx - r); x <= Math.Min(_width - 1, cx + r); x++)
+                {
+                    if ((x - f.X) * (x - f.X) + (y - f.Y) * (y - f.Y) <= radius * radius && !IsAbsent(x, y))
+                    {
+                        sum += (_lum[y * _width + x] - sky) / sigma;
+                        n++;
+                    }
+                }
+            }
+            return n > 0 && sum / Math.Sqrt(n) < -HoleSigma ? radius : null;
+        }
+
+        // The plate's median over an annulus, absent pixels left out; NaN where nothing is present.
+        private double AnnulusMedian(double cx, double cy, double inner, double outer) => AnnulusMedianPlane(_lum, cx, cy, inner, outer);
+
+        private double AnnulusMedianPlane(float[] plane, double cx, double cy, double inner, double outer)
+        {
+            var values = new List<float>();
+            var r = (int)Math.Ceiling(outer);
+            var x0 = (int)Math.Round(cx);
+            var y0 = (int)Math.Round(cy);
+            for (var y = Math.Max(0, y0 - r); y <= Math.Min(_height - 1, y0 + r); y++)
+            {
+                for (var x = Math.Max(0, x0 - r); x <= Math.Min(_width - 1, x0 + r); x++)
+                {
+                    var d2 = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+                    if (d2 >= inner * inner && d2 <= outer * outer && !IsAbsent(x, y) && float.IsFinite(plane[y * _width + x]))
+                    {
+                        values.Add(plane[y * _width + x]);
+                    }
+                }
+            }
+            if (values.Count == 0)
+            {
+                return double.NaN;
+            }
+            values.Sort();
+            return values[values.Count / 2];
+        }
+
+        // The hole test's false-alarm rate on this plate: the same core aperture and annulus at random places no star
+        // touched, the fraction reading below -HoleSigma. A master's noise is correlated, so sigma over root n
+        // understates a mean's scatter; holes count only as an excess over this.
+        private float HoleNullRate(BitMatrix subtracted, BitMatrix inpainted)
+        {
+            var rng = new Random(options.Seed);
+            var radius = Math.Max(1.0, LumPsf(1.0).Fwhm);
+            var annulus = 3.0 * LumPsf(1.0).Fwhm;
+            var margin = (int)Math.Ceiling(annulus + 7.0);
+            if (_width <= 2 * margin || _height <= 2 * margin)
+            {
+                return float.NaN;
+            }
+            int tried = 0, below = 0;
+            for (var attempt = 0; attempt < 20000 && tried < 2000; attempt++)
+            {
+                var cx = rng.Next(margin, _width - margin);
+                var cy = rng.Next(margin, _height - margin);
+                if (subtracted[cy, cx] || inpainted[cy, cx] || IsAbsent(cx, cy))
+                {
+                    continue;
+                }
+                var worst = double.PositiveInfinity;
+                for (var c = 0; c < _channels && double.IsFinite(worst); c++)
+                {
+                    var sky = AnnulusMedianPlane(_work[c], cx, cy, annulus, annulus + 6.0);
+                    var sigma = _channelRms[c][cy * _width + cx];
+                    if (!double.IsFinite(sky) || !(sigma > 0))
+                    {
+                        worst = double.NaN;
+                        break;
+                    }
+                    var mean = RingMean(_work[c], cx, cy, 0.0, radius, sky, sigma, out var n);
+                    worst = n > 0 ? Math.Min(worst, mean * Math.Sqrt(n)) : double.NaN;
+                }
+                if (!double.IsFinite(worst))
+                {
+                    continue;
+                }
+                tried++;
+                if (worst < -HoleSigma)
+                {
+                    below++;
+                }
+            }
+            return tried > 0 ? (float)below / tried : float.NaN;
         }
 
         private StarlessPlateStatistics Measure(ImmutableArray<FittedStar> stars, BitMatrix inpainted, BitMatrix subtracted, ImmutableArray<float> correlation, Stopwatch sw)
@@ -1201,7 +1664,7 @@ public static class ClassicalStarRemover
                 leftovers.Count(l => l.Significance < BandEdges[0]),
                 Faint(static r => r < 1.0 / 3.0),
                 Faint(static r => r > 2.0 / 3.0),
-                fwhmOut, betaOut, (float)_fieldScale, (float)_beta, correlation, sw.Elapsed.TotalSeconds);
+                fwhmOut, betaOut, (float)_fieldScale, (float)_beta, HoleNullRate(subtracted, inpainted), correlation, sw.Elapsed.TotalSeconds);
         }
 
         private static float Median(IEnumerable<float> values)

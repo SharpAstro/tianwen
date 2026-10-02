@@ -196,7 +196,9 @@ public static class DatasetStarlessReport
         sb.AppendLine("Fill: the signal the fill got wrong on known pixels, in local sigma with both noises out (0 is perfect),");
         sb.AppendLine("on smooth / structured holes; grain is the filled hole's scatter over the original's.");
         sb.AppendLine();
-        sb.AppendLine("Holes: subtracted stars whose core sits more than 3 sigma over root n below their own sky, per band (5-20 / 20-100 / 100+).");
+        sb.AppendLine("Holes: subtracted stars whose core sits more than 3 sigma over root n below the plate's own sky in an annulus");
+        sb.AppendLine("beyond them, as a percentage of the band (5-20 / 20-100 / 100+), against the null: the same test at random");
+        sb.AppendLine("star-free places of the plate, which a correlated noise fails more often than a Gaussian would.");
         sb.AppendLine();
         sb.AppendLine("| Master | ch | found | sub | knots | sat | holes | inpaint | resid 5-10 / 10-20 / 20-50 / 50-100 / 100+ | bias 5-20 / 100+ | leftover 5-10 / 10-20 / 20+ | faint centre / corners | FWHM, beta (field) | cores n / p50 / p90 / max px | fill r6 | fill r12 | fill r24 | grain r12 | s |");
         sb.AppendLine("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
@@ -213,7 +215,8 @@ public static class DatasetStarlessReport
             var g12 = r.Fill.FirstOrDefault(x => x.Radius == 12).GrainRatio;
             sb.Append("| ").Append(r.Master).Append(" | ").Append(r.Channels)
                 .Append(" | ").Append(r.Found).Append(" | ").Append(r.Subtracted).Append(" | ").Append(r.Knots + r.TooNarrow).Append(" | ").Append(r.Saturated)
-                .Append(" | ").Append(b.Take(2).Sum(static x => x.Holes)).Append(" / ").Append(b.Skip(2).Take(2).Sum(static x => x.Holes)).Append(" / ").Append(b[^1].Holes)
+                .Append(" | ").Append(HolePercent(b.Take(2))).Append(" / ").Append(HolePercent(b.Skip(2).Take(2))).Append(" / ").Append(HolePercent(b.Skip(4)))
+                .Append(" (null ").Append(F(st.HoleNullRate * 100f)).Append(")")
                 .Append(" | ").Append(F(st.InpaintFraction * 100f)).Append("%")
                 .Append(" | ").Append(string.Join(" / ", b.Select(x => F(x.ResidualMedian))))
                 .Append(" | ").Append(F(Median(b.Take(2).Select(static x => x.BiasMedian)))).Append(" / ").Append(F(b[^1].BiasMedian))
@@ -227,6 +230,13 @@ public static class DatasetStarlessReport
                 .AppendLine(" |");
         }
         await File.WriteAllTextAsync(path, sb.ToString(), ct);
+    }
+
+    private static string HolePercent(IEnumerable<StarlessBand> bands)
+    {
+        var list = bands.ToList();
+        var subtracted = list.Sum(static b => b.Subtracted);
+        return subtracted > 0 ? (100.0 * list.Sum(static b => b.Holes) / subtracted).ToString("F2", CultureInfo.InvariantCulture) : "-";
     }
 
     private static float Away(StarlessBand band) => band.Leftover > 0 ? (float)band.LeftoverAway / band.Leftover : float.NaN;
