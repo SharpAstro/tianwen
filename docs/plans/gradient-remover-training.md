@@ -482,6 +482,7 @@ convention every reference and the existing extractor share).
 | G7 | Site LP prior fitted from G2's sub fits; the real-frame gate | a day | H6 |
 | G8 | Covariate conditioning, only if H4 passed | 6 x minutes | H5 |
 | G9 | Export (fixed 256, opset 17, parity to torch), contract JSON, `OnnxTianWenGradientCorrector : IGradientCorrector`, routing beside `OnnxBackgroundExtractor` | 2 days | Ships |
+| G10 | De-vignetting model (#1169, section 3, "A de-vignetting model, checked against the flat"; priority next, below the star remover). Nothing exists yet: the bake writes `V_eff` (the master flat through the frames' warps) beside the coverage plane, a flat-left-out integration for the held-out sessions, then train on the smooth `V_eff` with whole trains held out, against #1165's falloff and a train's borrowed flat. The `V_eff` plane can land with the next re-bake, before G4 | `V_eff` with a re-bake; a day to train once G4 exists | Flat-less sessions flatten like flat-fielded ones |
 
 **G1b, predicted before its report existed (2026-10-01).** The same verb at the same defaults over a store
 built by a later recipe, so G1's findings should replicate in kind:
