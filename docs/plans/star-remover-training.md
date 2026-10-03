@@ -446,8 +446,25 @@ Tracked by #902 with the rest of P4.0; none of it is a hole.
   residual. A refill driven by the speckle test itself was tried and withdrawn: it made the measure circular and
   raised the holes. Each star's catalogue row now says what it sits on (`FittedStar.SkyAbove`, its sky above the
   frame's darkest in the pixels' noise; `FittedStar.Texture`, the map's spread over that noise, 1 on a smooth sky
-  or glow), so a report, a gate or a loss can read a star on nebula apart from one on dark sky; the speckle
-  measure's null is not yet split that way (#902).
+  or glow), so a report, a gate or a loss can read a star on nebula apart from one on dark sky.
+- **Split by background, the dots at moderately bright stars are R0's own, not the texture's** (all 190 plates of the
+  2026-10-03 rebuild, `SpeckleMeasureProbe` with the masters' fields). The speckle measure now classes every site
+  and null position by the MASTER's texture (`TextureField`: smooth under 1.2, textured to 2, strongly textured
+  above) and draws each class its own null. Median rate against the class's own null, per significance band:
+
+  | Band | Smooth | Textured | Strongly textured |
+  |---|---|---|---|
+  | 0-20 | 1.1 against 0.2 (89 of 190 over twice) | 5.2 against 1.4 (65 of 117) | 16.7 against 14.9 (11 of 59) |
+  | 20-100 | **3.7 against 0.2 (176 of 190)** | 12.3 against 1.7 (61 of 74) | 22.5 against 16.8 (4 of 23) |
+  | 100-1000 | 0.5 against 0.2 (42 of 190) | 1.2 against 2.6 (1 of 24) | 22.0 against 16.1 (0 of 3) |
+  | 1000+ | 0.0 against 0.2 (2 of 175) | | |
+
+  The frame-wide null had put 168 masters over the gate in the 20-100 band; texture accounts only for the strongly
+  textured class. On smooth sky R0 leaves a dark pixel at about one star in 27 of significance 20 to 100, the
+  dipole of a fit a fraction of a pixel off (the per-channel recentring that was tried left it as it was). For R1
+  that matters where a star is injected AT a subtracted site: the target keeps the site's dot under the injected
+  star, which teaches a net to leave one. Either such sites are kept out of at-site placement or the speckle teacher
+  outweighs them.
 
 ### R1: the injector
 
