@@ -2696,6 +2696,25 @@ nearest are November 2024's. Each map is scaled to I/F by its readme's factor (t
 - Found on the way: turning a planet to another central meridian must turn the Sun with it (`PlanetAspect.TurnedTo`); the first rotation
   average turned the meridian alone, the Sun swung round the planet, and a filter's disk mean ranged 262 %.
 
+#### The balance, as adopted
+
+`PlanetaryColourBalance` (2026-10-03), the default for a colour master of Jupiter in `planetary-stack` and the viewer's Best stack:
+- **The target is a constant**, Jupiter's disk-mean colour from OPAL's reflectance (R/G 1.034, B/G 0.861), since rule 2 found it one colour
+  for 2022 and 2024. So nothing ships OPAL's maps.
+- **Each channel's sky is taken off and one gain a channel takes the stack's disk mean to the target**, the disk the limb fit's at the
+  stack's instant. The gains are the stack's, applied to the stack and to its sharpening alike.
+- **Then a saturation of 1.4 about the target colour**: each pixel's departure from Jupiter's colour at its own luminance is scaled, so the
+  luminance is kept and the disk's mean stays on the target. The owner chose 1.4 from previews at 1, 1.4 and 2, and the centre from 1.4
+  about grey against 1.4 about Jupiter's colour: about grey also turned the whole disk about 0.009 yellower than the measured colour.
+- **It comes after the sharpening**, which reads each channel's edge through that channel's own diffraction; the saturation mixes the
+  channels (at 1.4 red takes about a third of green, negatively).
+- **Both masters say so**: the FITS cards CBALGNR, CBALGNB and CBALSAT. `planetary-stack --colour-saturation` sets the strength,
+  `--no-colour-balance` and `--legacy` leave the camera's colours. A mono master, another planet, or a limb that does not fit is left as
+  captured and the log says which.
+- **Left open:** the live view, the issue's one routine for all three (#1212); a balanced master's sky renders faintly blue in the planetary
+  stretch, whose black point is set channel by channel by each channel's noise (#1229); 2022-10-09's limb grows a colour fringe as saturation
+  rises, the misregistration #1202 leaves at the limb.
+
 ### The diffraction glow's far wing
 
 Found writing `PlanetaryPictureTests` (2026-10-03). A Jupiter rendered through a 254 mm, 23 % obstructed pupil at 650 nm

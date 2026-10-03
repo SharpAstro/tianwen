@@ -1016,7 +1016,10 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   and **the metrics' sky on a crop with none past 2.5 radii is the farthest tenth past 1.3** (`PlanetaryMetrics.SkyLevel`, which errs large).
   **A colour master's finest band is kept as stacked** (`PlanetarySharpenOptions.ColourFinestBand`, #1187), the other gains fitted around
   it: it lies above a colour plane's own Nyquist, and its derived gain (12 to 20) lifted the CFA's residue into a lattice. Read a colour
-  lattice PER CHANNEL: it cancels in the luminance. **It needs the planet, the instant and the telescope** (a master carries its capture's span, DATE-OBS to EXPTIME, for the
+  lattice PER CHANNEL: it cancels in the luminance. **A colour master of Jupiter is balanced to Jupiter's own colour AFTER the sharpening**
+  (`PlanetaryColourBalance`, #1212: one gain a channel to OPAL's reflectance through the eye's response, then saturation 1.4 about that
+  colour, never about grey, which turned the whole disk yellower; the sharpening reads each channel's edge through its own diffraction, and the
+  saturation mixes the channels). **It needs the planet, the instant and the telescope** (a master carries its capture's span, DATE-OBS to EXPTIME, for the
   instant). Measured on the twins it leaves under a third of legacy's error; the free gain fit oscillates where the edge reads the finest
   band low and still lands near the truth, while the non-negative fit leaves every twin worse than unsharpened. **Floored alone rang
   OUTSIDE the limb, above the sky, on a twin with no ghost too**, where the band error (inside 0.9 radii) and the undershoot (below the
