@@ -23,7 +23,8 @@ public class LiveSessionActionsTests
     [Theory]
     [InlineData(5.0, 1, 10.0)]     // middle-of-ladder up
     [InlineData(5.0, -1, 3.0)]     // middle-of-ladder down
-    [InlineData(0.1, -1, 0.1)]     // clamp at min
+    [InlineData(0.1, -1, 0.05)]    // past the old floor, into the live view's milliseconds
+    [InlineData(0.001, -1, 0.001)] // clamp at min
     [InlineData(300, 1, 300)]      // clamp at max
     [InlineData(2.5, 1, 3.0)]      // off-ladder → snaps to next above
     [InlineData(2.5, -1, 2.0)]     // off-ladder → snaps to next below
@@ -116,6 +117,8 @@ public class LiveSessionActionsTests
     // ── FormatExposureLabel ──
 
     [Theory]
+    [InlineData(0.001, "1ms")]
+    [InlineData(0.05, "50ms")]
     [InlineData(0.1, "0.1s")]
     [InlineData(0.5, "0.5s")]
     [InlineData(1.0, "1s")]
