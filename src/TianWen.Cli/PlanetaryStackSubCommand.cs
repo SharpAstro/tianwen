@@ -135,6 +135,10 @@ internal sealed class PlanetaryStackSubCommand(
         {
             Description = "Disable the signal-confidence gate on the per-AP best-of weighting. The gate keeps best-of on the bright disk but uses an unbiased mean in faint regions; disabling it lets the local-sharpness weight amplify the faint halo (use only for A/B comparison). Ignored under --global / --no-per-point.",
         };
+        var noChannelAlignOpt = new Option<bool>("--no-channel-align")
+        {
+            Description = "Leave a colour master's planes where the stack put them. By default red and blue are moved onto green before the demosaic, as AutoStakkert's RGB align does: the atmosphere's dispersion leaves the colours apart (#1202). Each colour is read by its own limb fit when the planet and the capture's time are known, else by correlation. Off under --legacy.",
+        };
         var noSharpenOpt = new Option<bool>("--no-sharpen")
         {
             Description = "Skip sharpening. By default the master is sharpened into a separate master_*_sharpened.fits and the PNG: by gains derived from the stack through the limb's edge when the telescope is given (--aperture-mm or --telescope, R8), else by PlanetaryDefault with the limb kept as stacked; the raw linear master is never sharpened.",
@@ -210,7 +214,7 @@ internal sealed class PlanetaryStackSubCommand(
             Options =
             {
                 outputOpt, labelOpt, keepOpt, qualityOpt, globalOpt, drizzleOpt, drizzlePixfracOpt, drizzleGlobalOpt,
-                noPerPointOpt, noSignalGateOpt,
+                noPerPointOpt, noSignalGateOpt, noChannelAlignOpt,
                 noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, wavelengthOpt, fixOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, noPngOpt, pngGammaOpt,
                 tileSizeOpt, apSpacingOpt, maxApOpt, patchSizeOpt, meshSpacingOpt, correlationOpt, interpolationOpt, referenceFramesOpt,
                 derotateOpt, noDerotateOpt, planetOpt, turnNorthOverOpt, legacyOpt, truthOpt,
@@ -353,6 +357,7 @@ internal sealed class PlanetaryStackSubCommand(
                     : null,
                 // The planet into the master's OBJECT, which a viewer opens linear by.
                 Planet = planet,
+                AlignChannels = baseline.AlignChannels && !parseResult.GetValue(noChannelAlignOpt),
                 // The raw integrated master stays linear/unsharpened (downstream-friendly); the sharpen
                 // pass is applied separately below so we can emit both the raw and sharpened masters.
             };
@@ -390,6 +395,13 @@ internal sealed class PlanetaryStackSubCommand(
                 consoleHost.WriteScrollable(double.IsNaN(turn)
                     ? "[planetary] stacked as taken: the frames carry no times to de-rotate by"
                     : string.Create(CultureInfo.InvariantCulture, $"[planetary] stacked as taken: the planet's turn moves its disk's middle {turn:0.00} px over the run, under the {PlanetaryBestStack.TurnWorthDerotatingPx:0.#} px a de-rotation is worth"));
+            }
+            if (result.ChannelAlignment is { } aligned)
+            {
+                var greens = aligned.GreenCheck is { } check ? string.Create(CultureInfo.InvariantCulture, $"; the greens {check.Length:0.00} px apart") : "";
+                consoleHost.WriteScrollable(aligned.Applied
+                    ? string.Create(CultureInfo.InvariantCulture, $"[planetary] colours moved onto green, read by {(aligned.Reading == PlanetaryChannelReading.Limb ? "their limbs" : "correlation")}: red was at {aligned.Red}, blue at {aligned.Blue}{greens}")
+                    : string.Create(CultureInfo.InvariantCulture, $"[planetary] colours left as stacked: {aligned.Refusal} (red {aligned.Red}, blue {aligned.Blue}{greens})"));
             }
             if (result.Epoch is { } epoch && result.North is { } north)
             {

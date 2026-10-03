@@ -2696,6 +2696,140 @@ An earlier reading here, that the crescent ran along Red's elongated blur from a
 - **The owner had chosen bounded against the rule (#1168).** This takes it back by the rule and the eye together, for the cause the
   owner asked to be found.
 
+### A colour master's planes aligned onto each other
+
+**Issue:** #1202.
+
+The atmosphere's dispersion moves each colour's image along the vertical: blue toward the zenith, red away from it. The stacker
+registers every frame by its luminance and never registers the colours onto each other, so the master keeps the offset as a coloured
+fringe at the limb, blue on one side and red on the other. AutoStakkert takes it out: the owner's session file for 2022-10-09
+(`..._P14_lapl6_ap125.as3`) has `_stack_rgb_align True`, and that stack's channels agree to 0.13 px.
+
+**Measured on 2022-10-09 before anything was built** (`i1202/centres.py` in the scratch; today's linear master; px):
+
+| Plane onto green | Plain correlation | Centroid above a quarter | Limb circle |
+|---|---|---|---|
+| red, ours | -0.88, -0.84 | -2.24, -1.59 | -2.24, -1.64 |
+| blue, ours | +1.41, +1.41 | +3.26, +2.04 | +2.98, +2.21 |
+| red, the owner's AutoStakkert | +0.13, +0.31 | -0.18, +0.30 | -0.30, +0.17 |
+| blue, the owner's AutoStakkert | +0.01, +0.27 | +0.47, +0.56 | +0.08, +0.67 |
+
+**Our planes' outlines are displaced about twice as far as their detail**, which a pure shift of each colour cannot do. The likely
+cause is the demosaic: MHC builds a red or blue pixel from its own colour's bilinear value plus green's local curvature, so the
+belts' fine detail in red and blue partly comes from green and sits near green's position, while the outline, a low frequency, stays
+at its own colour's. A shift of the demosaiced planes could then line up the detail or the outline, never both.
+
+**So the planes are aligned before the demosaic**, on the four stacked CFA sub-planes, where each holds one colour and nothing else
+(`PlanetaryChannelAlignment`). Each sub-plane samples the sky at its own photosite, half a sub-plane pixel from its neighbours, so a
+correlation between two of them reads that phase as well as the dispersion. The phase is known and is taken out: the dispersion is
+`2d + phase difference`, in mosaic pixels. Red and blue are each measured against both greens and the two readings averaged; G2 onto
+G1 reads zero when the arithmetic is right, which every master checks for free. A drizzled master deposits each sample at its own
+photosite, so it has no cross-talk and no phase, and its colour planes are aligned as they are.
+
+**The rule, set down before it ran** (2026-10-03):
+- **the self-check:** G2 onto G1, the phase taken out, reads under 0.05 px on both colour captures;
+- **the cause:** with the sub-planes aligned, the demosaiced master's red-to-blue offset is under 0.2 px both by plain correlation
+  and by limb circle, on 2022-10-09 and on Uranus-C (2024-12-15 12:36:43). If correlation and outline still disagree by more than
+  that, the cause above is wrong and the next step is to find the real one;
+- **no harm where there is nothing to fix:** R5a's colour twin has no dispersion. There the measured shifts are under 0.05 px and the
+  pipeline's summed band error moves by under 1 %;
+- **adoption:** alignment becomes the default (`PlanetaryStackOptions.AlignChannels`, off in `.Legacy`) if all three hold, and the
+  sharpened limb is clean by eye at 6x on both captures beside the owner's AutoStakkert stack.
+
+**The smear inside each band is a separate question.** Red spans about 100 nm, and the dispersion across it spreads a point along the
+same axis. If a fringe remains once the planes agree, that is the next step (#1202's third item), from the ephemeris' altitude or
+measured per channel as a one-sided blur.
+
+#### What the first run showed: the cause above was the yardstick, and correlation is not the geometry
+
+The sub-planes aligned by correlation, as above (`i1202/run.sh`, the pipeline's defaults, `--no-channel-align` the other arm):
+
+| Capture | Read on the sub-planes, red; blue (mosaic px) | Greens apart | Red to blue after, by the rule's correlation / limb circle |
+|---|---|---|---|
+| 2022-10-09 | -2.19, -1.54; +3.14, +2.10 | 0.01 | **0.68** / **0.21** |
+| Uranus-C | -0.42, -0.97; +0.60, +1.38 | 0.00 | 0.05 / 0.10 |
+
+**By its letter the rule failed on 2022-10-09**, and following it to the cause found two things wrong with what it was set on.
+
+- **The demosaic hides nothing; the window did.** The rule's correlation (`centres.py`) windows the frame by a fixed Hann window,
+  which reads a shift short, the more so the more of it the disk fills (2022-10-09's disk is 150 px in a 200 px frame). Measured
+  without a window, each plane padded with its own sky (`i1202/parts.py`), the as-stacked master reads red to blue 6.43 px, as its
+  sub-planes and its outline do, and on a synthetic disk MHC's demosaic reads within 0.08 px of the shift put in
+  (`PlanetaryChannelAlignmentTests`). The cross-talk paragraph above is withdrawn. Aligning before the demosaic stays, since there each
+  plane holds its own colour as sampled, at a quarter of the pixels.
+- **Correlation reads a colour's brightness, not its disk.** R5a's colour twin is not free of dispersion, as the rule assumed: it was
+  built with the capture's, measured by its limbs, so its truth is known (red -0.39, -0.85; blue +0.56, +1.16). Every brightness
+  measure missed it along the planet's axis, which lies along y there (north at 265 degrees):
+
+  | The twin's unaligned master, seed 1 | Red | Blue |
+  |---|---|---|
+  | the truth | -0.39, -0.85 | +0.56, +1.16 |
+  | correlation, unwindowed | -0.38, -1.03 | +0.57, +1.56 |
+  | centroid above a quarter | -0.31, -0.91 | +0.50, +1.33 |
+  | limb circle (half-level crossings) | -0.37, -1.15 | +0.55, +1.96 |
+  | **limb fit per colour, the ephemeris' shape** | **-0.38, -0.79** | **+0.55, +1.11** |
+
+  Each colour sees its own belts and poles, and a measure that weighs brightness takes a colour's north-south albedo difference for a
+  shift. The limb fit (R1) models the albedo by latitude, one hemisphere against the other included, and lands within 0.1 px of the
+  truth on both seeds (seed 2: -0.37, -0.75; +0.54, +1.12), where correlation missed by up to 0.45. On the real Uranus-C it reads
+  -0.38, -0.81 and +0.55, +1.14, R5a's own limb-measured dispersion. **This probe ran before the rule below was set down**, on the
+  demosaiced planes through `planetary-limb`.
+
+So the colours are read by their limbs (`PlanetaryChannelReading.Limb`): each sub-plane's disk fitted with the planet's ephemeris at the
+master's instant, green's first and every other colour lit from the side green's fit found. Correlation stays where the planet or the
+instant is unknown, or a fit fails, and the stack says which it used.
+
+**The rule for the limb reading, set down before it ran** (2026-10-03):
+- **against a truth:** on the colour twin, both seeds, demosaiced and drizzled to the sensor grid, the reading lands within 0.1 px of the
+  twin's placements in every component;
+- **no harm:** the twin's summed band error (bands 1 to 4, three colours, the sharpened master) moves by under 1 % against the unaligned
+  master's;
+- **the real captures:** the greens under 0.05 px apart, and the aligned master's colours re-fitted at their limbs within 0.1 px of
+  green (that the move was applied as read; the limb has no truth-free judge, R3);
+- **adoption:** alignment by the limbs becomes the default if all three hold and the owner finds the limb clean at 6x on both captures.
+
+#### The limb reading's results (2026-10-03)
+
+Read on the sub-planes (or the drizzled planes) by each colour's limb fit, the pipeline's defaults otherwise (`i1202/limb.sh`):
+
+| Master | Red (mosaic px) | Blue | Greens apart |
+|---|---|---|---|
+| **the twin's truth** | **-0.39, -0.85** | **+0.56, +1.16** | |
+| twin, seed 1, demosaiced | -0.37, -0.81 | +0.58, +1.22 | 0.04 |
+| twin, seed 1, drizzled | -0.38, -0.79 | +0.57, +1.16 | |
+| twin, seed 2, demosaiced | -0.39, -0.83 | +0.56, +1.18 | 0.02 |
+| twin, seed 2, drizzled | -0.40, -0.86 | +0.55, +1.17 | |
+| 2022-10-09 | -2.28, -1.57 | +3.32, +2.00 | 0.02 |
+| Uranus-C 12:36:43 | -0.39, -0.84 | +0.55, +1.16 | 0.00 |
+
+The twin's sharpened master, error over bands 1 to 4 and the three colours (`i1202/bands.py`):
+
+| Master | As stacked | Colours aligned by their limbs |
+|---|---|---|
+| seed 1, demosaiced | 4.559 | 4.233 (-7.2 %) |
+| seed 1, drizzled | 4.769 | 4.123 (-13.5 %) |
+| seed 2, demosaiced | 4.739 | 4.622 (-2.5 %) |
+| seed 2, drizzled | 4.618 | 4.461 (-3.4 %) |
+
+- **Against the truth: holds.** Every component lands within 0.06 px on both seeds, demosaiced and drizzled.
+- **No harm: holds in what it guarded, not by its letter.** The rule asked for a change under 1 %. Every master improved by 2.5 to
+  13.5 %, which the rule did not foresee. The likely reason, not measured: the sharpening fits its limb model to a disk whose colours now
+  coincide.
+- **The real captures: hold.** The greens agree to 0.02 and 0.00 px. Uranus-C reads R5a's limb-measured dispersion. Re-fitted
+  after alignment, every colour's limb sits within 0.1 px of green's: 2022-10-09 red -0.02, +0.09 and blue -0.09, +0.04; Uranus-C red
+  -0.03, 0.00 and blue +0.04, +0.03.
+- **By eye at 6x** (`i1202/jupiter-2022-10-09-colour.png`, `uranusc-colour.png`, sent to the owner): as stacked, a blue rim on one
+  limb and an orange-red one opposite; aligned, both limbs neutral on both captures. **Adoption waits on the owner's eye.**
+- **A colour fitted from green's fit**, the limb fit's short search for a like image, left the twin's demosaiced sub-planes unconverged
+  and fell back to correlation. So every colour starts cold, the three after green at once.
+- **Cost:** on the twin within the run-to-run noise (8 to 16 s a stack either way). On Uranus-C, runs alternated with and without the
+  reading: 92.3 against 104.4 s with another job holding the box at 60 %, 73.6 against 75.9 s once it eased to 12 %. One earlier run
+  read 186 s more under that load, which the alternated pairs put down to the load, not the fits.
+- **The smear inside each band:** no fringe is left at 6x on either capture once the planes agree, so #1202's third item is not taken
+  up unless the owner sees one.
+- **The live stack** (#1202's fourth item) is not aligned yet: it publishes a master many times a second, and a limb fit per colour
+  costs seconds. Measuring once and reusing the offsets is the shape it would take.
+
 ## R9 A learned stage, only if the measurements say so
 
 **Issue:** #1056 (conditional).
