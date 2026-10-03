@@ -52,17 +52,7 @@ internal static class HoleFill
             // differences give: the map counts a crowded field's faint stars and a bright nebula's structure as noise
             // (in M42's core a fill sat 0.26 above data whose noise is a hundredth of that, inside a margin of three of
             // the map's sigmas).
-            if (PointSourceFinder.DifferenceNoiseMap(plane, width, height, excluded, PointSourceFinder.SkyBlockFor(fwhm)) is { } local)
-            {
-                for (var i = 0; i < rms.Length; i++)
-                {
-                    var cap = (float)(PointSourceFinder.ConfusionSafety * local[i]);
-                    if (cap > 0f && cap < rms[i])
-                    {
-                        rms[i] = cap;
-                    }
-                }
-            }
+            PointSourceFinder.CapByDifferenceNoise(rms, plane, width, height, excluded, PointSourceFinder.SkyBlockFor(fwhm));
             var rho = Math.Clamp(LagOneCorrelation(plane, width, height, rms, excluded), 0f, 0.7f);
             correlation[c] = rho;
             var k = rho > 1e-3f ? (1.0 - Math.Sqrt(1.0 - 2.0 * rho * rho)) / (2.0 * rho) : 0.0;

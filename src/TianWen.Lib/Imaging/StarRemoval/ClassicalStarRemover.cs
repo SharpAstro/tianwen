@@ -157,6 +157,11 @@ public static class ClassicalStarRemover
         private double[] _channelBeta = Array.Empty<double>();
         private RadialCorrection?[] _channelCorrection = Array.Empty<RadialCorrection?>();
         private float[][] _channelRms = Array.Empty<float[]>();
+        // The luminance's noise for the hole tests: the sky map's spread capped by the pixels' own differences
+        // (PointSourceFinder.CapByDifferenceNoise). Only a test of a core against the plate round it reads it: a dip is
+        // what it asks about, which a nebula's texture never is; the flags against the smooth sky keep the map's spread,
+        // which shields that texture from being taken for residual.
+        private float[] _holeNoise = Array.Empty<float>();
         private float[] _fullScale = Array.Empty<float>();
         private float[][] _original = Array.Empty<float[]>();
         private float[][]? _ceiling;
@@ -249,6 +254,8 @@ public static class ClassicalStarRemover
             _sky = new float[n];
             skyMap.FillRms(_rms);
             skyMap.FillBackground(_sky);
+            _holeNoise = (float[])_rms.Clone();
+            PointSourceFinder.CapByDifferenceNoise(_holeNoise, _lum, _width, _height, _absent, PointSourceFinder.SkyBlockFor(lumPsf.Fwhm));
             ct.ThrowIfCancellationRequested();
 
             (_lumAlpha, _beta) = CalibratePlane(found, _lum, lumPsf);
@@ -1660,6 +1667,9 @@ public static class ClassicalStarRemover
                 var map = BackgroundMap.Estimate(_work[c], _width, _height, _absent, new BackgroundMapOptions(BlockSize: PointSourceFinder.SkyBlockFor(lumPsf.Fwhm)));
                 rms[c] = new float[_width * _height];
                 map.FillRms(rms[c]);
+                // The hole tests' noise (the sweep, the reported depth): a dug core on a nebula sat 5 sigma of the pixels'
+                // own noise under the plate round it and read as 3 against the map's spread, so it was left.
+                PointSourceFinder.CapByDifferenceNoise(rms[c], _work[c], _width, _height, _absent, PointSourceFinder.SkyBlockFor(lumPsf.Fwhm));
             }
             return rms;
         }
@@ -2495,7 +2505,7 @@ public static class ClassicalStarRemover
                     var core = CoreRadius(f, sigma);
                     StampDisc(mask, cx, cy, core + 2.0);
                 }
-                else if (CoreBelowSky(f, psf, sigma) is { } holeRadius)
+                else if (CoreBelowSky(f, psf, Math.Max(_holeNoise[centre], 1e-12)) is { } holeRadius)
                 {
                     // The goal's one forbidden artefact: a core left below the plate's own sky around it. Filled from
                     // around instead of left as subtracted.

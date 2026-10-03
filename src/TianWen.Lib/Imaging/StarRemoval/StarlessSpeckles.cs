@@ -28,8 +28,11 @@ public sealed record SpeckleReport(ImmutableArray<SpeckleBand> Bands, SpeckleBan
 /// a star subtracted a fraction of a pixel off leaves a dark pixel beside a bright one, and the mean stays at the sky. One
 /// definition for the classical builder's report, an eval gate and, for a learned remover, the penalty that teaches it not
 /// to make them (docs/plans/star-remover-training.md). Read on a luminance: each core pixel within <see cref="CoreRadius"/>
-/// of a site, against the median and the MAD (as sigma) of the plate from <see cref="SkyInner"/> to
-/// <see cref="SkyOuter"/> px.
+/// of a site, against the median of the plate from <see cref="SkyInner"/> to <see cref="SkyOuter"/> px and, as sigma,
+/// that ring's MAD capped by the pixels' own differences (<see cref="PointSourceFinder.CapByDifferenceNoise"/>): on a
+/// bright nebula the ring's MAD is its texture, and against it the dots a remover digs there read as nothing (in the
+/// Orion master's M42 core 23.5 percent of the stars carried one against the pixels' noise, where the texture alone gives
+/// 10.5 at star-free places; read against the ring's MAD the whole frame said 2.6).
 /// </summary>
 public static class StarlessSpeckles
 {
@@ -68,10 +71,11 @@ public static class StarlessSpeckles
     {
         var bandSites = new int[BandEdges.Length];
         var bandSpeckled = new int[BandEdges.Length];
-        var scratch = new float[(int)Math.Ceiling(Math.PI * SkyOuter * SkyOuter) + 64];
+        var scratch = NewScratch();
+        var cap = NoiseCap(luminance, width, height, absent);
         foreach (var (x, y, significance) in sites)
         {
-            if (Read(luminance, width, height, absent, x, y, scratch) is not { } speckled)
+            if (Read(luminance, width, height, absent, x, y, scratch, cap) is not { } speckled)
             {
                 continue;
             }
@@ -132,7 +136,7 @@ public static class StarlessSpeckles
         {
             var px = SkyOuter + rng.NextDouble() * (width - 2 * SkyOuter - 1);
             var py = SkyOuter + rng.NextDouble() * (height - 2 * SkyOuter - 1);
-            if (!Clear(px, py) || Read(luminance, width, height, absent, px, py, scratch) is not { } speckled)
+            if (!Clear(px, py) || Read(luminance, width, height, absent, px, py, scratch, cap) is not { } speckled)
             {
                 continue;
             }
@@ -143,6 +147,18 @@ public static class StarlessSpeckles
             }
         }
         return new SpeckleReport(bands.MoveToImmutable(), new SpeckleBand(0f, float.PositiveInfinity, nullSites, nullSpeckled));
+    }
+
+    /// <summary>The scratch a site's read needs.</summary>
+    internal static float[] NewScratch() => new float[(int)Math.Ceiling(Math.PI * SkyOuter * SkyOuter) + 64];
+
+    /// <summary>The cap on a ring's MAD: the pixels' own noise, as the hole tests read it.</summary>
+    internal static float[] NoiseCap(float[] luminance, int width, int height, BitMatrix? absent)
+    {
+        var cap = new float[luminance.Length];
+        Array.Fill(cap, float.PositiveInfinity);
+        PointSourceFinder.CapByDifferenceNoise(cap, luminance, width, height, absent, (int)Math.Round(2 * SkyOuter));
+        return cap;
     }
 
     private static int BandOf(float significance)
@@ -157,8 +173,10 @@ public static class StarlessSpeckles
         return 0;
     }
 
-    // Whether a site is speckled; null where it cannot be read (the window past the frame or the ring, too little sky).
-    private static bool? Read(float[] plane, int width, int height, BitMatrix? absent, double cx, double cy, float[] scratch)
+    // Whether a site is speckled; null where it cannot be read (the window past the frame or the ring, too little sky). With
+    // dark, every dark core pixel is collected rather than the first answering.
+    private static bool? Read(
+        float[] plane, int width, int height, BitMatrix? absent, double cx, double cy, float[] scratch, float[] cap, List<int>? dark = null)
     {
         var r = (int)Math.Ceiling(SkyOuter);
         var x0 = (int)Math.Round(cx);
@@ -195,13 +213,14 @@ public static class StarlessSpeckles
         {
             sky[i] = Math.Abs(sky[i] - median);
         }
-        var sigma = 1.4826f * StatisticsHelper.NthSmallest(sky, count / 2);
+        var sigma = Math.Min(1.4826f * StatisticsHelper.NthSmallest(sky, count / 2), cap[(y0 * width) + x0]);
         if (!(sigma > 0))
         {
             return null;
         }
         var limit = median - (SpeckleSigma * sigma);
         var c = (int)Math.Ceiling(CoreRadius);
+        var speckled = false;
         for (var y = y0 - c; y <= y0 + c; y++)
         {
             for (var x = x0 - c; x <= x0 + c; x++)
@@ -213,10 +232,15 @@ public static class StarlessSpeckles
                 var v = plane[(y * width) + x];
                 if (float.IsFinite(v) && v < limit)
                 {
-                    return true;
+                    if (dark is null)
+                    {
+                        return true;
+                    }
+                    dark.Add((y * width) + x);
+                    speckled = true;
                 }
             }
         }
-        return false;
+        return speckled;
     }
 }

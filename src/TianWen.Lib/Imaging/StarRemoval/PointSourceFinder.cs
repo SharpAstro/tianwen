@@ -181,6 +181,29 @@ internal static class PointSourceFinder
     }
 
     /// <summary>
+    /// Caps <paramref name="rms"/> (a background map's spread) pixel by pixel at <see cref="ConfusionSafety"/> times the noise
+    /// <paramref name="plane"/>'s own differences give (<see cref="DifferenceNoiseMap"/>), in place: a map's spread counts a
+    /// crowded field's faint stars and a bright nebula's texture as noise (over the Orion master's M42 core 1.6 times the
+    /// pixels' own), and a test against it is blind there by as much. One rule for the fill's grain and margin, the hole
+    /// tests and the speckle measure. Left as it is where the differences do not fit the model.
+    /// </summary>
+    internal static void CapByDifferenceNoise(float[] rms, ReadOnlySpan<float> plane, int width, int height, BitMatrix? absent, int block)
+    {
+        if (DifferenceNoiseMap(plane, width, height, absent, block) is not { } local)
+        {
+            return;
+        }
+        for (var i = 0; i < rms.Length; i++)
+        {
+            var cap = (float)(ConfusionSafety * local[i]);
+            if (cap > 0f && cap < rms[i])
+            {
+                rms[i] = cap;
+            }
+        }
+    }
+
+    /// <summary>
     /// The pixel noise of <paramref name="plane"/> per cell of <paramref name="block"/> pixels, interpolated between
     /// cell centres: each cell's lag-1 difference spread, scaled by the correlation width the whole plane's differences
     /// give (<see cref="DifferenceNoise"/>). Blind, as differences are, to the structure and the confusion a cell's own
