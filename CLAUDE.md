@@ -1907,6 +1907,13 @@ tree (build it ONCE and pass the same instance to Arrange and Paint). **Do NOT r
 is NEVER a property (`AltitudeChartRenderer`, `SkyMapRenderer` keep theirs). Breakdown:
 `docs/plans/dpi-scale.md`.
 
+**Widgets in one window do NOT share a scale.** The GUI's chrome and tabs carry `GuiTheme.InterfaceScale` (1.15) over
+the window's DPI (DIR.Lib 11.8's per-widget `InterfaceScale`, set in `VkGuiRenderer`); the viewers they embed (the Live
+Session preview, the guide camera, the planetary view) do not, so a viewer's toolbar keeps its `tianwen-fits` size. A
+widget's `DpiScale` and `Scale` include its own scale: **never read `Ui.DpiScale`** (the window's) in a widget
+(`DeclaredLayoutTakesDesignUnitsTests.NoWidgetReadsTheWindowsDpiStraight`), and never carry one widget's scale or metrics
+into another's layout (`chrome-review` rule 7); a rect handed over in surface pixels is fine.
+
 **Which FACE they get is one decision, `BundledFonts.Resolve()`**, returning `(Text, Emoji, Fallback)`
 together for all three hosts; **a direct `FontResolver.` call in production code is a regression**
 (tests exempt). Resolving a subset is the bug it prevents (the viewer had faces but no

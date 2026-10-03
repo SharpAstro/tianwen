@@ -45,7 +45,9 @@ namespace TianWen.UI.Gui
         // chrome composes -- the eight tabs AND the three embedded viewers -- reads this chrome's
         // PixelWidgetBase.Ui, so the host's one assignment is theirs too. The four propagation blocks that
         // used to sit here each named all eight tabs, and the viewers were then hand-fed the DPI they could
-        // not be excluded from: display scale is a property of the WINDOW, and these all draw into one.
+        // not be excluded from: display scale is a property of the WINDOW, and these all draw into one. What
+        // is NOT shared is each widget's own scale over it (DIR.Lib's InterfaceScale): the chrome and the tabs
+        // carry GuiTheme.InterfaceScale and the viewers keep 1, set once in the constructor below.
 
 
 
@@ -491,6 +493,15 @@ namespace TianWen.UI.Gui
             ShareUiContext(_plannerTab, _equipmentTab, _sessionTab, _skyMapTab,
                            _liveSessionTab, _guiderTab, _notificationsTab, _homeTab,
                            _guiderViewer, _previewViewer, _planetaryTab, _sidebar, _nightCalendar);
+
+            // The GUI's own chrome a tad larger than the viewers it embeds (GuiTheme.InterfaceScale): this chrome, every tab,
+            // the sidebar and the calendar. Not the three viewers (the preview, the guide camera and the planetary view, which
+            // IS a viewer with a strip), whose toolbar keeps the size it has in tianwen-fits.
+            foreach (var widget in (ReadOnlySpan<PixelWidgetBase<VulkanContext>>)[this, _plannerTab, _equipmentTab, _sessionTab,
+                _skyMapTab, _liveSessionTab, _guiderTab, _notificationsTab, _homeTab, _sidebar, _nightCalendar])
+            {
+                widget.InterfaceScale = GuiTheme.InterfaceScale;
+            }
             ResolveFontPath();
         }
 
