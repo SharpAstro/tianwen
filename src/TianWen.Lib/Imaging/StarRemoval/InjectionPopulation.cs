@@ -337,7 +337,7 @@ public sealed class InjectionPopulation
 
     // A saturated star's amplitudes and, per channel, its clip: the core's height where the wings extrapolate past it
     // (ClippedWingExcess), else none (positive infinity). A core that does not stand above the plate is no level either.
-    private static (ImmutableArray<double> Amplitudes, ImmutableArray<double> Clips) SaturatedEntry(
+    internal static (ImmutableArray<double> Amplitudes, ImmutableArray<double> Clips) SaturatedEntry(
         FittedStar s, float[][] planes, float[][] platePlanes, int width, int height, double scale)
     {
         var channels = planes.Length;
