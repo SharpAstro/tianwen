@@ -64,26 +64,16 @@ public readonly struct PlanetaryProjection
     /// the disk. The render's ray cast, exactly.
     /// </summary>
     internal bool TryNormal(double x, double y, out double n1, out double n2, out double n3, out double x1, out double x2)
-    {
-        var dx = (x - _centerX) / _radius;
-        var dy = (y - _centerY) / _radius;
-        var u = (dx * _westX) + (dy * _westY);
-        var v = (dx * _northX) + (dy * _northY);
+        => TryNormal(x, y, out n1, out n2, out n3, out _, out x1, out x2, out _);
 
-        // The ray (u, v, t) meets the spheroid X1^2 + X2^2 + X3^2 / q^2 = 1, with X1 = u, X2 = t cos D - v sin D and
-        // X3 = t sin D + v cos D; the nearer of the two meetings is the larger t.
-        var b = 2 * v * _sinD * _cosD * (_q2Inverse - 1);
-        var c = (u * u) + (v * v * _sinD * _sinD) + (v * v * _cosD * _cosD * _q2Inverse) - 1;
-        var discriminant = (b * b) - (4 * _a * c);
-        if (discriminant < 0)
+    // The same, with how far toward the observer the meeting lies and its polar body coordinate.
+    private bool TryNormal(double x, double y, out double n1, out double n2, out double n3, out double t, out double x1, out double x2, out double x3)
+    {
+        if (!TryGlobe(x, y, out t, out x1, out x2, out x3))
         {
-            (n1, n2, n3, x1, x2) = (0, 0, 0, 0, 0);
+            (n1, n2, n3) = (0, 0, 0);
             return false;
         }
-        var t = (-b + Math.Sqrt(discriminant)) / (2 * _a);
-        x1 = u;
-        x2 = (t * _cosD) - (v * _sinD);
-        var x3 = (t * _sinD) + (v * _cosD);
 
         // The normal, in the body frame; its latitude is the planetographic latitude.
         n1 = x1;
@@ -97,13 +87,112 @@ public readonly struct PlanetaryProjection
     }
 
     /// <summary>
+    /// Where the ray through pixel (<paramref name="x"/>, <paramref name="y"/>) first meets the spheroid: how far toward the observer
+    /// (<paramref name="t"/>, in equatorial radii from the sky plane through the centre) and the point's body coordinates; false off the
+    /// disk.
+    /// </summary>
+    internal bool TryGlobe(double x, double y, out double t, out double x1, out double x2, out double x3)
+    {
+        var (u, v) = SkyPlane(x, y);
+
+        // The ray (u, v, t) meets the spheroid X1^2 + X2^2 + X3^2 / q^2 = 1, with X1 = u, X2 = t cos D - v sin D and
+        // X3 = t sin D + v cos D; the nearer of the two meetings is the larger t.
+        var b = 2 * v * _sinD * _cosD * (_q2Inverse - 1);
+        var c = (u * u) + (v * v * _sinD * _sinD) + (v * v * _cosD * _cosD * _q2Inverse) - 1;
+        var discriminant = (b * b) - (4 * _a * c);
+        if (discriminant < 0)
+        {
+            (t, x1, x2, x3) = (0, 0, 0, 0);
+            return false;
+        }
+        t = (-b + Math.Sqrt(discriminant)) / (2 * _a);
+        x1 = u;
+        x2 = (t * _cosD) - (v * _sinD);
+        x3 = (t * _sinD) + (v * _cosD);
+        return true;
+    }
+
+    /// <summary>
+    /// Where the ray through pixel (<paramref name="x"/>, <paramref name="y"/>) crosses the equatorial plane, the plane of Saturn's
+    /// rings (S1, #1231): its distance from the centre (<paramref name="radius"/>, equatorial radii), how far toward the observer
+    /// (<paramref name="t"/>, comparable with <see cref="TryGlobe"/>'s) and the crossing's body coordinates; false with the plane edge
+    /// on. X3 = t sin D + v cos D is zero at t = -v cos D / sin D, where X2 = -v / sin D, so the ring radius is
+    /// <c>sqrt(u^2 + v^2 / sin^2 D)</c>: the ellipse of semi-axes r and r |sin D|.
+    /// </summary>
+    internal bool TryRingPlane(double x, double y, out double radius, out double t, out double x1, out double x2)
+    {
+        if (Math.Abs(_sinD) < 1e-9)
+        {
+            (radius, t, x1, x2) = (0, 0, 0, 0);
+            return false;
+        }
+        var (u, v) = SkyPlane(x, y);
+        t = -v * _cosD / _sinD;
+        x1 = u;
+        x2 = -v / _sinD;
+        radius = Math.Sqrt((x1 * x1) + (x2 * x2));
+        return true;
+    }
+
+    /// <summary>The sine of the Sun's elevation above the equatorial plane, signed (positive north): Meeus's sin B'.</summary>
+    internal double SunSinElevation => _sun3;
+
+    /// <summary>
+    /// Whether the point (<paramref name="x1"/>, <paramref name="x2"/>, 0) of the equatorial plane, outside the globe, lies in the
+    /// globe's shadow: whether the ray from it toward the Sun meets the spheroid.
+    /// </summary>
+    internal bool InGlobeShadow(double x1, double x2)
+    {
+        // (x1 + s S1)^2 + (x2 + s S2)^2 + (s S3)^2 / q^2 = 1, a meeting at some s > 0.
+        var a = (_sun1 * _sun1) + (_sun2 * _sun2) + (_sun3 * _sun3 * _q2Inverse);
+        var b = 2 * ((x1 * _sun1) + (x2 * _sun2));
+        var c = (x1 * x1) + (x2 * x2) - 1;
+        var discriminant = (b * b) - (4 * a * c);
+        return discriminant >= 0 && (-b + Math.Sqrt(discriminant)) > 0;
+    }
+
+    /// <summary>
+    /// Where the ray from the globe's point (<paramref name="x1"/>, <paramref name="x2"/>, <paramref name="x3"/>) toward the Sun crosses
+    /// the equatorial plane: its distance from the centre, equatorial radii; false where the ray never crosses it (the Sun on the
+    /// point's side of the plane).
+    /// </summary>
+    internal bool TrySunwardRingPlane(double x1, double x2, double x3, out double radius)
+    {
+        if (_sun3 == 0 || -x3 / _sun3 <= 0)
+        {
+            radius = 0;
+            return false;
+        }
+        var s = -x3 / _sun3;
+        var (p1, p2) = (x1 + (s * _sun1), x2 + (s * _sun2));
+        radius = Math.Sqrt((p1 * p1) + (p2 * p2));
+        return true;
+    }
+
+    // The pixel's place on the sky plane through the centre: toward the sky's west and the projected north pole, equatorial radii.
+    private (double U, double V) SkyPlane(double x, double y)
+    {
+        var dx = (x - _centerX) / _radius;
+        var dy = (y - _centerY) / _radius;
+        return ((dx * _westX) + (dy * _westY), (dx * _northX) + (dy * _northY));
+    }
+
+    /// <summary>
     /// What pixel (<paramref name="x"/>, <paramref name="y"/>) sees: its planetographic latitude and west longitude (degrees,
     /// System III), and the cosines of its emission (<paramref name="mu"/>, toward the observer) and incidence
     /// (<paramref name="mu0"/>, toward the Sun) angles, negative on the night side; false off the disk.
     /// </summary>
     public bool TrySurface(double x, double y, out double latitude, out double westLongitude, out double mu, out double mu0)
+        => TrySurface(x, y, out latitude, out westLongitude, out mu, out mu0, out _, out _, out _, out _);
+
+    /// <summary>
+    /// The same, with where the ray meets the spheroid: how far toward the observer (<paramref name="t"/>, as <see cref="TryGlobe"/>
+    /// gives it) and the point's body coordinates, which a ring render needs for its depth order and the rings' shadow.
+    /// </summary>
+    internal bool TrySurface(double x, double y, out double latitude, out double westLongitude, out double mu, out double mu0,
+        out double t, out double x1, out double x2, out double x3)
     {
-        if (!TryNormal(x, y, out var n1, out var n2, out var n3, out var x1, out var x2))
+        if (!TryNormal(x, y, out var n1, out var n2, out var n3, out t, out x1, out x2, out x3))
         {
             (latitude, westLongitude, mu, mu0) = (double.NaN, double.NaN, double.NaN, double.NaN);
             return false;
