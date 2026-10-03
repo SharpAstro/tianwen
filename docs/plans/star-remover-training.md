@@ -407,8 +407,10 @@ Each was found on one master by eye and measured before it was fixed; none is sp
   2.4 to 3.6 percent of the peak where the other three 2 px neighbours hold 4.2 to 5.3 (standard errors 0.2 to 0.4), so
   it is the ASI294MM's own, not the stacker's. In the master the pixel below falls to 0.7 percent and the other three to
   2.4 to 3.8, while the 1 px neighbours rise from about 34 to 39 to 44: a symmetric sharpening at 2 px, the look of a
-  warp kernel's negative lobe, which on top of the camera's deficit takes single pixels under the sky. Which kernel the
-  master was warped with is not in its header. **The ceiling
+  warp kernel's negative lobe, which on top of the camera's deficit takes single pixels under the sky. The kernel was
+  `Lanczos3Clamped` (the bake's provenance; the session fingerprint includes it, so no session in the store was made
+  with another), which documents its ring as under 0.8 percent of a spike's peak; whether it holds on this undersampled
+  mono star, and the camera's deficit itself, are #1210, as is the master header that does not name its kernel. **The ceiling
   now never falls below the local sky** (its background map at the fill's scale): a fill can always reach the sky,
   and still never rises above data brighter than that. Leo's bright-star speckles went from 43 and 27 percent to 1
   and 4, Horsehead's from 3.6 and 2.0 to 0.0 and 0.5, Carina's from 1.2 to 0.0, with holes, bias and the inpaint
