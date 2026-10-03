@@ -1269,9 +1269,9 @@ public sealed class ViewerController(
             {
                 var (masterPath, sharpenedPath) = PlanetaryBestStack.OutputPaths(Path.GetDirectoryName(Path.GetFullPath(capture)) ?? ".",
                     Path.GetFileNameWithoutExtension(capture));
-                result.Stack.Master.WriteToFitsFile(masterPath);
-                result.Sharpened.WriteToFitsFile(sharpenedPath);
-                return new BestStackOutcome(sharpenedPath, result.HowSharpened, capture);
+                result.Stack.Master.WriteToFitsFile(masterPath, null, result.Balance?.HeaderCards());
+                result.Sharpened.WriteToFitsFile(sharpenedPath, null, result.Balance?.HeaderCards());
+                return new BestStackOutcome(sharpenedPath, result.Balance is null ? result.HowSharpened : $"{result.HowSharpened}; {result.HowBalanced}", capture);
             }
             finally
             {

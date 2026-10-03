@@ -139,6 +139,15 @@ internal sealed class PlanetaryStackSubCommand(
         {
             Description = "Leave a colour master's planes where the stack put them. By default red and blue are moved onto green before the demosaic, as AutoStakkert's RGB align does: the atmosphere's dispersion leaves the colours apart (#1202). Each colour is read by its own limb fit when the planet and the capture's time are known, else by correlation. Off under --legacy.",
         };
+        var colourSaturationOpt = new Option<double>("--colour-saturation")
+        {
+            Description = "The saturation a colour master of Jupiter is balanced at: its disk's mean colour is taken to Jupiter's own (OPAL's reflectance through the eye's response, #1212), one gain a channel, then saturated about each pixel's luminance. Both masters are balanced, the FITS cards CBALGNR, CBALGNB and CBALSAT say by how much. 1 is the balance alone.",
+            DefaultValueFactory = _ => PlanetaryColourBalance.DefaultSaturation,
+        };
+        var noColourBalanceOpt = new Option<bool>("--no-colour-balance")
+        {
+            Description = "Leave a colour master's colours as the camera recorded them. Off under --legacy.",
+        };
         var noSharpenOpt = new Option<bool>("--no-sharpen")
         {
             Description = "Skip sharpening. By default the master is sharpened into a separate master_*_sharpened.fits and the PNG: by gains derived from the stack through the limb's edge when the telescope is given (--aperture-mm or --telescope, R8), else by PlanetaryDefault with the limb kept as stacked; the raw linear master is never sharpened.",
@@ -222,7 +231,7 @@ internal sealed class PlanetaryStackSubCommand(
             Options =
             {
                 outputOpt, labelOpt, keepOpt, qualityOpt, globalOpt, drizzleOpt, drizzlePixfracOpt, drizzleGlobalOpt,
-                noPerPointOpt, noSignalGateOpt, noChannelAlignOpt,
+                noPerPointOpt, noSignalGateOpt, noChannelAlignOpt, colourSaturationOpt, noColourBalanceOpt,
                 noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, wavelengthOpt, fixOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, noPngOpt, pngGammaOpt,
                 tileSizeOpt, apSpacingOpt, maxApOpt, patchSizeOpt, meshSpacingOpt, meshInfluenceOpt, estimatorOpt, correlationOpt, interpolationOpt, referenceFramesOpt,
                 derotateOpt, noDerotateOpt, planetOpt, turnNorthOverOpt, legacyOpt, truthOpt,
@@ -419,23 +428,33 @@ internal sealed class PlanetaryStackSubCommand(
                     $"[planetary] every frame carried to {epoch:yyyy-MM-dd HH:mm:ss.f} UTC, north at {north.NorthAngleDeg:0.0} deg (the run's quarters {north.AgreementAsFitted:0.00000} apart with the limb fit's north, {north.AgreementTurnedOver:0.00000} turned over)"));
             }
 
+            // A colour master of Jupiter is balanced to Jupiter's own colour (#1212): the stack as written, and the sharpening once it has
+            // read each channel's edge through that channel's own diffraction (the saturation mixes the channels).
+            var (balance, howBalanced) = legacy || parseResult.GetValue(noColourBalanceOpt)
+                ? (null, "colours left as captured")
+                : PlanetaryColourBalance.For(master, planet, result.Epoch, parseResult.GetValue(colourSaturationOpt));
+            var written = balance?.Apply(master) ?? master;
             var (masterFits, sharpenedFits) = PlanetaryBestStack.OutputPaths(outputDir, baseName, prefix);
-            master.WriteToFitsFile(masterFits);
+            written.WriteToFitsFile(masterFits, null, balance?.HeaderCards());
             consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(masterFits)} (linear master, {master.ChannelCount}ch {master.Width}x{master.Height})");
+            if (master.ChannelCount == 3)
+            {
+                consoleHost.WriteScrollable($"[planetary] {howBalanced}");
+            }
             var truthPath = parseResult.GetValue(truthOpt);
             if (truthPath is not null)
             {
                 PlanetaryMasterScore.AgainstTruth(consoleHost, master, truthPath, planet ?? CatalogIndex.Jupiter, "the stack");
             }
 
-            // The display image is the sharpened master when sharpening is on, else the raw master.
-            var display = master;
+            // The display image is the sharpened master when sharpening is on, else the raw master; balanced either way when it is.
+            var display = written;
             if (sharpen)
             {
                 var (sharpened, how) = Sharpened(master, sharpenOptions, planet, result.Epoch, wavelengthText, PlanetaryCaptureName.WavelengthNm(serPath), telescope,
                     parseResult.GetValue(fixOpt));
-                display = sharpened;
-                display.WriteToFitsFile(sharpenedFits);
+                display = balance?.Apply(sharpened) ?? sharpened;
+                display.WriteToFitsFile(sharpenedFits, null, balance?.HeaderCards());
                 consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(sharpenedFits)} ({how})");
                 if (truthPath is not null)
                 {

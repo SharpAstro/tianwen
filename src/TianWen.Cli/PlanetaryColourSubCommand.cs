@@ -179,13 +179,19 @@ internal sealed partial class PlanetaryColourSubCommand(IConsoleHost consoleHost
                     var (gains, shownSky) = PlanetaryColourBalance.GainsFor(shown, disk, PlanetaryColourBalance.JupiterDiskColour);
                     var stem = Path.Combine(previewFolder, label);
                     await previewRenderer.RenderPlanetaryAsync(shown, stem + "_captured.png", ct: ct);
+                    // Saturated about grey (every colour's departure from white) and about Jupiter's own colour (the belts' and zones'
+                    // departure from the disk, which keeps the disk's mean on the target).
+                    (string Name, LinearRgb About)[] centres = [("grey", new LinearRgb(1, 1, 1)), ("disk", PlanetaryColourBalance.JupiterDiskColour)];
                     foreach (var saturation in saturations)
                     {
-                        var balanced = await Task.Run(() => PlanetaryColourBalance.Apply(shown, gains, shownSky, saturation), ct);
-                        await previewRenderer.RenderPlanetaryAsync(balanced, string.Create(inv, $"{stem}_balanced_s{saturation:0.0#}.png"), ct: ct);
+                        foreach (var (name, about) in centres)
+                        {
+                            var balanced = await Task.Run(() => PlanetaryColourBalance.Apply(shown, gains, shownSky, saturation, about), ct);
+                            await previewRenderer.RenderPlanetaryAsync(balanced, string.Create(inv, $"{stem}_balanced_{name}_s{saturation:0.0#}.png"), ct: ct);
+                        }
                     }
                     consoleHost.WriteScrollable(string.Create(inv,
-                        $"  previews of the {(ReferenceEquals(shown, image) ? "stacked" : "sharpened")} master: as captured, and balanced (gains R {gains.R:0.000}, B {gains.B:0.000}) at saturation {string.Join(", ", saturations.Select(s => s.ToString("0.0#", inv)))}"));
+                        $"  previews of the {(ReferenceEquals(shown, image) ? "stacked" : "sharpened")} master: as captured, and balanced (gains R {gains.R:0.000}, B {gains.B:0.000}) at saturation {string.Join(", ", saturations.Select(s => s.ToString("0.0#", inv)))}, about grey and about the disk's colour"));
                 }
             }
             return 0;

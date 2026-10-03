@@ -27,10 +27,23 @@ public sealed record PlanetaryBestStackOptions(CatalogIndex? Planet, Pupil? Tele
 
     /// <summary>The limb fix the derived sharpening applies; null for <see cref="PlanetarySharpenOptions.Fix"/>'s default.</summary>
     public PlanetaryLimbFix? Fix { get; init; }
+
+    /// <summary>
+    /// The saturation a colour master of Jupiter is balanced at (<see cref="PlanetaryColourBalance"/>, #1212); null leaves its colours
+    /// as the camera recorded them.
+    /// </summary>
+    public double? ColourSaturation { get; init; } = PlanetaryColourBalance.DefaultSaturation;
 }
 
 /// <summary>The best stack of a capture: the stack as integrated (linear) and as sharpened, and how it was sharpened, in words.</summary>
-public sealed record PlanetaryBestStackResult(PlanetaryStackResult Stack, Image Sharpened, string HowSharpened);
+public sealed record PlanetaryBestStackResult(PlanetaryStackResult Stack, Image Sharpened, string HowSharpened)
+{
+    /// <summary>The colour balance both masters were given (<see cref="PlanetaryColourBalance"/>), null when none was.</summary>
+    public ColourBalance? Balance { get; init; }
+
+    /// <summary>The colour balance in words, or why there was none.</summary>
+    public string HowBalanced { get; init; } = "";
+}
 
 /// <summary>
 /// The enhanced pipeline's batch stack and sharpening as ONE routine (#1159, docs/plans/planetary-restoration.md, "The enhanced
@@ -103,9 +116,21 @@ public static class PlanetaryBestStack
         try
         {
             var (sharpened, how) = Sharpen(result.Master, options.Planet, result.Epoch, options.Telescope, options.WavelengthsNm, options.Fix);
+            // The balance comes after the sharpening, which reads each channel's edge through that channel's own diffraction: the
+            // saturation mixes the channels.
+            var (balance, howBalanced) = options.ColourSaturation is { } saturation
+                ? PlanetaryColourBalance.For(result.Master, options.Planet, result.Epoch, saturation)
+                : (null, "colours left as captured");
+            if (balance is not null)
+            {
+                var (balancedMaster, balancedSharpened) = (balance.Apply(result.Master), balance.Apply(sharpened));
+                result.Master.Release();
+                sharpened.Release();
+                (result, sharpened) = (result with { Master = balancedMaster }, balancedSharpened);
+            }
             handedOn = true;
             progress?.Report(1);
-            return new PlanetaryBestStackResult(result, sharpened, how);
+            return new PlanetaryBestStackResult(result, sharpened, how) { Balance = balance, HowBalanced = howBalanced };
         }
         finally
         {

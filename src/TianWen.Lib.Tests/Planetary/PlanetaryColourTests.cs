@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
@@ -175,18 +176,18 @@ public class PlanetaryColourTests
         var disk = new MetricDisk(placement.CenterX, placement.CenterY, placement.EquatorialRadius, PlanetaryLimbFit.OptionsFor(aspect).AxisRatio, placement.NorthAngleDeg);
         var target = PlanetaryColourBalance.JupiterDiskColour;
         var (gains, sky) = PlanetaryColourBalance.GainsFor(master, disk, target);
-        var balanced = PlanetaryColourBalance.Apply(master, gains, sky, saturation: 1);
+        var balanced = PlanetaryColourBalance.Apply(master, gains, sky, saturation: 1, about: new LinearRgb(1, 1, 1));
         var mean = PlanetaryColour.DiskMean(balanced.GetChannelSpan(0), balanced.GetChannelSpan(1), balanced.GetChannelSpan(2), 200, 200, disk, default);
         mean.ChromaDistance(target).ShouldBeLessThan(1e-4);
         balanced.GetChannelSpan(2)[0].ShouldBe(0, 1e-4, "the sky goes to zero in every channel");
     }
 
     [Fact]
-    public void SaturationKeepsEachPixelsLuminanceAndScalesItsColour()
+    public void SaturationAboutGreyKeepsEachPixelsLuminanceAndScalesItsColour()
     {
         float[][,] planes = [new float[,] { { 0.6f, 0.2f } }, new float[,] { { 0.5f, 0.25f } }, new float[,] { { 0.3f, 0.3f } }];
         var master = new Image(planes, BitDepth.Float32, 1, 0, 0, new ImageMeta { SensorType = SensorType.Color });
-        var saturated = PlanetaryColourBalance.Apply(master, new LinearRgb(1, 1, 1), default, saturation: 2);
+        var saturated = PlanetaryColourBalance.Apply(master, new LinearRgb(1, 1, 1), default, saturation: 2, about: new LinearRgb(1, 1, 1));
         for (var x = 0; x < 2; x++)
         {
             var (r, g, b) = (planes[0][0, x], planes[1][0, x], planes[2][0, x]);
@@ -196,6 +197,59 @@ public class PlanetaryColourTests
             (sr - y).ShouldBe(2 * (r - y), 1e-6);
             (sb - y).ShouldBe(2 * (b - y), 1e-6);
         }
+    }
+
+    [Fact]
+    public void SaturationAboutAColourLeavesThatColourAloneAndKeepsLuminance()
+    {
+        var about = PlanetaryColourBalance.JupiterDiskColour;
+        float[][,] planes = [new float[,] { { 0.5170f, 0.6f } }, new float[,] { { 0.5f, 0.5f } }, new float[,] { { 0.4305f, 0.3f } }];
+        var master = new Image(planes, BitDepth.Float32, 1, 0, 0, new ImageMeta { SensorType = SensorType.Color });
+        var saturated = PlanetaryColourBalance.Apply(master, new LinearRgb(1, 1, 1), default, saturation: 2, about);
+        // The first pixel is the disk's colour at half its luminance-one level: left alone.
+        saturated.GetChannelSpan(0)[0].ShouldBe(0.5170f, 1e-5f);
+        saturated.GetChannelSpan(2)[0].ShouldBe(0.4305f, 1e-5f);
+        // The second keeps its luminance and doubles its departure from the disk's colour at that luminance.
+        var (r, g, b) = (0.6, 0.5, 0.3);
+        var y = (0.212671 * r) + (0.715160 * g) + (0.072169 * b);
+        var scale = y / ((0.212671 * about.R) + (0.715160 * about.G) + (0.072169 * about.B));
+        var (sr, sb) = (saturated.GetChannelSpan(0)[1], saturated.GetChannelSpan(2)[1]);
+        ((0.212671 * sr) + (0.715160 * saturated.GetChannelSpan(1)[1]) + (0.072169 * sb)).ShouldBe(y, 1e-6);
+        (sr - (scale * about.R)).ShouldBe(2 * (r - (scale * about.R)), 1e-6);
+        (sb - (scale * about.B)).ShouldBe(2 * (b - (scale * about.B)), 1e-6);
+    }
+
+    [Fact(Timeout = 300_000)]
+    public async Task AColourJupiterIsBalancedAtTheOwnersSaturationAndAnythingElseSaysWhyNot()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night);
+        var placement = new DiskPlacement(119.5, 121.2, 70, NorthAngleDeg: -80);
+        var render = PlanetaryRender.Render(new PlanetMap(Uniform(1f), 360, 180), aspect, placement, 240, 240, minnaertK: 0.9);
+        var planes = new float[3][,];
+        (float Gain, float Sky)[] camera = [(0.9f, 0.04f), (0.6f, 0.03f), (0.3f, 0.05f)];
+        for (var c = 0; c < 3; c++)
+        {
+            planes[c] = new float[240, 240];
+            for (var i = 0; i < render.Length; i++)
+            {
+                planes[c][i / 240, i % 240] = (camera[c].Gain * render[i]) + camera[c].Sky;
+            }
+        }
+        var master = new Image(planes, BitDepth.Float32, 1, 0, 0, new ImageMeta { SensorType = SensorType.Color });
+
+        var (balance, how) = await Task.Run(() => PlanetaryColourBalance.For(master, CatalogIndex.Jupiter, Night), ct);
+        TestContext.Current.TestOutputHelper?.WriteLine(how);
+        var applied = balance.ShouldNotBeNull().Apply(master);
+        balance.Saturation.ShouldBe(PlanetaryColourBalance.DefaultSaturation);
+        balance.HeaderCards()["CBALSAT"].Value.ShouldBe(PlanetaryColourBalance.DefaultSaturation);
+        var disk = new MetricDisk(placement.CenterX, placement.CenterY, placement.EquatorialRadius, PlanetaryLimbFit.OptionsFor(aspect).AxisRatio, placement.NorthAngleDeg);
+        var mean = PlanetaryColour.DiskMean(applied.GetChannelSpan(0), applied.GetChannelSpan(1), applied.GetChannelSpan(2), 240, 240, disk, default);
+        mean.ChromaDistance(PlanetaryColourBalance.JupiterDiskColour).ShouldBeLessThan(1e-4, "saturated about the disk's own colour, a disk of one colour keeps it");
+
+        PlanetaryColourBalance.For(master, CatalogIndex.Saturn, Night).Balance.ShouldBeNull();
+        var mono = new Image([planes[1]], BitDepth.Float32, 1, 0, 0, new ImageMeta());
+        PlanetaryColourBalance.For(mono, CatalogIndex.Jupiter, Night).Balance.ShouldBeNull();
     }
 
     private static float[] Uniform(float value) => Banded(_ => value);
