@@ -128,5 +128,49 @@ namespace TianWen.Lib.Tests
 
             viewer.OverlayDraws.ShouldBe(4);
         }
+
+        /// <summary>
+        /// A frame with its LEFT half inked: the four strokes are the frame, and the fill must land on
+        /// one side only, or the mark is a solid block or an empty box and says nothing about a split.
+        /// </summary>
+        [Fact]
+        public void TheCompareMarkIsAFrameWithOneHalfInked()
+        {
+            var viewer = NewViewer();
+            var before = (byte[])viewer.Pixels.Clone();
+
+            viewer.DrawToolbarMarkForTest(ToolbarAction.Compare, 8f, 8f, 48f, new ViewerState(), Ink);
+
+            viewer.OverlayDraws.ShouldBe(4);
+            var after = viewer.Pixels;
+
+            // The mark is 13 px square at DPI 1, centred vertically in the 48 px button at y = 8.
+            var markLeft = 8;
+            var markRight = 8 + 13;
+            var midX = 8 + 6;
+            var row = 8 + 24;
+            var leftInked = 0;
+            var rightInked = 0;
+            for (var px = markLeft; px < markRight; px++)
+            {
+                var i = (row * (int)SurfaceW + px) * 4;
+                if (after.AsSpan(i, 4).SequenceEqual(before.AsSpan(i, 4)))
+                {
+                    continue;
+                }
+
+                if (px < midX)
+                {
+                    leftInked++;
+                }
+                else if (px > midX)
+                {
+                    rightInked++;
+                }
+            }
+
+            leftInked.ShouldBeGreaterThan(3);
+            rightInked.ShouldBe(0, "the right half is the open side; only its frame is stroked, and strokes go through the overlay calls");
+        }
     }
 }
