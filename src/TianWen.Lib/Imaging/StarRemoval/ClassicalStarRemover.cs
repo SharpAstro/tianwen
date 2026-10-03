@@ -162,6 +162,9 @@ public static class ClassicalStarRemover
         // what it asks about, which a nebula's texture never is; the flags against the smooth sky keep the map's spread,
         // which shields that texture from being taken for residual.
         private float[] _holeNoise = Array.Empty<float>();
+        // The master's background texture (its sky map's spread and _holeNoise), which FittedStar.Texture reads at each
+        // star and the speckle measure classes every site and null position by.
+        private TextureField _texture;
         private float[] _fullScale = Array.Empty<float>();
         private float[][] _original = Array.Empty<float[]>();
         private float[][]? _ceiling;
@@ -250,12 +253,11 @@ public static class ClassicalStarRemover
             }
 
             var (found, skyMap) = PointSourceFinder.Find(_lum, _width, _height, _absent, lumPsf.Fwhm, options.DetectionSigma);
-            _rms = new float[n];
+            _texture = TextureField.FromSkyMap(skyMap, _lum, _width, _height, _absent, lumPsf.Fwhm);
+            _rms = _texture.Spread;
+            _holeNoise = _texture.Noise;
             _sky = new float[n];
-            skyMap.FillRms(_rms);
             skyMap.FillBackground(_sky);
-            _holeNoise = (float[])_rms.Clone();
-            PointSourceFinder.CapByDifferenceNoise(_holeNoise, _lum, _width, _height, _absent, PointSourceFinder.SkyBlockFor(lumPsf.Fwhm));
             ct.ThrowIfCancellationRequested();
 
             (_lumAlpha, _beta) = CalibratePlane(found, _lum, lumPsf);
@@ -2580,7 +2582,7 @@ public static class ClassicalStarRemover
                 var sigma = inside ? _rms[cy * _width + cx] : float.NaN;
                 var noise = inside ? _holeNoise[cy * _width + cx] : float.NaN;
                 var skyAbove = noise > 0 ? (_sky[cy * _width + cx] - skyFloor) / noise : float.NaN;
-                var texture = noise > 0 ? sigma / noise : float.NaN;
+                var texture = inside ? _texture.At(cx, cy) : float.NaN;
                 var psf = LumPsf(f.Width, f.Beta);
                 var touched = false;
                 var residual = float.NaN;
@@ -2809,7 +2811,7 @@ public static class ClassicalStarRemover
             var betaOut = ImmutableArray.Create(beta);
             var speckles = StarlessSpeckles.Measure(_lum, _width, _height, _absent,
                 [.. stars.Where(static s => s.Outcome == StarFitOutcome.Subtracted).Select(static s => (s.X, s.Y, s.Significance))],
-                [.. stars.Select(static s => (s.X, s.Y))], options.Seed);
+                [.. stars.Select(static s => (s.X, s.Y))], options.Seed, _texture);
             return new StarlessPlateStatistics(
                 bands.MoveToImmutable(),
                 present > 0 ? (float)inpainted.PopCount() / present : 0f,

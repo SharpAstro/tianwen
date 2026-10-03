@@ -55,6 +55,74 @@ public class StarlessSpecklesTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void ASiteIsJudgedAgainstTheNullOfItsOwnBackground()
+    {
+        // The left half a smooth sky, the right half a nebula's texture (a 4 sigma ripple 24 px in period), which alone puts
+        // core pixels 4 sigma under a ring's median. Dipoles only at the smooth sites; the textured sites are clean.
+        var plane = Noise(seed: 5);
+        const int Half = Size / 2;
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = Half; x < Size; x++)
+            {
+                plane[(y * Size) + x] += (float)(4 * Sigma * Math.Sin(2 * Math.PI * x / 24.0) * Math.Sin(2 * Math.PI * y / 24.0));
+            }
+        }
+        // The master's field, as the builder hands it over: the sky map's spread over the pixels' own noise, 1 on the left,
+        // 2.5 on the right.
+        var spread = new float[Size * Size];
+        var noise = new float[Size * Size];
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                noise[(y * Size) + x] = Sigma;
+                spread[(y * Size) + x] = x < Half ? Sigma : 2.5f * Sigma;
+            }
+        }
+        var field = new TextureField(spread, noise, Size);
+        var sites = new List<(float X, float Y, float Significance)>();
+        var rng = new Random(6);
+        for (var k = 0; k < 120; k++)
+        {
+            var left = k % 2 == 0;
+            var x = left ? 20 + rng.Next(Half - 40) : Half + 20 + rng.Next(Half - 40);
+            var y = 20 + rng.Next(Size - 40);
+            if (left)
+            {
+                plane[(y * Size) + x] -= 8 * Sigma;
+                plane[(y * Size) + x + 1] += 8 * Sigma;
+            }
+            sites.Add((x + 0.4f, y, 50f));
+        }
+        var sources = sites.Select(static s => (s.X, s.Y)).ToList();
+
+        var plain = StarlessSpeckles.Measure(plane, Size, Size, null, sites, sources);
+        var split = StarlessSpeckles.Measure(plane, Size, Size, null, sites, sources, texture: field);
+        foreach (var c in split.Backgrounds)
+        {
+            output.WriteLine($"texture {c.MinTexture}-{c.MaxTexture}: sites {c.Bands.Sum(static b => b.Sites)}, speckled {c.Bands.Sum(static b => b.Speckled)}, null {c.Null.Speckled}/{c.Null.Sites}");
+        }
+        output.WriteLine($"frame: null {split.Null.Speckled}/{split.Null.Sites}");
+
+        plain.Backgrounds.IsDefaultOrEmpty.ShouldBeTrue();
+        split.Null.ShouldBe(plain.Null, "the frame-wide null keeps its positions whether or not a field is given");
+        split.Bands.ShouldBe(plain.Bands);
+        split.Backgrounds.Length.ShouldBe(StarlessSpeckles.TextureEdges.Length);
+        var smooth = split.Backgrounds[0];
+        var strong = split.Backgrounds[^1];
+        smooth.Bands.Sum(static b => b.Sites).ShouldBe(60);
+        strong.Bands.Sum(static b => b.Sites).ShouldBe(60);
+        split.Backgrounds[1].Bands.Sum(static b => b.Sites).ShouldBe(0);
+        smooth.Bands.Sum(static b => b.Speckled).ShouldBe(60, "every smooth site carries a dipole");
+        smooth.Null.Rate.ShouldBeLessThan(0.05f);
+        // The textured class's own null is high, so its clean sites are not a remover's fault: they read at that null.
+        strong.Null.Rate.ShouldBeGreaterThan(5 * Math.Max(smooth.Null.Rate, 0.01f));
+        var strongRate = (float)strong.Bands.Sum(static b => b.Speckled) / strong.Bands.Sum(static b => b.Sites);
+        strongRate.ShouldBeLessThan(2 * strong.Null.Rate + 0.1f);
+    }
+
+    [Fact]
     public void ASiteTooNearTheEdgeIsNotRead()
     {
         var plane = Noise(seed: 3);
