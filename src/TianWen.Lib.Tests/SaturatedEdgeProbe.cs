@@ -60,7 +60,7 @@ public sealed class SaturatedEdgeProbe(ITestOutputHelper output)
             var divisor = DatasetTileExporter.UnitDivisor(master);
             var absent = plate.AbsentPixels();
             var population = InjectionPopulation.Build(catalogue, master, plate, 1.0 / divisor, psf, absent);
-            var csv = new StringBuilder("kind,i,x,y,plateau_px,edge_px\n");
+            var csv = new StringBuilder("kind,i,x,y,plateau_px,edge_px,overshoot\n");
 
             // The master's own, at random among those whose window fits.
             var lum = DatasetDegradationExporter.Luminance(master);
@@ -74,6 +74,7 @@ public sealed class SaturatedEdgeProbe(ITestOutputHelper output)
                 .Where(s => InjectionMeasure.SaturatedShape(lum, width, height, s.X, s.Y) is not null)
                 .ToList();
             var real = new List<float[]>();
+            var chosen = new List<FittedStar>();
             while (candidates.Count > 0 && real.Count < PerKind)
             {
                 var k = rng.Next(candidates.Count);
@@ -81,11 +82,68 @@ public sealed class SaturatedEdgeProbe(ITestOutputHelper output)
                 candidates.RemoveAt(k);
                 var shape = InjectionMeasure.SaturatedShape(lum, width, height, s.X, s.Y);
                 real.Add(Cut(lum, width, s.X, s.Y));
-                csv.Append(CultureInfo.InvariantCulture, $"real,{real.Count - 1},{s.X:F2},{s.Y:F2},{shape?.PlateauPx},{shape?.EdgePx:F2}\n");
+                chosen.Add(s);
+                csv.Append(CultureInfo.InvariantCulture, $"real,{real.Count - 1},{s.X:F2},{s.Y:F2},{shape?.PlateauPx},{shape?.EdgePx:F2},\n");
+            }
+
+            // The plate in the unit range, a region of it with the given stars rendered as the Stars mode renders them, and
+            // the luminance of the result; and a star's overshoot: its brightest channel's amplitude over that channel's
+            // clip above the plate beneath it (how far past the clip the stack's subs were driven).
+            var unitPlate = DatasetTileExporter.ToUnitRange(plate, divisor);
+            float[] Rendered(int cx, int cy, int size, InjectedStar[] local, int seed)
+            {
+                var basePlanes = new float[channels][];
+                for (var c = 0; c < channels; c++)
+                {
+                    var plane = unitPlate.GetChannelSpan(c);
+                    basePlanes[c] = new float[size * size];
+                    for (var y = 0; y < size; y++)
+                    {
+                        plane.Slice(((cy + y) * width) + cx, size).CopyTo(basePlanes[c].AsSpan(y * size, size));
+                    }
+                }
+                BitMatrix? regionAbsent = null;
+                if (absent is { } frameAbsent)
+                {
+                    var mask = new BitMatrix(size, size);
+                    for (var y = 0; y < size; y++)
+                    {
+                        for (var x = 0; x < size; x++)
+                        {
+                            mask[y, x] = frameAbsent[cy + y, cx + x];
+                        }
+                    }
+                    regionAbsent = mask;
+                }
+                var floors = Enumerable.Repeat(1e-7, channels).ToArray();
+                var render = StarInjection.Render(basePlanes, size, size, regionAbsent, local, floors, new Random(seed ^ 0x6d2b79f5));
+                var renderLum = new float[size * size];
+                for (var c = 0; c < channels; c++)
+                {
+                    for (var i = 0; i < renderLum.Length; i++)
+                    {
+                        renderLum[i] += render.Planes[c][i] / channels;
+                    }
+                }
+                return renderLum;
+            }
+            double Overshoot(InjectedStar s, double frameX, double frameY)
+            {
+                var px = Math.Clamp((int)Math.Round(frameX), 0, width - 1);
+                var py = Math.Clamp((int)Math.Round(frameY), 0, height - 1);
+                var best = double.NaN;
+                for (var c = 0; c < channels; c++)
+                {
+                    var room = s.ClipLevels[c] - unitPlate.GetChannelSpan(c)[(py * width) + px];
+                    if (double.IsFinite(room) && room > 0 && !(s.Amplitudes[c] / room <= best))
+                    {
+                        best = s.Amplitudes[c] / room;
+                    }
+                }
+                return best;
             }
 
             // The injector's, every star of a draw saturated as the saturated arm draws them, onto the plate's own pixels.
-            var unitPlate = DatasetTileExporter.ToUnitRange(plate, divisor);
             var injected = new List<float[]>();
             for (var draw = 0; draw < 4000 && injected.Count < PerKind; draw++)
             {
@@ -102,52 +160,54 @@ public sealed class SaturatedEdgeProbe(ITestOutputHelper output)
                 {
                     continue;
                 }
-                var basePlanes = new float[channels][];
-                for (var c = 0; c < channels; c++)
-                {
-                    var plane = unitPlate.GetChannelSpan(c);
-                    basePlanes[c] = new float[RegionSize * RegionSize];
-                    for (var y = 0; y < RegionSize; y++)
-                    {
-                        plane.Slice(((cy + y) * width) + cx, RegionSize).CopyTo(basePlanes[c].AsSpan(y * RegionSize, RegionSize));
-                    }
-                }
-                BitMatrix? regionAbsent = null;
-                if (absent is { } frameAbsent)
-                {
-                    var mask = new BitMatrix(RegionSize, RegionSize);
-                    for (var y = 0; y < RegionSize; y++)
-                    {
-                        for (var x = 0; x < RegionSize; x++)
-                        {
-                            mask[y, x] = frameAbsent[cy + y, cx + x];
-                        }
-                    }
-                    regionAbsent = mask;
-                }
-                var floors = Enumerable.Repeat(1e-7, channels).ToArray();
-                var render = StarInjection.Render(basePlanes, RegionSize, RegionSize, regionAbsent, local, floors, new Random(draw ^ 0x6d2b79f5));
-                var renderLum = new float[RegionSize * RegionSize];
-                for (var c = 0; c < channels; c++)
-                {
-                    for (var i = 0; i < renderLum.Length; i++)
-                    {
-                        renderLum[i] += render.Planes[c][i] / channels;
-                    }
-                }
+                var renderLum = Rendered(cx, cy, RegionSize, local, draw);
                 foreach (var s in local.Where(static s => s.Saturated))
                 {
                     if (injected.Count < PerKind && InjectionMeasure.SaturatedShape(renderLum, RegionSize, RegionSize, s.X, s.Y) is { } shape)
                     {
                         injected.Add(Cut(renderLum, RegionSize, s.X, s.Y));
-                        csv.Append(CultureInfo.InvariantCulture, $"inj,{injected.Count - 1},{s.X + cx:F2},{s.Y + cy:F2},{shape.PlateauPx},{shape.EdgePx:F2}\n");
+                        csv.Append(CultureInfo.InvariantCulture,
+                            $"inj,{injected.Count - 1},{s.X + cx:F2},{s.Y + cy:F2},{shape.PlateauPx},{shape.EdgePx:F2},{Overshoot(s, s.X + cx, s.Y + cy):F2}\n");
                     }
+                }
+            }
+
+            // Each real star again, rendered by the injector AT ITS OWN SITE on the plate with its own pool entry (its
+            // catalogue amplitudes, its clip read off the master) and the profile the injector would give it there: where
+            // this matches the real star but the injected draws do not, the miss is in what is drawn; where it does not
+            // match, the render's top is.
+            var masterPlanes = new float[channels][];
+            var platePlanes = new float[channels][];
+            for (var c = 0; c < channels; c++)
+            {
+                masterPlanes[c] = master.GetChannelSpan(c).ToArray();
+                platePlanes[c] = plate.GetChannelSpan(c).ToArray();
+            }
+            var site = new List<float[]>();
+            const int SiteSize = (2 * Half) + 17;
+            foreach (var (s, k) in chosen.Select(static (s, k) => (s, k)))
+            {
+                var ox = (int)s.X - (SiteSize / 2);
+                var oy = (int)s.Y - (SiteSize / 2);
+                if (ox < 0 || oy < 0 || ox + SiteSize > width || oy + SiteSize > height)
+                {
+                    continue;
+                }
+                var (amplitudes, clips) = InjectionPopulation.SaturatedEntry(s, masterPlanes, platePlanes, width, height, 1.0 / divisor);
+                var star = new InjectedStar(s.X - ox, s.Y - oy, amplitudes, population.ProfilesAt(s.X, s.Y, StarProfileFamily.Moffat), Saturated: true, clips);
+                var renderLum = Rendered(ox, oy, SiteSize, [star], 1000 + k);
+                if (InjectionMeasure.SaturatedShape(renderLum, SiteSize, SiteSize, star.X, star.Y) is { } shape)
+                {
+                    site.Add(Cut(renderLum, SiteSize, star.X, star.Y));
+                    csv.Append(CultureInfo.InvariantCulture,
+                        $"site,{k},{s.X:F2},{s.Y:F2},{shape.PlateauPx},{shape.EdgePx:F2},{Overshoot(star, s.X, s.Y):F2}\n");
                 }
             }
 
             var slug = DatasetTileExporter.Sanitize(sessionId);
             await WriteAsync(Path.Combine(outDir, slug + ".real.f32"), real);
             await WriteAsync(Path.Combine(outDir, slug + ".inj.f32"), injected);
+            await WriteAsync(Path.Combine(outDir, slug + ".site.f32"), site);
             await File.WriteAllTextAsync(Path.Combine(outDir, slug + ".csv"), csv.ToString(), ct);
             output.WriteLine($"{slug}: {real.Count} real, {injected.Count} injected (of {population.SaturatedPool} in the saturated pool)");
             unitPlate.Release();
