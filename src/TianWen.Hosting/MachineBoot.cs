@@ -100,12 +100,24 @@ internal static partial class MachineBoot
     private const int EvtVariantSize = 16;
     private const int ErrorInsufficientBuffer = 122;
 
-    /// <summary>The time the kernel logged its newest boot, or null when the System log will not say.</summary>
+    /// <summary>
+    /// The time the kernel logged its newest boot, or null when the System log will not say: the log is circular, so on a
+    /// machine up long enough to fill it the boot's event has been overwritten (a 20 MB log 15 days after its boot, whose
+    /// oldest record came 13 hours after it), and the uptime is what is left.
+    /// </summary>
     [SupportedOSPlatform("windows")]
-    internal static unsafe DateTimeOffset? NewestKernelBootEventUtc()
+    internal static DateTimeOffset? NewestKernelBootEventUtc()
+        => FirstSystemEventUtc("*[System[Provider[@Name='Microsoft-Windows-Kernel-Boot'] and (EventID=27)]]", newestFirst: true);
+
+    /// <summary>The time of the oldest record the System log still holds: how far back it reaches. Null when it will not say.</summary>
+    [SupportedOSPlatform("windows")]
+    internal static DateTimeOffset? OldestSystemEventUtc() => FirstSystemEventUtc("*", newestFirst: false);
+
+    // The time of the first System-log event matching xpath, the newest or the oldest.
+    [SupportedOSPlatform("windows")]
+    private static unsafe DateTimeOffset? FirstSystemEventUtc(string xpath, bool newestFirst)
     {
-        var query = EvtQuery(0, "System", "*[System[Provider[@Name='Microsoft-Windows-Kernel-Boot'] and (EventID=27)]]",
-            EvtQueryChannelPath | EvtQueryReverseDirection);
+        var query = EvtQuery(0, "System", xpath, EvtQueryChannelPath | (newestFirst ? EvtQueryReverseDirection : 0));
         if (query == 0)
         {
             return null;

@@ -196,6 +196,13 @@ public class NodeJournalTests(ITestOutputHelper output)
             return;
         }
 
+        // The log is circular: on a machine up long enough to fill it, this boot's event is gone, and there is nothing to
+        // read (the node falls back to the uptime, which the test above covers). Said, never passed silently.
+        var bootedAt = DateTimeOffset.UtcNow - TimeSpan.FromMilliseconds(Environment.TickCount64);
+        var oldest = MachineBoot.OldestSystemEventUtc();
+        Assert.SkipWhen(MachineBoot.NewestKernelBootEventUtc() is null && oldest > bootedAt,
+            $"the System log no longer reaches back to this boot ({bootedAt:o}): its oldest record is {oldest:o}");
+
         var logged = MachineBoot.NewestKernelBootEventUtc().ShouldNotBeNull("the System log holds a Kernel-Boot event 27 for every boot");
         output.WriteLine($"Kernel-Boot event 27 at {logged:o}");
         logged.ShouldBeLessThanOrEqualTo(DateTimeOffset.UtcNow);
