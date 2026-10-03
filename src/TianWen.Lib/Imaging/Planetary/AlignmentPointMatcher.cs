@@ -30,10 +30,25 @@ public sealed class AlignmentPointMatcher
     private readonly float[] _extractScratch;
     private readonly Complex[] _spectrumScratch;
     private readonly bool _whiten;
+    private readonly float[][]? _referenceSearch;
+    private readonly double[]? _differenceScratch;
+    private readonly double[][]? _referenceSignal;
+    private readonly double[]? _referenceFloor;
+    private readonly (double Xx, double Yy, double Xy)[] _gradientEnergy;
 
-    private AlignmentPointMatcher(int patchSize, int width, int height, ImmutableArray<PixelPoint> apCenters, Complex[][] referenceSpectra, bool whiten)
+    /// <summary>How far, px, a square difference searches each way (<see cref="PlanetaryPointEstimator.SquareDifference"/>): a point's
+    /// residual is the local warp alone once its patch is cut at the exact global shift, well under this.</summary>
+    public const int SquareDifferenceMargin = 3;
+
+    private AlignmentPointMatcher(int patchSize, int width, int height, ImmutableArray<PixelPoint> apCenters, Complex[][] referenceSpectra, bool whiten,
+        float[][]? referenceSearch, double[][]? referenceSignal, double[]? referenceFloor, (double Xx, double Yy, double Xy)[] gradientEnergy)
     {
         _whiten = whiten;
+        _referenceSearch = referenceSearch;
+        _referenceSignal = referenceSignal;
+        _referenceFloor = referenceFloor;
+        _gradientEnergy = gradientEnergy;
+        _differenceScratch = referenceSearch is null ? null : new double[(patchSize * patchSize) + (((2 * SquareDifferenceMargin) + 1) * ((2 * SquareDifferenceMargin) + 1))];
         _patchSize = patchSize;
         _width = width;
         _height = height;
@@ -48,7 +63,8 @@ public sealed class AlignmentPointMatcher
     /// A matcher on the same reference points with scratch of its own, for another thread: <see cref="Match(Image, float, float, DerotationField?, Span{AlignmentPointShift})"/>
     /// writes this one's scratch, while the reference spectra, read only, are shared. It matches exactly as this one does.
     /// </summary>
-    internal AlignmentPointMatcher Twin() => new AlignmentPointMatcher(_patchSize, _width, _height, _apCenters, _referenceSpectra, _whiten);
+    internal AlignmentPointMatcher Twin()
+        => new AlignmentPointMatcher(_patchSize, _width, _height, _apCenters, _referenceSpectra, _whiten, _referenceSearch, _referenceSignal, _referenceFloor, _gradientEnergy);
 
     /// <summary>The alignment-point centres being tracked (reference-frame coordinates).</summary>
     public ImmutableArray<PixelPoint> AlignmentPoints => _apCenters;
@@ -59,6 +75,14 @@ public sealed class AlignmentPointMatcher
     /// frame a whitened 16 px patch is placed to 1.1 px RMS, a plain one to 0.35 (<c>AlignmentPointMatchingTests</c>).
     /// </summary>
     public static AlignmentPointMatcher FromReference(Image reference, ImmutableArray<PixelPoint> apCenters, int patchSize = 32, bool whiten = true)
+        => FromReference(reference, apCenters, patchSize, whiten, PlanetaryPointEstimator.Correlation);
+
+    /// <summary>
+    /// <see cref="FromReference(Image, ImmutableArray{PixelPoint}, int, bool)"/> reading each point's shift by
+    /// <paramref name="estimator"/>: a square difference keeps, per point, the reference patch
+    /// <see cref="SquareDifferenceMargin"/> px larger each side that it searches.
+    /// </summary>
+    public static AlignmentPointMatcher FromReference(Image reference, ImmutableArray<PixelPoint> apCenters, int patchSize, bool whiten, PlanetaryPointEstimator estimator)
     {
         ArgumentNullException.ThrowIfNull(reference);
         if (!ComplexFft.IsPowerOfTwo(patchSize))
@@ -67,15 +91,85 @@ public sealed class AlignmentPointMatcher
         }
 
         var spectra = new Complex[apCenters.Length][];
+        var search = estimator == PlanetaryPointEstimator.SquareDifference ? new float[apCenters.Length][] : null;
+        var weighted = estimator == PlanetaryPointEstimator.WeightedCorrelation;
+        var signal = weighted ? new double[apCenters.Length][] : null;
+        var floor = weighted ? new double[apCenters.Length] : null;
+        var gradients = new (double Xx, double Yy, double Xy)[apCenters.Length];
         var patch = new float[patchSize * patchSize];
+        var searchSize = patchSize + (2 * SquareDifferenceMargin);
         for (var i = 0; i < apCenters.Length; i++)
         {
             var p = apCenters[i];
             PlanetaryTile.ExtractLuma(reference, p.X, p.Y, patchSize, patch);
-            spectra[i] = PhaseCorrelation.PrepareReferenceSpectrum(patch, patchSize, patchSize, applyWindow: true, whiten);
+            // A weighted correlation weighs the plain cross-spectrum, so its reference is never whitened.
+            spectra[i] = PhaseCorrelation.PrepareReferenceSpectrum(patch, patchSize, patchSize, applyWindow: true, whiten && !weighted);
+            gradients[i] = GradientEnergy(patch, patchSize);
+            if (search is not null)
+            {
+                search[i] = new float[searchSize * searchSize];
+                PlanetaryTile.ExtractLuma(reference, p.X, p.Y, searchSize, search[i]);
+            }
+            if (signal is not null && floor is not null)
+            {
+                // The reference's signal power at each frequency: its power less its own floor, none where it holds none.
+                floor[i] = PhaseCorrelation.SpectralFloor(spectra[i], patchSize, patchSize);
+                signal[i] = new double[spectra[i].Length];
+                for (var k = 0; k < spectra[i].Length; k++)
+                {
+                    var c = spectra[i][k];
+                    signal[i][k] = Math.Max(0, (c.Real * c.Real) + (c.Imaginary * c.Imaginary) - floor[i]);
+                }
+            }
         }
 
-        return new AlignmentPointMatcher(patchSize, reference.Width, reference.Height, apCenters, spectra, whiten);
+        return new AlignmentPointMatcher(patchSize, reference.Width, reference.Height, apCenters, spectra, whiten, search, signal, floor, gradients);
+    }
+
+    // The sums over a patch of its squared gradients, by central differences over its interior: the Fisher information a shift has
+    // in it, per unit of noise variance.
+    private static (double Xx, double Yy, double Xy) GradientEnergy(ReadOnlySpan<float> patch, int size)
+    {
+        double xx = 0, yy = 0, xy = 0;
+        for (var y = 1; y < size - 1; y++)
+        {
+            for (var x = 1; x < size - 1; x++)
+            {
+                var gx = 0.5 * (patch[(y * size) + x + 1] - patch[(y * size) + x - 1]);
+                var gy = 0.5 * (patch[((y + 1) * size) + x] - patch[((y - 1) * size) + x]);
+                xx += gx * gx;
+                yy += gy * gy;
+                xy += gx * gy;
+            }
+        }
+        return (xx, yy, xy);
+    }
+
+    /// <summary>
+    /// The noise variance a pixel of <paramref name="frame"/> carries at point <paramref name="i"/>: its patch, cut where the frame's
+    /// global shift puts the point, read by its windowed spectrum's white floor (<see cref="PhaseCorrelation.SpectralFloor"/>). What
+    /// <see cref="Bound"/> is taken against. One call at a time per instance, as <see cref="Match(Image, float, float, Span{AlignmentPointShift})"/>.
+    /// </summary>
+    internal double PatchNoise(Image frame, float globalDx, float globalDy, int i)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+        var p = _apCenters[i];
+        PlanetaryTile.ExtractLumaAt(frame, p.X + globalDx, p.Y + globalDy, _patchSize, _patch, _extractScratch);
+        var spectrum = PhaseCorrelation.PrepareReferenceSpectrum(_patch, _patchSize, _patchSize, applyWindow: true, whiten: false);
+        return PhaseCorrelation.SpectralFloor(spectrum, _patchSize, _patchSize) / PhaseCorrelation.WindowEnergy(_patchSize, _patchSize);
+    }
+
+    /// <summary>
+    /// The Cramer-Rao bound on point <paramref name="i"/>'s shift for a frame whose pixels each carry <paramref name="noiseVariance"/>
+    /// (Pham et al. 2005), px squared on each axis: the diagonal of the inverse Fisher information, the reference patch's squared
+    /// gradients summed over its box and divided by that variance. The reference is taken as noiseless, as a stack of many frames
+    /// nearly is; no unbiased estimator using the patch's pixels does better.
+    /// </summary>
+    internal (double X, double Y) Bound(int i, double noiseVariance)
+    {
+        var (xx, yy, xy) = _gradientEnergy[i];
+        var det = (xx * yy) - (xy * xy);
+        return det > 0 ? (noiseVariance * yy / det, noiseVariance * xx / det) : (double.PositiveInfinity, double.PositiveInfinity);
     }
 
     /// <summary>
@@ -124,6 +218,16 @@ public sealed class AlignmentPointMatcher
     public void Match(Image frame, float globalDx, float globalDy, Span<AlignmentPointShift> destination)
         => Match(frame, globalDx, globalDy, derotation: null, destination);
 
+    // Point i's shift by the windowed correlation, from the patch just cut: weighted by the maximum-likelihood weight when the
+    // matcher was made for it.
+    private (double Dx, double Dy) Correlate(int i)
+    {
+        var residual = _referenceSignal is { } signal && _referenceFloor is { } floor
+            ? PhaseCorrelation.EstimateWeighted(_referenceSpectra[i], signal[i], floor[i], _patch, _patchSize, _patchSize, _spectrumScratch)
+            : PhaseCorrelation.Estimate(_referenceSpectra[i], _patch, _patchSize, _patchSize, _spectrumScratch, applyWindow: true, _whiten);
+        return (residual.Dx, residual.Dy);
+    }
+
     /// <summary>
     /// <see cref="Match(Image, float, float, Span{AlignmentPointShift})"/> for a frame carried to its capture's epoch: each
     /// point's patch cut where the rotation put it as well as the shift (the <paramref name="derotation"/>'s offset at the
@@ -140,8 +244,10 @@ public sealed class AlignmentPointMatcher
             var (rx, ry) = derotation?.OffsetAt(p.X, p.Y) ?? (0f, 0f);
             // The extraction writes every sample, so the reused patch carries nothing from the last point.
             PlanetaryTile.ExtractLumaAt(frame, p.X + globalDx + rx, p.Y + globalDy + ry, _patchSize, _patch, _extractScratch);
-            var residual = PhaseCorrelation.Estimate(_referenceSpectra[i], _patch, _patchSize, _patchSize, _spectrumScratch, applyWindow: true, _whiten);
-            destination[i] = new AlignmentPointShift(p.X, p.Y, (float)residual.Dx, (float)residual.Dy);
+            var (dx, dy) = _referenceSearch is { } search && _differenceScratch is { } scratch
+                ? SquareDifferenceShift.Estimate(search[i], _patch, _patchSize, SquareDifferenceMargin, scratch)
+                : Correlate(i);
+            destination[i] = new AlignmentPointShift(p.X, p.Y, (float)dx, (float)dy);
         }
     }
 }

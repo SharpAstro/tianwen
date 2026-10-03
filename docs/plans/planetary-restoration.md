@@ -912,6 +912,69 @@ limit, and not by noise: a point's plain correlation shrinks the warp it reads.
   - **Adopting them as the stack's default is #1195**, judged as #1072, #1074 and #1086 were: on the real captures #1159 validated,
     by eye, and with what a mesh of 500 points on 4 px nodes costs a stack in time.
 
+#### #1082: an estimator for the points, against its bound
+
+**Pre-registered** (2026-10-03), on the same twins as #1081 (the calibrated 0.65 px warp over 10 px, the 1 px warp over 20 px), plain
+correlation against a stack of the best 1,000 (the default), 16 px patches 4 px apart with every point, on the median geometry:
+
+- **What is measured** (`PlanetaryStackOptions.PointEstimator`, `planetary-dewarp --estimator`), each estimator's reading against the
+  true warp averaged over what it sees (its window for a correlation, its box for a square difference): the slope, the error about it,
+  and the RMS against that truth, which is what a dewarp applies; then the stacks.
+  - **plain:** today's Hann-windowed cross-correlation, its peak climbed;
+  - **weighted:** the same with the cross-spectrum weighted by the maximum-likelihood weight for a reference of N frames (Hannan and
+    Thomson's coherence weight; Knapp and Carter 1976), each frame's noise read from its own patch's spectral floor;
+  - **sdf:** Loefdahl 2010's square difference, the frame's patch against a reference 3 px larger each side, both mean- and
+    plane-subtracted and unwindowed, its minimum placed by a 2-D quadratic fit;
+  - **the bound:** Pham et al. 2005's Cramer-Rao bound for each point's patch, from the reference's gradients and a frame's noise.
+- **Predicted:**
+  - **weighted ties plain** (within 5 % of its RMS). The issue's 10 to 25 % assumed two noisy images; against a reference of 1,000
+    frames the maximum-likelihood weight is a constant wherever the stack holds signal, which is plain correlation. This revision is
+    made before the run, from #1086 having made the reference a stack.
+  - **sdf removes the shrink:** its slope against its box's truth at least 0.8 on a clean rigid shift (plain: 0.54) and on the twin
+    at least twice plain's 0.16, and its RMS against its truth 10 to 30 % below plain's (Loefdahl).
+  - **The bound:** plain's error about its slope, divided by its slope (its noise as an unbiased estimator), is at least twice the
+    bound; if within 1.2 times, no estimator can pay.
+- **Adopted only if** an estimator's dense stack beats plain's dense stack by more than 0.005 in band 1's error on both warped twins.
+  Item 4 of the issue, correlation surfaces averaged over frames, is left: R5 part 2's pooling of readings over 1 to 4 frames moved
+  nothing, and a surface pooled over the same frames carries the same information.
+
+##### #1082 results
+
+Measured 2026-10-03 (`synthetic/r5/i1082`: `dewarp2-*.log`, `stack-*.log`), the dense grid on both twins. A reading's unbiased error is
+its error about its slope over that slope; the bound is Pham's, the inverse of a point's Fisher information from the reference
+patch's gradients over its box and the noise a frame's patch carries, read off 60 frames by its windowed spectrum's white floor (median
+over ln 2) and RMS over the points (`AlignmentPointMatcher.Bound`, `PatchNoise`; 0.139 and 0.204 px across and down on the calibrated
+twin, 0.144 and 0.210 on the 1 px twin).
+
+| Twin | Estimator | Slope over its window or box | Unbiased error, times the bound | Mesh against no dewarp | Dense stack, band 1 error |
+|---|---|---|---|---|---|
+| calibrated (0.65 px over 10) | plain | 0.159 | 7.3, 4.6 | +8 % | 0.776 |
+| | weighted | 0.159 | 7.3, 4.6 | +8 % | 0.776 |
+| | square difference | 0.881 | 8.1, 7.3 | -27 % | **0.769** |
+| 1 px over 20 | plain | 0.126 | 11.2, 6.4 | +10 % | 0.811 |
+| | weighted | 0.126 | 11.2, 6.4 | +10 % | 0.811 |
+| | square difference | 0.910 | 7.0, 6.6 | +13 % | **0.771** |
+
+On the clean banded disk with a noiseless reference and 8-bit frames (`AlignmentPointMatchingTests`): plain 3.0 times the bound
+(slope 0.53), weighted identical, the square difference 1.06 times it (slope 1.01; 1.00 with no noise); the noise a patch is read to
+carry was 1.684 against 1.646 put in.
+
+- **Weighted ties plain: holds, exactly.** The readings and the stacks agree to the third decimal. Against a reference of 1,000
+  frames the maximum-likelihood weight is a constant wherever the reference holds signal; it would differ only where the reference
+  itself is noise, which the plain cross-spectrum already weighs by the reference's own small power.
+- **The square difference removes the shrink: the slope holds, the RMS does not.** Slope 1.00 on the clean rigid shift and 0.88 and
+  0.91 on the twins, six times plain's; but its readings scatter by about a pixel (points 1.01, 1.35 px against plain's 0.52, 0.56 on
+  the calibrated twin), the prediction of 10 to 30 % below plain's RMS fails, and its mesh leaves more warp than none there. The
+  suspect is a minimum at the edge of its ±3 px search, returned unrefined: #1207.
+- **The bound: holds, and the gap is the twin's.** Plain is 4.6 to 11.2 times it on the twins, so an estimator can pay in principle.
+  On the clean disk the square difference reaches it (1.06 times), so the 7 to 8 times on the twins is not its statistics: a twin's
+  frame is blurred unlike its stacked reference, and its warp varies across a 16 px patch (correlated over 10 to 20 px), neither of
+  which the bound's rigid shift of one image knows.
+- **The stack rule: the square difference passes, on the dense grid only.** It beats plain's dense stack by 0.007 and 0.040 in band 1's
+  error on the two twins, though its mesh leaves more warp on the calibrated one: the stack keeps 5 % of the frames and the dewarp
+  scores all of them. On today's grid it loses (0.803 against plain's 0.797). So it is adopted with the dense grid or not at all,
+  which #1195 decides on the real captures; `PlanetaryStackOptions.PointEstimator` stays `Correlation` until then.
+
 ### R5a Drizzle, where the sampling calls for it
 
 **Issue:** #1064.

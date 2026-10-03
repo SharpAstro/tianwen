@@ -159,6 +159,94 @@ public static class PhaseCorrelation
     }
 
     /// <summary>
+    /// The maximum-likelihood generalised cross-correlation (Knapp and Carter 1976, Hannan and Thomson's coherence weight): the plain
+    /// cross-spectrum weighted at each frequency by <c>S / (S (N1 + N2) + N1 N2)</c>, where S is the reference's signal power there
+    /// (<paramref name="referenceSignal"/>, its power less its floor, zero where the reference holds none), N1 the reference's noise
+    /// floor (<paramref name="referenceFloor"/>) and N2 the moving tile's own (<see cref="SpectralFloor"/>), both tiles windowed and
+    /// less their mean, its peak climbed as the plain correlation's is. <paramref name="referenceSpectrum"/> comes from
+    /// <see cref="PrepareReferenceSpectrum(ReadOnlySpan{float}, int, int, bool, bool)"/>, windowed and not whitened.
+    /// </summary>
+    public static Shift EstimateWeighted(ReadOnlySpan<Complex> referenceSpectrum, ReadOnlySpan<double> referenceSignal, double referenceFloor,
+        ReadOnlySpan<float> moving, int width, int height, Span<Complex> scratch)
+    {
+        ValidateTile(width, height);
+        var n = width * height;
+        if (referenceSpectrum.Length != n || referenceSignal.Length != n || moving.Length != n || scratch.Length < n)
+        {
+            throw new ArgumentException($"referenceSpectrum, referenceSignal, moving and scratch must each hold {n} samples ({width}x{height}).");
+        }
+
+        var f2 = scratch[..n];
+        FillWindowed(moving, f2, width, height, applyWindow: true, removeMean: true);
+        Fft2D.Forward(f2, width, height);
+        var movingFloor = SpectralFloor(f2, width, height);
+        for (var i = 0; i < n; i++)
+        {
+            // With no noise floor at all (a noiseless patch) the weight is a constant wherever the reference holds signal.
+            var s = referenceSignal[i];
+            var denominator = (s * (referenceFloor + movingFloor)) + (referenceFloor * movingFloor);
+            var weight = s > 0 ? (denominator > 0 ? s / denominator : 1) : 0;
+            f2[i] = referenceSpectrum[i] * Complex.Conjugate(f2[i]) * weight;
+        }
+        Fft2D.Inverse(f2, width, height);
+        var shift = PeakShift(f2, width, height);
+        Fft2D.Forward(f2, width, height);
+        var (x, y) = ClimbPeak(f2, width, height, -shift.Dx, -shift.Dy);
+        return shift with { Dx = -x, Dy = -y };
+    }
+
+    /// <summary>
+    /// A windowed tile's white-noise floor: the mean noise power of its <paramref name="spectrum"/> at a frequency, from the median
+    /// power over the frequencies at least 0.35 cycles a pixel from zero, where a planetary patch holds little but its noise. A
+    /// noise power at one frequency is exponentially distributed, so its median is ln 2 of its mean, which the median is divided by.
+    /// White noise of variance <c>s2</c> a pixel gives <c>s2</c> times <see cref="WindowEnergy"/>.
+    /// </summary>
+    public static double SpectralFloor(ReadOnlySpan<Complex> spectrum, int width, int height)
+    {
+        var count = 0;
+        // Per point per frame on a dense grid, so on the stack for any patch up to 64 px.
+        Span<double> powers = spectrum.Length <= 4096 ? stackalloc double[spectrum.Length] : new double[spectrum.Length];
+        for (var ky = 0; ky < height; ky++)
+        {
+            var fy = (ky < height / 2 ? ky : ky - height) / (double)height;
+            for (var kx = 0; kx < width; kx++)
+            {
+                var fx = (kx < width / 2 ? kx : kx - width) / (double)width;
+                if ((fx * fx) + (fy * fy) >= 0.35 * 0.35)
+                {
+                    var c = spectrum[(ky * width) + kx];
+                    powers[count++] = (c.Real * c.Real) + (c.Imaginary * c.Imaginary);
+                }
+            }
+        }
+        if (count == 0)
+        {
+            return 0;
+        }
+        var band = powers[..count];
+        band.Sort();
+        var median = count % 2 == 1 ? band[count / 2] : 0.5 * (band[(count / 2) - 1] + band[count / 2]);
+        return median / Math.Log(2);
+    }
+
+    /// <summary>The energy of the Hann window a tile is weighted by before its transform: the sum of its squared weights.</summary>
+    public static double WindowEnergy(int width, int height)
+    {
+        var wx = HannWindows.GetOrAdd(width, MakeHannWindow);
+        var wy = HannWindows.GetOrAdd(height, MakeHannWindow);
+        double sx = 0, sy = 0;
+        foreach (var w in wx)
+        {
+            sx += w * w;
+        }
+        foreach (var w in wy)
+        {
+            sy += w * w;
+        }
+        return sx * sy;
+    }
+
+    /// <summary>
     /// The maximum near (<paramref name="x"/>, <paramref name="y"/>) of <c>c(s) = Re sum over k of cross(k) exp(2 pi i k.s / n)</c>,
     /// the correlation surface <paramref name="cross"/> transforms back to, by Newton's method: its gradient and curvature are
     /// sums of the same terms, so each step is exact. A step that would leave the start's pixel, or a curvature that is not a

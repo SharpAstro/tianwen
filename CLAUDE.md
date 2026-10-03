@@ -1068,6 +1068,10 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   Shifting the window undoes the shrink and lifts the noise more; a gain on the readings leaves less warp at the points and a worse
   stack (`PlanetaryStackOptions.MeshGain` stays one). **Dense points pay instead** (16 px patches 4 px apart: band 1's error 0.020 to
   0.042 under a global stack on two twins, adoption #1195), and **`MaxAlignmentPoints` (64) caps any grid silently**, which hid it.
+  **Judge a point estimator against its Cramer-Rao bound** (#1082, `AlignmentPointMatcher.Bound`, `planetary-dewarp`): plain sits 4.6
+  to 11 times it on the twins; the maximum-likelihood weight IS plain against a stacked reference (identical readings); Loefdahl's
+  square difference (`PlanetaryPointEstimator.SquareDifference`) reads the shift unshrunk and reaches the bound on a clean rigid shift,
+  but scatters a pixel on a twin (#1207), and beats plain only on the dense grid, so it goes with #1195 or not at all.
   **Bayer drizzle to the sensor grid beats the demosaic above a plane's Nyquist, UNSHARPENED; nothing past the sensor grid pays** at a
   warp of 0.6 px. **Sharpened as the pipeline sharpens, the demosaic stays the colour default** (#1091, judged 2026-10-03): once a
   colour master's finest band is kept as stacked (#1187), drizzle no longer wins on both of the colour twin's seeds (4.49 against

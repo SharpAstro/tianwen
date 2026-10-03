@@ -43,6 +43,7 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
         var maxApOpt = new Option<int>("--max-ap") { Description = "The most alignment points (the stack's default, 64, caps a dense grid; ap methods only).", DefaultValueFactory = _ => new PlanetaryStackOptions().MaxAlignmentPoints };
         var correlationOpt = new Option<string>("--correlation") { Description = "How frames and points are registered, a comma list of whitened (phase correlation) and plain (cross-correlation).", DefaultValueFactory = _ => "whitened" };
         var meshOpt = new Option<float>("--mesh-spacing") { Description = "The displacement mesh's node spacing, px (ap methods only).", DefaultValueFactory = _ => 24f };
+        var estimatorOpt = new Option<string>("--estimator") { Description = "How each point's shift is read: correlation (windowed, the default), weighted (the correlation by its maximum-likelihood weight) or sdf (square difference, #1082).", DefaultValueFactory = _ => "correlation" };
         var remeasureOpt = new Option<bool>("--remeasure") { Description = "Match every frame against the reference dewarped by its own points (ap methods only; PlanetaryStackOptions.RemeasureAgainstStack)." };
         var gainOpt = new Option<float>("--mesh-gain") { Description = "A gain on every point's residual before the mesh blends them (ap methods only; PlanetaryStackOptions.MeshGain).", DefaultValueFactory = _ => 1f };
         var influenceOpt = new Option<float>("--mesh-influence") { Description = "How far a point's displacement reaches into the mesh, px (ap methods only).", DefaultValueFactory = _ => 48f };
@@ -60,7 +61,7 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
             "Stacks a capture as each candidate asks, and its two halves, and measures every stack (R3): fidelity per wavelet band and the limb against a truth, the halves' agreement per band, the limb's undershoot; with a truth, how the truth-free metrics rank the candidates against the truth-based ones.")
         {
             Arguments = { captureArg },
-            Options = { truthOpt, planetOpt, utcOpt, framesOpt, keepOpt, sharpenOpt, methodOpt, spacingOpt, patchOpt, maxApOpt, correlationOpt, poolOpt, geometryOpt, meshOpt, influenceOpt, gainOpt, remeasureOpt, interpolationOpt, referenceOpt, drizzleOpt, pixfracOpt, noHalvesOpt, cutoffOpt, derotateOpt },
+            Options = { truthOpt, planetOpt, utcOpt, framesOpt, keepOpt, sharpenOpt, methodOpt, spacingOpt, patchOpt, maxApOpt, correlationOpt, poolOpt, geometryOpt, meshOpt, influenceOpt, gainOpt, remeasureOpt, estimatorOpt, interpolationOpt, referenceOpt, drizzleOpt, pixfracOpt, noHalvesOpt, cutoffOpt, derotateOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -179,6 +180,7 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
                             MeshInfluence = parseResult.GetValue(influenceOpt),
                             MeshGain = parseResult.GetValue(gainOpt),
                             RemeasureAgainstStack = parseResult.GetValue(remeasureOpt),
+                            PointEstimator = PlanetaryDewarpSubCommand.ParseEstimator(parseResult.GetValue(estimatorOpt)),
                             MedianGeometry = median,
                             Interpolation = interpolation,
                             ReferenceFrames = referenceFrames,
@@ -288,6 +290,7 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
                                 MeshInfluence = parseResult.GetValue(influenceOpt),
                             MeshGain = parseResult.GetValue(gainOpt),
                             RemeasureAgainstStack = parseResult.GetValue(remeasureOpt),
+                            PointEstimator = PlanetaryDewarpSubCommand.ParseEstimator(parseResult.GetValue(estimatorOpt)),
                                 Interpolation = interpolation,
                                 ReferenceFrames = referenceFrames,
                                 Drizzle = drizzle is { } d ? new PlanetaryDrizzleOptions((float)d, pixfrac, AlignmentPointMesh: method != "global") : null,

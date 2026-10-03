@@ -82,7 +82,15 @@ public readonly record struct WarpModel(double RmsPx, double LengthPx);
 public sealed record DewarpInterpolation(double WindowSigmaPx, double SlopeAtPoint, double ErrorAtPointX, double ErrorAtPointY,
     double SlopeInWindow, double ErrorInWindowX, double ErrorInWindowY, double UndewarpedX, double UndewarpedY,
     double BlendX, double BlendY, double ScaledBlendX, double ScaledBlendY, double GainX, double GainY, double KrigedX, double KrigedY, double KrigedOverlapX, double KrigedOverlapY,
-    double CeilingX, double CeilingY);
+    double CeilingX, double CeilingY)
+{
+    /// <summary>The Cramer-Rao bound at the points, RMS over them, across (#1082): no unbiased estimator using a point's pixels reads its
+    /// shift with less error. NaN where it was not taken.</summary>
+    public double BoundX { get; init; } = double.NaN;
+
+    /// <summary>Down.</summary>
+    public double BoundY { get; init; } = double.NaN;
+}
 
 /// <summary>
 /// The dewarp's residual against a synthetic capture's true warp (docs/plans/planetary-restoration.md, R5 part 2): every frame's
@@ -117,7 +125,7 @@ public static class DewarpResidual
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentOutOfRangeException.ThrowIfLessThan(truth.Length, stream.FrameCount, nameof(truth));
-        var (tracks, referenceIndex) = await LuckyImagingStacker.TrackAsync(stream, options, cancellationToken).ConfigureAwait(false);
+        var (tracks, referenceIndex, matcher) = await LuckyImagingStacker.TrackAsync(stream, options, cancellationToken).ConfigureAwait(false);
         var points = tracks.AlignmentPoints.ToArray();
         var (frames, n) = (tracks.Frames, points.Length);
 
@@ -184,13 +192,60 @@ public static class DewarpResidual
                 readings.Add(new DewarpReading(pool, median, rx, ry, mx, my, tx, ty));
             }
         }
+        DewarpInterpolation? interpolation = null;
+        if (model is { } warpModel)
+        {
+            var (boundX, boundY) = await BoundAsync(stream, tracks, matcher, cancellationToken).ConfigureAwait(false);
+            interpolation = Interpolate(tracks, truth, reference, points, places, placeX, placeY, options, warpModel, width, height)
+                with { BoundX = boundX, BoundY = boundY };
+        }
         return new DewarpReport(n, frames, referenceIndex, undewarpedX, undewarpedY, undewarpedMedianX, undewarpedMedianY,
             m, meshUndewarpedX, meshUndewarpedY, meshUndewarpedMedianX, meshUndewarpedMedianY, readings.MoveToImmutable())
         {
-            Interpolation = model is { } warpModel
-                ? Interpolate(tracks, truth, reference, points, places, placeX, placeY, options, warpModel, width, height)
-                : null,
+            Interpolation = interpolation,
         };
+    }
+
+    /// <summary>How many frames, spread over the capture, a point's noise is read from for its bound.</summary>
+    public const int BoundFrames = 60;
+
+    // The Cramer-Rao bound at the points (#1082), RMS over them an axis: each point's from its reference patch's gradients and the noise
+    // a pixel of its patch carries, the mean over BoundFrames frames spread over the capture.
+    private static async Task<(double X, double Y)> BoundAsync(IPlanetaryFrameStream stream, AlignmentPointTracks tracks, AlignmentPointMatcher matcher,
+        CancellationToken cancellationToken)
+    {
+        var n = tracks.AlignmentPoints.Length;
+        var noise = new double[n];
+        var used = 0;
+        var step = Math.Max(1, tracks.Frames / BoundFrames);
+        for (var f = 0; f < tracks.Frames; f += step)
+        {
+            var frame = await stream.LoadAsync(f, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                var (gx, gy) = tracks.GlobalShift(f);
+                for (var p = 0; p < n; p++)
+                {
+                    noise[p] += matcher.PatchNoise(frame, (float)gx, (float)gy, p);
+                }
+                used++;
+            }
+            finally
+            {
+                frame.Release();
+            }
+        }
+        double sx = 0, sy = 0;
+        var counted = 0;
+        for (var p = 0; p < n && used > 0; p++)
+        {
+            var (bx, by) = matcher.Bound(p, noise[p] / used);
+            if (double.IsFinite(bx) && double.IsFinite(by))
+            {
+                (sx, sy, counted) = (sx + bx, sy + by, counted + 1);
+            }
+        }
+        return counted == 0 ? (double.NaN, double.NaN) : (Math.Sqrt(sx / counted), Math.Sqrt(sy / counted));
     }
 
     // How each point reads the warp, and what the blend, a kriging and the best linear weights leave of it at the places (#1081).
@@ -208,8 +263,9 @@ public static class DewarpResidual
         double sumW = 0, sumW2 = 0;
         for (var i = 0; i < size; i++)
         {
+            // A square difference weighs its patch alike; a correlation by the Hann window on each of its two patches.
             var hann = 0.5 * (1 - Math.Cos(2 * Math.PI * i / (size - 1)));
-            weight[i] = hann * hann;
+            weight[i] = options.PointEstimator == PlanetaryPointEstimator.SquareDifference ? 1 : hann * hann;
             sumW += weight[i];
         }
         for (var i = 0; i < size; i++)
