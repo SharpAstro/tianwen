@@ -1212,6 +1212,7 @@ namespace TianWen.UI.Abstractions
             // state -- "?" / an ellipsis / a tick, instead of "Solve" / "Solving..." / "Solved".
             ToolbarAction.PlateSolve => true,
             ToolbarAction.AutoCrop => true,
+            ToolbarAction.Compare => true,
             // The mark is what makes the tri-state label affordable: "Fit" / "1:1" / "43%" needs no word
             // saying it is a zoom, so the label spends all its width on the value.
             ToolbarAction.Zoom => true,
@@ -1259,6 +1260,7 @@ namespace TianWen.UI.Abstractions
                 case ToolbarAction.Zoom: DrawBakedMark(BakedIcons.Magnifier, x, btnY, btnH, ink); break;
                 case ToolbarAction.PlateSolve: DrawBakedMark(BakedIcons.Telescope, x, btnY, btnH, ink); break;
                 case ToolbarAction.AutoCrop: DrawCropMark(x, btnY, btnH, ink); break;
+                case ToolbarAction.Compare: DrawCompareMark(x, btnY, btnH, ink); break;
                 case ToolbarAction.WhiteBalance: DrawWhiteBalanceMark(x, btnY, btnH, enabled); break;
             }
         }
@@ -1554,6 +1556,39 @@ namespace TianWen.UI.Abstractions
             // The same angle turned through 180 degrees, closing bottom-right.
             DrawLineOverlay(x + far, y + near, x + far, y + hi, ink, t);
             DrawLineOverlay(x + near, y + far, x + hi, y + far, ink, t);
+        }
+
+        /// <summary>
+        /// A frame split down the middle, its left half inked and its right half open: the before / after
+        /// split, which is exactly what the button puts on the image.
+        /// </summary>
+        /// <remarks>
+        /// <para>Drawn rather than baked for the same reason as the folder: it needs an outline. A colour
+        /// emoji's structure is carried by hue, which the baked mask discards, and there is no
+        /// split-rectangle codepoint to try in the first place. It stays app-local rather than becoming a
+        /// DIR.Lib <c>IconKind</c> because the viewer's toolbar is its only consumer, and that enum takes
+        /// a kind only once both surfaces draw it.</para>
+        /// <para>The halves differ in FILL, not in shade of ink, so the mark survives being dimmed on a
+        /// disabled button and needs no colour beyond the button's own.</para>
+        /// </remarks>
+        private void DrawCompareMark(float x, float btnY, float btnH, RGBAColor32 ink)
+        {
+            var size = BaseToolbarMarkSize * DpiScale;
+            var y = btnY + (btnH - size) / 2f;
+            var t = MathF.Max(1f, DpiScale);
+
+            // Landscape, like the picture it splits.
+            var left = x + size * 0.06f;
+            var right = x + size * 0.94f;
+            var top = y + size * 0.18f;
+            var bottom = y + size * 0.82f;
+            var mid = x + size * 0.50f;
+
+            FillRect(left, top, mid - left, bottom - top, ink);                // the inked half
+            DrawLineOverlay(left, top, right, top, ink, t);
+            DrawLineOverlay(left, bottom, right, bottom, ink, t);
+            DrawLineOverlay(left, top, left, bottom, ink, t);
+            DrawLineOverlay(right, top, right, bottom, ink, t);
         }
 
         private void DrawFolderMark(float x, float btnY, float btnH, RGBAColor32 ink)
@@ -2271,7 +2306,9 @@ namespace TianWen.UI.Abstractions
                 // No ":Pinned" suffix: pinned settings are the DEFAULT comparison, so the activated
                 // highlight already says it. "Before" stays named, because that is a different thing
                 // being compared (the pre-enhance pixels) rather than the same thing at other settings.
-                ToolbarAction.Compare when Split.ComparesPixels && Split.IsOn => "A/B: Before",
+                // The split mark says "A/B", so the label keeps only that word, and is otherwise empty.
+                ToolbarAction.Compare when Split.ComparesPixels && Split.IsOn => "Before",
+                ToolbarAction.Compare => string.Empty,
                 _ => baseLabel,
             };
         }

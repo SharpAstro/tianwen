@@ -60,6 +60,15 @@ Tracked by #850.
 | **B2** | **DONE**. The Objects mark is the baked `Spiral` (U+1F300); the emoji draw and the hand-drawn spiral are both gone | tianwen | Baked icons are single-channel, so they tint and dim like any other ink |
 | **B3** | Consider upstreaming the monochrome, stateless marks as `IconKind` members | DIR.Lib | Only if a cell surface can say them; see the open question below |
 
+**Toolbar marks, wave 2 (#606): DONE app-locally, no DIR.Lib release.** The wave was written as three new
+`IconKind` members, but by the time it was picked up two of its three marks had resolved themselves: Open
+was already the drawn `DrawFolderMark`, and Boost was no longer a toolbar button (it folded into the Tone
+popover in 8.1). The third, A/B, is `DrawCompareMark` beside the folder: a frame with its left half inked,
+the label shrinking to nothing, or to "Before" while the split compares pre-enhance pixels. All three stay
+app-drawn rather than `IconKind`s on that enum's own rule, since the viewer's pixel toolbar is their only
+consumer and no terminal surface says them. NeutBg, SPCC and Calibrate stay text, as planned (Solve
+has since taken the baked telescope).
+
 F1-F3 and B1-B3 are independent. **Nothing else is blocked on either**: the toolbar marks shipped
 without them, using the interim resolver plus a geometric fallback.
 
