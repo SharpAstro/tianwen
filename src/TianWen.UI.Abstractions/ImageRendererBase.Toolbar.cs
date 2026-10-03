@@ -1066,6 +1066,12 @@ namespace TianWen.UI.Abstractions
                 ToolbarAction.WhiteBalance => !IsNeutralWhiteBalance(EffectiveWhiteBalance(state)),
                 // Zoom is deliberately absent: it is a mode DISPLAY, like Channel and StretchLink, and
                 // its label already names the state a highlight would be hinting at.
+                // The pair of zoom ACTIONS a preview offers in its place (Fit and 1:1: the Live Session
+                // preview, the planetary view) light as a choice does, the one on screen: nothing on them
+                // names the state, and a Fit that fitted and stayed grey read as a press that did nothing
+                // (the user, 2026-10-03, "very unbefitting of the FIT button").
+                ToolbarAction.ZoomFit => state.ZoomToFit,
+                ToolbarAction.ZoomActual => !state.ZoomToFit && state.Zoom == 1f,
                 // Lit while running AND while an enhanced result is on screen: the highlight is what
                 // says the toggle is ON, which is why the label below does not spell it out (same rule
                 // the A/B button follows).

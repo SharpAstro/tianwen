@@ -92,6 +92,41 @@ public class ToolbarOfferTests
     }
 
     /// <summary>
+    /// Fit and 1:1, the zoom ACTIONS a preview offers in place of the file viewer's Zoom display, light as a choice: the one
+    /// on screen, and neither at a zoom of their own. A Fit that fitted and stayed grey read as a press that did nothing
+    /// (the user, 2026-10-03).
+    /// </summary>
+    [Fact]
+    public void Fit_and_one_to_one_light_for_the_zoom_on_screen()
+    {
+        using var renderer = new RgbaImageRenderer(2400, 700);
+        var viewer = new ViewerE2E.Surface(renderer, new SignalBus()) { Offer = ToolbarOffer.Planetary };
+        var source = new LiveFramePreviewSource();
+        source.AcceptFrame(LiveFrame(), freezeStats: false).ShouldBeTrue();
+        var state = new ViewerState { ShowFileList = false, ShowInfoPanel = false, ShowHistogram = false, ZoomToFit = false, Zoom = 0.5f };
+        viewer.Render(source, state);
+        (viewer.IsToolbarButtonActiveForTest(ToolbarAction.ZoomFit, state), viewer.IsToolbarButtonActiveForTest(ToolbarAction.ZoomActual, state))
+            .ShouldBe((false, false), "a zoom of the wheel's is neither");
+
+        Press(ToolbarAction.ZoomFit);
+        state.ZoomToFit.ShouldBeTrue();
+        (viewer.IsToolbarButtonActiveForTest(ToolbarAction.ZoomFit, state), viewer.IsToolbarButtonActiveForTest(ToolbarAction.ZoomActual, state))
+            .ShouldBe((true, false), "Fit is lit while the picture is fitted");
+
+        Press(ToolbarAction.ZoomActual);
+        (viewer.IsToolbarButtonActiveForTest(ToolbarAction.ZoomFit, state), viewer.IsToolbarButtonActiveForTest(ToolbarAction.ZoomActual, state))
+            .ShouldBe((false, true), "and 1:1 once it is shown at 1:1");
+
+        void Press(ToolbarAction action)
+        {
+            viewer.TryGetPaintedToolbarRect(action, out var rect).ShouldBeTrue();
+            var (x, y) = (rect.X + (rect.Width / 2f), rect.Y + (rect.Height / 2f));
+            UiRouting.Route(viewer, new InputEvent.MouseDown(x, y), new InputEvent.MouseUp(x, y));
+            viewer.Render(source, state);
+        }
+    }
+
+    /// <summary>
     /// A key for an action only a host can run presses its button, and only where the host offers it: where
     /// nothing offered a solve, P posted one that nothing ran. Ctrl+O never falls through to O, the annotation.
     /// The host says the solve can run here, since a key also follows its button's enabled state and no frame
