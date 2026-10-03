@@ -81,11 +81,18 @@ public static class PlanetaryInverse
     /// <paramref name="arcsecPerPixel"/>: its diffraction-limited PSF (<see cref="ShortExposurePsf"/>, sampled fine enough for its
     /// cutoff as a diffracted truth is rendered) taken to its transfer, ring by ring, one at zero frequency.
     /// </summary>
-    public static RadialTransfer Diffraction(in Pupil pupil, double wavelengthM, double arcsecPerPixel)
+    /// <remarks>
+    /// <paramref name="reachPx"/> is the extent, in detector pixels, the transfer is applied over (a window's side): the PSF is computed
+    /// on a grid twice that at the fine scale (<see cref="PlanetaryRender.DiffractionGridFor"/>), so the transfer's rings are fine enough
+    /// near zero frequency to hold the wing that far (#1213). The 128-sample grid it was left the derived sharpening's model glow 12 to
+    /// 25 % short past the limb; on a window's reach it matched a rendered truth within 2.5 % out to 3 radii. Without a reach, the
+    /// 128-sample grid as before, which every mid-frequency use reads the same.
+    /// </remarks>
+    public static RadialTransfer Diffraction(in Pupil pupil, double wavelengthM, double arcsecPerPixel, int? reachPx = null)
     {
-        const int psfSize = 128;
         var nyquistArcsec = wavelengthM / (2 * pupil.DiameterM) * ShortExposurePsf.ArcsecPerRadian;
         var factor = Math.Max(1, (int)Math.Ceiling(arcsecPerPixel / nyquistArcsec));
+        var psfSize = reachPx is { } reach ? PlanetaryRender.DiffractionGridFor(reach * factor, reach * factor) : 128;
         var transmission = pupil.Rasterise(psfSize, ShortExposurePsf.PupilSpacingFor(wavelengthM, arcsecPerPixel / factor, psfSize));
         var psf = new double[psfSize * psfSize];
         ShortExposurePsf.Compute(transmission, [], psfSize, psf);

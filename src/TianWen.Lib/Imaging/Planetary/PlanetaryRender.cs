@@ -164,6 +164,11 @@ public static class PlanetaryRender
     /// pixels of <paramref name="arcsecPerPixel"/>, as a detector integrates. An image coarser than the cutoff's Nyquist
     /// scale, as every prime-focus capture is, would otherwise alias the PSF.
     /// </summary>
+    /// <remarks>
+    /// The PSF is computed on a grid twice the fine frame (<see cref="DiffractionGridFor"/>) and the scene convolved over that grid's
+    /// period, so the PSF's wing reaches the whole frame (#1213). A circular aperture's edge spread falls only as one over the distance,
+    /// and the 128-sample PSF this used to be cut the glow past the limb to nothing beyond 1.6 radii and to 88 % at the limb itself.
+    /// </remarks>
     public static float[] RenderDiffracted(PlanetMap map, in PlanetAspect aspect, in DiskPlacement placement, int width, int height, double minnaertK,
         in Pupil pupil, double wavelengthM, double arcsecPerPixel, int supersample = 4, ImmutableArray<MoonDisk> moons = default)
     {
@@ -184,11 +189,11 @@ public static class PlanetaryRender
         var fineHeight = height * factor;
         var scene = Render(map, aspect, fine, fineWidth, fineHeight, minnaertK, supersample, moons);
 
-        const int PsfSize = 128;
-        var psf = new double[PsfSize * PsfSize];
-        var transmission = pupil.Rasterise(PsfSize, ShortExposurePsf.PupilSpacingFor(wavelengthM, fineScale, PsfSize));
-        ShortExposurePsf.Compute(transmission, [], PsfSize, psf);
-        var blurred = ConvolveCentred(scene, fineWidth, fineHeight, psf, PsfSize);
+        var psfSize = DiffractionGridFor(fineWidth, fineHeight);
+        var psf = new double[psfSize * psfSize];
+        var transmission = pupil.Rasterise(psfSize, ShortExposurePsf.PupilSpacingFor(wavelengthM, fineScale, psfSize));
+        ShortExposurePsf.Compute(transmission, [], psfSize, psf);
+        var blurred = ConvolvePeriodic(scene, fineWidth, fineHeight, psf, psfSize);
 
         var image = new float[width * height];
         var norm = 1.0 / (factor * factor);
@@ -209,6 +214,55 @@ public static class PlanetaryRender
             }
         }
         return image;
+    }
+
+    /// <summary>
+    /// The side of the grid a diffraction PSF is computed on for a <paramref name="width"/> by <paramref name="height"/> fine frame: a
+    /// power of two at least twice the frame's larger side, so the PSF's wing reaches across the frame. The PSF comes from an FFT, so it
+    /// is periodic on this grid, and the light that truly falls more than a frame away folds back into it: 0.06 % of the flux for a
+    /// clear 254 mm aperture and a disk filling 60 % of a 128 px frame, 0.26 % with four 1 mm vanes, whose spikes reach farthest (#1213).
+    /// </summary>
+    internal static int DiffractionGridFor(int width, int height) => Math.Max(128, NextPowerOfTwo(2 * Math.Max(width, height)));
+
+    // Convolves `image` with a kernel of `size` squared samples centred on (size / 2, size / 2) over the kernel's own period: the
+    // kernel is the whole PSF on that grid, at least twice the image (DiffractionGridFor), so the scene outside the frame is black sky
+    // and what wraps comes from a frame away.
+    private static float[] ConvolvePeriodic(float[] image, int width, int height, double[] kernel, int size)
+    {
+        var a = new Complex[size * size];
+        var b = new Complex[size * size];
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                a[(y * size) + x] = new Complex(image[(y * width) + x], 0);
+            }
+        }
+        var half = size / 2;
+        for (var y = 0; y < size; y++)
+        {
+            var ty = (y - half + size) % size;
+            for (var x = 0; x < size; x++)
+            {
+                b[(ty * size) + ((x - half + size) % size)] = new Complex(kernel[(y * size) + x], 0);
+            }
+        }
+        Fft2D.Forward(a, size, size);
+        Fft2D.Forward(b, size, size);
+        for (var i = 0; i < a.Length; i++)
+        {
+            a[i] *= b[i];
+        }
+        Fft2D.Inverse(a, size, size);
+        var result = new float[width * height];
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                result[(y * width) + x] = (float)a[(y * size) + x].Real;
+            }
+        }
+        return result;
     }
 
     // Convolves `image` with a kernel of `size` squared samples centred on (size / 2, size / 2), by FFT over a grid padded

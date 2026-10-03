@@ -165,7 +165,7 @@ internal sealed record PlanetaryLimbWindow(int Size, int X0, int Y0, MetricDisk 
     }
 
     /// <summary>The pupil's diffraction at <paramref name="wavelengthNm"/>, at this window's plate scale.</summary>
-    public RadialTransfer Diffraction(Pupil pupil, double wavelengthNm) => PlanetaryInverse.Diffraction(pupil, wavelengthNm * 1e-9, ArcsecPerPixel);
+    public RadialTransfer Diffraction(Pupil pupil, double wavelengthNm) => PlanetaryInverse.Diffraction(pupil, wavelengthNm * 1e-9, ArcsecPerPixel, reachPx: Size);
 
     /// <summary>The planet's sharp model through <paramref name="diffraction"/>: the disk the truth has, in the window's units.</summary>
     public float[] Through(RadialTransfer diffraction) => PlanetaryInverse.Apply(Sharp, Size, Size, diffraction.At);

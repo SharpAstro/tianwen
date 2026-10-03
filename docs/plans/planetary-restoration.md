@@ -274,6 +274,10 @@ The fits include the process's start. The row-ordered column pass was kept on an
   | 6 px, 2 | 0.04, 0.05 px | +0.31 % |
 
   And OPAL's 2022 F631N map itself, rendered at the same geometry through Moffat seeing of 3, 5 and 7 px: the centre within 0.04 px, the radius +0.44, +0.19 and +0.17 % large. **It passes the pre-registration** (centre within 0.2 px, radius within 0.5 %).
+
+  These renders cut the pupil's diffraction wing short. With it in full (#1213) the synthetic Jupiter's (6 px, beta 2) case reads +1.33 %, on
+  the fit's far halo branch, and is skipped; OPAL's map stays inside the rule (-0.41 to +0.44 % over 3 to 7 px). See
+  "The limb fit's two branches under a broad wing", #1221.
 - **What T1 found wrong in the limb fit, and fixed** (`PlanetaryLimbFit`):
   - A cell the limb crosses was lit by its centre alone, so the model jumped and the search stalled in a worse minimum on a phased disk (2.4 % small where the truth fitted to 0.2 %). A cell is now lit by the fraction of it inside the limb.
   - A uniform albedo read the dark polar regions as a smaller disk. The albedo is now a smooth function of latitude, with an odd term for the hemispheres' difference, counted from the observer's latitude.
@@ -287,6 +291,7 @@ The fits include the process's start. The row-ordered column pass was kept on an
   | 2022-09-29, five RGB stacks | +0.44 to +0.66 px | -0.04 to -0.21 px | +0.14 to +0.84 % |
 
   Each session's offset has one sign across its stacks, and the stacks are wavelet-sharpened, which rings at the limb. An outline WinJUPOS's user sets by hand once a session fits that pattern; the fit's own error on a rendered Jupiter is a tenth of it. So the residual is WinJUPOS's, and R1's question is closed on T1.
+  Re-opened (#1221): through the full diffraction wing the fit's own error reaches +1.33 % on one T1 case, as large as these residuals.
 
 ### R2 part 2: the synthetic capture
 
@@ -2610,7 +2615,9 @@ another size, another program's crop, gets its own fit.
   times.
 - The stack's own sky is not flat noise: its blocks scatter 47 times what its noise gives them, and its outliers run 29 times a Gaussian's.
   Every output inherits that.
-- **The expected glow is a model**, and past 1.1 radii it disagrees with the renderer that makes the twins' truths (below, #1213).
+- **The expected glow is a model**, and with the pupil's whole wing in it and in the renderer the two agree within 4 % out to 2.5 radii.
+  The table was read before that (#1213, below): against the full wing, Red's expectation is 53.1 (28.7 to 1.1 radii), and the Best stack and
+  live view sharpened again draw 53.3.
 
 ### A planetary master's colour
 
@@ -2627,18 +2634,80 @@ was hand-adjusted in February 2026 and is the weaker reference.
 Found writing `PlanetaryPictureTests` (2026-10-03). A Jupiter rendered through a 254 mm, 23 % obstructed pupil at 650 nm
 (`PlanetaryRender.RenderDiffracted`, R = 40 px), its limb fitted exactly (R 40.020, k 0.951), against the sharpening's own expectation (the
 fit's sharp model through `PlanetaryInverse.Diffraction`, as `ModelFeathered` draws it past the limb). Light in rings of 0.05 radii, disk
-pixels' worth:
+pixels' worth, as the two stood then:
 
 | Radii | 0.90 | 0.95 | 1.00 | 1.05 | 1.10 | 1.15 | 1.20 | 1.25 | 1.30 | 1.35 | 1.40 | 1.45 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | Rendered truth | 212.1 | 124.9 | 16.80 | 4.00 | 2.00 | 1.24 | 0.81 | 0.58 | 0.36 | 0.23 | 0.12 | 0.08 |
 | Sharpening's model | 210.8 | 124.7 | 16.45 | 4.46 | 2.62 | 1.90 | 1.59 | 1.26 | 1.01 | 0.87 | 0.75 | 0.70 |
 
-At the limb they agree within 2 to 3 %. Past 1.1 radii the model holds up to 6 times the truth's light (about a thousandth of the disk's
-level a pixel at 1.4 radii). A circular aperture's edge spread falls off only as one over the distance, so the renderer may cut its wing
-short, or the model's transfer may carry a pedestal. It matters twice: the Best stack and the live view draw the model's wing to 1.5 radii,
-and the twins' truths, which judged every limb fix, are the renderer's. Settling it against the analytic edge spread is #1213.
-`PlanetaryPictureTests` therefore holds the glow test to the zone that agrees, 1 to 1.1 radii, and asserts nothing past it.
+At the limb they agreed within 2 to 3 %; past 1.1 radii the model held up to 6 times the truth's light. Both matter: the Best stack and the
+live view draw the model's wing to 1.5 radii, and the twins' truths, which judged every limb fix, are the renderer's.
+
+**Settled (#1213, 2026-10-03): both were short, the renderer far more.** An aperture's edge spread falls off only as one over the distance:
+of a point's light, lambda P / (2 pi^2 A theta) lies beyond theta, P the pupil's edge length and A its area (Airy's 2 lambda / (pi^2 D theta)
+for a clear circle). Both paths computed the pupil's PSF on 128 samples at the fine scale:
+- the renderer convolved the scene with that square, so no light reached past it: its glow fell to nothing beyond 1.6 radii;
+- the model sampled its radial transfer on that grid's frequencies, too coarse near zero frequency to hold the wing, and ran 12 to 25 %
+  short past the limb against the same model on a 2,048-sample grid, which converged to 2 % out to 1.3 radii.
+
+**The fix is one rule, `PlanetaryRender.DiffractionGridFor`**: a diffraction PSF's grid is a power of two at least twice the extent it is
+used over. For the renderer that is the fine frame, now convolved over the grid's period; for the model it is the window
+(`PlanetaryInverse.Diffraction(reachPx)` through `PlanetaryLimbWindow.Diffraction`, so the batch and the live view alike). The two now agree
+ring by ring from 1 to 2.5 radii within 4 %, most rings within 1 to 2 % (`TheSharpeningsGlowIsTheRenderedTruthsRingByRing`), and the
+picture's glow test holds the whole 1 to 1.5 radii.
+
+The FFT still leaves one thing. The PSF is periodic on its grid, so light that truly falls more than a frame away folds back into the frame:
+0.06 % of the flux for a clear aperture and a disk of radius 40 in a 128 px frame, 0.26 % with four 1 mm vanes, whose spikes reach farthest.
+That frame loses 0.43 % of the flux past its edges and one twice as wide 0.22 %, each under the edge-spread bound at its nearest edge (1.9
+and 0.49 %; `DiffractionKeepsTheFluxButTheWingCarriesPastTheFrameAndSoftensTheLimb`). On a twin's 800 by 600 frame the fold starts beyond
+1,024 px.
+
+**The twins' truths, re-rendered** at the geometry their headers record (`planetary-render-truth`, scaled to the old truth's disk inside 0.8
+radii). Inside 0.9 radii the new truth is the old one to 0.07 % RMS. Outside, the old truth held 71 % of the new one's light from 1.0 to
+1.1 radii, 43 % to 1.2, 16 % from 1.3 to 1.4, and none past 1.8. The derived sharpening (`ModelFeathered`, the default) of each twin's
+pipeline master, against the new truths:
+
+| Twin | Bands 1 to 4 error, old model | New model | Limb profile error, old model | New model |
+|---|---|---|---|---|
+| Calibrated | 0.674 | 0.647 | 0.0058 | 0.0053 |
+| No still layer | 0.309 | 0.280 | 0.0032 | 0.0022 |
+| Warped | 0.827 | 0.801 | 0.0070 | 0.0069 |
+
+Against the old truths the old model's numbers were 0.658, 0.293 and 0.813, with limb profile errors of 0.0061, 0.0033 and 0.0079: the
+figures the earlier sections quote. #1171's choice of fix, re-run against the new truths (the new model throughout), holds and widens. Limb profile error on the calibrated, no-still-layer and warped twins:
+
+| Fix outside the limb | Old truths | New truths |
+|---|---|---|
+| `ModelFeathered` (the default) | 0.0065, 0.0039, 0.0084 | 0.0053, 0.0022, 0.0069 |
+| The limb as its own channel | 0.0106, 0.0045, 0.0118 | 0.0083, 0.0024, 0.0094 |
+| Bounded by the stack | 0.0113, 0.0048, 0.0135 | 0.0089, 0.0030, 0.0109 |
+| Plain | 0.0127, 0.0051, 0.0152 | 0.0104, 0.0029, 0.0127 |
+| The stack as it is | 0.0291, 0.0089, 0.0304 | 0.0268, 0.0068, 0.0281 |
+
+**On 2022-09-03 Red** the glow the model expects from 1 to 1.5 radii rose from 38.7 to 53.1 (from 24.3 to 28.7 to 1.1 radii). The Best stack
+and the live view, sharpened again, draw 53.3; the old Best stack now reads 14.3 short, every one of its 8,902 glow pixels more than 3 noise
+below. Band 1's detail moved from 0.0141 to 0.0138, the gains derived through the corrected model.
+
+Two findings are left open.
+
+#### The limb fit's two branches under a broad wing
+
+With the wing in full, T1 fails one case of three: the synthetic Jupiter through 6 px of Moffat seeing at beta 2 reads the radius +1.33 %
+large, past the pre-registered 0.5 %. The fit's halo (its second Gaussian, held at half the light, its bound) takes one of two branches:
+5 to 8 px wide, where the radius reads +0.31 to +0.56 % over seeings of 5 to 7 px; or 70 to 93 px wide, where it read +0.40 % (3 px, beta
+3), +0.64 % (4 px, beta 2) and +1.33 % (6 px, beta 2, with k 1.05). OPAL's own map at the same geometry stays inside the rule at every
+seeing tried (-0.41 to +0.44 %). So the radius carries no fixed bias: it trades against the limb darkening, the core and the halo along a
+shallow valley, and a broad wing can tip it onto the far branch. That case is skipped with its issue named, not loosened, and R1's
+conclusion against WinJUPOS (the fit's own error a tenth of the residual) is re-opened with it: #1221.
+
+#### A twin's frames carry a short wing
+
+`planetary-degrade` still computes each frame's PSF on 128 fine samples, ±32 px at the twins' 650 nm and 0.497"/px, so a frame carries the
+wing about 0.65 radii past each point while its truth now carries all of it (the old truth's share above is the frames' too). The derived
+sharpening's scores barely see it: the limb profile error reads 0.8 to 1.2 radii, where the model replaces the stack, and the gains read the
+edge at 0.1 and 0.3 cycles a pixel, far above anything a wing past 32 px carries. A stack's glow as stacked, the per-frame PSFs the oracles
+read, and anything judged past 1.2 radii do see it: #1222.
 
 ### The batch stack on every core
 
