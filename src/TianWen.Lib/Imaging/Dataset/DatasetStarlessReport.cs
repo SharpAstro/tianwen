@@ -259,7 +259,14 @@ public static class DatasetStarlessReport
             return "-";
         }
         static string P(SpeckleBand b) => b.Sites > 0 ? (100f * b.Rate).ToString("F1", CultureInfo.InvariantCulture) : "-";
-        return string.Join(" / ", report.Bands.Select(P)) + " (null " + P(report.Null) + ")";
+        var cell = string.Join(" / ", report.Bands.Select(P)) + " (null " + P(report.Null) + ")";
+        if (report.Backgrounds.IsDefaultOrEmpty)
+        {
+            return cell;
+        }
+        // By background (smooth, textured, strongly textured), each against its own null.
+        return cell + "; by texture " + string.Join(" ; ", report.Backgrounds.Select(c =>
+            string.Join("/", c.Bands.Select(P)) + " (" + P(c.Null) + ")"));
     }
 
     private static string HolePercent(IEnumerable<StarlessBand> bands)
