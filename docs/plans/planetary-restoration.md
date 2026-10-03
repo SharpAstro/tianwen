@@ -2568,8 +2568,9 @@ sharpening at its default, `ModelFeathered`):
   (a bit-identical change every metric gains from; the twins' numbers above are the same before and after it). What is left is the start
   and the medians the batch's own normalisation and moon finder take, which the live view must take the same way to draw the same thing.
   At a live master's rate (each one a window stack first) it is a small part of a master; left as it is, the failure recorded.
-- **Rule 4**: the panels went to the owner (as stacked, the Best stack, the live view with the kept limb, the dials alone; linear and
-  hard-stretched about the sky): the dials' black band and arcs past the limb are gone, and the live view is the Best stack's limb.
+- **Rule 4 passes on the owner's eye** (2026-10-03): of the four panels (as stacked, the Best stack, the live view with the kept limb,
+  the dials alone; linear and hard-stretched about the sky) the live view with the kept limb "looks cleanest". The dials' black band and
+  arcs past the limb are gone, and the live view is the Best stack's limb.
 - **What the owner will see change besides the limb**: a moon beyond the sharpening window stays as stacked, as the Best stack has it since
   #1192; the dials alone sharpened every moon (on Red, the two outside the window read 0.66 and 0.62 peaks sharpened, 0.20 and 0.15 now).
 
