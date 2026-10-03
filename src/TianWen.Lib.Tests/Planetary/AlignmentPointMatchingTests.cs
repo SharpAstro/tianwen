@@ -48,6 +48,57 @@ public class AlignmentPointMatchingTests
         plainRms.ShouldBeLessThan(whitenedRms);
     }
 
+    [Fact]
+    public void APlainCorrelationShrinksTheShiftItReadsAndShiftingTheWindowTradesTheShrinkForNoise()
+    {
+        // #1081: both patches are Hann-windowed where the point is, so the window's own correlation, which peaks at no shift, pulls
+        // a reading toward zero where the texture under it is smooth. On a banded disk with no noise a 16 px patch reads half a
+        // rigid shift. Cutting the moving patch again where the shift read so far puts it (window shifting) undoes the shrink as
+        // the bias falls with the residual, but on an 8-bit frame it lifts the noise more: the error against the truth grows.
+        var sharp = Blur(Banded(), 1.5);
+        var shifts = new[] { -0.8, -0.5, -0.3, -0.15, 0.15, 0.3, 0.5, 0.8 };
+        var places = new[] { (64, 64), (52, 60), (76, 66), (60, 76), (68, 50) };
+        (double Slope, double Error) Read(int passes, int draws, Random? random)
+        {
+            double rt = 0, tt = 0, error = 0;
+            var count = 0;
+            foreach (var shift in shifts)
+            {
+                var moved = PlanetaryMetrics.Shift(sharp, Size, Size, shift, shift / 2);
+                foreach (var (cx, cy) in places)
+                {
+                    for (var draw = 0; draw < draws; draw++)
+                    {
+                        var referenceFrame = random is null ? sharp : Frame(sharp, random);
+                        var movingFrame = random is null ? moved : Frame(moved, random);
+                        var spectrum = PhaseCorrelation.PrepareReferenceSpectrum(Tile(referenceFrame, cx, cy), Patch, Patch, applyWindow: true, whiten: false);
+                        double ex = 0, ey = 0;
+                        for (var pass = 0; pass < passes; pass++)
+                        {
+                            var back = pass == 0 ? movingFrame : PlanetaryMetrics.Shift(movingFrame, Size, Size, -ex, -ey);
+                            var p = PhaseCorrelation.Estimate(spectrum, Tile(back, cx, cy), Patch, Patch, new System.Numerics.Complex[Patch * Patch], applyWindow: true, whiten: false);
+                            (ex, ey) = (ex + p.Dx, ey + p.Dy);
+                        }
+                        rt += (ex * shift) + (ey * shift / 2);
+                        tt += (shift * shift) + (shift * shift / 4);
+                        error += ((ex - shift) * (ex - shift)) + ((ey - (shift / 2)) * (ey - (shift / 2)));
+                        count += 2;
+                    }
+                }
+            }
+            return (rt / tt, Math.Sqrt(error / count));
+        }
+
+        var clean = Read(passes: 1, draws: 1, random: null);
+        var once = Read(passes: 1, draws: 8, new Random(3));
+        var shifted = Read(passes: 3, draws: 8, new Random(3));
+        TestContext.Current.TestOutputHelper?.WriteLine(
+            $"no noise: slope {clean.Slope:0.000}; 8-bit, one pass: slope {once.Slope:0.000}, error {once.Error:0.000} px; three passes: slope {shifted.Slope:0.000}, error {shifted.Error:0.000} px");
+        clean.Slope.ShouldBeInRange(0.4, 0.7, "the windows' pull toward no shift, with no noise at all");
+        shifted.Slope.ShouldBeGreaterThan(once.Slope + 0.1, "window shifting undoes the shrink");
+        shifted.Error.ShouldBeGreaterThan(once.Error, "but the noise it lifts costs more than the bias it removes");
+    }
+
     // The plane at the twin's level over a sky of zero, with its noise, rounded to whole ADU.
     private static float[] Frame(float[] plane, Random random)
     {

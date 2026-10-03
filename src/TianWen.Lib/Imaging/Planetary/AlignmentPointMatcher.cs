@@ -83,30 +83,32 @@ public sealed class AlignmentPointMatcher
     /// <c>(globalDx, globalDy)</c> (from <see cref="GlobalAligner"/>): the global shift itself, exactly, and each point's
     /// residual over it (<see cref="Match"/>), the local warp the whole-disk shift missed there.
     /// </summary>
-    public DisplacementMesh BuildMesh(Image frame, float globalDx, float globalDy, float nodeSpacing = 32f, float influence = 48f)
-        => BuildMesh(frame, globalDx, globalDy, derotation: null, nodeSpacing, influence);
+    public DisplacementMesh BuildMesh(Image frame, float globalDx, float globalDy, float nodeSpacing = 32f, float influence = 48f, float residualGain = 1f)
+        => BuildMesh(frame, globalDx, globalDy, derotation: null, nodeSpacing, influence, residualGain);
 
     /// <summary>
     /// <see cref="BuildMesh(Image, float, float, float, float)"/> for a frame carried to its capture's epoch by
     /// <paramref name="derotation"/> (docs/plans/planetary-restoration.md, R6 part 2): each point matched where the rotation and
     /// the shift put it, and the mesh built over the field.
     /// </summary>
-    public DisplacementMesh BuildMesh(Image frame, float globalDx, float globalDy, DerotationField? derotation, float nodeSpacing = 32f, float influence = 48f)
+    public DisplacementMesh BuildMesh(Image frame, float globalDx, float globalDy, DerotationField? derotation, float nodeSpacing = 32f, float influence = 48f,
+        float residualGain = 1f)
     {
         ArgumentNullException.ThrowIfNull(frame);
 
         var shifts = _apCenters.Length == 0 ? [] : new AlignmentPointShift[_apCenters.Length];
         Match(frame, globalDx, globalDy, derotation, shifts);
-        return DisplacementMesh.Build(_width, _height, globalDx, globalDy, shifts, derotation, nodeSpacing, influence);
+        return DisplacementMesh.Build(_width, _height, globalDx, globalDy, shifts, derotation, nodeSpacing, influence, residualGain: residualGain);
     }
 
     /// <summary>
     /// The displacement mesh from points already matched (or pooled, <see cref="AlignmentPointTracks"/>): each a residual over
     /// the global shift (<paramref name="globalDx"/>, <paramref name="globalDy"/>), as <see cref="Match"/> writes them.
     /// </summary>
-    public DisplacementMesh BuildMesh(float globalDx, float globalDy, ReadOnlySpan<AlignmentPointShift> shifts, float nodeSpacing = 32f, float influence = 48f)
+    public DisplacementMesh BuildMesh(float globalDx, float globalDy, ReadOnlySpan<AlignmentPointShift> shifts, float nodeSpacing = 32f, float influence = 48f,
+        float residualGain = 1f)
     {
-        return DisplacementMesh.Build(_width, _height, globalDx, globalDy, shifts, nodeSpacing, influence);
+        return DisplacementMesh.Build(_width, _height, globalDx, globalDy, shifts, nodeSpacing, influence, residualGain: residualGain);
     }
 
     /// <summary>

@@ -231,7 +231,7 @@ public sealed class LuckyImagingStacker
             used = await WalkAsync(InCaptureOrder(ctx.Selected), (frame, index) =>
             {
                 var shift = derotator.Shift(frame, index);
-                return matcher.BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, derotator.FieldFor(index), options.MeshNodeSpacing, options.MeshInfluence);
+                return matcher.BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, derotator.FieldFor(index), options.MeshNodeSpacing, options.MeshInfluence, options.MeshGain);
             }).ConfigureAwait(false);
         }
         else if (tracks is not null)
@@ -240,7 +240,7 @@ public sealed class LuckyImagingStacker
             {
                 var (gx, gy) = tracks.GlobalShift(index);
                 tracks.Points(index, options.WarpPoolFrames, options.MedianGeometry, points);
-                return matcher.BuildMesh((float)gx, (float)gy, points, options.MeshNodeSpacing, options.MeshInfluence);
+                return matcher.BuildMesh((float)gx, (float)gy, points, options.MeshNodeSpacing, options.MeshInfluence, options.MeshGain);
             }).ConfigureAwait(false);
         }
         else
@@ -255,7 +255,7 @@ public sealed class LuckyImagingStacker
                 (frame, _, slot) =>
                 {
                     var shift = (aligners[slot] ??= ctx.Aligner.Twin()).Estimate(frame, PlanetaryDisk.BoundingBox(frame));
-                    var mesh = (matchers[slot] ??= matcher.Twin()).BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, options.MeshNodeSpacing, options.MeshInfluence);
+                    var mesh = (matchers[slot] ??= matcher.Twin()).BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, options.MeshNodeSpacing, options.MeshInfluence, options.MeshGain);
                     return (Mesh: mesh, Quality: options.PerPointQualityWeighting ? FrameSharpnessMap.Build(frame) : null);
                 },
                 (frame, index, prepared) => Fold(frame, prepared.Mesh, prepared.Quality, ctx.ScoreByIndex[index]),
@@ -335,7 +335,7 @@ public sealed class LuckyImagingStacker
                     // A de-rotated frame (R6 part 2) goes the same way with or without points, its field beneath
                     // the mesh, and each raw sample relit before it is scattered.
                     var mesh = ctx.Matcher is { } matcher
-                        ? matcher.BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, derotation, options.MeshNodeSpacing, options.MeshInfluence)
+                        ? matcher.BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, derotation, options.MeshNodeSpacing, options.MeshInfluence, options.MeshGain)
                         : DisplacementMesh.Build(ctx.Width, ctx.Height, (float)shift.Dx, (float)shift.Dy, [], derotation, options.MeshNodeSpacing, options.MeshInfluence);
                     var map = new MeshSourceToCanvas(mesh, scale);
                     if (derotation is not null)
@@ -546,6 +546,16 @@ public sealed class LuckyImagingStacker
             {
                 var aps = FeatureDetector.DetectAlignmentPoints(reference, refRegion, options.AlignmentPointSpacing, options.MaxAlignmentPoints);
                 matcher = AlignmentPointMatcher.FromReference(reference, aps, options.AlignmentPatchSize, options.WhitenedCorrelation);
+                if (options.RemeasureAgainstStack && derotator is null)
+                {
+                    // #1081's second pass: the reference dewarped by the points it gave, and every frame matched against that.
+                    var dewarped = await DewarpedReferenceAsync(stream, grades, aligner, matcher, reference, options, cancellationToken).ConfigureAwait(false);
+                    reference.Release();
+                    reference = dewarped;
+                    refRegion = PlanetaryDisk.BoundingBox(reference);
+                    aligner = AlignerFor(reference, refRegion, options.AlignTileSize, options.WhitenedCorrelation);
+                    matcher = AlignmentPointMatcher.FromReference(reference, aps, options.AlignmentPatchSize, options.WhitenedCorrelation);
+                }
 
                 // The signal-confidence gate is computed once from the reference (= the integrator's output
                 // space, since frames are warped to it). Only needed when best-of weighting is on.
@@ -575,6 +585,28 @@ public sealed class LuckyImagingStacker
                 reference.Release();
             }
         }
+    }
+
+    // The best frames' stack, each through the mesh its points give against `reference` (PlanetaryStackOptions.RemeasureAgainstStack):
+    // the reference dewarped as far as its points can. The frames are matched a batch side by side on aligner and matcher twins and
+    // added in grade order, as the stack adds them. The caller owns the result.
+    private static async Task<Image> DewarpedReferenceAsync(IPlanetaryFrameStream stream, ImmutableArray<FrameGrade> grades, GlobalAligner aligner,
+        AlignmentPointMatcher matcher, Image reference, PlanetaryStackOptions options, CancellationToken cancellationToken)
+    {
+        var frames = FrameGrader.SelectBest(grades, Math.Min(1.0, (double)Math.Max(options.ReferenceFrames, 1) / grades.Length));
+        var channelAccum = Image.CreateChannelData(reference.ChannelCount, reference.Height, reference.Width);
+        var weightAccum = new float[reference.Height, reference.Width];
+        var aligners = new GlobalAligner?[PlanetaryFrameBatches.MaxSlots];
+        var matchers = new AlignmentPointMatcher?[PlanetaryFrameBatches.MaxSlots];
+        await PlanetaryFrameBatches.RunAsync(stream, frames,
+            (frame, _, slot) =>
+            {
+                var shift = (aligners[slot] ??= aligner.Twin()).Estimate(frame, PlanetaryDisk.BoundingBox(frame));
+                return (matchers[slot] ??= matcher.Twin()).BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, options.MeshNodeSpacing, options.MeshInfluence, options.MeshGain);
+            },
+            (frame, _, mesh) => frame.AccumulateByMeshInto(channelAccum, weightAccum, mesh, 1f, options.Interpolation),
+            cancellationToken).ConfigureAwait(false);
+        return PlanetaryMaster.NormalizeInPlace(channelAccum, weightAccum, reference.ImageMeta);
     }
 
     // The best frames' stack, each aligned to the best frame's disk and weighted alike (PlanetaryStackOptions.ReferenceFrames).

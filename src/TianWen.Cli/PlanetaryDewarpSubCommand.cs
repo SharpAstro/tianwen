@@ -24,16 +24,21 @@ internal sealed class PlanetaryDewarpSubCommand(IConsoleHost consoleHost)
         var framesOpt = new Option<int?>("--frames") { Description = "Only the capture's first frames." };
         var spacingOpt = new Option<int>("--ap-spacing") { Description = "The alignment points' spacing.", DefaultValueFactory = _ => 24 };
         var patchOpt = new Option<int>("--ap-patch") { Description = "The alignment points' patch, a power of two.", DefaultValueFactory = _ => 32 };
+        var maxApOpt = new Option<int>("--max-ap") { Description = "The most alignment points (the stack's default, 64, caps a dense grid).", DefaultValueFactory = _ => new PlanetaryStackOptions().MaxAlignmentPoints };
         var correlationOpt = new Option<string>("--correlation") { Description = "whitened (phase correlation) or plain (cross-correlation).", DefaultValueFactory = _ => "plain" };
         var meshOpt = new Option<float>("--mesh-spacing") { Description = "The displacement mesh's node spacing, px.", DefaultValueFactory = _ => 24f };
         var influenceOpt = new Option<float>("--mesh-influence") { Description = "How far a point's displacement reaches into the mesh, px.", DefaultValueFactory = _ => 48f };
+        var krigeRmsOpt = new Option<double?>("--krige-rms") { Description = "The twin's warp RMS a axis, px (planetary-degrade --warp-rms): with --krige-length, how each point reads the warp and what the blend, a kriging and the best linear weights leave (#1081)." };
+        var krigeLengthOpt = new Option<double?>("--krige-length") { Description = "The twin's warp correlation length, px (planetary-degrade --warp-length)." };
+        var remeasureOpt = new Option<bool>("--remeasure") { Description = "Match every frame against the reference dewarped by its own points (#1081's second pass, PlanetaryStackOptions.RemeasureAgainstStack)." };
+        var gainOpt = new Option<float>("--mesh-gain") { Description = "A gain on every point's residual before the mesh blends them (PlanetaryStackOptions.MeshGain).", DefaultValueFactory = _ => 1f };
         var poolOpt = new Option<string>("--pool") { Description = "The frames either side each point's warp is pooled over (a Gaussian's sigma), a comma list.", DefaultValueFactory = _ => "0,1,2,4" };
 
         var command = new Command("planetary-dewarp",
             "How much of a synthetic capture's true warp the alignment points recover, on the reference and the median geometry, each frame's own and pooled (R5).")
         {
             Arguments = { captureArg },
-            Options = { warpOpt, framesOpt, spacingOpt, patchOpt, correlationOpt, meshOpt, influenceOpt, poolOpt },
+            Options = { warpOpt, framesOpt, spacingOpt, patchOpt, maxApOpt, correlationOpt, meshOpt, influenceOpt, poolOpt, krigeRmsOpt, krigeLengthOpt, gainOpt, remeasureOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -59,14 +64,18 @@ internal sealed class PlanetaryDewarpSubCommand(IConsoleHost consoleHost)
             {
                 AlignmentPointSpacing = parseResult.GetValue(spacingOpt),
                 AlignmentPatchSize = parseResult.GetValue(patchOpt),
+                MaxAlignmentPoints = parseResult.GetValue(maxApOpt),
                 WhitenedCorrelation = correlation == "whitened",
                 MeshNodeSpacing = parseResult.GetValue(meshOpt),
                 MeshInfluence = parseResult.GetValue(influenceOpt),
+                MeshGain = parseResult.GetValue(gainOpt),
+                RemeasureAgainstStack = parseResult.GetValue(remeasureOpt),
             };
             var pools = (parseResult.GetValue(poolOpt) ?? "0").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Select(p => double.Parse(p, CultureInfo.InvariantCulture)).ToArray();
 
-            var report = await DewarpResidual.MeasureAsync(stream, truth, options, pools, ct);
+            WarpModel? model = parseResult.GetValue(krigeRmsOpt) is { } rms && parseResult.GetValue(krigeLengthOpt) is { } length ? new WarpModel(rms, length) : null;
+            var report = await DewarpResidual.MeasureAsync(stream, truth, options, pools, model, ct);
             var inv = CultureInfo.InvariantCulture;
             consoleHost.WriteScrollable(string.Create(inv,
                 $"{Path.GetFileName(input)}: {report.Frames} frames, {report.Points} points ({options.AlignmentPatchSize} px patches {options.AlignmentPointSpacing} px apart, {correlation}), the reference frame {report.ReferenceIndex}"));
@@ -80,6 +89,14 @@ internal sealed class PlanetaryDewarpSubCommand(IConsoleHost consoleHost)
                 var (meshX, meshY) = r.MedianGeometry ? (report.MeshUndewarpedMedianX, report.MeshUndewarpedMedianY) : (report.MeshUndewarpedX, report.MeshUndewarpedY);
                 consoleHost.WriteScrollable(string.Create(inv,
                     $"    {(r.MedianGeometry ? "median" : "reference")} geometry, {(r.PoolFrames > 0 ? $"pooled over {r.PoolFrames:0.#} frames" : "each frame's own")}: points {r.ResidualX:0.000}, {r.ResidualY:0.000} ({Removed(r.ResidualX, r.ResidualY, baseX, baseY):+0%;-0%}); mesh {r.MeshResidualX:0.000}, {r.MeshResidualY:0.000} ({Removed(r.MeshResidualX, r.MeshResidualY, meshX, meshY):+0%;-0%}); the points against the truth's own geometry {r.TruthResidualX:0.000}, {r.TruthResidualY:0.000}"));
+            }
+            if (report.Interpolation is { } i)
+            {
+                consoleHost.WriteScrollable(string.Create(inv,
+                    $"    a point's reading, on the median geometry, against the truth at the point: slope {i.SlopeAtPoint:0.000}, error {i.ErrorAtPointX:0.000}, {i.ErrorAtPointY:0.000}; over its window (sigma {i.WindowSigmaPx:0.00} px): slope {i.SlopeInWindow:0.000}, error {i.ErrorInWindowX:0.000}, {i.ErrorInWindowY:0.000}"));
+                double Recovered(double x, double y) => 1 - Math.Sqrt(((x * x) + (y * y)) / ((i.UndewarpedX * i.UndewarpedX) + (i.UndewarpedY * i.UndewarpedY)));
+                consoleHost.WriteScrollable(string.Create(inv,
+                    $"    left at the places, odd frames (undewarped {i.UndewarpedX:0.000}, {i.UndewarpedY:0.000}): blend {i.BlendX:0.000}, {i.BlendY:0.000} ({Recovered(i.BlendX, i.BlendY):+0%;-0%}); scaled by {i.GainX:0.00}, {i.GainY:0.00} {i.ScaledBlendX:0.000}, {i.ScaledBlendY:0.000} ({Recovered(i.ScaledBlendX, i.ScaledBlendY):+0%;-0%}); kriging {i.KrigedX:0.000}, {i.KrigedY:0.000} ({Recovered(i.KrigedX, i.KrigedY):+0%;-0%}), its errors overlapping {i.KrigedOverlapX:0.000}, {i.KrigedOverlapY:0.000} ({Recovered(i.KrigedOverlapX, i.KrigedOverlapY):+0%;-0%}); the best linear weights {i.CeilingX:0.000}, {i.CeilingY:0.000} ({Recovered(i.CeilingX, i.CeilingY):+0%;-0%})"));
             }
             return 0;
         });

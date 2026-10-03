@@ -821,6 +821,97 @@ at the same keeps on the stacker's own stack. A second run of `planetary-keeps` 
 - **#1082:** an efficient point estimator judged against its Cramer-Rao bound (the maximum-likelihood weight, a square-difference match with a 2-D quadratic fit, correlation surfaces pooled over frames).
 - **#1086:** Lanczos-3 and a stacked reference as the planetary defaults, the user's call.
 
+#### #1081: dense points, the stack's geometry and kriging, together
+
+**Pre-registered** (2026-10-03), on 2022-09-03 Red's calibrated twin (`c065l10`: a warp of 0.65 px RMS an axis, falling to 1/e over
+10 px), 3,000 frames, plain correlation against a stack of the best 1,000 (the defaults since #1086), on the median geometry:
+
+- **What is measured** (`tianwen planetary-dewarp --max-ap --krige-rms --krige-length`):
+  - a point's reading against the true warp at the point and averaged over its patch's window (the slope, and the error about it:
+    the point error proper);
+  - what three ways of carrying the readings to the disk leave of the warp, scored on the odd frames: the stack's blend on 4 px
+    nodes with a 4 px reach, a kriging with the twin's own covariance and the measured point error, and the best linear weights of
+    the readings near each place, fitted against the truth on the even frames;
+  - then a second pass, every frame re-measured against the stack the first pass made, and the stacks scored by
+    `planetary-measure`.
+- **Predicted** (#1081, Hardie et al. 2021's filter model, `docs/architecture/planetary-literature.md` theme B): the 16 px point
+  error falls from 0.35 toward 0.25 px against the stack; the field recovers 11 to 19 % of the warp with the 4 px blend and 15 to 22 %
+  with kriging, against 3 % in part 2; a second pass adds under a fifth of the first's gain.
+- **Falsified if** the point error stays at 0.35 against the stack (then it is bias, and #1082's estimator is where the gain is), or
+  kriging at 4 px stays at 3 % (then the loss is in how the field is applied).
+- **Added before the run:** the best linear weights bound every linear interpolation of these readings. If they too recover under
+  10 %, the readings are the limit and no interpolator pays.
+- **Found before the run: part 2's fine grid was 64 points.** `PlanetaryStackOptions.MaxAlignmentPoints` (64) capped every grid,
+  and neither `planetary-dewarp` nor `planetary-measure` could raise it, so "16 px patches 8 px apart" was 64 points of a possible
+  137, and 4 px apart was 64 too. Re-measured on today's code (a stacked reference since #1086, patches cut at the exact shift since
+  R5a), the mesh recovers 0 % of the warp at 32 px patches 12 px apart, 2 % at 64 points 8 px apart, and **4 % with all 137**.
+- **The stacks, set down after the readings were measured and before any stack ran:** keep 5 %, plain correlation, Lanczos-3, no
+  sharpening, on the median geometry, scored by `planetary-measure` against the twin's truth. A mesh stack (`ap-flat`) of 16 px
+  patches 4 px apart on 4 px nodes with a 4 px reach, its points' residuals scaled by the gain the dewarp fitted
+  (`PlanetaryStackOptions.MeshGain`), must beat both the global stack and the same mesh at a gain of one by more than 0.005 in
+  band 1's error, part 2's spread among every dewarp. If not, the warp it recovers does not reach the stack.
+
+**Measured** (2026-10-03). **Dense points pay in the stack (band 1's error 0.776 against 0.796 for a global stack and 0.797
+for today's grid); the gain the dewarp fits does not, nor does a second pass, nor kriging as specified.** The readings are the
+limit, and not by noise: a point's plain correlation shrinks the warp it reads.
+
+- **A point reads a sixth of the warp it sees.** Against the true warp averaged over its own window, a reading's slope is 0.16 at
+  16 px patches (the window a Gaussian of 2.1 px), 0.30 at 32 px and 0.43 at 64 px, with an error about that slope of only 0.15 to
+  0.19 px. The readings are precise and strongly shrunk, not noisy:
+  - **The shrink is the estimator's, noise or no noise.** On a banded disk moved by a known rigid shift, with no noise at all, a 16
+    px patch reads 0.54 of it (`AlignmentPointMatchingTests`): both patches are Hann-windowed where the point is, and the windows'
+    own correlation, which peaks at no shift, pulls the reading toward zero wherever the texture under it is smooth. On the twin,
+    against a reference the warp has blurred, the pull is three times stronger.
+  - **Shifting the window undoes the shrink and costs more than it gains.** Cutting the moving patch again where the shift read so
+    far puts it lifts the slope from 0.55 to 0.80 over three passes (0.85 over six), but the error against the truth rises from
+    0.31 to 0.39 px: the shrunk reading is a shrinkage estimator, already nearer the truth in mean square. #1082's estimators are
+    where any gain in the readings lies.
+- **What carrying the readings to the disk leaves of the warp** (on the median geometry, scored on the odd frames):
+
+  | Grid | Blend | The blend times one gain | Kriging, errors independent | Kriging, errors overlapping | The best linear weights |
+  |---|---|---|---|---|---|
+  | 16 px patches 4 px apart, 494 points | 9 % | 17 % (2.99, 3.31) | 2 % | 15 % | 29 % |
+  | 32 px patches 8 px apart | 5 % | 9 % | 12 % | 19 % | 27 % |
+  | 16 px patches 8 px apart, 137 points | 4 % | | 11 % | | 22 % |
+  | 64 px patches 8 px apart | 6 % | | 1 % | | 23 % |
+
+  - The best linear weights are fitted against the truth on the even frames: no linear interpolation of these readings does
+    better, and they recover 29 %, three times the blend. **The readings are not the hard limit**: the blend of shrunk readings can
+    recover little more than the shrink.
+  - **Kriging as specified fails at 4 px** (2 %): patches 4 px apart share three quarters of their pixels, so their errors are
+    correlated, which the model took as independent. With the errors correlated as the windows overlap it recovers 15 to 19 %, in
+    the predicted range.
+- **The verdicts on the pre-registration:**
+  - **The point error is not 0.35 falling toward 0.25.** It is 0.15 px about a slope of 0.16: bias, not noise, so the falsifier's
+    branch holds (the estimator, #1082, is where the readings could gain).
+  - **The field's recovery:** the 4 px blend 9 % (predicted 11 to 19 %), the blend times one gain 17 %, kriging with overlapping
+    errors 15 to 19 % (predicted 15 to 22 %). **Kriging at 4 px as first specified stays at 2 %, so that falsifier fires**, and its
+    cause is the error model, not how the field is applied.
+  - **The ceiling** (added before the run): 29 %, above 10 %, so the readings are not the limit of a linear interpolation.
+  - **A second pass adds nothing:** matching against the stack the first pass dewarped (`PlanetaryStackOptions.RemeasureAgainstStack`)
+    reads a slope of 0.151 against 0.149 and recovers what the first did, and its stack is band for band the first's (0.254 / 0.776).
+    The reference is already a stack of 1,000 (#1086), and a dewarp that recovers a tenth of the warp moves it by too little.
+- **The stacks** (keep 5 %, band 1 transfer / error):
+
+  | Stack | Calibrated twin (0.65 px, 10 px) | No warp | 1 px twin (20 px) |
+  |---|---|---|---|
+  | Global | 0.233 / 0.796 | 0.334 / 0.693 | 0.173 / 0.853 |
+  | Today's grid (32 px patches 24 px apart, 64 points) | 0.231 / 0.797 | 0.335 / 0.692 | 0.176 / 0.851 |
+  | Dense (16 px patches 4 px apart, 494 points, 4 px nodes and reach) | **0.254 / 0.776** | 0.333 / 0.695 | **0.220 / 0.811** |
+  | Dense, the dewarp's gain (3.15) | 0.247 / 0.787 | | |
+  | Dense, a second pass | 0.254 / 0.776 | | |
+
+  - **The pre-registered stack rule fails:** at the dewarp's gain the dense stack beats a global one by 0.009 but loses to itself at
+    a gain of one by 0.011. The gain that leaves the least warp at the points is not the one that makes the sharpest stack.
+  - **Post hoc, labelled so:** the gain on each residual's departure from the points' mean only, the mean kept as read (the variant
+    `MeshGain` now is), reads 0.248 / 0.786 at 3.15 and 0.263 / 0.771 at 2. A gain chosen by trying gains on the twin it is judged
+    on is not evidence, so `MeshGain` stays an option at one.
+  - **Dense points are the finding:** 0.020 better in band 1's error than a global stack on the calibrated twin, four times part 2's
+    spread among every dewarp, where today's grid matches the global stack. With no warp they cost 0.002, within the spread. On the
+    1 px twin, a warp correlated over 20 px, they gain twice as much: 0.042 against the global stack, 0.040 against today's grid.
+  - **Adopting them as the stack's default is #1195**, judged as #1072, #1074 and #1086 were: on the real captures #1159 validated,
+    by eye, and with what a mesh of 500 points on 4 px nodes costs a stack in time.
+
 ### R5a Drizzle, where the sampling calls for it
 
 **Issue:** #1064.

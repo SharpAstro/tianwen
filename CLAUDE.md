@@ -1053,6 +1053,11 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
 - **An alignment point's patch is cut at the EXACT global shift** (`PlanetaryTile.ExtractLumaAt`), and a mesh is built on it: a residual
   is the local warp alone. Cut at the rounded shift, a residual had to carry the fraction, which a patch along the belts cannot place,
   so every mesh locked to the whole pixel: a mesh stack off by up to half a pixel, and a 3x Bayer drizzle with 17 % of red and blue empty.
+  **A point's plain correlation SHRINKS the shift it reads** (#1081): its two Hann windows, fixed where the point is, pull the peak
+  toward no shift, so a clean 16 px patch reads 0.54 of a rigid shift and the twin's points a sixth of its warp, with little scatter.
+  Shifting the window undoes the shrink and lifts the noise more; a gain on the readings leaves less warp at the points and a worse
+  stack (`PlanetaryStackOptions.MeshGain` stays one). **Dense points pay instead** (16 px patches 4 px apart: band 1's error 0.020 to
+  0.042 under a global stack on two twins, adoption #1195), and **`MaxAlignmentPoints` (64) caps any grid silently**, which hid it.
   **Bayer drizzle to the sensor grid beats the demosaic above a plane's Nyquist, UNSHARPENED; nothing past the sensor grid pays** at a
   warp of 0.6 px. **Sharpened as the pipeline sharpens, the demosaic stays the colour default** (#1091, judged 2026-10-03): once a
   colour master's finest band is kept as stacked (#1187), drizzle no longer wins on both of the colour twin's seeds (4.49 against

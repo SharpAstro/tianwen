@@ -90,11 +90,14 @@ public sealed class DisplacementMesh
     /// plus the alignment-point residuals. Each node's offset is
     /// <c>(globalDx, globalDy) + Sum(w_i * residual_i) / (Sum(w_i) + regularization)</c> with Gaussian
     /// weights <c>w_i = exp(-dist^2 / (2 * influence^2))</c>, so the field tends to the global shift where
-    /// there are no nearby APs and toward an AP's <c>(global + residual)</c> where one dominates.
+    /// there are no nearby APs and toward an AP's <c>(global + residual)</c> where one dominates. Each residual's departure from
+    /// the points' mean is first scaled by <paramref name="residualGain"/> (<see cref="PlanetaryStackOptions.MeshGain"/>, one by
+    /// default: as read). The mean is the points' correction to the global shift, a rigid move read with a shrink of its own, and is
+    /// kept as read: scaled with the rest, it moved every frame off its registration (#1081).
     /// </summary>
     public static DisplacementMesh Build(int width, int height, float globalDx, float globalDy,
-        ReadOnlySpan<AlignmentPointShift> alignmentPoints, float nodeSpacing = 32f, float influence = 48f, float regularization = 0.25f)
-        => Build(width, height, globalDx, globalDy, alignmentPoints, derotation: null, nodeSpacing, influence, regularization);
+        ReadOnlySpan<AlignmentPointShift> alignmentPoints, float nodeSpacing = 32f, float influence = 48f, float regularization = 0.25f, float residualGain = 1f)
+        => Build(width, height, globalDx, globalDy, alignmentPoints, derotation: null, nodeSpacing, influence, regularization, residualGain);
 
     /// <summary>
     /// <see cref="Build(int, int, float, float, ReadOnlySpan{AlignmentPointShift}, float, float, float)"/> over a frame's
@@ -102,7 +105,8 @@ public sealed class DisplacementMesh
     /// <see cref="AlignmentPointMatcher.Match(Image, float, float, DerotationField?, Span{AlignmentPointShift})"/> measures).
     /// </summary>
     public static DisplacementMesh Build(int width, int height, float globalDx, float globalDy,
-        ReadOnlySpan<AlignmentPointShift> alignmentPoints, DerotationField? derotation, float nodeSpacing = 32f, float influence = 48f, float regularization = 0.25f)
+        ReadOnlySpan<AlignmentPointShift> alignmentPoints, DerotationField? derotation, float nodeSpacing = 32f, float influence = 48f, float regularization = 0.25f,
+        float residualGain = 1f)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(nodeSpacing);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(influence);
@@ -112,6 +116,23 @@ public sealed class DisplacementMesh
         var offX = new float[cols * rows];
         var offY = new float[cols * rows];
         var twoInfluence2 = 2f * influence * influence;
+        // The residuals the blend takes: as read, or with their departure from the points' mean scaled.
+        Span<float> rx = alignmentPoints.Length <= 1024 ? stackalloc float[alignmentPoints.Length] : new float[alignmentPoints.Length];
+        Span<float> ry = alignmentPoints.Length <= 1024 ? stackalloc float[alignmentPoints.Length] : new float[alignmentPoints.Length];
+        double meanX = 0, meanY = 0;
+        foreach (var ap in alignmentPoints)
+        {
+            meanX += ap.ResidualX;
+            meanY += ap.ResidualY;
+        }
+        (meanX, meanY) = alignmentPoints.Length > 0 ? (meanX / alignmentPoints.Length, meanY / alignmentPoints.Length) : (0, 0);
+        for (var i = 0; i < alignmentPoints.Length; i++)
+        {
+            var ap = alignmentPoints[i];
+            (rx[i], ry[i]) = residualGain == 1f
+                ? (ap.ResidualX, ap.ResidualY)
+                : ((float)(meanX + (residualGain * (ap.ResidualX - meanX))), (float)(meanY + (residualGain * (ap.ResidualY - meanY))));
+        }
 
         for (var r = 0; r < rows; r++)
         {
@@ -120,14 +141,15 @@ public sealed class DisplacementMesh
             {
                 var px = c * nodeSpacing;
                 double sumW = regularization, sumRx = 0, sumRy = 0;
-                foreach (var ap in alignmentPoints)
+                for (var i = 0; i < alignmentPoints.Length; i++)
                 {
+                    var ap = alignmentPoints[i];
                     var dx = px - ap.X;
                     var dy = py - ap.Y;
                     var w = Math.Exp(-((dx * dx) + (dy * dy)) / twoInfluence2);
                     sumW += w;
-                    sumRx += w * ap.ResidualX;
-                    sumRy += w * ap.ResidualY;
+                    sumRx += w * rx[i];
+                    sumRy += w * ry[i];
                 }
 
                 var idx = (r * cols) + c;
