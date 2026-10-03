@@ -85,9 +85,9 @@ public class PlanetaryChannelAlignmentTests
     [Fact]
     public void AColourDarkerTowardOnePoleIsReadAtItsLimbNotWhereItsBrightnessLeans()
     {
-        // Blue a fifth darker from one pole to the other, as a colour sees its own belts and poles: anything that weighs brightness
+        // Blue two fifths darker from one pole to the other, as a colour sees its own belts and poles: anything that weighs brightness
         // reads that as a shift along the axis, and the limb fit, whose albedo has a term for one hemisphere against the other, does not.
-        var rgb = new Image([Render(RedShift.X, RedShift.Y, 0.9), Render(0, 0), Render(BlueShift.X, BlueShift.Y, 0.7, poleToPole: 0.2)],
+        var rgb = new Image([Render(RedShift.X, RedShift.Y, 0.9), Render(0, 0), Render(BlueShift.X, BlueShift.Y, 0.7, poleToPole: 0.4)],
             BitDepth.Float32, 1f, 0f, 0f, new ImageMeta { SensorType = SensorType.Color });
         var limb = new LimbFitOptions(AxisRatio);
 
