@@ -27,7 +27,7 @@ public class ExternalPlateSolverProcessTests
         var solver = new StandInToolSolver(hang: true);
 
         // Bounded by the test's own timeout, never a stopwatch (CLAUDE.md): the stand-in sleeps 120 s, so a probe that did not stop it
-        // fails at 60. A budget of the probe's 5 s plus 10 read 15.5 on a CI runner whose cores a parallel test held.
+        // fails at 60. A budget of the probe's bound plus 10 read 15.5 on a CI runner whose cores a parallel test held.
         var supported = await solver.CheckSupportAsync(TestContext.Current.CancellationToken);
 
         supported.ShouldBeFalse();
@@ -94,7 +94,10 @@ public class ExternalPlateSolverProcessTests
     /// </summary>
     private sealed class StandInToolSolver(bool hang) : ExternalProcessPlateSolverBase
     {
-        public static readonly TimeSpan Timeout = TimeSpan.FromSeconds(5);
+        // Long enough for the hanging stand-in to print its inner process's id before the probe or the cancel kills it: pwsh's cold
+        // start alone passed 5 s under a loaded full suite, and a 5 s bound then killed the tool before the id arrived, failing
+        // ShouldAllExitAsync on a null InnerPid (2026-10-03). Still well inside the tests' 60 s, so a tool left running fails them.
+        public static readonly TimeSpan Timeout = TimeSpan.FromSeconds(20);
 
         public int? StartedPid { get; private set; }
 
@@ -110,7 +113,7 @@ public class ExternalPlateSolverProcessTests
 
         protected override string CommandFile => "stand-in";
 
-        // The 5 s bound is for the tool that never exits. One that answers must not race it: pwsh's cold start alone took more
+        // The shorter bound is for the tool that never exits. One that answers must not race it: pwsh's cold start alone took more
         // than 5 s under a loaded full suite (2026-09-30) and read an answering tool as absent, so it gets a bound well inside
         // the test's own timeout.
         protected override TimeSpan ProbeTimeout => hang ? Timeout : TimeSpan.FromSeconds(45);
