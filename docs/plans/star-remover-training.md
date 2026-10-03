@@ -400,8 +400,15 @@ Each was found on one master by eye and measured before it was fixed; none is sp
   significance under 100 the bright outnumber the dark 2 to 12 times: leftover light, the faint-star limit below,
   with dark pixels as its smaller half. At bright stars the dark dominate (Leo Triplet 474 against 84), and those
   were the master's own: an undershoot at the edge of a bright core (single pixels 8 to 11 sigma under the sky beside
-  an 800-sigma core in the Leo master, the look of an interpolation kernel ringing at a near-step edge; the stacker's
-  question, not the builder's), and the fill copied them, since its ceiling held a fill at the data. **The ceiling
+  an 800-sigma core in the Leo master), and the fill copied them, since its ceiling held a fill at the data. **The
+  camera starts it and the stack deepens it.** In the Leo master 219 of 423 bright stars (significance 300 to 5000)
+  carry a pixel under -4 sigma within 3 px of the peak, the darkest two rows below it in 128 of them. Leo's raw subs
+  carry the same one-sided deficit: averaged over about 330 bright stars a sub, the pixel two rows below the peak holds
+  2.4 to 3.6 percent of the peak where the other three 2 px neighbours hold 4.2 to 5.3 (standard errors 0.2 to 0.4), so
+  it is the ASI294MM's own, not the stacker's. In the master the pixel below falls to 0.7 percent and the other three to
+  2.4 to 3.8, while the 1 px neighbours rise from about 34 to 39 to 44: a symmetric sharpening at 2 px, the look of a
+  warp kernel's negative lobe, which on top of the camera's deficit takes single pixels under the sky. Which kernel the
+  master was warped with is not in its header. **The ceiling
   now never falls below the local sky** (its background map at the fill's scale): a fill can always reach the sky,
   and still never rises above data brighter than that. Leo's bright-star speckles went from 43 and 27 percent to 1
   and 4, Horsehead's from 3.6 and 2.0 to 0.0 and 0.5, Carina's from 1.2 to 0.0, with holes, bias and the inpaint
@@ -543,7 +550,13 @@ the Noise and Blur exports byte-identical to a build from before R1 but for five
 clip. **Saturation misses**: with a saturated star in every draw (24 to 40 a session), the injected plateaus are 2 to 3
 times the masters' own on six of nine (SMC 3.0 px against 1.0, Antares 3.0 against 1.0). A master's saturated core is
 mostly soft, compressed under a one-pixel top (Leo Triplet's: 0.84 to 0.93 of full scale, no flat), where each virtual
-sub here is clipped hard at a level; a soft knee is the likely model, and it is open.
+sub here is clipped hard at a level; a soft knee is the likely model, and it is open. `SaturatedEdgeProbe` cuts both in
+one linear unit range (16 of each on Leo, the SMC, Antares and eta Carinae, measured with `InjectionMeasure.SaturatedShape`):
+the miss is at the very top, not in the wings. Where a master's saturated star is small (Leo, the SMC, Antares, median
+plateau 1 px) its top is round and the injected one holds its maximum about 0.75 px farther before falling along the
+same wing; on eta Carinae (ASI1600MM) the plateaus agree (4 px) but the real stars are wider below 0.9 of their maximum
+and softer (edge 1.0 px against 0.5) and elongated. And two of the SMC's sixteen are no star at all: an extended core
+and a star beside a brighter one, both flagged saturated, which the saturated pool draws from as from any other.
 
 The pool's plates found a fourth, in R0: **a giant whose plateau passes 40 px failed its master.** Every sky
 annulus was a clamp of the star's reach between what it must clear and 40 px, and eta Carinae at 288 mm (QHY183M,

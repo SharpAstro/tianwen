@@ -105,9 +105,9 @@ public static partial class DatasetDegradationExporter
         bool SaturatedFallback, InjectedStarRow[] Stars);
 
     /// <summary>What the Stars mode reads once per run: the plates and the PSF store.</summary>
-    private sealed class StarsContext
+    internal sealed class StarsContext
     {
-        private StarsContext(string platesDir, Dictionary<string, DatasetPsfNoiseReport.SessionPsf> psf)
+        internal StarsContext(string platesDir, Dictionary<string, DatasetPsfNoiseReport.SessionPsf> psf)
         {
             PlatesDir = platesDir;
             Psf = psf;
@@ -634,7 +634,7 @@ public static partial class DatasetDegradationExporter
     }
 
     /// <summary>The mean of an image's channels, row-major.</summary>
-    private static float[] Luminance(Image image)
+    internal static float[] Luminance(Image image)
     {
         var (channels, width, height) = image.Shape;
         var lum = new float[width * height];
