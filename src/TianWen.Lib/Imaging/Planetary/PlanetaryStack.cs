@@ -20,6 +20,7 @@ public sealed record PlanetaryStackOptions
         WhitenedCorrelation = true,
         Interpolation = WarpInterpolation.Bilinear,
         ReferenceFrames = 0,
+        AlignChannels = false,
     };
 
     /// <summary>
@@ -160,6 +161,14 @@ public sealed record PlanetaryStackOptions
     public PlanetaryDerotationOptions? Derotation { get; init; }
 
     /// <summary>
+    /// Align a colour master's planes onto green before the demosaic (<see cref="PlanetaryChannelAlignment"/>), as AutoStakkert's
+    /// RGB align does: the atmosphere's dispersion leaves the colours apart in a stack registered by its luminance, a fringe at the
+    /// limb (2022-10-09: red to blue 6.4 px). Each colour is read by its own limb fit when <see cref="Planet"/> (or the
+    /// de-rotation's) and the master's instant are known, else by correlation. A mono master is untouched. Off in <see cref="Legacy"/>.
+    /// </summary>
+    public bool AlignChannels { get; init; } = true;
+
+    /// <summary>
     /// The body the capture shows, written to the master's <c>OBJECT</c> card, where a viewer reads that it is a planetary frame
     /// (and opens it linear, as it does a SER: a deep-sky auto-stretch of a 1,500-frame stack's sky, its noise 3e-5, blew it up
     /// thirty thousand times). The de-rotation's planet when null. Nothing in the stack itself depends on it.
@@ -197,4 +206,10 @@ public sealed record PlanetaryStackResult(Image Master, int ReferenceIndex, int 
     /// times, null when none was asked for.
     /// </summary>
     public double? TurnPx { get; init; }
+
+    /// <summary>
+    /// How a colour master's planes lay against green and whether they were moved onto it (<see cref="PlanetaryStackOptions.AlignChannels"/>);
+    /// null for a mono master or when none was asked for.
+    /// </summary>
+    public PlanetaryChannelAlignmentResult? ChannelAlignment { get; init; }
 }

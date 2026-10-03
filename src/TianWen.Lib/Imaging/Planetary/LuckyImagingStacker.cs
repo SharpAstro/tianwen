@@ -35,8 +35,11 @@ public sealed class LuckyImagingStacker
             : await AccumulateGlobalAsync(stream, ctx.Selected, ctx.Aligner, index => ctx.ScoreByIndex[index], channelAccum, weightAccum, options.Interpolation, cancellationToken).ConfigureAwait(false);
 
         var stacked = Normalize(channelAccum, weightAccum, ctx);
-        var master = await FinalizeAsync(stacked, stream.Layout, options, cancellationToken).ConfigureAwait(false);
-        return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length) { Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, TurnPx = ctx.TurnPx };
+        var (master, alignment) = await FinalizeAsync(stacked, stream.Layout, options, ctx.Derotator?.Epoch.Utc, cancellationToken).ConfigureAwait(false);
+        return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length)
+        {
+            Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, TurnPx = ctx.TurnPx, ChannelAlignment = alignment,
+        };
     }
 
     /// <summary>
@@ -264,8 +267,11 @@ public sealed class LuckyImagingStacker
         }
 
         var stacked = Normalize(channelAccum, weightAccum, ctx);
-        var master = await FinalizeAsync(stacked, stream.Layout, options, cancellationToken).ConfigureAwait(false);
-        return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length) { Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, TurnPx = ctx.TurnPx };
+        var (master, alignment) = await FinalizeAsync(stacked, stream.Layout, options, ctx.Derotator?.Epoch.Utc, cancellationToken).ConfigureAwait(false);
+        return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length)
+        {
+            Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, TurnPx = ctx.TurnPx, ChannelAlignment = alignment,
+        };
     }
 
     /// <summary>
@@ -387,12 +393,21 @@ public sealed class LuckyImagingStacker
 
         var masterMeta = ctx.MasterMeta with { SensorType = SensorType.Color };
         var master = new Image(flux, BitDepth.Float32, 1f, 0f, 0f, masterMeta);
+        // Each sample landed at its own photosite in its own colour, so the colours are aligned as the three planes they are.
+        PlanetaryChannelAlignmentResult? alignment = null;
+        if (options.AlignChannels)
+        {
+            (master, alignment) = PlanetaryChannelAlignment.Align(master, PlanetaryFrameLayout.Rgb, LimbOptionsFor(master, options, ctx.Derotator?.Epoch.Utc));
+        }
         if (options.Sharpen is { } sharpen)
         {
             master = WaveletSharpen.Sharpen(master, sharpen);
         }
 
-        return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length) { Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, TurnPx = ctx.TurnPx };
+        return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length)
+        {
+            Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, TurnPx = ctx.TurnPx, ChannelAlignment = alignment,
+        };
     }
 
     /// <summary>
@@ -748,11 +763,19 @@ public sealed class LuckyImagingStacker
 
     /// <summary>
     /// For a split-CFA stack the integrated master is four CFA sub-planes; merge them into a full-resolution
-    /// mosaic and demosaic once (MHC). Mono / RGB masters pass through unchanged. Phase 7: when
-    /// <see cref="PlanetaryStackOptions.Sharpen"/> is set, the demosaiced linear master is wavelet-sharpened.
+    /// mosaic and demosaic once (MHC). Mono / RGB masters pass through unchanged. A colour master's planes are first aligned onto
+    /// green (<see cref="PlanetaryStackOptions.AlignChannels"/>), a split one's as sub-planes, before the demosaic mixes them.
+    /// Phase 7: when <see cref="PlanetaryStackOptions.Sharpen"/> is set, the demosaiced linear master is wavelet-sharpened.
     /// </summary>
-    private static async Task<Image> FinalizeAsync(Image stacked, PlanetaryFrameLayout layout, PlanetaryStackOptions options, CancellationToken cancellationToken)
+    private static async Task<(Image Master, PlanetaryChannelAlignmentResult? Alignment)> FinalizeAsync(Image stacked, PlanetaryFrameLayout layout,
+        PlanetaryStackOptions options, DateTimeOffset? epoch, CancellationToken cancellationToken)
     {
+        PlanetaryChannelAlignmentResult? alignment = null;
+        if (options.AlignChannels)
+        {
+            (stacked, alignment) = PlanetaryChannelAlignment.Align(stacked, layout, LimbOptionsFor(stacked, options, epoch));
+        }
+
         var master = await PlanetaryMaster.MergeAndDemosaicAsync(stacked, layout, cancellationToken).ConfigureAwait(false);
 
         if (options.Sharpen is { } sharpen)
@@ -760,8 +783,13 @@ public sealed class LuckyImagingStacker
             master = WaveletSharpen.Sharpen(master, sharpen);
         }
 
-        return master;
+        return (master, alignment);
     }
+
+    // The limb fit's options a master's colours are read by: its planet at the instant it shows it (the de-rotation's epoch, else the
+    // middle of its capture), or null for a correlation where either is unknown.
+    private static LimbFitOptions? LimbOptionsFor(Image master, PlanetaryStackOptions options, DateTimeOffset? epoch)
+        => PlanetaryChannelAlignment.LimbOptionsFor(options.Planet ?? options.Derotation?.Planet, PlanetaryBestStack.InstantOf(master, epoch));
 
     private static int NextPowerOfTwo(int value)
     {

@@ -947,7 +947,11 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   `PlanetaryLimbFit.Start`, never `PlanetaryDisk.BoundingBox`, whose mean-plus-three-sigma threshold halves a stack's disk.
   It missed WinJUPOS's hand-set outlines by up to 1 px and 1.7 %; the evidence points at the outlines, and R2's rendered
   truth decides. **Its model evaluation is the whole cost and runs on every core with one walk's bits** (#1106: rows gather
-  into their own cells, a cold fit's searches run at once; never a reduction across bands), 2 to 3 s a cold fit.
+  into their own cells, a cold fit's searches run at once; never a reduction across bands), 2 to 3 s a cold fit. **So does
+  where each COLOUR lies**: a colour master's planes are moved onto green before the demosaic by their own limb fits
+  (`PlanetaryChannelAlignment`, #1202; the atmosphere's dispersion, 6.4 px red to blue on 2022-10-09), never by correlation
+  or any measure that weighs brightness, which takes a colour's own belts and poles for a shift (0.45 px on R5a's twin, whose
+  dispersion is known). A sub-plane's photosite phase is taken out, and the two greens read zero when that is right.
 - **Which telescope took a capture is read off its frames, one-sided** (R1, `tianwen planetary-aperture`): **a measured
   cutoff is only a LOWER bound** on the aperture, and **spikes say Newtonian, their absence says nothing** (a Blue read 2.4
   minutes after its Red read 18.3 through one Newtonian), least of all over a halo clipped at black. `Imaging/Optics` is R2's
