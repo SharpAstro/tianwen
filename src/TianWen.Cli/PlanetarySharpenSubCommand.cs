@@ -32,6 +32,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var truthOpt = new Option<string?>("--truth") { Description = "A synthetic capture's truth (planetary-degrade's .truth.fits): every sharpening scored against it." };
         var outputOpt = new Option<string?>("--output", "-o") { Description = "Where the sharpened masters go (master_*_sharpened[_fix].fits); the master's folder when not given." };
         var noWriteOpt = new Option<bool>("--no-write") { Description = "Score only, write nothing." };
+        var stackedPreviewOpt = new Option<bool>("--stacked-preview") { Description = "Also write the master as stacked through the same high-key planetary preview as the sharpened one (<name>_stacked.png), so the two are seen through one renderer: planetary-stack's own preview is of the sharpened master." };
         var fitOpt = new Option<string>("--fit") { Description = "How the gains are fitted: free, nonnegative (their composite through the kernel held at or above zero), or both to compare them.", DefaultValueFactory = _ => "free" };
         var finestOpt = new Option<string>("--colour-finest") { Description = "A colour master's finest band (#1187): held (as stacked on every colour, the default), derived (its derived gain), heldbutgreen (as stacked on red and blue), or all to compare them.", DefaultValueFactory = _ => "held" };
         var slidersOpt = new Option<bool>("--sliders") { Description = "Also sharpen as a live view's wavelet sliders do once a derivation seeds them (the same gains over the whole master, no denoise, held at its darkest level), then drawn outside the limb by the limb the derivation keeps (#1201), and score both: whether the live view reaches the derived sharpening. Says how far the live drawing lies from this sharpening outside the limb, and what the drawing costs beside the sliders' wavelet pass." };
@@ -40,7 +41,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var command = new Command("planetary-sharpen", "Sharpen a planetary master again, by gains derived through the limb's edge (R8), the limb kept from ringing.")
         {
             Arguments = { masterArg },
-            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope },
+            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, stackedPreviewOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -234,6 +235,12 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                             var png = Path.ChangeExtension(file, ".png");
                             await previewRenderer.RenderPlanetaryAsync(result.Sharpened, png, gamma: 0.75, ct: ct);
                             consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(file)} and its high-key preview {Path.GetFileName(png)}");
+                            if (parseResult.GetValue(stackedPreviewOpt))
+                            {
+                                var stacked = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(path) + "_stacked.png");
+                                await previewRenderer.RenderPlanetaryAsync(master, stacked, gamma: 0.75, ct: ct);
+                                consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(stacked)}, the master as stacked through the same preview");
+                            }
                         }
                     }
                     finally

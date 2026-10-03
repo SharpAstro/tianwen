@@ -2573,6 +2573,72 @@ sharpening at its default, `ModelFeathered`):
   arcs past the limb are gone, and the live view is the Best stack's limb.
 - **What the owner will see change besides the limb**: a moon beyond the sharpening window stays as stacked, as the Best stack has it since
   #1192; the dials alone sharpened every moon (on Red, the two outside the window read 0.66 and 0.62 peaks sharpened, 0.20 and 0.15 now).
+  Sharpening a moon wherever it lies, in the batch and the live view alike, is #1211.
+
+### A master's picture in numbers
+
+The owner asked (2026-10-03) for the four outputs of 2022-09-03 Red in numbers beside the panels: contrast, the background's
+uniformity, and the light found past the limb against the light expected there. `tianwen planetary-compare` reads several masters of
+one capture side by side (`PlanetaryPicture`, every value in each master's own disk units):
+- **the disk**, inside 0.9 radii: its contrast, its detail in each a trous band, and the pixels clipped at its peak or held at its sky;
+- **the limb's glow**, 1 to 1.5 radii: the light found against the planet's sharp model through the pupil (`PlanetaryPicture.Diffracted`,
+  the model the derived sharpening draws there), and the pixels more than 3 noise from it either way;
+- **the sky**, past 2.5 radii with the moons left out: its noise about its plane, the plane's gradient across the frame, its blocks' scatter
+  over what the noise gives them, and its outliers against a Gaussian's count.
+
+A master the size of the first is read on the first's disk, model and moons. Two things forced that. The limb is steep, so a refit 0.1 px
+larger moved several disk pixels' worth of light out of the glow and made the Best stack look 9 % short of the model it drew. And a
+sharpening's ring holds local maxima the moon finder took for moons (16 on the old live dials), masking most of its glow. A master of
+another size, another program's crop, gets its own fit.
+
+**2022-09-03 Red** (the stack, the Best stack, the live view with its kept limb, the live dials before #1201):
+
+| | Stacked | Best stack | Live, new | Dials, old |
+|---|---|---|---|---|
+| Disk contrast (RMS over mean) | 0.250 | 0.248 | 0.248 | 0.249 |
+| Detail, bands 1 / 2 / 3 | 0.0034 / 0.0097 / 0.0260 | 0.0141 / 0.0194 / 0.0325 | the same | 0.0141 / 0.0194 / 0.0321 |
+| Glow found (38.7 expected) | 145.5 | 38.8 | 38.8 | 122.2 |
+| of which to 1.1 radii (24.3 expected) | 103.8 | 24.4 | 24.4 | 52.8 |
+| Glow pixels 3 noise above / below | 7,226 / 164 | 0 / 0 | 0 / 0 | 8,602 / 277 |
+| Sky noise | 0.00012 | 0.00012 | 0.00012 | 0.00062 |
+| Sky outliers above / below (583 expected) | 16,713 / 1,417 | the same | the same | 2,973 / 0 |
+
+- The overall disk contrast hardly moves (the belts and the limb darkening set it); the detail goes into bands 1 and 2.
+- The Best stack's and the live view's glow equal the model **by construction**, since that is what they draw there. The twins' limb profile
+  error is the independent check.
+- The old dials put back 3.2 times the expected glow (the arcs) with pixels below it too (the black band), and lifted the sky's noise five
+  times.
+- The stack's own sky is not flat noise: its blocks scatter 47 times what its noise gives them, and its outliers run 29 times a Gaussian's.
+  Every output inherits that.
+- **The expected glow is a model**, and past 1.1 radii it disagrees with the renderer that makes the twins' truths (below, #1213).
+
+### A planetary master's colour
+
+A colour master keeps the camera's own colours today: the preview subtracts each channel's black point and scales the three by one
+factor, so 2022-09-29 and the Uranus-C nights come out green and 2021-12-16 orange, by the camera and its capture-time white balance. The
+owner asked (2026-10-03) for the right ratio between the channels and the right saturation, from OPAL or from Wikipedia. The two meet:
+Wikipedia's lead image of Jupiter is OPAL's own true-colour composite (`Jupiter_OPAL_2024.png`, Hubble WFC3, 5 January 2024, public
+domain), and OPAL's reflectance maps are in the corpus. The design, the narrowband trap (a broadband blue lies between F395N and F502N,
+where Jupiter darkens steeply) and the rule to set before measuring are #1212. Saturn waits on its ring model (#1184); its Wikipedia image
+was hand-adjusted in February 2026 and is the weaker reference.
+
+### The diffraction glow's far wing
+
+Found writing `PlanetaryPictureTests` (2026-10-03). A Jupiter rendered through a 254 mm, 23 % obstructed pupil at 650 nm
+(`PlanetaryRender.RenderDiffracted`, R = 40 px), its limb fitted exactly (R 40.020, k 0.951), against the sharpening's own expectation (the
+fit's sharp model through `PlanetaryInverse.Diffraction`, as `ModelFeathered` draws it past the limb). Light in rings of 0.05 radii, disk
+pixels' worth:
+
+| Radii | 0.90 | 0.95 | 1.00 | 1.05 | 1.10 | 1.15 | 1.20 | 1.25 | 1.30 | 1.35 | 1.40 | 1.45 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Rendered truth | 212.1 | 124.9 | 16.80 | 4.00 | 2.00 | 1.24 | 0.81 | 0.58 | 0.36 | 0.23 | 0.12 | 0.08 |
+| Sharpening's model | 210.8 | 124.7 | 16.45 | 4.46 | 2.62 | 1.90 | 1.59 | 1.26 | 1.01 | 0.87 | 0.75 | 0.70 |
+
+At the limb they agree within 2 to 3 %. Past 1.1 radii the model holds up to 6 times the truth's light (about a thousandth of the disk's
+level a pixel at 1.4 radii). A circular aperture's edge spread falls off only as one over the distance, so the renderer may cut its wing
+short, or the model's transfer may carry a pedestal. It matters twice: the Best stack and the live view draw the model's wing to 1.5 radii,
+and the twins' truths, which judged every limb fix, are the renderer's. Settling it against the analytic edge spread is #1213.
+`PlanetaryPictureTests` therefore holds the glow test to the zone that agrees, 1 to 1.1 radii, and asserts nothing past it.
 
 ### The batch stack on every core
 
