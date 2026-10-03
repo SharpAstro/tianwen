@@ -126,6 +126,15 @@ namespace TianWen.UI.Abstractions
             Error           = new RGBAColor32(0xff, 0x15, 0x00, 0xff),
         };
 
+        /// <summary>
+        /// The GUI's own chrome scale over the window's DPI (DIR.Lib's <c>InterfaceScale</c>), set on the window's chrome and
+        /// tabs and NOT on the image viewers they embed, whose toolbar keeps the size it has in <c>tianwen-fits</c>. With a
+        /// live view the viewer's toolbar sat in the Live Session tab at half again the size of the tab's own controls
+        /// (18-point text in a 40-unit bar beside 12-point text in 20-unit rows), and the user asked for the rest "just a
+        /// tad bit bigger" (2026-10-03). One dial: every font, row and padding a tab lays out grows with it, so nothing clips.
+        /// </summary>
+        public const float InterfaceScale = 1.15f;
+
         /// <summary>Shared base (unscaled) layout metrics. Identical across states.</summary>
         public static UiMetrics Metrics { get; } = new UiMetrics(
             BaseFontSize: 14f,

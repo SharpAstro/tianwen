@@ -61,6 +61,29 @@ public class DeclaredLayoutTakesDesignUnitsTests
             + "(docs/plans/viewer-layout-engine.md, \"The unit rule\").");
     }
 
+    /// <summary>
+    /// A widget's sizes are at ITS scale, never the window's. Widgets in one window do not share a scale: the GUI's chrome and tabs
+    /// carry <c>GuiTheme.InterfaceScale</c> over the window's DPI and the image viewers they embed do not (2026-10-03). So a widget
+    /// reading the window's DPI straight (<c>Ui.DpiScale</c>) works out its sizes at a scale its declared nodes are not laid out
+    /// at; its own <c>DpiScale</c> and <c>Scale</c> include its scale. The <c>chrome-review</c> agent reads a diff for the other
+    /// half, one widget's scale carried into another's layout.
+    /// </summary>
+    [Fact]
+    public void NoWidgetReadsTheWindowsDpiStraight()
+    {
+        if (ChromeMeasuresThroughTheEngineTests.FindSourceRoot() is not { } root)
+        {
+            return;
+        }
+
+        var offences = ChromeMeasuresThroughTheEngineTests.ChromeSourceFiles(root)
+            .Where(f => Literal.Replace(File.ReadAllText(f), m => new string(' ', m.Length)).Contains("Ui.DpiScale", StringComparison.Ordinal))
+            .Select(Path.GetFileName)
+            .ToArray();
+
+        offences.ShouldBeEmpty("a widget reads the WINDOW's DPI, which leaves out its own InterfaceScale: read DpiScale or Scale on the widget");
+    }
+
     // A listed file has to keep earning its place, or the exemption outlives the reason and hides the next mistake there.
     [Fact]
     public void EveryFileListedAsDevicePixelsStillArrangesThatWay()

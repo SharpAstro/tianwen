@@ -45,7 +45,14 @@ to) before judging: most of these defects are a relation between two places.
    arithmetic the tree should own.
 6. **Hand-advanced layout.** `y += h`, `ref float y`, a running cursor, a width union over every label a control can
    show (state the widest as `widthSample:` on the node instead).
-7. **The rules in CLAUDE.md's "Layout DSL" section**, where the diff breaks one: `new Layout.Node.X { }` instead of
+7. **A size made at one widget's scale and used at another's.** Widgets in one window do NOT share a scale: the GUI's
+   chrome and tabs carry `GuiTheme.InterfaceScale` over the window's DPI (DIR.Lib's `InterfaceScale`), and the image
+   viewers they embed (the Live Session preview, the guide camera, the planetary view) do not. So flag: `Ui.DpiScale`
+   (the WINDOW's DPI) read in a widget where its own `DpiScale` or `Scale` belongs; a `DesignScale` or `dpiScale:` built
+   from one widget and passed to another's `RenderLayout`/`ArrangeLayout`/`MeasureLayout`; a size computed from a CHILD's
+   metrics (a viewer's `ToolbarRowHeight`, its toolbar font) used in the parent's arithmetic, or the reverse. A rect
+   handed to a child in SURFACE pixels (`SetContentRegion`, an `imageRect`) is fine: pixels are pixels.
+8. **The rules in CLAUDE.md's "Layout DSL" section**, where the diff breaks one: `new Layout.Node.X { }` instead of
    `Layout.Builder`, `using DIR.Lib.Layout;` instead of the alias, `.Bg(default)`, `.RowH(h)` after `.WFixed(w)`, a symbol
    character in a `Text` run instead of a `Layout.Content.Icon`, a hit or hover rect kept apart from the drawn node, a
    host predicate for the pointer's cursor instead of a region's declaration.
