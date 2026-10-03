@@ -217,4 +217,55 @@ public class CanonDiscoveryTests
         reconciled.DeviceKey.ShouldBe(stored.DeviceKey, "and is still the camera the profile named");
         DeviceQueryKey.WpdDeviceId.IsTransport.ShouldBeTrue();
     }
+
+    // An mDNS response: no questions, each record (owner, type, rdata) an answer, every name written in full.
+    private static byte[] MdnsResponse(params (string Owner, ushort Type, byte[] Data)[] records)
+    {
+        var bytes = new List<byte> { 0, 0, 0x84, 0, 0, 0, 0, (byte)records.Length, 0, 0, 0, 0 };
+        foreach (var (owner, type, data) in records)
+        {
+            bytes.AddRange(Name(owner));
+            bytes.AddRange([(byte)(type >> 8), (byte)type, 0, 1, 0, 0, 0, 120, (byte)(data.Length >> 8), (byte)data.Length]);
+            bytes.AddRange(data);
+        }
+        return [.. bytes];
+    }
+
+    private static byte[] Name(string name)
+    {
+        var bytes = new List<byte>();
+        foreach (var label in name.Split('.'))
+        {
+            bytes.Add((byte)label.Length);
+            bytes.AddRange(System.Text.Encoding.ASCII.GetBytes(label));
+        }
+        bytes.Add(0);
+        return [.. bytes];
+    }
+
+    /// <summary>
+    /// Only an answer to the scan's question is a camera: a PTR owned by <c>_ptp._tcp.local</c> naming a PTP instance. A
+    /// Canon TS7700 printer's own announcement on the shared mDNS port was listed as a WiFi camera named
+    /// <c>_FC9F5ED42C8A._tcp.local</c>, the scan having taken any packet that carried an address (#1111).
+    /// </summary>
+    [Fact]
+    public void An_mDNS_packet_is_a_camera_only_when_it_answers_for_ptp()
+    {
+        byte[] address = [192, 168, 0, 201];
+
+        var camera = MdnsResponse(
+            ("_ptp._tcp.local", 12, Name("EOS 6D Mark II._ptp._tcp.local")),
+            ("EOS-6D.local", 1, address));
+        CanonDeviceSource.ParseMdnsResponse(camera).ShouldBe([("EOS 6D Mark II", "192.168.0.201")]);
+
+        var printer = MdnsResponse(
+            ("_services._dns-sd._udp.local", 12, Name("_FC9F5ED42C8A._tcp.local")),
+            ("Canon-TS7700.local", 1, address));
+        CanonDeviceSource.ParseMdnsResponse(printer).ShouldBeEmpty("an announcement of another service is no answer");
+
+        var otherService = MdnsResponse(
+            ("_ipp._tcp.local", 12, Name("Canon TS7700 series._ipp._tcp.local")),
+            ("Canon-TS7700.local", 1, address));
+        CanonDeviceSource.ParseMdnsResponse(otherService).ShouldBeEmpty("a printer's IPP is no PTP camera");
+    }
 }

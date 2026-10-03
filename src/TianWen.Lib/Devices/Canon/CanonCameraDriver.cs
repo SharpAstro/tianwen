@@ -379,9 +379,22 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
                 Logger.LogDebug(ex, "Canon drive restore on disconnect failed");
             }
 
-            await camera.CloseSessionAsync(cancellationToken);
-            await camera.DisposeAsync();
-            _camera = null;
+            // A body that has gone (a flat battery, a cable pulled: WPD answers 0x802A0002, the device is not open) has no
+            // session to close, and it is no less disconnected for that: the close is logged, never the disconnect's
+            // failure, which the GUI showed as a raw COM message for a camera whose battery had died (#1111).
+            try
+            {
+                await camera.CloseSessionAsync(cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Logger.LogWarning("{Name} was gone before its session could be closed ({Reason}); it is disconnected", Name, ex.Message);
+            }
+            finally
+            {
+                _camera = null;
+                await camera.DisposeAsync();
+            }
         }
 
         Volatile.Write(ref _connected, false);

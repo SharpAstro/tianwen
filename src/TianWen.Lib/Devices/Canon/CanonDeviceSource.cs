@@ -200,6 +200,9 @@ internal sealed class CanonDeviceSource(ILogger<CanonDeviceSource> logger, ICano
     public IEnumerable<CanonDevice> RegisteredDevices(DeviceType deviceType)
         => deviceType is DeviceType.Camera ? _cameras : [];
 
+    /// <summary>The service a PTP/IP camera announces, and the one name an answer to the scan's query is owned by.</summary>
+    private const string PtpService = "_ptp._tcp.local";
+
     /// <summary>
     /// Sends a DNS PTR query for <c>_ptp._tcp.local</c> over mDNS multicast and collects responses.
     /// Returns discovered PTP camera instance names and IP addresses.
@@ -248,8 +251,14 @@ internal sealed class CanonDeviceSource(ILogger<CanonDeviceSource> logger, ICano
     /// <summary>
     /// Parses a DNS response packet for PTR, SRV, and A records to extract
     /// PTP camera instance names and IP addresses.
+    /// <para>
+    /// Only an ANSWER TO THE QUESTION counts: a PTR record owned by <c>_ptp._tcp.local</c> naming a
+    /// <c>&lt;instance&gt;._ptp._tcp.local</c>. The scan listens on the shared mDNS port, where every device on the network
+    /// announces its own services, and it once took any packet carrying an address: a Canon TS7700 printer's announcement
+    /// was listed as a WiFi camera named <c>_FC9F5ED42C8A._tcp.local</c> (#1111).
+    /// </para>
     /// </summary>
-    private static List<(string InstanceName, string IpAddr)> ParseMdnsResponse(byte[] data)
+    internal static List<(string InstanceName, string IpAddr)> ParseMdnsResponse(byte[] data)
     {
         var results = new List<(string, string)>();
         if (data.Length < 12)
@@ -276,7 +285,7 @@ internal sealed class CanonDeviceSource(ILogger<CanonDeviceSource> logger, ICano
 
         for (var i = 0; i < totalRecords && offset < data.Length; i++)
         {
-            SkipDnsName(data, ref offset);
+            var owner = ReadDnsName(data, ref offset);
             if (offset + 10 > data.Length)
             {
                 break;
@@ -294,13 +303,15 @@ internal sealed class CanonDeviceSource(ILogger<CanonDeviceSource> logger, ICano
 
             switch (rType)
             {
-                case 12: // PTR; instance name
+                case 12 when owner.Equals(PtpService, StringComparison.OrdinalIgnoreCase): // PTR; instance name
                 {
                     var nameOffset = offset;
                     var name = ReadDnsName(data, ref nameOffset);
-                    // Strip the service suffix to get just the instance name
-                    var suffixIdx = name.IndexOf("._ptp._tcp.local", StringComparison.OrdinalIgnoreCase);
-                    instanceName = suffixIdx > 0 ? name[..suffixIdx] : name;
+                    // Strip the service suffix to get just the instance name; a pointer to anything else is not an answer.
+                    if (name.EndsWith("." + PtpService, StringComparison.OrdinalIgnoreCase) && name.Length > PtpService.Length + 1)
+                    {
+                        instanceName = name[..^(PtpService.Length + 1)];
+                    }
                     break;
                 }
 
@@ -314,9 +325,9 @@ internal sealed class CanonDeviceSource(ILogger<CanonDeviceSource> logger, ICano
             offset += rdLength;
         }
 
-        if (ipAddr is not null)
+        if (ipAddr is not null && instanceName is not null)
         {
-            results.Add((instanceName ?? "", ipAddr));
+            results.Add((instanceName, ipAddr));
         }
 
         return results;
