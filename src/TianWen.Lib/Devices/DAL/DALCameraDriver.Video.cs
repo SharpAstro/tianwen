@@ -303,7 +303,11 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
             var gain = CurrentGain();
 
             var constraints = RoiConstraints;
-            var window = constraints.Snap(RoiRect.Centered(constraints.MaxWidth, constraints.MaxHeight, NumX, NumY));
+            // The size is read from the settings, here and in the loop, never through NumX / NumY: those throw once
+            // the driver is disconnecting, and a disconnect marks it so BEFORE it stops this stream and waits for it
+            // (DoDisconnectDeviceAsync), so a read between the two failed the stream instead of letting it stop. The
+            // body stays open until this stream has ended, so the settings are this stream's to read.
+            var window = constraints.Snap(RoiRect.Centered(constraints.MaxWidth, constraints.MaxHeight, _cameraSettings.Width, _cameraSettings.Height));
             SetVideoWindow(window, bitDepth, resize: true);
             bufferSize = FrameBytes(window, bitDepth);
             buffer = Marshal.AllocCoTaskMem(bufferSize);
@@ -333,7 +337,7 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
                 // fits.
                 var depth = Interlocked.Exchange(ref _stagedVideoBitDepth, 0) is var stagedDepth and not 0 ? StreamDepth((BitDepth)stagedDepth) : bitDepth;
                 var mode = highSpeed ? Interlocked.Exchange(ref _stagedHighSpeed, -1) : -1;
-                if (constraints.SnapWidth(NumX) != window.Width || constraints.SnapHeight(NumY) != window.Height || depth != bitDepth || mode >= 0)
+                if (constraints.SnapWidth(_cameraSettings.Width) != window.Width || constraints.SnapHeight(_cameraSettings.Height) != window.Height || depth != bitDepth || mode >= 0)
                 {
                     Check(_deviceInfo.StopVideoCapture(), "stop the video stream to change it");
                     streaming = false;
@@ -342,7 +346,7 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
                         SetVideoControl(CMOSControlType.HighSpeedMode, mode, "set the high-speed readout");
                     }
                     bitDepth = depth;
-                    window = constraints.Snap(window with { Width = NumX, Height = NumY });
+                    window = constraints.Snap(window with { Width = _cameraSettings.Width, Height = _cameraSettings.Height });
                     SetVideoWindow(window, bitDepth, resize: true);
                     if (FrameBytes(window, bitDepth) is var needed && needed > bufferSize)
                     {

@@ -340,6 +340,9 @@ internal sealed class FakeCmosState(string serial)
     /// <summary>A body closed while it was still streaming: what a disconnect must never do.</summary>
     public bool ClosedWhileStreaming { get; set; }
 
+    /// <summary>Called inside every control write, on the calling thread, so a test can hold a stream's pass there.</summary>
+    public Action<CMOSControlType>? OnSetControl { get; set; }
+
     public void StartedStreaming()
     {
         Interlocked.Increment(ref _videoStarts);
@@ -463,6 +466,7 @@ internal readonly struct FakeCmosCamera(FakeCmosState state) : ICMOSNativeInterf
 
     public CMOSErrorCode SetControlValue(CMOSControlType controlType, int value, bool isAuto = false)
     {
+        state.OnSetControl?.Invoke(controlType);
         state.Controls[controlType] = value;
         return CMOSErrorCode.Success;
     }
