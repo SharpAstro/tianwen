@@ -75,6 +75,17 @@ public static class CameraColorMatrix
     }
 
     /// <summary>
+    /// The canonical sRGB primaries in CIE XYZ-D65, row-major, linear sRGB to XYZ: identical to dcraw's <c>xyz_rgb[3][3]</c>
+    /// (Bruce Lindbloom's reference values are the same).
+    /// </summary>
+    internal static ReadOnlySpan<double> SrgbToXyz =>
+    [
+        0.412453, 0.357580, 0.180423,
+        0.212671, 0.715160, 0.072169,
+        0.019334, 0.119193, 0.950227,
+    ];
+
+    /// <summary>
     /// Closes the loop on the dcraw cam_xyz_coeff pipeline: multiply
     /// <paramref name="camXyz"/> by <c>xyz_rgb</c> (the sRGB primaries in
     /// XYZ-D65, the canonical Rec. 709 3x3), row-normalise so neutral
@@ -92,14 +103,7 @@ public static class CameraColorMatrix
         if (camXyz.Length != 9)
             throw new ArgumentException($"Expected 9 elements (row-major 3x3), got {camXyz.Length}.", nameof(camXyz));
 
-        // Canonical sRGB primaries in CIE XYZ-D65, identical to dcraw's
-        // const xyz_rgb[3][3]. Bruce Lindbloom's reference values are the same.
-        ReadOnlySpan<double> xyzRgb = stackalloc double[]
-        {
-            0.412453, 0.357580, 0.180423,
-            0.212671, 0.715160, 0.072169,
-            0.019334, 0.119193, 0.950227,
-        };
+        ReadOnlySpan<double> xyzRgb = SrgbToXyz;
 
         // cam_rgb = cam_xyz * xyz_rgb (3x3 matrix product).
         Span<double> camRgb = stackalloc double[9];
