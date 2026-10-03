@@ -81,7 +81,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
 
         // Pump time in small increments: the obs loop yields on SleepAsync until
         // we advance past its target time, ensuring deterministic sequencing.
-        await ctx.TimeProvider.PumpUntilCompletedAsync(loopTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(24),
+        await ctx.TimeProvider.PumpUntilCompletedAsync(loopTask, TimeSpan.FromHours(24),
             progress: () => ctx.Session.ImagingLoopTicks, cancellationToken: cancellationToken);
 
         loopTask.IsCompleted.ShouldBeTrue("observation loop should have completed within timeout");
@@ -376,7 +376,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
         ctx.TimeProvider.ExternalTimePump = true;
         var loopTask = ctx.Track(Task.Run(async () => await ctx.Session.ObservationLoopAsync(ctx.Token), ctx.Token));
 
-        await ctx.TimeProvider.PumpUntilCompletedAsync(loopTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(24),
+        await ctx.TimeProvider.PumpUntilCompletedAsync(loopTask, TimeSpan.FromHours(24),
             onIteration: async iteration =>
             {
                 if (ctx.Session.CurrentObservationIndex != 1)
@@ -610,6 +610,13 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
         //
         // The residue is therefore how long the coupled loop takes to make progress between parks,
         // which is not yet explained by anything measured. Do not re-derive the two dead ends above.
+        //
+        // #1122 changed the pump under this note, so read the above as written before it. The pump no
+        // longer polls: a parked sleep is released by the advance that reaches it, the pump waits by
+        // yielding, and each advance goes to the next sleep or one-shot timer. A 1 ms Task.Delay
+        // measured about 11 ms here even with the resolution raised, and the pump paid two per
+        // advance. Coupled, this test now takes 51 s (it was 3m06) and uncoupled about 15 s, so the
+        // pump's own waits were most of the residue but not all of it. Coupling stays off, on cost.
         await using var ctx = await CreateWinterSessionAsync(observations, mountPort: "SkyWatcher", mountLimits: limits,
             coupleCameraToMount: false, cancellationToken: ct);
         await ctx.Mount.SetSiteLatitudeAsync(48.2, ct);
@@ -810,7 +817,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
         // handful of ticks, and the whole two-target schedule finishes having written ONE frame. That
         // is how this went red on CI -- FirstTarget=1, so the premise never fired and `stopped` was
         // still false at the assertion. The probe makes the budget bound a stall instead.
-        await ctx.TimeProvider.PumpUntilCompletedAsync(loopTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(4),
+        await ctx.TimeProvider.PumpUntilCompletedAsync(loopTask, TimeSpan.FromHours(4),
             onIteration: async _ =>
             {
                 if (!stopped && frames.Count(f => f.TargetName == "FirstTarget") >= 3)

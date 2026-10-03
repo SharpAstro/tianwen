@@ -32,6 +32,14 @@ namespace TianWen.Lib.Tests;
 /// had (and one WAS tried for this pump, and was worse: the waits that remained fell through to
 /// their backstop). This is for the waits where it cannot.
 /// </para>
+/// <para>
+/// <b>The pump itself no longer waits on a timer</b> (#1122). A parked sleep is released by the
+/// advance that reaches it, and the pump waits by yielding, because a 1 ms <c>Task.Delay</c> still
+/// measured about 11 ms on a win-arm64 laptop with this held, and the pump paid two per advance. The
+/// signal that failed before was the sleeps polling for one; the one that works is the advance
+/// releasing them. What this still serves in a pumped run is any real-time wait in the code under
+/// test, and the parked sleeps' 50 ms backstop.
+/// </para>
 /// </summary>
 internal static partial class WindowsTimerResolution
 {

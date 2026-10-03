@@ -1,5 +1,7 @@
 using Shouldly;
 using System;
+using System.Collections.Concurrent;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -90,7 +92,7 @@ namespace TianWen.Lib.Tests
             var loop = TickingLoopAsync(time, observed, cts.Token);
 
             var thrown = await Should.ThrowAsync<TimeoutException>(
-                () => time.PumpUntilCompletedAsync(loop, Tick, Budget, cancellationToken: ct));
+                () => time.PumpUntilCompletedAsync(loop, Budget, cancellationToken: ct));
 
             thrown.Message.ShouldContain("measured the RUN");
             loop.IsCompleted.ShouldBeFalse("the loop is healthy and still ticking; the CAP is what ran out");
@@ -119,7 +121,7 @@ namespace TianWen.Lib.Tests
             var loop = TickingLoopAsync(time, observed, cts.Token);
 
             var pumped = await time.PumpUntilCompletedAsync(
-                loop, Tick, Budget,
+                loop, Budget,
                 progress: () => Interlocked.Read(ref observed.Value),
                 cancellationToken: ct);
 
@@ -151,7 +153,7 @@ namespace TianWen.Lib.Tests
 
             var thrown = await Should.ThrowAsync<TimeoutException>(
                 () => time.PumpUntilCompletedAsync(
-                    loop, Tick, Budget,
+                    loop, Budget,
                     progress: () => 0L,
                     cancellationToken: ct));
 
@@ -161,6 +163,145 @@ namespace TianWen.Lib.Tests
             wedged.SetResult();
             await cts.CancelAsync();
             await parked;
+        }
+
+        /// <summary>
+        /// What #1122 is for: the pump steps to the next instant anything waits for, so a 100 ms poll wakes at its
+        /// own target, not at the end of a step some test chose. A coarse timer and a day-long park sit beside it,
+        /// standing in for the imaging loop's tick and a parked device; neither may pull the step past the sleep.
+        /// </summary>
+        [Fact(Timeout = 60_000)]
+        public async Task ASleepUnderThePumpWakesAtItsOwnTarget()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var time = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 6, 15, 22, 0, 0, TimeSpan.Zero))
+            {
+                ExternalTimePump = true
+            };
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            var start = time.GetUtcNow();
+            var sleeper = Task.Run(async () =>
+            {
+                await time.SleepAsync(TimeSpan.FromMilliseconds(100), ct);
+                return time.GetUtcNow();
+            }, CancellationToken.None);
+
+            // Nothing moves the clock until the pump runs, so the sleep's target is fixed once it is parked.
+            await time.WaitForFirstWaiterAsync(sleeper, ct);
+            var parked = ParkedDeviceAsync(time, cts.Token);
+            using var coarseTick = time.System.CreateTimer(static _ => { }, null, Tick, Tick);
+
+            // Read on the pump's own thread, right after each advance: what the clock was stepped to. The sleeper's own
+            // read of the clock comes after it has left its park, which a later step may already have overtaken.
+            var steppedTo = new ConcurrentQueue<DateTimeOffset>();
+            await time.PumpUntilCompletedAsync(sleeper,
+                Budget,
+                onIteration: _ =>
+                {
+                    steppedTo.Enqueue(time.GetUtcNow());
+                    return ValueTask.CompletedTask;
+                },
+                cancellationToken: ct);
+
+            steppedTo.ShouldNotBeEmpty();
+            steppedTo.First().ShouldBe(start + TimeSpan.FromMilliseconds(100),
+                "the first advance goes to the sleep's target, not to the 5 s tick beside it");
+            (await sleeper).ShouldBeGreaterThanOrEqualTo(start + TimeSpan.FromMilliseconds(100));
+
+            await cts.CancelAsync();
+            await parked;
+        }
+
+        /// <summary>
+        /// A one-shot timer is an EVENT (a fake camera's exposure ending is one), and the pump steps to it: read inside
+        /// the callback, which runs inside the advance, the clock says exactly when it fired. Each fire re-arms it 7 s
+        /// on, longer than the coarsest step, so the pump also takes a capped step between events and must still land
+        /// on every one.
+        /// </summary>
+        [Fact(Timeout = 60_000)]
+        public async Task AOneShotTimerOnTheClockFiresAtItsOwnDueTime()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var time = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 6, 15, 22, 0, 0, TimeSpan.Zero))
+            {
+                ExternalTimePump = true
+            };
+            var interval = TimeSpan.FromSeconds(7);
+            var start = time.GetUtcNow();
+            var fired = new ConcurrentQueue<DateTimeOffset>();
+            var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            ITimer? timer = null;
+            timer = time.System.CreateTimer(_ =>
+            {
+                fired.Enqueue(time.GetUtcNow());
+                if (fired.Count == 5)
+                {
+                    done.TrySetResult();
+                }
+                else
+                {
+                    timer?.Change(interval, Timeout.InfiniteTimeSpan);
+                }
+            }, null, interval, Timeout.InfiniteTimeSpan);
+
+            await time.PumpUntilCompletedAsync(done.Task, Budget, cancellationToken: ct);
+            timer.Dispose();
+
+            fired.ShouldBe([.. Enumerable.Range(1, 5).Select(k => start + interval * k)]);
+        }
+
+        /// <summary>
+        /// The two bounds, each pinned: a waiter due sooner than the finest step is stepped to by the finest step, one
+        /// due later than the coarsest by the coarsest, and with nothing due at all the step is the coarsest. A
+        /// periodic timer is a poll and never sets the step, however soon it is due: the fake mount's axis timer runs
+        /// every 100 ms all night, and stepping to it is what made a whole run cost tens of thousands of advances.
+        /// </summary>
+        [Fact(Timeout = 60_000)]
+        public async Task TheStepIsTheNextDueTimeHeldBetweenTheFinestAndTheCoarsest()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var time = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 6, 15, 22, 0, 0, TimeSpan.Zero))
+            {
+                ExternalTimePump = true
+            };
+            var finest = TimeSpan.FromMilliseconds(10);
+            var coarsest = TimeSpan.FromSeconds(5);
+
+            time.NextStep(finest, coarsest).ShouldBe(coarsest, "nothing is due");
+
+            using (time.CreateTimer(static _ => { }, null, TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(100)))
+            {
+                time.NextStep(finest, coarsest).ShouldBe(coarsest, "a periodic timer is a poll, coalesced within the coarsest step");
+            }
+
+            using (time.System.CreateTimer(static _ => { }, null, TimeSpan.FromMinutes(2), Timeout.InfiniteTimeSpan))
+            {
+                time.NextStep(finest, coarsest).ShouldBe(coarsest, "a timer two minutes out is stepped toward by the coarsest");
+            }
+
+            using (time.System.CreateTimer(static _ => { }, null, TimeSpan.FromMilliseconds(700), Timeout.InfiniteTimeSpan))
+            {
+                time.NextStep(finest, coarsest).ShouldBe(TimeSpan.FromMilliseconds(700), "a timer within the bounds is stepped to exactly");
+            }
+
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            var sleeper = Task.Run(async () =>
+            {
+                try
+                {
+                    await time.SleepAsync(TimeSpan.FromMilliseconds(3), cts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Cancelled below once the step has been read.
+                }
+            }, CancellationToken.None);
+            await time.WaitForFirstWaiterAsync(sleeper, ct);
+
+            time.NextStep(finest, coarsest).ShouldBe(finest, "a sleep due in 3 ms is stepped to by the finest step");
+
+            await cts.CancelAsync();
+            await sleeper;
         }
     }
 }
