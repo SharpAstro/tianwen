@@ -1,4 +1,5 @@
 using TianWen.Hosting.Dto;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Hosting;
 
@@ -19,6 +20,26 @@ internal static class NodeRuns
         NodeRunKind.LiveView => "A live view is running",
         _ => "A run is already going on",
     };
+
+    /// <summary>
+    /// A run that ended on a FAULT says so in the node's notifications, worded here once: <paramref name="what"/> stopped,
+    /// and why. Every client's notification panel shows it (the TUI and a remote rig's window too), where the reason used
+    /// to reach only the window watching the run and the node's log: a Canon whose battery died mid live view said so
+    /// nowhere a user looks (#1111). A run that ended on a stop, or by itself, has no <paramref name="failure"/> and says
+    /// nothing here.
+    /// </summary>
+    public static void NoteFault(IHostedSession hosted, ITimeProvider timeProvider, string what, string? failure)
+    {
+        if (failure is { Length: > 0 })
+        {
+            hosted.AddNotification(new NotificationDto
+            {
+                Severity = "Warning",
+                Message = $"{what} stopped: {failure}",
+                TimestampUtc = timeProvider.GetUtcNow(),
+            });
+        }
+    }
 
     /// <summary>
     /// Why a start path suppresses CA2000: the justification for every <c>StartAsync</c> that builds a run and hands it to

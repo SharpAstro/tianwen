@@ -201,6 +201,11 @@ of them, held by that intake (P14). Two things the body taught:
   back with the still, and STF on stretches it Linked (`ChannelsAlreadyAgree`: the camera balanced its channels), so a
   dark night's live view can still be lifted without a cast.
 
+- **The battery died mid live view**, which said so nowhere a user looks: the failure reached only the watching
+  window's status row and the node's log, and a disconnect of the gone body showed a raw COM error. A run that faults
+  now says so in the node's notifications (`NodeRuns.NoteFault`, the planetary capture too), and a disconnect of a body
+  that has gone succeeds. Noticing a device that drops off with no run going on is #1224.
+
 Measurements at the camera's rate (P2) wait for P2.
 
 Left for later: taking a live frame in off the render thread ([P14](#p14-a-live-frame-is-taken-in-off-the-render-thread)),

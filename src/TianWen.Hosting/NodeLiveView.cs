@@ -54,7 +54,8 @@ internal sealed class NodeLiveView(IDeviceHub hub, NodeJobs jobs, IHostedSession
 
         // The run, and the camera it claims as it prepares, are this start's until the node owns them, and go back on every
         // other way out, a throw included. Nulled once handed on, the form CA2000 can follow.
-        NodeLiveViewRun? run = new NodeLiveViewRun(frames, timeProvider, logger);
+        NodeLiveViewRun? run = new NodeLiveViewRun(frames, timeProvider, logger,
+            onFault: failure => NodeRuns.NoteFault(hosted, timeProvider, "The live view", failure));
         try
         {
             // The whole sensor (a zero window) at the Preview's binning: a Canon's Live View unmagnified, any other camera full frame.
@@ -143,8 +144,12 @@ internal sealed class NodeLiveViewRun : INodeRun
     private int _height;
     private int _ended;
 
-    public NodeLiveViewRun(NodeFrames frames, ITimeProvider timeProvider, ILogger logger)
+    private readonly Action<string?>? _onFault;
+
+    /// <param name="onFault">Told how the run ended once it has, with the capture's failure, or null when it ended on a stop.</param>
+    public NodeLiveViewRun(NodeFrames frames, ITimeProvider timeProvider, ILogger logger, Action<string?>? onFault = null)
     {
+        _onFault = onFault;
         _frames = frames;
         _timeProvider = timeProvider;
         // A display's rate, as the planetary live frame is shown at: a client asks for each frame, so a slower view takes fewer.
@@ -217,6 +222,7 @@ internal sealed class NodeLiveViewRun : INodeRun
             // The camera and its claim are given back as the body ends.
             await Capture.DisposeAsync();
             Volatile.Write(ref _ended, 1);
+            _onFault?.Invoke(Capture.FailureReason);
         }
     }
 
