@@ -62,10 +62,18 @@ public enum StarFitModel
 /// <param name="Model">What it was subtracted with.</param>
 /// <param name="ChannelAmplitudes">Each channel's model peak above its sky (one entry for a mono image); empty where
 /// nothing was subtracted. What the injector draws a star's brightness and colour from.</param>
+/// <param name="SkyAbove">What the star sits on: the luminance sky map under it above the frame's darkest sky (the map's
+/// 5th percentile over the covered pixels), in the pixels' own noise there (<see cref="PointSourceFinder.CapByDifferenceNoise"/>).
+/// Near 0 on dark sky, tens to thousands on a nebula; a gradient lifts it too, which <paramref name="Texture"/> tells
+/// apart. NaN where the centre is off the frame.</param>
+/// <param name="Texture">The structure under the star: the sky map's spread over the pixels' own noise, the factor the
+/// hole tests' noise was cut by. 1 on a smooth sky or glow, above it where a nebula's texture (or a crowd of fainter stars)
+/// moves the sky within a few pixels; 1.6 in the Orion master's M42 core. NaN where the centre is off the frame.</param>
 public readonly record struct FittedStar(
     float X, float Y, float Significance, float Amplitude, float WidthScale, float Sky, float LocalSigma,
     StarFitOutcome Outcome, bool Saturated, bool Inpainted, float CoreResidual, float CoreBias, bool SecondPass, float HoleDepth,
-    StarFitModel Model = StarFitModel.None, ImmutableArray<float> ChannelAmplitudes = default);
+    StarFitModel Model = StarFitModel.None, ImmutableArray<float> ChannelAmplitudes = default, float SkyAbove = float.NaN,
+    float Texture = float.NaN);
 
 /// <summary>One significance band of the report. Bands are on the finder's first-pass significance.</summary>
 /// <param name="SigmaLow">Lower edge, inclusive.</param>

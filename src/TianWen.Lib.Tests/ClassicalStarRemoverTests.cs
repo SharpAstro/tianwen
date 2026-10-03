@@ -32,7 +32,9 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
 
     private sealed record Field(Image Image, float[][] Truth, List<Injected> Stars, (double X, double Y, double Peak, double Fwhm) Knot);
 
-    private static Field MakeField(int channels, int seed = 7, (double X, double Y, double Peak)? giant = null)
+    // Textured: a patch of nebula texture (a 4 sigma ripple 40 px in period, faded out over 100 px) about (750, 700), which a
+    // smooth glow is not.
+    private static Field MakeField(int channels, int seed = 7, (double X, double Y, double Peak)? giant = null, bool textured = false)
     {
         var rng = new Random(seed);
         var alpha = Fwhm / (2.0 * Math.Sqrt(Math.Pow(2.0, 1.0 / Beta) - 1.0));
@@ -52,7 +54,11 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
                     var gradient = 0.01 * x / Size;
                     var ks = knot.Fwhm / 2.3548;
                     var knotValue = knot.Peak * Math.Exp(-((x - knot.X) * (x - knot.X) + (y - knot.Y) * (y - knot.Y)) / (2 * ks * ks));
-                    truth[c][y * Size + x] = (float)(Sky + nebula + gradient + knotValue + Sigma * cNoise[y * Size + x]);
+                    var ripple = textured
+                        ? 4 * Sigma * Math.Sin(2 * Math.PI * x / 40.0) * Math.Sin(2 * Math.PI * y / 40.0)
+                            * Math.Exp(-((x - 750.0) * (x - 750.0) + (y - 700.0) * (y - 700.0)) / (2 * 100.0 * 100.0))
+                        : 0.0;
+                    truth[c][y * Size + x] = (float)(Sky + nebula + gradient + knotValue + ripple + Sigma * cNoise[y * Size + x]);
                 }
             }
         }
@@ -351,6 +357,34 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
                 }
             }
         }
+    }
+
+    [Fact(Timeout = 300_000)]
+    public async Task EachStarSaysWhetherItSitsOnNebulosityAndOnTexture()
+    {
+        // The smooth nebula peaks 30 sigma over the sky at (400, 600); the dark corner carries under 1.5 sigma of the
+        // gradient; the ripple patch at (750, 700) adds texture with no level.
+        var field = MakeField(1, textured: true);
+        var plate = await ClassicalStarRemover.BuildAsync(field.Image, cancellationToken: TestContext.Current.CancellationToken);
+
+        var subtracted = plate.Stars.Where(static s => s.Outcome == StarFitOutcome.Subtracted).ToArray();
+        FittedStar[] Within(double x, double y, double r) => [.. subtracted.Where(s => (s.X - x) * (s.X - x) + (s.Y - y) * (s.Y - y) < r * r)];
+        var onNebula = Within(400, 600, 80);
+        var onTexture = Within(750, 700, 80);
+        var dark = subtracted.Where(static s => s.X < 150 && s.Y < 200).ToArray();
+        static float Median(IEnumerable<float> v) => v.Order().ElementAt(v.Count() / 2);
+        foreach (var (name, set) in new[] { ("nebula", onNebula), ("texture", onTexture), ("dark sky", dark) })
+        {
+            output.WriteLine($"{name}: {set.Length} stars, sky above median {Median(set.Select(static s => s.SkyAbove)):F1}, texture median {Median(set.Select(static s => s.Texture)):F2}");
+            set.Length.ShouldBeGreaterThan(5);
+        }
+
+        Median(onNebula.Select(static s => s.SkyAbove)).ShouldBeGreaterThan(15f);
+        Median(dark.Select(static s => s.SkyAbove)).ShouldBeLessThan(3f);
+        Median(onTexture.Select(static s => s.Texture)).ShouldBeGreaterThan(1.3f);
+        // A smooth glow is a level, not texture.
+        Median(onNebula.Select(static s => s.Texture)).ShouldBeLessThan(1.2f);
+        Median(dark.Select(static s => s.Texture)).ShouldBeLessThan(1.2f);
     }
 
     [Fact(Timeout = 600_000)]

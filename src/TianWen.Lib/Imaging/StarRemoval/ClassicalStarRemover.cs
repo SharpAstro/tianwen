@@ -2569,6 +2569,7 @@ public static class ClassicalStarRemover
         private ImmutableArray<FittedStar> Describe(List<PointSource> sources, List<Fit> fits, int secondFrom, BitMatrix inpainted)
         {
             var stars = ImmutableArray.CreateBuilder<FittedStar>(sources.Count);
+            var skyFloor = SkyFloor();
             for (var k = 0; k < sources.Count; k++)
             {
                 var s = sources[k];
@@ -2577,6 +2578,9 @@ public static class ClassicalStarRemover
                 var cy = (int)Math.Round(f.Y);
                 var inside = cx >= 0 && cx < _width && cy >= 0 && cy < _height;
                 var sigma = inside ? _rms[cy * _width + cx] : float.NaN;
+                var noise = inside ? _holeNoise[cy * _width + cx] : float.NaN;
+                var skyAbove = noise > 0 ? (_sky[cy * _width + cx] - skyFloor) / noise : float.NaN;
+                var texture = noise > 0 ? sigma / noise : float.NaN;
                 var psf = LumPsf(f.Width, f.Beta);
                 var touched = false;
                 var residual = float.NaN;
@@ -2643,9 +2647,28 @@ public static class ClassicalStarRemover
                 stars.Add(new FittedStar(
                     (float)f.X, (float)f.Y, s.Significance, (float)f.Amplitude, (float)FwhmRatio(f.Width, f.Beta), (float)f.Sky, sigma,
                     f.Outcome, f.Saturated, touched || (f.Outcome == StarFitOutcome.Subtracted && inside && inpainted[cy, cx]),
-                    residual, bias, k >= secondFrom, holeDepth, model, amplitudes));
+                    residual, bias, k >= secondFrom, holeDepth, model, amplitudes, skyAbove, texture));
             }
             return stars.MoveToImmutable();
+        }
+
+        // The frame's darkest sky, what FittedStar.SkyAbove is read from: the luminance sky map's 5th percentile over the
+        // covered pixels, every fourth pixel each way (the map is smooth over a block far wider than that).
+        private float SkyFloor()
+        {
+            var values = new List<float>((_width / 4 + 1) * (_height / 4 + 1));
+            for (var y = 0; y < _height; y += 4)
+            {
+                for (var x = 0; x < _width; x += 4)
+                {
+                    var v = _sky[y * _width + x];
+                    if (!IsAbsent(x, y) && float.IsFinite(v))
+                    {
+                        values.Add(v);
+                    }
+                }
+            }
+            return values.Count > 0 ? StatisticsHelper.NthSmallest(CollectionsMarshal.AsSpan(values), values.Count / 20) : float.NaN;
         }
 
         // The core radius when a subtracted star's core, on the working plate, sits more than HoleSigma (in sigma over
