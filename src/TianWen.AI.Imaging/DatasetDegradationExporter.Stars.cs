@@ -266,7 +266,7 @@ public static partial class DatasetDegradationExporter
                 var lum = Luminance(master);
                 foreach (var star in catalogue)
                 {
-                    if (star.Outcome == StarFitOutcome.Subtracted && star.Saturated
+                    if (InjectionPopulation.InSaturatedPool(star, channels)
                         && InjectionMeasure.SaturatedShape(lum, master.Width, master.Height, star.X, star.Y) is { } shape)
                     {
                         measures.Real.Add(shape);

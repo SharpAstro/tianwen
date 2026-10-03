@@ -246,6 +246,21 @@ public class StarInjectionTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void OnlyASaturatedStarSubtractedWithTheFieldsMoffatIsInTheSaturatedPool()
+    {
+        // The pool and every measure of the master's own saturated stars share this rule: a giant's profile or a pair (the
+        // SMC's extended cores were fitted with the profile) is no star the injector reproduces.
+        static FittedStar Star(StarFitModel model, bool saturated, StarFitOutcome outcome = StarFitOutcome.Subtracted)
+            => new FittedStar(10, 10, 200, 1f, 1f, 0.1f, 0.01f, outcome, saturated, false, float.NaN, float.NaN, false, float.NaN, model, [1f]);
+        InjectionPopulation.InSaturatedPool(Star(StarFitModel.Moffat, saturated: true), 1).ShouldBeTrue();
+        InjectionPopulation.InSaturatedPool(Star(StarFitModel.Profile, saturated: true), 1).ShouldBeFalse();
+        InjectionPopulation.InSaturatedPool(Star(StarFitModel.Pair, saturated: true), 1).ShouldBeFalse();
+        InjectionPopulation.InSaturatedPool(Star(StarFitModel.Moffat, saturated: false), 1).ShouldBeFalse();
+        InjectionPopulation.InSaturatedPool(Star(StarFitModel.Moffat, saturated: true, StarFitOutcome.Knot), 1).ShouldBeFalse();
+        InjectionPopulation.InSaturatedPool(Star(StarFitModel.Moffat, saturated: true), 3).ShouldBeFalse("an amplitude per channel or none");
+    }
+
+    [Fact]
     public void AnInjectedStarIsElongatedAsTheMastersStarsAroundItAre()
     {
         const int size = 256;

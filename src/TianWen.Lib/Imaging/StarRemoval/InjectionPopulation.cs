@@ -98,6 +98,21 @@ public sealed class InjectionPopulation
     public int MomentPool => _moments.Length;
 
     /// <summary>
+    /// Whether a catalogued star is one the saturated pool draws from: subtracted with the field's Moffat (a giant's own
+    /// profile, a pair or a blob the builder could only fit otherwise is not a star the injector reproduces), with every
+    /// channel's amplitude, and saturated. The one rule for the pool and for every measure of "the master's own saturated
+    /// stars" set against the injected ones: the R1 checks' real side once took every saturated site, giants and two of the
+    /// SMC's extended cores included, against a pool that never held them.
+    /// </summary>
+    public static bool InSaturatedPool(FittedStar star, int channels) => Usable(star, channels) && star.Saturated;
+
+    // Subtracted with the field's Moffat and an amplitude per channel: what the pool can draw a brightness, a colour and a
+    // shape from.
+    private static bool Usable(FittedStar s, int channels)
+        => s.Outcome == StarFitOutcome.Subtracted && s.Model == StarFitModel.Moffat && s.ChannelAmplitudes.Length == channels
+            && s.ChannelAmplitudes.All(float.IsFinite);
+
+    /// <summary>
     /// Reads a master's population. <paramref name="master"/> and <paramref name="plate"/> are the master and its starless
     /// plate as stored (the catalogue's units); <paramref name="scale"/> takes amplitudes and clip levels into the units the
     /// stars will be rendered in (the exporter's unit range, 1 over its divisor); <paramref name="psf"/> is each channel's
@@ -116,9 +131,6 @@ public sealed class InjectionPopulation
         var fieldFwhm = psf.Average(static p => p.Fwhm);
 
         var sites = catalogue.Where(static s => s.Outcome == StarFitOutcome.Subtracted).Select(static s => ((double)s.X, (double)s.Y)).ToArray();
-        static bool Usable(FittedStar s, int channels)
-            => s.Outcome == StarFitOutcome.Subtracted && s.Model == StarFitModel.Moffat && s.ChannelAmplitudes.Length == channels
-                && s.ChannelAmplitudes.All(float.IsFinite);
         var amplitudes = catalogue
             .Where(s => Usable(s, channels) && !s.Saturated && s.ChannelAmplitudes.Max() > 0)
             .Select(s => s.ChannelAmplitudes.Select(a => Math.Max(0.0, a) * scale).ToImmutableArray())
@@ -140,7 +152,7 @@ public sealed class InjectionPopulation
             platePlanes[c] = plate.GetChannelSpan(c).ToArray();
         }
         var saturated = catalogue
-            .Where(s => Usable(s, channels) && s.Saturated)
+            .Where(s => InSaturatedPool(s, channels))
             .Select(s => SaturatedEntry(s, planes, platePlanes, width, height, scale))
             .Where(static t => t.Clips.Any(double.IsFinite) && t.Clips.All(static v => v > 0))
             .ToArray();
