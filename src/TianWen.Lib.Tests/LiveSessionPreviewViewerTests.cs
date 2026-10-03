@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using DIR.Lib;
 using Shouldly;
+using TianWen.Hosting.Dto;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
@@ -117,6 +119,55 @@ public class LiveSessionPreviewViewerTests
             var live = pane.Tab.GetRegisteredRegions().Single(r => r.Result is HitResult.ButtonHit { Action: "PreviewLive0" });
             Click(pane, new RectF32(live.X, live.Y, live.Width, live.Height));
         }
+    }
+
+    /// <summary>
+    /// The Lens row (#681) while a camera that drives its own lens is live: a click is ONE step (what a user expects of a
+    /// focus button), a button held repeats its step once it has been held for the hold delay and is lit while it does, and
+    /// letting go ends it. Driven over a clock the test advances, so the repeat is counted, never timed.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task A_lens_button_clicked_is_one_step_and_held_repeats_lit_until_let_go()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var renderer = new RgbaImageRenderer(SurfaceW, SurfaceH);
+        var pane = PreviewPane(renderer);
+        var clock = new FakeTimeProviderWrapper { ExternalTimePump = true };
+        var live = new LiveViewController(clock, Microsoft.Extensions.Logging.Abstractions.NullLogger<LiveViewController>.Instance);
+        var sent = live.Began(0, new LiveViewStateDto { Camera = "Canon EOS 6D", Running = true, CanDriveLens = true }).Reader;
+        pane.Tab.LiveView = live;
+        Render(pane);
+
+        var far = pane.Tab.GetRegisteredRegions().Single(r => r.Result is HitResult.ButtonHit { Action: "LensFarSmall" });
+        var (x, y) = (far.X + (far.Width / 2f), far.Y + (far.Height / 2f));
+
+        // A click: one step, and nothing more however long the clock runs on.
+        pane.Router.Handle(new InputEvent.MouseDown(x, y));
+        pane.Router.Handle(new InputEvent.MouseUp(x, y));
+        (await sent.ReadAsync(ct)).ShouldBe(LensFocusStep.FarSmall);
+        clock.Advance(LiveViewController.LensHoldDelay * 3);
+        sent.TryRead(out _).ShouldBeFalse("a click is one step");
+        live.HeldLensStep.ShouldBeNull();
+
+        // Held: a step at once, the same again once the hold delay has passed and on every repeat after, the button lit.
+        pane.Router.Handle(new InputEvent.MouseDown(x, y));
+        (await sent.ReadAsync(ct)).ShouldBe(LensFocusStep.FarSmall);
+        live.HeldLensStep.ShouldBe(LensFocusStep.FarSmall);
+        Render(pane);
+        var nodes = new List<Layout.ArrangedNode<float>>();
+        pane.Tab.CollectPaintedNodes(nodes);
+        nodes.Single(n => n.Node.Hit is HitResult.ButtonHit { Action: "LensFarSmall" }).Node.Background
+            .ShouldBe(GuiTheme.PrimaryButtonBg, "a held button is lit while it repeats");
+        clock.Advance(LiveViewController.LensHoldDelay);
+        (await sent.ReadAsync(ct)).ShouldBe(LensFocusStep.FarSmall);
+        clock.Advance(LiveViewController.LensRepeatInterval);
+        (await sent.ReadAsync(ct)).ShouldBe(LensFocusStep.FarSmall);
+
+        // Let go: no more steps, and the button is no longer lit.
+        pane.Router.Handle(new InputEvent.MouseUp(x, y));
+        live.HeldLensStep.ShouldBeNull();
+        clock.Advance(LiveViewController.LensRepeatInterval * 5);
+        sent.TryRead(out _).ShouldBeFalse("letting go ends the repeat");
     }
 
     /// <summary>

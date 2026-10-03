@@ -449,15 +449,18 @@ namespace TianWen.UI.Abstractions
         /// <summary>
         /// The lens row while a camera that drives its own lens is live (#681, P12 of docs/plans/live-session-preview.md): Near
         /// in the body's large, medium and small step, then Far in the small, medium and large, each button showing its size as
-        /// one to three carets. Steps only, as the body has no position to show.
+        /// one to three carets. Steps only, as the body has no position to show. A click is one step; a button HELD repeats it
+        /// (<see cref="LiveViewController.BeginLensHold"/>) and is lit while it does, its press owning the gesture until the
+        /// button comes up.
         /// </summary>
         private Layout.Node BuildLensRow(LiveViewController live)
         {
-            var bg = GuiTheme.NeutralButtonBg;
             var iconSize = BaseFontSize * 0.85f * Layout.Content.Icon.TextSizeRatio;
+            var held = live.HeldLensStep;
 
             Layout.Node Step(LensFocusStep step)
             {
+                var bg = held == step ? GuiTheme.PrimaryButtonBg : GuiTheme.NeutralButtonBg;
                 var size = Math.Abs((int)step);
                 var kind = (sbyte)step < 0 ? Layout.IconKind.CaretLeft : Layout.IconKind.CaretRight;
                 var marks = new List<Layout.Node> { Layout.Builder.Spacer().WStar() };
@@ -468,7 +471,11 @@ namespace TianWen.UI.Abstractions
                 marks.Add(Layout.Builder.Spacer().WStar());
                 return Layout.Builder.HStack([.. marks])
                     .WFixed(28f).HStar().Bg(bg).BgHover(GuiTheme.Hover(bg))
-                    .Clickable(new HitResult.ButtonHit($"Lens{step}"), _ => live.DriveLens(step));
+                    .Pressable(new HitResult.ButtonHit($"Lens{step}"), _ =>
+                    {
+                        live.BeginLensHold(step);
+                        return new DragCapture(static _ => { }, _ => live.EndLensHold());
+                    });
             }
 
             return Layout.Builder.HStack(

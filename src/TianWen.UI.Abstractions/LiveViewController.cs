@@ -52,6 +52,16 @@ public sealed class LiveViewController : IAsyncDisposable
     // The lens steps asked for while live, each sent at once and in order by the run's own sender (#681).
     private Channel<LensFocusStep>? _lensSteps;
 
+    /// <summary>How long a lens button is held before its step repeats: a click is one step, as a key's first press is.</summary>
+    internal static readonly TimeSpan LensHoldDelay = TimeSpan.FromMilliseconds(400);
+
+    /// <summary>How often a held lens button repeats its step: about eight a second, each taken between two frames.</summary>
+    internal static readonly TimeSpan LensRepeatInterval = TimeSpan.FromMilliseconds(120);
+
+    // The lens step held down (0 = none), and the end of its repeat; a press starts one, its release ends it.
+    private int _heldLensStep;
+    private CancellationTokenSource? _lensHold;
+
     // Staged controls, sent by the run's loop: -1 ticks and int.MinValue gain are "nothing staged".
     private long _pendingExposureTicks = -1;
     private int _pendingGain = int.MinValue;
@@ -92,6 +102,60 @@ public sealed class LiveViewController : IAsyncDisposable
         }
     }
 
+    /// <summary>The lens step whose button is held down, repeating; null while none is. What lights the button.</summary>
+    public LensFocusStep? HeldLensStep => Volatile.Read(ref _heldLensStep) is var held and not 0 ? (LensFocusStep)held : null;
+
+    /// <summary>
+    /// A lens button pressed: one step at once, and the same step again every <see cref="LensRepeatInterval"/> once it has
+    /// been held for <see cref="LensHoldDelay"/>, until <see cref="EndLensHold"/> (its release) or the live view's end. A
+    /// press on another button replaces the hold.
+    /// </summary>
+    public void BeginLensHold(LensFocusStep step)
+    {
+        if (!IsLive)
+        {
+            return;
+        }
+        var hold = new CancellationTokenSource();
+        Interlocked.Exchange(ref _lensHold, hold)?.Cancel();
+        Volatile.Write(ref _heldLensStep, (int)step);
+        RedrawRequested?.Invoke();
+        _ = RepeatLensStepAsync(step, hold);
+    }
+
+    /// <summary>The held lens button let go: its repeat ends, and it stops being lit.</summary>
+    public void EndLensHold()
+    {
+        Interlocked.Exchange(ref _lensHold, null)?.Cancel();
+        if (Interlocked.Exchange(ref _heldLensStep, 0) != 0)
+        {
+            RedrawRequested?.Invoke();
+        }
+    }
+
+    // The held step: once now, then again on the repeat until the hold is cancelled. Owns its token source.
+    private async Task RepeatLensStepAsync(LensFocusStep step, CancellationTokenSource hold)
+    {
+        try
+        {
+            DriveLens(step);
+            await _timeProvider.SleepAsync(LensHoldDelay, hold.Token).ConfigureAwait(false);
+            while (!hold.IsCancellationRequested && IsLive)
+            {
+                DriveLens(step);
+                await _timeProvider.SleepAsync(LensRepeatInterval, hold.Token).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Let go, or replaced by another press.
+        }
+        finally
+        {
+            hold.Dispose();
+        }
+    }
+
     /// <summary>The live frame for the pane, once one has arrived since the start; null before. Render thread only.</summary>
     public IPreviewSource? Source => _hasFrame ? _frame : null;
 
@@ -121,21 +185,31 @@ public sealed class LiveViewController : IAsyncDisposable
             return started.Error ?? "The node did not start the live view";
         }
 
-        Interlocked.Exchange(ref _pendingExposureTicks, -1);
-        Interlocked.Exchange(ref _pendingGain, int.MinValue);
-        Volatile.Write(ref _state, started.Value);
-        Volatile.Write(ref _restartShownRate, 1);
-        Volatile.Write(ref _stopAsked, 0);
-        Volatile.Write(ref _liveOta, request.OtaIndex);
-        RedrawRequested?.Invoke();
-
-        var lensSteps = System.Threading.Channels.Channel.CreateUnbounded<LensFocusStep>(new UnboundedChannelOptions { SingleReader = true });
-        Volatile.Write(ref _lensSteps, lensSteps);
+        var lensSteps = Began(request.OtaIndex, started.Value);
 
         var runCts = CancellationTokenSource.CreateLinkedTokenSource(appToken);
         Interlocked.Exchange(ref _runCts, runCts)?.Dispose();
         _run = Task.Run(() => WatchAsync(node, lensSteps, runCts.Token), CancellationToken.None);
         return null;
+    }
+
+    /// <summary>
+    /// The run began on the node: this view is live from here, with a fresh lens-step queue whose reader is the run's sender.
+    /// What <see cref="StartAsync"/> does once the node has answered, and what a test does without one.
+    /// </summary>
+    internal Channel<LensFocusStep> Began(int otaIndex, LiveViewStateDto? state)
+    {
+        Interlocked.Exchange(ref _pendingExposureTicks, -1);
+        Interlocked.Exchange(ref _pendingGain, int.MinValue);
+        Volatile.Write(ref _state, state);
+        Volatile.Write(ref _restartShownRate, 1);
+        Volatile.Write(ref _stopAsked, 0);
+
+        var lensSteps = System.Threading.Channels.Channel.CreateUnbounded<LensFocusStep>(new UnboundedChannelOptions { SingleReader = true });
+        Volatile.Write(ref _lensSteps, lensSteps);
+        Volatile.Write(ref _liveOta, otaIndex);
+        RedrawRequested?.Invoke();
+        return lensSteps;
     }
 
     /// <summary>A new exposure for the live view going on, sent with the next state read; nothing while none runs.</summary>
@@ -233,6 +307,7 @@ public sealed class LiveViewController : IAsyncDisposable
             {
                 // The reader ends with the watching.
             }
+            EndLensHold();
             lensSteps.Writer.TryComplete();
             try
             {
