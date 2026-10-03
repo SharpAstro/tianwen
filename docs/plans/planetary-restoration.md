@@ -3172,6 +3172,118 @@ The twin's sharpened master, error over bands 1 to 4 and the three colours (`i12
 - **The live stack** (#1202's fourth item) is not aligned yet: it publishes a master many times a second, and a limb fit per colour
   costs seconds. Measuring once and reusing the offsets is the shape it would take.
 
+## Saturn at Jupiter's fidelity
+
+The owner set the goal on 2026-10-03: "Saturn with same or better fidelity as Jupiter data". Today Saturn is declined at the first step.
+The limb fit swallows its rings (a globe 50 % large on 2021-12-16, #1184), so `PlanetaryLimbFit.Unmodelled` turns Saturn away. That leaves
+Saturn the preset sharpening with the limb kept as stacked, no de-rotation, colours aligned by correlation, no twin to judge against, and no
+colour target.
+
+**Nothing about where the rings lie needs fitting.** The ring plane is Saturn's equatorial plane. Its tilt to the line of sight, B, is the
+sub-observer latitude on that plane, and its position angle is the pole's; `PhysicalEphemeris` computes both. The ring radii are fixed
+numbers. Meeus, *Astronomical Algorithms* ch. 45, works the apparent ellipse; `PlanetaryProjection` already carries the equatorial plane and
+the pole. The owner's question on #1184 ("surely there's an algo for that?") is answered by geometry, not by a fit.
+
+**Fidelity** means: every rule a Jupiter master meets, a Saturn master meets with the same numbers, each set before its phase measures.
+Where Saturn adds something Jupiter lacks (the rings), they get a rule of their own.
+
+The phases run in this order, each its own PR.
+
+### S1 The rings in the render
+
+#1231. `SaturnRings`: the rings as flat annuli in the equatorial plane.
+- **The radii:** C ring from 74,658 km, B ring 92,000 to 117,580 km, the Cassini division to 122,170 km, the A ring to 136,775 km. The Encke
+  gap and the F ring are below any capture's resolution.
+- **The brightness** is one free reflectance per ring.
+- `PlanetaryRender` draws the globe (an OPAL Saturn map; the 2021 and 2022 maps are in the corpus, five visible filters) with the rings, in
+  depth order: the near side of the rings hides the globe, the globe hides the far side. The globe's shadow on the rings and the rings' shadow
+  on the globe come from the sub-solar latitude B' and the phase.
+
+**Rule, set before measuring:** the ephemeris and the ring geometry reproduce Meeus's example 45.a (1992 December 16, 0h TD) to 0.01 degree
+in B and in the position angle P, and to 0.05" in the ring's apparent axes (a = 35.87", b = 10.15"), those taken with Meeus's own constant
+for the outer edge (375.35" at 1 AU, about 136,100 km, older than today's 136,775). The render's ring ellipse has the axes its radii give to
+a tenth of a pixel. (Amended before any number was read: the first wording held today's edge to Meeus's constant.)
+
+**Measured (2026-10-03, `SaturnRingsTests`).** Four of the five numbers pass. P fails:
+
+| | This | Meeus 45.a | Off |
+|---|---|---|---|
+| B | 16.438 | 16.442 | 0.004 |
+| B' (not in the rule) | 14.676 | 14.679 | 0.003 |
+| P | 6.715 | 6.741 | **0.026, over the 0.01 allowed** |
+| a | 35.869" | 35.87" | 0.001" |
+| b | 10.150" | 10.15" | 0.000" |
+
+**P's miss is the pole, not the calculation.** Meeus takes the ring plane from his own elements (inclination 28.0752 degrees, node
+169.5085 on the ecliptic of date). Their pole lies 0.029 degree from the IAU 2015 pole `PhysicalEphemeris` uses. Given each pole for the
+same instant, astropy puts the axis at 6.743 with his (his 6.741) and at 6.7125 with the IAU's. R1 already holds P to Horizons, which
+uses the IAU pole, within 0.01 on every Saturn night. On a ring 90 px long, 0.026 degree is 0.04 px. The test holds P to the IAU pole's
+reckoning and says why. The rule as worded stays failed.
+
+**The render draws the ellipse its radii give.** An opaque ring's outer edge, read off the render along both axes:
+
+| Instant | Major axis | Expected | Semi-minor | Expected |
+|---|---|---|---|---|
+| 1992-12-16 | 181.500 px | 181.556 | 25.688 | 25.688 |
+| 2022-10-09 | 181.500 px | 181.556 | 23.875 | 23.875 |
+
+The 0.056 px on the major axis is the 16 rays a pixel: each edge is read to 1/32 px at worst.
+
+**Depth order and shadows** are pinned too. Lit from the observer's own direction, an opaque ring before the globe is the ring's level, a
+half-clear one passes the globe's light twice (the Sun's ray and ours cross the same ring), and the globe hides the far side bit for bit.
+At the 2022-10-09 capture (B 15.25, B' 13.09, phase 4.9), 71 ring pixels lie in the globe's shadow, every one on the side away from the
+Sun, and 40 globe pixels lie in the rings' shadow alone.
+
+**A quarter of each OPAL Saturn map is holes, and the samples beside a hole are no better.** Hubble never saw the band the rings hid
+(no row half valid from 5 to 26 degrees south in the 2022 maps, 7 to 37 in 2021's) nor the pole turned away (south of 66 to 70). OPAL
+leaves those samples at zero. The rows next to a hole fall to a tenth of their level: the 10th percentile at 4.9 degrees south is 24 in
+the 2022 F631N map, against 220 at 4.1. The first render, filled from rows only half valid, showed colour speckle south of the rings and
+a purple fringe at the south limb. `PlanetMap.FilledZonally` drops every sample within 2 degrees of a hole. A row keeping half its
+samples fills the rest with their mean; any other row is interpolated in latitude. `planetary-render-truth --planet saturn` reads the
+map through it and draws `SaturnRings.Main` (`--no-rings` omits them). The rings' levels and optical depths are nominal; S3 calibrates
+them.
+
+### S2 The limb fit with the rings in its model
+
+#1232. The fit's forward model gains the rings: each ring's brightness is free, their geometry is the ephemeris', and they are blurred with the globe
+by the same kernel. The rings fix the image's orientation (their long axis is the equator), which the globe's polar limb, the only part of
+the limb clear of the rings, would hold weakly.
+
+**Rule, set before measuring (T1 for Saturn):** a Saturn rendered by S1 at 2022-10-09's geometry, through the Newtonian and the three Moffat
+seeings T1 used (3 px beta 3, 6 px beta 3, 6 px beta 2), is fitted with the centre within 0.2 px, the equatorial radius within 0.5 % and the
+axis within 0.2 degree: Jupiter's T1 rule, plus the axis, which the rings make measurable. On the three real Saturn captures the fit
+converges, and its residual over the limb is within twice the Jupiter captures'.
+
+### S3 A Saturn twin
+
+#1233. `planetary-degrade` with an S1 Saturn truth, at 2022-10-09's capture (the colour one), calibrated on that capture's statistics as R2
+calibrated Jupiter's on 2022-09-03.
+
+**Rule:** the twin's five statistics and the limb's motion and blur land within R2's bands of the real capture's.
+
+### S4 The derived sharpening on Saturn (#1184)
+
+The sharpening reads its gains through the globe's limb where the rings leave it clear. Outside the globe's limb, `ModelFeathered` draws the
+planet's model (globe and rings) through the pupil, so the rings keep their sharpening, as a moon does (#1181). It no longer holds them at
+the stack.
+
+**Rule:** on the S3 twin, the derived sharpening's error in bands 1 to 4 inside 0.9 of the globe's radius falls to at most 0.44 of the
+stack's (the calibrated Jupiter twin's 0.647 of 1.483). Its limb profile error is at most the Jupiter twin's 0.0053. The rings' radial
+profile is truer than the stack's. And nothing is drawn in the sky clear of the rings.
+
+### S5 De-rotation and colours moved by their limbs
+
+#1234. With the limb fit working, Saturn takes the per-frame de-rotation (its 10.6 h day) and the colour alignment by limb fits (#1202) that
+Jupiter has.
+
+**Rule:** both read on the colour capture as they do on Jupiter's, and the de-rotation's quarters agree on north.
+
+### S6 Saturn's colour
+
+#1235. The colour target from OPAL's Saturn reflectance, by #1212's route through the CIE observer. The rings take the globe's gains.
+
+**Rule:** #1212's three rules, read on Saturn, set before measuring as they were for Jupiter.
+
 ## R9 A learned stage, only if the measurements say so
 
 **Issue:** #1056 (conditional).

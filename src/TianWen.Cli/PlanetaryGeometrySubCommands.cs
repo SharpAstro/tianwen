@@ -946,11 +946,12 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             DefaultValueFactory = _ => 1,
         };
         var outputOpt = new Option<string?>("--output", "-o") { Description = "Where to write the render (FITS)." };
+        var noRingsOpt = new Option<bool>("--no-rings") { Description = "Render Saturn's globe alone, without its rings (S1, #1231)." };
 
         var command = new Command("planetary-render-truth",
             "Render a planet's global map at an instant and a disk's geometry, through the telescope's pupil: the truth the limb fit and the restoration are measured against (T1).")
         {
-            Options = { mapOpt, utcOpt, planetOpt, likeOpt, centerOpt, radiusOpt, northOpt, sizeOpt, mirroredOpt, kOpt, telescopeOpt, wavelengthOpt, seeingFwhmOpt, seeingBetaOpt, fitOpt, upsampleOpt, outputOpt },
+            Options = { mapOpt, utcOpt, planetOpt, likeOpt, centerOpt, radiusOpt, northOpt, sizeOpt, mirroredOpt, kOpt, telescopeOpt, wavelengthOpt, seeingFwhmOpt, seeingBetaOpt, fitOpt, upsampleOpt, outputOpt, noRingsOpt },
         };
 
         command.SetAction((parseResult, ct) =>
@@ -968,6 +969,12 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             }
             var planet = (parseResult.GetValue(planetOpt) ?? "jupiter").ToLowerInvariant() == "saturn" ? CatalogIndex.Saturn : CatalogIndex.Jupiter;
             var aspect = PhysicalEphemeris.Compute(planet, utc);
+            // Saturn's map holds zeros where the rings hid the globe from Hubble; its rings are drawn unless asked not to be.
+            var rings = planet == CatalogIndex.Saturn && !parseResult.GetValue(noRingsOpt) ? SaturnRings.Main : null;
+            if (planet == CatalogIndex.Saturn)
+            {
+                map = map.FilledZonally();
+            }
 
             int width, height;
             DiskPlacement placement;
@@ -1019,15 +1026,15 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             var wavelength = parseResult.GetValue(wavelengthOpt) * 1e-9;
             var truth = (parseResult.GetValue(telescopeOpt) ?? "newtonian").ToLowerInvariant() switch
             {
-                "none" => PlanetaryRender.Render(map, aspect, placement, width, height, k),
-                "maksutov" => PlanetaryRender.RenderDiffracted(map, aspect, placement, width, height, k, MaksutovPupil, wavelength, scale),
-                _ => PlanetaryRender.RenderDiffracted(map, aspect, placement, width, height, k, NewtonianPupil, wavelength, scale),
+                "none" => PlanetaryRender.Render(map, aspect, placement, width, height, k, rings: rings),
+                "maksutov" => PlanetaryRender.RenderDiffracted(map, aspect, placement, width, height, k, MaksutovPupil, wavelength, scale, rings: rings),
+                _ => PlanetaryRender.RenderDiffracted(map, aspect, placement, width, height, k, NewtonianPupil, wavelength, scale, rings: rings),
             };
             var fwhm = parseResult.GetValue(seeingFwhmOpt);
             var seen = fwhm is { } f ? PsfKernel.Moffat(f, parseResult.GetValue(seeingBetaOpt)).Convolve(truth, width, height) : truth;
 
             consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                $"{planet} at {utc:yyyy-MM-dd HH:mm:ss} UTC: CM III {aspect.CentralMeridianIII:0.00}, sub-observer latitude {aspect.SubObserverLatitude:0.00}, phase {aspect.PhaseAngle:0.00}; " +
+                $"{planet} at {utc:yyyy-MM-dd HH:mm:ss} UTC: CM III {aspect.CentralMeridianIII:0.00}, sub-observer latitude {aspect.SubObserverLatitude:0.00} ({aspect.SubObserverLatitudeCentric:0.00} planetocentric), phase {aspect.PhaseAngle:0.00}, pole at {aspect.PolePositionAngle:0.00}; " +
                 $"disk at {placement.CenterX:0.000}, {placement.CenterY:0.000}, R {placement.EquatorialRadius:0.000} px ({scale:0.0000}\"/px), north at {placement.NorthAngleDeg:0.00} deg{(placement.Mirrored ? ", mirrored" : "")}"));
 
             if (parseResult.GetValue(fitOpt))

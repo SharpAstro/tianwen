@@ -947,6 +947,10 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   checked against Horizons to 0.0025 degree. Two traps it found: **the pole angle is referred to the pole of DATE** (to
   the ICRF's it is 0.15 degree off by 2024), and **Meeus's central meridians are corrected for phase** (his example is
   0.43 degree from the geometric meridian Horizons and WinJUPOS give).
+- **Saturn's rings are drawn from the ephemeris, never fitted** (S1, `SaturnRings`, #1231): their plane is the equator, their tilt the
+  planetocentric sub-observer latitude, and the render draws them in depth order with both shadows. **Read an OPAL Saturn map through
+  `PlanetMap.FilledZonally`**: a quarter of it is holes where the rings hid the globe, and the samples within 2 degrees of a hole read at a
+  tenth of their row.
 - **A disk's centre and scale come from `PlanetaryLimbFit`, a forward model, never the centre of mass or an edge
   detector** (R1): Jupiter darkens to its limb, so the blurred image's steepest point lies inside it. **Always model the
   phase**: its brightness asymmetry is first order in the angle (10 degrees ignored put a centre 2.7 px off). Its start is
