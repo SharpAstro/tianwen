@@ -196,7 +196,9 @@ background where it removed a star.
 - **Stars-plate flux conservation** (H5).
 - **Speckles** (`StarlessSpeckles`): the share of removed stars with a core pixel 4 sigma under the output's own sky,
   per significance band, at injected sites and at a held-out master's detections, against the same test at the
-  plate's star-free sky. Gate: no band above twice its null.
+  plate's star-free sky. Gate: no band above twice its null, read per background (`FittedStar.Texture`): a bright
+  nebula's texture alone fires the test at about 10 percent of star-free places (the M42 core), the frame's dark sky
+  under 1.5, so a rate pooled over both judges a remover by how much nebula the field holds.
 - **Real-star spot checks at 1:1** on held-out masters: bright saturated stars, close pairs (the
   deblender's domain), stars on nebulosity, and spikes on the SWQ8 masters. Human adjudication with a
   labelled comparison image; RC outputs never in the frame as a reference. The gradient plan's golden-set
@@ -426,9 +428,17 @@ Tracked by #902 with the rest of P4.0; none of it is a hole.
 - **eta Carinae's inpaint fraction** (above), and the faint stars of its Milky Way field still under the confusion
   the finder's deeper noise reaches.
 - **Faint stars on a bright nebula leave small dark dots** (the Orion plate round the M42 core, visible stretched).
-  The speckle measure barely counts them, because its sky's spread is the annulus's MAD, which a structured nebula
-  inflates; a structure-blind noise (the lag differences the finder already uses) would count them, and is the next
-  step for both the measure and the per-pixel flag.
+  The speckle measure and the hole tests now read their sigma capped by the pixels' own differences
+  (`PointSourceFinder.CapByDifferenceNoise`), which the rms map, counting the nebula's texture as noise, put 1.6
+  times too high there. **Read against the texture's own null**: in a 600 px box on the M42 core the test fires at
+  10.5 to 11 percent of star-free places, in the plate and in the master alike, so the dots R0 adds are the excess
+  over that, 13 points (23.5 percent of the stars) before the hole tests took the capped noise and 7 after (18.3).
+  The per-pixel flags against the smooth sky keep the map's spread, which shields the texture from being taken for
+  residual. A refill driven by the speckle test itself was tried and withdrawn: it made the measure circular and
+  raised the holes. Each star's catalogue row now says what it sits on (`FittedStar.SkyAbove`, its sky above the
+  frame's darkest in the pixels' noise; `FittedStar.Texture`, the map's spread over that noise, 1 on a smooth sky
+  or glow), so a report, a gate or a loss can read a star on nebula apart from one on dark sky; the speckle
+  measure's null is not yet split that way (#902).
 
 ### R1: the injector
 
@@ -503,7 +513,8 @@ amplitude.
 [--saturated-fraction 0.25] [--psf-store <jsonl>]`, the noise anchor defaulting to `master-calibration`, the only
 one it takes. The pieces are `StarProfile`, `StarInjection` and `InjectionPopulation` in
 `TianWen.Lib.Imaging.StarRemoval`, and `StarlessCatalogue`, which now carries each star's model and per-channel
-amplitudes (a catalogue from before reads back with neither, and the injector refuses it rather than guessing).
+amplitudes (a catalogue from before reads back with neither, and the injector refuses it rather than guessing),
+and what each star sits on (`SkyAbove`, `Texture`; NaN from an older catalogue).
 Two details differ from the design above. A cell's count is R0's count in the cell scaled to the cell plus its
 margin, so the margin is as crowded as the cell. And an injected star's elongation comes from the NEAREST eight
 measured stars within 384 px (unsaturated, isolated by 3 FWHM, significance 30 to 1000), not the brightest eight,

@@ -18,7 +18,7 @@ namespace TianWen.Lib.Imaging.StarRemoval;
 public static class StarlessCatalogue
 {
     /// <summary>The header; the columns after <c>hole_depth</c> joined later and are absent from an older file.</summary>
-    public const string Header = "x,y,significance,amplitude,width,sky,sigma,outcome,saturated,inpainted,core_residual,core_bias,second_pass,hole_depth,model,amplitudes";
+    public const string Header = "x,y,significance,amplitude,width,sky,sigma,outcome,saturated,inpainted,core_residual,core_bias,second_pass,hole_depth,model,amplitudes,sky_above,texture";
 
     /// <summary>The catalogue of the plate <c>&lt;stem&gt;_plate.fits</c> in <paramref name="platesDir"/>.</summary>
     public static string PathFor(string platesDir, string stem) => Path.Combine(platesDir, stem + "_plate.stars.csv");
@@ -33,7 +33,7 @@ public static class StarlessCatalogue
                 ? ""
                 : string.Join(';', s.ChannelAmplitudes.Select(static a => a.ToString("G6", CultureInfo.InvariantCulture)));
             sb.Append(string.Create(CultureInfo.InvariantCulture,
-                $"{s.X:F2},{s.Y:F2},{s.Significance:F1},{s.Amplitude:G5},{s.WidthScale:F3},{s.Sky:G5},{s.LocalSigma:G4},{s.Outcome},{(s.Saturated ? 1 : 0)},{(s.Inpainted ? 1 : 0)},{s.CoreResidual:F3},{s.CoreBias:F3},{(s.SecondPass ? 1 : 0)},{s.HoleDepth:F2},{s.Model},{amplitudes}\n"));
+                $"{s.X:F2},{s.Y:F2},{s.Significance:F1},{s.Amplitude:G5},{s.WidthScale:F3},{s.Sky:G5},{s.LocalSigma:G4},{s.Outcome},{(s.Saturated ? 1 : 0)},{(s.Inpainted ? 1 : 0)},{s.CoreResidual:F3},{s.CoreBias:F3},{(s.SecondPass ? 1 : 0)},{s.HoleDepth:F2},{s.Model},{amplitudes},{s.SkyAbove:F1},{s.Texture:F3}\n"));
         }
         await File.WriteAllTextAsync(path, sb.ToString(), cancellationToken);
     }
@@ -41,7 +41,8 @@ public static class StarlessCatalogue
     /// <summary>
     /// Reads a catalogue back. A file from before the model and amplitude columns reads with
     /// <see cref="StarFitModel.None"/> and no amplitudes, which the injector cannot draw from; it says so rather than
-    /// guessing.
+    /// guessing. One from before the sky columns reads NaN for <see cref="FittedStar.SkyAbove"/> and
+    /// <see cref="FittedStar.Texture"/>.
     /// </summary>
     public static async Task<ImmutableArray<FittedStar>> ReadAsync(string path, CancellationToken cancellationToken = default)
     {
@@ -64,10 +65,12 @@ public static class StarlessCatalogue
             var amplitudes = f.Length > 15 && f[15].Length > 0
                 ? f[15].Split(';').Select(F).ToImmutableArray()
                 : ImmutableArray<float>.Empty;
+            var skyAbove = f.Length > 16 ? F(f[16]) : float.NaN;
+            var texture = f.Length > 17 ? F(f[17]) : float.NaN;
             stars.Add(new FittedStar(
                 F(f[0]), F(f[1]), F(f[2]), F(f[3]), F(f[4]), F(f[5]), F(f[6]),
                 Enum.Parse<StarFitOutcome>(f[7]), f[8] == "1", f[9] == "1", F(f[10]), F(f[11]), f[12] == "1", F(f[13]),
-                model, amplitudes));
+                model, amplitudes, skyAbove, texture));
         }
         return stars.ToImmutable();
     }
