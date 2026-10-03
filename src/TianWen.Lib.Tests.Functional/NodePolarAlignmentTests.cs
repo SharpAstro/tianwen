@@ -27,8 +27,13 @@ namespace TianWen.Lib.Tests.Functional;
 /// geometry, which PolarAlignmentSessionTests covers.
 /// </summary>
 [Collection("Hosting")]
-public class NodePolarAlignmentTests(ITestOutputHelper outputHelper)
+public class NodePolarAlignmentTests(ITestOutputHelper outputHelper) : IDisposable
 {
+    /// <summary>The temporary folders this test made, deleted after it (#1197).</summary>
+    private readonly TempFolders _folders = new();
+
+    public void Dispose() => _folders.Dispose();
+
     private static readonly FakeDevice Camera = new FakeDevice(DeviceType.Camera, 1);
     private static readonly FakeDevice Mount = new FakeDevice(DeviceType.Mount, 1);
 
@@ -238,7 +243,7 @@ public class NodePolarAlignmentTests(ITestOutputHelper outputHelper)
     public async Task TheJournalRecordsAPolarAlignmentByItsKind()
     {
         var ct = TestContext.Current.CancellationToken;
-        var path = Path.Combine(Directory.CreateTempSubdirectory("twj").FullName, "node.journal");
+        var path = Path.Combine(_folders.Create("twj").FullName, "node.journal");
         var solver = StandInSolver.NeverAnswering();
         await using var node = await PolarNodeAsync(solver, NodeRunWatchOptions.Default.DetachGrace, ct,
             services => services.AddSingleton(new NodeJournalOptions(path, null, static () => null, TimeProvider.System)));

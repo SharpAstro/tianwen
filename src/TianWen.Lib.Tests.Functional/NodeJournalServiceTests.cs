@@ -30,9 +30,14 @@ namespace TianWen.Lib.Tests.Functional;
 /// process, on a journal path of the test's own; <c>NodeJournalProcessTests</c> kills a real node.
 /// </summary>
 [Collection("Hosting")]
-public class NodeJournalServiceTests(ITestOutputHelper outputHelper)
+public class NodeJournalServiceTests(ITestOutputHelper outputHelper) : IDisposable
 {
-    private static string NewJournalPath() => Path.Combine(Directory.CreateTempSubdirectory("twj").FullName, "node.journal");
+    /// <summary>The temporary folders this test made, deleted after it (#1197).</summary>
+    private readonly TempFolders _folders = new();
+
+    public void Dispose() => _folders.Dispose();
+
+    private string NewJournalPath() => Path.Combine(_folders.Create("twj").FullName, "node.journal");
 
     private Task<NodeHarness> StartAsync(string journal, int? afterCrashOf, DateTimeOffset? lastBoot, CancellationToken ct) =>
         NodeHarness.StartAsync(outputHelper, ct,
@@ -121,7 +126,7 @@ public class NodeJournalServiceTests(ITestOutputHelper outputHelper)
     private const string Camera = "Camera://FakeDevice/FakeCamera1#Fake Camera 1";
 
     /// <summary>A journal the keeper vouches for: a mount and a camera cooling to -10 C, in a session's run.</summary>
-    private static async Task<(string Path, DateTimeOffset Written)> BelievedJournalAsync(CancellationToken ct, params NodeJournalDevice[] devices)
+    private async Task<(string Path, DateTimeOffset Written)> BelievedJournalAsync(CancellationToken ct, params NodeJournalDevice[] devices)
     {
         var path = NewJournalPath();
         var written = DateTimeOffset.UtcNow.AddSeconds(-5);
@@ -338,7 +343,7 @@ public class NodeJournalServiceTests(ITestOutputHelper outputHelper)
             new NodeJournalDevice(Camera, "Fake Camera 1", CoolerIntentKind.Cool, -10),
             new NodeJournalDevice(Mount, "Fake Mount", null, null),
             new NodeJournalDevice(focuser, "Fake Focuser", null, null));
-        var external = new JournalRefusingExternal(outputHelper, path);
+        var external = new JournalRefusingExternal(outputHelper, path, _folders.Create("tw_"));
         var logs = new WarningCapture();
         await using var node = await NodeHarness.StartAsync(outputHelper, ct, services =>
         {
@@ -367,8 +372,8 @@ public class NodeJournalServiceTests(ITestOutputHelper outputHelper)
     }
 
     /// <summary>A node's IO whose writes to the journal fail as a replace refused past its retries does, until told not to.</summary>
-    private sealed class JournalRefusingExternal(ITestOutputHelper outputHelper, string journal)
-        : FakeExternal(outputHelper, Directory.CreateTempSubdirectory("tw_" + Guid.NewGuid().ToString("D"))), IExternal
+    private sealed class JournalRefusingExternal(ITestOutputHelper outputHelper, string journal, DirectoryInfo root)
+        : FakeExternal(outputHelper, root), IExternal
     {
         private int _refused;
         private volatile bool _refusing = true;

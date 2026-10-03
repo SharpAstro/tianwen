@@ -33,7 +33,7 @@ internal sealed class NodeHarness : IAsyncDisposable
 {
     public static readonly Guid ProfileId = new Guid("5a1ec7ed-0b0e-4e5d-9a5e-000000000001");
 
-    private NodeHarness(WebApplication app, NodeTransport transport, ControlledSessionFactory factory, IExternal external, NodeLock? held)
+    private NodeHarness(WebApplication app, NodeTransport transport, ControlledSessionFactory factory, IExternal external, NodeLock? held, TempFolders folders)
     {
         App = app;
         Transport = transport;
@@ -41,14 +41,21 @@ internal sealed class NodeHarness : IAsyncDisposable
         Factory = factory;
         External = external;
         _held = held;
+        _folders = folders;
     }
 
     private readonly NodeLock? _held;
+
+    /// <summary>The node's data folder, and its socket's when it made one: deleted once it has stopped (#1197).</summary>
+    private readonly TempFolders _folders;
 
     public WebApplication App { get; }
 
     /// <summary>How a client reaches this node: its own socket when started on one, else loopback TCP.</summary>
     public NodeTransport Transport { get; }
+
+    /// <summary>The socket this node listens on, or null over loopback TCP.</summary>
+    public string? SocketPath => _held?.SocketPath;
 
     public HttpClient Client { get; }
 
@@ -60,9 +67,31 @@ internal sealed class NodeHarness : IAsyncDisposable
 
     /// <param name="configure">Registers services last, over the node's own (a discovery a test controls).</param>
     /// <param name="socketPath">Listens on this socket, and on nothing else, as the machine's node does: taking its
-    /// lock first, as every node must. Null listens on loopback TCP.</param>
+    /// lock first, as every node must. Null listens on loopback TCP, unless <paramref name="onItsSocket"/>.</param>
+    /// <param name="onItsSocket">Listens on a socket in a folder of its own, which the harness deletes when it is
+    /// disposed: what a test passes when it needs a socket but not a particular one.</param>
     public static async Task<NodeHarness> StartAsync(ITestOutputHelper outputHelper, CancellationToken cancellationToken,
-        Action<IServiceCollection>? configure = null, string? socketPath = null)
+        Action<IServiceCollection>? configure = null, string? socketPath = null, bool onItsSocket = false)
+    {
+        var folders = new TempFolders();
+        try
+        {
+            if (onItsSocket)
+            {
+                socketPath ??= Path.Combine(folders.Create("tws").FullName, "node.sock");
+            }
+
+            return await StartAsync(outputHelper, configure, socketPath, folders, cancellationToken);
+        }
+        catch
+        {
+            folders.Dispose();
+            throw;
+        }
+    }
+
+    private static async Task<NodeHarness> StartAsync(ITestOutputHelper outputHelper, Action<IServiceCollection>? configure,
+        string? socketPath, TempFolders folders, CancellationToken cancellationToken)
     {
         var builder = WebApplication.CreateBuilder();
         NodeLock? held = null;
@@ -88,7 +117,7 @@ internal sealed class NodeHarness : IAsyncDisposable
         builder.Logging.SetMinimumLevel(LogLevel.Debug);
         builder.Logging.AddFilter("Microsoft", LogLevel.Warning);
 
-        var external = new FakeExternal(outputHelper, Directory.CreateTempSubdirectory("tw_" + Guid.NewGuid().ToString("D")));
+        var external = new FakeExternal(outputHelper, folders.Create("tw_"));
         var factory = new ControlledSessionFactory();
         builder.Services.AddSingleton<IExternal>(external);
         // A REAL clock: the node's background loops (the broadcaster's 1 s poll, the limit watcher) must wait
@@ -127,7 +156,7 @@ internal sealed class NodeHarness : IAsyncDisposable
         var transport = held is not null
             ? NodeTransport.OverSocket(held.SocketPath)
             : NodeTransport.OverTcp(new Uri(app.Urls.First()), await NodeAccessForTests.TrustTheTestAsync(app, cancellationToken));
-        return new NodeHarness(app, transport, factory, external, held);
+        return new NodeHarness(app, transport, factory, external, held, folders);
     }
 
     /// <summary>
@@ -190,6 +219,7 @@ internal sealed class NodeHarness : IAsyncDisposable
         await App.StopAsync();
         await App.DisposeAsync();
         _held?.Dispose();
+        _folders.Dispose();
     }
 }
 

@@ -39,7 +39,7 @@ public class NodeActuationGateTests(ITestOutputHelper outputHelper) : IAsyncLife
     // On a socket, as the machine's node listens: only a client on it may create or delete a profile (decision 4).
     [MemberNotNull(nameof(_harness))]
     public async ValueTask InitializeAsync() => _harness = await NodeHarness.StartAsync(outputHelper, TestContext.Current.CancellationToken,
-        socketPath: Path.Combine(Directory.CreateTempSubdirectory("tws").FullName, "node.sock"));
+        onItsSocket: true);
 
     public async ValueTask DisposeAsync()
     {

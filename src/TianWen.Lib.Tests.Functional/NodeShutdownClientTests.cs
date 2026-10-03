@@ -28,7 +28,7 @@ public class NodeShutdownClientTests(ITestOutputHelper output)
         }
 
         await using var onItsSocket = await NodeHarness.StartAsync(output, ct,
-            socketPath: Path.Combine(Directory.CreateTempSubdirectory("tws").FullName, "node.sock"));
+            onItsSocket: true);
         var stopping = onItsSocket.App.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping;
 
         (await new TianWenNodeClient(onItsSocket.Client).ShutdownNodeAsync(ct)).IsSuccess.ShouldBeTrue();

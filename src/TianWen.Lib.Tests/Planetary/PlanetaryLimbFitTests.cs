@@ -13,8 +13,13 @@ namespace TianWen.Lib.Tests;
 /// within 0.05 px and the radius within the plan's 0.5 % under a Moffat PSF the model does not have; the geometric centre
 /// within 0.05 px at a 10 degree phase.
 /// </summary>
-public class PlanetaryLimbFitTests
+public class PlanetaryLimbFitTests : IDisposable
 {
+    /// <summary>The temporary folders this test made, deleted after it (#1197).</summary>
+    private readonly TempFolders _folders = new();
+
+    public void Dispose() => _folders.Dispose();
+
     private const int Size = 200;
     private const double TrueX = 100.37;
     private const double TrueY = 98.81;
@@ -105,7 +110,7 @@ public class PlanetaryLimbFitTests
     [Fact]
     public void AWinJuposMeasurementIsReadWithItsOutlineTimeAndMeridians()
     {
-        var folder = Directory.CreateTempSubdirectory("twwinjupos");
+        var folder = _folders.Create("twwinjupos");
         var xml = Path.Combine(folder.FullName, "2022-09-03-1209.0.ims.xml");
         File.WriteAllText(xml, """
             <?xml version="1.0" encoding="UTF-8"?>

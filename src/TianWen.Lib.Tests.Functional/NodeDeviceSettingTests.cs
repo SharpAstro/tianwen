@@ -35,7 +35,7 @@ public class NodeDeviceSettingTests(ITestOutputHelper output) : IAsyncLifetime
     [System.Diagnostics.CodeAnalysis.MemberNotNull(nameof(_node))]
     // With the weather source tianwen-server composes, whose device carries a masked setting (its API key).
     public async ValueTask InitializeAsync() => _node = await NodeHarness.StartAsync(output, TestContext.Current.CancellationToken,
-        services => services.AddOpenWeatherMap(), Path.Combine(Directory.CreateTempSubdirectory("tws").FullName, "node.sock"));
+        services => services.AddOpenWeatherMap(), onItsSocket: true);
 
     public async ValueTask DisposeAsync()
     {

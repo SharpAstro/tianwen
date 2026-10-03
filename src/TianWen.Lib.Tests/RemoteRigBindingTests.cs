@@ -20,8 +20,13 @@ namespace TianWen.Lib.Tests
     /// the binding, and an offline rig must stay listed rather than looking like the binding was lost.
     /// </para>
     /// </summary>
-    public class RemoteRigBindingTests(ITestOutputHelper output)
+    public class RemoteRigBindingTests(ITestOutputHelper output) : IDisposable
     {
+        /// <summary>The temporary folders this test made, deleted after it (#1197).</summary>
+        private readonly TempFolders _folders = new();
+
+        public void Dispose() => _folders.Dispose();
+
         private readonly ITestOutputHelper _output = output;
 
         /// <summary>
@@ -37,7 +42,7 @@ namespace TianWen.Lib.Tests
         private FakeExternal FreshExternal() => new FakeExternal(
             _output,
             new FakeTimeProviderWrapper(DateTimeOffset.UnixEpoch),
-            root: Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), $"tw-rigbind-{Guid.NewGuid():N}")));
+            root: _folders.Create("tw-rigbind-"));
 
         private static RemoteRigBinding Binding(string alias = "Observatory", string? nodeId = null, string? address = null) =>
             new RemoteRigBinding

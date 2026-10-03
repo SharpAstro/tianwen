@@ -36,7 +36,7 @@ public class NodeFrameStreamTests(ITestOutputHelper outputHelper)
     private async Task<(NodeHarness Node, NodeWindow Window)> CapturingAsync(CancellationToken ct, bool onItsSocket = false)
     {
         var node = await NodeHarness.StartAsync(outputHelper, ct,
-            socketPath: onItsSocket ? Path.Combine(Directory.CreateTempSubdirectory("tws").FullName, "node.sock") : null);
+            onItsSocket: onItsSocket);
         await node.ActivateRigAsync(Camera, mount: null, ct);
         var window = await NodeWindow.OpenAsync(node, outputHelper, ct);
         (await new TianWenNodeClient(node.Client).StartPlanetaryAsync(new PlanetaryRequestDto(), ct)).IsSuccess.ShouldBeTrue();

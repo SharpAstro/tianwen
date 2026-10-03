@@ -35,9 +35,9 @@ public class NodeFrameCompressionTests(ITestOutputHelper output)
         return new Image([plane], BitDepth.Int16, maxValue: 65535, minValue: 0, pedestal: 0, default);
     }
 
-    private static async Task<NodeHarness> RunningAsync(ITestOutputHelper output, Image frame, string? socketPath, CancellationToken ct)
+    private static async Task<NodeHarness> RunningAsync(ITestOutputHelper output, Image frame, bool onItsSocket, CancellationToken ct)
     {
-        var node = await NodeHarness.StartAsync(output, ct, socketPath: socketPath);
+        var node = await NodeHarness.StartAsync(output, ct, onItsSocket: onItsSocket);
         node.Factory.OnCreated = controlled =>
         {
             controlled.Session.LastCapturedImages.Returns([frame]);
@@ -68,7 +68,7 @@ public class NodeFrameCompressionTests(ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
         var frame = Frame();
-        await using var node = await RunningAsync(output, frame, socketPath: null, ct);
+        await using var node = await RunningAsync(output, frame, onItsSocket: false, ct);
         using var plain = new HttpClient { BaseAddress = node.Transport.BaseAddress };
 
         var (encoding, bytes) = await AskAsync(plain, acceptEncoding, ct);
@@ -90,7 +90,7 @@ public class NodeFrameCompressionTests(ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
         var frame = Frame();
-        await using var node = await RunningAsync(output, frame, socketPath: null, ct);
+        await using var node = await RunningAsync(output, frame, onItsSocket: false, ct);
 
         var got = await new TianWenNodeClient(node.Client).GetLatestFrameAsync(FrameSources.Ota(0), after: null, new FrameReader(), ct);
 
@@ -103,7 +103,7 @@ public class NodeFrameCompressionTests(ITestOutputHelper output)
     public async Task OverTheSocketAFrameIsNeverCompressed()
     {
         var ct = TestContext.Current.CancellationToken;
-        await using var node = await RunningAsync(output, Frame(), Path.Combine(Directory.CreateTempSubdirectory("tws").FullName, "node.sock"), ct);
+        await using var node = await RunningAsync(output, Frame(), onItsSocket: true, ct);
         using var plain = NodeTransport.OverSocket(node.Transport.SocketPath!).CreateHttpClient();
 
         var (encoding, _) = await AskAsync(plain, "br, gzip", ct);

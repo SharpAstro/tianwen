@@ -14,8 +14,13 @@ namespace TianWen.Lib.Tests;
 /// node listens given how it was started and the setting, the setting kept in the data root, and the logon entry each
 /// OS keeps, written to places of the test's own, never the user's.
 /// </summary>
-public class NodeShareSettingTests
+public class NodeShareSettingTests : IDisposable
 {
+    /// <summary>The temporary folders this test made, deleted after it (#1197).</summary>
+    private readonly TempFolders _folders = new();
+
+    public void Dispose() => _folders.Dispose();
+
     [Theory]
     // Run by hand: the LAN, as a mini PC's node does, whatever the setting; --local-only takes it away.
     [InlineData(false, false, false, true)]
@@ -38,7 +43,7 @@ public class NodeShareSettingTests
     [Fact]
     public async Task TheSettingIsReadFromTheDataRootAndDefaultsToNotShared()
     {
-        var root = Directory.CreateTempSubdirectory("twset");
+        var root = _folders.Create("twset");
 
         (await NodeSettings.LoadAsync(root, TestContext.Current.CancellationToken)).ShouldBe(NodeSettings.Default);
         NodeSettings.Default.ShareOnLan.ShouldBeFalse("a rig is shared only when the user says so");
@@ -53,7 +58,7 @@ public class NodeShareSettingTests
     [Fact]
     public void AnXdgAutostartEntryStartsTheKeeperAndGoesWhenUnset()
     {
-        var entries = new NodeLogonStart.XdgAutostart(Directory.CreateTempSubdirectory("twxdg").FullName);
+        var entries = new NodeLogonStart.XdgAutostart(_folders.Create("twxdg").FullName);
         const string server = "/opt/Tian Wen/bin \"new\"/tianwen-server";
 
         entries.Set(true, server);
@@ -71,7 +76,7 @@ public class NodeShareSettingTests
     [Fact]
     public void ALaunchAgentStartsTheKeeperAtLoadAndGoesWhenUnset()
     {
-        var agents = new NodeLogonStart.LaunchAgent(Directory.CreateTempSubdirectory("twla").FullName);
+        var agents = new NodeLogonStart.LaunchAgent(_folders.Create("twla").FullName);
 
         agents.Set(true, "/Applications/Tian & Wen.app/Contents/MacOS/tianwen-server");
 

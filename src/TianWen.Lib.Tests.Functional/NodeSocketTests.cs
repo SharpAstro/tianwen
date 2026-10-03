@@ -22,9 +22,14 @@ namespace TianWen.Lib.Tests.Functional;
 /// socket's lock, and only that holder clears a socket a dead node left.
 /// </summary>
 [Collection("Hosting")]
-public class NodeSocketTests(ITestOutputHelper outputHelper)
+public class NodeSocketTests(ITestOutputHelper outputHelper) : IDisposable
 {
-    private static string NewSocketPath() => Path.Combine(Directory.CreateTempSubdirectory("tws").FullName, "node.sock");
+    /// <summary>The temporary folders this test made, deleted after it (#1197).</summary>
+    private readonly TempFolders _folders = new();
+
+    public void Dispose() => _folders.Dispose();
+
+    private string NewSocketPath() => Path.Combine(_folders.Create("tws").FullName, "node.sock");
 
     [Fact(Timeout = 30_000)]
     public async Task ANodeOnItsSocketSaysWhichNodeItIs()

@@ -30,8 +30,13 @@ namespace TianWen.Lib.Tests
     /// path, so a drift in either end fails here rather than showing a black rectangle on a rig.
     /// </para>
     /// </summary>
-    public class RemoteSessionMirrorDriveTests
+    public class RemoteSessionMirrorDriveTests : IDisposable
     {
+        /// <summary>The temporary folders this test made, deleted after it (#1197).</summary>
+        private readonly TempFolders _folders = new();
+
+        public void Dispose() => _folders.Dispose();
+
         // -------------------------------------------------------------------------------------------
         // Scripted transport, routed by path so one handler can serve state + preview + prompt
         // -------------------------------------------------------------------------------------------
@@ -454,7 +459,7 @@ namespace TianWen.Lib.Tests
             // a node on another machine it names a file there, which a file of the same name here must never be
             // taken for.
             var saved = CameraFrame();
-            var path = Path.Combine(Directory.CreateTempSubdirectory("tw-saved").FullName, "frame7.fits");
+            var path = Path.Combine(_folders.Create("tw-saved").FullName, "frame7.fits");
             saved.WriteToFitsFile(path);
             var state = RemoteSessionMirrorTests.RunningState(lastFramePath: path);
 

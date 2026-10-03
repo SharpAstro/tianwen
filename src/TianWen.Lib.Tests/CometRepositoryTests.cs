@@ -21,8 +21,13 @@ namespace TianWen.Lib.Tests;
 /// reuse (no refetch), TTL-expiry refetch, and offline stale fallback -- all driven by a fake SBDB
 /// source and the <see cref="FakeExternal"/> temp-dir + fake clock (no network, no wall-clock).
 /// </summary>
-public class CometRepositoryTests(ITestOutputHelper output)
+public class CometRepositoryTests(ITestOutputHelper output) : IDisposable
 {
+    /// <summary>The temporary folders this test made, deleted after it (#1197).</summary>
+    private readonly TempFolders _folders = new();
+
+    public void Dispose() => _folders.Dispose();
+
     private sealed class FakeSbdbCometSource(IReadOnlyList<CometElements> elements, bool @throw = false) : ISbdbCometSource
     {
         public int FetchCount { get; private set; }
@@ -53,7 +58,7 @@ public class CometRepositoryTests(ITestOutputHelper output)
     // and read as "fresh" against the fixed default fake epoch.
     private FakeExternal CreateExternal(FakeTimeProviderWrapper timeProvider)
     {
-        var root = new DirectoryInfo(Directory.CreateTempSubdirectory("comet-repo-test-").FullName);
+        var root = _folders.Create("comet-repo-test-");
         return new FakeExternal(output, timeProvider, root);
     }
 

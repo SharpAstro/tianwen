@@ -19,14 +19,19 @@ namespace TianWen.Lib.Tests;
 /// capture's header and settings read and never written, a manifest a re-run repeats byte for byte, and a crop that keeps
 /// every frame, the Bayer phase, the source's header and its trailer, verified against the source byte for byte.
 /// </summary>
-public class PlanetaryCorpusTests
+public class PlanetaryCorpusTests : IDisposable
 {
+    /// <summary>The temporary folders this test made, deleted after it (#1197).</summary>
+    private readonly TempFolders _folders = new();
+
+    public void Dispose() => _folders.Dispose();
+
     private static readonly DateTimeOffset T0 = new DateTimeOffset(2024, 12, 15, 12, 33, 50, TimeSpan.Zero);
 
     /// <summary>A crop's options on a drive with room to spare: the default reserve is the user's D:, not a test machine's temp.</summary>
     private static readonly CropOptions Roomy = new CropOptions(KeepFreeBytes: 0);
 
-    private static DirectoryInfo NewFolder() => Directory.CreateTempSubdirectory("twcorpus");
+    private DirectoryInfo NewFolder() => _folders.Create("twcorpus");
 
     /// <summary>
     /// A folder of one FITS file a frame, as SharpCap writes one by accident: <paramref name="frames"/> mono frames of 16x12 in

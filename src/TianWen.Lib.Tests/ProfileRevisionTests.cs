@@ -12,15 +12,20 @@ namespace TianWen.Lib.Tests;
 /// against (P3 part 1 of docs/plans/hardware-in-the-server.md, #930): the hash of the file's bytes, so it follows what is
 /// stored and nothing else.
 /// </summary>
-public class ProfileRevisionTests(ITestOutputHelper output)
+public class ProfileRevisionTests(ITestOutputHelper output) : IDisposable
 {
+    /// <summary>The temporary folders this test made, deleted after it (#1197).</summary>
+    private readonly TempFolders _folders = new();
+
+    public void Dispose() => _folders.Dispose();
+
     private static readonly Guid Id = Guid.Parse("7e57ab1e-0b0e-4e5d-9a5e-000000000931");
 
     private static ProfileData Rig(string camera) => new ProfileData(
         new Uri("Mount://FakeDevice/FakeMount1"), NoneDevice.Instance.DeviceUri,
         [new OTAData("Main", 800, new Uri($"Camera://FakeDevice/{camera}"), null, null, null, null, null)]);
 
-    private FakeExternal External() => new FakeExternal(output, Directory.CreateTempSubdirectory("tw_rev_"));
+    private FakeExternal External() => new FakeExternal(output, _folders.Create("tw_rev_"));
 
     [Fact]
     public async Task WhatIsReadBackHasTheRevisionItWasSavedAt()

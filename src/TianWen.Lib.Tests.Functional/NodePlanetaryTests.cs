@@ -28,8 +28,13 @@ namespace TianWen.Lib.Tests.Functional;
 /// and the capture stops once no client has been present for the detach grace.
 /// </summary>
 [Collection("Hosting")]
-public class NodePlanetaryTests(ITestOutputHelper outputHelper)
+public class NodePlanetaryTests(ITestOutputHelper outputHelper) : IDisposable
 {
+    /// <summary>The temporary folders this test made, deleted after it (#1197).</summary>
+    private readonly TempFolders _folders = new();
+
+    public void Dispose() => _folders.Dispose();
+
     private static readonly FakeDevice Camera = new FakeDevice(DeviceType.Camera, 1);
 
     private static readonly PlanetaryRequestDto Default = new PlanetaryRequestDto();
@@ -350,7 +355,7 @@ public class NodePlanetaryTests(ITestOutputHelper outputHelper)
     public async Task TheJournalRecordsAPlanetaryCaptureByItsKind()
     {
         var ct = TestContext.Current.CancellationToken;
-        var path = Path.Combine(Directory.CreateTempSubdirectory("twj").FullName, "node.journal");
+        var path = Path.Combine(_folders.Create("twj").FullName, "node.journal");
         await using var node = await PlanetaryNodeAsync(NodeRunWatchOptions.Default.DetachGrace, ct,
             services => services.AddSingleton(new NodeJournalOptions(path, null, static () => null, TimeProvider.System)));
         await node.ActivateRigAsync(Camera, mount: null, ct);
