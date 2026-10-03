@@ -351,6 +351,16 @@ public readonly record struct TakePreviewSignal(
 public readonly record struct StopPreviewSignal(int OtaIndex = 0);
 
 /// <summary>
+/// Start a live view of one OTA's camera in the Preview mode (#1111): the node streams it, and the pane shows its frames
+/// until <see cref="StopLiveViewSignal"/>, a <see cref="TakePreviewSignal"/> (which takes its still once the live view has
+/// ended), or the node ending it.
+/// </summary>
+public readonly record struct StartLiveViewSignal(int OtaIndex, double ExposureSeconds, int? Gain = null, short Binning = 1);
+
+/// <summary>Stop the live view started by <see cref="StartLiveViewSignal"/>.</summary>
+public readonly record struct StopLiveViewSignal;
+
+/// <summary>
 /// Write the current preview frame to disk under a "Snapshot" target.
 /// Only valid when a preview image exists and no session is running.
 /// </summary>

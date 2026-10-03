@@ -1156,7 +1156,7 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   bandwidth while it runs (16 bits at the 50 a connect sets was 31.9 frames a second on an ASI462MC, 8 bits at 100 is
   136). **A frame declares the full scale of the depth it was READ OUT in** (`DALCameraDriver.MaxAduFor`): the camera's
   16-bit full scale on an 8-bit frame puts it at a sixteenth of its brightness in the live stack.
-- **The capture loop is `PlanetaryCapture` (Lib), ONE for the GUI and the node**: the camera, the stream, the
+- **The capture loop is `PlanetaryCapture` (Lib), ONE for the GUI and the node, and for the Preview's live view** (`LiveCaptureKind.LiveView`, `NodeLiveView`, #1111: the whole sensor at the Preview's binning, no frame kept): the camera, the stream, the
   live controls and the recenter. The GUI's `PlanetaryCaptureController` starts the node's run, sends the panel's
   controls only as they CHANGE (`NodePlanetaryCapture`: the panel pushes its recenter every frame) and shows the
   masters the node streams through the same `LiveStackPreviewSource` a SER playback uses (`NodeMasters`); the node

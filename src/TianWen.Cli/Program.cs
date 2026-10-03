@@ -59,6 +59,7 @@ builder.Services
     // begins, so registering it costs nothing and keeps the handler host-agnostic. Same reason the TUI
     // hands the handler a standalone SkyMapState: supply what it needs rather than branch inside it.
     .AddSingleton<PlanetaryCaptureController>()
+    .AddSingleton<LiveViewController>()
     // RC-preferred: uses RC-Astro (sxt/nxt/bxt) when the CLI is installed and the
     // product is licensed, else TianWen's own model where the role has one.
     // AddRcAstroAi() calls AddTianWenAi() internally, so the in-house baseline stands.

@@ -532,6 +532,28 @@ namespace TianWen.RemoteClient
             SendAsync(HttpMethod.Delete, "api/v1/planetary", null, HostingJsonContext.Default.ResponseEnvelopePlanetaryStateDto, _timeouts.Control, cancellationToken);
 
         /// <summary>
+        /// <c>POST /live</c> -- a live view of an OTA's camera as the node's run (#1111), its frames kept nowhere. They are
+        /// <see cref="FrameSources.LiveView"/>; it runs until <see cref="StopLiveViewAsync"/>, or by itself until this client
+        /// has stopped beating for the node's detach grace.
+        /// </summary>
+        public Task<NodeResult<LiveViewStateDto>> StartLiveViewAsync(LiveViewRequestDto request, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/live", request, HostingJsonContext.Default.LiveViewRequestDto,
+                HostingJsonContext.Default.ResponseEnvelopeLiveViewStateDto, _timeouts.Control, cancellationToken);
+
+        /// <summary><c>GET /live</c> -- the live view going on, or the last one to end.</summary>
+        public Task<NodeResult<LiveViewStateDto>> GetLiveViewAsync(CancellationToken cancellationToken) =>
+            GetAsync("api/v1/live", HostingJsonContext.Default.ResponseEnvelopeLiveViewStateDto, _timeouts.StatePoll, cancellationToken);
+
+        /// <summary><c>PUT /live/controls</c> -- a new exposure or gain for the live view going on, from its next frame.</summary>
+        public Task<NodeResult<LiveViewStateDto>> SetLiveViewControlsAsync(LiveViewControlsDto controls, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Put, "api/v1/live/controls", controls, HostingJsonContext.Default.LiveViewControlsDto,
+                HostingJsonContext.Default.ResponseEnvelopeLiveViewStateDto, _timeouts.Control, cancellationToken);
+
+        /// <summary><c>DELETE /live</c> -- ends the live view going on, answered once it has and the camera is free.</summary>
+        public Task<NodeResult<LiveViewStateDto>> StopLiveViewAsync(CancellationToken cancellationToken) =>
+            SendAsync(HttpMethod.Delete, "api/v1/live", null, HostingJsonContext.Default.ResponseEnvelopeLiveViewStateDto, _timeouts.Control, cancellationToken);
+
+        /// <summary>
         /// <c>POST /preview/ota/{index}/exposure</c> -- a preview exposure with OTA <paramref name="otaIndex"/>'s camera outside a
         /// session, as a job (P5 part 2 of docs/plans/hardware-in-the-server.md). Its frame is then the OTA's, served by
         /// <see cref="GetLatestFrameAsync"/>.

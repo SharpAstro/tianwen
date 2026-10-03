@@ -39,7 +39,8 @@ namespace TianWen.UI.Abstractions
             {
                 return false;
             }
-            if (State is { } state && _displayedOta is { } ota && !IsPreviewSolving(state, ota))
+            // The node solves the still it keeps, never a live view's frame, which it keeps nowhere.
+            if (!_showingLive && State is { } state && _displayedOta is { } ota && !IsPreviewSolving(state, ota))
             {
                 PostSignal(new PlateSolvePreviewSignal(ota));
             }
@@ -51,7 +52,7 @@ namespace TianWen.UI.Abstractions
         /// placed yet, and no solve of it going on. Null for every other action, which the viewer judges itself.
         /// </summary>
         private bool? PreviewCanRun(ToolbarAction action) => action is ToolbarAction.PlateSolve
-            ? State is { } state && _displayedOta is { } ota && !IsPreviewSolving(state, ota) && !_previewSource.Findings.IsPlateSolved
+            ? !_showingLive && State is { } state && _displayedOta is { } ota && !IsPreviewSolving(state, ota) && !_previewSource.Findings.IsPlateSolved
             : null;
 
         private static bool IsPreviewSolving(LiveSessionState state, int ota)
@@ -314,6 +315,7 @@ namespace TianWen.UI.Abstractions
                     if (otaIndex >= state.PreviewExposureSeconds.Length) return;
                     state.PreviewExposureSeconds[otaIndex] = LiveSessionActions.StepExposure(
                         state.PreviewExposureSeconds[otaIndex], direction: -1);
+                    PushLiveExposure(state, otaIndex);
                 },
                 "+", $"ExpInc{otaIndex}",
                 _ =>
@@ -321,6 +323,7 @@ namespace TianWen.UI.Abstractions
                     if (otaIndex >= state.PreviewExposureSeconds.Length) return;
                     state.PreviewExposureSeconds[otaIndex] = LiveSessionActions.StepExposure(
                         state.PreviewExposureSeconds[otaIndex], direction: +1);
+                    PushLiveExposure(state, otaIndex);
                 },
                 $"Exp: {LiveSessionActions.FormatExposureLabel(expSec)}", BaseFontSize * 0.85f, BodyText, enabled: true);
 
@@ -345,6 +348,10 @@ namespace TianWen.UI.Abstractions
             rows.Add(Layout.Builder.HStack(expCtrl.Stretch(), captureBtn)
                 .WithGap(4f).RowH(BaseRowHeight));
 
+            // [Live]: a live view of this camera in the pane (#1111), lit while it runs, with the camera's rate beside it.
+            // Pressed again it stops; [Capture] ends it and takes the still.
+            rows.Add(BuildLiveViewRow(state, otaIndex, polarActive));
+
             // Gain row: [-] value [+] (only if camera supports gain value or gain mode).
             var tel = otaIndex < state.PreviewOTATelemetry.Length
                 ? state.PreviewOTATelemetry[otaIndex]
@@ -362,6 +369,7 @@ namespace TianWen.UI.Abstractions
                         if (otaIndex >= state.PreviewGain.Length) return;
                         state.PreviewGain[otaIndex] = LiveSessionActions.StepGain(
                             state.PreviewGain[otaIndex], tel, direction: -1);
+                        PushLiveGain(state, otaIndex);
                     },
                     "+", $"GainInc{otaIndex}",
                     _ =>
@@ -369,6 +377,7 @@ namespace TianWen.UI.Abstractions
                         if (otaIndex >= state.PreviewGain.Length) return;
                         state.PreviewGain[otaIndex] = LiveSessionActions.StepGain(
                             state.PreviewGain[otaIndex], tel, direction: +1);
+                        PushLiveGain(state, otaIndex);
                     },
                     gainLabel, BaseFontSize * 0.85f, gainVal.HasValue ? BodyText : DimText, enabled: true);
                 rows.Add(gainCtrl.RowH(BaseRowHeight));
@@ -376,8 +385,10 @@ namespace TianWen.UI.Abstractions
 
             // [Save] only appears if a preview image exists for this OTA. The solve is the viewer's toolbar
             // button now, for the frame on show (PressPreviewToolbar), so a column no longer carries one.
+            // Not while this camera is live: the pane shows the live view, and Save writes the still the node keeps.
             var hasImage = otaIndex < state.LastCapturedImages.Length
-                && state.LastCapturedImages[otaIndex] is not null;
+                && state.LastCapturedImages[otaIndex] is not null
+                && LiveView?.LiveOta != otaIndex;
             if (hasImage)
             {
                 rows.Add(Layout.Builder.HStack(
@@ -388,6 +399,62 @@ namespace TianWen.UI.Abstractions
             }
 
             return Layout.Builder.VStack([.. rows]).WStar();
+        }
+
+        /// <summary>
+        /// The live view's row (#1111): a [Live] toggle, lit while this OTA's camera streams, and what the node last said of
+        /// it (its rate and frame size), or why it stopped. Another OTA's live view leaves this one's button as a start,
+        /// which the node refuses in the run's name.
+        /// </summary>
+        private Layout.Node BuildLiveViewRow(LiveSessionState state, int otaIndex, bool polarActive)
+        {
+            var live = LiveView;
+            var isLive = live?.LiveOta == otaIndex;
+            var enabled = live is not null && !polarActive;
+            var bg = isLive ? GuiTheme.PrimaryButtonBg : GuiTheme.NeutralButtonBg;
+            var button = Layout.Builder.Text("Live", BaseFontSize * 0.85f, enabled ? BrightText : DimText, TextAlign.Center, TextAlign.Center)
+                .WFixed(72f).HStar().Bg(bg)
+                .Clickable(new HitResult.ButtonHit($"PreviewLive{otaIndex}"), !enabled ? null : _ =>
+                {
+                    if (isLive)
+                    {
+                        PostSignal(new StopLiveViewSignal());
+                        return;
+                    }
+                    var exp = otaIndex < state.PreviewExposureSeconds.Length ? state.PreviewExposureSeconds[otaIndex] : 0.1;
+                    PostSignal(new StartLiveViewSignal(otaIndex, exp,
+                        otaIndex < state.PreviewGain.Length ? state.PreviewGain[otaIndex] : null,
+                        otaIndex < state.PreviewBinning.Length ? state.PreviewBinning[otaIndex] : (short)1));
+                });
+            if (enabled)
+            {
+                button = button.BgHover(GuiTheme.Hover(bg));
+            }
+
+            var status = live?.State is not { } s || s.OtaIndex != otaIndex ? ""
+                : isLive ? s.FramesPerSecond is { } fps && s.Width > 0
+                    ? $"{fps:0.#} fps, {live.ShownFps:0} shown  {s.Width}x{s.Height}"
+                    : "Starting…"
+                : s.FailureReason ?? "";
+            return Layout.Builder.HStack(button, Layout.Builder.Text(status, BaseFontSize * 0.8f, DimText).WStar().HStar())
+                .WithGap(4f).RowH(BaseRowHeight);
+        }
+
+        // A stepper's new value, sent to this OTA's live view as it changes; nothing while it is not live.
+        private void PushLiveExposure(LiveSessionState state, int otaIndex)
+        {
+            if (LiveView is { } live && live.LiveOta == otaIndex && otaIndex < state.PreviewExposureSeconds.Length)
+            {
+                live.SetExposure(TimeSpan.FromSeconds(state.PreviewExposureSeconds[otaIndex]));
+            }
+        }
+
+        private void PushLiveGain(LiveSessionState state, int otaIndex)
+        {
+            if (LiveView is { } live && live.LiveOta == otaIndex && otaIndex < state.PreviewGain.Length && state.PreviewGain[otaIndex] is { } gain)
+            {
+                live.SetGain((short)Math.Clamp(gain, 0, short.MaxValue));
+            }
         }
 
         /// <summary>

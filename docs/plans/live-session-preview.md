@@ -2,10 +2,10 @@
 
 ## Status
 
-**IN PROGRESS** (P1 done 2026-10-01; raised by the user 2026-09-30, while testing a Canon EOS 6D through the preview: "we also need a few
+**IN PROGRESS** (P1 done 2026-10-01, P4 done 2026-10-03; raised by the user 2026-09-30, while testing a Canon EOS 6D through the preview: "we also need a few
 more controls in the preview like show stars, HFD, FWHM, and all the other stuff, image stats, also the histogram, not
 just a Canon thing really", and a live view in the preview "which is useful beyond just planetary"). Milestone
-`live-session-preview` (#1108 to #1113 and #1124, one a section). Nothing here is Canon's: every camera the node drives previews through the same pane.
+`live-session-preview` (#1108 to #1113, #1124, #1215 to #1220 and #681, one a section). Nothing here is Canon's: every camera the node drives previews through the same pane.
 
 ## What exists, and is reused
 
@@ -159,15 +159,53 @@ histogram is the viewer's own, so this is where they are shown, not a second mea
 
 ## P4: live view in the Preview mode
 
-**#1111.**
+**#1111, done 2026-10-03.** A live view, for framing, focusing, collimation and checking a flat panel's light, without
+the Planetary mode's stacking. **A toggle within the Preview mode, not a mode of its own** (the user, 2026-10-03): a
+[Live] button per OTA beside [Capture], since everything a live view needs is the Preview's already (the viewer's toolbar,
+the exposure, gain and binning a still takes, the focuser jog, the mount section).
 
-A live view, for framing, focusing, collimation and checking a flat panel's light, without the Planetary mode's
-stacking: continuous frames from any `IVideoCameraDriver`, drawn in the same pane through the same stream the Planetary
-mode uses (`FrameStreamWire`, shared memory, the client asking for each frame). Its own node run, claiming the camera,
-ending unwatched as the planetary one does (`INodeRun.EndsUnwatched`), with exposure and gain live, and P2's measurements
-at a cadence the camera can afford. A Capture from live view takes a still at the settings it shows. Canon Live View and
-the fake cameras work now; the DAL cameras once #813 gives them native video. **The decision in it**: a toggle within
-the Preview mode, or a third mode beside Preview and Planetary.
+As built:
+
+- **The node's run is the planetary capture loop with nothing kept** (`NodeLiveView`, `PlanetaryCapture` with
+  `LiveCaptureKind.LiveView`): no ring of frames, its own name in its refusals and its claim on the camera ("live view"),
+  over the WHOLE sensor at the Preview's binning (`PlanetaryCapture.ConfigureRoi` with a zero window). It claims only the
+  camera, so the focuser and the mount stay free to move while it runs. `POST`/`GET`/`DELETE /api/v1/live` and
+  `PUT /api/v1/live/controls` (exposure, gain), `NodeRunKind.LiveView`; it ends unwatched as the planetary run does.
+- **Its frames go as the planetary live frame does**: sampled at display rate into `FrameSources.LiveView` (`live`),
+  streamed to the window through `FrameStreamWire` over shared memory, the client asking for each.
+- **The GUI** (`LiveViewController`) shows the live frame in the pane while it runs for the OTA on show, sends the
+  steppers' changes as they change, and says the camera's rate. **[Capture] ends the live view and takes the still**,
+  which the pane then shows: a Canon's Live View and its shutter exclude each other, and a still that went back to live
+  at once would hide what it took. A solve and Save act on the still the node keeps, never a live frame, which it keeps
+  nowhere, so neither is offered on one.
+- **A camera without native video live-views through the short-exposure loop**, which now takes a new exposure from the
+  next frame; it used to keep the start's for as long as it ran.
+
+What the Canon EOS 6D measured: a Live View frame is a 960 x 640 JPEG of 176 KB; its USB fetch is 19 to 20 ms; its
+decode 63 ms in Debug and 9 to 10 ms in an AOT node (6.2 ms, 8.6 with the widening to floats, in a Release benchmark);
+sampling and publishing it 0.4 ms; taking it into the pane 31 ms of a Debug window's render thread. **An AOT node streams
+28.7 frames a second, the body's own rate** (14 to 20 polls in 100 found no new frame); a Debug window showed about 15
+of them, held by that intake (P14). Two things the body taught:
+
+- **The driver paced Live View by the requested exposure**, clamped to 15 to 500 ms, so a live view asked at a still's
+  5 s ran at 1.5 frames a second (8.8 in a Debug node once the pace went). An EVF has no integration time; the driver
+  polls at the body's rate and backs off only when no frame is ready.
+- **A Canon's Live View brightness is its exposure SIMULATION of the shutter speed set**, which the last still left
+  behind: a 1 s still turned a dim live view blown. The live view now sets the shutter speed a still of the Preview's
+  exposure would take (`ClosestTv`, at most 30 s), at its start and as the stepper moves, so the stepper brightens and
+  dims it as it would the still.
+- **A rendered frame is display data, and Auto stretched it as linear**: unlinked, a curve per channel fitted to a
+  frame whose red sat at full scale, turned it into a two-level red channel and a teal picture. The file viewer already
+  opened such a frame with the stretch off (`Image.DetectPreStretched`, 8 bits settle it); the live pane never asked. A
+  pre-stretched live frame (`IPreviewSource.IsPreStretched`) now opens with the stretch off, the still's stretch comes
+  back with the still, and STF on stretches it Linked (`ChannelsAlreadyAgree`: the camera balanced its channels), so a
+  dark night's live view can still be lifted without a cast.
+
+Measurements at the camera's rate (P2) wait for P2.
+
+Left for later: taking a live frame in off the render thread ([P14](#p14-a-live-frame-is-taken-in-off-the-render-thread)),
+the camera's own JPEG for a remote live view ([P13](#p13-a-remote-live-view-sends-the-cameras-own-jpeg)), and a Canon's
+lens focused while live ([P12](#p12-a-canon-lens-focused-while-live)).
 
 ## P5: a focus aid across frames
 
@@ -196,6 +234,66 @@ full-frame walk apiece. Once P1's first step has statistics standing on their ow
 `LiveFramePreviewSource` already calls (`StretchSolver.CollectPerChannelStats`, `StretchSolver.CollectChannelHistograms`),
 both can take them without a document. **Not yet checked**: how much else `LiveStackPreviewSource` relies on its
 document for. After P1.
+
+## The Preview mode as N.I.N.A.'s imaging tab
+
+Raised by the user 2026-10-03: "make preview a lot more like session, with focusing, and what not, just like NINA really
+when not in sequence mode". N.I.N.A.'s imaging tab, outside its sequencer, is a camera loop with every device's panel
+beside it: focuser and autofocus, filter wheel, mount and plate solve, guider, the HFR history and image statistics. The
+Preview mode is that tab here. What it has, and where the rest is planned:
+
+| N.I.N.A. | The Preview mode |
+|---|---|
+| Take one exposure, loop exposures | [Capture]; [Live] (P4), the short-exposure loop where a camera has no video |
+| Image statistics, histogram, HFR history, image history | P3, P2, P5, P6 |
+| Focuser: move, autofocus run | Jog and goto today; an autofocus run, [P8](#p8-autofocus-on-demand) |
+| Filter wheel | Its name today; a change, [P11](#p11-change-the-filter) |
+| Telescope: slew, plate solve, centre | The mount's position and a solve today; slew and centre, [P10](#p10-slew-to-a-target-and-centre-it) |
+| Guider: start, stop, calibrate, graph | The Guider tab's graph only; [P9](#p9-guiding-outside-a-session) |
+
+## P8: autofocus on demand
+
+**#1215.** An autofocus run from the Preview mode, the session's own routine (`Session.AutoFocusAllTelescopesAsync`, the hyperbola
+fit and the backlash estimate) as the node's run, claiming the OTA's camera and focuser, with the curve drawn as it is
+taken and the result kept as the session keeps it. The session's routine must not get a second copy.
+
+## P9: guiding outside a session
+
+**#1216.** Start, stop and calibrate the guider from the Preview mode, as the node's run or job, the Guider tab drawing what it
+does. The session's calibration rules hold (`CalibrateGuiderAsync`: east of the meridian, the pier side kept), so a
+calibration made here is one a session would make.
+
+## P10: slew to a target and centre it
+
+**#1217.** Slew to a target (the planner's, the sky map's, a typed name) and centre it by solving and re-slewing, the session's own
+`CenterOnTargetAsync`, as the node's job on the mount, the solve through the OTA's camera.
+
+## P11: change the filter
+
+**#1218.** The filter wheel's row in the Preview mode becomes a choice, through the node's `/devices/filterwheel/change`, which
+exists; the column shows only the filter's name today.
+
+## P12: a Canon lens focused while live
+
+**#681.** A Canon body drives its lens (FC.SDK's `DriveLensAsync`, Near and Far in three step sizes) only while Live View runs, which
+P4 gives: Near and Far buttons on the focuser row while a Canon's live view runs, for focusing by eye or on a Bahtinov
+mask. As a focuser for autofocus (#681) it needs a position the lens never reports: a made-up one from a nominal start,
+moved only in the smallest step so its units stay one size (the larger steps have no known ratio to it), and Live View
+raised around each move when none runs. Backlash in the lens motor is unmeasured.
+
+## P13: a remote live view sends the camera's own JPEG
+
+**#1219.** A live frame crosses as floats (`FrameWire`): 7 MB for a Canon's 960 x 640 frame, which arrived as a 176 KB JPEG. Over
+this machine's shared memory that is a copy; over TCP to a remote rig, at 30 frames a second, it is more than any LAN
+carries. A frame that came as JPEG goes as that JPEG (motion JPEG in spirit: each frame on its own, never a codec that
+predicts across frames, which smears the faint stars a focus is judged by), a third `FrameSampleFormat` a client asks
+for, decoded off its render thread.
+
+## P14: a live frame is taken in off the render thread
+
+**#1220.** `LiveFramePreviewSource.AcceptFrame` normalises a frame and takes its statistics on the render thread: 31 ms for a
+960 x 640 colour frame in a Debug build, every frame at a live view's rate. It is the planetary live frame's path too.
+Done on the reading task and handed over ready, the render thread only uploads.
 
 ## Out of scope
 

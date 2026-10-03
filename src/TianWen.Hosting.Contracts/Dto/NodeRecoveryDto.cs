@@ -20,6 +20,9 @@ public enum NodeRunKind
 
     /// <summary>A live planetary capture (<c>POST /api/v1/planetary</c>).</summary>
     Planetary,
+
+    /// <summary>A live view in the Preview mode (<c>POST /api/v1/live</c>, #1111).</summary>
+    LiveView,
 }
 
 /// <summary>

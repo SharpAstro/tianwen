@@ -89,6 +89,37 @@ public class LiveSessionPreviewViewerTests
     }
 
     /// <summary>
+    /// The [Live] button (#1111) starts a live view of its OTA's camera at the settings the Preview's still would take:
+    /// its exposure, gain and binning. Without a live view to drive (a host that wired none) it is dim and starts nothing.
+    /// </summary>
+    [Fact]
+    public void Its_Live_button_starts_a_live_view_at_the_settings_a_still_would_take()
+    {
+        using var renderer = new RgbaImageRenderer(SurfaceW, SurfaceH);
+        var pane = PreviewPane(renderer);
+        var starts = new List<StartLiveViewSignal>();
+        pane.Bus.Subscribe<StartLiveViewSignal>(signal => starts.Add(signal));
+        (pane.State.PreviewExposureSeconds[0], pane.State.PreviewGain[0], pane.State.PreviewBinning[0]) = (0.5, 120, 2);
+
+        Render(pane);
+        ClickLive(pane);
+        starts.ShouldBeEmpty("no live view is wired, so the button is dim");
+
+        pane.Tab.LiveView = new LiveViewController(new SystemTimeProvider(),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<LiveViewController>.Instance);
+        Render(pane);
+        ClickLive(pane);
+
+        starts.ShouldBe([new StartLiveViewSignal(0, 0.5, 120, 2)]);
+
+        static void ClickLive(Pane pane)
+        {
+            var live = pane.Tab.GetRegisteredRegions().Single(r => r.Result is HitResult.ButtonHit { Action: "PreviewLive0" });
+            Click(pane, new RectF32(live.X, live.Y, live.Width, live.Height));
+        }
+    }
+
+    /// <summary>
     /// The viewer's Solve button solves through the node, for the OTA whose frame is on show, and stands down while
     /// that solve runs. It replaced the Solve button each OTA column carried.
     /// </summary>
