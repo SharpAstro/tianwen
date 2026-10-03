@@ -35,7 +35,25 @@ public readonly record struct PlanetAspect(
     double AngularDiameterArcsec,
     double DistanceAu,
     double LightTimeSeconds,
-    double Flattening);
+    double Flattening)
+{
+    /// <summary>
+    /// The planet turned so <paramref name="centralMeridianIII"/> faces the observer, lit as before: the sub-solar longitude turns with
+    /// it, since the Sun's place on the disk is their difference (<see cref="PhysicalEphemeris.SunOnTheDisk"/>), and a central meridian
+    /// set alone swings the Sun round the planet (#1212: a rotation's disk means ranged 262 %). Systems I and II turn by the same angle.
+    /// </summary>
+    public PlanetAspect TurnedTo(double centralMeridianIII)
+    {
+        var turn = centralMeridianIII - CentralMeridianIII;
+        return this with
+        {
+            CentralMeridianIII = centralMeridianIII,
+            CentralMeridianI = CentralMeridianI + turn,
+            CentralMeridianII = CentralMeridianII + turn,
+            SubSolarLongitudeIII = SubSolarLongitudeIII + turn,
+        };
+    }
+}
 
 /// <summary>
 /// The physical ephemeris of Jupiter and Saturn from first principles: the IAU WGCCRE 2015 rotation models (Archinal et al.

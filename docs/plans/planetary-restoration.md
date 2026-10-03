@@ -2652,6 +2652,50 @@ its mean LINEAR RGB inside 0.9 radii, each channel's sky subtracted. A 4 % chang
   applied only when the ratio leaves 0.9 to 1.1.
 - **Adoption** is the owner's eye on the five colour captures (2021-12-16, 2022-09-29, 2022-10-09, 2024-12-15, 2025-01-02).
 
+#### The colour measurement, against the rule
+
+`tianwen planetary-colour <label=master.fits>... --composite <png> --opal <dir>` (`PlanetaryColour`), 2026-10-03, on the five colour captures'
+stacked masters (each capture's planetary-stack at its defaults). OPAL's maps on disk were completed first from MAST (cycles 29 and 31):
+F467M, which lies in the gap where a broadband blue does, for 2022 and 2024, and 2024's F658N and its first rotation (2024c), so each
+apparition has all five visible filters and 2024 both rotations. No maps of the composite's own January 2024 visit are published; the
+nearest are November 2024's. Each map is scaled to I/F by its readme's factor (the FITS values are on arbitrary scales, one a filter).
+
+- **Rule 1 fails: the target is B.** At the composite's geometry, OPAL 2024 averaged over a rotation gives (r, g) 0.3566, 0.3451 (R/G 1.033,
+  B/G 0.865; the linear and cubic joins 0.0025 apart, F467M having filled the gap). The composite reads 0.3838, 0.3362 (R/G 1.142, B/G 0.833),
+  0.0272 away, past the 0.0125 allowed. Its key's raw filter ratios there would be R/G 1.087 and B/G 0.696 (F658N, F502N and F395N
+  over F502N), so its processor lifted the blue and still left the disk warmer than the observer reads it.
+- **Rule 2 holds.** OPAL 2022 and 2024 lie 0.0009 apart, so Jupiter's disk-mean colour is one for every capture here. A rotation moves a
+  filter's disk mean at most 1.8 %.
+- **The gains each capture asks** (B, green held at one), with the camera's own disk mean:
+
+  | Capture | Camera | Disk mean as captured, R/G and B/G | Gain R | Gain B |
+  |---|---|---|---|---|
+  | 2021-12-16 | ASI462MC | 1.381, 0.645 | 0.749 | 1.329 |
+  | 2022-09-29 | ASI462MC | 0.791, 0.581 | 1.307 | 1.477 |
+  | 2022-10-09 | ASI462MC | 0.965, 0.764 | 1.071 | 1.122 |
+  | 2024-12-15 | Uranus-C | 0.928, 0.657 | 1.114 | 1.316 |
+  | 2025-01-02 | Uranus-C | 0.926, 0.649 | 1.116 | 1.333 |
+
+  The two Uranus-C nights ask the same gains to 1.3 %; the ASI462 nights differ by their capture-time white balance.
+- **Rule 3 asks for more saturation on every capture, by an amount the blur leaves open.** The balanced master's chroma spread against B's at
+  the master's resolution, the target blurred by the limb fit's core alone or by its core and halo (the halo sits at its bound on every
+  capture, R7 part 2, so neither is known to be the stack's blur):
+
+  | Capture | Master's spread | B's, core | Ratio | B's, core and halo | Ratio |
+  |---|---|---|---|---|---|
+  | 2021-12-16 | 0.0084 | 0.0116 | 0.72 | 0.0094 | 0.90 |
+  | 2022-09-29 | 0.0061 | 0.0114 | 0.53 | 0.0084 | 0.73 |
+  | 2022-10-09 | 0.0032 | 0.0101 | 0.32 | 0.0074 | 0.43 |
+  | 2024-12-15 | 0.0080 | 0.0169 | 0.47 | 0.0126 | 0.64 |
+  | 2025-01-02 | 0.0103 | 0.0154 | 0.67 | 0.0134 | 0.77 |
+
+  A factor of 1.1 to 3.1 by these, so the owner's eye decides how much (the rule's adoption step). Why the masters are duller is not
+  measured here. The likeliest cause is the camera's own channels, broader and more overlapping than the observer's sRGB primaries, which a
+  gain a channel cannot undo; a saturation factor stands in for the matrix the rule leaves out. 2022-10-09 is the dullest by far.
+- **The composite is no saturation reference either:** blurred to each master its spread is 3 to 4 times B's.
+- Found on the way: turning a planet to another central meridian must turn the Sun with it (`PlanetAspect.TurnedTo`); the first rotation
+  average turned the meridian alone, the Sun swung round the planet, and a filter's disk mean ranged 262 %.
+
 ### The diffraction glow's far wing
 
 Found writing `PlanetaryPictureTests` (2026-10-03). A Jupiter rendered through a 254 mm, 23 % obstructed pupil at 650 nm

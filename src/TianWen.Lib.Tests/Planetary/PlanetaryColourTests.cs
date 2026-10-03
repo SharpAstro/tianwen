@@ -1,0 +1,172 @@
+using System;
+using Shouldly;
+using TianWen.Lib.Astrometry;
+using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Imaging.Planetary;
+using Xunit;
+
+namespace TianWen.Lib.Tests;
+
+/// <summary>
+/// #1212's colour arithmetic (<see cref="PlanetaryColour"/>): a reflectance spectrum through the CIE observer under D65, the joins
+/// between OPAL's filters, a disk's mean colour over its sky, the latitude bands' chroma spread, and the rotation average, whose
+/// first version swung the Sun round the planet.
+/// </summary>
+public class PlanetaryColourTests
+{
+    private static readonly DateTimeOffset Night = new DateTimeOffset(2022, 9, 3, 12, 10, 0, TimeSpan.Zero);
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AWhiteReflectorRendersWhiteAndAGreyOneGrey(bool monotoneCubic)
+    {
+        double[] nm = [400, 500, 600, 700];
+        var white = PlanetaryColour.SrgbOfReflectance(nm, [1, 1, 1, 1], monotoneCubic);
+        white.R.ShouldBe(1, 1e-9);
+        white.G.ShouldBe(1, 1e-9);
+        white.B.ShouldBe(1, 1e-9);
+        var grey = PlanetaryColour.SrgbOfReflectance(nm, [0.4, 0.4, 0.4, 0.4], monotoneCubic);
+        grey.R.ShouldBe(0.4, 1e-9);
+        grey.G.ShouldBe(0.4, 1e-9);
+        grey.B.ShouldBe(0.4, 1e-9);
+    }
+
+    [Fact]
+    public void JupitersReflectanceRendersAWarmWhiteAndTheTwoJoinsAgree()
+    {
+        // OPAL 2024's disk-mean I/F at the composite's geometry (docs/plans/planetary-restoration.md, "A planetary master's colour"):
+        // dark in the violet, nearly flat from 500 nm, so a warm white, nowhere near the composite's R/G 1.14.
+        var pivots = new double[PlanetaryColour.OpalVisible.Length];
+        for (var f = 0; f < pivots.Length; f++)
+        {
+            pivots[f] = PlanetaryColour.OpalVisible[f].PivotNm;
+        }
+        double[] reflectance = [0.3834, 0.5274, 0.5511, 0.5873, 0.5988];
+        var linear = PlanetaryColour.SrgbOfReflectance(pivots, reflectance, monotoneCubic: false);
+        var cubic = PlanetaryColour.SrgbOfReflectance(pivots, reflectance, monotoneCubic: true);
+        TestContext.Current.TestOutputHelper?.WriteLine($"linear R/G {linear.R / linear.G:0.000} B/G {linear.B / linear.G:0.000}; cubic R/G {cubic.R / cubic.G:0.000} B/G {cubic.B / cubic.G:0.000}");
+        (cubic.R / cubic.G).ShouldBe(1.033, 0.005);
+        (cubic.B / cubic.G).ShouldBe(0.873, 0.005);
+        linear.ChromaDistance(cubic).ShouldBeLessThan(0.005, "F467M fills the gap where a broadband blue lies, so the join matters little");
+    }
+
+    [Fact]
+    public void TheMonotoneCubicPassesThroughItsSamplesAndNeverOvershoots()
+    {
+        double[] nm = [395.3, 468.3, 501.0, 630.4, 656.4];
+        double[] rho = [0.38, 0.53, 0.55, 0.587, 0.599];
+        var slopes = PlanetaryColour.MonotoneSlopes(nm, rho);
+        for (var k = 0; k < nm.Length; k++)
+        {
+            PlanetaryColour.Interpolate(nm, rho, slopes, nm[k]).ShouldBe(rho[k], 1e-12);
+        }
+        for (var lambda = 380.0; lambda <= 780; lambda += 0.5)
+        {
+            var value = PlanetaryColour.Interpolate(nm, rho, slopes, lambda);
+            value.ShouldBeInRange(rho[0] - 1e-12, rho[^1] + 1e-12);
+            if (lambda > nm[0] && lambda < nm[^1])
+            {
+                var k = Array.FindLastIndex(nm, x => x <= lambda);
+                value.ShouldBeInRange(Math.Min(rho[k], rho[k + 1]) - 1e-12, Math.Max(rho[k], rho[k + 1]) + 1e-12);
+            }
+        }
+    }
+
+    [Fact]
+    public void BandsOfOneColourHaveNoChromaSpreadAndTwoColoursHaveTheirOwn()
+    {
+        PlanetaryColour.ChromaSpread([new LinearRgb(2, 1, 0.5), new LinearRgb(4, 2, 1)], [100, 300]).ShouldBe(0, 1e-12);
+        // Mean colour (1.5, 1, 1): chromaticity (3/7, 2/7). The bands' (1/3, 1/3) and (1/2, 1/4) lie 0.10648 and 0.07986 from it.
+        PlanetaryColour.ChromaSpread([new LinearRgb(1, 1, 1), new LinearRgb(2, 1, 1)], [100, 100]).ShouldBe(0.094116, 1e-5);
+    }
+
+    [Fact]
+    public void TheDiskMeanReadsAColourBackOverItsSky()
+    {
+        var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night);
+        var placement = new DiskPlacement(99.5, 101.2, 60, NorthAngleDeg: -80);
+        var render = PlanetaryRender.Render(new PlanetMap(Uniform(1f), 360, 180), aspect, placement, 200, 200, minnaertK: 0.9);
+        var (red, green, blue) = (new float[render.Length], new float[render.Length], new float[render.Length]);
+        for (var i = 0; i < render.Length; i++)
+        {
+            (red[i], green[i], blue[i]) = ((0.8f * render[i]) + 0.10f, (0.6f * render[i]) + 0.05f, (0.4f * render[i]) + 0.02f);
+        }
+        var disk = new MetricDisk(placement.CenterX, placement.CenterY, placement.EquatorialRadius, PlanetaryLimbFit.OptionsFor(aspect).AxisRatio, placement.NorthAngleDeg);
+        var sky = PlanetaryColour.Sky(red, green, blue, 200, 200, disk);
+        var mean = PlanetaryColour.DiskMean(red, green, blue, 200, 200, disk, sky);
+        sky.R.ShouldBe(0.10, 1e-4);
+        sky.G.ShouldBe(0.05, 1e-4);
+        sky.B.ShouldBe(0.02, 1e-4);
+        (mean.R / mean.G).ShouldBe(0.8 / 0.6, 1e-3);
+        (mean.B / mean.G).ShouldBe(0.4 / 0.6, 1e-3);
+    }
+
+    [Fact]
+    public void TurningAPlanetCarriesItsSunWithIt()
+    {
+        var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night);
+        var turned = aspect.TurnedTo(aspect.CentralMeridianIII + 123);
+        turned.CentralMeridianIII.ShouldBe(aspect.CentralMeridianIII + 123, 1e-12);
+        var (west, north, toward) = PhysicalEphemeris.SunOnTheDisk(aspect);
+        var (turnedWest, turnedNorth, turnedToward) = PhysicalEphemeris.SunOnTheDisk(turned);
+        turnedWest.ShouldBe(west, 1e-12);
+        turnedNorth.ShouldBe(north, 1e-12);
+        turnedToward.ShouldBe(toward, 1e-12);
+    }
+
+    [Fact]
+    public void ABandedPlanetsDiskMeanDoesNotChangeAsItTurns()
+    {
+        // A map with no longitude structure shows the same disk whichever side faces us. Turning only the central meridian moved
+        // the Sun round the planet instead, and a rotation's disk means ranged 262 % (#1212).
+        var map = new PlanetMap(Banded(latitude => 1 - (0.3 * Math.Exp(-Math.Pow((latitude - 10) / 5, 2)))), 360, 180);
+        var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night);
+        var (mean, min, max) = PlanetaryColour.RotationMeanIf(map, ifScale: 1, minnaertK: 0.95, aspect, stepDeg: 60);
+        TestContext.Current.TestOutputHelper?.WriteLine($"disk mean {mean:0.0000}, from {min:0.0000} to {max:0.0000}");
+        ((max - min) / mean).ShouldBeLessThan(0.002);
+    }
+
+    [Fact]
+    public void AShrunkDiskLiesWherePlacedAtSays()
+    {
+        var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night);
+        aspect = aspect with { SubSolarLongitudeIII = aspect.CentralMeridianIII, SubSolarLatitude = aspect.SubObserverLatitude, PhaseAngle = 0 };
+        var placement = new DiskPlacement(201.3, 187.8, 120, NorthAngleDeg: -90);
+        var render = PlanetaryRender.Render(new PlanetMap(Uniform(1f), 360, 180), aspect, placement, 400, 400, minnaertK: 1);
+        const double factor = 0.3;
+        var (shrunk, width, height) = PlanetaryColour.Shrink(render, 400, 400, factor);
+        var placed = PlanetaryColour.PlacedAt(placement, factor);
+        double sum = 0, sx = 0, sy = 0;
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var v = shrunk[(y * width) + x];
+                sum += v;
+                sx += v * x;
+                sy += v * y;
+            }
+        }
+        (sx / sum).ShouldBe(placed.CenterX, 0.05);
+        (sy / sum).ShouldBe(placed.CenterY, 0.05);
+        placed.EquatorialRadius.ShouldBe(36, 1e-12);
+    }
+
+    private static float[] Uniform(float value) => Banded(_ => value);
+
+    // A 360 by 180 map, one sample a degree, its value a function of planetographic latitude alone.
+    private static float[] Banded(Func<double, double> ofLatitude)
+    {
+        var values = new float[360 * 180];
+        for (var row = 0; row < 180; row++)
+        {
+            var value = (float)ofLatitude(90 - (row + 0.5));
+            for (var column = 0; column < 360; column++)
+            {
+                values[(row * 360) + column] = value;
+            }
+        }
+        return values;
+    }
+}
