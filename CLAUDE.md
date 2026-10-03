@@ -288,7 +288,8 @@ logger, then rank durations.
 protocol-specific tests.
 
 **Use the cooperative time pump** (`FakeTimeProviderWrapper.PumpUntilCompletedAsync`) for a session loop
-run via `Task.Run`, and **always pass the progress probe** -- the budget bounds a STALL, not the run,
+run via `Task.Run`, **never choose a step** (each advance goes to the next parked sleep or one-shot timer,
+#1122), and **always pass the progress probe** -- the budget bounds a STALL, not the run,
 because a `PeriodicTimer` tick coalesces and registers no waiter, so an unobserved advance is budget
 spent for nothing (measured 33-50 minutes of budget for one 30-minute observation). Pattern, the
 measurements and why a naive `while (pumped < budget) { Advance(); }` loop is wrong:

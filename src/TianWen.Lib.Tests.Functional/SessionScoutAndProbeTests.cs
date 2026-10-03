@@ -555,7 +555,7 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
         ctx.TimeProvider.ExternalTimePump = true;
         var task = ctx.Track(Task.Run(async () => await action(ctx.Token), ctx.Token));
 
-        await ctx.TimeProvider.PumpUntilCompletedAsync(task, TimeSpan.FromSeconds(1), TimeSpan.FromMinutes(20), cancellationToken: ct);
+        await ctx.TimeProvider.PumpUntilCompletedAsync(task, TimeSpan.FromMinutes(20), cancellationToken: ct);
 
         task.IsCompleted.ShouldBeTrue("scout action should have completed within fake time");
         await task;

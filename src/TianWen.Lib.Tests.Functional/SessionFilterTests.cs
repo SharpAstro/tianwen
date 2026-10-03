@@ -99,7 +99,7 @@ public class SessionFilterTests(ITestOutputHelper output)
         ctx.TimeProvider.ExternalTimePump = true;
         var loopTask = ctx.Track(Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ctx.Token), ctx.Token));
 
-        await ctx.TimeProvider.PumpUntilCompletedAsync(loopTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(4),
+        await ctx.TimeProvider.PumpUntilCompletedAsync(loopTask, TimeSpan.FromHours(4),
             progress: () => ctx.Session.ImagingLoopTicks, cancellationToken: ct);
 
         loopTask.IsCompleted.ShouldBeTrue("imaging loop should complete within timeout");
@@ -203,7 +203,7 @@ public class SessionFilterTests(ITestOutputHelper output)
         ctx.TimeProvider.ExternalTimePump = true;
         var loopTask = ctx.Track(Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ctx.Token), ctx.Token));
 
-        await ctx.TimeProvider.PumpUntilCompletedAsync(loopTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(4),
+        await ctx.TimeProvider.PumpUntilCompletedAsync(loopTask, TimeSpan.FromHours(4),
             progress: () => ctx.Session.ImagingLoopTicks, cancellationToken: ct);
 
         loopTask.IsCompleted.ShouldBeTrue("imaging loop should complete within timeout");

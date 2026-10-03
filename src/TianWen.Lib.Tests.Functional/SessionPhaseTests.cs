@@ -52,7 +52,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
             phases.Enqueue(e.NewPhase);
         };
 
-        await RunToEndAsync(ctx, subExposure, ctx.Token, ct);
+        await RunToEndAsync(ctx, ctx.Token, ct);
 
         // Verify phase order
         var phaseList = phases.ToArray();
@@ -107,7 +107,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
         };
 
         // Run session: will enter Cooling then get cancelled, and ends once Finalise has warmed the camera
-        await RunToEndAsync(ctx, TimeSpan.FromSeconds(1), cts.Token, ct);
+        await RunToEndAsync(ctx, cts.Token, ct);
 
         var phaseList = phases.ToArray();
         output.WriteLine($"Phases: {string.Join(" → ", phaseList)}");
@@ -156,7 +156,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
             }
         };
 
-        await RunToEndAsync(ctx, TimeSpan.FromSeconds(1), cts.Token, ct);
+        await RunToEndAsync(ctx, cts.Token, ct);
 
         // Cooling samples should have been recorded during cooldown and warmup
         var samples = ctx.Session.CoolingSamples;
@@ -198,7 +198,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
         using var cancelTimer = ctx.TimeProvider.CreateTimer(
             _ => cts.Cancel(), null, TimeSpan.FromSeconds(1), Timeout.InfiniteTimeSpan);
 
-        await RunToEndAsync(ctx, TimeSpan.FromSeconds(1), cts.Token, ct);
+        await RunToEndAsync(ctx, cts.Token, ct);
 
         var transitionList = transitions.ToArray();
         output.WriteLine($"Transitions: {string.Join(", ", Array.ConvertAll(transitionList, t => $"{t.Old}→{t.New}"))}");
@@ -243,7 +243,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
             }
         };
 
-        await RunToEndAsync(ctx, TimeSpan.FromSeconds(2), cts.Token, ct);
+        await RunToEndAsync(ctx, cts.Token, ct);
 
         leftAutoFocus.ShouldBeTrue("the run must get through AutoFocus; the session's log above says where it stopped");
 
@@ -289,7 +289,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
             frameEvents.Enqueue(e.Entry);
         };
 
-        await RunToEndAsync(ctx, subExposure, ctx.Token, ct);
+        await RunToEndAsync(ctx, ctx.Token, ct);
 
         // Verify frames were written
         ctx.Session.TotalFramesWritten.ShouldBeGreaterThan(0, "session should have written frames");
@@ -310,11 +310,11 @@ public class SessionPhaseTests(ITestOutputHelper output)
     /// Runs the session to its end on the cooperative pump (<c>docs/architecture/session-test-harness.md</c>): the clock
     /// moves only once the run is parked on it, and the budget bounds a STALL, read off the run's phases and the frames
     /// it takes, never the run's length. These tests used to sleep on the clock from the test thread beside the run,
-    /// which advanced it whether or not the run had been scheduled (#1017). <paramref name="step"/> is each advance:
-    /// a run through a whole observation is hours of fake time, and each advance costs at least a millisecond of
-    /// real time, so such a run steps by its sub-exposure.
+    /// which advanced it whether or not the run had been scheduled (#1017). Each advance goes to the next instant the run
+    /// waits for (#1122), so no test chooses a step: they used to, trading a whole run's real time against how late a
+    /// fine poll woke (a 1 s step cost a minute, a 30 s one let a 100 ms focuser poll oversleep by 30 s).
     /// </summary>
-    private async Task RunToEndAsync(SessionTestContext ctx, TimeSpan step, CancellationToken runToken, CancellationToken ct)
+    private async Task RunToEndAsync(SessionTestContext ctx, CancellationToken runToken, CancellationToken ct)
     {
         var phaseChanges = 0;
         ctx.Session.PhaseChanged += (_, _) => Interlocked.Increment(ref phaseChanges);
@@ -323,11 +323,11 @@ public class SessionPhaseTests(ITestOutputHelper output)
         try
         {
             var runTask = ctx.Track(Task.Run(async () => await ctx.Session.RunAsync(runToken), ctx.Token));
-            var pumped = await ctx.TimeProvider.PumpUntilCompletedAsync(runTask, step, TimeSpan.FromHours(1),
+            var pumped = await ctx.TimeProvider.PumpUntilCompletedAsync(runTask, TimeSpan.FromHours(1),
                 progress: () => Volatile.Read(ref phaseChanges) * 1_000_000L + ctx.Session.LastCapturedImageNumber(0),
                 cancellationToken: ct);
             await runTask;
-            output.WriteLine($"Pumped {pumped} of fake time in steps of {step}");
+            output.WriteLine($"Pumped {pumped} of fake time");
         }
         finally
         {

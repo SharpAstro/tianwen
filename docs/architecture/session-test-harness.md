@@ -27,9 +27,35 @@ hand-roll the `while (pumped < budget) { Advance(); }` loop this used to show:
 ```csharp
 ctx.TimeProvider.ExternalTimePump = true;
 var loopTask = ctx.Track(Task.Run(async () => await ctx.Session.ImagingLoopAsync(...), ctx.Token));
-await ctx.TimeProvider.PumpUntilCompletedAsync(loopTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(4),
+await ctx.TimeProvider.PumpUntilCompletedAsync(loopTask, TimeSpan.FromHours(4),
     progress: () => ctx.Session.ImagingLoopTicks, cancellationToken: ct);
 ```
+
+**No test chooses a step: each advance goes to the next instant something waits for** (#1122). That is the
+earliest target of a parked `SleepAsync` or due time of a ONE-SHOT timer made on the clock (a fake camera's
+exposure ending, a slew arriving, a `Task.Delay`), held between a finest step of 100 ms and a coarsest of 5 s
+(`DefaultFinestStep`, `DefaultCoarsestStep`; a test passes its own only with a reason). A periodic timer is a
+POLL and never sets the step: the fake mount's axis timer fires every 100 ms all night, and stepping to it cost
+tens of thousands of advances per fake hour. Its callback still fires once per period inside the advance, and a
+`PeriodicTimer` coalesces by design.
+
+**An advance is cheap because nothing in it sleeps on a timer.** A parked sleep is released by the advance that
+reaches it (`Advance` releases every due park) and the pump waits by YIELDING: a 1 ms `Task.Delay` measured about
+11 ms on a win-arm64 laptop even with `WindowsTimerResolution` held, a parked sleep polled with one, and the pump
+paid two per advance, about 22 ms. What replaced those delays, and why each is there:
+- after an advance, the released sleeps leave their parks before the clock moves on, so a poll reads the instant
+  it was released at;
+- before an advance, the pool's queued work is picked up, so what a timer woke (the imaging loop's tick) runs;
+- a 1 ms minimum dwell per advance, because nothing observable says a loop just started, or still being
+  compiled, has reached its first wait: without it a healthy `PeriodicTimer` loop was overtaken by a whole
+  budget of advances, in 18 ms, before it ticked once. The old delays were that dwell by accident.
+
+Measured on the 52 pumped session tests (`SessionPhase`, `SessionImaging`, `SessionObservationLoop`,
+`SessionFilter`, `SessionScoutAndProbe`), win-arm64, against the fixed-step pump the day before: **4m06 to
+2m27**, 244.8 s to 145.7 s of test time, 48 of 52 faster. The two flip tests that got slower (2.2 to 4.8 s and
+3.7 to 5.9 s) run their guider at its own 2 s cadence now, about 900 guide frames over 35 fake minutes where 5 s
+steps allowed about 400; that is more simulation, not pump overhead (about 1.6 ms an advance). The coupled
+meridian run in `SessionObservationLoopTests` went from 3m06 to 51 s.
 
 **The budget bounds a STALL, not the run, and the probe is what makes that true.** Waiter pacing alone
 is not enough: `WaiterCount` is global and a fake guider/camera is parked in `SleepAsync` more or less
