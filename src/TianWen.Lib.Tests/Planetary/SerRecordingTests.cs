@@ -15,11 +15,16 @@ namespace TianWen.Lib.Tests;
 /// Pins <see cref="SerRecording"/> (P5 part 5d of docs/plans/hardware-in-the-server.md, #934): every frame before its end,
 /// in the camera's own shape, with when it arrived, read back by SER.Lib's own reader; and each way it ends.
 /// </summary>
-public class SerRecordingTests
+public class SerRecordingTests : IDisposable
 {
+    /// <summary>The temporary folders this test made, deleted after it (#1197).</summary>
+    private readonly TempFolders _folders = new();
+
+    public void Dispose() => _folders.Dispose();
+
     private static readonly DateTimeOffset T0 = new DateTimeOffset(2026, 9, 27, 21, 0, 0, TimeSpan.Zero);
 
-    private static string NewPath() => Path.Combine(Directory.CreateTempSubdirectory("twser").FullName, "night", "capture.ser");
+    private string NewPath() => Path.Combine(_folders.Create("twser").FullName, "night", "capture.ser");
 
     /// <summary>A 16-bit Bayer mosaic whose pixel (x, y) reads <paramref name="seed"/> plus its position, in ADU.</summary>
     private static Image Mosaic(int seed, int width = 8, int height = 4, int bayerOffsetX = 1)

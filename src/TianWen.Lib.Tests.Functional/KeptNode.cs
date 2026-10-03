@@ -23,11 +23,15 @@ internal sealed class KeptNode : IAsyncDisposable
 
     private readonly HttpClient _http;
 
-    private KeptNode(Process keeper, string socketPath, string dataRoot)
+    /// <summary>The node's socket folder and data root, deleted once the node has gone (#1197).</summary>
+    private readonly TempFolders _folders;
+
+    private KeptNode(Process keeper, string socketPath, string dataRoot, TempFolders folders)
     {
         Keeper = keeper;
         SocketPath = socketPath;
         DataRoot = dataRoot;
+        _folders = folders;
         _http = NodeTransport.OverSocket(socketPath).CreateHttpClient();
         Client = new TianWenNodeClient(_http);
     }
@@ -89,13 +93,23 @@ internal sealed class KeptNode : IAsyncDisposable
     public static async Task<KeptNode> StartAsync(CancellationToken cancellationToken, Func<string, Task>? prepareDataRoot = null,
         IReadOnlyList<string>? arguments = null, IReadOnlyDictionary<string, string>? environment = null)
     {
-        var folder = Directory.CreateTempSubdirectory("twk").FullName;
-        var dataRoot = Directory.CreateDirectory(Path.Combine(folder, "data")).FullName;
-        if (prepareDataRoot is not null)
+        var folders = new TempFolders();
+        KeptNode node;
+        try
         {
-            await prepareDataRoot(dataRoot);
+            var folder = folders.Create("twk").FullName;
+            var dataRoot = Directory.CreateDirectory(Path.Combine(folder, "data")).FullName;
+            if (prepareDataRoot is not null)
+            {
+                await prepareDataRoot(dataRoot);
+            }
+            node = new KeptNode(StartKeeper(Path.Combine(folder, "node.sock"), dataRoot, arguments, environment), Path.Combine(folder, "node.sock"), dataRoot, folders);
         }
-        var node = new KeptNode(StartKeeper(Path.Combine(folder, "node.sock"), dataRoot, arguments, environment), Path.Combine(folder, "node.sock"), dataRoot);
+        catch
+        {
+            folders.Dispose();
+            throw;
+        }
         try
         {
             await node.WaitForNodeAsync(static _ => true, cancellationToken);
@@ -114,7 +128,8 @@ internal sealed class KeptNode : IAsyncDisposable
     /// </summary>
     public async Task<KeptNode> StartAnotherKeeperAsync(CancellationToken cancellationToken)
     {
-        var node = new KeptNode(StartKeeper(SocketPath, DataRoot), SocketPath, DataRoot);
+        // The folders stay this keeper's to delete: the new one only borrows them.
+        var node = new KeptNode(StartKeeper(SocketPath, DataRoot), SocketPath, DataRoot, new TempFolders());
         try
         {
             await node.WaitForNodeAsync(static _ => true, cancellationToken);
@@ -177,6 +192,7 @@ internal sealed class KeptNode : IAsyncDisposable
             }
             Keeper.Dispose();
             _http.Dispose();
+            _folders.Dispose();
         }
     }
 }

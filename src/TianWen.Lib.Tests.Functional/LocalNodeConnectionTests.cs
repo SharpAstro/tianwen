@@ -25,9 +25,14 @@ namespace TianWen.Lib.Tests.Functional;
 /// socket, which is what a client of this machine reaches.
 /// </summary>
 [Collection("NodeProcesses")]
-public class LocalNodeConnectionTests(ITestOutputHelper outputHelper)
+public class LocalNodeConnectionTests(ITestOutputHelper outputHelper) : IDisposable
 {
-    private static string NewSocketPath() => Path.Combine(Directory.CreateTempSubdirectory("tws").FullName, "node.sock");
+    /// <summary>The temporary folders this test made, deleted after it (#1197).</summary>
+    private readonly TempFolders _folders = new();
+
+    public void Dispose() => _folders.Dispose();
+
+    private string NewSocketPath() => Path.Combine(_folders.Create("tws").FullName, "node.sock");
 
     private sealed class Client : IAsyncDisposable
     {

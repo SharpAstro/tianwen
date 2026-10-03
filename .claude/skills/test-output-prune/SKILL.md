@@ -13,7 +13,9 @@ Usage:
 ```
 
 Deletes every `yyyyMMdd` subdirectory under each test-output root except the
-most-recent `--keep N` (default 3). Pass `--dry-run` to print what would be
+most-recent `--keep N` (default 3). It never touches `TianWen.Lib.Tests/t/` beside them: the tests' temporary
+folders (`TempFolders`), which each test deletes as it ends and which the first test process of a day sweeps of
+anything older (#1197). Pass `--dry-run` to print what would be
 deleted without touching the filesystem. Pass `--root <path>` to scope to a
 single test-output root.
 

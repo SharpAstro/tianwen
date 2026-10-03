@@ -16,8 +16,13 @@ namespace TianWen.Lib.Tests;
 /// make of every profile (P0c item 3 of docs/plans/hardware-in-the-server.md, #788). Two writers in one process
 /// stand in for two processes: Windows decides file sharing per HANDLE, so they collide the same way.
 /// </summary>
-public class SharedAppDataFileTests(ITestOutputHelper output)
+public class SharedAppDataFileTests(ITestOutputHelper output) : IDisposable
 {
+    /// <summary>The temporary folders this test made, deleted after it (#1197).</summary>
+    private readonly TempFolders _folders = new();
+
+    public void Dispose() => _folders.Dispose();
+
     private const int WritesPerWriter = 1000;
 
     // Reads that must happen WHILE the writers write: on a fast runner (Linux, no real-time scanner) 2,000 writes
@@ -28,7 +33,7 @@ public class SharedAppDataFileTests(ITestOutputHelper output)
     public async Task TwoWritersOfOneProfileBesideItsReadersLoseNothingAndNeverFail()
     {
         var ct = TestContext.Current.CancellationToken;
-        var external = new FakeExternal(output, new DirectoryInfo(Directory.CreateTempSubdirectory("shared-appdata-").FullName));
+        var external = new FakeExternal(output, _folders.Create("shared-appdata-"));
         IExternal shared = external;
         var profileId = Guid.NewGuid();
         var seed = Version("seed", 0);
@@ -105,7 +110,7 @@ public class SharedAppDataFileTests(ITestOutputHelper output)
     public async Task AWriteReplacesAFileAReaderIsStillHolding()
     {
         var ct = TestContext.Current.CancellationToken;
-        var path = Path.Combine(Directory.CreateTempSubdirectory("shared-appdata-").FullName, "record.json");
+        var path = Path.Combine(_folders.Create("shared-appdata-").FullName, "record.json");
         await SharedFile.WriteAsync(path, (stream, token) => stream.WriteAsync("old"u8.ToArray(), token).AsTask(), ct);
 
         await using (var held = await SharedFile.OpenReadAsync(path, ct))
@@ -128,7 +133,7 @@ public class SharedAppDataFileTests(ITestOutputHelper output)
     public async Task AWriteReplacesAFileWhosePathIsLongerThan260Characters()
     {
         var ct = TestContext.Current.CancellationToken;
-        var deep = Path.Combine(Directory.CreateTempSubdirectory("shared-appdata-").FullName, new string('d', 120), new string('e', 120));
+        var deep = Path.Combine(_folders.Create("shared-appdata-").FullName, new string('d', 120), new string('e', 120));
         Directory.CreateDirectory(deep);
         var path = Path.Combine(deep, $"{Guid.NewGuid()}.json");
         path.Length.ShouldBeGreaterThan(260);
@@ -154,7 +159,7 @@ public class SharedAppDataFileTests(ITestOutputHelper output)
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Unix has no mandatory file sharing, so nothing refuses the rename");
         var ct = TestContext.Current.CancellationToken;
-        var path = Path.Combine(Directory.CreateTempSubdirectory("shared-appdata-").FullName, "record.json");
+        var path = Path.Combine(_folders.Create("shared-appdata-").FullName, "record.json");
         await SharedFile.WriteAsync(path, (stream, token) => stream.WriteAsync("old"u8.ToArray(), token).AsTask(), ct);
 
         Task write;
@@ -179,7 +184,7 @@ public class SharedAppDataFileTests(ITestOutputHelper output)
     {
         const int AddsPerWriter = 200;
         var ct = TestContext.Current.CancellationToken;
-        var external = new FakeExternal(output, new DirectoryInfo(Directory.CreateTempSubdirectory("shared-appdata-").FullName));
+        var external = new FakeExternal(output, _folders.Create("shared-appdata-"));
         IExternal shared = external;
         var path = Path.Combine(external.AppDataFolder.FullName, "added.json");
 

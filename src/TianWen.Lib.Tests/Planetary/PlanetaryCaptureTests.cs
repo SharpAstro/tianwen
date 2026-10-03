@@ -23,8 +23,13 @@ namespace TianWen.Lib.Tests;
 /// the deadband falls to the mount.
 /// </summary>
 [Collection("Session")]
-public class PlanetaryCaptureTests(ITestOutputHelper output)
+public class PlanetaryCaptureTests(ITestOutputHelper output) : IDisposable
 {
+    /// <summary>The temporary folders this test made, deleted after it (#1197).</summary>
+    private readonly TempFolders _folders = new();
+
+    public void Dispose() => _folders.Dispose();
+
     private static readonly Uri MountUri = new Uri("fake://mount/1");
 
     /// <summary>A 64 px frame with the disk centred 16 px right of the frame centre.</summary>
@@ -170,7 +175,7 @@ public class PlanetaryCaptureTests(ITestOutputHelper output)
         await using var capture = new PlanetaryCapture(new FakeTimeProviderWrapper(), NullLogger.Instance);
         capture.ArmFrameGate();
         capture.TryStart(Request, profile, hub, ct, out _, out var refusal).ShouldBeTrue(refusal);
-        var path = Path.Combine(Directory.CreateTempSubdirectory("twser").FullName, "capture.ser");
+        var path = Path.Combine(_folders.Create("twser").FullName, "capture.ser");
         capture.TryStartRecording(path, TimeSpan.FromHours(1), out var recording, out refusal).ShouldBeTrue(refusal);
         for (var i = 0; i < 2; i++)
         {
@@ -195,7 +200,7 @@ public class PlanetaryCaptureTests(ITestOutputHelper output)
         await using var capture = new PlanetaryCapture(new FakeTimeProviderWrapper(), NullLogger.Instance);
         capture.ArmFrameGate();
         capture.TryPrepare(Request, profile, hub, out _, out var refusal).ShouldBeTrue(refusal);
-        var path = Path.Combine(Directory.CreateTempSubdirectory("twser").FullName, "capture.ser");
+        var path = Path.Combine(_folders.Create("twser").FullName, "capture.ser");
 
         capture.IsCapturing.ShouldBeFalse("prepared is not started");
         capture.TryStartRecording(path, TimeSpan.FromHours(1), out var recording, out refusal).ShouldBeTrue(refusal);
@@ -220,7 +225,7 @@ public class PlanetaryCaptureTests(ITestOutputHelper output)
         var (hub, profile, _) = await RigAsync(ct);
         var capture = new PlanetaryCapture(new FakeTimeProviderWrapper(), NullLogger.Instance);
         capture.TryPrepare(Request, profile, hub, out _, out var refusal).ShouldBeTrue(refusal);
-        var path = Path.Combine(Directory.CreateTempSubdirectory("twser").FullName, "capture.ser");
+        var path = Path.Combine(_folders.Create("twser").FullName, "capture.ser");
         capture.TryStartRecording(path, TimeSpan.FromHours(1), out var recording, out refusal).ShouldBeTrue(refusal);
 
         await capture.DisposeAsync();

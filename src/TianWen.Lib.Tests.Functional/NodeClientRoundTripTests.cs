@@ -53,7 +53,7 @@ public class NodeClientRoundTripTests(ITestOutputHelper outputHelper) : IAsyncLi
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
 
-        var fakeExternal = new FakeExternal(outputHelper, System.IO.Directory.CreateTempSubdirectory("twrc_" + Guid.NewGuid().ToString("D")));
+        var fakeExternal = new FakeExternal(outputHelper, _folders.Create("twrc_"));
         builder.Services.AddSingleton<IExternal>(fakeExternal);
         // A real clock, as NodeHarness uses: on the fake one the node's background loops spin.
         builder.Services.AddSingleton<ITimeProvider>(new SystemTimeProvider());
@@ -78,6 +78,9 @@ public class NodeClientRoundTripTests(ITestOutputHelper outputHelper) : IAsyncLi
         _client = new TianWenNodeClient(_http);
     }
 
+    /// <summary>The node's data folder, deleted once it has stopped (#1197).</summary>
+    private readonly TempFolders _folders = new();
+
     public async ValueTask DisposeAsync()
     {
         _http?.Dispose();
@@ -86,6 +89,8 @@ public class NodeClientRoundTripTests(ITestOutputHelper outputHelper) : IAsyncLi
             await _app.StopAsync();
             await _app.DisposeAsync();
         }
+
+        _folders.Dispose();
     }
 
     [Fact(Timeout = 15_000)]

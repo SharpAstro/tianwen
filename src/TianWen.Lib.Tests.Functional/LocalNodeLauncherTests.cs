@@ -24,11 +24,16 @@ namespace TianWen.Lib.Tests.Functional;
 /// tests, on a socket and a data root of the test's own, with the fake devices only.
 /// </summary>
 [Collection("NodeProcesses")]
-public class LocalNodeLauncherTests
+public class LocalNodeLauncherTests : IDisposable
 {
-    private static (LocalNodeOptions Options, string Folder) Isolated(Action<Dictionary<string, string?>>? clock = null)
+    /// <summary>The temporary folders this test made, deleted after it (#1197).</summary>
+    private readonly TempFolders _folders = new();
+
+    public void Dispose() => _folders.Dispose();
+
+    private (LocalNodeOptions Options, string Folder) Isolated(Action<Dictionary<string, string?>>? clock = null)
     {
-        var folder = Directory.CreateTempSubdirectory("twl").FullName;
+        var folder = _folders.Create("twl").FullName;
         var clockEnvironment = new Dictionary<string, string?>();
         clock?.Invoke(clockEnvironment);
         return (new LocalNodeOptions
@@ -333,7 +338,7 @@ public class LocalNodeLauncherTests
     [Fact]
     public void ARefusalFromAnEarlierStartIsNotReadAsThisOnes()
     {
-        var folder = Directory.CreateTempSubdirectory("twr").FullName;
+        var folder = _folders.Create("twr").FullName;
         NodeStartRefusal.TryRead(folder).ShouldBeNull("nothing refused yet");
 
         NodeStartRefusal.Write(folder, "first" + Environment.NewLine + "second" + Environment.NewLine);

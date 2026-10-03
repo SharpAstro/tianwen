@@ -114,8 +114,8 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
 
     public static async Task<GuiNodeHarness> StartAsync(ITestOutputHelper output, CancellationToken ct, bool remoteOnScreen = false)
     {
-        var socketPath = Path.Combine(Directory.CreateTempSubdirectory("tws").FullName, "node.sock");
-        var node = await NodeHarness.StartAsync(output, ct, socketPath: socketPath);
+        var node = await NodeHarness.StartAsync(output, ct, onItsSocket: true);
+        var socketPath = node.SocketPath ?? throw new InvalidOperationException("A node started on its own socket has one.");
         // The view's mirror polls the node's state all along, so a session the node makes answers it as a real one does.
         node.Factory.OnCreated = static controlled => RemoteSessionMirrorTests.Observing(controlled.Session);
         try

@@ -39,7 +39,7 @@ public class NodeProfileOwnWritesTests(ITestOutputHelper output) : IAsyncLifetim
 
     [System.Diagnostics.CodeAnalysis.MemberNotNull(nameof(_node))]
     public async ValueTask InitializeAsync() => _node = await NodeHarness.StartAsync(output, TestContext.Current.CancellationToken,
-        socketPath: Path.Combine(Directory.CreateTempSubdirectory("tws").FullName, "node.sock"));
+        onItsSocket: true);
 
     public async ValueTask DisposeAsync()
     {

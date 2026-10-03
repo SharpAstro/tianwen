@@ -58,7 +58,7 @@ public class NodeActiveProfileTests(ITestOutputHelper outputHelper)
         // Both live in one settings file: a change to one must not lose the other.
         var ct = TestContext.Current.CancellationToken;
         await using var node = await NodeHarness.StartAsync(outputHelper, ct,
-            services => services.AddSingleton<INodeLogonStart>(new NoLogonEntry()), socketPath: Path.Combine(Directory.CreateTempSubdirectory("tws").FullName, "node.sock"));
+            services => services.AddSingleton<INodeLogonStart>(new NoLogonEntry()), onItsSocket: true);
 
         (await new TianWenNodeClient(node.Client).SetActiveProfileAsync(NodeHarness.ProfileId, ct)).IsSuccess.ShouldBeTrue();
         using (var shared = await node.Client.PutAsJsonAsync("api/v1/node/share", new NodeShareRequest { Shared = true }, HostingJsonContext.Default.NodeShareRequest, ct))

@@ -55,8 +55,8 @@ public class CliVerbsThroughTheNodeTests(ITestOutputHelper output)
 
         public static async Task<Cli> StartAsync(ITestOutputHelper output, CancellationToken ct)
         {
-            var socket = Path.Combine(Directory.CreateTempSubdirectory("twcli").FullName, "node.sock");
-            var node = await NodeHarness.StartAsync(output, ct, socketPath: socket);
+            var node = await NodeHarness.StartAsync(output, ct, onItsSocket: true);
+            var socket = node.SocketPath ?? throw new InvalidOperationException("A node started on its own socket has one.");
             node.Factory.OnCreated = static controlled => RemoteSessionMirrorTests.Observing(controlled.Session);
             node.Factory.Initialised.TrySetResult();
             var written = new StringWriter();

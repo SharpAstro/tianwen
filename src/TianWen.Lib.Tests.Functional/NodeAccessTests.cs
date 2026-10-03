@@ -389,7 +389,7 @@ public class NodeAccessTests(ITestOutputHelper outputHelper) : IAsyncLifetime
     {
         var ct = TestContext.Current.CancellationToken;
         await using var local = await NodeHarness.StartAsync(outputHelper, ct,
-            socketPath: Path.Combine(Directory.CreateTempSubdirectory("tws").FullName, "node.sock"));
+            onItsSocket: true);
         var client = new TianWenNodeClient(local.Client);
 
         (await client.GetNodeAsync(ct)).Value.ShouldNotBeNull().CallerMayCommand.ShouldBeTrue();

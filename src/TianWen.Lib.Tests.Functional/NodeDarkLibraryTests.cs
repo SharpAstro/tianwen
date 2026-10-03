@@ -24,8 +24,13 @@ namespace TianWen.Lib.Tests.Functional;
 /// goes on, gives it back as it ends however it ends, names itself when it refuses anything, and is journaled by kind.
 /// </summary>
 [Collection("Hosting")]
-public class NodeDarkLibraryTests(ITestOutputHelper outputHelper)
+public class NodeDarkLibraryTests(ITestOutputHelper outputHelper) : IDisposable
 {
+    /// <summary>The temporary folders this test made, deleted after it (#1197).</summary>
+    private readonly TempFolders _folders = new();
+
+    public void Dispose() => _folders.Dispose();
+
     private static TianWenNodeClient ClientOf(NodeHarness node) => new TianWenNodeClient(node.Client);
 
     private static async Task<FakeDevice> ConnectedCameraAsync(NodeHarness node, CancellationToken ct)
@@ -153,7 +158,7 @@ public class NodeDarkLibraryTests(ITestOutputHelper outputHelper)
     public async Task TheJournalRecordsADarkLibraryByItsKind()
     {
         var ct = TestContext.Current.CancellationToken;
-        var path = Path.Combine(Directory.CreateTempSubdirectory("twj").FullName, "node.journal");
+        var path = Path.Combine(_folders.Create("twj").FullName, "node.journal");
         await using var node = await NodeHarness.StartAsync(outputHelper, ct,
             services => services.AddSingleton(new NodeJournalOptions(path, null, static () => null, TimeProvider.System)));
         var camera = await ConnectedCameraAsync(node, ct);

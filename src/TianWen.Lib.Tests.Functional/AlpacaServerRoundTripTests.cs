@@ -47,7 +47,7 @@ namespace TianWen.Lib.Tests.Functional
             builder.WebHost.UseUrls("http://127.0.0.1:0");
             builder.Logging.ClearProviders();
 
-            var fakeExternal = new FakeExternal(outputHelper, System.IO.Directory.CreateTempSubdirectory("twalp_" + Guid.NewGuid().ToString("D")));
+            var fakeExternal = new FakeExternal(outputHelper, _folders.Create("twalp_"));
             builder.Services.AddSingleton<IExternal>(fakeExternal);
             builder.Services.AddSingleton<ITimeProvider>(fakeExternal.TimeProvider);
             builder.Services.AddAstrometry();
@@ -120,6 +120,9 @@ namespace TianWen.Lib.Tests.Functional
             set.EnsureSuccessStatusCode();
         }
 
+        /// <summary>The node's data folder, deleted once it has stopped (#1197).</summary>
+        private readonly TempFolders _folders = new();
+
         public async ValueTask DisposeAsync()
         {
             _client?.Dispose();
@@ -128,6 +131,8 @@ namespace TianWen.Lib.Tests.Functional
                 await _app.StopAsync(TestContext.Current.CancellationToken);
                 await _app.DisposeAsync();
             }
+
+            _folders.Dispose();
         }
 
         private AlpacaClient NewAlpacaClient() => new AlpacaClient(new HttpClient());

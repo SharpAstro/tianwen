@@ -22,8 +22,13 @@ namespace TianWen.Lib.Tests.Functional;
 /// stand-in that records, so no test writes the user's real one.
 /// </summary>
 [Collection("Hosting")]
-public class NodeShareTests(ITestOutputHelper outputHelper)
+public class NodeShareTests(ITestOutputHelper outputHelper) : IDisposable
 {
+    /// <summary>The temporary folders this test made, deleted after it (#1197).</summary>
+    private readonly TempFolders _folders = new();
+
+    public void Dispose() => _folders.Dispose();
+
     private sealed class RecordedLogonStart : INodeLogonStart
     {
         public string? ServerPath { get; private set; }
@@ -33,7 +38,7 @@ public class NodeShareTests(ITestOutputHelper outputHelper)
         public void Set(bool startAtLogon, string serverPath) => ServerPath = startAtLogon ? serverPath : null;
     }
 
-    private static string NewSocketPath() => Path.Combine(Directory.CreateTempSubdirectory("tws").FullName, "node.sock");
+    private string NewSocketPath() => Path.Combine(_folders.Create("tws").FullName, "node.sock");
 
     private static async Task<(int Status, NodeShareDto? Share)> ShareAsync(HttpClient client, bool shared)
     {

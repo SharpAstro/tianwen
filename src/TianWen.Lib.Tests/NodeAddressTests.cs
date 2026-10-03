@@ -12,8 +12,13 @@ namespace TianWen.Lib.Tests;
 /// socket path helper every node and client share, the lock that admits one node to a socket, and the node's stable
 /// id.
 /// </summary>
-public class NodeAddressTests(ITestOutputHelper outputHelper)
+public class NodeAddressTests(ITestOutputHelper outputHelper) : IDisposable
 {
+    /// <summary>The temporary folders this test made, deleted after it (#1197).</summary>
+    private readonly TempFolders _folders = new();
+
+    public void Dispose() => _folders.Dispose();
+
     [Fact]
     public void ASocketPathThatFitsASocketAddressIsAccepted()
     {
@@ -87,7 +92,7 @@ public class NodeAddressTests(ITestOutputHelper outputHelper)
     [Fact]
     public void OneNodeHoldsASocketsLockUntilItLetsGo()
     {
-        var socketPath = Path.Combine(Directory.CreateTempSubdirectory("twl").FullName, "node.sock");
+        var socketPath = Path.Combine(_folders.Create("twl").FullName, "node.sock");
 
         NodeLock.TryAcquire(socketPath, out var first, out var refusal).ShouldBeTrue(refusal?.Message);
         using (first)
@@ -198,7 +203,7 @@ public class NodeAddressTests(ITestOutputHelper outputHelper)
     [Fact]
     public void ADataRootNamedByTheEnvironmentIsUsedAndMadeAndNoneNamedIsTheUsers()
     {
-        var named = Path.Combine(Path.GetTempPath(), "twroot-" + Guid.NewGuid().ToString("N")[..8], "data");
+        var named = Path.Combine(_folders.Create("twroot-").FullName, "data");
 
         var root = SharedStaticData.ResolveCommonDataRoot(named);
 

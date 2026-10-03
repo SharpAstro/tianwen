@@ -38,7 +38,7 @@ public class SharedMemoryCarrierProbe(ITestOutputHelper output)
         Assert.SkipUnless(Environment.GetEnvironmentVariable(EnvVar) is "1", $"{EnvVar} not set to 1");
         var ct = TestContext.Current.CancellationToken;
         await using var node = await NodeHarness.StartAsync(output, ct,
-            socketPath: Path.Combine(Directory.CreateTempSubdirectory("tws").FullName, "node.sock"));
+            onItsSocket: true);
         await node.ActivateRigAsync(Camera, mount: null, ct);
         await using var window = await NodeWindow.OpenAsync(node, output, ct);
         var client = new TianWenNodeClient(node.Client);

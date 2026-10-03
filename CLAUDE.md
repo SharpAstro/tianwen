@@ -208,6 +208,11 @@ and `LALR.CC` is deliberately exempt from the shared shape, so leave it alone.
 - **xUnit v3** with `[Fact]` / `[Theory]` + `[InlineData]`; **Shouldly** for assertions; **NSubstitute** for mocks
 - Test data: embedded resources in `Data/` subdirectories
 - **Never use reflection in tests**: add an `internal` property/method instead (test project has `InternalsVisibleTo`)
+- **A test's temporary folder comes from `TempFolders`**, never a bare `Directory.CreateTempSubdirectory`, which
+  nothing removes (1,253 had piled up in `%TEMP%`, #1197). It is made under the tests' common root,
+  `%TEMP%/TianWen.Lib.Tests/t`, deleted when disposed (a test class's field, disposed after each test), and anything
+  a delete missed is swept after a day. A node harness owns its own (`NodeHarness.StartAsync(onItsSocket: true)`,
+  `KeptNode`).
 - **Avoid duplication**: extract shared setup to helpers (e.g., `SessionTestHelper`)
 - **A shared fixture plus an assertion about a FIRST write is an order dependency**, whether or not
   today's order satisfies it. `IClassFixture<T>` lives for the whole class, so its state carries from

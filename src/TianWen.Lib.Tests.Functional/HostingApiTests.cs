@@ -36,7 +36,7 @@ public class HostingApiTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         builder.WebHost.UseUrls("http://127.0.0.1:0");
 
         builder.Logging.ClearProviders();
-        var fakeExternal = new FakeExternal(outputHelper, System.IO.Directory.CreateTempSubdirectory("tw_" + Guid.NewGuid().ToString("D")));
+        var fakeExternal = new FakeExternal(outputHelper, _folders.Create("tw_"));
         _external = fakeExternal;
         // Register TianWen services with fake devices (mirrors CLI registration chain)
         builder.Services.AddSingleton<IExternal>(fakeExternal);
@@ -63,6 +63,9 @@ public class HostingApiTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", grant.Token);
     }
 
+    /// <summary>The node's data folder, deleted once it has stopped (#1197).</summary>
+    private readonly TempFolders _folders = new();
+
     public async ValueTask DisposeAsync()
     {
         _client?.Dispose();
@@ -71,6 +74,8 @@ public class HostingApiTests(ITestOutputHelper outputHelper) : IAsyncLifetime
             await _app.StopAsync();
             await _app.DisposeAsync();
         }
+
+        _folders.Dispose();
     }
 
     /// <summary>
