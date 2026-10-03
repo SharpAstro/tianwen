@@ -5,7 +5,7 @@
 **IN PROGRESS** (P1 done 2026-10-01, P4 done 2026-10-03; raised by the user 2026-09-30, while testing a Canon EOS 6D through the preview: "we also need a few
 more controls in the preview like show stars, HFD, FWHM, and all the other stuff, image stats, also the histogram, not
 just a Canon thing really", and a live view in the preview "which is useful beyond just planetary"). Milestone
-`live-session-preview` (#1108 to #1113, #1124, #1215 to #1220, #1225 and #681, one a section). Nothing here is Canon's: every camera the node drives previews through the same pane.
+`live-session-preview` (#1108 to #1113, #1124, #1215 to #1220, #1225, #1227 and #681, one a section). Nothing here is Canon's: every camera the node drives previews through the same pane.
 
 ## What exists, and is reused
 
@@ -307,6 +307,16 @@ Done on the reading task and handed over ready, the render thread only uploads.
 are two hand-written ladders, the Preview's (`LiveSessionActions.PreviewExposureSteps`, reaching 1 ms since P4 took it
 below 0.1 s for the live view) and the Planetary panel's (`VkPlanetaryTab.ExposurePresetsMs`, 0.5 to 500 ms); one
 slider across 1 ms to 300 s spans five and a half decades, which is why the range comes first.
+
+## P16: a magnified live view and its jog
+
+**#1227.** The live view at 1x, 5x or 10x, the magnified window jogged around the frame: what focusing on a star needs,
+with the Lens row (P12) moving the focus while it is watched. A Canon offers three Live View crops
+(`CanonCameraDriver.ZoomForWindow`: a threshold, 4.96x for 5x, about a second to apply while pre-zoom frames keep coming)
+and pans a magnified one (`JogRoiAsync`, `CanJogRoi`); the planetary capture drives both already, the live view asks for
+the whole sensor. A Zoom choice on the Live row sent as a window size, jog arrows (or a drag on the picture) sent as
+`JogX`/`JogY`, and an inset marking where the crop sits; a camera with native video takes the same as a readout window.
+**What the zoom buys is resolution, not only size**: at 1x a 6D's ~960 x 640 Live View frame averages about 5.7 x 5.7 sensor pixels into each of its own, so a star 2 to 3 pixels across is under one; at 5x the body sends a 1104 x 736 sensor crop as the frame, about one sensor pixel each (native); 10x upsamples that crop about 2x, larger but with no more detail. The JPEG's compression stays at every zoom.
 
 ## Out of scope
 
