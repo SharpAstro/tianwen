@@ -159,6 +159,7 @@ public static class ClassicalStarRemover
         private float[][] _channelRms = Array.Empty<float[]>();
         private float[] _fullScale = Array.Empty<float>();
         private float[][] _original = Array.Empty<float[]>();
+        private float[][]? _ceiling;
 
         // The field's PSF at a star's relative width: the luminance's, and each channel's at its measured FWHM ratio.
         private MoffatPsf LumPsf(double width, double beta = 0) => new MoffatPsf(_lumAlpha * width, beta > 0 ? beta : _beta);
@@ -1604,6 +1605,41 @@ public static class ClassicalStarRemover
             }
         }
 
+        // The fill's ceiling (HoleFill): the image the plate was made from, but never below the local sky (its background map
+        // at the fill's scale). A star only adds light, so a fill above what was observed is no estimate; but a stack's own
+        // undershoot at a bright core is not an observation of the sky either: an interpolation kernel ringing at a near-step
+        // edge, or a black-cored star, its saturated subs over-corrected. As a ceiling it held the fill down at the defect:
+        // on the Leo Triplet master 439 of the 450 dark filled pixels at its bright stars sat on it, 4 to 11 sigma under
+        // their own sky (and 8 above the frame's darkest, so a frame-wide floor could not see them). The rim round the
+        // Trapezium, which pulled a fill a hundred sigma above the dark gaps and is what the ceiling is for, stays capped:
+        // at most the local sky, not the rim.
+        private float[][] Ceiling()
+        {
+            if (_ceiling is { } built)
+            {
+                return built;
+            }
+            var ceiling = new float[_channels][];
+            var n = _width * _height;
+            for (var c = 0; c < _channels; c++)
+            {
+                var map = BackgroundMap.Estimate(_original[c], _width, _height, _absent, new BackgroundMapOptions(BlockSize: PointSourceFinder.SkyBlockFor(lumPsf.Fwhm)));
+                var background = new float[n];
+                map.FillBackground(background);
+                var plane = (float[])_original[c].Clone();
+                for (var i = 0; i < n; i++)
+                {
+                    if (float.IsFinite(background[i]) && plane[i] < background[i])
+                    {
+                        plane[i] = background[i];
+                    }
+                }
+                ceiling[c] = plane;
+            }
+            _ceiling = ceiling;
+            return ceiling;
+        }
+
         private void RefreshLuminance()
         {
             if (_channels == 1)
@@ -1679,7 +1715,7 @@ public static class ClassicalStarRemover
                         }
                     }
                 }
-                HoleFill.Fill(_work, _width, _height, added, _absent, lumPsf.Fwhm, options.Seed + round + 1, _original, ct);
+                HoleFill.Fill(_work, _width, _height, added, _absent, lumPsf.Fwhm, options.Seed + round + 1, Ceiling(), ct);
                 RefreshLuminance();
                 logger?.LogDebug("ClassicalStarRemover: hole sweep {Round}: {Holes} cores below their sky, refilled.", round + 1, discs.Count);
             }
@@ -1723,7 +1759,7 @@ public static class ClassicalStarRemover
                         }
                     }
                 }
-                HoleFill.Fill(_work, _width, _height, added, _absent, lumPsf.Fwhm, options.Seed + 100 + round, _original, ct);
+                HoleFill.Fill(_work, _width, _height, added, _absent, lumPsf.Fwhm, options.Seed + 100 + round, Ceiling(), ct);
                 RefreshLuminance();
             }
         }
@@ -2518,7 +2554,7 @@ public static class ClassicalStarRemover
 
         // The one fill (HoleFill): push-pull, then the plate's grain.
         private ImmutableArray<float> FillHoles(BitMatrix holes)
-            => HoleFill.Fill(_work, _width, _height, holes, _absent, lumPsf.Fwhm, options.Seed, _original, ct);
+            => HoleFill.Fill(_work, _width, _height, holes, _absent, lumPsf.Fwhm, options.Seed, Ceiling(), ct);
 
         private ImmutableArray<FittedStar> Describe(List<PointSource> sources, List<Fit> fits, int secondFrom, BitMatrix inpainted)
         {
@@ -2738,13 +2774,17 @@ public static class ClassicalStarRemover
 
             var fwhmOut = ImmutableArray.Create(fwhm);
             var betaOut = ImmutableArray.Create(beta);
+            var speckles = StarlessSpeckles.Measure(_lum, _width, _height, _absent,
+                [.. stars.Where(static s => s.Outcome == StarFitOutcome.Subtracted).Select(static s => (s.X, s.Y, s.Significance))],
+                [.. stars.Select(static s => (s.X, s.Y))], options.Seed);
             return new StarlessPlateStatistics(
                 bands.MoveToImmutable(),
                 present > 0 ? (float)inpainted.PopCount() / present : 0f,
                 leftovers.Count(l => l.Significance < BandEdges[0]),
                 Faint(static r => r < 1.0 / 3.0),
                 Faint(static r => r > 2.0 / 3.0),
-                fwhmOut, betaOut, (float)_fieldScale, (float)_beta, HoleNullRate(subtracted, inpainted), correlation, sw.Elapsed.TotalSeconds);
+                fwhmOut, betaOut, (float)_fieldScale, (float)_beta, HoleNullRate(subtracted, inpainted), correlation, sw.Elapsed.TotalSeconds,
+                speckles);
         }
 
         private static float Median(IEnumerable<float> values)

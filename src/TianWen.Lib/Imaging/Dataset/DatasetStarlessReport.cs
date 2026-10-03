@@ -214,8 +214,13 @@ public static class DatasetStarlessReport
         sb.AppendLine("beyond them, as a percentage of the band (5-20 / 20-100 / 100+), against the null: the same test at random");
         sb.AppendLine("star-free places of the plate, which a correlated noise fails more often than a Gaussian would.");
         sb.AppendLine();
-        sb.AppendLine("| Master | ch | found | sub | knots | sat | holes | inpaint | resid 5-10 / 10-20 / 20-50 / 50-100 / 100+ | bias 5-20 / 100+ | leftover 5-10 / 10-20 / 20+ | faint centre / corners | FWHM, beta (field) | cores n / p50 / p90 / max px | fill r6 | fill r12 | fill r24 | grain r12 | s |");
-        sb.AppendLine("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
+        sb.AppendLine("Speckles: subtracted stars with a core pixel (within 3 px) more than 4 sigma below the plate's sky 6 to 12 px out,");
+        sb.AppendLine("on the luminance, as a percentage of the band (0-20 / 20-100 / 100-1000 / 1000+), against the null: the same test");
+        sb.AppendLine("at sky positions at least 10 px from every source. A hole is a core whose MEAN is low; a speckle is a dark pixel the");
+        sb.AppendLine("mean hides beside a bright one, a star subtracted a fraction of a pixel off.");
+        sb.AppendLine();
+        sb.AppendLine("| Master | ch | found | sub | knots | sat | holes | speckles | inpaint | resid 5-10 / 10-20 / 20-50 / 50-100 / 100+ | bias 5-20 / 100+ | leftover 5-10 / 10-20 / 20+ | faint centre / corners | FWHM, beta (field) | cores n / p50 / p90 / max px | fill r6 | fill r12 | fill r24 | grain r12 | s |");
+        sb.AppendLine("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
         foreach (var r in records.OrderBy(static r => r.Master, StringComparer.OrdinalIgnoreCase))
         {
             var st = r.Statistics;
@@ -231,6 +236,7 @@ public static class DatasetStarlessReport
                 .Append(" | ").Append(r.Found).Append(" | ").Append(r.Subtracted).Append(" | ").Append(r.Knots + r.TooNarrow).Append(" | ").Append(r.Saturated)
                 .Append(" | ").Append(HolePercent(b.Take(2))).Append(" / ").Append(HolePercent(b.Skip(2).Take(2))).Append(" / ").Append(HolePercent(b.Skip(4)))
                 .Append(" (null ").Append(F(st.HoleNullRate * 100f)).Append(")")
+                .Append(" | ").Append(SpeckleCell(st.Speckles))
                 .Append(" | ").Append(F(st.InpaintFraction * 100f)).Append("%")
                 .Append(" | ").Append(string.Join(" / ", b.Select(x => F(x.ResidualMedian))))
                 .Append(" | ").Append(F(Median(b.Take(2).Select(static x => x.BiasMedian)))).Append(" / ").Append(F(b[^1].BiasMedian))
@@ -244,6 +250,16 @@ public static class DatasetStarlessReport
                 .AppendLine(" |");
         }
         await File.WriteAllTextAsync(path, sb.ToString(), ct);
+    }
+
+    private static string SpeckleCell(SpeckleReport? report)
+    {
+        if (report is null)
+        {
+            return "-";
+        }
+        static string P(SpeckleBand b) => b.Sites > 0 ? (100f * b.Rate).ToString("F1", CultureInfo.InvariantCulture) : "-";
+        return string.Join(" / ", report.Bands.Select(P)) + " (null " + P(report.Null) + ")";
     }
 
     private static string HolePercent(IEnumerable<StarlessBand> bands)

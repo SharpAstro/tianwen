@@ -107,10 +107,13 @@ public readonly record struct StarlessBand(
 /// reading below -3 the same way; a band's holes count only as an excess over it.</param>
 /// <param name="NoiseCorrelation">The lag-1 correlation of each channel's sky noise, which the fill's grain matches.</param>
 /// <param name="Seconds">Wall time of the build.</param>
+/// <param name="Speckles">Dark speckles at the subtracted sites, per significance band, against the plate's own sky
+/// (<see cref="StarlessSpeckles"/>); null on a record from before they were read.</param>
 public sealed record StarlessPlateStatistics(
     ImmutableArray<StarlessBand> Bands, float InpaintFraction, int LeftoverNearThreshold,
     float FaintResidualCentre, float FaintResidualCorners, ImmutableArray<float> FwhmPx, ImmutableArray<float> MoffatBeta,
-    float FieldWidthScale, float FieldBeta, float HoleNullRate, ImmutableArray<float> NoiseCorrelation, double Seconds);
+    float FieldWidthScale, float FieldBeta, float HoleNullRate, ImmutableArray<float> NoiseCorrelation, double Seconds,
+    SpeckleReport? Speckles = null);
 
 /// <summary>What <see cref="ClassicalStarRemover.BuildAsync"/> returns: the starless plate and the record of what made it.</summary>
 /// <param name="Plate">The starless plate, same shape, units, pedestal and metadata as the input.</param>
