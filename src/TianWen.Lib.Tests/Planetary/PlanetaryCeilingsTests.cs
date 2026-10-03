@@ -54,6 +54,31 @@ public class PlanetaryCeilingsTests
         }
     }
 
+    [Fact]
+    public void APsfFileShorterThanItsHeaderThrowsAndLetsTheFileGo()
+    {
+        // The right magic, then less than the header (#1196): Open throws, and its handle is closed by then. An exclusive open is
+        // refused while a handle is left open on every OS (.NET takes an flock on Unix), where a delete fails on Windows only.
+        var path = Path.Combine(Path.GetTempPath(), $"tianwen-psf-{Guid.NewGuid():N}.psf");
+        try
+        {
+            File.WriteAllBytes(path, [.. "TWPSF01\0"u8, 8, 0, 0, 0, 2, 0]);
+            Should.Throw<EndOfStreamException>(() => SyntheticPsfFile.Reader.Open(path));
+            using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+            }
+            File.Delete(path);
+            File.Exists(path).ShouldBeFalse();
+        }
+        finally
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+    }
+
     [Fact(Timeout = 300_000)]
     public async Task ATwinsFramesAreTheirTrueTransferTimesTheTruth()
     {
