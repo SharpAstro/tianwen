@@ -998,8 +998,9 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   split a fold across FRAMES, whose sum is ordered (233 s to 55 s for 3,000 frames, byte-identical).
 - **A planetary master is sharpened by `PlanetarySharpening`, ONE routine for `planetary-stack`, `planetary-sharpen` and the live view's
   Derive** (`PlanetaryBestStack.DeriveGains` seeds the wavelet dials through `WaveletDerivation`, ONE for the viewer's stacked view and
-  the GUI's capture; the dials hold at the darkest level, `HoldAtDarkest`, and match the FLOORED fix on every twin, not the bounded one)
-  (#1159): a trous gains derived through the limb's edge against the limb fit's sharp model through the pupil's diffraction, the stack's
+  the GUI's capture, and keeps the limb it fitted, `PlanetaryLiveLimb`, so every later master, whatever the dials, is drawn outside the
+  limb as the batch draws it, through the batch's own window, `PlanetaryLimbWindow`: equal to it outside the limb on every twin and the real
+  Red, #1201; the limb belongs to the capture, so Reset keeps it and another file or capture start clears it) (#1159): a trous gains derived through the limb's edge against the limb fit's sharp model through the pupil's diffraction, the stack's
   white noise floor and the planet's disk, with **no sharpening drawn outside the limb** (#1171, `PlanetaryLimbFix.ModelFeathered`):
   there the planet's own model through the pupil, the truth's smooth diffraction glow, feathered back to the stack from 1.5 radii to
   the window's inscribed circle, but for a moon (a local maximum of the stack keeps its sharpening, `PlanetaryMetrics.CompactSources`,

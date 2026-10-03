@@ -239,6 +239,8 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
         {
             _source?.Dispose();
             _source = next;
+            // The limb a derivation fitted belongs to the capture it was fitted on (#1201).
+            _state.WaveletLimb = null;
             _state.WaveletDirty = true;
             _hasLiveFrame = false; // the last capture's frame is not this one's
         }
@@ -271,7 +273,7 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
         _derivation.Tick(_state, live, capturePath: null, _timeProvider.GetUtcNow(), _logger);
         if (_state.WaveletDirty)
         {
-            live.SetSharpen(_state.BuildWaveletOptions());
+            live.SetSharpen(_state.BuildWaveletOptions(), _state.WaveletLimb);
             _state.WaveletDirty = false;
         }
 

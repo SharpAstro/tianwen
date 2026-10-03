@@ -154,38 +154,39 @@ public static class PlanetaryBestStack
 
     /// <summary>
     /// The gains <see cref="Sharpen"/> would derive for <paramref name="master"/>, finest scale first, for a live view's wavelet sliders
-    /// to sharpen every later master with (<see cref="SliderOptions"/>): the derivation is the slow part (about 35 s), the gains are
-    /// cheap to apply. Empty with the reason in words where nothing is derived: no telescope, no planet with a rotation model, no
-    /// time, or a limb that does not fit. A colour master's gains are its first channel's.
+    /// to sharpen every later master with (<see cref="SliderOptions"/>), and the limb it drew, which those masters are drawn outside of as
+    /// the batch draws it (<see cref="PlanetaryLiveLimb"/>, #1201): the derivation is the slow part (about 35 s), the gains and the limb are
+    /// cheap to apply. Empty, with no limb and the reason in words, where nothing is derived: no telescope, no planet with a rotation
+    /// model, no time, or a limb that does not fit. A colour master's gains are its first channel's.
     /// </summary>
-    public static (ImmutableArray<float> Gains, string How) DeriveGains(Image master, CatalogIndex? planet, DateTimeOffset? epoch,
+    public static (ImmutableArray<float> Gains, string How, PlanetaryLiveLimb? Limb) DeriveGains(Image master, CatalogIndex? planet, DateTimeOffset? epoch,
         Pupil? telescope, ImmutableArray<double> wavelengthsNm = default)
     {
         ArgumentNullException.ThrowIfNull(master);
         if (telescope is not { } pupil)
         {
-            return ([], "the gains are derived only for a telescope: give its aperture");
+            return ([], "the gains are derived only for a telescope: give its aperture", null);
         }
         if (planet is { } named && PlanetaryLimbFit.Unmodelled(named) is { } unmodelled)
         {
-            return ([], $"{unmodelled}, so no gains are derived");
+            return ([], $"{unmodelled}, so no gains are derived", null);
         }
-        // The gains do not depend on the limb fix, which only the batch sharpening applies; floored is the cheapest to make.
+        // The gains and the limb do not depend on the limb fix, which only the batch sharpening applies; floored is the cheapest to make.
         if (SharpenOptionsFor(master, planet, epoch, telescope, wavelengthsNm) is not { } options)
         {
-            return ([], "the gains are derived only for a named Jupiter with frame times");
+            return ([], "the gains are derived only for a named Jupiter with frame times", null);
         }
         if (PlanetarySharpening.Sharpen(master, options with { Fix = PlanetaryLimbFix.Floored }) is not { } result)
         {
-            return ([], "the planet's limb could not be fitted");
+            return ([], "the planet's limb could not be fitted", null);
         }
         try
         {
             var inv = CultureInfo.InvariantCulture;
             return result.Derived && !result.Gains.IsDefaultOrEmpty
                 ? ([.. result.Gains.Select(g => (float)g)], string.Create(inv,
-                    $"derived for {options.Planet} through a {pupil.DiameterM * 1000:0} mm pupil at {options.WavelengthsNm[0]:0} nm"))
-                : ([], "the gains could not be derived");
+                    $"derived for {options.Planet} through a {pupil.DiameterM * 1000:0} mm pupil at {options.WavelengthsNm[0]:0} nm"), result.Limb)
+                : ([], "the gains could not be derived", null);
         }
         finally
         {
@@ -195,9 +196,9 @@ public static class PlanetaryBestStack
 
     /// <summary>
     /// A live view's wavelet sliders set to derived <paramref name="gains"/>: the same a trous gains as the derived sharpening, no
-    /// denoise (the derivation weighed the noise already), each channel held at its darkest level (the limb floored, the owner's
-    /// choice of 2026-10-02 for the live view, which cannot afford a limb fit a master). One builder, so the GUI's sliders and
-    /// <c>planetary-sharpen --sliders</c>, which measures them, sharpen alike.
+    /// denoise (the derivation weighed the noise already), each channel held at its darkest level. Outside the limb a master is then drawn
+    /// by the limb the derivation kept (<see cref="PlanetaryLiveLimb.Draw"/>, #1201), which holds the inside at the sky. One builder, so the
+    /// GUI's sliders and <c>planetary-sharpen --sliders</c>, which measures them, sharpen alike.
     /// </summary>
     public static WaveletSharpenOptions SliderOptions(ImmutableArray<float> gains)
         => new WaveletSharpenOptions { Gains = gains, HoldAtDarkest = true };

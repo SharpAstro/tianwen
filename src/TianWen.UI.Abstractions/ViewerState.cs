@@ -447,6 +447,13 @@ public sealed class ViewerState
     /// </summary>
     public bool WaveletDerived { get; set; }
 
+    /// <summary>
+    /// The limb the last derivation fitted, kept so that every later master is drawn outside the limb as the batch draws it, whatever the
+    /// dials (<see cref="TianWen.Lib.Imaging.Planetary.PlanetaryLiveLimb"/>, #1201). It belongs to the capture, not to the gains, so Reset
+    /// keeps it and another file or capture start clears it. Null before any derivation.
+    /// </summary>
+    public TianWen.Lib.Imaging.Planetary.PlanetaryLiveLimb? WaveletLimb { get; set; }
+
     /// <summary>Set by the Derive button; the controller starts a derivation over the master on show, or ignores it while one runs, and clears it.</summary>
     public bool WaveletDeriveRequested { get; set; }
 
@@ -756,6 +763,7 @@ public sealed class ViewerState
         WaveletSharpenEnabled = WaveletSharpenEnabled,
         WaveletGains = WaveletGains,
         WaveletDerived = WaveletDerived,
+        WaveletLimb = WaveletLimb,
 
         // The overlays -- the whole reason this export exists.
         ShowGrid = ShowGrid,

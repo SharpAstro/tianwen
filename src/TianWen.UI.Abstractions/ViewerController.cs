@@ -272,6 +272,9 @@ public sealed class ViewerController(
                     _rawSource = serSource;
                     _liveSource = liveSource;
                     state.SequencePath = requestedPath;
+                    // The limb a derivation fitted belongs to the capture it was fitted on (#1201).
+                    state.WaveletLimb = null;
+                    state.WaveletDirty = true;
                     // Stamped at ADOPTION, never at request: a superseded or failed load must not
                     // invalidate a comparison that is still valid for what is on screen.
                     state.NotifySourceReplaced();
@@ -1449,7 +1452,7 @@ public sealed class ViewerController(
             _derivation.Tick(state, live, state.SequencePath, timeProvider.GetUtcNow(), logger);
             if (state.WaveletDirty)
             {
-                live.SetSharpen(state.BuildWaveletOptions());
+                live.SetSharpen(state.BuildWaveletOptions(), state.WaveletLimb);
                 state.WaveletDirty = false;
             }
             masterPublished = live.TryPublishMaster();

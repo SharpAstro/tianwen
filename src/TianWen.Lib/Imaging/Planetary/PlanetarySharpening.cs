@@ -116,7 +116,14 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
 }
 
 /// <summary>A sharpened master and how it was sharpened: the first channel's derived gains (empty for the preset) and its edge's transfer.</summary>
-public sealed record PlanetarySharpenResult(Image Sharpened, bool Derived, PlanetaryLimbFix Fix, ImmutableArray<double> Gains, double EdgeAtTenth, double EdgeAtThreeTenths);
+public sealed record PlanetarySharpenResult(Image Sharpened, bool Derived, PlanetaryLimbFix Fix, ImmutableArray<double> Gains, double EdgeAtTenth, double EdgeAtThreeTenths)
+{
+    /// <summary>
+    /// The limb this sharpening drew, kept for a live view to draw every later master's limb alike (#1201): the fit and the planet's model
+    /// through the pupil for each channel. Null where the gains were not derived (no pupil).
+    /// </summary>
+    public PlanetaryLiveLimb? Limb { get; init; }
+}
 
 /// <summary>
 /// The planetary master's sharpening (the enhanced pipeline, #1159): a trous gains derived from the stack's own power, its white noise floor,
@@ -127,10 +134,6 @@ public sealed record PlanetarySharpenResult(Image Sharpened, bool Derived, Plane
 /// </summary>
 public static class PlanetarySharpening
 {
-    // How far past the limb the window reaches, px: the edge reads 16 px either side (PlanetaryFinestBand.EdgeReach), the coarsest band's
-    // support about as much again.
-    private const int Margin = 48;
-
     /// <summary>The sharpened master, a new image the caller owns, and what it took; null when the limb cannot be fitted.</summary>
     public static PlanetarySharpenResult? Sharpen(Image master, PlanetarySharpenOptions options)
     {
@@ -143,13 +146,10 @@ public static class PlanetarySharpening
             return null;
         }
         var (width, height) = (master.Width, master.Height);
-        var own = MetricDisk.From(fit, limbOptions.AxisRatio);
-        var size = Math.Max(128, NextPowerOfTwo((int)Math.Ceiling(2 * (fit.EquatorialRadius + Margin))));
-        var (x0, y0) = ((int)Math.Round(fit.CenterX) - (size / 2), (int)Math.Round(fit.CenterY) - (size / 2));
-        var disk = own with { X = own.X - x0, Y = own.Y - y0 };
-        var sharpFull = PlanetaryLimbFit.SharpModel(fit, limbOptions, width, height);
-        var sharp = Cut(PlanetaryMetrics.Normalise(sharpFull, width, height, own), width, height, x0, y0, size);
-        var arcsecPerPixel = aspect.AngularDiameterArcsec / 2 / fit.EquatorialRadius;
+        var limbWindow = PlanetaryLimbWindow.Of(fit, limbOptions, aspect, width, height);
+        var (own, disk, size, sharp) = (limbWindow.Own, limbWindow.Disk, limbWindow.Size, limbWindow.Sharp);
+        var models = new float[master.ChannelCount][];
+        var diffractions = new RadialTransfer[master.ChannelCount];
 
         var planes = Image.CreateChannelData(master.ChannelCount, height, width);
         var (derived, firstGains, edgeAt01, edgeAt03) = (options.Pupil is not null, ImmutableArray<double>.Empty, double.NaN, double.NaN);
@@ -157,13 +157,13 @@ public static class PlanetarySharpening
         {
             var plane = master.GetChannelSpan(c);
             var (level, scale) = PlanetaryMetrics.NormalisationLevels(plane, width, height, own);
-            var window = Cut(PlanetaryMetrics.Normalise(plane, width, height, own), width, height, x0, y0, size);
+            var window = limbWindow.Cut(plane, width, height, level, scale);
             float[] sharpened;
             if (options.Pupil is { } pupil)
             {
-                var wavelength = options.WavelengthsNm[Math.Min(c, options.WavelengthsNm.Length - 1)] * 1e-9;
-                var diffraction = PlanetaryInverse.Diffraction(pupil, wavelength, arcsecPerPixel);
-                var diskTarget = PlanetaryInverse.Apply(sharp, size, size, diffraction.At);
+                var diffraction = limbWindow.Diffraction(pupil, options.WavelengthsNm[Math.Min(c, options.WavelengthsNm.Length - 1)]);
+                var diskTarget = limbWindow.Through(diffraction);
+                (models[c], diffractions[c]) = (diskTarget, diffraction);
                 var edge = PlanetaryFinestBand.LimbEdge(window, diskTarget, size, size, disk, fit, aspect);
                 var kernel = Tabulated(f => Math.Clamp(edge.TransferAt(f), 0, 1));
                 var power = PlanetaryWaveletGains.StackPower(window, size, size, disk);
@@ -201,10 +201,13 @@ public static class PlanetarySharpening
                     (firstGains, edgeAt01, edgeAt03) = ([.. gains], edge.TransferAt(0.1), edge.TransferAt(0.3));
                 }
             }
-            Paste(plane, sharpened, planes[c], width, height, x0, y0, size, level, scale);
+            limbWindow.Paste(plane, sharpened, planes[c], width, height, level, scale);
         }
         var image = new Image(planes, BitDepth.Float32, master.MaxValue, master.MinValue, master.Pedestal, master.ImageMeta);
-        return new PlanetarySharpenResult(image, derived, derived ? options.Fix : PlanetaryLimbFix.LimbChannel, firstGains, edgeAt01, edgeAt03);
+        return new PlanetarySharpenResult(image, derived, derived ? options.Fix : PlanetaryLimbFix.LimbChannel, firstGains, edgeAt01, edgeAt03)
+        {
+            Limb = options.Pupil is { } kept ? PlanetaryLiveLimb.Kept(master, fit, limbOptions, aspect, limbWindow, kept, options.WavelengthsNm, [.. models], [.. diffractions]) : null,
+        };
     }
 
     // Whether channel `c` of a master of `channels` keeps its finest band as stacked.
@@ -259,55 +262,5 @@ public static class PlanetarySharpening
             var i = Math.Min((int)x, samples - 1);
             return table[i] + ((x - i) * (table[i + 1] - table[i]));
         };
-    }
-
-    // The square of `size` at (x0, y0) of a full-frame plane, the frame mirrored about its edges where the square runs past them. Never
-    // padded with zeros: a 200 px crop of a 150 px disk sits in a 256 px window, and zeros there were a step at the frame's edge for
-    // the sharpening to ring on and a sky without noise for the moons' threshold, which then took the frame's edge for 16 moons a
-    // channel and freed it unbounded (the real-capture validation, 2026-10-03).
-    private static float[] Cut(ReadOnlySpan<float> plane, int width, int height, int x0, int y0, int size)
-    {
-        var window = new float[size * size];
-        for (var y = 0; y < size; y++)
-        {
-            var sy = Mirrored(y0 + y, height);
-            for (var x = 0; x < size; x++)
-            {
-                window[(y * size) + x] = plane[(sy * width) + Mirrored(x0 + x, width)];
-            }
-        }
-        return window;
-    }
-
-    // An index mirrored into [0, n), the edge sample repeated (..., 1, 0 | 0, 1, ..., n - 1 | n - 1, n - 2, ...).
-    private static int Mirrored(int i, int n)
-    {
-        var m = ((i % (2 * n)) + (2 * n)) % (2 * n);
-        return m < n ? m : (2 * n) - 1 - m;
-    }
-
-    // The master's plane with the sharpened window put back in its units.
-    private static void Paste(ReadOnlySpan<float> plane, float[] window, float[,] into, int width, int height, int x0, int y0, int size, double level, double scale)
-    {
-        for (var y = 0; y < height; y++)
-        {
-            for (var x = 0; x < width; x++)
-            {
-                var (wx, wy) = (x - x0, y - y0);
-                into[y, x] = wx >= 0 && wx < size && wy >= 0 && wy < size
-                    ? (float)(level + (window[(wy * size) + wx] * scale))
-                    : plane[(y * width) + x];
-            }
-        }
-    }
-
-    private static int NextPowerOfTwo(int value)
-    {
-        var p = 1;
-        while (p < value)
-        {
-            p <<= 1;
-        }
-        return p;
     }
 }
