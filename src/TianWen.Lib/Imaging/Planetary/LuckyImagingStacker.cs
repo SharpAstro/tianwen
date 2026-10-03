@@ -457,14 +457,15 @@ public sealed class LuckyImagingStacker
 
     /// <summary>
     /// Every frame's alignment points read as <see cref="StackAsync"/> reads them, with the same reference, points, aligner and
-    /// matcher, and the reference's index: what a dewarp's residual is measured from (<see cref="DewarpResidual"/>).
+    /// matcher, the reference's index and the matcher itself: what a dewarp's residual is measured from (<see cref="DewarpResidual"/>).
     /// </summary>
-    internal static async Task<(AlignmentPointTracks Tracks, int ReferenceIndex)> TrackAsync(IPlanetaryFrameStream stream, PlanetaryStackOptions options, CancellationToken cancellationToken)
+    internal static async Task<(AlignmentPointTracks Tracks, int ReferenceIndex, AlignmentPointMatcher Matcher)> TrackAsync(IPlanetaryFrameStream stream,
+        PlanetaryStackOptions options, CancellationToken cancellationToken)
     {
         var ctx = await PrepareAsync(stream, options, includeAlignmentPoints: true, cancellationToken).ConfigureAwait(false);
         var matcher = ctx.Matcher
             ?? throw new InvalidOperationException("PrepareAsync(includeAlignmentPoints: true) must produce an alignment-point matcher.");
-        return (await AlignmentPointTracks.MeasureAsync(stream, ctx.Aligner, matcher, cancellationToken).ConfigureAwait(false), ctx.ReferenceIndex);
+        return (await AlignmentPointTracks.MeasureAsync(stream, ctx.Aligner, matcher, cancellationToken).ConfigureAwait(false), ctx.ReferenceIndex, matcher);
     }
 
     private sealed record StackContext(
@@ -560,7 +561,7 @@ public sealed class LuckyImagingStacker
             if (includeAlignmentPoints)
             {
                 var aps = FeatureDetector.DetectAlignmentPoints(reference, refRegion, options.AlignmentPointSpacing, options.MaxAlignmentPoints);
-                matcher = AlignmentPointMatcher.FromReference(reference, aps, options.AlignmentPatchSize, options.WhitenedCorrelation);
+                matcher = AlignmentPointMatcher.FromReference(reference, aps, options.AlignmentPatchSize, options.WhitenedCorrelation, options.PointEstimator);
                 if (options.RemeasureAgainstStack && derotator is null)
                 {
                     // #1081's second pass: the reference dewarped by the points it gave, and every frame matched against that.
@@ -569,7 +570,7 @@ public sealed class LuckyImagingStacker
                     reference = dewarped;
                     refRegion = PlanetaryDisk.BoundingBox(reference);
                     aligner = AlignerFor(reference, refRegion, options.AlignTileSize, options.WhitenedCorrelation);
-                    matcher = AlignmentPointMatcher.FromReference(reference, aps, options.AlignmentPatchSize, options.WhitenedCorrelation);
+                    matcher = AlignmentPointMatcher.FromReference(reference, aps, options.AlignmentPatchSize, options.WhitenedCorrelation, options.PointEstimator);
                 }
 
                 // The signal-confidence gate is computed once from the reference (= the integrator's output

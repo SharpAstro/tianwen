@@ -3,6 +3,25 @@ using TianWen.Lib.Astrometry.Catalogs;
 
 namespace TianWen.Lib.Imaging.Planetary;
 
+/// <summary>How an alignment point's shift is read (<see cref="PlanetaryStackOptions.PointEstimator"/>).</summary>
+public enum PlanetaryPointEstimator
+{
+    /// <summary>A Hann-windowed cross-correlation, phase-whitened or plain (<see cref="PlanetaryStackOptions.WhitenedCorrelation"/>),
+    /// its peak climbed. Both windows sit where the point is, so a smooth texture's reading is pulled toward no shift.</summary>
+    Correlation,
+
+    /// <summary>Loefdahl 2010's square difference (<see cref="Stat.SquareDifferenceShift"/>): unwindowed, mean- and plane-subtracted,
+    /// against a reference <see cref="AlignmentPointMatcher.SquareDifferenceMargin"/> px larger each side, the minimum placed by a 2-D
+    /// quadratic fit.</summary>
+    SquareDifference,
+
+    /// <summary>The plain correlation with its cross-spectrum weighted by the maximum-likelihood weight (Knapp and Carter 1976):
+    /// <c>S / (S (N1 + N2) + N1 N2)</c>, S the reference's signal power at a frequency, N1 its noise floor, N2 the frame patch's own
+    /// (<see cref="Stat.PhaseCorrelation.EstimateWeighted"/>). Against a reference stacked from many frames N1 is small, and the weight
+    /// is a constant wherever the reference holds signal.</summary>
+    WeightedCorrelation,
+}
+
 /// <summary>
 /// Options for a planetary lucky-imaging stack. The defaults are the measured best of docs/plans/planetary-restoration.md, R4 to R6
 /// (the enhanced pipeline, #1159); <see cref="Legacy"/> is every stack's recipe before it.
@@ -77,6 +96,13 @@ public sealed record PlanetaryStackOptions
     /// the first reference put them. Not with a de-rotation, whose reference turns with the planet.
     /// </summary>
     public bool RemeasureAgainstStack { get; init; }
+
+    /// <summary>
+    /// How each alignment point's shift is read (#1082, docs/plans/planetary-restoration.md, "#1082: an estimator for the points,
+    /// against its bound"): a windowed cross-correlation (the default), or a square difference against a reference 3 px larger each
+    /// side, which no window pulls toward zero.
+    /// </summary>
+    public PlanetaryPointEstimator PointEstimator { get; init; }
 
     /// <summary>
     /// The kernel each frame is resampled by as it is folded in, global and alignment-point paths alike (clamped Lanczos-3, the

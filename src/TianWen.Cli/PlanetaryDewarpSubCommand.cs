@@ -17,6 +17,14 @@ namespace TianWen.Cli;
 /// </summary>
 internal sealed class PlanetaryDewarpSubCommand(IConsoleHost consoleHost)
 {
+    internal static PlanetaryPointEstimator ParseEstimator(string? name) => name?.ToLowerInvariant() switch
+    {
+        "sdf" or "square-difference" => PlanetaryPointEstimator.SquareDifference,
+        "weighted" => PlanetaryPointEstimator.WeightedCorrelation,
+        "correlation" or null => PlanetaryPointEstimator.Correlation,
+        _ => throw new ArgumentException($"--estimator {name}: correlation, weighted or sdf"),
+    };
+
     public Command Build()
     {
         var captureArg = new Argument<string>("capture") { Description = "A synthetic capture planetary-degrade made with a warp." };
@@ -30,6 +38,7 @@ internal sealed class PlanetaryDewarpSubCommand(IConsoleHost consoleHost)
         var influenceOpt = new Option<float>("--mesh-influence") { Description = "How far a point's displacement reaches into the mesh, px.", DefaultValueFactory = _ => 48f };
         var krigeRmsOpt = new Option<double?>("--krige-rms") { Description = "The twin's warp RMS a axis, px (planetary-degrade --warp-rms): with --krige-length, how each point reads the warp and what the blend, a kriging and the best linear weights leave (#1081)." };
         var krigeLengthOpt = new Option<double?>("--krige-length") { Description = "The twin's warp correlation length, px (planetary-degrade --warp-length)." };
+        var estimatorOpt = new Option<string>("--estimator") { Description = "How each point's shift is read: correlation (windowed, the default), weighted (the correlation by its maximum-likelihood weight) or sdf (square difference, #1082).", DefaultValueFactory = _ => "correlation" };
         var remeasureOpt = new Option<bool>("--remeasure") { Description = "Match every frame against the reference dewarped by its own points (#1081's second pass, PlanetaryStackOptions.RemeasureAgainstStack)." };
         var gainOpt = new Option<float>("--mesh-gain") { Description = "A gain on every point's residual before the mesh blends them (PlanetaryStackOptions.MeshGain).", DefaultValueFactory = _ => 1f };
         var poolOpt = new Option<string>("--pool") { Description = "The frames either side each point's warp is pooled over (a Gaussian's sigma), a comma list.", DefaultValueFactory = _ => "0,1,2,4" };
@@ -38,7 +47,7 @@ internal sealed class PlanetaryDewarpSubCommand(IConsoleHost consoleHost)
             "How much of a synthetic capture's true warp the alignment points recover, on the reference and the median geometry, each frame's own and pooled (R5).")
         {
             Arguments = { captureArg },
-            Options = { warpOpt, framesOpt, spacingOpt, patchOpt, maxApOpt, correlationOpt, meshOpt, influenceOpt, poolOpt, krigeRmsOpt, krigeLengthOpt, gainOpt, remeasureOpt },
+            Options = { warpOpt, framesOpt, spacingOpt, patchOpt, maxApOpt, correlationOpt, meshOpt, influenceOpt, poolOpt, krigeRmsOpt, krigeLengthOpt, gainOpt, remeasureOpt, estimatorOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -70,6 +79,7 @@ internal sealed class PlanetaryDewarpSubCommand(IConsoleHost consoleHost)
                 MeshInfluence = parseResult.GetValue(influenceOpt),
                 MeshGain = parseResult.GetValue(gainOpt),
                 RemeasureAgainstStack = parseResult.GetValue(remeasureOpt),
+                PointEstimator = ParseEstimator(parseResult.GetValue(estimatorOpt)),
             };
             var pools = (parseResult.GetValue(poolOpt) ?? "0").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Select(p => double.Parse(p, CultureInfo.InvariantCulture)).ToArray();
@@ -94,6 +104,11 @@ internal sealed class PlanetaryDewarpSubCommand(IConsoleHost consoleHost)
             {
                 consoleHost.WriteScrollable(string.Create(inv,
                     $"    a point's reading, on the median geometry, against the truth at the point: slope {i.SlopeAtPoint:0.000}, error {i.ErrorAtPointX:0.000}, {i.ErrorAtPointY:0.000}; over its window (sigma {i.WindowSigmaPx:0.00} px): slope {i.SlopeInWindow:0.000}, error {i.ErrorInWindowX:0.000}, {i.ErrorInWindowY:0.000}"));
+                // The reading's noise as an unbiased estimator (its error about its slope over that slope) against what no unbiased
+                // estimator using the point's pixels can beat (#1082).
+                var (unbiasedX, unbiasedY) = (i.ErrorInWindowX / i.SlopeInWindow, i.ErrorInWindowY / i.SlopeInWindow);
+                consoleHost.WriteScrollable(string.Create(inv,
+                    $"    the Cramer-Rao bound at the points {i.BoundX:0.000}, {i.BoundY:0.000} px; the reading's error over its window, unbiased, {unbiasedX:0.000}, {unbiasedY:0.000} ({unbiasedX / i.BoundX:0.0}, {unbiasedY / i.BoundY:0.0} times the bound)"));
                 double Recovered(double x, double y) => 1 - Math.Sqrt(((x * x) + (y * y)) / ((i.UndewarpedX * i.UndewarpedX) + (i.UndewarpedY * i.UndewarpedY)));
                 consoleHost.WriteScrollable(string.Create(inv,
                     $"    left at the places, odd frames (undewarped {i.UndewarpedX:0.000}, {i.UndewarpedY:0.000}): blend {i.BlendX:0.000}, {i.BlendY:0.000} ({Recovered(i.BlendX, i.BlendY):+0%;-0%}); scaled by {i.GainX:0.00}, {i.GainY:0.00} {i.ScaledBlendX:0.000}, {i.ScaledBlendY:0.000} ({Recovered(i.ScaledBlendX, i.ScaledBlendY):+0%;-0%}); kriging {i.KrigedX:0.000}, {i.KrigedY:0.000} ({Recovered(i.KrigedX, i.KrigedY):+0%;-0%}), its errors overlapping {i.KrigedOverlapX:0.000}, {i.KrigedOverlapY:0.000} ({Recovered(i.KrigedOverlapX, i.KrigedOverlapY):+0%;-0%}); the best linear weights {i.CeilingX:0.000}, {i.CeilingY:0.000} ({Recovered(i.CeilingX, i.CeilingY):+0%;-0%})"));

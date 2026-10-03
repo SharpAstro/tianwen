@@ -207,6 +207,14 @@ internal sealed class PlanetaryStackSubCommand(
             Description = "Advanced: displacement-mesh node spacing (px). Smaller = finer distortion correction.",
             DefaultValueFactory = _ => 24f,
         };
+        var meshInfluenceOpt = new Option<float?>("--mesh-influence")
+        {
+            Description = "Advanced: how far a point's displacement reaches into the mesh (px; 48 by default). A dense grid wants it near its spacing (#1081, #1195).",
+        };
+        var estimatorOpt = new Option<string?>("--estimator")
+        {
+            Description = "Advanced: how each point's shift is read: correlation (windowed, the default), weighted (the correlation by its maximum-likelihood weight) or sdf (square difference, #1082).",
+        };
 
         var command = new Command("planetary-stack", "Stack a planetary SER video into a sharpened lucky-imaging master.")
         {
@@ -216,7 +224,7 @@ internal sealed class PlanetaryStackSubCommand(
                 outputOpt, labelOpt, keepOpt, qualityOpt, globalOpt, drizzleOpt, drizzlePixfracOpt, drizzleGlobalOpt,
                 noPerPointOpt, noSignalGateOpt, noChannelAlignOpt,
                 noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, wavelengthOpt, fixOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, noPngOpt, pngGammaOpt,
-                tileSizeOpt, apSpacingOpt, maxApOpt, patchSizeOpt, meshSpacingOpt, correlationOpt, interpolationOpt, referenceFramesOpt,
+                tileSizeOpt, apSpacingOpt, maxApOpt, patchSizeOpt, meshSpacingOpt, meshInfluenceOpt, estimatorOpt, correlationOpt, interpolationOpt, referenceFramesOpt,
                 derotateOpt, noDerotateOpt, planetOpt, turnNorthOverOpt, legacyOpt, truthOpt,
             },
         };
@@ -341,6 +349,8 @@ internal sealed class PlanetaryStackSubCommand(
                 MaxAlignmentPoints = parseResult.GetValue(maxApOpt),
                 AlignmentPatchSize = RoundUpToPowerOfTwo(parseResult.GetValue(patchSizeOpt)),
                 MeshNodeSpacing = parseResult.GetValue(meshSpacingOpt),
+                MeshInfluence = parseResult.GetValue(meshInfluenceOpt) ?? baseline.MeshInfluence,
+                PointEstimator = parseResult.GetValue(estimatorOpt) is { } estimator ? PlanetaryDewarpSubCommand.ParseEstimator(estimator) : baseline.PointEstimator,
                 WhitenedCorrelation = parseResult.GetValue(correlationOpt) is { } correlation ? correlation == Correlation.Whitened : baseline.WhitenedCorrelation,
                 Interpolation = parseResult.GetValue(interpolationOpt) ?? baseline.Interpolation,
                 ReferenceFrames = parseResult.GetValue(referenceFramesOpt) ?? baseline.ReferenceFrames,
