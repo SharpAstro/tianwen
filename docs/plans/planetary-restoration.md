@@ -2819,7 +2819,8 @@ The twin's sharpened master, error over bands 1 to 4 and the three colours (`i12
   after alignment, every colour's limb sits within 0.1 px of green's: 2022-10-09 red -0.02, +0.09 and blue -0.09, +0.04; Uranus-C red
   -0.03, 0.00 and blue +0.04, +0.03.
 - **By eye at 6x** (`i1202/jupiter-2022-10-09-colour.png`, `uranusc-colour.png`, sent to the owner): as stacked, a blue rim on one
-  limb and an orange-red one opposite; aligned, both limbs neutral on both captures. **Adoption waits on the owner's eye.**
+  limb and an orange-red one opposite; aligned, both limbs neutral on both captures. **Adopted as the default: the owner's eye
+  agreed (2026-10-03, "they look a lot better now").**
 - **A colour fitted from green's fit**, the limb fit's short search for a like image, left the twin's demosaiced sub-planes unconverged
   and fell back to correlation. So every colour starts cold, the three after green at once.
 - **Cost:** on the twin within the run-to-run noise (8 to 16 s a stack either way). On Uranus-C, runs alternated with and without the
