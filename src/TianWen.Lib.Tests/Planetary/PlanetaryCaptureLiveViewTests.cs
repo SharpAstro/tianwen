@@ -92,6 +92,40 @@ public class PlanetaryCaptureLiveViewTests
             "the fallback once took the start's exposure for as long as it ran");
     }
 
+    [Fact(Timeout = 30_000)]
+    public async Task ALensStepReachesACameraThatDrivesItsLensAfterTheNextFrameInOrder()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (stills, _) = Camera();
+        // One camera with both faces: the stills of the short-exposure loop and its own lens drive (a Canon's, #681).
+        var camera = Substitute.For<ICameraDriver, ILensFocusCamera>();
+        camera.StartExposureAsync(Arg.Any<TimeSpan>(), Arg.Any<FrameType>(), Arg.Any<CancellationToken>())
+            .Returns(ValueTask.FromResult(DateTimeOffset.UnixEpoch));
+        camera.GetImageReadyAsync(Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(true));
+        camera.GetImageAsync(Arg.Any<CancellationToken>()).Returns(_ => stills.GetImageAsync(CancellationToken.None));
+        var lens = (ILensFocusCamera)camera;
+        lens.CanDriveLens.Returns(true);
+        var driven = new ConcurrentQueue<LensFocusStep>();
+        lens.DriveLensAsync(Arg.Any<LensFocusStep>(), Arg.Any<CancellationToken>()).Returns(call =>
+        {
+            driven.Enqueue(call.Arg<LensFocusStep>());
+            return ValueTask.FromResult(true);
+        });
+
+        await using var capture = new PlanetaryCapture(new FakeTimeProviderWrapper(), NullLogger.Instance, kind: LiveCaptureKind.LiveView);
+        capture.ArmFrameGate();
+        capture.Start(camera, new VideoCaptureOptions(TimeSpan.FromMilliseconds(5)), ct).ShouldBeTrue();
+        await StepAsync(capture, 1, ct);
+        capture.CanDriveLens.ShouldBeTrue();
+
+        capture.DriveLens(LensFocusStep.NearLarge);
+        capture.DriveLens(LensFocusStep.FarSmall);
+        driven.ShouldBeEmpty("a step waits for the next frame, as every control does");
+        await StepAsync(capture, 1, ct);
+
+        driven.ToArray().ShouldBe([LensFocusStep.NearLarge, LensFocusStep.FarSmall]);
+    }
+
     [Theory]
     [InlineData(2, 2, 2000, 1500)]
     [InlineData(4, 1, 4000, 3000)]

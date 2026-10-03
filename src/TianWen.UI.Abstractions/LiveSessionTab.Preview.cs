@@ -352,6 +352,12 @@ namespace TianWen.UI.Abstractions
             // Pressed again it stops; [Capture] ends it and takes the still.
             rows.Add(BuildLiveViewRow(state, otaIndex, polarActive));
 
+            // The camera's own lens drive while it is live (#681): only then does a Canon move its lens.
+            if (LiveView is { } live && live.LiveOta == otaIndex && live.CanDriveLens)
+            {
+                rows.Add(BuildLensRow(live));
+            }
+
             // Gain row: [-] value [+] (only if camera supports gain value or gain mode).
             var tel = otaIndex < state.PreviewOTATelemetry.Length
                 ? state.PreviewOTATelemetry[otaIndex]
@@ -438,6 +444,38 @@ namespace TianWen.UI.Abstractions
                 : s.FailureReason ?? "";
             return Layout.Builder.HStack(button, Layout.Builder.Text(status, BaseFontSize * 0.8f, DimText).WStar().HStar())
                 .WithGap(4f).RowH(BaseRowHeight);
+        }
+
+        /// <summary>
+        /// The lens row while a camera that drives its own lens is live (#681, P12 of docs/plans/live-session-preview.md): Near
+        /// in the body's large, medium and small step, then Far in the small, medium and large, each button showing its size as
+        /// one to three carets. Steps only, as the body has no position to show.
+        /// </summary>
+        private Layout.Node BuildLensRow(LiveViewController live)
+        {
+            var bg = GuiTheme.NeutralButtonBg;
+            var iconSize = BaseFontSize * 0.85f * Layout.Content.Icon.TextSizeRatio;
+
+            Layout.Node Step(LensFocusStep step)
+            {
+                var size = Math.Abs((int)step);
+                var kind = (sbyte)step < 0 ? Layout.IconKind.CaretLeft : Layout.IconKind.CaretRight;
+                var marks = new List<Layout.Node> { Layout.Builder.Spacer().WStar() };
+                for (var m = 0; m < size; m++)
+                {
+                    marks.Add(Layout.Builder.Icon(kind, iconSize, BodyText).HStar());
+                }
+                marks.Add(Layout.Builder.Spacer().WStar());
+                return Layout.Builder.HStack([.. marks])
+                    .WFixed(28f).HStar().Bg(bg).BgHover(GuiTheme.Hover(bg))
+                    .Clickable(new HitResult.ButtonHit($"Lens{step}"), _ => live.DriveLens(step));
+            }
+
+            return Layout.Builder.HStack(
+                    Step(LensFocusStep.NearLarge), Step(LensFocusStep.NearMedium), Step(LensFocusStep.NearSmall),
+                    Layout.Builder.Text("Lens", BaseFontSize * 0.85f * 0.85f, DimText, TextAlign.Center, TextAlign.Center).WStar().HStar(),
+                    Step(LensFocusStep.FarSmall), Step(LensFocusStep.FarMedium), Step(LensFocusStep.FarLarge))
+                .WithGap(2f).RowH(BaseRowHeight);
         }
 
         // A stepper's new value, sent to this OTA's live view as it changes; nothing while it is not live.

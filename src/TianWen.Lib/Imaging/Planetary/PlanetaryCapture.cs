@@ -443,6 +443,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         Volatile.Write(ref _pendingBitDepth, 0);
         Volatile.Write(ref _pendingHighSpeed, -1);
         Volatile.Write(ref _lastFrameBitDepth, 0);
+        _pendingLensSteps.Clear();
 
         // Clear stale recenter telemetry / pulse gate (the toggles + deadband persist across runs).
         Interlocked.Exchange(ref _mountPulseBusy, 0);
@@ -729,6 +730,15 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         Volatile.Write(ref _pendingRoiH, height);
     }
 
+    // Lens steps asked for while streaming, in order, each taken between two frames (a camera's own lens drive, #681).
+    private readonly System.Collections.Concurrent.ConcurrentQueue<LensFocusStep> _pendingLensSteps = new();
+
+    /// <summary>Whether the camera streaming now can drive its own lens (<see cref="ILensFocusCamera"/>): a Canon in its live view.</summary>
+    public bool CanDriveLens => Volatile.Read(ref _captureActive) == 1 && _camera is ILensFocusCamera { CanDriveLens: true };
+
+    /// <summary>A step of the camera's own lens drive, taken after the next frame; steps asked for in a row are all taken, in order.</summary>
+    public void DriveLens(LensFocusStep step) => _pendingLensSteps.Enqueue(step);
+
     /// <summary>Pans the readout window (ROI) of the running stream by a pixel delta (accumulated until the next frame)
     /// -- the fast, mount-free recenter / framing nudge.</summary>
     public void JogRoi(int dxPixels, int dyPixels)
@@ -913,6 +923,27 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         var jy = Interlocked.Exchange(ref _pendingJogY, 0);
         var depth = Interlocked.Exchange(ref _pendingBitDepth, 0);
         var highSpeed = Interlocked.Exchange(ref _pendingHighSpeed, -1);
+
+        // Lens steps first, each its own command: a focus moved by eye wants the next frame to show it. A step that fails is
+        // said and dropped, as a control is, never the end of the stream.
+        while (_pendingLensSteps.TryDequeue(out var lensStep))
+        {
+            try
+            {
+                if (camera is ILensFocusCamera lens)
+                {
+                    await lens.DriveLensAsync(lensStep, token).ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Capture ({Capture}): the lens step {Step} failed; the stream goes on.", Name, lensStep);
+            }
+        }
 
         if (rw <= 0 && rh <= 0 && expTicks <= 0 && gain < 0 && jx == 0 && jy == 0 && depth == 0 && highSpeed < 0)
         {
