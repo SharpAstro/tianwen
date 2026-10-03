@@ -2629,6 +2629,29 @@ domain), and OPAL's reflectance maps are in the corpus. The design, the narrowba
 where Jupiter darkens steeply) and the rule to set before measuring are #1212. Saturn waits on its ring model (#1184); its Wikipedia image
 was hand-adjusted in February 2026 and is the weaker reference.
 
+**The composite is not colorimetric.** Commons calls it true colour; NASA's own page (science.nasa.gov, "Jupiter OPAL 2024", processing
+by Joseph DePasquale, STScI, HST program 16995) does not, and gives its key: blue F395N, green F502N, red F658N, "assigning different hues
+to each monochromatic image". So its blue is the 395 nm sample, the very trap above, and its channel balance is its processor's choice. It
+can still be the right look; the rule below finds out before it is used.
+
+#### The rule, set before measuring
+
+Written 2026-10-03, before any colour capture or reference was read. A disk's colour is the chromaticity (r, g) = (R, G) / (R + G + B) of
+its mean LINEAR RGB inside 0.9 radii, each channel's sky subtracted. A 4 % change in one channel moves r or g by about 0.010 on Jupiter.
+
+- **Two targets.** (A) the composite, decoded from sRGB to linear. (B) physics: OPAL's 2024 maps rendered at the composite's own geometry,
+  disk-averaged per filter, joined into a reflectance spectrum across the filters (linear and monotone-cubic, their difference the method's
+  uncertainty), and taken under D65 through the CIE 1931 observer (`CieReferenceData`) into linear sRGB, so a white disk renders white.
+- **Rule 1.** A and B agree when their disk-mean (r, g) differ by at most 0.010 each, B's method uncertainty added. Then A is the target, its
+  belts' colour included. Otherwise B is the target for the balance and for the saturation, and A is set aside.
+- **Rule 2.** Each capture is balanced to the target's disk mean, one gain a channel. That takes Jupiter's colour as the same between
+  apparitions, which holds only if OPAL's 2022 and 2024 maps, rendered at one geometry, give disk means within 0.010; otherwise each capture's
+  target comes from its own apparition's maps.
+- **Rule 3.** Saturation compares the balanced master's chroma spread with the target's, the target blurred to the master's resolution. The
+  spread is the pixel-weighted RMS distance of 2-degree planetographic latitude bins' (r, g) from the disk mean, inside 0.8 radii. A factor is
+  applied only when the ratio leaves 0.9 to 1.1.
+- **Adoption** is the owner's eye on the five colour captures (2021-12-16, 2022-09-29, 2022-10-09, 2024-12-15, 2025-01-02).
+
 ### The diffraction glow's far wing
 
 Found writing `PlanetaryPictureTests` (2026-10-03). A Jupiter rendered through a 254 mm, 23 % obstructed pupil at 650 nm
