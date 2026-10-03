@@ -116,6 +116,16 @@ public static class PlanetaryLimbFit
     /// </summary>
     public static LimbFit? Fit(Image image, LimbFitOptions options)
     {
+        var plane = Luminance(image);
+        return Start(plane, image.Width, image.Height, options.AxisRatio) is { } start
+            ? Fit(plane, image.Width, image.Height, start.X, start.Y, start.Radius, options)
+            : null;
+    }
+
+    /// <summary>What a disk is fitted on: the mean of <paramref name="image"/>'s channels, row-major.</summary>
+    public static float[] Luminance(Image image)
+    {
+        ArgumentNullException.ThrowIfNull(image);
         var plane = new float[image.Width * image.Height];
         var channels = image.ChannelCount;
         for (var c = 0; c < channels; c++)
@@ -126,9 +136,7 @@ public static class PlanetaryLimbFit
                 plane[i] += source[i] / channels;
             }
         }
-        return Start(plane, image.Width, image.Height, options.AxisRatio) is { } start
-            ? Fit(plane, image.Width, image.Height, start.X, start.Y, start.Radius, options)
-            : null;
+        return plane;
     }
 
     /// <summary>

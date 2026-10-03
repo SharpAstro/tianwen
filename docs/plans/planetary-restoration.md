@@ -2517,6 +2517,62 @@ which the GUI seeds from the profile's OTA as a capture starts (`PlanetaryCaptur
   host, `ViewerWaveletDeriveTests`. The latter found the e2e harness never asked the loop's `WantsFrame`, which ticks SER playback and
   the stacked view's stack, so no stacked view had ever built a master there; `ViewerE2E.Frame` asks it now.
 
+#### The feathered limb on the live view (#1201)
+
+The owner's call of 2026-10-03: the live view's sharpening draws no sharpening outside the limb, as the batch's has since #1192
+(`PlanetaryLimbFix.ModelFeathered`), now that a limb fit costs 2 to 3 s (#1106). Until now the dials held each channel at its darkest
+level, the floored fix, which on 2022-09-03's Red is the black band at the limb and the faint arcs past it (#1171).
+
+- **What Derive keeps**: the limb fit it already makes, and the planet's sharp model through the pupil's diffraction for each channel
+  (`PlanetaryLiveLimb`, built by the batch's own sharpening from the fit and the models it made). Every later master is sharpened by the
+  dials and then drawn outside the limb as the batch draws it: the same window about the planet, the same normalisation off the stack, the
+  model out to 1.5 radii feathered back to the stack by the window's inscribed circle, the moons free, and the stack as it is beyond the
+  window (`PlanetaryDering.Outside`, one routine for both).
+- **It follows the disk**: each master's disk is found by the fit's own start (`PlanetaryLimbFit.Start`, a centroid). Moved past 0.25 px
+  from where the kept fit was found, the model is drawn again at the new centre; the start's radius off by more than 5 %, the fit is made
+  again. A master whose disk the start or the fit cannot find is shown as the dials make it. (Written first as a fit warmed from the kept
+  one; on the sharpening's fixture that landed 0.09 px of radius from the batch's cold fit of the same master, so it is made cold, as the
+  batch makes it, and the drawing is the batch's again.)
+- **Hand-set dials** get the same once a fit exists; Reset puts the preset back and keeps the fit, which belongs to the master, not to the
+  gains.
+- **The rules, set before measuring**:
+  1. On one master the live path (the dials seeded with the derived gains, then the kept limb) and the batch's derived sharpening agree
+     outside the limb to within 1e-4 of the disk's level, past a moon's reach, and inside it the band error (bands 1 to 4, inside 0.9 radii)
+     within 0.01 as before. Pinned by a test on the sharpening's fixture, read on each twin's pipeline master by `planetary-sharpen
+     --sliders`.
+  2. On every twin the live path's limb profile error is within 0.002 of the batch's and below the floored dials'.
+  3. Drawing the limb on a master that has not moved costs under a fifth of the dials' wavelet pass (Release, a twin's master).
+  4. By eye, on 2022-09-03 Red: the live view with derived dials beside the viewer's Best stack, both hard-stretched about the sky, shows
+     no black band and no arcs past the limb. The owner judges.
+
+##### The feathered limb on the live view: results (2026-10-03)
+
+`planetary-sharpen --sliders` on each twin's pipeline master and on 2022-09-03 Red's (the code of this change, Release, the derived
+sharpening at its default, `ModelFeathered`):
+
+| Master | Outside the limb, live against batch | Band error: batch, live, dials alone | Limb profile error: batch, live, dials alone |
+|---|---|---|---|
+| calibrated twin | 0 | 0.658, 0.658, 0.664 | 0.0061, 0.0061, 0.0115 |
+| nostill twin | 0 | 0.293, 0.293, 0.292 | 0.0033, 0.0033, 0.0044 |
+| warped twin | 0 | 0.813, 0.813, 0.820 | 0.0079, 0.0079, 0.0139 |
+| 2022-09-03 Red | 6.5e-7 | (no truth) | (no truth) |
+
+- **Rule 1 passes**: outside the limb the live drawing IS the batch's, to float rounding, and so is the inside's band error; the dials alone
+  differed from the batch by 0.02 to 0.47 of the disk's level there. Pinned by
+  `PlanetarySharpeningTests.TheLiveDialsAreDrawnOutsideTheLimbAsTheBatchDrawsIt`, and through the viewer by `ViewerWaveletDeriveTests`
+  (masters drawn after Derive, and after Reset with the preset's dials).
+- **Rule 2 passes**: the live path's limb profile error is the batch's on every twin, about half the dials' alone.
+- **Rule 3 fails**: the drawing costs 14 to 24 ms on an 800x600 master beside a wavelet pass of 13 to 17 ms (warm, the median of five, on a
+  box another session's long run was loading; one run read the wavelet pass at 99 ms). A fifth would be about 3 ms, and the fit's own
+  start alone takes 4.5 ms. It was 55 to 100 ms until `MetricDisk` worked its axis's cosine and sine out once rather than at every pixel
+  (a bit-identical change every metric gains from; the twins' numbers above are the same before and after it). What is left is the start
+  and the medians the batch's own normalisation and moon finder take, which the live view must take the same way to draw the same thing.
+  At a live master's rate (each one a window stack first) it is a small part of a master; left as it is, the failure recorded.
+- **Rule 4**: the panels went to the owner (as stacked, the Best stack, the live view with the kept limb, the dials alone; linear and
+  hard-stretched about the sky): the dials' black band and arcs past the limb are gone, and the live view is the Best stack's limb.
+- **What the owner will see change besides the limb**: a moon beyond the sharpening window stays as stacked, as the Best stack has it since
+  #1192; the dials alone sharpened every moon (on Red, the two outside the window read 0.66 and 0.62 peaks sharpened, 0.20 and 0.15 now).
+
 ### The batch stack on every core
 
 The owner saw the viewer's Best stack hold one core, and it did: 1.00 core over a 3,000-frame stack of the calibrated twin (233 s,

@@ -12,12 +12,13 @@ namespace TianWen.UI.Abstractions;
 /// (<see cref="PlanetaryBestStack.DeriveGains"/>), worked out in the background, about 35 s, and seeded into the wavelet sliders, which then
 /// sharpen every later master with them at the cost of a wavelet pass. ONE for the viewer's stacked view of a SER and the GUI's planetary
 /// capture, so the two derive alike. Seeded sliders sharpen as the batch's floored derived sharpening does, measured equal on every twin
-/// (docs/plans/planetary-restoration.md, "The live view's derived sharpening").
+/// (docs/plans/planetary-restoration.md, "The live view's derived sharpening"), and the limb the derivation fitted is kept
+/// (<see cref="ViewerState.WaveletLimb"/>), so every later master is drawn outside it as the batch draws it (#1201).
 /// </summary>
 internal sealed class WaveletDerivation : IDisposable
 {
     private readonly CancellationTokenSource _cts = new CancellationTokenSource();
-    private Task<(ImmutableArray<float> Gains, string How)>? _task;
+    private Task<(ImmutableArray<float> Gains, string How, PlanetaryLiveLimb? Limb)>? _task;
     private int _disposed;
 
     /// <summary>
@@ -36,7 +37,7 @@ internal sealed class WaveletDerivation : IDisposable
         {
             _task = null;
             state.WaveletDeriving = false;
-            if (done.IsCompletedSuccessfully && done.Result is var (gains, how))
+            if (done.IsCompletedSuccessfully && done.Result is var (gains, how, limb))
             {
                 if (gains.IsDefaultOrEmpty)
                 {
@@ -46,6 +47,7 @@ internal sealed class WaveletDerivation : IDisposable
                 {
                     state.WaveletGains = gains;
                     state.WaveletDerived = true;
+                    state.WaveletLimb = limb;
                     state.WaveletSharpenEnabled = true;
                     state.WaveletDirty = true;
                     state.WaveletDeriveNote = $"Gains {how}";

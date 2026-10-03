@@ -14,6 +14,19 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// </summary>
 public readonly record struct MetricDisk(double X, double Y, double Radius, double AxisRatio = 1, double AxisAngleDeg = 0)
 {
+    // The axis's direction, worked out once with the angle rather than at every pixel: RadiiAt runs at every pixel of every metric, and its
+    // cosine and sine were most of a live master's limb drawing (#1201). Set again by the angle's own init, so a `with` that turns the disk
+    // turns them too.
+    private readonly double _axisAngleDeg = AxisAngleDeg;
+    private readonly (double Cos, double Sin) _axis = Axis(AxisAngleDeg);
+
+    /// <summary>The direction of the planet's axis in the image, degrees from +x toward +y.</summary>
+    public double AxisAngleDeg
+    {
+        get => _axisAngleDeg;
+        init => (_axisAngleDeg, _axis) = (value, Axis(value));
+    }
+
     /// <summary>A limb fit's disk, with the ephemeris' axis ratio.</summary>
     public static MetricDisk From(in LimbFit fit, double axisRatio) => new(fit.CenterX, fit.CenterY, fit.EquatorialRadius, axisRatio, fit.AxisAngleDeg);
 
@@ -21,11 +34,16 @@ public readonly record struct MetricDisk(double X, double Y, double Radius, doub
     public double RadiiAt(double x, double y)
     {
         var (dx, dy) = (x - X, y - Y);
-        var angle = AxisAngleDeg * Math.PI / 180;
-        var (cos, sin) = (Math.Cos(angle), Math.Sin(angle));
+        var (cos, sin) = _axis;
         var along = (dx * cos) + (dy * sin);
         var across = (-dx * sin) + (dy * cos);
         return Math.Sqrt((across * across / (Radius * Radius)) + (along * along / (AxisRatio * AxisRatio * Radius * Radius)));
+    }
+
+    private static (double Cos, double Sin) Axis(double angleDeg)
+    {
+        var angle = angleDeg * Math.PI / 180;
+        return (Math.Cos(angle), Math.Sin(angle));
     }
 }
 

@@ -119,7 +119,7 @@ public class PlanetarySharpeningTests
         var ct = TestContext.Current.CancellationToken;
         var (truth, stack) = NoisyStack();
 
-        var (gains, how) = await Task.Run(() => PlanetaryBestStack.DeriveGains(stack, CatalogIndex.Jupiter, Night, Telescope, [650]), ct);
+        var (gains, how, _) = await Task.Run(() => PlanetaryBestStack.DeriveGains(stack, CatalogIndex.Jupiter, Night, Telescope, [650]), ct);
         gains.Length.ShouldBe(6, how);
         var batch = await Task.Run(() => PlanetarySharpening.Sharpen(stack,
             new PlanetarySharpenOptions(CatalogIndex.Jupiter, Night, Telescope) { WavelengthsNm = [650], Fix = PlanetaryLimbFix.Floored }), ct);
@@ -141,6 +141,91 @@ public class PlanetarySharpeningTests
         sliders.Release();
     }
 
+    [Fact(Timeout = 300_000)]
+    public async Task TheLiveDialsAreDrawnOutsideTheLimbAsTheBatchDrawsIt()
+    {
+        // #1201: Derive keeps the limb it fitted, and every later master, sharpened by the dials, is drawn outside the limb as the batch's
+        // derived sharpening draws it (the planet's model through the pupil, feathered back to the stack, no sharpening). On the master the
+        // limb was fitted on, the two must agree outside the limb to within 1e-4 of the disk's level, and inside it within a hundredth of
+        // band error, as the dials alone did (docs/plans/planetary-restoration.md, "The feathered limb on the live view", rule 1).
+        var ct = TestContext.Current.CancellationToken;
+        var (truth, stack) = NoisyStack();
+
+        var (gains, how, kept) = await Task.Run(() => PlanetaryBestStack.DeriveGains(stack, CatalogIndex.Jupiter, Night, Telescope, [650]), ct);
+        var limb = kept.ShouldNotBeNull(how);
+        var batch = (await Task.Run(() => PlanetarySharpening.Sharpen(stack, new PlanetarySharpenOptions(CatalogIndex.Jupiter, Night, Telescope) { WavelengthsNm = [650] }), ct))
+            .ShouldNotBeNull();
+        batch.Fix.ShouldBe(PlanetaryLimbFix.ModelFeathered);
+        var dials = WaveletSharpen.Sharpen(stack, PlanetaryBestStack.SliderOptions(gains));
+        limb.FollowedTo(stack).ShouldBeSameAs(limb, "the disk has not moved");
+        var live = limb.Draw(stack, dials);
+
+        var disk = limb.Disk;
+        var (outside, inside) = (LargestOutsideTheLimb(batch.Sharpened, live, disk), BandError(truth, live, disk) - BandError(truth, batch.Sharpened, disk));
+        var floored = LargestOutsideTheLimb(batch.Sharpened, dials, disk);
+        TestContext.Current.TestOutputHelper?.WriteLine($"outside the limb the live drawing is {outside:E2} of the disk's level from the batch's (the dials alone {floored:0.0000}); inside, band error {inside:+0.000;-0.000} against the batch's");
+
+        outside.ShouldBeLessThan(1e-4);
+        inside.ShouldBe(0, 0.01);
+        floored.ShouldBeGreaterThan(1e-3, "the dials alone sharpen past the limb, or this test would show nothing");
+        foreach (var image in new[] { batch.Sharpened, dials, live })
+        {
+            image.Release();
+        }
+    }
+
+    [Fact(Timeout = 300_000)]
+    public async Task AKeptLimbFollowsTheDiskWhereItMovesAndIsFittedAgainWhereItGrows()
+    {
+        // The live master's disk moves when the stack takes another reference or the mount is recentred (#1201): the kept limb follows it by
+        // the fit's own start, the model drawn again at the new centre, and is fitted again, as the batch fits, where the disk changed size.
+        var ct = TestContext.Current.CancellationToken;
+        var (_, stack) = NoisyStack();
+        var (_, how, kept) = await Task.Run(() => PlanetaryBestStack.DeriveGains(stack, CatalogIndex.Jupiter, Night, Telescope, [650]), ct);
+        var limb = kept.ShouldNotBeNull(how);
+        var (dx, dy) = (3.4, -2.1);
+        var (_, moved) = NoisyStack(Placement with { CenterX = Placement.CenterX + dx, CenterY = Placement.CenterY + dy });
+        var (_, grown) = NoisyStack(Placement with { EquatorialRadius = Placement.EquatorialRadius * 1.1 });
+
+        var there = limb.FollowedTo(moved).ShouldNotBeNull();
+        var bigger = (await Task.Run(() => limb.FollowedTo(grown), ct)).ShouldNotBeNull();
+        var refit = PlanetaryLimbFit.Fit(grown, PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night))).ShouldNotBeNull();
+        TestContext.Current.TestOutputHelper?.WriteLine($"moved: centre ({there.Fit.CenterX - limb.Fit.CenterX:0.000}, {there.Fit.CenterY - limb.Fit.CenterY:0.000}) for ({dx}, {dy}); grown: radius {bigger.Fit.EquatorialRadius:0.000} against a cold fit's {refit.EquatorialRadius:0.000}, centre off it by ({bigger.Fit.CenterX - refit.CenterX:0.000}, {bigger.Fit.CenterY - refit.CenterY:0.000})");
+
+        there.ShouldNotBeSameAs(limb);
+        (there.Fit.CenterX - limb.Fit.CenterX).ShouldBe(dx, 0.1);
+        (there.Fit.CenterY - limb.Fit.CenterY).ShouldBe(dy, 0.1);
+        there.Fit.EquatorialRadius.ShouldBe(limb.Fit.EquatorialRadius);
+        bigger.Fit.EquatorialRadius.ShouldBe(refit.EquatorialRadius, 1e-9);
+        bigger.Fit.CenterX.ShouldBe(refit.CenterX, 1e-9);
+        bigger.Fit.CenterY.ShouldBe(refit.CenterY, 1e-9);
+    }
+
+    // The largest difference between two masters past the disk's limb, in the disk's level above the sky (the first one's).
+    private static double LargestOutsideTheLimb(Image a, Image b, MetricDisk disk)
+    {
+        var planeA = a.GetChannelSpan(0);
+        var planeB = b.GetChannelSpan(0);
+        var (_, scale) = PlanetaryMetrics.NormalisationLevels(planeA, a.Width, a.Height, disk);
+        double largest = 0;
+        for (var y = 0; y < a.Height; y++)
+        {
+            for (var x = 0; x < a.Width; x++)
+            {
+                if (disk.RadiiAt(x, y) > 1)
+                {
+                    largest = Math.Max(largest, Math.Abs(planeA[(y * a.Width) + x] - planeB[(y * a.Width) + x]) / scale);
+                }
+            }
+        }
+        return largest;
+    }
+
+    // A master's error against the truth, bands 1 to 4 inside 0.9 radii.
+    private static double BandError(float[] truth, Image master, MetricDisk disk)
+        => PlanetaryMetrics.Fidelity(PlanetaryMetrics.Normalise(master.GetChannelSpan(0), Size, Size, disk), PlanetaryMetrics.Normalise(truth, Size, Size, disk), Size, Size, disk)
+            .Take(4).Sum(b => b.Error);
+
     [Fact]
     public void DerivingTheGainsSaysWhyWhenItDerivesNone()
     {
@@ -152,6 +237,7 @@ public class PlanetarySharpeningTests
 
         noTelescope.Gains.ShouldBeEmpty();
         noTelescope.How.ShouldContain("aperture");
+        noTelescope.Limb.ShouldBeNull("no telescope, no model through its pupil to draw the limb with");
         noPlanet.Gains.ShouldBeEmpty();
         noPlanet.How.ShouldContain("Jupiter");
         noModel.Gains.ShouldBeEmpty();
@@ -178,12 +264,13 @@ public class PlanetarySharpeningTests
         sharpened.Release();
     }
 
-    // The fixture's truth and its stack: the truth blurred by the seeing, on a sky at 0.05, with a large stack's noise.
-    private static (float[] Truth, Image Stack) NoisyStack()
+    // The fixture's truth and its stack: the truth blurred by the seeing, on a sky at 0.05, with a large stack's noise. The planet where
+    // `placement` puts it, at the fixture's plate scale (the fixture's own placement when none).
+    private static (float[] Truth, Image Stack) NoisyStack(DiskPlacement? placement = null)
     {
         var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night);
         var scale = aspect.AngularDiameterArcsec / 2 / Placement.EquatorialRadius;
-        var truth = PlanetaryRender.RenderDiffracted(BeltedMap(), aspect, Placement, Size, Size, 0.95, Telescope, Wavelength, scale);
+        var truth = PlanetaryRender.RenderDiffracted(BeltedMap(), aspect, placement ?? Placement, Size, Size, 0.95, Telescope, Wavelength, scale);
         var blurred = PlanetaryInverse.Apply(truth, Size, Size, Seeing);
         var random = new Random(5);
         var plane = new float[Size, Size];

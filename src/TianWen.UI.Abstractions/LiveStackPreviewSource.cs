@@ -59,6 +59,8 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
     private int _target;                // latest requested playhead
     private int _built = -1;            // playhead the current _doc was built for
     private WaveletSharpenOptions? _requestedSharpen; // latest wavelet params (null = sharpening off)
+    private PlanetaryLiveLimb? _requestedLimb; // the limb last handed to SetSharpen (Derive's fit, #1201)
+    private PlanetaryLiveLimb? _limb;          // that limb as the latest master's disk had it (followed), drawn on the next sharpen
     private bool _sharpenDirty;         // wavelet params changed -> rebuild the display even if the playhead didn't move
     private CancellationTokenSource? _workCts; // per in-flight task, linked to _cts; cancelled to preempt a stale stack
     private bool _inFlightIsStack;      // the in-flight task is a (slow) window stack, eligible for sharpen-preempt
@@ -85,7 +87,10 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
 
     // A finished background result. Stacked=false means a sharpen-only re-render (the cached raw master was
     // reused, the playhead did not advance); Stacked=true means the window was re-integrated to Playhead.
-    private readonly record struct Built(AstroImageDocument Doc, Image RawMaster, Image Display, int Playhead, bool Stacked);
+    // Limb is the kept limb followed to this master's disk, From the one the task started with (a newer SetSharpen supersedes both), and
+    // Drawn whether the display was drawn outside it.
+    private readonly record struct Built(AstroImageDocument Doc, Image RawMaster, Image Display, int Playhead, bool Stacked, PlanetaryLiveLimb? Limb, PlanetaryLiveLimb? From,
+        bool Drawn);
 
     /// <summary>
     /// Shows the masters of <paramref name="masters"/>: a stack integrated here (<see cref="StackedMasters"/>, a SER file's
@@ -127,6 +132,9 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
     /// </summary>
     internal Image? RawMaster => _rawMaster;
 
+    /// <summary>How many published masters were drawn outside the limb a derivation kept (#1201). Render thread only; for tests.</summary>
+    internal int MastersDrawnOutsideTheLimb { get; private set; }
+
     /// <summary>True while a background stack is running (the stream's reader is in use -- don't dispose).</summary>
     public bool IsBusy => _stackTask is { IsCompleted: false };
 
@@ -157,14 +165,19 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
     }
 
     /// <summary>
-    /// Sets the wavelet-sharpen parameters applied to the stacked master (<c>null</c> = off). Re-sharpens
-    /// the cached master off-thread on the next idle slot -- a slider drag does NOT re-run the window
-    /// integration, only the (cheap) wavelet pass. Render-thread only; coalesces like
-    /// <see cref="RequestFollow"/>.
+    /// Sets the wavelet-sharpen parameters applied to the stacked master (<c>null</c> = off), and the limb a derivation kept
+    /// (<paramref name="limb"/>, #1201), which every sharpened master is then drawn outside of as the batch draws it: no sharpening past
+    /// the limb, the planet's model feathered back to the stack. Re-sharpens the cached master off-thread on the next idle slot; a slider
+    /// drag does NOT re-run the window integration, only the (cheap) wavelet pass. The same limb handed again keeps where the masters
+    /// have since moved it. Render-thread only; coalesces like <see cref="RequestFollow"/>.
     /// </summary>
-    public void SetSharpen(WaveletSharpenOptions? options)
+    public void SetSharpen(WaveletSharpenOptions? options, PlanetaryLiveLimb? limb = null)
     {
         _requestedSharpen = options;
+        if (!ReferenceEquals(limb, _requestedLimb))
+        {
+            (_requestedLimb, _limb) = (limb, limb);
+        }
         _sharpenDirty = true;
         StartIfIdle();
     }
@@ -196,6 +209,14 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
             _doc = b.Doc;
             _displayMaster = b.Display;
             _built = b.Playhead;
+            if (ReferenceEquals(b.From, _limb))
+            {
+                _limb = b.Limb;
+            }
+            if (b.Drawn)
+            {
+                MastersDrawnOutsideTheLimb++;
+            }
             published = true;
         }
         // else: cancelled (preempted) or faulted -> drop it. A cancelled stack invalidated its window, so
@@ -281,6 +302,7 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
 
         var target = _target;
         var sharpen = _requestedSharpen;
+        var limb = _limb;
         var rawForSharpen = _rawMaster;                       // captured on the render thread; immutable snapshot
         var resultPlayhead = doStack ? target : _builtRaw;     // a sharpen-only result keeps the displayed playhead
         _sharpenDirty = false;
@@ -315,13 +337,23 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
             // returns a new image and leaves the raw master intact for the next re-sharpen.
             var display = WaveletSharpen.Sharpen(raw, sharpen ?? IdentitySharpen);
 
+            // A sharpened master drawn outside the limb a derivation kept, as the batch draws it (#1201), the limb first followed to
+            // where this master's disk is. A master whose disk it cannot find is shown as the dials made it, and the limb kept for the next.
+            var (followed, drawnOutside) = (limb, false);
+            if (sharpen is not null && limb?.FollowedTo(raw) is { } here)
+            {
+                var drawn = here.Draw(raw, display);
+                display.Release();
+                (display, followed, drawnOutside) = (drawn, here, true);
+            }
+
             // Adopt the (linear, [0,1]) display master into a stats-bearing document off the render thread;
             // None = no CPU debayer (already RGB / mono).
             var doc = await AstroImageDocument.AdoptImageAsync(display, DebayerAlgorithm.None, filePath: _path, cancellationToken: token).ConfigureAwait(false);
             // `display` is normalised to [0,1] in place by AdoptImageAsync and its arrays are now owned by
             // `doc`; we retain it read-only as the display master (a mini viewer renders it; doc renders the
             // same pixels via IPreviewSource).
-            return new Built(doc, raw, display, resultPlayhead, doStack);
+            return new Built(doc, raw, display, resultPlayhead, doStack, followed, limb, drawnOutside);
         }, token);
     }
 

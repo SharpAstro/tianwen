@@ -60,12 +60,21 @@ public class ViewerWaveletDeriveTests
         e2e.State.WaveletSharpenEnabled.ShouldBeTrue("seeding the dials turns the sharpening on");
         e2e.State.WaveletGains.ShouldNotBe(WaveletSharpenOptions.PlanetaryDefault.Gains);
         e2e.State.BuildWaveletOptions().ShouldNotBeNull().HoldAtDarkest.ShouldBeTrue("derived gains sharpen as the derived sharpening does");
+        var limb = e2e.State.WaveletLimb.ShouldNotBeNull("Derive keeps the limb it fitted (#1201)");
 
-        // Reset puts the preset back and forgets the derivation.
+        // Every master the dials sharpen from here is drawn outside that limb as the batch draws it.
+        var source = e2e.Controller.Source.ShouldBeOfType<LiveStackPreviewSource>();
+        await e2e.PumpUntilAsync(() => source.MastersDrawnOutsideTheLimb > 0, "a master drawn outside the kept limb", ct);
+
+        // Reset puts the preset back and forgets the derivation, but keeps the limb, which is the capture's: hand-set dials are drawn
+        // outside it too.
+        var drawnBefore = source.MastersDrawnOutsideTheLimb;
         e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "WaveletReset" }, "the Reset button"));
         e2e.State.WaveletDerived.ShouldBeFalse();
         e2e.State.WaveletDeriveNote.ShouldBeNull();
         e2e.State.WaveletGains.ShouldBe(WaveletSharpenOptions.PlanetaryDefault.Gains);
+        e2e.State.WaveletLimb.ShouldBeSameAs(limb);
+        await e2e.PumpUntilAsync(() => source.MastersDrawnOutsideTheLimb > drawnBefore, "the preset's master drawn outside the kept limb", ct);
     }
 
     [Fact]

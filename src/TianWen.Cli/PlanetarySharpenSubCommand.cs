@@ -1,5 +1,6 @@
 using System;
 using System.CommandLine;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -9,6 +10,7 @@ using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
 using TianWen.Lib.Imaging.Stacking;
+using TianWen.Lib.Stat;
 
 namespace TianWen.Cli;
 
@@ -32,7 +34,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var noWriteOpt = new Option<bool>("--no-write") { Description = "Score only, write nothing." };
         var fitOpt = new Option<string>("--fit") { Description = "How the gains are fitted: free, nonnegative (their composite through the kernel held at or above zero), or both to compare them.", DefaultValueFactory = _ => "free" };
         var finestOpt = new Option<string>("--colour-finest") { Description = "A colour master's finest band (#1187): held (as stacked on every colour, the default), derived (its derived gain), heldbutgreen (as stacked on red and blue), or all to compare them.", DefaultValueFactory = _ => "held" };
-        var slidersOpt = new Option<bool>("--sliders") { Description = "Also sharpen as a live view's wavelet sliders do once a derivation seeds them (the same gains over the whole master, no denoise, held at its darkest level) and score that too: whether the live view reaches the derived sharpening." };
+        var slidersOpt = new Option<bool>("--sliders") { Description = "Also sharpen as a live view's wavelet sliders do once a derivation seeds them (the same gains over the whole master, no denoise, held at its darkest level), then drawn outside the limb by the limb the derivation keeps (#1201), and score both: whether the live view reaches the derived sharpening. Says how far the live drawing lies from this sharpening outside the limb, and what the drawing costs beside the sliders' wavelet pass." };
         var pupil = PlanetaryMasterScore.PupilOptions();
 
         var command = new Command("planetary-sharpen", "Sharpen a planetary master again, by gains derived through the limb's edge (R8), the limb kept from ringing.")
@@ -156,6 +158,8 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                     }
                     try
                     {
+                        var stem = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(path) + "_sharpened"
+                            + (variants.Length > 1 ? "_" + fix.ToString().ToLowerInvariant() + (nonNegative ? "_nonnegative" : "") + (finests.Length > 1 ? "_" + finest.ToString().ToLowerInvariant() : "") : ""));
                         var finestWords = finests.Length > 1 ? $", the colour's finest band {finest.ToString().ToLowerInvariant()}" : "";
                         var what = result.Derived ? $"derived{(nonNegative ? " non-negative" : "")}, {PlanetaryBestStack.Describe(fix)}{finestWords}" : "PlanetaryDefault, the limb kept as stacked";
                         consoleHost.WriteScrollable(string.Create(inv,
@@ -170,30 +174,62 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                         }
                         if (parseResult.GetValue(slidersOpt) && result.Derived && !result.Gains.IsDefaultOrEmpty)
                         {
-                            // The live view's path: one set of gains over the whole master, no limb fit a master.
-                            var slid = WaveletSharpen.Sharpen(master, PlanetaryBestStack.SliderOptions([.. result.Gains.Select(g => (float)g)]));
+                            // The live view's path: one set of gains over the whole master, then the limb the derivation kept drawn outside
+                            // it, followed to the master first as every live master is (#1201).
+                            var sliderOptions = PlanetaryBestStack.SliderOptions([.. result.Gains.Select(g => (float)g)]);
+                            var slid = WaveletSharpen.Sharpen(master, sliderOptions);
+                            // Timed warm, the median of five, as a live view runs them master after master.
+                            var waveletMs = MedianMs(() => WaveletSharpen.Sharpen(master, sliderOptions).Release());
+                            Image? drawn = null;
                             try
                             {
                                 const string sliders = "the live view's sliders, the same gains held at the darkest";
-                                if (truthPath is not null)
+                                const string live = "the live view's sliders, the kept limb drawn outside them";
+                                if (result.Limb is { } kept)
                                 {
-                                    PlanetaryMasterScore.AgainstTruth(consoleHost, slid, truthPath, body, sliders);
+                                    var followed = kept.FollowedTo(master);
+                                    drawn = followed?.Draw(master, slid);
+                                    var drawMs = MedianMs(() => kept.FollowedTo(master)?.Draw(master, slid).Release());
+                                    consoleHost.WriteScrollable(string.Create(inv,
+                                        $"[planetary] the sliders' wavelet pass {waveletMs:0.0} ms; the kept limb followed{(ReferenceEquals(followed, kept) ? " (unmoved)" : followed is null ? " (lost)" : " (moved)")} and drawn {drawMs:0.0} ms"));
+                                    if (drawn is not null)
+                                    {
+                                        consoleHost.WriteScrollable(string.Create(inv,
+                                            $"[planetary] outside the limb the live drawing is {LargestOutsideTheLimb(result.Sharpened, drawn, kept.Disk):E2} of the disk's level from this {PlanetaryBestStack.Describe(fix)} sharpening (the sliders alone {LargestOutsideTheLimb(result.Sharpened, slid, kept.Disk):0.0000})"));
+                                    }
                                 }
-                                else
+                                foreach (var (image, label, suffix) in new[] { (slid, sliders, "_sliders"), (drawn, live, "_live") })
                                 {
-                                    PlanetaryMasterScore.Undershoot(consoleHost, slid, body, instant, sliders);
+                                    if (image is null)
+                                    {
+                                        continue;
+                                    }
+                                    if (truthPath is not null)
+                                    {
+                                        PlanetaryMasterScore.AgainstTruth(consoleHost, image, truthPath, body, label);
+                                    }
+                                    else
+                                    {
+                                        PlanetaryMasterScore.Undershoot(consoleHost, image, body, instant, label);
+                                    }
+                                    if (!parseResult.GetValue(noWriteOpt))
+                                    {
+                                        Directory.CreateDirectory(outputDir);
+                                        image.WriteToFitsFile(stem + suffix + ".fits");
+                                        consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(stem + suffix + ".fits")}, {label}");
+                                    }
                                 }
                             }
                             finally
                             {
                                 slid.Release();
+                                drawn?.Release();
                             }
                         }
                         if (!parseResult.GetValue(noWriteOpt))
                         {
                             Directory.CreateDirectory(outputDir);
-                            var file = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(path) + "_sharpened"
-                                + (variants.Length > 1 ? "_" + fix.ToString().ToLowerInvariant() + (nonNegative ? "_nonnegative" : "") + (finests.Length > 1 ? "_" + finest.ToString().ToLowerInvariant() : "") : "") + ".fits");
+                            var file = stem + ".fits";
                             result.Sharpened.WriteToFitsFile(file);
                             var png = Path.ChangeExtension(file, ".png");
                             await previewRenderer.RenderPlanetaryAsync(result.Sharpened, png, gamma: 0.75, ct: ct);
@@ -216,5 +252,43 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
 
         // A colour master's truths are its colours'; the red one carries the time.
         static string colourTruth(string truthPath, Image master) => master.ChannelCount == 3 ? Path.ChangeExtension(truthPath, ".r.fits") : truthPath;
+    }
+
+    // The largest difference between two masters past the disk's limb, over every channel, in each channel's disk level above its sky
+    // (the first master's): how far a live drawing lies from the batch's where neither sharpens (#1201).
+    private static double LargestOutsideTheLimb(Image a, Image b, MetricDisk disk)
+    {
+        double largest = 0;
+        for (var c = 0; c < a.ChannelCount; c++)
+        {
+            var planeA = a.GetChannelSpan(c);
+            var planeB = b.GetChannelSpan(c);
+            var (_, scale) = PlanetaryMetrics.NormalisationLevels(planeA, a.Width, a.Height, disk);
+            for (var y = 0; y < a.Height; y++)
+            {
+                for (var x = 0; x < a.Width; x++)
+                {
+                    if (disk.RadiiAt(x, y) > 1)
+                    {
+                        largest = Math.Max(largest, Math.Abs(planeA[(y * a.Width) + x] - planeB[(y * a.Width) + x]) / scale);
+                    }
+                }
+            }
+        }
+        return largest;
+    }
+
+    // The median of five timed runs of `run`, after one untimed (the JIT's).
+    private static double MedianMs(Action run)
+    {
+        run();
+        var times = new double[5];
+        for (var i = 0; i < times.Length; i++)
+        {
+            var started = Stopwatch.GetTimestamp();
+            run();
+            times[i] = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        }
+        return StatisticsHelper.NthSmallest(times, times.Length / 2);
     }
 }
