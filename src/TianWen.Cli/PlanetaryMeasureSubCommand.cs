@@ -40,8 +40,11 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
         var methodOpt = new Option<string>("--method") { Description = "The stacking methods, a comma list of ap (alignment points with the per-point best-of weighting, the full lucky-imaging path), ap-flat (alignment points, each frame weighted as a whole) and global.", DefaultValueFactory = _ => "ap" };
         var spacingOpt = new Option<string>("--ap-spacing") { Description = "The alignment points' spacings to stack at, a comma list (ap methods only).", DefaultValueFactory = _ => "24" };
         var patchOpt = new Option<int>("--ap-patch") { Description = "The alignment points' patch, a power of two.", DefaultValueFactory = _ => 32 };
+        var maxApOpt = new Option<int>("--max-ap") { Description = "The most alignment points (the stack's default, 64, caps a dense grid; ap methods only).", DefaultValueFactory = _ => new PlanetaryStackOptions().MaxAlignmentPoints };
         var correlationOpt = new Option<string>("--correlation") { Description = "How frames and points are registered, a comma list of whitened (phase correlation) and plain (cross-correlation).", DefaultValueFactory = _ => "whitened" };
         var meshOpt = new Option<float>("--mesh-spacing") { Description = "The displacement mesh's node spacing, px (ap methods only).", DefaultValueFactory = _ => 24f };
+        var remeasureOpt = new Option<bool>("--remeasure") { Description = "Match every frame against the reference dewarped by its own points (ap methods only; PlanetaryStackOptions.RemeasureAgainstStack)." };
+        var gainOpt = new Option<float>("--mesh-gain") { Description = "A gain on every point's residual before the mesh blends them (ap methods only; PlanetaryStackOptions.MeshGain).", DefaultValueFactory = _ => 1f };
         var influenceOpt = new Option<float>("--mesh-influence") { Description = "How far a point's displacement reaches into the mesh, px (ap methods only).", DefaultValueFactory = _ => 48f };
         var poolOpt = new Option<string>("--pool") { Description = "Pool each point's warp over this many frames either side (a Gaussian's sigma, 0 for none), a comma list (ap methods only).", DefaultValueFactory = _ => "0" };
         var geometryOpt = new Option<string>("--geometry") { Description = "The geometry the points put the stack on, a comma list of reference (the reference frame's) and median (each point's median over the frames); ap methods only.", DefaultValueFactory = _ => "reference" };
@@ -57,7 +60,7 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
             "Stacks a capture as each candidate asks, and its two halves, and measures every stack (R3): fidelity per wavelet band and the limb against a truth, the halves' agreement per band, the limb's undershoot; with a truth, how the truth-free metrics rank the candidates against the truth-based ones.")
         {
             Arguments = { captureArg },
-            Options = { truthOpt, planetOpt, utcOpt, framesOpt, keepOpt, sharpenOpt, methodOpt, spacingOpt, patchOpt, correlationOpt, poolOpt, geometryOpt, meshOpt, influenceOpt, interpolationOpt, referenceOpt, drizzleOpt, pixfracOpt, noHalvesOpt, cutoffOpt, derotateOpt },
+            Options = { truthOpt, planetOpt, utcOpt, framesOpt, keepOpt, sharpenOpt, methodOpt, spacingOpt, patchOpt, maxApOpt, correlationOpt, poolOpt, geometryOpt, meshOpt, influenceOpt, gainOpt, remeasureOpt, interpolationOpt, referenceOpt, drizzleOpt, pixfracOpt, noHalvesOpt, cutoffOpt, derotateOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -168,11 +171,14 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
                             Sharpen = SharpenFor(preset),
                             AlignmentPointSpacing = spacing > 0 ? spacing : new PlanetaryStackOptions().AlignmentPointSpacing,
                             AlignmentPatchSize = patch,
+                            MaxAlignmentPoints = parseResult.GetValue(maxApOpt),
                             PerPointQualityWeighting = method == "ap",
                             WhitenedCorrelation = correlation == "whitened",
                             WarpPoolFrames = pool,
                             MeshNodeSpacing = parseResult.GetValue(meshOpt),
                             MeshInfluence = parseResult.GetValue(influenceOpt),
+                            MeshGain = parseResult.GetValue(gainOpt),
+                            RemeasureAgainstStack = parseResult.GetValue(remeasureOpt),
                             MedianGeometry = median,
                             Interpolation = interpolation,
                             ReferenceFrames = referenceFrames,
@@ -275,10 +281,13 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
                                 Sharpen = SharpenFor(preset),
                                 AlignmentPointSpacing = spacing > 0 ? spacing : new PlanetaryStackOptions().AlignmentPointSpacing,
                                 AlignmentPatchSize = patch,
+                            MaxAlignmentPoints = parseResult.GetValue(maxApOpt),
                                 PerPointQualityWeighting = method == "ap",
                                 WhitenedCorrelation = correlation == "whitened",
                                 MeshNodeSpacing = parseResult.GetValue(meshOpt),
                                 MeshInfluence = parseResult.GetValue(influenceOpt),
+                            MeshGain = parseResult.GetValue(gainOpt),
+                            RemeasureAgainstStack = parseResult.GetValue(remeasureOpt),
                                 Interpolation = interpolation,
                                 ReferenceFrames = referenceFrames,
                                 Drizzle = drizzle is { } d ? new PlanetaryDrizzleOptions((float)d, pixfrac, AlignmentPointMesh: method != "global") : null,

@@ -121,40 +121,76 @@ public class PlanetaryApStackTests
         return n > 0 ? sum / n : double.MaxValue;
     }
 
+    // Frame 0 is the undistorted base (so it grades sharpest -> becomes the reference); frames 1..7 are the base under a strong
+    // per-frame drift + smooth gradient distortion a single translation cannot undo. Returns the base.
+    private static float[,] WriteDistortedCapture(string path)
+    {
+        var baseDisk = TexturedDisk(N, 40, 40, 30);
+        var rng = new Random(5);
+        var frames = new ushort[8][];
+        frames[0] = ToU16(baseDisk);
+        for (var i = 1; i < 8; i++)
+        {
+            var ax = (rng.NextDouble() * 4) - 2;
+            var ay = (rng.NextDouble() * 4) - 2;
+            var bx = (rng.NextDouble() * 6) - 3;
+            var cy = (rng.NextDouble() * 6) - 3;
+            var distorted = new float[N, N];
+            for (var y = 0; y < N; y++)
+            {
+                for (var x = 0; x < N; x++)
+                {
+                    var dx = ax + (bx * (x - 40) / N);
+                    var dy = ay + (cy * (y - 40) / N);
+                    distorted[y, x] = SampleBilinear(baseDisk, x - dx, y - dy);
+                }
+            }
+
+            frames[i] = ToU16(distorted);
+        }
+
+        PlanetarySerFixtures.WriteSer(path, N, N, SerColorId.Mono, frames);
+        return baseDisk;
+    }
+
+    [Fact]
+    public async Task ARemeasuredStackMatchesItsFramesAgainstItsOwnDewarpedReferenceAndStillBeatsTheGlobalOne()
+    {
+        // #1081's second pass: the best frames folded through the mesh their points give against the first reference become the
+        // reference every frame is matched against again. On the distorted fixture the mesh stack must still beat a translation.
+        var path = PlanetarySerFixtures.NewTempPath();
+        try
+        {
+            var baseDisk = WriteDistortedCapture(path);
+            var options = new PlanetaryStackOptions { KeepFraction = 1.0, ReferenceFrames = 4 };
+            PlanetaryStackResult global, remeasured;
+            using (var s = SerFrameStream.Open(path))
+            {
+                global = await new LuckyImagingStacker().StackGlobalAsync(s, options, TestContext.Current.CancellationToken);
+            }
+
+            using (var s = SerFrameStream.Open(path))
+            {
+                remeasured = await new LuckyImagingStacker().StackAsync(s, options with { RemeasureAgainstStack = true }, TestContext.Current.CancellationToken);
+            }
+
+            var region = new PixelRect(22, 22, 36, 36);
+            MeanAbsDiffToBase(remeasured.Master, baseDisk, region).ShouldBeLessThan(MeanAbsDiffToBase(global.Master, baseDisk, region));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Fact]
     public async Task Ap_stack_reconstructs_reference_better_than_global()
     {
         var path = PlanetarySerFixtures.NewTempPath();
         try
         {
-            var baseDisk = TexturedDisk(N, 40, 40, 30);
-            // Frame 0 is the undistorted base (so it grades sharpest -> becomes the reference); frames 1..7
-            // are the base under a strong per-frame drift + smooth gradient distortion a single translation
-            // cannot undo. The AP mesh corrects the gradient, so the AP master lands closer to the base.
-            var rng = new Random(5);
-            var frames = new ushort[8][];
-            frames[0] = ToU16(baseDisk);
-            for (var i = 1; i < 8; i++)
-            {
-                var ax = (rng.NextDouble() * 4) - 2;
-                var ay = (rng.NextDouble() * 4) - 2;
-                var bx = (rng.NextDouble() * 6) - 3;
-                var cy = (rng.NextDouble() * 6) - 3;
-                var distorted = new float[N, N];
-                for (var y = 0; y < N; y++)
-                {
-                    for (var x = 0; x < N; x++)
-                    {
-                        var dx = ax + (bx * (x - 40) / N);
-                        var dy = ay + (cy * (y - 40) / N);
-                        distorted[y, x] = SampleBilinear(baseDisk, x - dx, y - dy);
-                    }
-                }
-
-                frames[i] = ToU16(distorted);
-            }
-
-            PlanetarySerFixtures.WriteSer(path, N, N, SerColorId.Mono, frames);
+            // The AP mesh corrects the frames' gradient, so the AP master lands closer to the base.
+            var baseDisk = WriteDistortedCapture(path);
 
             var options = new PlanetaryStackOptions { KeepFraction = 1.0 };
             PlanetaryStackResult global, ap;

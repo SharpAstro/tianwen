@@ -70,6 +70,14 @@ public sealed record PlanetaryStackOptions
     public bool MedianGeometry { get; init; }
 
     /// <summary>
+    /// Match every frame's points against a second reference: the best <see cref="ReferenceFrames"/> frames each folded through the
+    /// mesh their points give against the first, so the reference itself is dewarped as far as the points can (#1081's second pass,
+    /// docs/plans/planetary-restoration.md, "#1081: dense points, the stack's geometry and kriging, together"). The points stay where
+    /// the first reference put them. Not with a de-rotation, whose reference turns with the planet.
+    /// </summary>
+    public bool RemeasureAgainstStack { get; init; }
+
+    /// <summary>
     /// The kernel each frame is resampled by as it is folded in, global and alignment-point paths alike (clamped Lanczos-3, the
     /// default; bilinear in every stack before the enhanced pipeline). A stack of frames resampled bilinearly at sub-pixel phases
     /// spread evenly is blurred by the kernel's triangle, sinc squared an axis in transfer; Lanczos-3 keeps the transfer to 0.3
@@ -102,6 +110,14 @@ public sealed record PlanetaryStackOptions
     /// point is matched (R5 part 2: 2022-09-03's warp is correlated over 9 px or less).
     /// </summary>
     public float MeshInfluence { get; init; } = 48f;
+
+    /// <summary>
+    /// A gain on every alignment point's departure from the points' mean residual before the mesh blends them (#1081,
+    /// docs/plans/planetary-restoration.md, "#1081: dense points, the stack's geometry and kriging, together"). A point's plain
+    /// correlation reads a sixth of a warp that varies over its patch, its windows pulling the peak toward zero, so the blend of its
+    /// readings applies too little of it; one, the default, applies the readings as read.
+    /// </summary>
+    public float MeshGain { get; init; } = 1f;
 
     /// <summary>
     /// Per-AP "best-of" weighting: when true (default) each output pixel is weighted by how locally sharp
