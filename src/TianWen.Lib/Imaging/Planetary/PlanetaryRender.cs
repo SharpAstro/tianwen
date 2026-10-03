@@ -76,15 +76,23 @@ public static class PlanetaryRender
     /// The scene alone, no optics: <paramref name="width"/> by <paramref name="height"/> pixels, row-major, each the mean of
     /// <paramref name="supersample"/> squared rays across it, zero off the disk and on its night side; and <paramref name="moons"/>, each a
     /// uniform disk where the planet's is not, as many rays to a pixel (R8 follow-up 4).
+    /// <para>
+    /// With <paramref name="rings"/> (Saturn's, S1 of the plan, #1231), each ray also crosses the equatorial plane, and the two meet in
+    /// depth order: a ring nearer the observer than the globe lies over it, letting through <see cref="SaturnRing.Transmission"/> of the
+    /// globe behind, and the globe hides a ring behind it. The globe's shadow falls on the rings (no direct light where the ray from a
+    /// ring toward the Sun meets the globe) and the rings' on the globe (the Sun's light through the ring the ray toward it crosses). A
+    /// ring's face away from the Sun is drawn dark: it is the lit face the Earth has seen since the 2009 crossing and until the 2025 one,
+    /// as in every capture here.
+    /// </para>
     /// </summary>
     public static float[] Render(PlanetMap map, in PlanetAspect aspect, in DiskPlacement placement, int width, int height, double minnaertK, int supersample = 8,
-        ImmutableArray<MoonDisk> moons = default)
+        ImmutableArray<MoonDisk> moons = default, SaturnRings? rings = null)
     {
         ArgumentNullException.ThrowIfNull(map);
         ArgumentOutOfRangeException.ThrowIfLessThan(supersample, 1);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(placement.EquatorialRadius);
 
-        var scene = new Scene(aspect, placement, minnaertK);
+        var scene = new Scene(aspect, placement, minnaertK, rings, rings is null ? 0 : map.MeanAlbedo);
         var image = new float[width * height];
         var step = 1.0 / supersample;
         ParallelFor.Run(height, y =>
@@ -170,7 +178,7 @@ public static class PlanetaryRender
     /// and the 128-sample PSF this used to be cut the glow past the limb to nothing beyond 1.6 radii and to 88 % at the limb itself.
     /// </remarks>
     public static float[] RenderDiffracted(PlanetMap map, in PlanetAspect aspect, in DiskPlacement placement, int width, int height, double minnaertK,
-        in Pupil pupil, double wavelengthM, double arcsecPerPixel, int supersample = 4, ImmutableArray<MoonDisk> moons = default)
+        in Pupil pupil, double wavelengthM, double arcsecPerPixel, int supersample = 4, ImmutableArray<MoonDisk> moons = default, SaturnRings? rings = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(arcsecPerPixel);
         var nyquistArcsec = wavelengthM / (2 * pupil.DiameterM) * ShortExposurePsf.ArcsecPerRadian;
@@ -187,7 +195,7 @@ public static class PlanetaryRender
         };
         var fineWidth = width * factor;
         var fineHeight = height * factor;
-        var scene = Render(map, aspect, fine, fineWidth, fineHeight, minnaertK, supersample, moons);
+        var scene = Render(map, aspect, fine, fineWidth, fineHeight, minnaertK, supersample, moons, rings);
 
         var psfSize = DiffractionGridFor(fineWidth, fineHeight);
         var psf = new double[psfSize * psfSize];
@@ -321,23 +329,45 @@ public static class PlanetaryRender
 
     /// <summary>
     /// The lighting of one render over its geometry, <see cref="PlanetaryProjection"/>: each ray's point on the spheroid, its
-    /// latitude and longitude, and the Sun and observer angles there.
+    /// latitude and longitude, and the Sun and observer angles there; and with rings, the ray's crossing of the ring plane.
     /// </summary>
-    private readonly struct Scene(in PlanetAspect aspect, in DiskPlacement placement, double minnaertK)
+    private readonly struct Scene(in PlanetAspect aspect, in DiskPlacement placement, double minnaertK, SaturnRings? rings, double ringScale)
     {
         private readonly PlanetaryProjection _projection = new(aspect, placement);
         private readonly double _k = minnaertK;
+        private readonly SaturnRings? _rings = rings;
+        private readonly double _ringScale = ringScale;
 
         public double Radiance(PlanetMap map, double x, double y)
         {
-            if (!_projection.TrySurface(x, y, out var latitude, out var west, out var mu, out var mu0) || mu <= 0 || mu0 <= 0)
+            var globe = Globe(map, x, y, out var onGlobe, out var globeT);
+            if (_rings is not { } rings || !_projection.TryRingPlane(x, y, out var radius, out var ringT, out var r1, out var r2)
+                || !rings.TryRingAt(radius, out var ring) || (onGlobe && ringT < globeT))
             {
-                return 0;
+                return globe;
             }
-            return map.Sample(latitude, west) * Math.Pow(mu0, _k) * Math.Pow(mu, _k - 1);
+            // The face the Sun lights is the one the observer sees when both stand on the same side of the plane.
+            var lit = Math.Sign(_projection.SunSinElevation) == Math.Sign(_projection.SinD) && !_projection.InGlobeShadow(r1, r2);
+            return (lit ? ring.Level * _ringScale : 0) + (ring.Transmission(_projection.SinD) * globe);
         }
 
         // Whether the ray meets the planet at all, day side or night.
         public bool OnDisk(double x, double y) => _projection.TrySurface(x, y, out _, out _, out _, out _);
+
+        // The globe's radiance along the ray (zero off it and on its night side), lit through any ring the Sun's ray crosses.
+        private double Globe(PlanetMap map, double x, double y, out bool onGlobe, out double t)
+        {
+            onGlobe = _projection.TrySurface(x, y, out var latitude, out var west, out var mu, out var mu0, out t, out var x1, out var x2, out var x3);
+            if (!onGlobe || mu <= 0 || mu0 <= 0)
+            {
+                return 0;
+            }
+            var radiance = map.Sample(latitude, west) * Math.Pow(mu0, _k) * Math.Pow(mu, _k - 1);
+            if (_rings is { } rings && _projection.TrySunwardRingPlane(x1, x2, x3, out var radius) && rings.TryRingAt(radius, out var ring))
+            {
+                radiance *= ring.Transmission(_projection.SunSinElevation);
+            }
+            return radiance;
+        }
     }
 }
