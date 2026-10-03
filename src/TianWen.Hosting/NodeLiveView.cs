@@ -100,6 +100,10 @@ internal sealed class NodeLiveView(IDeviceHub hub, NodeJobs jobs, IHostedSession
         {
             return ResponseEnvelope<LiveViewStateDto>.Fail(invalid);
         }
+        if (controls.LensStep is { } step && (sbyte)step is < -3 or > 3 or 0)
+        {
+            return ResponseEnvelope<LiveViewStateDto>.Fail("A lens step is -3 to -1 (Near) or 1 to 3 (Far)");
+        }
         if (hosted.CurrentRun is not NodeLiveViewRun { IsRunning: true } run)
         {
             return ResponseEnvelope<LiveViewStateDto>.NotFound("No live view is running");
@@ -180,6 +184,7 @@ internal sealed class NodeLiveViewRun : INodeRun
         FramesPerSecond = JsonNumber.OrNull(Capture.MeasuredFps),
         BitDepth = Capture.FrameBitDepth,
         FailureReason = Capture.FailureReason,
+        CanDriveLens = Capture.CanDriveLens,
     };
 
     /// <summary>Makes the live view ready on the profile's devices, holding the camera from here (<see cref="PlanetaryCapture.TryPrepare"/>).</summary>
@@ -204,6 +209,10 @@ internal sealed class NodeLiveViewRun : INodeRun
         if (controls.Gain is { } gain)
         {
             Capture.SetGain(gain);
+        }
+        if (controls.LensStep is { } step)
+        {
+            Capture.DriveLens(step);
         }
     }
 

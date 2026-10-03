@@ -1,5 +1,6 @@
 using System;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TianWen.Hosting.Dto;
@@ -48,6 +49,9 @@ public sealed class LiveViewController : IAsyncDisposable
     private int _liveOta = -1;
     private LiveViewStateDto? _state;
 
+    // The lens steps asked for while live, each sent at once and in order by the run's own sender (#681).
+    private Channel<LensFocusStep>? _lensSteps;
+
     // Staged controls, sent by the run's loop: -1 ticks and int.MinValue gain are "nothing staged".
     private long _pendingExposureTicks = -1;
     private int _pendingGain = int.MinValue;
@@ -72,6 +76,21 @@ public sealed class LiveViewController : IAsyncDisposable
 
     /// <summary>The node's state of the run, as last read; null before its first answer.</summary>
     public LiveViewStateDto? State => Volatile.Read(ref _state);
+
+    /// <summary>Whether the camera live now can drive its own lens (a Canon in its live view), as the node last said.</summary>
+    public bool CanDriveLens => IsLive && State is { CanDriveLens: true };
+
+    /// <summary>
+    /// A step of the camera's own lens drive, sent to the node at once: a focus moved by eye wants the next frames to show
+    /// it, never the next state poll. Steps clicked in a row are sent in order. Nothing while no live view runs.
+    /// </summary>
+    public void DriveLens(LensFocusStep step)
+    {
+        if (IsLive)
+        {
+            Volatile.Read(ref _lensSteps)?.Writer.TryWrite(step);
+        }
+    }
 
     /// <summary>The live frame for the pane, once one has arrived since the start; null before. Render thread only.</summary>
     public IPreviewSource? Source => _hasFrame ? _frame : null;
@@ -110,9 +129,12 @@ public sealed class LiveViewController : IAsyncDisposable
         Volatile.Write(ref _liveOta, request.OtaIndex);
         RedrawRequested?.Invoke();
 
+        var lensSteps = System.Threading.Channels.Channel.CreateUnbounded<LensFocusStep>(new UnboundedChannelOptions { SingleReader = true });
+        Volatile.Write(ref _lensSteps, lensSteps);
+
         var runCts = CancellationTokenSource.CreateLinkedTokenSource(appToken);
         Interlocked.Exchange(ref _runCts, runCts)?.Dispose();
-        _run = Task.Run(() => WatchAsync(node, runCts.Token), CancellationToken.None);
+        _run = Task.Run(() => WatchAsync(node, lensSteps, runCts.Token), CancellationToken.None);
         return null;
     }
 
@@ -151,10 +173,11 @@ public sealed class LiveViewController : IAsyncDisposable
     }
 
     // The run's loop: the staged controls sent, the node's state read, the stop asked for, until the node says it ended.
-    private async Task WatchAsync(NodeConnection node, CancellationToken cancellationToken)
+    private async Task WatchAsync(NodeConnection node, Channel<LensFocusStep> lensSteps, CancellationToken cancellationToken)
     {
         using var reading = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var frames = ReadFramesAsync(node, reading.Token);
+        var lens = SendLensStepsAsync(node, lensSteps.Reader, reading.Token);
         try
         {
             var stopSent = false;
@@ -210,8 +233,30 @@ public sealed class LiveViewController : IAsyncDisposable
             {
                 // The reader ends with the watching.
             }
+            lensSteps.Writer.TryComplete();
+            try
+            {
+                await lens.ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is OperationCanceledException || reading.IsCancellationRequested)
+            {
+                // So does the lens's sender.
+            }
             Volatile.Write(ref _liveOta, -1);
             RedrawRequested?.Invoke();
+        }
+    }
+
+    // Each lens step to the node as it is asked for, in order; a refusal is logged, and the next step is still sent.
+    private async Task SendLensStepsAsync(NodeConnection node, ChannelReader<LensFocusStep> steps, CancellationToken cancellationToken)
+    {
+        await foreach (var step in steps.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var sent = await node.Client.SetLiveViewControlsAsync(new LiveViewControlsDto { LensStep = step }, cancellationToken).ConfigureAwait(false);
+            if (!sent.IsSuccess)
+            {
+                _logger.LogWarning("The node did not take the lens step {Step}: {Error}", step, sent.Error);
+            }
         }
     }
 

@@ -138,6 +138,10 @@ public class NodeLiveViewTests(ITestOutputHelper outputHelper) : IDisposable
 
         var dark = await client.SetLiveViewControlsAsync(new LiveViewControlsDto { ExposureMs = 0 }, ct);
         (dark.StatusCode, dark.Error).ShouldBe((400, "A live view needs a positive exposure"));
+        var noStep = await client.SetLiveViewControlsAsync(new LiveViewControlsDto { LensStep = (LensFocusStep)4 }, ct);
+        (noStep.StatusCode, noStep.Error).ShouldBe((400, "A lens step is -3 to -1 (Near) or 1 to 3 (Far)"));
+        (await client.GetLiveViewAsync(ct)).Value.ShouldNotBeNull().CanDriveLens
+            .ShouldBeFalse("an astro camera has no lens of its own to drive, so no lens buttons are offered");
 
         var camera = CameraOf(node);
         var gain = await camera.GetGainAsync(ct) == camera.GainMax ? camera.GainMin : camera.GainMax;

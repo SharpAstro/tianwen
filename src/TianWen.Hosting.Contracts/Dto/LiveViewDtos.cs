@@ -1,3 +1,4 @@
+using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 
 namespace TianWen.Hosting.Dto;
@@ -40,6 +41,12 @@ public sealed class LiveViewControlsDto
     public double? ExposureMs { get; init; }
 
     public short? Gain { get; init; }
+
+    /// <summary>
+    /// A step of the camera's own lens drive (#681), where <see cref="LiveViewStateDto.CanDriveLens"/>: numeric, its sign
+    /// the direction (negative Near, positive Far) and its magnitude the size, 1 to 3.
+    /// </summary>
+    public LensFocusStep? LensStep { get; init; }
 }
 
 /// <summary>The live view going on, or the last one to end until the node's next run replaces it: <c>GET /api/v1/live</c>.</summary>
@@ -70,4 +77,7 @@ public sealed class LiveViewStateDto
 
     /// <summary>Why it failed, in words; null while it runs, and when it ended on a stop.</summary>
     public string? FailureReason { get; init; }
+
+    /// <summary>Whether the camera can drive its own lens now (a Canon in its live view): the Near and Far buttons are offered.</summary>
+    public bool CanDriveLens { get; init; }
 }

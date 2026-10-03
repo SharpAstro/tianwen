@@ -280,7 +280,7 @@ exists; the column shows only the filter's name today.
 
 ## P12: a Canon lens focused while live
 
-**#681.** A Canon body drives its lens (FC.SDK's `DriveLensAsync`, Near and Far in three step sizes) only while Live View runs, which
+**#681; the first step done 2026-10-03.** The Preview's Lens row (Near and Far, three sizes each, as one to three carets) shows while a camera that drives its own lens is live (`ILensFocusCamera`, `LiveViewStateDto.CanDriveLens`), each step sent at once (`PUT /api/v1/live/controls` with `LensStep`) and taken between two frames. Verified on a 6D: three large Near steps moved focus from the room's back wall to the foreground. A Canon body drives its lens (FC.SDK's `DriveLensAsync`, Near and Far in three step sizes) only while Live View runs, which
 P4 gives: Near and Far buttons on the focuser row while a Canon's live view runs, for focusing by eye or on a Bahtinov
 mask. As a focuser for autofocus (#681) it needs a position the lens never reports: a made-up one from a nominal start,
 moved only in the smallest step so its units stay one size (the larger steps have no known ratio to it), and Live View

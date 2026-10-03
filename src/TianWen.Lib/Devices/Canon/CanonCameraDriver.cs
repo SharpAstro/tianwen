@@ -21,7 +21,7 @@ namespace TianWen.Lib.Devices.Canon;
 /// and <see cref="CanonCamera.BulbStartAsync"/>/<see cref="CanonCamera.BulbEndAsync"/> for longer exposures.
 /// Images are downloaded as CR2 and decoded via the SharpAstro codecs facade (FC.SDK.Raw).
 /// </summary>
-internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
+internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver, ILensFocusCamera
 {
     // Shutter speeds are not a table here: the body says which Tv codes it offers (a third-stop and a half-stop body offer
     // different ones, 10 s being 0x1D in thirds and 0x1C in halves, and the Exposure level increments C.Fn switches one body
@@ -1738,6 +1738,43 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
         {
             await ApplyLiveViewExposureAsync(camera, controls.Exposure, cancellationToken);
         }
+    }
+
+    /// <summary>A body drives its lens only while its Live View runs (#681).</summary>
+    public bool CanDriveLens => Connected && Volatile.Read(ref _videoActive) == 1;
+
+    /// <summary>
+    /// One lens step through the body (FC.SDK's <c>DriveLensAsync</c>, PTP CanonDriveLens): Near or Far in the body's small,
+    /// medium or large step. A body answers busy while it is still moving from the last one, so a step is asked again then.
+    /// </summary>
+    public async ValueTask<bool> DriveLensAsync(LensFocusStep step, CancellationToken cancellationToken = default)
+    {
+        if (_camera is not { } camera || !CanDriveLens)
+        {
+            Logger.LogWarning("{Name} drives its lens only while its live view runs: the step {Step} was not taken", Name, step);
+            return false;
+        }
+
+        var eds = step switch
+        {
+            LensFocusStep.NearLarge => EdsDriveLensStep.NearLarge,
+            LensFocusStep.NearMedium => EdsDriveLensStep.NearMedium,
+            LensFocusStep.NearSmall => EdsDriveLensStep.NearSmall,
+            LensFocusStep.FarSmall => EdsDriveLensStep.FarSmall,
+            LensFocusStep.FarMedium => EdsDriveLensStep.FarMedium,
+            _ => EdsDriveLensStep.FarLarge,
+        };
+        var result = await CanonBusyRetry.RunAsync(() => camera.DriveLensAsync(eds, cancellationToken), TimeProvider, cancellationToken);
+        if (result is EdsError.OK)
+        {
+            Logger.LogDebug("{Name} lens step {Step}", Name, step);
+            return true;
+        }
+
+        // An AF lens switched to MF, or a manual lens, answers here: said, never thrown, so the live view goes on.
+        Logger.LogWarning("{Name} did not drive its lens {Step}: the body answered {Error} (is the lens's AF/MF switch on AF?)",
+            Name, step, result);
+        return false;
     }
 
     /// <summary>
