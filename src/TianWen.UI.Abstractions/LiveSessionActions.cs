@@ -167,10 +167,13 @@ namespace TianWen.UI.Abstractions
         /// <summary>
         /// Standard astrophotography exposure-time ladder in seconds. The preview stepper
         /// walks this list in both directions; longer exposures (&gt;5 min) are intentionally
-        /// absent since preview mode is for framing / focus checks, not sub-framing.
+        /// absent since preview mode is for framing / focus checks, not sub-framing. It reaches down
+        /// to 1 ms in the same 1-2-5 steps since the Preview has a live view (#1111): a bright target,
+        /// daylight focusing or a flat panel wants far less than the 0.1 s it once stopped at, and a
+        /// Canon's live view shows its exposure simulated.
         /// </summary>
         public static readonly ImmutableArray<double> PreviewExposureSteps =
-            [0.1, 0.2, 0.5, 1, 2, 3, 5, 10, 15, 30, 60, 120, 300];
+            [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 3, 5, 10, 15, 30, 60, 120, 300];
 
         /// <summary>
         /// Returns the next value on the <see cref="PreviewExposureSteps"/> ladder above or
@@ -245,7 +248,9 @@ namespace TianWen.UI.Abstractions
         /// 60s (e.g. "2m"), seconds with up to 4 significant digits below (e.g. "0.5s", "30s").
         /// </summary>
         public static string FormatExposureLabel(double sec)
-            => sec >= 60 ? $"{sec / 60:F0}m" : $"{sec:G4}s";
+            => sec >= 60 ? $"{sec / 60:F0}m"
+                : sec < 0.1 ? $"{sec * 1000:G4}ms"
+                : $"{sec:G4}s";
 
         /// <summary>
         /// Label for a preview gain value. <paramref name="gain"/> <c>null</c> means the
