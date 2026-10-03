@@ -221,6 +221,42 @@ public class DALCameraVideoTests(ITestOutputHelper output)
         }
     }
 
+    /// <summary>
+    /// A stream reads its size at the start of each pass, and a disconnect marks the driver disconnecting BEFORE it
+    /// stops the stream and waits for it. A pass that began just before a disconnect therefore read the size inside
+    /// that window, through <c>NumX</c> / <c>NumY</c>, which throw there: the stream ended with "not connected"
+    /// instead of stopping (once on CI, in <see cref="ADisconnectStopsTheStreamBeforeItClosesTheBody"/>). Held in
+    /// that window on purpose: a staged gain's control write waits until the disconnect has begun.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task APassUnderWayAsTheDisconnectBeginsStillStopsCleanly()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (camera, state) = await StreamingCameraAsync();
+
+        await using var frames = camera.CaptureVideoAsync(OneMillisecond, ct).GetAsyncEnumerator(ct);
+        (await NextAsync(frames)).Release();
+
+        var held = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        state.OnSetControl = control =>
+        {
+            if (control is CMOSControlType.Gain && held.TrySetResult())
+            {
+                SpinWait.SpinUntil(() => !camera.Connected, TimeSpan.FromSeconds(10));
+            }
+        };
+        await camera.ApplyVideoControlsAsync(new VideoCaptureOptions(TimeSpan.Zero, Gain: 42), ct);
+        await held.Task.WaitAsync(ct);
+
+        await camera.DisconnectAsync(ct);
+
+        state.ClosedWhileStreaming.ShouldBeFalse("a frame call must never be under way as the body closes");
+        while (await frames.MoveNextAsync())
+        {
+            frames.Current.Release();
+        }
+    }
+
     [Fact(Timeout = 30_000)]
     public async Task ASteadyStreamRecyclesItsPlanes()
     {
