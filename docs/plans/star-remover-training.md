@@ -165,6 +165,21 @@ trained to convergence with seeds interleaved, the bright cells in pool and eval
 the runner computes as the eval did (`N2nLinearRunner`, `OnnxIoNames.IsImagePlusPlane`). Its export,
 parity fixture and runner path are the template R5 follows.
 
+### The speckle teacher
+
+**A learned remover is penalised for dark speckles, not only scored on them** (the owner, 2026-10-03, after R0's
+plates showed them). A speckle is a core pixel left more than 4 sigma below the plate's own sky where a star was: a
+star subtracted a fraction of a pixel off leaves a dark pixel beside a bright one, and a mean over the core, which is
+what the hole test reads, stays at the sky. R0's plates had them at 3 to 13 percent of a band's stars against a sky
+null under 1.5 percent ("What the ten masters taught the builder", the speckle entry). The loss gains a one-sided term
+at every removed star's site: the shortfall of each output pixel within 3 px of the site below the local sky (the
+median of the OUTPUT from 6 to 12 px, sigma its MAD) less 4 sigma, squared and summed, zero where nothing falls short.
+It needs no truth, so it applies at real stars too: at a held-out master's detections for the eval, and on real
+masters in self-refinement (H4), where an injected star's target is not available. **One definition**:
+`StarlessSpeckles` (C#) is the measure and the gate; the trainer's term is a port of it pinned by a parity fixture (a
+plane and its sites, the C# rate and the per-site flags written out, the torch term asserted to flag the same sites),
+as the denoiser's runner path was, so the teacher and the gate cannot drift.
+
 **One alternative structure, held for H4's kill:** the third-party architectures read in the SAS study
 ([model-training-roadmap.md](model-training-roadmap.md) section 8, item 7) separate a positive subtractive
 star layer from a gated inpaint branch that takes the hole mask as an input. That is R0's own structure
@@ -179,6 +194,9 @@ background where it removed a star.
 - **Background preservation under injected stars:** target vs output inside the injected footprints,
   RMS in MAD units, gate at 1.
 - **Stars-plate flux conservation** (H5).
+- **Speckles** (`StarlessSpeckles`): the share of removed stars with a core pixel 4 sigma under the output's own sky,
+  per significance band, at injected sites and at a held-out master's detections, against the same test at the
+  plate's star-free sky. Gate: no band above twice its null.
 - **Real-star spot checks at 1:1** on held-out masters: bright saturated stars, close pairs (the
   deblender's domain), stars on nebulosity, and spikes on the SWQ8 masters. Human adjudication with a
   labelled comparison image; RC outputs never in the frame as a reference. The gradient plan's golden-set
@@ -374,6 +392,23 @@ Each was found on one master by eye and measured before it was fixed; none is sp
 - **Edges and refits**: a NaN of the absent canvas no longer makes a plateau NaN (a 700-sigma star at Orion's
   edge was left whole), a centre fitted past the edge is no drift, and a refinement that fails puts back the fit
   it was meant to improve.
+- **Speckles, the hole test's blind spot** (the owner's question, 2026-10-03): a core pixel more than 4 sigma under
+  the plate's own sky (`StarlessSpeckles`, now in every plate's statistics and the report), which a core's mean hides
+  beside a bright pixel. Read on the ten plates as dark against bright excursions, they are two things. At stars of
+  significance under 100 the bright outnumber the dark 2 to 12 times: leftover light, the faint-star limit below,
+  with dark pixels as its smaller half. At bright stars the dark dominate (Leo Triplet 474 against 84), and those
+  were the master's own: an undershoot at the edge of a bright core (single pixels 8 to 11 sigma under the sky beside
+  an 800-sigma core in the Leo master, the look of an interpolation kernel ringing at a near-step edge; the stacker's
+  question, not the builder's), and the fill copied them, since its ceiling held a fill at the data. **The ceiling
+  now never falls below the local sky** (its background map at the fill's scale): a fill can always reach the sky,
+  and still never rises above data brighter than that. Leo's bright-star speckles went from 43 and 27 percent to 1
+  and 4, Horsehead's from 3.6 and 2.0 to 0.0 and 0.5, Carina's from 1.2 to 0.0, with holes, bias and the inpaint
+  fraction unchanged and the Trapezium the same to the eye. A frame-wide version (no ceiling under the frame's
+  darkest sky) took a third of Leo's: its sky varies by 25 sigma, so its defects sat 8 sigma over that floor.
+  **Refitting each star's centre per channel did not help, and was withdrawn**: with amplitude and level fitted
+  beside the shift it cut speckles only by leaving faint cores brighter (the faint band's median core bias from 0.4
+  to 1.5 sigma over root n), and the shift alone left them as they were or worse. The fitted position was never
+  the fault.
 
 #### What R0 leaves
 
@@ -390,6 +425,10 @@ Tracked by #902 with the rest of P4.0; none of it is a hole.
 - **M4's core** keeps its unresolved glow and the stars on its bar, the one negative patch over 220 sigma.
 - **eta Carinae's inpaint fraction** (above), and the faint stars of its Milky Way field still under the confusion
   the finder's deeper noise reaches.
+- **Faint stars on a bright nebula leave small dark dots** (the Orion plate round the M42 core, visible stretched).
+  The speckle measure barely counts them, because its sky's spread is the annulus's MAD, which a structured nebula
+  inflates; a structure-blind noise (the lag differences the finder already uses) would count them, and is the next
+  step for both the measure and the per-pixel flag.
 
 ### R1: the injector
 
@@ -483,6 +522,17 @@ Three things the tests found while it was built, each fixed and pinned:
   the peak at 1.8 px FWHM and 4e-4 at 1.5 px, against 1e-5 at 3 px. `MoffatPsf`'s remark claimed 1e-5 at 1.5 px
   too and now says what it is. It is harmless to the injector (a net learns to remove whatever is rendered) and
   0.3 sigma on an 800-sigma 1.5 px star for R0.
+
+**The first checks' reading (ten R0 masters, 20 cells and two draws a session, warped noise as E16b):**
+placement 100 percent everywhere, eta Carinae and the 24 mm Carina included (the prediction was too pessimistic: even
+there a fifth of the frame lies 3 FWHM from every site); shape within its bounds on every channel but two, Carina
+24 mm's red (FWHM 1.08, its store beta 1.05 at the grid's floor, where width and wings cannot be told apart) and a
+channel whose beta is the store's 24.95 ceiling (a Gaussian, beta unidentifiable); the same seed the same bytes, and
+the Noise and Blur exports byte-identical to a build from before R1 but for five null fields on the row; nothing past a
+clip. **Saturation misses**: with a saturated star in every draw (24 to 40 a session), the injected plateaus are 2 to 3
+times the masters' own on six of nine (SMC 3.0 px against 1.0, Antares 3.0 against 1.0). A master's saturated core is
+mostly soft, compressed under a one-pixel top (Leo Triplet's: 0.84 to 0.93 of full scale, no flat), where each virtual
+sub here is clipped hard at a level; a soft knee is the likely model, and it is open.
 
 The pool's plates found a fourth, in R0: **a giant whose plateau passes 40 px failed its master.** Every sky
 annulus was a clamp of the star's reach between what it must clear and 40 px, and eta Carinae at 288 mm (QHY183M,
