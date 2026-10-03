@@ -94,6 +94,19 @@ public interface IPreviewSource
     /// </summary>
     FrameFindings Findings => FrameFindings.None;
 
+    /// <summary>
+    /// Whether the frame's values are display data already, through a transfer function (an 8-bit camera JPEG, a processed
+    /// TIFF), which a stretch made for linear data must not take for linear: such a frame opens with the stretch off.
+    /// False where unknown.
+    /// </summary>
+    bool IsPreStretched => false;
+
+    /// <summary>
+    /// Whether the frame's channels are already in agreement, so Auto stretches them with ONE curve (Linked) rather than
+    /// fitting one per channel to what separates them (<see cref="StretchMode"/>'s <c>ResolveAuto</c>).
+    /// </summary>
+    bool ChannelsAlreadyAgree => false;
+
     /// <summary>Computes display stretch uniforms from the (cached) statistics. Cheap to call per frame.
     /// <paramref name="manualWhiteBalance"/> is the user's WB-slider triple, composed with any auto color
     /// calibration; (1,1,1) or null leaves the existing (auto-only) behaviour bit-identical.

@@ -60,11 +60,17 @@ internal static class FrameEndpoints
         group.MapGet("/planetary/master/latest", (int? after, NodeFrames frames, HttpContext context) =>
             Serve(frames.Named(FrameSources.PlanetaryMaster), after, "The planetary stack", FrameSources.PlanetaryMaster, context));
 
+        // A live view's (#1111): the camera's frame as it gave it.
+        group.MapGet("/live/latest", (int? after, NodeFrames frames, HttpContext context) =>
+            Serve(frames.Named(FrameSources.LiveView), after, "The live view", FrameSources.LiveView, context));
+
         // The same two as streams (P5 part 5c): drop-to-latest over a WebSocket, a live view at the rate its client takes.
         routes.Map(FrameStreamWire.PathOf(FrameSources.PlanetaryLive), (HttpContext context, NodeFrames frames, IHostApplicationLifetime lifetime) =>
             StreamAsync(context, frames, lifetime, FrameSources.PlanetaryLive));
         routes.Map(FrameStreamWire.PathOf(FrameSources.PlanetaryMaster), (HttpContext context, NodeFrames frames, IHostApplicationLifetime lifetime) =>
             StreamAsync(context, frames, lifetime, FrameSources.PlanetaryMaster));
+        routes.Map(FrameStreamWire.PathOf(FrameSources.LiveView), (HttpContext context, NodeFrames frames, IHostApplicationLifetime lifetime) =>
+            StreamAsync(context, frames, lifetime, FrameSources.LiveView));
 
         return group;
     }

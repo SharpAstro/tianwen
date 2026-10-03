@@ -313,8 +313,9 @@ Work -- add `IVideoCameraDriver` to the declaration (`CanonCameraDriver.cs:23`) 
 - **`CaptureVideoAsync`**: gate a single-stream `_videoActive`; ensure mutual exclusion with the single-shot
   `StartExposureAsync` path (`CanonCameraDriver.cs:498` -- Tv/Bulb + background CR2 download must not run while
   streaming). `StartLiveViewAsync`; for planetary work set the EVF zoom to 5x/10x (E.3); loop
-  `GetLiveViewFrameAsync` -> JPEG-decode to `Image` (E.2) -> `yield return`; pace at the requested exposure
-  (Canon EVF runs ~15-30 fps regardless; treat `Exposure` as a poll cadence floor). `finally`:
+  `GetLiveViewFrameAsync` -> JPEG-decode to `Image` (E.2) -> `yield return`; poll at the feed's own rate
+  (Canon EVF runs ~15-30 fps regardless and has no integration time, so `Exposure` paces nothing: as a cadence clamped
+  to 15-500 ms it held a live view asked at a still's 5 s to 1.5 frames a second, #1111). `finally`:
   `StopLiveViewAsync`, clear the gate. Cancel = stop.
 - **`ApplyVideoControlsAsync`**: ISO via the existing `SetGainAsync` (`CanonCameraDriver.cs:395`, ISO index
   table). Exposure on EVF is largely auto / not a true integration time; surface that limitation (see Risks).

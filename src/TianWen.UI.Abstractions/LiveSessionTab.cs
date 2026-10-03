@@ -97,6 +97,15 @@ namespace TianWen.UI.Abstractions
         /// <summary>The live planetary capture controller driving <see cref="LiveSessionMode.Planetary"/>. Set by the host (DI singleton).</summary>
         public PlanetaryCaptureController? PlanetaryCapture { get; set; }
 
+        /// <summary>The Preview mode's live view (#1111), whose frames take the pane while it runs. Set by the host (DI singleton).</summary>
+        public LiveViewController? LiveView { get; set; }
+
+        /// <summary>Whether the pane drew the live view's frame last time, so a switch to or from it re-uploads the texture.</summary>
+        private bool _showingLive;
+
+        /// <summary>The stretch the pane had before a live view took it, given back when the still shows again.</summary>
+        private StretchMode? _stretchBeforeLive;
+
         /// <summary>Tracks which image reference is currently displayed to avoid redundant uploads.</summary>
         private Image? _displayedImage;
 
@@ -316,6 +325,36 @@ namespace TianWen.UI.Abstractions
                 // Check if a new frame arrived for the selected camera
                 var images = state.LastCapturedImages;
                 var selectedIdx = pst.SelectedCameraIndex;
+
+                // A live view (#1111) takes the pane while it runs, unless another OTA is picked: its newest frame, copied in
+                // on this thread every frame whether shown or not, so a switch back to it shows the camera now.
+                var liveFrameArrived = LiveView?.Tick() ?? false;
+                var liveSource = LiveView is { LiveOta: { } liveOta, Source: { } source } && (selectedIdx < 0 || selectedIdx == liveOta)
+                    ? source : null;
+                var showLive = liveSource is not null;
+                if (showLive != _showingLive || (showLive && liveFrameArrived))
+                {
+                    pst.NeedsTextureUpdate = true;
+                }
+                if (showLive != _showingLive)
+                {
+                    // A rendered live frame (a camera's JPEG) opens with the stretch off, as a pre-stretched file does in the
+                    // viewer; the still's stretch comes back with the still.
+                    if (showLive)
+                    {
+                        _stretchBeforeLive = pst.StretchMode;
+                        if (liveSource is { IsPreStretched: true })
+                        {
+                            pst.StretchMode = StretchMode.None;
+                        }
+                    }
+                    else if (_stretchBeforeLive is { } before)
+                    {
+                        pst.StretchMode = before;
+                        _stretchBeforeLive = null;
+                    }
+                }
+                _showingLive = showLive;
                 Image? latestImage = null;
                 int? latestOta = null;
                 if (selectedIdx >= 0 && selectedIdx < images.Length)
@@ -366,7 +405,7 @@ namespace TianWen.UI.Abstractions
                 }
 
                 // The Solve button reads as solving while the node solves the frame on show.
-                pst.IsPlateSolving = _displayedOta is { } shownOta && IsPreviewSolving(state, shownOta);
+                pst.IsPlateSolving = !showLive && _displayedOta is { } shownOta && IsPreviewSolving(state, shownOta);
 
                 // The viewer arranges its own toolbar, picture and status line within this rect, and projects over
                 // the full surface. With more than one OTA, the picker row above it says whose frame it is.
@@ -378,7 +417,7 @@ namespace TianWen.UI.Abstractions
                 viewer.SetContentRegion(imageRect);
                 // The texture upload NeedsTextureUpdate asks for happens inside Render's PrepareFrame,
                 // before anything in the frame samples the channel views; see the remarks there.
-                viewer.Render(_previewSource, pst);
+                viewer.Render(liveSource ?? _previewSource, pst);
                 // Its toolbar registers on the viewer itself, so the router has to be told it is here.
                 _children.Add(viewer);
             }

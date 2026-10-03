@@ -382,6 +382,12 @@ Alpaca and ninaAPI refusals, Allow and Always allow, the counts), `NodeShareTest
      pooled buffer and queues it, and a writer task of the recording's own does the disk, so a slow disk costs
      recorded frames, counted, never the capture's rate. A frame of another size (a window resized) ends it, as
      does the capture ending; the file is whole once its writer has closed it (`Written` in the state).
+   - **A live view is the fourth** (`POST`, `GET` and `DELETE /api/v1/live`, `PUT /api/v1/live/controls`, `NodeLiveView`,
+     #1111): the Preview mode's [Live], the same capture loop as `LiveCaptureKind.LiveView`, which keeps no frames (no
+     stack, no recenter, no recording), over the whole sensor at the Preview's binning. It claims only the camera, so the
+     focuser and the mount stay free while it runs; its frame is `live` (`FrameSources.LiveView`), sampled and streamed
+     as `planetary/live` is, and it ends unwatched as the planetary run does. A still from the camera waits for it to
+     end: the GUI stops it first, since a Canon's Live View and its shutter exclude each other.
    - **An interactive run stops once nobody watches it** (`INodeRun.EndsUnwatched`, `NodeRunWatch`): polar
      alignment and a planetary live view are meaningless unseen, so once no client has been PRESENT
      (a fresh presence beat, `EventHub.PresentClientCount`, the same rule a prompt waits by) for the detach grace
@@ -815,8 +821,8 @@ Pinned by `FrameWireTests`, including a frame from the fake camera itself coming
 
 **The route and the push** (P4 part 2). `GET /api/v1/frames/ota/{index}/latest` and `/api/v1/frames/guider/latest` serve
 the frame a source shows now, the same frame the JPEG previews encode (`FrameSources`, `NodeFrames`), and
-`/api/v1/frames/planetary/live/latest` and `/planetary/master/latest` a planetary capture's own (P5 part 5b), which the
-node keeps until its next run starts:
+`/api/v1/frames/planetary/live/latest` and `/planetary/master/latest` a planetary capture's own (P5 part 5b), and
+`/api/v1/frames/live/latest` a live view's (#1111), which the node keeps until its next run starts:
 
 - **The number answers first.** A request names the number of the frame it holds (`after`); while the source still shows
   that one the answer is a 204 carrying the number, and nothing is leased. The number is the node's token for the
@@ -826,7 +832,7 @@ node keeps until its next run starts:
   source's token moves, with or without a session, so a new run's first frame and a preview taken outside a run are
   announced like any other. A hint: the route is authoritative.
 - `TianWenNodeClient.GetLatestFrameAsync(source, after, reader)` reads through a `FrameReader` the caller keeps.
-- **A planetary capture's two sources also stream** (P5 part 5c): `NodeTransport.OpenFrameStreamAsync(source)` gives
+- **A planetary capture's two sources, and a live view's, also stream** (P5 part 5c): `NodeTransport.OpenFrameStreamAsync(source)` gives
   a `NodeFrameStream` whose `ReadAsync` asks for the next frame and reads it, drop-to-latest (see the planetary run
   above for why the client asks).
 

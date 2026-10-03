@@ -2194,7 +2194,7 @@ namespace TianWen.UI.Abstractions
             // not in -- which is the one thing a label that exists to say "Auto picked this" must not do.
             return StretchMode.Auto.ResolveAuto(isColour, calibrationActive,
                 document?.ColourIsNotPhotometric ?? false,
-                document?.ChannelsAlreadyAgree ?? false) switch
+                source?.ChannelsAlreadyAgree ?? false) switch
             {
                 StretchMode.Unlinked => "Unlinked",
                 _ => "Linked",

@@ -17,10 +17,27 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// per frame, <paramref name="Gain"/> (null keeps the camera's), through a readout window of
 /// <paramref name="RoiWidth"/> x <paramref name="RoiHeight"/>, snapped to the camera's ROI rule.
 /// </summary>
+/// <param name="RoiWidth">The readout window's width; zero, with <paramref name="RoiHeight"/> zero, for the whole sensor
+/// (<see cref="PlanetaryCapture.ConfigureRoi"/>), which is what a live view streams.</param>
 /// <param name="BitDepth">The depth the camera streams in (<see cref="VideoCaptureOptions.BitDepth"/>); null for its own.</param>
 /// <param name="HighSpeed">The camera's high-speed readout (<see cref="VideoCaptureOptions.HighSpeedMode"/>); null for on.</param>
+/// <param name="Bin">The binning, which only a whole-sensor window takes (a live view's, at the Preview's binning); a
+/// planetary window is always unbinned.</param>
 public readonly record struct PlanetaryCaptureRequest(int OtaIndex, TimeSpan Exposure, short? Gain, int RoiWidth, int RoiHeight,
-    BitDepth? BitDepth = null, bool? HighSpeed = null);
+    BitDepth? BitDepth = null, bool? HighSpeed = null, short Bin = 1);
+
+/// <summary>What a <see cref="PlanetaryCapture"/> is for, which decides whether it keeps the frames it streams.</summary>
+public enum LiveCaptureKind
+{
+    /// <summary>A planetary capture: every frame is kept in <see cref="PlanetaryCapture.Stream"/> for its host's rolling stack.</summary>
+    Planetary,
+
+    /// <summary>
+    /// A live view (#1111): continuous frames to look at, for framing, focusing, collimation or a flat panel's light, and
+    /// none of them kept. Its host sees each through the capture's <c>onFrame</c> alone, so no ring of frames is filled.
+    /// </summary>
+    LiveView,
+}
 
 /// <summary>
 /// A <b>live planetary capture</b>: streams frames from a camera in video mode into a <see cref="LiveCameraFrameStream"/>,
@@ -44,11 +61,20 @@ public readonly record struct PlanetaryCaptureRequest(int OtaIndex, TimeSpan Exp
 /// 1024.</param>
 /// <param name="onFrame">Called on the capture loop with each frame once it is pushed, BORROWED: it is released as the
 /// call returns, so a host that keeps one copies it (a GUI only asks for a redraw here).</param>
-public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger, RollingWindowOptions? stackOptions = null, Action<Image>? onFrame = null)
+/// <param name="kind">A planetary capture keeps its frames for a stack; a live view keeps none
+/// (<see cref="LiveCaptureKind.LiveView"/>), and names itself so in its refusals and its claim on the camera.</param>
+public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger, RollingWindowOptions? stackOptions = null, Action<Image>? onFrame = null,
+    LiveCaptureKind kind = LiveCaptureKind.Planetary)
     : IAsyncDisposable
 {
     /// <summary>What the claim on the camera is called, which a refusal names.</summary>
     public const string LeaseOwner = "planetary capture";
+
+    /// <summary>What a live view's claim on the camera is called (<see cref="LiveCaptureKind.LiveView"/>).</summary>
+    public const string LiveViewLeaseOwner = "live view";
+
+    /// <summary>What this capture is called in its refusals and its claim: <see cref="LeaseOwner"/> or <see cref="LiveViewLeaseOwner"/>.</summary>
+    public string Name => kind is LiveCaptureKind.LiveView ? LiveViewLeaseOwner : LeaseOwner;
 
     private static readonly TimeSpan MinExposure = TimeSpan.FromMilliseconds(1);
 
@@ -181,6 +207,13 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
     /// <summary>True while a capture loop is running.</summary>
     public bool IsCapturing => Volatile.Read(ref _captureActive) == 1;
 
+    /// <summary>
+    /// Completes once the capture loop has ended: stopped through the token it was started on, or on a fault, which it
+    /// never throws (<see cref="FailureReason"/> says it). Complete when no capture was started. What a host whose run IS
+    /// the capture awaits (a live view, #1111), where a planetary host awaits its stack instead.
+    /// </summary>
+    public Task Completion => Volatile.Read(ref _captureTask) ?? Task.CompletedTask;
+
     /// <summary>The camera the capture streams from, or is prepared to (<see cref="TryPrepare"/>), or null.</summary>
     public ICameraDriver? Camera => Volatile.Read(ref _prepared)?.Camera ?? _camera;
 
@@ -241,7 +274,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         }
         if (!StartPrepared(token))
         {
-            refusal = "A planetary capture is already running";
+            refusal = $"A {Name} is already running";
             return false;
         }
         return true;
@@ -255,7 +288,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
 
     /// <summary>
     /// Makes a capture from <paramref name="profile"/>'s devices ready to start, without streaming a frame: OTA
-    /// <see cref="PlanetaryCaptureRequest.OtaIndex"/>'s camera, connected, claimed (<see cref="LeaseOwner"/>), its readout
+    /// <see cref="PlanetaryCaptureRequest.OtaIndex"/>'s camera, connected, claimed (<see cref="Name"/>), its readout
     /// window configured (<see cref="ConfigureRoi"/>), and the profile's mount, when connected, attached for the recenter's
     /// coarse nudge with the OTA's pixel scale. Refuses in words, holding nothing, when any of it cannot be had. The node
     /// prepares as it is asked and starts on its own token once the run is its own (<see cref="StartPrepared"/>), so a
@@ -268,7 +301,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         roi = default;
         if (IsCapturing || Volatile.Read(ref _prepared) is not null)
         {
-            refusal = "A planetary capture is already running";
+            refusal = $"A {Name} is already running";
             return false;
         }
         if (request.OtaIndex < 0 || request.OtaIndex >= profile.OTAs.Length)
@@ -279,7 +312,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         var ota = profile.OTAs[request.OtaIndex];
         if (!hub.TryGetConnectedDriver<ICameraDriver>(ota.Camera, out var camera))
         {
-            refusal = "Connect a camera to start a planetary capture";
+            refusal = $"Connect a camera to start a {Name}";
             return false;
         }
         // What a recording's header says it was taken through (#1179).
@@ -288,7 +321,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         // Claimed for the length of the capture, before the ROI touches the camera: streaming video off a camera a flat
         // run is metering would fight it frame for frame (P0c item 2 of docs/plans/hardware-in-the-server.md). Only the
         // camera: the recenter's nudges ask the gate over the mount instead.
-        if (!DeviceLeaseSet.TryAcquire(hub, [ota.Camera], LeaseOwner, out var claim, out var verdict))
+        if (!DeviceLeaseSet.TryAcquire(hub, [ota.Camera], Name, out var claim, out var verdict))
         {
             refusal = verdict.Describe();
             return false;
@@ -298,7 +331,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         var handedOver = false;
         try
         {
-            roi = ConfigureRoi(camera, request.RoiWidth, request.RoiHeight);
+            roi = ConfigureRoi(camera, request.RoiWidth, request.RoiHeight, request.Bin);
             if (profile.Mount is { Scheme: not "none" } mountUri && hub.TryGetConnectedDriver<IMountDriver>(mountUri, out var mount))
             {
                 AttachMount(mount, mountUri, hub, CoordinateUtils.PixelScaleArcsec(camera.PixelSizeX, ota.FocalLength));
@@ -318,7 +351,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
             }
         }
 
-        refusal = handedOver ? null : "A planetary capture is already running";
+        refusal = handedOver ? null : $"A {Name} is already running";
         return handedOver;
     }
 
@@ -336,18 +369,33 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
     /// a multiple of 2. Sets only the size (NumX/NumY); the readout origin is left at the driver default until the
     /// recenter loop pans it. Returns the applied (width, height) after snapping. Moved here from the GUI's
     /// <c>PlanetaryCaptureActions</c>.
+    /// <para>A size of zero by zero is the WHOLE sensor, from its origin, at <paramref name="bin"/> (clamped to what the
+    /// camera can bin): what a live view streams (#1111), at the Preview's binning, since a 26-megapixel frame at full
+    /// resolution is a heavy thing to stream for framing. A Canon reads it as its live view unmagnified, since its window
+    /// is the zoom, and bins nothing.</para>
     /// </summary>
-    public static (int Width, int Height) ConfigureRoi(ICameraDriver camera, int width, int height)
+    public static (int Width, int Height) ConfigureRoi(ICameraDriver camera, int width, int height, short bin = 1)
     {
-        // Planetary wants unbinned readout. BinX must be set before NumX/NumY (their setters validate against the
-        // binned sensor size).
-        if (camera.BinX != 1)
+        // Planetary wants unbinned readout; only the whole sensor bins. BinX must be set before NumX/NumY (their setters
+        // validate against the binned sensor size).
+        var wholeSensor = width <= 0 && height <= 0;
+        var binX = wholeSensor ? Math.Clamp(bin, (short)1, Math.Max(camera.MaxBinX, (short)1)) : (short)1;
+        var binY = wholeSensor ? Math.Clamp(bin, (short)1, Math.Max(camera.MaxBinY, (short)1)) : (short)1;
+        if (camera.BinX != binX)
         {
-            camera.BinX = 1;
+            camera.BinX = binX;
         }
-        if (camera.BinY != 1)
+        if (camera.BinY != binY)
         {
-            camera.BinY = 1;
+            camera.BinY = binY;
+        }
+
+        // The whole sensor starts at its origin: a window an earlier capture panned would otherwise run past the edge.
+        if (wholeSensor)
+        {
+            (width, height) = (camera.CameraXSize / binX, camera.CameraYSize / binY);
+            camera.StartX = 0;
+            camera.StartY = 0;
         }
 
         // Snap the requested size to the camera's real ROI rule (free step-1 default for ASCOM / Alpaca; the fake
@@ -363,7 +411,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
     /// config (set the camera's <c>NumX</c>/<c>NumY</c> before calling). Refuses, and gives the claim back, when a capture
     /// is already running. <paramref name="token"/> bounds the capture's life (a host's own lifetime).
     /// </summary>
-    /// <param name="claim">The claim on the camera (owner "planetary capture"), taken by the host so a capture is refused
+    /// <param name="claim">The claim on the camera (owner <see cref="Name"/>), taken by the host so a capture is refused
     /// while another run holds it (P0c item 2 of docs/plans/hardware-in-the-server.md). Owned from here: released when the
     /// capture ends, or at once when one is already running.</param>
     /// <returns>Whether this started a capture.</returns>
@@ -409,6 +457,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
 
         _camera = camera;
         _failure = null;
+        Volatile.Write(ref _rapidExposureTicks, capture.Exposure.Ticks);
         Interlocked.Exchange(ref _framesReceived, 0);
         _captureStartTimestamp = timeProvider.GetTimestamp();
 
@@ -417,8 +466,8 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         _captureTask = Task.Run(() => CaptureLoopAsync(camera, capture, claim, loopToken));
 
         logger.LogInformation(
-            "Planetary capture started: exposure {Exposure}ms, native={Native} (stream sized from the first frame).",
-            capture.Exposure.TotalMilliseconds, camera is IVideoCameraDriver { CanVideoCapture: true });
+            "Capture started ({Capture}): exposure {Exposure}ms, native={Native}.",
+            Name, capture.Exposure.TotalMilliseconds, camera is IVideoCameraDriver { CanVideoCapture: true });
         return true;
     }
 
@@ -453,7 +502,9 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
                 // (Re)build the stream on the first frame AND whenever the frame dimensions change -- a live ROI resize
                 // mid-capture yields a different-sized frame. The old stream is left for GC (not disposed) so a stack
                 // still in flight on it can't hit a disposed ring; a host swaps to the new stream on its next read.
-                if (stream is null || stream.Width != planeW || stream.Height != planeH || stream.Layout != layout)
+                // A live view keeps no frames, so it fills no ring: its host has each frame through onFrame.
+                if (kind is LiveCaptureKind.Planetary
+                    && (stream is null || stream.Width != planeW || stream.Height != planeH || stream.Layout != layout))
                 {
                     var capacity = Math.Max(_stackOptions.MaxWindowFrames * 2, 1024);
                     var rebuilt = new LiveCameraFrameStream(planeW, planeH, layout, capacity);
@@ -470,9 +521,14 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
                 // half-res planes, exactly as SerFrameStream does on load), straight into recycled planes. Mono / RGB
                 // push through unchanged. The stream is sized to this frame above, so the dimensions always match.
                 var arrived = timeProvider.GetUtcNow();
-                stream.Push(frame, arrived);
+                stream?.Push(frame, arrived);
                 var received = Interlocked.Increment(ref _framesReceived);
                 Volatile.Write(ref _lastFrameBitDepth, (int)frame.BitDepth);
+                if (received == 1 && stream is null)
+                {
+                    logger.LogInformation("Capture ({Capture}): first frame {W}x{H}x{C} ({Sensor}).",
+                        Name, frame.Width, frame.Height, frame.ChannelCount, frame.ImageMeta.SensorType);
+                }
 
                 // A recording converts and queues the frame; its own writer does the disk (SerRecording).
                 _recording?.TryAppend(frame, arrived);
@@ -488,8 +544,8 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
                 if (received % 250 == 0)
                 {
                     logger.LogDebug(
-                        "Planetary capture heartbeat: received {Received}, stream {StreamCount}, {Fps:F0} fps, {Dropped} dropped.",
-                        received, stream.FrameCount, MeasuredFps, DroppedFrames);
+                        "Capture heartbeat ({Capture}): received {Received}, stream {StreamCount}, {Fps:F0} fps, {Dropped} dropped.",
+                        Name, received, stream?.FrameCount ?? 0, MeasuredFps, DroppedFrames);
                 }
 
                 // A host sees the frame before it goes back (and copies it, to keep it). The ring deep-copied it (and
@@ -507,11 +563,11 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         }
         catch (OperationCanceledException)
         {
-            logger.LogInformation("Planetary capture loop stopped (cancelled).");
+            logger.LogInformation("Capture loop stopped ({Capture}, cancelled).", Name);
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Planetary capture loop faulted.");
+            logger.LogError(ex, "Capture loop faulted ({Capture}).", Name);
             _failure = StatusText.FromException(ex);
         }
         finally
@@ -537,7 +593,10 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
             : RapidExposureFramesAsync(camera, options, token);
 
     // Universal fallback: loop short single-shot exposures on any ICameraDriver. CanJogRoi is implicitly false for this
-    // path (no IVideoCameraDriver), so the recenter loop uses mount jog only.
+    // path (no IVideoCameraDriver), so the recenter loop uses mount jog only. Each exposure reads the live one
+    // (_rapidExposureTicks), so an exposure set while it runs takes effect from the next frame, as on a native stream.
+    private long _rapidExposureTicks;
+
     private async IAsyncEnumerable<Image> RapidExposureFramesAsync(
         ICameraDriver camera, VideoCaptureOptions options, [EnumeratorCancellation] CancellationToken token)
     {
@@ -548,7 +607,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
 
         while (!token.IsCancellationRequested)
         {
-            await camera.StartExposureAsync(options.Exposure, FrameType.Light, token).ConfigureAwait(false);
+            await camera.StartExposureAsync(new TimeSpan(Volatile.Read(ref _rapidExposureTicks)), FrameType.Light, token).ConfigureAwait(false);
 
             var ready = false;
             while (!ready)
@@ -881,10 +940,18 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
                         depth != 0 ? (BitDepth)depth : null),
                     token).ConfigureAwait(false);
             }
-            else if (gain >= 0)
+            else
             {
-                // Universal fallback path (no IVideoCameraDriver): gain is still a standard camera setting.
-                await camera.SetGainAsync((short)gain, token).ConfigureAwait(false);
+                // Universal fallback path (no IVideoCameraDriver): the next exposure is the new one, and gain is still a
+                // standard camera setting.
+                if (expTicks > 0)
+                {
+                    Volatile.Write(ref _rapidExposureTicks, expTicks);
+                }
+                if (gain >= 0)
+                {
+                    await camera.SetGainAsync((short)gain, token).ConfigureAwait(false);
+                }
             }
 
             if (video is { CanJogRoi: true } && (jx != 0 || jy != 0))

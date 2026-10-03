@@ -108,7 +108,13 @@ namespace TianWen.UI.Abstractions
             });
         }
 
-        /// <summary>Wires the preview-mode signals (camera preview, snapshot save, plate solve, planetary capture).</summary>
+        /// <summary>
+        /// How long a still waits for the live view of its camera to end: the node answers a stop once the capture loop has
+        /// drained, a frame or two, and a Canon's Live View takes a moment more to close.
+        /// </summary>
+        private static readonly TimeSpan LiveViewStopBudget = TimeSpan.FromSeconds(10);
+
+        /// <summary>Wires the preview-mode signals (camera preview, live view, snapshot save, plate solve, planetary capture).</summary>
         private void SubscribePreview(SignalBus bus, CancellationToken shutdownToken)
         {
             // Aliases over the injected fields keep the moved handler bodies verbatim
@@ -123,6 +129,10 @@ namespace TianWen.UI.Abstractions
             // ---------------------------------------------------------------
             // Preview mode signals (camera preview, snapshot save, plate solve)
             // ---------------------------------------------------------------
+
+            // The Preview mode's live view (#1111): the node streams the camera, this shows it and sends its controls.
+            var liveView = sp.GetRequiredService<LiveViewController>();
+            liveView.RedrawRequested = () => appState.NeedsRedraw = true;
 
             bus.Subscribe<TakePreviewSignal>(sig =>
             {
@@ -149,6 +159,14 @@ namespace TianWen.UI.Abstractions
                 var request = new PreviewExposureRequestDto { ExposureSeconds = sig.ExposureSeconds, Gain = sig.Gain is { } g ? (short)g : null, Binning = sig.Binning };
                 RunTracked($"PreviewCapture OTA{sig.OtaIndex}", "Preview failed", async ct =>
                 {
+                    // A camera in a live view takes no still (a Canon's Live View and its shutter exclude each other), so the
+                    // live view ends first; the still is what the pane shows once it arrives.
+                    if (liveView.LiveOta == sig.OtaIndex)
+                    {
+                        using var budget = new CancellationTokenSource(LiveViewStopBudget, _timeProvider.System);
+                        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(ct, budget.Token);
+                        await liveView.StopAsync(bounded.Token);
+                    }
                     if (await RunNodeJobAsync(node, node.Client.StartPreviewExposureAsync(sig.OtaIndex, request, ct), "Preview", ct) is { } done)
                     {
                         Notify(NotificationSeverity.Info, done.Step ?? $"Preview captured: OTA {sig.OtaIndex + 1}");
@@ -168,6 +186,33 @@ namespace TianWen.UI.Abstractions
                 if (CommandTargetOrSay("Stopping a preview") is not { } target) return;
                 RunTracked("StopPreview", "Could not stop the preview",
                     ct => PictureJobs.StopPreviewsAsync(target.Node.Client, _timeProvider, progress: null, ct));
+            });
+
+            bus.Subscribe<StartLiveViewSignal>(sig =>
+            {
+                if (CommandTargetOrSay("A live view") is not { Node: var node }) return;
+
+                RunTracked($"StartLiveView OTA{sig.OtaIndex}", "Live view failed to start", async ct =>
+                {
+                    var request = new LiveViewRequestDto
+                    {
+                        OtaIndex = sig.OtaIndex,
+                        ExposureMs = sig.ExposureSeconds * 1000.0,
+                        Gain = sig.Gain is { } g ? (short)g : null,
+                        Binning = sig.Binning,
+                    };
+                    // The watching ends with the app; the node's live view ends by itself once nobody watches it.
+                    if (await liveView.StartAsync(node, request, shutdownToken) is { } refusal)
+                    {
+                        Notify(NotificationSeverity.Warning, refusal);
+                    }
+                }, onFinally: () => appState.NeedsRedraw = true);
+            });
+
+            bus.Subscribe<StopLiveViewSignal>(_ =>
+            {
+                liveView.Stop();
+                appState.NeedsRedraw = true;
             });
 
             bus.Subscribe<SaveSnapshotSignal>(sig =>

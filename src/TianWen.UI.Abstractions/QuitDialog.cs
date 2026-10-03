@@ -83,6 +83,7 @@ public sealed record QuitDialog(string Title, string Message, QuitAction Default
             NodeRunKind.Darks => "A dark library is being taken",
             NodeRunKind.Polar => "Polar alignment is running",
             NodeRunKind.Planetary => "A planetary capture is running",
+            NodeRunKind.LiveView => "A live view is running",
             _ => "A run is going on",
         };
         return run.Target is { Length: > 0 } target ? $"{what} ({target})" : what;

@@ -389,5 +389,41 @@ namespace TianWen.Lib.Tests
 
             perFrame.ShouldBeLessThan(64 * 1024, $"a {w * h * 4L:N0}-byte plane must not be allocated again per frame");
         }
+
+        /// <summary>
+        /// A camera's rendered frame (a Canon's 8-bit Live View JPEG) is display data whose channels the body already
+        /// balanced: Auto stretches it with ONE curve. Unlinked fitted a curve per channel to a frame whose red sat at full
+        /// scale and turned the picture teal (#1111). A linear colour frame keeps Unlinked.
+        /// </summary>
+        [Theory]
+        [InlineData(BitDepth.Int8, true, StretchMode.Linked)]
+        [InlineData(BitDepth.Int16, false, StretchMode.Unlinked)]
+        public void A_rendered_colour_frame_is_stretched_with_one_curve(BitDepth depth, bool preStretched, StretchMode resolved)
+        {
+            const int w = 64, h = 48;
+            var planes = new float[3][,];
+            for (var c = 0; c < 3; c++)
+            {
+                planes[c] = new float[h, w];
+                for (var y = 0; y < h; y++)
+                {
+                    for (var x = 0; x < w; x++)
+                    {
+                        // Red near full scale, as a blown live view's is; green and blue well below it.
+                        planes[c][y, x] = (c == 0 ? 0.95f : 0.3f + (0.1f * c)) + ((x + y) % 7 * 0.004f);
+                    }
+                }
+            }
+            var meta = new ImageMeta("synth", DateTimeOffset.UtcNow, TimeSpan.FromSeconds(1),
+                FrameType.Light, "", 3.76f, 3.76f, 500, -1, Filter.None, 1, 1,
+                float.NaN, SensorType.Color, 0, 0, RowOrder.TopDown, float.NaN, float.NaN);
+            var frame = new Image(planes, depth, maxValue: 1f, minValue: 0f, pedestal: 0f, imageMeta: meta);
+            var source = new LiveFramePreviewSource();
+
+            source.AcceptFrame(frame, freezeStats: false).ShouldBeTrue();
+
+            (source.IsPreStretched, source.ChannelsAlreadyAgree).ShouldBe((preStretched, preStretched));
+            source.ComputeStretchUniforms(StretchMode.Auto, StretchParameters.Default).Mode.ShouldBe(resolved);
+        }
     }
 }

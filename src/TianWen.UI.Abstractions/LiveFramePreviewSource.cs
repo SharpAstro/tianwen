@@ -178,10 +178,10 @@ namespace TianWen.UI.Abstractions
             // applied here. The static producer is the single source of the stretch math (shared with the
             // document + SER paths).
             var shaderWb = StretchSolver.ComposeWhiteBalance(null, manualWhiteBalance);
-            // A live frame carries no measured calibration, so Auto resolves on channel count alone:
-            // colour -> Unlinked (neutralise per channel), mono -> Linked.
+            // A live frame carries no measured calibration, so Auto resolves on channel count, and on whether a camera
+            // rendered it: colour -> Unlinked (neutralise per channel), mono or a rendered frame -> Linked.
             var isColour = _channelCount >= 3 || _sensorType is SensorType.RGGB;
-            mode = mode.ResolveAuto(isColour, calibrationActive: false);
+            mode = mode.ResolveAuto(isColour, calibrationActive: false, channelsAlreadyAgree: _preStretched);
             return StretchSolver.ComputeStretchUniforms(
                 mode, parameters, _stats, lumaStats: null, imageMaxValue: 1f,
                 whiteBalance: null, lumaWeights: null, shaderWhiteBalance: shaderWb);
@@ -220,6 +220,20 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public FrameFindings Findings { get; set; } = FrameFindings.None;
 
+        // Whether the frame on show is display data (Image.DetectPreStretched's first test, the one that measures nothing):
+        // a Canon's Live View JPEG, which the body white-balanced and put through its tone curve.
+        private bool _preStretched;
+
+        /// <inheritdoc/>
+        public bool IsPreStretched => _preStretched;
+
+        /// <summary>
+        /// A rendered frame's channels agree by construction: whatever rendered it balanced them (the camera's white
+        /// balance), so a stretch per channel only fits curves to what separates them, and turned a blown red into a teal
+        /// picture on a 6D's live view (#1111).
+        /// </summary>
+        public bool ChannelsAlreadyAgree => _preStretched;
+
         public bool AcceptFrame(Image image, bool freezeStats)
         {
             if (!image.TryLease(out var lease))
@@ -241,6 +255,7 @@ namespace TianWen.UI.Abstractions
             var w = image.Width;
             var h = image.Height;
             var meta = image.ImageMeta;
+            _preStretched = image.BitDepth.CarriesDisplayDataOnly;
 
             // Layout from the ACTUAL frame, not a nominal SensorType: a raw RGGB mosaic arrives as 1 channel
             // (GPU debayers); a pre-debayered colour frame arrives as 3. Mono is 1. (Mirrors the mini viewer +

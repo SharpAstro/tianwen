@@ -38,6 +38,8 @@ services
     .AddFitsViewer()
     // Live planetary capture controller (drives the 🪐 tab's video capture + rolling-window stack).
     .AddSingleton<PlanetaryCaptureController>()
+    // The Preview mode's live view (#1111): the node streams the camera, the preview pane shows it.
+    .AddSingleton<LiveViewController>()
     // LAN peer discovery (docs/plans/remote-profile.md): symmetric beacon so the Equipment tab's
     // no-profile screen can list tianwen-server rigs on the LAN. ServicePort 0 -- the GUI serves no
     // inbound channel of its own, it only discovers.
@@ -178,6 +180,9 @@ guiRenderer.CelestialObjectDB = new DotNext.Threading.AsyncLazy<TianWen.Lib.Astr
 // StartVideoCaptureSignal/StopVideoCaptureSignal in AppSignalHandler).
 var planetaryCapture = sp.GetRequiredService<PlanetaryCaptureController>();
 guiRenderer.PlanetaryCapture = planetaryCapture;
+// The Preview mode's live view (#1111), driven by StartLiveViewSignal/StopLiveViewSignal in AppSignalHandler.
+var liveView = sp.GetRequiredService<LiveViewController>();
+guiRenderer.LiveView = liveView;
 
 // Event handler setup
 using var cts = new CancellationTokenSource();
@@ -828,6 +833,7 @@ async Task DrainShutdownAsync()
 
     // Stop + dispose the planetary capture (cancels the capture loop; bounded drain of any in-flight stack).
     await planetaryCapture.DisposeAsync();
+    await liveView.DisposeAsync();
 
     // Say bye so peers drop us promptly (expiry is the fallback for an unclean exit).
     await lanDiscovery.SendByeAsync();

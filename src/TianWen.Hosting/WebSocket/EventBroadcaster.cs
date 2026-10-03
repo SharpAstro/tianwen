@@ -212,6 +212,7 @@ internal sealed class EventBroadcaster(
         Announce(FrameSources.Guider, frames.Guider());
         Announce(FrameSources.PlanetaryLive, frames.Named(FrameSources.PlanetaryLive));
         Announce(FrameSources.PlanetaryMaster, frames.Named(FrameSources.PlanetaryMaster));
+        Announce(FrameSources.LiveView, frames.Named(FrameSources.LiveView));
     }
 
     private void Announce(string source, NodeFrames.Shown shown)

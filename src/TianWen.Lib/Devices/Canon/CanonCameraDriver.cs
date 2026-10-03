@@ -1314,13 +1314,18 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
     //      read straight after the call reports the OLD crop. Hence verify: true at every level change,
     //      which waits for the crop to actually move.
     //
-    // EVF exposure is still EVF-auto rather than a true integration time (ISO/gain tuning works through
-    // ApplyVideoControlsAsync), and streaming stays mutually exclusive with single-shot capture.
+    // An EVF frame has no integration time of its own: its brightness is the body's EXPOSURE SIMULATION of the shutter
+    // speed and ISO set, so a requested exposure is applied as that shutter speed (ApplyLiveViewExposureAsync, #1111) and
+    // ISO through the gain, both at the start and live (ApplyVideoControlsAsync). Streaming stays mutually exclusive with
+    // single-shot capture.
 
-    /// <summary>EVF poll cadence floor -- the feed runs at its own fps; we treat the requested exposure as a
-    /// poll interval clamped to this range so a large "exposure" can't stall the feed to one frame per minute.</summary>
+    /// <summary>
+    /// The back-off after a poll that found no frame ready. The feed runs at the body's own rate and has no integration
+    /// time to set, so a requested exposure is NOT a pace: it once was, clamped to 15-500 ms, and a live view asked at a
+    /// still's 5 s took 1.5 frames a second off a body that renders about 30 (#1111). Measured on a 6D: a poll is about
+    /// 19 ms over USB, a 176 KB frame's decode about 10 ms in Release (63 in Debug).
+    /// </summary>
     private static readonly TimeSpan MinVideoPace = TimeSpan.FromMilliseconds(15);
-    private static readonly TimeSpan MaxVideoPace = TimeSpan.FromMilliseconds(500);
 
     /// <summary>
     /// The live-view crop the body last confirmed, in the body's OWN sensor coordinate space, plus whether it
@@ -1394,6 +1399,10 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
                 throw new CanonDriverException(startErr, "Failed to start Canon Live View");
             }
 
+            // The brightness the stream shows is the exposure it was asked for, simulated: left alone it was whatever
+            // shutter speed the last still set, which turned a 6D's live view from dim to blown with a 1 s still (#1111).
+            await ApplyLiveViewExposureAsync(camera, options.Exposure, cancellationToken);
+
             // The readout-window SIZE comes from NumX/NumY, per IVideoCameraDriver. An EOS offers three
             // discrete crops rather than a free rectangle, so the request snaps to the nearest zoom level.
             // Applied even when that is 1x, because zoom and pan PERSIST on the body: a stream that inherited
@@ -1401,13 +1410,9 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
             var zoom = ZoomForWindow(NumX, CameraXSize);
             await ApplyEvfZoomAsync(camera, zoom, cancellationToken);
 
-            // Requested exposure as a poll-cadence floor (EVF has no true integration time), clamped so a huge
-            // value can't stall the feed. Live-tunable exposure is not modelled on EVF; ISO is (ApplyVideoControls).
-            var pace = options.Exposure <= TimeSpan.Zero ? MinVideoPace
-                : options.Exposure < MinVideoPace ? MinVideoPace
-                : options.Exposure > MaxVideoPace ? MaxVideoPace
-                : options.Exposure;
-
+            // The feed's own rate: the requested exposure is not an EVF's to take (it has no integration time), so it
+            // paces nothing. ISO is live-tunable (ApplyVideoControls).
+            var timing = new EvfTiming();
             while (!cancellationToken.IsCancellationRequested)
             {
                 // Disconnect out from under an active stream (app shutdown) is a stop signal too.
@@ -1431,6 +1436,7 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
                 EdsError err = EdsError.OK;
                 byte[] jpeg = [];
                 var cancelled = false;
+                var fetchStart = TimeProvider.GetTimestamp();
                 try
                 {
                     (err, jpeg) = await camera.GetLiveViewFrameAsync(cancellationToken);
@@ -1444,8 +1450,10 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
                     yield break;
                 }
 
+                var fetched = TimeProvider.GetTimestamp();
                 if (err is not EdsError.OK || jpeg.Length == 0)
                 {
+                    timing.NotReady++;
                     // EVF frame not ready yet (ObjectNotReady / DeviceBusy): brief back-off, keep streaming.
                     if (await PaceAsync(MinVideoPace, cancellationToken))
                     {
@@ -1467,12 +1475,24 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
                     continue;
                 }
 
+                var decoded = TimeProvider.GetTimestamp();
                 yield return frame;
 
-                if (await PaceAsync(pace, cancellationToken))
+                // Where a frame's time goes, every 100 frames: the USB fetch, the JPEG decode, and the consumer's turn
+                // (the loop that asked for it) between the yield and the next poll.
+                timing.Add(TimeProvider, fetchStart, fetched, decoded, TimeProvider.GetTimestamp(), jpeg.Length);
+                if (timing.Frames == 100)
                 {
-                    yield break;
+                    Logger.LogDebug("Canon EVF, {Frames} frames: fetch {Fetch:F1} ms, decode {Decode:F1} ms, consumer {Consumer:F1} ms, "
+                        + "{Kb:F0} KB a JPEG, {NotReady} not-ready polls", timing.Frames, timing.MeanMs(timing.FetchTicks),
+                        timing.MeanMs(timing.DecodeTicks), timing.MeanMs(timing.ConsumerTicks), timing.Bytes / 1024.0 / timing.Frames, timing.NotReady);
+                    timing = new EvfTiming();
                 }
+
+                // No pause after a frame: the body had the next one ready on nearly every poll (none of 300 polls on a 6D
+                // came back not ready behind a 15 ms pause), so a pause here only lowered the rate. A not-ready answer
+                // backs off above.
+
             }
         }
         finally
@@ -1491,6 +1511,28 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
             Volatile.Write(ref _evfWindow, null);
             Interlocked.Exchange(ref _videoActive, 0);
         }
+    }
+
+    // The EVF loop's running sums for its timing line: the loop's own, never shared.
+    private sealed class EvfTiming
+    {
+        public int Frames;
+        public int NotReady;
+        public long Bytes;
+        public TimeSpan FetchTicks;
+        public TimeSpan DecodeTicks;
+        public TimeSpan ConsumerTicks;
+
+        public void Add(ITimeProvider clock, long fetchStart, long fetched, long decoded, long consumed, int bytes)
+        {
+            Frames++;
+            Bytes += bytes;
+            FetchTicks += clock.GetElapsedTime(fetchStart, fetched);
+            DecodeTicks += clock.GetElapsedTime(fetched, decoded);
+            ConsumerTicks += clock.GetElapsedTime(decoded, consumed);
+        }
+
+        public double MeanMs(TimeSpan total) => Frames > 0 ? total.TotalMilliseconds / Frames : 0;
     }
 
     /// <summary>Sleeps the poll interval; returns true if the wait was cancelled (the stream should stop).</summary>
@@ -1673,11 +1715,41 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
     /// <inheritdoc/>
     public async ValueTask ApplyVideoControlsAsync(VideoCaptureOptions controls, CancellationToken cancellationToken = default)
     {
-        // Live-tune the running stream. ISO (gain) is a real EVF control; exposure on EVF is auto (not a true
-        // integration time), so it is intentionally not applied -- see the region banner. No-op gain when null.
+        // Live-tune the running stream: ISO through the gain, and the exposure as the shutter speed the EVF simulates (see
+        // the region banner). A field left at its default is left as it is.
         if (controls.Gain is { } gain)
         {
             await SetGainAsync(gain, cancellationToken);
+        }
+        if (_camera is { } camera && controls.Exposure > TimeSpan.Zero)
+        {
+            await ApplyLiveViewExposureAsync(camera, controls.Exposure, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Sets the shutter speed Live View simulates to the one a still of <paramref name="exposure"/> would be taken at
+    /// (<see cref="ClosestTv"/>: one the body offers, at most 30 s, since bulb has nothing to simulate), so the stream is as
+    /// bright as that still. Best effort: a body that refuses it keeps streaming at the speed it had.
+    /// </summary>
+    private async ValueTask ApplyLiveViewExposureAsync(CanonCamera camera, TimeSpan exposure, CancellationToken cancellationToken)
+    {
+        if (exposure <= TimeSpan.Zero)
+        {
+            return;
+        }
+
+        var tvCode = ClosestTv(exposure, await camera.GetAllowedValuesAsync(EdsPropertyId.Tv, cancellationToken));
+        var result = await CanonBusyRetry.RunAsync(
+            () => camera.SetPropertyAsync(EdsPropertyId.Tv, tvCode, cancellationToken), TimeProvider, cancellationToken);
+        if (result is EdsError.OK)
+        {
+            Logger.LogDebug("Canon Live View simulates {Exposure} s (Tv 0x{Code:X2}) for {Asked} asked",
+                TvDuration(tvCode).TotalSeconds, tvCode, exposure);
+        }
+        else
+        {
+            Logger.LogWarning("Canon Live View kept its shutter speed: the body answered {Error} to {Exposure}", result, exposure);
         }
     }
 
