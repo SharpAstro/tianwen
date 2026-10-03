@@ -70,7 +70,7 @@ public sealed class SaturatedEdgeProbe(ITestOutputHelper output)
             }
             var rng = new Random(1);
             var candidates = catalogue
-                .Where(static s => s.Outcome == StarFitOutcome.Subtracted && s.Saturated)
+                .Where(s => InjectionPopulation.InSaturatedPool(s, channels))
                 .Where(s => InjectionMeasure.SaturatedShape(lum, width, height, s.X, s.Y) is not null)
                 .ToList();
             var real = new List<float[]>();
