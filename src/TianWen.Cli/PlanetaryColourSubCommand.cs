@@ -12,6 +12,7 @@ using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
+using TianWen.Lib.Imaging.Stacking;
 using TianWen.Lib.IO;
 
 namespace TianWen.Cli;
@@ -24,7 +25,7 @@ namespace TianWen.Cli;
 /// (rule 1), whether OPAL's apparitions agree (rule 2), the gains each target asks of each master, and the chroma spreads (rule 3),
 /// each target blurred to the master's resolution. Jupiter only: the maps are Jupiter's.
 /// </summary>
-internal sealed partial class PlanetaryColourSubCommand(IConsoleHost consoleHost)
+internal sealed partial class PlanetaryColourSubCommand(IConsoleHost consoleHost, MasterPreviewRenderer previewRenderer)
 {
     // The rule's thresholds (docs/plans/planetary-restoration.md, "The rule, set before measuring").
     private const double ChromaRule = 0.010;
@@ -38,11 +39,13 @@ internal sealed partial class PlanetaryColourSubCommand(IConsoleHost consoleHost
         var compositeUtcOpt = new Option<string?>("--composite-utc") { Description = "The composite's instant (ISO 8601, UTC); OPAL's 2024 visit ran from 5 January 20:46 to 6 January 15:43 UTC.", DefaultValueFactory = _ => "2024-01-06T06:00:00Z" };
         var opalOpt = new Option<string?>("--opal") { Description = "The folder of OPAL's global maps (hlsp_opal_hst_wfc3-uvis_jupiter-<epoch>_<filter>_v1_globalmap.fits), target B.", Required = true };
         var compositeBinOpt = new Option<int>("--composite-bin") { Description = "Box-average the composite by this on each axis before fitting its limb.", DefaultValueFactory = _ => 4 };
+        var previewOpt = new Option<string?>("--preview") { Description = "Write, into this folder, each master's planetary preview as captured and balanced to Jupiter's colour (PlanetaryColourBalance) at each --saturation: the sharpened master beside it (<name>_sharpened.fits) when there is one, as the Best stack shows it." };
+        var saturationOpt = new Option<string>("--saturation") { Description = "The saturation factors the previews are balanced at, a comma list.", DefaultValueFactory = _ => "1,1.4,2" };
 
         var command = new Command("planetary-colour", "Planetary colour (#1212): each colour master's disk-mean colour and chroma spread against an sRGB composite and against OPAL's reflectance through the CIE observer, read against the rule set before measuring.")
         {
             Arguments = { mastersArg },
-            Options = { compositeOpt, compositeUtcOpt, opalOpt, compositeBinOpt },
+            Options = { compositeOpt, compositeUtcOpt, opalOpt, compositeBinOpt, previewOpt, saturationOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -162,6 +165,28 @@ internal sealed partial class PlanetaryColourSubCommand(IConsoleHost consoleHost
                     var spreads = await Task.Run(() => blurs.Select(blur => a.SpreadAt(fit.EquatorialRadius, blur)).ToArray(), ct);
                     Report(label, "A, the composite", mean, bands, counts, a.DiskMean, spreads);
                 }
+
+                if (parseResult.GetValue(previewOpt) is { } previewFolder)
+                {
+                    if (Saturations(parseResult.GetValue(saturationOpt)) is not { } saturations)
+                    {
+                        consoleHost.WriteError("--saturation is a comma list of positive numbers");
+                        return 1;
+                    }
+                    Directory.CreateDirectory(previewFolder);
+                    var sharpenedPath = Path.Combine(Path.GetDirectoryName(path) ?? "", Path.GetFileNameWithoutExtension(path) + "_sharpened.fits");
+                    var shown = File.Exists(sharpenedPath) && Image.TryReadFitsFile(sharpenedPath, out var sharpened) && sharpened.ChannelCount == 3 ? sharpened : image;
+                    var (gains, shownSky) = PlanetaryColourBalance.GainsFor(shown, disk, PlanetaryColourBalance.JupiterDiskColour);
+                    var stem = Path.Combine(previewFolder, label);
+                    await previewRenderer.RenderPlanetaryAsync(shown, stem + "_captured.png", ct: ct);
+                    foreach (var saturation in saturations)
+                    {
+                        var balanced = await Task.Run(() => PlanetaryColourBalance.Apply(shown, gains, shownSky, saturation), ct);
+                        await previewRenderer.RenderPlanetaryAsync(balanced, string.Create(inv, $"{stem}_balanced_s{saturation:0.0#}.png"), ct: ct);
+                    }
+                    consoleHost.WriteScrollable(string.Create(inv,
+                        $"  previews of the {(ReferenceEquals(shown, image) ? "stacked" : "sharpened")} master: as captured, and balanced (gains R {gains.R:0.000}, B {gains.B:0.000}) at saturation {string.Join(", ", saturations.Select(s => s.ToString("0.0#", inv)))}"));
+                }
             }
             return 0;
 
@@ -184,6 +209,20 @@ internal sealed partial class PlanetaryColourSubCommand(IConsoleHost consoleHost
             }
         });
         return command;
+    }
+
+    private static double[]? Saturations(string? list)
+    {
+        var values = new List<double>();
+        foreach (var part in (list ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (!double.TryParse(part, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) || value <= 0)
+            {
+                return null;
+            }
+            values.Add(value);
+        }
+        return values.Count > 0 ? [.. values] : null;
     }
 
     private static string Describe(in LinearRgb colour)

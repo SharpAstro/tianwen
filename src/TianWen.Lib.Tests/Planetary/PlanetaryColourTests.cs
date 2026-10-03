@@ -2,6 +2,7 @@ using System;
 using Shouldly;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
 using Xunit;
 
@@ -151,6 +152,50 @@ public class PlanetaryColourTests
         (sx / sum).ShouldBe(placed.CenterX, 0.05);
         (sy / sum).ShouldBe(placed.CenterY, 0.05);
         placed.EquatorialRadius.ShouldBe(36, 1e-12);
+    }
+
+    [Fact]
+    public void ABalancedDiskTakesTheTargetsColourOverItsOwnSky()
+    {
+        // A camera's orange disk over a grey sky: one gain a channel and the sky taken off bring the disk's mean to Jupiter's colour.
+        var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night);
+        var placement = new DiskPlacement(99.5, 101.2, 60, NorthAngleDeg: -80);
+        var render = PlanetaryRender.Render(new PlanetMap(Uniform(1f), 360, 180), aspect, placement, 200, 200, minnaertK: 0.9);
+        var planes = new float[3][,];
+        (float Gain, float Sky)[] camera = [(0.9f, 0.04f), (0.6f, 0.03f), (0.3f, 0.05f)];
+        for (var c = 0; c < 3; c++)
+        {
+            planes[c] = new float[200, 200];
+            for (var i = 0; i < render.Length; i++)
+            {
+                planes[c][i / 200, i % 200] = (camera[c].Gain * render[i]) + camera[c].Sky;
+            }
+        }
+        var master = new Image(planes, BitDepth.Float32, 1, 0, 0, new ImageMeta { SensorType = SensorType.Color });
+        var disk = new MetricDisk(placement.CenterX, placement.CenterY, placement.EquatorialRadius, PlanetaryLimbFit.OptionsFor(aspect).AxisRatio, placement.NorthAngleDeg);
+        var target = PlanetaryColourBalance.JupiterDiskColour;
+        var (gains, sky) = PlanetaryColourBalance.GainsFor(master, disk, target);
+        var balanced = PlanetaryColourBalance.Apply(master, gains, sky, saturation: 1);
+        var mean = PlanetaryColour.DiskMean(balanced.GetChannelSpan(0), balanced.GetChannelSpan(1), balanced.GetChannelSpan(2), 200, 200, disk, default);
+        mean.ChromaDistance(target).ShouldBeLessThan(1e-4);
+        balanced.GetChannelSpan(2)[0].ShouldBe(0, 1e-4, "the sky goes to zero in every channel");
+    }
+
+    [Fact]
+    public void SaturationKeepsEachPixelsLuminanceAndScalesItsColour()
+    {
+        float[][,] planes = [new float[,] { { 0.6f, 0.2f } }, new float[,] { { 0.5f, 0.25f } }, new float[,] { { 0.3f, 0.3f } }];
+        var master = new Image(planes, BitDepth.Float32, 1, 0, 0, new ImageMeta { SensorType = SensorType.Color });
+        var saturated = PlanetaryColourBalance.Apply(master, new LinearRgb(1, 1, 1), default, saturation: 2);
+        for (var x = 0; x < 2; x++)
+        {
+            var (r, g, b) = (planes[0][0, x], planes[1][0, x], planes[2][0, x]);
+            var (sr, sg, sb) = (saturated.GetChannelSpan(0)[x], saturated.GetChannelSpan(1)[x], saturated.GetChannelSpan(2)[x]);
+            var y = (0.212671 * r) + (0.715160 * g) + (0.072169 * b);
+            ((0.212671 * sr) + (0.715160 * sg) + (0.072169 * sb)).ShouldBe(y, 1e-6);
+            (sr - y).ShouldBe(2 * (r - y), 1e-6);
+            (sb - y).ShouldBe(2 * (b - y), 1e-6);
+        }
     }
 
     private static float[] Uniform(float value) => Banded(_ => value);
