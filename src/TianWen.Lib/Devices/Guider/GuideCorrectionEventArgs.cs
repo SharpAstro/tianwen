@@ -17,8 +17,10 @@ namespace TianWen.Lib.Devices.Guider;
 /// </para>
 /// </summary>
 /// <param name="frameTime">When the guide frame was taken: the middle of its exposure where the guider
-/// knows it (the in-process guiders), else the time the guider itself reported the step (PHD2's
-/// <c>GuideStep</c> <c>Timestamp</c>).</param>
+/// knows it (the in-process guiders), else the step's arrival less half the guide exposure (PHD2). Always on
+/// the session's own clock: a session assigns a sample to a light by that light's exposure window on its clock,
+/// so a guider's own clock (PHD2's <c>Timestamp</c>, another computer's or the real one under
+/// <c>TIANWEN_NOW</c>) would put samples in the wrong light, or in none.</param>
 /// <param name="raError">RA error in arcseconds, or null when it was not measured.</param>
 /// <param name="decError">Dec error in arcseconds, or null when it was not measured.</param>
 /// <param name="raCorrectionMs">RA correction pulse in ms (positive = West). 0 = no correction.</param>

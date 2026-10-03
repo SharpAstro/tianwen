@@ -555,8 +555,9 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
             Status = 0
         };
 
-        // Read the pixel scale ahead of the GuideSteps it converts (see _arcsecPerPixel). Best effort:
-        // without it a step is reported unmeasured, which records nothing, and guiding is unaffected.
+        // Read the pixel scale and the guide exposure ahead of the GuideSteps they convert and stamp (see
+        // ArcsecPerPixel, GuideExposure). Best effort: without the scale a step is reported unmeasured, which
+        // records nothing, and without the exposure it is stamped at its arrival; guiding is unaffected either way.
         try
         {
             await PixelScaleAsync(cancellationToken).ConfigureAwait(false);
@@ -564,6 +565,15 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             Logger.LogWarning(ex, "PHD2: could not read the pixel scale; guide steps will carry no error in arcseconds.");
+        }
+
+        try
+        {
+            await ExposureTimeAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Logger.LogWarning(ex, "PHD2: could not read the guide exposure; guide steps will be stamped at their arrival.");
         }
 
         using var @lock = await _sync.AcquireLockAsync(cancellationToken).ConfigureAwait(false);
@@ -745,12 +755,32 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
             _sync?.Release();
         }
 
-        if (stats is not null)
+        return stats is null ? null : Completed(stats, lastRaErr, lastDecErr, ArcsecPerPixel);
+    }
+
+    /// <summary>
+    /// Completes a snapshot of PHD2's accumulated stats with its total and last errors, in ARCSECONDS where the
+    /// pixel scale is known. PHD2's <c>GuideStep</c> distances, and so every figure accumulated from them, are
+    /// in pixels, while every reader of <see cref="GuideStats"/> shows arcseconds (the guider tab, the Live
+    /// Session line, the Home card) and the in-process guiders report arcseconds. With no scale known
+    /// (<paramref name="arcsecPerPixel"/> NaN) the pixels are left as they were, which is no worse than before;
+    /// a session's samples, which go into the light's cards, never carry them (<see cref="RaiseGuideCorrection"/>).
+    /// </summary>
+    internal static GuideStats Completed(GuideStats stats, double? lastRaErr, double? lastDecErr, double arcsecPerPixel)
+    {
+        if (!double.IsNaN(arcsecPerPixel))
         {
-            stats.TotalRMS = Math.Sqrt(stats.RaRMS * stats.RaRMS + stats.DecRMS * stats.DecRMS);
-            stats.LastRaErr = lastRaErr;
-            stats.LastDecErr = lastDecErr;
+            stats.RaRMS *= arcsecPerPixel;
+            stats.DecRMS *= arcsecPerPixel;
+            stats.PeakRa *= arcsecPerPixel;
+            stats.PeakDec *= arcsecPerPixel;
+            lastRaErr *= arcsecPerPixel;
+            lastDecErr *= arcsecPerPixel;
         }
+
+        stats.TotalRMS = Math.Sqrt(stats.RaRMS * stats.RaRMS + stats.DecRMS * stats.DecRMS);
+        stats.LastRaErr = lastRaErr;
+        stats.LastDecErr = lastDecErr;
         return stats;
     }
 
@@ -855,10 +885,30 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
     private double _arcsecPerPixel = double.NaN;
 
     /// <summary>
-    /// Raises <see cref="GuideCorrectionEvent"/> for one PHD2 <c>GuideStep</c>, stamped with the event's own
-    /// <c>Timestamp</c> (#821). With no pixel scale known, or a distance PHD2 did not send, the step is
-    /// reported with no measured error, which a session records as nothing rather than as pixels mislabelled
-    /// arcseconds.
+    /// PHD2's guide exposure as last read (<see cref="ExposureTimeAsync"/>, read ahead in <see cref="GuideAsync"/>),
+    /// zero while unknown. A <c>GuideStep</c> does not carry it, and the event reader cannot ask.
+    /// </summary>
+    internal TimeSpan GuideExposure
+    {
+        get => TimeSpan.FromTicks(Volatile.Read(ref _guideExposureTicks));
+        set => Volatile.Write(ref _guideExposureTicks, value > TimeSpan.Zero ? value.Ticks : 0);
+    }
+
+    private long _guideExposureTicks;
+
+    /// <summary>
+    /// Raises <see cref="GuideCorrectionEvent"/> for one PHD2 <c>GuideStep</c> (#821). With no pixel scale known,
+    /// or a distance PHD2 did not send, the step is reported with no measured error, which a session records as
+    /// nothing rather than as pixels mislabelled arcseconds.
+    /// <para>
+    /// <b>Stamped on THIS node's clock, at the step's arrival less half the guide exposure, never with the
+    /// step's own <c>Timestamp</c>.</b> A session assigns each sample to a light by that light's exposure
+    /// window on its own clock (<see cref="ITimeProvider"/>), and PHD2's <c>Timestamp</c> is another clock: the
+    /// clock of the computer PHD2 runs on, which may not be this one, and the real one where this node's is
+    /// anchored elsewhere (<c>TIANWEN_NOW</c>), where every PHD2 sample would fall outside every light. A step
+    /// arrives as soon as PHD2 has measured its frame, so its arrival less half the exposure is the frame's
+    /// middle, the instant the in-process guiders stamp.
+    /// </para>
     /// </summary>
     private void RaiseGuideCorrection(JsonElement step)
     {
@@ -867,18 +917,25 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
             return;
         }
 
-        var frameTime = step.TryGetProperty("Timestamp", out var ts) && ts.ValueKind is JsonValueKind.Number
-            ? DateTimeOffset.FromUnixTimeMilliseconds((long)Math.Round(ts.GetDouble() * 1000.0))
-            : TimeProvider.GetUtcNow();
+        var frameTime = TimeProvider.GetUtcNow() - GuideExposure / 2;
 
         var scale = ArcsecPerPixel;
         double? raError = !double.IsNaN(scale) && TryGetFinite(step, "RADistanceRaw") is { } ra ? ra * scale : null;
         double? decError = !double.IsNaN(scale) && TryGetFinite(step, "DECDistanceRaw") is { } dec ? dec * scale : null;
 
-        handler(this, new GuideCorrectionEventArgs(
-            frameTime, raError, decError,
-            SignedPulseMs(step, "RADuration", "RADirection", positive: "West"),
-            SignedPulseMs(step, "DECDuration", "DECDirection", positive: "North")));
+        // A subscriber that throws must not take the event reader down with it, as the in-process guide loop
+        // guards its own (GuideLoop.Corrected).
+        try
+        {
+            handler(this, new GuideCorrectionEventArgs(
+                frameTime, raError, decError,
+                SignedPulseMs(step, "RADuration", "RADirection", positive: "West"),
+                SignedPulseMs(step, "DECDuration", "DECDirection", positive: "North")));
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "PHD2: a guide-correction subscriber threw; the event stream continues.");
+        }
 
         static double? TryGetFinite(JsonElement e, string name)
             => e.TryGetProperty(name, out var v) && v.ValueKind is JsonValueKind.Number && v.GetDouble() is var d && double.IsFinite(d) ? d : null;
@@ -917,7 +974,9 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
         EnsureConnected();
 
         using var exposureResponse = await CallAsync("get_exposure", cancellationToken).ConfigureAwait(false);
-        return TimeSpan.FromMilliseconds(exposureResponse.RootElement.GetProperty("result").GetInt32());
+        var exposure = TimeSpan.FromMilliseconds(exposureResponse.RootElement.GetProperty("result").GetInt32());
+        GuideExposure = exposure;
+        return exposure;
     }
 
     public async ValueTask<IReadOnlyList<string>> GetEquipmentProfilesAsync(CancellationToken cancellationToken = default)
