@@ -268,10 +268,14 @@ could be sampled twice or missed and `GUIDEN` counted polls. When a driver had n
   star corrects nothing and raises nothing). `BuiltInGuiderDriver` and `FakeGuider` scale the loop's pixels by their
   plate scale. The frame's time is the middle of its exposure (`GuideLoop.FrameTimeOf`), the instant a centroid
   describes.
-- **`OpenPHD2GuiderDriver` raises it from each `GuideStep`**, stamped with the event's own `Timestamp`. A step's
-  distances are in pixels, and the event reader cannot make an RPC, so `GuideAsync` reads `get_pixel_scale` ahead.
-  With no scale known, the step is reported unmeasured. Before this, the polled PHD2 samples were pixels labelled
-  arcseconds.
+- **`OpenPHD2GuiderDriver` raises it from each `GuideStep`**, stamped on this node's clock at the step's arrival
+  less half the guide exposure, the frame's middle. **Never with the step's own `Timestamp`**: that is the clock of
+  the computer PHD2 runs on, or the real one where this node's is anchored elsewhere (`TIANWEN_NOW`), and a session
+  assigns samples to lights by its own clock, so a foreign stamp puts them in the wrong light or in none. A step's
+  distances are in pixels, and the event reader cannot make an RPC, so `GuideAsync` reads `get_pixel_scale` and
+  `get_exposure` ahead. With no scale known, the step is reported unmeasured. Before this, the polled PHD2 samples
+  were pixels labelled arcseconds, and so were PHD2's guider-panel figures (`GuideStats`), which are converted
+  with the same scale now.
 - **The session subscribes for the stretches it used to poll**: the imaging loop and `GuideStatsPoller` (calibration
   and the first settle). It appends to `_guideSamples`, the lock-free `CircularBuffer`, with no lock. The polls keep
   only the guider panel's RMS. #942's rule holds: a correction with no measured error appends nothing, and a pending

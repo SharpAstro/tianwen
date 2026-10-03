@@ -31,11 +31,14 @@ public class OpenPHD2GuideStarSnrTests
     private const string GuidingStopped =
         """{"Event":"GuidingStopped","Timestamp":1480000003.0,"Host":"obs","Inst":1}""";
 
-    private static OpenPHD2GuiderDriver CreateDriver() => new OpenPHD2GuiderDriver(
+    private static OpenPHD2GuiderDriver CreateDriver(ITimeProvider? timeProvider = null) => new OpenPHD2GuiderDriver(
         new OpenPHD2GuiderDevice(new Uri("guider://OpenPHD2GuiderDevice/localhost/1#PHD2")),
         Substitute.For<IExternal>(),
         NullLogger.Instance,
-        Substitute.For<ITimeProvider>());
+        timeProvider ?? Substitute.For<ITimeProvider>());
+
+    /// <summary>This node's clock in the tests below: nowhere near the GuideSteps' own 2016 <c>Timestamp</c>.</summary>
+    private static readonly DateTimeOffset NodeNow = new DateTimeOffset(2026, 10, 3, 12, 0, 0, TimeSpan.Zero);
 
     private static async Task FeedAsync(OpenPHD2GuiderDriver driver, string line)
     {
@@ -79,26 +82,86 @@ public class OpenPHD2GuideStarSnrTests
     }
 
     /// <summary>
-    /// Each GuideStep is one correction, raised with the EVENT's own timestamp and its pixel distances in
-    /// arcseconds, the pulses signed West / North positive (#821): the session records it as one guide
-    /// sample, instead of polling the stats once per imaging tick.
+    /// Each GuideStep is one correction, its pixel distances in arcseconds and the pulses signed West / North
+    /// positive (#821): the session records it as one guide sample, instead of polling the stats once per
+    /// imaging tick. It is stamped on THIS node's clock, at its arrival less half the guide exposure, the frame's
+    /// middle. Never with the step's own <c>Timestamp</c>: that is the clock of the computer PHD2 runs on, or the
+    /// real one under <c>TIANWEN_NOW</c>, and a session assigns samples to lights by its own clock.
     /// </summary>
     [Fact]
-    public async Task AGuideStepRaisesOneCorrectionStampedWithItsOwnTimestamp()
+    public async Task AGuideStepIsOneCorrectionStampedOnThisNodesClock()
     {
-        var driver = CreateDriver();
+        var driver = CreateDriver(new FakeTimeProviderWrapper(NodeNow));
         driver.ArcsecPerPixel = 2.0;
+        driver.GuideExposure = TimeSpan.FromSeconds(2);
         var corrections = new System.Collections.Generic.List<GuideCorrectionEventArgs>();
         driver.GuideCorrectionEvent += (_, e) => corrections.Add(e);
 
         await FeedAsync(driver, GuideStep);
 
         var c = corrections.ShouldHaveSingleItem();
-        c.FrameTime.ShouldBe(DateTimeOffset.FromUnixTimeMilliseconds(1480000000123));
+        c.FrameTime.ShouldBe(NodeNow - TimeSpan.FromSeconds(1), "the middle of the guide frame, on this node's clock");
+        c.FrameTime.ShouldNotBe(DateTimeOffset.FromUnixTimeMilliseconds(1480000000123), "PHD2's Timestamp is another clock");
         c.RaError.ShouldBe(0.5);
         c.DecError.ShouldBe(-0.24);
         c.RaCorrectionMs.ShouldBe(-110); // East
         c.DecCorrectionMs.ShouldBe(40);  // North
+    }
+
+    /// <summary>With the guide exposure not yet read, a step is stamped at its arrival.</summary>
+    [Fact]
+    public async Task AGuideStepWithNoKnownExposureIsStampedAtItsArrival()
+    {
+        var driver = CreateDriver(new FakeTimeProviderWrapper(NodeNow));
+        var corrections = new System.Collections.Generic.List<GuideCorrectionEventArgs>();
+        driver.GuideCorrectionEvent += (_, e) => corrections.Add(e);
+
+        await FeedAsync(driver, GuideStep);
+
+        corrections.ShouldHaveSingleItem().FrameTime.ShouldBe(NodeNow);
+    }
+
+    /// <summary>
+    /// A subscriber that throws must not take the event reader down with it: the step is still handled, as the
+    /// in-process guide loop guards its own subscribers.
+    /// </summary>
+    [Fact]
+    public async Task AThrowingCorrectionSubscriberDoesNotStopTheEventStream()
+    {
+        var driver = CreateDriver(new FakeTimeProviderWrapper(NodeNow));
+        driver.GuideCorrectionEvent += (_, _) => throw new InvalidOperationException("subscriber bug");
+
+        await FeedAsync(driver, GuideStep);
+
+        driver.GuideStarSNR.ShouldBe(37.4);
+    }
+
+    /// <summary>
+    /// PHD2 accumulates its stats from the GuideSteps' PIXEL distances, and every reader of them shows
+    /// arcseconds (the guider tab, the Live Session line, the Home card), so they are converted where the scale
+    /// is known, and left as they were where it is not.
+    /// </summary>
+    [Fact]
+    public void ThePhd2StatsAreInArcsecondsWhereTheScaleIsKnown()
+    {
+        var converted = OpenPHD2GuiderDriver.Completed(
+            new GuideStats { RaRMS = 0.3, DecRMS = 0.4, PeakRa = 1.0, PeakDec = 1.5 }, 0.25, -0.12, arcsecPerPixel: 2.0);
+
+        converted.RaRMS.ShouldBe(0.6, 1e-12);
+        converted.DecRMS.ShouldBe(0.8, 1e-12);
+        converted.TotalRMS.ShouldBe(1.0, 1e-12);
+        converted.PeakRa.ShouldBe(2.0, 1e-12);
+        converted.PeakDec.ShouldBe(3.0, 1e-12);
+        converted.LastRaErr.ShouldNotBeNull().ShouldBe(0.5, 1e-12);
+        converted.LastDecErr.ShouldNotBeNull().ShouldBe(-0.24, 1e-12);
+
+        var unscaled = OpenPHD2GuiderDriver.Completed(
+            new GuideStats { RaRMS = 0.3, DecRMS = 0.4 }, 0.25, null, arcsecPerPixel: double.NaN);
+
+        unscaled.RaRMS.ShouldBe(0.3, 1e-12);
+        unscaled.TotalRMS.ShouldBe(0.5, 1e-12);
+        unscaled.LastRaErr.ShouldNotBeNull().ShouldBe(0.25, 1e-12);
+        unscaled.LastDecErr.ShouldBeNull();
     }
 
     /// <summary>
