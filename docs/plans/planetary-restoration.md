@@ -3391,6 +3391,9 @@ term that is only green's and blue's is missing; the near infrared is not it (th
 dispersion is a fifth of a plane pixel at 66 degrees. The mid halo is too bright in every colour, most in blue, where scatter would
 make it brighter rather than dimmer.
 
+**The owner's call (2026-10-04): S4 judges on this twin**, as R2's twin went on to R3 with its sky's finest bands unmatched. Red is
+read first; green's and blue's means are known to be sharper than the real ones, so a number read on them carries that.
+
 ### S4 The derived sharpening on Saturn (#1184)
 
 The sharpening reads its gains through the globe's limb where the rings leave it clear. Outside the globe's limb, `ModelFeathered` draws the
