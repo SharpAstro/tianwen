@@ -552,6 +552,12 @@ def prepare(args):
         os.path.basename(rel).rsplit("_", 1)[-1].startswith("deg")
         for key in keys for rel in cells[key]["subs"][:SUBS_PER_CELL])
     print(f"  sub slots: {'INJECTED draws' if injected else 'real subs' if has_subs else 'EMPTY (a pair cache: train with --half-only)'}")
+    # How many sub slots EVERY cell fills. An injected export may write fewer draws than there are slots (R1's
+    # star exports write 4 of 8), and a slot it does not fill stays a zero tile, which a trainer drawing from all
+    # eight would regress onto the target half the time, silently. Recorded so the trainer samples only these.
+    draws = min((min(len(cells[key]["subs"]), SUBS_PER_CELL) for key in keys if cells[key]["subs"]), default=0)
+    if has_subs:
+        print(f"  filled sub slots per cell: {draws} of {SUBS_PER_CELL}")
 
     labelled = int(np.isfinite(psf01).sum())
     if labelled:
@@ -589,6 +595,7 @@ def prepare(args):
 
     meta = {
         "cells": n, "slots": SLOTS_WITH_HALVES, "injected": bool(injected), "has_subs": bool(has_subs),
+        "draws": draws,
         "train_cells": len(train_keys), "val_cells": len(val_keys),
         "train_sessions": train_s, "val_sessions": val_s,
         "extra_cells": args.extra_cells, "exclude_cells": args.exclude_cells,
@@ -1058,6 +1065,9 @@ def train(args):
         print("loading tiles into RAM for the averaging path ...", flush=True)
         mm = np.asarray(mm)
     n_train = meta["train_cells"]
+    # The sub slots that hold pixels (prepare's "draws"). A cache from before the field fills all of them, so it
+    # draws exactly as it always did, the rng stream included.
+    draws = int(meta.get("draws", SUBS_PER_CELL))
 
     # Which regimes one model sees. A half-master pair is not K subs averaged: it integrates an
     # interleaved HALF of the session, measured at ~1.41x the master's own background noise
@@ -1094,6 +1104,11 @@ def train(args):
     # same cells, and the only difference is whether the target shares the input's noise. That is the
     # one axis H8 is about, and every earlier cross-night arm varied it together with the input
     # distribution, which is why its kill said nothing about the mechanism.
+    if draws < SUBS_PER_CELL and regimes and regimes != [SYNTH]:
+        raise SystemExit(f"this cache fills {draws} of {SUBS_PER_CELL} sub slots per cell, and the N2N regimes pair "
+                         f"and average across all {SUBS_PER_CELL}; only --synthetic samples the filled ones")
+    if regimes == [SYNTH] and draws < 1:
+        raise SystemExit("--synthetic needs at least one injected draw per cell; this cache's sub slots are empty")
     synth_target = {"master": SLOT_MASTER, "half-a": SLOT_HALF_A, "half-b": SLOT_HALF_B}[args.synthetic_target]
     if args.synthetic and args.synthetic_target != "master":
         print(f"  supervised target: slot {synth_target} ({args.synthetic_target}), not the combined master")
@@ -1148,7 +1163,7 @@ def train(args):
         if sigma_planes is None:
             raise SystemExit(f"--cond-map needs per-pixel planes in {args.cache}: export with a build that writes "
                              f".sigma.f16 beside each draw (tianwen dataset degrade, E16) and re-run --prepare")
-        missing = int((~sigma_has[:, :SUBS_PER_CELL + 1]).sum())
+        missing = int((~sigma_has[:, :draws + 1]).sum())
         if missing:
             raise SystemExit(f"--cond-map: {missing} master or draw slots carry no plane, so this cache is not an "
                              f"E16 export throughout")
@@ -1383,8 +1398,8 @@ def train(args):
                     vi = vsel[j0:j0 + 16]
                     y = torch.from_numpy(np.ascontiguousarray(mm[vi, synth_target])).to(dev).float()
                     yc = y[:, :, BORDER:-BORDER, BORDER:-BORDER]
-                    for shift in (0, SUBS_PER_CELL // 2):
-                        slots = 1 + (np.arange(j0, j0 + len(vi)) + shift) % SUBS_PER_CELL
+                    for shift in (0, draws // 2):
+                        slots = 1 + (np.arange(j0, j0 + len(vi)) + shift) % draws
                         x = torch.from_numpy(np.ascontiguousarray(mm[vi, slots])).to(dev).float()
                         pred = model(with_plane(x, sigma_planes[vi, slots]) if sigma_planes is not None
                                      else with_sigma(x, planes=cond_planes) if cond_planes else x)
@@ -1423,8 +1438,8 @@ def train(args):
         idx = rng.integers(0, n_train, args.batch)
         # Two DIFFERENT subs of the same cell: independent noise, same scene. That is the
         # whole N2N premise, and it is why no clean target is needed.
-        a = rng.integers(1, SUBS_PER_CELL + 1, args.batch)
-        b = (a - 1 + rng.integers(1, SUBS_PER_CELL, args.batch)) % SUBS_PER_CELL + 1
+        a = rng.integers(1, draws + 1, args.batch)
+        b = (a - 1 + rng.integers(1, max(draws, 2), args.batch)) % draws + 1
         if pair_pool is not None:
             # Overrides the draw above instead of replacing it, so --pair-time any consumes the
             # rng stream exactly as every earlier version did and stays comparable against them.

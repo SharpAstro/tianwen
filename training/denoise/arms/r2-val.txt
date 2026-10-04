@@ -1,0 +1,10 @@
+# R2 (docs/plans/star-remover-training.md): the R1 training export's colour sessions, split by NIGHT (a flip half goes with its night).
+# Val: HIP 80609 (the denoiser's val night) and the first non-comet night of the ASI585, ASI294MC and QHY294PROC.
+QHYCCD-QHY294C/IDAS-LPS-D3/Lobster-Nebula/2026-08-01|QHY294PROC|Lobster Nebula|IDAS LPS D3
+QHYCCD-QHY294C/IDAS-LPS-D3/Lobster-Nebula/2026-08-01|QHY294PROC|Lobster Nebula|IDAS LPS D3|flip=a
+QHYCCD-QHY294C/IDAS-LPS-D3/Lobster-Nebula/2026-08-01|QHY294PROC|Lobster Nebula|IDAS LPS D3|flip=b
+ZWO-ASI294MC/UV-IR-Cut/Great-Orion-Nebula/2021-11-28|ZWO ASI294MC|Orion M42 RGB 4min|UV/IR Cut
+ZWO-ASI533MC-Pro/Optolong-L-Quad-Enhance/HIP-80609/2026-04-21|ZWO ASI533MC Pro|HIP 80609|Optolong L-Quad Enhance
+ZWO-ASI533MC-Pro/Optolong-L-Quad-Enhance/HIP-80609/2026-04-21|ZWO ASI533MC Pro|HIP 80609|Optolong L-Quad Enhance|flip=a
+ZWO-ASI533MC-Pro/Optolong-L-Quad-Enhance/HIP-80609/2026-04-21|ZWO ASI533MC Pro|HIP 80609|Optolong L-Quad Enhance|flip=b
+ZWO-ASI585MC-Pro/Optolong-L-eNhance/Small-Magellanic-Cloud/2024-09-27|ZWO ASI585MC Pro|SMC 120s LEnh ASI585 252g|Optolong L-eNhance
