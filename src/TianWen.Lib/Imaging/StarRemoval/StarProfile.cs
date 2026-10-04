@@ -36,7 +36,7 @@ public enum StarProfileFamily
 /// <param name="HaloAlpha">The alpha the halo table was measured at.</param>
 public readonly record struct StarProfile(
     StarProfileFamily Family, double FwhmPx, double Beta, double AxisRatio, double PositionAngleRad,
-    ImmutableArray<float> Halo = default, double HaloAlpha = 0.0)
+    ImmutableArray<float> Halo = default, double HaloAlpha = 0.0) : IPointProfile
 {
     /// <summary>A round profile.</summary>
     public static StarProfile Round(StarProfileFamily family, double fwhmPx, double beta) => new StarProfile(family, fwhmPx, beta, 1.0, 0.0);
@@ -104,18 +104,12 @@ public readonly record struct StarProfile(
 
     private bool HasHalo => !Halo.IsDefaultOrEmpty && HaloAlpha > 0;
 
-    // Gauss-Legendre nodes on [-1/2, 1/2] with weights summing to one: three points, then two (MoffatPsf's).
-    private static readonly double[] Nodes3 = { -0.5 * Math.Sqrt(0.6), 0.0, 0.5 * Math.Sqrt(0.6) };
-    private static readonly double[] Weights3 = { 5.0 / 18.0, 8.0 / 18.0, 5.0 / 18.0 };
-    private static readonly double[] Nodes2 = { -0.5 / Math.Sqrt(3.0), 0.5 / Math.Sqrt(3.0) };
-    private static readonly double[] Weights2 = { 0.5, 0.5 };
-
     /// <summary>
     /// The mean of the profile over pixel (<paramref name="px"/>, <paramref name="py"/>) for a star centred at
-    /// (<paramref name="cx"/>, <paramref name="cy"/>), pixel (i, j) covering [i - 1/2, i + 1/2]. Gauss-Legendre per axis:
-    /// three points within two FWHM of the centre (and never under 4 px), two within four (8 px), the centre beyond, as
-    /// <see cref="MoffatPsf.PixelMean"/> does for the builder's own model, so an injected star and a subtracted one are
-    /// integrated alike. A halo is added at the pixel's centre, as the builder's residual table is
+    /// (<paramref name="cx"/>, <paramref name="cy"/>), pixel (i, j) covering [i - 1/2, i + 1/2]: the builder's own quadrature
+    /// (<see cref="PixelQuadrature"/>, which <see cref="MoffatPsf.PixelMean"/> integrates with) at three points an axis within
+    /// two FWHM of the centre (and never under 4 px), two within four (8 px), the centre beyond, so an injected star and a
+    /// subtracted one are integrated alike. A halo is added at the pixel's centre, as the builder's residual table is
     /// (<see cref="RadialCorrection.Model"/>), and the sum never goes below zero.
     /// </summary>
     public double PixelMean(int px, int py, double cx, double cy)
@@ -125,24 +119,7 @@ public readonly record struct StarProfile(
         var d2 = dx * dx + dy * dy;
         var near = Math.Max(4.0, 2.0 * FwhmPx);
         var far = Math.Max(8.0, 4.0 * FwhmPx);
-        double sum;
-        if (d2 >= far * far)
-        {
-            sum = At(dx, dy);
-        }
-        else
-        {
-            var (nodes, weights) = d2 < near * near ? (Nodes3, Weights3) : (Nodes2, Weights2);
-            sum = 0.0;
-            for (var j = 0; j < nodes.Length; j++)
-            {
-                var oy = dy + nodes[j];
-                for (var i = 0; i < nodes.Length; i++)
-                {
-                    sum += weights[i] * weights[j] * At(dx + nodes[i], oy);
-                }
-            }
-        }
+        var sum = d2 >= far * far ? At(dx, dy) : PixelQuadrature.Mean(this, dx, dy, threePoints: d2 < near * near);
         return HasHalo
             ? Math.Max(0.0, sum + RadialCorrection.Interpolate(Halo.AsSpan(), Math.Sqrt(EllipticalR2(dx, dy)) * HaloAlpha / Alpha))
             : sum;
