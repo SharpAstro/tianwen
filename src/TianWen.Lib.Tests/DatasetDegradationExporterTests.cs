@@ -1241,6 +1241,25 @@ namespace TianWen.Lib.Tests
             }
         }
 
+        /// <summary>
+        /// The one rule every mode picks a session's smoothing by: a drizzle by its STRATEGY card, a mono master by its one
+        /// channel (#1243: the demosaiced setting made a mono master's injected noise too blotchy), a demosaiced colour master
+        /// the ordinary value, and an unset override falls back to it.
+        /// </summary>
+        [Theory]
+        [InlineData(nameof(IntegrationStrategyKind.BayerDrizzle), 3, 0.0)]
+        [InlineData("", 3, 0.5)]
+        [InlineData("", 1, 0.2)]
+        [InlineData(nameof(IntegrationStrategyKind.InRamAllFrames), 1, 0.2)]
+        public void ASessionsSmoothingFollowsWhatMadeItsMastersNoise(string strategy, int channels, double expected)
+        {
+            var options = new DatasetDegradationExporter.Options("bake", "out", Shape: DatasetDegradationExporter.NoiseShape.Warped,
+                WarpResampleSigma: 0.5, DrizzleWarpResampleSigma: 0.0, MonoWarpResampleSigma: 0.2);
+
+            DatasetDegradationExporter.SessionOptions(options, strategy, channels).WarpResampleSigma.ShouldBe(expected);
+            DatasetDegradationExporter.SessionOptions(options with { MonoWarpResampleSigma = null }, "", 1).WarpResampleSigma.ShouldBe(0.5);
+        }
+
         /// <summary>Every channel's FWHM in the Stars fixture's PSF store.</summary>
         private const double PlateFwhm = 2.5;
 

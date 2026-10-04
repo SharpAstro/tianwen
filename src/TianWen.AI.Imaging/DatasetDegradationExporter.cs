@@ -384,6 +384,13 @@ namespace TianWen.AI.Imaging
         /// the bake's own <c>stats/psf-sessions.jsonl</c>.</param>
         /// <param name="MeasureInjection">Stars mode: read every draw's injected stars back and write a row per session to
         /// <c>injection-measures.jsonl</c>, R1's predictions' checks.</param>
+        /// <param name="MonoWarpResampleSigma">Warped shape only: the smoothing for a session whose master is MONO (one
+        /// channel), in place of <see cref="WarpResampleSigma"/>; null keeps one value. A mono master is neither a demosaic,
+        /// whose interpolation correlates its noise, nor a drizzle: its noise is the registration's warp on a near white
+        /// field, and the demosaiced setting made it too blotchy (an ASI1600MM's injected pairs read 0.458 band1/band0
+        /// against its half-master's 0.279, #1243). Measured 2026-10-04 over seven mono sessions' half pairs (0.290): 0 gives
+        /// 0.313 (0.15 the same, 0.3 0.317, 0.5 0.435); bilinear is the floor, the bake's Lanczos-3 warp sharper still. The
+        /// CLI defaults it to 0.</param>
         public sealed record Options(
             string BakeRoot,
             string OutDir,
@@ -417,7 +424,27 @@ namespace TianWen.AI.Imaging
             StarProfileFamily Profile = StarProfileFamily.Field,
             double SaturatedFraction = 0.25,
             string? PsfStorePath = null,
-            bool MeasureInjection = false);
+            bool MeasureInjection = false,
+            double? MonoWarpResampleSigma = null);
+
+        /// <summary>
+        /// The options one session's draws are made with: the warped shape's smoothing chosen by what made the master's noise.
+        /// A Bayer drizzle (its <c>STRATEGY</c> card) takes <see cref="Options.DrizzleWarpResampleSigma"/>, a mono master
+        /// <see cref="Options.MonoWarpResampleSigma"/>, and a demosaiced colour master keeps
+        /// <see cref="Options.WarpResampleSigma"/>; an unset one falls back to it. ONE rule for every mode.
+        /// </summary>
+        internal static Options SessionOptions(Options options, string strategy, int channelCount)
+        {
+            if (options.DrizzleWarpResampleSigma is { } drizzle && strategy == DrizzleStrategy)
+            {
+                return options with { WarpResampleSigma = drizzle };
+            }
+            if (options.MonoWarpResampleSigma is { } mono && channelCount == 1)
+            {
+                return options with { WarpResampleSigma = mono };
+            }
+            return options;
+        }
 
         /// <summary>What one session's export produced. <paramref name="Estimator"/> is the estimator step's
         /// own cost, null unless <see cref="Options.EstimateKernels"/>.</summary>
@@ -597,11 +624,9 @@ namespace TianWen.AI.Imaging
             Directory.CreateDirectory(tilesDir);
 
             var stackedFrames = ReadStackCount(RetainedMasterStore.PathFor(options.BakeRoot, sessionId));
-            // The injected noise takes the shape of THIS master's integration: a drizzle's and a demosaic's differ.
+            // The injected noise takes the shape of THIS master's integration: a drizzle's, a demosaic's and a mono's differ.
             var strategy = DatasetGradientReport.ReadMasterCards(RetainedMasterStore.PathFor(options.BakeRoot, sessionId)).Strategy;
-            var sessionOptions = options.DrizzleWarpResampleSigma is { } drizzleSigma && strategy == DrizzleStrategy
-                ? options with { WarpResampleSigma = drizzleSigma }
-                : options;
+            var sessionOptions = SessionOptions(options, strategy, master.ChannelCount);
             if (options.Shape == NoiseShape.Warped)
             {
                 logger?.LogInformation("[degrade] {Session}: {Strategy} master, warp sigma {Sigma}",

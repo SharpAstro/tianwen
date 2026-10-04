@@ -259,9 +259,7 @@ public static partial class DatasetDegradationExporter
             var masterPath = RetainedMasterStore.PathFor(options.BakeRoot, sessionId);
             var stackedFrames = ReadStackCount(masterPath);
             var strategy = DatasetGradientReport.ReadMasterCards(masterPath).Strategy;
-            var sessionOptions = options.DrizzleWarpResampleSigma is { } drizzleSigma && strategy == DrizzleStrategy
-                ? options with { WarpResampleSigma = drizzleSigma }
-                : options;
+            var sessionOptions = SessionOptions(options, strategy, channels);
 
             // The plate on its MASTER's scale, and both sides stretched with the plate's (the target's) parameters, H6.
             var divisor = DatasetTileExporter.UnitDivisor(master);

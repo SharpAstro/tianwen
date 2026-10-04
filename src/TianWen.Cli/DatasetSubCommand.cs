@@ -1085,6 +1085,14 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "card), in place of --warp-sigma. A drizzled master's noise is less correlated than a demosaiced " +
                           "one's (half pairs 0.31-0.33 against 0.45 band1/band0, E16b): 0 matches it where 0.5 matches the other.",
         };
+        var warpSigmaMonoOpt = new Option<double?>("--warp-sigma-mono")
+        {
+            Description = "Warped shape only: the smoothing for a session whose master is mono (one channel), in place of " +
+                          "--warp-sigma. Default 0, measured 2026-10-04 on seven mono sessions' half pairs (#1243): band1/band0 " +
+                          "0.313 injected against 0.290 real, where the demosaiced 0.5 gave 0.435. A mono master's noise is the " +
+                          "registration's warp on a near white field, neither a demosaic's nor a drizzle's.",
+            DefaultValueFactory = _ => 0d,
+        };
         var warpSigmaMaxOpt = new Option<double>("--warp-sigma-max")
         {
             Description = "Warped shape only: when above --warp-sigma, each draw takes its smoothing uniform " +
@@ -1207,7 +1215,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -1308,7 +1316,8 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 Profile: profile,
                 SaturatedFraction: saturatedFraction,
                 PsfStorePath: parseResult.GetValue(psfStoreOpt),
-                MeasureInjection: parseResult.GetValue(measureInjectionOpt));
+                MeasureInjection: parseResult.GetValue(measureInjectionOpt),
+                MonoWarpResampleSigma: parseResult.GetValue(warpSigmaMonoOpt));
 
             var result = await DatasetDegradationExporter.RunAsync(options, logger, ct);
             var degraded = result.Sessions.Sum(s => s.DegradedTiles);
