@@ -84,6 +84,7 @@ same sensor.
 | script | what it does |
 |---|---|
 | `organizeM.py` | the current organizer, and the one to copy: dry run by default, exposures declared per folder, collisions resolved by content then refused, SharpCap run prefixes, every copy sha256-verified, a manifest, and `--verify-tags` after a tagging pass |
+| `organizeQ.py [--apply] [--move]` | group Q (LDN 1622, QSI 683ws CCD, mono R/G/B/H-alpha from Rowe Mesa, 2015): organizeP's shape, one folder per FILTER holding every night (no night reaches the bake's 10-sub floor), and `--move` where the owner keeps another copy; then `compact /c /s:<dir> /exe:lzx`, which every reader sees through and `FileEnumeration` does not skip (WOF hides its reparse point: the attribute reads `Archive`) |
 | `targetview.py [--apply]` | rebuilds the `targets/` junction view over `lights/`; re-run after any filing (junctions store absolute paths) |
 | `make_groupM_calmap.py <dark count>` | a `session-calibration-map.csv` row with its measured verdicts, written as a fragment to `C:/temp/e2`; the dark count comes from the coverage matcher, never a guess |
 | `finishM.py [--apply]` | appends that row and the `CORRECTIONS.md` section, after copying the map to the next zero-padded `.bakNNN`; idempotent |
