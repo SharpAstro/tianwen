@@ -1,0 +1,15 @@
+# H7's training nights (docs/plans/denoiser-training.md, "2026-10-05: H7, pre-registered"): the full store's one-channel
+# nights less the pinned test nights, the two Rosette plates the linearity test refuses, the held-out camera (QHY178M)
+# and the trainer's two val nights. Twelve nights, five cameras.
+ZWO-ASI294MM/Luminance/Centaurus-A/2022-03-12|ZWO ASI294MM|Cen A 250mm|Luminance
+ZWO-ASI294MM/Luminance/Great-Orion-Nebula/2021-11-28|ZWO ASI294MM|Orion M42 LUM 4min|Luminance
+ZWO-ASI294MM/Luminance/Lagoon-and-Trifid/2022-06-28|ZWO ASI294MM|Trifit + Lagoon 250mm 30s LUM|Luminance
+ZWO-ASI294MM/Luminance/Large-Magellanic-Cloud/2021-12-11|ZWO ASI294MM|LMC 4min LUM|Luminance
+ZWO-ASI294MM/Luminance/Rim-Nebula/2022-06-28|ZWO ASI294MM|Rim Neb 250mm|Luminance
+ZWO-ASI294MM/Luminance/Vela-SNR/2022-03-12|ZWO ASI294MM|Vela SNR 250mm 1min LUM|Luminance
+ZWO-ASI1600MM-Pro/Ha/eta-Car-Nebula/2025-02-06|ZWO ASI1600MM Pro|eta Car Neb Ha 240s 10deg 139g 20o ASI1600mm|HydrogenAlpha
+QHY183M/SII/eta-Car-Nebula/2024-03-07|QHY183M|eta Car SII 288mm 240s 19deg 5g 14o|SulphurII
+ZWO-ASI183MM/Ha/Rosette-Nebula/2021-12-31|ZWO ASI183MM|Rosette 4min Ha|HydrogenAlpha
+QSI-683ws/Blue/LDN-1622/2015-12-09|QSI 683ws S/N 00602201 HW 00.00.00 FW 06.03.01 PI 6.4.962.4|LDN 1622|Blue
+QSI-683ws/Ha/LDN-1622/2015-11-30|QSI 683ws S/N 00602201 HW 00.00.00 FW 06.03.01 PI 6.4.962.4|LDN 1622|H
+QSI-683ws/Red/LDN-1622/2015-12-18|QSI 683ws S/N 00602201 HW 00.00.00 FW 06.03.01 PI 6.4.962.4|LDN 1622|Red

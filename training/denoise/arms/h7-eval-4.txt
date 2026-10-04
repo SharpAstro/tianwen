@@ -1,0 +1,7 @@
+# H7's eval nights, every one with half pairs. E-cam (the QHY178M, a camera held out whole): Helix and Running Chicken
+# primary, Vela SNR read apart (the ASI294MM's Vela night trains on its sky). E-night: the ASI1600MM's luminance test
+# night, whose camera and sky train through its Ha night; its flip halves are the same sky and stay out.
+QHY178M/Luminance/Helix-Nebula/2024-08-12|QHY178M|Helix LUM WOSZ61x0.8|Luminance
+QHY178M/Luminance/Running-Chicken-Nebula/2023-03-17|QHY178M|Running Chicken LUM|Luminance
+QHY178M/Luminance/Vela-SNR/2022-12-03|QHY178M|Vela SNR LUM|Luminance
+ZWO-ASI1600MM-Pro/Luminance/eta-Car-Nebula/2025-02-20|ZWO ASI1600MM Pro|eta Car Nebula|Luminance

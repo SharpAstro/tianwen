@@ -871,13 +871,24 @@ def load_model(cache, name, dev):
     return model, planes
 
 
-def denoise(cache, name, src, dev, batch=16, strength=1.0, planes=None):
+def denoise(cache, name, src, dev, batch=16, strength=1.0, planes=None, replicate_mono=False):
     """Run a checkpoint over an [N,C,H,W] float32 array, honouring its conditioning flag.
 
     `planes` [N, H, W] is the input's per-pixel noise plane, required by a --cond-map checkpoint and refused by
-    any other (which would silently ignore it)."""
+    any other (which would silently ignore it).
+
+    `replicate_mono` (H7's `rgb` baseline): a 3-channel checkpoint run on a 1-channel array gets the mono plane as
+    three equal channels and its output averaged back to one, which is how a colour model would serve mono with no
+    new weights. Without it a channel mismatch is refused, never guessed at."""
     import torch
     model, plane_count = load_model(cache, name, dev)
+    net_channels = CH
+    # load_model set the module's count to the checkpoint's; the array's own count is the one the caller reads back.
+    use_channels(src.shape[1])
+    replicate = net_channels != src.shape[1]
+    if replicate and not (replicate_mono and net_channels == 3 and src.shape[1] == 1):
+        raise SystemExit(f"{name} is a {net_channels}-channel net and the input has {src.shape[1]}; pass "
+                         f"replicate_mono (--replicate-mono) to feed a mono input to a colour net as three equal channels")
     if not plane_count and strength != 1.0:
         raise ValueError(f"{name} is not conditioned, so strength has nothing to act on")
     if model.cond_map and planes is None:
@@ -889,10 +900,15 @@ def denoise(cache, name, src, dev, batch=16, strength=1.0, planes=None):
     with torch.no_grad():
         for i in range(0, len(src), batch):
             x = torch.from_numpy(src[i:i + batch]).to(dev)
+            if replicate:
+                x = x.expand(-1, net_channels, -1, -1).contiguous()
             if model.cond_map:
-                out.append(model(with_plane(x, planes[i:i + batch], strength)).cpu().numpy())
+                y = model(with_plane(x, planes[i:i + batch], strength))
             else:
-                out.append(model(with_sigma(x, strength, plane_count) if plane_count else x).cpu().numpy())
+                y = model(with_sigma(x, strength, plane_count) if plane_count else x)
+            if replicate:
+                y = y.mean(dim=1, keepdim=True)
+            out.append(y.cpu().numpy())
     return np.concatenate(out)
 
 
