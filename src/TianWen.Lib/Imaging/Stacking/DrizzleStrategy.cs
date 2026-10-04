@@ -86,8 +86,9 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
         // accumulators -- streaming drizzle holds everything full-canvas.
         // A rejecting drizzle (every run the pipeline hands a rejector, i.e. 5 frames and up, and
         // drizzle needs 60) also holds the statistics pass's three moment planes and the slope plane
-        // derived from them beside the output pair, so six planes per channel, not two.
-        var fluxWeightBytes = (long)probe.CanvasWidth * probe.CanvasHeight * 3 * sizeof(float) * 6;
+        // derived from them beside the output pair, and the standard error's two (DrizzleScatter), so
+        // eight planes per channel, not two.
+        var fluxWeightBytes = (long)probe.CanvasWidth * probe.CanvasHeight * 3 * sizeof(float) * 8;
         var inFlightRam = (long)probe.FrameWidth * probe.FrameHeight * sizeof(float); // 1-channel calibrated bayer
         var ram = fluxWeightBytes + inFlightRam;
 
@@ -314,7 +315,7 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
 
                     var (rejected, total) = DrizzleKernel.IterateAndDepositClippedParallel(
                         frame.Raw, frame.Transform, frame.Pattern, halfP, moments, clip, target.Flux, target.Weight,
-                        canvasW, canvasH, badPixelMask, hasBadPixelMask);
+                        canvasW, canvasH, badPixelMask, hasBadPixelMask, target.Scatter);
                     target.RejectedDeposits += rejected;
                     target.TotalDeposits += total;
                 }
@@ -459,6 +460,11 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
 
         public DrizzleMoments? Moments { get; } = DrizzleClip.From(subset.Rejector) is null ? null : new DrizzleMoments(3, canvasH, canvasW);
 
+        /// <summary>What the clipped deposit adds for the master's standard error; only a rejecting drizzle has the
+        /// statistics pass it is centred on, so an unclipped one (under five frames, which drizzle never runs at)
+        /// reports none.</summary>
+        public DrizzleScatter? Scatter { get; } = DrizzleClip.From(subset.Rejector) is null ? null : new DrizzleScatter(3, canvasH, canvasW);
+
         public long RejectedDeposits { get; set; }
 
         public long TotalDeposits { get; set; }
@@ -523,6 +529,10 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
                 ? 1f
                 : _sourceMaxValue > 0f ? 1f / _sourceMaxValue : 1f;
             var totalCells = (long)canvasH * canvasW * 3;
+            // Before the divide, which turns the kept flux into the master in place: the error needs the kept sums.
+            var standardError = Scatter is { } scatter && Moments is { } moments
+                ? StandardErrorPlane.FromPlanes(scatter.StandardError(Flux, Weight, moments, invMax), refMeta)
+                : null;
             var coveredCells = DrizzleKernel.FinaliseDivide(Flux, Weight, invMax, canvasH, canvasW);
 
             var master = IntegratedMaster.Labelled(new Image(
@@ -566,6 +576,7 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
                 Coverage = coverageMap,
                 DrizzleRejectedDeposits = RejectedDeposits,
                 DrizzleTotalDeposits = TotalDeposits,
+                StandardError = standardError,
             };
         }
     }
