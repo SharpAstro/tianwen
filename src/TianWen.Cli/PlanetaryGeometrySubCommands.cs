@@ -304,12 +304,17 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         var highWindAngleOpt = new Option<double>("--high-wind-angle") { Description = "The layer's wind direction, degrees from +x toward +y.", DefaultValueFactory = _ => 30 };
         var highOuterScaleOpt = new Option<double?>("--high-outer-scale") { Description = "The layer's outer scale, m (none for Kolmogorov)." };
         var fieldGridOpt = new Option<int>("--field-grid") { Description = "The spacing of the points the layer's PSF is computed at, px.", DefaultValueFactory = _ => 6 };
+        var ringLevelsOpt = new Option<string?>("--ring-levels")
+        {
+            Description = "Saturn's rings' levels over the map's mean albedo, C,B,Cassini,A (S3): what the twin is calibrated by. Default: the nominal ones.",
+        };
+        var noTwinRingsOpt = new Option<bool>("--no-rings") { Description = "Draw Saturn's globe alone, without its rings." };
 
         var command = new Command("planetary-degrade",
             "A synthetic capture from a global map with a real capture's own seeing, motion and camera (R2): measure the real one, make the synthetic one, measure it the same way, and compare.")
         {
             Arguments = { inputArg },
-            Options = { mapOpt, outputOpt, planetOpt, kOpt, telescopeOpt, wavelengthOpt, r0Opt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, localR0Opt, localOuterScaleOpt, localWindOpt, localRenewOpt, scatterOpt, scatterCoreOpt, realStatisticsOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, replayOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, plainOpt, framesOpt, bayerMapsOpt, bayerWavelengthsOpt, bayerKOpt, truthUpsampleOpt, spanOpt, truthAtOpt, psfTruthOpt, moonsOpt, moonLevelOpt, highR0Opt, highAltitudeOpt, highWindOpt, highWindAngleOpt, highOuterScaleOpt, fieldGridOpt },
+            Options = { mapOpt, outputOpt, planetOpt, kOpt, telescopeOpt, wavelengthOpt, r0Opt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, localR0Opt, localOuterScaleOpt, localWindOpt, localRenewOpt, scatterOpt, scatterCoreOpt, realStatisticsOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, replayOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, plainOpt, framesOpt, bayerMapsOpt, bayerWavelengthsOpt, bayerKOpt, truthUpsampleOpt, spanOpt, truthAtOpt, psfTruthOpt, moonsOpt, moonLevelOpt, highR0Opt, highAltitudeOpt, highWindOpt, highWindAngleOpt, highOuterScaleOpt, fieldGridOpt, ringLevelsOpt, noTwinRingsOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -324,6 +329,23 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             }
             var planet = parseResult.GetValue(planetOpt)?.ToLowerInvariant() == "saturn" ? CatalogIndex.Saturn : CatalogIndex.Jupiter;
             var progress = new Progress<string>(line => consoleHost.WriteScrollable("    " + line));
+            // Saturn (S3): its map read through the zonal fill, its rings drawn at the levels asked.
+            SaturnRings? twinRings = null;
+            if (planet == CatalogIndex.Saturn)
+            {
+                map = map.FilledZonally();
+                if (!parseResult.GetValue(noTwinRingsOpt))
+                {
+                    var levels = CommaNumbers(parseResult.GetValue(ringLevelsOpt));
+                    if (levels.Length is not (0 or 4))
+                    {
+                        consoleHost.WriteError("--ring-levels takes four levels: C, B, the Cassini division, A");
+                        return 1;
+                    }
+                    twinRings = levels.Length == 0 ? SaturnRings.Main
+                        : new SaturnRings([.. SaturnRings.Main.Rings.Select((ring, i) => ring with { Level = levels[i] })]);
+                }
+            }
 
             using var reader = SerReader.Open(input);
             using var whole = new SerFrameStream(reader, ownsReader: false);
@@ -423,6 +445,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                 HighWindAngleDeg = parseResult.GetValue(highWindAngleOpt),
                 HighOuterScaleM = parseResult.GetValue(highOuterScaleOpt) ?? double.PositiveInfinity,
                 FieldGridPx = parseResult.GetValue(fieldGridOpt),
+                Rings = twinRings,
             };
             // The camera's own terms from the far sky, where the planet's scattered light has gone (the synthetic capture scatters
             // its own light into the ring), as they were before the camera rounded them.
@@ -439,6 +462,20 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                 $"r0 {o.R0M * 100:0.0} cm at 500 nm, outer scale {(double.IsPositiveInfinity(o.OuterScaleM) ? "none" : $"{o.OuterScaleM:0.#} m")}, wind {o.WindMps:0} m/s, exposure {o.ExposureSeconds * 1000:0.#} ms, defocus {o.DefocusNm:0} nm RMS, {(double.IsFinite(o.LocalR0M) ? $"a local layer of r0 {o.LocalR0M * 100:0.0} cm, outer scale {o.LocalOuterScaleM:0.00} m, drifting {o.LocalWindMps:0.#} m/s{(o.LocalRenewSeconds is { } renew ? $", renewing over {renew * 1000:0} ms" : "")}, " : "")}{(o.ScatterFraction > 0 ? $"{o.ScatterFraction * 100:0.##} % scattered with a core of {o.ScatterCoreArcsec:0.#}\", " : "")}{o.WavelengthM * 1e9:0} nm, oversampled {PlanetaryDegrade.OversampleFor(pixelScale, pupil.DiameterM, o.WavelengthM)}x; " +
                 $"camera offset {o.OffsetAdu:0.00}, read noise {o.ReadNoiseAdu:0.000} ADU, {o.ElectronsPerAdu:0.0} e-/ADU, disk {o.DiskLevelAdu:0.0} ADU; {DescribeWarp(o)}" +
                 $"{(o.KeepScreenTilt ? "the screen's tilt on the mount's drift" : "the real shifts replayed")}");
+            // The planet's own level: the one measured is a frame's, through the seeing, the diffraction and the scatter, which carry
+            // light out of the circle it is read in; the render takes it back (S3). The layer at an altitude's per-point PSFs keep the
+            // level as measured.
+            DegradeOptions AtShownLevel(DegradeOptions o, PlanetMap m, DiskPlacement at, double pixelScale, string what)
+            {
+                if (o.HasHighLayer)
+                {
+                    return o;
+                }
+                var gain = PlanetaryDegrade.ShownLevelGain(m, planet, times, at, pixelScale, o);
+                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                    $"{what}: the planet's own level is {gain:0.000} of the {o.DiskLevelAdu:0.0} ADU measured, the light the blur carries out of 0.8 radii put back"));
+                return o with { DiskLevelAdu = o.DiskLevelAdu * gain };
+            }
             // The warp: the layer at an altitude's, which makes it from each point's tilt, or the one asked for.
             static string DescribeWarp(DegradeOptions o) => o.HasHighLayer
                 ? string.Create(CultureInfo.InvariantCulture,
@@ -475,6 +512,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                 return 1;
             }
             var options = WithCamera(Atmosphere(parseResult.GetValue(wavelengthOpt) * 1e-9, parseResult.GetValue(kOpt)), camera, electronsPerAdu);
+            options = AtShownLevel(options, map, reference, scale, Path.GetFileName(output));
             if (options.HasHighLayer && (options.WarpRmsPx > 0 || parseResult.GetValue(psfTruthOpt) || !options.KeepScreenTilt))
             {
                 consoleHost.WriteError($"{input}: a layer at an altitude makes the warp and each point's PSF itself: leave --warp-rms at 0, and --psf-truth and --replay-shifts off");
@@ -526,7 +564,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             var referenceTime = truthAtMiddle ? middle : times[truth.ReferenceIndex];
             var referenceAspect = PhysicalEphemeris.Compute(planet, referenceTime);
             var truthImage = PlanetaryRender.RenderDiffracted(map, referenceAspect, reference, reader.Width, reader.Height, options.MinnaertK, pupil, options.WavelengthM, scale,
-                moons: options.MoonsAt(planet, referenceTime));
+                moons: options.MoonsAt(planet, referenceTime), rings: options.Rings);
             WriteTruth(Path.ChangeExtension(output, ".truth.fits"), truthImage, reader.Width, reader.Height, reference, options, referenceTime, mapPath);
             WriteRecord(Path.ChangeExtension(output, ".frames.csv"), made);
 
@@ -570,7 +608,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                         consoleHost.WriteError($"{mapPaths[c]}: no map");
                         return 1;
                     }
-                    colourMaps[c] = colourMap;
+                    colourMaps[c] = planet == CatalogIndex.Saturn ? colourMap.FilledZonally() : colourMap;
                 }
                 var wavelengths = CommaNumbers(parseResult.GetValue(bayerWavelengthsOpt));
                 var ks = parseResult.GetValue(bayerKOpt) is { } kText ? CommaNumbers(kText) : [parseResult.GetValue(kOpt), parseResult.GetValue(kOpt), parseResult.GetValue(kOpt)];
@@ -646,9 +684,12 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                     consoleHost.WriteError("a colour's finest band leaves no room for shot noise: pass --gain");
                     return 1;
                 }
-                var red = new BayerColour(colourMaps[0], redPlacement, WithCamera(Atmosphere(wavelengths[0] * 1e-9, ks[0]), redTruth.Camera, redGain));
-                var green = new BayerColour(colourMaps[1], greenPlacement, WithCamera(Atmosphere(wavelengths[1] * 1e-9, ks[1]), greenTruth.Camera, greenGain));
-                var blue = new BayerColour(colourMaps[2], bluePlacement, WithCamera(Atmosphere(wavelengths[2] * 1e-9, ks[2]), blueTruth.Camera, blueGain));
+                var red = new BayerColour(colourMaps[0], redPlacement,
+                    AtShownLevel(WithCamera(Atmosphere(wavelengths[0] * 1e-9, ks[0]), redTruth.Camera, redGain), colourMaps[0], redPlacement, sensorScale, "red"));
+                var green = new BayerColour(colourMaps[1], greenPlacement,
+                    AtShownLevel(WithCamera(Atmosphere(wavelengths[1] * 1e-9, ks[1]), greenTruth.Camera, greenGain), colourMaps[1], greenPlacement, sensorScale, "green"));
+                var blue = new BayerColour(colourMaps[2], bluePlacement,
+                    AtShownLevel(WithCamera(Atmosphere(wavelengths[2] * 1e-9, ks[2]), blueTruth.Camera, blueGain), colourMaps[2], bluePlacement, sensorScale, "blue"));
                 foreach (var (name, colour) in new[] { ("red", red), ("green", green), ("blue", blue) })
                 {
                     consoleHost.WriteScrollable($"making {Path.GetFileName(output)}, {name}: {Describe(colour.Options, colour.Placement, sensorScale)}");
@@ -684,7 +725,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                 foreach (var (name, colour, path) in new[] { ("r", red, mapPaths[0]), ("g", green, mapPaths[1]), ("b", blue, mapPaths[2]) })
                 {
                     var render = PlanetaryRender.RenderDiffracted(colour.Map, colourAspect, colour.Placement, reader.Width, reader.Height, colour.Options.MinnaertK, pupil,
-                        colour.Options.WavelengthM, sensorScale, moons: colour.Options.MoonsAt(planet, colourTime));
+                        colour.Options.WavelengthM, sensorScale, moons: colour.Options.MoonsAt(planet, colourTime), rings: colour.Options.Rings);
                     WriteTruth(Path.ChangeExtension(output, $".truth.{name}.fits"), render, reader.Width, reader.Height, colour.Placement, colour.Options, colourTime, path);
                     // At a drizzle's scale: rendered there, never the 1x truth resampled (the plan's rule for R5a).
                     foreach (var upsample in CommaNumbers(parseResult.GetValue(truthUpsampleOpt)))
@@ -697,7 +738,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                             EquatorialRadius = colour.Placement.EquatorialRadius * upsample,
                         };
                         var fine = PlanetaryRender.RenderDiffracted(colour.Map, colourAspect, at, w, h, colour.Options.MinnaertK, pupil, colour.Options.WavelengthM, sensorScale / upsample,
-                            moons: colour.Options.MoonsAt(planet, colourTime));
+                            moons: colour.Options.MoonsAt(planet, colourTime), rings: colour.Options.Rings);
                         WriteTruth(Path.ChangeExtension(output, string.Create(CultureInfo.InvariantCulture, $".truth.{name}.x{upsample:0.##}.fits")), fine, w, h, at, colour.Options, colourTime, path);
                     }
                 }
@@ -816,6 +857,14 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             Row("limb darkening k, every frame", ra.LimbDarkening, sa.LimbDarkening);
             Row("limb blur sigma, every frame (px)", ra.PsfSigma, sa.PsfSigma);
             Row("limb blur wing's share, every frame", ra.HaloFraction, sa.HaloFraction);
+            // Saturn's rings, each over the globe's brightness as the ringed limb fit reads them (S3).
+            if (ra.RingLevels is { } realRings && sa.RingLevels is { } twinRings && realRings.Length == twinRings.Length)
+            {
+                for (var i = 0; i < realRings.Length; i++)
+                {
+                    Row($"ring {SaturnRings.Main.Rings[i].Name} over the globe", realRings[i], twinRings[i]);
+                }
+            }
         }
         if (real.LimbBest is { } rb && synthetic.LimbBest is { } sb)
         {
@@ -835,6 +884,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         {
             Row($"halo {PlanetaryCaptureStatistics.HaloAnnuli[j]:0.0#} to {PlanetaryCaptureStatistics.HaloAnnuli[j + 1]:0.0#} radii (ADU)", real.Halo[j], synthetic.Halo[j]);
         }
+        Row("disk level over the local sky (ADU)", real.Camera.DiskLevel, synthetic.Camera.DiskLevel);
         Row("flux, quarter-second RMS", real.FluxSlowRms, synthetic.FluxSlowRms);
         Row("flux, frame to frame RMS", real.FluxFastRms, synthetic.FluxFastRms);
         if (real.Warp.Bound == WarpLengthBound.Measured && synthetic.Warp.Bound == WarpLengthBound.Measured)
@@ -891,8 +941,10 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             $"    limb edge width: {s.LimbWidthAll:0.000} px in the mean of every frame aligned, {s.LimbWidthBest:0.000} px in the best tenth's"));
         foreach (var (which, fit) in new[] { ("every frame", s.LimbAll), ("best tenth", s.LimbBest) })
         {
+            // Saturn's rings, each over the globe's brightness (S3).
+            var rings = fit is { RingLevels: { } levels } ? $"; rings {string.Join(", ", levels.Select(l => l.ToString("0.000", inv)))} of the globe" : "";
             consoleHost.WriteScrollable(fit is { } f
-                ? string.Create(inv, $"    limb fit, {which}: R {f.EquatorialRadius:0.000} px, k {f.LimbDarkening:0.000}, blur sigma {f.PsfSigma:0.000} px with {100 * f.HaloFraction:0} % in a wing of {f.HaloWidth:0.0} px, rms {f.RmsResidual:0.00000}")
+                ? string.Create(inv, $"    limb fit, {which}: R {f.EquatorialRadius:0.000} px, k {f.LimbDarkening:0.000}, blur sigma {f.PsfSigma:0.000} px with {100 * f.HaloFraction:0} % in a wing of {f.HaloWidth:0.0} px, rms {f.RmsResidual:0.00000}{rings}")
                 : $"    limb fit, {which}: no disk");
         }
         if (FrameLimbPercentiles(s) is { } frames)

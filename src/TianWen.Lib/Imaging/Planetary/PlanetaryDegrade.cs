@@ -84,7 +84,11 @@ public sealed record DegradeOptions(Pupil Pupil, double WavelengthM)
     /// <summary>The gain, in electrons an ADU, which sets the shot noise.</summary>
     public double ElectronsPerAdu { get; init; } = 1;
 
-    /// <summary>The disk's mean over the sky inside 0.8 radii, in ADU, which the render is scaled to.</summary>
+    /// <summary>
+    /// The disk's mean over the sky inside 0.8 radii, in ADU, which the render is scaled to: the planet's own level, before the seeing,
+    /// the diffraction and the scatter carry light out past 0.8 radii. A real capture's level is read through them, so a twin takes
+    /// it times <see cref="PlanetaryDegrade.ShownLevelGain"/> (S3).
+    /// </summary>
     public double DiskLevelAdu { get; init; } = 100;
 
     /// <summary>
@@ -141,6 +145,12 @@ public sealed record DegradeOptions(Pupil Pupil, double WavelengthM)
 
     /// <summary>The moons' surface brightness over the disk's mean inside 0.8 radii, which <see cref="DiskLevelAdu"/> sets.</summary>
     public double MoonLevel { get; init; } = 1;
+
+    /// <summary>
+    /// Saturn's rings, drawn with the globe in the frames and in the truth (docs/plans/planetary-restoration.md, S3, #1233); null for a
+    /// planet without them. Their levels are what the twin is calibrated by.
+    /// </summary>
+    public SaturnRings? Rings { get; init; }
 
     /// <summary>
     /// The free air at an altitude (docs/plans/planetary-restoration.md, R4 per-point, #1071), its Fried parameter at 500 nm; infinite
@@ -371,21 +381,7 @@ public static partial class PlanetaryDegrade
 
         // The fine grid: a window of the detector around the reference disk, sampled `os` times finer, big enough for the
         // disk, its halo, the PSF's reach and the warp, and for the moons asked for wherever they go over the capture.
-        var os = OversampleFor(arcsecPerPixel, options.Pupil.DiameterM, options.WavelengthM);
-        var reach = 1.3;
-        foreach (var moon in options.MoonsAt(planet, times[0]).AddRange(options.MoonsAt(planet, times[^1])))
-        {
-            reach = Math.Max(reach, Math.Sqrt((moon.X * moon.X) + (moon.Y * moon.Y)) + moon.Radius);
-        }
-        var fine = NextPowerOfTwo((int)Math.Ceiling(((2 * reach * reference.EquatorialRadius) + 16) * os) + PsfGrid);
-        var windowPx = fine / os;
-        var (windowX, windowY) = ((int)Math.Round(reference.CenterX) - (windowPx / 2), (int)Math.Round(reference.CenterY) - (windowPx / 2));
-        var finePlacement = reference with
-        {
-            CenterX = ((reference.CenterX - windowX + 0.5) * os) - 0.5,
-            CenterY = ((reference.CenterY - windowY + 0.5) * os) - 0.5,
-            EquatorialRadius = reference.EquatorialRadius * os,
-        };
+        var (os, fine, windowPx, windowX, windowY, finePlacement) = FineWindow(planet, times, reference, arcsecPerPixel, options);
 
         if (options.HasHighLayer)
         {
@@ -603,10 +599,127 @@ public static partial class PlanetaryDegrade
         return spectrum;
     }
 
+    /// <summary>
+    /// How much brighter than a capture's measured level a twin's planet must be for its frames to show that level (S3 of
+    /// docs/plans/planetary-restoration.md, #1233): the level is read off a frame, through the seeing, the diffraction wing and the
+    /// scatter, which carry light out of the circle of 0.8 radii it is read in, while <see cref="DegradeOptions.DiskLevelAdu"/> scales
+    /// the sharp render. Read through the mean PSF of the capture's first <paramref name="frames"/> frames (the twin's own air, drawn
+    /// from its seed) and the render at the first instant.
+    /// </summary>
+    public static double ShownLevelGain(PlanetMap map, CatalogIndex planet, ImmutableArray<DateTimeOffset> times, DiskPlacement reference, double arcsecPerPixel,
+        DegradeOptions options, int frames = Block)
+    {
+        ArgumentNullException.ThrowIfNull(map);
+        ArgumentNullException.ThrowIfNull(options);
+        var (os, fine, _, _, _, finePlacement) = FineWindow(planet, times, reference, arcsecPerPixel, options);
+        var seeing = new SeeingPsfSequence(options, arcsecPerPixel);
+        var n = Math.Min(frames, times.Length);
+        var psfs = new double[n][];
+        for (var t = 0; t < n; t++)
+        {
+            if (t > 0)
+            {
+                seeing.Step((times[t] - times[t - 1]).TotalSeconds);
+            }
+            psfs[t] = new double[PsfGrid * PsfGrid];
+            seeing.Exposure(psfs[t]);
+        }
+        var scatter = options.ScatterFraction > 0 ? ScatterSpectrum(fine, options.ScatterCoreArcsec / (arcsecPerPixel / os)) : null;
+        var objectSpectrum = ObjectSpectrum(map, PhysicalEphemeris.Compute(planet, times[0]), finePlacement, fine, options, options.MoonsAt(planet, times[0]));
+        return LevelGain(objectSpectrum, psfs, scatter, fine, finePlacement, options);
+    }
+
+    // The fine grid a capture's frames are made on: its oversampling, its size (a power of two that holds the planet, its rings and its
+    // moons with the PSF's reach), the window of the frame's whole pixels it covers, and the reference placement on it.
+    private static (int Os, int Fine, int WindowPx, int WindowX, int WindowY, DiskPlacement FinePlacement) FineWindow(CatalogIndex planet,
+        ImmutableArray<DateTimeOffset> times, in DiskPlacement reference, double arcsecPerPixel, DegradeOptions options)
+    {
+        var os = OversampleFor(arcsecPerPixel, options.Pupil.DiameterM, options.WavelengthM);
+        // Saturn's rings reach past its globe, 2.3 radii along the equator (S3).
+        var reach = Math.Max(1.3, (options.Rings?.OuterRadii ?? 0) + 0.2);
+        foreach (var moon in options.MoonsAt(planet, times[0]).AddRange(options.MoonsAt(planet, times[^1])))
+        {
+            reach = Math.Max(reach, Math.Sqrt((moon.X * moon.X) + (moon.Y * moon.Y)) + moon.Radius);
+        }
+        var fine = NextPowerOfTwo((int)Math.Ceiling(((2 * reach * reference.EquatorialRadius) + 16) * os) + PsfGrid);
+        var windowPx = fine / os;
+        var (windowX, windowY) = ((int)Math.Round(reference.CenterX) - (windowPx / 2), (int)Math.Round(reference.CenterY) - (windowPx / 2));
+        var finePlacement = reference with
+        {
+            CenterX = ((reference.CenterX - windowX + 0.5) * os) - 0.5,
+            CenterY = ((reference.CenterY - windowY + 0.5) * os) - 0.5,
+            EquatorialRadius = reference.EquatorialRadius * os,
+        };
+        return (os, fine, windowPx, windowX, windowY, finePlacement);
+    }
+
+    // The gain ShownLevelGain reads: the object through the mean of `psfs`, without their shifts, against its sharp level.
+    private static double LevelGain(Complex[] objectSpectrum, double[][] psfs, Complex[]? scatter, int fine, in DiskPlacement placement, DegradeOptions options)
+    {
+        // Each PSF centred on its own centroid before the mean: a frame's level is read where its disk lies, so its tilt takes no
+        // light out of the circle (the tilts left in read a gain 2 % too large).
+        var mean = new Complex[PsfGrid * PsfGrid];
+        var one = new Complex[PsfGrid * PsfGrid];
+        foreach (var psf in psfs)
+        {
+            for (var i = 0; i < one.Length; i++)
+            {
+                one[i] = psf[i];
+            }
+            Fft2D.Forward(one, PsfGrid, PsfGrid);
+            var (cx, cy) = Centroid(psf);
+            for (var ky = 0; ky < PsfGrid; ky++)
+            {
+                var fy = (ky < PsfGrid / 2 ? ky : ky - PsfGrid) / (double)PsfGrid;
+                for (var kx = 0; kx < PsfGrid; kx++)
+                {
+                    var fx = (kx < PsfGrid / 2 ? kx : kx - PsfGrid) / (double)PsfGrid;
+                    var i = (ky * PsfGrid) + kx;
+                    mean[i] += one[i] * Complex.FromPolarCoordinates(1.0 / psfs.Length, 2 * Math.PI * ((fx * cx) + (fy * cy)));
+                }
+            }
+        }
+        Fft2D.Inverse(mean, PsfGrid, PsfGrid);
+        var field = new Complex[fine * fine];
+        for (var y = 0; y < PsfGrid; y++)
+        {
+            var fy = ((y - (PsfGrid / 2)) + fine) % fine;
+            for (var x = 0; x < PsfGrid; x++)
+            {
+                var fx = ((x - (PsfGrid / 2)) + fine) % fine;
+                field[(fy * fine) + fx] = mean[(y * PsfGrid) + x].Real;
+            }
+        }
+        Fft2D.Forward(field, fine, fine);
+        var kept = scatter is null ? 1 : 1 - options.ScatterFraction;
+        for (var i = 0; i < field.Length; i++)
+        {
+            var transfer = scatter is null ? field[i] : (kept * field[i]) + (options.ScatterFraction * scatter[i]);
+            field[i] = transfer * objectSpectrum[i];
+        }
+        Fft2D.Inverse(field, fine, fine);
+        double sum = 0;
+        var count = 0;
+        for (var y = 0; y < fine; y++)
+        {
+            for (var x = 0; x < fine; x++)
+            {
+                var (dx, dy) = (x - placement.CenterX, y - placement.CenterY);
+                if ((dx * dx) + (dy * dy) < 0.64 * placement.EquatorialRadius * placement.EquatorialRadius)
+                {
+                    sum += field[(y * fine) + x].Real;
+                    count++;
+                }
+            }
+        }
+        var shown = count > 0 ? sum / count : 0;
+        return shown > 0 ? options.DiskLevelAdu * options.ElectronsPerAdu / shown : 1;
+    }
+
     // The map at `aspect`, with its moons, on the fine grid, scaled so the disk's mean inside 0.8 radii is its level in electrons.
     private static double[] ObjectPlane(PlanetMap map, in PlanetAspect aspect, in DiskPlacement placement, int fine, DegradeOptions options, ImmutableArray<MoonDisk> moons)
     {
-        var render = PlanetaryRender.Render(map, aspect, placement, fine, fine, options.MinnaertK, supersample: 2, moons);
+        var render = PlanetaryRender.Render(map, aspect, placement, fine, fine, options.MinnaertK, supersample: 2, moons, options.Rings);
         double sum = 0;
         var count = 0;
         for (var y = 0; y < fine; y++)
