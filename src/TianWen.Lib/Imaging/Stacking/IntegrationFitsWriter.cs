@@ -77,6 +77,29 @@ public static class IntegrationFitsWriter
     /// <summary>Per-pixel "do not trust this photosite": what a bad pixel map holds.</summary>
     public const string BadPixelMapKind = "BADPIXEL";
 
+    /// <summary>Suffix of the standard-error sidecar (<see cref="IntegrationResult.StandardError"/>), on the master's
+    /// stem like the others.</summary>
+    public const string StandardErrorMapSuffix = ".stderr.fits";
+
+    /// <summary>Per channel and pixel, the standard error of the master's value, in the master's units.</summary>
+    public const string StandardErrorMapKind = "STDERR";
+
+    /// <summary>
+    /// The standard-error sidecar's storage: its natural log, in fixed 16-bit steps of 0.001 (0.1 percent), the bottom
+    /// code reserved for "absent".
+    /// </summary>
+    /// <remarks>
+    /// A map's usual storage (<see cref="MapStorage"/>) spans <c>[0, max]</c> linearly and reads a non-finite pixel back
+    /// as 0. Under a star core's standard error that loses the sky's, and it states an uncovered pixel's noise as known
+    /// exactly. The log keeps one relative step everywhere; a FIXED scale (not one fitted to the data) lets any reader
+    /// decode it without the header, and reaches standard errors from about 6e-15 to 1.7e14, which covers both a bake's
+    /// ADU masters and a unit-scaled one.
+    /// </remarks>
+    internal static readonly FitsSampleStorage StandardErrorStorage = new(BitDepth.Int16, 0.001, 0.0) { RoundToNearest = true };
+
+    /// <summary>The stored log a standard error of exactly zero takes: the lowest code that is not "absent".</summary>
+    private const float StandardErrorLogFloor = -32.767f;
+
     /// <summary>
     /// Writes <paramref name="result"/> to <paramref name="masterPath"/>
     /// (the master master image) plus a sibling <c>.rejection.fits</c> file
@@ -175,7 +198,101 @@ public static class IntegrationFitsWriter
         {
             WriteCoverageMap(masterPath, coverage, result.FrameCount, strategy);
         }
+        if (result.StandardError is { } standardError)
+        {
+            WriteStandardErrorMap(masterPath, standardError, result.FrameCount, strategy);
+        }
         WriteBadPixelMap(masterPath, badPixelMask, result.Master.ImageMeta, result.FrameCount);
+    }
+
+    /// <summary>
+    /// Writes the per-channel standard-error plane beside a master, at the master's path plus
+    /// <see cref="StandardErrorMapSuffix"/>, in <see cref="StandardErrorStorage"/> and gzipped. It must describe THIS
+    /// master's pixels: a caller that rescaled or cropped the master rescales and crops it too, and one that sharpened
+    /// the master writes none.
+    /// </summary>
+    public static void WriteStandardErrorMap(string masterPath, Image standardError, int frameCount, IntegrationStrategyKind? strategy = null)
+    {
+        var logs = new float[standardError.ChannelCount][,];
+        var (min, max) = (float.PositiveInfinity, float.NegativeInfinity);
+        for (var c = 0; c < logs.Length; c++)
+        {
+            var source = standardError.GetChannelArray(c);
+            var plane = new float[source.GetLength(0), source.GetLength(1)];
+            for (var y = 0; y < plane.GetLength(0); y++)
+            {
+                for (var x = 0; x < plane.GetLength(1); x++)
+                {
+                    var v = source[y, x];
+                    // NaN stays NaN, which the storage writes as the bottom code, "absent"; zero is the lowest code above.
+                    var log = float.IsNaN(v) ? float.NaN : v > 0f ? MathF.Max(MathF.Log(v), StandardErrorLogFloor) : StandardErrorLogFloor;
+                    plane[y, x] = log;
+                    if (!float.IsNaN(log))
+                    {
+                        min = MathF.Min(min, log);
+                        max = MathF.Max(max, log);
+                    }
+                }
+            }
+            logs[c] = plane;
+        }
+        var logImage = new Image(logs, BitDepth.Float32, float.IsFinite(max) ? max : 0f, float.IsFinite(min) ? min : 0f, 0f, standardError.ImageMeta);
+        var extras = new Dictionary<string, (object Value, string Comment)>
+        {
+            ["STACK_N"] = (frameCount, "Frames the standard error was measured over"),
+            ["SWCREATE"] = (SoftwareCreator, "Software that created this standard-error map"),
+            ["IMAGETYP"] = ("STDERR", "Per-pixel standard error of the master, natural log"),
+            [MapKindCard] = (StandardErrorMapKind, "Standard error of the master's value per pixel, in its units"),
+            ["STDERRLN"] = (true, "Values are ln(standard error); the lowest code is absent"),
+        };
+        if (strategy is { } s)
+        {
+            extras["STRATEGY"] = (s.ToString(), "Integration strategy used (IntegrationStrategyKind)");
+        }
+        logImage.WriteToFitsFile(CompressedPathFor(StandardErrorPathFor(masterPath)), wcs: null, extras, StandardErrorStorage);
+    }
+
+    /// <summary>
+    /// Loads the standard-error plane beside <paramref name="masterPath"/>, decoded back to the master's units (NaN where
+    /// it was absent). False where the master has none: one written before it existed, by a strategy that does not
+    /// measure it yet, or by software other than TianWen.
+    /// </summary>
+    public static bool TryReadStandardErrorMap(string masterPath, [NotNullWhen(true)] out Image? standardError)
+    {
+        standardError = null;
+        if (string.IsNullOrEmpty(masterPath)
+            || ExistingSidecarPath(StandardErrorPathFor(masterPath)) is not { } path
+            || !Image.TryReadFitsFile(path, out var logImage))
+        {
+            return false;
+        }
+        // The bottom code reads back one step under the floor; anything under the floor's half step is it.
+        var absentBelow = StandardErrorLogFloor - (0.5f * (float)StandardErrorStorage.BScale);
+        var planes = new float[logImage.ChannelCount][,];
+        var peak = 0f;
+        for (var c = 0; c < planes.Length; c++)
+        {
+            var source = logImage.GetChannelArray(c);
+            var plane = new float[source.GetLength(0), source.GetLength(1)];
+            for (var y = 0; y < plane.GetLength(0); y++)
+            {
+                for (var x = 0; x < plane.GetLength(1); x++)
+                {
+                    var log = source[y, x];
+                    var v = log < absentBelow || float.IsNaN(log) ? float.NaN : MathF.Exp(log);
+                    plane[y, x] = v;
+                    if (v > peak)
+                    {
+                        peak = v;
+                    }
+                }
+            }
+            planes[c] = plane;
+        }
+        var meta = logImage.ImageMeta;
+        logImage.Release();
+        standardError = new Image(planes, BitDepth.Float32, peak > 0f ? peak : 1f, 0f, 0f, meta);
+        return true;
     }
 
     /// <summary>
@@ -534,8 +651,12 @@ public static class IntegrationFitsWriter
 
         return name.EndsWith(RejectionMapSuffix, StringComparison.OrdinalIgnoreCase)
             || name.EndsWith(CoverageMapSuffix, StringComparison.OrdinalIgnoreCase)
-            || name.EndsWith(BadPixelMapSuffix, StringComparison.OrdinalIgnoreCase);
+            || name.EndsWith(BadPixelMapSuffix, StringComparison.OrdinalIgnoreCase)
+            || name.EndsWith(StandardErrorMapSuffix, StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <summary>The standard-error sibling of a master: the stem plus <see cref="StandardErrorMapSuffix"/>.</summary>
+    public static string StandardErrorPathFor(string masterPath) => SiblingPath(masterPath, StandardErrorMapSuffix);
 
     /// <summary>Computes the rejection-map sibling path for a given master path.</summary>
     public static string RejectionPathFor(string masterPath) => SiblingPath(masterPath, RejectionMapSuffix);
