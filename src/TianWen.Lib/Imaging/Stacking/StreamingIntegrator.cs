@@ -148,6 +148,8 @@ public static class StreamingIntegrator
         // that already reads every sample, because the rejection fraction beside it is what every
         // non-drizzle master carried as its only sidecar and the exact crop tier cannot use it.
         using IIntegrationSink coverageSink = new ArraySink(1, width, height);
+        // The standard error of each combined value, from the same column and mask, per channel.
+        using IIntegrationSink standardErrorSink = new ArraySink(channelCount, width, height);
 
         long totalRejections = 0;
 
@@ -208,6 +210,7 @@ public static class StreamingIntegrator
                         var masterRow = masterSinkInUse.GetRow(channelIdx, globalRow);
                         var rejectRow = rejectSinkInUse.GetRow(0, globalRow);
                         var coverageRow = coverageSink.GetRow(0, globalRow);
+                        var standardErrorRow = standardErrorSink.GetRow(channelIdx, globalRow);
 
                         for (var col = 0; col < width; col++)
                         {
@@ -240,6 +243,7 @@ public static class StreamingIntegrator
                             }
 
                             masterRow[col] = combiner.Combine(columnSpan, maskSpan);
+                            standardErrorRow[col] = StandardErrorPlane.Of(columnSpan, maskSpan);
 
                             if (rejector is not null)
                             {
@@ -297,6 +301,7 @@ public static class StreamingIntegrator
         return new IntegrationResult(masterImage, rejectMapImage, n, totalRejections, meanRate)
         {
             Coverage = coverageImage,
+            StandardError = StandardErrorPlane.Finalise(standardErrorSink, firstFrame.Meta),
         };
     }
 

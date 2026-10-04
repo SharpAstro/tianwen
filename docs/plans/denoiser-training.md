@@ -2893,6 +2893,37 @@ What remains, in the order the evidence points:
 
 Both are the owner's choice: H7 waits on E16c by the owner's decision of 2026-10-05.
 
+#### E16c step 2: the stacker's per-pixel standard error (the owner's choice, 2026-10-05)
+
+The owner chose the measurement over another estimator: the stacker writes each master's standard error per channel
+and pixel, and the plane is read from it wherever it exists. The estimator stays only as the fallback for a master
+TianWen did not stack. Phases:
+
+| phase | what | status |
+|---|---|---|
+| S1 | the plane in both per-pixel loops (`Integrator`, `StreamingIntegrator`; so InRamAllFrames, TilePipelined, Float16Staged, FootprintStaged), `IntegrationResult.StandardError`; the sidecar's writer and reader | the plane DONE; the sidecar next |
+| S2 | the drizzle strategies (the survivors' weighted moments in the clipped deposit) and ChunkedTwoPass (double, per channel) | |
+| S3 | the bake: master and half-master planes on `RegisteredSession`, the store's sidecar, MEASURED tile planes, a recipe-version bump; `MasterPostProcessor` scales and crops it with the master | |
+| S4 | the validation against the half pairs, pre-registered, on a re-bake of the halved sessions | |
+| S5 | the runner reads the sidecar beside a master, the estimator its fallback | |
+
+**What the plane is, measured before it was fixed (`StandardErrorPlaneTests`).** The rule is one frame's noise, read
+robustly from every finite sample (1.4826 times the MAD about their median), over the square root of the kept count.
+It was not the first rule.
+
+The first rule was the survivors' own scatter over their count. It failed its test, frames of known noise with 3 percent
+hot outliers under the sigma clip: the master's error over that plane spread 1.164 per pixel, with tails to 7.6. An
+iterated clip tightens on some columns until the survivors cluster, and their scatter then says the mean is far better
+known than it is.
+
+The robust rule reads the master's error, RMS over the plane's RMS over the frame (what a low-passed plane uses), at
+0.993 to 1.024 in every channel, clipped or not. Per pixel it reads 0.97 to 1.07, a MAD of 40 frames reading one pixel's
+noise to about 18 percent.
+
+**The sidecar's storage.** A map's usual quantisation spans `[0, max]` linearly and reads a non-finite pixel back as 0.
+Under bright star cores that loses a sky-level standard error, and it reads an uncovered pixel as noise known exactly.
+The standard error is therefore stored as its logarithm in 16 bits, with the bottom code reserved for "absent".
+
 ### 2026-10-05: H7, pre-registered
 
 Tracked by #1260. Written before any H7 export, cache or model existed; `training/denoise/run-h7.ps1` copies it into
