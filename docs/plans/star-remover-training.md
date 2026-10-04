@@ -129,9 +129,13 @@ Four rules the denoiser and gradient programmes paid for since this was written 
   0.33 on a drizzled one, against white noise's 0.22; `tianwen dataset degrade --measure-shape`), so a star
   injected with white noise is recognisable by its texture alone, and a net that learns "a star with white noise is the one to
   remove" leaves every real star in place.
-- **Draw the profile from `MasterProfiles`, never the subs', and integrate it over the pixel.** The master's
-  profile already carries the warp kernel and the demosaic or drizzle; a sub-2 px profile sampled at pixel
-  centres does not blur by its label.
+- **Draw the profile the master's own amplitudes were fitted with, measured on the master, never the subs', and
+  integrate it over the pixel.** The master's profile already carries the warp kernel and the demosaic or drizzle;
+  a sub-2 px profile sampled at pixel centres does not blur by its label. That profile is R0's field profile (its
+  Moffat and residual table, `StarlessFieldProfile` beside each plate), not the PSF store's single Moffat
+  (`MasterProfiles`): an amplitude means something only with the profile it was fitted with, and the store's Moffat
+  drew saturated cores 1.2 to 1.6 times too bright and left out the wing light real stars carry ("The soft top,
+  resolved").
 - **Edges are masked, never cropped** (the gradient plan's "Edges"): no star lands on an absent pixel of the
   canvas ring, and a cell that straddles it carries the presence the stretch already respects (the NAFNet
   pre-stretch measures covered pixels only).
@@ -624,6 +628,15 @@ widest plateaus. A 2 against 1 is a top still a little flatter than real (the pr
 SMC and the Lagoon), which theme B's clip spread would also round. The noise arm is unchanged, as it must be. Leo has been
 refused by every R1 run, the first included: its plate fails the exporter's linearity test (median over minimum above
 0.125 of full scale, the bright sky at about a third of it), so no R1 measure has covered it.
+
+**The training exports (started 2026-10-04).** The pool is the store's train split less the three plates the exporter's
+linearity test refuses (ZWO ASI294MM luminance, a bright sky: Leo Triplet 2022-03-26 and the Rosette 2021-12-31 and
+2022-01-09, at 0.196, 0.176 and 0.138 against the auto-detect's 0.125; `PlateLinearityProbe`, 3 of 190) and less one whole
+held-out train, the SVBONY SV605CC on the SH61 at 270 mm (19 sessions, a camera, sensor family and scope apart from the
+dominant ASI533 and Samyang 135): 138 sessions, 40 cells and 4 draws each, the field profile, saturated fraction 0.25,
+warped noise as the checks. Three arms from one binary: random (the training arm), Gaussian (H2) and at-site (H3's
+control). Each arm runs in chunks of ten sessions into one folder, the stop file read between chunks; the draws are seeded
+per session, cell and draw, so a chunked arm is the bytes one run would write.
 
 Open from it, under #902: R0's saturated fit on a fixed annulus in FWHM units with a 0.1 to 0.3 core cut (#1240); a
 residual table that holds bright stars' near wings (#1241); the Lagoon's and eta Carinae's photometric offsets (1.4 to 1.7,
