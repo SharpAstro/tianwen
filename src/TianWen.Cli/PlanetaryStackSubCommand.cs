@@ -220,6 +220,10 @@ internal sealed class PlanetaryStackSubCommand(
         {
             Description = "Advanced: how far a point's displacement reaches into the mesh (px; 48 by default). A dense grid wants it near its spacing (#1081, #1195).",
         };
+        var placementOpt = new Option<PlanetaryPointPlacement?>("--ap-placement")
+        {
+            Description = "Advanced: where alignment points go: peakfraction (a fifth of the strongest gradient in the bright disk's box, the default) or overplanet (the whole planet, by the frame's own noise, #1253; Saturn gets points on its globe).",
+        };
         var estimatorOpt = new Option<string?>("--estimator")
         {
             Description = "Advanced: how each point's shift is read: correlation (windowed, the default), weighted (the correlation by its maximum-likelihood weight) or sdf (square difference, #1082).",
@@ -233,7 +237,7 @@ internal sealed class PlanetaryStackSubCommand(
                 outputOpt, labelOpt, keepOpt, qualityOpt, globalOpt, drizzleOpt, drizzlePixfracOpt, drizzleGlobalOpt,
                 noPerPointOpt, noSignalGateOpt, noChannelAlignOpt, colourSaturationOpt, noColourBalanceOpt,
                 noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, wavelengthOpt, fixOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, noPngOpt, pngGammaOpt,
-                tileSizeOpt, apSpacingOpt, maxApOpt, patchSizeOpt, meshSpacingOpt, meshInfluenceOpt, estimatorOpt, correlationOpt, interpolationOpt, referenceFramesOpt,
+                tileSizeOpt, apSpacingOpt, maxApOpt, placementOpt, patchSizeOpt, meshSpacingOpt, meshInfluenceOpt, estimatorOpt, correlationOpt, interpolationOpt, referenceFramesOpt,
                 derotateOpt, noDerotateOpt, planetOpt, turnNorthOverOpt, legacyOpt, truthOpt,
             },
         };
@@ -351,6 +355,7 @@ internal sealed class PlanetaryStackSubCommand(
                 AlignTileSize = parseResult.GetValue(tileSizeOpt),
                 AlignmentPointSpacing = parseResult.GetValue(apSpacingOpt),
                 MaxAlignmentPoints = parseResult.GetValue(maxApOpt),
+                PointPlacement = parseResult.GetValue(placementOpt) ?? baseline.PointPlacement,
                 AlignmentPatchSize = RoundUpToPowerOfTwo(parseResult.GetValue(patchSizeOpt)),
                 MeshNodeSpacing = parseResult.GetValue(meshSpacingOpt),
                 MeshInfluence = parseResult.GetValue(meshInfluenceOpt) ?? baseline.MeshInfluence,
@@ -403,7 +408,7 @@ internal sealed class PlanetaryStackSubCommand(
             var master = result.Master;
             consoleHost.WriteScrollable(
                 $"[planetary] {baseName}: stacked {result.FramesUsed}/{result.FramesGraded} frames " +
-                $"(reference #{result.ReferenceIndex}{(result.AlignmentPoints > 0 ? $", {result.AlignmentPoints} alignment points" : "")}) in {sw.Elapsed.TotalSeconds:F1}s");
+                $"(reference #{result.ReferenceIndex}{(result.AlignmentPoints > 0 ? $", {result.AlignmentPoints} alignment points{(result.AlignmentPointCandidates > result.AlignmentPoints ? $" of {result.AlignmentPointCandidates}, capped" : "")}" : "")}) in {sw.Elapsed.TotalSeconds:F1}s");
             if (result.FramesCut > 0)
             {
                 consoleHost.WriteScrollable($"[planetary] left out {result.FramesCut} frames whose planet the frame's edge cuts or which hold none (it drifted out of the field)");

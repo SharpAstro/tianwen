@@ -40,6 +40,7 @@ public sealed class LuckyImagingStacker
         {
             Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, TurnPx = ctx.TurnPx, ChannelAlignment = alignment, FramesCut = FramesLeftOutAsCut(ctx.Grades),
             AlignmentPoints = ctx.Matcher?.AlignmentPoints.Length ?? 0,
+            AlignmentPointCandidates = ctx.AlignmentPointCandidates,
         };
     }
 
@@ -273,6 +274,7 @@ public sealed class LuckyImagingStacker
         {
             Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, TurnPx = ctx.TurnPx, ChannelAlignment = alignment, FramesCut = FramesLeftOutAsCut(ctx.Grades),
             AlignmentPoints = ctx.Matcher?.AlignmentPoints.Length ?? 0,
+            AlignmentPointCandidates = ctx.AlignmentPointCandidates,
         };
     }
 
@@ -410,6 +412,7 @@ public sealed class LuckyImagingStacker
         {
             Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, TurnPx = ctx.TurnPx, ChannelAlignment = alignment, FramesCut = FramesLeftOutAsCut(ctx.Grades),
             AlignmentPoints = ctx.Matcher?.AlignmentPoints.Length ?? 0,
+            AlignmentPointCandidates = ctx.AlignmentPointCandidates,
         };
     }
 
@@ -496,7 +499,8 @@ public sealed class LuckyImagingStacker
         ImageMeta MasterMeta,
         FrameDerotator? Derotator,
         PlanetaryNorthDecision? North,
-        double? TurnPx);
+        double? TurnPx,
+        int AlignmentPointCandidates);
 
     private static async Task<StackContext> PrepareAsync(IPlanetaryFrameStream stream, PlanetaryStackOptions options, bool includeAlignmentPoints, CancellationToken cancellationToken)
     {
@@ -572,9 +576,12 @@ public sealed class LuckyImagingStacker
 
             AlignmentPointMatcher? matcher = null;
             float[,]? signalConfidence = null;
+            var (aps, apCandidates) = (ImmutableArray<PixelPoint>.Empty, 0);
             if (includeAlignmentPoints)
             {
-                var aps = FeatureDetector.DetectAlignmentPoints(reference, refRegion, options.AlignmentPointSpacing, options.MaxAlignmentPoints);
+                (aps, apCandidates) = options.PointPlacement == PlanetaryPointPlacement.OverPlanet
+                    ? FeatureDetector.DetectOverPlanet(reference, options.AlignmentPointSpacing, options.MaxAlignmentPoints)
+                    : FeatureDetector.DetectByPeakFraction(reference, refRegion, options.AlignmentPointSpacing, options.MaxAlignmentPoints);
                 matcher = AlignmentPointMatcher.FromReference(reference, aps, options.AlignmentPatchSize, options.WhitenedCorrelation, options.PointEstimator);
                 if (options.RemeasureAgainstStack && derotator is null)
                 {
@@ -606,7 +613,7 @@ public sealed class LuckyImagingStacker
                 masterMeta = masterMeta with { ObjectName = planet.ToString() };
             }
             return new StackContext(grades, referenceIndex, selected, scoreByIndex, aligner, matcher, signalConfidence,
-                reference.Width, reference.Height, reference.ChannelCount, masterMeta, derotator, north, turnPx);
+                reference.Width, reference.Height, reference.ChannelCount, masterMeta, derotator, north, turnPx, apCandidates);
         }
         finally
         {

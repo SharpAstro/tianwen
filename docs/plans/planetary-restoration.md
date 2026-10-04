@@ -943,7 +943,33 @@ stacked at the defaults and again with the dense grid (`--ap-patch 16 --ap-spaci
   - **Saturn gets 3 to 13 points:** a cell keeps a point only where its gradient reaches a fifth of the region's strongest, which on
     Saturn is the limb and the ring edges, so the 16" Saturn's stack is effectively global. The dense grid lifts it only to 40, where the
     12" SCT Jupiter's disk, twice its radius, takes 1,616.
-  - Points placed over the whole planet by each patch's own contrast are the dewarp still to win, Saturn first.
+  - Points placed over the whole planet by each patch's own contrast were the dewarp left to try, Saturn first (#1253, below).
+
+##### #1253: points over the planet
+
+`--ap-placement overplanet` (`PlanetaryPointPlacement.OverPlanet`, `FeatureDetector.DetectOverPlanet`) places the points by three rules:
+- **The planet:** the planet is every pixel above its sky by 8 % of its peak (the frame's 10th and 99.9th percentiles), rings included.
+  A point may sit only where the 9 px square about it lies on the planet, so none sits on the outer limb, where a patch floats along the edge.
+  - Requiring a cell's whole 24 px square on the planet was too strict: a split-CFA plane's Saturn, 25 px in radius, kept one point.
+- **The threshold:** a cell keeps its strongest gradient when that stands 8 times above what the frame's own noise gives a Sobel
+  gradient, the noise read off the sky's pixel-to-pixel differences.
+- **The cap:** the stack says when the cap binds ("64 alignment points of 85, capped").
+
+On a ringed Saturn rendered with a stack's noise (`PlanetaryPointPlacementTests`), the fifth of the strongest gradient places 39 points and
+none on the globe, every one on a ring edge or the limb. Over the planet, 29 are placed, 7 on the globe and none on the outer edge.
+
+**On the real captures it changes nothing measurable.** Today's rule against points over the planet, at the defaults otherwise:
+
+| Capture | Points, today to over the planet | The stacks, correlation and gain over bands 1 to 4 |
+|---|---|---|
+| 16" Meade Saturn | 3 to 26 | 0.997 to 1.000; globe within 0.5 % in bands 2 to 4, band 1 -2.8 %; rings band 1 +2.3 %, band 2 +1.2 % |
+| EdgeHD 11 Saturn | 13 to 10 | 1.000; within 1.6 % everywhere |
+| 12" SCT Jupiter | 64 of 67 (capped) to 57 | 1.000; within 0.7 % |
+| EdgeHD 11 + ASI678MC Jupiter | 64 (capped) to 64 of 85 (capped) | (counted, not stacked both ways) |
+
+So the points' placement is not what limits a real capture's stack. That is R5 part 2's finding again, from the other side: a seeing warp
+that varies over less than a patch cannot be followed by any patch, wherever it is put. `OverPlanet` stays an option and today's rule the
+default, by #1195's own rule (no gain is no reason to change every stack).
 
 #### #1082: an estimator for the points, against its bound
 
