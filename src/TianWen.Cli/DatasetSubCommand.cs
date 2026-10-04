@@ -44,10 +44,10 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             Description = "Minimum light exposure in seconds (shorter = planetary/lucky bursts, excluded).",
             DefaultValueFactory = _ => 10d,
         };
-        var maxExposureOpt = new Option<double>("--max-exposure")
+        var maxExposureOpt = new Option<double?>("--max-exposure")
         {
-            Description = "Maximum light exposure in seconds (longer = live-stack accumulations, excluded).",
-            DefaultValueFactory = _ => 300d,
+            Description = "Maximum light exposure in seconds; omit for no limit. Live stacks are not an " +
+                          "exposure question: the scan knows them by their headers and drops them anyway.",
         };
         var excludeInstrumeOpt = new Option<string>("--exclude-instrume")
         {
@@ -322,7 +322,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 ArchiveRoots = [.. roots],
                 OutputDir = outDir,
                 MinExposure = TimeSpan.FromSeconds(minExposure),
-                MaxExposure = TimeSpan.FromSeconds(maxExposure),
+                MaxExposure = maxExposure is { } max ? TimeSpan.FromSeconds(max) : null,
                 ExcludeInstrumePattern = parseResult.Required(excludeInstrumeOpt),
                 ExcludeObjectPattern = parseResult.Required(excludeObjectOpt),
                 MinSubsPerSession = parseResult.GetValue(minSubsOpt),
@@ -619,10 +619,9 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             Description = "Minimum light exposure in seconds (the bake's own gate).",
             DefaultValueFactory = _ => 10d,
         };
-        var maxExposureOpt = new Option<double>("--max-exposure")
+        var maxExposureOpt = new Option<double?>("--max-exposure")
         {
-            Description = "Maximum light exposure in seconds (the bake's own gate).",
-            DefaultValueFactory = _ => 300d,
+            Description = "Maximum light exposure in seconds (the bake's own gate); omit for no limit.",
         };
         var minSubsOpt = new Option<int>("--min-subs")
         {
@@ -673,7 +672,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 ArchiveRoots = [.. archiveRoots.Select(Path.GetFullPath)],
                 OutputDir = outDir,
                 MinExposure = TimeSpan.FromSeconds(parseResult.GetValue(minExposureOpt)),
-                MaxExposure = TimeSpan.FromSeconds(parseResult.GetValue(maxExposureOpt)),
+                MaxExposure = parseResult.GetValue(maxExposureOpt) is { } maxExposure ? TimeSpan.FromSeconds(maxExposure) : null,
                 MinSubsPerSession = parseResult.GetValue(minSubsOpt),
                 SoftwareIncludePattern = parseResult.GetValue(softwareOpt) ?? "",
                 RequireGainMatch = parseResult.GetValue(requireGainMatchOpt),

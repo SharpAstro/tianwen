@@ -130,7 +130,11 @@ state a type; 9,522 (98 capture sets, 2021 and some focusing runs) genuinely car
 registered, cropped and extracted frame (4,087 of them in the gap, beside 57 SharpCap live stacks
 that slip under any exposure cap). A product shows as `SOFTWARE = 'Astro Pixel Processor...'`, a
 `CALFRAME`/`CALLIGHT` card, a `SKIPPED` card or a `Stack_` name (SharpCap live stack), `NAXIS3`, or a
-negative `BITPIX`.
+negative `BITPIX`. The bake's own product gate (`FrameInfo.IsIntegration`, which replaced its 300 s light
+cap on 2026-10-04) reads three of these off the header: a count card (`STACK_N`, APP's `NUMFRAME`,
+ASTAP's `LUM_CNT`) and a SharpCap live stack's `EXPTIME` well above its `SUBEXP` (a raw SharpCap 4 sub
+carries `SUBEXP` too, equal to its `EXPTIME`). An ASTAP stack keeps its reference sub's `IMAGETYP` and
+`SWCREATE`, so nothing else in it says "product".
 
 **Decide an untyped set by the SKY, never by a star count, and treat a label as evidence.** TianWen's
 own detector finds 141 "stars" at FWHM 1.7 px on a +4 C 120 s ASI533 dark (hot pixels), and a 35 or

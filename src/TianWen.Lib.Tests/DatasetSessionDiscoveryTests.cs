@@ -36,7 +36,8 @@ namespace TianWen.Lib.Tests
             string objectName = "",
             string root = "",
             bool isMaster = false,
-            string filterName = "")
+            string filterName = "",
+            bool isLiveStack = false)
         {
             // Built exactly as Image.Fits.cs builds it on read: canonicalise the header text, then
             // carry the raw text alongside. That is what lets a descriptive name ("Ha 3nm") land as
@@ -68,7 +69,7 @@ namespace TianWen.Lib.Tests
                 SWCreator: swCreator)
             { IsMaster = isMaster };
             var fullPath = Path.Combine(root.Length > 0 ? root : Root, relativePath.Replace('/', Path.DirectorySeparatorChar));
-            return new FrameInfo(fullPath, width, height, 1, BitDepth.Int16, meta, stackedFrameCount);
+            return new FrameInfo(fullPath, width, height, 1, BitDepth.Int16, meta, stackedFrameCount) { IsLiveStack = isLiveStack };
         }
 
         private static (ImmutableArray<ImagingSession> Sessions, SessionDiscovery.DiscoveryStats Stats) Group(
@@ -247,7 +248,8 @@ namespace TianWen.Lib.Tests
                 (Frame("s/FLAT/f1.fits", frameType: FrameType.Flat, start: T(1)), Root),
                 (Frame("s/LIGHT/sim.fits", instrument: "Camera V3 simulator", start: T(2)), Root),
                 (Frame("s/LIGHT/burst.fits", exposureSeconds: 0.034, start: T(3)), Root),
-                (Frame("s/LIGHT/livestack.fits", exposureSeconds: 8280, start: T(4)), Root),
+                // A live stack is a PRODUCT, known by its header, not an exposure out of range.
+                (Frame("s/LIGHT/livestack.fits", exposureSeconds: 8280, isLiveStack: true, start: T(4)), Root),
                 (Frame("s/LIGHT/master.fits", stackedFrameCount: 50, start: T(5)), Root),
                 (Frame("s/LIGHT/enhanced.fits", swCreator: "TianWen.Lib 1.0", start: T(6)), Root),
                 // A FOREIGN integration (PixInsight IMAGETYP='Master Light': FrameType.Light +
@@ -258,8 +260,38 @@ namespace TianWen.Lib.Tests
             sessions.ShouldHaveSingleItem().Lights.Length.ShouldBe(1);
             stats.NotLight.ShouldBe(1);
             stats.InstrumentExcluded.ShouldBe(1);
-            stats.ExposureOutOfRange.ShouldBe(2);
-            stats.ProductExcluded.ShouldBe(3);
+            stats.ExposureOutOfRange.ShouldBe(1);
+            stats.ProductExcluded.ShouldBe(4);
+        }
+
+        [Fact]
+        public void GivenLongRawSubs_WhenGroupingWithTheDefaults_ThenNoExposureCapDropsThem()
+        {
+            // LDN 1622's shape: a CCD's 900 s RGB and 1,800 s H-alpha subs. A 300 s default cap stood
+            // in for the product test until 2026-10-04 and dropped every one of them; a raw sub is
+            // never too LONG to be a sub.
+            var (sessions, stats) = Group(Options(),
+            [
+                (Frame("q/LIGHT/r1.fits", instrument: "QSI 683ws", exposureSeconds: 900, filterName: "Red", start: T(0)), Root),
+                (Frame("q/LIGHT/h1.fits", instrument: "QSI 683ws", exposureSeconds: 1800, filterName: "Ha", start: T(1)), Root),
+            ]);
+
+            sessions.Length.ShouldBe(2);
+            stats.ExposureOutOfRange.ShouldBe(0);
+            stats.Lights.ShouldBe(2);
+        }
+
+        [Fact]
+        public void GivenAnExplicitMaxExposure_WhenGrouping_ThenLongerLightsAreStillGated()
+        {
+            var (sessions, stats) = Group(Options() with { MaxExposure = TimeSpan.FromSeconds(1000) },
+            [
+                (Frame("q/LIGHT/r1.fits", exposureSeconds: 900, start: T(0)), Root),
+                (Frame("q/LIGHT/h1.fits", exposureSeconds: 1800, start: T(1)), Root),
+            ]);
+
+            sessions.ShouldHaveSingleItem().Lights.Length.ShouldBe(1);
+            stats.ExposureOutOfRange.ShouldBe(1);
         }
 
         [Fact]
