@@ -85,13 +85,13 @@ is the likely reading there; not yet tested.
 
 - R0's saturated fit on a fixed annulus in FWHM units with a 0.1 to 0.3 core cut (theme A's rule), which the photometric
   bias says would take the quarter off the most saturated stars' amplitudes; it changes the plates, so it waits for the
-  next R0 pass.
+  next R0 pass (#1240).
 - A residual table that holds bright stars' near wings (fitted with a brightness term, or on the brightest unsaturated
-  stars).
-- The Lagoon and eta Carinae photometric offsets.
-- Theme C's three validations (R0 on R1's draws, a noise-free twin draw, a zero-flux draw).
+  stars, #1241).
+- The Lagoon and eta Carinae photometric offsets (#1242).
+- Theme C's three validations, R0 on R1's draws, a noise-free twin draw and a zero-flux draw (#1244).
 
-These are in the plan's R1 section, under #902.
+All are under #902 and named in the plan's R1 section, with the mono noise shape (#1243).
 
 ## Duplication checked
 
