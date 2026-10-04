@@ -495,6 +495,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 BuildStarlessPlatesCommand(),
                 BuildGradientExportCommand(),
                 BuildDegradeCommand(),
+                BuildStarlessEvalCommand(),
                 BuildBrightCellsCommand(),
                 BuildNoiseCheckCommand(),
                 BuildNoisePlanesCommand(),
@@ -1018,6 +1019,49 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
     }
 
     private static readonly string[] MasterExtensions = [".fits", ".fit", ".fits.gz", ".fit.gz", ".fz"];
+
+    /// <summary>
+    /// <c>tianwen dataset starless-eval</c>: R2's eval (docs/plans/star-remover-training.md, section 5). Scores a star
+    /// remover's outputs on a Stars-mode export's draws (<see cref="StarRemovalEval"/>), beside the input and the plate as
+    /// the two references, and writes <c>starless-eval.json</c> into the outputs directory.
+    /// </summary>
+    private Command BuildStarlessEvalCommand()
+    {
+        var exportOpt = new Option<string>("--export")
+        {
+            Description = "The Stars-mode export the draws came from (its injections.jsonl and plates).",
+            Required = true,
+        };
+        var outputsOpt = new Option<string>("--outputs")
+        {
+            Description = "The model's outputs: a directory with outputs.jsonl (a draw's tile and its output's path per row).",
+            Required = true,
+        };
+        var command = new Command("starless-eval",
+            "Score a star remover's outputs against the stars a Stars-mode export injected: completeness by significance band, " +
+            "what is left on the footprints and changed on the sky, and dark speckles against their null.")
+        {
+            Options = { exportOpt, outputsOpt },
+        };
+        command.SetAction(async (parseResult, ct) =>
+        {
+            var export = parseResult.Required(exportOpt);
+            var outputs = parseResult.Required(outputsOpt);
+            var report = await StarRemovalEval.RunAsync(export, outputs, ct);
+            consoleHost.WriteScrollable($"[starless-eval] {report.Draws} draws, {report.Stars} stars read, from {outputs}");
+            foreach (var arm in report.Arms)
+            {
+                consoleHost.WriteScrollable(
+                    $"[starless-eval] {arm.Name}: removed " +
+                    string.Join(", ", arm.Completeness.Select(static b => $"{b.Band} {b.Rate:P1} of {b.Stars}")) +
+                    $"; footprint rms {arm.FootprintRms:F3} sigma, sky rms {arm.SkyRms:F3} sigma; speckled " +
+                    string.Join(", ", arm.Speckles.Select(static b => $"{b.Band} {b.Rate:P1} of {b.Sites}")) +
+                    $", null {arm.SpeckleNull.Rate:P1} of {arm.SpeckleNull.Sites}");
+            }
+            return 0;
+        });
+        return command;
+    }
 
     /// <summary>
     /// <c>tianwen dataset degrade</c>: the shared degradation exporter

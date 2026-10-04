@@ -648,9 +648,21 @@ and checks noise planes within them (a cache from before samples exactly as it d
 and QHY294PROC); the 15 mono sessions wait on H7, the trainer being 3-channel. `--gate-every 0`, since the denoiser's
 selection keeps only a checkpoint that cuts the noise. **What R2a is not:** the speckle teacher (a port of
 `StarlessSpeckles` with its parity fixture, which needs the noise cap `PointSourceFinder.CapByDifferenceNoise` ported too)
-and the flux penalty (H5) are not written, so these models are taught L2 and bands and scored for speckles; and nothing is
-read until R2's eval exists (section 5's completeness, background, speckles per band against their null, the 1:1 checks),
-whose predictions are registered here with it, before any R2a model is scored.
+and the flux penalty (H5) are not written, so these models are taught L2 and bands and scored for speckles; and no R2a
+model is scored before its predictions are registered here.
+
+**R2's eval (built 2026-10-04).** `training/denoise/r2_infer.py` runs a checkpoint over an export's val draws (the net
+only), and `tianwen dataset starless-eval` (`StarRemovalEval`) scores them in C#, on the luminance inside the stitched
+rim, in each draw's own noise plane (its `.sigma.f16` over `StretchedNoise.PlaneScale`). A draw is its plate to the bit
+wherever no star light was rendered, so the pixels where it differs ARE the injected footprints, far wings included: the
+output minus the plate is read on them (what was left) and off them (the model's change to sky it was handed unchanged).
+Completeness is a star's 3x3 core left under 1 sigma, by the injected core's significance (1-5, 5-20, 20-100, 100-1000,
+1000+, the saturated as their own band; under 1 sigma counted, not rated); speckles are `StarlessSpeckles` at the injected
+sites against the output's own null. Two references come from the same draws, the input (removes nothing) and the plate
+(removes all and nothing else), and read as they must on the random arm's 1,280 val draws (350,886 stars): the input 0
+percent removed, sky 0; the plate 100 percent, footprints and sky 0, speckled 0.2 percent at the sites against a null of
+0.5. A 60-step smoke model read 20 percent at 1-5 sigma, none past 20, and moved the untouched sky by 2.7 sigma. The 1:1
+spot checks on real masters remain the owner's, by eye.
 
 Open from it, under #902: R0's saturated fit on a fixed annulus in FWHM units with a 0.1 to 0.3 core cut (#1240); a
 residual table that holds bright stars' near wings (#1241); the Lagoon's and eta Carinae's photometric offsets (1.4 to 1.7,
