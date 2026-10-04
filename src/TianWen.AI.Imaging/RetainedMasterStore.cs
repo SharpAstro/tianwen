@@ -82,6 +82,7 @@ namespace TianWen.AI.Imaging
                 IntegrationFitsWriter.RejectionPathFor(path),
                 IntegrationFitsWriter.CoveragePathFor(path),
                 IntegrationFitsWriter.BadPixelPathFor(path),
+                IntegrationFitsWriter.StandardErrorPathFor(path),
             ];
 
             foreach (var file in new[] { path, path + PartialSuffix }
@@ -139,7 +140,8 @@ namespace TianWen.AI.Imaging
             Image? rejectionMap = null,
             double meanRejectionRate = 0.0,
             Image? coverage = null,
-            BitMatrix[]? badPixelMask = null)
+            BitMatrix[]? badPixelMask = null,
+            Image? standardError = null)
         {
             var path = PathFor(outDir, sessionId);
             if (File.Exists(path))
@@ -215,6 +217,20 @@ namespace TianWen.AI.Imaging
                 catch (Exception ex)
                 {
                     logger?.LogWarning(ex, "  [{Session}] could not retain the coverage count; the master stands", sessionId);
+                }
+            }
+
+            // The master's measured standard error (E16c step 2), in the master's own units as written here: what a
+            // reader of the store takes a noise plane from instead of estimating one.
+            if (standardError is not null)
+            {
+                try
+                {
+                    IntegrationFitsWriter.WriteStandardErrorMap(path, standardError, frameCount, strategy);
+                }
+                catch (Exception ex)
+                {
+                    logger?.LogWarning(ex, "  [{Session}] could not retain the standard-error map; the master stands", sessionId);
                 }
             }
 

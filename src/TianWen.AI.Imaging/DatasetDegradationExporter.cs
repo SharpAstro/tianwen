@@ -17,6 +17,7 @@ using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Dataset;
 using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Imaging.Degradation;
+using TianWen.Lib.Imaging.Stacking;
 using TianWen.Lib.Imaging.StarRemoval;
 using TianWen.Lib.Stat;
 
@@ -952,9 +953,12 @@ namespace TianWen.AI.Imaging
         /// finest starlet scale of the half pairs' normalised difference over that difference's own, which is the k the
         /// candidate needs and a calibration per integration takes from a tuning split.</param>
         /// <param name="Integration">How the session's master was integrated: mono, demosaiced or drizzled.</param>
+        /// <param name="StandardError">E16c step 2: the master's MEASURED standard error (its <c>.stderr</c> sidecar) as the
+        /// prediction, a half pair's difference over root 2 expected at it times root of N (1/N_A + 1/N_B) / 2; NaN per
+        /// channel where the master carries no sidecar.</param>
         public sealed record InjectionCheckRow(
             string SessionId, int X, int Y, bool Bright, double[] HalfPairs, double[] SubMad, double[] SubCalibrations, double[] MasterCalibration,
-            double[] EstimatedBlocks, double[] FineScaleRaw, double[] PairFineScaleRatio, string Integration);
+            double[] EstimatedBlocks, double[] FineScaleRaw, double[] PairFineScaleRatio, string Integration, double[] StandardError);
 
         /// <summary>The largest bright share a QUIET cell of <see cref="CheckInjectionAsync"/> may have: star cores
         /// reach the bright level after the low-pass, so none at all would leave almost no real cell quiet.</summary>
@@ -1022,6 +1026,17 @@ namespace TianWen.AI.Imaging
                     // E16c: both estimators on the whole master, through the stretch above (measured with the canvas ring
                     // out, as the bake's tile export measured it), each in the master anchor's one-sub form.
                     var (estimatedBlocks, fineScaleRaw) = EstimateBoth(unitMaster, origMin, balances, stackedFrames);
+                    // E16c step 2: the master's measured standard error, on the unit scale the master was put on here.
+                    // The halves split the subs interleaved, A taking the odd one, so a pair's difference over root 2
+                    // has the master's error times root of N (1/N_A + 1/N_B) / 2.
+                    Image? measured = IntegrationFitsWriter.TryReadStandardErrorMap(RetainedMasterStore.PathFor(bakeRoot, sessionId), out var read)
+                        && read.ChannelCount == channels && read.Width == unitMaster.Width && read.Height == unitMaster.Height
+                            ? read
+                            : null;
+                    var framesA = (stackedFrames + 1) / 2;
+                    var framesB = stackedFrames / 2;
+                    var pairFactor = framesB > 0 ? Math.Sqrt(stackedFrames * ((1.0 / framesA) + (1.0 / framesB)) / 2.0) : double.NaN;
+                    var measuredScale = pairFactor / DatasetTileExporter.UnitDivisor(master);
                     var integration = channels == 1 ? "mono"
                         : DatasetGradientReport.ReadMasterCards(RetainedMasterStore.PathFor(bakeRoot, sessionId)).Strategy == DrizzleStrategy ? "drizzled"
                         : "demosaiced";
@@ -1066,6 +1081,7 @@ namespace TianWen.AI.Imaging
                         var ratioBlocks = new double[channels];
                         var ratioFine = new double[channels];
                         var pairFineRatio = new double[channels];
+                        var ratioMeasured = new double[channels];
                         for (var c = 0; c < channels; c++)
                         {
                             var zPairs = new List<float>(n);
@@ -1086,6 +1102,8 @@ namespace TianWen.AI.Imaging
                             var zTileFine = ATrousWaveletTransform.Decompose(zTile, size, size, 1).Detail(0).ToArray();
                             var fineOfPair = new List<float>(n);
                             var ofPair = new List<float>(n);
+                            var measuredTile = measured is null ? null : CutClamped(measured, c, cell.X, cell.Y, size, size);
+                            var zMeasured = new List<float>(n);
                             for (var y = HalfPairNoise.RimPx; y < size - HalfPairNoise.RimPx; y++)
                             {
                                 for (var x = HalfPairNoise.RimPx; x < size - HalfPairNoise.RimPx; x++)
@@ -1122,8 +1140,13 @@ namespace TianWen.AI.Imaging
                                     }
                                     fineOfPair.Add(zTileFine[i]);
                                     ofPair.Add(zTile[i]);
+                                    if (measuredTile is not null && measuredTile[i] * measuredScale is var predictedMeasured and > 0)
+                                    {
+                                        zMeasured.Add((float)(d / predictedMeasured));
+                                    }
                                 }
                             }
+                            ratioMeasured[c] = zMeasured.Count > 0 ? RobustSpread(zMeasured) : double.NaN;
                             ratioPairs[c] = RobustSpread(zPairs);
                             ratioSubMad[c] = RobustSpread(zSubMad);
                             ratioSubCal[c] = RobustSpread(zSubCal);
@@ -1133,7 +1156,7 @@ namespace TianWen.AI.Imaging
                             pairFineRatio[c] = RobustSpread(fineOfPair) / RobustSpread(ofPair);
                         }
                         rows.Add(new InjectionCheckRow(sessionId, cell.X, cell.Y, bright, ratioPairs, ratioSubMad, ratioSubCal, ratioMasterCal,
-                            ratioBlocks, ratioFine, pairFineRatio, integration));
+                            ratioBlocks, ratioFine, pairFineRatio, integration, ratioMeasured));
                     }
                 }
                 finally

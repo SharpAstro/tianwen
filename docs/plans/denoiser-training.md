@@ -2903,7 +2903,7 @@ TianWen did not stack. Phases:
 |---|---|---|
 | S1 | the plane in both per-pixel loops (`Integrator`, `StreamingIntegrator`; so InRamAllFrames, TilePipelined, Float16Staged, FootprintStaged), `IntegrationResult.StandardError`; the sidecar's writer and reader (`.stderr.fits.gz`, ln-coded), carried through `MasterPostProcessor`'s unit scale and crop | DONE 2026-10-05 |
 | S2 | the drizzle strategies (`DrizzleScatter`: the kept deposits' area squared and centred squared deviation, in both layouts) and ChunkedTwoPass (per-channel kept counts and centred squares; its one shared kept count, channel 0's, had divided every channel's sum) | DONE 2026-10-05: drizzle 1.002 to 1.010, two-pass 1.001 to 1.024, RMS over RMS |
-| S3 | the bake: master and half-master planes on `RegisteredSession`, the store's sidecar, MEASURED tile planes, a recipe-version bump; `MasterPostProcessor` scales and crops it with the master | |
+| S3 | the bake: master and half-master planes on `RegisteredSession`, the store's sidecar, MEASURED tile planes (`PlaneMeasured` on the row), recipe version 4; `MasterPostProcessor` scales and crops it with the master; `noise-check --anchor stderr` reads the sidecar | DONE 2026-10-05: at the sky each half's error reads its pair's spread at 0.96 to 1.04, the master's 1.01 to 1.06 |
 | S4 | the validation against the half pairs, pre-registered, on a re-bake of the halved sessions | |
 | S5 | the runner reads the sidecar beside a master, the estimator its fallback | |
 
@@ -2917,8 +2917,26 @@ iterated clip tightens on some columns until the survivors cluster, and their sc
 known than it is.
 
 The robust rule reads the master's error, RMS over the plane's RMS over the frame (what a low-passed plane uses), at
-0.993 to 1.024 in every channel, clipped or not. Per pixel it reads 0.97 to 1.07, a MAD of 40 frames reading one pixel's
+0.974 to 1.003 in every channel, clipped or not (0.993 to 1.024 before the finite-sample correction below: a plane
+unbiased in the mean has an RMS a little above the truth). Per pixel it reads 0.97 to 1.07, a MAD of 40 frames reading one pixel's
 noise to about 18 percent.
+
+**A MAD of few samples reads low, so the rule carries the finite-sample correction** (`StandardErrorPlane.MadBiasCorrection`,
+found by S3's fixture). The fixture's halves have four subs each. Their standard error read 0.72 of the pair's spread at the
+sky, the mean of 1.4826 times the MAD of four Gaussian samples being 0.735 of the truth: 0.887 at 8, 0.949 at 16, 0.975
+at 32. The plane is linear in this value and is blurred before a model sees it, so its local mean is what must be right,
+and a half of 10 to 30 subs would read 4 to 9 percent low, the size of E16c's whole question. The factors to 20 samples
+are simulated for this median convention, four million columns each, and are within a percent of Croux and Rousseeuw's
+table. Past 20 the rule uses their `n / (n - 0.8)`. Corrected, every count from 2 to 40 reads the truth to 0.1 percent.
+
+**The measurement also reports where the halves really differ, and a robust spread does not.** On the fixture (four
+subs a half, so no clip), 0.5 percent of the sky pixels read ten times their sky's error or more. There the two halves
+differ by 53 to 117 times the pair's MAD spread, hundreds of ADU over a sky noise of 0.7, worst in red and blue: the
+demosaic's errors around stars, each sub its own. A tile's plane carries them, so the halves' plane reads its pair's
+noise at 1.14 by the median and 1.78 by the mean, where the model's plane read 1.02 by the mean. Whether a model should
+be told that error is there is S4's and the training read's question, not the measurement's: it is the error N2N's other
+half really has there. A real half has 20 subs or more and a clip (`MinFramesPerRejectedHalfMaster`; a drizzled one
+`DrizzleStrategy.AutoSelectMinFrameCount`), so its tail should be far thinner than the fixture's; S4 measures it.
 
 **The sidecar's storage.** A map's usual quantisation spans `[0, max]` linearly and reads a non-finite pixel back as 0.
 Under bright star cores that loses a sky-level standard error, and it reads an uncovered pixel as noise known exactly.

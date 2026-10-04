@@ -203,6 +203,14 @@ namespace TianWen.Lib.Tests
         /// rank the frames by depth. And against a truth the estimate never saw: over the fixture's sky, a half's
         /// plane reads the noise the two halves' own difference measures.
         /// </summary>
+        /// <remarks>
+        /// A half's plane is its MEASURED standard error since E16c step 2, which is why the halves are compared robust
+        /// against robust, the plane's median with the pair's MAD spread: the measurement also reports where the halves
+        /// really disagree, around the stars, where four subs and no clip leave each half's demosaic its own errors, and
+        /// a MAD spread is built not to see those. Measured 2026-10-05: the median reads 1.14 (1.11 to 1.25), the mean
+        /// 1.78. <see cref="TheRegistrarHandsEachHalfItsOwnMeasuredError"/> pins that the tail is that disagreement.
+        /// A sub has no measurement and keeps the model's plane.
+        /// </remarks>
         [Fact]
         public async Task EveryTileCarriesItsOwnFramesStretchAndNoisePlane()
         {
@@ -272,20 +280,107 @@ namespace TianWen.Lib.Tests
             // their noise alone, so their difference over sqrt 2 is one frame's noise, in the frames' own stretched
             // units. The two halves for a half, two subs for a sub. Luminance (the channel mean), as the plane is.
             var halfRatios = new List<double>();
+            var halfMeanRatios = new List<double>();
             var subRatios = new List<double>();
             foreach (var cell in result.Rows.GroupBy(r => (r.CellX, r.CellY)))
             {
                 var halfRow = cell.Single(r => r.Frame == DatasetTileExporter.FrameHalfMasterA);
-                halfRatios.Add(MeanPlane(outDir, halfRow) / PairNoise(outDir, halfRow, cell.Single(r => r.Frame == DatasetTileExporter.FrameHalfMasterB)));
+                halfRow.PlaneMeasured.ShouldBe(true);
+                var pair = PairNoise(outDir, halfRow, cell.Single(r => r.Frame == DatasetTileExporter.FrameHalfMasterB));
+                halfRatios.Add(MedianPlane(outDir, halfRow) / pair);
+                halfMeanRatios.Add(MeanPlane(outDir, halfRow) / pair);
                 var subs = cell.Where(r => r.Frame == DatasetTileExporter.FrameSub).ToArray();
+                subs[0].PlaneMeasured.ShouldNotBe(true);
                 subRatios.Add(MeanPlane(outDir, subs[0]) / PairNoise(outDir, subs[0], subs[1]));
             }
             var halfMedian = Median(halfRatios);
             var subMedian = Median(subRatios);
-            output.WriteLine($"plane over the pair's own noise: half {halfMedian:F3} ({halfRatios.Min():F3} to {halfRatios.Max():F3}), " +
-                             $"sub {subMedian:F3} ({subRatios.Min():F3} to {subRatios.Max():F3}) over {halfRatios.Count} cells");
+            output.WriteLine($"plane over the pair's own noise: half {halfMedian:F3} ({halfRatios.Min():F3} to {halfRatios.Max():F3}; its mean " +
+                             $"{Median(halfMeanRatios):F3}), sub {subMedian:F3} ({subRatios.Min():F3} to {subRatios.Max():F3}) over {halfRatios.Count} cells");
             halfMedian.ShouldBeInRange(0.8, 1.25);
             subMedian.ShouldBeInRange(0.8, 1.25);
+        }
+
+        /// <summary>
+        /// E16c step 2's wiring: the registrar hands each half the standard error ITS integration measured, in its own
+        /// units, and at the sky it reads the noise the two halves' difference measures, per channel (the master's too,
+        /// at the root-2 smaller error of twice the subs). Where it reads ten times its sky, the halves really differ
+        /// there: the tail is a measurement, not noise in the estimate. Four subs a half and no clip, so the demosaic's
+        /// errors around stars stay in each half (measured 2026-10-05: up to hundreds of ADU over a sky noise of 0.7).
+        /// </summary>
+        [Fact]
+        public async Task TheRegistrarHandsEachHalfItsOwnMeasuredError()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var registered = await RegisterFixtureAsync(ct, minSubsForHalfMasters: 4);
+            var halfA = registered.HalfMasterA.ShouldNotBeNull();
+            var halfB = registered.HalfMasterB.ShouldNotBeNull();
+            var errorA = registered.HalfMasterAStandardError.ShouldNotBeNull();
+            var errorB = registered.HalfMasterBStandardError.ShouldNotBeNull();
+            var errorMaster = registered.StandardError.ShouldNotBeNull();
+            foreach (var plane in new[] { errorA, errorB, errorMaster })
+            {
+                (plane.Width, plane.Height, plane.ChannelCount).ShouldBe((halfA.Width, halfA.Height, halfA.ChannelCount));
+            }
+
+            for (var c = 0; c < halfA.ChannelCount; c++)
+            {
+                var master = registered.Master.GetChannelArray(c);
+                var a = halfA.GetChannelArray(c);
+                var b = halfB.GetChannelArray(c);
+                var seA = errorA.GetChannelArray(c);
+                var seMaster = errorMaster.GetChannelArray(c);
+                // The sky: the master's darker 40 percent, every reading finite.
+                var levels = master.Cast<float>().Where(float.IsFinite).OrderBy(v => v).ToArray();
+                var skyCut = levels[(int)(levels.Length * 0.4)];
+                var differences = new List<float>();
+                var sky = new List<double>();
+                var skyMaster = new List<double>();
+                var all = new List<(float Error, float Difference)>();
+                for (var y = 0; y < master.GetLength(0); y++)
+                {
+                    for (var x = 0; x < master.GetLength(1); x++)
+                    {
+                        if (!(master[y, x] <= skyCut) || !float.IsFinite(a[y, x]) || !float.IsFinite(b[y, x])
+                            || !float.IsFinite(seA[y, x]) || !float.IsFinite(seMaster[y, x]))
+                        {
+                            continue;
+                        }
+                        var d = (float)((a[y, x] - b[y, x]) / Math.Sqrt(2.0));
+                        differences.Add(d);
+                        sky.Add(seA[y, x]);
+                        skyMaster.Add(seMaster[y, x]);
+                        all.Add((seA[y, x], d));
+                    }
+                }
+                var (_, mad) = TianWen.Lib.Stat.StatisticsHelper.MedianAndMad(differences.ToArray().AsSpan());
+                var pair = 1.4826 * mad;
+                var halfError = Median(sky);
+                var masterError = Median(skyMaster);
+                var flagged = all.Where(p => p.Error > 10 * halfError).ToArray();
+                var flaggedRms = flagged.Length > 0 ? Math.Sqrt(flagged.Average(p => (double)p.Difference * p.Difference)) : 0.0;
+                output.WriteLine($"channel {c}: pair {pair:F4}, half error {halfError:F4} ({halfError / pair:F3}), master error {masterError:F4} " +
+                                 $"({masterError / (pair / Math.Sqrt(2.0)):F3}), {flagged.Length} of {all.Count} sky pixels past ten times, " +
+                                 $"their difference {flaggedRms / pair:F1} times the pair's spread");
+                (halfError / pair).ShouldBeInRange(0.85, 1.15);
+                (masterError / (pair / Math.Sqrt(2.0))).ShouldBeInRange(0.85, 1.15);
+                flagged.Length.ShouldBeGreaterThan(0);
+                (flaggedRms / pair).ShouldBeGreaterThan(10.0);
+            }
+        }
+
+        /// <summary>The median of a tile's plane, in stretched sigma (the plane's units divided out).</summary>
+        private static double MedianPlane(string outDir, DatasetTileExporter.TileManifestRow row)
+        {
+            var plane = MemoryMarshal.Cast<byte, Half>(File.ReadAllBytes(Path.Combine(outDir,
+                row.SigmaTile.ShouldNotBeNull().Replace('/', Path.DirectorySeparatorChar))));
+            var values = new float[plane.Length];
+            for (var i = 0; i < values.Length; i++)
+            {
+                values[i] = (float)plane[i];
+            }
+            Array.Sort(values);
+            return values[values.Length / 2] / TianWen.Lib.Imaging.Degradation.StretchedNoise.PlaneScale;
         }
 
         /// <summary>The mean of a tile's plane, in stretched sigma (the plane's units divided out).</summary>

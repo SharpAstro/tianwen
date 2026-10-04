@@ -385,6 +385,20 @@ public static class SessionRegistrar
         public Image? Coverage { get; init; }
 
         /// <summary>
+        /// Per channel and pixel, the standard error of <see cref="Master"/>'s value, measured by its integration
+        /// (<see cref="IntegrationResult.StandardError"/>), in the master's own units; null where the strategy measured
+        /// none. Retained as <c>.stderr.fits.gz</c> beside the master, and what a tile's MEASURED noise plane is cut from
+        /// (E16c step 2, docs/plans/denoiser-training.md).
+        /// </summary>
+        public Image? StandardError { get; init; }
+
+        /// <summary>The same for <see cref="HalfMasterA"/>, so a half's own plane is measured too (the eval's half A).</summary>
+        public Image? HalfMasterAStandardError { get; init; }
+
+        /// <summary>The same for <see cref="HalfMasterB"/>.</summary>
+        public Image? HalfMasterBStandardError { get; init; }
+
+        /// <summary>
         /// The photosites this session's integration refused to use: the union of the dark-derived
         /// and registration-derived masks, one <see cref="BitMatrix"/> per channel, on the SENSOR's
         /// geometry rather than the canvas's. Null where neither detector could build one.
@@ -988,16 +1002,18 @@ public static class SessionRegistrar
         //     to remove.
         Image? halfA = null;
         Image? halfB = null;
+        Image? halfAStandardError = null;
+        Image? halfBStandardError = null;
         if (subsList.Length >= halfMasterFloor)
         {
             // Both halves record into ONE stage, and between them they cover every sub exactly once,
             // so the per-item cost is directly comparable with Integrate above rather than being half
             // of it twice.
             var halvesStart = StageTimings.Start();
-            halfA = (await IntegrateSubsetAsync(
-                all.Where(i => i % 2 == 0).ToImmutableArray(), "_half_a")).Master;
-            halfB = (await IntegrateSubsetAsync(
-                all.Where(i => i % 2 == 1).ToImmutableArray(), "_half_b")).Master;
+            var halfAIntegration = await IntegrateSubsetAsync(all.Where(i => i % 2 == 0).ToImmutableArray(), "_half_a");
+            var halfBIntegration = await IntegrateSubsetAsync(all.Where(i => i % 2 == 1).ToImmutableArray(), "_half_b");
+            (halfA, halfAStandardError) = (halfAIntegration.Master, halfAIntegration.StandardError);
+            (halfB, halfBStandardError) = (halfBIntegration.Master, halfBIntegration.StandardError);
             if (fused is null)
             {
                 timings?.Record(StageNames.Halves, halvesStart, subsList.Length, (long)subsList.Length * canvasW * canvasH);
@@ -1045,12 +1061,16 @@ public static class SessionRegistrar
                 var sideMaster = sideIntegration.Master;
                 Image? sideHalfA = null;
                 Image? sideHalfB = null;
+                Image? sideHalfAStandardError = null;
+                Image? sideHalfBStandardError = null;
                 if (pick.Length >= halfMasterFloor)
                 {
-                    sideHalfA = (await IntegrateSubsetAsync(
-                        [.. pick.Where((_, k) => k % 2 == 0)], $"_flip_{label}_half_a", sideStats)).Master;
-                    sideHalfB = (await IntegrateSubsetAsync(
-                        [.. pick.Where((_, k) => k % 2 == 1)], $"_flip_{label}_half_b", sideStats)).Master;
+                    var sideHalfAIntegration = await IntegrateSubsetAsync(
+                        [.. pick.Where((_, k) => k % 2 == 0)], $"_flip_{label}_half_a", sideStats);
+                    var sideHalfBIntegration = await IntegrateSubsetAsync(
+                        [.. pick.Where((_, k) => k % 2 == 1)], $"_flip_{label}_half_b", sideStats);
+                    (sideHalfA, sideHalfAStandardError) = (sideHalfAIntegration.Master, sideHalfAIntegration.StandardError);
+                    (sideHalfB, sideHalfBStandardError) = (sideHalfBIntegration.Master, sideHalfBIntegration.StandardError);
                 }
                 built.Add(new RegisteredSession(
                     session with { FlipSide = label }, sideMaster, [.. pick.Select(i => subsList[i])],
@@ -1061,6 +1081,9 @@ public static class SessionRegistrar
                     WarpedSubs = warpedSubs,
                     RejectionMap = sideIntegration.TotalRejections > 0 ? sideIntegration.RejectionMap : null,
                     Coverage = sideIntegration.Coverage,
+                    StandardError = sideIntegration.StandardError,
+                    HalfMasterAStandardError = sideHalfAStandardError,
+                    HalfMasterBStandardError = sideHalfBStandardError,
                     // The same mask as the combined master's: a flip side is a subset of the same
                     // night's subs through the same calibration, so the defect set is one fact
                     // about the sensor, not one per side.
@@ -1080,6 +1103,9 @@ public static class SessionRegistrar
             FlipSides = sides,
             RejectionMap = integration.TotalRejections > 0 ? integration.RejectionMap : null,
             Coverage = integration.Coverage,
+            StandardError = integration.StandardError,
+            HalfMasterAStandardError = halfAStandardError,
+            HalfMasterBStandardError = halfBStandardError,
             BadPixelMask = badPixelMask,
             // On the COMBINED master only. A flip side is a subset of the same night's registered
             // subs, so attaching the session's drops to each side would count every one of them

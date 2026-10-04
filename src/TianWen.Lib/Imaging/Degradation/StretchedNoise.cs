@@ -147,6 +147,63 @@ public static class StretchedNoise
         return planeSigmaPx > 0 ? Image.SeparableGaussianBlur(plane, width, height, planeSigmaPx) : plane;
     }
 
+    /// <summary>
+    /// The conditioning plane of a stretched tile from its MEASURED linear noise (E16c step 2): the master's standard
+    /// error per channel and pixel (<c>IntegrationResult.StandardError</c>) in the linear units the stretch was measured
+    /// in, carried through the stretch's local slope at the low-passed level, the channels combined as
+    /// <see cref="Plane(IReadOnlyList{float[]}, int, int, IReadOnlyList{ChannelStretch}, IReadOnlyList{LinearDegradation.NoiseCalibration}, double, float, float)"/>
+    /// combines them, then low-passed. The same plane that one computes from a noise MODEL, with the model replaced by
+    /// the measurement.
+    /// </summary>
+    /// <param name="stretchedChannels">The tile's stretched channels, row-major.</param>
+    /// <param name="linearSigmaChannels">The tile's linear standard error per channel, cut at the same cell; NaN where
+    /// the integration measured none, which takes the tile's median of the finite ones.</param>
+    /// <param name="width">Tile width.</param>
+    /// <param name="height">Tile height.</param>
+    /// <param name="stretches">Each channel's stretch.</param>
+    /// <param name="levelSigmaPx">Low-pass of the level (<see cref="DefaultLevelSigmaPx"/>).</param>
+    /// <param name="planeSigmaPx">Low-pass of the plane (<see cref="DefaultPlaneSigmaPx"/>).</param>
+    public static float[] MeasuredPlane(
+        IReadOnlyList<float[]> stretchedChannels,
+        IReadOnlyList<float[]> linearSigmaChannels,
+        int width,
+        int height,
+        IReadOnlyList<ChannelStretch> stretches,
+        float levelSigmaPx = DefaultLevelSigmaPx,
+        float planeSigmaPx = DefaultPlaneSigmaPx)
+    {
+        var channels = stretchedChannels.Count;
+        ArgumentOutOfRangeException.ThrowIfZero(channels);
+        ArgumentOutOfRangeException.ThrowIfNotEqual(stretches.Count, channels);
+        ArgumentOutOfRangeException.ThrowIfNotEqual(linearSigmaChannels.Count, channels);
+        var n = width * height;
+        var sumSq = new double[n];
+        for (var c = 0; c < channels; c++)
+        {
+            var src = stretchedChannels[c];
+            var sigma = linearSigmaChannels[c];
+            ArgumentOutOfRangeException.ThrowIfNotEqual(src.Length, n);
+            ArgumentOutOfRangeException.ThrowIfNotEqual(sigma.Length, n);
+            var filled = WithoutNaN(sigma);
+            var level = levelSigmaPx > 0 ? Image.SeparableGaussianBlur(WithoutNaN(src), width, height, levelSigmaPx) : WithoutNaN(src);
+            var stretch = stretches[c];
+            for (var i = 0; i < n; i++)
+            {
+                var y = Math.Clamp(level[i], 0.0, 1.0);
+                var shifted = Image.MidtonesTransferFunction(1.0 - stretch.MidtonesBalance, y);
+                var s = Image.MidtonesTransferFunctionSlope(stretch.MidtonesBalance, shifted) * filled[i];
+                sumSq[i] += s * s;
+            }
+        }
+
+        var plane = new float[n];
+        for (var i = 0; i < n; i++)
+        {
+            plane[i] = (float)(PlaneScale * Math.Sqrt(sumSq[i]) / channels);
+        }
+        return planeSigmaPx > 0 ? Image.SeparableGaussianBlur(plane, width, height, planeSigmaPx) : plane;
+    }
+
     /// <summary>Block side, in pixels, of <see cref="EstimateCalibration"/>'s local noise readings.</summary>
     public const int EstimateBlockPx = 32;
 
