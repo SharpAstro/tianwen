@@ -664,6 +664,26 @@ percent removed, sky 0; the plate 100 percent, footprints and sky 0, speckled 0.
 0.5. A 60-step smoke model read 20 percent at 1-5 sigma, none past 20, and moved the untouched sky by 2.7 sigma. The 1:1
 spot checks on real masters remain the owner's, by eye.
 
+**R2a, pre-registered 2026-10-04, before any R2a model was scored** (the first, `r2_random_s0`, still training).
+*Protocol.* Every model is run (`r2_infer.py`) on all three arms' val draws (`arms/r2-val.txt`) and scored with
+`starless-eval`; the random arm's draws (field profile, random positions, the realistic case) are the common yardstick. Seeds
+are reported as mean and range, and a difference between arms counts only where it exceeds the wider of the two arms' seed
+ranges. *Predictions, on the random arm's draws, at the final weights:*
+(1) every arm removes at least 80 percent of the 5-20 sigma stars, 60 of the 20-100, 40 of the 100-1000, and under 30 of the
+saturated (the bright tail stays the hard case); low to moderate confidence.
+(2) the untouched sky moves by at most 0.3 sigma RMS (outside the stars the target is the input, which L2 learns early);
+moderate.
+(3) the footprint RMS is over the plan's gate of 1, carried by the saturated and 100+ sigma stars; moderate.
+(4) speckles at the sites stay within twice the output's own null in the 0-20 and 20-100 bands and exceed it at 100+, the
+learned remover having no speckle teacher yet; low.
+(5) H2: the Gaussian arm removes at least 5 points less than the random (field) arm at 20-1000 sigma and leaves a higher
+footprint RMS, its stars having no Moffat wings; moderate.
+(6) H3: on its OWN draws the at-site arm removes at least as much as the random arm on its own; on the random arm's draws it
+is within 5 points of the random arm (positions alone teach little the plate does not), and its worse real-star behaviour,
+if any, shows only in the owner's spot checks; low.
+*Kill for R2a as a recipe:* (1) fails at 5-20 sigma for every arm (the net does not learn removal at all), or (2) fails (it
+damages sky it was handed unchanged).
+
 Open from it, under #902: R0's saturated fit on a fixed annulus in FWHM units with a 0.1 to 0.3 core cut (#1240); a
 residual table that holds bright stars' near wings (#1241); the Lagoon's and eta Carinae's photometric offsets (1.4 to 1.7,
 a V against luminance colour term is the likely reading, #1242); the mono noise shape (#1243, calibrated 2026-10-04:
