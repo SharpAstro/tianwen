@@ -51,6 +51,47 @@ public sealed record SaturnRings(ImmutableArray<SaturnRing> Rings)
         new SaturnRing("A", 122170, 136775, Level: 0.6, OpticalDepth: 0.5),
     ]);
 
+    // The radial structure Structured draws inside the B and A rings: each zone's edges, km, and its brightness against the others of
+    // its ring (normalised there to a width-weighted mean of one).
+    private static readonly (double InnerKm, double OuterKm, double Shape, double OpticalDepth)[] BZones =
+        [(92000, 99000, 0.60, 1.0), (99000, 104500, 0.85, 2.0), (104500, 110000, 0.85, 3.0), (110000, 117580, 1.00, 2.0)];
+
+    private static readonly (double InnerKm, double OuterKm, double Shape, double OpticalDepth)[] AZones =
+        [(122170, 129000, 0.70, 0.6), (129000, 133500, 0.60, 0.5), (133500, 136775, 0.45, 0.4)];
+
+    /// <summary>
+    /// The main rings with radial structure inside B and A, each ring's width-weighted mean the level given (over the map's mean albedo,
+    /// as <see cref="Main"/>'s): the inner B ring dimmer and its outer part, beside the Cassini division, the brightest (0.73, 1.03, 1.03
+    /// and 1.21 of B's mean), and the A ring dimming outward (1.14, 0.98 and 0.73 of A's). A twin draws these (S3, #1233). The shape is
+    /// broadly the one low-phase radial profiles of the rings show, chosen and not measured here: no capture resolves it (a B zone is
+    /// under 2 px on 2022-10-09's colour planes). What it changes is what the limb fit's four flat levels read: they put the light
+    /// beside the division into it, 0.55 of the globe where flat rings read 0.01, as the real capture's do (0.40 to 0.45).
+    /// </summary>
+    public static SaturnRings Structured(double c, double b, double cassini, double a)
+    {
+        var rings = ImmutableArray.CreateBuilder<SaturnRing>(2 + BZones.Length + AZones.Length);
+        rings.Add(new SaturnRing("C", 74658, 92000, c, 0.1));
+        AddZones("B", BZones, b);
+        rings.Add(new SaturnRing("Cassini division", 117580, 122170, cassini, 0.1));
+        AddZones("A", AZones, a);
+        return new SaturnRings(rings.MoveToImmutable());
+
+        void AddZones(string name, (double InnerKm, double OuterKm, double Shape, double OpticalDepth)[] zones, double level)
+        {
+            double weighted = 0, width = 0;
+            foreach (var zone in zones)
+            {
+                weighted += zone.Shape * (zone.OuterKm - zone.InnerKm);
+                width += zone.OuterKm - zone.InnerKm;
+            }
+            for (var i = 0; i < zones.Length; i++)
+            {
+                var zone = zones[i];
+                rings.Add(new SaturnRing($"{name}{i + 1}", zone.InnerKm, zone.OuterKm, level * zone.Shape * width / weighted, zone.OpticalDepth));
+            }
+        }
+    }
+
     /// <summary>The outer edge of the outermost ring, km.</summary>
     public double OuterKm
     {

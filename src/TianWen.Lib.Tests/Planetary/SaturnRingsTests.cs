@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Linq;
 using Shouldly;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
@@ -284,5 +285,22 @@ public class SaturnRingsTests
         {
             filled.Sample(90 - (r + 0.5), 180.5).ShouldBe(1, 1e-6, $"row {r}");
         }
+    }
+
+    [Fact]
+    public void StructuredRingsKeepEachRingsMeanLevel()
+    {
+        // The structure moves light within the B and A rings, never between them: each ring's width-weighted mean is the level given.
+        var rings = SaturnRings.Structured(0.15, 0.7, 0.1, 0.4).Rings;
+        rings.Length.ShouldBe(9);
+        rings[^1].OuterKm.ShouldBe(136775);
+        foreach (var (name, level) in new[] { ("C", 0.15), ("B", 0.7), ("Cassini", 0.1), ("A", 0.4) })
+        {
+            var group = rings.Where(r => name == "Cassini" ? r.Name.StartsWith("Cassini", StringComparison.Ordinal) : r.Name.StartsWith(name, StringComparison.Ordinal) && !r.Name.StartsWith("Cassini", StringComparison.Ordinal)).ToArray();
+            var width = group.Sum(r => r.OuterKm - r.InnerKm);
+            (group.Sum(r => r.Level * (r.OuterKm - r.InnerKm)) / width).ShouldBe(level, 1e-12, name);
+        }
+        // Brightest beside the division, inside the B ring.
+        rings.Single(r => r.Name == "B4").Level.ShouldBeGreaterThan(rings.Single(r => r.Name == "B1").Level);
     }
 }

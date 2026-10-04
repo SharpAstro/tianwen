@@ -306,8 +306,8 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         var fieldGridOpt = new Option<int>("--field-grid") { Description = "The spacing of the points the layer's PSF is computed at, px.", DefaultValueFactory = _ => 6 };
         var ringLevelsOpt = new Option<string?>("--ring-levels")
         {
-            Description = "Saturn's rings' levels over the map's mean albedo, C,B,Cassini,A (S3): what the twin is calibrated by; on a colour capture "
-                + "four for every colour or twelve, red's, green's and blue's. Default: the nominal ones.",
+            Description = "Saturn's rings' mean levels over the map's mean albedo, C,B,Cassini,A, drawn with their radial structure (S3, SaturnRings.Structured): "
+                + "what the twin is calibrated by; on a colour capture four for every colour or twelve, red's, green's and blue's. Default: the nominal ones.",
         };
         var noTwinRingsOpt = new Option<bool>("--no-rings") { Description = "Draw Saturn's globe alone, without its rings." };
 
@@ -346,8 +346,10 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                         consoleHost.WriteError("--ring-levels takes four levels, C, B, the Cassini division and A, or twelve, red's, green's and blue's");
                         return 1;
                     }
-                    SaturnRings At(int first) => new SaturnRings([.. SaturnRings.Main.Rings.Select((ring, i) => ring with { Level = levels[first + i] })]);
-                    twinRings = levels.Length == 0 ? SaturnRings.Main : At(0);
+                    // Drawn with their radial structure: the limb fit's four flat levels read a real capture's that way (S3).
+                    SaturnRings At(int first) => SaturnRings.Structured(levels[first], levels[first + 1], levels[first + 2], levels[first + 3]);
+                    var main = SaturnRings.Main.Rings;
+                    twinRings = levels.Length == 0 ? SaturnRings.Structured(main[0].Level, main[1].Level, main[2].Level, main[3].Level) : At(0);
                     for (var c = 0; c < 3; c++)
                     {
                         colourRings[c] = levels.Length == 12 ? At(4 * c) : twinRings;
