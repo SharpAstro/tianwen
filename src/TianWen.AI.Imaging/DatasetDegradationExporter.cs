@@ -1102,7 +1102,9 @@ namespace TianWen.AI.Imaging
                             var zTileFine = ATrousWaveletTransform.Decompose(zTile, size, size, 1).Detail(0).ToArray();
                             var fineOfPair = new List<float>(n);
                             var ofPair = new List<float>(n);
-                            var measuredTile = measured is null ? null : CutClamped(measured, c, cell.X, cell.Y, size, size);
+                            // Smoothed as the tile's plane is, so the check reads the error a model is shown.
+                            var measuredTile = measured is null ? null
+                                : StretchedNoise.SmoothedLikeThePlane(CutClamped(measured, c, cell.X, cell.Y, size, size), size, size);
                             var zMeasured = new List<float>(n);
                             for (var y = HalfPairNoise.RimPx; y < size - HalfPairNoise.RimPx; y++)
                             {

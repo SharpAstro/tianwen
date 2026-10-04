@@ -544,6 +544,19 @@ public static class StretchedNoise
         return grown;
     }
 
+    /// <summary>
+    /// A measured LINEAR standard error smoothed at the plane's own scale (<see cref="DefaultPlaneSigmaPx"/>, NaN filled
+    /// as <see cref="MeasuredPlane"/> fills it): what a check against the half pairs divides by, so it judges the error a
+    /// model is shown rather than one pixel's reading of it, whose sampling noise alone inflates a per-pixel ratio
+    /// (E16c step 2).
+    /// </summary>
+    public static float[] SmoothedLikeThePlane(float[] linearSigma, int width, int height, float planeSigmaPx = DefaultPlaneSigmaPx)
+    {
+        ArgumentOutOfRangeException.ThrowIfNotEqual(linearSigma.Length, width * height);
+        var filled = WithoutNaN(linearSigma);
+        return planeSigmaPx > 0 ? Image.SeparableGaussianBlur(filled, width, height, planeSigmaPx) : filled;
+    }
+
     /// <summary>A copy with every NaN replaced by the finite median, so a blur cannot spread one. A plane over a
     /// NaN pixel is not a measurement either way; the median keeps its neighbours' plane honest.</summary>
     private static float[] WithoutNaN(float[] src)
