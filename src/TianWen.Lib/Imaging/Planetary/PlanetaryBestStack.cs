@@ -175,9 +175,11 @@ public static class PlanetaryBestStack
     /// to sharpen every later master with (<see cref="SliderOptions"/>), and the limb it drew, which those masters are drawn outside of as
     /// the batch draws it (<see cref="PlanetaryLiveLimb"/>, #1201): the derivation is the slow part (about 35 s), the gains and the limb are
     /// cheap to apply. Empty, with no limb and the reason in words, where nothing is derived: no telescope, no planet with a rotation
-    /// model, no time, or a limb that does not fit. A colour master's gains are its first channel's, and the limb carries the colour
-    /// balance the batch would give it at <paramref name="colourSaturation"/> (<see cref="PlanetaryLiveLimb.Balance"/>, #1212; null leaves
-    /// the colours as captured).
+    /// model, no time, or a limb that does not fit. A colour master's red and blue planes are first moved onto green by their limbs, as
+    /// the batch moves its master's (<see cref="PlanetaryChannelAlignment"/>), and the gains and the balance read on it so moved: the limb
+    /// carries that reading, which every later master is moved by (<see cref="PlanetaryLiveLimb.Channels"/>, #1202). Its gains are its first
+    /// channel's, and the limb carries the colour balance the batch would give it at <paramref name="colourSaturation"/>
+    /// (<see cref="PlanetaryLiveLimb.Balance"/>, #1212; null leaves the colours as captured).
     /// </summary>
     public static (ImmutableArray<float> Gains, string How, PlanetaryLiveLimb? Limb) DeriveGains(Image master, CatalogIndex? planet, DateTimeOffset? epoch,
         Pupil? telescope, ImmutableArray<double> wavelengthsNm = default, double? colourSaturation = PlanetaryColourBalance.DefaultSaturation)
@@ -192,27 +194,45 @@ public static class PlanetaryBestStack
         {
             return ([], "the gains are derived only for a named Jupiter or Saturn with frame times", null);
         }
-        if (PlanetarySharpening.Sharpen(master, options with { Fix = PlanetaryLimbFix.Floored }) is not { } result)
-        {
-            return ([], "the planet's limb could not be fitted", null);
-        }
+        // A live master's colours lie where the atmosphere's dispersion put them, 6.4 px red to blue on 2022-10-09 (#1202): moved onto
+        // green here as the batch moves its master's, read once and given to every later master.
+        var (aligned, channels) = master.ChannelCount == 3
+            ? PlanetaryChannelAlignment.Align(master, PlanetaryFrameLayout.Rgb, PlanetaryChannelAlignment.LimbOptionsFor(options.Planet, options.When))
+            : (master, null);
         try
         {
-            var inv = CultureInfo.InvariantCulture;
-            if (!result.Derived || result.Gains.IsDefaultOrEmpty)
+            if (PlanetarySharpening.Sharpen(aligned, options with { Fix = PlanetaryLimbFix.Floored }) is not { } result)
             {
-                return ([], "the gains could not be derived", null);
+                return ([], "the planet's limb could not be fitted", null);
             }
-            var how = string.Create(inv, $"derived for {options.Planet} through a {pupil.DiameterM * 1000:0} mm pupil at {options.WavelengthsNm[0]:0} nm");
-            // The colour balance the batch gives a master of this planet (#1212), read once here and given to every master drawn.
-            var balance = master.ChannelCount == 3 && colourSaturation is { } saturation
-                ? PlanetaryColourBalance.For(master, options.Planet, options.When, saturation).Balance
-                : null;
-            return ([.. result.Gains.Select(g => (float)g)], balance is null ? how : $"{how}; {balance.Describe()}", result.Limb?.WithBalance(balance));
+            try
+            {
+                var inv = CultureInfo.InvariantCulture;
+                if (!result.Derived || result.Gains.IsDefaultOrEmpty)
+                {
+                    return ([], "the gains could not be derived", null);
+                }
+                var how = string.Create(inv, $"derived for {options.Planet} through a {pupil.DiameterM * 1000:0} mm pupil at {options.WavelengthsNm[0]:0} nm");
+                // The colour balance the batch gives a master of this planet (#1212), read once here and given to every master drawn.
+                var balance = aligned.ChannelCount == 3 && colourSaturation is { } saturation
+                    ? PlanetaryColourBalance.For(aligned, options.Planet, options.When, saturation).Balance
+                    : null;
+                how = channels is null ? how : $"{how}; {channels.Describe()}";
+                return ([.. result.Gains.Select(g => (float)g)], balance is null ? how : $"{how}; {balance.Describe()}",
+                    result.Limb?.WithColour(balance, channels));
+            }
+            finally
+            {
+                result.Sharpened.Release();
+            }
         }
         finally
         {
-            result.Sharpened.Release();
+            // Applied is exactly when Align made a new image; otherwise it handed the master back.
+            if (channels is { Applied: true })
+            {
+                aligned.Release();
+            }
         }
     }
 

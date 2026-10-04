@@ -51,7 +51,7 @@ public class ViewerWaveletDeriveTests
 
         PressDerive(e2e);
         e2e.State.WaveletDeriving.ShouldBeTrue("the derivation runs in the background, and the button says so");
-        await e2e.PumpUntilAsync(() => e2e.State.WaveletDeriveNote is not null && !e2e.State.WaveletDeriving, "the derivation's answer", ct);
+        await e2e.PumpUntilAsync(() => e2e.State.WaveletDeriveNote is not null && !e2e.State.WaveletDeriving, "the derivation's answer", ct, untilTimeout: true);
 
         var note = e2e.State.WaveletDeriveNote.ShouldNotBeNull();
         TestContext.Current.TestOutputHelper?.WriteLine($"{note}: {string.Join(", ", e2e.State.WaveletGains)}");
@@ -77,6 +77,32 @@ public class ViewerWaveletDeriveTests
         await e2e.PumpUntilAsync(() => source.MastersDrawnOutsideTheLimb > drawnBefore, "the preset's master drawn outside the kept limb", ct);
     }
 
+    [Theory(Timeout = 180_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task DeriveOnAColourCaptureMovesEveryLaterMastersColoursOntoGreen(float dpi)
+    {
+        // #1202: a colour capture's live masters keep the atmosphere's dispersion (red 2 px above green, blue 2 px below here). Derive
+        // reads it as the batch reads its master's, and every master from then on is moved by it before the dials sharpen it.
+        using var e2e = ViewerE2E.Start(dpi);
+        var ct = TestContext.Current.CancellationToken;
+        await OpenStackedAsync(e2e, ct, dispersed: true);
+        (e2e.State.PlanetaryApertureMm, e2e.State.PlanetaryDesign) = (254, OpticalDesign.Newtonian);
+
+        PressDerive(e2e);
+        await e2e.PumpUntilAsync(() => e2e.State.WaveletDeriveNote is not null && !e2e.State.WaveletDeriving, "the derivation's answer", ct, untilTimeout: true);
+
+        var note = e2e.State.WaveletDeriveNote.ShouldNotBeNull();
+        TestContext.Current.TestOutputHelper?.WriteLine(note);
+        var read = e2e.State.WaveletLimb.ShouldNotBeNull(note).Channels.ShouldNotBeNull(note);
+        // The wiring's test: the reading's accuracy is pinned in Lib (PlanetarySharpeningTests), where the master is made for it. Here it
+        // is whichever master the playhead had stacked, a hard-edged 8-bit disk of 32 frames, and read 1.6 to 2.3 px.
+        read.Red.Dy.ShouldBeLessThan(-1, note);
+        read.Blue.Dy.ShouldBeGreaterThan(1, note);
+        var source = e2e.Controller.Source.ShouldBeOfType<LiveStackPreviewSource>();
+        await e2e.PumpUntilAsync(() => source.MastersAligned > 0, "a master's colours moved onto green", ct);
+    }
+
     [Fact]
     public void ADerivationDisposedTwiceStaysQuietAndTicksNoMore()
     {
@@ -93,9 +119,9 @@ public class ViewerWaveletDeriveTests
     }
 
     // The synthetic Jupiter capture opened and its stacked view on screen with a master in it.
-    private static async Task OpenStackedAsync(ViewerE2E e2e, System.Threading.CancellationToken ct)
+    private static async Task OpenStackedAsync(ViewerE2E e2e, System.Threading.CancellationToken ct, bool dispersed = false)
     {
-        var capture = ViewerBestStackTests.WriteCapture(Path.Combine(e2e.Folder, "2024-12-15-1256_7-Jupiter.ser"));
+        var capture = ViewerBestStackTests.WriteCapture(Path.Combine(e2e.Folder, "2024-12-15-1256_7-Jupiter.ser"), dispersed: dispersed);
         e2e.Host.HandleDropFile(capture);
         await e2e.PumpUntilAsync(() => e2e.State.SequencePath == capture, "the capture to open", ct);
         e2e.Key(InputKey.K);

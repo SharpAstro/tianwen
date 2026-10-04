@@ -12,7 +12,14 @@ public readonly record struct PlanetaryChannelShift(double Dx, double Dy)
     public double Length => Math.Sqrt((Dx * Dx) + (Dy * Dy));
 
     /// <inheritdoc/>
-    public override string ToString() => FormattableString.Invariant($"{Dx:+0.00;-0.00}, {Dy:+0.00;-0.00} px");
+    public override string ToString() => $"{Signed(Dx)}, {Signed(Dy)} px";
+
+    // Rounded first: a negative that rounds to zero took the positive section and a minus sign of its own ("-+0.00").
+    private static string Signed(double value)
+    {
+        var rounded = Math.Round(value, 2);
+        return rounded == 0 ? "+0.00" : FormattableString.Invariant($"{rounded:+0.00;-0.00}");
+    }
 }
 
 /// <summary>How a colour's offset from green was read.</summary>
@@ -32,7 +39,17 @@ public enum PlanetaryChannelReading
 /// master was left as stacked.
 /// </summary>
 public sealed record PlanetaryChannelAlignmentResult(PlanetaryChannelShift Red, PlanetaryChannelShift Blue, PlanetaryChannelShift? GreenCheck,
-    PlanetaryChannelReading Reading, bool Applied, string? Refusal = null);
+    PlanetaryChannelReading Reading, bool Applied, string? Refusal = null)
+{
+    /// <summary>What was read and done, in words: ONE wording for <c>planetary-stack</c> and a live view's derivation.</summary>
+    public string Describe()
+    {
+        var greens = GreenCheck is { } check ? FormattableString.Invariant($"; the greens {check.Length:0.00} px apart") : "";
+        return Applied
+            ? $"colours moved onto green, read by {(Reading == PlanetaryChannelReading.Limb ? "their limbs" : "correlation")}: red was at {Red}, blue at {Blue}{greens}"
+            : $"colours left as stacked: {Refusal} (red {Red}, blue {Blue}{greens})";
+    }
+}
 
 /// <summary>
 /// Aligns a colour master's planes onto green, as AutoStakkert's RGB align does (docs/plans/planetary-restoration.md, "A colour
@@ -118,6 +135,22 @@ public static class PlanetaryChannelAlignment
             return (stacked, new PlanetaryChannelAlignmentResult(red, blue, greenCheck, reading, Applied: false, refusal));
         }
 
+        return (Apply(stacked, layout, red, blue), new PlanetaryChannelAlignmentResult(red, blue, greenCheck, reading, Applied: true));
+    }
+
+    /// <summary>
+    /// <paramref name="stacked"/> with its red and blue planes moved onto green by shifts already read (<see cref="Align"/>'s, in mosaic
+    /// pixels): a live view's later masters, moved by what its derivation read on one (#1202). A new image; its green planes are
+    /// <paramref name="stacked"/>'s.
+    /// </summary>
+    public static Image Apply(Image stacked, PlanetaryFrameLayout layout, PlanetaryChannelShift red, PlanetaryChannelShift blue)
+    {
+        ArgumentNullException.ThrowIfNull(stacked);
+        var split = layout == PlanetaryFrameLayout.SplitCfa && stacked.ChannelCount == 4;
+        if (!split && stacked.ChannelCount != 3)
+        {
+            throw new ArgumentException($"a {stacked.ChannelCount}-plane {layout} master has no colour planes to move", nameof(stacked));
+        }
         // A sub-plane's pixel is two mosaic pixels, so it moves by half the physical shift; it stays at its own photosite.
         var scale = split ? 0.5 : 1.0;
         var planes = new float[stacked.ChannelCount][,];
@@ -129,8 +162,7 @@ public static class PlanetaryChannelAlignment
         var blueIndex = split ? 3 : 2;
         planes[redIndex] = Moved(planes[redIndex], red.Dx * scale, red.Dy * scale);
         planes[blueIndex] = Moved(planes[blueIndex], blue.Dx * scale, blue.Dy * scale);
-        var aligned = new Image(planes, stacked.BitDepth, stacked.MaxValue, stacked.MinValue, stacked.Pedestal, stacked.ImageMeta);
-        return (aligned, new PlanetaryChannelAlignmentResult(red, blue, greenCheck, reading, Applied: true));
+        return new Image(planes, stacked.BitDepth, stacked.MaxValue, stacked.MinValue, stacked.Pedestal, stacked.ImageMeta);
     }
 
     private readonly record struct Readings(PlanetaryChannelShift Red, PlanetaryChannelShift Blue, PlanetaryChannelShift? GreenCheck,

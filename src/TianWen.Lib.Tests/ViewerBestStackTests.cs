@@ -130,12 +130,12 @@ public class ViewerBestStackTests
     }
 
     // A short Jupiter capture: a textured disk wandering a pixel or two, 8 bits, a frame every 10 ms.
-    internal static string WriteCapture(string path, string telescope = "")
+    internal static string WriteCapture(string path, string telescope = "", bool dispersed = false)
     {
         const int n = 96, frames = 32;
         var random = new Random(7);
         var start = new DateTimeOffset(2024, 12, 15, 12, 56, 44, TimeSpan.Zero);
-        using (var writer = new SerWriter(path, n, n, SerColorId.Mono, 8, telescope: telescope))
+        using (var writer = new SerWriter(path, n, n, dispersed ? SerColorId.BayerRGGB : SerColorId.Mono, 8, telescope: telescope))
         {
             var frame = new byte[n * n];
             for (var i = 0; i < frames; i++)
@@ -145,7 +145,9 @@ public class ViewerBestStackTests
                 {
                     for (var x = 0; x < n; x++)
                     {
-                        var (dx, dy) = (x - cx, y - cy);
+                        // A dispersed capture's photosite (RGGB) sees its colour where the atmosphere put it: red 2 px up, blue 2 px down.
+                        var colourDy = !dispersed ? 0 : ((x & 1) + (y & 1)) switch { 0 => -2, 2 => 2, _ => 0 };
+                        var (dx, dy) = (x - cx, y - colourDy - cy);
                         var v = (dx * dx) + (dy * dy) < 26 * 26
                             ? 0.5 + (0.25 * Math.Sin(x * 0.6) * Math.Cos(y * 0.55)) + (0.12 * Math.Sin((x - y) * 0.3))
                             : 0.03;
