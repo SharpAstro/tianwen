@@ -267,7 +267,8 @@ its count goes into `meta.json` and every checkpoint, and `open_tiles` / `load_m
 to seven figures; a mono smoke on the R1 export's QHY178M sessions trained a one-channel net); (3) the product gate,
 `N2nDenoiser` serving three channels alone, with one weights file. The risk is the pool: a mono model trained on 14 to 18 sessions of six
 cameras, held out by camera, is the experiment; LDN 1622 alone (one CCD, one field) is not. That experiment is
-pre-registered in the run log, "2026-10-05: H7, pre-registered" (#1260).
+pre-registered in the run log, "2026-10-05: H7, pre-registered" (#1260), and is held for E16c (#1160): its D2 found the
+master's block estimator reading nebula-filled mono nights' structure as noise, up to 3.2 times the truth.
 
 **H8. Cross-night pairs give N2N genuinely independent noise, and that lifts the shared-noise ceiling
 both measured regimes sit under.** Every arm so far trains on a target whose noise its input also
@@ -2784,6 +2785,11 @@ alone; then E16c trained against E16b's arm. Star fields cannot be read this way
 where the halves' different seeing adds structure and the fits go negative), so the estimator must answer "no
 estimate" there rather than guess.
 
+**It must also not read structure as noise** (added 2026-10-05, from H7's D2 below). The master's block estimator, which
+is both the export's master anchor and the runner's plane at inference, read the half pairs' truth at 0.31 on a
+nebula-filled H-alpha frame (ASI1600MM, eta Car) and at 0.55 on the ASI294MM's Lagoon. So whatever single-frame estimator
+E16c builds is validated on those nights' half pairs too, within D2's 10 percent. H7 (#1260) waits on it.
+
 ### 2026-10-05: H7, pre-registered
 
 Tracked by #1260. Written before any H7 export, cache or model existed; `training/denoise/run-h7.ps1` copies it into
@@ -2870,3 +2876,43 @@ Either way, the choice is the owner's.
 
 **What it cannot settle.** Other mono cameras than these six; narrowband mono beyond the one SII and three H-alpha nights that train;
 how much the result leans on the camera that supplies half the pool; and a seed spread wider than four seeds can show.
+
+#### H7, held after D2 failed, before any model (2026-10-05)
+
+**D2 failed, which is what it was there for.** D1 had passed (14 nights, 0 failed, the cache one channel), and the run
+stopped before the eval cache, D3 and any training (`C:\temp\e2\h7-d2.txt`, `h7-d2-subcal.txt`). D2 read the four
+training nights that have half pairs: 457 quiet cells, and 12 bright cells on M42 and the ASI1600MM Ha. Measured over
+predicted, the gate being 10 percent:
+
+| night | master-calibration | sub-calibrations |
+|---|---|---|
+| ASI1600MM Ha, eta Car 2025-02-06 | **0.31** | 1.01 |
+| ASI294MM Lagoon 2022-06-28 | **0.55** | 0.96 |
+| ASI294MM Cen A 2022-03-12 | 0.86 | 1.08 |
+| ASI294MM M42 2021-11-28 | 0.93 | 1.12 |
+| pooled | 0.819 (fails) | 1.031 (passes) |
+
+The half-pair anchor read 0.991 and the sub-MAD anchor 2.251. Under the sub anchor, bright cells were within 0.996 of
+quiet ones.
+
+**What it says.** The master anchor is the block estimator the runner calls on the frame at inference. On the two
+nebula-filled nights its "quiet" blocks are not sky, so it reads structure as noise: 1.8 and 3.2 times the truth.
+E16b met the same over-read on two dense broadband fields (LMC and Tarantula, 0.5 to 0.7). Mono nights are more often
+nebula-filled narrowband frames. Training on the master anchor would over-inject on those nights. Worse, the plane at
+deploy would tell any mono model the same inflated noise on such a frame.
+
+The sub anchor is true on mono at training time: neither of the reasons it failed on colour (drizzle depth, per-frame
+scale) reaches a mono master. But it exists only at export, since the runner has no subs.
+
+**The owner's decision (2026-10-05): H7 waits for E16c** (#1160). Re-anchoring the export would leave the deploy
+plane's over-read in place, and a relaxed gate would accept it. So H7 resumes once a single-frame estimator reads a
+nebula-filled frame's noise within the gate, validated on these half pairs; the ASI1600MM Ha and the Lagoon are its
+hardest cases. That requirement is added to E16c's own (the read share), since both concern the one estimator the
+export and the runner share.
+
+What happens to the material:
+- The export (`D:\tianwen-scratch\degraded\h7`), the training cache (`n2n-h7`) and the bright-cell list are kept. They
+  carry the master anchor, so H7 re-exports when it resumes.
+- The bright-cell dose was 7 cells over 2 nights (M42 5, the ASI1600MM Ha 2), against E16b's 45. That is the pool as
+  registered, with no widening.
+- The pre-registration is otherwise unchanged. D2 re-runs against whichever estimator E16c provides.
