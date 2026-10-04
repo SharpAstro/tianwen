@@ -3280,6 +3280,46 @@ seeings T1 used (3 px beta 3, 6 px beta 3, 6 px beta 2), is fitted with the cent
 axis within 0.2 degree: Jupiter's T1 rule, plus the axis, which the rings make measurable. On the three real Saturn captures the fit
 converges, and its residual over the limb is within twice the Jupiter captures'.
 
+**Measured (2026-10-04, `SaturnLimbFitTests`, `planetary-limb`): T1 for Saturn passes, and all four real captures converge.** The capture
+turned out to be at 0.302"/px, not the 0.487 first assumed: its restacked master's globe fits at 29.6 px. T1 was run at both scales:
+
+| Seeing | Radius, 0.302"/px | Radius, 0.487"/px | Centre | Axis |
+|---|---|---|---|---|
+| 3 px, beta 3 | +0.04 % | +0.09 % | 0.003 px | 0.003 deg |
+| 6 px, beta 3 | +0.12 % | +0.31 % | 0.006 px | 0.003 deg |
+| 6 px, beta 2 | +0.42 % | -0.27 % | 0.006 px | 0.005 deg |
+
+What the model needed beyond the rings themselves:
+- **Each ring's level free, the near half over the globe, edges anti-aliased** like the limb, so the model moves smoothly with the fit.
+- **Both ends of the axis tried:** the rings tell north from south, since the near half crosses the globe on the pole turned away. North came
+  out right every time.
+- **A start from the rings' reach** (`StartRinged`), never from the bright area, which is the rings' as much as the globe's. It reads only the
+  largest connected blob: the 2022-10-09 master's bright top rows had put the start at 70 px for a globe of 19.
+- **Both shadows.** Without them the radius read +0.50 %, +3.06 % and +4.02 % at 0.487"/px. The globe's shadow on the rings was the main
+  miss: with the rings made transparent, so that it alone remained, it read +5.11 %.
+- **A ring's covered and shaded shares of a cell are nested, never multiplied.** A ring seen against the globe and its shadow on the globe
+  share their edges when the Sun is near the observer, and the product darkened each such edge a second time.
+
+The model's globe is still a sphere scaled to the apparent ellipse, as Jupiter's is. Drawn at the true parameters against a sharp render,
+that leaves up to 4 % of the globe's brightness toward the pole at Saturn's flattening (0.098); the zonal albedo absorbs what it can.
+
+**The real captures.** The residual is the fit's RMS over the disk's brightness:
+
+| Capture | Globe R | Residual |
+|---|---|---|
+| 2021-12-16, Maksutov | 18.95 px | 0.0085 |
+| 2022-08-27 LUM, Newtonian | 21.11 px | 0.0060 |
+| 2022-10-09 colour, Newtonian, restacked after #1237 | 29.60 px | 0.0075 |
+| 2022-10-25, EdgeHD 11 and ASI183MC | 49.25 px | 0.0058 |
+
+Jupiter's four gallery masters read 0.0057 to 0.0094, so every Saturn is inside Jupiter's range and well within twice it. The 2021-12-16
+globe was 28.1 px before the rings were modelled; the ephemeris and plate scale give 18.6. Drawn over the masters, the fitted ring edges
+fall on the Cassini division and the A ring's edge. The EdgeHD capture's scale, 0.1773"/px with the header's 2.4 µm camera, puts it at
+2,792 mm, the telescope's native focal length.
+
+What reads the fit still declines Saturn (`PlanetaryLimbFit.Unmodelled`, now worded so) until it draws the rings: the sharpening (S4) and
+the de-rotation and colour alignment (S5).
+
 ### S3 A Saturn twin
 
 #1233. `planetary-degrade` with an S1 Saturn truth, at 2022-10-09's capture (the colour one), calibrated on that capture's statistics as R2

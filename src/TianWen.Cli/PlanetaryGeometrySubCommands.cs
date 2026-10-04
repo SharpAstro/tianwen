@@ -45,7 +45,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         command.SetAction((parseResult, ct) =>
         {
             var failed = 0;
-            consoleHost.WriteScrollable("image                                   x0        y0        R       axis   k     sigma  side  rms       | WinJUPOS dx     dy     dR (%)   rotation");
+            consoleHost.WriteScrollable("image                                   x0        y0        R       axis   k     sigma  side  rms       rms/disk | WinJUPOS dx     dy     dR (%)   rotation");
             foreach (var input in parseResult.GetValue(inputsArg) ?? [])
             {
                 ct.ThrowIfCancellationRequested();
@@ -77,7 +77,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                     continue;
                 }
                 var line = string.Create(CultureInfo.InvariantCulture,
-                    $"{Path.GetFileName(imagePath),-38} {fit.CenterX,8:0.000}  {fit.CenterY,8:0.000}  {fit.EquatorialRadius,7:0.000}  {fit.AxisAngleDeg,6:0.00}  {fit.LimbDarkening,4:0.00}  {fit.PsfSigma,5:0.00}  {fit.SunSide,4:+0;-0;0}  {fit.RmsResidual,8:0.00000}");
+                    $"{Path.GetFileName(imagePath),-38} {fit.CenterX,8:0.000}  {fit.CenterY,8:0.000}  {fit.EquatorialRadius,7:0.000}  {fit.AxisAngleDeg,6:0.00}  {fit.LimbDarkening,4:0.00}  {fit.PsfSigma,5:0.00}  {fit.SunSide,4:+0;-0;0}  {fit.RmsResidual,8:0.00000}  {fit.RmsResidual / fit.Brightness,7:0.00000}");
                 if (measurement is { } w)
                 {
                     line += string.Create(CultureInfo.InvariantCulture,
