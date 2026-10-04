@@ -436,7 +436,7 @@ public static class Tycho2ColorCalibration
     /// available -- synthetic test frames, missing FITS header, or any
     /// pre-1900 value -- so the matcher keeps its prior behaviour exactly.
     /// </summary>
-    private static double ComputeDtJulianYears(Image image)
+    internal static double ComputeDtJulianYears(Image image)
     {
         var exposureStart = image.ImageMeta.ExposureStartTime;
         return exposureStart.Year > 1900 ? exposureStart.JulianYearsSinceJ2000() : 0.0;
