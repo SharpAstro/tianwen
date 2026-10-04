@@ -142,10 +142,12 @@ internal sealed class ViewerE2E : IDisposable
     /// Runs frames until <paramref name="done"/> holds and no load is in flight. A document loads on the
     /// thread pool, so this waits in real time between frames; the bound is generous because a loaded test
     /// machine is slow, and giving up throws with the status line, which is where a failed open says why.
+    /// <paramref name="untilTimeout"/> drops the bound and waits for as long as the test's own <c>Timeout</c> allows (its token), for
+    /// work whose length is the machine's rather than the viewer's: a derivation takes about 35 s in Debug, all of the bound.
     /// </summary>
-    internal async Task PumpUntilAsync(Func<bool> done, string what, CancellationToken ct)
+    internal async Task PumpUntilAsync(Func<bool> done, string what, CancellationToken ct, bool untilTimeout = false)
     {
-        for (var i = 0; i < 1000; i++)
+        for (var i = 0; untilTimeout || i < 1000; i++)
         {
             Frame();
             if (done() && !Controller.IsLoadPending)

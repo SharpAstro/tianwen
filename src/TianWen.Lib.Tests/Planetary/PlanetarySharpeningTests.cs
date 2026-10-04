@@ -299,10 +299,12 @@ public class PlanetarySharpeningTests
         var dials = WaveletSharpen.Sharpen(stack, PlanetaryBestStack.SliderOptions(gains));
         var live = limb.FollowedTo(stack).ShouldNotBeNull().Draw(stack, dials);
 
-        // The batch's order: sharpened, then balanced by the same routine at the same saturation.
-        var batch = (await Task.Run(() => PlanetarySharpening.Sharpen(stack, new PlanetarySharpenOptions(CatalogIndex.Jupiter, Night, Telescope) { WavelengthsNm = [610, 530, 460] }), ct))
+        // The batch's order: its colours moved onto green (the stacker's, #1202; nothing to move here, which still resamples), sharpened,
+        // then balanced by the same routine at the same saturation.
+        var (onGreen, _) = PlanetaryChannelAlignment.Align(stack, PlanetaryFrameLayout.Rgb, PlanetaryChannelAlignment.LimbOptionsFor(CatalogIndex.Jupiter, Night));
+        var batch = (await Task.Run(() => PlanetarySharpening.Sharpen(onGreen, new PlanetarySharpenOptions(CatalogIndex.Jupiter, Night, Telescope) { WavelengthsNm = [610, 530, 460] }), ct))
             .ShouldNotBeNull();
-        var (batchBalance, batchHow) = await Task.Run(() => PlanetaryColourBalance.For(stack, CatalogIndex.Jupiter, Night), ct);
+        var (batchBalance, batchHow) = await Task.Run(() => PlanetaryColourBalance.For(onGreen, CatalogIndex.Jupiter, Night), ct);
         var balancedBatch = batchBalance.ShouldNotBeNull(batchHow).Apply(batch.Sharpened);
 
         var disk = limb.Disk;
@@ -320,7 +322,64 @@ public class PlanetarySharpeningTests
         live.ImageMeta.IsColourBalanced.ShouldBeTrue();
         byLive.ChromaDistance(byBatch).ShouldBeLessThan(0.002, "the live view's disk takes the batch's colour");
         asCaptured.ChromaDistance(byBatch).ShouldBeGreaterThan(0.05, "the camera's colour is far from it, or this test would show nothing");
-        foreach (var image in new[] { dials, live, batch.Sharpened, balancedBatch })
+        foreach (var image in new[] { dials, live, batch.Sharpened, balancedBatch, onGreen })
+        {
+            image.Release();
+        }
+    }
+
+    [Fact(Timeout = 300_000)]
+    public async Task AColourLiveViewMovesItsColoursOntoGreenAsTheBatchMovesItsMaster()
+    {
+        // #1202: the atmosphere's dispersion leaves a live master's colours apart (6.4 px red to blue on 2022-10-09), where the batch moves
+        // its master's onto green by their limbs. Derive reads them the batch's way on the master on show and keeps the reading with the
+        // limb, and every later master is moved by it before it is sharpened and drawn: its colours then lie on green, as the batch's do.
+        var ct = TestContext.Current.CancellationToken;
+        var (_, mono) = NoisyStack();
+        var grey = mono.GetChannelSpan(0);
+        (float Gain, float Sky, int Dy)[] camera = [(0.9f, 0.04f, -2), (0.6f, 0.03f, 0), (0.35f, 0.05f, 3)];
+        var planes = new float[3][,];
+        for (var c = 0; c < 3; c++)
+        {
+            planes[c] = new float[Size, Size];
+            for (var y = 0; y < Size; y++)
+            {
+                // The colour's content sits Dy rows from green's (PlanetaryChannelShift), the frame's edge row repeated past it.
+                var from = Math.Clamp(y - camera[c].Dy, 0, Size - 1);
+                for (var x = 0; x < Size; x++)
+                {
+                    planes[c][y, x] = (camera[c].Gain * (grey[(from * Size) + x] - 0.05f)) + camera[c].Sky;
+                }
+            }
+        }
+        var stack = new Image(planes, BitDepth.Float32, 1f, 0f, 0f, new ImageMeta { SensorType = SensorType.Color });
+        var limbOptions = PlanetaryChannelAlignment.LimbOptionsFor(CatalogIndex.Jupiter, Night);
+
+        var (gains, how, kept) = await Task.Run(() => PlanetaryBestStack.DeriveGains(stack, CatalogIndex.Jupiter, Night, Telescope), ct);
+        var limb = kept.ShouldNotBeNull(how);
+        var read = limb.Channels.ShouldNotBeNull(how);
+        how.ShouldContain(read.Describe());
+
+        // A later master as the live view draws it: moved, sharpened by the dials, drawn outside the limb; and as it drew one before.
+        limb.TryAlign(stack, out var moved).ShouldBeTrue();
+        var dials = WaveletSharpen.Sharpen(moved, PlanetaryBestStack.SliderOptions(gains));
+        var live = limb.FollowedTo(moved).ShouldNotBeNull().Draw(moved, dials);
+        var unmovedDials = WaveletSharpen.Sharpen(stack, PlanetaryBestStack.SliderOptions(gains));
+        var unmoved = limb.FollowedTo(stack).ShouldNotBeNull().Draw(stack, unmovedDials);
+        var (_, after) = await Task.Run(() => PlanetaryChannelAlignment.Align(live, PlanetaryFrameLayout.Rgb, limbOptions), ct);
+        var (_, before) = await Task.Run(() => PlanetaryChannelAlignment.Align(unmoved, PlanetaryFrameLayout.Rgb, limbOptions), ct);
+        var (onGreen, wasApart) = (after.ShouldNotBeNull(), before.ShouldNotBeNull());
+        TestContext.Current.TestOutputHelper?.WriteLine($"{how}; the drawn master's colours: moved, red {onGreen.Red}, blue {onGreen.Blue}; as before, red {wasApart.Red}, blue {wasApart.Blue}");
+
+        read.Reading.ShouldBe(PlanetaryChannelReading.Limb, "read by their limbs, as the batch reads its master's");
+        (read.Red.Dx, read.Red.Dy, read.Blue.Dx, read.Blue.Dy).ShouldSatisfyAllConditions(
+            r => r.Item1.ShouldBe(0, 0.15), r => r.Item2.ShouldBe(-2, 0.15), r => r.Item3.ShouldBe(0, 0.15), r => r.Item4.ShouldBe(3, 0.15));
+        onGreen.Red.Length.ShouldBeLessThan(0.15, "every master drawn has its red on green");
+        onGreen.Blue.Length.ShouldBeLessThan(0.15, "and its blue");
+        // Unmoved, the model pasted outside green's limb pulls the reading in (2.45 px of 3), but the dispersion stays.
+        wasApart.Blue.Dy.ShouldBeGreaterThan(2, "a master drawn unmoved keeps the dispersion, or this test would show nothing");
+        limb.FollowedTo(moved).ShouldNotBeNull().TryAlign(stack, out var again).ShouldBeTrue("a followed limb keeps the reading");
+        foreach (var image in new[] { moved, dials, live, unmovedDials, unmoved, again })
         {
             image.Release();
         }

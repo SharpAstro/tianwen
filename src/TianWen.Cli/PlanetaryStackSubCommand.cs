@@ -421,10 +421,7 @@ internal sealed class PlanetaryStackSubCommand(
             }
             if (result.ChannelAlignment is { } aligned)
             {
-                var greens = aligned.GreenCheck is { } check ? string.Create(CultureInfo.InvariantCulture, $"; the greens {check.Length:0.00} px apart") : "";
-                consoleHost.WriteScrollable(aligned.Applied
-                    ? string.Create(CultureInfo.InvariantCulture, $"[planetary] colours moved onto green, read by {(aligned.Reading == PlanetaryChannelReading.Limb ? "their limbs" : "correlation")}: red was at {aligned.Red}, blue at {aligned.Blue}{greens}")
-                    : string.Create(CultureInfo.InvariantCulture, $"[planetary] colours left as stacked: {aligned.Refusal} (red {aligned.Red}, blue {aligned.Blue}{greens})"));
+                consoleHost.WriteScrollable($"[planetary] {aligned.Describe()}");
             }
             if (result.Epoch is { } epoch && result.North is { } north)
             {

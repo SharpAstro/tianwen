@@ -107,10 +107,15 @@ internal sealed class PlanetaryLiveSubCommand(IConsoleHost consoleHost, ITimePro
                     {
                         PlanetaryMasterScore.AgainstTruth(consoleHost, master, truthPath, planet, $"{name}'s last master");
                     }
+                    if (run.Early is { } early && run.Last is { } colour)
+                    {
+                        ReportColourPlanes(name, early, (colour, run.Masters[^1].Built), planet, source);
+                    }
                 }
                 finally
                 {
                     run.Last?.Release();
+                    run.Early?.Master.Release();
                 }
             }
             return 0;
@@ -122,7 +127,9 @@ internal sealed class PlanetaryLiveSubCommand(IConsoleHost consoleHost, ITimePro
     // so far, and the frames its sum holds.
     private readonly record struct Published(TimeSpan At, int Built, int Newest, int Rebuilds, long Folds, int Folded);
 
-    private sealed record Run(IReadOnlyList<Published> Masters, int Pushed, TimeSpan Replayed, Image? Last);
+    // Early is a colour run's first master of a full window and the frame it was stacked to: the master on show when a live view's Derive
+    // reads the colours (#1202), which every later master is moved by.
+    private sealed record Run(IReadOnlyList<Published> Masters, int Pushed, TimeSpan Replayed, Image? Last, (Image Master, int Built)? Early);
 
     // The capture pushed into the node's ring at its rate, frame by frame on its own clock, while the node's loop stacks it.
     private async Task<Run> ReplayAsync(SerFrameStream source, RollingWindowOptions options, double rate, TimeSpan budget, CancellationToken ct)
@@ -130,12 +137,18 @@ internal sealed class PlanetaryLiveSubCommand(IConsoleHost consoleHost, ITimePro
         using var ring = new LiveCameraFrameStream(source.Width, source.Height, source.Layout, Math.Max(options.MaxWindowFrames * 2, 1024));
         var masters = new List<Published>();
         Image? last = null;
+        (Image Master, int Built)? early = null;
         var replaying = 1;
         var start = timeProvider.GetTimestamp();
         var loop = Task.Run(() => LiveStackLoop.RunAsync(() => Volatile.Read(ref replaying) == 1, () => ring, options, timeProvider,
             (master, stacker, built) =>
             {
                 masters.Add(new Published(timeProvider.GetElapsedTime(start), built, ring.LatestIndex, stacker.Rebuilds, stacker.Folds, stacker.FoldedFrameCount));
+                if (early is null && master.ChannelCount == 3 && stacker.FoldedFrameCount >= options.MaxWindowFrames)
+                {
+                    early = (master, built);
+                    return;
+                }
                 Interlocked.Exchange(ref last, master)?.Release();
             },
             ex => consoleHost.WriteError($"[planetary] a live stack failed: {ex.Message}"),
@@ -173,7 +186,49 @@ internal sealed class PlanetaryLiveSubCommand(IConsoleHost consoleHost, ITimePro
             Volatile.Write(ref replaying, 0);
             await loop;
         }
-        return new Run(masters, pushed, timeProvider.GetElapsedTime(start), Interlocked.Exchange(ref last, null));
+        return new Run(masters, pushed, timeProvider.GetElapsedTime(start), Interlocked.Exchange(ref last, null), early);
+    }
+
+    // A colour run's planes against green, read as the batch reads its master's (PlanetaryChannelAlignment, by the planes' limb fits at the
+    // instant of the frame a master was stacked to): on its first master of a full window, as a live view's Derive reads them, and on its
+    // last, as it is and once moved by the first's reading, as the live view moves every later master (#1202).
+    private void ReportColourPlanes(string name, (Image Master, int Built) early, (Image Master, int Built) last, CatalogIndex planet, SerFrameStream source)
+    {
+        PlanetaryChannelAlignmentResult? Read(Image master, int built)
+        {
+            var (aligned, result) = PlanetaryChannelAlignment.Align(master, PlanetaryFrameLayout.Rgb,
+                PlanetaryChannelAlignment.LimbOptionsFor(planet, source.TimestampOf(built)));
+            if (result is { Applied: true })
+            {
+                aligned.Release();
+            }
+            return result;
+        }
+        static string Apart(PlanetaryChannelAlignmentResult read)
+            => FormattableString.Invariant($"red {read.Red}, blue {read.Blue} ({read.Reading}); red to blue {new PlanetaryChannelShift(read.Blue.Dx - read.Red.Dx, read.Blue.Dy - read.Red.Dy).Length:0.00} px{(read.Refusal is { } why ? $", {why}" : "")}");
+
+        if (Read(early.Master, early.Built) is not { } derived || Read(last.Master, last.Built) is not { } asStacked)
+        {
+            return;
+        }
+        consoleHost.WriteScrollable($"[planetary] {name}'s colours against green, on its first full master (frame {early.Built}): {Apart(derived)}");
+        consoleHost.WriteScrollable($"[planetary] {name}'s last master as stacked: {Apart(asStacked)}");
+        if (!derived.Applied)
+        {
+            return;
+        }
+        var moved = PlanetaryChannelAlignment.Apply(last.Master, PlanetaryFrameLayout.Rgb, derived.Red, derived.Blue);
+        try
+        {
+            if (Read(moved, last.Built) is { } left)
+            {
+                consoleHost.WriteScrollable($"[planetary] {name}'s last master moved by the first's reading: {Apart(left)}");
+            }
+        }
+        finally
+        {
+            moved.Release();
+        }
     }
 
     private void Report(string name, Run run, double rate)

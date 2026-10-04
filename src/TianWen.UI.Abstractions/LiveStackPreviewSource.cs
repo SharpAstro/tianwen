@@ -88,9 +88,9 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
     // A finished background result. Stacked=false means a sharpen-only re-render (the cached raw master was
     // reused, the playhead did not advance); Stacked=true means the window was re-integrated to Playhead.
     // Limb is the kept limb followed to this master's disk, From the one the task started with (a newer SetSharpen supersedes both), and
-    // Drawn whether the display was drawn outside it.
+    // Drawn whether the display was drawn outside it, Aligned whether its colours were moved onto green first.
     private readonly record struct Built(AstroImageDocument Doc, Image RawMaster, Image Display, int Playhead, bool Stacked, PlanetaryLiveLimb? Limb, PlanetaryLiveLimb? From,
-        bool Drawn);
+        bool Drawn, bool Aligned);
 
     /// <summary>
     /// Shows the masters of <paramref name="masters"/>: a stack integrated here (<see cref="StackedMasters"/>, a SER file's
@@ -134,6 +134,9 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
 
     /// <summary>How many published masters were drawn outside the limb a derivation kept (#1201). Render thread only; for tests.</summary>
     internal int MastersDrawnOutsideTheLimb { get; private set; }
+
+    /// <summary>How many published masters had their colours moved onto green by a derivation's reading (#1202). Render thread only; for tests.</summary>
+    internal int MastersAligned { get; private set; }
 
     /// <summary>True while a background stack is running (the stream's reader is in use -- don't dispose).</summary>
     public bool IsBusy => _stackTask is { IsCompleted: false };
@@ -216,6 +219,10 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
             if (b.Drawn)
             {
                 MastersDrawnOutsideTheLimb++;
+            }
+            if (b.Aligned)
+            {
+                MastersAligned++;
             }
             published = true;
         }
@@ -332,20 +339,26 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
                 ? cachedMaster
                 : await _masters.MasterAtAsync(target, token).ConfigureAwait(false);
 
+            // A colour master's red and blue moved onto green by what the derivation read, before anything else, as the batch moves its
+            // master's (#1202). The cached raw master stays as stacked, so a newer derivation's reading moves it afresh.
+            Image? moved = null;
+            var source = limb is not null && limb.TryAlign(raw, out moved) ? moved : raw;
+
             // Always produce a FRESH image to adopt (AdoptImageAsync normalises in place); identity gains
             // when sharpening is off, so the cached raw master is never consumed. WaveletSharpen.Sharpen
             // returns a new image and leaves the raw master intact for the next re-sharpen.
-            var display = WaveletSharpen.Sharpen(raw, sharpen ?? IdentitySharpen);
+            var display = WaveletSharpen.Sharpen(source, sharpen ?? IdentitySharpen);
 
             // A sharpened master drawn outside the limb a derivation kept, as the batch draws it (#1201), the limb first followed to
             // where this master's disk is. A master whose disk it cannot find is shown as the dials made it, and the limb kept for the next.
             var (followed, drawnOutside) = (limb, false);
-            if (sharpen is not null && limb?.FollowedTo(raw) is { } here)
+            if (sharpen is not null && limb?.FollowedTo(source) is { } here)
             {
-                var drawn = here.Draw(raw, display);
+                var drawn = here.Draw(source, display);
                 display.Release();
                 (display, followed, drawnOutside) = (drawn, here, true);
             }
+            moved?.Release();
 
             // Adopt the (linear, [0,1]) display master into a stats-bearing document off the render thread;
             // None = no CPU debayer (already RGB / mono).
@@ -353,7 +366,7 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
             // `display` is normalised to [0,1] in place by AdoptImageAsync and its arrays are now owned by
             // `doc`; we retain it read-only as the display master (a mini viewer renders it; doc renders the
             // same pixels via IPreviewSource).
-            return new Built(doc, raw, display, resultPlayhead, doStack, followed, limb, drawnOutside);
+            return new Built(doc, raw, display, resultPlayhead, doStack, followed, limb, drawnOutside, Aligned: moved is not null);
         }, token);
     }
 

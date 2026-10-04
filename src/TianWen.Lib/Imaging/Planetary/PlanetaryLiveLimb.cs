@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging.Optics;
 
@@ -10,7 +11,8 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// planet's sharp model through the pupil's diffraction for each channel, so that every later master, sharpened by the wavelet dials, is
 /// drawn outside the limb as the batch's derived sharpening draws it (<see cref="PlanetaryLimbFix.ModelFeathered"/>): no sharpening there,
 /// the model's clean limb feathered back to the stack by the window's inscribed circle, the moons free, the stack as it is beyond the window
-/// but for its moons (#1211), and the colour balance the derivation read last, as the batch balances its masters (#1212).
+/// but for its moons (#1211), and the colour balance the derivation read last, as the batch balances its masters (#1212). A colour
+/// master's red and blue planes are moved onto green first by what the derivation read on its master (<see cref="TryAlign"/>, #1202).
 /// Made by <see cref="PlanetarySharpening.Sharpen"/>, from the fit and the models it drew with (<see cref="PlanetarySharpenResult.Limb"/>).
 /// Immutable: a disk that moved gives a new one (<see cref="FollowedTo"/>).
 /// </summary>
@@ -34,9 +36,10 @@ public sealed class PlanetaryLiveLimb
 
     private PlanetaryLiveLimb(LimbFit fit, LimbFitOptions limbOptions, PlanetAspect aspect, PlanetaryLimbWindow window, Pupil pupil,
         ImmutableArray<double> wavelengthsNm, ImmutableArray<float[]> models, ImmutableArray<RadialTransfer> diffractions,
-        (double X, double Y, double Radius) start, (int Width, int Height) frame, ColourBalance? balance)
+        (double X, double Y, double Radius) start, (int Width, int Height) frame, ColourBalance? balance, PlanetaryChannelAlignmentResult? channels)
     {
         Balance = balance;
+        Channels = channels;
         Fit = fit;
         _limbOptions = limbOptions;
         _aspect = aspect;
@@ -58,6 +61,13 @@ public sealed class PlanetaryLiveLimb
     /// </summary>
     public ColourBalance? Balance { get; }
 
+    /// <summary>
+    /// Where the derivation read its master's red and blue planes against green, and moved them onto it (<see cref="PlanetaryChannelAlignment"/>,
+    /// by their limbs as the batch reads its master's), which every later master is moved by before it is sharpened (<see cref="TryAlign"/>,
+    /// #1202); null where nothing was moved (a mono master, a reading refused as beyond what dispersion can be).
+    /// </summary>
+    public PlanetaryChannelAlignmentResult? Channels { get; }
+
     /// <summary>The fit's disk in the frame, with the ephemeris' axis ratio: what "outside the limb" means here (beyond one of its radii).</summary>
     public MetricDisk Disk => _window.Own;
 
@@ -72,12 +82,34 @@ public sealed class PlanetaryLiveLimb
         // finds nothing, which cannot happen on the master the fit started from.
         var start = PlanetaryLimbFit.Start(PlanetaryLimbFit.Luminance(master), master.Width, master.Height, limbOptions.AxisRatio)
             ?? (fit.CenterX, fit.CenterY, fit.EquatorialRadius);
-        return new PlanetaryLiveLimb(fit, limbOptions, aspect, window, pupil, wavelengthsNm, models, diffractions, start, (master.Width, master.Height), balance: null);
+        return new PlanetaryLiveLimb(fit, limbOptions, aspect, window, pupil, wavelengthsNm, models, diffractions, start, (master.Width, master.Height),
+            balance: null, channels: null);
     }
 
-    /// <summary>This limb with <paramref name="balance"/> to give every master it draws (<see cref="Balance"/>).</summary>
-    internal PlanetaryLiveLimb WithBalance(ColourBalance? balance)
-        => new PlanetaryLiveLimb(Fit, _limbOptions, _aspect, _window, _pupil, _wavelengthsNm, _models, _diffractions, _start, _frame, balance);
+    /// <summary>
+    /// This limb with the colour balance to give every master it draws (<see cref="Balance"/>) and the colour planes' reading to move every
+    /// master by first (<see cref="Channels"/>, kept only where it was applied).
+    /// </summary>
+    internal PlanetaryLiveLimb WithColour(ColourBalance? balance, PlanetaryChannelAlignmentResult? channels)
+        => new PlanetaryLiveLimb(Fit, _limbOptions, _aspect, _window, _pupil, _wavelengthsNm, _models, _diffractions, _start, _frame, balance,
+            channels is { Applied: true } ? channels : null);
+
+    /// <summary>
+    /// <paramref name="master"/> with its red and blue planes moved onto green by what the derivation read (<see cref="Channels"/>), as the
+    /// batch moves its master's (#1202): a new image the caller owns, its green plane <paramref name="master"/>'s. False, with nothing made,
+    /// for a mono master or where nothing was read to move by. Every master is moved before it is sharpened, followed and drawn.
+    /// </summary>
+    public bool TryAlign(Image master, [NotNullWhen(true)] out Image? aligned)
+    {
+        ArgumentNullException.ThrowIfNull(master);
+        if (Channels is not { } read || master.ChannelCount != 3)
+        {
+            aligned = null;
+            return false;
+        }
+        aligned = PlanetaryChannelAlignment.Apply(master, PlanetaryFrameLayout.Rgb, read.Red, read.Blue);
+        return true;
+    }
 
     /// <summary>
     /// This limb where <paramref name="master"/>'s disk is: itself when the disk has not moved past <see cref="MovePx"/>; the model drawn
@@ -120,7 +152,7 @@ public sealed class PlanetaryLiveLimb
             diffractions[c] = keepDiffractions ? _diffractions[c] : window.Diffraction(_pupil, _wavelengthsNm[Math.Min(c, _wavelengthsNm.Length - 1)]);
             models[c] = window.Through(diffractions[c]);
         }
-        return new PlanetaryLiveLimb(fit, _limbOptions, _aspect, window, _pupil, _wavelengthsNm, [.. models], [.. diffractions], start, frame, Balance);
+        return new PlanetaryLiveLimb(fit, _limbOptions, _aspect, window, _pupil, _wavelengthsNm, [.. models], [.. diffractions], start, frame, Balance, Channels);
     }
 
     /// <summary>

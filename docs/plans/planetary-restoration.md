@@ -3306,8 +3306,42 @@ The twin's sharpened master, error over bands 1 to 4 and the three colours (`i12
   read 186 s more under that load, which the alternated pairs put down to the load, not the fits.
 - **The smear inside each band:** no fringe is left at 6x on either capture once the planes agree, so #1202's third item is not taken
   up unless the owner sees one.
-- **The live stack** (#1202's fourth item) is not aligned yet: it publishes a master many times a second, and a limb fit per colour
-  costs seconds. Measuring once and reusing the offsets is the shape it would take.
+- **The live stack** (#1202's fourth item): aligned since, by the reading its Derive takes. See below.
+
+#### The live stack's colours, read once by Derive (#1202)
+
+The live stack publishes a master several times a second and a limb fit per colour costs seconds, so it cannot read its colours on
+every master. **Measured first** (`planetary-live` on its own last master, read by correlation because a live master carries no
+instant): red to blue 6.44 px on 2022-10-09 and 2.36 px on 2024-12-15. The rule written beforehand was to build the alignment
+only if either was over 0.2 px. Both were.
+
+**What was built.** The live view's Derive (`PlanetaryBestStack.DeriveGains`) moves the master on show onto green first, by limb fits
+at the instant it is given, as the batch moves its master's (`PlanetaryChannelAlignment.Align`). It then derives the gains and the
+balance on that aligned master. The limb Derive keeps carries the reading (`PlanetaryLiveLimb.Channels`). `LiveStackPreviewSource`
+moves every later master's red and blue by that reading (`PlanetaryLiveLimb.TryAlign`, through `PlanetaryChannelAlignment.Apply`),
+before the dials sharpen it and before the limb is followed and drawn. The cached master stays as stacked, so a newer Derive's
+reading moves it afresh. The live view moves a demosaiced master's three planes, where the batch moves the sub-planes before the
+demosaic; the readings below say that difference leaves nothing measurable. Before a Derive the colours are as captured, as the
+balance and the dials' sharpening are.
+
+**Does one reading hold for the masters after it?** The rule, written before running (`i1202live/rule.md`, part 2): the last master
+of a 60 s replay, moved by the reading taken on the first master of a full window, must read under 0.2 px red to blue on both
+captures. Read by limb fits at the SER frame's own instant, as Derive reads (`planetary-live` now reports all three):
+
+| Capture | First full master (Derive's reading) | Last master as stacked | Last master, moved by the first's reading |
+|---|---|---|---|
+| 2022-10-09 (frame 1195 of the replay) | red -2.24, -1.48; blue +3.27, +2.00; 6.52 px apart | 6.43 px apart | red -0.02, -0.04; blue +0.02, -0.13; **0.10 px** |
+| 2024-12-15 (frame 971) | red -0.28, -0.80; blue +0.40, +1.14; 2.06 px apart | 2.03 px apart | red 0.00, +0.03; blue -0.01, -0.01; **0.03 px** |
+
+The rule holds on both. The batch's own aligned 2022-10-09 master re-fitted to within 0.1 px (red -0.02, +0.09; blue -0.09,
++0.04), so moving after the demosaic lands where moving before it does. Dispersion changes with the planet's altitude, so over a
+long session the reading ages; a Derive pressed again reads it afresh.
+
+**Tests.** `PlanetarySharpeningTests.AColourLiveViewMovesItsColoursOntoGreenAsTheBatchMovesItsMaster`: a colour master with red 2 px
+up and blue 3 px down. Derive reads them by limb (-1.99 and +2.95 px), and the master the live view draws reads within 0.04 px of
+green. Drawn unmoved, it keeps the dispersion (blue +2.45 px). `ViewerWaveletDeriveTests.DeriveOnAColourCaptureMovesEveryLaterMastersColoursOntoGreen`
+covers the wiring through `tianwen-fits`, at DPI 1 and 1.5. The pump's wait for a derivation is now bounded by the test's own
+timeout rather than 1,000 frames: the mono Derive already took about 38 s, at the bound.
 
 ## Saturn at Jupiter's fidelity
 
