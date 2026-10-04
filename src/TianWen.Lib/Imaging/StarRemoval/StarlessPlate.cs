@@ -129,8 +129,11 @@ public sealed record StarlessPlateStatistics(
 /// <param name="Inpainted">Pixels replaced by the fill.</param>
 /// <param name="Stars">Every point source found, with what the fit made of it.</param>
 /// <param name="Statistics">The report's measures.</param>
+/// <param name="FieldProfile">The profile every star was subtracted with, the one its catalogued amplitude means anything
+/// with (null only where a caller built the record itself).</param>
 public sealed record StarlessPlate(
-    Image Plate, BitMatrix Subtracted, BitMatrix Inpainted, ImmutableArray<FittedStar> Stars, StarlessPlateStatistics Statistics);
+    Image Plate, BitMatrix Subtracted, BitMatrix Inpainted, ImmutableArray<FittedStar> Stars, StarlessPlateStatistics Statistics,
+    StarlessFieldProfile? FieldProfile = null);
 
 /// <summary>Knobs of the classical builder; the defaults are the design's (docs/plans/star-remover-training.md, R0).</summary>
 /// <param name="DetectionSigma">The finder's threshold for a point source, first and second pass.</param>

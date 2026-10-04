@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Immutable;
 
 namespace TianWen.Lib.Imaging.StarRemoval;
 
@@ -10,6 +11,12 @@ public enum StarProfileFamily
 
     /// <summary>A Gaussian at the same FWHM: the arm that asks whether the wings matter.</summary>
     Gaussian = 1,
+
+    /// <summary>
+    /// The plate builder's own profile (<see cref="StarlessFieldProfile"/>): the Moffat it subtracted every star with and
+    /// its residual table, the profile each catalogued amplitude was fitted with and the one that holds a real star's halo.
+    /// </summary>
+    Field = 2,
 }
 
 /// <summary>
@@ -23,7 +30,13 @@ public enum StarProfileFamily
 /// <param name="Beta">The Moffat exponent (unused for a Gaussian).</param>
 /// <param name="AxisRatio">Minor over major axis, in (0, 1]; 1 is round.</param>
 /// <param name="PositionAngleRad">The major axis's angle from +x, radians.</param>
-public readonly record struct StarProfile(StarProfileFamily Family, double FwhmPx, double Beta, double AxisRatio, double PositionAngleRad)
+/// <param name="Halo">A <see cref="StarProfileFamily.Field"/> profile's residual table, a fraction of the peak per
+/// <see cref="RadialCorrection.BinWidth"/> pixels at <paramref name="HaloAlpha"/> (read at the elliptical radius times
+/// <paramref name="HaloAlpha"/> over the profile's own alpha, so it scales with the width); empty for none.</param>
+/// <param name="HaloAlpha">The alpha the halo table was measured at.</param>
+public readonly record struct StarProfile(
+    StarProfileFamily Family, double FwhmPx, double Beta, double AxisRatio, double PositionAngleRad,
+    ImmutableArray<float> Halo = default, double HaloAlpha = 0.0)
 {
     /// <summary>A round profile.</summary>
     public static StarProfile Round(StarProfileFamily family, double fwhmPx, double beta) => new StarProfile(family, fwhmPx, beta, 1.0, 0.0);
@@ -63,7 +76,7 @@ public readonly record struct StarProfile(StarProfileFamily Family, double FwhmP
 
     /// <summary>
     /// How far along the major axis the profile stays at or above <paramref name="fraction"/> of its peak, in pixels; 0
-    /// for a fraction of 1 or more.
+    /// for a fraction of 1 or more. A halo reaches as far as its table stands at the fraction or more.
     /// </summary>
     public double RadiusAtFraction(double fraction)
     {
@@ -74,8 +87,22 @@ public readonly record struct StarProfile(StarProfileFamily Family, double FwhmP
         var reff = Family == StarProfileFamily.Gaussian
             ? GaussSigma * Math.Sqrt(-2.0 * Math.Log(fraction))
             : Alpha * Math.Sqrt(Math.Pow(fraction, -1.0 / Beta) - 1.0);
+        if (HasHalo)
+        {
+            var halo = Halo.AsSpan();
+            for (var b = halo.Length - 1; b >= 0; b--)
+            {
+                if (halo[b] >= fraction)
+                {
+                    reff = Math.Max(reff, (b + 1) * RadialCorrection.BinWidth * Alpha / HaloAlpha);
+                    break;
+                }
+            }
+        }
         return reff / Math.Sqrt(Math.Clamp(AxisRatio, 1e-3, 1.0));
     }
+
+    private bool HasHalo => !Halo.IsDefaultOrEmpty && HaloAlpha > 0;
 
     // Gauss-Legendre nodes on [-1/2, 1/2] with weights summing to one: three points, then two (MoffatPsf's).
     private static readonly double[] Nodes3 = { -0.5 * Math.Sqrt(0.6), 0.0, 0.5 * Math.Sqrt(0.6) };
@@ -88,7 +115,8 @@ public readonly record struct StarProfile(StarProfileFamily Family, double FwhmP
     /// (<paramref name="cx"/>, <paramref name="cy"/>), pixel (i, j) covering [i - 1/2, i + 1/2]. Gauss-Legendre per axis:
     /// three points within two FWHM of the centre (and never under 4 px), two within four (8 px), the centre beyond, as
     /// <see cref="MoffatPsf.PixelMean"/> does for the builder's own model, so an injected star and a subtracted one are
-    /// integrated alike.
+    /// integrated alike. A halo is added at the pixel's centre, as the builder's residual table is
+    /// (<see cref="RadialCorrection.Model"/>), and the sum never goes below zero.
     /// </summary>
     public double PixelMean(int px, int py, double cx, double cy)
     {
@@ -97,20 +125,26 @@ public readonly record struct StarProfile(StarProfileFamily Family, double FwhmP
         var d2 = dx * dx + dy * dy;
         var near = Math.Max(4.0, 2.0 * FwhmPx);
         var far = Math.Max(8.0, 4.0 * FwhmPx);
+        double sum;
         if (d2 >= far * far)
         {
-            return At(dx, dy);
+            sum = At(dx, dy);
         }
-        var (nodes, weights) = d2 < near * near ? (Nodes3, Weights3) : (Nodes2, Weights2);
-        var sum = 0.0;
-        for (var j = 0; j < nodes.Length; j++)
+        else
         {
-            var oy = dy + nodes[j];
-            for (var i = 0; i < nodes.Length; i++)
+            var (nodes, weights) = d2 < near * near ? (Nodes3, Weights3) : (Nodes2, Weights2);
+            sum = 0.0;
+            for (var j = 0; j < nodes.Length; j++)
             {
-                sum += weights[i] * weights[j] * At(dx + nodes[i], oy);
+                var oy = dy + nodes[j];
+                for (var i = 0; i < nodes.Length; i++)
+                {
+                    sum += weights[i] * weights[j] * At(dx + nodes[i], oy);
+                }
             }
         }
-        return sum;
+        return HasHalo
+            ? Math.Max(0.0, sum + RadialCorrection.Interpolate(Halo.AsSpan(), Math.Sqrt(EllipticalR2(dx, dy)) * HaloAlpha / Alpha))
+            : sum;
     }
 }

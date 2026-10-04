@@ -869,6 +869,11 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
         {
             Description = "Measure masters already in the store again (the new record wins; nothing is erased).",
         };
+        var profilesOnlyOpt = new Option<bool>("--profiles-only")
+        {
+            Description = "Build no plate: give each plate already in <out>/plates the field profile its builder subtracted with " +
+                          "(<stem>_plate.profile.json), where it has none (every one with --force), checked against the store's record.",
+        };
 
         var command = new Command("starless-plates",
             "Build the classical starless plate of each master (PSF subtraction plus inpainting) and report what it left: " +
@@ -876,7 +881,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             "Resumes: a master already in the store is skipped. Create <out>/" + DatasetStarlessReport.StopFileName +
             " to stop before the next master.")
         {
-            Options = { mastersOpt, outOpt, noPlatesOpt, probeOpt, forceOpt },
+            Options = { mastersOpt, outOpt, noPlatesOpt, probeOpt, forceOpt, profilesOnlyOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -907,7 +912,8 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
 
             var result = await DatasetStarlessReport.RunAsync(
                 new DatasetStarlessReport.RunOptions(files.ToImmutable(), parseResult.Required(outOpt),
-                    WritePlates: !parseResult.GetValue(noPlatesOpt), ProbeHoles: parseResult.GetValue(probeOpt), Force: parseResult.GetValue(forceOpt)),
+                    WritePlates: !parseResult.GetValue(noPlatesOpt), ProbeHoles: parseResult.GetValue(probeOpt), Force: parseResult.GetValue(forceOpt),
+                    ProfilesOnly: parseResult.GetValue(profilesOnlyOpt)),
                 logger,
                 progress: new Progress<string>(line => consoleHost.WriteScrollable(line)),
                 cancellationToken: ct);
@@ -1178,9 +1184,10 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
         };
         var profileOpt = new Option<string>("--profile")
         {
-            Description = "--mode stars: moffat (default; each channel's FWHM and beta from the PSF store) or gaussian (the " +
-                          "same FWHM: H2's arm).",
-            DefaultValueFactory = _ => "moffat",
+            Description = "--mode stars: field (default; the plate builder's own profile, its Moffat and residual table, the one " +
+                          "every catalogued amplitude was fitted with), moffat (each channel's FWHM and beta from the PSF store) or " +
+                          "gaussian (the PSF store's FWHM: H2's arm).",
+            DefaultValueFactory = _ => "field",
         };
         var saturatedFractionOpt = new Option<double>("--saturated-fraction")
         {
@@ -1224,10 +1231,10 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 consoleHost.WriteError($"--placement must be random or at-site, got '{parseResult.GetValue(placementOpt)}'");
                 return 1;
             }
-            var profileText = parseResult.GetValue(profileOpt) ?? "moffat";
+            var profileText = parseResult.GetValue(profileOpt) ?? "field";
             if (!Enum.TryParse<StarProfileFamily>(profileText, ignoreCase: true, out var profile))
             {
-                consoleHost.WriteError($"--profile must be moffat or gaussian, got '{profileText}'");
+                consoleHost.WriteError($"--profile must be field, moffat or gaussian, got '{profileText}'");
                 return 1;
             }
             var saturatedFraction = parseResult.GetValue(saturatedFractionOpt);

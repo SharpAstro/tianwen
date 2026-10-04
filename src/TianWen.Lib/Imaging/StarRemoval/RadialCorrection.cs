@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Runtime.InteropServices;
 using TianWen.Lib.Stat;
 
@@ -36,21 +37,30 @@ internal sealed class RadialCorrection
         Stars = stars;
     }
 
+    /// <summary>The table itself, bins of <see cref="BinWidth"/> pixels at <see cref="ReferenceAlpha"/>: what a plate store
+    /// keeps of it (<see cref="StarlessFieldProfile"/>), so the injector draws a star with the profile its amplitude was
+    /// fitted with.</summary>
+    public ImmutableArray<float> Table => ImmutableArray.Create(_table);
+
     /// <summary>The correction at <paramref name="distance"/> pixels from a star of alpha <paramref name="alpha"/>.</summary>
-    public double At(double distance, double alpha)
+    public double At(double distance, double alpha) => Interpolate(_table, distance * ReferenceAlpha / alpha);
+
+    /// <summary>
+    /// A table's value at <paramref name="scaledDistance"/> pixels at its reference alpha: linear between bin centres, zero
+    /// past its reach. The one reading of a table, the builder's and the injector's (<see cref="StarProfile"/>).
+    /// </summary>
+    public static double Interpolate(ReadOnlySpan<float> table, double scaledDistance)
     {
-        var scaled = distance * ReferenceAlpha / alpha;
-        var bin = (int)(scaled / BinWidth);
-        if (bin >= _table.Length)
+        var bin = (int)(scaledDistance / BinWidth);
+        if (table.Length == 0 || bin >= table.Length)
         {
             return 0.0;
         }
-        // Linear between bin centres.
-        var position = scaled / BinWidth - 0.5;
-        var i0 = Math.Clamp((int)Math.Floor(position), 0, _table.Length - 1);
-        var i1 = Math.Min(i0 + 1, _table.Length - 1);
+        var position = scaledDistance / BinWidth - 0.5;
+        var i0 = Math.Clamp((int)Math.Floor(position), 0, table.Length - 1);
+        var i1 = Math.Min(i0 + 1, table.Length - 1);
         var t = Math.Clamp(position - i0, 0.0, 1.0);
-        return (1 - t) * _table[i0] + t * _table[i1];
+        return (1 - t) * table[i0] + t * table[i1];
     }
 
     /// <summary>A peak of 1 with the table added: what <paramref name="psf"/> times an amplitude becomes at a pixel.</summary>

@@ -1251,6 +1251,11 @@ namespace TianWen.Lib.Tests
         /// </summary>
         private const double UntouchedBeyondPx = 40.0;
 
+        // The plates store's field profile, the one the Stars mode draws with by default: not the PSF store's, so a test can
+        // tell which one a star was drawn with.
+        private const double FieldFwhm = 2.2;
+        private const double FieldBeta = 2.8;
+
         /// <summary>
         /// The Stars mode end to end (star-remover-training.md, R1): a starless plate and its catalogue beside the bake, the
         /// master's per-channel PSF in the store. Each draw is the plate plus the stars <c>injections.jsonl</c> records and
@@ -1296,7 +1301,7 @@ namespace TianWen.Lib.Tests
                     var fx = star.X + row.CellX;
                     var fy = star.Y + row.CellY;
                     sites.Min(s => Math.Sqrt(((s.X - fx) * (s.X - fx)) + ((s.Y - fy) * (s.Y - fy)))).ShouldBeGreaterThanOrEqualTo(exclusion);
-                    star.FwhmPx.ShouldAllBe(static f => f == PlateFwhm);
+                    star.FwhmPx.ShouldAllBe(static f => Math.Abs(f - FieldFwhm) < 1e-9, "drawn with the plate builder's own profile, not the PSF store's");
                     star.AxisRatio.ShouldBe(1.0, "no catalogue star is bright enough to measure an elongation on, so every star is round");
                 }
 
@@ -1390,13 +1395,33 @@ namespace TianWen.Lib.Tests
                 [new PsfProfileFit.Result(2.5, 3.0, 0.01, 0.02, 10), new PsfProfileFit.Result(3.0, 2.5, 0.01, 0.02, 10), null]);
             var options = new DatasetDegradationExporter.Options(bake, Path.Combine(_root, "stars-borrowed"),
                 Mode: DatasetDegradationExporter.DegradationMode.Stars, Draws: 1, CellsPerSession: 0, Seed: 5,
-                NoiseAnchor: DatasetDegradationExporter.NoiseAnchorKind.MasterCalibration, PlatesRoot: platesRoot);
+                NoiseAnchor: DatasetDegradationExporter.NoiseAnchorKind.MasterCalibration, PlatesRoot: platesRoot, Profile: StarProfileFamily.Moffat);
             (await DatasetDegradationExporter.RunAsync(options, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
 
             var stars = ReadInjectionRows(options.OutDir).SelectMany(static i => i.Stars).ToArray();
             stars.ShouldNotBeEmpty();
             stars.ShouldAllBe(static s => s.FwhmPx[0] == 2.5 && s.FwhmPx[1] == 3.0 && s.FwhmPx[2] == 3.0, "blue takes green's profile, its nearest");
             stars.ShouldAllBe(static s => s.Beta[2] == 2.5);
+        }
+
+        /// <summary>
+        /// A plate store from before profiles were kept has no field profile, and its amplitudes mean nothing with another
+        /// profile: the default (field) refuses the session and names the fix; the PSF store's Moffat still draws from it.
+        /// </summary>
+        [Fact]
+        public async Task APlateWithoutItsFieldProfileIsRefusedUnlessAnotherProfileIsAskedFor()
+        {
+            var bake = BuildBakeWithHalves();
+            var (platesRoot, _) = await BuildPlatesStoreAsync(bake, fieldProfile: false);
+            var options = new DatasetDegradationExporter.Options(bake, Path.Combine(_root, "stars-no-profile"),
+                Mode: DatasetDegradationExporter.DegradationMode.Stars, Draws: 1, CellsPerSession: 0, Seed: 5,
+                NoiseAnchor: DatasetDegradationExporter.NoiseAnchorKind.MasterCalibration, PlatesRoot: platesRoot);
+            options.Profile.ShouldBe(StarProfileFamily.Field);
+            (await DatasetDegradationExporter.RunAsync(options, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(1);
+
+            var moffat = options with { OutDir = Path.Combine(_root, "stars-no-profile-moffat"), Profile = StarProfileFamily.Moffat };
+            (await DatasetDegradationExporter.RunAsync(moffat, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            ReadInjectionRows(moffat.OutDir).SelectMany(static i => i.Stars).ShouldAllBe(static s => s.FwhmPx.All(static f => f == PlateFwhm));
         }
 
         /// <summary>H3's control: at-site placement puts every star on a site the plate builder subtracted.</summary>
@@ -1430,10 +1455,12 @@ namespace TianWen.Lib.Tests
         /// A starless-plates store for the halves bake, as <c>tianwen dataset starless-plates</c> lays one out, and the
         /// master's per-channel PSF in the bake's store. The plate is the fixture's sky without its stars; the catalogue
         /// holds thirteen subtracted Moffat stars spread over the frame, one of them saturated on the master's brightest
-        /// pixel, each below the significance an elongation is measured at.
+        /// pixel, each below the significance an elongation is measured at. Beside the plate, unless
+        /// <paramref name="fieldProfile"/> is false, the builder's field profile: a Moffat of <see cref="FieldFwhm"/> at
+        /// <see cref="FieldBeta"/>, deliberately not the PSF store's, and a short halo table.
         /// </summary>
         private async Task<(string Root, (double X, double Y)[] Sites)> BuildPlatesStoreAsync(
-            string bake, PsfProfileFit.Result?[]? profiles = null)
+            string bake, PsfProfileFit.Result?[]? profiles = null, bool fieldProfile = true)
         {
             var root = Path.Combine(_root, "plates-store");
             var platesDir = Path.Combine(root, "plates");
@@ -1492,6 +1519,13 @@ namespace TianWen.Lib.Tests
                     float.NaN, float.NaN, false, float.NaN, StarFitModel.Moffat, [amplitude, 0.8f * amplitude, 0.6f * amplitude]));
             }
             await StarlessCatalogue.WriteAsync(StarlessCatalogue.PathFor(platesDir, slug), stars.ToImmutable(), TestContext.Current.CancellationToken);
+            if (fieldProfile)
+            {
+                var alpha = MoffatPsf.AlphaFor(FieldFwhm, FieldBeta);
+                var channel = new FieldChannelProfile(alpha, FieldBeta, alpha, [.. Enumerable.Range(0, 24).Select(static b => (float)(0.01 * Math.Exp(-b / 8.0)))]);
+                await StarlessFieldProfile.WriteAsync(StarlessFieldProfile.PathFor(platesDir, slug),
+                    new StarlessFieldProfile([channel, channel, channel], channel), TestContext.Current.CancellationToken);
+            }
 
             var profile = new PsfProfileFit.Result(PlateFwhm, 3.0, 0.01, 0.02, 10);
             Directory.CreateDirectory(Path.Combine(bake, "stats"));

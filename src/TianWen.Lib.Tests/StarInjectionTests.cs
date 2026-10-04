@@ -380,6 +380,73 @@ public class StarInjectionTests(ITestOutputHelper output)
         InjectionMeasure.SaturatedShape(stacked, size, size, 20.0, 64.0).ShouldBeNull("too near the edge to read the sky");
     }
 
+    /// <summary>
+    /// The plate builder's profile is its Moffat plus its residual table, the table added at the pixel's centre as the
+    /// builder adds it (RadialCorrection.Model), reaching as far as the table stands above the fraction asked for, and
+    /// stretching with the width.
+    /// </summary>
+    [Fact]
+    public void AFieldProfileIsItsMoffatPlusItsHaloAndReachesAsFarAsItsTable()
+    {
+        var moffat = StarProfile.Round(StarProfileFamily.Moffat, 2.5, 3.0);
+        var alpha = MoffatPsf.AlphaFor(2.5, 3.0);
+        ImmutableArray<float> halo = [.. Enumerable.Repeat(0.01f, 40)];
+        var field = new StarProfile(StarProfileFamily.Field, 2.5, 3.0, 1.0, 0.0, halo, alpha);
+
+        // The table is float: its 0.01 is 0.0099999998 as a double.
+        field.PixelMean(10, 13, 10.2, 9.7).ShouldBe(moffat.PixelMean(10, 13, 10.2, 9.7) + 0.01f, 1e-12);
+        field.PixelMean(10, 10, 10.0, 10.0).ShouldBe(moffat.PixelMean(10, 10, 10.0, 10.0) + 0.01f, 1e-12);
+        field.PixelMean(22, 10, 10.0, 10.0).ShouldBe(moffat.PixelMean(22, 10, 10.0, 10.0), 1e-12, "past the table's 10 px the halo is gone");
+        moffat.RadiusAtFraction(0.005).ShouldBeLessThan(6.0);
+        field.RadiusAtFraction(0.005).ShouldBe(10.0, 1e-9, "the table stands at 0.01 out to its last bin");
+        field.Scaled(2.0).PixelMean(28, 10, 10.0, 10.0).ShouldBeGreaterThan(0.009, "twice as wide, the halo reaches twice as far");
+
+        // A table below the Moffat in the core never draws negative light.
+        var hollow = field with { Halo = [.. Enumerable.Repeat(-2f, 4)] };
+        hollow.PixelMean(10, 10, 10.0, 10.0).ShouldBe(0.0);
+    }
+
+    /// <summary>
+    /// A population given the plate's field profile draws the Field family with it, halo and all; without one it refuses the
+    /// Field family rather than draw the catalogue's amplitudes with another profile, and the PSF store's families are untouched.
+    /// </summary>
+    [Fact]
+    public void AFieldPopulationDrawsWithThePlatesOwnProfileAndRefusesWithoutIt()
+    {
+        var (withoutField, catalogue) = BuildPopulation();
+        Should.Throw<InvalidOperationException>(() => withoutField.ProfilesAt(100, 100, StarProfileFamily.Field));
+
+        var channel = new FieldChannelProfile(MoffatPsf.AlphaFor(2.1, 2.7), 2.7, 1.3, [0.02f, 0.01f, 0.005f]);
+        var withField = InjectionPopulation.Build(catalogue, Image(256, 0.1f), Image(256, 0.1f), 1.0, [(2.5, 3.0)], null,
+            new StarlessFieldProfile([channel], channel));
+        var drawn = withField.ProfilesAt(100, 100, StarProfileFamily.Field).Single();
+        drawn.FwhmPx.ShouldBe(2.1, 1e-9);
+        drawn.Beta.ShouldBe(2.7);
+        drawn.Halo.ShouldBe(channel.Table);
+        drawn.HaloAlpha.ShouldBe(1.3);
+        withField.ProfilesAt(100, 100, StarProfileFamily.Moffat).Single().FwhmPx.ShouldBe(2.5, "the store's Moffat is still the Moffat arm");
+        Should.Throw<ArgumentException>(() => InjectionPopulation.Build(catalogue, Image(256, 0.1f), Image(256, 0.1f), 1.0, [(2.5, 3.0)], null,
+            new StarlessFieldProfile([channel, channel], channel)));
+    }
+
+    /// <summary>
+    /// A field profile is read back against what the shape fit makes of it drawn alone; for a plain Moffat that is its own
+    /// FWHM and beta, and a halo reads as a lower beta, not as a wrong width.
+    /// </summary>
+    [Fact]
+    public void TheReferenceFitOfAMoffatIsItselfAndAHaloLowersItsBeta()
+    {
+        var moffat = StarProfile.Round(StarProfileFamily.Moffat, 2.5, 3.0);
+        var plain = InjectionMeasure.ReferenceFit(moffat).ShouldNotBeNull();
+        plain.FwhmPx.ShouldBe(2.5, 0.025);
+        plain.Beta.ShouldBe(3.0, 0.15);
+
+        ImmutableArray<float> halo = [.. Enumerable.Range(0, 40).Select(static b => (float)(0.03 * Math.Exp(-b / 12.0)))];
+        var field = new StarProfile(StarProfileFamily.Field, 2.5, 3.0, 1.0, 0.0, halo, MoffatPsf.AlphaFor(2.5, 3.0));
+        var withHalo = InjectionMeasure.ReferenceFit(field).ShouldNotBeNull();
+        withHalo.Beta.ShouldBeLessThan(plain.Beta);
+    }
+
     private static (InjectionPopulation Population, ImmutableArray<FittedStar> Catalogue) BuildPopulation()
     {
         const int size = 256;

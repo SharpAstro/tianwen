@@ -414,7 +414,7 @@ namespace TianWen.AI.Imaging
             double? DrizzleWarpResampleSigma = null,
             string? PlatesRoot = null,
             InjectionPlacement Placement = InjectionPlacement.Random,
-            StarProfileFamily Profile = StarProfileFamily.Moffat,
+            StarProfileFamily Profile = StarProfileFamily.Field,
             double SaturatedFraction = 0.25,
             string? PsfStorePath = null,
             bool MeasureInjection = false);

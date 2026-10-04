@@ -84,6 +84,26 @@ public static class ClassicalStarRemover
         }
 
         var sw = Stopwatch.StartNew();
+        var builder = await CreateBuilderAsync(image, options, logger, cancellationToken);
+        return await Task.Run(() => builder.Run(sw), cancellationToken);
+    }
+
+    /// <summary>
+    /// The field profile <see cref="BuildAsync"/> would subtract every star of <paramref name="image"/> with, measured as it
+    /// measures it (the same calibration on the same found stars, so the same numbers) without fitting a star: what a plate
+    /// store built before profiles were kept is given one with.
+    /// </summary>
+    public static async Task<StarlessFieldProfile> MeasureFieldProfileAsync(
+        Image image, StarlessPlateOptions? options = null, ILogger? logger = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        var builder = await CreateBuilderAsync(image, options ?? StarlessPlateOptions.Default, logger, cancellationToken);
+        return await Task.Run(builder.MeasureFieldProfile, cancellationToken);
+    }
+
+    private static async Task<Builder> CreateBuilderAsync(Image image, StarlessPlateOptions options, ILogger? logger, CancellationToken cancellationToken)
+    {
+        var channels = image.Shape.ChannelCount;
         var fwhm = new float[channels + 1];
         var beta = new float[channels + 1];
         for (var c = 0; c < channels; c++)
@@ -97,10 +117,7 @@ public static class ClassicalStarRemover
         // masters, and a seed that light would size every calibration window to the core alone.
         var seedBeta = Math.Min(beta[channels], MaxSeedBeta);
         var lumPsf = new MoffatPsf(MoffatPsf.AlphaFor(fwhm[channels], seedBeta), seedBeta);
-
-        return await Task.Run(
-            () => new Builder(image, options, lumPsf, fwhm, beta, logger, cancellationToken).Run(sw),
-            cancellationToken);
+        return new Builder(image, options, lumPsf, fwhm, beta, logger, cancellationToken);
     }
 
     private static async Task<(float Fwhm, float Beta)> MeasurePsfAsync(Image image, int channel, ILogger? logger, CancellationToken ct)
@@ -218,53 +235,7 @@ public static class ClassicalStarRemover
 
         public StarlessPlate Run(Stopwatch sw)
         {
-            var n = _width * _height;
-            _work = new float[_channels][];
-            for (var c = 0; c < _channels; c++)
-            {
-                _work[c] = image.GetChannelSpan(c).ToArray();
-            }
-            _original = new float[_channels][];
-            for (var c = 0; c < _channels; c++)
-            {
-                _original[c] = (float[])_work[c].Clone();
-            }
-            _fullScale = new float[_channels];
-            for (var c = 0; c < _channels; c++)
-            {
-                var top = float.NegativeInfinity;
-                var plane = _work[c];
-                for (var i = 0; i < n; i++)
-                {
-                    if (plane[i] > top && !IsAbsent(i % _width, i / _width))
-                    {
-                        top = plane[i];
-                    }
-                }
-                _fullScale[c] = top;
-            }
-            _lum = _channels == 1 ? _work[0] : new float[n];
-            if (_channels > 1)
-            {
-                for (var i = 0; i < n; i++)
-                {
-                    _lum[i] = (_work[0][i] + _work[1][i] + _work[2][i]) / 3f;
-                }
-            }
-
-            var (found, skyMap) = PointSourceFinder.Find(_lum, _width, _height, _absent, lumPsf.Fwhm, options.DetectionSigma);
-            _texture = TextureField.FromSkyMap(skyMap, _lum, _width, _height, _absent, lumPsf.Fwhm);
-            _rms = _texture.Spread;
-            _holeNoise = _texture.Noise;
-            _sky = new float[n];
-            skyMap.FillBackground(_sky);
-            ct.ThrowIfCancellationRequested();
-
-            (_lumAlpha, _beta) = CalibratePlane(found, _lum, lumPsf);
-            _fieldScale = _lumAlpha / lumPsf.Alpha;
-            _correction = BuildRadialCorrection(found, _lum, LumPsf(1.0));
-            CalibrateChannels(found);
-            logger?.LogDebug("ClassicalStarRemover: radial correction from {Stars} stars, reach {Reach:F1} px.", _correction?.Stars ?? 0, _correction?.Reach ?? 0);
+            var found = Calibrate();
             var fits = new Fit[found.Length];
             var firstCrowded = Crowding(found);
             var giants = FindGiants(found);
@@ -355,7 +326,77 @@ public static class ClassicalStarRemover
                 _width, _height, _channels, stars.Length, stars.Count(static s => s.Outcome == StarFitOutcome.Subtracted),
                 stars.Count(static s => s.Outcome is StarFitOutcome.Knot or StarFitOutcome.TooNarrow), statistics.InpaintFraction,
                 _fieldScale, sw.ElapsedMilliseconds);
-            return new StarlessPlate(plate, subtracted, inpainted, stars, statistics);
+            return new StarlessPlate(plate, subtracted, inpainted, stars, statistics, FieldProfile());
+        }
+
+        public StarlessFieldProfile MeasureFieldProfile()
+        {
+            Calibrate();
+            return FieldProfile();
+        }
+
+        // The profile every star is subtracted with, per channel and for the luminance (StarlessFieldProfile).
+        private StarlessFieldProfile FieldProfile()
+        {
+            static FieldChannelProfile Of(double alpha, double beta, RadialCorrection? table)
+                => new FieldChannelProfile(alpha, beta, table?.ReferenceAlpha ?? alpha, table?.Table ?? ImmutableArray<float>.Empty);
+            return new StarlessFieldProfile(
+                [.. Enumerable.Range(0, _channels).Select(c => Of(_channelAlpha[c], _channelBeta[c], _channelCorrection[c]))],
+                Of(_lumAlpha, _beta, _correction));
+        }
+
+        // Everything before the first star is fitted: the working planes, the luminance, the found sources, the sky and its
+        // texture, the field's PSF and residual table, per channel and for the luminance.
+        private PointSource[] Calibrate()
+        {
+            var n = _width * _height;
+            _work = new float[_channels][];
+            for (var c = 0; c < _channels; c++)
+            {
+                _work[c] = image.GetChannelSpan(c).ToArray();
+            }
+            _original = new float[_channels][];
+            for (var c = 0; c < _channels; c++)
+            {
+                _original[c] = (float[])_work[c].Clone();
+            }
+            _fullScale = new float[_channels];
+            for (var c = 0; c < _channels; c++)
+            {
+                var top = float.NegativeInfinity;
+                var plane = _work[c];
+                for (var i = 0; i < n; i++)
+                {
+                    if (plane[i] > top && !IsAbsent(i % _width, i / _width))
+                    {
+                        top = plane[i];
+                    }
+                }
+                _fullScale[c] = top;
+            }
+            _lum = _channels == 1 ? _work[0] : new float[n];
+            if (_channels > 1)
+            {
+                for (var i = 0; i < n; i++)
+                {
+                    _lum[i] = (_work[0][i] + _work[1][i] + _work[2][i]) / 3f;
+                }
+            }
+
+            var (found, skyMap) = PointSourceFinder.Find(_lum, _width, _height, _absent, lumPsf.Fwhm, options.DetectionSigma);
+            _texture = TextureField.FromSkyMap(skyMap, _lum, _width, _height, _absent, lumPsf.Fwhm);
+            _rms = _texture.Spread;
+            _holeNoise = _texture.Noise;
+            _sky = new float[n];
+            skyMap.FillBackground(_sky);
+            ct.ThrowIfCancellationRequested();
+
+            (_lumAlpha, _beta) = CalibratePlane(found, _lum, lumPsf);
+            _fieldScale = _lumAlpha / lumPsf.Alpha;
+            _correction = BuildRadialCorrection(found, _lum, LumPsf(1.0));
+            CalibrateChannels(found);
+            logger?.LogDebug("ClassicalStarRemover: radial correction from {Stars} stars, reach {Reach:F1} px.", _correction?.Stars ?? 0, _correction?.Reach ?? 0);
+            return found;
         }
 
         // Four checkerboard phases of tiles; within a tile, the given order (the significance order).

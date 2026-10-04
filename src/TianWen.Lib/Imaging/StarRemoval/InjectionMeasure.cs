@@ -96,6 +96,29 @@ public static class InjectionMeasure
             shape.PositionAngleRad, fit.Converged);
     }
 
+    /// <summary>
+    /// What <see cref="FitMoffat"/> reads off <paramref name="profile"/> drawn alone, round and noise-free: the reference a
+    /// profile that is no single Moffat (<see cref="StarProfileFamily.Field"/>, a Moffat and its halo) is read back against,
+    /// so the check asks whether the render and its noise keep the shape, not whether a halo is a Moffat. Null where the fit
+    /// does not converge.
+    /// </summary>
+    public static (double FwhmPx, double Beta)? ReferenceFit(StarProfile profile)
+    {
+        const int Size = 41;
+        const double Cx = 20.3;
+        const double Cy = 19.6;
+        var round = profile with { AxisRatio = 1.0, PositionAngleRad = 0.0 };
+        var plane = new float[Size * Size];
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                plane[(y * Size) + x] = (float)round.PixelMean(x, y, Cx, Cy);
+            }
+        }
+        return FitMoffat(plane, Size, Size, Cx, Cy, profile.FwhmPx * 1.2) is { Converged: true } fit ? (fit.FwhmPx, fit.Beta) : null;
+    }
+
     private static StarProfile ProfileOf(ReadOnlySpan<double> p)
     {
         var g1 = p[5];
