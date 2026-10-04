@@ -36,6 +36,126 @@ public class StretchedNoiseTests(ITestOutputHelper output)
         return [.. Enumerable.Range(0, Channels).Select(_ => (float[])plane.Clone())];
     }
 
+    /// <summary>
+    /// E16c: the fine-scale estimator's ratio for uncorrelated noise is Starck and Murtagh's, so it has to be the sigma
+    /// <see cref="ATrousWaveletTransform"/>'s finest scale itself gives unit white noise.
+    /// </summary>
+    [Fact]
+    public void TheFinestScalesWhiteRatioIsTheStarletsOwn()
+    {
+        const int size = 512;
+        var noise = NoiseField.White(size, size, new Random(11));
+        var measured = Spread(ATrousWaveletTransform.Decompose(noise, size, size, 1).Detail(0).ToArray(), size) / Spread(noise, size);
+        output.WriteLine($"finest scale: {measured:F4} against {StretchedNoise.WhiteNoiseFineScaleRatio:F4}");
+        measured.ShouldBe(StretchedNoise.WhiteNoiseFineScaleRatio, StretchedNoise.WhiteNoiseFineScaleRatio * 0.01);
+    }
+
+    /// <summary>
+    /// E16c's candidate on the frame that defeats the shipped estimator: a mono frame filled edge to edge with thin
+    /// filaments of a few sigma, so no block of it is clean sky (the ASI1600MM's H-alpha eta Car, read at 0.31 of its half
+    /// pairs' truth). The shipped estimator must over-read it, or the frame cannot tell them apart; the fine-scale one,
+    /// given the finest scale's ratio of this noise (what a calibration per integration supplies), must read it far nearer
+    /// the injected noise. On the same frame without filaments it must find the noise.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TheFineScaleFindsTheNoiseUnderFilamentsThatFillTheFrame(bool warped)
+    {
+        const int size = 512;
+        var truth = new LinearDegradation.NoiseCalibration(PedestalAdu: 0.0, BackgroundAdu: 0.02, OneSubSigmaAdu: 0.004, StackedFrames: 1);
+        var rng = new Random(7);
+        var filaments = FilamentField(size, rng, count: 900, amplitude: 3.0 * truth.OneSubSigmaAdu);
+        var shape = warped ? NoiseField.Warped(size, size, 8, rng, 0.5) : NoiseField.White(size, size, rng);
+        // The finest scale's ratio of THIS noise field.
+        var ratio = Spread(ATrousWaveletTransform.Decompose(shape, size, size, 1).Detail(0).ToArray(), size) / Spread(shape, size);
+
+        foreach (var filled in new[] { true, false })
+        {
+            var p = new float[size * size];
+            for (var i = 0; i < p.Length; i++)
+            {
+                p[i] = (float)(truth.BackgroundAdu + (filled ? filaments[i] : 0.0));
+            }
+            LinearDegradation.AddNoiseInPlace(p, shape, truth, 1.0);
+            var plane = new float[size, size];
+            Buffer.BlockCopy(p, 0, plane, 0, p.Length * sizeof(float));
+            var image = new Image([plane], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta { SensorType = SensorType.Monochrome });
+            var (origMin, balances) = image.MtfStretchParameters(0.25);
+            StretchedNoise.ChannelStretch[] stretches = [new StretchedNoise.ChannelStretch(balances[0], origMin[0])];
+
+            StretchedNoise.TryEstimateCalibration(image, stretches, null, StretchedNoise.NoiseEstimator.Blocks, null, out var blocks).ShouldBeTrue();
+            StretchedNoise.TryEstimateCalibration(image, stretches, null, StretchedNoise.NoiseEstimator.FineScale, [ratio], out var fine).ShouldBeTrue();
+            // Each calibration's anchor is the noise at ITS background, which on a frame with no clean sky sits above the
+            // true one; so they are compared as noise.check compares them, by the noise each predicts at a level, the sky's.
+            var sky = truth.BackgroundAdu;
+            var blocksRatio = blocks[0].SigmaAt(sky, 1.0) / truth.SigmaAt(sky, 1.0);
+            var fineRatio = fine[0].SigmaAt(sky, 1.0) / truth.SigmaAt(sky, 1.0);
+            output.WriteLine($"warped {warped}, filaments {filled}: finest-scale ratio {ratio:F3}; at the sky blocks {blocksRatio:F3}x, fine {fineRatio:F3}x " +
+                             $"(backgrounds {blocks[0].BackgroundAdu:F4} and {fine[0].BackgroundAdu:F4} against {sky:F4})");
+            if (filled)
+            {
+                // Measured 2026-10-05: the blocks 1.55 to 1.57 times, the fine scale 1.05 (white) and 1.09 (warped).
+                blocksRatio.ShouldBeGreaterThan(1.3, "the frame must defeat the shipped estimator, or it tests nothing");
+                fineRatio.ShouldBeLessThan(1.15);
+                fineRatio.ShouldBeLessThan(blocksRatio - 0.3);
+            }
+            else
+            {
+                fineRatio.ShouldBe(1.0, 0.06);
+            }
+        }
+    }
+
+    // The sample standard deviation inside a 32 px rim, clear of the mirror boundary.
+    private static double Spread(float[] plane, int side)
+    {
+        double sum = 0, sumSq = 0;
+        var n = 0;
+        for (var y = 32; y < side - 32; y++)
+        {
+            for (var x = 32; x < side - 32; x++)
+            {
+                double v = plane[(y * side) + x];
+                sum += v;
+                sumSq += v * v;
+                n++;
+            }
+        }
+        var mean = sum / n;
+        return Math.Sqrt((sumSq / n) - (mean * mean));
+    }
+
+    /// <summary>Thin filaments (a Gaussian profile across, 1.2 to 2.5 px wide, 40 to 200 px long) at random places and
+    /// angles, each 0.5 to 1.5 times <paramref name="amplitude"/> at its crest.</summary>
+    internal static double[] FilamentField(int size, Random rng, int count, double amplitude)
+    {
+        var field = new double[size * size];
+        for (var k = 0; k < count; k++)
+        {
+            var (cx, cy) = (rng.NextDouble() * size, rng.NextDouble() * size);
+            var theta = rng.NextDouble() * Math.PI;
+            var (ux, uy) = (Math.Cos(theta), Math.Sin(theta));
+            var width = 1.2 + (rng.NextDouble() * 1.3);
+            var length = 40 + (rng.NextDouble() * 160);
+            var crest = amplitude * (0.5 + rng.NextDouble());
+            var reach = (length / 2) + (4 * width);
+            for (var y = Math.Max(0, (int)(cy - reach)); y < Math.Min(size, (int)(cy + reach) + 1); y++)
+            {
+                for (var x = Math.Max(0, (int)(cx - reach)); x < Math.Min(size, (int)(cx + reach) + 1); x++)
+                {
+                    var along = ((x - cx) * ux) + ((y - cy) * uy);
+                    var across = (-(x - cx) * uy) + ((y - cy) * ux);
+                    if (Math.Abs(along) <= length / 2 && Math.Abs(across) <= 4 * width)
+                    {
+                        field[(y * size) + x] += crest * Math.Exp(-(across * across) / (2 * width * width));
+                    }
+                }
+            }
+        }
+        return field;
+    }
+
     private static Image ToImage(float[][] channels, int size = Size)
     {
         var data = new float[channels.Length][,];

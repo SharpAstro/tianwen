@@ -2790,6 +2790,71 @@ is both the export's master anchor and the runner's plane at inference, read the
 nebula-filled H-alpha frame (ASI1600MM, eta Car) and at 0.55 on the ASI294MM's Lagoon. So whatever single-frame estimator
 E16c builds is validated on those nights' half pairs too, within D2's 10 percent. H7 (#1260) waits on it.
 
+#### E16c step 1, the level estimator, pre-registered (2026-10-05)
+
+Written before any reading of the candidate on a real master. The read share (the two-term model) is step 2 and is not
+touched here: this step is the noise LEVEL a single frame gives, since that is what failed H7's D2.
+
+**The baseline is worse than E16b's D2 said, and on colour as much as mono.** E16b's D2 read ten sessions. `noise-check`
+over every halved session of the full store (82 with the flip sides; colour read on its first channel only, the check's
+channel bug, fixed in this step) puts the recorded master anchor (the shipped block estimator) within 10 percent of the
+half pairs on 30 of 82, under 0.80 on 28, a typical error of x1.30 (`C:\temp\e2\e16c-baseline-master.txt`). The worst are
+nebula and dense star fields of every kind: the ASI1600MM's eta Car at 0.25 to 0.37, the ASI294MC's at 0.32, the Statue of
+Liberty 0.41 to 0.46, the Uranus-C Lagoon 0.46, LMC 0.46 and 0.58, the Prawn 0.53. So the shipped denoiser's plane over-reads
+those fields at deploy.
+
+**A first candidate, dropped on synthetic evidence before any real reading.** A multiresolution support (the four finest
+B3 starlet scales at 3 sigma, the shipped blocks read over what it leaves, iterated) was built and failed its own test
+first. On a mono frame filled edge to edge with thin filaments of 1.5 to 4.5 sigma, which reads the shipped estimator at
+1.55 to 1.57 times the truth at the sky, the support called 89 percent of the pixels structure and left 4 to 7 of 256
+blocks: at coarse scales the noise is so small that any texture is significant everywhere. It cannot read a frame that
+is all structure, which is the case that matters.
+
+**The candidate: the noise in the finest starlet scale** (`StretchedNoise.NoiseEstimator.FineScale`). Every pixel's
+finest B3 coefficient of the stretched frame, divided by the noise the model gives at its 2 px level, then 1.4826 times
+the MAD over the frame, divided by `k`, the finest scale's sigma over the pixel sigma OF THIS NOISE. Texture puts least
+of itself there. On the filament frame it reads 1.05 (white) and 1.09 (warped) times at the sky, against the blocks'
+1.55 to 1.57; without filaments it reads 1.00 (`TheFineScaleFindsTheNoiseUnderFilamentsThatFillTheFrame`). The price is
+`k`. A registered master's noise is correlated over a pixel or two, and `k` moves with it: 0.89 for white noise, 0.70 for
+the warped field at 0.5. So `k` comes from how the master was integrated, one constant per kind and channel. The kinds
+are mono, demosaiced and drizzled (the `STRATEGY` card); the channels are R, G and B for colour.
+
+**`k` is fixed from a tuning split, never from the sessions it is read on.**
+- `noise-check --table` reports, per session and channel, `pairFineScaleRatio`: the finest scale's spread of the half
+  pairs' normalised difference over that difference's own. That is `k` measured on pure noise, cell by cell, quiet cells'
+  median.
+- It also reports `fineScaleRaw`: the candidate read at `k` = 1, so its reading at any `k` is `fineScaleRaw` times `k`.
+- A session is in the TUNING split if its base id (without `|flip=`) is not a pinned test session and the first byte of
+  the SHA-256 of that id in UTF-8 is even. Every other session, the test ones included, is the VALIDATION split, and a
+  flip side goes with its base id.
+- Each (kind, channel) `k` is the median of the tuning split's `pairFineScaleRatio`. `training/denoise/e16c_read.py`
+  implements the rule and is committed with this entry.
+
+**The parity check, first:** `blocks` (the shipped estimator re-run on the whole retained master) equals the recorded
+master anchor within 1 percent on every session. If it does not, the recorded anchors are not what the code gives, and
+nothing below is read.
+
+**Predictions** are on the validation split, the per-session quiet-cell median per channel, measured over predicted (1 is
+a match, under 1 an over-read):
+1. `k` holds within a kind: the tuning split's `pairFineScaleRatio` has a spread (sd of ln) of at most 0.05 in every
+   (kind, channel). Moderate confidence. Larger would say one constant per kind is not enough, a finding in itself.
+2. The candidate is within 10 percent on at least 75 percent of validation session-channels, against the baseline's
+   share on the same ones. Moderate confidence.
+3. Its typical error, exp(mean |ln ratio|), is at most x1.12, against the baseline's on the same ones (about x1.30).
+   Moderate.
+4. The two hard mono nights, the ASI1600MM's Ha 2025-02-06 and the ASI294MM's Lagoon 2022-06-28, each read within 15
+   percent, whichever split they fall in. They were at 0.31 and 0.55. Low to moderate confidence.
+5. Dense star fields improve and may stay outside 10 percent: the Uranus-C Lagoon, both LMC sessions, the Sagittarius
+   star cloud and the Prawn each read at least 0.80. Low confidence. The 2026-09-28 entry's limit applies here: content
+   both halves share is noise to any one frame, and a star field that dense has no clean pixel.
+
+**KILL:** the candidate's typical error is no better than the baseline's on the validation split, or it reads under 0.90
+on more validation session-channels than the baseline does. Either would say the finest scale trades one bias for
+another.
+
+**What it cannot settle.** A foreign master's integration, where `k` is unknown; whether training on the candidate's
+plane helps a model, which is E16c's training step and H7's re-run; and the read share.
+
 ### 2026-10-05: H7, pre-registered
 
 Tracked by #1260. Written before any H7 export, cache or model existed; `training/denoise/run-h7.ps1` copies it into
