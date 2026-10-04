@@ -917,6 +917,34 @@ limit, and not by noise: a point's plain correlation shrinks the warp it reads.
   - **Adopting them as the stack's default is #1195**, judged as #1072, #1074 and #1086 were: on the real captures #1159 validated,
     by eye, and with what a mesh of 500 points on 4 px nodes costs a stack in time.
 
+##### #1195: dense points on the real captures
+
+Measured 2026-10-05 on the four colour captures that carry another program's result, with `planetary-judge` (#1250). Each capture was
+stacked at the defaults and again with the dense grid (`--ap-patch 16 --ap-spacing 4 --max-ap 100000 --mesh-spacing 4
+--mesh-influence 4`), everything else equal, the same binary. The stack now says how many points it followed.
+
+**Dense against today's grid:** the dense master's gain over the default's on what both hold, read on the default's grid. Correlation is
+0.986 to 1.000 in every band, so the two are one picture.
+
+| Capture | Points, default to dense | Stack time, default to dense | Dense's gain, band 1 / 2 / 3 |
+|---|---|---|---|
+| 12" SCT + ASI224MC Jupiter 2022-09-10 | **64 (the cap)** to 1,616 | 306 to 558 s | +1.1 % / +3.2 % / +1.2 % |
+| EdgeHD 11 + ASI678MC Jupiter 2023-11-11 | **64 (the cap)** to 2,559 | 406 to 1,515 s | -4.1 % / +2.2 % / +1.0 % |
+| EdgeHD 11 Saturn 2022-10-25 | **13** to 238 | 191 to 338 s | -0.5 % / +1.0 % / +0.4 % |
+| 16" Meade Saturn 2023-10-10 | **3** to 40 | 181 to 183 s | -6.6 % / +0.4 % / 0.0 % |
+
+- **Dense pays at most 3 % in band 2, and loses up to 7 % in band 1, at 1.8 to 3.7 times the stack's time.** The twins promised more
+  (band 1's transfer +10 %). Against each capture's own `_stack`, the ASI678 Jupiter's band 2 goes from 1.099 to 1.123.
+- **By #1195's own rule it is not adopted as the default.** The limb's undershoot is zero both ways, and by eye, sharpened side by side
+  on the 12" SCT Jupiter, the two are hard to tell apart. The options stay for anyone who wants them, and #1082's square difference,
+  which goes with the dense grid or not at all, stays an option too.
+- **What the counts found matters more (#1253):**
+  - **Today's grid is capped:** both large Jupiters follow exactly 64 points, so the spacing never decides.
+  - **Saturn gets 3 to 13 points:** a cell keeps a point only where its gradient reaches a fifth of the region's strongest, which on
+    Saturn is the limb and the ring edges, so the 16" Saturn's stack is effectively global. The dense grid lifts it only to 40, where the
+    12" SCT Jupiter's disk, twice its radius, takes 1,616.
+  - Points placed over the whole planet by each patch's own contrast are the dewarp still to win, Saturn first.
+
 #### #1082: an estimator for the points, against its bound
 
 **Pre-registered** (2026-10-03), on the same twins as #1081 (the calibrated 0.65 px warp over 10 px, the 1 px warp over 20 px), plain
@@ -3593,6 +3621,19 @@ The derived gains oscillate, with a gain below one in band 4 on the 16" Saturn a
 judgement that they land near the truth was made on the twins, whose disks are 40 to 60 px. Whether a post's strength is the target or the
 twins' truth-optimal gains are, given a post is denoised and then sharpened further, is the owner's call (#1251). The posts' colours are
 their processors' choice (the EdgeHD Saturn post reads R/G 1.46, B/G 0.46 decoded, against OPAL's 1.22, 0.65).
+
+**Bayer drizzle 1.5 on the real captures pays nothing over the demosaic.** Each demosaic master was judged against its own capture's
+drizzle (`--drizzle 1.5`, everything else the defaults), the drizzle resampled down onto the demosaic's grid. The bilinear resampling
+softens the drizzle a little, so read this as no more than a tie in its favour.
+
+- **Unsharpened**, the demosaic's gain on what both hold is 1.007 to 1.044 in bands 2 to 5 on the EdgeHD Saturn, the 16" Saturn and the
+  ASI678 Jupiter, at correlation 0.994 to 1.000: the drizzle holds nothing the demosaic lacks.
+- **Sharpened**, the drizzle's derived gains come out weaker, and the demosaic's sharpened master holds 1.2 to 1.9 times its band 2 and
+  3 energy.
+- **Its cost** is the same to twice the demosaic's (the 12" SCT Jupiter 293 against 306 s, the 16" Saturn 332 against 181 s, the
+  ASI676 Jupiter 1,218 against 859 s).
+- So #1091's verdict stands on real captures too: drizzle works (its geometry placed at 0.6667 of a pixel, correlation 0.999) and the
+  demosaic stays the colour default.
 
 ## R9 A learned stage, only if the measurements say so
 
