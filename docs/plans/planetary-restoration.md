@@ -3536,7 +3536,9 @@ gain a channel takes the globe's mean, read where the rings leave it clear from 
 of 1.4 about that colour, after the sharpening. The rings take the globe's gains. Pinned by
 `PlanetaryColourTests.ASaturnsGlobeIsBalancedToSaturnsColourWhereItsRingsLeaveItClear`: a ringed Saturn through a camera's cast, its rings
 three times bluer than its globe, balances to B/G 0.644 against the target's 0.646, where a read through the rings would give 1.07.
-Mars and every other planet stay as captured.
+Mars and every other planet stay as captured. On the EdgeHD capture `planetary-stack --planet saturn` now says "balanced to Saturn's
+colour: gains R 1.081, B 0.759 over green, saturation 1.4", and the near-grey disk the camera recorded takes the warm colour its
+`_post` shows (the post is a tighter crop, turned, its pole bluer).
 
 ## R9 A learned stage, only if the measurements say so
 
