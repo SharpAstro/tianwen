@@ -175,10 +175,12 @@ public static class PlanetaryBestStack
     /// to sharpen every later master with (<see cref="SliderOptions"/>), and the limb it drew, which those masters are drawn outside of as
     /// the batch draws it (<see cref="PlanetaryLiveLimb"/>, #1201): the derivation is the slow part (about 35 s), the gains and the limb are
     /// cheap to apply. Empty, with no limb and the reason in words, where nothing is derived: no telescope, no planet with a rotation
-    /// model, no time, or a limb that does not fit. A colour master's gains are its first channel's.
+    /// model, no time, or a limb that does not fit. A colour master's gains are its first channel's, and the limb carries the colour
+    /// balance the batch would give it at <paramref name="colourSaturation"/> (<see cref="PlanetaryLiveLimb.Balance"/>, #1212; null leaves
+    /// the colours as captured).
     /// </summary>
     public static (ImmutableArray<float> Gains, string How, PlanetaryLiveLimb? Limb) DeriveGains(Image master, CatalogIndex? planet, DateTimeOffset? epoch,
-        Pupil? telescope, ImmutableArray<double> wavelengthsNm = default)
+        Pupil? telescope, ImmutableArray<double> wavelengthsNm = default, double? colourSaturation = PlanetaryColourBalance.DefaultSaturation)
     {
         ArgumentNullException.ThrowIfNull(master);
         if (telescope is not { } pupil)
@@ -197,10 +199,16 @@ public static class PlanetaryBestStack
         try
         {
             var inv = CultureInfo.InvariantCulture;
-            return result.Derived && !result.Gains.IsDefaultOrEmpty
-                ? ([.. result.Gains.Select(g => (float)g)], string.Create(inv,
-                    $"derived for {options.Planet} through a {pupil.DiameterM * 1000:0} mm pupil at {options.WavelengthsNm[0]:0} nm"), result.Limb)
-                : ([], "the gains could not be derived", null);
+            if (!result.Derived || result.Gains.IsDefaultOrEmpty)
+            {
+                return ([], "the gains could not be derived", null);
+            }
+            var how = string.Create(inv, $"derived for {options.Planet} through a {pupil.DiameterM * 1000:0} mm pupil at {options.WavelengthsNm[0]:0} nm");
+            // The colour balance the batch gives a master of this planet (#1212), read once here and given to every master drawn.
+            var balance = master.ChannelCount == 3 && colourSaturation is { } saturation
+                ? PlanetaryColourBalance.For(master, options.Planet, options.When, saturation).Balance
+                : null;
+            return ([.. result.Gains.Select(g => (float)g)], balance is null ? how : $"{how}; {balance.Describe()}", result.Limb?.WithBalance(balance));
         }
         finally
         {
