@@ -18,11 +18,12 @@ namespace TianWen.Lib.Imaging.Calibration;
 /// <param name="Meta">Parsed <see cref="ImageMeta"/>; frame type, exposure,
 /// filter, sensor type, temperature, etc. All FITS header reads needed by the
 /// stacking pipeline are routed through this field.</param>
-/// <param name="StackedFrameCount">Value of the FITS <c>STACK_N</c> header, or 0
-/// when the keyword is absent. Non-zero marks the file as a stacking product
-/// (master integrated by <c>IntegrationFitsWriter</c>); these must be filtered
-/// out at scan time when they sit alongside lights, otherwise they get treated
-/// as fresh frames and pollute the next run's groups.</param>
+/// <param name="StackedFrameCount">How many frames the file integrates, from the count card its
+/// producer writes (<c>STACK_N</c> ours, <c>NUMFRAME</c> Astro Pixel Processor's, <c>LUM_CNT</c>
+/// ASTAP's), or 0 when it carries none. Non-zero marks the file as a stacking product; these must be
+/// filtered out at scan time when they sit alongside lights, otherwise they get treated as fresh
+/// frames and pollute the next run's groups. Ask <see cref="IsIntegration"/>, which also knows a
+/// live stack that states no count.</param>
 public sealed record FrameInfo(
     string Path,
     int Width,
@@ -48,6 +49,20 @@ public sealed record FrameInfo(
 
     /// <summary>The file the pixels are read from: the staged copy when there is one.</summary>
     public string ReadPath => StagedPath ?? Path;
+
+    /// <summary>
+    /// A SharpCap live stack: its <c>EXPTIME</c> is the accumulated exposure of many subs, which it
+    /// marks only by a <c>SUBEXP</c> card well under it, and it states no count
+    /// (<c>Image.ReadIsLiveStack</c>).
+    /// </summary>
+    public bool IsLiveStack { get; init; }
+
+    /// <summary>
+    /// The file integrates several exposures (a count card, or a live stack), so it is never a raw
+    /// sub. The one test the dataset scan and the stacker both ask; a TianWen product that carries
+    /// neither mark (an enhance output) is <c>IntegrationFitsWriter.IsTianWenProduct</c>'s to catch.
+    /// </summary>
+    public bool IsIntegration => StackedFrameCount > 0 || IsLiveStack;
 
     /// <summary>Convenience accessor: <c>Meta.IsMaster</c>: this frame is an already-integrated
     /// MASTER calibration frame (e.g. IMAGETYP=MASTERDARK), not a raw sub. Its <see cref="FrameType"/>

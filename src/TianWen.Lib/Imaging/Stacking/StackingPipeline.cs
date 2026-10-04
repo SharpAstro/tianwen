@@ -315,9 +315,10 @@ public sealed class StackingPipeline(
             }
             // Two markers identify a TianWen-produced FITS that must not be
             // re-ingested as a fresh light:
-            //   * STACK_N > 0 -- a stacking master (the rejection branch above
+            //   * IsIntegration -- a stacking master (the rejection branch above
             //     already filtered rejection maps, so this is an integrated
-            //     master).
+            //     master), ours by STACK_N or a foreign one by its own count
+            //     card or a live stack's accumulated EXPTIME.
             //   * A TianWen SWCREATE -- ANY of our derived products. An AI
             //     sharpen / enhance output inherits the master's SWCREATE but
             //     carries NO STACK_N and an IMAGETYP=Light copied from the
@@ -328,7 +329,7 @@ public sealed class StackingPipeline(
             // Default policy is to drop both. IncludeIntegrations opts in for
             // two-stage mosaic stacking where each panel is integrated
             // separately, then the panel masters are re-stacked.
-            if (frame.StackedFrameCount > 0 || IntegrationFitsWriter.IsTianWenProduct(frame.Meta.SWCreator, frame.Meta.SWModifier))
+            if (frame.IsIntegration || IntegrationFitsWriter.IsTianWenProduct(frame.Meta.SWCreator, frame.Meta.SWModifier))
             {
                 if (options.IncludeIntegrations)
                 {

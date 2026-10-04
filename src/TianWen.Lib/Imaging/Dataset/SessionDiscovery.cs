@@ -231,12 +231,14 @@ public static class SessionDiscovery
         // A stacked product is never a raw sub, whatever tool authored it: TianWen's own outputs
         // carry STACK_N / SWCREATE markers, but a FOREIGN integration (e.g. PixInsight's
         // IMAGETYP='Master Light', which parses as FrameType.Light + IsMaster) has neither --
-        // gate on the master flag itself so it can't be ingested as a session frame.
-        if (frame.IsMaster || frame.StackedFrameCount > 0 || IntegrationFitsWriter.IsTianWenProduct(frame.Meta.SWCreator, frame.Meta.SWModifier))
+        // gate on the master flag itself so it can't be ingested as a session frame. This gate, not
+        // an exposure cap, is what keeps a live stack's accumulated EXPTIME out (FrameInfo.IsIntegration).
+        if (frame.IsMaster || frame.IsIntegration || IntegrationFitsWriter.IsTianWenProduct(frame.Meta.SWCreator, frame.Meta.SWModifier))
         {
             return LightGate.Product;
         }
-        if (frame.Meta.ExposureDuration < options.MinExposure || frame.Meta.ExposureDuration > options.MaxExposure)
+        if (frame.Meta.ExposureDuration < options.MinExposure
+            || options.MaxExposure is { } maxExposure && frame.Meta.ExposureDuration > maxExposure)
         {
             return LightGate.ExposureOutOfRange;
         }

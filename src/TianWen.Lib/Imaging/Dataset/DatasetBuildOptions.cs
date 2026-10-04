@@ -23,9 +23,13 @@ public sealed record DatasetBuildOptions
     /// <summary>Lights below this exposure are excluded (planetary/lucky bursts). Default 10 s.</summary>
     public TimeSpan MinExposure { get; init; } = TimeSpan.FromSeconds(10);
 
-    /// <summary>Lights above this exposure are excluded (live-stack products report the
-    /// accumulated exposure, e.g. SharpCap AutoSave stacks at hours). Default 300 s.</summary>
-    public TimeSpan MaxExposure { get; init; } = TimeSpan.FromMinutes(5);
+    /// <summary>Lights above this exposure are excluded; null (the default) keeps every length. It was
+    /// 300 s until 2026-10-04, standing in for a product test: a live stack reports its ACCUMULATED
+    /// exposure (SharpCap, ASTAP), so a cap kept them out, and it kept out every genuine long sub with
+    /// them (a CCD's 900 s RGB and 1,800 s H-alpha lights, LDN 1622). The product gate now knows those stacks by
+    /// their headers (<see cref="FrameInfo.IsIntegration"/>); on the bake roots the cap was catching
+    /// nine frames, all products, and the product cards catch every one.</summary>
+    public TimeSpan? MaxExposure { get; init; }
 
     /// <summary>Case-insensitive wildcard on INSTRUME; matching frames are excluded.
     /// Default excludes simulator cameras (synthetic frames would poison the noise model, 

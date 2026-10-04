@@ -686,8 +686,9 @@ FILTER-bearing lights are all in the older mono era, outside this set.
 **CLI contract; no machine specifics in the tool.** The command ships to every user, so nothing
 in the repo encodes this machine: archive locations are **required** parameters (`--archive-root`,
 repeatable; `--out`), with fail-fast errors instead of defaults pointing anywhere. Behavioural
-knobs are parameters with *portable* defaults: exposure gate (`--min/--max-exposure`, default
-10/300 s), instrument exclusion (`--exclude-instrume`, default `*simulator*`; generic, not a
+knobs are parameters with *portable* defaults: exposure gate (`--min-exposure`, default 10 s;
+`--max-exposure`, no limit unless given: it was 300 s until 2026-10-04, standing in for a product test
+that now reads the headers, `FrameInfo.IsIntegration`), instrument exclusion (`--exclude-instrume`, default `*simulator*`; generic, not a
 camera list), tile size/cells/subs-per-cell, split-file path. Machine-specific invocations live in
 the operator's own runner scripts outside the repo (the `run-archive-step0.ps1` pattern) or in
 docs as examples only. The step-0 python helpers already conform (paths appear solely in docstring

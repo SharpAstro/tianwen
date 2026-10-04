@@ -136,5 +136,72 @@ namespace TianWen.Lib.Tests
             info.ShouldNotBeNull();
             info.StackedFrameCount.ShouldBe(37);
         }
+
+        [Fact]
+        public void AstapStack_IsRecognisedAsAProduct_ViaLumCnt()
+        {
+            // The shape read off "ROSETTE RGB 120S ... ZWO ASI533MC Pro_average_stacked.fits": ASTAP
+            // keeps the reference sub's FRAMETYP/IMAGETYP and even its SharpCap SWCREATE, so LUM_CNT is
+            // the only card saying it integrates 77 subs. Only the old 300 s light cap kept it out.
+            var path = WriteFrame("astap-stack.fits",
+                ("FRAMETYP", "Light"),
+                ("IMAGETYP", "Light"),
+                ("SWCREATE", "SharpCap v4.1.12196.0, 64 bit"),
+                ("CALSTAT", "DFBS"),
+                ("EXPTIME", 9240.0),
+                ("LUM_EXP", 120),
+                ("LUM_CNT", 77));
+
+            Image.TryReadFitsHeader(path, out var info).ShouldBeTrue();
+            info.ShouldNotBeNull();
+            info.FrameType.ShouldBe(FrameType.Light);
+            info.IsMaster.ShouldBeFalse();
+            info.StackedFrameCount.ShouldBe(77);
+            info.IsIntegration.ShouldBeTrue();
+        }
+
+        [Theory]
+        // Stack_16bits_73frames_584s.fits: the ratio is the frame count.
+        [InlineData(584.0, 8.0)]
+        // Stack_16bits_90frames_5400s.fits (ninety 60 s subs): a later SharpCap writes SUBEXP = 2, so the
+        // ratio says 2,700. A mark, never a count.
+        [InlineData(5400.0, 2.0)]
+        public void SharpCapLiveStack_IsAnIntegration_ViaItsSubexp(double exposure, double subExposure)
+        {
+            // Real live stacks carry no type card at all (so they parse as FrameType.None); a light type
+            // here is what a tagging pass would give one, and the mark has to hold regardless.
+            var path = WriteFrame("sharpcap-stack.fits",
+                ("IMAGETYP", "Light"),
+                ("SWCREATE", "SharpCap"),
+                ("EXPTIME", exposure),
+                ("SUBEXP", subExposure));
+
+            Image.TryReadFitsHeader(path, out var info).ShouldBeTrue();
+            info.ShouldNotBeNull();
+            info.IsLiveStack.ShouldBeTrue();
+            info.StackedFrameCount.ShouldBe(0);
+            info.IsIntegration.ShouldBeTrue();
+        }
+
+        [Theory]
+        // Every raw SharpCap 4 sub carries SUBEXP equal to its EXPTIME (988 of 988 in the bake roots).
+        [InlineData(29.999999, 29.999999)]
+        // A one-frame AutoSave "stack" is the frame itself.
+        [InlineData(200.0, 200.0)]
+        // Stack_16bits_1frames_1s.fits: SUBEXP above the exposure.
+        [InlineData(1.0, 8.00000023961725)]
+        public void SharpCapRawSub_IsNotALiveStack(double exposure, double subExposure)
+        {
+            var path = WriteFrame("sharpcap-sub.fits",
+                ("IMAGETYP", "Light"),
+                ("SWCREATE", "SharpCap v4.1.12196.0, 64 bit"),
+                ("EXPTIME", exposure),
+                ("SUBEXP", subExposure));
+
+            Image.TryReadFitsHeader(path, out var info).ShouldBeTrue();
+            info.ShouldNotBeNull();
+            info.IsLiveStack.ShouldBeFalse();
+            info.IsIntegration.ShouldBeFalse();
+        }
     }
 }

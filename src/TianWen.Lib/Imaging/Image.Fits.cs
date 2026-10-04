@@ -405,7 +405,10 @@ public partial class Image
 
         var imageMeta = ParseImageMetaFromHeader(hdu, channelCount);
         var stackedFrameCount = ReadStackedFrameCount(hdu.Header);
-        frameInfo = new Calibration.FrameInfo(fileName, width, height, channelCount, bitDepth, imageMeta, stackedFrameCount);
+        frameInfo = new Calibration.FrameInfo(fileName, width, height, channelCount, bitDepth, imageMeta, stackedFrameCount)
+        {
+            IsLiveStack = ReadIsLiveStack(hdu.Header, imageMeta.ExposureDuration),
+        };
         imageHdu = hdu;
         return true;
     }
@@ -784,11 +787,34 @@ public partial class Image
     /// <c>IMAGETYP='LIGHT'</c> and copies the reference sub's header verbatim -- right down to
     /// <c>SWCREATE='N.I.N.A. ...'</c> -- so neither the master flag nor the TianWen-product check
     /// can see it. <c>NUMFRAME</c> is the one card present on all five APP product kinds.</para>
+    ///
+    /// <para>A third, <c>LUM_CNT</c>, is ASTAP's ("Luminance images combined"), and it is the only
+    /// card that marks an ASTAP stack: ASTAP keeps the reference sub's <c>IMAGETYP='Light'</c> and
+    /// even its <c>SWCREATE</c>, so a stack of 77 SharpCap subs reads as a 9,240 s SharpCap light
+    /// (<c>Rosette RGB 120s</c>, 2024-12-29). Until 2026-10-04 only the dataset bake's 300 s light cap
+    /// kept such a file out.</para>
     /// </summary>
     private static int ReadStackedFrameCount(Header header)
-        => header.GetIntValue("STACK_N", 0) is var stackN and > 0
-            ? stackN
-            : header.GetIntValue("NUMFRAME", 0);
+        => header.GetIntValue("STACK_N", 0) is var stackN and > 0 ? stackN
+            : header.GetIntValue("NUMFRAME", 0) is var numFrame and > 0 ? numFrame
+            : header.GetIntValue("LUM_CNT", 0);
+
+    /// <summary>
+    /// SharpCap's live stack (<c>Stack_&lt;bits&gt;bits_&lt;n&gt;frames_&lt;t&gt;s.fits</c>) states its
+    /// accumulated exposure in <c>EXPTIME</c> beside a <c>SUBEXP</c> card, which every raw SharpCap 4
+    /// sub carries too, equal to its own <c>EXPTIME</c> (988 of 988 such lights in the bake roots,
+    /// 2026-10-04). So a <c>SUBEXP</c> well under the exposure marks a product, and nothing else in the
+    /// header does: a live stack has no count card.
+    ///
+    /// <para>It is a MARK, never a count. <c>round(EXPTIME / SUBEXP)</c> is the frame count in the
+    /// file name for 231 of the archive's 265 stacks, but later SharpCap versions write some other
+    /// value there (<c>SUBEXP = 2</c> on a stack of ninety 60 s subs), so it stays out of
+    /// <see cref="ReadStackedFrameCount"/>. Every stack measured has the ratio far above the 1.5
+    /// asked for here.</para>
+    /// </summary>
+    private static bool ReadIsLiveStack(Header header, TimeSpan exposure)
+        => header.GetDoubleValue("SUBEXP", double.NaN) is var subExposure and > 0
+            && exposure.TotalSeconds > subExposure * 1.5;
 
     public static bool TryReadFitsFile(Fits fitsFile, [NotNullWhen(true)] out Image? image)
     {
