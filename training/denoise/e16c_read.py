@@ -129,7 +129,7 @@ def main():
     print(f"\nKILL: typical error {typical(fine_ratios):.3f} against {typical(base_ratios):.3f}; under 0.90 on {under(fine_ratios)} "
           f"against {under(base_ratios)} -> {'FIRES' if kill else 'does not fire'}")
 
-    print("\nper session-channel (validation): baseline, candidate")
+    print("\nper session-channel (validation): candidate, baseline")
     for s, c, b, f in sorted(validation, key=lambda t: t[3]):
         print(f"  {f:6.3f}  {b:6.3f}  ch{c}  {s.split('|')[0]}{' (flip ' + s.split('|flip=')[1] + ')' if '|flip=' in s else ''}")
 
