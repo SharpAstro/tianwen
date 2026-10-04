@@ -233,6 +233,10 @@ def main():
                     help='score no model; instead report, per session, how often each population sits beside a '
                          'catalogued star, against random positions in the same cells (is "extended" nebulosity, '
                          'or blended stars?)')
+    ap.add_argument('--replicate-mono', action='store_true',
+                    help='H7: score a 3-channel checkpoint on a mono cache by giving it each tile as three equal '
+                         'channels and averaging its output back to one (the colour model serving mono with no new '
+                         'weights). Without it a channel mismatch is refused')
     ap.add_argument('--legacy-split', action='store_true',
                     help='the split before 2026-09-26 (no floor rule, no blend rule), to reproduce an older table')
     a = ap.parse_args()
@@ -456,7 +460,8 @@ def main():
         slug, ckpt = spec.split('=', 1)
         cond_map = bool(torch.load(ckpt if os.path.isabs(ckpt) else os.path.join(a.cache, ckpt),
                                    map_location='cpu').get('cond_map', False))
-        out = S.crop(S.denoise(a.cache, ckpt, half_a, dev, planes=half_a_planes if cond_map else None))
+        out = S.crop(S.denoise(a.cache, ckpt, half_a, dev, planes=half_a_planes if cond_map else None,
+                               replicate_mono=a.replicate_mono))
         pts = {k: [(0.0, 0.0)] for k in pops}
         for al in alphas:
             blend = raw + al * (out - raw)

@@ -266,7 +266,8 @@ its count goes into `meta.json` and every checkpoint, and `open_tiles` / `load_m
 (`n2n_smoke.use_channels`), a cache or checkpoint from before reading as 3 (a 3-channel smoke reproduced its held-out losses
 to seven figures; a mono smoke on the R1 export's QHY178M sessions trained a one-channel net); (3) the product gate,
 `N2nDenoiser` serving three channels alone, with one weights file. The risk is the pool: a mono model trained on 14 to 18 sessions of six
-cameras, held out by camera, is the experiment; LDN 1622 alone (one CCD, one field) is not.
+cameras, held out by camera, is the experiment; LDN 1622 alone (one CCD, one field) is not. That experiment is
+pre-registered in the run log, "2026-10-05: H7, pre-registered" (#1260).
 
 **H8. Cross-night pairs give N2N genuinely independent noise, and that lifts the shared-noise ceiling
 both measured regimes sit under.** Every arm so far trains on a target whose noise its input also
@@ -2782,3 +2783,90 @@ through both halves of the one model at once (`StretchedNoise.Plane` at export a
 alone; then E16c trained against E16b's arm. Star fields cannot be read this way (their bright bins are star cores,
 where the halves' different seeing adds structure and the fits go negative), so the estimator must answer "no
 estimate" there rather than guess.
+
+### 2026-10-05: H7, pre-registered
+
+Tracked by #1260. Written before any H7 export, cache or model existed; `training/denoise/run-h7.ps1` copies it into
+its header, and this entry is the record.
+
+**What H7 asks.** Two things. Does a denoiser trained on mono masters alone, by E16b's arm recipe, denoise a mono
+master from a camera it never saw, without smoothing it? And does it beat the shipped colour model given the mono
+plane as three equal channels? If not, mono could be served with no new weights. The second answer decides gate 3
+(H7's "Where it stands" above): a second weights file, or none.
+
+**The pool** is the full store, `2026-09-29-full`: 23 one-channel nights over six cameras. 18 remain once two kinds
+are taken out:
+- the pinned test nights: LDN 1622 Green, ASI1600MM luminance eta Car 2025-02-20, and Leo Triplet;
+- the two ASI294MM Rosette plates the Stars mode's linearity test refuses (2021-12-31 and 2022-01-09). A plate the
+  runner's auto-detect reads as already stretched gets a stretch at export that the product would never apply.
+
+The 18 are split four ways:
+
+- **Held out by camera: the QHY178M, all four nights** (`E-cam`).
+  - Primary eval: Helix 2024-08-12 and Running Chicken 2023-03-17. Both have half pairs, and no other mono session
+    holds either sky.
+  - Scored and read apart: Vela SNR 2022-12-03. It has halves, but the ASI294MM's Vela night trains on that sky.
+  - Not used: M42 2022-12-03, which has no halves and no calibration.
+- **Held out by night: the ASI1600MM luminance 2025-02-20** (`E-night`). It is the pinned test night and has halves.
+  Its camera and its eta Car sky both reach training, through the ASI1600MM's Ha night of 2025-02-06 and the
+  QHY183M's SII. It is the within-camera reference; its flip halves are the same sky and are left out.
+- **The trainer's val**, used only for the plateau schedule's held-out loss: ASI294MM LMC 2021-12-29, and the QHY183M's
+  night of 2024-03-02 (filed under its capture software's name). Each is the second night of a sky the pool trains on.
+- **Train: 12 nights from five cameras.** These are ASI294MM luminance ×6 (Cen A, M42, Lagoon, LMC 2021-12-11, Rim
+  Nebula, Vela SNR), ASI1600MM Ha, QHY183M SII 2024-03-07, ASI183MM Ha (Rosette), and the QSI 683ws's Blue, Red and
+  H-alpha nights (LDN 1622). Half the twelve come from one camera and a quarter from one field. That is stated here,
+  not balanced.
+
+**The arm, `mono`, is E16b's arm recipe on that pool:**
+- the export: `dataset degrade --mode noise --shape warped --cells 120 --draws 8 --seed 1 --noise-anchor
+  master-calibration`, with the mono shape at its calibrated default (`--warp-sigma-mono 0`, #1243);
+- bright cells by E16b's rule: `dataset bright-cells`, up to 45 per training night, the export's sample left out,
+  no widening;
+- prepare `--channels 1`, 45 cells per training night and 120 per val night;
+- E16b's training line: `--cond-map`, L2 with the DoG bands, the plateau schedule, a 60,000-step cap;
+- seeds 0 to 3.
+
+The CPU stages run now. Training starts only after R2a's runner has exited (the owner, 2026-10-05).
+
+**The eval** is one cache cut from the store's own tiles: master, half A, half B, and half A's planes, at
+`--channels 1`. Each eval night contributes 60 cells, plus up to 20 bright cells read off half B by the rule. Scoring
+is `n2n_starsplit.py --per-session` in E16b's two conditions, `orc` (primary) and `est`. Two kinds of model are scored:
+- `mono_s0` to `mono_s3`;
+- `rgb`: `convmapb_s2`, the shipped checkpoint (`bb_e16barm_s2.pt`). Each mono tile goes in as three equal channels,
+  and the output is averaged back to one. This needs `--replicate-mono`, new for this run; without it, a channel
+  mismatch is refused.
+
+**Checks.** A failure stops the run and is never worked around. D1 and D2 run before training, D3 before scoring.
+- D1. Every one of the 14 export nights exported, with 0 failed, and the training cache's `meta.json` says one channel.
+- D2. `dataset noise-check --anchor master-calibration --bright-gate relative` runs on the export's nights with half
+  pairs: ASI294MM Cen A, M42 and Lagoon, and ASI1600MM Ha. It passes if the anchor is within 10 percent on quiet cells
+  and bright cells are within 15 percent of quiet. Gate 1 (#1243) calibrated the injected noise's SHAPE on mono; this
+  checks its LEVEL.
+- D3. Each eval night solves, and its sky level (under 0.15) is readable in the 0-1 and 1-2 px bands. A night that is
+  not readable is reported as unreadable, not predicted.
+
+**Predictions.** All are read in `orc` at full strength, as seed means. `E-cam` is read per field (Helix, Running
+Chicken). The bands are 0-1, 1-2 and 2-4 px.
+
+1. `mono` removes at least 15 percent of the noise on each E-cam field (the full-strength figure per session).
+   Moderate confidence: E16b's arm removed 23.9 on colour fields.
+2. Detail kept in the 1-2 px band is at least 0.97 at every readable level of each E-cam field. **KILL below 0.92**:
+   a mono model that smooths an unseen camera is not a candidate, whatever it removes.
+3. On both E-cam fields, `mono`'s 0-1 px error left at the sky level is at least 0.05 below `rgb`'s. Low confidence.
+   Three equal channels carry noise perfectly correlated across colour, which no colour training tile had. A model
+   that reads correlation across channels as signal should leave it in.
+4. The camera's cost: `mono`'s sky 0-1 px error left on each E-cam field is within 0.10 of its E-night value. Low
+   confidence, because the fields differ as much as the cameras do.
+5. `mono`'s full-strength removal under `est` is within 4 points of `orc`, averaged over the four eval nights.
+
+**KILL for the arm:** prediction 2's kill, or prediction 1 under 5 percent on both E-cam fields.
+
+**What follows.** Prediction 3 decides gate 3's shape:
+- if it holds, a second weights file, with `N2nDenoiser` choosing by channel count;
+- if `rgb` is as good (within 0.02 of `mono`'s sky error left and of its detail kept), mono is served by replication
+  with no new file.
+
+Either way, the choice is the owner's.
+
+**What it cannot settle.** Other mono cameras than these six; narrowband mono beyond the one SII and three H-alpha nights that train;
+how much the result leans on the camera that supplies half the pool; and a seed spread wider than four seeds can show.

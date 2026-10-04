@@ -1,0 +1,3 @@
+# H7's trainer val (the plateau schedule's held-out loss only): the second night of two skies the pool trains on.
+ZWO-ASI294MM/Luminance/Large-Magellanic-Cloud/2021-12-29|ZWO ASI294MM|LMC 4min LUM s2|Luminance
+Eta Car SII NB/2024-03-02|QHYCCD-Cameras-Capture|Eta Car|SulphurII

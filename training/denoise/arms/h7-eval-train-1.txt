@@ -1,0 +1,2 @@
+# The eval cache's token train night (prepare needs one; 5 cells, never trained on): a night that trains anyway.
+ZWO-ASI294MM/Luminance/Rim-Nebula/2022-06-28|ZWO ASI294MM|Rim Neb 250mm|Luminance
