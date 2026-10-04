@@ -141,7 +141,7 @@ internal sealed class PlanetaryStackSubCommand(
         };
         var colourSaturationOpt = new Option<double>("--colour-saturation")
         {
-            Description = "The saturation a colour master of Jupiter is balanced at: its disk's mean colour is taken to Jupiter's own (OPAL's reflectance through the eye's response, #1212), one gain a channel, then saturated about each pixel's luminance. Both masters are balanced, the FITS cards CBALGNR, CBALGNB and CBALSAT say by how much. 1 is the balance alone.",
+            Description = "The saturation a colour master of Jupiter or Saturn is balanced at: its disk's mean colour (Saturn's globe where its rings leave it clear) is taken to the planet's own (OPAL's reflectance through the eye's response, #1212, #1235), one gain a channel, then saturated about each pixel's luminance. Both masters are balanced, the FITS cards CBALGNR, CBALGNB and CBALSAT say by how much. 1 is the balance alone.",
             DefaultValueFactory = _ => PlanetaryColourBalance.DefaultSaturation,
         };
         var noColourBalanceOpt = new Option<bool>("--no-colour-balance")
@@ -427,7 +427,7 @@ internal sealed class PlanetaryStackSubCommand(
                     $"[planetary] every frame carried to {epoch:yyyy-MM-dd HH:mm:ss.f} UTC, north at {north.NorthAngleDeg:0.0} deg (the run's quarters {north.AgreementAsFitted:0.00000} apart with the limb fit's north, {north.AgreementTurnedOver:0.00000} turned over)"));
             }
 
-            // A colour master of Jupiter is balanced to Jupiter's own colour (#1212): the stack as written, and the sharpening once it has
+            // A colour master of Jupiter or Saturn is balanced to that planet's own colour (#1212, S6 #1235): the stack as written, and the sharpening once it has
             // read each channel's edge through that channel's own diffraction (the saturation mixes the channels).
             var (balance, howBalanced) = legacy || parseResult.GetValue(noColourBalanceOpt)
                 ? (null, "colours left as captured")

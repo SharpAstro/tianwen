@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using TianWen.Lib.Astrometry;
@@ -60,14 +61,11 @@ public readonly record struct LinearRgb(double R, double G, double B)
 }
 
 /// <summary>
-/// One of OPAL's visible filters on WFC3/UVIS: its pivot wavelength, the Minnaert k its maps were flattened with, and the factor from a
-/// map's FITS values to I/F in each apparition (the tables in the 2022 and 2024 readmes, which give the same k).
+/// One of OPAL's visible filters on WFC3/UVIS as an apparition's readme lists it: its pivot wavelength, the Minnaert k its maps were
+/// flattened with, and the factor from a map's FITS values to I/F (<see cref="PlanetaryColour.ReadmeFilters"/>). Every apparition
+/// has its own factors, Saturn's changing by up to 15 % between years, so they are read, never kept as constants (S6, #1235).
 /// </summary>
-public readonly record struct OpalFilter(string Name, double PivotNm, double MinnaertK, double IfScale2022, double IfScale2024)
-{
-    /// <summary>The factor from a map's FITS values to I/F in the apparition of <paramref name="year"/>.</summary>
-    public double IfScale(int year) => year >= 2024 ? IfScale2024 : IfScale2022;
-}
+public readonly record struct OpalFilter(string Name, double PivotNm, double MinnaertK, double IfScale);
 
 /// <summary>
 /// OPAL's maps of one apparition in its visible filters, bluest first, each filter's maps one a rotation (2024c and 2024d are the two
@@ -120,17 +118,50 @@ public static class PlanetaryColour
     /// <summary>The width of a band of planetographic latitude, in degrees.</summary>
     public const double BandDegrees = 2;
 
-    /// <summary>OPAL's filters in the visible, bluest first (WFC3/UVIS pivot wavelengths).</summary>
-    public static ImmutableArray<OpalFilter> OpalVisible { get; } =
-    [
-        new OpalFilter("F395N", 395.3, 0.850, 0.00330, 0.00346),
-        new OpalFilter("F467M", 468.3, 0.950, 0.00338, 0.00356),
-        new OpalFilter("F502N", 501.0, 0.950, 0.00348, 0.00366),
-        new OpalFilter("F631N", 630.4, 0.999, 0.00347, 0.00364),
-        new OpalFilter("F658N", 656.4, 0.999, 0.00417, 0.00437),
-    ];
+    /// <summary>
+    /// OPAL's filters in the visible, bluest first, with their WFC3/UVIS pivot wavelengths, nm. Jupiter's maps take F658N at the red end,
+    /// Saturn's F763M, which the observer barely sees but which keeps the spectrum past F631N from being held flat.
+    /// </summary>
+    public static ImmutableArray<(string Name, double PivotNm)> OpalVisiblePivots { get; } =
+        [("F395N", 395.3), ("F467M", 468.3), ("F502N", 501.0), ("F631N", 630.4), ("F658N", 656.4), ("F763M", 762.3)];
 
-    /// <summary>Each plane's mean inside <see cref="DiskRadii"/> of <paramref name="disk"/>, its sky (<paramref name="sky"/>) taken off.</summary>
+    /// <summary>
+    /// The visible filters an OPAL readme's table lists (a filter's name, its Minnaert k and the factor from a map's FITS values to I/F,
+    /// one a row), bluest first; a row naming a filter outside <see cref="OpalVisiblePivots"/> is passed over.
+    /// </summary>
+    public static ImmutableArray<OpalFilter> ReadmeFilters(IEnumerable<string> lines)
+    {
+        ArgumentNullException.ThrowIfNull(lines);
+        var found = new Dictionary<string, OpalFilter>(StringComparer.OrdinalIgnoreCase);
+        foreach (var line in lines)
+        {
+            var parts = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 3)
+            {
+                continue;
+            }
+            foreach (var (name, pivotNm) in OpalVisiblePivots)
+            {
+                if (string.Equals(name, parts[0], StringComparison.OrdinalIgnoreCase)
+                    && double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var k)
+                    && double.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out var scale))
+                {
+                    found.TryAdd(name, new OpalFilter(name, pivotNm, k, scale));
+                }
+            }
+        }
+        var filters = ImmutableArray.CreateBuilder<OpalFilter>();
+        foreach (var (name, _) in OpalVisiblePivots)
+        {
+            if (found.TryGetValue(name, out var filter))
+            {
+                filters.Add(filter);
+            }
+        }
+        return filters.ToImmutable();
+    }
+
+    /// <summary>Each plane's mean inside <see cref="DiskRadii"/> of <paramref name="disk"/> but where a ring covers it, its sky (<paramref name="sky"/>) taken off.</summary>
     public static LinearRgb DiskMean(ReadOnlySpan<float> red, ReadOnlySpan<float> green, ReadOnlySpan<float> blue, int width, int height,
         in MetricDisk disk, in LinearRgb sky)
     {
@@ -140,7 +171,8 @@ public static class PlanetaryColour
         {
             for (var x = 0; x < width; x++)
             {
-                if (disk.RadiiAt(x, y) >= DiskRadii)
+                // Saturn's globe is read where its rings leave it clear (S6, #1235).
+                if (disk.RadiiAt(x, y) >= DiskRadii || disk.RingTouched(x, y))
                 {
                     continue;
                 }
@@ -181,7 +213,7 @@ public static class PlanetaryColour
         {
             for (var x = 0; x < width; x++)
             {
-                if (disk.RadiiAt(x, y) >= SpreadRadii || !projection.TryUnproject(x, y, out var latitude, out _))
+                if (disk.RadiiAt(x, y) >= SpreadRadii || disk.RingTouched(x, y) || !projection.TryUnproject(x, y, out var latitude, out _))
                 {
                     continue;
                 }
@@ -278,12 +310,17 @@ public static class PlanetaryColour
         const int size = 160;
         const double radius = 70;
         var placement = new DiskPlacement((size - 1) / 2.0, (size - 1) / 2.0, radius, -90);
-        var disk = new MetricDisk(placement.CenterX, placement.CenterY, radius, PlanetaryLimbFit.OptionsFor(aspect).AxisRatio, placement.NorthAngleDeg);
+        var options = PlanetaryLimbFit.OptionsFor(aspect);
+        // Saturn's globe as a master shows it: its rings drawn for the shadow they cast, and the globe read where they leave it clear.
+        var disk = new MetricDisk(placement.CenterX, placement.CenterY, radius, options.AxisRatio, placement.NorthAngleDeg)
+        {
+            Rings = options.Rings is { } ringed ? DiskRings.Of(placement.NorthAngleDeg, placement.NorthAngleDeg, options, ringed) : null,
+        };
         double sum = 0, min = double.PositiveInfinity, max = double.NegativeInfinity;
         var n = 0;
         for (var cm = 0.0; cm < 360; cm += stepDeg)
         {
-            var render = PlanetaryRender.Render(map, aspect.TurnedTo(cm), placement, size, size, minnaertK);
+            var render = PlanetaryRender.Render(map, aspect.TurnedTo(cm), placement, size, size, minnaertK, rings: options.Rings);
             var mean = ifScale * DiskMean(render, render, render, size, size, disk, default).R;
             sum += mean;
             min = Math.Min(min, mean);
@@ -306,7 +343,7 @@ public static class PlanetaryColour
             var filter = apparition.Filters[f];
             foreach (var map in apparition.Maps[f])
             {
-                var (mean, min, max) = RotationMeanIf(map, filter.IfScale(apparition.Year), filter.MinnaertK, aspect);
+                var (mean, min, max) = RotationMeanIf(map, filter.IfScale, filter.MinnaertK, aspect);
                 means[f] += mean / apparition.Maps[f].Length;
                 range = Math.Max(range, (max - min) / mean);
             }
@@ -331,8 +368,8 @@ public static class PlanetaryColour
             var plane = rendered[f] = new float[width * height];
             foreach (var map in apparition.Maps[f])
             {
-                var render = PlanetaryRender.Render(map, aspect, placement, width, height, filter.MinnaertK);
-                var scale = (float)(filter.IfScale(apparition.Year) / apparition.Maps[f].Length);
+                var render = PlanetaryRender.Render(map, aspect, placement, width, height, filter.MinnaertK, rings: PlanetaryLimbFit.OptionsFor(aspect).Rings);
+                var scale = (float)(filter.IfScale / apparition.Maps[f].Length);
                 for (var i = 0; i < plane.Length; i++)
                 {
                     plane[i] += render[i] * scale;
