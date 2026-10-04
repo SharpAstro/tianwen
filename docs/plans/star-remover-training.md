@@ -712,6 +712,14 @@ the arm reads 18.9 to 38.8 at 100-1000 against the field arm's 58.5 to 73.9, and
 to 7.09: two seeds each, the ranges far apart, H2's direction. It moves the untouched sky 0.20 to 0.23 against the field
 arm's 0.52 to 0.55, also apart. On its own Gaussian draws it removes 71 to 77 percent from 5 to 1000 sigma and 72.6 of the
 saturated, with a footprint RMS of 1.01. It learned the stars it was shown and not the field's wings.
+`r2_atsite_s1` (six of nine) puts a second seed on the at-site arm. On the random arm's draws it removes 40.6 at 5-20, 35.5
+at 20-100, 39.7 at 100-1000 and 32.0 of the saturated, with a footprint RMS of 7.79, and the sky moved 0.37. At 100-1000
+sigma it leaves speckles at 13.4 percent of sites against a null of 0.5. The arm's two seeds now read:
+- 5-20 sigma: 40.6 to 44.2, inside the field arm's 40.8 to 59.0;
+- 20-100 sigma: 35.5 to 41.2, wholly under the field arm's 53.5 to 63.8, past (6)'s 5 points;
+- 100-1000 sigma: 39.7 to 58.3, against 58.5 to 73.9.
+On its own draws it removes 55.9 at 5-20 and 54.0 at 20-100, within the field arm's own range, and moves that sky 0.65.
+So far the second half of (6) misses at 20-100 sigma on both seeds, and the first half holds.
 
 Open from it, under #902: R0's saturated fit on a fixed annulus in FWHM units with a 0.1 to 0.3 core cut (#1240); a
 residual table that holds bright stars' near wings (#1241); the Lagoon's and eta Carinae's photometric offsets (1.4 to 1.7,
