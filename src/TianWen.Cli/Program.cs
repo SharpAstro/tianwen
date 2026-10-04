@@ -144,6 +144,11 @@ var rootCommand = new RootCommand
                 services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
                 services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>())).Build(),
         new PlanetaryCompareSubCommand(consoleHost).Build(),
+        new PlanetaryJudgeSubCommand(
+            consoleHost,
+            new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
+                services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
+                services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>())).Build(),
         new PlanetaryColourSubCommand(
             consoleHost,
             new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
