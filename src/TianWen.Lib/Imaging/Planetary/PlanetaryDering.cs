@@ -33,7 +33,7 @@ public static class PlanetaryDering
     /// held too, the moon beside Jupiter on 2022-09-03 was left as stacked (peak 0.024 above the sky against the floored 0.101). The
     /// planes are the window's (the sky zero, the disk one).
     /// </summary>
-    public static float[] Bounded(ReadOnlySpan<float> sharpened, ReadOnlySpan<float> stacked, int width, int height, MetricDisk disk, int moonReachPx = 5)
+    public static float[] Bounded(ReadOnlySpan<float> sharpened, ReadOnlySpan<float> stacked, int width, int height, MetricDisk disk, int moonReachPx = MoonReachPx)
     {
         var moons = PlanetaryMetrics.CompactSources(stacked, width, height, disk, count: MaxMoons);
         var result = new float[sharpened.Length];
@@ -81,7 +81,7 @@ public static class PlanetaryDering
     /// (<see cref="OutsideLimb.ModelFloor"/>); or bounded at the limb and blended to the stack by 1.1 radii (<see cref="OutsideLimb.Blended"/>).
     /// </summary>
     public static float[] Outside(ReadOnlySpan<float> sharpened, ReadOnlySpan<float> stacked, int width, int height, MetricDisk disk, OutsideLimb outside,
-        ReadOnlySpan<float> glowShare = default, int moonReachPx = 5, ReadOnlySpan<float> model = default, ReadOnlySpan<float> blurredModel = default)
+        ReadOnlySpan<float> glowShare = default, int moonReachPx = MoonReachPx, ReadOnlySpan<float> model = default, ReadOnlySpan<float> blurredModel = default)
     {
         var moons = PlanetaryMetrics.CompactSources(stacked, width, height, disk, count: MaxMoons);
         // Where ModelFeathered hands the model back to the stack: by the plane's inscribed circle, at most 2.5 radii, from 0.5 radii inside it.
@@ -152,6 +152,9 @@ public static class PlanetaryDering
 
     /// <summary>The most compact sources <see cref="Bounded"/> lets keep their sharpening: Jupiter's four moons, Saturn's eight, with room.</summary>
     public const int MaxMoons = 16;
+
+    /// <summary>How far about a moon, px, its sharpening stands where the planet's is held or handed back to the stack (#1181, #1211).</summary>
+    public const int MoonReachPx = 5;
 
     // Whether (x, y) lies within reach of one of the sources.
     private static bool Near(ImmutableArray<(int X, int Y)> sources, int x, int y, int reach)

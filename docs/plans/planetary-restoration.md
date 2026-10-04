@@ -2632,7 +2632,33 @@ sharpening at its default, `ModelFeathered`):
   arcs past the limb are gone, and the live view is the Best stack's limb.
 - **What the owner will see change besides the limb**: a moon beyond the sharpening window stays as stacked, as the Best stack has it since
   #1192; the dials alone sharpened every moon (on Red, the two outside the window read 0.66 and 0.62 peaks sharpened, 0.20 and 0.15 now).
-  Sharpening a moon wherever it lies, in the batch and the live view alike, is #1211.
+  Sharpening a moon wherever it lies, in the batch and the live view alike, is #1211, below.
+
+##### A moon beyond the sharpening window (#1211)
+
+**Every moon `PlanetaryMetrics.CompactSources` finds on the whole frame is sharpened now, wherever it lies** (2026-10-05). Beyond the
+planet's window, the batch cuts a 128 px window about the moon (mirrored at the frame's edges, as the planet's is cut) and sharpens it by
+the channel's own gains; the live view takes its dials' sharpening there. Within `PlanetaryDering.MoonReachPx` (5 px) of the moon, outside
+the planet's window, the master takes that sharpening held at the sky, which is what a moon inside the window keeps
+(`PlanetaryLimbWindow.PasteMoonsBeyond`, ONE routine for `PlanetarySharpening.Sharpen` and `PlanetaryLiveLimb.Draw`).
+
+The issue's rule compared each moon beyond the window with the moon inside it, which are different moons (0.201 / 15 px and 0.149 / 14 px
+as stacked against 0.129 / 12 px), so it was amended on the issue before measuring: each moon against what the dials, the same gains over
+the whole master, make of THAT moon. On 2022-09-03 Red:
+
+| Moon | As stacked | Before, batch and live | After, batch and live | The dials alone |
+|---|---|---|---|---|
+| (655, 371), inside the window | 0.129, 12 px | 0.541, 4 px | 0.541, 4 px | 0.541, 4 px |
+| (630, 462), beyond it | 0.201, 15 px | 0.202, 15 px | 0.646, 8 px | 0.647, 8 px |
+| (499, 66), beyond it | 0.149, 14 px | 0.150, 14 px | 0.614, 4 px | 0.614, 5 px |
+
+(Peak above the sky in disk units, width above half.) Rule 1 holds, within 0.2 % and a pixel, batch and live alike. Rule 3 holds: 162 pixels
+changed, all within 5 px of the two moons, every other pixel byte for byte the master before, batch and live. Rule 2's own words hold, nothing
+below the sky about a moon: the lowest within 12 px is the sky itself (+0.13 of its spread), the floor the moon inside the window already sat
+on; its stricter proxy, nothing below the as-stacked minimum there, fails by 1e-4 for that reason, as it does for the moon inside. The
+original rule (within 10 % of 0.541 and 4 px) fails as written, by construction: the dials alone give the outside moons 0.646 and 0.614. The
+live drawing costs about 5 ms more a master (21 to 26 ms), the frame's own moon search. Pinned by
+`PlanetarySharpeningTests.AMoonBeyondTheSharpeningWindowIsSharpenedAsOneInsideItInTheBatchAndTheLiveView`, which fails on the code before.
 
 ### A master's picture in numbers
 
