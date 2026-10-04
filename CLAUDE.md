@@ -1051,7 +1051,9 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
 - **A stack is scored through `PlanetaryMetrics` and `tianwen planetary-measure`** (R3), and **a truth-free metric judges a real
   capture only once it ranks candidate stacks as its truth-based twin does on a synthetic one** (Spearman at least 0.8). The limb's
   undershoot does (+0.95); the two halves' agreement does not (it sees noise, never a per-band gain or the blur), and waits on R7's
-  measured PSF.
+  measured PSF. **A real capture is judged against its own `_stack`/`_post` through `tianwen planetary-judge`** (`PlanetaryReferenceJudge`,
+  #1250), never by a display picture's raw values: the reference is placed (scale, turn, mirror) on each plane's detail equalised by rank and
+  band-passed at matched PHYSICAL scales, clear of the limb, then tone-matched by histogram before any band is read.
 - **A frame's quality is read in the MID bands, never the finest, and `tianwen planetary-grade` measures an estimator** (R4). At
   8 bits a frame's finest scale is its noise: the Laplacian (the stack's default until #1159) ranks the twin's frames at +0.19 against their
   true transfer, its score is white from frame to frame (lag 1 0.01, the real capture 0.08) where the seeing is coherent, and its

@@ -3540,6 +3540,60 @@ Mars and every other planet stay as captured. On the EdgeHD capture `planetary-s
 colour: gains R 1.081, B 0.759 over green, saturation 1.4", and the near-grey disk the camera recorded takes the warm colour its
 `_post` shows (the post is a tighter crop, turned, its pole bluer).
 
+## The judge: a master against its capture's own stack and post
+
+#1250. A real capture has no truth, but several carry another program's result of the same frames beside them: `<capture>_stack` (an
+unsharpened stack) and `<capture>_post` (the finished picture). `tianwen planetary-judge <master.fits> <reference>`
+(`PlanetaryReferenceJudge`) judges a master against one of them. A reference is a display picture at its own scale, turn, mirror and tone
+curve, so it is placed and matched first:
+
+- **Placed** (`Place`): the scale from the two limb fits, then the turn searched in 2 degree steps unmirrored and mirrored, and the best
+  refined in turn, scale and shift.
+- **Read for placement on matching detail:** each plane is equalised by rank over its own planet, so no display curve matters, and then
+  band-passed by a difference of Gaussians 1 and 4 MASTER pixels wide (the reference's widths in its own pixels), clear of the globe's limb.
+  - A band-pass at each plane's own pixel scale read different scales of the planet, and the limb's edge moves under a display curve.
+    Between them, a reference 1.5 times larger, turned, mirrored and through a square root was placed 1.8 % small.
+  - With both handled, it is placed exactly (`PlanetaryReferenceJudgeTests`).
+- **Resampled** onto the master's grid, bilinear (the reference's blur, never the master's).
+- **Tone-matched** by histogram over the planet (`MatchTone`), so the band energies compare.
+
+Each a trous band is then read on the globe inside 0.9 radii and, for Saturn, on the rings off the globe. A band gets three numbers:
+- the correlation;
+- the master's energy over the reference's;
+- the master's gain on what both hold (the correlation times the energy ratio).
+
+Extra energy that lowers the correlation is something the reference lacks: noise, ringing or a lattice. The disk's colour is reported
+too, the reference's decoded from sRGB; a processor's curves make that approximate.
+
+**Our stacks against the references' stacks (2026-10-05, the defaults):** equal or better in every band from 2 to 5. Shared gain and
+correlation:
+
+| Capture | Region | Band 2 | Band 3 | Band 4 | Band 5 |
+|---|---|---|---|---|---|
+| EdgeHD 11 Saturn 2022-10-25 | globe | 1.010 / 0.997 | 1.010 / 1.000 | 1.019 / 1.000 | 1.028 / 0.999 |
+| | rings | 1.043 / 0.997 | 1.022 / 0.999 | 1.040 / 0.998 | 1.104 / 0.997 |
+| 16" Meade Saturn 2023-10-10 | globe | 0.966 / 0.996 | 0.975 / 0.999 | 0.991 / 1.000 | 1.030 / 0.999 |
+| | rings | 0.968 / 0.998 | 0.989 / 0.999 | 1.020 / 0.998 | 1.087 / 0.997 |
+| EdgeHD 11 + ASI678MC Jupiter 2023-11-11 | globe | 1.099 / 0.989 | 1.058 / 0.998 | 1.025 / 0.999 | 1.018 / 0.999 |
+
+Our band 1 holds 1.4 to 1.9 times the references' energy at a correlation of 0.45 to 0.62: noise their stacks do not show.
+
+**Our sharpening against the posts: about half the posts' detail in bands 2 and 3 on the well-sampled captures** (#1251).
+
+| Capture | Disk R (px) | Derived gains, bands 1 to 4 | Shared gain, band 2 / 3 / 4 |
+|---|---|---|---|
+| EdgeHD 11 Saturn, globe | 49 | 1.00, 6.49, -0.07, 1.21 | 0.91 / 1.02 / 1.03 |
+| EdgeHD 11 Saturn, rings | | | 0.66 / 1.04 / 1.05 |
+| 16" Meade Saturn, globe | 95 | 1.00, 5.18, 1.92, 0.72 | 0.49 / 0.66 / 0.93 |
+| 16" Meade Saturn, rings | | | 0.34 / 0.70 / 0.96 |
+| ASI678MC Jupiter | 239 | 1.00, 7.97, -0.65, 1.50 | 0.45 / 0.65 / 0.78 |
+
+The pictures agree: beside its post, the 16" Saturn's sharpened master looks barely sharpened, and the Jupiter's belts and festoons are soft.
+The derived gains oscillate, with a gain below one in band 4 on the 16" Saturn and a NEGATIVE one in band 3 on the Jupiter. The earlier
+judgement that they land near the truth was made on the twins, whose disks are 40 to 60 px. Whether a post's strength is the target or the
+twins' truth-optimal gains are, given a post is denoised and then sharpened further, is the owner's call (#1251). The posts' colours are
+their processors' choice (the EdgeHD Saturn post reads R/G 1.46, B/G 0.46 decoded, against OPAL's 1.22, 0.65).
+
 ## R9 A learned stage, only if the measurements say so
 
 **Issue:** #1056 (conditional).
