@@ -3327,6 +3327,70 @@ calibrated Jupiter's on 2022-09-03.
 
 **Rule:** the twin's five statistics and the limb's motion and blur land within R2's bands of the real capture's.
 
+**What the twin needed (2026-10-04, `planetary-degrade --planet saturn`, the capture's first 3,000 frames, each colour plane measured
+as R5a measures one).** The capture is a ZWO ASI462MC at 0.302"/px through the 10 inch Newtonian on its untracked Dobsonian, 8 bits,
+4 ms, 250 frames a second; Saturn stood 66 degrees up, so the colours' dispersion is a fifth of a plane pixel. The real shifts are
+replayed: the Dobsonian's drift and hand nudges are no screen's tilt, and the aligner errs by under a tenth of a pixel here, so
+replaying counts little twice. Each trial found something the twin lacked:
+- **The statistics read Saturn around its rings** (`PlanetaryCaptureStatistics`, `RingFootprint`): a ringed limb fit of the reference
+  gives the globe and its axis, and the sky, the halo, the noise ring and the flux circle are taken past the rings as well as the
+  globe (a pixel's distance is the nearer of its globe radii and its ring-plane radius over the outer ring's). Without it the globe
+  read 19.8 px for 14.8 (`SaturnCaptureStatisticsTests`). A Jupiter reads bit for bit as before.
+- **The level is the planet's own, not the frame's** (`PlanetaryDegrade.ShownLevelGain`): a capture's level is read inside 0.8 radii
+  of a frame, through the seeing, the diffraction wing and the scatter, while the twin's render was scaled to it sharp. On a globe 15
+  px in radius that light is a tenth: the first twin's disks read 0.89 to 0.91 of the real ones. The gain is read through the first
+  frames' mean PSF, each PSF centred on its own centroid (a frame's level is read where its disk lies; the tilts left in read 2 %
+  too much), and puts the level within 0.2 % (`AFrameShowsTheLevelMeasuredOnceTheBlursShareIsPutBack`). It applies to every twin.
+- **Each colour's Minnaert k from the real limb, not OPAL's narrowband one**: OPAL's 2022 F502N is 0.65 between F467M's 0.85 and
+  F631N's 0.80, and the camera's green photosites see a band 120 nm wide. The real limbs read 0.86, 0.87 and 0.82; less the fit's
+  own bias on the twin, the colours take 0.85, 0.82 and 0.84.
+- **A warped frame keeps its light** (`AWarpedFrameKeepsTheLightThatReachedThePupil`): the warp moves surface brightness without its
+  Jacobian, so a frame's total jittered with the warp's divergence, and the twin replays the real capture's flux, so that jitter
+  counted twice: the flux's quarter-second variation doubled (0.88 % against 0.38 %). One gain a frame keeps the total to 1e-5.
+- **The rings carry radial structure** (`SaturnRings.Structured`): the real limb fit reads the Cassini division at 0.40 to 0.45 of the
+  globe in every colour, where flat rings read 0.07. A real B ring brightens outward to the division and the A ring dims outward,
+  and the fit's four flat levels put that light into the division: drawn structured it reads 0.54, flat 0.01
+  (`TheFlatFitReadsTheLightBesideTheCassiniDivisionIntoIt`). The structure moved the globe's fitted radius 1.3 % on the same render,
+  a bias S2's real captures may carry.
+- **Each colour's rings are its own** (`--ring-levels` takes twelve): the globe is yellower than the rings, which stand brighter over
+  it in blue (B 0.72 of the globe against red's 0.61).
+- **A warp short and slow**: 0.6 px RMS, as R5a's twin needed on this telescope, over 10 sensor px with a frame-to-frame correlation of
+  0.97. Over 20 px at 0.9 it moved the glow at the planet's edge from frame to frame and lifted the sky's band 4 noise 1.24 to 1.51
+  times the real; at 10 px and 0.97 it is 1.04 to 1.26. No twin without a warp reproduced the limb's jitter (a fit's radius moved a
+  third of the real one's).
+
+**The twin** (`--ring-levels 0.16,0.693,0.1,0.52,0.17,0.70,0.1,0.50,0.25,0.73,0.11,0.44 --bayer-k 0.85,0.82,0.84 --warp-rms 0.6
+--warp-length 10 --warp-lag1 0.97`, the rest R2's calibrated twin, the real shifts replayed, 8 px alignment points four apart), on
+two seeds, as twin over real:
+
+| | Red | Green | Blue |
+|---|---|---|---|
+| Shift and the limb's motion | 1.000, 1.006 | 1.000, 1.005 | 1.000, 1.005 |
+| Quality p5 to p95 over the median | 0.998 to 1.002 | 0.997 to 1.002 | 0.997 to 1.002 |
+| Single frames' edge width, p10 to p90 | 0.97 to 1.00 | 0.95 to 0.96 | 1.00 to 1.03 |
+| Disk level, Minnaert k | 1.00 to 1.02, 1.01 to 1.04 | 1.00 to 1.03, 0.99 to 1.04 | 1.01, 0.98 to 1.00 |
+| Rings B, Cassini division, A | 1.00 to 1.02, 1.03 to 1.22, 1.00 | 0.98 to 1.01, 0.93 to 1.07, 0.94 to 0.99 | 1.02 to 1.03, 0.85 to 0.95, 0.97 to 0.99 |
+| Noise on the disk, bands 1 to 3 | 0.92 to 1.03 | 0.91 to 1.04 | 0.92 to 1.00 |
+| Noise in the sky, bands 1 to 3 | 1.02 to 1.13 | 1.01 to 1.10 | 1.00 to 1.04 |
+| **Noise, band 4, sky and disk** | **1.16 to 1.26, 1.10 to 1.13** | **1.19, 1.12 to 1.14** | 1.04 to 1.11, 1.03 to 1.04 |
+| Quality lag 1 (real, twin) | 0.026; 0.021, -0.003 | -0.035; 0.006, 0.027 | 0.020; 0.021, 0.038 |
+| The aligner's error against the limb | 1.10 to 1.11 | 0.92 | **0.74 to 0.79** |
+| The limb's radius from frame to frame | 1.02 to 1.03 | **0.77 to 0.87** | **0.62 to 0.75** |
+| The mean's edge width, every frame | 0.94 to 0.98 | **0.87 to 0.88** | **0.84 to 0.85** |
+| **Halo, 1.3 to 1.6 and 1.6 to 2.0 radii** | **1.12 to 1.13, 1.14 to 1.20** | **1.08 to 1.15, 1.20 to 1.23** | **1.34 to 1.35, 1.39 to 1.42** |
+
+The warp's correlation length is bounded in both, measured in neither (at most 3 to 5 plane px), as on 2022-09-03. Two readings are
+too unsteady to judge by: the limb fit's blur core moved 10 % between the seeds and the faint C ring's level 25 %, so the edge widths,
+which do not, are the blur read here. The lag 1 lies within its seed spread, as R2 found it.
+
+**The verdict, against the rule:** the shift, the quality's shape and the lag 1 match; the noise matches in bands 1 to 3 and not in
+band 4 in red and green; the limb's motion matches in red and its blur in single frames in every colour. **The kill line fires on
+green's and blue's means**: the real planes' limbs move from frame to frame and their aligned means blur beyond what their single frames
+show (green's mean edge 1.1 px wider than its single frames', blue's 1.7, the twin's 0.7 and 1.05), while red's match. The twin's warp is one atmosphere for the three colours, so a
+term that is only green's and blue's is missing; the near infrared is not it (the owner: a UV/IR cut was in the train), and the
+dispersion is a fifth of a plane pixel at 66 degrees. The mid halo is too bright in every colour, most in blue, where scatter would
+make it brighter rather than dimmer.
+
 ### S4 The derived sharpening on Saturn (#1184)
 
 The sharpening reads its gains through the globe's limb where the rings leave it clear. Outside the globe's limb, `ModelFeathered` draws the
