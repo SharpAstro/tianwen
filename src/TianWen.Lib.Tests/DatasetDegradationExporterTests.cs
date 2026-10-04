@@ -254,8 +254,23 @@ namespace TianWen.Lib.Tests
                 masterPlanes[c] = ToPlane(flat);
             }
             var master = new Image(masterPlanes, BitDepth.Float32, 65535f, 0f, 0f, truth.ImageMeta);
+            // The master's TRUE standard error, as the stacker's sidecar would carry it: each half's noise at the truth's
+            // level, over root 2 for the mean of the two.
+            var errorPlanes = new float[3][,];
+            for (var c = 0; c < 3; c++)
+            {
+                var calibration = new LinearDegradation.NoiseCalibration(0.0, 1000.0, HalfOneSubAdu[c], stackedFrames);
+                var level = truth.GetChannelSpan(c);
+                var flat = new float[level.Length];
+                for (var i = 0; i < flat.Length; i++)
+                {
+                    flat[i] = (float)(calibration.SigmaAt(level[i], halfDepth) / Math.Sqrt(2.0));
+                }
+                errorPlanes[c] = ToPlane(flat);
+            }
+            var standardError = new Image(errorPlanes, BitDepth.Float32, 65535f, 0f, 0f, truth.ImageMeta);
             truth.Release();
-            RetainedMasterStore.Write(bake, SessionId, master, frameCount: stackedFrames);
+            RetainedMasterStore.Write(bake, SessionId, master, frameCount: stackedFrames, standardError: standardError);
 
             var slug = DatasetTileExporter.Sanitize(SessionId);
             var tilesDir = Path.Combine(bake, "tiles", slug);
@@ -484,7 +499,9 @@ namespace TianWen.Lib.Tests
         /// <summary>
         /// Check D2's machinery: on the halves fixture, whose half pairs and subs hold exactly the noise the anchors model,
         /// the half-pair and sub-calibration anchors' measured-over-predicted ratios are 1 in every channel, and the
-        /// sub-MAD anchor's are not (it carries channel 0's noise to green, which holds half of it).
+        /// sub-MAD anchor's are not (it carries channel 0's noise to green, which holds half of it). And the stderr anchor,
+        /// reading the master's sidecar (here its true standard error), is 1 too: E16c step 2's scale, smoothing and the
+        /// halves' root of N (1/N_A + 1/N_B) / 2.
         /// </summary>
         [Fact]
         public async Task TheInjectionCheckReadsTheHalfPairAnchorAsAMatch()
@@ -496,8 +513,10 @@ namespace TianWen.Lib.Tests
             {
                 output.WriteLine($"x{row.X} y{row.Y} bright {row.Bright}: half-pairs {string.Join(" / ", row.HalfPairs.Select(v => v.ToString("F3")))}, " +
                     $"master-calibration {string.Join(" / ", row.MasterCalibration.Select(v => v.ToString("F3")))}, " +
-                    $"sub-calibrations {string.Join(" / ", row.SubCalibrations.Select(v => v.ToString("F3")))}, sub-mad {string.Join(" / ", row.SubMad.Select(v => v.ToString("F3")))}");
+                    $"sub-calibrations {string.Join(" / ", row.SubCalibrations.Select(v => v.ToString("F3")))}, sub-mad {string.Join(" / ", row.SubMad.Select(v => v.ToString("F3")))}, " +
+                    $"stderr {string.Join(" / ", row.StandardError.Select(v => v.ToString("F3")))}");
                 row.HalfPairs.ShouldAllBe(v => Math.Abs(v - 1.0) < 0.06);
+                row.StandardError.ShouldAllBe(v => Math.Abs(v - 1.0) < 0.06);
                 // The recorded calibrations are the estimator's reading of each frame, so they carry its error.
                 row.MasterCalibration.ShouldAllBe(v => Math.Abs(v - 1.0) < 0.10);
                 row.SubCalibrations.ShouldAllBe(v => Math.Abs(v - 1.0) < 0.10);
