@@ -158,18 +158,25 @@ public sealed class ChunkedTwoPassStrategy : IIntegrationStrategy
         // only Debayer + Warp run twice per frame.
         var (kappaLow, kappaHigh) = ExtractKappa(rejector);
         var combineSum = new float[channels][,];
+        // Kept counts PER CHANNEL: each channel's clip decides for itself, so one channel's count divides only its own
+        // sum (a single count, channel 0's, used to divide every channel's, biasing a channel low wherever it rejected a
+        // sample channel 0 kept). The centred squares are the kept samples' deviation from pass A's mean, for the
+        // standard error: centred so a float holds them where the values are ADU-sized.
+        var keptCounts = new uint[channels][,];
+        var centredSquares = new float[channels][,];
         for (var c = 0; c < channels; c++)
         {
             combineSum[c] = new float[height, width];
+            keptCounts[c] = new uint[height, width];
+            centredSquares[c] = new float[height, width];
         }
-        var keptCount = new uint[height, width];
         var passBFrames = 0;
 
         await foreach (var warped in job.WarpedFrames(ct).WithCancellation(ct))
         {
             ct.ThrowIfCancellationRequested();
             var normalised = NormaliseIfRequested(warped, job);
-            var localRejected = AccumulateClippedCombine(normalised, meanArr, sdArr, kappaLow, kappaHigh, combineSum, keptCount);
+            var localRejected = AccumulateClippedCombine(normalised, meanArr, sdArr, kappaLow, kappaHigh, combineSum, keptCounts, centredSquares);
             totalRejections += localRejected;
             passBFrames++;
             job.Progress?.Report(new IntegrationProgress(IntegrationPhase.Integrating, passBFrames, framesSeen, swStrat.Elapsed));
@@ -185,29 +192,48 @@ public sealed class ChunkedTwoPassStrategy : IIntegrationStrategy
         // ----- Finalise master + rejection map -----
         job.Progress?.Report(new IntegrationProgress(IntegrationPhase.Finalizing, 0, 1, swStrat.Elapsed));
         var masterData = Image.CreateChannelData(channels, height, width);
+        var standardErrorData = Image.CreateChannelData(channels, height, width);
         for (var c = 0; c < channels; c++)
         {
             var masterCh = masterData[c];
+            var standardErrorCh = standardErrorData[c];
             var sumCh = combineSum[c];
+            var keptCh = keptCounts[c];
+            var squaresCh = centredSquares[c];
+            var meanCh = meanArr[c];
             Parallel.For(0, height, y =>
             {
                 for (var x = 0; x < width; x++)
                 {
-                    var k = keptCount[y, x];
+                    var k = keptCh[y, x];
                     masterCh[y, x] = k > 0 ? sumCh[y, x] / k : float.NaN;
+                    // The kept samples' scatter over their count: the clip here decides each sample once, against
+                    // pass A's statistics, so the survivors cannot collapse the way an iterated clip's can.
+                    if (k < 2 || float.IsNaN(meanCh[y, x]))
+                    {
+                        standardErrorCh[y, x] = float.NaN;
+                        continue;
+                    }
+                    var deviation = sumCh[y, x] - ((double)meanCh[y, x] * k);
+                    var variance = Math.Max(0.0, (squaresCh[y, x] - (deviation * deviation / k)) / (k - 1));
+                    standardErrorCh[y, x] = (float)Math.Sqrt(variance / k);
                 }
             });
         }
 
+        // The rejected fraction per pixel, averaged over the channels as the other strategies' maps are.
         var rejectMapData = Image.CreateChannelData(1, height, width);
         var rejectMap = rejectMapData[0];
         Parallel.For(0, height, y =>
         {
             for (var x = 0; x < width; x++)
             {
-                rejectMap[y, x] = framesSeen > 0
-                    ? Math.Max(0f, 1f - (float)keptCount[y, x] / framesSeen)
-                    : 0f;
+                var rejected = 0f;
+                for (var c = 0; c < channels; c++)
+                {
+                    rejected += framesSeen > 0 ? Math.Max(0f, 1f - (float)keptCounts[c][y, x] / framesSeen) : 0f;
+                }
+                rejectMap[y, x] = rejected / channels;
             }
         });
 
@@ -232,6 +258,7 @@ public sealed class ChunkedTwoPassStrategy : IIntegrationStrategy
         return new IntegrationResult(masterImage, rejectMapImage, framesSeen, totalRejections, meanRate)
         {
             Coverage = CoveragePlane.FromCounts(countArr, channels, framesSeen, firstFrame.ImageMeta),
+            StandardError = StandardErrorPlane.FromPlanes(standardErrorData, firstFrame.ImageMeta),
         };
     }
 
@@ -312,10 +339,11 @@ public sealed class ChunkedTwoPassStrategy : IIntegrationStrategy
 
     /// <summary>Sigma-clip each frame pixel against the global (mean, sd).
     /// Returns the number of (pixel, channel) entries this frame contributed
-    /// that were rejected. Updates combineSum + keptCount in place.</summary>
+    /// that were rejected. Updates combineSum, each channel's kept count and its
+    /// kept samples' squared deviation from the mean in place.</summary>
     private static long AccumulateClippedCombine(
         Image frame, float[][,] mean, float[][,] sd, float kappaLow, float kappaHigh,
-        float[][,] combineSum, uint[,] keptCount)
+        float[][,] combineSum, uint[][,] keptCounts, float[][,] centredSquares)
     {
         var (channels, w, h) = frame.Shape;
         long localRejected = 0;
@@ -325,7 +353,8 @@ public sealed class ChunkedTwoPassStrategy : IIntegrationStrategy
             var meanCh = mean[c];
             var sdCh = sd[c];
             var combineCh = combineSum[c];
-            var updateCount = c == 0;
+            var keptCh = keptCounts[c];
+            var squaresCh = centredSquares[c];
             Parallel.For(0, h,
                 () => 0L,
                 (y, _, localRej) =>
@@ -354,7 +383,12 @@ public sealed class ChunkedTwoPassStrategy : IIntegrationStrategy
                             }
                         }
                         combineCh[y, x] += v;
-                        if (updateCount) keptCount[y, x]++;
+                        keptCh[y, x]++;
+                        if (!float.IsNaN(m))
+                        {
+                            var d = v - m;
+                            squaresCh[y, x] += d * d;
+                        }
                     }
                     return localRej;
                 },

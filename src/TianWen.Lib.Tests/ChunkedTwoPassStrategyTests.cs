@@ -118,6 +118,52 @@ public class ChunkedTwoPassStrategyTests
         masterCh[0, 0].ShouldBe(0.30f, tolerance: 1e-6f);
     }
 
+    /// <summary>
+    /// Each channel's clip decides for itself, so each channel's master divides by its OWN kept count. One count,
+    /// channel 0's, used to divide every channel's sum: an outlier only channel 1 rejected left channel 1 divided by
+    /// eleven over ten samples, 0.4545 for a sky of 0.50.
+    /// </summary>
+    [Fact]
+    public async Task AChannelsOwnRejectionDividesOnlyItsOwnSum()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        const int width = 6;
+        const int height = 4;
+        var frames = new List<Image>(11);
+        for (var f = 0; f < 11; f++)
+        {
+            var planes = new float[3][,];
+            for (var c = 0; c < 3; c++)
+            {
+                var plane = new float[height, width];
+                for (var y = 0; y < height; y++)
+                {
+                    for (var x = 0; x < width; x++)
+                    {
+                        // Frame 5 is an outlier in channel 1 alone.
+                        plane[y, x] = f == 5 && c == 1 ? 0.95f : 0.50f;
+                    }
+                }
+                planes[c] = plane;
+            }
+            frames.Add(new Image(planes, BitDepth.Float32, 1f, 0f, 0f, new ImageMeta()));
+        }
+        var job = new IntegrationJob(
+            WarpedFrames: _ => EnumerateOnce(frames),
+            ExpectedFrameCount: frames.Count,
+            Options: new IntegrationOptions(Rejector: new SigmaClipRejector(LowSigma: 3f, HighSigma: 3f), ApplyNormalization: false),
+            StagingDir: Path.GetTempPath(),
+            StatsRect: PixelRect.Empty);
+
+        var result = await new ChunkedTwoPassStrategy().RunAsync(job, ct);
+
+        for (var c = 0; c < 3; c++)
+        {
+            result.Master[c, 1, 2].ShouldBe(0.50f, 1e-6f, $"channel {c}");
+        }
+        result.TotalRejections.ShouldBe((long)width * height, "only channel 1's outlier was rejected");
+    }
+
     private static async IAsyncEnumerable<Image> EnumerateOnce(List<Image> frames)
     {
         await Task.CompletedTask;
