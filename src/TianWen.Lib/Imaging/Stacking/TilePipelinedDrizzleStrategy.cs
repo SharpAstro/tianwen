@@ -277,6 +277,12 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
         // exactly the full-canvas ones and the two drizzle strategies still agree deposit for deposit.
         var clip = DrizzleClip.From(job.Options.Rejector);
         long rejectedDeposits = 0, totalDeposits = 0;
+        // The master's standard error, measured per strip from its own kept deposits and moments (DrizzleScatter), as
+        // DrizzleStrategy measures it over the whole canvas; only a rejecting drizzle has the moments it is centred on.
+        var invMax = applyNormalization
+            ? 1f
+            : sourceMaxValue > 0f ? 1f / sourceMaxValue : 1f;
+        var standardErrorPlanes = clip is null ? null : Image.CreateChannelData(3, canvasH, canvasW);
 
         for (var stripY0 = 0; stripY0 < canvasH; stripY0 += StripHeight)
         {
@@ -309,6 +315,7 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
             var haloBottom = stripY0 + stripH < canvasH ? 1 : 0;
             var momentsRect = new PixelRect(0, stripY0 - haloTop, canvasW, stripH + haloTop + haloBottom);
             var stripMoments = clip is null ? null : new DrizzleMoments(3, momentsRect.Height, canvasW, rowOffset: haloTop);
+            var stripScatter = clip is null ? null : new DrizzleScatter(3, stripH, canvasW);
             for (var pass = 0; pass < (clip is null ? 1 : 2); pass++)
             {
                 if (pass == 1)
@@ -362,12 +369,17 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
                             stripFlux, stripWeight,
                             xStart: 0, xEnd: canvasW,
                             yStart: stripY0, yEnd: stripY0 + stripH,
-                            sourceRect, badPixelMask, hasBadPixelMask);
+                            sourceRect, badPixelMask, hasBadPixelMask, stripScatter);
                         rejectedDeposits += rejected;
                         totalDeposits += total;
                     }
                 }
             }
+
+            // The strip's standard error, from its kept sums before they are copied (and later divided).
+            var stripStandardError = stripScatter is not null && stripMoments is not null
+                ? stripScatter.StandardError(stripFlux, stripWeight, stripMoments, invMax)
+                : null;
 
             // Copy strip-local accumulators into the canvas-sized master
             // and coverage planes. Row-wise memcpy via BlockCopy: faster
@@ -386,6 +398,12 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
                     Buffer.BlockCopy(srcW2, dy * canvasW * sizeof(float),
                         dstW, (stripY0 + dy) * canvasW * sizeof(float),
                         canvasW * sizeof(float));
+                    if (stripStandardError is not null && standardErrorPlanes is not null)
+                    {
+                        Buffer.BlockCopy(stripStandardError[c], dy * canvasW * sizeof(float),
+                            standardErrorPlanes[c], (stripY0 + dy) * canvasW * sizeof(float),
+                            canvasW * sizeof(float));
+                    }
                 }
             }
 
@@ -401,9 +419,6 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
         // existing writer gate). invMax mirrors DrizzleStrategy: normalised samples already sit
         // near [0, 1] (median ~= normalizationTarget), so dividing by sourceMaxValue too would
         // double-scale; only the disabled-normalisation fallback needs it.
-        var invMax = applyNormalization
-            ? 1f
-            : sourceMaxValue > 0f ? 1f / sourceMaxValue : 1f;
         var totalCells = (long)canvasH * canvasW * 3;
         var coveredCells = DrizzleKernel.FinaliseDivide(masterFlux, masterWeight, invMax, canvasH, canvasW);
 
@@ -432,6 +447,7 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
             Coverage = coverageMap,
             DrizzleRejectedDeposits = rejectedDeposits,
             DrizzleTotalDeposits = totalDeposits,
+            StandardError = standardErrorPlanes is null ? null : StandardErrorPlane.FromPlanes(standardErrorPlanes, refMeta),
         };
     }
 
