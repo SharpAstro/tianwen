@@ -111,6 +111,13 @@ public sealed record IntegrationResult(
 
     /// <inheritdoc cref="DrizzleRejectedDeposits"/>
     public long DrizzleTotalDeposits { get; init; }
+
+    /// <summary>
+    /// Per channel and pixel, the standard error of the combined value, measured from the scatter of the samples the
+    /// combine kept (<see cref="StandardErrorPlane"/>), in the master's own units; NaN where fewer than two samples were
+    /// kept. Null for a strategy that does not measure it yet (E16c step 2, docs/plans/denoiser-training.md).
+    /// </summary>
+    public Image? StandardError { get; init; }
 }
 
 /// <summary>
@@ -215,6 +222,8 @@ public static class Integrator
         // path this and left the in-RAM path without it, which is what a re-bake of V1045 Ori at HEAD
         // exposed: it chose InRamAllFrames and wrote no coverage plane at all.
         using IIntegrationSink coverageSinkInUse = new ArraySink(1, width, height);
+        // The standard error of each combined value, from the same column and mask, per channel.
+        using IIntegrationSink standardErrorSink = new ArraySink(channelCount, width, height);
 
         long totalRejections = 0;
 
@@ -246,6 +255,7 @@ public static class Integrator
                     var masterRow = masterSinkInUse.GetRow(channelIdx, row);
                     var rejectRow = rejectSinkInUse.GetRow(0, row);
                     var coverageRow = coverageSinkInUse.GetRow(0, row);
+                    var standardErrorRow = standardErrorSink.GetRow(channelIdx, row);
 
                     for (var col = 0; col < width; col++)
                     {
@@ -279,6 +289,7 @@ public static class Integrator
                         }
 
                         masterRow[col] = combiner.Combine(columnSpan, maskSpan);
+                        standardErrorRow[col] = StandardErrorPlane.Of(columnSpan, maskSpan);
 
                         // Accumulate per-pixel rejection rate across channels.
                         // Final divide by channelCount happens after the loop.
@@ -341,6 +352,7 @@ public static class Integrator
         return new IntegrationResult(masterImage, rejectMapImage, n, totalRejections, meanRate)
         {
             Coverage = coverageImage,
+            StandardError = StandardErrorPlane.Finalise(standardErrorSink, firstMeta),
         };
     }
 

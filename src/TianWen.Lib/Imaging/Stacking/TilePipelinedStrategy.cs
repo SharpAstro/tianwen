@@ -232,6 +232,8 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
         // Each strip integrates through Integrator, which counts coverage, so the canvas-wide plane
         // is assembled exactly as the rejection map is rather than counted a second time here.
         var coverageData = Image.CreateChannelData(1, canvasH, canvasW);
+        // The standard error likewise: each strip's Integrator measures it, the canvas is its strips.
+        var standardErrorData = Image.CreateChannelData(channelCount, canvasH, canvasW);
         long totalRejections = 0;
         var stripOpts = opts with { ApplyNormalization = false };
 
@@ -311,6 +313,10 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
             {
                 CopyStripIntoMaster(stripCoverage, coverageData, stripY0, channelCount: 1);
             }
+            if (stripResult.StandardError is { } stripStandardError)
+            {
+                CopyStripIntoMaster(stripStandardError, standardErrorData, stripY0, channelCount);
+            }
             totalRejections += stripResult.TotalRejections;
 
             stripIdx++;
@@ -340,6 +346,7 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
         return new IntegrationResult(masterImage, rejectMapImage, n, totalRejections, meanRate)
         {
             Coverage = CoveragePlane.FromPlane(coverageData, n, firstMeta),
+            StandardError = StandardErrorPlane.FromPlanes(standardErrorData, firstMeta),
         };
     }
 
