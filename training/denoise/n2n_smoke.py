@@ -46,13 +46,28 @@ SLOTS_SUBS_ONLY = SUBS_PER_CELL + 1     # what every cache before the half-maste
 SLOTS_WITH_HALVES = SUBS_PER_CELL + 3
 
 
+def use_channels(channels):
+    """Set the tile channel count every reader, the model and the metrics take (H7: a mono cache is one channel).
+
+    One process works on one cache, so the count is the module's, set from the cache it opened (`open_tiles`), the
+    checkpoint it loaded (`load_model`) or `--channels` at prepare; every script reads `S.CH` at call time and follows.
+    """
+    global CH, BYTES
+    if channels not in (1, 3):
+        raise SystemExit(f"a cache holds 1 or 3 channels, not {channels}")
+    CH = int(channels)
+    BYTES = CH * TILE * TILE * 2
+
+
 def open_tiles(cache, meta):
-    """The tile memmap at whatever slot count this cache was written with.
+    """The tile memmap at whatever slot and channel count this cache was written with.
 
     A cache predating the half-master slots carries no `slots` key, so it reads back as 9 and
-    keeps working. Every script goes through here rather than restating the shape, which is
-    what makes adding a slot a one-line change instead of a seven-file sweep.
+    keeps working, and one predating H7 carries no `channels` key, so it reads back as 3. Every
+    script goes through here rather than restating the shape, which is what makes adding a slot a
+    one-line change instead of a seven-file sweep.
     """
+    use_channels(meta.get("channels", 3))
     return np.memmap(os.path.join(cache, "tiles.f16"), dtype=np.float16, mode="r",
                      shape=(meta["cells"], meta.get("slots", SLOTS_SUBS_ONLY), CH, TILE, TILE))
 
@@ -150,9 +165,9 @@ def drop_foreign_channel_sessions(root, cells):
     line of output. The strict per-tile size check in prepare stays as the backstop, so a session
     with MIXED tile sizes is still caught rather than silently half-read.
 
-    Excluding them rather than supporting them is deliberate for now: the conditioning plane, the
-    band loss and the deployment target are all OSC, so a mono session is a different problem and
-    folding it in silently would be a confound rather than more data.
+    Excluding them rather than mixing them is deliberate: a mono session is a different problem and
+    folding it into an OSC model silently would be a confound rather than more data. A mono cache
+    (H7, `--prepare --channels 1`) keeps the one-channel sessions and drops the OSC ones the same way.
     """
     by_session = defaultdict(list)
     for key in cells:
@@ -402,6 +417,7 @@ def read_cell_list(path):
 
 
 def prepare(args):
+    use_channels(args.channels)
     cells = load_cells(args.root, args.manifest)
     cells = drop_foreign_channel_sessions(args.root, cells)
     exclude = read_cell_list(args.exclude_cells)
@@ -595,7 +611,7 @@ def prepare(args):
 
     meta = {
         "cells": n, "slots": SLOTS_WITH_HALVES, "injected": bool(injected), "has_subs": bool(has_subs),
-        "draws": draws,
+        "draws": draws, "channels": CH,
         "train_cells": len(train_keys), "val_cells": len(val_keys),
         "train_sessions": train_s, "val_sessions": val_s,
         "extra_cells": args.extra_cells, "exclude_cells": args.exclude_cells,
@@ -836,6 +852,8 @@ def load_model(cache, name, dev):
     """
     import torch
     ck = torch.load(os.path.join(cache, name), map_location="cpu")
+    # The net's channel count is the checkpoint's own; one from before H7 is 3-channel.
+    use_channels(ck.get("channels", 3))
     planes = int(ck.get("cond", 0))
     if ck.get("operator") == "rl":
         # An E3.1 checkpoint: the operator around its prior. `planes` stays the label-plane count the
@@ -1759,7 +1777,7 @@ def train(args):
             f"{k}={regime_steps[k]}" for k in regimes))
 
     def save(state, path, selected_at):
-        torch.save({"model": state, "base": args.base, "upsample": args.upsample,
+        torch.save({"model": state, "base": args.base, "upsample": args.upsample, "channels": CH,
                     "cond": cond_planes, "cond_map": sigma_planes is not None, "half_pairs": args.half_pairs,
                     "regimes": [str(k) for k in regimes], "selected_at_step": selected_at,
                     "pair_time": args.pair_time, "star_loss_w": star_w,
@@ -1992,6 +2010,10 @@ if __name__ == "__main__":
     p.add_argument("--train-sessions", type=int, default=8)
     p.add_argument("--val-sessions", type=int, default=2)
     p.add_argument("--cells-per-session", type=int, default=120)
+    p.add_argument("--channels", type=int, choices=(1, 3), default=3,
+                   help="prepare: the tile channel count this cache holds; sessions of another are dropped. 1 is H7's "
+                        "mono cache; the count is written to meta.json and every checkpoint trained on it, so readers "
+                        "and the net follow the cache")
     p.add_argument("--val-from-list", default=None,
                    help="pin the val sessions BY NAME to a list file, one name per line. The "
                         "companion to --train-from-list, for when sessions must be EXCLUDED from "
