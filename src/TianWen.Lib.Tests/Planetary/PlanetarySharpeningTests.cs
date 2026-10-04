@@ -271,6 +271,61 @@ public class PlanetarySharpeningTests
         return (truth, new Image([plane], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta()));
     }
 
+    [Fact(Timeout = 600_000)]
+    public async Task AColourLiveViewIsBalancedAsTheBatchBalancesItsMaster()
+    {
+        // #1212: one balance for planetary-stack, the viewer's Best stack and the live view. Derive reads the balance the batch would give
+        // the master on show and keeps it with the limb, and every master the live view draws is given it last, as the batch gives its
+        // sharpened master: the same colour on the disk, and a master that says it is balanced (the flag the planetary stretch reads, #1229).
+        var ct = TestContext.Current.CancellationToken;
+        var (_, mono) = NoisyStack();
+        var grey = mono.GetChannelSpan(0);
+        (float Gain, float Sky)[] camera = [(0.9f, 0.04f), (0.6f, 0.03f), (0.35f, 0.05f)];
+        var planes = new float[3][,];
+        for (var c = 0; c < 3; c++)
+        {
+            planes[c] = new float[Size, Size];
+            for (var i = 0; i < grey.Length; i++)
+            {
+                planes[c][i / Size, i % Size] = (camera[c].Gain * (grey[i] - 0.05f)) + camera[c].Sky;
+            }
+        }
+        var stack = new Image(planes, BitDepth.Float32, 1f, 0f, 0f, new ImageMeta { SensorType = SensorType.Color });
+
+        var (gains, how, kept) = await Task.Run(() => PlanetaryBestStack.DeriveGains(stack, CatalogIndex.Jupiter, Night, Telescope), ct);
+        var limb = kept.ShouldNotBeNull(how);
+        var balance = limb.Balance.ShouldNotBeNull(how);
+        how.ShouldContain(balance.Describe());
+        var dials = WaveletSharpen.Sharpen(stack, PlanetaryBestStack.SliderOptions(gains));
+        var live = limb.FollowedTo(stack).ShouldNotBeNull().Draw(stack, dials);
+
+        // The batch's order: sharpened, then balanced by the same routine at the same saturation.
+        var batch = (await Task.Run(() => PlanetarySharpening.Sharpen(stack, new PlanetarySharpenOptions(CatalogIndex.Jupiter, Night, Telescope) { WavelengthsNm = [610, 530, 460] }), ct))
+            .ShouldNotBeNull();
+        var (batchBalance, batchHow) = await Task.Run(() => PlanetaryColourBalance.For(stack, CatalogIndex.Jupiter, Night), ct);
+        var balancedBatch = batchBalance.ShouldNotBeNull(batchHow).Apply(batch.Sharpened);
+
+        var disk = limb.Disk;
+        LinearRgb Mean(Image image)
+        {
+            var r = image.GetChannelSpan(0);
+            var g = image.GetChannelSpan(1);
+            var b = image.GetChannelSpan(2);
+            return PlanetaryColour.DiskMean(r, g, b, Size, Size, disk, PlanetaryColour.Sky(r, g, b, Size, Size, disk));
+        }
+        var (asCaptured, byLive, byBatch) = (Mean(stack), Mean(live), Mean(balancedBatch));
+        TestContext.Current.TestOutputHelper?.WriteLine($"{how}; the disk's colour (r, g): as captured {asCaptured.ChromaR:0.0000}, {asCaptured.ChromaG:0.0000}; live {byLive.ChromaR:0.0000}, {byLive.ChromaG:0.0000}; batch {byBatch.ChromaR:0.0000}, {byBatch.ChromaG:0.0000}");
+
+        (balance.Gains.R, balance.Gains.B).ShouldBe((batchBalance.Gains.R, batchBalance.Gains.B), "one balance, read the batch's way");
+        live.ImageMeta.IsColourBalanced.ShouldBeTrue();
+        byLive.ChromaDistance(byBatch).ShouldBeLessThan(0.002, "the live view's disk takes the batch's colour");
+        asCaptured.ChromaDistance(byBatch).ShouldBeGreaterThan(0.05, "the camera's colour is far from it, or this test would show nothing");
+        foreach (var image in new[] { dials, live, batch.Sharpened, balancedBatch })
+        {
+            image.Release();
+        }
+    }
+
     [Fact(Timeout = 300_000)]
     public async Task AMoonBeyondTheSharpeningWindowIsSharpenedAsOneInsideItInTheBatchAndTheLiveView()
     {

@@ -10,7 +10,7 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// planet's sharp model through the pupil's diffraction for each channel, so that every later master, sharpened by the wavelet dials, is
 /// drawn outside the limb as the batch's derived sharpening draws it (<see cref="PlanetaryLimbFix.ModelFeathered"/>): no sharpening there,
 /// the model's clean limb feathered back to the stack by the window's inscribed circle, the moons free, the stack as it is beyond the window
-/// but for its moons (#1211).
+/// but for its moons (#1211), and the colour balance the derivation read last, as the batch balances its masters (#1212).
 /// Made by <see cref="PlanetarySharpening.Sharpen"/>, from the fit and the models it drew with (<see cref="PlanetarySharpenResult.Limb"/>).
 /// Immutable: a disk that moved gives a new one (<see cref="FollowedTo"/>).
 /// </summary>
@@ -34,8 +34,9 @@ public sealed class PlanetaryLiveLimb
 
     private PlanetaryLiveLimb(LimbFit fit, LimbFitOptions limbOptions, PlanetAspect aspect, PlanetaryLimbWindow window, Pupil pupil,
         ImmutableArray<double> wavelengthsNm, ImmutableArray<float[]> models, ImmutableArray<RadialTransfer> diffractions,
-        (double X, double Y, double Radius) start, (int Width, int Height) frame)
+        (double X, double Y, double Radius) start, (int Width, int Height) frame, ColourBalance? balance)
     {
+        Balance = balance;
         Fit = fit;
         _limbOptions = limbOptions;
         _aspect = aspect;
@@ -51,6 +52,12 @@ public sealed class PlanetaryLiveLimb
     /// <summary>The limb fit the model is drawn from, where the disk is now.</summary>
     public LimbFit Fit { get; }
 
+    /// <summary>
+    /// The colour balance the derivation read on its master (<see cref="PlanetaryColourBalance.For"/>), which every master drawn is given
+    /// last, as the batch gives its masters (#1212); null where none was read (a mono master, a planet whose colour is not measured).
+    /// </summary>
+    public ColourBalance? Balance { get; }
+
     /// <summary>The fit's disk in the frame, with the ephemeris' axis ratio: what "outside the limb" means here (beyond one of its radii).</summary>
     public MetricDisk Disk => _window.Own;
 
@@ -65,8 +72,12 @@ public sealed class PlanetaryLiveLimb
         // finds nothing, which cannot happen on the master the fit started from.
         var start = PlanetaryLimbFit.Start(PlanetaryLimbFit.Luminance(master), master.Width, master.Height, limbOptions.AxisRatio)
             ?? (fit.CenterX, fit.CenterY, fit.EquatorialRadius);
-        return new PlanetaryLiveLimb(fit, limbOptions, aspect, window, pupil, wavelengthsNm, models, diffractions, start, (master.Width, master.Height));
+        return new PlanetaryLiveLimb(fit, limbOptions, aspect, window, pupil, wavelengthsNm, models, diffractions, start, (master.Width, master.Height), balance: null);
     }
+
+    /// <summary>This limb with <paramref name="balance"/> to give every master it draws (<see cref="Balance"/>).</summary>
+    internal PlanetaryLiveLimb WithBalance(ColourBalance? balance)
+        => new PlanetaryLiveLimb(Fit, _limbOptions, _aspect, _window, _pupil, _wavelengthsNm, _models, _diffractions, _start, _frame, balance);
 
     /// <summary>
     /// This limb where <paramref name="master"/>'s disk is: itself when the disk has not moved past <see cref="MovePx"/>; the model drawn
@@ -109,7 +120,7 @@ public sealed class PlanetaryLiveLimb
             diffractions[c] = keepDiffractions ? _diffractions[c] : window.Diffraction(_pupil, _wavelengthsNm[Math.Min(c, _wavelengthsNm.Length - 1)]);
             models[c] = window.Through(diffractions[c]);
         }
-        return new PlanetaryLiveLimb(fit, _limbOptions, _aspect, window, _pupil, _wavelengthsNm, [.. models], [.. diffractions], start, frame);
+        return new PlanetaryLiveLimb(fit, _limbOptions, _aspect, window, _pupil, _wavelengthsNm, [.. models], [.. diffractions], start, frame, Balance);
     }
 
     /// <summary>
@@ -117,8 +128,9 @@ public sealed class PlanetaryLiveLimb
     /// sharpening draws it: inside the limb the sharpening held at the sky, outside it the planet's model through the pupil out to 1.5
     /// radii, feathered back to the stack by the window's inscribed circle, the moons sharpened, and the stack as it is beyond the window
     /// but for its moons, as the dials sharpened them (<see cref="PlanetaryDering.Outside"/> with <see cref="PlanetaryDering.OutsideLimb.ModelFeathered"/>
-    /// and <see cref="PlanetaryLimbWindow.PasteMoonsBeyond"/>, in the window and the units the batch uses, #1211). A new image the caller owns;
-    /// <paramref name="stacked"/> must be the master this limb was followed to.
+    /// and <see cref="PlanetaryLimbWindow.PasteMoonsBeyond"/>, in the window and the units the batch uses, #1211), then given the derivation's
+    /// colour balance where it read one (<see cref="Balance"/>, #1212). A new image the caller owns; <paramref name="stacked"/> must be the
+    /// master this limb was followed to.
     /// </summary>
     public Image Draw(Image stacked, Image sharpened)
     {
@@ -144,7 +156,15 @@ public sealed class PlanetaryLiveLimb
             _window.PasteMoonsBeyond(plane, planes[c], width, height, level, scale, (x0, y0) => PlanetaryLimbWindow.CutAt(
                 sharpened.GetChannelSpan(channel), width, height, x0, y0, PlanetaryLimbWindow.MoonWindowSize, level, scale));
         }
-        return new Image(planes, sharpened.BitDepth, sharpened.MaxValue, sharpened.MinValue, sharpened.Pedestal, sharpened.ImageMeta, sharpened.SamplesAreUnitReferred);
+        var image = new Image(planes, sharpened.BitDepth, sharpened.MaxValue, sharpened.MinValue, sharpened.Pedestal, sharpened.ImageMeta, sharpened.SamplesAreUnitReferred);
+        if (Balance is not { } balance || channels != 3)
+        {
+            return image;
+        }
+        // Balanced last, as the batch balances its sharpened master: each channel's sky read about the disk where it is now (#1212).
+        var balanced = (balance with { Disk = Disk }).Apply(image);
+        image.Release();
+        return balanced;
     }
 }
 

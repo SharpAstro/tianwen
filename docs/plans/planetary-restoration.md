@@ -2791,8 +2791,15 @@ nearest are November 2024's. Each map is scaled to I/F by its readme's factor (t
 - **Both masters say so**: the FITS cards CBALGNR, CBALGNB and CBALSAT. `planetary-stack --colour-saturation` sets the strength,
   `--no-colour-balance` and `--legacy` leave the camera's colours. A mono master, another planet, or a limb that does not fit is left as
   captured and the log says which.
-- **Left open:** the live view, the issue's one routine for all three (#1212); 2022-10-09's limb grows a colour fringe as saturation
-  rises, the misregistration #1202 leaves at the limb. A balanced master's sky rendered blue in the planetary stretch until #1229, below.
+- **The live view takes the same balance since 2026-10-05** (#1212's one routine for all three): its Derive reads the balance the batch
+  would give the master on show (`PlanetaryBestStack.DeriveGains`, at the default saturation) and keeps it with the limb
+  (`PlanetaryLiveLimb.Balance`), and every master it draws is given it last, through the same `ColourBalance.Apply`, its sky read about the
+  disk where the followed limb has it. On the sharpening's fixture made colour by three camera gains the live disk reads (r, g) 0.3572,
+  0.3454 against the batch's 0.3570, 0.3454 (0.4865, 0.3243 as captured), the same gains
+  (`PlanetarySharpeningTests.AColourLiveViewIsBalancedAsTheBatchBalancesItsMaster`). Before a Derive the live view shows the colours as
+  captured, as it shows the dials' sharpening only once derived.
+- **Left open:** 2022-10-09's limb grows a colour fringe as saturation rises, the misregistration #1202 leaves at the limb, and the owner's
+  eye on every colour capture (#1212's last box). A balanced master's sky rendered blue in the planetary stretch until #1229, below.
 
 #### A balanced master's sky in the planetary stretch (#1229)
 
