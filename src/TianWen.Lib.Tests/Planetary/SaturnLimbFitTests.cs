@@ -63,6 +63,41 @@ public class SaturnLimbFitTests
         axisError.ShouldBeLessThan(0.2, "the axis");
     }
 
+    [Fact]
+    public void TheFlatFitReadsTheLightBesideTheCassiniDivisionIntoIt()
+    {
+        // The limb fit's rings are four flat levels; a real B ring brightens outward to the division and the A ring dims outward, and
+        // the real 2022-10-09 capture's fit reads the division at 0.40 to 0.45 of the globe. Drawn flat, a twin's division read 0.01;
+        // drawn with SaturnRings.Structured it reads as the real one does (S3, #1233).
+        var flat = DivisionRead(SaturnRings.Main);
+        var structured = DivisionRead(SaturnRings.Structured(0.12, 0.85, 0.1, 0.6));
+        TestContext.Current.TestOutputHelper?.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"the division read at {flat.Division:0.000} of the globe drawn flat (B {flat.B:0.000}, A {flat.A:0.000}), at {structured.Division:0.000} drawn structured (B {structured.B:0.000}, A {structured.A:0.000})"));
+        flat.Division.ShouldBeLessThan(0.1);
+        structured.Division.ShouldBeGreaterThan(0.3);
+
+        static (double B, double Division, double A) DivisionRead(SaturnRings rings)
+        {
+            var aspect = PhysicalEphemeris.Compute(CatalogIndex.Saturn, Capture);
+            // A colour plane of the capture: 0.302"/px at twice the pitch, through its seeing.
+            const double Scale = 0.604;
+            var placement = new DiskPlacement(80.3, 60.4, aspect.AngularDiameterArcsec / 2 / Scale, NorthAngleDeg: 91.4);
+            var newtonian = new Pupil(0.254, ObstructionRatio: 58.0 / 254, Vanes: 4, VaneWidthM: 0.001, VaneAngleDeg: 28);
+            var truth = PlanetaryRender.RenderDiffracted(SyntheticSaturn(), aspect, placement, 160, 120, minnaertK: 0.85, newtonian, 535e-9, Scale, rings: rings);
+            var seen = PsfKernel.Moffat(3.5, 3).Convolve(truth, 160, 120);
+            var image = new float[120, 160];
+            for (var y = 0; y < 120; y++)
+            {
+                for (var x = 0; x < 160; x++)
+                {
+                    image[y, x] = seen[(y * 160) + x];
+                }
+            }
+            var levels = PlanetaryLimbFit.Fit(Image.FromChannel(image), PlanetaryLimbFit.OptionsFor(aspect))?.RingLevels ?? throw new InvalidOperationException("no ringed fit");
+            return (levels[1], levels[2], levels[3]);
+        }
+    }
+
     // A Saturn to measure against: a bright equatorial zone, belts where Saturn's lie (planetographic), and the polar regions darker
     // from 60 degrees, the north's hexagon among them. Not a likeness; what matters is that the globe is not uniform where the fit
     // assumes it is.
