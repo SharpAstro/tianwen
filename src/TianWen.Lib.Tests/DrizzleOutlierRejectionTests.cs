@@ -316,14 +316,24 @@ public class DrizzleOutlierRejectionTests
             tiled.DrizzleTotalDeposits.ShouldBe(full.DrizzleTotalDeposits, "both strategies judge every deposit");
             tiled.DrizzleRejectedDeposits.ShouldBe(full.DrizzleRejectedDeposits, "and reject the same ones");
             full.DrizzleRejectedDeposits.ShouldBeGreaterThan(0, "the fixture's trail was clipped, so the comparison saw a clip");
+            // The standard error too (E16c step 2): the same kept deposits and moments, strip by strip or whole.
+            var fullError = full.StandardError.ShouldNotBeNull("a rejecting drizzle measures its standard error");
+            var tiledError = tiled.StandardError.ShouldNotBeNull("in either layout");
             for (var c = 0; c < 3; c++)
             {
                 var a = full.Master.GetChannelArray(c);
                 var b = tiled.Master.GetChannelArray(c);
+                var ea = fullError.GetChannelArray(c);
+                var eb = tiledError.GetChannelArray(c);
                 for (var y = 0; y < a.GetLength(0); y++)
                 {
                     for (var x = 0; x < a.GetLength(1); x++)
                     {
+                        if (!(float.IsNaN(ea[y, x]) && float.IsNaN(eb[y, x])))
+                        {
+                            eb[y, x].ShouldBe(ea[y, x], MathF.Max(1e-9f, ea[y, x] * 1e-4f), $"standard error, channel {c} at ({x}, {y})");
+                        }
+
                         if (float.IsNaN(a[y, x]) && float.IsNaN(b[y, x]))
                         {
                             continue;
