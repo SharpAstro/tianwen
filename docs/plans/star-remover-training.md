@@ -612,6 +612,19 @@ rest: the catalogue's saturated amplitude is right at the median on seven of nin
 plateau; and against each star's photometric amplitude the near-wing excess runs on continuously across the saturation
 threshold, so it is the residual table under-reading bright stars' near wings (up to about 30 percent), not saturation.
 
+**The third checks' reading (the field profile the default, 2026-10-04):** placement 100 percent, nothing past a clip,
+every injected FWHM within 5 percent of its reference (0.987 to 1.043), beta within 15 percent but on the Lagoon (1.24),
+the Orion master (1.18) and one Carina channel. The saturated arm's plateaus (injected against real) moved toward the
+masters on five sessions (Antares 3 to 2 against 1, the SMC 3 to 2 against 1, the Rim Nebula 2 to 1 against 1, the
+Horsehead 1 against 1, Centaurus A 1 against 2) and stand at 2 against 1 on four; on eta Carinae they doubled (5.5 to 10
+against 3, and its two flip halves 7 and 6 against 4 and 3) and on Carina 24 mm they grew (4 to 5.5 against 2). Those two
+are the masters the at-site probe already flagged: the ASI1600MM's real top is a few percent below flat over 3 px where a
+hard clip is flat (theme B reads it as the per-sub clip spread a 12-bit unity-gain camera has), and the 24 mm field has the
+widest plateaus. A 2 against 1 is a top still a little flatter than real (the probe's first ring 0.03 to 0.09 short on the
+SMC and the Lagoon), which theme B's clip spread would also round. The noise arm is unchanged, as it must be. Leo has been
+refused by every R1 run, the first included: its plate fails the exporter's linearity test (median over minimum above
+0.125 of full scale, the bright sky at about a third of it), so no R1 measure has covered it.
+
 Open from it, under #902: R0's saturated fit on a fixed annulus in FWHM units with a 0.1 to 0.3 core cut (#1240); a
 residual table that holds bright stars' near wings (#1241); the Lagoon's and eta Carinae's photometric offsets (1.4 to 1.7,
 a V against luminance colour term is the likely reading, #1242); the mono noise shape (#1243); and theme C's validations,
