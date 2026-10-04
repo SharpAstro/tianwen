@@ -583,6 +583,40 @@ SII) has a 67 px plateau, so the clamp's floor passed its ceiling and threw. The
 and caps only the reach (`SkyAnnulus`, the clamp itself below the cap, so every plate already built is unchanged);
 a synthetic giant of 45 px leaves its core 0.15 sigma under the truth.
 
+**The second checks' reading (the 190 rebuilt plates, the same ten masters, 2026-10-03):** placement 100 percent, nothing
+past a clip, the same seed the same bytes, shape within its bounds but where the store's beta sits at a grid edge (the Rim
+Nebula's blue, Carina 24 mm's red). The saturated plateaus still ran 2 to 3 times the masters' own (SMC 3 against 1,
+Antares 3 against 1). And the noise arm missed on the one mono master: the ASI1600MM's injected band-1 over band-0 ratio is
+0.458 against its half-master's 0.279, because `--warp-sigma 0.5` was calibrated on a demosaiced master's noise and a mono
+master's is near white; Carina 24 mm is 0.04 off, and three sessions have no half-master pairs to read against. The mono
+noise shape is open.
+
+#### The soft top, resolved (2026-10-04)
+
+**The injector drew each star with a profile its amplitude was not fitted with.** A saturated star's catalogued amplitude
+is R0's wing fit with R0's field profile (its Moffat plus the radial residual table); the injector drew it with the PSF
+store's single Moffat, which holds 0 to 2 percent of the light past 4.5 px where real stars hold 4 to 28. Drawn with R0's
+own profile the first ring is within 0.01 to 0.04 of the real one on six of ten masters (0.09 to 0.11 on the SMC and the
+Lagoon) and the plateau 1 px as real; the 8 hard-clipped virtual subs were right all along. R0 now writes its field profile
+beside each plate (`<stem>_plate.profile.json`, `StarlessFieldProfile`), a store built before is given one by `tianwen
+dataset starless-plates --profiles-only` (the same calibration, checked against the beta the store recorded: all 190
+match), and `--profile field` is the default (feat(imaging): the injector draws each star with the profile its amplitude
+was fitted with, the plate builder's own).
+
+What was left, a halo excess around saturated stars that shrank with saturation depth, was taken apart with the literature
+in [star-removal-literature.md](../architecture/star-removal-literature.md) and four experiments. Seeing scatter (0.3 to
+7.5 percent from sub to sub), a soft sensor (the ASI1600MM's single subs are linear to a hard clip) and the pixel phase of
+each sub's own clip (2 to 15 percent of the knee) are refuted. Tycho-2 photometry through SPCC's matcher confirmed the
+rest: the catalogue's saturated amplitude is right at the median on seven of nine masters but rises with saturation depth
+(up to a quarter too bright on the most saturated, Spearman -0.24 to -0.44), as R0's wing-fit window grows with the
+plateau; and against each star's photometric amplitude the near-wing excess runs on continuously across the saturation
+threshold, so it is the residual table under-reading bright stars' near wings (up to about 30 percent), not saturation.
+
+Open from it, each to be filed under #902: R0's saturated fit on a fixed annulus in FWHM units with a 0.1 to 0.3 core cut;
+a residual table that holds bright stars' near wings; the Lagoon's and eta Carinae's photometric offsets (1.4 to 1.7, a V
+against luminance colour term is the likely reading); the mono noise shape; and theme C's validations (R0 run on R1's
+draws, a noise-free twin draw, a zero-flux draw).
+
 ## 7. Phasing
 
 Tracked by #902.
