@@ -1469,8 +1469,15 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
         var anchorOpt = new Option<string>("--anchor")
         {
             Description = "The anchor the tolerances gate: master-calibration (the one E16b injects with), sub-calibrations, " +
-                          "sub-mad or half-pairs. All four are printed.",
+                          "sub-mad, half-pairs or blocks (the shipped estimator re-run on the whole master, E16c's parity " +
+                          "control). All are printed, with E16c's fine-scale candidate at a ratio of 1 (fine-raw).",
             DefaultValueFactory = _ => "master-calibration",
+        };
+        var tableOpt = new Option<string>("--table")
+        {
+            Description = "Write a per-session table (tab-separated): the integration, each anchor's quiet-cell median per " +
+                          "channel, the fine-scale candidate's raw reading and the finest scale's ratio of the session's own " +
+                          "half-pair noise (E16c).",
         };
         var brightGateOpt = new Option<string>("--bright-gate")
         {
@@ -1483,7 +1490,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
         var command = new Command("noise-check",
             "Check the injected noise's model against the half pairs, per channel, on quiet and bright cells (E16b's D2).")
         {
-            Options = { bakeOpt, sessionFilterOpt, cellsOpt, seedOpt, extraCellsOpt, quietTolOpt, brightTolOpt, anchorOpt, brightGateOpt },
+            Options = { bakeOpt, sessionFilterOpt, cellsOpt, seedOpt, extraCellsOpt, quietTolOpt, brightTolOpt, anchorOpt, brightGateOpt, tableOpt },
         };
         command.SetAction(async (parseResult, ct) =>
         {
@@ -1504,11 +1511,12 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 "sub-calibrations" => static r => r.SubCalibrations,
                 "sub-mad" => static r => r.SubMad,
                 "half-pairs" => static r => r.HalfPairs,
+                "blocks" => static r => r.EstimatedBlocks,
                 _ => null,
             };
             if (gated is null)
             {
-                consoleHost.WriteError($"--anchor must be master-calibration, sub-calibrations, sub-mad or half-pairs, got '{anchorName}'");
+                consoleHost.WriteError($"--anchor must be master-calibration, sub-calibrations, sub-mad, half-pairs or blocks, got '{anchorName}'");
                 return 1;
             }
             var brightGate = parseResult.GetValue(brightGateOpt) ?? "absolute";
@@ -1518,7 +1526,9 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 return 1;
             }
             var relativeBright = brightGate == "relative";
-            var channels = rows[0].HalfPairs.Length;
+            // The widest session's channel count; a mono session counts in channel 0 alone, so pooling never indexes a
+            // channel a row does not have (a run can hold mono and colour sessions together).
+            var channels = rows.Max(static r => r.HalfPairs.Length);
             var pass = true;
             foreach (var bright in new[] { false, true })
             {
@@ -1530,11 +1540,13 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                     continue;
                 }
                 var tol = bright ? brightTol : quietTol;
-                var pairs = Enumerable.Range(0, channels).Select(c => Median(group.Select(r => r.HalfPairs[c]))).ToArray();
-                var subMad = Enumerable.Range(0, channels).Select(c => Median(group.Select(r => r.SubMad[c]))).ToArray();
-                var subCal = Enumerable.Range(0, channels).Select(c => Median(group.Select(r => r.SubCalibrations[c]))).ToArray();
-                var masterCal = Enumerable.Range(0, channels).Select(c => Median(group.Select(r => r.MasterCalibration[c]))).ToArray();
-                var gatedValues = Enumerable.Range(0, channels).Select(c => Median(group.Select(r => gated(r)[c]))).ToArray();
+                var pairs = Pool(group, static r => r.HalfPairs, channels);
+                var subMad = Pool(group, static r => r.SubMad, channels);
+                var subCal = Pool(group, static r => r.SubCalibrations, channels);
+                var masterCal = Pool(group, static r => r.MasterCalibration, channels);
+                var blocks = Pool(group, static r => r.EstimatedBlocks, channels);
+                var fineRaw = Pool(group, static r => r.FineScaleRaw, channels);
+                var gatedValues = Pool(group, gated, channels).Where(double.IsFinite).ToArray();
                 // Relative: each session's bright cells against its OWN quiet cells, so the level model is tested apart
                 // from how well the anchor reads that session's sky; the worst session and channel decide.
                 var relative = bright && relativeBright ? BrightOverQuiet(rows, gated, channels).ToList() : null;
@@ -1550,21 +1562,63 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 consoleHost.WriteScrollable(
                     $"[noise-check] {(bright ? "bright" : "quiet"),-6} {group.Count,5} cells over {group.Select(r => r.SessionId).Distinct().Count()} sessions, " +
                     $"measured / predicted per channel: master-calibration {Join(masterCal)}, sub-calibrations {Join(subCal)}, " +
-                    $"half-pairs {Join(pairs)}, sub-mad {Join(subMad)}; {gateText}");
+                    $"half-pairs {Join(pairs)}, sub-mad {Join(subMad)}, blocks {Join(blocks)}, fine-raw {Join(fineRaw)}; {gateText}");
+            }
+            if (parseResult.GetValue(tableOpt) is { } tablePath)
+            {
+                await File.WriteAllLinesAsync(tablePath, NoiseCheckTable(rows), ct);
+                consoleHost.WriteScrollable($"[noise-check] per-session table -> {tablePath}");
             }
             foreach (var session in rows.GroupBy(static r => r.SessionId).OrderBy(static g => g.Key, StringComparer.Ordinal))
             {
+                // A session's own channel count: a run can hold mono and colour sessions together.
+                var own = session.First().HalfPairs.Length;
                 var q = session.Where(static r => !r.Bright).ToList();
                 var b = session.Where(static r => r.Bright).ToList();
                 consoleHost.WriteScrollable(
                     $"[noise-check]   {session.Key}: {anchorName} quiet {q.Count} " +
-                    $"{(q.Count > 0 ? string.Join("/", Enumerable.Range(0, channels).Select(c => Median(q.Select(r => gated(r)[c])).ToString("F2", CultureInfo.InvariantCulture))) : "-")}, " +
-                    $"bright {b.Count} {(b.Count > 0 ? string.Join("/", Enumerable.Range(0, channels).Select(c => Median(b.Select(r => gated(r)[c])).ToString("F2", CultureInfo.InvariantCulture))) : "-")}");
+                    $"{(q.Count > 0 ? string.Join("/", Enumerable.Range(0, own).Select(c => Median(q.Select(r => gated(r)[c])).ToString("F2", CultureInfo.InvariantCulture))) : "-")}, " +
+                    $"bright {b.Count} {(b.Count > 0 ? string.Join("/", Enumerable.Range(0, own).Select(c => Median(b.Select(r => gated(r)[c])).ToString("F2", CultureInfo.InvariantCulture))) : "-")}");
             }
             consoleHost.WriteScrollable($"[noise-check] {(pass ? "PASS" : "FAIL")}");
             return pass ? 0 : 1;
 
             static string Join(double[] values) => string.Join(" / ", values.Select(v => v.ToString("F3", CultureInfo.InvariantCulture)));
+
+            // E16c's per-session table: the integration, then every reading's quiet-cell median per channel (NaN past a
+            // session's own channels, or with no quiet cell). fineScaleRaw is the candidate at a ratio of 1, so a ratio k
+            // reads fineScaleRaw times k; pairFineScaleRatio is the k of the session's own half-pair noise.
+            static IEnumerable<string> NoiseCheckTable(IReadOnlyList<DatasetDegradationExporter.InjectionCheckRow> all)
+            {
+                (string Name, Func<DatasetDegradationExporter.InjectionCheckRow, double[]> Of)[] readings =
+                [
+                    ("halfPairs", static r => r.HalfPairs), ("masterCalibration", static r => r.MasterCalibration),
+                    ("subCalibrations", static r => r.SubCalibrations), ("subMad", static r => r.SubMad),
+                    ("blocks", static r => r.EstimatedBlocks), ("fineScaleRaw", static r => r.FineScaleRaw),
+                    ("pairFineScaleRatio", static r => r.PairFineScaleRatio),
+                ];
+                var width = all.Max(static r => r.HalfPairs.Length);
+                var header = new List<string> { "session", "integration", "channels", "quietCells", "brightCells" };
+                foreach (var (name, _) in readings)
+                {
+                    header.AddRange(Enumerable.Range(0, width).Select(c => $"{name}{c}"));
+                }
+                yield return string.Join('\t', header);
+                foreach (var session in all.GroupBy(static r => r.SessionId).OrderBy(static g => g.Key, StringComparer.Ordinal))
+                {
+                    var first = session.First();
+                    var own = first.HalfPairs.Length;
+                    var q = session.Where(static r => !r.Bright).ToList();
+                    var cells = new List<string> { session.Key, first.Integration, own.ToString(CultureInfo.InvariantCulture),
+                        q.Count.ToString(CultureInfo.InvariantCulture), session.Count(static r => r.Bright).ToString(CultureInfo.InvariantCulture) };
+                    foreach (var (_, of) in readings)
+                    {
+                        cells.AddRange(Enumerable.Range(0, width).Select(c =>
+                            (c < own && q.Count > 0 ? Median(q.Select(r => of(r)[c])) : double.NaN).ToString("F4", CultureInfo.InvariantCulture)));
+                    }
+                    yield return string.Join('\t', cells);
+                }
+            }
 
             static IEnumerable<(string Session, double[] Ratios)> BrightOverQuiet(
                 IEnumerable<DatasetDegradationExporter.InjectionCheckRow> all,
@@ -1575,13 +1629,21 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 {
                     var quiet = session.Where(static r => !r.Bright).ToList();
                     var brightCells = session.Where(static r => r.Bright).ToList();
+                    var own = Math.Min(channels, session.First().HalfPairs.Length);
                     if (quiet.Count > 0 && brightCells.Count > 0)
                     {
-                        yield return (session.Key, [.. Enumerable.Range(0, channels)
+                        yield return (session.Key, [.. Enumerable.Range(0, own)
                             .Select(c => Median(brightCells.Select(r => gate(r)[c])) / Median(quiet.Select(r => gate(r)[c])))]);
                     }
                 }
             }
+
+            // One channel's median over the rows that have it.
+            static double[] Pool(
+                IReadOnlyList<DatasetDegradationExporter.InjectionCheckRow> group,
+                Func<DatasetDegradationExporter.InjectionCheckRow, double[]> of,
+                int channels)
+                => [.. Enumerable.Range(0, channels).Select(c => Median(group.Where(r => of(r).Length > c).Select(r => of(r)[c])))];
 
             static double Median(IEnumerable<double> values)
             {

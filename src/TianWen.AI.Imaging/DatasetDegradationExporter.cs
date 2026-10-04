@@ -944,8 +944,17 @@ namespace TianWen.AI.Imaging
         /// the noise each anchor predicts for a half, as the robust spread of <c>(A - B) / sqrt 2</c> divided pixel by
         /// pixel by the predicted sigma. 1 is a match; below 1 the anchor predicts more noise than the pair holds.
         /// </summary>
+        /// <param name="EstimatedBlocks">E16c's parity control: <see cref="StretchedNoise.NoiseEstimator.Blocks"/> run now on
+        /// the whole retained master, which the recorded <paramref name="MasterCalibration"/> should equal.</param>
+        /// <param name="FineScaleRaw">E16c's candidate, <see cref="StretchedNoise.NoiseEstimator.FineScale"/>, on the same
+        /// master with a ratio of 1: its reading for a ratio k is this times k.</param>
+        /// <param name="PairFineScaleRatio">The finest scale's ratio of THIS cell's own noise: the robust spread of the
+        /// finest starlet scale of the half pairs' normalised difference over that difference's own, which is the k the
+        /// candidate needs and a calibration per integration takes from a tuning split.</param>
+        /// <param name="Integration">How the session's master was integrated: mono, demosaiced or drizzled.</param>
         public sealed record InjectionCheckRow(
-            string SessionId, int X, int Y, bool Bright, double[] HalfPairs, double[] SubMad, double[] SubCalibrations, double[] MasterCalibration);
+            string SessionId, int X, int Y, bool Bright, double[] HalfPairs, double[] SubMad, double[] SubCalibrations, double[] MasterCalibration,
+            double[] EstimatedBlocks, double[] FineScaleRaw, double[] PairFineScaleRatio, string Integration);
 
         /// <summary>The largest bright share a QUIET cell of <see cref="CheckInjectionAsync"/> may have: star cores
         /// reach the bright level after the low-pass, so none at all would leave almost no real cell quiet.</summary>
@@ -1010,6 +1019,12 @@ namespace TianWen.AI.Imaging
                     }
                     var channels = unitMaster.ChannelCount;
                     var halfDepth = Math.Sqrt(2.0 / stackedFrames);
+                    // E16c: both estimators on the whole master, through the stretch above (measured with the canvas ring
+                    // out, as the bake's tile export measured it), each in the master anchor's one-sub form.
+                    var (estimatedBlocks, fineScaleRaw) = EstimateBoth(unitMaster, origMin, balances, stackedFrames);
+                    var integration = channels == 1 ? "mono"
+                        : DatasetGradientReport.ReadMasterCards(RetainedMasterStore.PathFor(bakeRoot, sessionId)).Strategy == DrizzleStrategy ? "drizzled"
+                        : "demosaiced";
                     foreach (var cell in chosen)
                     {
                         if (cell.HalfATile is not { } aTile || cell.HalfBTile is not { } bTile
@@ -1048,12 +1063,29 @@ namespace TianWen.AI.Imaging
                         var ratioSubMad = new double[channels];
                         var ratioSubCal = new double[channels];
                         var ratioMasterCal = new double[channels];
+                        var ratioBlocks = new double[channels];
+                        var ratioFine = new double[channels];
+                        var pairFineRatio = new double[channels];
                         for (var c = 0; c < channels; c++)
                         {
                             var zPairs = new List<float>(n);
                             var zSubMad = new List<float>(n);
                             var zSubCal = new List<float>(n);
                             var zMasterCal = new List<float>(n);
+                            var zBlocks = new List<float>(n);
+                            var zFine = new List<float>(n);
+                            // The pair's normalised difference over the whole tile, for the finest scale's ratio.
+                            var zTile = new float[n];
+                            for (var i = 0; i < n; i++)
+                            {
+                                var j = (c * n) + i;
+                                var d = (HalfPairNoise.Unstretch(halfA[j], aStretch[c]) - HalfPairNoise.Unstretch(halfB[j], bStretch[c])) / Math.Sqrt(2.0);
+                                var predicted = halfPairs[c].SigmaAt(masterLinear[j], halfDepth);
+                                zTile[i] = predicted > 0 && double.IsFinite(d) ? (float)(d / predicted) : 0f;
+                            }
+                            var zTileFine = ATrousWaveletTransform.Decompose(zTile, size, size, 1).Detail(0).ToArray();
+                            var fineOfPair = new List<float>(n);
+                            var ofPair = new List<float>(n);
                             for (var y = HalfPairNoise.RimPx; y < size - HalfPairNoise.RimPx; y++)
                             {
                                 for (var x = HalfPairNoise.RimPx; x < size - HalfPairNoise.RimPx; x++)
@@ -1080,14 +1112,28 @@ namespace TianWen.AI.Imaging
                                     {
                                         zMasterCal.Add((float)(d / predictedMasterCal));
                                     }
+                                    if (estimatedBlocks is { } eb && eb[c].SigmaAt(masterLinear[j], halfDepth) is var predictedBlocks and > 0)
+                                    {
+                                        zBlocks.Add((float)(d / predictedBlocks));
+                                    }
+                                    if (fineScaleRaw is { } fr && fr[c].SigmaAt(masterLinear[j], halfDepth) is var predictedFine and > 0)
+                                    {
+                                        zFine.Add((float)(d / predictedFine));
+                                    }
+                                    fineOfPair.Add(zTileFine[i]);
+                                    ofPair.Add(zTile[i]);
                                 }
                             }
                             ratioPairs[c] = RobustSpread(zPairs);
                             ratioSubMad[c] = RobustSpread(zSubMad);
                             ratioSubCal[c] = RobustSpread(zSubCal);
                             ratioMasterCal[c] = RobustSpread(zMasterCal);
+                            ratioBlocks[c] = RobustSpread(zBlocks);
+                            ratioFine[c] = RobustSpread(zFine);
+                            pairFineRatio[c] = RobustSpread(fineOfPair) / RobustSpread(ofPair);
                         }
-                        rows.Add(new InjectionCheckRow(sessionId, cell.X, cell.Y, bright, ratioPairs, ratioSubMad, ratioSubCal, ratioMasterCal));
+                        rows.Add(new InjectionCheckRow(sessionId, cell.X, cell.Y, bright, ratioPairs, ratioSubMad, ratioSubCal, ratioMasterCal,
+                            ratioBlocks, ratioFine, pairFineRatio, integration));
                     }
                 }
                 finally
@@ -1865,6 +1911,42 @@ namespace TianWen.AI.Imaging
                 calibrations[c] = new LinearDegradation.NoiseCalibration(m.Pedestal, m.Background[c], m.Sigma[c] * oneSub, stackedFrames);
             }
             return calibrations;
+        }
+
+        /// <summary>
+        /// E16c: the master's own noise by both estimators (<see cref="StretchedNoise.NoiseEstimator"/>), each in
+        /// <see cref="CellMasterCalibration"/>'s form (one sub is the master's sigma times sqrt(N)); null for an estimator
+        /// with no block to read. The fine-scale one is read with a ratio of 1 in every channel, so its reading for a
+        /// calibrated ratio k is the raw one divided by k.
+        /// </summary>
+        private static (LinearDegradation.NoiseCalibration[]? Blocks, LinearDegradation.NoiseCalibration[]? FineScaleRaw)
+            EstimateBoth(Image unitMaster, float[] origMin, double[] balances, int stackedFrames)
+        {
+            var stretches = new StretchedNoise.ChannelStretch[origMin.Length];
+            for (var c = 0; c < stretches.Length; c++)
+            {
+                stretches[c] = new StretchedNoise.ChannelStretch(balances[c], origMin[c]);
+            }
+            var absent = unitMaster.AbsentPixels();
+            var blocks = StretchedNoise.TryEstimateCalibration(unitMaster, stretches, absent, StretchedNoise.NoiseEstimator.Blocks, null, out var b)
+                ? OneSub(b, stackedFrames)
+                : null;
+            var unitRatios = Enumerable.Repeat(1.0, stretches.Length).ToArray();
+            var fine = StretchedNoise.TryEstimateCalibration(unitMaster, stretches, absent, StretchedNoise.NoiseEstimator.FineScale, unitRatios, out var f)
+                ? OneSub(f, stackedFrames)
+                : null;
+            return (blocks, fine);
+
+            static LinearDegradation.NoiseCalibration[] OneSub(LinearDegradation.NoiseCalibration[] own, int stackedFrames)
+            {
+                var oneSub = Math.Sqrt(Math.Max(1, stackedFrames));
+                var calibrations = new LinearDegradation.NoiseCalibration[own.Length];
+                for (var c = 0; c < own.Length; c++)
+                {
+                    calibrations[c] = new LinearDegradation.NoiseCalibration(own[c].PedestalAdu, own[c].BackgroundAdu, own[c].OneSubSigmaAdu * oneSub, stackedFrames);
+                }
+                return calibrations;
+            }
         }
 
         /// <summary>

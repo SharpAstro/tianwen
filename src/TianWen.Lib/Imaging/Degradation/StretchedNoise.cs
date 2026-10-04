@@ -159,6 +159,35 @@ public static class StretchedNoise
     /// one, because texture only ever ADDS to a block's reading, so the quietest blocks are the honest ones.</summary>
     public const double EstimateQuantile = 0.25;
 
+    /// <summary>How <c>TryEstimateCalibration</c> reads a frame's noise.</summary>
+    public enum NoiseEstimator
+    {
+        /// <summary>Every <see cref="EstimateBlockPx"/> px block's high-pass MAD over all its pixels, a low quantile of
+        /// the anchors: what every bake and runner has used.</summary>
+        Blocks = 0,
+
+        /// <summary>
+        /// E16c's candidate (docs/plans/denoiser-training.md, "E16c"): the noise read in the FINEST B3 starlet scale
+        /// alone, each coefficient divided by what the model says the noise is at its pixel's level, the robust spread of
+        /// the whole frame's quotients over that scale's own ratio to the pixel noise (the caller's, by how the master was
+        /// integrated, since a registered master's noise is correlated and the ratio moves with it). Texture puts least of
+        /// itself into that scale: on a frame filled with filaments of a few sigma, where the blocks read 2.0 times the
+        /// noise, it reads 1.11 (white) and 1.18 (warped) times (<c>NoiseEstimatorFineBandProbe</c>).
+        /// </summary>
+        FineScale = 1,
+    }
+
+    /// <summary>
+    /// The finest B3 starlet scale's sigma for unit WHITE noise (Starck and Murtagh's 0.889, pinned against
+    /// <see cref="ATrousWaveletTransform"/> by <c>TheFinestScalesWhiteRatioIsTheStarletsOwn</c>). A registered master's noise
+    /// is correlated over a pixel or two, which lowers it (0.70 for the warped field at 0.5).
+    /// </summary>
+    public const double WhiteNoiseFineScaleRatio = 0.889;
+
+    /// <summary>The reach of the finest starlet scale's kernel, in pixels: a coefficient this near a ring or NaN pixel
+    /// reads the fill, not the frame, and is left out.</summary>
+    private const int FineScaleReachPx = 2;
+
     /// <summary>
     /// A frame's OWN noise calibration, estimated from the frame alone, one per CHANNEL: what a runner has at
     /// inference, and what an eval plane has for a half-master. Each is in the units of
@@ -198,9 +227,23 @@ public static class StretchedNoise
     public static bool TryEstimateCalibration(
         Image unitLinear, IReadOnlyList<ChannelStretch> stretches, BitMatrix? absent,
         [NotNullWhen(true)] out LinearDegradation.NoiseCalibration[]? calibrations)
+        => TryEstimateCalibration(unitLinear, stretches, absent, NoiseEstimator.Blocks, null, out calibrations);
+
+    /// <summary>
+    /// <c>TryEstimateCalibration</c> by a chosen <paramref name="estimator"/>. <see cref="NoiseEstimator.FineScale"/>
+    /// takes <paramref name="fineScaleRatios"/>, one per channel: the finest scale's sigma over the pixel sigma of this
+    /// master's noise (<see cref="WhiteNoiseFineScaleRatio"/> for uncorrelated noise).
+    /// </summary>
+    public static bool TryEstimateCalibration(
+        Image unitLinear, IReadOnlyList<ChannelStretch> stretches, BitMatrix? absent, NoiseEstimator estimator,
+        IReadOnlyList<double>? fineScaleRatios, [NotNullWhen(true)] out LinearDegradation.NoiseCalibration[]? calibrations)
     {
         var (channels, width, height) = unitLinear.Shape;
         ArgumentOutOfRangeException.ThrowIfNotEqual(stretches.Count, channels);
+        if (estimator == NoiseEstimator.FineScale && (fineScaleRatios is null || fineScaleRatios.Count != channels))
+        {
+            throw new ArgumentException($"the fine-scale estimator needs one ratio per channel ({channels})", nameof(fineScaleRatios));
+        }
 
         // One block set for every channel: a block is read only where no channel is absent or NaN there.
         var skip = new bool[width * height];
@@ -228,7 +271,8 @@ public static class StretchedNoise
         var found = new bool[channels];
         ParallelFor.Run(channels, c =>
         {
-            found[c] = TryEstimateChannel(unitLinear, c, stretches[c], skip, out var calibration);
+            var ratio = fineScaleRatios is { } r ? r[c] : WhiteNoiseFineScaleRatio;
+            found[c] = TryEstimateChannel(unitLinear, c, stretches[c], skip, estimator, ratio, out var calibration);
             result[c] = calibration;
         });
         if (Array.IndexOf(found, false) >= 0)
@@ -241,7 +285,9 @@ public static class StretchedNoise
     }
 
     /// <summary>One channel of <see cref="TryEstimateCalibration"/>: its own background and its own anchor.</summary>
-    private static bool TryEstimateChannel(Image unitLinear, int channel, in ChannelStretch stretch, bool[] skip, out LinearDegradation.NoiseCalibration calibration)
+    private static bool TryEstimateChannel(
+        Image unitLinear, int channel, in ChannelStretch stretch, bool[] skip, NoiseEstimator estimator, double fineScaleRatio,
+        out LinearDegradation.NoiseCalibration calibration)
     {
         var (_, width, height) = unitLinear.Shape;
         var y = new float[width * height];
@@ -258,8 +304,38 @@ public static class StretchedNoise
                 yRow[x] = float.IsNaN(v) ? float.NaN : (float)Image.MidtonesTransferFunction(stretchBalance, Math.Max(0.0, v - stretchFloor));
             }
         });
-        var low = Image.SeparableGaussianBlur(WithoutNaN(y), width, height, EstimateHighPassSigmaPx);
+        var filled = WithoutNaN(y);
+        var low = Image.SeparableGaussianBlur(filled, width, height, EstimateHighPassSigmaPx);
 
+        var (levels, mads) = ReadBlocks(y, low, skip, width, height);
+        if (levels.Count == 0)
+        {
+            calibration = default;
+            return false;
+        }
+
+        // The sky: the darkest 30 percent of blocks, whose median level fixes the background the ramp anchors at.
+        var sorted = new List<double>(levels);
+        sorted.Sort();
+        var darkest = sorted.GetRange(0, Math.Max(1, (int)(sorted.Count * 0.3)));
+        var skyLevel = darkest[darkest.Count / 2];
+        var background = Image.MidtonesTransferFunction(1.0 - stretch.MidtonesBalance, skyLevel) + stretch.OrigMin;
+        var unit = new LinearDegradation.NoiseCalibration(unitLinear.Pedestal, background, 1.0, 1);
+
+        // The sky above is the blocks' under either estimator; only the anchor's reading differs.
+        var anchor = estimator == NoiseEstimator.FineScale
+            ? FineScaleAnchor(filled, skip, width, height, stretch, unit, fineScaleRatio)
+            : AnchorOf(levels, mads, stretch, unit);
+        calibration = new LinearDegradation.NoiseCalibration(unitLinear.Pedestal, background, anchor, 1);
+        return true;
+    }
+
+    /// <summary>
+    /// Every <see cref="EstimateBlockPx"/> px block's level (the median of its stretched pixels) and noise (1.4826 times
+    /// the MAD of its high-pass), in block order; a block touching a <paramref name="skip"/> pixel is left out.
+    /// </summary>
+    private static (List<double> Levels, List<double> Mads) ReadBlocks(float[] y, float[] low, bool[] skip, int width, int height)
+    {
         // Each block is read on its own, so block rows run in parallel into fixed slots, which keeps the readings
         // in the serial loop's order (the answer sorts them anyway). A block's level is its median alone: the MAD
         // beside it was computed and never read.
@@ -313,20 +389,13 @@ public static class StretchedNoise
                 mads.Add(blockMad[slot]);
             }
         }
-        if (levels.Count == 0)
-        {
-            calibration = default;
-            return false;
-        }
+        return (levels, mads);
+    }
 
-        // The sky: the darkest 30 percent of blocks, whose median level fixes the background the ramp anchors at.
-        var sorted = new List<double>(levels);
-        sorted.Sort();
-        var darkest = sorted.GetRange(0, Math.Max(1, (int)(sorted.Count * 0.3)));
-        var skyLevel = darkest[darkest.Count / 2];
-        var background = Image.MidtonesTransferFunction(1.0 - stretch.MidtonesBalance, skyLevel) + stretch.OrigMin;
-        var unit = new LinearDegradation.NoiseCalibration(unitLinear.Pedestal, background, 1.0, 1);
-
+    /// <summary>The <see cref="EstimateQuantile"/> of the blocks' anchors: each block's noise over what the model says a
+    /// block at its level carries per unit anchor. 0 when no block reads.</summary>
+    private static double AnchorOf(List<double> levels, List<double> mads, in ChannelStretch stretch, in LinearDegradation.NoiseCalibration unit)
+    {
         var anchors = new List<double>(levels.Count);
         for (var b = 0; b < levels.Count; b++)
         {
@@ -337,9 +406,85 @@ public static class StretchedNoise
             }
         }
         anchors.Sort();
-        var anchor = anchors.Count > 0 ? anchors[(int)Math.Clamp(anchors.Count * EstimateQuantile, 0, anchors.Count - 1)] : 0.0;
-        calibration = new LinearDegradation.NoiseCalibration(unitLinear.Pedestal, background, anchor, 1);
-        return true;
+        return anchors.Count > 0 ? anchors[(int)Math.Clamp(anchors.Count * EstimateQuantile, 0, anchors.Count - 1)] : 0.0;
+    }
+
+    /// <summary>
+    /// <see cref="NoiseEstimator.FineScale"/>'s anchor: every pixel's finest B3 starlet coefficient over the model's noise
+    /// per unit anchor at its low-passed level (as the plane reads it) times <paramref name="fineScaleRatio"/>, then 1.4826
+    /// times the median absolute deviation of those quotients over the frame. A pixel within the scale's reach of a ring or
+    /// NaN pixel is left out, as is one the model gives no noise. 0 when none is left.
+    /// </summary>
+    private static double FineScaleAnchor(
+        float[] filled, bool[] skip, int width, int height, in ChannelStretch stretch, in LinearDegradation.NoiseCalibration unit, double fineScaleRatio)
+    {
+        var n = width * height;
+        var level = Image.SeparableGaussianBlur(filled, width, height, DefaultLevelSigmaPx);
+        var smoother = new float[n];
+        ATrousWaveletTransform.ConvolveSeparable(filled, smoother, new float[n], width, height, 1);
+        var near = NearSkip(skip, width, height, FineScaleReachPx);
+        var quotients = new float[n];
+        var kept = new int[height];
+        var channelStretch = stretch;
+        var unitCalibration = unit;
+        ParallelFor.Run(height, row =>
+        {
+            var k = row * width;
+            for (var i = row * width; i < (row + 1) * width; i++)
+            {
+                if (near[i])
+                {
+                    continue;
+                }
+                var perUnit = fineScaleRatio * SigmaAt(level[i], channelStretch, unitCalibration, 1.0);
+                if (perUnit > 0 && double.IsFinite(perUnit))
+                {
+                    quotients[k++] = (float)((filled[i] - smoother[i]) / perUnit);
+                }
+            }
+            kept[row] = k - (row * width);
+        });
+        // Each row's quotients were written from its own start; close the gaps so one span holds them all.
+        var count = 0;
+        for (var row = 0; row < height; row++)
+        {
+            Array.Copy(quotients, row * width, quotients, count, kept[row]);
+            count += kept[row];
+        }
+        return count > 0 ? 1.4826 * StatisticsHelper.MedianAndMad(quotients.AsSpan(0, count)).Mad : 0.0;
+    }
+
+    /// <summary>The <paramref name="skip"/> pixels grown by <paramref name="reach"/> in each direction (a box).</summary>
+    private static bool[] NearSkip(bool[] skip, int width, int height, int reach)
+    {
+        var across = new bool[skip.Length];
+        ParallelFor.Run(height, row =>
+        {
+            var start = row * width;
+            for (var x = 0; x < width; x++)
+            {
+                if (!skip[start + x])
+                {
+                    continue;
+                }
+                for (var dx = Math.Max(0, x - reach); dx <= Math.Min(width - 1, x + reach); dx++)
+                {
+                    across[start + dx] = true;
+                }
+            }
+        });
+        var grown = new bool[skip.Length];
+        ParallelFor.Run(height, row =>
+        {
+            for (var dy = Math.Max(0, row - reach); dy <= Math.Min(height - 1, row + reach); dy++)
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    grown[(row * width) + x] |= across[(dy * width) + x];
+                }
+            }
+        });
+        return grown;
     }
 
     /// <summary>A copy with every NaN replaced by the finite median, so a blur cannot spread one. A plane over a
