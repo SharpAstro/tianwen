@@ -10,7 +10,7 @@ namespace TianWen.Lib.Imaging.StarRemoval;
 /// a pixel. Pixel (i, j) covers [i - 0.5, i + 0.5] x [j - 0.5, j + 0.5], the centroid convention of
 /// <see cref="ImagedStar"/>.
 /// </summary>
-internal readonly record struct MoffatPsf(double Alpha, double Beta)
+internal readonly record struct MoffatPsf(double Alpha, double Beta) : IPointProfile
 {
     /// <summary>The alpha that gives a profile of <paramref name="fwhm"/> pixels at <paramref name="beta"/>.</summary>
     public static double AlphaFor(double fwhm, double beta) => fwhm / (2.0 * Math.Sqrt(Math.Pow(2.0, 1.0 / beta) - 1.0));
@@ -37,11 +37,7 @@ internal readonly record struct MoffatPsf(double Alpha, double Beta)
         return Alpha * Math.Sqrt(Math.Pow(amplitude / level, 1.0 / Beta) - 1.0);
     }
 
-    // Gauss-Legendre nodes on [-1/2, 1/2] with weights summing to one: three points, then two.
-    private static readonly double[] Nodes3 = { -0.5 * Math.Sqrt(0.6), 0.0, 0.5 * Math.Sqrt(0.6) };
-    private static readonly double[] Weights3 = { 5.0 / 18.0, 8.0 / 18.0, 5.0 / 18.0 };
-    private static readonly double[] Nodes2 = { -0.5 / Math.Sqrt(3.0), 0.5 / Math.Sqrt(3.0) };
-    private static readonly double[] Weights2 = { 0.5, 0.5 };
+    double IPointProfile.At(double dx, double dy) => At(dx * dx + dy * dy);
 
     /// <summary>The mean of the profile over pixel (<paramref name="px"/>, <paramref name="py"/>) for a star centred at
     /// (<paramref name="cx"/>, <paramref name="cy"/>).</summary>
@@ -54,21 +50,6 @@ internal readonly record struct MoffatPsf(double Alpha, double Beta)
         var dx = px - cx;
         var dy = py - cy;
         var r2 = dx * dx + dy * dy;
-        if (r2 >= 64.0)
-        {
-            return At(r2);
-        }
-        var (nodes, weights) = r2 < 16.0 ? (Nodes3, Weights3) : (Nodes2, Weights2);
-        var sum = 0.0;
-        for (var j = 0; j < nodes.Length; j++)
-        {
-            var oy = dy + nodes[j];
-            for (var i = 0; i < nodes.Length; i++)
-            {
-                var ox = dx + nodes[i];
-                sum += weights[i] * weights[j] * At(ox * ox + oy * oy);
-            }
-        }
-        return sum;
+        return r2 >= 64.0 ? At(r2) : PixelQuadrature.Mean(this, dx, dy, threePoints: r2 < 16.0);
     }
 }
