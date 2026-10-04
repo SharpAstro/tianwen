@@ -91,6 +91,29 @@ internal static class StandardErrorPlane
         return FromPlanes(planes, meta);
     }
 
+    /// <summary>
+    /// The plane in NEW planes, every value times <paramref name="factor"/>: what a master divided into unit scale
+    /// (<c>ScaleFloatValuesToUnitCeiling</c>) needs done to its standard error, which is in the master's own units.
+    /// </summary>
+    internal static Image Scaled(Image standardError, float factor)
+    {
+        var planes = new float[standardError.ChannelCount][,];
+        for (var c = 0; c < planes.Length; c++)
+        {
+            var source = standardError.GetChannelArray(c);
+            var plane = new float[source.GetLength(0), source.GetLength(1)];
+            for (var y = 0; y < plane.GetLength(0); y++)
+            {
+                for (var x = 0; x < plane.GetLength(1); x++)
+                {
+                    plane[y, x] = source[y, x] * factor;
+                }
+            }
+            planes[c] = plane;
+        }
+        return FromPlanes(planes, standardError.ImageMeta);
+    }
+
     /// <summary>The same for planes a strategy assembled itself (a strip-wise strategy).</summary>
     internal static Image FromPlanes(float[][,] planes, in ImageMeta meta)
     {

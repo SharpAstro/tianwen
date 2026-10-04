@@ -88,12 +88,18 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         //    it after this returns, in integration units.
         //    The reference check asks "did it divide?", for the log line and the result record; nothing
         //    is released on it.
+        var divisor = master.UnitScaleDivisor;
         var scaled = master.ScaleFloatValuesToUnitCeiling();
         if (!ReferenceEquals(scaled, master))
         {
             logger.LogInformation("  master peak {Peak:G4} scaled into [0, 1]", master.MaxValue);
             master = scaled;
-            result = result with { Master = master };
+            // The standard error is in the master's units, so it is divided by the same one scalar.
+            result = result with
+            {
+                Master = master,
+                StandardError = result.StandardError is { } se ? StandardErrorPlane.Scaled(se, 1f / divisor) : null,
+            };
         }
 
         // Pre-compute the cropped master once -- reused for the autocrop
@@ -526,9 +532,10 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
 
             // Reuse the original IntegrationResult shell (FrameCount, RejectionMap,
             // MeanRejectionRate) so IntegrationFitsWriter keeps the same provenance
-            // headers; just swap Master for the enhanced pixels.
+            // headers; just swap Master for the enhanced pixels. The standard error is NOT carried: it measures the
+            // integration's noise, which the enhance changed, so beside these pixels it would state the wrong thing.
             var sharpenedPath = WithSuffix(masterPath, "_sharpened");
-            IntegrationFitsWriter.Write(sharpenedPath, master with { Master = enhancedMaster }, solvedWcs, strategy, alignment: alignment,
+            IntegrationFitsWriter.Write(sharpenedPath, master with { Master = enhancedMaster, StandardError = null }, solvedWcs, strategy, alignment: alignment,
                 modifiedBy: SharpenPipeline.SoftwareModifier);
             logger.LogInformation("  wrote {Path} (enhance blend={Blend:F2}, {Ms} ms)", sharpenedPath, blend, sw.ElapsedMilliseconds);
 
@@ -537,7 +544,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             {
                 enhancedCropped = CropImage(enhancedMaster, autocropRect);
                 var sharpenedCropPath = WithSuffix(masterPath, "_sharpened_autocrop");
-                IntegrationFitsWriter.Write(sharpenedCropPath, croppedResult with { Master = enhancedCropped }, croppedWcs, strategy, alignment: alignment,
+                IntegrationFitsWriter.Write(sharpenedCropPath, croppedResult with { Master = enhancedCropped, StandardError = null }, croppedWcs, strategy, alignment: alignment,
                     modifiedBy: SharpenPipeline.SoftwareModifier);
                 logger.LogInformation("  wrote {Path} (crop {W}x{H})", sharpenedCropPath, autocropRect.Width, autocropRect.Height);
             }
@@ -683,11 +690,13 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         var croppedMaster = CropImage(full.Master, rect);
         var croppedRejection = full.RejectionMap is { } rejection ? CropImage(rejection, rect) : null;
         var croppedCoverage = full.Coverage is { } coverage ? CropImage(coverage, rect) : null;
+        var croppedStandardError = full.StandardError is { } standardError ? CropImage(standardError, rect) : null;
         return full with
         {
             Master = croppedMaster,
             RejectionMap = croppedRejection,
             Coverage = croppedCoverage,
+            StandardError = croppedStandardError,
         };
     }
 
