@@ -255,6 +255,16 @@ seed spread beside the number.
 
 **H7 (deferred). Mono.** The two ASI1600MM sets are poor and excluded by `drop_foreign_channel_sessions`;
 the user intends to shoot true narrowband mono later. Nothing to test until that data exists.
+*Where it stands (2026-10-04).* The data now exists: the store holds 21 one-channel sessions (ASI294MM luminance 10,
+QHY178M 4, ASI1600MM 2, QHY183M and its capture twin 2, ASI183MM 1), about 14 usable once the test nights, the three
+plates the linearity test refuses and the flatless M42 are out, and LDN 1622 (a QSI 683ws CCD, R, G, B and H-alpha from a
+dark site, 2015) joins with four once baked. Three gates, in order: (1) the injected noise's shape on a mono master
+(#1243), **calibrated**: the exporter takes `--warp-sigma-mono`, 0 by default, measured on seven mono sessions' half pairs
+(band1/band0 0.313 injected against 0.290, where the demosaiced 0.5 gave 0.435); (2) the trainer's channel count, a module
+constant (`n2n_smoke.py` `CH = 3`) that `prepare`, the model and `drop_foreign_channel_sessions` all read, so a mono model
+needs it made a cache's own (`meta.json`, the checkpoint) rather than a flag; (3) the product gate, `N2nDenoiser` serving
+three channels alone, with one weights file. The risk is the pool: a mono model trained on 14 to 18 sessions of six
+cameras, held out by camera, is the experiment; LDN 1622 alone (one CCD, one field) is not.
 
 **H8. Cross-night pairs give N2N genuinely independent noise, and that lifts the shared-noise ceiling
 both measured regimes sit under.** Every arm so far trains on a target whose noise its input also

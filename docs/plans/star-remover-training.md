@@ -654,7 +654,10 @@ whose predictions are registered here with it, before any R2a model is scored.
 
 Open from it, under #902: R0's saturated fit on a fixed annulus in FWHM units with a 0.1 to 0.3 core cut (#1240); a
 residual table that holds bright stars' near wings (#1241); the Lagoon's and eta Carinae's photometric offsets (1.4 to 1.7,
-a V against luminance colour term is the likely reading, #1242); the mono noise shape (#1243); and theme C's validations,
+a V against luminance colour term is the likely reading, #1242); the mono noise shape (#1243, calibrated 2026-10-04:
+`--warp-sigma-mono`, 0 by default, gives 0.313 band1/band0 against seven mono half-master pairs' 0.290, where 0.5 gave
+0.435; bilinear is the floor, the bake's Lanczos-3 sharper still, and the R1 training exports, made before it, carry 0.5 on
+their 15 mono sessions, which R2a's 3-channel trainer leaves out); and theme C's validations,
 R0 run on R1's draws, a noise-free twin draw and a zero-flux draw (#1244).
 
 ## 7. Phasing
