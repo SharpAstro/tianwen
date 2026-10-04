@@ -65,12 +65,14 @@ public sealed class InjectionPopulation
     private readonly (ImmutableArray<double> Amplitudes, ImmutableArray<double> Clips)[] _saturated;
     private readonly ImmutableArray<double> _fallbackClips;
     private readonly (double X, double Y, double E, double Theta)[] _moments;
+    private readonly StarlessFieldProfile? _field;
 
     private InjectionPopulation(
         int width, int height, int channels, BitMatrix? absent, (double Fwhm, double Beta)[] psf, (double X, double Y)[] sites,
         ImmutableArray<double>[] amplitudes, (ImmutableArray<double>, ImmutableArray<double>)[] saturated, ImmutableArray<double> fallbackClips,
-        (double X, double Y, double E, double Theta)[] moments)
+        (double X, double Y, double E, double Theta)[] moments, StarlessFieldProfile? field)
     {
+        _field = field;
         _width = width;
         _height = height;
         _channels = channels;
@@ -117,14 +119,20 @@ public sealed class InjectionPopulation
     /// plate as stored (the catalogue's units); <paramref name="scale"/> takes amplitudes and clip levels into the units the
     /// stars will be rendered in (the exporter's unit range, 1 over its divisor); <paramref name="psf"/> is each channel's
     /// FWHM and Moffat beta, the master's own measurement. <paramref name="absent"/> is the frame's absent canvas.
+    /// <paramref name="field"/> is the plate builder's own profile, which <see cref="StarProfileFamily.Field"/> draws with.
     /// </summary>
     public static InjectionPopulation Build(
-        ImmutableArray<FittedStar> catalogue, Image master, Image plate, double scale, IReadOnlyList<(double Fwhm, double Beta)> psf, BitMatrix? absent)
+        ImmutableArray<FittedStar> catalogue, Image master, Image plate, double scale, IReadOnlyList<(double Fwhm, double Beta)> psf, BitMatrix? absent,
+        StarlessFieldProfile? field = null)
     {
         var channels = master.ChannelCount;
         if (psf.Count != channels)
         {
             throw new ArgumentException($"{psf.Count} channel PSFs for a {channels}-channel master", nameof(psf));
+        }
+        if (field is { } f && f.Channels.Length != channels)
+        {
+            throw new ArgumentException($"a field profile of {f.Channels.Length} channels for a {channels}-channel master", nameof(field));
         }
         var width = master.Width;
         var height = master.Height;
@@ -190,7 +198,7 @@ public sealed class InjectionPopulation
             }
         }
 
-        return new InjectionPopulation(width, height, channels, absent, psf.ToArray(), sites, amplitudes, saturated, fallbackClips, moments.ToArray());
+        return new InjectionPopulation(width, height, channels, absent, psf.ToArray(), sites, amplitudes, saturated, fallbackClips, moments.ToArray(), field);
     }
 
     /// <summary>
@@ -291,14 +299,23 @@ public sealed class InjectionPopulation
         return null;
     }
 
-    /// <summary>Each channel's profile at (<paramref name="x"/>, <paramref name="y"/>), elongated as the nearby stars are.</summary>
+    /// <summary>
+    /// Each channel's profile at (<paramref name="x"/>, <paramref name="y"/>), elongated as the nearby stars are: the plate
+    /// builder's own for <see cref="StarProfileFamily.Field"/>, the PSF store's Moffat (or a Gaussian at its FWHM) otherwise.
+    /// </summary>
     public ImmutableArray<StarProfile> ProfilesAt(double x, double y, StarProfileFamily family)
     {
+        if (family == StarProfileFamily.Field && _field is null)
+        {
+            throw new InvalidOperationException("the Field profile needs the plate builder's field profile, which this plate has none of");
+        }
         var (q, theta) = ElongationAt(x, y);
         var profiles = ImmutableArray.CreateBuilder<StarProfile>(_channels);
         for (var c = 0; c < _channels; c++)
         {
-            profiles.Add(new StarProfile(family, _psf[c].Fwhm, _psf[c].Beta, q, theta));
+            profiles.Add(_field is { } field && family == StarProfileFamily.Field
+                ? new StarProfile(family, field.Channels[c].Fwhm, field.Channels[c].Beta, q, theta, field.Channels[c].Table, field.Channels[c].TableAlpha)
+                : new StarProfile(family, _psf[c].Fwhm, _psf[c].Beta, q, theta));
         }
         return profiles.MoveToImmutable();
     }

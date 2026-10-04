@@ -42,7 +42,11 @@ public static class DatasetStarlessReport
     /// <param name="WritePlates">Write each plate and its fill mask.</param>
     /// <param name="ProbeHoles">Holes per radius for the fill probe; 0 skips it.</param>
     /// <param name="Force">Measure a master already in the store again (the new record wins).</param>
-    public sealed record RunOptions(ImmutableArray<string> Masters, string OutputRoot, bool WritePlates = true, int ProbeHoles = 100, bool Force = false);
+    /// <param name="ProfilesOnly">Build no plate: give each plate already in <c>plates/</c> its field profile
+    /// (<see cref="StarlessFieldProfile"/>), measured as the builder measures it, where it has none (every one with
+    /// <paramref name="Force"/>), and check it against the beta the store recorded for the plate.</param>
+    public sealed record RunOptions(
+        ImmutableArray<string> Masters, string OutputRoot, bool WritePlates = true, int ProbeHoles = 100, bool Force = false, bool ProfilesOnly = false);
 
     /// <summary>What a run did.</summary>
     public sealed record RunResult(int Measured, int Skipped, int Failed, string ReportPath, bool Stopped = false);
@@ -77,6 +81,11 @@ public static class DatasetStarlessReport
             File.Delete(stopPath);
             logger?.LogWarning("A stop file from an earlier run was cleared: {Path}", stopPath);
             progress?.Report($"[starless] cleared a stop file left by an earlier run ({stopPath})");
+        }
+
+        if (options.ProfilesOnly)
+        {
+            return await ProfilesAsync(options, platesDir, store, stopPath, reportPath, logger, progress, cancellationToken);
         }
 
         int measured = 0, skipped = 0, failed = 0;
@@ -124,6 +133,10 @@ public static class DatasetStarlessReport
                     SourceDetectionWriter.WriteMap(Path.Combine(platesDir, stem + "_plate.inpainted.fits.gz"), SourceDetectionWriter.MaskToImage(plate.Inpainted), "INPAINTED", wcs);
                     SourceDetectionWriter.WriteMap(Path.Combine(platesDir, stem + "_plate.subtracted.fits.gz"), SourceDetectionWriter.MaskToImage(plate.Subtracted), "SUBTRACTED", wcs);
                     await StarlessCatalogue.WriteAsync(StarlessCatalogue.PathFor(platesDir, stem), plate.Stars, cancellationToken);
+                    if (plate.FieldProfile is { } profile)
+                    {
+                        await StarlessFieldProfile.WriteAsync(StarlessFieldProfile.PathFor(platesDir, stem), profile, cancellationToken);
+                    }
                 }
                 var (channels, width, height) = image.Shape;
                 var stars = plate.Stars;
@@ -153,6 +166,62 @@ public static class DatasetStarlessReport
             }
         }
         await WriteMarkdownAsync(reportPath, store.Values, cancellationToken);
+        return new RunResult(measured, skipped, failed, reportPath, stopped);
+    }
+
+    // The profiles-only pass: a plate built before profiles were kept is given the one its builder subtracted with, measured
+    // again by the same calibration (deterministic on the same master), and the store's own record of that calibration (the
+    // luminance's beta) says whether it is the same one.
+    private static async Task<RunResult> ProfilesAsync(
+        RunOptions options, string platesDir, Dictionary<string, StarlessMasterRecord> store, string stopPath, string reportPath,
+        ILogger? logger, IProgress<string>? progress, CancellationToken cancellationToken)
+    {
+        int measured = 0, skipped = 0, failed = 0;
+        var stopped = false;
+        foreach (var path in options.Masters)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var name = Path.GetFileName(path);
+            var stem = Path.GetFileNameWithoutExtension(name);
+            var profilePath = StarlessFieldProfile.PathFor(platesDir, stem);
+            if (!File.Exists(Path.Combine(platesDir, stem + "_plate.fits")) || (!options.Force && File.Exists(profilePath)))
+            {
+                skipped++;
+                continue;
+            }
+            if (File.Exists(stopPath))
+            {
+                File.Delete(stopPath);
+                stopped = true;
+                progress?.Report($"[starless] {StopFileName} found: stopping before {name}; every profile before it is written");
+                break;
+            }
+            try
+            {
+                if (!Image.TryReadFitsFile(path, out var image, out _) || image is null)
+                {
+                    progress?.Report($"[starless] {name}: not a readable image, skipped");
+                    failed++;
+                    continue;
+                }
+                var profile = await ClassicalStarRemover.MeasureFieldProfileAsync(image, logger: logger, cancellationToken: cancellationToken);
+                image.Release();
+                var check = store.TryGetValue(name, out var record)
+                    ? Math.Abs(profile.Luminance.Beta - record.Statistics.FieldBeta) <= 1e-3 * Math.Max(1.0, record.Statistics.FieldBeta)
+                        ? "matches the plate's beta"
+                        : $"beta {profile.Luminance.Beta:F3} against the plate's {record.Statistics.FieldBeta:F3}: NOT the plate's calibration"
+                    : "no store record to check against";
+                await StarlessFieldProfile.WriteAsync(profilePath, profile, cancellationToken);
+                measured++;
+                progress?.Report($"[starless] {name}: profile written, luminance FWHM {profile.Luminance.Fwhm:F2} px beta {profile.Luminance.Beta:F2}, table {profile.Luminance.Table.Length} bins; {check}");
+            }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                logger?.LogError(ex, "Starless profiles: {Master} failed", name);
+                progress?.Report($"[starless] {name}: failed ({ex.Message})");
+                failed++;
+            }
+        }
         return new RunResult(measured, skipped, failed, reportPath, stopped);
     }
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Shouldly;
@@ -395,6 +396,45 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
         var b = await ClassicalStarRemover.BuildAsync(MakeField(1).Image, cancellationToken: TestContext.Current.CancellationToken);
         a.Plate.GetChannelSpan(0).SequenceEqual(b.Plate.GetChannelSpan(0)).ShouldBeTrue();
         a.Stars.Length.ShouldBe(b.Stars.Length);
+    }
+
+    /// <summary>
+    /// The profile a plate is built with comes back with it, and measured alone (a store built before profiles were kept) it
+    /// is the same profile to the bit, its luminance beta the report's; through its file it reads back unchanged.
+    /// </summary>
+    [Fact(Timeout = 600_000)]
+    public async Task TheProfileMeasuredAloneIsThePlatesOwn()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var plate = await ClassicalStarRemover.BuildAsync(MakeField(3).Image, cancellationToken: ct);
+        var built = plate.FieldProfile.ShouldNotBeNull();
+        var alone = await ClassicalStarRemover.MeasureFieldProfileAsync(MakeField(3).Image, cancellationToken: ct);
+
+        alone.Channels.Length.ShouldBe(3);
+        for (var c = 0; c < 3; c++)
+        {
+            alone.Channels[c].Alpha.ShouldBe(built.Channels[c].Alpha);
+            alone.Channels[c].Beta.ShouldBe(built.Channels[c].Beta);
+            alone.Channels[c].TableAlpha.ShouldBe(built.Channels[c].TableAlpha);
+            alone.Channels[c].Table.SequenceEqual(built.Channels[c].Table).ShouldBeTrue();
+        }
+        alone.Luminance.Beta.ShouldBe(built.Luminance.Beta);
+        ((float)built.Luminance.Beta).ShouldBe(plate.Statistics.FieldBeta);
+        built.Luminance.Table.ShouldNotBeEmpty("the field has enough bright stars for a residual table");
+
+        var path = Path.Combine(Path.GetTempPath(), $"tianwen-profile-{Guid.NewGuid():N}.json");
+        try
+        {
+            await StarlessFieldProfile.WriteAsync(path, built, ct);
+            var read = (await StarlessFieldProfile.ReadAsync(path, ct)).ShouldNotBeNull();
+            read.Luminance.Alpha.ShouldBe(built.Luminance.Alpha);
+            read.Channels[1].Table.SequenceEqual(built.Channels[1].Table).ShouldBeTrue();
+            (await StarlessFieldProfile.ReadAsync(path + ".absent", ct)).ShouldBeNull();
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact(Timeout = 300_000)]

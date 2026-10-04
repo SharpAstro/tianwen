@@ -92,6 +92,24 @@ public static partial class DatasetDegradationExporter
         public int Placed { get; set; }
 
         public int ClipExceeded { get; set; }
+
+        private readonly Dictionary<int, (double FwhmPx, double Beta)?> _reference = new Dictionary<int, (double FwhmPx, double Beta)?>();
+
+        // What a star of this channel's profile is read back against: its drawn FWHM and beta for a Moffat or a Gaussian, the
+        // noise-free fit of the profile alone for the field profile, which is no single Moffat (InjectionMeasure.ReferenceFit).
+        public (double FwhmPx, double Beta)? ReferenceFor(int channel, StarProfile drawn)
+        {
+            if (drawn.Family != StarProfileFamily.Field)
+            {
+                return (drawn.FwhmPx, drawn.Beta);
+            }
+            if (!_reference.TryGetValue(channel, out var reference))
+            {
+                reference = InjectionMeasure.ReferenceFit(drawn);
+                _reference[channel] = reference;
+            }
+            return reference;
+        }
     }
 
     /// <summary>One injected star, in the cell's coordinates (pixel centres at integers), per channel where it varies.</summary>
@@ -149,6 +167,9 @@ public static partial class DatasetDegradationExporter
         public string CataloguePath(string sessionId) => StarlessCatalogue.PathFor(PlatesDir, DatasetTileExporter.Sanitize(sessionId));
 
         public bool HasPlate(string sessionId) => File.Exists(PlatePath(sessionId)) && File.Exists(CataloguePath(sessionId));
+
+        /// <summary>The plate builder's field profile beside the plate (<see cref="StarlessFieldProfile"/>).</summary>
+        public string ProfilePath(string sessionId) => StarlessFieldProfile.PathFor(PlatesDir, DatasetTileExporter.Sanitize(sessionId));
 
         /// <summary>
         /// Each channel's FWHM and Moffat beta from the master's own profile fits. A channel the store could not measure takes
@@ -253,11 +274,22 @@ public static partial class DatasetDegradationExporter
             }
 
             var absent = plate.AbsentPixels();
-            var population = InjectionPopulation.Build(catalogue, master, plate, 1.0 / divisor, psf, absent);
+            // The field profile is the one every catalogued amplitude was fitted with; a plate store from before profiles were
+            // kept has none, and drawing those amplitudes with another profile is what made saturated tops too wide.
+            var field = await StarlessFieldProfile.ReadAsync(stars.ProfilePath(sessionId), cancellationToken);
+            if (options.Profile == StarProfileFamily.Field && field is null)
+            {
+                throw new InvalidOperationException(
+                    $"{sessionId}: the plate has no field profile ({stars.ProfilePath(sessionId)}); give the store its profiles with tianwen dataset starless-plates --profiles-only");
+            }
+            var population = InjectionPopulation.Build(catalogue, master, plate, 1.0 / divisor, psf, absent, field);
+            var drawnWith = options.Profile == StarProfileFamily.Field && field is { } f
+                ? f.Channels.Select(static p => string.Create(CultureInfo.InvariantCulture, $"{p.Fwhm:F2} px b{p.Beta:F2} + table {p.Table.Length}"))
+                : psf.Select(static p => string.Create(CultureInfo.InvariantCulture, $"{p.Fwhm:F2} px b{p.Beta:F2}"));
             logger?.LogInformation(
-                "[degrade] {Session}: {Sites} subtracted sites, {Pool} stars to draw brightness from, {Saturated} saturated, {Moments} measured for elongation; PSF {Psf}",
-                sessionId, population.Sites, population.AmplitudePool, population.SaturatedPool, population.MomentPool,
-                string.Join(" / ", psf.Select(static p => string.Create(CultureInfo.InvariantCulture, $"{p.Fwhm:F2} px b{p.Beta:F2}"))));
+                "[degrade] {Session}: {Sites} subtracted sites, {Pool} stars to draw brightness from, {Saturated} saturated, {Moments} measured for elongation; {Family} profile {Psf}",
+                sessionId, population.Sites, population.AmplitudePool, population.SaturatedPool, population.MomentPool, options.Profile,
+                string.Join(" / ", drawnWith));
 
             var measures = options.MeasureInjection ? new InjectionMeasures(channels) : null;
             if (measures is not null)
@@ -601,10 +633,11 @@ public static partial class DatasetDegradationExporter
                     continue;
                 }
                 var drawn = star.Profiles[c];
-                if (InjectionMeasure.FitMoffat(diff[c], size, size, star.X, star.Y, drawn.FwhmPx * 1.2) is { Converged: true } fit)
+                if (measures.ReferenceFor(c, drawn) is { } reference
+                    && InjectionMeasure.FitMoffat(diff[c], size, size, star.X, star.Y, drawn.FwhmPx * 1.2) is { Converged: true } fit)
                 {
-                    measures.FwhmRatio[c].Add(fit.FwhmPx / drawn.FwhmPx);
-                    measures.BetaRatio[c].Add(fit.Beta / drawn.Beta);
+                    measures.FwhmRatio[c].Add(fit.FwhmPx / reference.FwhmPx);
+                    measures.BetaRatio[c].Add(fit.Beta / reference.Beta);
                     measures.BetaFitted[c].Add(fit.Beta);
                     if (c == 0)
                     {
