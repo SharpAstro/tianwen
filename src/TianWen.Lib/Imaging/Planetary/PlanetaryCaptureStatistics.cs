@@ -258,24 +258,30 @@ public static class PlanetaryCaptureStatistics
 
         // Every frame's quality, the grader's score over its own disk, and which frames the camera corrupted as it read them
         // out: those score zero, as the stacker grades them, and none of them is the reference, in a mean, a sampled limb or
-        // the quality's distribution (2024-12-15's Uranus-C glitch frame was all four, R5a).
+        // the quality's distribution (2024-12-15's Uranus-C glitch frame was all four, R5a). A frame whose planet the frame's
+        // edge cuts, or which holds none, is left out alike while the capture holds enough whole ones (FrameGrader.DropsCutFrames):
+        // an untracked Dobsonian lets the planet drift out of the field.
         var quality = new double[n];
         var corrupt = new bool[n];
+        var cut = new bool[n];
         var estimator = new LaplacianEnergyEstimator();
         await ForEachFrameAsync(stream, all, () => 0, (_, index, frame) =>
         {
-            quality[index] = FrameGrader.Grade(estimator, frame);
+            (var score, cut[index]) = FrameGrader.GradeAndCut(estimator, frame);
+            quality[index] = score;
             corrupt[index] = FrameGrader.IsCorruptReadout(frame);
         }, cancellationToken).ConfigureAwait(false);
-        var usableQuality = quality.Where((_, i) => !corrupt[i]).ToArray();
+        var dropCut = FrameGrader.DropsCutFrames(cut.Count(c => !c), n);
+        var leftOut = dropCut ? [.. corrupt.Select((c, i) => c || cut[i])] : corrupt;
+        var usableQuality = quality.Where((_, i) => !leftOut[i]).ToArray();
         if (usableQuality.Length < 3)
         {
             return null;
         }
-        var referenceIndex = Array.IndexOf(corrupt, false);
+        var referenceIndex = Array.IndexOf(leftOut, false);
         for (var i = referenceIndex + 1; i < n; i++)
         {
-            if (!corrupt[i] && quality[i] > quality[referenceIndex])
+            if (!leftOut[i] && quality[i] > quality[referenceIndex])
             {
                 referenceIndex = i;
             }
@@ -308,7 +314,7 @@ public static class PlanetaryCaptureStatistics
                     shiftX[index] = shift.Dx;
                     shiftY[index] = shift.Dy;
                     flux[index] = LightAround(frame, disk.X + shift.Dx, disk.Y + shift.Dy, 1.3 * disk.Radius, skyLevel / options.FullScaleAdu);
-                    if (corrupt[index])
+                    if (leftOut[index])
                     {
                         return;
                     }
@@ -321,13 +327,21 @@ public static class PlanetaryCaptureStatistics
             // A corrupted frame's shift and light are the glitch's (its full-scale rows pull the disk's bounding box and the
             // correlation), so each is carried over from its usable neighbours, in time: the arrays stay a frame each, as the
             // motion a synthetic capture replays must.
-            if (Array.IndexOf(corrupt, true) >= 0)
+            if (Array.IndexOf(leftOut, true) >= 0)
             {
                 var corruptFrames = Enumerable.Range(0, n).Where(i => corrupt[i]).ToArray();
-                progress?.Report($"left out {corruptFrames.Length} frame(s) the camera corrupted in readout ({string.Join("; ", corruptFrames.Select(i => $"{i}, which read a shift of {shiftX[i]:+0.00;-0.00}, {shiftY[i]:+0.00;-0.00} px"))}), their shift and light taken from their neighbours");
-                FillFromNeighbours(shiftX, corrupt, seconds);
-                FillFromNeighbours(shiftY, corrupt, seconds);
-                FillFromNeighbours(flux, corrupt, seconds);
+                if (corruptFrames.Length > 0)
+                {
+                    progress?.Report($"left out {corruptFrames.Length} frame(s) the camera corrupted in readout ({string.Join("; ", corruptFrames.Select(i => $"{i}, which read a shift of {shiftX[i]:+0.00;-0.00}, {shiftY[i]:+0.00;-0.00} px"))}), their shift and light taken from their neighbours");
+                }
+                var cutFrames = Enumerable.Range(0, n).Count(i => leftOut[i] && !corrupt[i]);
+                if (cutFrames > 0)
+                {
+                    progress?.Report($"left out {cutFrames} frame(s) whose planet the frame's edge cuts or which hold none, their shift and light taken from their neighbours");
+                }
+                FillFromNeighbours(shiftX, leftOut, seconds);
+                FillFromNeighbours(shiftY, leftOut, seconds);
+                FillFromNeighbours(flux, leftOut, seconds);
             }
             var (meanAll, meanBest) = (ShiftWorker.Mean(workers, best: false), ShiftWorker.Mean(workers, best: true));
             var limbWidthAll = LimbWidth(meanAll, disk.X, disk.Y, disk.Radius, skyLevel / options.FullScaleAdu);
@@ -339,7 +353,7 @@ public static class PlanetaryCaptureStatistics
 
             // Single frames' limbs, each fitted where its shift put its disk.
             var stride = Math.Max(1, options.LimbStride);
-            var sampled = Enumerable.Range(0, (n + stride - 1) / stride).Select(k => k * stride).Where(index => !corrupt[index]).ToArray();
+            var sampled = Enumerable.Range(0, (n + stride - 1) / stride).Select(k => k * stride).Where(index => !leftOut[index]).ToArray();
             var limbClock = Stopwatch.StartNew();
             // Each starts from the mean's fit, moved by the frame's shift, where there is one: beside its answer.
             var limbWorkers = await ForEachFrameAsync(stream, sampled, () => new List<FrameLimb>(), (own, index, frame) =>

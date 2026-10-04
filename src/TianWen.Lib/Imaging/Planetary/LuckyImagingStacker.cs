@@ -38,7 +38,7 @@ public sealed class LuckyImagingStacker
         var (master, alignment) = await FinalizeAsync(stacked, stream.Layout, options, ctx.Derotator?.Epoch.Utc, cancellationToken).ConfigureAwait(false);
         return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length)
         {
-            Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, TurnPx = ctx.TurnPx, ChannelAlignment = alignment,
+            Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, TurnPx = ctx.TurnPx, ChannelAlignment = alignment, FramesCut = FramesLeftOutAsCut(ctx.Grades),
         };
     }
 
@@ -270,7 +270,7 @@ public sealed class LuckyImagingStacker
         var (master, alignment) = await FinalizeAsync(stacked, stream.Layout, options, ctx.Derotator?.Epoch.Utc, cancellationToken).ConfigureAwait(false);
         return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length)
         {
-            Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, TurnPx = ctx.TurnPx, ChannelAlignment = alignment,
+            Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, TurnPx = ctx.TurnPx, ChannelAlignment = alignment, FramesCut = FramesLeftOutAsCut(ctx.Grades),
         };
     }
 
@@ -406,7 +406,7 @@ public sealed class LuckyImagingStacker
 
         return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length)
         {
-            Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, TurnPx = ctx.TurnPx, ChannelAlignment = alignment,
+            Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, TurnPx = ctx.TurnPx, ChannelAlignment = alignment, FramesCut = FramesLeftOutAsCut(ctx.Grades),
         };
     }
 
@@ -466,6 +466,17 @@ public sealed class LuckyImagingStacker
         var matcher = ctx.Matcher
             ?? throw new InvalidOperationException("PrepareAsync(includeAlignmentPoints: true) must produce an alignment-point matcher.");
         return (await AlignmentPointTracks.MeasureAsync(stream, ctx.Aligner, matcher, cancellationToken).ConfigureAwait(false), ctx.ReferenceIndex, matcher);
+    }
+
+    // The frames the grader left out because the frame's edge cut their planet or they held none (FrameGrader.WithoutCutFrames).
+    private static int FramesLeftOutAsCut(ImmutableArray<FrameGrade> grades)
+    {
+        var count = 0;
+        foreach (var grade in grades)
+        {
+            count += grade.Cut && grade.Score == 0 ? 1 : 0;
+        }
+        return count;
     }
 
     private sealed record StackContext(

@@ -38,20 +38,106 @@ public static class PlanetaryDisk
         using var rented = ArrayPoolHelper.Rent<float>(n);
         var luma = rented.AsSpan(0, n);
         LumaProxy.Fill(frame, full, luma);
+        return BoxOf(luma, w, h, Threshold(luma, sigmaAboveBackground), pad, minNeighbours, minPixels);
+    }
 
+    /// <summary>
+    /// <see cref="BoundingBox"/> at its defaults, and whether the frame's planet is cut by the frame's edge or missing from it
+    /// (<see cref="FrameGrader.IsCutOrEmpty"/>), from one pass over the frame's luminance: the grader asks both of every frame.
+    /// </summary>
+    internal static (PixelRect Box, bool CutOrEmpty) BoundingBoxAndCut(Image frame)
+    {
+        int w = frame.Width, h = frame.Height;
+        var n = w * h;
+        if (n == 0)
+        {
+            return (new PixelRect(0, 0, w, h), true);
+        }
+        using var rented = ArrayPoolHelper.Rent<float>(n);
+        var luma = rented.AsSpan(0, n);
+        LumaProxy.Fill(frame, new PixelRect(0, 0, w, h), luma);
+        var threshold = Threshold(luma, 3.0);
+        return (BoxOf(luma, w, h, threshold, pad: 4, minNeighbours: 0, minPixels: 16), CutOrEmpty(luma, w, h, threshold));
+    }
+
+    // The mean of the luminance plus `sigma` of its standard deviations.
+    private static float Threshold(ReadOnlySpan<float> luma, double sigma)
+    {
         double sum = 0, sum2 = 0;
-        for (var i = 0; i < n; i++)
+        for (var i = 0; i < luma.Length; i++)
         {
             double v = luma[i];
             sum += v;
             sum2 += v * v;
         }
+        var mean = sum / luma.Length;
+        var variance = (sum2 / luma.Length) - (mean * mean);
+        return (float)(mean + (sigma * Math.Sqrt(Math.Max(variance, 0))));
+    }
 
-        var mean = sum / n;
-        var variance = (sum2 / n) - (mean * mean);
-        var std = Math.Sqrt(Math.Max(variance, 0));
-        var threshold = (float)(mean + (sigmaAboveBackground * std));
+    // The planet is the largest blob above the threshold, its pixels joined by their edges; the frame's edge cuts it when the blob
+    // reaches the edge, and a blob under PlanetPixels is no planet.
+    private static bool CutOrEmpty(ReadOnlySpan<float> luma, int width, int height, float level)
+    {
+        var n = width * height;
+        using var rentedSeen = ArrayPoolHelper.Rent<bool>(n);
+        var seen = rentedSeen.AsSpan(0, n);
+        seen.Clear();
+        using var rentedQueue = ArrayPoolHelper.Rent<int>(n);
+        var queue = rentedQueue.AsSpan(0, n);
+        var (largest, largestTouches) = (0, false);
+        for (var start = 0; start < n; start++)
+        {
+            if (seen[start] || !(luma[start] > level))
+            {
+                continue;
+            }
+            // One blob, walked breadth first through the queue (each pixel enters it once).
+            var (head, tail, touches) = (0, 0, false);
+            seen[start] = true;
+            queue[tail++] = start;
+            while (head < tail)
+            {
+                var index = queue[head++];
+                var (x, y) = (index % width, index / width);
+                touches |= x == 0 || y == 0 || x == width - 1 || y == height - 1;
+                if (x > 0 && !seen[index - 1] && luma[index - 1] > level)
+                {
+                    seen[index - 1] = true;
+                    queue[tail++] = index - 1;
+                }
+                if (x < width - 1 && !seen[index + 1] && luma[index + 1] > level)
+                {
+                    seen[index + 1] = true;
+                    queue[tail++] = index + 1;
+                }
+                if (y > 0 && !seen[index - width] && luma[index - width] > level)
+                {
+                    seen[index - width] = true;
+                    queue[tail++] = index - width;
+                }
+                if (y < height - 1 && !seen[index + width] && luma[index + width] > level)
+                {
+                    seen[index + width] = true;
+                    queue[tail++] = index + width;
+                }
+            }
+            if (tail > largest)
+            {
+                (largest, largestTouches) = (tail, touches);
+            }
+        }
+        return largest < PlanetPixels || largestTouches;
+    }
 
+    /// <summary>The pixels a planet's blob needs (<see cref="FrameGrader.IsCutOrEmpty"/>); fewer and the frame holds none.</summary>
+    public const int PlanetPixels = 16;
+
+    // The extent of the luminance above `threshold` (a pixel counting only with `minNeighbours` bright neighbours), padded and
+    // clamped to the frame; the whole frame with fewer than `minPixels`.
+    private static PixelRect BoxOf(ReadOnlySpan<float> luma, int w, int h, float threshold, int pad, int minNeighbours, int minPixels)
+    {
+        var full = new PixelRect(0, 0, w, h);
         int minX = w, minY = h, maxX = -1, maxY = -1;
         long bright = 0;
         for (var y = 0; y < h; y++)
