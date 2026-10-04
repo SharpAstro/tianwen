@@ -121,6 +121,12 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
     /// to 0.3 the bands summed 4.15 to 4.48 over the three colours against the raw edge's 4.06.
     /// </summary>
     public double? EdgeReach { get; init; }
+
+    /// <summary>
+    /// Read Saturn's edge off its rings' outer rim as well as its polar limb (<see cref="PlanetaryFinestBand.RingEdge"/>, pooled bin by bin,
+    /// #1256): the polar arcs alone read the finest bands true only to about 0.15 cycles a pixel. No effect without rings.
+    /// </summary>
+    public bool RingEdge { get; init; }
 }
 
 /// <summary>A sharpened master and how it was sharpened: the first channel's derived gains (empty for the preset) and its edge's transfer.</summary>
@@ -174,6 +180,10 @@ public static class PlanetarySharpening
                 var diskTarget = limbWindow.Through(diffraction);
                 (models[c], diffractions[c]) = (diskTarget, diffraction);
                 var edge = PlanetaryFinestBand.LimbEdge(window, diskTarget, size, size, disk, fit, aspect);
+                if (options.RingEdge && disk.Rings is not null)
+                {
+                    edge = EdgeProfile.Pooled(edge, PlanetaryFinestBand.RingEdge(window, diskTarget, size, size, disk));
+                }
                 var physical = options.EdgeReach is { } reach
                     ? PlanetaryFinestBand.FitPhysical(edge, pupil.DiameterM / (wavelengthNm * 1e-9) / ShortExposurePsf.ArcsecPerRadian * limbWindow.ArcsecPerPixel, 0.02, reach)
                     : (PhysicalKernel?)null;

@@ -72,6 +72,33 @@ public class PlanetaryFinestBandTests
     }
 
     [Fact]
+    public void TheRingsRimReadsAKnownBlursTransfer()
+    {
+        // A ringed Saturn rendered sharp and through a known blur: the rim's edge, binned by distance from its ellipse in the ring plane,
+        // reads the blur (#1256). Measured against the render's own model, so what the twin's structured rings did to it is not in it.
+        const int size = 256;
+        var aspect = Astrometry.PhysicalEphemeris.Compute(Astrometry.Catalogs.CatalogIndex.Saturn, new DateTimeOffset(2023, 10, 10, 13, 20, 0, TimeSpan.Zero));
+        var options = PlanetaryLimbFit.OptionsFor(aspect);
+        var rings = options.Rings ?? throw new InvalidOperationException("Saturn has rings");
+        var placement = new DiskPlacement(127.6, 127.3, 48, NorthAngleDeg: 90);
+        var sharp = PlanetaryRender.Render(new PlanetMap([.. Enumerable.Repeat(1f, 360 * 180)], 360, 180), aspect, placement, size, size, 0.85,
+            supersample: 8, rings: rings);
+        var blurred = PlanetaryInverse.Apply(sharp, size, size, Gaussian);
+        var disk = new MetricDisk(placement.CenterX, placement.CenterY, placement.EquatorialRadius, options.AxisRatio, placement.NorthAngleDeg)
+        {
+            Rings = DiskRings.Of(placement.NorthAngleDeg, placement.NorthAngleDeg, options, rings),
+        };
+
+        var edge = PlanetaryFinestBand.RingEdge(blurred, sharp, size, size, disk);
+        edge.Counts.Sum().ShouldBeGreaterThan(1000);
+        foreach (var f in new[] { 0.1, 0.2, 0.3 })
+        {
+            TestContext.Current.TestOutputHelper?.WriteLine($"{f}: the rim reads {edge.TransferAt(f):0.000}, the blur's is {Gaussian(f):0.000}");
+            edge.TransferAt(f).ShouldBe(Gaussian(f), 0.03);
+        }
+    }
+
+    [Fact]
     public void APhysicalKernelFittedToTheEdgeCarriesItToTheCutoff()
     {
         var truth = new PhysicalKernel(12, 0.5, 0.05, 10, 0.94);

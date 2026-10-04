@@ -3513,6 +3513,30 @@ What it took:
 size, and the swinging fit gave it 0.58, so the globe brightens toward the limb (+0.03 to +0.05 at 0.8 to 0.875 radii). Outside, the
 model sits within 0.03 of the truth at the polar limb, where Jupiter's sits within 0.005.
 
+#### The rings' rim as a second edge (#1256): measured, not adopted
+
+`PlanetarySharpenOptions.RingEdge` (`planetary-sharpen --ring-edge`) reads the edge off the rings' outer rim as well as the polar limb
+(`PlanetaryFinestBand.RingEdge`). The rim's pixels are binned by their signed distance from it, the ring-plane radius over its gradient,
+on the rim clear of the globe by 1.15 radii, and pooled bin by bin with the limb (`EdgeProfile.Pooled`).
+
+**Rule, set before measuring:** band 2's transfer against the truth rises to at least 0.9, the band error falls, and the limb profile is no
+worse. Measured 2026-10-05 on the Saturn twin's master (seed 1), against its truth:
+
+| | Gains, bands 1 to 4 | Edge at 0.1 / 0.3 c/px | Green transfer, bands 1 to 4 | Band error r, g, b | Limb profile error r, g, b |
+|---|---|---|---|---|---|
+| the polar limb (today) | 1.00, 6.97, 1.03, 0.63 | 0.319 / 0.419 | 0.36, 0.86, 1.06, 0.99 | 1.29, 1.30, 1.48 | 0.022, 0.020, 0.021 |
+| the limb and the rim | 1.00, 17.40, -6.98, 3.47 | 0.375 / 0.188 | 0.53, 0.85, 0.79, 1.00 | 1.59, 1.55, 1.90 | 0.029, 0.034, 0.033 |
+
+- **Every score is worse.** The rim read far more blur at 0.3 cycles a pixel, so the gains ran wild: band 3 fell to 0.79 of the truth, and
+  the band error and the limb profile both worsened.
+- **The likely cause is the model, not the edge.** The truth draws the rings with radial structure (the A ring dims outward, and gaps lie
+  within the read's 16 px), while the limb fit holds each ring to one level and one slope. So the model's rim is not the truth's, and an
+  edge read against it is not the stack's kernel. The read itself is right: on a render through a known blur, against that render's own
+  rim, it reads the blur within 0.022 at 0.1 to 0.3 cycles a pixel, as the limb does (`TheRingsRimReadsAKnownBlursTransfer`). The
+  option stays as a measurement, and a ring model with the A ring's own structure is what it waits on.
+- **Today's limb read is nearer the truth than the 0.76 quoted in #1251:** green's band 2 reaches 0.86 and band 3 1.06 with today's code, a
+  seventh short in band 2 rather than a quarter.
+
 ### S5 De-rotation and colours moved by their limbs
 
 #1234. With the limb fit working, Saturn takes the per-frame de-rotation (its 10.6 h day) and the colour alignment by limb fits (#1202) that

@@ -121,6 +121,62 @@ public static class PlanetaryFinestBand
         return new EdgeProfile(profile.MoveToImmutable(), profileReference.MoveToImmutable(), [.. count]);
     }
 
+    /// <summary>
+    /// The edge across the outer rim of Saturn's rings as a stack shows it (#1256): <paramref name="plane"/> against <paramref name="reference"/>
+    /// (the limb fit's sharp model, rings and all, through the pupil's diffraction), both normalised and on <paramref name="disk"/>, in bins of
+    /// <see cref="EdgeBin"/> by signed distance from the rim, out to <see cref="EdgeReach"/> either side. The distance is the ring-plane radius's
+    /// departure from the rim over its gradient, so the rim's foreshortened ends read in pixels like its ansae. Only pixels farther than
+    /// <see cref="RingEdgeGlobeClearance"/> radii from the globe are read: in front of the globe or behind it the rim is not an edge against the
+    /// sky. Saturn's limb is the polar arcs alone, 1 to 8 px a bin, and reads the finest bands true only to about 0.15 cycles a pixel (S4); the
+    /// rim is a long sharp ellipse whose geometry the ephemeris gives. Empty without rings.
+    /// </summary>
+    public static EdgeProfile RingEdge(ReadOnlySpan<float> plane, ReadOnlySpan<float> reference, int width, int height, MetricDisk disk)
+    {
+        var bins = (int)Math.Round(2 * EdgeReach / EdgeBin);
+        var (sum, sumReference, count) = (new double[bins], new double[bins], new int[bins]);
+        if (disk.Rings is { } rings)
+        {
+            for (var y = 0; y < height; y++)
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    if (disk.RadiiAt(x, y) < RingEdgeGlobeClearance)
+                    {
+                        continue;
+                    }
+                    var rho = disk.RingPlaneRadiiAt(x, y);
+                    var (gx, gy) = (disk.RingPlaneRadiiAt(x + 0.5, y) - disk.RingPlaneRadiiAt(x - 0.5, y),
+                        disk.RingPlaneRadiiAt(x, y + 0.5) - disk.RingPlaneRadiiAt(x, y - 0.5));
+                    var gradient = Math.Sqrt((gx * gx) + (gy * gy));
+                    if (!(gradient > 0) || !double.IsFinite(rho))
+                    {
+                        continue;
+                    }
+                    var d = (rho - rings.OuterRadii) / gradient;
+                    var bin = (int)Math.Floor((d + EdgeReach) / EdgeBin);
+                    if (bin < 0 || bin >= bins)
+                    {
+                        continue;
+                    }
+                    var i = (y * width) + x;
+                    sum[bin] += plane[i];
+                    sumReference[bin] += reference[i];
+                    count[bin]++;
+                }
+            }
+        }
+        var (profile, profileReference) = (ImmutableArray.CreateBuilder<double>(bins), ImmutableArray.CreateBuilder<double>(bins));
+        for (var b = 0; b < bins; b++)
+        {
+            profile.Add(count[b] > 0 ? sum[b] / count[b] : double.NaN);
+            profileReference.Add(count[b] > 0 ? sumReference[b] / count[b] : double.NaN);
+        }
+        return new EdgeProfile(profile.MoveToImmutable(), profileReference.MoveToImmutable(), [.. count]);
+    }
+
+    /// <summary>How far from the globe, in its radii, the rings' rim is read (<see cref="RingEdge"/>): clear of where it crosses the globe.</summary>
+    public const double RingEdgeGlobeClearance = 1.15;
+
     /// <summary>The scale of the smooth disk taken out before a spectrum is read, px (a Gaussian's sigma): past 0.05 cycles a pixel it passes all.</summary>
     public const double SmoothSigma = 6;
 
@@ -343,6 +399,28 @@ public readonly record struct ElongatedKernel(PhysicalKernel Round, double Sigma
 /// </summary>
 public sealed record EdgeProfile(ImmutableArray<double> Plane, ImmutableArray<double> Reference, ImmutableArray<int> Counts)
 {
+    /// <summary>
+    /// Two edges of one stack read as one (#1256: Saturn's polar limb and its rings' rim): each bin the mean over both edges' pixels. One
+    /// kernel blurs both, and the plane and the reference mix in the same proportions bin by bin, so the transfer the pool reads is that
+    /// kernel's, from more pixels.
+    /// </summary>
+    public static EdgeProfile Pooled(EdgeProfile a, EdgeProfile b)
+    {
+        ArgumentNullException.ThrowIfNull(a);
+        ArgumentNullException.ThrowIfNull(b);
+        var bins = a.Counts.Length;
+        var (plane, reference, counts) = (ImmutableArray.CreateBuilder<double>(bins), ImmutableArray.CreateBuilder<double>(bins), ImmutableArray.CreateBuilder<int>(bins));
+        for (var i = 0; i < bins; i++)
+        {
+            var (na, nb) = (a.Counts[i], b.Counts[i]);
+            var n = na + nb;
+            plane.Add(n > 0 ? ((na > 0 ? a.Plane[i] * na : 0) + (nb > 0 ? b.Plane[i] * nb : 0)) / n : double.NaN);
+            reference.Add(n > 0 ? ((na > 0 ? a.Reference[i] * na : 0) + (nb > 0 ? b.Reference[i] * nb : 0)) / n : double.NaN);
+            counts.Add(n);
+        }
+        return new EdgeProfile(plane.MoveToImmutable(), reference.MoveToImmutable(), counts.MoveToImmutable());
+    }
+
     /// <summary>
     /// The transfer at <paramref name="cyclesPerPixel"/>: the Fourier transform of the plane's line spread (the edge differentiated) over the
     /// reference's, both under one Hann window across the reach, in magnitude so an outline a fraction of a pixel off does not turn it.
