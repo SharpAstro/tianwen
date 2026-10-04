@@ -388,7 +388,7 @@ public class DrizzleOutlierRejectionTests
         return frames;
     }
 
-    private static IntegrationJob BuildJob(List<RawBayerFrame> frames, IntegrationOptions options,
+    internal static IntegrationJob BuildJob(List<RawBayerFrame> frames, IntegrationOptions options,
         int canvasWidth = CanvasSize, int canvasHeight = CanvasSize)
     {
         // Re-enumerable, as the pipeline's producers are: a rejecting drizzle streams the frames twice.

@@ -43,17 +43,19 @@ internal readonly struct MomentsSink(DrizzleMoments moments) : IDropSink
 /// <paramref name="counts"/> is [rejected, total], a one-element-each array so the struct can count.
 /// <c>localY</c> is relative to the deposit's own rows; the moments may carry halo rows above them
 /// (<see cref="DrizzleMoments.RowOffset"/>).</summary>
-internal readonly struct ClippedSink(DrizzleMoments moments, DrizzleClip clip, float[][,] flux, float[][,] weight, long[] counts) : IDropSink
+internal readonly struct ClippedSink(DrizzleMoments moments, DrizzleClip clip, float[][,] flux, float[][,] weight, long[] counts, DrizzleScatter? scatter = null) : IDropSink
 {
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Add(int channel, int localY, int localX, float value, float area)
     {
         counts[1]++;
         var my = localY + moments.RowOffset;
+        var sum = moments.Sum[channel][my, localX];
+        var cellWeight = moments.Weight[channel][my, localX];
         if (!clip.Keeps(
                 value, area,
-                moments.Sum[channel][my, localX],
-                moments.Weight[channel][my, localX],
+                sum,
+                cellWeight,
                 moments.Squares[channel][my, localX],
                 moments.Slope[channel][my, localX]))
         {
@@ -63,6 +65,94 @@ internal readonly struct ClippedSink(DrizzleMoments moments, DrizzleClip clip, f
 
         flux[channel][localY, localX] += value * area;
         weight[channel][localY, localX] += area;
+        if (scatter is not null)
+        {
+            // Centred on the cell's all-sample mean from the statistics pass, so the square stays small where the
+            // values are ADU-sized and a float does not cancel (DrizzleScatter).
+            var d = value - (sum / cellWeight);
+            scatter.AreaSquares[channel][localY, localX] += area * area;
+            scatter.CentredSquares[channel][localY, localX] += area * d * d;
+        }
+    }
+}
+
+/// <summary>
+/// E16c step 2: per cell and channel, what the clipped deposit needs beyond flux and weight to give the master's
+/// STANDARD ERROR (<see cref="StandardErrorPlane"/>): the kept deposits' summed area squared, and their area-weighted
+/// squared deviation from the cell's all-sample mean (<see cref="DrizzleMoments"/>). With the kept flux and weight that
+/// is the kept deposits' area-weighted variance and effective count, and so the error of their weighted mean.
+/// </summary>
+/// <remarks>
+/// <para><b>Centred, so a float holds it.</b> A bake deposits ADU-sized values, whose squares are the difference of two
+/// numbers near 1e7 where the variance is near 1e2 (the reason <see cref="DrizzleClip.Keeps"/> works in double).
+/// Deviations from a mean already in hand are small, so their squares accumulate in float without cancelling; the
+/// cross term the formula also needs is the kept flux less the mean times the kept weight, formed in double.</para>
+/// <para><b>The kept deposits' own scatter is safe here, where it was not for a pixel column</b>: the drizzle clip
+/// decides each deposit once, leave-one-out against the statistics pass, so it cannot tighten on a cell until its
+/// survivors cluster, which is what failed the survivors' scatter under an iterated clip.</para>
+/// </remarks>
+internal sealed class DrizzleScatter
+{
+    public float[][,] AreaSquares { get; }
+
+    public float[][,] CentredSquares { get; }
+
+    public DrizzleScatter(int channels, int height, int width)
+    {
+        AreaSquares = new float[channels][,];
+        CentredSquares = new float[channels][,];
+        for (var c = 0; c < channels; c++)
+        {
+            AreaSquares[c] = new float[height, width];
+            CentredSquares[c] = new float[height, width];
+        }
+    }
+
+    /// <summary>
+    /// The standard error of each cell's weighted mean, times <paramref name="scale"/> (the master's own unit factor),
+    /// from the KEPT <paramref name="flux"/> and <paramref name="weight"/> (before they are divided into the master) and
+    /// the statistics pass's <paramref name="moments"/> (read past their halo rows, <see cref="DrizzleMoments.RowOffset"/>).
+    /// NaN where a cell kept nothing or under two effective deposits.
+    /// </summary>
+    public float[][,] StandardError(float[][,] flux, float[][,] weight, DrizzleMoments moments, float scale)
+    {
+        var channels = flux.Length;
+        var result = new float[channels][,];
+        for (var c = 0; c < channels; c++)
+        {
+            var h = flux[c].GetLength(0);
+            var w = flux[c].GetLength(1);
+            var plane = new float[h, w];
+            var (f, wt, aa, dd, sum, mw) = (flux[c], weight[c], AreaSquares[c], CentredSquares[c], moments.Sum[c], moments.Weight[c]);
+            var offset = moments.RowOffset;
+            Parallel.For(0, h, y =>
+            {
+                for (var x = 0; x < w; x++)
+                {
+                    double sw = wt[y, x];
+                    double saa = aa[y, x];
+                    double allWeight = mw[y + offset, x];
+                    if (sw <= 0 || saa <= 0 || allWeight <= 0)
+                    {
+                        plane[y, x] = float.NaN;
+                        continue;
+                    }
+                    var effective = sw * sw / saa;
+                    var denominator = sw - (saa / sw);
+                    if (effective < 2.0 - 1e-9 || denominator <= 0)
+                    {
+                        plane[y, x] = float.NaN;
+                        continue;
+                    }
+                    var mean = sum[y + offset, x] / allWeight;
+                    var sd = f[y, x] - (mean * sw);
+                    var variance = Math.Max(0.0, (dd[y, x] - (sd * sd / sw)) / denominator);
+                    plane[y, x] = (float)(Math.Sqrt(variance / effective) * scale);
+                }
+            });
+            result[c] = plane;
+        }
+        return result;
     }
 }
 

@@ -125,6 +125,71 @@ public class StandardErrorPlaneTests(ITestOutputHelper output)
         }
     }
 
+    /// <summary>
+    /// The drizzle's plane (<see cref="DrizzleScatter"/>), on the bake's terms: a flat RGGB sky of known noise, 60
+    /// dithered frames, the stack's own rejector and no normalisation, so the master is the sky over the source's full
+    /// scale. Each channel's error over the covered interior, RMS over the plane's RMS.
+    /// </summary>
+    [Fact]
+    public async System.Threading.Tasks.Task TheDrizzlePlanePredictsTheMastersOwnError()
+    {
+        const int frameSize = 64;
+        const int margin = 6;
+        const int canvas = frameSize + (2 * margin);
+        const int count = 60;
+        const float sky = 1000f;
+        const float sigma = 8f;
+        var frames = new List<RawBayerFrame>(count);
+        for (var f = 0; f < count; f++)
+        {
+            var rng = new Random(77 + f);
+            var (dx, dy) = ((float)((rng.NextDouble() * 6) - 3), (float)((rng.NextDouble() * 6) - 3));
+            var plane = new float[frameSize, frameSize];
+            for (var y = 0; y < frameSize; y++)
+            {
+                for (var x = 0; x < frameSize; x++)
+                {
+                    plane[y, x] = sky + (sigma * (float)Gaussian(rng));
+                }
+            }
+            var meta = new ImageMeta { Instrument = "synth-drizzle-stderr", SensorType = SensorType.RGGB };
+            var image = new Image([plane], BitDepth.Float32, maxValue: 65535f, minValue: 0f, pedestal: 0f, imageMeta: meta);
+            frames.Add(new RawBayerFrame(image, System.Numerics.Matrix3x2.CreateTranslation(dx + margin, dy + margin)));
+        }
+        var options = new IntegrationOptions(Rejector: StackingPipeline.BuildRejector(count), ApplyNormalization: false);
+
+        var result = await new DrizzleStrategy().RunAsync(
+            DrizzleOutlierRejectionTests.BuildJob(frames, options, canvas, canvas), TestContext.Current.CancellationToken);
+
+        var standardError = result.StandardError.ShouldNotBeNull("a rejecting drizzle measures it");
+        const float truth = sky / 65535f;
+        for (var c = 0; c < 3; c++)
+        {
+            double errorSquares = 0, planeSquares = 0;
+            var n = 0;
+            for (var y = margin + 4; y < canvas - margin - 4; y++)
+            {
+                for (var x = margin + 4; x < canvas - margin - 4; x++)
+                {
+                    var se = standardError[c, y, x];
+                    var master = result.Master[c, y, x];
+                    if (!float.IsFinite(se) || !float.IsFinite(master))
+                    {
+                        continue;
+                    }
+                    var error = master - truth;
+                    errorSquares += error * error;
+                    planeSquares += se * se;
+                    n++;
+                }
+            }
+            var ratio = Math.Sqrt(errorSquares / planeSquares);
+            output.WriteLine($"drizzle channel {c}: {n} cells, the master's error over the plane, RMS over RMS {ratio:F3}");
+            n.ShouldBeGreaterThan(1000);
+            ratio.ShouldBe(1.0, 0.05, $"channel {c}");
+        }
+    }
+
     [Fact]
     public void TheSidecarKeepsEveryLevelAndSaysWhereNothingWasMeasured()
     {
