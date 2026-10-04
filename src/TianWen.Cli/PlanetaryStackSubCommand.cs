@@ -70,7 +70,7 @@ internal sealed class PlanetaryStackSubCommand(
         };
         var derotateOpt = new Option<bool>("--derotate")
         {
-            Description = "Carry every frame through the planet's rotation to the run's middle before it is stacked, however short the run (R6): over a run of minutes the belts move and the limb does not. Needs the frames' timestamps. The north is the one the run's first and last quarters agree on. Without it a run of Jupiter is de-rotated when the planet's turn moves its disk's middle a pixel or more. Saturn is not de-rotated until its rings are carried through a de-rotation (S5, #1234).",
+            Description = "Carry every frame through the planet's rotation to the run's middle before it is stacked, however short the run (R6): over a run of minutes the belts move and the limb does not. Needs the frames' timestamps. The north is the one the run's first and last quarters agree on. Without it a run of Jupiter is de-rotated when the planet's turn moves its disk's middle a pixel or more. Saturn's globe turns under rings that stay where they lie (S5, #1234).",
         };
         var noDerotateOpt = new Option<bool>("--no-derotate")
         {
@@ -278,12 +278,7 @@ internal sealed class PlanetaryStackSubCommand(
             }
             if (derotate && (planet is not { } named || !PhysicalEphemeris.Supports(named)))
             {
-                consoleHost.WriteError("--derotate: name the planet to de-rotate (--planet jupiter); the capture's name does not say Jupiter.");
-                return 1;
-            }
-            if (derotate && planet is { } toTurn && PlanetaryLimbFit.Unmodelled(toTurn) is { } unmodelled)
-            {
-                consoleHost.WriteError($"--derotate: {unmodelled}, so a de-rotation would turn them as if they lay on the globe.");
+                consoleHost.WriteError("--derotate: name the planet to de-rotate (--planet jupiter or saturn); the capture's name does not say which.");
                 return 1;
             }
 

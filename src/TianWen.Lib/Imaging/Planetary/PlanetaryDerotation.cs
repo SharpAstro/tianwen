@@ -31,6 +31,11 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// through a <see cref="DerotationField"/> the stack's own resample applies: there the strip past the limit is the frame's
 /// pixel where it lies, so a stack's rim is the rotation's average and its inside the rotation taken out.
 /// </para>
+/// <para>
+/// <b>Saturn's rings do not turn with its globe</b> (S5, #1234): they are the same all the way round, so what the rotation moves
+/// is the globe alone. A pixel a ring the observer sees covers (<see cref="MetricDisk.RingTouched"/>: off the globe, or across it on
+/// the near side) keeps its own pixel at either end, and no globe pixel reads its source from under one.
+/// </para>
 /// </summary>
 public static class PlanetaryDerotation
 {
@@ -153,6 +158,7 @@ public sealed class DerotationTarget
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
         (_width, _height, _minnaertK) = (width, height, minnaertK);
         var target = new PlanetaryProjection(to, toPlacement);
+        var rings = RingsOf(to, toPlacement);
         (_latitude, _west, _lightTo) = (new double[width * height], new double[width * height], new double[width * height]);
         var (latitudes, wests, lights) = (_latitude, _west, _lightTo);
         ParallelFor.Run(height, y =>
@@ -160,8 +166,9 @@ public sealed class DerotationTarget
             for (var x = 0; x < width; x++)
             {
                 var i = (y * width) + x;
-                // A pixel off the disk, or dark, is never de-rotated; NaN says so to every source instant.
-                if (target.TryUnproject(x, y, out var latitude, out var west) && target.Minnaert(x, y, minnaertK) is var lightTo and > 0)
+                // A pixel off the disk, dark, or under a ring is never de-rotated; NaN says so to every source instant.
+                if (target.TryUnproject(x, y, out var latitude, out var west) && target.Minnaert(x, y, minnaertK) is var lightTo and > 0
+                    && rings?.RingTouched(x, y) is not true)
                 {
                     (latitudes[i], wests[i], lights[i]) = (latitude, west, lightTo);
                 }
@@ -171,6 +178,19 @@ public sealed class DerotationTarget
                 }
             }
         });
+    }
+
+    // Saturn's rings about a globe where `placement` puts it at `aspect`, as the metrics read them (its north is the disk's axis); null for
+    // a planet without rings.
+    private static MetricDisk? RingsOf(in PlanetAspect aspect, in DiskPlacement placement)
+    {
+        var options = PlanetaryLimbFit.OptionsFor(aspect);
+        return options.Rings is { } rings
+            ? new MetricDisk(placement.CenterX, placement.CenterY, placement.EquatorialRadius, options.AxisRatio, placement.NorthAngleDeg)
+            {
+                Rings = DiskRings.Of(placement.NorthAngleDeg, placement.NorthAngleDeg, options, rings),
+            }
+            : null;
     }
 
     /// <summary>The grid's width.</summary>
@@ -200,6 +220,7 @@ public sealed class DerotationTarget
             throw new ArgumentException($"A {field.Width} x {field.Height} field for a {_width} x {_height} target.", nameof(field));
         }
         var source = new PlanetaryProjection(from, fromPlacement);
+        var rings = RingsOf(from, fromPlacement);
         var (fromX, fromY, limit) = (fromPlacement.CenterX, fromPlacement.CenterY, PlanetaryDerotation.SourceRadiusLimit * fromPlacement.EquatorialRadius);
         var (width, k, latitudes, wests, lights) = (_width, _minnaertK, _latitude, _west, _lightTo);
         var (sourceX, sourceY, relight, covered) = (field.SourceX, field.SourceY, field.Relight, field.Covered);
@@ -210,7 +231,8 @@ public sealed class DerotationTarget
                 var i = (y * width) + x;
                 if (lights[i] > 0 && source.TryProject(latitudes[i], wests[i], out var sx, out var sy)
                     && ((sx - fromX) * (sx - fromX)) + ((sy - fromY) * (sy - fromY)) < limit * limit
-                    && source.Minnaert(sx, sy, k) is var lightFrom and > 0)
+                    && source.Minnaert(sx, sy, k) is var lightFrom and > 0
+                    && rings?.RingTouched(sx, sy) is not true)
                 {
                     (sourceX[i], sourceY[i], relight[i], covered[i]) = ((float)sx, (float)sy, (float)(lights[i] / lightFrom), true);
                 }
