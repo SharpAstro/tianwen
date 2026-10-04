@@ -59,12 +59,11 @@ public static class PlanetaryBestStack
 
     /// <summary>
     /// The de-rotation a capture of <paramref name="planet"/> gets: every run when <paramref name="always"/>, else once its turn moves
-    /// the disk's middle <see cref="TurnWorthDerotatingPx"/>; null for a planet with no rotation model (or none named), and for one
-    /// whose outline the limb fit cannot model (<see cref="PlanetaryLimbFit.Unmodelled"/>: Saturn's rings, turned as if they lay on
-    /// its globe).
+    /// the disk's middle <see cref="TurnWorthDerotatingPx"/>; null for a planet with no rotation model (or none named). Saturn's globe
+    /// turns under rings that stay where they lie (S5, #1234).
     /// </summary>
     public static PlanetaryDerotationOptions? DerotationFor(CatalogIndex? planet, bool always = false)
-        => planet is { } turning && PhysicalEphemeris.Supports(turning) && PlanetaryLimbFit.Unmodelled(turning) is null
+        => planet is { } turning && PhysicalEphemeris.Supports(turning)
             ? new PlanetaryDerotationOptions(turning) { MinimumTurnPx = always ? 0 : TurnWorthDerotatingPx }
             : null;
 

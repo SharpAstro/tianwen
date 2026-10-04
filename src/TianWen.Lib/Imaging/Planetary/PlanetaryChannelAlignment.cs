@@ -64,10 +64,10 @@ public static class PlanetaryChannelAlignment
 
     /// <summary>
     /// The limb fit's options for <paramref name="planet"/> at <paramref name="instant"/>, or null where the colours are read by
-    /// correlation instead: no planet, one without a rotation model or one the fit cannot model (Saturn's rings), or no instant.
+    /// correlation instead: no planet, one without a rotation model, or no instant. Saturn's carry its rings (S5, #1234).
     /// </summary>
     public static LimbFitOptions? LimbOptionsFor(CatalogIndex? planet, DateTimeOffset? instant)
-        => planet is { } body && PhysicalEphemeris.Supports(body) && PlanetaryLimbFit.Unmodelled(body) is null && instant is { } when
+        => planet is { } body && PhysicalEphemeris.Supports(body) && instant is { } when
             ? PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(body, when))
             : null;
 
@@ -97,7 +97,9 @@ public static class PlanetaryChannelAlignment
                 "no disk stands out of the sky"));
         }
 
-        var (red, blue, greenCheck, reading) = (limb is { } options ? ByLimb(stacked, disk, step, phases, options) : null)
+        // A ringed fit starts from the rings' reach, never the bright area, which is the rings' as much as the globe's (S2).
+        var limbStart = limb?.Rings is { } rings ? PlanetaryLimbFit.StartRinged(stacked.GetChannelSpan(1), stacked.Width, stacked.Height, rings) : disk;
+        var (red, blue, greenCheck, reading) = (limb is { } options && limbStart is { } start ? ByLimb(stacked, start, step, phases, options) : null)
             ?? ByCorrelation(stacked, disk, step, phases);
 
         string? refusal = null;

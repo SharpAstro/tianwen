@@ -245,12 +245,13 @@ public class PlanetarySharpeningTests
     }
 
     [Fact]
-    public void SaturnIsNotDeRotatedUntilItsRingsAreCarried()
+    public void SaturnIsDeRotatedAsJupiterIs()
     {
-        // The limb fit models Saturn's rings (S2) and the sharpening reads around them (S4, #1184, SaturnSharpeningTests), but a de-rotation
-        // would turn the rings as if they lay on the globe: Saturn waits for S5 (#1234).
-        PlanetaryBestStack.DerotationFor(CatalogIndex.Saturn, always: true).ShouldBeNull();
+        // Saturn's globe turns under rings that stay where they lie (S5, #1234, SaturnDerotationTests), so a capture of either planet gets
+        // its de-rotation; a planet with no rotation model gets none.
+        PlanetaryBestStack.DerotationFor(CatalogIndex.Saturn, always: true).ShouldNotBeNull().Planet.ShouldBe(CatalogIndex.Saturn);
         PlanetaryBestStack.DerotationFor(CatalogIndex.Jupiter).ShouldNotBeNull();
+        PlanetaryBestStack.DerotationFor(CatalogIndex.Mars).ShouldBeNull();
     }
 
     // The fixture's truth and its stack: the truth blurred by the seeing, on a sky at 0.05, with a large stack's noise. The planet where

@@ -53,9 +53,10 @@ internal sealed class PlanetaryCompareSubCommand(IConsoleHost consoleHost)
             {
                 foreach (var (label, path) in items)
                 {
-                    if (!Image.TryReadFitsFile(path, out var image))
+                    // Another program's result is read as it was saved, a PNG or JPEG as well as a FITS (Image.TryReadImageFile).
+                    if (!Image.TryReadImageFile(path, out var image))
                     {
-                        consoleHost.WriteError($"{path}: not a readable FITS image");
+                        consoleHost.WriteError($"{path}: not a readable image");
                         return 1;
                     }
                     masters.Add((label, image));

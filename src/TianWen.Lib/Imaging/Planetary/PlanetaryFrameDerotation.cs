@@ -113,8 +113,9 @@ internal sealed class FrameDerotator
     /// <summary>
     /// How far <paramref name="planet"/>'s turn over <paramref name="stream"/> moves the middle of its disk, px on
     /// <paramref name="frame"/>'s grid: the central meridian's change from the first frame to the last, in radians, times the disk's
-    /// equatorial radius (<see cref="PlanetaryLimbFit.Start"/>, a ringed planet's rings in it) and the cosine of the latitude it is seen
-    /// from. NaN when the capture has no frame times, the planet no rotation model, or the frame no disk.
+    /// equatorial radius (<see cref="PlanetaryLimbFit.Start"/>; Saturn's globe from its rings' reach, <see cref="PlanetaryLimbFit.StartRinged"/>,
+    /// which the bright area would put 2.3 times too large) and the cosine of the latitude it is seen from. NaN when the capture has no frame
+    /// times, the planet no rotation model, or the frame no disk.
     /// </summary>
     internal static double TurnAtCentrePx(IPlanetaryFrameStream stream, CatalogIndex planet, Image frame)
     {
@@ -125,7 +126,11 @@ internal sealed class FrameDerotator
         }
         var (from, to) = (PhysicalEphemeris.Compute(planet, first), PhysicalEphemeris.Compute(planet, last));
         var turnDeg = Math.Abs(Math.IEEERemainder(to.CentralMeridianIII - from.CentralMeridianIII, 360));
-        return PlanetaryLimbFit.Start(frame.GetChannelSpan(0), frame.Width, frame.Height, PlanetaryLimbFit.OptionsFor(from).AxisRatio) is { } disk
+        var options = PlanetaryLimbFit.OptionsFor(from);
+        var start = options.Rings is { } rings
+            ? PlanetaryLimbFit.StartRinged(frame.GetChannelSpan(0), frame.Width, frame.Height, rings)
+            : PlanetaryLimbFit.Start(frame.GetChannelSpan(0), frame.Width, frame.Height, options.AxisRatio);
+        return start is { } disk
             ? disk.Radius * turnDeg * Math.PI / 180 * Math.Cos(from.SubObserverLatitudeCentric * Math.PI / 180)
             : double.NaN;
     }

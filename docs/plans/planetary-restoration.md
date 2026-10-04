@@ -3466,6 +3466,29 @@ Jupiter has.
 
 **Rule:** both read on the colour capture as they do on Jupiter's, and the de-rotation's quarters agree on north.
 
+**Measured (2026-10-04, `SaturnDerotationTests`, `planetary-stack`).** Both work on Saturn, and the north rule holds on the one capture
+long enough to read it. `PlanetaryLimbFit.Unmodelled` is gone.
+
+- **The colours are read by their ringed limbs** (`PlanetaryChannelAlignment.LimbOptionsFor` takes Saturn, and a ringed fit starts from
+  the rings' reach, `StartRinged`, never the bright area). On a rendered ringed Saturn, at a colour plane's scale, both colours read
+  within 0.02 px of where they were put. On the S3 twin, against its truths' dispersion, red reads 0.17 px off (correlation 0.34) and blue
+  0.73 (correlation 0.69). Both readings err along the equator alone, where the rings and not the limb place a colour, and agree with
+  each other. The same fit puts the sharp truths within 0.17 px of their headers, so the twin's stacked blue lies about half a pixel
+  from where its truth says. That is the twin's or the stacker's, and it is left open. On the real 2022-10-09 capture the limb reads red
+  at (-1.43, -1.20) and blue at (+2.00, +1.62) px, correlation (-1.39, -1.18) and (+1.77, +1.49). Its ansae keep a blue tint at the
+  B ring's inner edge either way. The tint is symmetric, as no shift can be, and the C ring is bluer than the B ring.
+- **The globe turns under rings that stay where they lie** (`DerotationTarget`): a pixel a ring the observer sees covers
+  (`MetricDisk.RingTouched`) keeps its own value at either end, and no globe pixel reads its source from under one. A ringed Saturn
+  rendered 20 minutes apart (11.4 degrees, 5.6 px at a 28 px globe's middle) goes from 0.117 to 0.003 RMS against the later render, its
+  2,779 ring pixels as they lay. `FrameDerotator.TurnAtCentrePx` sizes the turn from the globe (`StartRinged`), which the bright area
+  put 2.3 times too large.
+- **North, on the EdgeHD 11 capture of 2022-10-25** (300 s, 2.8 degrees, 2.3 px at the globe's middle, so it is de-rotated unasked):
+  the run's quarters stand 0.0088 apart carried with the limb fit's north and 0.0144 turned over, so the capture agrees with the rings.
+  The 2022-10-09 capture (21 s) turns too little to tell, or to de-rotate.
+
+`planetary-compare` now reads another program's result as it was saved, a PNG or JPEG as well as a FITS, so a capture's `_post`
+can be set beside our master. Its numbers on a display image are its own disk's, sRGB-encoded and at its own scale.
+
 ### S6 Saturn's colour
 
 #1235. The colour target from OPAL's Saturn reflectance, by #1212's route through the CIE observer. The rings take the globe's gains.

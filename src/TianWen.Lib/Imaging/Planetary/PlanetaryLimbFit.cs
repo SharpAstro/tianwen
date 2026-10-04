@@ -90,17 +90,6 @@ public static class PlanetaryLimbFit
     private const double Supersample = 2;
 
     /// <summary>
-    /// Why what reads the fit cannot stand for <paramref name="planet"/> yet, or null where it can. Without its rings in the model a fit
-    /// swallowed Saturn's: on 2021-12-16 it put the globe's radius at 28.1 px, half again the 18.6 px the ephemeris and the plate scale
-    /// give, with a 9 px blur. The rings are in the model now (S2, #1232, <see cref="OptionsFor"/>), and the derived sharpening and the
-    /// metrics read around them (S4, #1184, <see cref="MetricDisk.Rings"/>); a de-rotation and the colour alignment still work on the globe
-    /// alone (S5, #1234), and decline Saturn until then.
-    /// </summary>
-    public static string? Unmodelled(CatalogIndex planet) => planet is CatalogIndex.Saturn
-        ? "Saturn's rings are not yet carried through a de-rotation or the colour alignment (#1234)"
-        : null;
-
-    /// <summary>
     /// The apparent polar over equatorial radius of an oblate planet seen from a planetocentric latitude
     /// <paramref name="latitudeCentricDeg"/>: <c>sqrt(sin^2 D + q^2 cos^2 D)</c> for the true ratio q = 1 - flattening.
     /// </summary>

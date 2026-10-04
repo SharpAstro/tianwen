@@ -1028,8 +1028,9 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   and anything divided by a model that falls to nothing rang. Without a telescope `PlanetaryDefault` with the limb kept as
   stacked. **Saturn is sharpened as Jupiter is** (S4, #1184): the sharpening is kept inside the globe and the rings' footprint
   (`ClearRadiiAt` at most 1) and the model is drawn past it; its limb's edge is the polar arcs alone, true to about 0.15 cycles a pixel, and
-  the raw edge still beat a physical kernel fitted short of that. It is never de-rotated nor its colours moved by their limbs
-  (`PlanetaryLimbFit.Unmodelled`, S5 #1234). **The window is the frame MIRRORED, never zero-padded**: zeros
+  the raw edge still beat a physical kernel fitted short of that. **Its globe turns under rings that stay where they lie** (S5, #1234):
+  a de-rotation never moves a `RingTouched` pixel nor reads a source under one, and its colours are read by their ringed limbs, a ringed
+  fit starting from `StartRinged`. **The window is the frame MIRRORED, never zero-padded**: zeros
   gave the moon finder a noiseless sky and it freed a tight crop's border (2022-10-09, `ATightCropsSharpeningLiftsNoSkyAboveTheStackOutsideTheLimb`),
   and **the metrics' sky on a crop with none past 2.5 radii is the farthest tenth past 1.3** (`PlanetaryMetrics.SkyLevel`, which errs large).
   **A colour master's finest band is kept as stacked** (`PlanetarySharpenOptions.ColourFinestBand`, #1187), the other gains fitted around
