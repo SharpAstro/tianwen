@@ -2855,6 +2855,44 @@ another.
 **What it cannot settle.** A foreign master's integration, where `k` is unknown; whether training on the candidate's
 plane helps a model, which is E16c's training step and H7's re-run; and the read share.
 
+#### E16c step 1's result: the finest scale is KILLED (2026-10-05)
+
+`noise-check --table` over the 82 halved sessions (`C:\temp\e2\e16c-table.tsv`), read by `e16c_read.py` as committed
+(`C:\temp\e2\e16c-read.txt`; the per-row header's two columns were labelled in the wrong order and were relabelled
+afterwards, the rule untouched).
+
+- **Parity holds exactly.** The shipped estimator re-run on each whole master equals the recorded anchor to 0.00 percent,
+  so the baseline is what the code gives.
+- **The kill fires.** On the validation split (135 session-channels over 51 sessions), the candidate's typical error is
+  x1.233 against the baseline's x1.250, and it reads under 0.90 on 83 against 65.
+- **Predictions 2 to 5 miss.**
+  - (2) Within 10 percent on 43 of 135 (31.9 percent), against the baseline's 57.
+  - (3) x1.233.
+  - (4) The two hard mono nights rise only from 0.31 to 0.45 (ASI1600MM Ha) and from 0.55 to 0.61 (ASI294MM Lagoon).
+  - (5) The dense star fields rise by 0.03 to 0.15 and stay at 0.46 to 0.79, but for two of the Sagittarius star
+    cloud's channels.
+- **(1) holds where it can be read, and it is the step's one lasting finding: `k` is a constant of the integration.**
+  - Drizzled: 0.806 in all three channels over 22 tuning sessions, sd of ln 0.004.
+  - Demosaiced: 0.695 / 0.769 / 0.691 (R / G / B) over 8 sessions, sd 0.025 to 0.050. Green is its own, as the shape
+    measurement said.
+  - Mono: one tuning session (0.860), so it cannot be read.
+
+**What it says.** The candidate gains a little on the structured fields (68 of 135 readings move nearer the truth). But
+it reads the ordinary drizzled narrowband fields, where the blocks were at 0.91 to 0.95, about 5 percent lower (0.86 to
+0.90), so the bias moves to where the baseline was nearly right. On a real master the finest scale is not the clean band
+the synthetic filaments made it look. Star cores and sharp structure put several percent of themselves there on every
+field, and the structured fields keep most of their excess: their structure is fine too. The 2026-09-28 entry's limit
+holds for a second, quite different single-frame statistic. **No one-frame statistic tried so far separates shared fine
+structure from noise on these masters.**
+
+What remains, in the order the evidence points:
+- **The stacker's per-pixel standard error** (the 2026-09-28 entry's last paragraph): a measurement of the scatter the
+  half pairs measure. It is exact for TianWen's own masters and does nothing for a foreign one.
+- **For H7's training, a true anchor for the injection.** The sub-calibration anchor reads the mono half pairs at 0.96 to
+  1.12. It leaves the deploy plane's over-read in place, which `est` measures.
+
+Both are the owner's choice: H7 waits on E16c by the owner's decision of 2026-10-05.
+
 ### 2026-10-05: H7, pre-registered
 
 Tracked by #1260. Written before any H7 export, cache or model existed; `training/denoise/run-h7.ps1` copies it into
