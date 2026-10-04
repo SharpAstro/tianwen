@@ -2904,7 +2904,7 @@ TianWen did not stack. Phases:
 | S1 | the plane in both per-pixel loops (`Integrator`, `StreamingIntegrator`; so InRamAllFrames, TilePipelined, Float16Staged, FootprintStaged), `IntegrationResult.StandardError`; the sidecar's writer and reader (`.stderr.fits.gz`, ln-coded), carried through `MasterPostProcessor`'s unit scale and crop | DONE 2026-10-05 |
 | S2 | the drizzle strategies (`DrizzleScatter`: the kept deposits' area squared and centred squared deviation, in both layouts) and ChunkedTwoPass (per-channel kept counts and centred squares; its one shared kept count, channel 0's, had divided every channel's sum) | DONE 2026-10-05: drizzle 1.002 to 1.010, two-pass 1.001 to 1.024, RMS over RMS |
 | S3 | the bake: master and half-master planes on `RegisteredSession`, the store's sidecar, MEASURED tile planes (`PlaneMeasured` on the row), recipe version 4; `MasterPostProcessor` scales and crops it with the master; `noise-check --anchor stderr` reads the sidecar | DONE 2026-10-05: at the sky each half's error reads its pair's spread at 0.96 to 1.04, the master's 1.01 to 1.06 |
-| S4 | the validation against the half pairs, pre-registered, on a re-bake of the halved sessions | |
+| S4 | the validation against the half pairs, pre-registered ("E16c S4" below), on a re-bake of the halved sessions | pre-registered 2026-10-05; a three-session pilot first, the 82 after R2a |
 | S5 | the runner reads the sidecar beside a master, the estimator its fallback | |
 
 **What the plane is, measured before it was fixed (`StandardErrorPlaneTests`).** The rule is one frame's noise, read
@@ -2941,6 +2941,52 @@ half really has there. A real half has 20 subs or more and a clip (`MinFramesPer
 **The sidecar's storage.** A map's usual quantisation spans `[0, max]` linearly and reads a non-finite pixel back as 0.
 Under bright star cores that loses a sky-level standard error, and it reads an uncovered pixel as noise known exactly.
 The standard error is therefore stored as its logarithm in 16 bits, with the bottom code reserved for "absent".
+
+#### E16c S4, the measured standard error against the half pairs, pre-registered (2026-10-05)
+
+Written before any real master carried a measured standard error, and before the pilot below returned a number.
+
+**The store** is `D:\Astro-Dataset\2026-10-05-stderr`. It holds the 73 halved sessions of the full store (82 readings
+with their pier sides), baked at recipe 4 with the full store's roots and arguments and two subs a cell: the owner's
+choice of 2026-10-05, all 82 readings, lean, after R2a.
+
+**A pilot runs first** (`C:\temp\e2\run-s4-pilot.ps1`): three of the 73 into a store of their own, each where the shipped
+estimator over-read most and each quick to bake. They are the ASI294MM's Lagoon 2022-06-28 (mono), the ASI533MC's Prawn
+2022-05-29 (demosaiced) and the Uranus-C's Lagoon 2023-08-03 (drizzled). Its question is one the fixture cannot ask. The
+bake integrates without normalising, so a pixel's scatter over a real night's subs holds the sky's drift and the
+transparency's too. The interleaved halves cancel both, so the measurement would over-read the pairs, most where the
+signal is bright. The pilot's three readings count in S4 as well; nothing is tuned on them.
+
+**The measure** is step 1's: `noise-check --cells 120 --seed 1 --anchor stderr --bright-gate relative --table`. It is
+read per reading and channel, as the quiet cells' median of the half pairs' difference over the prediction. The
+prediction is the master's measured error, smoothed at the plane's scale, times root of N (1/N_A + 1/N_B) / 2. Under 1
+is an over-read.
+
+The baseline is the shipped estimator (`blocks`) on the same masters and cells in the same run. In step 1 it was within
+10 percent on 102 of 226 session-channels (45.1 percent), with a typical error of x1.231 and 58 readings under 0.80. Its
+median was 0.559 on mono, 0.942 demosaiced and 0.913 drizzled.
+
+**Parity first.** The masters must be the same pixels as the full store's: `blocks` equals step 1's table within 1
+percent on every reading present in both. If it does not, the bake changed the masters and nothing below is read.
+
+**Predictions.** Nothing is fitted, so every session-channel counts and there is no tuning split.
+1. Within 10 percent on at least 85 percent of session-channels. Moderate confidence.
+2. A typical error, exp(mean |ln ratio|), of at most x1.06. Moderate.
+3. No dependence on structure: over the readings where `blocks` is under 0.80, the median is within 0.92 to 1.08.
+   Moderate. These are the nebula and dense star fields every single-frame statistic over-read.
+4. Each kind's median, mono, demosaiced and drizzled, is within 0.95 to 1.05. Moderate.
+5. The two hard mono nights, the ASI1600MM's Ha 2025-02-06 and the ASI294MM's Lagoon 2022-06-28, read within 10
+   percent. They were at 0.31 and 0.55. Moderate.
+6. Bright cells against the same session's quiet cells (the relative gate) are within 15 percent in at least 80
+   percent of the sessions that have them. Low to moderate: a bright pixel's scatter also carries the transparency.
+
+**KILL:** fewer than 70 percent of session-channels within 10 percent, or a typical error above x1.10. Either says the
+measurement is not the pairs' noise on real nights, and no plane is cut from it until the cause is found; frame-to-frame
+drift is the pilot's suspect.
+
+**What it cannot settle.** Whether a model trained on the measured plane does better, which is E16c's training step and
+H7's re-run. A foreign master, which keeps the estimator. And a star's core, where the scatter also holds the seeing,
+which the quiet cells leave out.
 
 ### 2026-10-05: H7, pre-registered
 
