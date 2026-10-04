@@ -80,7 +80,7 @@ public static class PlanetaryColourBalance
         {
             return (null, "colours left as captured: the limb did not fit");
         }
-        var disk = MetricDisk.From(fit, options.AxisRatio);
+        var disk = MetricDisk.From(fit, options);
         var (gains, _) = GainsFor(stacked, disk, JupiterDiskColour);
         if (!double.IsFinite(gains.R) || !double.IsFinite(gains.B) || gains.R <= 0 || gains.B <= 0)
         {

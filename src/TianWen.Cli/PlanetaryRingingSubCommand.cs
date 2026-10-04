@@ -143,7 +143,7 @@ internal sealed class PlanetaryRingingSubCommand(IConsoleHost consoleHost)
             {
                 return 1;
             }
-            var onto = truth.Disk with { AxisRatio = limbOptions.AxisRatio };
+            var onto = PlanetaryMeasureSubCommand.WithPlanet(truth.Disk, limbOptions);
             if (PlanetaryMeasureSubCommand.Register(stackImage, limbOptions, onto) is not { } stack
                 || PlanetaryLimbFit.Fit(stackImage, limbOptions) is not { } fit
                 || PlanetaryLimbKernel.Fit(stackImage, fit, limbOptions) is not { } wide)
@@ -151,7 +151,7 @@ internal sealed class PlanetaryRingingSubCommand(IConsoleHost consoleHost)
                 consoleHost.WriteError($"{input}: the stack's limb could not be fitted");
                 return 1;
             }
-            var own = MetricDisk.From(fit, limbOptions.AxisRatio);
+            var own = MetricDisk.From(fit, limbOptions);
             float[] Registered(ReadOnlySpan<float> plane) =>
                 PlanetaryMetrics.Shift(PlanetaryMetrics.Normalise(plane, width, height, own), width, height, stack.Disk.X - own.X, stack.Disk.Y - own.Y);
             var (originX, originY) = ((int)Math.Round(stack.Disk.X) - (size / 2), (int)Math.Round(stack.Disk.Y) - (size / 2));
@@ -273,7 +273,7 @@ internal sealed class PlanetaryRingingSubCommand(IConsoleHost consoleHost)
                 consoleHost.WriteError($"{stackPath}: the limb could not be fitted");
                 return null;
             }
-            var disk = MetricDisk.From(fit, options.AxisRatio);
+            var disk = MetricDisk.From(fit, options);
             double Rms(Func<double, bool> region)
             {
                 double sum = 0;

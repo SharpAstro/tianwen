@@ -71,7 +71,7 @@ internal sealed class PlanetaryKeepsSubCommand(IConsoleHost consoleHost)
             }
             var limbOptions = PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(planet, when));
             var (width, height) = (reader.Width, reader.Height);
-            var disk = truth.Disk with { AxisRatio = limbOptions.AxisRatio };
+            var disk = PlanetaryMeasureSubCommand.WithPlanet(truth.Disk, limbOptions);
             var truthPlane = PlanetaryMetrics.Normalise(truth.Plane, width, height, disk);
 
             // Each frame's rank by the gradient, as the stacker ranks them.

@@ -50,7 +50,10 @@ public sealed record LimbFitOptions(double AxisRatio, double PhaseAngleDeg = 0, 
 /// telescope's diffraction rings, which a single Gaussian cannot follow (#1050).</param>
 /// <param name="HaloWidth">The wing's sigma, in pixels.</param>
 /// <param name="RingLevels">Each of <see cref="LimbFitOptions.Rings"/>' brightness over the globe's (<paramref name="Brightness"/>), in
-/// their order; null without rings.</param>
+/// their order, at the ring's middle; null without rings.</param>
+/// <param name="RingSlopes">Each ring's brightness across its width, in [-1, 1]: its level at its outer edge is the middle's times one plus
+/// this, at its inner edge one minus (S4, #1184); null without rings. A B ring brightens toward the Cassini division and an A ring dims
+/// outward; with one flat level each, the fit stretched the globe to follow that light, 1.1 % large under a 6 px seeing.</param>
 public readonly record struct LimbFit(
     double CenterX,
     double CenterY,
@@ -72,7 +75,8 @@ public readonly record struct LimbFit(
     double NorthAngleDeg = 0,
     double HaloFraction = 0,
     double HaloWidth = 0,
-    double[]? RingLevels = null);
+    double[]? RingLevels = null,
+    double[]? RingSlopes = null);
 
 /// <summary>
 /// Fits a planet's disk at its limb with a forward model (docs/plans/planetary-restoration.md, R1): an oblate disk of the
@@ -88,12 +92,12 @@ public static class PlanetaryLimbFit
     /// <summary>
     /// Why what reads the fit cannot stand for <paramref name="planet"/> yet, or null where it can. Without its rings in the model a fit
     /// swallowed Saturn's: on 2021-12-16 it put the globe's radius at 28.1 px, half again the 18.6 px the ephemeris and the plate scale
-    /// give, with a 9 px blur. The rings are in the model now (S2, #1232, <see cref="OptionsFor"/>), but not in what reads it: the derived
-    /// sharpening draws the planet's model outside the limb (S4, #1184), and a de-rotation and the colour alignment work on the globe
-    /// alone (S5, #1234). Those decline Saturn until then.
+    /// give, with a 9 px blur. The rings are in the model now (S2, #1232, <see cref="OptionsFor"/>), and the derived sharpening and the
+    /// metrics read around them (S4, #1184, <see cref="MetricDisk.Rings"/>); a de-rotation and the colour alignment still work on the globe
+    /// alone (S5, #1234), and decline Saturn until then.
     /// </summary>
     public static string? Unmodelled(CatalogIndex planet) => planet is CatalogIndex.Saturn
-        ? "Saturn's rings are not yet drawn by what reads the limb fit (#1184)"
+        ? "Saturn's rings are not yet carried through a de-rotation or the colour alignment (#1234)"
         : null;
 
     /// <summary>
@@ -291,7 +295,7 @@ public static class PlanetaryLimbFit
             // A pixel's centre at (x, y) lies at ((x + 0.5) / bin - 0.5) in the binned frame.
             if (FitAt(binned, bw, bh, ((startX + 0.5) / bin) - 0.5, ((startY + 0.5) / bin) - 0.5, startRadius / bin, options, null, 200) is { } coarse)
             {
-                var seed = SeedFrom(coarse, ((coarse.CenterX + 0.5) * bin) - 0.5, ((coarse.CenterY + 0.5) * bin) - 0.5, coarse.EquatorialRadius * bin,
+                var seed = SeedFrom(coarse, options, ((coarse.CenterX + 0.5) * bin) - 0.5, ((coarse.CenterY + 0.5) * bin) - 0.5, coarse.EquatorialRadius * bin,
                     Math.Sqrt(Math.Max((coarse.PsfSigma * coarse.PsfSigma * bin * bin) - ((bin * bin) - 1) / 12.0, 0.25)));
                 return FitAt(plane, width, height, seed[0], seed[1], seed[2], options, (seed, coarse.SunSide), 30);
             }
@@ -307,7 +311,7 @@ public static class PlanetaryLimbFit
     /// </summary>
     public static LimbFit? Fit(ReadOnlySpan<float> plane, int width, int height, double startX, double startY, in LimbFit like, LimbFitOptions options)
     {
-        var seed = SeedFrom(like, startX, startY, like.EquatorialRadius, like.PsfSigma);
+        var seed = SeedFrom(like, options, startX, startY, like.EquatorialRadius, like.PsfSigma);
         return FitAt(plane, width, height, startX, startY, like.EquatorialRadius, options, (seed, like.SunSide), 30);
     }
 
@@ -335,7 +339,7 @@ public static class PlanetaryLimbFit
         }
         var model = new DiskModel(pixels, width, height, cover, fit.SunSide, fit.CenterX, fit.CenterY, fit.EquatorialRadius);
         // The fit's own parameters with no blur (a core under 0.05 cells is none), no halo, unit brightness and no sky.
-        var p = SeedFrom(fit, fit.CenterX, fit.CenterY, fit.EquatorialRadius, 0);
+        var p = SeedFrom(fit, options, fit.CenterX, fit.CenterY, fit.EquatorialRadius, 0);
         (p[6], p[7], p[11]) = (1, 0, 0);
         var values = new double[pixels.Count];
         model.Evaluate(p, values);
@@ -350,11 +354,17 @@ public static class PlanetaryLimbFit
     // A fit's parameters as the search holds them, with the centre, radius and core sigma given: how one fit seeds another. The
     // halo's share and width are held through their bounds (DiskModel.HaloFraction, HaloRatio), so they go back through them:
     // passing the share as it reads started the next search at a quarter of it.
-    private static double[] SeedFrom(in LimbFit fit, double centerX, double centerY, double radius, double sigma)
+    private static double[] SeedFrom(in LimbFit fit, LimbFitOptions options, double centerX, double centerY, double radius, double sigma)
     {
+        var sloped = DiskModel.Sloped(options.Rings?.Rings ?? []);
+        var slopes = new double[sloped.Length];
+        for (var j = 0; j < sloped.Length; j++)
+        {
+            slopes[j] = fit.RingSlopes is { } fitted && sloped[j] < fitted.Length ? fitted[sloped[j]] : 0;
+        }
         return [centerX, centerY, radius, fit.NorthAngleDeg * Math.PI / 180, fit.LimbDarkening, sigma, fit.Brightness, fit.Sky,
             fit.ZonalAlbedo2, fit.ZonalAlbedo4, fit.ZonalAlbedo1, 2 * fit.HaloFraction, fit.PsfSigma > 0 ? fit.HaloWidth / fit.PsfSigma : 3,
-            .. fit.RingLevels ?? []];
+            .. fit.RingLevels ?? [], .. slopes];
     }
 
     // The radius a coarse fit works at: enough pixels around the limb for the model's eight parameters, few enough to be quick.
@@ -421,9 +431,9 @@ public static class PlanetaryLimbFit
             var (side, end) = combinations[c];
             var model = new DiskModel(pixels, width, height, options, side, startX, startY, startRadius);
             var start = seed is { } s ? s.Parameters
-                : [startX, startY, startRadius, (startAxisAngleDeg * Math.PI / 180) + end, 0.9, 1.5, peak - sky, sky, 0, 0, 0, 0.05, 3, .. RingLevels(rings)];
+                : [startX, startY, startRadius, (startAxisAngleDeg * Math.PI / 180) + end, 0.9, 1.5, peak - sky, sky, 0, 0, 0, 0.05, 3, .. RingLevels(rings), .. new double[DiskModel.Sloped(rings).Length]];
             double[] step = [1e-3, 1e-3, 1e-3, 1e-5, 1e-4, 1e-4, 1e-4 * Math.Max(peak - sky, 1e-6), 1e-4 * Math.Max(peak - sky, 1e-6), 1e-4, 1e-4, 1e-4, 1e-4, 1e-3,
-                .. RingSteps(rings.Length)];
+                .. RingSteps(rings.Length), .. RingSteps(DiskModel.Sloped(rings).Length)];
             var fit = LevenbergMarquardt.Fit(start, observed.Length, (p, r) =>
             {
                 model.Evaluate(p, r);
@@ -439,7 +449,9 @@ public static class PlanetaryLimbFit
             var north = ((q[3] * 180 / Math.PI % 360) + 360) % 360;
             var candidate = new LimbFit(q[0], q[1], Math.Abs(q[2]), Normalise(north), q[4], Math.Abs(q[5]), q[6], q[7],
                 side, Math.Sqrt(2 * fit.Cost / observed.Length), observed.Length, errors, fit.Iterations, fit.Converged, q[8], q[9], q[10], north,
-                DiskModel.HaloFraction(q[11]), DiskModel.HaloRatio(q[12]) * Math.Abs(q[5]), q.Length > DiskModel.GlobeParameters ? q[DiskModel.GlobeParameters..] : null);
+                DiskModel.HaloFraction(q[11]), DiskModel.HaloRatio(q[12]) * Math.Abs(q[5]),
+                rings.Length > 0 ? q[DiskModel.GlobeParameters..(DiskModel.GlobeParameters + rings.Length)] : null,
+                rings.Length > 0 ? DiskModel.SlopesOf(rings, q[(DiskModel.GlobeParameters + rings.Length)..]) : null);
             candidates[c] = candidate;
         });
         LimbFit? best = null;
@@ -563,7 +575,8 @@ public static class PlanetaryLimbFit
     /// The model, rendered supersampled on a grid covering the annulus, blurred by a separable Gaussian, and read at the
     /// fitted pixels. Parameters: centre x, centre y, equatorial radius, axis angle (radians), Minnaert k, PSF sigma,
     /// brightness, sky, the zonal albedo's terms in the squared, fourth and first powers of the sine of latitude, and the
-    /// blur's wing: its share and its width over the core's; then, with rings, each ring's brightness over the globe's.
+    /// blur's wing: its share and its width over the core's; then, with rings, each ring's brightness over the globe's at its middle, and
+    /// each one's slope across its width (<see cref="LimbFit.RingSlopes"/>).
     /// <para>
     /// The rings (S2, #1232) are annuli in the equatorial plane, seen at the observer's latitude: a cell at (u, v) on the sky, in
     /// equatorial radii with v toward the model's north, crosses the plane at radius <c>sqrt(u^2 + v^2 / sin^2 D)</c>. A cell is lit by the
@@ -614,6 +627,8 @@ public static class PlanetaryLimbFit
         private readonly double[] _ringTransmission;
         private readonly double[] _ringSunTransmission;
         private readonly double[] _ringLevels;
+        private readonly double[] _ringSlopes;
+        private readonly int[] _sloped;
         // The Sun in the body frame (e1 along the equator, e2 the equator's direction nearest the observer, e3 the model's north
         // pole), the spheroid's polar over equatorial radius, and the Sun's direction in the frame where the spheroid is a unit sphere.
         private readonly double _sun1, _sun2, _sun3, _q;
@@ -628,6 +643,36 @@ public static class PlanetaryLimbFit
         public static double HaloFraction(double raw) => 0.5 * Math.Clamp(raw, 0, 0.999);
 
         public static double HaloRatio(double raw) => 1 + Math.Min(Math.Abs(raw - 1), 63);
+
+        // A ring's slope across its width, held in [-1, 1] so neither edge is brighter than twice the middle nor below nothing.
+        public static double RingSlope(double raw) => Math.Clamp(raw, -1, 1);
+
+        // The rings whose slope is fitted: B and A, bright and wide enough for their structure to move the fit (a nominal level of 0.3 or
+        // more). C and the Cassini division stay flat: faint and a few pixels wide, their slopes ran away (the C ring's level to -4e5 under
+        // a 6 px seeing) and took the radius with them.
+        public static int[] Sloped(System.Collections.Immutable.ImmutableArray<SaturnRing> rings)
+        {
+            var sloped = new List<int>();
+            for (var i = 0; i < rings.Length; i++)
+            {
+                if (rings[i].Level >= 0.3)
+                {
+                    sloped.Add(i);
+                }
+            }
+            return [.. sloped];
+        }
+
+        // Every ring's slope from the fitted ones (`fitted`, Sloped's order), zero for a ring held flat.
+        public static double[] SlopesOf(System.Collections.Immutable.ImmutableArray<SaturnRing> rings, ReadOnlySpan<double> fitted)
+        {
+            var (slopes, sloped) = (new double[rings.Length], Sloped(rings));
+            for (var j = 0; j < sloped.Length && j < fitted.Length; j++)
+            {
+                slopes[sloped[j]] = RingSlope(fitted[j]);
+            }
+            return slopes;
+        }
 
         public DiskModel(List<int> pixels, int width, int height, LimbFitOptions options, int sunSide, double x0, double y0, double radius)
         {
@@ -657,6 +702,8 @@ public static class PlanetaryLimbFit
             _ringTransmission = new double[rings.Length];
             _ringSunTransmission = new double[rings.Length];
             _ringLevels = new double[rings.Length];
+            _ringSlopes = new double[rings.Length];
+            _sloped = Sloped(rings);
 
             var phase = sunSide == 0 ? 0 : options.PhaseAngleDeg * Math.PI / 180;
             var tilt = options.SunTiltDeg * Math.PI / 180;
@@ -694,6 +741,10 @@ public static class PlanetaryLimbFit
             var ringCount = _ringInner.Length;
             // The levels where the parallel bands can read them: a span cannot be captured.
             p.Slice(GlobeParameters, ringCount).CopyTo(_ringLevels);
+            for (var j = 0; j < _sloped.Length; j++)
+            {
+                _ringSlopes[_sloped[j]] = p.Length > GlobeParameters + ringCount + j ? RingSlope(p[GlobeParameters + ringCount + j]) : 0;
+            }
 
             // Every cell is its own, so rows render in parallel bands with the same bits as one walk.
             ParallelFor.RunBands(_gridHeight, (firstRow, endRow) =>
@@ -797,6 +848,7 @@ public static class PlanetaryLimbFit
             }
 
             var near = v * sinD < 0;
+            var radius = Math.Sqrt(r2);
             double light = 0, through = 1;
             for (var i = 0; i < _ringInner.Length; i++)
             {
@@ -804,7 +856,9 @@ public static class PlanetaryLimbFit
                 var shaded = sun2 >= 0 ? Crossing(sun2, step, _ringOuter[i]) - Crossing(sun2, step, _ringInner[i]) : 0;
                 if (seen > 0)
                 {
-                    light += seen * (lit ? _ringLevels[i] : 0);
+                    // The ring's level at the cell's radius in its plane: its middle's, ramped across its width.
+                    var across = Math.Clamp(((2 * radius) - _ringInner[i] - _ringOuter[i]) / (_ringOuter[i] - _ringInner[i]), -1, 1);
+                    light += seen * (lit ? _ringLevels[i] * (1 + (_ringSlopes[i] * across)) : 0);
                 }
                 if (near)
                 {

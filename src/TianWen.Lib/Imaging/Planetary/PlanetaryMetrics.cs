@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Numerics;
+using TianWen.Lib.Astrometry;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.Planetary;
@@ -27,8 +29,21 @@ public readonly record struct MetricDisk(double X, double Y, double Radius, doub
         init => (_axisAngleDeg, _axis) = (value, Axis(value));
     }
 
+    /// <summary>
+    /// Saturn's rings about the disk, or none (S4 of docs/plans/planetary-restoration.md, #1184): what <see cref="ClearRadiiAt"/> and
+    /// <see cref="RingTouched"/> read, so a metric's sky lies past the rings and its limb is read where they leave it clear.
+    /// </summary>
+    public DiskRings? Rings { get; init; }
+
     /// <summary>A limb fit's disk, with the ephemeris' axis ratio.</summary>
     public static MetricDisk From(in LimbFit fit, double axisRatio) => new(fit.CenterX, fit.CenterY, fit.EquatorialRadius, axisRatio, fit.AxisAngleDeg);
+
+    /// <summary>A limb fit's disk with what its options say of it: the axis ratio and, for Saturn, its rings (<see cref="DiskRings.Of"/>).</summary>
+    public static MetricDisk From(in LimbFit fit, LimbFitOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        return From(fit, options.AxisRatio) with { Rings = options.Rings is { } rings ? DiskRings.Of(fit, options, rings) : null };
+    }
 
     /// <summary>Pixel (<paramref name="x"/>, <paramref name="y"/>)'s distance from the centre in radii of the ellipse: 1 on the limb.</summary>
     public double RadiiAt(double x, double y)
@@ -40,10 +55,96 @@ public readonly record struct MetricDisk(double X, double Y, double Radius, doub
         return Math.Sqrt((across * across / (Radius * Radius)) + (along * along / (AxisRatio * AxisRatio * Radius * Radius)));
     }
 
+    /// <summary>
+    /// Pixel (<paramref name="x"/>, <paramref name="y"/>)'s distance from the planet in its radii, the rings counted: the nearer of
+    /// <see cref="RadiiAt"/> and its ring-plane radius over the outer ring's, so 1 is the globe's limb along the axis and the A ring's edge
+    /// along the equator, and the sky lies past both. <see cref="RadiiAt"/> without rings.
+    /// </summary>
+    public double ClearRadiiAt(double x, double y)
+    {
+        var r = RadiiAt(x, y);
+        return Rings is { } rings ? Math.Min(r, RingPlaneRadiiAt(x, y, rings) / rings.OuterRadii) : r;
+    }
+
+    /// <summary>
+    /// Whether a ring the observer sees lies within <paramref name="marginPx"/> of pixel (<paramref name="x"/>, <paramref name="y"/>):
+    /// off the globe, or across it on the near side. Read at the pixel and eight points <paramref name="marginPx"/> about it. The rings'
+    /// shadow on the globe lies within a pixel or two of their near half at Saturn's small phase, inside such a margin. False without rings.
+    /// </summary>
+    public bool RingTouched(double x, double y, double marginPx = 2)
+    {
+        if (Rings is not { } rings)
+        {
+            return false;
+        }
+        for (var j = -1; j <= 1; j++)
+        {
+            for (var i = -1; i <= 1; i++)
+            {
+                var (px, py) = (x + (i * marginPx), y + (j * marginPx));
+                var rho = RingPlaneRadiiAt(px, py, rings);
+                if (rho >= rings.InnerRadii && rho <= rings.OuterRadii && (RadiiAt(px, py) > 1 || Axes(px, py).Along * rings.NearSign > 0))
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /// <summary>Pixel (<paramref name="x"/>, <paramref name="y"/>)'s radius in the rings' plane, in equatorial radii; NaN without rings.</summary>
+    public double RingPlaneRadiiAt(double x, double y) => Rings is { } rings ? RingPlaneRadiiAt(x, y, rings) : double.NaN;
+
+    // A point's ring-plane radius in equatorial radii: the plane is the equator's, seen at the rings' tilt.
+    private double RingPlaneRadiiAt(double x, double y, DiskRings rings)
+    {
+        var (along, across) = Axes(x, y);
+        var v = along / rings.SinB;
+        return Math.Sqrt((across * across) + (v * v));
+    }
+
+    // A point's offsets along the axis and across it, in equatorial radii.
+    private (double Along, double Across) Axes(double x, double y)
+    {
+        var (dx, dy) = (x - X, y - Y);
+        var (cos, sin) = _axis;
+        return (((dx * cos) + (dy * sin)) / Radius, ((-dx * sin) + (dy * cos)) / Radius);
+    }
+
     private static (double Cos, double Sin) Axis(double angleDeg)
     {
         var angle = angleDeg * Math.PI / 180;
         return (Math.Cos(angle), Math.Sin(angle));
+    }
+}
+
+/// <summary>
+/// Saturn's rings as a <see cref="MetricDisk"/> reads them: their inner and outer edges in the planet's equatorial radii, the sine of their
+/// tilt to the line of sight, and the side of the axis their near half crosses the globe on (+1 along the axis's direction, -1 against).
+/// </summary>
+public readonly record struct DiskRings(double InnerRadii, double OuterRadii, double SinB, int NearSign)
+{
+    /// <summary>The rings about a ringed limb fit's globe (S2), its north the end the rings told it.</summary>
+    public static DiskRings Of(in LimbFit fit, LimbFitOptions options, SaturnRings rings) => Of(fit.NorthAngleDeg, fit.AxisAngleDeg, options, rings);
+
+    /// <summary>
+    /// The rings about a globe whose north points to <paramref name="northAngleDeg"/> and whose disk's axis lies at <paramref name="axisAngleDeg"/>
+    /// (a twin's truth: its NORTHANG is both).
+    /// </summary>
+    public static DiskRings Of(double northAngleDeg, double axisAngleDeg, LimbFitOptions options, SaturnRings rings)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(rings);
+        var inner = double.PositiveInfinity;
+        foreach (var ring in rings.Rings)
+        {
+            inner = Math.Min(inner, ring.InnerKm);
+        }
+        var tilt = options.SubObserverLatitudeDeg * Math.PI / 180;
+        // The near half crosses the globe on the side away from the pole the observer sees, the north when the tilt is positive.
+        var north = Math.Cos((northAngleDeg - axisAngleDeg) * Math.PI / 180) >= 0 ? 1 : -1;
+        return new DiskRings(inner / PhysicalEphemeris.Radii(CatalogIndex.Saturn).Equatorial, rings.OuterRadii, Math.Max(Math.Abs(Math.Sin(tilt)), 1e-3),
+            tilt >= 0 ? -north : north);
     }
 }
 
@@ -134,7 +235,8 @@ public static class PlanetaryMetrics
         {
             for (var x = 0; x < width; x++)
             {
-                var r = disk.RadiiAt(x, y);
+                // Past Saturn's rings as well as its globe (S4).
+                var r = disk.ClearRadiiAt(x, y);
                 if (r >= SkyRadii)
                 {
                     sky.Add(plane[(y * width) + x]);
@@ -434,7 +536,7 @@ public static class PlanetaryMetrics
             for (var x = 0; x < width; x++)
             {
                 var ring = (int)Math.Floor((disk.RadiiAt(x, y) - inner) / step);
-                if (ring < 0 || ring >= rings)
+                if (ring < 0 || ring >= rings || disk.RingTouched(x, y))
                 {
                     continue;
                 }
@@ -492,7 +594,7 @@ public static class PlanetaryMetrics
         {
             for (var x = 0; x < width; x++)
             {
-                if (disk.RadiiAt(x, y) >= SkyRadii)
+                if (disk.ClearRadiiAt(x, y) >= SkyRadii)
                 {
                     sky.Add(plane[(y * width) + x]);
                 }
@@ -515,7 +617,8 @@ public static class PlanetaryMetrics
             for (var x = 1; x < width - 1; x++)
             {
                 var v = plane[(y * width) + x];
-                if (v <= median + Math.Max(sigmas * noise, minimumPeak) || disk.RadiiAt(x, y) <= 1.05 || !IsLocalMaximum(plane, width, x, y))
+                // Saturn's ring ansae are local maxima too, and no moons (S4).
+                if (v <= median + Math.Max(sigmas * noise, minimumPeak) || disk.ClearRadiiAt(x, y) <= 1.05 || !IsLocalMaximum(plane, width, x, y))
                 {
                     continue;
                 }
@@ -608,9 +711,19 @@ public static class PlanetaryMetrics
     /// The RMS difference between a stack's limb profile and the truth's over 0.8 to 1.2 radii (both normalised and registered):
     /// a limb that rings, or is softer or sharper than the truth's.
     /// </summary>
-    public static double LimbProfileError(ReadOnlySpan<float> stack, ReadOnlySpan<float> truth, int width, int height, MetricDisk disk)
+    public static double LimbProfileError(ReadOnlySpan<float> stack, ReadOnlySpan<float> truth, int width, int height, MetricDisk disk) =>
+        LimbProfileError(stack, truth, width, height, disk, 0.8, 1.2);
+
+    /// <summary>
+    /// The reach either side of the limb, px, over which planets of different sizes in pixels compare: a profile from 0.8 to 1.2 radii is
+    /// 12 px across a 30 px Saturn, nearly all of it the edge, and 19 across a 48 px Jupiter, whose flatter bins dilute its RMS (S4, #1184).
+    /// </summary>
+    public const double LimbReachPx = 6;
+
+    /// <summary>The RMS difference between a stack's limb profile and the truth's from <paramref name="inner"/> to <paramref name="outer"/> radii.</summary>
+    public static double LimbProfileError(ReadOnlySpan<float> stack, ReadOnlySpan<float> truth, int width, int height, MetricDisk disk, double inner, double outer)
     {
-        var (s, t) = (Profile(stack, width, height, disk, 0.8, 1.2), Profile(truth, width, height, disk, 0.8, 1.2));
+        var (s, t) = (Profile(stack, width, height, disk, inner, outer), Profile(truth, width, height, disk, inner, outer));
         double squares = 0;
         var count = 0;
         for (var i = 0; i < Math.Min(s.Length, t.Length); i++)
@@ -622,6 +735,71 @@ public static class PlanetaryMetrics
             }
         }
         return count > 0 ? Math.Sqrt(squares / count) : double.NaN;
+    }
+
+    /// <summary>
+    /// Saturn's rings against the truth's (S4 of docs/plans/planetary-restoration.md, #1184), each read as a radial profile in the rings'
+    /// plane off the globe (both ansae, in steps of a fiftieth of an equatorial radius): the RMS difference across the rings, from the C
+    /// ring's inner edge to the A ring's outer one (<paramref name="Rings"/>), and the most the plane stands above the truth past their
+    /// edge, out to 1.3 times it (<paramref name="PastTheEdge"/>, what a sharpening drew in the sky clear of them). NaN without rings.
+    /// </summary>
+    public static (double Rings, double PastTheEdge) RingProfileError(ReadOnlySpan<float> stack, ReadOnlySpan<float> truth, int width, int height, MetricDisk disk)
+    {
+        if (disk.Rings is not { } rings)
+        {
+            return (double.NaN, double.NaN);
+        }
+        const double Step = 0.02;
+        var (inner, outer) = (rings.InnerRadii, rings.OuterRadii * 1.3);
+        var (s, t) = (RingProfile(stack, width, height, disk, inner, outer, Step), RingProfile(truth, width, height, disk, inner, outer, Step));
+        double squares = 0, past = double.NegativeInfinity;
+        var count = 0;
+        for (var i = 0; i < s.Length; i++)
+        {
+            if (!double.IsFinite(s[i]) || !double.IsFinite(t[i]))
+            {
+                continue;
+            }
+            if (inner + ((i + 0.5) * Step) <= rings.OuterRadii)
+            {
+                squares += (s[i] - t[i]) * (s[i] - t[i]);
+                count++;
+            }
+            else
+            {
+                past = Math.Max(past, s[i] - t[i]);
+            }
+        }
+        return (count > 0 ? Math.Sqrt(squares / count) : double.NaN, double.IsFinite(past) ? past : double.NaN);
+    }
+
+    // The mean of `plane` in bins of ring-plane radius, from `inner` to `outer` equatorial radii, over the pixels off the globe.
+    private static double[] RingProfile(ReadOnlySpan<float> plane, int width, int height, MetricDisk disk, double inner, double outer, double step)
+    {
+        var bins = (int)Math.Ceiling((outer - inner) / step);
+        var (sum, count) = (new double[bins], new int[bins]);
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                if (disk.RadiiAt(x, y) <= 1.05)
+                {
+                    continue;
+                }
+                var bin = (int)Math.Floor((disk.RingPlaneRadiiAt(x, y) - inner) / step);
+                if (bin >= 0 && bin < bins)
+                {
+                    sum[bin] += plane[(y * width) + x];
+                    count[bin]++;
+                }
+            }
+        }
+        var profile = new double[bins];
+        for (var i = 0; i < bins; i++)
+        {
+            profile[i] = count[i] > 0 ? sum[i] / count[i] : double.NaN;
+        }
+        return profile;
     }
 
     /// <summary>
@@ -718,7 +896,7 @@ public static class PlanetaryMetrics
             for (var x = 0; x < width; x++)
             {
                 var ring = (int)Math.Floor((disk.RadiiAt(x, y) - inner) * 100);
-                if (ring >= 0 && ring < rings)
+                if (ring >= 0 && ring < rings && !disk.RingTouched(x, y))
                 {
                     sum[ring] += plane[(y * width) + x];
                     count[ring]++;

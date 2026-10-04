@@ -143,24 +143,18 @@ public static class PlanetaryBestStack
 
     /// <summary>
     /// <paramref name="master"/> sharpened as the pipeline sharpens it: by gains derived through the limb's edge when the planet (one
-    /// with a rotation model), the instant it shows (<paramref name="epoch"/>, else its own DATE-OBS and EXPTIME's middle) and the
-    /// telescope are known and its limb fits; by <see cref="WaveletSharpenOptions.PlanetaryDefault"/> with the limb kept as stacked
-    /// when only the telescope is missing; by the preset alone when the planet or the time is unknown, its outline is not one the
-    /// limb fit models (<see cref="PlanetaryLimbFit.Unmodelled"/>: Saturn's rings) or the limb does not fit. The words say which, and
-    /// why. The caller owns the image.
+    /// with a rotation model: Jupiter, or Saturn read around its rings since S4, #1184), the instant it shows (<paramref name="epoch"/>,
+    /// else its own DATE-OBS and EXPTIME's middle) and the telescope are known and its limb fits; by
+    /// <see cref="WaveletSharpenOptions.PlanetaryDefault"/> with the limb kept as stacked when only the telescope is missing; by the preset
+    /// alone when the planet or the time is unknown or the limb does not fit. The words say which, and why. The caller owns the image.
     /// </summary>
     public static (Image Sharpened, string How) Sharpen(Image master, CatalogIndex? planet, DateTimeOffset? epoch, Pupil? telescope,
         ImmutableArray<double> wavelengthsNm = default, PlanetaryLimbFix? fix = null)
     {
-        if (planet is { } named && PlanetaryLimbFit.Unmodelled(named) is { } unmodelled)
-        {
-            return (WaveletSharpen.Sharpen(master, WaveletSharpenOptions.PlanetaryDefault),
-                $"PlanetaryDefault: {unmodelled}, so the sharpening is not derived");
-        }
         if (SharpenOptionsFor(master, planet, epoch, telescope, wavelengthsNm) is not { } options)
         {
             return (WaveletSharpen.Sharpen(master, WaveletSharpenOptions.PlanetaryDefault),
-                "PlanetaryDefault: the sharpening is derived only for a named Jupiter with frame times");
+                "PlanetaryDefault: the sharpening is derived only for a named Jupiter or Saturn with frame times");
         }
         if (fix is { } chosen)
         {
@@ -192,14 +186,10 @@ public static class PlanetaryBestStack
         {
             return ([], "the gains are derived only for a telescope: give its aperture", null);
         }
-        if (planet is { } named && PlanetaryLimbFit.Unmodelled(named) is { } unmodelled)
-        {
-            return ([], $"{unmodelled}, so no gains are derived", null);
-        }
         // The gains and the limb do not depend on the limb fix, which only the batch sharpening applies; floored is the cheapest to make.
         if (SharpenOptionsFor(master, planet, epoch, telescope, wavelengthsNm) is not { } options)
         {
-            return ([], "the gains are derived only for a named Jupiter with frame times", null);
+            return ([], "the gains are derived only for a named Jupiter or Saturn with frame times", null);
         }
         if (PlanetarySharpening.Sharpen(master, options with { Fix = PlanetaryLimbFix.Floored }) is not { } result)
         {
@@ -243,8 +233,7 @@ public static class PlanetaryBestStack
     private static PlanetarySharpenOptions? SharpenOptionsFor(Image master, CatalogIndex? planet, DateTimeOffset? epoch, Pupil? telescope,
         ImmutableArray<double> wavelengthsNm)
     {
-        if (planet is not { } body || !PhysicalEphemeris.Supports(body) || PlanetaryLimbFit.Unmodelled(body) is not null
-            || InstantOf(master, epoch) is not { } instant)
+        if (planet is not { } body || !PhysicalEphemeris.Supports(body) || InstantOf(master, epoch) is not { } instant)
         {
             return null;
         }

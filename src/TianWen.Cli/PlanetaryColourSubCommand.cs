@@ -142,7 +142,7 @@ internal sealed partial class PlanetaryColourSubCommand(IConsoleHost consoleHost
                 }
                 var (width, height) = (image.Width, image.Height);
                 var (red, green, blue) = (image.GetChannelSpan(0).ToArray(), image.GetChannelSpan(1).ToArray(), image.GetChannelSpan(2).ToArray());
-                var disk = MetricDisk.From(fit, options.AxisRatio);
+                var disk = MetricDisk.From(fit, options);
                 var placement = new DiskPlacement(fit.CenterX, fit.CenterY, fit.EquatorialRadius, fit.NorthAngleDeg);
                 var sky = PlanetaryColour.Sky(red, green, blue, width, height, disk);
                 var mean = PlanetaryColour.DiskMean(red, green, blue, width, height, disk, sky);
@@ -295,7 +295,7 @@ internal sealed partial class PlanetaryColourSubCommand(IConsoleHost consoleHost
         {
             return null;
         }
-        var disk = MetricDisk.From(fit, options.AxisRatio);
+        var disk = MetricDisk.From(fit, options);
         var sky = PlanetaryColour.Sky(red, green, blue, width, height, disk);
         return new Composite(red, green, blue, width, height, aspect, new DiskPlacement(fit.CenterX, fit.CenterY, fit.EquatorialRadius, fit.NorthAngleDeg),
             options.AxisRatio, fit.AxisAngleDeg, sky, PlanetaryColour.DiskMean(red, green, blue, width, height, disk, sky));

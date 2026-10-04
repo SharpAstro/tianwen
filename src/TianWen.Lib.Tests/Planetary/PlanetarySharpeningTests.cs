@@ -245,23 +245,12 @@ public class PlanetarySharpeningTests
     }
 
     [Fact]
-    public void SaturnIsSharpenedByThePresetAndNotDeRotatedUntilItsRingsAreModelled()
+    public void SaturnIsNotDeRotatedUntilItsRingsAreCarried()
     {
-        // The limb fit has no rings: on 2021-12-16's Saturn it swallowed them (a globe half again too large), and the derivation
-        // read an edge whose transfer rose with frequency, freed the ring ansae as moons and turned the master green (#1184). Until
-        // the rings are modelled, Saturn takes the preset, says why, and is never de-rotated as if its rings lay on its globe.
-        var (_, stack) = NoisyStack();
-
-        var gains = PlanetaryBestStack.DeriveGains(stack, CatalogIndex.Saturn, Night, Telescope);
-        var (sharpened, how) = PlanetaryBestStack.Sharpen(stack, CatalogIndex.Saturn, Night, Telescope);
-
-        gains.Gains.ShouldBeEmpty();
-        gains.How.ShouldContain("#1184");
-        how.ShouldStartWith("PlanetaryDefault");
-        how.ShouldContain("rings");
+        // The limb fit models Saturn's rings (S2) and the sharpening reads around them (S4, #1184, SaturnSharpeningTests), but a de-rotation
+        // would turn the rings as if they lay on the globe: Saturn waits for S5 (#1234).
         PlanetaryBestStack.DerotationFor(CatalogIndex.Saturn, always: true).ShouldBeNull();
         PlanetaryBestStack.DerotationFor(CatalogIndex.Jupiter).ShouldNotBeNull();
-        sharpened.Release();
     }
 
     // The fixture's truth and its stack: the truth blurred by the seeing, on a sky at 0.05, with a large stack's noise. The planet where

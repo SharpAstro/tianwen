@@ -951,7 +951,11 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   planetocentric sub-observer latitude, and the render draws them in depth order with both shadows. **The limb fit models them too** (S2,
   #1232, `LimbFitOptions.Rings` from `OptionsFor`): each ring's level free, both shadows, both ends of the axis tried, a start from the
   rings' reach (`StartRinged`), and within a cell a ring's covered and shaded shares NESTED, never multiplied (the product darkened every
-  shared edge twice). **Read an OPAL Saturn map through
+  shared edge twice). **The B and A rings carry a slope across their width** (`LimbFit.RingSlopes`, S4, #1184): with flat levels their real
+  structure (B brightening to the Cassini division, A dimming outward) stretched the fitted globe up to 1.1 %, and so put every model drawn
+  from the fit outside its limb; C's and the division's slopes ran away and stay flat. **A metric reads Saturn as its globe and its rings**
+  (`MetricDisk.Rings`: `ClearRadiiAt` for the sky and what the sharpening keeps, `RingTouched` skipped by every limb read), and **a limb
+  profile compares planets over the same PIXELS** (`PlanetaryMetrics.LimbReachPx`), never the same radii. **Read an OPAL Saturn map through
   `PlanetMap.FilledZonally`**: a quarter of it is holes where the rings hid the globe, and the samples within 2 degrees of a hole read at a
   tenth of their row.
 - **A disk's centre and scale come from `PlanetaryLimbFit`, a forward model, never the centre of mass or an edge
@@ -1022,8 +1026,10 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   band, and let the positive ones through up to the stack's seeing glow, faint arcs, strongest on the lit side (the twins show the same,
   so it is never a capture's misfit). A model swapped in without the feather left a square seam at the window's edge at a deep stretch,
   and anything divided by a model that falls to nothing rang. Without a telescope `PlanetaryDefault` with the limb kept as
-  stacked. **Saturn is declined** (`PlanetaryLimbFit.Unmodelled`, #1184): the fit models its rings since S2 (#1232), but what reads the
-  fit does not draw them yet, so its sharpening is the preset, said so, and it is never de-rotated. **The window is the frame MIRRORED, never zero-padded**: zeros
+  stacked. **Saturn is sharpened as Jupiter is** (S4, #1184): the sharpening is kept inside the globe and the rings' footprint
+  (`ClearRadiiAt` at most 1) and the model is drawn past it; its limb's edge is the polar arcs alone, true to about 0.15 cycles a pixel, and
+  the raw edge still beat a physical kernel fitted short of that. It is never de-rotated nor its colours moved by their limbs
+  (`PlanetaryLimbFit.Unmodelled`, S5 #1234). **The window is the frame MIRRORED, never zero-padded**: zeros
   gave the moon finder a noiseless sky and it freed a tight crop's border (2022-10-09, `ATightCropsSharpeningLiftsNoSkyAboveTheStackOutsideTheLimb`),
   and **the metrics' sky on a crop with none past 2.5 radii is the farthest tenth past 1.3** (`PlanetaryMetrics.SkyLevel`, which errs large).
   **A colour master's finest band is kept as stacked** (`PlanetarySharpenOptions.ColourFinestBand`, #1187), the other gains fitted around
