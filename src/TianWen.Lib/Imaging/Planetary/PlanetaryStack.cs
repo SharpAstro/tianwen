@@ -244,4 +244,10 @@ public sealed record PlanetaryStackResult(Image Master, int ReferenceIndex, int 
     /// #1237): an untracked Dobsonian lets the planet drift out of its field.
     /// </summary>
     public int FramesCut { get; init; }
+
+    /// <summary>
+    /// How many alignment points the stack followed, 0 for a global one: <see cref="PlanetaryStackOptions.MaxAlignmentPoints"/> caps any grid
+    /// silently, and a cell whose gradient is under a fifth of the frame's strongest keeps none, so a denser grid can follow few more (#1195).
+    /// </summary>
+    public int AlignmentPoints { get; init; }
 }

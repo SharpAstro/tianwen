@@ -210,6 +210,10 @@ public class PlanetaryApStackTests
             var globalErr = MeanAbsDiffToBase(global.Master, baseDisk, region);
 
             apErr.ShouldBeLessThan(globalErr); // the mesh recovers the base better than a single translation
+
+            // The stack says how many points it followed, and a global one none (#1195: the default grid's cap bound silently).
+            ap.AlignmentPoints.ShouldBeInRange(1, options.MaxAlignmentPoints);
+            global.AlignmentPoints.ShouldBe(0);
         }
         finally
         {

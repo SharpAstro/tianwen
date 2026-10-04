@@ -39,6 +39,7 @@ public sealed class LuckyImagingStacker
         return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length)
         {
             Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, TurnPx = ctx.TurnPx, ChannelAlignment = alignment, FramesCut = FramesLeftOutAsCut(ctx.Grades),
+            AlignmentPoints = ctx.Matcher?.AlignmentPoints.Length ?? 0,
         };
     }
 
@@ -271,6 +272,7 @@ public sealed class LuckyImagingStacker
         return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length)
         {
             Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, TurnPx = ctx.TurnPx, ChannelAlignment = alignment, FramesCut = FramesLeftOutAsCut(ctx.Grades),
+            AlignmentPoints = ctx.Matcher?.AlignmentPoints.Length ?? 0,
         };
     }
 
@@ -407,6 +409,7 @@ public sealed class LuckyImagingStacker
         return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length)
         {
             Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, TurnPx = ctx.TurnPx, ChannelAlignment = alignment, FramesCut = FramesLeftOutAsCut(ctx.Grades),
+            AlignmentPoints = ctx.Matcher?.AlignmentPoints.Length ?? 0,
         };
     }
 

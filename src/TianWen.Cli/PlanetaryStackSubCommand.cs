@@ -403,7 +403,7 @@ internal sealed class PlanetaryStackSubCommand(
             var master = result.Master;
             consoleHost.WriteScrollable(
                 $"[planetary] {baseName}: stacked {result.FramesUsed}/{result.FramesGraded} frames " +
-                $"(reference #{result.ReferenceIndex}) in {sw.Elapsed.TotalSeconds:F1}s");
+                $"(reference #{result.ReferenceIndex}{(result.AlignmentPoints > 0 ? $", {result.AlignmentPoints} alignment points" : "")}) in {sw.Elapsed.TotalSeconds:F1}s");
             if (result.FramesCut > 0)
             {
                 consoleHost.WriteScrollable($"[planetary] left out {result.FramesCut} frames whose planet the frame's edge cuts or which hold none (it drifted out of the field)");
