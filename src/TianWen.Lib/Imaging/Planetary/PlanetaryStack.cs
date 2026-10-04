@@ -3,6 +3,19 @@ using TianWen.Lib.Astrometry.Catalogs;
 
 namespace TianWen.Lib.Imaging.Planetary;
 
+/// <summary>Where alignment points are placed (<see cref="PlanetaryStackOptions.PointPlacement"/>, #1253).</summary>
+public enum PlanetaryPointPlacement
+{
+    /// <summary>A cell's strongest gradient above a fifth of the strongest in the bright disk's box (every stack before #1253).</summary>
+    PeakFraction,
+
+    /// <summary>
+    /// Over the whole planet, rings included, a cell only where its square lies on it and its strongest gradient stands above the
+    /// frame's own noise (<see cref="FeatureDetector.DetectOverPlanet"/>).
+    /// </summary>
+    OverPlanet,
+}
+
 /// <summary>How an alignment point's shift is read (<see cref="PlanetaryStackOptions.PointEstimator"/>).</summary>
 public enum PlanetaryPointEstimator
 {
@@ -124,6 +137,12 @@ public sealed record PlanetaryStackOptions
 
     /// <summary>Maximum number of alignment points to track.</summary>
     public int MaxAlignmentPoints { get; init; } = 64;
+
+    /// <summary>
+    /// Where the alignment points are placed (#1253): by a fraction of the strongest gradient in the bright disk's box (the default), or
+    /// over the whole planet by the frame's own noise. The fraction leaves Saturn, whose strongest edges are its rings', 3 to 13 points.
+    /// </summary>
+    public PlanetaryPointPlacement PointPlacement { get; init; }
 
     /// <summary>Power-of-two patch edge phase-correlated per alignment point.</summary>
     public int AlignmentPatchSize { get; init; } = 32;
@@ -250,4 +269,7 @@ public sealed record PlanetaryStackResult(Image Master, int ReferenceIndex, int 
     /// silently, and a cell whose gradient is under a fifth of the frame's strongest keeps none, so a denser grid can follow few more (#1195).
     /// </summary>
     public int AlignmentPoints { get; init; }
+
+    /// <summary>How many cells qualified for a point before <see cref="PlanetaryStackOptions.MaxAlignmentPoints"/> capped them; 0 for a global stack.</summary>
+    public int AlignmentPointCandidates { get; init; }
 }
