@@ -21,8 +21,10 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// <param name="SubObserverLatitudeDeg">The planetocentric latitude the observer sees the disk from, which the zonal albedo's
 /// latitude counts in: without it one pole's dark cap reads larger than the other's, and the centre moves along the axis
 /// (0.15 px with Jupiter's poles alone, #1050).</param>
+/// <param name="Rings">Saturn's rings, in the model with the globe (S2 of docs/plans/planetary-restoration.md, #1232): their edges and
+/// optical depths are these, their tilt the observer's latitude, and each one's brightness is fitted. Null for a planet without rings.</param>
 public sealed record LimbFitOptions(double AxisRatio, double PhaseAngleDeg = 0, double AnnulusInner = 0.8, double AnnulusOuter = 1.2,
-    int? SunSide = null, double SunTiltDeg = 0, double SubObserverLatitudeDeg = 0);
+    int? SunSide = null, double SunTiltDeg = 0, double SubObserverLatitudeDeg = 0, SaturnRings? Rings = null);
 
 /// <summary>
 /// A disk fitted at its limb: where the planet is, how big, and how it lies in the image. Angles in degrees, image
@@ -47,6 +49,8 @@ public sealed record LimbFitOptions(double AxisRatio, double PhaseAngleDeg = 0, 
 /// <param name="HaloFraction">The share of the blur in its wide wing, a second Gaussian: seeing's Moffat wings and the
 /// telescope's diffraction rings, which a single Gaussian cannot follow (#1050).</param>
 /// <param name="HaloWidth">The wing's sigma, in pixels.</param>
+/// <param name="RingLevels">Each of <see cref="LimbFitOptions.Rings"/>' brightness over the globe's (<paramref name="Brightness"/>), in
+/// their order; null without rings.</param>
 public readonly record struct LimbFit(
     double CenterX,
     double CenterY,
@@ -67,7 +71,8 @@ public readonly record struct LimbFit(
     double ZonalAlbedo1 = 0,
     double NorthAngleDeg = 0,
     double HaloFraction = 0,
-    double HaloWidth = 0);
+    double HaloWidth = 0,
+    double[]? RingLevels = null);
 
 /// <summary>
 /// Fits a planet's disk at its limb with a forward model (docs/plans/planetary-restoration.md, R1): an oblate disk of the
@@ -81,14 +86,14 @@ public static class PlanetaryLimbFit
     private const double Supersample = 2;
 
     /// <summary>
-    /// Why the fit cannot stand for <paramref name="planet"/>'s outline, or null where it can. Saturn's rings lie outside its globe and
-    /// are not in the model, so a fit swallows them: on 2021-12-16's Saturn it put the globe's radius at 28.1 px, half again the
-    /// 18.6 px the ephemeris and the plate scale give, with a 9 px blur. Everything read off the outline goes with it (the derived
-    /// sharpening's edge, its bound and moons, a de-rotation's spheroid), so those decline such a planet until the rings are modelled
-    /// (#1184).
+    /// Why what reads the fit cannot stand for <paramref name="planet"/> yet, or null where it can. Without its rings in the model a fit
+    /// swallowed Saturn's: on 2021-12-16 it put the globe's radius at 28.1 px, half again the 18.6 px the ephemeris and the plate scale
+    /// give, with a 9 px blur. The rings are in the model now (S2, #1232, <see cref="OptionsFor"/>), but not in what reads it: the derived
+    /// sharpening draws the planet's model outside the limb (S4, #1184), and a de-rotation and the colour alignment work on the globe
+    /// alone (S5, #1234). Those decline Saturn until then.
     /// </summary>
     public static string? Unmodelled(CatalogIndex planet) => planet is CatalogIndex.Saturn
-        ? "Saturn's rings are not in the limb fit's model yet (#1184)"
+        ? "Saturn's rings are not yet drawn by what reads the limb fit (#1184)"
         : null;
 
     /// <summary>
@@ -102,12 +107,18 @@ public static class PlanetaryLimbFit
         return Math.Sqrt((Math.Sin(d) * Math.Sin(d)) + (q * q * Math.Cos(d) * Math.Cos(d)));
     }
 
-    /// <summary>The options the ephemeris gives for <paramref name="aspect"/>.</summary>
+    /// <summary>
+    /// The options the ephemeris gives for <paramref name="aspect"/>. Saturn's carry its rings, and the fitted pixels reach past the A
+    /// ring's outer edge by the same fifth of a radius Jupiter's annulus reaches past its limb.
+    /// </summary>
     public static LimbFitOptions OptionsFor(in PlanetAspect aspect)
     {
         var (west, north, _) = PhysicalEphemeris.SunOnTheDisk(aspect);
-        return new LimbFitOptions(ApparentAxisRatio(aspect.Flattening, aspect.SubObserverLatitudeCentric), aspect.PhaseAngle,
+        var options = new LimbFitOptions(ApparentAxisRatio(aspect.Flattening, aspect.SubObserverLatitudeCentric), aspect.PhaseAngle,
             SunTiltDeg: Math.Atan2(north, Math.Abs(west)) * 180 / Math.PI, SubObserverLatitudeDeg: aspect.SubObserverLatitudeCentric);
+        return aspect.Planet == CatalogIndex.Saturn
+            ? options with { Rings = SaturnRings.Main, AnnulusOuter = SaturnRings.Main.OuterRadii + 0.2 }
+            : options;
     }
 
     /// <summary>
@@ -117,9 +128,8 @@ public static class PlanetaryLimbFit
     public static LimbFit? Fit(Image image, LimbFitOptions options)
     {
         var plane = Luminance(image);
-        return Start(plane, image.Width, image.Height, options.AxisRatio) is { } start
-            ? Fit(plane, image.Width, image.Height, start.X, start.Y, start.Radius, options)
-            : null;
+        var start = options.Rings is { } rings ? StartRinged(plane, image.Width, image.Height, rings) : Start(plane, image.Width, image.Height, options.AxisRatio);
+        return start is { } at ? Fit(plane, image.Width, image.Height, at.X, at.Y, at.Radius, options) : null;
     }
 
     /// <summary>What a disk is fitted on: the mean of <paramref name="image"/>'s channels, row-major.</summary>
@@ -175,6 +185,95 @@ public static class PlanetaryLimbFit
     }
 
     /// <summary>
+    /// Where a fit of a ringed planet starts (S2, #1232): the centroid of the pixels above a quarter of the way from the sky to the
+    /// brightest, as <see cref="Start"/> takes it, and the globe's radius from how far those pixels reach along their long axis, which is
+    /// the rings'. The area <see cref="Start"/> reads a radius from is the rings' as much as the globe's. The reach is the 99.5th
+    /// percentile of the pixels' distances along the long axis, the outer ring's edge less a little; the fit takes it from there. Only
+    /// the largest connected group of those pixels is read: the 2022-10-09 colour stack carries a line at full brightness across its
+    /// top rows, which took the long axis and put the start at 70 px for a globe of 19. Null when nothing stands out of the sky.
+    /// </summary>
+    public static (double X, double Y, double Radius)? StartRinged(ReadOnlySpan<float> plane, int width, int height, SaturnRings rings)
+    {
+        ArgumentNullException.ThrowIfNull(rings);
+        var copy = plane.ToArray();
+        var sky = StatisticsHelper.NthSmallest(copy, (int)(0.05 * (copy.Length - 1)));
+        var disk = StatisticsHelper.NthSmallest(copy, (int)(0.99 * (copy.Length - 1)));
+        if (!(disk > sky))
+        {
+            return null;
+        }
+        var level = sky + (0.25 * (disk - sky));
+        var blob = LargestBlob(plane, width, height, level);
+        if (blob.Count < 50)
+        {
+            return null;
+        }
+        double sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0;
+        foreach (var index in blob)
+        {
+            var (x, y) = (index % width, index / width);
+            sx += x;
+            sy += y;
+            sxx += (double)x * x;
+            syy += (double)y * y;
+            sxy += (double)x * y;
+        }
+        var n = (double)blob.Count;
+        var (mx, my) = (sx / n, sy / n);
+        var major = 0.5 * Math.Atan2(2 * ((sxy / n) - (mx * my)), ((sxx / n) - (mx * mx)) - ((syy / n) - (my * my)));
+        var (cos, sin) = (Math.Cos(major), Math.Sin(major));
+        var reach = new double[blob.Count];
+        for (var i = 0; i < reach.Length; i++)
+        {
+            var (x, y) = (blob[i] % width, blob[i] / width);
+            reach[i] = Math.Abs(((x - mx) * cos) + ((y - my) * sin));
+        }
+        var extent = StatisticsHelper.NthSmallest(reach, (int)(0.995 * (reach.Length - 1)));
+        return (mx, my, extent / rings.OuterRadii);
+    }
+
+    // The largest group of pixels above `level` joined by their edges, as indices into the plane.
+    private static List<int> LargestBlob(ReadOnlySpan<float> plane, int width, int height, double level)
+    {
+        var seen = new bool[plane.Length];
+        var best = new List<int>();
+        var queue = new Queue<int>();
+        for (var start = 0; start < plane.Length; start++)
+        {
+            if (seen[start] || !(plane[start] > level))
+            {
+                continue;
+            }
+            var group = new List<int>();
+            seen[start] = true;
+            queue.Enqueue(start);
+            while (queue.TryDequeue(out var index))
+            {
+                group.Add(index);
+                var (x, y) = (index % width, index / width);
+                Visit(plane, x > 0 ? index - 1 : -1);
+                Visit(plane, x < width - 1 ? index + 1 : -1);
+                Visit(plane, y > 0 ? index - width : -1);
+                Visit(plane, y < height - 1 ? index + width : -1);
+            }
+            if (group.Count > best.Count)
+            {
+                best = group;
+            }
+        }
+        return best;
+
+        void Visit(ReadOnlySpan<float> values, int index)
+        {
+            if (index >= 0 && !seen[index] && values[index] > level)
+            {
+                seen[index] = true;
+                queue.Enqueue(index);
+            }
+        }
+    }
+
+    /// <summary>
     /// Fits the disk in <paramref name="plane"/> (row-major, <paramref name="width"/> x <paramref name="height"/>, any
     /// scale), starting from a centre and radius within a few pixels (<see cref="Start"/> gives one).
     /// Null when the start leaves too few pixels around the limb inside the frame.
@@ -221,9 +320,10 @@ public static class PlanetaryLimbFit
     public static float[] SharpModel(in LimbFit fit, LimbFitOptions options, int width, int height)
     {
         ArgumentNullException.ThrowIfNull(options);
-        // Every pixel the disk reaches, inside the model's own grid (which reaches 12 px past its annulus).
-        var cover = options with { AnnulusOuter = 1.05 };
-        var reach = (int)Math.Ceiling((1.05 * fit.EquatorialRadius) + 2);
+        // Every pixel the disk (and its rings) reach, inside the model's own grid (which reaches 12 px past its annulus).
+        var outer = options.Rings is { } rings ? rings.OuterRadii + 0.05 : 1.05;
+        var cover = options with { AnnulusOuter = outer };
+        var reach = (int)Math.Ceiling((outer * fit.EquatorialRadius) + 2);
         var (cx, cy) = ((int)Math.Round(fit.CenterX), (int)Math.Round(fit.CenterY));
         var pixels = new List<int>();
         for (var y = Math.Max(0, cy - reach); y <= Math.Min(height - 1, cy + reach); y++)
@@ -253,7 +353,8 @@ public static class PlanetaryLimbFit
     private static double[] SeedFrom(in LimbFit fit, double centerX, double centerY, double radius, double sigma)
     {
         return [centerX, centerY, radius, fit.NorthAngleDeg * Math.PI / 180, fit.LimbDarkening, sigma, fit.Brightness, fit.Sky,
-            fit.ZonalAlbedo2, fit.ZonalAlbedo4, fit.ZonalAlbedo1, 2 * fit.HaloFraction, fit.PsfSigma > 0 ? fit.HaloWidth / fit.PsfSigma : 3];
+            fit.ZonalAlbedo2, fit.ZonalAlbedo4, fit.ZonalAlbedo1, 2 * fit.HaloFraction, fit.PsfSigma > 0 ? fit.HaloWidth / fit.PsfSigma : 3,
+            .. fit.RingLevels ?? []];
     }
 
     // The radius a coarse fit works at: enough pixels around the limb for the model's eight parameters, few enough to be quick.
@@ -308,7 +409,9 @@ public static class PlanetaryLimbFit
             : options.SunSide is { } known ? [known]
             : new[] { 1, -1 };
         var startAxisAngleDeg = seed is null ? AxisFromShape(plane, width, height, startX, startY, startRadius, (sky + peak) / 2) : 0;
-        var ends = seed is not null || options.PhaseAngleDeg <= 0 || options.SunTiltDeg == 0 ? [0.0] : new[] { 0.0, Math.PI };
+        // Rings tell the ends apart too: their near half crosses the globe on the pole turned away, the far half goes behind it.
+        var ends = seed is not null || ((options.PhaseAngleDeg <= 0 || options.SunTiltDeg == 0) && options.Rings is null) ? [0.0] : new[] { 0.0, Math.PI };
+        var rings = options.Rings?.Rings ?? [];
 
         // The searches are independent, each with its own model, so they run at once; the best is chosen in their order.
         (int Side, double End)[] combinations = [.. Combinations(sides, ends)];
@@ -317,9 +420,10 @@ public static class PlanetaryLimbFit
         {
             var (side, end) = combinations[c];
             var model = new DiskModel(pixels, width, height, options, side, startX, startY, startRadius);
-            Span<double> start = seed is { } s ? s.Parameters
-                : [startX, startY, startRadius, (startAxisAngleDeg * Math.PI / 180) + end, 0.9, 1.5, peak - sky, sky, 0, 0, 0, 0.05, 3];
-            Span<double> step = [1e-3, 1e-3, 1e-3, 1e-5, 1e-4, 1e-4, 1e-4 * Math.Max(peak - sky, 1e-6), 1e-4 * Math.Max(peak - sky, 1e-6), 1e-4, 1e-4, 1e-4, 1e-4, 1e-3];
+            var start = seed is { } s ? s.Parameters
+                : [startX, startY, startRadius, (startAxisAngleDeg * Math.PI / 180) + end, 0.9, 1.5, peak - sky, sky, 0, 0, 0, 0.05, 3, .. RingLevels(rings)];
+            double[] step = [1e-3, 1e-3, 1e-3, 1e-5, 1e-4, 1e-4, 1e-4 * Math.Max(peak - sky, 1e-6), 1e-4 * Math.Max(peak - sky, 1e-6), 1e-4, 1e-4, 1e-4, 1e-4, 1e-3,
+                .. RingSteps(rings.Length)];
             var fit = LevenbergMarquardt.Fit(start, observed.Length, (p, r) =>
             {
                 model.Evaluate(p, r);
@@ -335,7 +439,7 @@ public static class PlanetaryLimbFit
             var north = ((q[3] * 180 / Math.PI % 360) + 360) % 360;
             var candidate = new LimbFit(q[0], q[1], Math.Abs(q[2]), Normalise(north), q[4], Math.Abs(q[5]), q[6], q[7],
                 side, Math.Sqrt(2 * fit.Cost / observed.Length), observed.Length, errors, fit.Iterations, fit.Converged, q[8], q[9], q[10], north,
-                DiskModel.HaloFraction(q[11]), DiskModel.HaloRatio(q[12]) * Math.Abs(q[5]));
+                DiskModel.HaloFraction(q[11]), DiskModel.HaloRatio(q[12]) * Math.Abs(q[5]), q.Length > DiskModel.GlobeParameters ? q[DiskModel.GlobeParameters..] : null);
             candidates[c] = candidate;
         });
         LimbFit? best = null;
@@ -347,6 +451,24 @@ public static class PlanetaryLimbFit
             }
         }
         return best;
+    }
+
+    // The rings' levels a search starts from: the nominal ones.
+    private static double[] RingLevels(System.Collections.Immutable.ImmutableArray<SaturnRing> rings)
+    {
+        var levels = new double[rings.Length];
+        for (var i = 0; i < levels.Length; i++)
+        {
+            levels[i] = rings[i].Level;
+        }
+        return levels;
+    }
+
+    private static double[] RingSteps(int count)
+    {
+        var steps = new double[count];
+        Array.Fill(steps, 1e-4);
+        return steps;
     }
 
     private static IEnumerable<(int Side, double End)> Combinations(int[] sides, double[] ends)
@@ -441,7 +563,14 @@ public static class PlanetaryLimbFit
     /// The model, rendered supersampled on a grid covering the annulus, blurred by a separable Gaussian, and read at the
     /// fitted pixels. Parameters: centre x, centre y, equatorial radius, axis angle (radians), Minnaert k, PSF sigma,
     /// brightness, sky, the zonal albedo's terms in the squared, fourth and first powers of the sine of latitude, and the
-    /// blur's wing: its share and its width over the core's.
+    /// blur's wing: its share and its width over the core's; then, with rings, each ring's brightness over the globe's.
+    /// <para>
+    /// The rings (S2, #1232) are annuli in the equatorial plane, seen at the observer's latitude: a cell at (u, v) on the sky, in
+    /// equatorial radii with v toward the model's north, crosses the plane at radius <c>sqrt(u^2 + v^2 / sin^2 D)</c>. A cell is lit by the
+    /// fraction of it inside each edge, as the limb's cells are, so the model moves smoothly as an edge crosses a cell. The half of the
+    /// rings nearer the observer (on the pole turned away) lies over the globe and lets through <see cref="SaturnRing.Transmission"/> of
+    /// it; the globe hides the far half. A face the Sun does not light is dark. Neither body's shadow on the other is drawn.
+    /// </para>
     /// <para>
     /// Measured against a rendered Jupiter (T1, #1050), two things the model lacked moved the fit. A cell the limb crosses
     /// was lit or dark by its centre alone, so the model jumped as the limb crossed a cell centre; on the sunlit limb of a
@@ -462,6 +591,9 @@ public static class PlanetaryLimbFit
     /// </summary>
     private sealed class DiskModel
     {
+        /// <summary>The globe's parameters, which the rings' levels follow.</summary>
+        public const int GlobeParameters = 13;
+
         private readonly List<int> _pixels;
         private readonly int _width;
         private readonly LimbFitOptions _options;
@@ -476,6 +608,16 @@ public static class PlanetaryLimbFit
         private readonly double[] _wing;
         private readonly double[] _coarse;
         private readonly double[] _coarseScratch;
+        // The rings' edges (equatorial radii) and how much of the globe behind each one shows.
+        private readonly double[] _ringInner;
+        private readonly double[] _ringOuter;
+        private readonly double[] _ringTransmission;
+        private readonly double[] _ringSunTransmission;
+        private readonly double[] _ringLevels;
+        // The Sun in the body frame (e1 along the equator, e2 the equator's direction nearest the observer, e3 the model's north
+        // pole), the spheroid's polar over equatorial radius, and the Sun's direction in the frame where the spheroid is a unit sphere.
+        private readonly double _sun1, _sun2, _sun3, _q;
+        private readonly double _hat1, _hat2;
 
         // The wing is blurred on a grid coarser by up to this: it is smooth by construction, at least twice the core.
         private const int MaxWingBin = 16;
@@ -506,6 +648,30 @@ public static class PlanetaryLimbFit
             // Sized for the finest coarse grid, a bin of two.
             _coarse = new double[((_gridWidth + 1) / 2) * ((_gridHeight + 1) / 2)];
             _coarseScratch = new double[_coarse.Length];
+
+            var rings = options.Rings is { } ringed && Math.Abs(Math.Sin(options.SubObserverLatitudeDeg * Math.PI / 180)) > 0.01 ? ringed.Rings : [];
+            var equatorial = PhysicalEphemeris.Radii(CatalogIndex.Saturn).Equatorial;
+            var sinB = Math.Sin(options.SubObserverLatitudeDeg * Math.PI / 180);
+            _ringInner = new double[rings.Length];
+            _ringOuter = new double[rings.Length];
+            _ringTransmission = new double[rings.Length];
+            _ringSunTransmission = new double[rings.Length];
+            _ringLevels = new double[rings.Length];
+
+            var phase = sunSide == 0 ? 0 : options.PhaseAngleDeg * Math.PI / 180;
+            var tilt = options.SunTiltDeg * Math.PI / 180;
+            var cosB = Math.Cos(options.SubObserverLatitudeDeg * Math.PI / 180);
+            var (su, sv, sw) = (sunSide * Math.Sin(phase) * Math.Cos(tilt), Math.Sin(phase) * Math.Sin(tilt), Math.Cos(phase));
+            (_sun1, _sun2, _sun3) = (su, (sw * cosB) - (sv * sinB), (sw * sinB) + (sv * cosB));
+            // The apparent axis ratio is sqrt(sin^2 B + q^2 cos^2 B).
+            _q = Math.Sqrt(Math.Max((options.AxisRatio * options.AxisRatio) - (sinB * sinB), 1e-6)) / Math.Max(Math.Abs(cosB), 1e-6);
+            var hatNorm = Math.Sqrt((_sun1 * _sun1) + (_sun2 * _sun2) + (_sun3 * _sun3 / (_q * _q)));
+            (_hat1, _hat2) = (_sun1 / hatNorm, _sun2 / hatNorm);
+            for (var i = 0; i < rings.Length; i++)
+            {
+                (_ringInner[i], _ringOuter[i], _ringTransmission[i], _ringSunTransmission[i]) =
+                    (rings[i].InnerKm / equatorial, rings[i].OuterKm / equatorial, rings[i].Transmission(sinB), rings[i].Transmission(_sun3));
+            }
         }
 
         public void Evaluate(ReadOnlySpan<double> p, Span<double> destination)
@@ -522,6 +688,12 @@ public static class PlanetaryLimbFit
             // the model takes as north, w toward the observer).
             var (su, sv, sw) = (_sunSide * Math.Sin(phase) * Math.Cos(tilt), Math.Sin(phase) * Math.Sin(tilt), Math.Cos(phase));
             var cell = 1 / Supersample;
+            // The rings' face toward the observer is lit when the Sun stands on the same side of their plane.
+            var ringsLit = Math.Sign((sw * sinD) + (sv * cosD)) == Math.Sign(sinD);
+            var axisRatio = _options.AxisRatio;
+            var ringCount = _ringInner.Length;
+            // The levels where the parallel bands can read them: a span cannot be captured.
+            p.Slice(GlobeParameters, ringCount).CopyTo(_ringLevels);
 
             // Every cell is its own, so rows render in parallel bands with the same bits as one walk.
             ParallelFor.RunBands(_gridHeight, (firstRow, endRow) =>
@@ -559,6 +731,10 @@ public static class PlanetaryLimbFit
                                 value = coverage * albedo * Math.Exp((k * Math.Log(mu0)) + ((k - 1) * Math.Log(Math.Max(mu, 1e-3))));
                             }
                         }
+                        if (ringCount > 0)
+                        {
+                            value = Ringed(value, coverage, u, v * axisRatio, a, sinD, cosD, cell, ringsLit);
+                        }
                         _grid[(gy * _gridWidth) + gx] = value;
                     }
                 }
@@ -594,6 +770,118 @@ public static class PlanetaryLimbFit
                 }
                 destination[i] = sky + (brightness * sum / (Supersample * Supersample));
             }
+        }
+
+        // A cell's brightness with the rings: the globe's (`globe`, unshadowed, the cell `coverage` of it on the disk) and each ring's
+        // share of the cell. (u, v) is the cell on the sky in equatorial radii, v toward the model's north; the line of sight crosses the
+        // plane at r^2 = u^2 + v^2 / sin^2 D, whose gradient, in pixels, is 2 / a sqrt(u^2 + (v / sin^2 D)^2). The near half (v sin D < 0)
+        // lies over the globe, passing exp(-tau / sin B) of it; the globe hides the far half and shades the rings; the rings shade the
+        // globe, passing exp(-tau / sin B') of the Sun's light.
+        // A ring's band seen against the globe and its shadow on the globe share their edges when the Sun is near the observer, and lie
+        // nearly parallel otherwise, so within a cell the two shares of one ring are taken as nested: the cell's part both covered and
+        // shaded is the smaller share. Their product, as if independent, darkened every such edge a second time (+0.3 % on the radius,
+        // lit from the observer). The same holds behind the globe for its outline and its shadow on the far half.
+        private double Ringed(double globe, double coverage, double u, double v, double a, double sinD, double cosD, double cell, bool lit)
+        {
+            var sin2 = sinD * sinD;
+            var r2 = (u * u) + (v * v / sin2);
+            var gradient = 2 / a * Math.Sqrt((u * u) + (v * v / (sin2 * sin2)));
+
+            // Where the ray toward the Sun from the globe's point under the cell crosses the plane, and r^2's change across a cell there.
+            var sun2 = globe > 0 ? SunwardRadius2(u, v, sinD, cosD) : -1;
+            var step = 0.0;
+            if (sun2 >= 0)
+            {
+                var (du, dv) = (SunwardRadius2(u + (cell / a), v, sinD, cosD), SunwardRadius2(u, v + (cell / a), sinD, cosD));
+                step = Math.Sqrt(((du < 0 ? 0 : du - sun2) * (du < 0 ? 0 : du - sun2)) + ((dv < 0 ? 0 : dv - sun2) * (dv < 0 ? 0 : dv - sun2)));
+            }
+
+            var near = v * sinD < 0;
+            double light = 0, through = 1;
+            for (var i = 0; i < _ringInner.Length; i++)
+            {
+                var seen = Inside(r2, gradient, cell, _ringOuter[i]) - Inside(r2, gradient, cell, _ringInner[i]);
+                var shaded = sun2 >= 0 ? Crossing(sun2, step, _ringOuter[i]) - Crossing(sun2, step, _ringInner[i]) : 0;
+                if (seen > 0)
+                {
+                    light += seen * (lit ? _ringLevels[i] : 0);
+                }
+                if (near)
+                {
+                    var both = Math.Min(seen, shaded);
+                    var (tv, ts) = (_ringTransmission[i], _ringSunTransmission[i]);
+                    through *= 1 - seen - shaded + both + ((seen - both) * tv) + ((shaded - both) * ts) + (both * tv * ts);
+                }
+                else
+                {
+                    through *= 1 - (shaded * (1 - _ringSunTransmission[i]));
+                }
+            }
+            if (light <= 0)
+            {
+                return globe * through;
+            }
+            var sunlit = 1 - GlobesShadow(u, -v / sinD, a, sinD, cell);
+            return near
+                ? (light * sunlit) + (globe * through)
+                : (globe * through) + (Math.Min(1 - coverage, sunlit) * light);
+        }
+
+        // The share of a cell inside the ring edge at `edge` equatorial radii, from the line of sight's r^2 and its gradient in pixels.
+        private static double Inside(double r2, double gradient, double cell, double edge)
+            => gradient > 0 ? Math.Clamp((((edge * edge) - r2) / gradient / cell) + 0.5, 0, 1) : (r2 < edge * edge ? 1 : 0);
+
+        // The share of a cell whose sunward rays cross the plane inside the ring edge at `edge`, from r^2 and its change across a cell.
+        private static double Crossing(double r2, double step, double edge)
+            => step > 0 ? Math.Clamp((((edge * edge) - r2) / step) + 0.5, 0, 1) : (r2 < edge * edge ? 1 : 0);
+
+        // The share of the cell at (x1, x2, 0) on the ring plane that the globe shades: the ray from it toward the Sun passes within d of
+        // the centre, in the frame where the spheroid is the unit sphere, and the cell is shaded where d < 1 on the Sun's side. Its edge is
+        // smoothed over the cell as the limb's is, by d's gradient in pixels (x1 = u, x2 = -v / sin B, each in equatorial radii).
+        private double GlobesShadow(double x1, double x2, double a, double sinD, double cell)
+        {
+            var along = (x1 * _hat1) + (x2 * _hat2);
+            if (along >= 0)
+            {
+                return 0;
+            }
+            var (p1, p2) = (x1 - (along * _hat1), x2 - (along * _hat2));
+            var d = Math.Sqrt((p1 * p1) + (p2 * p2) + (along * along * (1 - (_hat1 * _hat1) - (_hat2 * _hat2))));
+            if (d <= 0)
+            {
+                return 1;
+            }
+            var gradient = Math.Sqrt(((p1 / d / a) * (p1 / d / a)) + ((p2 / d / (a * sinD)) * (p2 / d / (a * sinD))));
+            return gradient > 0 ? Math.Clamp(((1 - d) / gradient / cell) + 0.5, 0, 1) : (d < 1 ? 1 : 0);
+        }
+
+        // The squared radius, equatorial radii, at which the ray toward the Sun from where the line of sight through (u, v) meets the
+        // spheroid crosses the ring plane; negative off the globe, or where the ray never crosses the plane (the Sun on the point's side).
+        // The line of sight (u, v, t) meets X1^2 + X2^2 + X3^2 / q^2 = 1 at X2 = t cos B - v sin B, X3 = t sin B + v cos B, nearer root.
+        private double SunwardRadius2(double u, double v, double sinD, double cosD)
+        {
+            if (_sun3 == 0)
+            {
+                return -1;
+            }
+            var q2Inverse = 1 / (_q * _q);
+            var qa = (cosD * cosD) + (sinD * sinD * q2Inverse);
+            var qb = 2 * v * sinD * cosD * (q2Inverse - 1);
+            var qc = (u * u) + (v * v * sinD * sinD) + (v * v * cosD * cosD * q2Inverse) - 1;
+            var discriminant = (qb * qb) - (4 * qa * qc);
+            if (discriminant < 0)
+            {
+                return -1;
+            }
+            var t = (-qb + Math.Sqrt(discriminant)) / (2 * qa);
+            var (x2, x3) = ((t * cosD) - (v * sinD), (t * sinD) + (v * cosD));
+            var s = -x3 / _sun3;
+            if (s <= 0)
+            {
+                return -1;
+            }
+            var (c1, c2) = (u + (s * _sun1), x2 + (s * _sun2));
+            return (c1 * c1) + (c2 * c2);
         }
 
         // The sharp model blurred by the wing's Gaussian of `sigma` cells, into the wing grid. A wing of a few cells is blurred

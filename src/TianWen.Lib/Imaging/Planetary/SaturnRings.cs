@@ -65,6 +65,9 @@ public sealed record SaturnRings(ImmutableArray<SaturnRing> Rings)
         }
     }
 
+    /// <summary>The outer edge of the outermost ring, in Saturn's equatorial radii.</summary>
+    public double OuterRadii => OuterKm / PhysicalEphemeris.Radii(CatalogIndex.Saturn).Equatorial;
+
     /// <summary>
     /// The ring at <paramref name="radius"/> equatorial radii from Saturn's centre; false in a gap, inside the C ring and beyond the A.
     /// </summary>
