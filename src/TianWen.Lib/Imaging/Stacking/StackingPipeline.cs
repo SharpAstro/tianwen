@@ -2342,6 +2342,7 @@ public sealed class StackingPipeline(
 
         // Temperature is left out of the grouping key and decided per set, by run rather than by
         // degree (CalibrationEpochs.SplitSets, the rule the dataset resolver groups by too).
+        var sets = new List<(bool Scope, MasterGroupKey Key, CalibrationEpochs.CalibrationSet Set)>();
         foreach (var group in frames.GroupBy(CalibrationEpochs.SetGroupKey))
         {
             // One master per EPOCH (task #25): a config whose library was re-shot years later must
@@ -2353,45 +2354,50 @@ public sealed class StackingPipeline(
             // master rather than one per degree it crossed.
             foreach (var set in CalibrationEpochs.SplitSets(group.ToList()))
             {
-                var list = set.Frames;
-                if (list.Count < 2) continue;
-                var key = group.Key with { TemperatureC = set.TemperatureC };
-                var epochSuffix = set.EpochSuffix;
-                var masterPath = Path.Combine(mastersDir, $"master_{key.Slug()}{pathSuffix}{epochSuffix}.fits");
-                var fingerprint = MasterFrameBuilder.InputSetFingerprint(list);
-
-                // Cache hit: a master from a previous run, trusted only when it declares THIS set of
-                // frames. A master is a pure function of its inputs and the builder, but its NAME
-                // says which configuration it serves, never which frames built it: once calibration
-                // was grouped by temperature run (#307 #96), a drifting run's master took the name
-                // one degree's master already had, and a cache trusting the name served that one.
-                // A master declaring no input set (every one written before this check) is rebuilt
-                // once. What the name still has to carry is the flat's pedestal KIND (pathSuffix).
-                if (File.Exists(masterPath))
-                {
-                    if (MasterFrameBuilder.ReadInputSet(masterPath) == (fingerprint, list.Count)
-                        && Image.TryReadFitsFile(masterPath, out var cached) && cached is not null)
-                    {
-                        masters.Add((key, cached));
-                        logger.LogInformation("  cached {File} ({Count} input frames)", Path.GetFileName(masterPath), list.Count);
-                        continue;
-                    }
-                    logger.LogInformation("  {File} was built from other frames than this set's {Count}, rebuilding",
-                        Path.GetFileName(masterPath), list.Count);
-                }
-
-                var master = await builder(key, list, ct);
-                masters.Add((key, master));
-                // Shared provenance cards (SWCREATE + DATE-BEG/DATE-END): this write had the same
-                // defect the dataset cache had -- the master inherited its subs' SWCREATE and
-                // declared nothing about itself or its input span. Plus the input set the check
-                // above reads back.
-                var headers = MasterFrameBuilder.ProvenanceHeaders(list);
-                MasterFrameBuilder.AddInputSetCards(headers, fingerprint, list.Count);
-                master.WriteToFitsFile(masterPath, null, headers);
-                logger.LogInformation("  built {File} ({Count} input frames, {Start:yyyy-MM-dd}..{End:yyyy-MM-dd}, {Range})",
-                    Path.GetFileName(masterPath), list.Count, set.Start, set.End, TemperatureClusters.DescribeRange(list));
+                sets.Add((false, group.Key with { TemperatureC = set.TemperatureC }, set));
             }
+        }
+
+        // And one per flat capture RUN whatever its exposures (sky flats), joined by folder.
+        foreach (var (_, key, set) in CalibrationEpochs.JoinFlatRuns(sets))
+        {
+            var list = set.Frames;
+            if (list.Count < 2) continue;
+            var epochSuffix = set.EpochSuffix;
+            var masterPath = Path.Combine(mastersDir, $"master_{key.Slug()}{pathSuffix}{epochSuffix}.fits");
+            var fingerprint = MasterFrameBuilder.InputSetFingerprint(list);
+
+            // Cache hit: a master from a previous run, trusted only when it declares THIS set of
+            // frames. A master is a pure function of its inputs and the builder, but its NAME
+            // says which configuration it serves, never which frames built it: once calibration
+            // was grouped by temperature run (#307 #96), a drifting run's master took the name
+            // one degree's master already had, and a cache trusting the name served that one.
+            // A master declaring no input set (every one written before this check) is rebuilt
+            // once. What the name still has to carry is the flat's pedestal KIND (pathSuffix).
+            if (File.Exists(masterPath))
+            {
+                if (MasterFrameBuilder.ReadInputSet(masterPath) == (fingerprint, list.Count)
+                    && Image.TryReadFitsFile(masterPath, out var cached) && cached is not null)
+                {
+                    masters.Add((key, cached));
+                    logger.LogInformation("  cached {File} ({Count} input frames)", Path.GetFileName(masterPath), list.Count);
+                    continue;
+                }
+                logger.LogInformation("  {File} was built from other frames than this set's {Count}, rebuilding",
+                    Path.GetFileName(masterPath), list.Count);
+            }
+
+            var master = await builder(key, list, ct);
+            masters.Add((key, master));
+            // Shared provenance cards (SWCREATE + DATE-BEG/DATE-END): this write had the same
+            // defect the dataset cache had -- the master inherited its subs' SWCREATE and
+            // declared nothing about itself or its input span. Plus the input set the check
+            // above reads back.
+            var headers = MasterFrameBuilder.ProvenanceHeaders(list);
+            MasterFrameBuilder.AddInputSetCards(headers, fingerprint, list.Count);
+            master.WriteToFitsFile(masterPath, null, headers);
+            logger.LogInformation("  built {File} ({Count} input frames, {Start:yyyy-MM-dd}..{End:yyyy-MM-dd}, {Range})",
+                Path.GetFileName(masterPath), list.Count, set.Start, set.End, TemperatureClusters.DescribeRange(list));
         }
         return masters;
     }

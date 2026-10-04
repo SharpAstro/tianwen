@@ -903,7 +903,9 @@ Planetary stacker below.
   `RawBayerFrames` twice; its parallel strips are BIT-IDENTICAL to serial (`DrizzleParallelBitIdentityTests`).
 - **Never re-ingest our own outputs** (`STACK_N > 0` or `SWCREATE`, unless `--include-integrations`).
 - **Calibration is grouped by temperature RUN; a session is matched on its lights' MEDIAN temperature**
-  (`CalibrationEpochs.SetGroupKey`, `SplitSets`, `CalibrationResolver.SessionKey`).
+  (`CalibrationEpochs.SetGroupKey`, `SplitSets`, `CalibrationResolver.SessionKey`); **a flat run is its
+  FOLDER whatever its exposures** (`JoinFlatRuns`, sky flats), never a flat key without exposure, which
+  blends separate nights.
 - **The archive scan is ONE function, `SessionDiscovery.ScanAsync`, and never excludes before reading**
   (`FitsHeaderIndex`; `--rebuild-session <wildcard>`).
 - **A master's width is its subs', plus the warp kernel's, plus misregistration** (`Lanczos3Clamped` is the

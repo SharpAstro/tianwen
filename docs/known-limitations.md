@@ -741,8 +741,24 @@ steps it while settling: the SV605CC's 2025-12-20 L-Quad run was 46 frames at 0.
 0.47808 s, two groups slugged alike, and two sessions took the 3-frame one. The grouping key is one
 function, `CalibrationEpochs.SetGroupKey` (temperature left to the set, a FLAT's exposure to three
 significant figures, a dark's kept exact for its scaling), called by both grouping paths. Of the 96
-filed flat and dark-flat runs two hold more than one exposure, that one and a flat wizard's probes
-(0.205 s and 16.4 s beside 6.68 s), which the rule keeps apart.
+filed flat and dark-flat runs two hold more than one exposure, that one and an ASI533 set with one
+frame each at 0.205 s and 16.4 s beside fifty at 6.68 s, which the rule kept apart as a wizard's
+probes.
+
+**And twilight sky flats split into singletons nothing could build** (2026-10-04). A sky flat's
+exposure follows the sky to hold the level: LDN 1622's QSI 683ws flats (2015) are twenty frames a
+filter at twenty exposures, dusk and dawn of two days, every one at 0.26 to 0.37 of full scale. Split
+by exposure, Blue and Green resolved no flat, Red a pair and H-alpha four frames (the 44.5 s set, which
+ended minutes nearer the lights than the 44.1 s set of thirteen). Dropping the exposure from the key was
+measured and refused: it changes six of the bake roots' 32 flat families, each a run of separate nights
+within the 30-day epoch that keeps one master per night only because each night's exposure differs,
+while the flat choice prefers the lights' own night. `CalibrationEpochs.JoinFlatRuns` joins only the sets
+of one family that share a FOLDER (one capture run), at the median exposure of their frames, in both
+grouping paths. In the bake roots that touches one folder besides LDN 1622's four: the ASI533 set
+above, whose "probes" measured at its own level (1.000 and 0.933 of its median mean, the fifty 0.996
+to 1.017), so they join and its key and name stay `6.68 s`. `dataset coverage` before and after: the
+four LDN 1622 sessions on 20-frame flats, the one ASI533 session on 52 frames instead of 50, the other
+144 rows unchanged.
 
 **Measured over the four bake roots once the Samyang frames all read 130 mm** (`dataset coverage`,
 before and after): sessions on a master of fewer than 10 frames 18 to 0, sessions passing over

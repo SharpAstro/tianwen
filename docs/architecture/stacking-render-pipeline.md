@@ -618,8 +618,10 @@ failure mode and the `ScanSummary` reporting: the architecture doc above.
 lights' MEDIAN temperature.** `MasterGroupKey.FromFrame` rounds one frame's `CCD-TEMP`; group
 calibration by `CalibrationEpochs.SetGroupKey` (a flat's exposure to three significant figures, since a
 flat wizard jitters it) and split with `CalibrationEpochs.SplitSets` (epochs, then `TemperatureClusters`
-runs at a measured 1.5 C), and key a session with `CalibrationResolver.SessionKey`, in the resolver,
-the coverage report and `tianwen stack` alike. By the degree, an uncooled run became one group per degree and 18 of
+runs at a measured 1.5 C), join the flat sets one FOLDER holds whatever their exposures with
+`CalibrationEpochs.JoinFlatRuns` (twilight sky flats; never across folders, which would blend nights),
+and key a session with `CalibrationResolver.SessionKey`, in the resolver, the coverage report and
+`tianwen stack` alike. By the degree, an uncooled run became one group per degree and 18 of
 145 sessions got masters of 2 to 7 frames; by `Lights[0]`, one unsettled first frame chose the dark.
 Flats rank filter, proof tier, then DAYS from the lights; temperature only breaks ties (a cold flat set
 had taken 18 sessions from their own). `docs/known-limitations.md`, 2026-09-24.

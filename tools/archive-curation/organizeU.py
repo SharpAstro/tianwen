@@ -1,4 +1,5 @@
-"""Group Q: LDN 1622 through a Takahashi FSQ-106 on a QSI 683ws (KAF-8300 CCD), R, G, B and H-alpha, into D:/Astro-Organized.
+"""Group U: LDN 1622 through a Takahashi FSQ-106 on a QSI 683ws (KAF-8300 CCD), R, G, B and H-alpha, into D:/Astro-Organized.
+(Filed as "group Q" on 2026-10-04 and renamed the same day: Q was already the 2023-09-15 LMC set's letter.)
 
 Writes only under --root. Same shape as organizeP: dry-run by default, collisions and existing destinations refused before
 anything is written, every frame verified by sha256, a manifest recording what was done. With --move the filed frames are
@@ -8,7 +9,10 @@ filing, the frames are compressed with NTFS WOF LZX (compact /c /exe:lzx, 1.8 to
 is transparent to every reader and is not a reparse point to FileEnumeration (checked: the attribute stays Archive).
 
 A shared data set, not our capture: a remote pier on Rowe Mesa, Rowe, New Mexico (the owner, 2026-10-04; the frames'
-SITELAT 35 19 30, SITELONG 105 43 01 agree), a dark site,
+SITELAT 35 19 30, SITELONG 105 43 01 agree), a dark site. MaxIm wrote both as TEXT, which the one header parse reads
+as no site at all, and the longitude WEST-positive: the frames' own CENTALT 43.2 / CENTAZ 232.3 put LDN 1622 at 45.5 / 228
+from -105.72 and 20 degrees below the horizon from +105.72. The 70 lights were given numeric SITELAT 35.325 and SITELONG
+-105.716944 (east positive) by `tianwen dataset tag-card` after filing, and re-compressed (CORRECTIONS.md, group U).
 MaxIm DL 5.24, December 2015 to January 2016, the photographer's notes in FSQ_LDN_1622.txt beside it (22.8 h). The first
 CCD in the archive and the first mono RGB set; every frame states IMAGETYP and FILTER, so nothing is inferred.
 
@@ -242,7 +246,7 @@ def main():
         if done % 25 == 0:
             print(f"  {done}/{len(copies)}")
     print(f"  {done}/{len(copies)} {'moved' if a.move else 'copied'} and verified")
-    man = a.manifest or f"{root}/_provenance/manifest-groupQ-LDN-1622-2015.csv"
+    man = a.manifest or f"{root}/_provenance/manifest-groupU-LDN-1622-2015.csv"
     os.makedirs(os.path.dirname(man), exist_ok=True)
     with open(man, "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=["action", "kind", "reason", "set", "src", "dst", "ino", "size", "sha256"])
