@@ -12,7 +12,8 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// The shader's VNG demosaic against <see cref="Image.DebayerVNGAsync"/>, on the same mosaic.
+/// The shader's VNG and MHC demosaics against <see cref="Image.DebayerVNGAsync"/> and <see cref="Image.DebayerMHCAsync"/>, on
+/// the same mosaic, and the shader's colour demosaics against a mosaic whose colours are each flat, out to the frame's edge.
 /// </summary>
 /// <remarks>
 /// <para>This is the test the MHC pair never got: <c>DebayerMhcTests</c> pins the CPU implementation
@@ -111,6 +112,83 @@ public sealed class GpuVngDebayerParityTests(OffscreenGpuFixture gpu, ITestOutpu
         // legitimately admits or drops a direction, and the two candidate values need not be close.
         // Still an order below the 0.471% the smallest real slip produced.
         vng.OutlierFraction.ShouldBeLessThan(0.0005, "the two VNG implementations agree byte for byte");
+    }
+
+    /// <summary>
+    /// The shader's MHC is the CPU's, out to the frame's edge, where both now mirror the mosaic about its edge sample (#1258):
+    /// before, both repeated it, so they agreed with each other while both mixed colours along the border, and nothing compared
+    /// them anyway. MHC is five fixed linear kernels, so the two can differ only by float order, the byte floor above that.
+    /// </summary>
+    [Fact]
+    public async Task TheShaderMhcIsTheCpuMhcToTheFramesEdge()
+    {
+        if (!gpu.VulkanAvailable)
+        {
+            Assert.Skip($"Vulkan runtime not available ({gpu.UnavailableReason})");
+            return;
+        }
+
+        var ct = TestContext.Current.CancellationToken;
+        var mosaic = BuildMosaic();
+
+        var cpuRgba = new byte[Width * Height * 4];
+        var debayered = await BuildRggbImage(mosaic).DebayerAsync(DebayerAlgorithm.MHC, normalizeToUnit: false, ct);
+        debayered.RenderStretchedRgba(Passthrough, cpuRgba);
+
+        var mhc = Compare(cpuRgba, await gpu.InvokeAsync(
+            () => RenderMosaic(mosaic, ImageRendererBase<object>.GpuDebayerMode(DebayerAlgorithm.MHC)), ct), "MHC shader vs MHC CPU");
+        // The control, as in the VNG test: a different algorithm on the same fixture must disagree loudly.
+        var control = Compare(cpuRgba, await gpu.InvokeAsync(
+            () => RenderMosaic(mosaic, ImageRendererBase<object>.GpuDebayerMode(DebayerAlgorithm.VNG)), ct), "VNG shader vs MHC CPU (control)");
+
+        control.Max.ShouldBeGreaterThan(24, "the fixture must be able to tell two demosaics apart");
+        mhc.Max.ShouldBeLessThanOrEqualTo(2, "the same linear kernels, differing only by float order");
+        mhc.OutlierFraction.ShouldBeLessThan(0.0005, "the two MHC implementations agree byte for byte, border included");
+    }
+
+    /// <summary>
+    /// A mosaic whose colours are each flat at their own level renders those levels at every pixel through the shader's colour
+    /// demosaics, the outer rows and columns included: a tap past the edge must read its own colour (#1258). MHC repeated the edge
+    /// texel, the neighbouring colour; bilinear (the shader's fallback, mode 0) fetched past the texture, which is undefined.
+    /// </summary>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(0)]
+    public async Task AMosaicOfFlatColoursRendersItsOwnLevelsToTheFramesEdge(int debayerMode)
+    {
+        if (!gpu.VulkanAvailable)
+        {
+            Assert.Skip($"Vulkan runtime not available ({gpu.UnavailableReason})");
+            return;
+        }
+
+        (float R, float G, float B) level = (0.35f, 0.25f, 0.47f);
+        var mosaic = new float[Height, Width];
+        for (var y = 0; y < Height; y++)
+        {
+            for (var x = 0; x < Width; x++)
+            {
+                mosaic[y, x] = (y & 1) == 0 ? ((x & 1) == 0 ? level.R : level.G) : ((x & 1) == 0 ? level.G : level.B);
+            }
+        }
+
+        var rgba = await gpu.InvokeAsync(() => RenderMosaic(mosaic, debayerMode), TestContext.Current.CancellationToken);
+
+        ReadOnlySpan<float> expected = [level.R, level.G, level.B];
+        var worst = 0;
+        for (var y = 0; y < Height; y++)
+        {
+            for (var x = 0; x < Width; x++)
+            {
+                for (var c = 0; c < 3; c++)
+                {
+                    var d = Math.Abs(rgba[(((y * Width) + x) * 4) + c] - (int)MathF.Round(expected[c] * 255f));
+                    worst = Math.Max(worst, d);
+                    d.ShouldBeLessThanOrEqualTo(1, $"mode {debayerMode}, channel {c} at ({x}, {y})");
+                }
+            }
+        }
+        output.WriteLine($"mode {debayerMode}: largest byte difference from the flat levels {worst}");
     }
 
     private (double Mean, int Max, double OutlierFraction) Compare(byte[] cpuRgba, byte[] gpuRgba, string label)

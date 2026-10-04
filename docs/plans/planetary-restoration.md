@@ -2795,7 +2795,29 @@ were within a third of a level before):
 
 (The channel spread in levels of 255, about the disk; about grey within 0.2 of it.) **Found on the way:** an UNBALANCED Uranus-C master's
 sky renders blue too, 1.8 and 4.0 levels as captured on 2024-12-15 and 2025-01-02, where the per-channel percentile was meant to neutralise
-it; the planetary stretch has no disk to read the sky by, so that is its own issue (#1258).
+it; the planetary stretch has no disk to read the sky by, so that is its own issue (#1258), below.
+
+#### The demosaic's border mixed colours (#1258)
+
+The unbalanced Uranus-C sky was not the stretch's to fix. Blue's darkest 0.5 % on 2025-01-02 was the frame's **outermost row and column**:
+the MHC demosaic read a tap past the frame's edge by REPEATING the edge sample, and in a Bayer mosaic that is the neighbouring colour, so the
+outer two rows and columns mixed colours wherever the colours' levels differ. The ASI462 masters' sky is zero, so the same mixing left
+nothing there; the Uranus-C masters keep a pedestal (0.065 to 0.089), and blue's edge row sat 12.2e-3 (13 %) below its sky. The stretch's
+per-channel 0.5 % black point landed on those pixels.
+
+**Every copy now mirrors about the edge sample** (2026-10-05): x to -x and x to 2(n-1)-x keep a tap's parity and so its colour, for any
+frame size. It is one rule in three places that must agree: the CPU MHC (`Image.AtMirrored`), SER.Lib's `SerImaging.At` (its MHC and
+bilinear, SER.Lib 1.2.191) and the shader's `rawAt`, which the shader's bilinear branch now reads through too (it fetched past the texture,
+which is undefined). VNG and AHD already filled their border from same-colour samples in a clipped window. Pinned by a mosaic whose
+colours are each flat at their own level, exact at every pixel, border included: `DebayerMhcTests` (four pattern phases, odd and even
+sizes), SER.Lib's `SerImagingTests`, and `GpuVngDebayerParityTests` through the shader's MHC and bilinear, all of which fail with the
+repeated edge; a one-level flat field passes either way. The same harness now holds the shader's MHC to the CPU's, which nothing had
+compared: at most 1 byte apart, border included, against 63 for the VNG control.
+
+Re-stacked, the five colour captures against a rule set before re-stacking: each master's outermost rows and columns within 5 times the
+interior sky's median absolute deviation, every channel (2025-01-02 had been 48 to 175 times, 2024-12-15 28 to 261, now at most 2.4 and
+4.1); the unbalanced sky's channel spread at most 0.5 level on all five (it is 0.02 to 0.08; 1.76 and 3.79 on the Uranus-C nights before);
+the 30 balanced previews still at most 0.5 (at most 0.09). The interior and the disk colours are unchanged.
 
 ### The diffraction glow's far wing
 
