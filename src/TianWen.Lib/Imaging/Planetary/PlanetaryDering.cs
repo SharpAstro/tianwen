@@ -43,7 +43,7 @@ public static class PlanetaryDering
             {
                 var i = (y * width) + x;
                 var v = Math.Max(sharpened[i], 0f);
-                result[i] = disk.RadiiAt(x, y) > 1 && !Near(moons, x, y, moonReachPx) ? Math.Min(v, Math.Max(stacked[i], 0f)) : v;
+                result[i] = disk.ClearRadiiAt(x, y) > 1 && !Near(moons, x, y, moonReachPx) ? Math.Min(v, Math.Max(stacked[i], 0f)) : v;
             }
         }
         return result;
@@ -85,7 +85,8 @@ public static class PlanetaryDering
     {
         var moons = PlanetaryMetrics.CompactSources(stacked, width, height, disk, count: MaxMoons);
         // Where ModelFeathered hands the model back to the stack: by the plane's inscribed circle, at most 2.5 radii, from 0.5 radii inside it.
-        var featherEnd = Math.Min(2.5, ((Math.Min(width, height) / 2.0) - 4) / disk.Radius);
+        // Saturn's are counted past its rings (MetricDisk.ClearRadiiAt, S4), whose outer edge is a radius along the equator.
+        var featherEnd = Math.Min(2.5, ((Math.Min(width, height) / 2.0) - 4) / (disk.Radius * (disk.Rings?.OuterRadii ?? 1)));
         var featherStart = Math.Max(1.0, Math.Min(1.5, featherEnd - 0.5));
         var result = new float[sharpened.Length];
         for (var y = 0; y < height; y++)
@@ -94,7 +95,8 @@ public static class PlanetaryDering
             {
                 var i = (y * width) + x;
                 var v = Math.Max(sharpened[i], 0f);
-                var r = disk.RadiiAt(x, y);
+                // The planet is its globe and, for Saturn, its rings: they keep their sharpening as a moon does (S4, #1184).
+                var r = disk.ClearRadiiAt(x, y);
                 if (r <= 1 || Near(moons, x, y, moonReachPx))
                 {
                     result[i] = v;
@@ -218,7 +220,7 @@ public static class PlanetaryDering
                 for (var x = 0; x < width; x++)
                 {
                     var i = (y * width) + x;
-                    var inside = (1 - disk.RadiiAt(x, y)) * disk.Radius;
+                    var inside = (1 - disk.ClearRadiiAt(x, y)) * disk.Radius;
                     var w = (float)Math.Clamp(inside / reach, 0, 1);
                     var sharpened = g * (t > 0 ? WaveletDecomposition.SoftThreshold(detail[i], t) : detail[i]);
                     result[i] += (w * sharpened) + ((1 - w) * detail[i]);

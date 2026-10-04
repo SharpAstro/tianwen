@@ -113,6 +113,14 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
     /// stack 6.53 and 6.37), and the lattice on the real colour captures went with it.
     /// </summary>
     public PlanetaryColourFinestBand ColourFinestBand { get; init; } = PlanetaryColourFinestBand.Held;
+
+    /// <summary>
+    /// When given, the kernel is the physical one (<see cref="PlanetaryFinestBand.FitPhysical"/>) fitted to the limb's edge from 0.02 cycles
+    /// a pixel to this, and carried by its physics to the cutoff, rather than the edge as read at every frequency. Measured on Saturn's twin
+    /// and not adopted (S4, #1184): its clear limb, the two polar arcs, reads true only to about 0.15 cycles a pixel, yet at reaches of 0.12
+    /// to 0.3 the bands summed 4.15 to 4.48 over the three colours against the raw edge's 4.06.
+    /// </summary>
+    public double? EdgeReach { get; init; }
 }
 
 /// <summary>A sharpened master and how it was sharpened: the first channel's derived gains (empty for the preset) and its edge's transfer.</summary>
@@ -161,11 +169,15 @@ public static class PlanetarySharpening
             float[] sharpened;
             if (options.Pupil is { } pupil)
             {
-                var diffraction = limbWindow.Diffraction(pupil, options.WavelengthsNm[Math.Min(c, options.WavelengthsNm.Length - 1)]);
+                var wavelengthNm = options.WavelengthsNm[Math.Min(c, options.WavelengthsNm.Length - 1)];
+                var diffraction = limbWindow.Diffraction(pupil, wavelengthNm);
                 var diskTarget = limbWindow.Through(diffraction);
                 (models[c], diffractions[c]) = (diskTarget, diffraction);
                 var edge = PlanetaryFinestBand.LimbEdge(window, diskTarget, size, size, disk, fit, aspect);
-                var kernel = Tabulated(f => Math.Clamp(edge.TransferAt(f), 0, 1));
+                var physical = options.EdgeReach is { } reach
+                    ? PlanetaryFinestBand.FitPhysical(edge, pupil.DiameterM / (wavelengthNm * 1e-9) / ShortExposurePsf.ArcsecPerRadian * limbWindow.ArcsecPerPixel, 0.02, reach)
+                    : (PhysicalKernel?)null;
+                var kernel = Tabulated(f => Math.Clamp(physical is { } p ? p.TransferAt(f) : edge.TransferAt(f), 0, 1));
                 var power = PlanetaryWaveletGains.StackPower(window, size, size, disk);
                 var white = PlanetaryInverse.WhiteNoise(PlanetaryWaveletGains.Interior(window, size, size, disk), size, size);
                 var noise = ImmutableArray.CreateRange(Enumerable.Repeat(white, power.Length));

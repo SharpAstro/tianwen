@@ -27,7 +27,7 @@ public static class PlanetaryBelts
     /// <paramref name="minMu"/>, divided by Minnaert's lighting with <paramref name="minnaertK"/>, averaged in its latitude's bin.
     /// </summary>
     public static ZonalProfile FromImage(ReadOnlySpan<float> plane, int width, int height, in PlanetaryProjection projection, double centralMeridian,
-        double minnaertK, double maxFromCentralMeridianDeg = 40, double minMu = 0.5)
+        double minnaertK, double maxFromCentralMeridianDeg = 40, double minMu = 0.5, Func<int, int, bool>? excluded = null)
     {
         var (sum, count) = (new double[Bins], new int[Bins]);
         for (var y = 0; y < height; y++)
@@ -35,7 +35,8 @@ public static class PlanetaryBelts
             for (var x = 0; x < width; x++)
             {
                 if (!projection.TrySurface(x, y, out var latitude, out var west, out var mu, out var mu0) || mu <= minMu || mu0 <= 0
-                    || Math.Abs(Math.IEEERemainder(west - centralMeridian, 360)) > maxFromCentralMeridianDeg || BinOf(latitude) is not { } bin)
+                    || Math.Abs(Math.IEEERemainder(west - centralMeridian, 360)) > maxFromCentralMeridianDeg || BinOf(latitude) is not { } bin
+                    || (excluded is not null && excluded(x, y)))
                 {
                     continue;
                 }

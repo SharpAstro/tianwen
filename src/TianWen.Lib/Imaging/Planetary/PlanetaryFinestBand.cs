@@ -38,15 +38,16 @@ public static class PlanetaryFinestBand
     {
         var projection = new PlanetaryProjection(aspect, new DiskPlacement(disk.X, disk.Y, fit.EquatorialRadius, fit.NorthAngleDeg));
         return Edge(plane, reference, width, height, disk, fit.SunSide,
-            Flatten(plane, width, height, projection, aspect.CentralMeridianIII, fit.LimbDarkening, holdPoles),
-            Flatten(reference, width, height, projection, aspect.CentralMeridianIII, fit.LimbDarkening, holdPoles), sectorDeg);
+            Flatten(plane, width, height, projection, aspect.CentralMeridianIII, fit.LimbDarkening, holdPoles, disk),
+            Flatten(reference, width, height, projection, aspect.CentralMeridianIII, fit.LimbDarkening, holdPoles, disk), sectorDeg);
     }
 
-    // Each limb point's brightness relative to the plane's mean, by the zonal brightness at its latitude.
+    // Each limb point's brightness relative to the plane's mean, by the zonal brightness at its latitude: Saturn's read clear of its rings.
     private static Func<double, double, double> Flatten(ReadOnlySpan<float> plane, int width, int height, PlanetaryProjection projection, double centralMeridian,
-        double limbDarkening, bool holdPoles)
+        double limbDarkening, bool holdPoles, MetricDisk disk)
     {
-        var zonal = PlanetaryBelts.FromImage(plane, width, height, projection, centralMeridian, limbDarkening);
+        var zonal = PlanetaryBelts.FromImage(plane, width, height, projection, centralMeridian, limbDarkening,
+            excluded: disk.Rings is null ? null : (x, y) => disk.RingTouched(x, y));
         var mean = zonal.Albedo.Where(double.IsFinite).DefaultIfEmpty(double.NaN).Average();
         return (x, y) => projection.TrySurface(x, y, out var latitude, out _, out _, out _) ? (holdPoles ? zonal.Held(latitude) : zonal.At(latitude)) / mean : double.NaN;
     }
@@ -78,7 +79,8 @@ public static class PlanetaryFinestBand
                 var (dx, dy) = (x - disk.X, y - disk.Y);
                 var r = Math.Sqrt((dx * dx) + (dy * dy));
                 var rho = disk.RadiiAt(x, y);
-                if (r < 1 || rho <= 0)
+                // Saturn's limb is read only where its rings leave it clear (S4, #1184).
+                if (r < 1 || rho <= 0 || disk.RingTouched(x, y))
                 {
                     continue;
                 }

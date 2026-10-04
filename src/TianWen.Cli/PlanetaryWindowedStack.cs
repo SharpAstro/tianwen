@@ -147,7 +147,7 @@ internal sealed class PlanetaryWindowedStack : IDisposable
                     return null;
                 }
             }
-            var own = MetricDisk.From(fit, limbOptions.AxisRatio);
+            var own = MetricDisk.From(fit, limbOptions);
             var (originX, originY) = ((int)Math.Round(stack.Disk.X) - (size / 2), (int)Math.Round(stack.Disk.Y) - (size / 2));
             var scale = aspect.AngularDiameterArcsec / 2 / fit.EquatorialRadius;
             var pupil = telescope.ToLowerInvariant() == "maksutov" ? PlanetaryGeometrySubCommands.MaksutovPupil : PlanetaryGeometrySubCommands.NewtonianPupil;

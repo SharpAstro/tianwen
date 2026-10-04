@@ -389,6 +389,16 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
         return (image.GetChannelSpan(0).ToArray(), disk, PlanetaryGeometrySubCommands.ParseUtc(header.GetStringValue("DATE-OBS")));
     }
 
+    /// <summary>
+    /// A truth's disk with what the planet's limb options say of it: the axis ratio and, for Saturn, its rings about the north the truth
+    /// was drawn with (S4), so the scores read its sky, moons and limb around them.
+    /// </summary>
+    internal static MetricDisk WithPlanet(MetricDisk truthDisk, LimbFitOptions options) => truthDisk with
+    {
+        AxisRatio = options.AxisRatio,
+        Rings = options.Rings is { } rings ? DiskRings.Of(truthDisk.AxisAngleDeg, truthDisk.AxisAngleDeg, options, rings) : null,
+    };
+
     // A colour master's channels and the name its truths carry.
     private static readonly (int Channel, string Colour)[] Colours = [(0, "r"), (1, "g"), (2, "b")];
 
@@ -409,7 +419,7 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
             return null;
         }
         var (width, height) = (master.Width, master.Height);
-        var own = MetricDisk.From(fit, options.AxisRatio);
+        var own = MetricDisk.From(fit, options);
         var plane = PlanetaryMetrics.Normalise(master.GetChannelSpan(0), width, height, own);
         return onto is { } target
             ? (PlanetaryMetrics.Shift(plane, width, height, target.X - own.X, target.Y - own.Y), target)

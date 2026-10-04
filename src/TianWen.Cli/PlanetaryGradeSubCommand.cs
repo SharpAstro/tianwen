@@ -111,7 +111,7 @@ internal sealed partial class PlanetaryGradeSubCommand(IConsoleHost consoleHost)
                 consoleHost.WriteError("the stack of every frame: no limb fitted");
                 return 1;
             }
-            var referenceDisk = MetricDisk.From(referenceFit, limbOptions.AxisRatio);
+            var referenceDisk = MetricDisk.From(referenceFit, limbOptions);
             var reference = Target.Of(referenceStack.GetChannelSpan(0), referenceDisk, width, height, size);
             referenceStack.Release();
             consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture, $"    the reference: every frame stacked on frame {referenceIndex}, the Laplacian's best; its disk at {referenceDisk.X:0.00}, {referenceDisk.Y:0.00}, R {referenceDisk.Radius:0.00} px"));

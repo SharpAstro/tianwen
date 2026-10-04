@@ -61,7 +61,7 @@ internal sealed class PlanetaryLimbSectorsSubCommand(IConsoleHost consoleHost)
                     consoleHost.WriteError($"{path}: its limb could not be fitted");
                     return System.Threading.Tasks.Task.FromResult(1);
                 }
-                var disk = MetricDisk.From(fit, limbOptions.AxisRatio);
+                var disk = MetricDisk.From(fit, limbOptions);
                 var sectors = parseResult.GetValue(sectorsOpt);
                 consoleHost.WriteScrollable(string.Create(inv,
                     $"{System.IO.Path.GetFileName(path)}: the outline at ({fit.CenterX:0.00}, {fit.CenterY:0.00}), {fit.EquatorialRadius:0.00} px, axis {fit.AxisAngleDeg:0.0} deg, blur {fit.PsfSigma:0.00} px; {sectors} sectors"));

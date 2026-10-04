@@ -74,11 +74,6 @@ internal sealed class PlanetaryCompareSubCommand(IConsoleHost consoleHost)
                     consoleHost.WriteError("name the planet (--planet jupiter)");
                     return 1;
                 }
-                if (PlanetaryLimbFit.Unmodelled(body) is { } unmodelled)
-                {
-                    consoleHost.WriteError($"{unmodelled}, so its limb cannot be measured");
-                    return 1;
-                }
                 if ((PlanetaryGeometrySubCommands.ParseUtc(parseResult.GetValue(utcOpt)) ?? PlanetaryBestStack.InstantOf(first, epoch: null)) is not { } instant)
                 {
                     consoleHost.WriteError($"{items[0].Path}: no time in its header; give --utc");
@@ -124,7 +119,7 @@ internal sealed class PlanetaryCompareSubCommand(IConsoleHost consoleHost)
                     var sharedMoons = ImmutableArray<(int X, int Y)>.Empty;
                     foreach (var (_, image, fit, own) in fits)
                     {
-                        var disk = MetricDisk.From(fit, limbOptions.AxisRatio);
+                        var disk = MetricDisk.From(fit, limbOptions);
                         var (expected, moons) = own || sharedExpected is null
                             ? (telescope is { } scope ? PlanetaryPicture.Diffracted(fit, limbOptions, aspect, scope, wavelength, image.Width, image.Height) : [],
                                 PlanetaryPicture.MoonsOf(image.GetChannelSpan(c), image.Width, image.Height, disk))

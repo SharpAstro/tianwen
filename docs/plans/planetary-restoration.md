@@ -3317,8 +3317,9 @@ globe was 28.1 px before the rings were modelled; the ephemeris and plate scale 
 fall on the Cassini division and the A ring's edge. The EdgeHD capture's scale, 0.1773"/px with the header's 2.4 µm camera, puts it at
 2,792 mm, the telescope's native focal length.
 
-What reads the fit still declines Saturn (`PlanetaryLimbFit.Unmodelled`, now worded so) until it draws the rings: the sharpening (S4) and
-the de-rotation and colour alignment (S5).
+What reads the fit still declined Saturn (`PlanetaryLimbFit.Unmodelled`, now worded so) until it drew the rings: the sharpening (S4 lifted
+it) and the de-rotation and colour alignment (S5). S4 also gave the fit's B and A rings a slope across their width: their structure, fitted
+with flat levels, put the globe up to 1.1 % large.
 
 ### S3 A Saturn twin
 
@@ -3350,8 +3351,8 @@ replaying counts little twice. Each trial found something the twin lacked:
 - **The rings carry radial structure** (`SaturnRings.Structured`): the real limb fit reads the Cassini division at 0.40 to 0.45 of the
   globe in every colour, where flat rings read 0.07. A real B ring brightens outward to the division and the A ring dims outward,
   and the fit's four flat levels put that light into the division: drawn structured it reads 0.54, flat 0.01
-  (`TheFlatFitReadsTheLightBesideTheCassiniDivisionIntoIt`). The structure moved the globe's fitted radius 1.3 % on the same render,
-  a bias S2's real captures may carry.
+  (the test that pinned it, since S4 `TheFitsSlopesReadTheRingsStructure`). The structure moved the globe's fitted radius 1.3 % on the
+  same render, a bias S2's real captures may carry; S4 found it there and gave the fit's B and A rings a slope.
 - **Each colour's rings are its own** (`--ring-levels` takes twelve): the globe is yellower than the rings, which stand brighter over
   it in blue (B 0.72 of the globe against red's 0.61).
 - **A warp short and slow**: 0.6 px RMS, as R5a's twin needed on this telescope, over 10 sensor px with a frame-to-frame correlation of
@@ -3403,6 +3404,60 @@ the stack.
 **Rule:** on the S3 twin, the derived sharpening's error in bands 1 to 4 inside 0.9 of the globe's radius falls to at most 0.44 of the
 stack's (the calibrated Jupiter twin's 0.647 of 1.483). Its limb profile error is at most the Jupiter twin's 0.0053. The rings' radial
 profile is truer than the stack's. And nothing is drawn in the sky clear of the rings.
+
+**Measured (2026-10-04, `planetary-sharpen --truth` on the S3 twin's master, 610, 530 and 460 nm; `SaturnSharpeningTests`).** The rule
+as written fails on its first two numbers, and those two numbers were the wrong comparison. They are the mono Jupiter twin's, whose finest
+band is derived; a colour master's finest band is held as stacked (#1187), so its band 1 caps the ratio. Read like for like against R5a's
+Jupiter colour twin (uc-g4, the same build, the same fixes), the bands match or beat Jupiter's in every colour, the rings are truer and
+nothing stands in the sky. The limb is 1.3 to 3 times Jupiter's:
+
+| | Saturn twin, r / g / b | Jupiter colour twin, r / g / b |
+|---|---|---|
+| Bands 1 to 4, stack | 2.156 / 2.297 / 2.497 | 2.220 / 2.091 / 2.223 |
+| Bands 1 to 4, sharpened (over the stack) | 1.286 / 1.295 / 1.457 (0.60 / 0.56 / 0.58) | 1.758 / 1.265 / 1.260 (0.79 / 0.60 / 0.57) |
+| Limb profile error, 0.8 to 1.2 radii, stack | 0.086 / 0.098 / 0.137 | 0.041 / 0.046 / 0.060 |
+| Limb profile error, sharpened | 0.022 / 0.019 / 0.020 | 0.019 / 0.014 / 0.014 |
+| The same, 6 px inside the limb | 0.028 / 0.025 / 0.029 | 0.018 / 0.017 / 0.023 |
+| The same, 6 px outside it | 0.013 / 0.010 / 0.006 | 0.004 / 0.004 / 0.006 |
+| The rings' radial profile error, stack | 0.123 / 0.135 / 0.163 | |
+| The rings', sharpened | 0.038 / 0.044 / 0.055 | |
+| Past the rings' edge, most above the truth: stack, sharpened | +0.116, +0.016 / +0.131, +0.022 / +0.166, +0.011 | |
+
+Before S4 the preset drew Saturn (the limb kept as stacked): its bands read 2.088 / 2.144 / 2.303 and its limb 0.147 / 0.141 / 0.122.
+On the two real captures the derivation runs and draws no ring or halo by eye: the 2022-10-09 Newtonian colour capture, and the EdgeHD
+11 capture of 2022-10-25 beside the owner's own `_post`. The 2022-10-09 colour planes still fringe at the ansae, where they were aligned
+by correlation (S5).
+
+What it took:
+- **The metrics read Saturn as its globe and its rings** (`MetricDisk.Rings`, `DiskRings`). `ClearRadiiAt` is the nearer of the globe's
+  radii and the ring-plane radius over the A ring's outer edge, so a metric's sky lies past both. `RingTouched` is a ring the observer sees
+  within 2 px: off the globe, or across it on the near side, which faces away from the visible pole. The limb's profile, its edge, the
+  zonal flatten and the limb kernel's annulus skip ring-touched pixels. The moon finder takes nothing inside 1.05 of `ClearRadiiAt`; it
+  had read the ansae as moons. A twin's truth is scored with its rings about the north it was drawn with
+  (`PlanetaryMeasureSubCommand.WithPlanet`), and the rings' own score is `PlanetaryMetrics.RingProfileError`.
+- **The sharpening keeps what is inside the globe and the rings' footprint** (`ClearRadiiAt` at most 1). Past it, `ModelFeathered` draws
+  the model through the pupil, feathered in `ClearRadiiAt`'s units, and the window reaches 1.6 times the rings' outer edge.
+- **The limb fit's B and A rings carry a slope across their width** (`LimbFit.RingSlopes`). This is the measurement that mattered. Outside
+  the limb the sharpened twin read 4 to 6 times Jupiter's error, light the truth keeps inside. The fit had put the twin stack's globe 1.2 %
+  (0.35 px) large: the B ring brightens toward the Cassini division and the A ring dims outward, and the fit's four flat levels followed
+  that light by stretching the globe, since the rings scale with it. On a render the bias was +0.54 % under a 3 px seeing and +1.09 % under
+  6 px, against +0.03 % and +0.37 % with the rings drawn flat; S3 had read it at 1.3 %, a bias it said the real captures may carry. With
+  a slope on B and A (held in [-1, 1]; C and the division stay flat, whose slopes ran away under a 6 px seeing), the stack's globe fits
+  -0.27 % and the outside error falls two to three times. T1 now draws the rings structured, as Saturn's are, and passes at +0.16 %,
+  +0.41 % and +0.09 %. Drawn flat, its 6 px beta 3 case reads +0.50 %, at the rule's edge: there the A ring's slope trades with the blur's
+  shape. The division no longer takes the rings' light (`TheFitsSlopesReadTheRingsStructure`).
+- **The limb's edge reads true only to about 0.15 cycles a pixel on Saturn.** Its clear limb is the two polar arcs, 1 to 8 pixels in an
+  edge bin where Jupiter's whole limb gives 30, so past 0.2 cycles a pixel the binned profile's own sampling decides the read (0.35 at 0.3
+  on a noiseless render whose blur passes 0.001 there). A physical kernel fitted up to a reach and carried to the cutoff
+  (`PlanetarySharpenOptions.EdgeReach`, `--edge-reach`) was measured and not adopted: at reaches of 0.12 to 0.3 the bands summed 4.15 to
+  4.48 over the three colours, against the raw edge's 4.06. A colour master holds band 1, and the free gain fit swings as it does on
+  Jupiter (5.86, 0.79, 0.80 here; 12.26, -3.20, 1.85 on the Jupiter colour twin).
+- **A limb profile is compared over the same pixels, never the same radii** (`PlanetaryMetrics.LimbReachPx`). From 0.8 to 1.2 radii is
+  12 px across a 30 px Saturn, nearly all of it the edge, and 19 px across a 48 px Jupiter, whose flatter bins dilute the RMS.
+
+**Left open: Saturn's limb is 1.3 to 3 times Jupiter's.** Inside it, band 4 (8 to 16 px) carries the globe's limb darkening at this
+size, and the swinging fit gave it 0.58, so the globe brightens toward the limb (+0.03 to +0.05 at 0.8 to 0.875 radii). Outside, the
+model sits within 0.03 of the truth at the polar limb, where Jupiter's sits within 0.005.
 
 ### S5 De-rotation and colours moved by their limbs
 

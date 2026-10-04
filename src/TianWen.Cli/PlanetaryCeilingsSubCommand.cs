@@ -69,7 +69,7 @@ internal sealed class PlanetaryCeilingsSubCommand(IConsoleHost consoleHost)
             }
             var limbOptions = PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(planet, when));
             var (width, height) = (reader.Width, reader.Height);
-            var disk = truth.Disk with { AxisRatio = limbOptions.AxisRatio };
+            var disk = PlanetaryMeasureSubCommand.WithPlanet(truth.Disk, limbOptions);
             var truthPlane = PlanetaryMetrics.Normalise(truth.Plane, width, height, disk);
 
             // The stack, as R7 part 4 made it, and the frames it kept, graded the same way.

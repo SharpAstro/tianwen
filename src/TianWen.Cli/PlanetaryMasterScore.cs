@@ -36,7 +36,7 @@ internal static class PlanetaryMasterScore
                 return;
             }
             var limbOptions = PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(planet, when));
-            var disk = truth.Disk with { AxisRatio = limbOptions.AxisRatio };
+            var disk = PlanetaryMeasureSubCommand.WithPlanet(truth.Disk, limbOptions);
             var plane = colour ? master.ChannelImage(channel) : master;
             try
             {
@@ -77,6 +77,18 @@ internal static class PlanetaryMasterScore
                     }
                 }
                 consoleHost.WriteScrollable(string.Create(inv, $"[planetary] {label}: the limb's trough below the truth {trough:0.0000}, below the stack {againstStack:0.0000}"));
+                // The limb profile's error over the same reach in pixels on any planet, inside the limb (the sharpening) and outside it (what
+                // is drawn there): 0.8 to 1.2 radii is 12 px across a 30 px Saturn and 19 across a 48 px Jupiter, so it does not compare them.
+                var reach = PlanetaryMetrics.LimbReachPx / disk.Radius;
+                consoleHost.WriteScrollable(string.Create(inv,
+                    $"[planetary] {label}: the limb profile's error within {PlanetaryMetrics.LimbReachPx:0} px inside it {PlanetaryMetrics.LimbProfileError(fitted.Plane, reference, plane.Width, plane.Height, disk, 1 - reach, 1):0.0000}, outside {PlanetaryMetrics.LimbProfileError(fitted.Plane, reference, plane.Width, plane.Height, disk, 1, 1 + reach):0.0000}"));
+                // Saturn's rings (S4): their radial profile against the truth's, and what stands above the truth past their edge.
+                if (disk.Rings is not null)
+                {
+                    var (ringError, pastTheEdge) = PlanetaryMetrics.RingProfileError(fitted.Plane, reference, plane.Width, plane.Height, disk);
+                    consoleHost.WriteScrollable(string.Create(inv,
+                        $"[planetary] {label}: the rings' profile error {ringError:0.0000}; past their edge at most {pastTheEdge:+0.0000;-0.0000} above the truth"));
+                }
                 // The moons where the truth has them (#1181): each one's peak and width here against the truth's.
                 foreach (var (x, y) in PlanetaryMetrics.CompactSources(reference, plane.Width, plane.Height, disk))
                 {
@@ -106,7 +118,7 @@ internal static class PlanetaryMasterScore
             consoleHost.WriteError($"[planetary] {what}: its limb could not be fitted");
             return;
         }
-        var disk = MetricDisk.From(fit, limbOptions.AxisRatio);
+        var disk = MetricDisk.From(fit, limbOptions);
         var planes = Enumerable.Range(0, master.ChannelCount).Select(c => PlanetaryMetrics.Normalise(master.GetChannelSpan(c), master.Width, master.Height, disk)).ToArray();
         var undershoots = planes.Select(p => PlanetaryMetrics.LimbUndershoot(p, master.Width, master.Height, disk));
         var rebounds = planes.Select(p => PlanetaryMetrics.LimbRebound(p, master.Width, master.Height, disk));

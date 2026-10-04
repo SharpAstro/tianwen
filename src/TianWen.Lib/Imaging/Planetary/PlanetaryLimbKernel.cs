@@ -105,7 +105,7 @@ public static class PlanetaryLimbKernel
                 }
             }
         }
-        var disk = MetricDisk.From(fit, options.AxisRatio);
+        var disk = MetricDisk.From(fit, options);
         var plane = stack.GetChannelSpan(0);
         var pixels = new System.Collections.Generic.List<(int Window, float Value)>();
         for (var y = Math.Max(0, y0); y < Math.Min(height, y0 + size); y++)
@@ -113,7 +113,7 @@ public static class PlanetaryLimbKernel
             for (var x = Math.Max(0, x0); x < Math.Min(width, x0 + size); x++)
             {
                 var r = disk.RadiiAt(x, y);
-                if (r >= innerRadii && r <= outerRadii)
+                if (r >= innerRadii && r <= outerRadii && !disk.RingTouched(x, y))
                 {
                     pixels.Add((((y - y0) * size) + x - x0, plane[(y * width) + x]));
                 }

@@ -156,8 +156,10 @@ internal sealed record PlanetaryLimbWindow(int Size, int X0, int Y0, MetricDisk 
     /// <summary>The window about <paramref name="fit"/>'s disk in a <paramref name="width"/> by <paramref name="height"/> frame.</summary>
     public static PlanetaryLimbWindow Of(in LimbFit fit, LimbFitOptions limbOptions, in PlanetAspect aspect, int width, int height)
     {
-        var own = MetricDisk.From(fit, limbOptions.AxisRatio);
-        var size = Math.Max(128, NextPowerOfTwo((int)Math.Ceiling(2 * (fit.EquatorialRadius + Margin))));
+        var own = MetricDisk.From(fit, limbOptions);
+        // Saturn's window holds its rings and the sky past them, where the model is handed back to the stack (S4).
+        var reach = own.Rings is { } rings ? 1.6 * rings.OuterRadii : 1;
+        var size = Math.Max(128, NextPowerOfTwo((int)Math.Ceiling(2 * ((fit.EquatorialRadius * reach) + Margin))));
         var (x0, y0) = ((int)Math.Round(fit.CenterX) - (size / 2), (int)Math.Round(fit.CenterY) - (size / 2));
         var sharpFull = PlanetaryLimbFit.SharpModel(fit, limbOptions, width, height);
         var window = new PlanetaryLimbWindow(size, x0, y0, own, own with { X = own.X - x0, Y = own.Y - y0 }, [], aspect.AngularDiameterArcsec / 2 / fit.EquatorialRadius);
