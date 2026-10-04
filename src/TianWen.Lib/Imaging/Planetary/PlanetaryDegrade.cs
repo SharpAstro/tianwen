@@ -794,6 +794,7 @@ public static partial class PlanetaryDegrade
         var extent = windowPx * os;
         var binned = new double[windowPx * windowPx];
         var hasWarp = !warp.IsEmpty;
+        double unwarped = 0, warped = 0;
         for (var y = 0; y < extent; y++)
         {
             for (var x = 0; x < extent; x++)
@@ -801,6 +802,7 @@ public static partial class PlanetaryDegrade
                 double value;
                 if (hasWarp)
                 {
+                    unwarped += field[(y * fine) + x].Real;
                     // The value is the field's at the point the warp brought here, with no Jacobian: a lossless screen that
                     // bends the rays keeps the radiance, the surface brightness, as a gravitational lens does, the screen's
                     // focusing (scintillation) making up exactly what the map's squeeze would. Multiplying by det(I - grad w)
@@ -809,12 +811,24 @@ public static partial class PlanetaryDegrade
                     var (px, py) = (((x + 0.5) / os) - 0.5, ((y + 0.5) / os) - 0.5);
                     var (wx, wy) = warp.At(px, py);
                     value = Bilinear(field, fine, x - (wx * os), y - (wy * os));
+                    warped += value;
                 }
                 else
                 {
                     value = field[(y * fine) + x].Real;
                 }
                 binned[((y / os) * windowPx) + (x / os)] += value;
+            }
+        }
+        // The frame keeps the light that reached the pupil: a screen bends rays, it never adds or takes light. Moved without its
+        // Jacobian, the field's total jitters with the warp's divergence, which on a Saturn 15 px in radius doubled the flux's
+        // variation over a quarter second (S3); one gain a frame puts the total back and leaves the surface brightness moved.
+        if (hasWarp && warped > 0 && unwarped > 0)
+        {
+            var keep = unwarped / warped;
+            for (var i = 0; i < binned.Length; i++)
+            {
+                binned[i] *= keep;
             }
         }
 

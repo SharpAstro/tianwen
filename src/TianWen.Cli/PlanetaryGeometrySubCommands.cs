@@ -306,7 +306,8 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         var fieldGridOpt = new Option<int>("--field-grid") { Description = "The spacing of the points the layer's PSF is computed at, px.", DefaultValueFactory = _ => 6 };
         var ringLevelsOpt = new Option<string?>("--ring-levels")
         {
-            Description = "Saturn's rings' levels over the map's mean albedo, C,B,Cassini,A (S3): what the twin is calibrated by. Default: the nominal ones.",
+            Description = "Saturn's rings' levels over the map's mean albedo, C,B,Cassini,A (S3): what the twin is calibrated by; on a colour capture "
+                + "four for every colour or twelve, red's, green's and blue's. Default: the nominal ones.",
         };
         var noTwinRingsOpt = new Option<bool>("--no-rings") { Description = "Draw Saturn's globe alone, without its rings." };
 
@@ -329,21 +330,28 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             }
             var planet = parseResult.GetValue(planetOpt)?.ToLowerInvariant() == "saturn" ? CatalogIndex.Saturn : CatalogIndex.Jupiter;
             var progress = new Progress<string>(line => consoleHost.WriteScrollable("    " + line));
-            // Saturn (S3): its map read through the zonal fill, its rings drawn at the levels asked.
+            // Saturn (S3): its map read through the zonal fill, its rings drawn at the levels asked, a colour's own where given: the
+            // globe is yellower than the rings, so they stand brighter over it in blue (B 0.72 of the globe against red's 0.61 on
+            // 2022-10-09).
             SaturnRings? twinRings = null;
+            var colourRings = new SaturnRings?[3];
             if (planet == CatalogIndex.Saturn)
             {
                 map = map.FilledZonally();
                 if (!parseResult.GetValue(noTwinRingsOpt))
                 {
                     var levels = CommaNumbers(parseResult.GetValue(ringLevelsOpt));
-                    if (levels.Length is not (0 or 4))
+                    if (levels.Length is not (0 or 4 or 12))
                     {
-                        consoleHost.WriteError("--ring-levels takes four levels: C, B, the Cassini division, A");
+                        consoleHost.WriteError("--ring-levels takes four levels, C, B, the Cassini division and A, or twelve, red's, green's and blue's");
                         return 1;
                     }
-                    twinRings = levels.Length == 0 ? SaturnRings.Main
-                        : new SaturnRings([.. SaturnRings.Main.Rings.Select((ring, i) => ring with { Level = levels[i] })]);
+                    SaturnRings At(int first) => new SaturnRings([.. SaturnRings.Main.Rings.Select((ring, i) => ring with { Level = levels[first + i] })]);
+                    twinRings = levels.Length == 0 ? SaturnRings.Main : At(0);
+                    for (var c = 0; c < 3; c++)
+                    {
+                        colourRings[c] = levels.Length == 12 ? At(4 * c) : twinRings;
+                    }
                 }
             }
 
@@ -685,11 +693,11 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                     return 1;
                 }
                 var red = new BayerColour(colourMaps[0], redPlacement,
-                    AtShownLevel(WithCamera(Atmosphere(wavelengths[0] * 1e-9, ks[0]), redTruth.Camera, redGain), colourMaps[0], redPlacement, sensorScale, "red"));
+                    AtShownLevel(WithCamera(Atmosphere(wavelengths[0] * 1e-9, ks[0]) with { Rings = colourRings[0] }, redTruth.Camera, redGain), colourMaps[0], redPlacement, sensorScale, "red"));
                 var green = new BayerColour(colourMaps[1], greenPlacement,
-                    AtShownLevel(WithCamera(Atmosphere(wavelengths[1] * 1e-9, ks[1]), greenTruth.Camera, greenGain), colourMaps[1], greenPlacement, sensorScale, "green"));
+                    AtShownLevel(WithCamera(Atmosphere(wavelengths[1] * 1e-9, ks[1]) with { Rings = colourRings[1] }, greenTruth.Camera, greenGain), colourMaps[1], greenPlacement, sensorScale, "green"));
                 var blue = new BayerColour(colourMaps[2], bluePlacement,
-                    AtShownLevel(WithCamera(Atmosphere(wavelengths[2] * 1e-9, ks[2]), blueTruth.Camera, blueGain), colourMaps[2], bluePlacement, sensorScale, "blue"));
+                    AtShownLevel(WithCamera(Atmosphere(wavelengths[2] * 1e-9, ks[2]) with { Rings = colourRings[2] }, blueTruth.Camera, blueGain), colourMaps[2], bluePlacement, sensorScale, "blue"));
                 foreach (var (name, colour) in new[] { ("red", red), ("green", green), ("blue", blue) })
                 {
                     consoleHost.WriteScrollable($"making {Path.GetFileName(output)}, {name}: {Describe(colour.Options, colour.Placement, sensorScale)}");

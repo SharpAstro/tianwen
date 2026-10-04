@@ -350,13 +350,34 @@ public class PlanetaryDegradeTests
         }
     }
 
+    [Fact(Timeout = 120_000)]
+    public async Task AWarpedFrameKeepsTheLightThatReachedThePupil()
+    {
+        // A screen bends rays and never adds or takes light, so a warped frame holds the unwarped one's light; moved without its
+        // Jacobian, the total jittered with the warp's divergence and doubled a Saturn twin's flux variation (S3, #1233). A small
+        // disk and a short warp, where the jitter is largest.
+        ImmutableArray<double> none = [0, 0, 0, 0, 0, 0];
+        var still = await MakeAsync(none, none, size: 96, radius: 12, r0M: 0.1);
+        var warped = await MakeAsync(none, none, size: 96, radius: 12, r0M: 0.1, warpRms: 0.8);
+        for (var i = 0; i < still.Length; i++)
+        {
+            var (a, b) = (Light(still[i]), Light(warped[i]));
+            TestContext.Current.TestOutputHelper?.WriteLine($"frame {i}: warped light {b / a - 1:+0.00000;-0.00000} of the unwarped");
+            (b / a).ShouldBe(1, 2e-4);
+        }
+
+        // The light over the offset, in ADU.
+        static double Light(ushort[] frame) => frame.Sum(v => v - 100.0);
+    }
+
     [Fact]
     public async Task AWarpMovesSurfaceBrightnessWithoutChangingIt()
     {
-        // A lossless screen keeps the radiance: a warp moves the disk's surface brightness about and makes it neither brighter
-        // nor dimmer, so the levels of the disk's flat middle, sorted, are the unwarped twin's; a flux-conserving Jacobian would
-        // spread them by its few percent. A map without belts, since a belt carried across the region's edge moves the levels
-        // too (0.8 % on the banded map), and only the quartiles of the middle, where the limb darkening is gentle.
+        // A lossless screen keeps the radiance: a warp moves the disk's surface brightness about and ripples it nowhere, so the
+        // levels of the disk's flat middle, sorted, are the unwarped twin's up to the one gain a frame that keeps its light (S3);
+        // a flux-conserving Jacobian would spread them by its few percent. A map without belts, since a belt carried across the
+        // region's edge moves the levels too (0.8 % on the banded map), and only the quartiles of the middle, where the limb
+        // darkening is gentle.
         ImmutableArray<double> none = [0, 0, 0, 0];
         var still = await MakeAsync(none, none, size: 96, radius: 30, r0M: 0.1, flat: true);
         var warped = await MakeAsync(none, none, size: 96, radius: 30, r0M: 0.1, warpRms: 0.5, flat: true);
@@ -366,12 +387,15 @@ public class PlanetaryDegradeTests
             var (a, b) = (Interior(still[i]), Interior(warped[i]));
             Array.Sort(a);
             Array.Sort(b);
-            foreach (var q in new[] { 0.25, 0.5, 0.75 })
+            var middle = (int)(0.5 * (a.Length - 1));
+            var gain = b[middle] / a[middle];
+            gain.ShouldBe(1, 0.03, "the frame's one gain, which keeps its light");
+            foreach (var q in new[] { 0.25, 0.75 })
             {
                 var k = (int)(q * (a.Length - 1));
-                TestContext.Current.TestOutputHelper?.WriteLine($"frame {i}, quantile {q}: {b[k] / a[k] - 1:+0.00000;-0.00000} of the unwarped level");
+                TestContext.Current.TestOutputHelper?.WriteLine($"frame {i}, quantile {q}: {b[k] / a[k] / gain - 1:+0.00000;-0.00000} of the unwarped level, beside the frame's gain {gain - 1:+0.00000;-0.00000}");
                 // Up to the edge's trade (0.35 % measured); a Jacobian at this warp, 0.5 px over 10 px, ripples by about 14 %.
-                (b[k] / a[k]).ShouldBe(1, 5e-3);
+                (b[k] / a[k] / gain).ShouldBe(1, 5e-3);
             }
             for (var p = 0; p < still[i].Length; p++)
             {
