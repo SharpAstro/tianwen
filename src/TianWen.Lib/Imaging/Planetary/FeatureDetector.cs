@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using TianWen.Lib.Geometry;
+using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.Planetary;
 
@@ -92,10 +93,9 @@ public static class FeatureDetector
         var grad = gradBuf.AsSpan(0, n);
         LumaProxy.Fill(frame, LumaProxy.FullFrame(frame), luma);
 
-        var sorted = luma.ToArray();
-        Array.Sort(sorted);
-        var sky = sorted[(int)(0.10 * (n - 1))];
-        var peak = sorted[(int)(0.999 * (n - 1))];
+        var ranked = luma.ToArray();
+        var sky = StatisticsHelper.PercentileFast(ranked, 0.10);
+        var peak = StatisticsHelper.PercentileFast(ranked, 0.999);
         if (!(peak > sky))
         {
             return ([], 0);
@@ -166,8 +166,7 @@ public static class FeatureDetector
         {
             absolute[i] = MathF.Abs(differences[i]);
         }
-        Array.Sort(absolute);
-        return absolute.Length == 0 ? 0 : 1.4826 * absolute[absolute.Length / 2] / Math.Sqrt(2);
+        return absolute.Length == 0 ? 0 : 1.4826 * StatisticsHelper.MedianFast(absolute) / Math.Sqrt(2);
     }
 
     // The Sobel gradient magnitude of each interior pixel into `grad` (the border left zero); its largest.
