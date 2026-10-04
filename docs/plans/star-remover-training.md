@@ -612,10 +612,10 @@ rest: the catalogue's saturated amplitude is right at the median on seven of nin
 plateau; and against each star's photometric amplitude the near-wing excess runs on continuously across the saturation
 threshold, so it is the residual table under-reading bright stars' near wings (up to about 30 percent), not saturation.
 
-Open from it, each to be filed under #902: R0's saturated fit on a fixed annulus in FWHM units with a 0.1 to 0.3 core cut;
-a residual table that holds bright stars' near wings; the Lagoon's and eta Carinae's photometric offsets (1.4 to 1.7, a V
-against luminance colour term is the likely reading); the mono noise shape; and theme C's validations (R0 run on R1's
-draws, a noise-free twin draw, a zero-flux draw).
+Open from it, under #902: R0's saturated fit on a fixed annulus in FWHM units with a 0.1 to 0.3 core cut (#1240); a
+residual table that holds bright stars' near wings (#1241); the Lagoon's and eta Carinae's photometric offsets (1.4 to 1.7,
+a V against luminance colour term is the likely reading, #1242); the mono noise shape (#1243); and theme C's validations,
+R0 run on R1's draws, a noise-free twin draw and a zero-flux draw (#1244).
 
 ## 7. Phasing
 
