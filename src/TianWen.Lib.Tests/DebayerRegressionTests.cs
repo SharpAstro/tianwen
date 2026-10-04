@@ -60,8 +60,9 @@ public class DebayerRegressionTests
     public async Task DebayerMHC_OnIMX533Fixture_OutputHashStable()
         => await AssertDebayerHashAsync(
             DebayerAlgorithm.MHC,
-            // Pinned 2026-06-23 when MHC landed (Phase 5 of the multi-source previewer).
-            expectedSha256: "84c1977c327062f1c442495f8c0d0c60f65645bf39e8750baa184b3ae62ee60b");
+            // Pinned 2026-06-23 when MHC landed (Phase 5 of the multi-source previewer); re-pinned 2026-10-05 when its two-pixel
+            // border began mirroring the mosaic instead of repeating the edge sample (#1258), the interior untouched.
+            expectedSha256: "a75a37359218880c6a00fdbbc18b566ec170260dd0d98794ad9f58922f7fd897");
 
     private static async Task AssertDebayerHashAsync(DebayerAlgorithm algo, string expectedSha256)
     {

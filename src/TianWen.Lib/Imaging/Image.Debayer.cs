@@ -277,8 +277,8 @@ public partial class Image
 
             // The INTERIOR takes the same 5x5 kernels over five row spans with no clamp: for a row
             // two or more from either edge and a column two or more from either side, every tap is
-            // inside the plane by construction. The clamped path is kept for the two-pixel border only.
-            // Same coefficients in the same order, so the interior is bit-identical to the clamped
+            // inside the plane by construction. The mirrored path is kept for the two-pixel border only.
+            // Same coefficients in the same order, so the interior is bit-identical to the mirrored
             // kernels where both are defined; it is the read that changed, from a bounds-checked
             // float[,] index behind four branches per tap to a slice bounded once per row.
             var xEnd = 0;
@@ -329,7 +329,7 @@ public partial class Image
                 }
             }
 
-            // The border (or the whole row, near the top and bottom), clamped as before.
+            // The border (or the whole row, near the top and bottom), mirrored at the plane's edge.
             for (var x = 0; x < width; x++)
             {
                 if (x == 2 && xEnd > 2)
@@ -390,41 +390,41 @@ public partial class Image
     // Green at a red/blue site (gain alpha = 1/2).
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     private static float MhcGreen(float[,] s, int w, int h, int x, int y)
-        => ((4f * AtClamped(s, w, h, x, y))
-            + (2f * (AtClamped(s, w, h, x, y - 1) + AtClamped(s, w, h, x, y + 1) + AtClamped(s, w, h, x - 1, y) + AtClamped(s, w, h, x + 1, y)))
-            - (AtClamped(s, w, h, x, y - 2) + AtClamped(s, w, h, x, y + 2) + AtClamped(s, w, h, x - 2, y) + AtClamped(s, w, h, x + 2, y)))
+        => ((4f * AtMirrored(s, w, h, x, y))
+            + (2f * (AtMirrored(s, w, h, x, y - 1) + AtMirrored(s, w, h, x, y + 1) + AtMirrored(s, w, h, x - 1, y) + AtMirrored(s, w, h, x + 1, y)))
+            - (AtMirrored(s, w, h, x, y - 2) + AtMirrored(s, w, h, x, y + 2) + AtMirrored(s, w, h, x - 2, y) + AtMirrored(s, w, h, x + 2, y)))
            * 0.125f;
 
     // Red at a blue site / blue at a red site (gain gamma = 3/4): same-colour neighbours are the 4 diagonals.
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     private static float MhcDiagonal(float[,] s, int w, int h, int x, int y)
-        => ((6f * AtClamped(s, w, h, x, y))
-            + (2f * (AtClamped(s, w, h, x - 1, y - 1) + AtClamped(s, w, h, x + 1, y - 1) + AtClamped(s, w, h, x - 1, y + 1) + AtClamped(s, w, h, x + 1, y + 1)))
-            - (1.5f * (AtClamped(s, w, h, x, y - 2) + AtClamped(s, w, h, x, y + 2) + AtClamped(s, w, h, x - 2, y) + AtClamped(s, w, h, x + 2, y))))
+        => ((6f * AtMirrored(s, w, h, x, y))
+            + (2f * (AtMirrored(s, w, h, x - 1, y - 1) + AtMirrored(s, w, h, x + 1, y - 1) + AtMirrored(s, w, h, x - 1, y + 1) + AtMirrored(s, w, h, x + 1, y + 1)))
+            - (1.5f * (AtMirrored(s, w, h, x, y - 2) + AtMirrored(s, w, h, x, y + 2) + AtMirrored(s, w, h, x - 2, y) + AtMirrored(s, w, h, x + 2, y))))
            * 0.125f;
 
     // Red/blue at a green site whose same-colour neighbours lie in the same ROW (gain beta = 5/8).
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     private static float MhcHorizontal(float[,] s, int w, int h, int x, int y)
-        => ((5f * AtClamped(s, w, h, x, y))
-            + (4f * (AtClamped(s, w, h, x - 1, y) + AtClamped(s, w, h, x + 1, y)))
-            - (AtClamped(s, w, h, x - 1, y - 1) + AtClamped(s, w, h, x + 1, y - 1) + AtClamped(s, w, h, x - 1, y + 1) + AtClamped(s, w, h, x + 1, y + 1))
-            + (0.5f * (AtClamped(s, w, h, x, y - 2) + AtClamped(s, w, h, x, y + 2)))
-            - (AtClamped(s, w, h, x - 2, y) + AtClamped(s, w, h, x + 2, y)))
+        => ((5f * AtMirrored(s, w, h, x, y))
+            + (4f * (AtMirrored(s, w, h, x - 1, y) + AtMirrored(s, w, h, x + 1, y)))
+            - (AtMirrored(s, w, h, x - 1, y - 1) + AtMirrored(s, w, h, x + 1, y - 1) + AtMirrored(s, w, h, x - 1, y + 1) + AtMirrored(s, w, h, x + 1, y + 1))
+            + (0.5f * (AtMirrored(s, w, h, x, y - 2) + AtMirrored(s, w, h, x, y + 2)))
+            - (AtMirrored(s, w, h, x - 2, y) + AtMirrored(s, w, h, x + 2, y)))
            * 0.125f;
 
     // Red/blue at a green site whose same-colour neighbours lie in the same COLUMN (transpose of the row case).
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     private static float MhcVertical(float[,] s, int w, int h, int x, int y)
-        => ((5f * AtClamped(s, w, h, x, y))
-            + (4f * (AtClamped(s, w, h, x, y - 1) + AtClamped(s, w, h, x, y + 1)))
-            - (AtClamped(s, w, h, x - 1, y - 1) + AtClamped(s, w, h, x + 1, y - 1) + AtClamped(s, w, h, x - 1, y + 1) + AtClamped(s, w, h, x + 1, y + 1))
-            + (0.5f * (AtClamped(s, w, h, x - 2, y) + AtClamped(s, w, h, x + 2, y)))
-            - (AtClamped(s, w, h, x, y - 2) + AtClamped(s, w, h, x, y + 2)))
+        => ((5f * AtMirrored(s, w, h, x, y))
+            + (4f * (AtMirrored(s, w, h, x, y - 1) + AtMirrored(s, w, h, x, y + 1)))
+            - (AtMirrored(s, w, h, x - 1, y - 1) + AtMirrored(s, w, h, x + 1, y - 1) + AtMirrored(s, w, h, x - 1, y + 1) + AtMirrored(s, w, h, x + 1, y + 1))
+            + (0.5f * (AtMirrored(s, w, h, x - 2, y) + AtMirrored(s, w, h, x + 2, y)))
+            - (AtMirrored(s, w, h, x, y - 2) + AtMirrored(s, w, h, x, y + 2)))
            * 0.125f;
 
     // The same four kernels over five row spans (y - 2 .. y + 2) for a pixel whose whole 5x5 window
-    // is inside the plane. Term order matches the clamped versions above exactly, so the two agree to
+    // is inside the plane. Term order matches the mirrored versions above exactly, so the two agree to
     // the bit where both apply; keep them in step if a coefficient ever moves.
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     private static float MhcGreenInterior(ReadOnlySpan<float> m2, ReadOnlySpan<float> m1, ReadOnlySpan<float> m0, ReadOnlySpan<float> p1, ReadOnlySpan<float> p2, int x)
@@ -458,12 +458,33 @@ public partial class Image
             - (m2[x] + p2[x]))
            * 0.125f;
 
+    // A tap outside the plane reads the plane mirrored about its edge sample, which keeps the tap's colour: a mosaic's colour
+    // alternates every sample, and a mirror about the edge maps x to -x or 2(n-1)-x, both of x's parity. Repeating the edge
+    // sample instead read the NEIGHBOURING colour, so the outer two rows and columns mixed colours wherever the colours' levels
+    // differ: a planetary master whose sky keeps a pedestal had blue's edge row 13 % below its sky (#1258).
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private static float AtClamped(float[,] s, int w, int h, int x, int y)
+    private static float AtMirrored(float[,] s, int w, int h, int x, int y)
+        => s[MirroredIndex(y, h), MirroredIndex(x, w)];
+
+    // Index i of n reflected about the ends (0 and n-1, each read once), for any i: the reflection repeats every 2(n-1).
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static int MirroredIndex(int i, int n)
     {
-        if (x < 0) x = 0; else if (x >= w) x = w - 1;
-        if (y < 0) y = 0; else if (y >= h) y = h - 1;
-        return s[y, x];
+        if ((uint)i < (uint)n)
+        {
+            return i;
+        }
+        if (n == 1)
+        {
+            return 0;
+        }
+        var period = 2 * (n - 1);
+        i %= period;
+        if (i < 0)
+        {
+            i += period;
+        }
+        return i < n ? i : period - i;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]

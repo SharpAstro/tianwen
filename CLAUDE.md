@@ -1042,7 +1042,7 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   take the globe's gains), and **an OPAL apparition's I/F factors come from its own readme** (`PlanetaryColour.ReadmeFilters`), never a
   constant: Saturn's move 15 % between years. **A balanced master's planetary stretch takes ONE black point** (`ImageMeta.IsColourBalanced`,
   read from CBALSAT and set by `PlanetaryColourBalance.Apply`, #1229): its sky is zero in every channel and only its noise differs, so a
-  black point a channel rendered it navy; an unbalanced one keeps a black point a channel (its Uranus-C sky still renders blue, #1258).
+  black point a channel rendered it navy; an unbalanced one keeps a black point a channel.
   **It needs the planet, the instant and the telescope** (a master carries its capture's span, DATE-OBS to EXPTIME, for the
   instant). Measured on the twins it leaves under a third of legacy's error; the free gain fit oscillates where the edge reads the finest
   band low and still lands near the truth, while the non-negative fit leaves every twin worse than unsharpened. **Floored alone rang
@@ -1507,7 +1507,12 @@ vocabulary (own/borrow/consume), the four conventions and the DEBUG leak leg:
 - **Every gradient in a demosaic must compare two samples of the SAME colour, or a flat field gets a
   colour-dependent bias invisible to a self- or GPU-parity test** (VNG's mixed colour differences put
   a 6.4-level, two-pixel-alternating stripe over every flat background -- thirty times what MHC/AHD
-  show). Pinned by `VngFlatFieldBiasTests`, the one test that asserts on a FLAT field.
+  show). Pinned by `VngFlatFieldBiasTests`, the one test that asserts on a FLAT field. **And a tap past the
+  frame's edge must read its OWN colour: mirror about the edge sample, never repeat it** (#1258; the CPU MHC's
+  `AtMirrored`, SER.Lib's `SerImaging.At`, the shader's `rawAt`): a repeated edge sample is the neighbouring colour,
+  and wherever the colours' levels differ (a planetary sky with a pedestal) the outer two rows and columns read
+  wrong, blue's edge row 13 % low on a Uranus-C master. Pinned by a mosaic whose colours are each FLAT at their
+  own level (`DebayerMhcTests`, `GpuVngDebayerParityTests`), which a one-level flat field passes either way.
 - `Array2DPool` is scratch only; camera buffers use `ChannelBuffer`. A buffer nobody released is
   findable in DEBUG (`ChannelBufferLeakTracker`); the recycle loop is complete for DAL/Fake/Alpaca/
   ASCOM/Canon, a streaming driver's multi-plane frames going through `PlaneRecycler`; FC.SDK.Raw's own

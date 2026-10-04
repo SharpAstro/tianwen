@@ -190,6 +190,27 @@ float gridIntensity(vec2 pixel) {
 // (Image.BilinearInterpolateColorFast) has always been centred on (x, y), i.e. correct.
 //
 // The -0.5 in debayerMono is NOT this and must stay -- see there.
+// Index i of n reflected about the ends (0 and n-1, each read once): the reflection is even about 0
+// and repeats every 2(n-1), so abs and a remainder on non-negatives place any i. A tap outside the
+// mosaic then reads its OWN colour, since the mirror keeps the parity a Bayer colour alternates by;
+// clamping to the edge read the neighbouring colour and mixed colours along a 2px border wherever
+// the colours' levels differ (#1258). Mirrors SerImaging.At / Image.AtMirrored.
+int mirrorIndex(int i, int n) {
+    if (n <= 1) {
+        return 0;
+    }
+    int period = 2 * (n - 1);
+    int j = abs(i) % period;
+    return j < n ? j : period - j;
+}
+
+// A texel of the raw mosaic, mirrored at its edge. texelFetch does NOT clamp coordinates, and outside
+// the image it is undefined.
+float rawAt(ivec2 p) {
+    ivec2 size = ivec2(ubo.imageSize);
+    return texelFetch(uChannel0, ivec2(mirrorIndex(p.x, size.x), mirrorIndex(p.y, size.y)), 0).r;
+}
+
 vec3 debayerBilinear(vec2 uv) {
     vec2 texSize = ubo.imageSize;
     ivec2 px = ivec2(floor(uv * texSize));
@@ -198,15 +219,16 @@ vec3 debayerBilinear(vec2 uv) {
     int bx = (px.x + offX) % 2;
     int by = (px.y + offY) % 2;
 
-    float cc = texelFetch(uChannel0, px, 0).r;
-    float n  = texelFetch(uChannel0, px + ivec2( 0,-1), 0).r;
-    float s  = texelFetch(uChannel0, px + ivec2( 0, 1), 0).r;
-    float e  = texelFetch(uChannel0, px + ivec2( 1, 0), 0).r;
-    float w  = texelFetch(uChannel0, px + ivec2(-1, 0), 0).r;
-    float ne = texelFetch(uChannel0, px + ivec2( 1,-1), 0).r;
-    float nw = texelFetch(uChannel0, px + ivec2(-1,-1), 0).r;
-    float se = texelFetch(uChannel0, px + ivec2( 1, 1), 0).r;
-    float sw = texelFetch(uChannel0, px + ivec2(-1, 1), 0).r;
+    // Through rawAt: a bare texelFetch one texel past the edge read undefined values along the border.
+    float cc = rawAt(px);
+    float n  = rawAt(px + ivec2( 0,-1));
+    float s  = rawAt(px + ivec2( 0, 1));
+    float e  = rawAt(px + ivec2( 1, 0));
+    float w  = rawAt(px + ivec2(-1, 0));
+    float ne = rawAt(px + ivec2( 1,-1));
+    float nw = rawAt(px + ivec2(-1,-1));
+    float se = rawAt(px + ivec2( 1, 1));
+    float sw = rawAt(px + ivec2(-1, 1));
 
     float rr, gg, bb;
     if (bx == 0 && by == 0) {
@@ -227,15 +249,6 @@ vec3 debayerBilinear(vec2 uv) {
         rr = (n + s) * 0.5;
     }
     return vec3(rr, gg, bb);
-}
-
-// Clamp-to-edge texel fetch on the raw mosaic. texelFetch does NOT clamp coordinates;
-// MHC's 5x5 reach would otherwise read 0 outside the image and stain a 2px border.
-// Mirrors SerImaging.At / Image.AtClamped.
-float rawAt(ivec2 p) {
-    ivec2 m = ivec2(ubo.imageSize) - ivec2(1, 1);
-    p = clamp(p, ivec2(0, 0), m);
-    return texelFetch(uChannel0, p, 0).r;
 }
 
 // Malvar-He-Cutler (2004) gradient-corrected linear demosaic. The exact CPU mirror lives in
@@ -315,8 +328,8 @@ vec3 debayerMhc(vec2 uv) {
 // Frame border, within two pixels of an edge: the CPU's VNG inner loop is inset by that much and
 // the rim is filled by Image.ProcessEdgePixels instead, which averages every same-colour sample in
 // the clipped 5x5 window (BilinearInterpolateColorFast -- not a bilinear filter, despite the name).
-// Mirrored literally, window clipping included, rather than leaning on rawAt's clamp: clamping
-// would be defensible on its own but would disagree with the file at the one place the difference
+// Transcribed literally, window clipping included, rather than leaning on rawAt's mirror: the mirror
+// would be defensible on its own but would disagree with the CPU at the one place the difference
 // is easiest to see, a 2px band along all four edges.
 vec3 vngEdge(ivec2 p, vec3 knownMask) {
     ivec2 m = ivec2(ubo.imageSize) - ivec2(1, 1);
