@@ -1040,7 +1040,10 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   that colour, never about grey, which turned the whole disk yellower; the sharpening reads each channel's edge through its own diffraction, and
   the saturation mixes the channels). **Saturn's globe is read where its rings leave it clear** (S6, #1235; `MetricDisk.RingTouched`, the rings
   take the globe's gains), and **an OPAL apparition's I/F factors come from its own readme** (`PlanetaryColour.ReadmeFilters`), never a
-  constant: Saturn's move 15 % between years. **It needs the planet, the instant and the telescope** (a master carries its capture's span, DATE-OBS to EXPTIME, for the
+  constant: Saturn's move 15 % between years. **A balanced master's planetary stretch takes ONE black point** (`ImageMeta.IsColourBalanced`,
+  read from CBALSAT and set by `PlanetaryColourBalance.Apply`, #1229): its sky is zero in every channel and only its noise differs, so a
+  black point a channel rendered it navy; an unbalanced one keeps a black point a channel (its Uranus-C sky still renders blue, #1258).
+  **It needs the planet, the instant and the telescope** (a master carries its capture's span, DATE-OBS to EXPTIME, for the
   instant). Measured on the twins it leaves under a third of legacy's error; the free gain fit oscillates where the edge reads the finest
   band low and still lands near the truth, while the non-negative fit leaves every twin worse than unsharpened. **Floored alone rang
   OUTSIDE the limb, above the sky, on a twin with no ghost too**, where the band error (inside 0.9 radii) and the undershoot (below the

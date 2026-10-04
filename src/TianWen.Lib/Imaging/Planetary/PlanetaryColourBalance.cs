@@ -163,6 +163,7 @@ public static class PlanetaryColourBalance
                 max = MathF.Max(max, MathF.Max(outR, MathF.Max(outG, outB)));
             }
         }
-        return new Image(planes, master.BitDepth, max, min, 0, master.ImageMeta);
+        // Its sky is now zero in every channel, which the planetary stretch reads (#1229).
+        return new Image(planes, master.BitDepth, max, min, 0, master.ImageMeta with { IsColourBalanced = true });
     }
 }

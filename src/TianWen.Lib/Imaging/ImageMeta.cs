@@ -297,6 +297,17 @@ public record struct ImageMeta(
     public PixelRect? BiasSection { get; init; } = null;
 
     /// <summary>
+    /// Whether a planetary colour balance took each channel's sky off this frame (FITS: the balance's <c>CBALSAT</c> card,
+    /// <see cref="Planetary.PlanetaryColourBalance"/>, #1212), so its sky sits at zero in every channel while its noise is wider where
+    /// the balance's gain is larger. The planetary stretch then takes one black point for all three channels (#1229).
+    /// </summary>
+    /// <remarks>
+    /// Read here, never written from here: the balance's cards travel through the write-extras path (<c>ColourBalance.HeaderCards</c>),
+    /// and <see cref="Planetary.PlanetaryColourBalance.Apply"/> sets this on the image it makes.
+    /// </remarks>
+    public bool IsColourBalanced { get; init; } = false;
+
+    /// <summary>
     /// Rescales the scale-dependent metadata by the same factor applied to the pixel values, keeping
     /// the invariant that <see cref="SensorFullScaleAdu"/> is always in the SAME units as the pixel
     /// data (mirroring how <see cref="Image.Pedestal"/> travels through every rescale). After a

@@ -1561,6 +1561,11 @@ public partial class Image
     /// A mild midtones lift approximating gamma <paramref name="gamma"/> opens up the belts
     /// without the heavy lift a nebula needs.
     /// </para>
+    /// <para>
+    /// A colour-balanced master (<see cref="ImageMeta.IsColourBalanced"/>) takes ONE black point,
+    /// the highest of the channels' percentiles: its sky is already at zero in every channel and
+    /// only its noise differs, so a per-channel percentile would tint it (#1229).
+    /// </para>
     /// </summary>
     /// <remarks>
     /// Returned as <see cref="StretchMode.Unlinked"/> (the per-channel render branch) with
@@ -1614,6 +1619,18 @@ public partial class Image
             var buf = scratch.AsSpan(0, count);
             lo[c] = PercentileFast(buf, blackPercentile);
             hi[c] = PercentileFast(buf, whitePercentile);
+        }
+
+        // A colour-balanced master's sky sits at zero in every channel (the balance took each
+        // channel's sky off), but its noise is wider where the balance's gain is larger (blue's
+        // 1.3 to 1.5), so a percentile a channel set that channel's black point further below the
+        // sky and tinted it navy (#1229). One black point for all three, the highest of the
+        // channels' percentiles, renders the sky alike in each. An unbalanced master keeps one a
+        // channel: there it is what takes the channels' unequal skies off.
+        if (statChannels >= 3 && ImageMeta.IsColourBalanced)
+        {
+            var common = MathF.Max(lo[0], MathF.Max(lo[1], lo[2]));
+            lo[0] = lo[1] = lo[2] = common;
         }
 
         // Common scale: the largest per-channel dynamic range maps to [0, 1]; the others
