@@ -190,6 +190,68 @@ public class StandardErrorPlaneTests(ITestOutputHelper output)
         }
     }
 
+    /// <summary>The two-pass strategy's plane: the kept samples' scatter from pass B against pass A's mean, over the
+    /// kept count, on frames of known noise per channel.</summary>
+    [Fact]
+    public async System.Threading.Tasks.Task TheTwoPassPlanePredictsTheMastersOwnError()
+    {
+        var sigmas = new[] { 0.01, 0.02, 0.005 };
+        var rng = new Random(29);
+        var images = new List<Image>(Frames);
+        for (var f = 0; f < Frames; f++)
+        {
+            var planes = new float[sigmas.Length][,];
+            for (var c = 0; c < sigmas.Length; c++)
+            {
+                var plane = new float[Size, Size];
+                for (var y = 0; y < Size; y++)
+                {
+                    for (var x = 0; x < Size; x++)
+                    {
+                        plane[y, x] = (float)(Truth + (sigmas[c] * Gaussian(rng)));
+                    }
+                }
+                planes[c] = plane;
+            }
+            images.Add(new Image(planes, BitDepth.Float32, 1f, 0f, 0f, new ImageMeta()));
+        }
+        var job = new IntegrationJob(
+            WarpedFrames: _ => Enumerate(images),
+            ExpectedFrameCount: images.Count,
+            Options: new IntegrationOptions(Rejector: new SigmaClipRejector(), ApplyNormalization: false),
+            StagingDir: System.IO.Path.GetTempPath(),
+            StatsRect: TianWen.Lib.Geometry.PixelRect.Empty);
+
+        var result = await new ChunkedTwoPassStrategy().RunAsync(job, TestContext.Current.CancellationToken);
+
+        var standardError = result.StandardError.ShouldNotBeNull();
+        for (var c = 0; c < sigmas.Length; c++)
+        {
+            double errorSquares = 0, planeSquares = 0;
+            for (var y = 0; y < Size; y++)
+            {
+                for (var x = 0; x < Size; x++)
+                {
+                    var error = result.Master[c, y, x] - Truth;
+                    errorSquares += error * error;
+                    planeSquares += standardError[c, y, x] * standardError[c, y, x];
+                }
+            }
+            var ratio = Math.Sqrt(errorSquares / planeSquares);
+            output.WriteLine($"two-pass channel {c}: the master's error over the plane, RMS over RMS {ratio:F3}");
+            ratio.ShouldBe(1.0, 0.04, $"channel {c}");
+        }
+
+        static async IAsyncEnumerable<Image> Enumerate(List<Image> frames)
+        {
+            await System.Threading.Tasks.Task.CompletedTask;
+            foreach (var f in frames)
+            {
+                yield return f;
+            }
+        }
+    }
+
     [Fact]
     public void TheSidecarKeepsEveryLevelAndSaysWhereNothingWasMeasured()
     {

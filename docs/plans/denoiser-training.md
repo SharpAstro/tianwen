@@ -2902,7 +2902,7 @@ TianWen did not stack. Phases:
 | phase | what | status |
 |---|---|---|
 | S1 | the plane in both per-pixel loops (`Integrator`, `StreamingIntegrator`; so InRamAllFrames, TilePipelined, Float16Staged, FootprintStaged), `IntegrationResult.StandardError`; the sidecar's writer and reader (`.stderr.fits.gz`, ln-coded), carried through `MasterPostProcessor`'s unit scale and crop | DONE 2026-10-05 |
-| S2 | the drizzle strategies (the survivors' weighted moments in the clipped deposit) and ChunkedTwoPass (double, per channel) | |
+| S2 | the drizzle strategies (`DrizzleScatter`: the kept deposits' area squared and centred squared deviation, in both layouts) and ChunkedTwoPass (per-channel kept counts and centred squares; its one shared kept count, channel 0's, had divided every channel's sum) | DONE 2026-10-05: drizzle 1.002 to 1.010, two-pass 1.001 to 1.024, RMS over RMS |
 | S3 | the bake: master and half-master planes on `RegisteredSession`, the store's sidecar, MEASURED tile planes, a recipe-version bump; `MasterPostProcessor` scales and crops it with the master | |
 | S4 | the validation against the half pairs, pre-registered, on a re-bake of the halved sessions | |
 | S5 | the runner reads the sidecar beside a master, the estimator its fallback | |
