@@ -638,6 +638,20 @@ warped noise as the checks. Three arms from one binary: random (the training arm
 control). Each arm runs in chunks of ten sessions into one folder, the stop file read between chunks; the draws are seeded
 per session, cell and draw, so a chunked arm is the bytes one run would write.
 
+**R2a, the first training (launched 2026-10-04).** `training/denoise/run-r2.ps1`: the three arms, three seeds each,
+interleaved, on the shipped denoiser's training line (L2 on the rim-masked tile, the 2-4 and 4-8 px DoG bands at 3, the
+stored noise plane as conditioning, plateau schedule), regressing an injected draw onto its starless plate. The export
+writes 4 draws where the cache has 8 sub slots, and the trainer drew from all 8, so half its inputs would have been zero
+tiles, silently: `prepare` now records the slots every cell fills (`meta.json` `draws`) and the trainer samples, holds out
+and checks noise planes within them (a cache from before samples exactly as it did). The split is by night
+(`arms/r2-train.txt`, 113 sessions; `arms/r2-val.txt`, HIP 80609 and the first non-comet night of the ASI585, ASI294MC
+and QHY294PROC); the 15 mono sessions wait on H7, the trainer being 3-channel. `--gate-every 0`, since the denoiser's
+selection keeps only a checkpoint that cuts the noise. **What R2a is not:** the speckle teacher (a port of
+`StarlessSpeckles` with its parity fixture, which needs the noise cap `PointSourceFinder.CapByDifferenceNoise` ported too)
+and the flux penalty (H5) are not written, so these models are taught L2 and bands and scored for speckles; and nothing is
+read until R2's eval exists (section 5's completeness, background, speckles per band against their null, the 1:1 checks),
+whose predictions are registered here with it, before any R2a model is scored.
+
 Open from it, under #902: R0's saturated fit on a fixed annulus in FWHM units with a 0.1 to 0.3 core cut (#1240); a
 residual table that holds bright stars' near wings (#1241); the Lagoon's and eta Carinae's photometric offsets (1.4 to 1.7,
 a V against luminance colour term is the likely reading, #1242); the mono noise shape (#1243); and theme C's validations,
