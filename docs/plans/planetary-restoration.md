@@ -3243,6 +3243,32 @@ samples fills the rest with their mean; any other row is interpolated in latitud
 map through it and draws `SaturnRings.Main` (`--no-rings` omits them). The rings' levels and optical depths are nominal; S3 calibrates
 them.
 
+### A capture the planet drifts out of (#1237)
+
+Found on the way to S2's real captures, and S3's twin is calibrated on the same capture. 2022-10-09's Saturn was taken on an untracked
+Dobsonian, where drift is the only way. The planet leaves the field over the last sixth of the capture:
+- **To frame ~3400:** Saturn sits around (183, 80).
+- **From ~3400:** it drifts up and left, with a hand correction at 3620.
+- **By 4450:** it touches the left edge; by 4900 only a sliver is left.
+- **From ~5000:** there is no planet in the frame.
+
+The stacker kept such frames among the best half by the gradient. The ones it registered wrong summed into a second, partial Saturn at the
+master's top left, its vertical edge the frame's own. Twenty or so frames with corrupt top rows (R5a's kind) added a line across the top.
+The master's colour planes could not be aligned (its greens read 1.05 px apart), and a limb fit read a 28 px globe for a 19 px one.
+
+**A frame whose planet the frame's edge cuts, or which holds none, scores zero wherever a frame is graded**:
+- **The test** (`FrameGrader.IsCutOrEmpty`): the planet is the largest blob above the sky, its pixels joined by their edges. The frame is cut
+  when that blob reaches the edge, or holds under 16 px. A moon at the edge is a blob of its own and cuts nothing.
+- **Where it acts:** the batch stacker, the live one and the capture statistics, as R5a's corrupt readouts do. The test shares the grader's
+  one pass over the frame's luminance (`PlanetaryDisk.BoundingBoxAndCut`), and the score is the grader's, bit for bit.
+- **Only while at least one frame in twenty is whole** (`FrameGrader.DropsCutFrames`). A drift capture can hold more cut frames than whole
+  ones; a Moon filling the field holds none whole, and its frames stay as graded.
+- **`SelectBest` keeps no frame scored zero while any frame scores above it**, since a drift capture can hold more cut frames than the keep
+  leaves out.
+
+Restacked, the 2022-10-09 master is one planet with no line, and its greens read 0.05 px apart, so the colours were moved onto green. It
+left out 676 of the 5,271 frames (12.8 %), and the stack log says so (`PlanetaryStackResult.FramesCut`).
+
 ### S2 The limb fit with the rings in its model
 
 #1232. The fit's forward model gains the rings: each ring's brightness is free, their geometry is the ephemeris', and they are blurred with the globe

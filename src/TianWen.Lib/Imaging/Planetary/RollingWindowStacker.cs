@@ -105,6 +105,10 @@ public sealed class RollingWindowStacker
     // The lowest index that may still have a cached score, so a trim walks only the indices it removes.
     private int _scoreCacheFloor = int.MaxValue;
 
+    // How many frames this stacker has graded, and how many of them held their planet whole (FrameGrader.DropsCutFrames).
+    private int _gradedFrames;
+    private int _wholeFrames;
+
     // The folded contribution of each in-window frame, so eviction can subtract exactly what was added
     // (same shift, negated weight) without re-grading. Weight 0 = graded-but-not-folded (kept so the
     // window membership/contiguity bookkeeping is uniform).
@@ -453,7 +457,12 @@ public sealed class RollingWindowStacker
             return cached;
         }
 
-        var score = MathF.Max(0f, FrameGrader.Grade(_options.QualityEstimator, frame));
+        // A frame whose planet the frame's edge cuts, or which holds none, scores zero once the run has held enough whole ones
+        // (FrameGrader.DropsCutFrames): a live stack learns the capture as it goes.
+        var (graded, cut) = FrameGrader.GradeAndCut(_options.QualityEstimator, frame);
+        _gradedFrames++;
+        _wholeFrames += cut ? 0 : 1;
+        var score = cut && FrameGrader.DropsCutFrames(_wholeFrames, _gradedFrames) ? 0f : MathF.Max(0f, graded);
         _scoreCache[index] = score;
         if (index < _scoreCacheFloor)
         {
