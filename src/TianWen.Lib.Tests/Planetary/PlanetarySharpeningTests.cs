@@ -272,6 +272,80 @@ public class PlanetarySharpeningTests
     }
 
     [Fact(Timeout = 300_000)]
+    public async Task AMoonBeyondTheSharpeningWindowIsSharpenedAsOneInsideItInTheBatchAndTheLiveView()
+    {
+        // #1211: the sharpening works in a window about the planet, 256 px here, and left the frame beyond it as stacked, a moon there too,
+        // while a moon inside it kept its sharpening (#1181). The same planet on a wider frame with a moon each side of the window's edge:
+        // both must come out as the dials, the same gains over the whole master, sharpen them, in the batch and in the live view's drawing,
+        // and the frame beyond the window and every moon's reach stays the stack exactly.
+        const int width = 448, height = 320;
+        var ct = TestContext.Current.CancellationToken;
+        var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night);
+        var scale = aspect.AngularDiameterArcsec / 2 / Placement.EquatorialRadius;
+        var planet = PlanetaryRender.RenderDiffracted(BeltedMap(), aspect, Placement, Size, Size, 0.95, Telescope, Wavelength, scale);
+        var truth = new float[width * height];
+        for (var y = 0; y < Size; y++)
+        {
+            planet.AsSpan(y * Size, Size).CopyTo(truth.AsSpan(y * width, Size));
+        }
+        // The window spans x -33 to 223 and y -31 to 225 about the planet at (95.4, 96.8): one moon inside it, one far beyond.
+        (int X, int Y)[] moons = [(170, 150), (390, 260)];
+        foreach (var (mx, my) in moons)
+        {
+            for (var y = my - 5; y <= my + 5; y++)
+            {
+                for (var x = mx - 5; x <= mx + 5; x++)
+                {
+                    truth[(y * width) + x] += (float)Math.Exp(-(((x - mx) * (x - mx)) + ((y - my) * (y - my))) / (2 * 0.9 * 0.9));
+                }
+            }
+        }
+        var blurred = PlanetaryInverse.Apply(truth, width, height, Seeing);
+        var random = new Random(5);
+        var stackPlane = new float[height, width];
+        for (var i = 0; i < blurred.Length; i++)
+        {
+            stackPlane[i / width, i % width] = (float)(0.05 + (0.5 * blurred[i]) + (0.002 * PhaseScreen.Gaussian(random)));
+        }
+        var stack = new Image([stackPlane], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
+
+        var (gains, how, kept) = await Task.Run(() => PlanetaryBestStack.DeriveGains(stack, CatalogIndex.Jupiter, Night, Telescope, [650]), ct);
+        var limb = kept.ShouldNotBeNull(how);
+        var batch = (await Task.Run(() => PlanetarySharpening.Sharpen(stack, new PlanetarySharpenOptions(CatalogIndex.Jupiter, Night, Telescope) { WavelengthsNm = [650] }), ct))
+            .ShouldNotBeNull();
+        var dials = WaveletSharpen.Sharpen(stack, PlanetaryBestStack.SliderOptions(gains));
+        var live = limb.FollowedTo(stack).ShouldNotBeNull().Draw(stack, dials);
+
+        var disk = limb.Disk;
+        double Peak(Image image, (int X, int Y) at) => PlanetaryMetrics.SourcePeak(PlanetaryMetrics.Normalise(image.GetChannelSpan(0), width, height, disk), width, height, at.X, at.Y).Peak;
+        foreach (var moon in moons)
+        {
+            var (stacked, byDials, byBatch, byLive) = (Peak(stack, moon), Peak(dials, moon), Peak(batch.Sharpened, moon), Peak(live, moon));
+            TestContext.Current.TestOutputHelper?.WriteLine($"the moon at {moon}: peak {stacked:0.0000} stacked, {byDials:0.0000} by the dials, {byBatch:0.0000} batch, {byLive:0.0000} live");
+            byBatch.ShouldBeGreaterThan(1.5 * stacked, $"the moon at {moon} is sharpened, not left as stacked");
+            byBatch.ShouldBe(byDials, 0.1 * byDials, $"the moon at {moon} as the dials sharpen it");
+            byLive.ShouldBe(byBatch, 0.02 * byBatch, $"the moon at {moon} drawn live as the batch sharpens it");
+        }
+        // Beyond the window (x 223 on, or y 225 on) and every moon's reach, the batch is the stack itself.
+        var sharpened = batch.Sharpened.GetChannelSpan(0);
+        var original = stack.GetChannelSpan(0);
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                if ((x >= 223 || y >= 225) && moons.All(m => ((x - m.X) * (x - m.X)) + ((y - m.Y) * (y - m.Y)) > PlanetaryDering.MoonReachPx * PlanetaryDering.MoonReachPx))
+                {
+                    sharpened[(y * width) + x].ShouldBe(original[(y * width) + x], $"({x}, {y}) beyond the window and the moons");
+                }
+            }
+        }
+        foreach (var image in new[] { batch.Sharpened, dials, live })
+        {
+            image.Release();
+        }
+    }
+
+    [Fact(Timeout = 300_000)]
     public async Task ATightCropsSharpeningLiftsNoSkyAboveTheStackOutsideTheLimb()
     {
         // The sharpening works in a power-of-two window about the planet: 256 px over this 130 px crop, whose corners lie inside the

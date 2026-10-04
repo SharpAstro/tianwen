@@ -144,7 +144,8 @@ public sealed record PlanetarySharpenResult(Image Sharpened, bool Derived, Plane
 /// the planet's disk and its blur read off the limb's edge against the limb fit's sharp model through the pupil's diffraction (R8 part 3 and
 /// follow-up 3), applied with the limb kept from ringing (<see cref="PlanetaryLimbFix"/>). Each channel is derived on its own, inside a
 /// power-of-two window about the planet, normalised on the disk (sky 0, disk 1) and mapped back into the master's units; outside the
-/// window the master is as stacked. Null when the planet's limb cannot be fitted.
+/// window the master is as stacked but for its moons, each sharpened by the same gains in a window of its own (#1211). Null when the planet's
+/// limb cannot be fitted.
 /// </summary>
 public static class PlanetarySharpening
 {
@@ -173,6 +174,8 @@ public static class PlanetarySharpening
             var (level, scale) = PlanetaryMetrics.NormalisationLevels(plane, width, height, own);
             var window = limbWindow.Cut(plane, width, height, level, scale);
             float[] sharpened;
+            // A moon beyond the window takes the same gains, in a window of its own (#1211).
+            Func<float[], float[]> sharpenMoon;
             if (options.Pupil is { } pupil)
             {
                 var wavelengthNm = options.WavelengthsNm[Math.Min(c, options.WavelengthsNm.Length - 1)];
@@ -197,6 +200,7 @@ public static class PlanetarySharpening
                     ? PlanetaryWaveletGains.FitNonNegative(power, wiener, diskTarget, blurredDisk, size, size, disk, kernel)
                     : PlanetaryWaveletGains.Fit(power, wiener, diskTarget, blurredDisk, size, size, disk, held: FinestHeld(master.ChannelCount, c, options.ColourFinestBand) ? 1 : 0);
                 sharpened = Apply(window, size, disk, sharp, f => kernel(f) * diffraction.At(f), diffraction.At, gains.AsSpan(), [], options.Fix, diskTarget, blurredDisk);
+                sharpenMoon = w => PlanetaryDering.Sharpen(w, PlanetaryLimbWindow.MoonWindowSize, PlanetaryLimbWindow.MoonWindowSize, gains.AsSpan());
                 if (c == 0)
                 {
                     (firstGains, edgeAt01, edgeAt03) = (gains, edge.TransferAt(0.1), edge.TransferAt(0.3));
@@ -218,12 +222,16 @@ public static class PlanetarySharpening
                     thresholds[j] = j < preset.DenoiseThresholds.Length ? preset.DenoiseThresholds[j] / scale : 0;
                 }
                 sharpened = PlanetaryDering.LimbChannel(window, size, size, sharp, blur, blur, p => PlanetaryDering.Sharpen(p, size, size, gains, thresholds));
+                sharpenMoon = w => PlanetaryDering.Sharpen(w, PlanetaryLimbWindow.MoonWindowSize, PlanetaryLimbWindow.MoonWindowSize, gains, thresholds);
                 if (c == 0)
                 {
                     (firstGains, edgeAt01, edgeAt03) = ([.. gains], edge.TransferAt(0.1), edge.TransferAt(0.3));
                 }
             }
             limbWindow.Paste(plane, sharpened, planes[c], width, height, level, scale);
+            var channel = c;
+            limbWindow.PasteMoonsBeyond(plane, planes[c], width, height, level, scale, (x0, y0) => sharpenMoon(PlanetaryLimbWindow.CutAt(
+                master.GetChannelSpan(channel), width, height, x0, y0, PlanetaryLimbWindow.MoonWindowSize, level, scale)));
         }
         var image = new Image(planes, BitDepth.Float32, master.MaxValue, master.MinValue, master.Pedestal, master.ImageMeta);
         return new PlanetarySharpenResult(image, derived, derived ? options.Fix : PlanetaryLimbFix.LimbChannel, firstGains, edgeAt01, edgeAt03)

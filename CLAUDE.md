@@ -1020,7 +1020,8 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   white noise floor and the planet's disk, with **no sharpening drawn outside the limb** (#1171, `PlanetaryLimbFix.ModelFeathered`):
   there the planet's own model through the pupil, the truth's smooth diffraction glow, feathered back to the stack from 1.5 radii to
   the window's inscribed circle, but for a moon (a local maximum of the stack keeps its sharpening, `PlanetaryMetrics.CompactSources`,
-  #1181). **A diffraction PSF's grid spans twice the extent it is used over** (`PlanetaryRender.DiffractionGridFor`: the renderer's fine
+  #1181, wherever it lies: one beyond the window is sharpened by the same gains in a window of its own, the live view's by its dials,
+  `PlanetaryLimbWindow.PasteMoonsBeyond`, #1211). **A diffraction PSF's grid spans twice the extent it is used over** (`PlanetaryRender.DiffractionGridFor`: the renderer's fine
   frame, the model's window): an aperture's edge spread falls only as one over the distance, and on 128 samples the truth's glow died past
   1.6 radii while the model's ran 12 to 25 % short (#1213); a twin's frames still carry the short wing (#1222). The sharpening's side lobes outside the limb WERE the dark limb: bounded (#1168) floored the negative one at the sky, a black
   band, and let the positive ones through up to the stack's seeing glow, faint arcs, strongest on the lit side (the twins show the same,

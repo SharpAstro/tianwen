@@ -9,7 +9,8 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// The limb a live view keeps (#1201, docs/plans/planetary-restoration.md, "The feathered limb on the live view"): Derive's limb fit and the
 /// planet's sharp model through the pupil's diffraction for each channel, so that every later master, sharpened by the wavelet dials, is
 /// drawn outside the limb as the batch's derived sharpening draws it (<see cref="PlanetaryLimbFix.ModelFeathered"/>): no sharpening there,
-/// the model's clean limb feathered back to the stack by the window's inscribed circle, the moons free, the stack as it is beyond the window.
+/// the model's clean limb feathered back to the stack by the window's inscribed circle, the moons free, the stack as it is beyond the window
+/// but for its moons (#1211).
 /// Made by <see cref="PlanetarySharpening.Sharpen"/>, from the fit and the models it drew with (<see cref="PlanetarySharpenResult.Limb"/>).
 /// Immutable: a disk that moved gives a new one (<see cref="FollowedTo"/>).
 /// </summary>
@@ -115,8 +116,9 @@ public sealed class PlanetaryLiveLimb
     /// <paramref name="sharpened"/>, <paramref name="stacked"/> as the dials sharpened it, drawn outside the limb as the batch's derived
     /// sharpening draws it: inside the limb the sharpening held at the sky, outside it the planet's model through the pupil out to 1.5
     /// radii, feathered back to the stack by the window's inscribed circle, the moons sharpened, and the stack as it is beyond the window
-    /// (<see cref="PlanetaryDering.Outside"/> with <see cref="PlanetaryDering.OutsideLimb.ModelFeathered"/>, in the window and the units the
-    /// batch uses). A new image the caller owns; <paramref name="stacked"/> must be the master this limb was followed to.
+    /// but for its moons, as the dials sharpened them (<see cref="PlanetaryDering.Outside"/> with <see cref="PlanetaryDering.OutsideLimb.ModelFeathered"/>
+    /// and <see cref="PlanetaryLimbWindow.PasteMoonsBeyond"/>, in the window and the units the batch uses, #1211). A new image the caller owns;
+    /// <paramref name="stacked"/> must be the master this limb was followed to.
     /// </summary>
     public Image Draw(Image stacked, Image sharpened)
     {
@@ -137,6 +139,10 @@ public sealed class PlanetaryLiveLimb
             var drawn = PlanetaryDering.Outside(slid, stack, _window.Size, _window.Size, _window.Disk, PlanetaryDering.OutsideLimb.ModelFeathered,
                 model: _models[Math.Min(c, _models.Length - 1)]);
             _window.Paste(plane, drawn, planes[c], width, height, level, scale);
+            // A moon beyond the window as the dials sharpened it, held at the sky, as the batch sharpens it (#1211).
+            var channel = c;
+            _window.PasteMoonsBeyond(plane, planes[c], width, height, level, scale, (x0, y0) => PlanetaryLimbWindow.CutAt(
+                sharpened.GetChannelSpan(channel), width, height, x0, y0, PlanetaryLimbWindow.MoonWindowSize, level, scale));
         }
         return new Image(planes, sharpened.BitDepth, sharpened.MaxValue, sharpened.MinValue, sharpened.Pedestal, sharpened.ImageMeta, sharpened.SamplesAreUnitReferred);
     }
@@ -183,18 +189,7 @@ internal sealed record PlanetaryLimbWindow(int Size, int X0, int Y0, MetricDisk 
     /// unbounded (the real-capture validation, 2026-10-03).
     /// </summary>
     public float[] Cut(ReadOnlySpan<float> plane, int width, int height, double level, double scale)
-    {
-        var window = new float[Size * Size];
-        for (var y = 0; y < Size; y++)
-        {
-            var sy = Mirrored(Y0 + y, height);
-            for (var x = 0; x < Size; x++)
-            {
-                window[(y * Size) + x] = (float)((plane[(sy * width) + Mirrored(X0 + x, width)] - level) / scale);
-            }
-        }
-        return window;
-    }
+        => CutAt(plane, width, height, X0, Y0, Size, level, scale);
 
     /// <summary><paramref name="plane"/> with <paramref name="window"/> put back in its units, written into <paramref name="into"/>.</summary>
     public void Paste(ReadOnlySpan<float> plane, float[] window, float[,] into, int width, int height, double level, double scale)
@@ -203,13 +198,76 @@ internal sealed record PlanetaryLimbWindow(int Size, int X0, int Y0, MetricDisk 
         {
             for (var x = 0; x < width; x++)
             {
-                var (wx, wy) = (x - X0, y - Y0);
-                into[y, x] = wx >= 0 && wx < Size && wy >= 0 && wy < Size
-                    ? (float)(level + (window[(wy * Size) + wx] * scale))
-                    : plane[(y * width) + x];
+                into[y, x] = Holds(x, y) ? (float)(level + (window[((y - Y0) * Size) + (x - X0)] * scale)) : plane[(y * width) + x];
             }
         }
     }
+
+    /// <summary>The side of a window a moon beyond the planet's is sharpened in: the finer bands' support about it twice over.</summary>
+    public const int MoonWindowSize = 128;
+
+    /// <summary>
+    /// The moons beyond this window, sharpened as the moons inside it are (#1211): every compact source
+    /// <see cref="PlanetaryMetrics.CompactSources"/> finds on the whole of <paramref name="plane"/> (normalised as the window is), and
+    /// within <see cref="PlanetaryDering.MoonReachPx"/> of each, outside this window, <paramref name="into"/> takes the moon's sharpening
+    /// held at the sky, as <see cref="PlanetaryDering.Outside"/> leaves a moon inside. <paramref name="sharpenedAbout"/> gives that sharpening
+    /// as a <see cref="MoonWindowSize"/> square window with its corner at the two coordinates, in the window's units (sky 0, disk 1): the
+    /// batch sharpens a window cut about the moon (<see cref="CutAt"/>), the live view cuts its sliders' frame. Everything else is left as
+    /// <paramref name="into"/> holds it. Returns how many moons it sharpened.
+    /// </summary>
+    public int PasteMoonsBeyond(ReadOnlySpan<float> plane, float[,] into, int width, int height, double level, double scale, Func<int, int, float[]> sharpenedAbout)
+    {
+        const int reach = PlanetaryDering.MoonReachPx;
+        var normalised = new float[width * height];
+        for (var i = 0; i < normalised.Length; i++)
+        {
+            normalised[i] = (float)((plane[i] - level) / scale);
+        }
+        var sharpened = 0;
+        foreach (var (mx, my) in PlanetaryMetrics.CompactSources(normalised, width, height, Own, count: PlanetaryDering.MaxMoons))
+        {
+            if (Holds(mx - reach, my - reach) && Holds(mx + reach, my + reach))
+            {
+                continue; // inside the planet's window, where Outside frees it
+            }
+            var (x0, y0) = (mx - (MoonWindowSize / 2), my - (MoonWindowSize / 2));
+            var window = sharpenedAbout(x0, y0);
+            for (var y = Math.Max(0, my - reach); y <= Math.Min(height - 1, my + reach); y++)
+            {
+                for (var x = Math.Max(0, mx - reach); x <= Math.Min(width - 1, mx + reach); x++)
+                {
+                    if (((x - mx) * (x - mx)) + ((y - my) * (y - my)) <= reach * reach && !Holds(x, y))
+                    {
+                        into[y, x] = (float)(level + (Math.Max(window[((y - y0) * MoonWindowSize) + (x - x0)], 0f) * scale));
+                    }
+                }
+            }
+            sharpened++;
+        }
+        return sharpened;
+    }
+
+    /// <summary>
+    /// A <paramref name="size"/> square cut from a full-frame plane with its corner at (<paramref name="x0"/>, <paramref name="y0"/>), normalised
+    /// by <paramref name="level"/> and <paramref name="scale"/> and mirrored about the frame's edges, as <see cref="Cut(ReadOnlySpan{float}, int, int, double, double)"/>
+    /// cuts the planet's.
+    /// </summary>
+    public static float[] CutAt(ReadOnlySpan<float> plane, int width, int height, int x0, int y0, int size, double level, double scale)
+    {
+        var window = new float[size * size];
+        for (var y = 0; y < size; y++)
+        {
+            var sy = Mirrored(y0 + y, height);
+            for (var x = 0; x < size; x++)
+            {
+                window[(y * size) + x] = (float)((plane[(sy * width) + Mirrored(x0 + x, width)] - level) / scale);
+            }
+        }
+        return window;
+    }
+
+    // Whether the frame's pixel (x, y) lies in this window.
+    private bool Holds(int x, int y) => x >= X0 && x < X0 + Size && y >= Y0 && y < Y0 + Size;
 
     // An index mirrored into [0, n), the edge sample repeated (..., 1, 0 | 0, 1, ..., n - 1 | n - 1, n - 2, ...).
     private static int Mirrored(int i, int n)
