@@ -37,6 +37,42 @@ public class StretchedNoiseTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// E16c step 2: the plane from a MEASURED standard error is the plane from the noise model with the model replaced by
+    /// the measurement. On a flat tile whose measurement is what the model gives there, the two are the same plane; where
+    /// the measurement doubles, so does the plane.
+    /// </summary>
+    [Fact]
+    public void AMeasuredPlaneIsTheModelsPlaneWithTheMeasurementInItsPlace()
+    {
+        const int size = 64;
+        var stretch = new StretchedNoise.ChannelStretch(0.08, 0.001);
+        var calibration = new LinearDegradation.NoiseCalibration(0.0, 0.02, 0.004, 1);
+        const float level = 0.3f;
+        var stretched = Enumerable.Repeat(level, size * size).ToArray();
+        var linear = Image.MidtonesTransferFunction(1.0 - stretch.MidtonesBalance, level) + stretch.OrigMin;
+        var modelSigma = (float)calibration.SigmaAt(linear, 1.0);
+
+        var fromModel = StretchedNoise.Plane([stretched], size, size, [stretch], [calibration], 1.0);
+        var fromMeasurement = StretchedNoise.MeasuredPlane([stretched], [Enumerable.Repeat(modelSigma, size * size).ToArray()], size, size, [stretch]);
+        for (var i = 0; i < fromModel.Length; i++)
+        {
+            fromMeasurement[i].ShouldBe(fromModel[i], fromModel[i] * 1e-5f);
+        }
+
+        var doubled = new float[size * size];
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                doubled[(y * size) + x] = x < size / 2 ? modelSigma : 2 * modelSigma;
+            }
+        }
+        var plane = StretchedNoise.MeasuredPlane([stretched], [doubled], size, size, [stretch]);
+        var row = (size / 2) * size;
+        (plane[row + size - 4] / plane[row + 4]).ShouldBe(2f, 0.01f, "well clear of the step, the plane doubles where the measurement does");
+    }
+
+    /// <summary>
     /// E16c: the fine-scale estimator's ratio for uncorrelated noise is Starck and Murtagh's, so it has to be the sigma
     /// <see cref="ATrousWaveletTransform"/>'s finest scale itself gives unit white noise.
     /// </summary>

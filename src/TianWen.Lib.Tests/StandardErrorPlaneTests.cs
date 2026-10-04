@@ -27,11 +27,46 @@ public class StandardErrorPlaneTests(ITestOutputHelper output)
         float[] column = [1f, 2f, 4f, 7f, float.NaN, 100f];
         float[] mask = [1f, 1f, 1f, 1f, 1f, 0f];
         // Finite: 1, 2, 4, 7, 100, median 4, deviations 3, 2, 0, 3, 96, MAD 3: the outlier the clip removed cannot
-        // inflate it. Kept and finite: four. SE = 1.4826 * 3 / sqrt 4.
-        StandardErrorPlane.Of(column, mask).ShouldBe((float)(1.4826 * 3 / 2), 1e-5f);
+        // inflate it. Kept and finite: four. SE = 1.4826 * 3 / sqrt 4, times the bias correction for five samples.
+        StandardErrorPlane.Of(column, mask).ShouldBe((float)(1.4826 * StandardErrorPlane.MadBiasCorrection(5) * 3 / 2), 1e-5f);
 
         StandardErrorPlane.Of([5f, float.NaN, 9f], [1f, 1f, 0f]).ShouldBe(float.NaN, "one kept sample is no measurement");
         StandardErrorPlane.Of([3f, 3f, 3f], [1f, 1f, 1f]).ShouldBe(0f);
+    }
+
+    /// <summary>
+    /// The correction makes the spread unbiased in the MEAN over Gaussian columns of every length a column can have, which
+    /// is what a blurred plane needs; uncorrected, four samples read 0.735 of the truth and sixteen 0.949.
+    /// </summary>
+    [Theory]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(7)]
+    [InlineData(12)]
+    [InlineData(20)]
+    [InlineData(21)]
+    [InlineData(40)]
+    public void TheSpreadIsUnbiasedInTheMeanForAnyCount(int n)
+    {
+        const int Columns = 200_000;
+        var rng = new Random(29 + n);
+        var column = new float[n];
+        var mask = new float[n];
+        Array.Fill(mask, 1f);
+        var sum = 0.0;
+        for (var i = 0; i < Columns; i++)
+        {
+            for (var k = 0; k < n; k++)
+            {
+                column[k] = (float)Gaussian(rng);
+            }
+            // The standard error over the root of n back to one sample's spread, whose truth is 1.
+            sum += StandardErrorPlane.Of(column, mask) * Math.Sqrt(n);
+        }
+        var mean = sum / Columns;
+        output.WriteLine($"n {n}: mean spread {mean:F4}");
+        mean.ShouldBe(1.0, 0.01);
     }
 
     [Theory]

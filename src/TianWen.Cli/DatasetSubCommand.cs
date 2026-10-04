@@ -1469,8 +1469,9 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
         var anchorOpt = new Option<string>("--anchor")
         {
             Description = "The anchor the tolerances gate: master-calibration (the one E16b injects with), sub-calibrations, " +
-                          "sub-mad, half-pairs or blocks (the shipped estimator re-run on the whole master, E16c's parity " +
-                          "control). All are printed, with E16c's fine-scale candidate at a ratio of 1 (fine-raw).",
+                          "sub-mad, half-pairs, blocks (the shipped estimator re-run on the whole master, E16c's parity " +
+                          "control) or stderr (the master's measured standard error sidecar, E16c step 2; NaN where a master " +
+                          "has none). All are printed, with E16c's fine-scale candidate at a ratio of 1 (fine-raw).",
             DefaultValueFactory = _ => "master-calibration",
         };
         var tableOpt = new Option<string>("--table")
@@ -1512,11 +1513,12 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 "sub-mad" => static r => r.SubMad,
                 "half-pairs" => static r => r.HalfPairs,
                 "blocks" => static r => r.EstimatedBlocks,
+                "stderr" => static r => r.StandardError,
                 _ => null,
             };
             if (gated is null)
             {
-                consoleHost.WriteError($"--anchor must be master-calibration, sub-calibrations, sub-mad, half-pairs or blocks, got '{anchorName}'");
+                consoleHost.WriteError($"--anchor must be master-calibration, sub-calibrations, sub-mad, half-pairs, blocks or stderr, got '{anchorName}'");
                 return 1;
             }
             var brightGate = parseResult.GetValue(brightGateOpt) ?? "absolute";
@@ -1546,12 +1548,13 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 var masterCal = Pool(group, static r => r.MasterCalibration, channels);
                 var blocks = Pool(group, static r => r.EstimatedBlocks, channels);
                 var fineRaw = Pool(group, static r => r.FineScaleRaw, channels);
+                var measured = Pool(group, static r => r.StandardError, channels);
                 var gatedValues = Pool(group, gated, channels).Where(double.IsFinite).ToArray();
                 // Relative: each session's bright cells against its OWN quiet cells, so the level model is tested apart
                 // from how well the anchor reads that session's sky; the worst session and channel decide.
                 var relative = bright && relativeBright ? BrightOverQuiet(rows, gated, channels).ToList() : null;
                 var ok = relative is null
-                    ? gatedValues.All(v => Math.Abs(v - 1.0) <= tol)
+                    ? gatedValues.Length > 0 && gatedValues.All(v => Math.Abs(v - 1.0) <= tol)
                     : relative.Count > 0 && relative.All(s => s.Ratios.All(v => Math.Abs(v - 1.0) <= tol));
                 pass &= ok;
                 var gateText = relative is null
@@ -1562,7 +1565,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 consoleHost.WriteScrollable(
                     $"[noise-check] {(bright ? "bright" : "quiet"),-6} {group.Count,5} cells over {group.Select(r => r.SessionId).Distinct().Count()} sessions, " +
                     $"measured / predicted per channel: master-calibration {Join(masterCal)}, sub-calibrations {Join(subCal)}, " +
-                    $"half-pairs {Join(pairs)}, sub-mad {Join(subMad)}, blocks {Join(blocks)}, fine-raw {Join(fineRaw)}; {gateText}");
+                    $"half-pairs {Join(pairs)}, sub-mad {Join(subMad)}, blocks {Join(blocks)}, fine-raw {Join(fineRaw)}, stderr {Join(measured)}; {gateText}");
             }
             if (parseResult.GetValue(tableOpt) is { } tablePath)
             {
@@ -1595,7 +1598,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                     ("halfPairs", static r => r.HalfPairs), ("masterCalibration", static r => r.MasterCalibration),
                     ("subCalibrations", static r => r.SubCalibrations), ("subMad", static r => r.SubMad),
                     ("blocks", static r => r.EstimatedBlocks), ("fineScaleRaw", static r => r.FineScaleRaw),
-                    ("pairFineScaleRatio", static r => r.PairFineScaleRatio),
+                    ("pairFineScaleRatio", static r => r.PairFineScaleRatio), ("standardError", static r => r.StandardError),
                 ];
                 var width = all.Max(static r => r.HalfPairs.Length);
                 var header = new List<string> { "session", "integration", "channels", "quietCells", "brightCells" };

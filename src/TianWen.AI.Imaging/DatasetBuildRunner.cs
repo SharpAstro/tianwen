@@ -707,7 +707,8 @@ public static class DatasetBuildRunner
                             wcs: await SolveRetainedMasterAsync(plateSolver, reg, session.Id, logger, cancellationToken),
                             rejectionMap: reg.RejectionMap,
                             coverage: reg.Coverage,
-                            badPixelMask: reg.BadPixelMask))
+                            badPixelMask: reg.BadPixelMask,
+                            standardError: reg.StandardError))
                         {
                             mastersRetained++;
                             timings.Record(RetainStage, retainStart, items: 1,
@@ -834,7 +835,8 @@ public static class DatasetBuildRunner
                             wcs: await SolveRetainedMasterAsync(plateSolver, side, side.Session.Id, logger, cancellationToken),
                             rejectionMap: side.RejectionMap,
                             coverage: side.Coverage,
-                            badPixelMask: side.BadPixelMask))
+                            badPixelMask: side.BadPixelMask,
+                            standardError: side.StandardError))
                         {
                             mastersRetained++;
                         }

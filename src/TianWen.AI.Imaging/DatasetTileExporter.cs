@@ -160,13 +160,27 @@ public static class DatasetTileExporter
         double[]? StretchBalance = null,
         double? NoisePedestal = null,
         double[]? NoiseBackground = null,
-        double[]? NoiseSigma = null);
+        double[]? NoiseSigma = null)
+    {
+        /// <summary>
+        /// True where <see cref="SigmaTile"/> was cut from the frame's MEASURED standard error
+        /// (<see cref="StretchedNoise.MeasuredPlane"/>, E16c step 2: a master or half-master whose integration measured
+        /// it), false where it was estimated from the frame (<see cref="NoiseSigma"/>'s calibration: a sub, or a master
+        /// integrated before the measurement existed); null with no plane.
+        /// </summary>
+        public bool? PlaneMeasured { get; init; }
+    }
 
     /// <summary>
     /// One frame as the runner would prepare it: the stretched frame the tiles are cut from and, when it was
-    /// stretched, the stretch and the frame's OWN noise calibration its planes are computed with, one per channel.
+    /// stretched, the stretch and the frame's OWN noise calibration its planes are computed with, one per channel,
+    /// and the frame's measured standard error on the same unit scale where its integration measured one.
     /// </summary>
-    private sealed record PreparedFrame(Image Stretched, StretchedNoise.ChannelStretch[]? Stretches, LinearDegradation.NoiseCalibration[]? Calibrations)
+    private sealed record PreparedFrame(
+        Image Stretched,
+        StretchedNoise.ChannelStretch[]? Stretches,
+        LinearDegradation.NoiseCalibration[]? Calibrations,
+        float[][,]? UnitStandardError = null)
     {
         /// <summary>The manifest columns this frame contributes to each of its rows.</summary>
         public TileManifestRow Stamp(TileManifestRow row, string? sigmaTile) => Stretches is { } s && Calibrations is { Length: > 0 } cal
@@ -178,6 +192,7 @@ public static class DatasetTileExporter
                 NoisePedestal = cal[0].PedestalAdu,
                 NoiseBackground = [.. cal.Select(x => x.BackgroundAdu)],
                 NoiseSigma = [.. cal.Select(x => x.OneSubSigmaAdu)],
+                PlaneMeasured = sigmaTile is null ? null : UnitStandardError is not null,
             }
             : row;
     }
@@ -246,9 +261,10 @@ public static class DatasetTileExporter
     /// own noise from its own linear pixels, as the runner will too: every plane a bake writes is then the plane the
     /// product would compute for that frame, with nothing borrowed from another one.
     /// </summary>
-    private static PreparedFrame Prepare(Image frame)
+    private static PreparedFrame Prepare(Image frame, Image? standardError = null)
     {
-        var unit = ToUnitRange(frame);
+        var divisor = UnitDivisor(frame);
+        var unit = ToUnitRange(frame, divisor);
         var absent = unit.AbsentPixels();
         var (stretched, applied, origMin, balances) = ChunkedNafnetRunner.ApplyInputStretch(unit, absent);
         if (!applied || origMin is null || balances is null)
@@ -260,10 +276,30 @@ public static class DatasetTileExporter
         {
             stretches[c] = new StretchedNoise.ChannelStretch(balances[c], origMin[c]);
         }
+        // The measured standard error goes onto the frame's unit scale by the frame's own divisor, so it is in the units
+        // the stretch was measured in. A plane that does not match the frame is not this frame's and is not used.
+        float[][,]? unitStandardError = null;
+        if (standardError is { } se && se.ChannelCount == frame.ChannelCount && se.Width == frame.Width && se.Height == frame.Height)
+        {
+            var inv = divisor > 0f ? 1f / divisor : 1f;
+            unitStandardError = new float[se.ChannelCount][,];
+            for (var c = 0; c < unitStandardError.Length; c++)
+            {
+                var source = se.GetChannelSpan(c);
+                var plane = new float[se.Height, se.Width];
+                var target = MemoryMarshal.CreateSpan(ref plane[0, 0], plane.Length);
+                for (var i = 0; i < target.Length; i++)
+                {
+                    target[i] = source[i] * inv;
+                }
+                unitStandardError[c] = plane;
+            }
+        }
         // A frame with no block to estimate from gets no plane; if it is degenerate (all ring, or blank), the tile
-        // guards below say so with the message that names the real fault.
+        // guards below say so with the message that names the real fault. The calibration is recorded on every row
+        // either way: it is what the runner falls back to for a frame that carries no measurement.
         return StretchedNoise.TryEstimateCalibration(unit, stretches, absent, out var calibrations)
-            ? new PreparedFrame(stretched, stretches, calibrations)
+            ? new PreparedFrame(stretched, stretches, calibrations, unitStandardError)
             : new PreparedFrame(stretched, null, null);
     }
 
@@ -360,7 +396,7 @@ public static class DatasetTileExporter
         var seed = StableSeed(imaging.Id);
         var rng = new Random(seed);
 
-        var master = Prepare(session.Master);
+        var master = Prepare(session.Master, session.StandardError);
         var selected = SampleCells(candidates, master.Stretched, tileSize, cellsPerSession, rng);
 
         var subCount = session.Subs.Length;
@@ -394,11 +430,11 @@ public static class DatasetTileExporter
         // prepared on ITS OWN pixels: its stretch and its noise are its own, never the master's.
         if (session.HalfMasterA is { } halfMasterA)
         {
-            halfMasterTiles += EmitWholeFrameTiles(Prepare(halfMasterA), FrameHalfMasterA);
+            halfMasterTiles += EmitWholeFrameTiles(Prepare(halfMasterA, session.HalfMasterAStandardError), FrameHalfMasterA);
         }
         if (session.HalfMasterB is { } halfMasterB)
         {
-            halfMasterTiles += EmitWholeFrameTiles(Prepare(halfMasterB), FrameHalfMasterB);
+            halfMasterTiles += EmitWholeFrameTiles(Prepare(halfMasterB, session.HalfMasterBStandardError), FrameHalfMasterB);
         }
 
         // One tile per selected cell out of a whole-session frame (the master or one half-master), as
@@ -420,7 +456,7 @@ public static class DatasetTileExporter
                     Tile: relative, SessionId: imaging.Id, Camera: imaging.Camera,
                     Frame: frame, SourceFile: "", CellX: cell.X, CellY: cell.Y, TileSize: tileSize,
                     Channels: channels, Gain: refMeta.Gain, ExposureSeconds: refMeta.ExposureDuration.TotalSeconds,
-                    NoiseMad: mad), WritePlane(prepared, stored, tileSize, path, relative)));
+                    NoiseMad: mad), WritePlane(prepared, stored, cell, tileSize, path, relative)));
             }
             return selected.Count;
         }
@@ -453,7 +489,7 @@ public static class DatasetTileExporter
                     Tile: relative, SessionId: imaging.Id, Camera: imaging.Camera,
                     Frame: FrameSub, SourceFile: sourceName, CellX: cell.X, CellY: cell.Y, TileSize: tileSize,
                     Channels: channels, Gain: subMeta.Gain, ExposureSeconds: subMeta.ExposureDuration.TotalSeconds,
-                    NoiseMad: mad), WritePlane(preparedSub, stored, tileSize, path, relative)));
+                    NoiseMad: mad), WritePlane(preparedSub, stored, cell, tileSize, path, relative)));
                 subTiles++;
             }
         }
@@ -631,7 +667,7 @@ public static class DatasetTileExporter
     /// and calibration at a depth of 1 (the calibration is this frame's). Returns the plane's path relative to the
     /// output, or null when the frame was fed unstretched and so has no stretch to invert.
     /// </summary>
-    private static string? WritePlane(PreparedFrame frame, Half[] stored, int tileSize, string tilePath, string tileRelative)
+    private static string? WritePlane(PreparedFrame frame, Half[] stored, PixelPoint cell, int tileSize, string tilePath, string tileRelative)
     {
         if (frame.Stretches is not { } stretches || frame.Calibrations is not { } calibrations)
         {
@@ -648,7 +684,31 @@ public static class DatasetTileExporter
             }
             channels[c] = p;
         }
-        var plane = StretchedNoise.Plane(channels, tileSize, tileSize, stretches, calibrations, 1.0);
+        // MEASURED where the frame's integration measured its standard error (E16c step 2), cut at the tile's own cell;
+        // estimated from the frame's calibration otherwise (a sub, or a master integrated before the measurement).
+        float[] plane;
+        if (frame.UnitStandardError is { } measured)
+        {
+            var sigmas = new float[measured.Length][];
+            for (var c = 0; c < sigmas.Length; c++)
+            {
+                var source = measured[c];
+                var cut = new float[n];
+                for (var y = 0; y < tileSize; y++)
+                {
+                    for (var x = 0; x < tileSize; x++)
+                    {
+                        cut[(y * tileSize) + x] = source[cell.Y + y, cell.X + x];
+                    }
+                }
+                sigmas[c] = cut;
+            }
+            plane = StretchedNoise.MeasuredPlane(channels, sigmas, tileSize, tileSize, stretches);
+        }
+        else
+        {
+            plane = StretchedNoise.Plane(channels, tileSize, tileSize, stretches, calibrations, 1.0);
+        }
         DatasetDegradationExporter.WritePlaneFile(plane, DatasetDegradationExporter.SigmaPathFor(tilePath));
         return DatasetDegradationExporter.SigmaPathFor(tileRelative);
     }
