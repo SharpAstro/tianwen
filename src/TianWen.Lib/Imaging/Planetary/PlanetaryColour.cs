@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging.Degradation;
+using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.Planetary;
 
@@ -194,6 +195,56 @@ public static class PlanetaryColour
     public static LinearRgb Sky(ReadOnlySpan<float> red, ReadOnlySpan<float> green, ReadOnlySpan<float> blue, int width, int height, in MetricDisk disk)
         => new LinearRgb(PlanetaryMetrics.SkyLevel(red, width, height, disk) ?? 0, PlanetaryMetrics.SkyLevel(green, width, height, disk) ?? 0,
             PlanetaryMetrics.SkyLevel(blue, width, height, disk) ?? 0);
+
+    /// <summary>
+    /// The sky's colour as <paramref name="master"/> RENDERS through <paramref name="stretch"/>: each channel's mean over the sky, in the
+    /// rendered [0, 1], the sky being where <see cref="PlanetaryMetrics.SkyLevel"/> reads it (past 2.5 radii, else the farthest tenth past
+    /// 1.3). A sky renders as noise, so its mean is the tint the eye sees (#1229); NaN with no sky pixel.
+    /// </summary>
+    public static LinearRgb RenderedSky(Image master, in StretchUniforms stretch, in MetricDisk disk)
+    {
+        var (width, height) = (master.Width, master.Height);
+        var rgba = new ushort[width * height * 4];
+        master.RenderStretchedRgba16(stretch, rgba);
+        var radii = new double[width * height];
+        var beyondProfile = new List<float>();
+        var anyPastSky = false;
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var r = disk.ClearRadiiAt(x, y);
+                radii[(y * width) + x] = r;
+                anyPastSky |= r >= PlanetaryPicture.SkyRadii;
+                if (r >= RenderedSkyFallbackRadii)
+                {
+                    beyondProfile.Add((float)r);
+                }
+            }
+        }
+        if (!anyPastSky && beyondProfile.Count == 0)
+        {
+            return new LinearRgb(double.NaN, double.NaN, double.NaN);
+        }
+        // The farthest tenth past the profile's reach when no pixel lies past the sky's radii, as SkyLevel reads a tight crop.
+        var from = anyPastSky ? PlanetaryPicture.SkyRadii : StatisticsHelper.PercentileFast(beyondProfile.ToArray().AsSpan(), 0.9);
+        double r0 = 0, g0 = 0, b0 = 0;
+        var n = 0;
+        for (var i = 0; i < radii.Length; i++)
+        {
+            if (radii[i] >= from)
+            {
+                r0 += rgba[4 * i];
+                g0 += rgba[(4 * i) + 1];
+                b0 += rgba[(4 * i) + 2];
+                n++;
+            }
+        }
+        return new LinearRgb(r0 / n / ushort.MaxValue, g0 / n / ushort.MaxValue, b0 / n / ushort.MaxValue);
+    }
+
+    // Where PlanetaryMetrics.SkyLevel falls back to for a crop with no pixel past the sky's radii: the limb profile's reach.
+    private const double RenderedSkyFallbackRadii = 1.3;
 
     /// <summary>
     /// Each plane's mean in bands of <see cref="BandDegrees"/> of planetographic latitude inside <see cref="SpreadRadii"/>, its sky taken

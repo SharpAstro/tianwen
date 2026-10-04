@@ -691,7 +691,8 @@ public partial class Image
             DataSection = dataSection,
             BiasSection = biasSection,
             FrameSequence = frameSequence,
-            FrameCounterSource = frameCounterSource
+            FrameCounterSource = frameCounterSource,
+            IsColourBalanced = hdu.Header.ContainsKey("CBALSAT")
         };
     }
 

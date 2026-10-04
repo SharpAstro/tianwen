@@ -2765,9 +2765,37 @@ nearest are November 2024's. Each map is scaled to I/F by its readme's factor (t
 - **Both masters say so**: the FITS cards CBALGNR, CBALGNB and CBALSAT. `planetary-stack --colour-saturation` sets the strength,
   `--no-colour-balance` and `--legacy` leave the camera's colours. A mono master, another planet, or a limb that does not fit is left as
   captured and the log says which.
-- **Left open:** the live view, the issue's one routine for all three (#1212); a balanced master's sky renders faintly blue in the planetary
-  stretch, whose black point is set channel by channel by each channel's noise (#1229); 2022-10-09's limb grows a colour fringe as saturation
-  rises, the misregistration #1202 leaves at the limb.
+- **Left open:** the live view, the issue's one routine for all three (#1212); 2022-10-09's limb grows a colour fringe as saturation
+  rises, the misregistration #1202 leaves at the limb. A balanced master's sky rendered blue in the planetary stretch until #1229, below.
+
+#### A balanced master's sky in the planetary stretch (#1229)
+
+A balanced master's sky is zero in every channel, but its noise and its sharpening's troughs are wider where the balance's gain is larger
+(blue's 1.3 to 1.5), and the planetary stretch (`Image.ComputePlanetaryStretchUniforms`) set each channel's black point at its own 0.5 %
+percentile, so the noisier channel's black point sat further below the sky and the sky rendered navy. **A balanced master now takes ONE black
+point for all three channels, the highest of their percentiles** (2026-10-05). The master says it is balanced through
+`ImageMeta.IsColourBalanced`, read from the balance's own CBALSAT card and set by `PlanetaryColourBalance.Apply` on the image it makes, so
+the preview PNG, a reopened master and the viewer's Best stack all take it. An unbalanced master keeps a black point a channel: there it is
+what takes the channels' unequal skies off.
+
+Measured by `planetary-colour --preview`, which now reports each preview's sky as rendered (`PlanetaryColour.RenderedSky`: each channel's
+mean where `PlanetaryMetrics.SkyLevel` reads the sky, in levels of 255), on the five colour captures' sharpened masters, about grey and about
+the disk, at saturation 1, 1.4 and 2. The rule, set before the second run: the defect reproduces before; after, every one of the 30 balanced
+previews has a channel spread at most 0.5 level, no sky is brighter than its darkest channel was, and the unbalanced previews are unchanged.
+All four held, the unbalanced previews byte for byte. Blue's excess, before and after (the two Uranus-C nights carry it; the ASI462 nights
+were within a third of a level before):
+
+| Capture | Saturation 1, before | after | Saturation 2, before | after |
+|---|---|---|---|---|
+| 2021-12-16 | 0.01 | 0.02 | 0.01 | 0.03 |
+| 2022-09-29 | 0.11 | 0.02 | 0.31 | 0.06 |
+| 2022-10-09 | 0.01 | 0.03 | 0.06 | 0.05 |
+| 2024-12-15 | 2.30 | 0.05 | 4.40 | 0.09 |
+| 2025-01-02 | 5.09 | 0.06 | 8.89 | 0.09 |
+
+(The channel spread in levels of 255, about the disk; about grey within 0.2 of it.) **Found on the way:** an UNBALANCED Uranus-C master's
+sky renders blue too, 1.8 and 4.0 levels as captured on 2024-12-15 and 2025-01-02, where the per-channel percentile was meant to neutralise
+it; the planetary stretch has no disk to read the sky by, so that is its own issue (#1258).
 
 ### The diffraction glow's far wing
 

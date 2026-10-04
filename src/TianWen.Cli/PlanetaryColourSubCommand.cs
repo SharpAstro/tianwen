@@ -230,6 +230,7 @@ internal sealed partial class PlanetaryColourSubCommand(IConsoleHost consoleHost
                     var (gains, shownSky) = PlanetaryColourBalance.GainsFor(shown, disk, target);
                     var stem = Path.Combine(previewFolder, label);
                     await previewRenderer.RenderPlanetaryAsync(shown, stem + "_captured.png", ct: ct);
+                    ReportRenderedSky("as captured", await Task.Run(() => PlanetaryColour.RenderedSky(shown, shown.ComputePlanetaryStretchUniforms(), disk), ct));
                     // Saturated about grey (every colour's departure from white) and about the planet's own colour (the belts' and zones'
                     // departure from the disk, which keeps the disk's mean on the target).
                     (string Name, LinearRgb About)[] centres = [("grey", new LinearRgb(1, 1, 1)), ("disk", target)];
@@ -239,6 +240,8 @@ internal sealed partial class PlanetaryColourSubCommand(IConsoleHost consoleHost
                         {
                             var balanced = await Task.Run(() => PlanetaryColourBalance.Apply(shown, gains, shownSky, saturation, about), ct);
                             await previewRenderer.RenderPlanetaryAsync(balanced, string.Create(inv, $"{stem}_balanced_{name}_s{saturation:0.0#}.png"), ct: ct);
+                            ReportRenderedSky(string.Create(inv, $"about {name} at saturation {saturation:0.0#}"),
+                                await Task.Run(() => PlanetaryColour.RenderedSky(balanced, balanced.ComputePlanetaryStretchUniforms(), disk), ct));
                         }
                     }
                     consoleHost.WriteScrollable(string.Create(inv,
@@ -246,6 +249,14 @@ internal sealed partial class PlanetaryColourSubCommand(IConsoleHost consoleHost
                 }
             }
             return 0;
+
+            // The sky's tint as a preview renders it (#1229): each channel's mean in levels of 255, and their spread.
+            void ReportRenderedSky(string how, LinearRgb sky)
+            {
+                var spread = Math.Max(sky.R, Math.Max(sky.G, sky.B)) - Math.Min(sky.R, Math.Min(sky.G, sky.B));
+                consoleHost.WriteScrollable(string.Create(inv,
+                    $"  sky as rendered, {how}: R {255 * sky.R:0.00}, G {255 * sky.G:0.00}, B {255 * sky.B:0.00} of 255, spread {255 * spread:0.00}"));
+            }
 
             // A target's gains for the master, and the master's balanced chroma spread against the target's at each of the three blurs.
             void Report(string label, string target, in LinearRgb mean, LinearRgb[] bands, int[] counts, in LinearRgb targetMean, double[] targetSpreads)

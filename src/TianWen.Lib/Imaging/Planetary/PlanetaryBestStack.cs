@@ -29,7 +29,7 @@ public sealed record PlanetaryBestStackOptions(CatalogIndex? Planet, Pupil? Tele
     public PlanetaryLimbFix? Fix { get; init; }
 
     /// <summary>
-    /// The saturation a colour master of Jupiter is balanced at (<see cref="PlanetaryColourBalance"/>, #1212); null leaves its colours
+    /// The saturation a colour master of Jupiter or Saturn is balanced at (<see cref="PlanetaryColourBalance"/>, #1212, #1235); null leaves its colours
     /// as the camera recorded them.
     /// </summary>
     public double? ColourSaturation { get; init; } = PlanetaryColourBalance.DefaultSaturation;
