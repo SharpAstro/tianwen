@@ -262,13 +262,9 @@ public static class CalibrationResolver
             list.Add(frame);
         }
 
-        var byType = new Dictionary<FrameType, List<CalGroup>>();
+        var sets = new List<((CalTrain Train, bool IsMaster) Scope, MasterGroupKey Key, CalibrationEpochs.CalibrationSet Set)>();
         foreach (var ((key, train, isMaster), list) in byKey)
         {
-            if (!byType.TryGetValue(key.Type, out var groups))
-            {
-                byType[key.Type] = groups = new List<CalGroup>();
-            }
             // One CalGroup per EPOCH (task #25): a config whose library was re-shot years later
             // must not blend both shoots into one master (epoch merging attenuates recently-emerged
             // defects by frames-from-epoch/total and hides them from the mask detector). Applies to
@@ -282,9 +278,20 @@ public static class CalibrationResolver
             // foreign master is one integrated file served as it is, so those keep the degree.
             foreach (var set in CalibrationEpochs.SplitSets(list, isMaster ? 0 : CalibrationEpochs.TemperatureToleranceC))
             {
-                groups.Add(new CalGroup(key with { TemperatureC = set.TemperatureC }, train, [.. set.Frames], isMaster,
-                    EpochStart: set.Start, EpochEnd: set.End, EpochSuffix: set.EpochSuffix));
+                sets.Add(((train, isMaster), key with { TemperatureC = set.TemperatureC }, set));
             }
+        }
+
+        // And one per flat capture RUN whatever its exposures (sky flats), joined by folder.
+        var byType = new Dictionary<FrameType, List<CalGroup>>();
+        foreach (var ((train, isMaster), key, set) in CalibrationEpochs.JoinFlatRuns(sets))
+        {
+            if (!byType.TryGetValue(key.Type, out var groups))
+            {
+                byType[key.Type] = groups = new List<CalGroup>();
+            }
+            groups.Add(new CalGroup(key, train, [.. set.Frames], isMaster,
+                EpochStart: set.Start, EpochEnd: set.End, EpochSuffix: set.EpochSuffix));
         }
         return byType;
     }

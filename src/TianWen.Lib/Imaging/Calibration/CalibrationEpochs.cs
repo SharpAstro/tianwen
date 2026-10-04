@@ -116,8 +116,11 @@ namespace TianWen.Lib.Imaging.Calibration
         /// one. A flat's exposure says nothing about its dust, and the pedestal match that does read
         /// it tolerates a factor of four. Measured over the 96 filed flat and dark-flat runs
         /// (2026-09-24): two hold more than one exposure, that set (0.084% apart) and an ASI533
-        /// L-Quad set whose flat wizard probes (0.205 s and 16.4 s beside 6.68 s) are rightly kept
-        /// apart. Darks keep their exact exposure, which their scaling reads.</para>
+        /// L-Quad set with one frame each at 0.205 s and 16.4 s beside fifty at 6.68 s. Those two
+        /// were taken for a wizard's probes and kept apart; measured on 2026-10-04 they sit at the
+        /// set's own level (1.000 and 0.933 of its median mean, the fifty 0.996 to 1.017), and
+        /// <see cref="JoinFlatRuns"/> now joins them. Darks keep their exact exposure, which their
+        /// scaling reads.</para>
         /// </summary>
         public static MasterGroupKey SetGroupKey(FrameInfo frame)
         {
@@ -182,6 +185,177 @@ namespace TianWen.Lib.Imaging.Calibration
                 }
             }
             return sets;
+        }
+
+        /// <summary>
+        /// Joins the flat sets of ONE capture run whose exposure moved: twilight sky flats, whose
+        /// exposure follows the sky to hold the level, and any flat run shot at more than one
+        /// exposure. Two raw flat sets join when they agree on everything but exposure and temperature
+        /// (the same scope and the same key otherwise), their temperatures are within
+        /// <see cref="TemperatureToleranceC"/>, and some frame of each lies in the same FOLDER, which is
+        /// what a capture run is filed in (<c>CalibrationResolver.IsCopyOfAFrameSeen</c> reads it the
+        /// same way). Everything else passes through as it came, in order, with a joined set at its
+        /// first member's place.
+        ///
+        /// <para><b>Why not drop the flat's exposure from the key.</b> Measured over the 32 flat
+        /// families of the bake roots (2026-10-04), that changes six of them, each a run of separate
+        /// NIGHTS within <see cref="MaxEpochGapDays"/> that today keeps one master per night only
+        /// because each night's exposure differs (four ASI533 L-Ultimate nights of 40 to 50 frames
+        /// would become one blend of 190), and the flat choice prefers the lights' own night. A folder
+        /// holding several exposures is the run itself: in the bake roots there is one, the ASI533
+        /// L-Quad 2026-04-22 set (see <see cref="SetGroupKey"/>), beside the four LDN 1622 sky-flat
+        /// folders (QSI 683ws, 2015) it was written for, twenty frames at twenty exposures each, all at
+        /// flat level, which split into singletons nothing could build.</para>
+        ///
+        /// <para>A joined set's key carries the MEDIAN exposure of its frames to three significant
+        /// figures, so a run dominated by one exposure keeps the name it had, and the median
+        /// temperature of its frames. No level guard is applied: every frame of every multi-exposure
+        /// folder measured sits at its run's level, and a flat master is a median of normalised
+        /// frames.</para>
+        /// </summary>
+        /// <typeparam name="TScope">What else a set's identity carries beyond its key (the resolver's
+        /// optical train and master flag); sets of different scopes never join.</typeparam>
+        public static List<(TScope Scope, MasterGroupKey Key, CalibrationSet Set)> JoinFlatRuns<TScope>(
+            IReadOnlyList<(TScope Scope, MasterGroupKey Key, CalibrationSet Set)> sets)
+            where TScope : IEquatable<TScope>
+        {
+            var parent = new int[sets.Count];
+            for (var i = 0; i < parent.Length; i++)
+            {
+                parent[i] = i;
+            }
+
+            // (scope, key with neither exposure nor temperature, folder) -> the sets with a frame there.
+            var byRun = new Dictionary<(TScope Scope, MasterGroupKey Family, string Folder), List<int>>();
+            for (var i = 0; i < sets.Count; i++)
+            {
+                var (scope, key, set) = sets[i];
+                if (key.Type is not FrameType.Flat || set.Frames.Exists(static f => f.IsMaster))
+                {
+                    continue;
+                }
+                var family = key with { Exposure = TimeSpan.Zero, TemperatureC = null };
+                var folders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var frame in set.Frames)
+                {
+                    folders.Add(System.IO.Path.GetDirectoryName(frame.Path) ?? "");
+                }
+                foreach (var folder in folders)
+                {
+                    var run = (scope, family, folder.ToUpperInvariant());
+                    if (!byRun.TryGetValue(run, out var members))
+                    {
+                        byRun[run] = members = [];
+                    }
+                    foreach (var other in members)
+                    {
+                        if (TemperaturesAgree(sets[other].Key.TemperatureC, key.TemperatureC))
+                        {
+                            Union(other, i);
+                        }
+                    }
+                    members.Add(i);
+                }
+            }
+
+            var components = new Dictionary<int, List<int>>();
+            for (var i = 0; i < sets.Count; i++)
+            {
+                var root = Find(i);
+                if (!components.TryGetValue(root, out var members))
+                {
+                    components[root] = members = [];
+                }
+                members.Add(i);
+            }
+
+            var joined = new List<(TScope Scope, MasterGroupKey Key, CalibrationSet Set)>(sets.Count);
+            var emitted = new HashSet<(TScope Scope, MasterGroupKey Key, string Suffix)>();
+            for (var i = 0; i < sets.Count; i++)
+            {
+                var members = components[Find(i)];
+                if (members[0] != i)
+                {
+                    continue; // absorbed into the set emitted at its first member's place
+                }
+                if (members.Count == 1)
+                {
+                    joined.Add(sets[i]);
+                    emitted.Add((sets[i].Scope, sets[i].Key, sets[i].Set.EpochSuffix));
+                    continue;
+                }
+
+                var frames = new List<FrameInfo>();
+                var start = DateTimeOffset.MaxValue;
+                var end = DateTimeOffset.MinValue;
+                var undated = false;
+                var suffix = sets[members[0]].Set.EpochSuffix;
+                foreach (var m in members)
+                {
+                    var set = sets[m].Set;
+                    frames.AddRange(set.Frames);
+                    if (set.Start == default)
+                    {
+                        undated = true;
+                    }
+                    else
+                    {
+                        if (set.Start < start) start = set.Start;
+                        if (set.End > end) end = set.End;
+                    }
+                    if (set.EpochSuffix != suffix)
+                    {
+                        suffix = "";
+                    }
+                }
+                if (undated || start > end)
+                {
+                    start = end = default;
+                }
+                var temperature = TemperatureClusters.MedianTemperatureC(frames);
+                var key = sets[i].Key with { Exposure = ThreeSignificantFigures(MedianExposure(frames)), TemperatureC = temperature };
+                // A joined set is new, so its name may meet a set's that already exists; the epoch
+                // date then tells them apart.
+                if (!emitted.Add((sets[i].Scope, key, suffix)))
+                {
+                    suffix = EpochSlug(start);
+                    emitted.Add((sets[i].Scope, key, suffix));
+                }
+                joined.Add((sets[i].Scope, key, new CalibrationSet(start, end, temperature, frames, suffix)));
+            }
+            return joined;
+
+            int Find(int x)
+            {
+                while (parent[x] != x)
+                {
+                    parent[x] = parent[parent[x]];
+                    x = parent[x];
+                }
+                return x;
+            }
+
+            void Union(int a, int b)
+            {
+                var ra = Find(a);
+                var rb = Find(b);
+                // The smaller index stays the root, so a joined set keeps its first member's place.
+                if (ra < rb) parent[rb] = ra;
+                else if (rb < ra) parent[ra] = rb;
+            }
+        }
+
+        private static bool TemperaturesAgree(int? a, int? b)
+            => a is not { } x || b is not { } y || Math.Abs(x - y) <= TemperatureToleranceC;
+
+        private static TimeSpan MedianExposure(List<FrameInfo> frames)
+        {
+            var seconds = new double[frames.Count];
+            for (var i = 0; i < seconds.Length; i++)
+            {
+                seconds[i] = frames[i].Meta.ExposureDuration.TotalSeconds;
+            }
+            return TimeSpan.FromSeconds(Stat.StatisticsHelper.MedianFast(seconds));
         }
 
         /// <summary>

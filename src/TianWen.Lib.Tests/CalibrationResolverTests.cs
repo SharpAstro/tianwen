@@ -875,12 +875,14 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
-        public void GroupCalibration_AFlatRunWhoseExposureJitters_IsOneSet_AndAFlatWizardsProbesAreNot()
+        public void GroupCalibration_AFlatRunIsOneSet_WhetherItsExposureJittersOrMoves()
         {
             // The SV605CC's 2025-12-20 L-Quad run: 46 flats at 0.47768 s and 3 at 0.47808 s, a
             // flat wizard settling. Compared exactly, that was two groups slugged alike, and two
             // sessions got the 3-frame one. The ASI533's 2026-04-22 run beside it: 50 at 6.68164 s and
-            // one probe each at 0.20507 s and 16.37665 s, which must stay out of it.
+            // one each at 0.20507 s and 16.37665 s, once taken for a wizard's probes and kept out;
+            // measured, both sit at the run's own level (1.000 and 0.933 of its median), so one run
+            // shot in one folder is one set (CalibrationEpochs.JoinFlatRuns), keyed at its median.
             var frames = new List<FrameInfo>();
             for (var i = 0; i < 46; i++) frames.Add(Cal(FrameType.Flat, 0.47768, -5f, gain: 120, when: Utc(2025, 12, 20, 9, 0)));
             for (var i = 0; i < 3; i++) frames.Add(Cal(FrameType.Flat, 0.47808, -5f, gain: 120, when: Utc(2025, 12, 20, 9, 1)));
@@ -890,7 +892,8 @@ namespace TianWen.Lib.Tests
 
             var flats = CalibrationResolver.GroupCalibration(frames)[FrameType.Flat];
 
-            flats.Select(g => g.Frames.Length).OrderBy(n => n).ShouldBe([1, 1, 49, 50]);
+            flats.Select(g => (g.Frames.Length, g.Key.Exposure.TotalSeconds)).OrderBy(n => n.Length)
+                .ShouldBe([(49, 0.478), (52, 6.68)]);
         }
 
         [Fact]
