@@ -293,16 +293,28 @@ public static class PlanetaryCaptureStatistics
         {
             var (width, height) = (reference.Width, reference.Height);
             var plane = reference.GetChannelSpan(0).ToArray();
-            if (PlanetaryLimbFit.Start(plane, width, height, options.Limb.AxisRatio) is not { } disk)
+            // Saturn's rings: the start reads their reach, and the reference's own fit gives the axis the regions step around them by.
+            var start = options.Limb.Rings is { } ringed ? PlanetaryLimbFit.StartRinged(plane, width, height, ringed) : PlanetaryLimbFit.Start(plane, width, height, options.Limb.AxisRatio);
+            if (start is not { } disk)
             {
                 return null;
+            }
+            RingFootprint? rings = null;
+            if (options.Limb.Rings is { } ringSet)
+            {
+                if (PlanetaryLimbFit.Fit(plane, width, height, disk.X, disk.Y, disk.Radius, options.Limb) is not { } ringFit)
+                {
+                    return null;
+                }
+                disk = (ringFit.CenterX, ringFit.CenterY, ringFit.EquatorialRadius);
+                rings = RingFootprint.Of(ringFit.AxisAngleDeg, options.Limb.SubObserverLatitudeDeg, ringSet.OuterRadii);
             }
             var region = PlanetaryDisk.BoundingBox(reference);
 
             // Every frame's shift against the sharpest, and its light over the sky around its disk.
             var seconds = Seconds(stream, n, options.FramesPerSecond);
-            var skyLevel = SkyLevel(plane, width, height, disk, options.FullScaleAdu);
-            var (farSkyBright, farSkySpread) = FarSkyBright(plane, width, height, disk, options.FullScaleAdu);
+            var skyLevel = SkyLevel(plane, width, height, disk, rings, options.FullScaleAdu);
+            var (farSkyBright, farSkySpread) = FarSkyBright(plane, width, height, disk, rings, options.FullScaleAdu);
             var shiftX = new double[n];
             var shiftY = new double[n];
             var flux = new double[n];
@@ -313,7 +325,8 @@ public static class PlanetaryCaptureStatistics
                     var shift = worker.Aligner.Estimate(frame, PlanetaryDisk.BoundingBox(frame));
                     shiftX[index] = shift.Dx;
                     shiftY[index] = shift.Dy;
-                    flux[index] = LightAround(frame, disk.X + shift.Dx, disk.Y + shift.Dy, 1.3 * disk.Radius, skyLevel / options.FullScaleAdu);
+                    // Saturn's light is its rings' too, so its circle takes them in with the same margin.
+                    flux[index] = LightAround(frame, disk.X + shift.Dx, disk.Y + shift.Dy, 1.3 * disk.Radius * (rings?.OuterRadii ?? 1), skyLevel / options.FullScaleAdu);
                     if (leftOut[index])
                     {
                         return;
@@ -424,7 +437,7 @@ public static class PlanetaryCaptureStatistics
                 try
                 {
                     (noise[k], skyNoise[k]) = PairNoise(frameA, frameB, shiftX[a + 1] - shiftX[a], shiftY[a + 1] - shiftY[a],
-                        disk.X + shiftX[a], disk.Y + shiftY[a], disk.Radius, options);
+                        disk.X + shiftX[a], disk.Y + shiftY[a], disk.Radius, rings, options);
                 }
                 finally
                 {
@@ -436,7 +449,7 @@ public static class PlanetaryCaptureStatistics
 
             var warp = Warp(aps, residuals, options.AlignmentPatchSize, options.AlignmentPointSpacing);
             var bandNoise = MedianNoise(noise, options.Bands);
-            var sky = await MeasureSkyAsync(stream, n, shiftX, shiftY, disk, farSkyBright, farSkySpread, options.FullScaleAdu, cancellationToken).ConfigureAwait(false);
+            var sky = await MeasureSkyAsync(stream, n, shiftX, shiftY, disk, rings, farSkyBright, farSkySpread, options.FullScaleAdu, cancellationToken).ConfigureAwait(false);
             var diskLevel = DiskLevel(plane, width, height, disk, options.FullScaleAdu) - sky.LocalLevel;
             var camera = new CameraEstimate(options.FullScaleAdu, skyLevel, Median(skyNoise), diskLevel, sky.FarLevel, sky.FarNoise, sky.LocalLevel);
             var halo = sky.Halo;
@@ -475,7 +488,7 @@ public static class PlanetaryCaptureStatistics
     /// The version a saved file's statistics must carry to be read back (<see cref="TryLoadAsync"/>): raised whenever what is
     /// measured, or how, changes, so a file from before is measured again rather than compared as if it were current.
     /// </summary>
-    public const int FileVersion = 5;
+    public const int FileVersion = 6;
 
     /// <summary>
     /// Saves <paramref name="statistics"/> to <paramref name="path"/> under <paramref name="key"/> (the capture, its frames and the
@@ -944,7 +957,7 @@ public static class PlanetaryCaptureStatistics
     // is taken to wavelet bands, and each band's clipped RMS over the sky and the disk, over the square root of two, is one
     // frame's noise. No bands when the pair's shift is too far from whole.
     private static (BandNoise[] Bands, double SkyNoise) PairNoise(Image a, Image b, double dx, double dy, double cx, double cy, double radius,
-        CaptureStatisticsOptions options)
+        RingFootprint? rings, CaptureStatisticsOptions options)
     {
         var (ix, iy) = ((int)Math.Round(dx), (int)Math.Round(dy));
         if (Math.Abs(dx - ix) > 0.2 || Math.Abs(dy - iy) > 0.2)
@@ -952,7 +965,7 @@ public static class PlanetaryCaptureStatistics
             return ([], double.NaN);
         }
         var (width, height) = (a.Width, a.Height);
-        var half = (int)Math.Ceiling(1.6 * radius) + 4;
+        var half = (int)Math.Ceiling(1.6 * radius * (rings?.OuterRadii ?? 1)) + 4;
         var x0 = Math.Max(Math.Max(0, -ix), (int)Math.Round(cx) - half);
         var y0 = Math.Max(Math.Max(0, -iy), (int)Math.Round(cy) - half);
         var x1 = Math.Min(Math.Min(width, width - ix), (int)Math.Round(cx) + half);
@@ -980,7 +993,7 @@ public static class PlanetaryCaptureStatistics
                 var vb = planeB[yb + x + x0 + ix] * scale;
                 var d = vb - va;
                 difference[(y * w) + x] = (float)d;
-                var r = Math.Sqrt(((x + x0 - cx) * (x + x0 - cx)) + ((y + y0 - cy) * (y + y0 - cy))) / radius;
+                var r = Radii(x + x0, y + y0, cx, cy, radius, rings);
                 if (r >= 1.3 && r <= 1.6)
                 {
                     region[(y * w) + x] = 1;
@@ -1221,8 +1234,8 @@ public static class PlanetaryCaptureStatistics
         return (Math.Sqrt(slow / Math.Max(1, blocks)), fast);
     }
 
-    // The sky's mean over 1.3 to 1.6 radii of the reference's disk, in ADU.
-    private static double SkyLevel(float[] plane, int width, int height, (double X, double Y, double Radius) disk, double scale)
+    // The sky's mean over 1.3 to 1.6 radii of the reference's disk (Radii), in ADU.
+    private static double SkyLevel(float[] plane, int width, int height, (double X, double Y, double Radius) disk, RingFootprint? rings, double scale)
     {
         double sum = 0;
         var count = 0;
@@ -1230,7 +1243,7 @@ public static class PlanetaryCaptureStatistics
         {
             for (var x = 0; x < width; x++)
             {
-                var r = Math.Sqrt(((x - disk.X) * (x - disk.X)) + ((y - disk.Y) * (y - disk.Y))) / disk.Radius;
+                var r = Radii(x, y, disk.X, disk.Y, disk.Radius, rings);
                 if (r >= 1.3 && r <= 1.6)
                 {
                     sum += plane[(y * width) + x];
@@ -1250,14 +1263,15 @@ public static class PlanetaryCaptureStatistics
     // The value, in ADU, above which a far-sky pixel is taken as lit by something: its median plus FarSkyBrightAdu or five robust
     // sigmas, whichever is more (an 8-bit sky's robust sigma is zero); and that robust sigma. Infinite and NaN when the frame
     // reaches no far sky.
-    private static (double Bright, double Spread) FarSkyBright(float[] plane, int width, int height, (double X, double Y, double Radius) disk, double scale)
+    private static (double Bright, double Spread) FarSkyBright(float[] plane, int width, int height, (double X, double Y, double Radius) disk, RingFootprint? rings, double scale)
     {
         var values = new List<double>();
         for (var y = 0; y < height; y++)
         {
             for (var x = 0; x < width; x++)
             {
-                if (Math.Sqrt(((x - disk.X) * (x - disk.X)) + ((y - disk.Y) * (y - disk.Y))) >= FarSkyRadii * disk.Radius)
+                if (rings is null ? Math.Sqrt(((x - disk.X) * (x - disk.X)) + ((y - disk.Y) * (y - disk.Y))) >= FarSkyRadii * disk.Radius
+                    : Radii(x, y, disk.X, disk.Y, disk.Radius, rings) >= FarSkyRadii)
                 {
                     values.Add(plane[(y * width) + x] * scale);
                 }
@@ -1282,11 +1296,11 @@ public static class PlanetaryCaptureStatistics
     // ever reads past `bright`, or outside the bins kept, is left out (a moon, a star, a hot pixel). A sky whose noise spans more
     // than an ADU (16 bits) is read by each pixel's own moments instead, where rounding no longer matters.
     private static async Task<(double FarLevel, double FarNoise, double LocalLevel, ImmutableArray<double> Halo)> MeasureSkyAsync(IPlanetaryFrameStream stream, int n,
-        double[] shiftX, double[] shiftY, (double X, double Y, double Radius) disk, double bright, double spread, double scale, CancellationToken cancellationToken)
+        double[] shiftX, double[] shiftY, (double X, double Y, double Radius) disk, RingFootprint? rings, double bright, double spread, double scale, CancellationToken cancellationToken)
     {
         if (!(spread <= 1))
         {
-            return await MeasureWideSkyAsync(stream, n, shiftX, shiftY, disk, bright, scale, cancellationToken).ConfigureAwait(false);
+            return await MeasureWideSkyAsync(stream, n, shiftX, shiftY, disk, rings, bright, scale, cancellationToken).ConfigureAwait(false);
         }
         var frames = Math.Min(n, SkyFrames);
         var (cx, cy) = (disk.X + shiftX.AsSpan(0, frames).ToArray().Average(), disk.Y + shiftY.AsSpan(0, frames).ToArray().Average());
@@ -1339,7 +1353,7 @@ public static class PlanetaryCaptureStatistics
             {
                 for (var x = 0; x < width; x++)
                 {
-                    var r = Math.Sqrt(((x - cx) * (x - cx)) + ((y - cy) * (y - cy))) / disk.Radius;
+                    var r = Radii(x, y, cx, cy, disk.Radius, rings);
                     if (r >= inner && r < outer && !left[(y * width) + x])
                     {
                         pixels.Add((y * width) + x);
@@ -1361,7 +1375,7 @@ public static class PlanetaryCaptureStatistics
     // MeasureSkyAsync for a sky whose noise spans ADU: each pixel's own mean and frame-to-frame variance, averaged over each region
     // (less the rounding's twelfth); a pixel's own variance holds no gradient over the frame.
     private static async Task<(double FarLevel, double FarNoise, double LocalLevel, ImmutableArray<double> Halo)> MeasureWideSkyAsync(IPlanetaryFrameStream stream, int n,
-        double[] shiftX, double[] shiftY, (double X, double Y, double Radius) disk, double bright, double scale, CancellationToken cancellationToken)
+        double[] shiftX, double[] shiftY, (double X, double Y, double Radius) disk, RingFootprint? rings, double bright, double scale, CancellationToken cancellationToken)
     {
         var frames = Math.Min(n, SkyFrames);
         var (cx, cy) = (disk.X + shiftX.AsSpan(0, frames).ToArray().Average(), disk.Y + shiftY.AsSpan(0, frames).ToArray().Average());
@@ -1408,7 +1422,7 @@ public static class PlanetaryCaptureStatistics
                 for (var x = 0; x < width; x++)
                 {
                     var p = (y * width) + x;
-                    var r = Math.Sqrt(((x - cx) * (x - cx)) + ((y - cy) * (y - cy))) / disk.Radius;
+                    var r = Radii(x, y, cx, cy, disk.Radius, rings);
                     if (r >= inner && r < outer && !left[p])
                     {
                         var mean = sum[p] / frames;
@@ -1542,6 +1556,36 @@ public static class PlanetaryCaptureStatistics
             }
         }
         return fa > fb ? (a, fa) : (b, fb);
+    }
+
+    /// <summary>
+    /// A pixel's distance from the planet in its equatorial radii: from the disk's centre, or, with Saturn's rings (S3 of
+    /// docs/plans/planetary-restoration.md, #1233), the nearer of that and its ring-plane radius over the outer ring's, so a region past
+    /// 1.3 lies outside the globe and the rings alike: 1.3 radii from the globe along the axis, 1.3 of the outer ring's along the equator.
+    /// The twin and the real capture are read through the same footprint. Without rings it is the plain distance, bit for bit.
+    /// </summary>
+    private static double Radii(double x, double y, double cx, double cy, double radius, RingFootprint? rings)
+    {
+        var r = Math.Sqrt(((x - cx) * (x - cx)) + ((y - cy) * (y - cy))) / radius;
+        if (rings is not { } ring)
+        {
+            return r;
+        }
+        var (dx, dy) = ((x - cx) / radius, (y - cy) / radius);
+        // v along the axis, u along the equator; the plane is crossed at u^2 + v^2 / sin^2 B.
+        var v = (dx * ring.Cos) + (dy * ring.Sin);
+        var u = (-dx * ring.Sin) + (dy * ring.Cos);
+        return Math.Min(r, Math.Sqrt((u * u) + (v * v / (ring.SinB * ring.SinB))) / ring.OuterRadii);
+    }
+
+    /// <summary>Where Saturn's rings lie in a capture: the axis's direction, the sine of the rings' tilt, and their outer edge in equatorial radii.</summary>
+    private readonly record struct RingFootprint(double Cos, double Sin, double SinB, double OuterRadii)
+    {
+        public static RingFootprint Of(double axisAngleDeg, double subObserverLatitudeDeg, double outerRadii)
+        {
+            var (sin, cos) = Math.SinCos(axisAngleDeg * Math.PI / 180);
+            return new RingFootprint(cos, sin, Math.Max(Math.Abs(Math.Sin(subObserverLatitudeDeg * Math.PI / 180)), 1e-3), outerRadii);
+        }
     }
 
     private static double DiskLevel(float[] plane, int width, int height, (double X, double Y, double Radius) disk, double scale)

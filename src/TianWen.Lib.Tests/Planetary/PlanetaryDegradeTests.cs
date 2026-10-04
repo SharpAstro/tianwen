@@ -212,6 +212,22 @@ public class PlanetaryDegradeTests
         }
     }
 
+    [Fact(Timeout = 120_000)]
+    public async Task AFrameShowsTheLevelMeasuredOnceTheBlursShareIsPutBack()
+    {
+        // A small disk under poor seeing and the telescope's scatter: a level is read inside 0.8 radii of a frame, which the blur and
+        // the scatter have taken light from, so a twin's planet is the measured level times ShownLevelGain (S3, #1233).
+        ImmutableArray<double> none = [0, 0, 0, 0, 0, 0, 0, 0];
+        var asMeasured = await MakeAsync(none, none, size: 96, radius: 12, r0M: 0.05, scatter: 0.05);
+        var putBack = await MakeAsync(none, none, size: 96, radius: 12, r0M: 0.05, scatter: 0.05, atShownLevel: true);
+
+        var measuredLevel = asMeasured.Average(f => CentroidAndLevel(f, 96, 12).Level);
+        var putBackLevel = putBack.Average(f => CentroidAndLevel(f, 96, 12).Level);
+        TestContext.Current.TestOutputHelper?.WriteLine($"level asked {DiskLevel}: the render scaled to it shows {measuredLevel:0.0}, with the blur's share put back {putBackLevel:0.0}");
+        measuredLevel.ShouldBeLessThan(DiskLevel * 0.95);
+        putBackLevel.ShouldBe(DiskLevel, DiskLevel * 0.01);
+    }
+
     [Fact]
     public async Task AKeptTiltMovesTheDiskAsItsRecordSays()
     {
@@ -803,14 +819,15 @@ public class PlanetaryDegradeTests
         bool keepTilt = false, Action<ImmutableArray<SyntheticFrame>>? made = null, double warpRms = 0, bool flat = false, double defocusNm = 0,
         Pupil? pupil = null, double localR0M = double.PositiveInfinity, double localOuterScaleM = 0.25, double scatter = 0,
         Action<int, SyntheticWarp>? warps = null, double highR0M = double.PositiveInfinity, double highAltitudeM = 10_000,
-        Action<int, SyntheticFieldFrame>? field = null, double electronsPerAdu = 1000)
+        Action<int, SyntheticFieldFrame>? field = null, double electronsPerAdu = 1000, bool atShownLevel = false)
     {
         var map = BandedMap(flat);
-        var times = ImmutableArray.CreateBuilder<DateTimeOffset>(shiftX.Length);
+        var builder = ImmutableArray.CreateBuilder<DateTimeOffset>(shiftX.Length);
         for (var i = 0; i < shiftX.Length; i++)
         {
-            times.Add(Night + TimeSpan.FromMilliseconds(5 * i));
+            builder.Add(Night + TimeSpan.FromMilliseconds(5 * i));
         }
+        var times = builder.MoveToImmutable();
         var options = new DegradeOptions(pupil ?? new Pupil(0.254, ObstructionRatio: 0.23, Vanes: 4, VaneWidthM: 0.001), 650e-9)
         {
             R0M = r0M,
@@ -833,7 +850,11 @@ public class PlanetaryDegradeTests
         };
         var frames = new ushort[shiftX.Length][];
         var reference = new DiskPlacement((size / 2) - 0.3, (size / 2) + 0.2, radius, NorthAngleDeg: -80);
-        var truths = await PlanetaryDegrade.MakeAsync(map, CatalogIndex.Jupiter, times.MoveToImmutable(), reference, 0.49, shiftX, shiftY, [], size, size, options,
+        if (atShownLevel)
+        {
+            options = options with { DiskLevelAdu = DiskLevel * PlanetaryDegrade.ShownLevelGain(map, CatalogIndex.Jupiter, times, reference, 0.49, options) };
+        }
+        var truths = await PlanetaryDegrade.MakeAsync(map, CatalogIndex.Jupiter, times, reference, 0.49, shiftX, shiftY, [], size, size, options,
             (index, samples) => frames[index] = samples, warps: warps, field: field, cancellationToken: TestContext.Current.CancellationToken);
         made?.Invoke(truths);
         return frames;
