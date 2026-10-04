@@ -3495,6 +3495,49 @@ can be set beside our master. Its numbers on a display image are its own disk's,
 
 **Rule:** #1212's three rules, read on Saturn, set before measuring as they were for Jupiter.
 
+**Measured (2026-10-04, `planetary-colour --planet saturn`).** OPAL's Saturn maps for 2021 to 2025, its five visible filters (F395N,
+F467M, F502N, F631N and F763M, which keeps the spectrum past F631N from being held flat), each apparition's I/F factors and Minnaert k read
+from its own readme (`PlanetaryColour.ReadmeFilters`). Saturn's factors change by up to 15 % between years, so none is kept as a constant,
+and Jupiter's, read the same way, give the same 2024 target as before (R/G 1.034, B/G 0.864 at 2024-12-15). Saturn's maps are filled zonally
+where the rings hid the globe (`PlanetMap.FilledZonally`); the globe is rendered with its rings for the shadow they cast and read only where
+they leave it clear (`MetricDisk.RingTouched`), the disk means and the latitude bands alike.
+
+- **Rule 1 has no A to read.** OPAL publishes no true-colour composite of Saturn, and Wikipedia's was hand-adjusted in February 2026, so
+  B is the target, as it became for Jupiter.
+- **Rule 2 holds.** At the EdgeHD capture's geometry (2022-10-25 00:57 UTC), each apparition averaged over a rotation:
+
+  | OPAL | R/G | B/G | (r, g) | Method uncertainty | Rotation range |
+  |---|---|---|---|---|---|
+  | 2021 | 1.226 | 0.627 | 0.4297, 0.3506 | 0.0038 | 11.0 % |
+  | 2022 | 1.220 | 0.669 | 0.4222, 0.3461 | 0.0030 | 19.5 % |
+  | 2023 | 1.217 | 0.625 | 0.4282, 0.3519 | 0.0037 | 2.9 % |
+  | 2024 | 1.205 | 0.650 | 0.4222, 0.3503 | 0.0031 | 4.1 % |
+  | 2025 | 1.220 | 0.659 | 0.4237, 0.3474 | 0.0033 | 2.7 % |
+
+  The apparitions lie 0.0015 to 0.0075 apart, within 0.010, so one colour serves every capture: their mean, R/G 1.218 and B/G 0.646
+  (`PlanetaryColourBalance.SaturnDiskColour`). Saturn is much warmer than Jupiter (R/G 1.034, B/G 0.861). A rotation moves a filter's
+  disk mean far more than on Jupiter (up to 19.5 % against 1.8 %), and why is not measured here; the colour, a ratio of filters read
+  together at each rotation, stays within rule 2 all the same.
+- **The gains the two colour captures ask** (green held at one), against OPAL 2022: 2022-10-09 (ASI462MC, the S3 twin's capture) R 1.138,
+  B 0.964 from R/G 1.073, B/G 0.694 as captured; 2022-10-25 (EdgeHD 11, ASI183MC) R 1.083, B 0.787 from 1.127, 0.851.
+- **Rule 3 asks the saturation Jupiter's owner chose on the EdgeHD capture, and more on 2022-10-09.** The balanced master's chroma spread
+  against B's, B blurred to the master:
+
+  | Capture | Master's spread | B's, core | Ratio | B's, core and halo | Ratio |
+  |---|---|---|---|---|---|
+  | 2022-10-09 | 0.0048 | 0.0112 | 0.43 | 0.0111 | 0.44 |
+  | 2022-10-25 | 0.0092 | 0.0129 | 0.71 | 0.0126 | 0.73 |
+
+  A factor of 1.37 to 1.41 on the EdgeHD capture, the 1.4 the owner chose for Jupiter, and 2.3 on 2022-10-09, the night that was also
+  Jupiter's dullest (0.32 to 0.43 there). So the default stays 1.4 for both planets, and `--colour-saturation` sets it.
+
+**The balance, as adopted.** `PlanetaryColourBalance` balances a colour master of Saturn as it does Jupiter's (`DiskColourOf`): one
+gain a channel takes the globe's mean, read where the rings leave it clear from the ringed limb fit, to Saturn's colour, then a saturation
+of 1.4 about that colour, after the sharpening. The rings take the globe's gains. Pinned by
+`PlanetaryColourTests.ASaturnsGlobeIsBalancedToSaturnsColourWhereItsRingsLeaveItClear`: a ringed Saturn through a camera's cast, its rings
+three times bluer than its globe, balances to B/G 0.644 against the target's 0.646, where a read through the rings would give 1.07.
+Mars and every other planet stay as captured.
+
 ## R9 A learned stage, only if the measurements say so
 
 **Issue:** #1056 (conditional).

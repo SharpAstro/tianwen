@@ -1,4 +1,6 @@
 using System;
+using System.Globalization;
+using System.Linq;
 using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Astrometry;
@@ -39,10 +41,12 @@ public class PlanetaryColourTests
     {
         // OPAL 2024's disk-mean I/F at the composite's geometry (docs/plans/planetary-restoration.md, "A planetary master's colour"):
         // dark in the violet, nearly flat from 500 nm, so a warm white, nowhere near the composite's R/G 1.14.
-        var pivots = new double[PlanetaryColour.OpalVisible.Length];
+        // Jupiter's five filters, F658N at the red end.
+        string[] jupiters = ["F395N", "F467M", "F502N", "F631N", "F658N"];
+        var pivots = new double[jupiters.Length];
         for (var f = 0; f < pivots.Length; f++)
         {
-            pivots[f] = PlanetaryColour.OpalVisible[f].PivotNm;
+            pivots[f] = PlanetaryColour.OpalVisiblePivots.Single(p => p.Name == jupiters[f]).PivotNm;
         }
         double[] reflectance = [0.3834, 0.5274, 0.5511, 0.5873, 0.5988];
         var linear = PlanetaryColour.SrgbOfReflectance(pivots, reflectance, monotoneCubic: false);
@@ -51,6 +55,26 @@ public class PlanetaryColourTests
         (cubic.R / cubic.G).ShouldBe(1.033, 0.005);
         (cubic.B / cubic.G).ShouldBe(0.873, 0.005);
         linear.ChromaDistance(cubic).ShouldBeLessThan(0.005, "F467M fills the gap where a broadband blue lies, so the join matters little");
+    }
+
+    [Fact]
+    public void AnOpalReadmesTableGivesEachVisibleFiltersFactorAndK()
+    {
+        // As OPAL's readmes write their tables (Jupiter 2022's and Saturn 2022's rows, tabs and a stray space as found): the visible
+        // filters, bluest first, ultraviolet ones and a note after a value passed over (S6, #1235).
+        string[] jupiter = ["F658N\t.999\t\t\t.00417", "F631N\t.999\t\t\t.00347", "F502N\t.950\t\t\t.00348", "F467M \t.950\t\t\t.00338",
+            "F395N\t.850\t\t\t.00330", "F343N\t.850\t\t\t.00213 (rotation 2 only)", "F275W\t.520\t\t\t.00231"];
+        string[] saturn = ["Filter\tMinnaert k\tI/F scale factor (FITS files)", "F395N\t0.40\t\t.00245", "F467M\t0.85\t\t.00536",
+            "F502N\t0.65\t\t.00302", "F631N\t0.80\t\t.00321", "F763M\t0.85\t\t.00399"];
+
+        var jupiterFilters = PlanetaryColour.ReadmeFilters(jupiter);
+        var saturnFilters = PlanetaryColour.ReadmeFilters(saturn);
+
+        jupiterFilters.Select(f => f.Name).ShouldBe(["F395N", "F467M", "F502N", "F631N", "F658N"]);
+        jupiterFilters[3].ShouldBe(new OpalFilter("F631N", 630.4, 0.999, 0.00347));
+        saturnFilters.Select(f => f.Name).ShouldBe(["F395N", "F467M", "F502N", "F631N", "F763M"]);
+        saturnFilters[0].ShouldBe(new OpalFilter("F395N", 395.3, 0.40, 0.00245));
+        saturnFilters[4].MinnaertK.ShouldBe(0.85);
     }
 
     [Fact]
@@ -247,9 +271,54 @@ public class PlanetaryColourTests
         var mean = PlanetaryColour.DiskMean(applied.GetChannelSpan(0), applied.GetChannelSpan(1), applied.GetChannelSpan(2), 240, 240, disk, default);
         mean.ChromaDistance(PlanetaryColourBalance.JupiterDiskColour).ShouldBeLessThan(1e-4, "saturated about the disk's own colour, a disk of one colour keeps it");
 
-        PlanetaryColourBalance.For(master, CatalogIndex.Saturn, Night).Balance.ShouldBeNull();
+        PlanetaryColourBalance.For(master, CatalogIndex.Mars, Night).Balance.ShouldBeNull();
         var mono = new Image([planes[1]], BitDepth.Float32, 1, 0, 0, new ImageMeta());
         PlanetaryColourBalance.For(mono, CatalogIndex.Jupiter, Night).Balance.ShouldBeNull();
+    }
+
+    [Fact(Timeout = 300_000)]
+    public async Task ASaturnsGlobeIsBalancedToSaturnsColourWhereItsRingsLeaveItClear()
+    {
+        // A ringed Saturn through a camera's colour cast, its rings bluer than its globe: the balance reads the globe where the rings leave
+        // it clear and takes it to Saturn's colour, whatever colour the rings are (S6, #1235).
+        var ct = TestContext.Current.CancellationToken;
+        var night = new DateTimeOffset(2022, 10, 9, 11, 25, 0, TimeSpan.Zero);
+        var aspect = PhysicalEphemeris.Compute(CatalogIndex.Saturn, night);
+        var options = PlanetaryLimbFit.OptionsFor(aspect);
+        var rings = options.Rings ?? throw new InvalidOperationException("Saturn has rings");
+        var placement = new DiskPlacement(119.6, 85.3, 34, NorthAngleDeg: 271.4);
+        const int width = 240, height = 170;
+        var render = PlanetaryRender.Render(new PlanetMap(Uniform(1f), 360, 180), aspect, placement, width, height, minnaertK: 0.85, supersample: 2, rings: rings);
+        var disk = new MetricDisk(placement.CenterX, placement.CenterY, placement.EquatorialRadius, options.AxisRatio, placement.NorthAngleDeg)
+        {
+            Rings = DiskRings.Of(placement.NorthAngleDeg, placement.NorthAngleDeg, options, rings),
+        };
+        var planes = new float[3][,];
+        (float Gain, float Sky)[] camera = [(0.9f, 0.04f), (0.6f, 0.03f), (0.3f, 0.05f)];
+        for (var c = 0; c < 3; c++)
+        {
+            planes[c] = new float[height, width];
+            for (var i = 0; i < render.Length; i++)
+            {
+                var (x, y) = (i % width, i / width);
+                var tint = c == 2 && disk.RingTouched(x, y) ? 3f : 1f;
+                planes[c][y, x] = (tint * camera[c].Gain * render[i]) + camera[c].Sky;
+            }
+        }
+        var master = new Image(planes, BitDepth.Float32, 1, 0, 0, new ImageMeta { SensorType = SensorType.Color });
+
+        var (balance, how) = await Task.Run(() => PlanetaryColourBalance.For(master, CatalogIndex.Saturn, night), ct);
+        TestContext.Current.TestOutputHelper?.WriteLine(how);
+        var applied = balance.ShouldNotBeNull().Apply(master);
+        balance.Planet.ShouldBe(CatalogIndex.Saturn);
+        how.ShouldContain("Saturn's colour");
+        var mean = PlanetaryColour.DiskMean(applied.GetChannelSpan(0), applied.GetChannelSpan(1), applied.GetChannelSpan(2), width, height, disk, default);
+        var ringless = disk with { Rings = null };
+        var withRings = PlanetaryColour.DiskMean(applied.GetChannelSpan(0), applied.GetChannelSpan(1), applied.GetChannelSpan(2), width, height, ringless, default);
+        TestContext.Current.TestOutputHelper?.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"globe R/G {mean.R / mean.G:0.0000} B/G {mean.B / mean.G:0.0000}; with the rings across it R/G {withRings.R / withRings.G:0.0000} B/G {withRings.B / withRings.G:0.0000}"));
+        mean.ChromaDistance(PlanetaryColourBalance.SaturnDiskColour).ShouldBeLessThan(1e-3, "the globe clear of the rings is Saturn's colour");
+        withRings.ChromaDistance(PlanetaryColourBalance.SaturnDiskColour).ShouldBeGreaterThan(0.01, "the rings across the globe are bluer, so a read through them would not be");
     }
 
     private static float[] Uniform(float value) => Banded(_ => value);

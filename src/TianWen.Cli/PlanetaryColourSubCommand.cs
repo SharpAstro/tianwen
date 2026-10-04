@@ -20,10 +20,10 @@ namespace TianWen.Cli;
 /// <summary>
 /// <c>tianwen planetary-colour &lt;label=master.fits&gt;... --composite &lt;png&gt; --opal &lt;dir&gt;</c>: #1212's measurement, read against
 /// the rule set before it (docs/plans/planetary-restoration.md, "The rule, set before measuring"). Each colour master's disk-mean
-/// colour and latitude chroma spread, against two targets: (A) an sRGB composite (Wikipedia's OPAL 2024 picture), decoded to linear;
+/// colour and latitude chroma spread, against two targets: (A) an sRGB composite (Wikipedia's OPAL 2024 picture of Jupiter), decoded to linear;
 /// (B) OPAL's reflectance maps taken through the CIE observer under D65 (<see cref="PlanetaryColour"/>). Says whether A and B agree
 /// (rule 1), whether OPAL's apparitions agree (rule 2), the gains each target asks of each master, and the chroma spreads (rule 3),
-/// each target blurred to the master's resolution. Jupiter only: the maps are Jupiter's.
+/// each target blurred to the master's resolution. Jupiter or Saturn (<c>--planet</c>), Saturn's globe read where its rings leave it clear.
 /// </summary>
 internal sealed partial class PlanetaryColourSubCommand(IConsoleHost consoleHost, MasterPreviewRenderer previewRenderer)
 {
@@ -37,24 +37,36 @@ internal sealed partial class PlanetaryColourSubCommand(IConsoleHost consoleHost
         var mastersArg = new Argument<string[]>("masters") { Description = "The colour masters, each label=path or a path (labelled by its file name).", Arity = ArgumentArity.ZeroOrMore };
         var compositeOpt = new Option<string?>("--composite") { Description = "An sRGB picture of Jupiter to take as target A (Wikipedia's Jupiter_OPAL_2024.png)." };
         var compositeUtcOpt = new Option<string?>("--composite-utc") { Description = "The composite's instant (ISO 8601, UTC); OPAL's 2024 visit ran from 5 January 20:46 to 6 January 15:43 UTC.", DefaultValueFactory = _ => "2024-01-06T06:00:00Z" };
-        var opalOpt = new Option<string?>("--opal") { Description = "The folder of OPAL's global maps (hlsp_opal_hst_wfc3-uvis_jupiter-<epoch>_<filter>_v1_globalmap.fits), target B.", Required = true };
+        var opalOpt = new Option<string?>("--opal") { Description = "The folder of OPAL's global maps (hlsp_opal_hst_wfc3-uvis_<planet>-<epoch>_<filter>_v1_globalmap.fits) and each apparition's readme, whose table gives every filter's I/F factor and Minnaert k: target B.", Required = true };
+        var planetOpt = new Option<string>("--planet") { Description = "jupiter or saturn: the planet the masters and the maps are of. Saturn's globe is read where its rings leave it clear (S6, #1235).", DefaultValueFactory = _ => "jupiter" };
         var compositeBinOpt = new Option<int>("--composite-bin") { Description = "Box-average the composite by this on each axis before fitting its limb.", DefaultValueFactory = _ => 4 };
-        var previewOpt = new Option<string?>("--preview") { Description = "Write, into this folder, each master's planetary preview as captured and balanced to Jupiter's colour (PlanetaryColourBalance) at each --saturation: the sharpened master beside it (<name>_sharpened.fits) when there is one, as the Best stack shows it." };
+        var previewOpt = new Option<string?>("--preview") { Description = "Write, into this folder, each master's planetary preview as captured and balanced to the planet's colour (PlanetaryColourBalance) at each --saturation: the sharpened master beside it (<name>_sharpened.fits) when there is one, as the Best stack shows it." };
         var saturationOpt = new Option<string>("--saturation") { Description = "The saturation factors the previews are balanced at, a comma list.", DefaultValueFactory = _ => "1,1.4,2" };
 
         var command = new Command("planetary-colour", "Planetary colour (#1212): each colour master's disk-mean colour and chroma spread against an sRGB composite and against OPAL's reflectance through the CIE observer, read against the rule set before measuring.")
         {
             Arguments = { mastersArg },
-            Options = { compositeOpt, compositeUtcOpt, opalOpt, compositeBinOpt, previewOpt, saturationOpt },
+            Options = { compositeOpt, compositeUtcOpt, opalOpt, planetOpt, compositeBinOpt, previewOpt, saturationOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
         {
             var inv = CultureInfo.InvariantCulture;
-            var apparitions = ReadApparitions(parseResult.GetValue(opalOpt) ?? "");
+            CatalogIndex? named = parseResult.GetValue(planetOpt)?.ToLowerInvariant() switch
+            {
+                "jupiter" => CatalogIndex.Jupiter,
+                "saturn" => CatalogIndex.Saturn,
+                _ => null,
+            };
+            if (named is not { } planet)
+            {
+                consoleHost.WriteError("--planet: jupiter or saturn");
+                return 1;
+            }
+            var apparitions = ReadApparitions(parseResult.GetValue(opalOpt) ?? "", planet);
             if (apparitions.Length == 0)
             {
-                consoleHost.WriteError("no OPAL maps of Jupiter's visible filters in --opal");
+                consoleHost.WriteError($"no OPAL maps of {planet}'s visible filters, with their apparition's readme, in --opal");
                 return 1;
             }
             foreach (var apparition in apparitions)
@@ -67,6 +79,12 @@ internal sealed partial class PlanetaryColourSubCommand(IConsoleHost consoleHost
             Composite? composite = null;
             if (parseResult.GetValue(compositeOpt) is { } compositePath)
             {
+                if (planet != CatalogIndex.Jupiter)
+                {
+                    // OPAL publishes no true-colour composite of Saturn, and the composite's reader knows no rings (S6, #1235).
+                    consoleHost.WriteError("--composite: target A is Jupiter's OPAL composite; Saturn has none");
+                    return 1;
+                }
                 if (PlanetaryGeometrySubCommands.ParseUtc(parseResult.GetValue(compositeUtcOpt)) is not { } compositeUtc)
                 {
                     consoleHost.WriteError("--composite-utc is not an ISO 8601 time");
@@ -119,6 +137,37 @@ internal sealed partial class PlanetaryColourSubCommand(IConsoleHost consoleHost
                 var at = arg.IndexOf('=');
                 return at > 0 ? (Label: arg[..at], Path: arg[(at + 1)..]) : (Label: Path.GetFileNameWithoutExtension(arg), Path: arg);
             }).ToArray();
+
+            // Rule 2 with no composite, at the first master's geometry: whether one colour serves every apparition. Saturn's season turns
+            // a different hemisphere to us from year to year, so it is read, never assumed (S6, #1235).
+            if (composite is null && items.Length > 0 && Image.TryReadFitsFile(items[0].Path, out var first)
+                && PlanetaryBestStack.InstantOf(first, epoch: null) is { } firstInstant)
+            {
+                first.Release();
+                var at = PhysicalEphemeris.Compute(planet, firstInstant);
+                consoleHost.WriteScrollable("");
+                consoleHost.WriteScrollable(string.Create(inv, $"Rule 2, at {items[0].Label}'s geometry ({firstInstant:yyyy-MM-dd HH:mm} UTC), each apparition's maps averaged over a rotation:"));
+                var expected = new List<(int Year, ExpectedColour Colour)>();
+                foreach (var apparition in apparitions)
+                {
+                    var colour = await Task.Run(() => PlanetaryColour.ExpectedDiskColour(apparition, at), ct);
+                    expected.Add((apparition.Year, colour));
+                    consoleHost.WriteScrollable(string.Create(inv,
+                        $"  OPAL {apparition.Year}: target B {Describe(colour.Value)}, method uncertainty {colour.Uncertainty:0.0000}, rotation range {colour.RotationRange:P1}"));
+                }
+                var (closest, farthest) = (double.PositiveInfinity, 0.0);
+                for (var i = 0; i < expected.Count; i++)
+                {
+                    for (var j = i + 1; j < expected.Count; j++)
+                    {
+                        var apart = expected[i].Colour.Value.ChromaDistance(expected[j].Colour.Value);
+                        (closest, farthest) = (Math.Min(closest, apart), Math.Max(farthest, apart));
+                    }
+                }
+                consoleHost.WriteScrollable(string.Create(inv,
+                    $"  rule 2: apparitions {closest:0.0000} to {farthest:0.0000} apart, {(farthest <= ChromaRule ? "within" : "PAST")} {ChromaRule:0.000} -> " +
+                    $"{(farthest <= ChromaRule ? "one colour serves every apparition" : "each capture's target from its own apparition")}"));
+            }
             foreach (var (label, path) in items)
             {
                 ct.ThrowIfCancellationRequested();
@@ -133,7 +182,7 @@ internal sealed partial class PlanetaryColourSubCommand(IConsoleHost consoleHost
                     consoleHost.WriteError($"{label}: no time in its header; left out");
                     continue;
                 }
-                var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, instant);
+                var aspect = PhysicalEphemeris.Compute(planet, instant);
                 var options = PlanetaryLimbFit.OptionsFor(aspect);
                 if (await Task.Run(() => PlanetaryLimbFit.Fit(image, options), ct) is not { } fit)
                 {
@@ -176,12 +225,14 @@ internal sealed partial class PlanetaryColourSubCommand(IConsoleHost consoleHost
                     Directory.CreateDirectory(previewFolder);
                     var sharpenedPath = Path.Combine(Path.GetDirectoryName(path) ?? "", Path.GetFileNameWithoutExtension(path) + "_sharpened.fits");
                     var shown = File.Exists(sharpenedPath) && Image.TryReadFitsFile(sharpenedPath, out var sharpened) && sharpened.ChannelCount == 3 ? sharpened : image;
-                    var (gains, shownSky) = PlanetaryColourBalance.GainsFor(shown, disk, PlanetaryColourBalance.JupiterDiskColour);
+                    // The planet's measured colour (#1212, S6 #1235), else the target this capture's apparition gives.
+                    var target = PlanetaryColourBalance.DiskColourOf(planet) ?? expectedDisk.Value;
+                    var (gains, shownSky) = PlanetaryColourBalance.GainsFor(shown, disk, target);
                     var stem = Path.Combine(previewFolder, label);
                     await previewRenderer.RenderPlanetaryAsync(shown, stem + "_captured.png", ct: ct);
-                    // Saturated about grey (every colour's departure from white) and about Jupiter's own colour (the belts' and zones'
+                    // Saturated about grey (every colour's departure from white) and about the planet's own colour (the belts' and zones'
                     // departure from the disk, which keeps the disk's mean on the target).
-                    (string Name, LinearRgb About)[] centres = [("grey", new LinearRgb(1, 1, 1)), ("disk", PlanetaryColourBalance.JupiterDiskColour)];
+                    (string Name, LinearRgb About)[] centres = [("grey", new LinearRgb(1, 1, 1)), ("disk", target)];
                     foreach (var saturation in saturations)
                     {
                         foreach (var (name, about) in centres)
@@ -234,30 +285,40 @@ internal sealed partial class PlanetaryColourSubCommand(IConsoleHost consoleHost
     private static string Describe(in LinearRgb colour)
         => string.Create(CultureInfo.InvariantCulture, $"R/G {colour.R / colour.G:0.000}, B/G {colour.B / colour.G:0.000}, (r, g) {colour.ChromaR:0.0000}, {colour.ChromaG:0.0000}");
 
-    // OPAL's maps in the folder, grouped by apparition year, each visible filter's rotations together.
-    private static ImmutableArray<OpalApparition> ReadApparitions(string folder)
+    // OPAL's maps of the planet in the folder, grouped by apparition year, each visible filter's rotations together, every filter's I/F
+    // factor and Minnaert k read from its apparition's readme (the last by name where a year has several). Saturn's maps are filled
+    // zonally where the rings hid the globe.
+    private static ImmutableArray<OpalApparition> ReadApparitions(string folder, CatalogIndex planet)
     {
         if (!Directory.Exists(folder))
         {
             return [];
         }
+        var name = planet == CatalogIndex.Saturn ? "saturn" : "jupiter";
         var maps = new List<(int Year, string Filter, string Path)>();
         foreach (var path in FileEnumeration.EnumerateFiles(folder, "_globalmap.fits", recursive: false))
         {
-            if (MapName().Match(Path.GetFileName(path)) is { Success: true } m)
+            if (MapName().Match(Path.GetFileName(path)) is { Success: true } m && string.Equals(m.Groups["planet"].Value, name, StringComparison.OrdinalIgnoreCase))
             {
                 maps.Add((int.Parse(m.Groups["year"].Value, CultureInfo.InvariantCulture), m.Groups["filter"].Value.ToUpperInvariant(), path));
             }
         }
+        var readmes = FileEnumeration.EnumerateFiles(folder, "_readme.txt", recursive: false).Order(StringComparer.OrdinalIgnoreCase).ToArray();
         var apparitions = ImmutableArray.CreateBuilder<OpalApparition>();
         foreach (var year in maps.Select(m => m.Year).Distinct().Order())
         {
+            var key = string.Create(CultureInfo.InvariantCulture, $"{name}-{year}");
+            if (readmes.LastOrDefault(r => Path.GetFileName(r).Contains(key, StringComparison.OrdinalIgnoreCase)) is not { } readme)
+            {
+                continue;
+            }
             var filters = ImmutableArray.CreateBuilder<OpalFilter>();
             var byFilter = ImmutableArray.CreateBuilder<ImmutableArray<PlanetMap>>();
-            foreach (var filter in PlanetaryColour.OpalVisible)
+            foreach (var filter in PlanetaryColour.ReadmeFilters(File.ReadLines(readme)))
             {
                 var rotations = maps.Where(m => m.Year == year && m.Filter == filter.Name).OrderBy(m => m.Path, StringComparer.OrdinalIgnoreCase)
-                    .Select(m => PlanetMap.ReadFits(m.Path)).OfType<PlanetMap>().ToImmutableArray();
+                    .Select(m => PlanetMap.ReadFits(m.Path)).OfType<PlanetMap>()
+                    .Select(map => planet == CatalogIndex.Saturn ? map.FilledZonally() : map).ToImmutableArray();
                 if (rotations.Length > 0)
                 {
                     filters.Add(filter);
@@ -322,6 +383,6 @@ internal sealed partial class PlanetaryColourSubCommand(IConsoleHost consoleHost
         }
     }
 
-    [GeneratedRegex(@"jupiter-(?<year>\d{4})[a-z]_(?<filter>f\w+?)_v1_globalmap\.fits$", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"(?<planet>jupiter|saturn)-(?<year>\d{4})[a-z]_(?<filter>f\w+?)_v1_globalmap\.fits$", RegexOptions.IgnoreCase)]
     private static partial Regex MapName();
 }

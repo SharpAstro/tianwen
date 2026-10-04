@@ -12,9 +12,12 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// </summary>
 public sealed record ColourBalance(LinearRgb Gains, MetricDisk Disk, double Saturation, LinearRgb About)
 {
+    /// <summary>The planet whose colour the balance takes the master to.</summary>
+    public CatalogIndex Planet { get; init; } = CatalogIndex.Jupiter;
+
     /// <summary>The balance in words, for a log or a status line.</summary>
     public string Describe() => string.Create(CultureInfo.InvariantCulture,
-        $"balanced to Jupiter's colour: gains R {Gains.R:0.000}, B {Gains.B:0.000} over green, saturation {Saturation:0.0#}");
+        $"balanced to {(Planet == CatalogIndex.Saturn ? "Saturn" : "Jupiter")}'s colour: gains R {Gains.R:0.000}, B {Gains.B:0.000} over green, saturation {Saturation:0.0#}");
 
     /// <summary>FITS cards recording the balance, so a balanced master says so and by how much.</summary>
     public IReadOnlyDictionary<string, (object Value, string Comment)> HeaderCards() => new Dictionary<string, (object Value, string Comment)>
@@ -51,6 +54,22 @@ public static class PlanetaryColourBalance
     public static LinearRgb JupiterDiskColour { get; } = new LinearRgb(1.034, 1, 0.861);
 
     /// <summary>
+    /// Saturn's globe's disk-mean colour in linear sRGB, green one, read where its rings leave it clear: OPAL's reflectance through the CIE
+    /// 1931 observer under D65, averaged over a rotation, R/G 1.205 to 1.226 and B/G 0.625 to 0.669 over the apparitions 2021 to 2025 at
+    /// the EdgeHD capture's geometry of 2022-10-25, whose chromaticities lie 0.0015 to 0.0075 apart, within #1212's 0.010 (S6, #1235, rule 2).
+    /// Their mean. The rings take the globe's gains.
+    /// </summary>
+    public static LinearRgb SaturnDiskColour { get; } = new LinearRgb(1.218, 1, 0.646);
+
+    /// <summary>The disk-mean colour a master of <paramref name="planet"/> is balanced to; null for a planet whose colour is not measured.</summary>
+    public static LinearRgb? DiskColourOf(CatalogIndex? planet) => planet switch
+    {
+        CatalogIndex.Jupiter => JupiterDiskColour,
+        CatalogIndex.Saturn => SaturnDiskColour,
+        _ => null,
+    };
+
+    /// <summary>
     /// The saturation a balance applies by default: the owner's choice on the five colour captures' previews at 1, 1.4 and 2
     /// (2026-10-03, #1212). Every capture read duller than OPAL's reflectance at its resolution, by 1.1 to 3.1 depending on the blur.
     /// </summary>
@@ -58,8 +77,9 @@ public static class PlanetaryColourBalance
 
     /// <summary>
     /// The balance <paramref name="stacked"/>, a master of <paramref name="planet"/>, asks for at <paramref name="saturation"/>, or null
-    /// with the reason in words: Jupiter's colour is the only one measured, a mono master has none to balance, and the disk comes from the
-    /// limb fit at the master's instant (<paramref name="epoch"/>, else its own DATE-OBS and EXPTIME's middle).
+    /// with the reason in words: Jupiter's and Saturn's colours are the ones measured, a mono master has none to balance, and the disk comes
+    /// from the limb fit at the master's instant (<paramref name="epoch"/>, else its own DATE-OBS and EXPTIME's middle), Saturn's read where
+    /// its rings leave it clear.
     /// </summary>
     public static (ColourBalance? Balance, string How) For(Image stacked, CatalogIndex? planet, DateTimeOffset? epoch, double saturation = DefaultSaturation)
     {
@@ -67,26 +87,26 @@ public static class PlanetaryColourBalance
         {
             return (null, "a mono master, so no colour to balance");
         }
-        if (planet != CatalogIndex.Jupiter)
+        if (planet is not { } body || DiskColourOf(body) is not { } target)
         {
-            return (null, "colours left as captured: only Jupiter's colour is measured (#1212)");
+            return (null, "colours left as captured: only Jupiter's and Saturn's colours are measured (#1212, #1235)");
         }
         if (PlanetaryBestStack.InstantOf(stacked, epoch) is not { } instant)
         {
             return (null, "colours left as captured: the master carries no time to fit its limb at");
         }
-        var options = PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(CatalogIndex.Jupiter, instant));
+        var options = PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(body, instant));
         if (PlanetaryLimbFit.Fit(stacked, options) is not { } fit)
         {
             return (null, "colours left as captured: the limb did not fit");
         }
         var disk = MetricDisk.From(fit, options);
-        var (gains, _) = GainsFor(stacked, disk, JupiterDiskColour);
+        var (gains, _) = GainsFor(stacked, disk, target);
         if (!double.IsFinite(gains.R) || !double.IsFinite(gains.B) || gains.R <= 0 || gains.B <= 0)
         {
             return (null, "colours left as captured: the disk's mean colour could not be read");
         }
-        var balance = new ColourBalance(gains, disk, saturation, JupiterDiskColour);
+        var balance = new ColourBalance(gains, disk, saturation, target) { Planet = body };
         return (balance, balance.Describe());
     }
 
