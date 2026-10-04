@@ -976,6 +976,11 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   sky's camera terms are fitted through the rounding, pixel by pixel** (`SkyByPixels`): its rounded mean is not its level, its
   spread is set by the mean alone, and a sky that slopes over the frame widens any pooled fit. **A statistic is read against its
   spread over seeds** (`--seed`): at 3,000 frames the quality's lag-1 wanders 67 % between seeds, so a 10 % band on it tests nothing.
+  **A twin's level is the planet's own, not the frame's** (`PlanetaryDegrade.ShownLevelGain`, S3, #1233): a capture's level is read
+  through the blur, which carries a tenth of a small globe's light out of 0.8 radii. **A warped frame keeps the light that reached the
+  pupil** (one gain a frame; the twin replays the real flux, so the warp's jitter counted twice). **A Saturn twin draws its rings with
+  radial structure** (`SaturnRings.Structured`; the limb fit's four flat levels read a real division at 0.4 of the globe, flat rings
+  at 0.01) and the statistics read Saturn's sky and halo around its rings (`RingFootprint`).
 - **The planetary stack's defaults ARE the measured best, and today's recipe is one switch away** (the enhanced pipeline, #1159):
   `PlanetaryStackOptions` defaults to the gradient, plain correlation, clamped Lanczos-3 and a reference of the best 1,000 at half
   the frames; `PlanetaryStackOptions.Legacy` and `planetary-stack --legacy` are the recipe before. **The rolling stack (live capture,
