@@ -268,6 +268,19 @@ public record struct ImageMeta(
     public FrameCounterSource FrameCounterSource { get; init; } = FrameCounterSource.None;
 
     /// <summary>
+    /// What this image's values are worth in the counts they were taken in: the factor a straight-line rescale put on
+    /// them (<see cref="LinearFit"/>'s slope), so an image put on another channel's scale still says how a count of it
+    /// relates to a count of a third (<see cref="NarrowbandCombination.LineToBroadband"/>). Null is 1, the image as it was
+    /// taken; FITS card <c>FLUXSCAL</c>.
+    /// </summary>
+    /// <remarks>
+    /// Nullable rather than defaulted to 1 because this is a record struct: <c>new ImageMeta()</c> ignores an initialiser
+    /// and would read 0. It is what lets one step of a combination run by itself and the next read its result: a red
+    /// master fitted onto green and written out keeps the slope the H-alpha's addition to it needs.
+    /// </remarks>
+    public double? FluxScale { get; init; }
+
+    /// <summary>
     /// The frame's PICTURE, as the IRAF <c>DATASEC</c> card declares it: the sub-rectangle of the
     /// raster that carries light, 0-based with an exclusive width (<see cref="FitsSection"/> owns the
     /// conversion). Null when the file declares none, which is the common case and means "the whole

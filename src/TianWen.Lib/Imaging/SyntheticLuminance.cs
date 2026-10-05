@@ -41,10 +41,21 @@ public static class SyntheticLuminance
     /// The luminance of <paramref name="masters"/> on <paramref name="reference"/>'s scale and background, absent where any
     /// master is; the channels' parts; and the luminance's own pixel noise, to set against the reference's.
     /// </summary>
-    public static async Task<(Image Luminance, Channel[] Channels, double Noise)> BuildAsync(
+    public static Task<(Image Luminance, Channel[] Channels, double Noise)> BuildAsync(
         IReadOnlyList<Image> masters, int reference = 0, CancellationToken cancellationToken = default)
+        => BuildAsync(masters, null, reference, cancellationToken);
+
+    /// <summary>
+    /// The luminance of <paramref name="masters"/>, its star scales read on <paramref name="measureOn"/> where given (the
+    /// PSF-matched copies, whose stars are at one width) and its noise on the masters themselves: <c>image luminance</c>,
+    /// and the recipe's luminance step.
+    /// </summary>
+    public static async Task<(Image Luminance, Channel[] Channels, double Noise)> BuildAsync(
+        IReadOnlyList<Image> masters, IReadOnlyList<Image>? measureOn, int reference = 0, CancellationToken cancellationToken = default)
     {
-        var channels = await MeasureAsync(masters, reference, null, cancellationToken);
+        var channels = measureOn is null
+            ? await MeasureAsync(masters, reference, null, cancellationToken)
+            : await MeasureAsync(measureOn, reference, masters, cancellationToken);
         var luminance = Combine(masters, channels, reference);
         return (luminance, channels, BlockNoise(luminance));
     }
@@ -177,9 +188,37 @@ public static class LuminanceDetail
     /// <summary>The default blur the colour is kept above, in pixels.</summary>
     public const float DefaultColourSigma = 1.5f;
 
+    /// <summary>
+    /// The scale taking <paramref name="channel"/> onto <paramref name="luminance"/>'s, measured from the two planes
+    /// themselves: one over the slope of the channel against the luminance (<see cref="LinearFit"/>, the pixels both hold).
+    /// It needs nothing from the luminance's making, so an LRGB step can run on its own, on starless planes, which have no
+    /// stars to measure a photometric scale by; and the detail is given in the field's own colour, the nebula's, which is
+    /// what a starless plane holds. NaN where no line fits.
+    /// </summary>
+    public static double ScaleFor(Image channel, Image luminance)
+    {
+        var fit = LinearFit.Measure(luminance, channel);
+        return double.IsFinite(fit.Slope) && fit.Slope > 0 ? 1.0 / fit.Slope : double.NaN;
+    }
+
+    /// <summary>
+    /// <paramref name="channel"/> with <paramref name="luminance"/>'s detail at the scale measured between the two
+    /// (<see cref="ScaleFor"/>): <c>image lrgb</c>, and the recipe's LRGB step; also the scale. Throws
+    /// <see cref="InvalidOperationException"/> where no scale can be measured.
+    /// </summary>
+    public static (Image Detailed, double Scale) Transfer(Image channel, Image luminance, float colourSigma = DefaultColourSigma)
+    {
+        var scale = ScaleFor(channel, luminance);
+        if (!double.IsFinite(scale))
+        {
+            throw new InvalidOperationException("no scale could be measured between the channel and the luminance");
+        }
+        return (Apply(channel, luminance, scale, colourSigma), scale);
+    }
+
     /// <summary><paramref name="channel"/> (one plane) with <paramref name="luminance"/>'s detail below
     /// <paramref name="colourSigma"/>; <paramref name="scale"/> takes the channel onto the luminance's scale
-    /// (<see cref="SyntheticLuminance.Channel.Scale"/>). Absent where either is.</summary>
+    /// (<see cref="ScaleFor"/>). Absent where either is.</summary>
     public static Image Apply(Image channel, Image luminance, double scale, float colourSigma = DefaultColourSigma)
     {
         if (channel.Width != luminance.Width || channel.Height != luminance.Height)
