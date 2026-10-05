@@ -166,7 +166,7 @@ why).
 |-------|------|-------|--------|
 | **0** | **Continuum subtraction.** Remove the broadband starlight a narrowband filter also passes, via a photometric star-flux fit against a matched broadband frame. Prerequisite for everything below: without it the "line" images are line + continuum. #874 | `TianWen.Lib/Imaging/` `ContinuumSubtractor`, `MasterAlignment`; `tianwen image align`, `tianwen image continuum` | BUILT 2026-10-05, first light on LDN 1622 ("Phase 0 as built" below) |
 | 1 | **Robust plane normalization.** Align each weak line plane to the reference plane (usually Ha) by median offset then MAD/percentile gain, about the background. No catalog, no spectra, no new data. Works for any N. | `TianWen.Lib/Imaging/`, new `NarrowbandNormalizer` | NOT STARTED |
-| 2 | **Palette mixer + named presets.** `Ha`/`OIII` to RGB as a per-channel lerp, applied globally. Presets name which effect they apply (H-beta vs hue rotation). | same | NOT STARTED |
+| 2 | **Palette mixer + named presets.** `Ha`/`OIII` to RGB as a per-channel lerp, applied globally. Presets name which effect they apply (H-beta vs hue rotation). | same; `NarrowbandCombination`, `tianwen image combine` | HaRGB case BUILT 2026-10-05 ("Phase 0 as built" below); OIII and the presets NOT STARTED |
 | 3 | **Line unmixing: the OSC on-ramp only.** Recovers mono line planes from one dual/tri-band RGB frame, via DBXtract algebra + per-sensor crosstalk coefficients. **Mono imagers skip this entirely** and start at phase 1. **3a: the three-line Ha/Hb/OIII solve is the high-value variant** (exactly determined, the only source of *measured* blue). Gated on a known sensor. | same, plus a coefficient table asset | NOT STARTED |
 | **3b** | **DUO-BAND PAIR: the OSC path to real SHO, and the one to build.** Two sessions of one target through `Ha/OIII` and `SII/OIII`, paired by target across filters, normalised to each other through the **shared OIII** plane. Over-determined (6 channels, 3 lines) and the Ha-vs-SII separation is optical, so phase 3's crosstalk table and sensor gating do not apply. Needs: both curves digitised, a filter-pair declaration, and phase 1 extended across masters. | same, plus a filter-pair asset | NOT STARTED |
 | 4 | **SPCC narrowband mode.** Declared passbands convolved against real star spectra. Needs a Gaia DR3 spectra source. | `Astrometry/`, extends `Tycho2ColorCalibration` | NOT STARTED (blocked, see ADR-3) |
@@ -475,8 +475,24 @@ RMS, Ha 0.069 (at the loosest quad tolerance, a narrowband star field being spar
 percent of one. Ha and Red agree on star width (2.06 px each once aligned). The scales agree within 4 percent: flattest
 residual **0.157**, the stars **0.151** over 808 of them with a 9.6 percent spread. That spread is what a single scale
 cannot fix: each star's Ha-to-red ratio is its own colour, so one `k` leaves faint stars as small dark pits and the
-brightest with a ring. A star mask or a starless pass is the usual answer, and it belongs with phase 6 (narrowband star
-colour), not here.
+brightest with a ring. A starless pass is the answer, and it is phase 2's HaRGB case:
+
+**`tianwen image combine --red --green --blue [--ha] [--starless]`** (`NarrowbandCombination`): three mono masters on one
+grid made one colour image, written on `[0, 1]` with true labels as every master is (raw ADU labelled at 74,931 rendered
+solid green through the preview renderer). With `--ha` the line's emission goes into red as
+`R + weight (t_R / t_Ha) (Ha_pure - median)`: the exposure ratio is what a line count is worth in red, both filters
+passing 656 nm near their peak. With `--starless` every master goes through the star remover first, the emission is added
+to the starless planes and the broadband stars go back on top, so no star is left a pit or a ring. Two rules hold it:
+- **The continuum scale is measured on the masters WITH their stars.** A red filter passes the line too, so with the stars
+  gone the only structure Ha and red share is the emission, and the flattest residual there reads 1.01 on LDN 1622: it
+  would subtract the line it is meant to keep.
+- **Every plane goes through the remover on ONE scale.** Divided each by its own maximum (as `image remove-stars` does),
+  Ha's and red's starless plates came back on scales 1.8 percent apart, so a scale measured on the masters no longer held
+  between them. `StarlessAsync` divides every plane by one divisor and multiplies it back.
+
+On LDN 1622 (weight 1, an exposure ratio of 0.5) the Hα glow of Barnard's Loop behind the dark cloud comes up in red and
+the stars stay clean. The aligned channels leave a thin coloured border where they do not overlap, which an autocrop
+takes off.
 
 ### F. NarrowbandNormalization (the SHO answer, and what that video was actually about)
 
