@@ -79,6 +79,23 @@ internal sealed class PlanetaryLookSubCommand(IConsoleHost consoleHost, MasterPr
                 }
                 var disk = MetricDisk.From(masterFit, options);
 
+                // A look is a rendering of a BALANCED master: on a master left in the camera's colours (`planetary-stack` without its
+                // balance) the camera's own tint is most of every pixel's chroma, and the curve would raise that. So such a master is
+                // balanced to the planet's colour first, as `planetary-stack` balances it.
+                if (!master.ImageMeta.IsColourBalanced)
+                {
+                    var (balance, howBalanced) = await Task.Run(() => PlanetaryColourBalance.For(master, body, instant), ct);
+                    if (balance is null)
+                    {
+                        consoleHost.WriteError($"{masterPath}: not colour balanced, and it could not be balanced ({howBalanced})");
+                        return 1;
+                    }
+                    var balanced = balance.Apply(master);
+                    master.Release();
+                    master = balanced;
+                    consoleHost.WriteScrollable($"the master was in the camera's colours; {howBalanced}");
+                }
+
                 // The look: fitted to the reference when there is one, the contrast raised by the factor asked (the boosted look's) when not.
                 ColourLook look;
                 (MetricDisk Disk, ReferencePlacement Placement)? placed = null;
