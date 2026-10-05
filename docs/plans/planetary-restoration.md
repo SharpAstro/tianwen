@@ -4053,7 +4053,8 @@ Jupiter too, to see what generalises. Rules were written on the issue before eac
   whiter), above it from the 50th (1.04 to 1.68: belts stronger). It is the mean of four posts' chroma over our default master's at every
   quantile; the fifth post, a green-tinted picture more coloured than ours everywhere, is left out.
 - **A look is a RENDERING, never a master.** `planetary-look` writes the planetary preview with the look; its planes go to a FITS only on
-  `--fits`, marked `CLOOK` and no longer scene-linear. The linear masters stay what is processed further. In the viewer it is a control
+  `--fits`, marked `CLOOK` and no longer scene-linear. The linear masters stay what is processed further, as the deep-sky chroma editing's
+  ADR-4 has it (`narrowband-colour.md`: a render stage that never touches a linear master). In the viewer it is a control
   over the linear master, as the stretch and tone are: [the look in the viewer](#the-look-in-the-viewer).
 
 **What the study found:**
@@ -4091,6 +4092,24 @@ output stays linear and is touched up later (and in a stacking GUI). The look is
 can derive the looked planes on the CPU from `PlanetaryColourLook.Apply` (the disk from the limb fit the Best stack already holds) and show
 them through its stretch, the source kept; or carry the curve to the shader as a stage of its own, which the CPU/GPU mirror rule then asks
 of both paths. Its default is the master as balanced.
+
+### Planetary compose: a colour master from mono stacks
+
+**Issue:** #1278. A mono camera's night is a stack per filter, minutes apart: R, G and B (and IR or L) each a capture of its own, the
+planet turned between them. The owner (2026-10-05) offered such a set, another observer's 16 AutoStakkert 4 stacks of Saturn on
+2026-09-01 (R, G, B and IR in four runs, 07:04 to 07:28 UTC, 16-bit TIFF, the videos not with them), and asked for it as the planetary
+twin of the deep-sky composition (`ColourComposition`, `image combine`, #874): every step its own verb on one routine, and a recipe that
+runs them in order with nothing between them a file would not carry.
+
+- **The steps.** Each stack de-rotated to one instant through the spheroid (`PlanetaryDerotation`; a stack's instant from its WinJUPOS-style
+  name, `2026-09-01-0706_4` being 07:06.4 UTC, or its header); each channel's limb fitted and moved onto the reference's
+  (`PlanetaryLimbFit`, as `PlanetaryChannelAlignment` moves a colour master's planes); R, G and B joined into one master, an IR or L stack
+  optionally as its luminance through the deep-sky LRGB step (`LuminanceDetail`); then the planetary chain as a colour master takes it:
+  sharpened (`PlanetarySharpening`, a telescope given or the default), balanced to the planet's colour (`PlanetaryColourBalance`), and the
+  colour look as a rendering (#1273, #1277).
+- **What it must not assume.** North comes from agreement, never one limb fit (R6), and stacks of different filters show different
+  detail, so the agreement is read on what they share. A stack another program wrote is the reference's (its own kernel and keep), so it is
+  judged as an input, never against our stack of the same frames.
 
 ## R9 A learned stage, only if the measurements say so
 
