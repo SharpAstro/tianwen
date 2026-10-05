@@ -44,6 +44,14 @@ jobs:
     # onto every push and PR.
     outputs:
       version-prefix: ${{ steps.resolve-version.outputs.prefix }}
+      tested-on-pr: ${{ steps.tested-on-pr.outputs.tested-on-pr }}
+    # The repo's default token is read-only for contents alone; the tested-on-pr step below also reads
+    # the PR a pushed commit came from and that PR's workflow runs. Stated per job, so no other job gains
+    # anything.
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
     steps:
     # The PreprocessCatalogs MSBuild target produces the *.gs.gz embedded
     # resources from *.json.lz / *.csv.lz sources, decoding the .lz inputs with
@@ -54,6 +62,42 @@ jobs:
       with:
         submodules: recursive
         lfs: false
+    # A push to main whose tree a passing PR run already tested skips test-unit and test-functional
+    # (#1287). A PR is rebased onto main just before it is pushed, so the tree a rebase merge lands is
+    # usually the very tree the PR's own run tested (#1282 to #1285 all were), and testing it again was a
+    # second full run of both suites per merged PR on shared hosted runners. "Up to date with main" is not
+    # enforced, so that is CHECKED, not assumed: the merged PR this commit came from, its head's tree
+    # against the pushed tree, and that PR's own CI/CD run. Only identical trees AND a run that passed
+    # skip the tests; no PR, an API error, another tree (main moved under the PR: #1275's merge) or a run
+    # not green runs them as before. The PR run tested the merge of its head with main as main was then,
+    # which is the head's own tree whenever the head was up to date, and an out-of-date head cannot land
+    # on main with that same tree. A pull_request run and a workflow_dispatch release always test.
+    - name: Was this tree already tested on its PR
+      id: tested-on-pr
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        tested=false
+        if [ "$GITHUB_EVENT_NAME" = push ]; then
+          pr=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" \
+            --jq '[.[] | select(.merged_at != null and .base.ref == "main")][0] | "\(.number) \(.head.sha)"' 2>/dev/null || true)
+          if [ -n "$pr" ] && [ "$pr" != "null null" ]; then
+            number=${pr%% *}
+            head=${pr##* }
+            pushed=$(git rev-parse "$GITHUB_SHA^{tree}")
+            headTree=$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$head" --jq .tree.sha 2>/dev/null || true)
+            run=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/dotnet.yml/runs?event=pull_request&head_sha=$head" \
+              --jq '.workflow_runs[0] | "\(.id) \(.conclusion)"' 2>/dev/null || true)
+            echo "PR #$number, head $head: its tree $headTree, the pushed tree $pushed; its CI/CD run ${run:-not found}"
+            if [ -n "$headTree" ] && [ "$pushed" = "$headTree" ] && [ "${run##* }" = success ]; then
+              tested=true
+            fi
+          else
+            echo "no merged PR into main for $GITHUB_SHA"
+          fi
+        fi
+        echo "tested-on-pr=$tested"
+        echo "tested-on-pr=$tested" >> "$GITHUB_OUTPUT"
     # Narrow LFS pull: build needs catalog .lz (TianWen.Lib EmbeddedResource),
     # milkyway .lz (Gui Content), fonts .ttf (Gui Content), the prebaked
     # snapshot .bin.gz files (TianWen.Lib EmbeddedResource - if missing, the
@@ -218,6 +262,8 @@ jobs:
   test-unit:
     timeout-minutes: 25   # healthy ~6m
     needs: build
+    # Not again on a push to main whose tree its PR's passing run already tested (build's tested-on-pr).
+    if: needs.build.outputs.tested-on-pr != 'true'
     env:
       VERSION_PREFIX: ${{ needs.build.outputs.version-prefix }}
     # Matrix on x86_64 + ARM64 so we cover both architectures, plus a third leg for the
@@ -434,6 +480,8 @@ jobs:
   test-functional:
     timeout-minutes: 20   # healthy 4m24s
     needs: build
+    # Not again on a push to main whose tree its PR's passing run already tested (build's tested-on-pr).
+    if: needs.build.outputs.tested-on-pr != 'true'
     runs-on: ubuntu-latest
     env:
       VERSION_PREFIX: ${{ needs.build.outputs.version-prefix }}
@@ -918,11 +966,18 @@ jobs:
 
   # NuGet push still gates on tests -- once a version is pushed to nuget.org
   # we can't take it back, so being on the safer side is worth the serial wait.
+  # A test job skipped because its tree was already tested on its PR (build's tested-on-pr) counts as
+  # passed, and only then: a skip would otherwise skip this job too, and a failed or cancelled test job
+  # still stops the push. `!cancelled()` is what makes the condition evaluated at all once a need was
+  # skipped.
   publish-nuget:
     timeout-minutes: 15   # one push
-    needs: [test-unit, test-functional]
+    needs: [build, test-unit, test-functional]
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: >-
+      !cancelled() && github.ref == 'refs/heads/main' && github.event_name == 'push'
+      && (needs.test-unit.result == 'success' || (needs.test-unit.result == 'skipped' && needs.build.outputs.tested-on-pr == 'true'))
+      && (needs.test-functional.result == 'success' || (needs.test-functional.result == 'skipped' && needs.build.outputs.tested-on-pr == 'true'))
     steps:
     - name: Download NuGet packages
       uses: actions/download-artifact@v8

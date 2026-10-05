@@ -126,7 +126,7 @@ and everything derives: `VersionPrefix` for every project (guarded on empty so C
 `/bump-version` edits the one line. **A version literal in a csproj or the workflow is a regression**;
 delete it and let it derive.
 
-Two things specific to this repo:
+Three things specific to this repo:
 
 - **The read-back writes BOTH `$GITHUB_ENV` and a `build` job output**, because `$GITHUB_ENV` is
   **per-job** and five jobs here consume `VERSION_PREFIX` (`build`, `test-unit`, `test-functional`,
@@ -142,6 +142,13 @@ Two things specific to this repo:
   its own, so a local `dotnet build` packed it at the SDK default **1.0.0** while its `AssemblyVersion`
   read 6.1; there was a 43 MB `TianWen.Lib.1.0.0.nupkg` sitting in `bin/Release` to prove it. The
   shared `VersionPrefix` now covers every project.
+- **A push to main does not test a tree its PR already tested** (#1287). `build`'s "Was this tree
+  already tested on its PR" step exports `tested-on-pr`, and `test-unit` and `test-functional` skip on
+  it. It is true only when the pushed tree is the tree of the merged PR's head and that PR's own CI/CD
+  run passed; branches need not be up to date with main, so the step compares trees rather than
+  assuming. `publish-nuget` accepts a skipped test job on that verdict alone (`!cancelled()` plus the
+  result checks). A pull_request run and a `workflow_dispatch` release always test. **A new job that
+  needs the test jobs owes the same condition**, or a skip on main skips it too.
 
 ## The sibling table (moved verbatim from CLAUDE.md, 2026-09-12)
 
