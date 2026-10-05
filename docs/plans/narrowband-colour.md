@@ -549,6 +549,46 @@ PixInsight's mono workflow, and the owner's: linear fit, deblur, stars out, line
   the detail and takes the detail strength. On LDN 1622 the luminance's block noise fell 8.51 to 2.96 and the colour's
   about halved (red 10.5 to 5.8, green 20.2 to 10.5, blue 12.0 to 6.2).
 
+#### Every step is a verb of its own, and `image combine` runs them in order
+
+The owner's aim (2026-10-05): a PixInsight kind of tool that applies things step by step, never conflating them into
+one operation, and beside it one recipe that does the right thing for matching a given post-processing. So each step is
+one verb calling one routine, and `image combine` with its switches is `ColourComposition.RunAsync`, which calls those
+same routines in order and nothing between them:
+
+| Step | Verb | Routine | PixInsight |
+|---|---|---|---|
+| one grid | `image align` | `MasterAlignment` | StarAlignment |
+| one scale | `image linear-fit` | `LinearFit` | LinearFit |
+| stars at one width | `image deblur` (or `image match-psf` without BlurX) | `NarrowbandCombination.DeblurAsync`, `PsfMatch` | BlurXTerminator |
+| stars out | `image remove-stars` | `NarrowbandCombination.SplitStarsAsync` | StarXTerminator |
+| the continuum scale | `image continuum --dry-run` | `ContinuumSubtractor.FlattestResidualScale` | |
+| the line in | `image add-line` | `NarrowbandCombination.AddLineFrom` | PixelMath, NBRGBCombination |
+| stars back | `image add-stars` | `NarrowbandCombination.WithStars` | PixelMath |
+| luminance | `image luminance` | `SyntheticLuminance.BuildAsync` | ImageIntegration of R, G, B |
+| denoise | `image denoise` (`--colour`) | `NarrowbandCombination.DenoiseAsync` / `DenoiseColourAsync` | NoiseXTerminator |
+| LRGB | `image lrgb` | `LuminanceDetail.Transfer` | LRGBCombination |
+| channels | `image combine` (no switches) | `NarrowbandCombination.Rgb` | ChannelCombination |
+
+What keeps the two the same, which `ColourCompositionTests` pins (the steps through a FITS file each, against the
+recipe: not one pixel of 76,800 differs):
+- **A step writes its result on its input's scale**, never divided by its own peak, and a step handed several masters
+  puts them through its enhancer on ONE scale. `image deblur`, `image remove-stars` and `image denoise` took one file and
+  wrote it unit-scaled by its own peak until now, which is what broke the relation between two of their outputs.
+- **What a later step needs travels in the file.** A linear fit's slope is `ImageMeta.FluxScale` (FITS `FLUXSCAL`,
+  ours), which `LineToBroadband` reads off both images, so the H-alpha's worth in a fitted red needs no slope carried by
+  hand. The one number that is carried by hand is the continuum scale, which must be measured on the masters WITH their
+  stars and applied to starless ones: `image continuum --dry-run` prints it round-trippably and `image add-line --scale`
+  takes it.
+- **The LRGB scale is measured from the two planes it is applied to** (`LuminanceDetail.ScaleFor`, a linear fit of the
+  channel against the luminance), so `image lrgb` needs nothing from the luminance's making. On starless planes there are
+  no stars to read a photometric scale by, and the fit gives the detail in the nebula's own colour, which is what a
+  starless plane holds. Until now the recipe used the stars' scale.
+- **The starless luminance is StarX run on the luminance**, as it is in PixInsight, not the weighted sum of the starless
+  channels, so `image remove-stars L.fits` gives what the recipe used.
+- **A stars image is read unmasked.** It is exactly zero wherever the remover left a pixel alone, and a master's absent
+  ring is also exact zero, so `image add-stars` reads its stars as written and every other step masks.
+
 ### F. NarrowbandNormalization (the SHO answer, and what that video was actually about)
 
 [Video](https://www.youtube.com/watch?v=uLy9TA2Bo2A) -

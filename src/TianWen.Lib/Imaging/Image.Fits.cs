@@ -695,7 +695,9 @@ public partial class Image
             BiasSection = biasSection,
             FrameSequence = frameSequence,
             FrameCounterSource = frameCounterSource,
-            IsColourBalanced = hdu.Header.ContainsKey("CBALSAT")
+            IsColourBalanced = hdu.Header.ContainsKey("CBALSAT"),
+            // Ours (ImageMeta.FluxScale): absent is 1, a value that is not a positive number is not a scale.
+            FluxScale = hdu.Header.GetDoubleValue("FLUXSCAL", double.NaN) is var fluxScale && fluxScale > 0 ? fluxScale : null
         };
     }
 
@@ -1141,6 +1143,10 @@ public partial class Image
         if (imageMeta.SensorFullScaleAdu is { } fullScaleAdu and > 0)
         {
             AddHeaderValueIfHasValue("SATURATE", fullScaleAdu, "[adu] saturation level (sensor full scale)");
+        }
+        if (imageMeta.FluxScale is { } fluxScale and > 0)
+        {
+            AddHeaderValueIfHasValue("FLUXSCAL", fluxScale, "values per count taken (a linear fit's slope)");
         }
         // The MaxIm DL / N.I.N.A. spelling. TianWen wrote the Atik-legacy BAYOFFX/BAYOFFY until
         // 2026-08-17; the reader keeps that as a fallback, the writer does not.

@@ -34,6 +34,38 @@ public static class NarrowbandCombination
     public static async Task<Image[]> StarlessAsync(IReadOnlyList<Image> planes, IStarRemover remover, CancellationToken cancellationToken = default)
         => (await ThroughOneScaleAsync(planes, remover, headroom: 1f, EnhanceOptions.Default, cancellationToken)).Planes;
 
+    /// <summary>
+    /// Every plane split into its starless plate and its stars (the plane less the plate) on one scale
+    /// (<see cref="StarlessAsync"/>): <c>image remove-stars</c>, and the recipe's star split.
+    /// </summary>
+    public static async Task<(Image[] Starless, Image[] Stars)> SplitStarsAsync(
+        IReadOnlyList<Image> planes, IStarRemover remover, CancellationToken cancellationToken = default)
+    {
+        var starless = await StarlessAsync(planes, remover, cancellationToken);
+        var stars = new Image[planes.Count];
+        for (var i = 0; i < planes.Count; i++)
+        {
+            stars[i] = Stars(planes[i], starless[i]);
+        }
+        return (starless, stars);
+    }
+
+    /// <summary>
+    /// <paramref name="broadband"/> with <paramref name="line"/>'s emission in it: the line's continuum taken out against the
+    /// broadband at <paramref name="continuumScale"/> (<see cref="ContinuumSubtractor.Subtract"/>), then added at
+    /// <paramref name="weight"/> times what a line value is worth in the broadband (<see cref="LineToBroadband"/>, which
+    /// reads the exposures and the fitted scales off the two). <c>image add-line</c>, and the recipe's H-alpha step; also the
+    /// weight it applied.
+    /// </summary>
+    public static (Image WithLine, double AppliedWeight) AddLineFrom(Image broadband, Image line, double continuumScale, double weight)
+    {
+        var pure = ContinuumSubtractor.Subtract(line, broadband, continuumScale);
+        var applied = weight * LineToBroadband(line.ImageMeta, broadband.ImageMeta);
+        var withLine = AddLine(broadband, pure, applied);
+        pure.Release();
+        return (withLine, applied);
+    }
+
     /// <summary>How far below the ceiling of <c>[0, 1]</c> a plane's peak is put before a deblurrer sees it: BlurX lifted
     /// LDN 1622's brightest star to 3.4 times its input peak, and its output stops at 1, so at the peak's own scale 197 pixels
     /// of green came back clipped at 1 and every bright star lost flux. At 4 none did, and the result agreed with 8's to
@@ -141,7 +173,11 @@ public static class NarrowbandCombination
             var output = await enhancer.EnhanceAsync(input, options, null, cancellationToken);
             input.Release();
 
+            // Labelled with the peak and floor it HOLDS, not the input's: a deblurred star stands 3.4 times above the
+            // input's peak, and a label below the data is a scale every later step reads wrong.
             var back = new float[channels][,];
+            var max = float.NegativeInfinity;
+            var min = float.PositiveInfinity;
             for (var c = 0; c < channels; c++)
             {
                 var src = plane.GetChannelSpan(c);
@@ -156,13 +192,21 @@ public static class NarrowbandCombination
                         {
                             atCeiling++;
                         }
-                        dst[y, x] = float.IsFinite(src[at]) ? enhanced[at] * divisor : float.NaN;
+                        var v = float.IsFinite(src[at]) ? enhanced[at] * divisor : float.NaN;
+                        dst[y, x] = v;
+                        if (float.IsFinite(v))
+                        {
+                            max = Math.Max(max, v);
+                            min = Math.Min(min, v);
+                        }
                     }
                 }
                 back[c] = dst;
             }
             output.Release();
-            result[i] = new Image(back, BitDepth.Float32, plane.MaxValue, plane.MinValue, plane.Pedestal, plane.ImageMeta);
+            result[i] = float.IsFinite(max)
+                ? new Image(back, BitDepth.Float32, max, min, plane.Pedestal, plane.ImageMeta)
+                : new Image(back, BitDepth.Float32, plane.MaxValue, plane.MinValue, plane.Pedestal, plane.ImageMeta);
         }
         return (result, atCeiling);
     }
@@ -177,14 +221,18 @@ public static class NarrowbandCombination
     public static Image WithStars(Image starless, Image stars) => Combine(starless, stars, static (a, b) => a + b);
 
     /// <summary>
-    /// What a line master's counts are worth in a broadband channel's units: the ratio of their exposures. Both filters pass
-    /// the line at much the same transmission (a red filter and an H-alpha one both near their peak at 656 nm); a filter
-    /// curve would refine it. One when either exposure is unknown.
+    /// What a line master's values are worth in a broadband channel's: the ratio of their exposures, times the ratio of
+    /// the scales each was put on since it was taken (<see cref="ImageMeta.FluxScale"/>, a linear fit's slope). Both filters
+    /// pass the line at much the same transmission (a red filter and an H-alpha one both near their peak at 656 nm); a
+    /// filter curve would refine it. The exposure ratio is one when either exposure is unknown.
     /// </summary>
     public static double LineToBroadband(in ImageMeta line, in ImageMeta broadband)
-        => line.ExposureDuration > TimeSpan.Zero && broadband.ExposureDuration > TimeSpan.Zero
+    {
+        var exposure = line.ExposureDuration > TimeSpan.Zero && broadband.ExposureDuration > TimeSpan.Zero
             ? broadband.ExposureDuration.TotalSeconds / line.ExposureDuration.TotalSeconds
             : 1.0;
+        return exposure * (broadband.FluxScale ?? 1.0) / (line.FluxScale ?? 1.0);
+    }
 
     /// <summary>
     /// <paramref name="broadband"/> with <paramref name="pureLine"/>'s emission added, <c>broadband + weight (line - median

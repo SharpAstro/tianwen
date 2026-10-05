@@ -98,8 +98,10 @@ public static class LinearFit
         return new Fit(line.Offset, line.Slope, qualifying, line.MeanAbsoluteDeviation);
     }
 
-    /// <summary><paramref name="target"/> through <paramref name="fit"/>, every channel, absent pixels kept absent.</summary>
-    public static Image Apply(Image target, Fit fit) => target.Affine(fit.Slope, fit.Offset);
+    /// <summary><paramref name="target"/> through <paramref name="fit"/>, every channel, absent pixels kept absent; its
+    /// <see cref="ImageMeta.FluxScale"/> takes the slope, so the file says what a count of it is now worth.</summary>
+    public static Image Apply(Image target, Fit fit)
+        => target.Affine(fit.Slope, fit.Offset, target.ImageMeta with { FluxScale = (target.ImageMeta.FluxScale ?? 1.0) * fit.Slope });
 
     private static bool Inside(float v, double low, double high) => float.IsFinite(v) && v > low && v < high;
 

@@ -222,9 +222,10 @@ public partial class Image
     /// <summary>
     /// Returns <c>this * scale + offset</c> per pixel, all channels: a straight line through every value, as a linear fit
     /// (<see cref="LinearFit"/>) or a range map applies one. No clamp; NaN propagates. The peak and the floor go through
-    /// the line, and so does a pedestal, which is a level in the data's own units; none stays none.
+    /// the line, and so does a pedestal, which is a level in the data's own units; none stays none. The metadata is
+    /// this image's unless <paramref name="meta"/> gives the result its own (a fit records its slope there).
     /// </summary>
-    public Image Affine(double scale, double offset)
+    public Image Affine(double scale, double offset, ImageMeta? meta = null)
     {
         var dst = CreateChannelData(ChannelCount, Height, Width);
         for (var c = 0; c < ChannelCount; c++)
@@ -235,7 +236,7 @@ public partial class Image
             TensorPrimitives.Add(output, (float)offset, output);
         }
         var newPedestal = pedestal == 0f ? 0f : (float)((pedestal * scale) + offset);
-        return new Image(dst, BitDepth.Float32, (float)((MaxValue * scale) + offset), (float)((MinValue * scale) + offset), newPedestal, imageMeta);
+        return new Image(dst, BitDepth.Float32, (float)((MaxValue * scale) + offset), (float)((MinValue * scale) + offset), newPedestal, meta ?? imageMeta);
     }
 
     /// <summary>
