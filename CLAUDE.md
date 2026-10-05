@@ -1155,7 +1155,7 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   through `PlanetaryDerotation.AgreementBothWays`; turned over, the planet turns backwards. **A mono camera's stacks are composed by
   `PlanetaryComposition`** (`planetary-compose` and its step verbs, #1278): each moved onto the reference's disk by its own limb fit
   FIRST, then de-rotated on that shared disk, since a de-rotation turns only what lies inside 0.9 radii and leaves the limb and the
-  rings where they were.
+  rings where they were. Its IR luminance is an option (`--lrgb`), never the default: IR blurs a thin ring feature more than blue does.
   **Each frame is carried inside the stacker** (`PlanetaryStackOptions.Derotation`, part 2): its field beneath the registration in the
   mesh, registered against the reference turned to its own instant, the disk fitted on a STACK of the best frames (one 8-bit frame's
   north scattered 8 degrees). **Two stacks of one camera are moved onto each other with ONE north**: each its own turned the image by

@@ -330,11 +330,155 @@ public static class PlanetaryComposition
     }
 
     /// <summary>
-    /// The recipe: <see cref="Register"/>, <see cref="Derotate"/> and <see cref="Join"/> on ingested stacks, in order, with nothing
-    /// between them a file would not carry, so the steps' verbs run one by one give the same master to the bit.
+    /// Step 5, optional: the luminance's detail carried into each colour plane by the deep-sky LRGB step, unchanged
+    /// (<see cref="LuminanceDetail.Apply"/>, what <c>image lrgb</c> runs): each plane's colour kept at the scale of
+    /// <paramref name="colourSigma"/> and the luminance's finer detail added at each plane's own scale (<see cref="LuminanceDetail.ScaleFor"/>).
+    /// An IR stack's detail is sharper than the colours' (the seeing is better at its wavelength), and its belts' contrast is its own, so
+    /// it is an option, never the default (#1278). Null with the reason in words for a master that is not three planes, a luminance not one
+    /// plane on its grid, or a scale that cannot be measured.
+    /// </summary>
+    public static (Image? Master, double[] Scales, string? Refusal) WithLuminance(Image master, Image luminance, float colourSigma = LuminanceDetail.DefaultColourSigma)
+    {
+        ArgumentNullException.ThrowIfNull(master);
+        ArgumentNullException.ThrowIfNull(luminance);
+        if (master.ChannelCount != 3)
+        {
+            return (null, [], $"a colour master has three planes, this one {master.ChannelCount}");
+        }
+        if (luminance.ChannelCount != 1 || luminance.Width != master.Width || luminance.Height != master.Height)
+        {
+            return (null, [], $"the luminance is {luminance.ChannelCount} planes of {luminance.Width}x{luminance.Height}, where the master is {master.Width}x{master.Height}");
+        }
+        var planes = new float[3][,];
+        var scales = new double[3];
+        string[] names = ["red", "green", "blue"];
+        for (var c = 0; c < 3; c++)
+        {
+            var channel = Image.FromChannel(master.GetChannelArray(c));
+            scales[c] = LuminanceDetail.ScaleFor(channel, luminance);
+            if (!double.IsFinite(scales[c]) || scales[c] <= 0)
+            {
+                return (null, scales, $"the luminance's scale against {names[c]} could not be measured");
+            }
+            planes[c] = LuminanceDetail.Apply(channel, luminance, scales[c], colourSigma).GetChannelArray(0);
+        }
+        var (max, min) = Extent(planes);
+        return (new Image(planes, BitDepth.Float32, max, min, 0, master.ImageMeta), scales, null);
+    }
+
+    /// <summary>
+    /// What <see cref="WithLuminance"/> did, read on the planet's disk inside 0.9 radii (Saturn's rings left out): each channel's scale
+    /// against the ratio of the luminance's disk mean to the channel's; how far the disk's mean colour moved (the larger chromaticity
+    /// difference, <see cref="LinearRgb.ChromaDistance"/>); and how the detailed master's luminance (the mean of its planes) correlates
+    /// with the luminance in a trous bands 1 to 4; and which of the two is the sharper: the RMS of the colours' own luminance (the mean of
+    /// their planes) and of the luminance in each band, each over its own disk mean, so a luminance softer than the colours shows as less.
+    /// </summary>
+    public static (double[] DiskRatios, double ChromaShift, double[] BandCorrelations, double[] ColourBandRms, double[] LuminanceBandRms) ReadLuminance(
+        Image rgb, Image luminance, Image detailed, in MetricDisk disk)
+    {
+        ArgumentNullException.ThrowIfNull(rgb);
+        ArgumentNullException.ThrowIfNull(luminance);
+        ArgumentNullException.ThrowIfNull(detailed);
+        var (width, height) = (rgb.Width, rgb.Height);
+        var inside = new bool[width * height];
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                inside[(y * width) + x] = disk.RadiiAt(x, y) < 0.9 && !disk.RingTouched(x, y);
+            }
+        }
+        double MeanInside(ReadOnlySpan<float> plane)
+        {
+            double sum = 0;
+            var count = 0;
+            for (var i = 0; i < plane.Length; i++)
+            {
+                if (inside[i])
+                {
+                    (sum, count) = (sum + plane[i], count + 1);
+                }
+            }
+            return count > 0 ? sum / count : double.NaN;
+        }
+        var lMean = MeanInside(luminance.GetChannelSpan(0));
+        var ratios = new double[3];
+        for (var c = 0; c < 3; c++)
+        {
+            ratios[c] = lMean / MeanInside(rgb.GetChannelSpan(c));
+        }
+        var before = new LinearRgb(MeanInside(rgb.GetChannelSpan(0)), MeanInside(rgb.GetChannelSpan(1)), MeanInside(rgb.GetChannelSpan(2)));
+        var after = new LinearRgb(MeanInside(detailed.GetChannelSpan(0)), MeanInside(detailed.GetChannelSpan(1)), MeanInside(detailed.GetChannelSpan(2)));
+
+        // The detailed master's luminance as the mean of its planes, against the luminance, band by band.
+        var mean = new float[width * height];
+        for (var c = 0; c < 3; c++)
+        {
+            var plane = detailed.GetChannelSpan(c);
+            for (var i = 0; i < mean.Length; i++)
+            {
+                mean[i] += plane[i] / 3;
+            }
+        }
+        const int bands = 4;
+        var ours = ATrousWaveletTransform.Decompose(mean, width, height, bands);
+        var theirs = ATrousWaveletTransform.Decompose(luminance.GetChannelSpan(0), width, height, bands);
+        var colourMean = new float[width * height];
+        for (var c = 0; c < 3; c++)
+        {
+            var plane = rgb.GetChannelSpan(c);
+            for (var i = 0; i < colourMean.Length; i++)
+            {
+                colourMean[i] += plane[i] / 3;
+            }
+        }
+        var colours = ATrousWaveletTransform.Decompose(colourMean, width, height, bands);
+        var (colourLevel, luminanceLevel) = (MeanInside(colourMean), lMean);
+        var (colourRms, luminanceRms) = (new double[bands], new double[bands]);
+        var correlations = new double[bands];
+        for (var b = 0; b < bands; b++)
+        {
+            var a = ours.Detail(b);
+            var l = theirs.Detail(b);
+            double sa = 0, sl = 0, saa = 0, sll = 0, sal = 0;
+            var n = 0;
+            for (var i = 0; i < inside.Length; i++)
+            {
+                if (inside[i])
+                {
+                    (sa, sl, saa, sll, sal, n) = (sa + a[i], sl + l[i], saa + (a[i] * a[i]), sll + (l[i] * l[i]), sal + (a[i] * l[i]), n + 1);
+                }
+            }
+            var covariance = (sal / n) - (sa / n * (sl / n));
+            var spread = Math.Sqrt(((saa / n) - (sa / n * (sa / n))) * ((sll / n) - (sl / n * (sl / n))));
+            correlations[b] = spread > 0 ? covariance / spread : double.NaN;
+            colourRms[b] = RmsInside(colours.Detail(b)) / colourLevel;
+            luminanceRms[b] = RmsInside(l) / luminanceLevel;
+        }
+        return (ratios, before.ChromaDistance(after), correlations, colourRms, luminanceRms);
+
+        double RmsInside(ReadOnlySpan<float> plane)
+        {
+            double sum = 0;
+            var count = 0;
+            for (var i = 0; i < plane.Length; i++)
+            {
+                if (inside[i])
+                {
+                    (sum, count) = (sum + (plane[i] * plane[i]), count + 1);
+                }
+            }
+            return count > 0 ? Math.Sqrt(sum / count) : double.NaN;
+        }
+    }
+
+    /// <summary>
+    /// The recipe: <see cref="Register"/>, <see cref="Derotate"/> and <see cref="Join"/> on ingested stacks, in order, and with
+    /// <paramref name="withLuminance"/> the luminance carried in (<see cref="WithLuminance"/>), with nothing between them a file would not
+    /// carry, so the steps' verbs run one by one give the same master to the bit.
     /// </summary>
     public static (PlanetaryComposed? Composed, PlanetaryCompositionDerotation? Derotation, string? Refusal) Run(IReadOnlyList<PlanetaryMonoStack> ingested,
-        Action<string>? say = null)
+        Action<string>? say = null, bool withLuminance = false)
     {
         var (registration, refusal) = Register(ingested, say);
         if (registration is null)
@@ -347,7 +491,22 @@ public static class PlanetaryComposition
             return (null, null, derotateRefusal);
         }
         var (composed, joinRefusal) = Join(derotation.Stacks);
-        return (composed, derotation, joinRefusal);
+        if (composed is null || !withLuminance)
+        {
+            return (composed, derotation, joinRefusal);
+        }
+        if (composed.Luminance is not { } luminance)
+        {
+            return (null, derotation, "no IR or L stack to carry in as the luminance");
+        }
+        var (detailed, scales, luminanceRefusal) = WithLuminance(composed.Master, luminance);
+        if (detailed is null)
+        {
+            return (null, derotation, luminanceRefusal);
+        }
+        say?.Invoke(string.Create(CultureInfo.InvariantCulture,
+            $"the luminance carried in at scales red {scales[0]:0.000}, green {scales[1]:0.000}, blue {scales[2]:0.000}"));
+        return (composed with { Master = detailed }, derotation, null);
     }
 
     // A stack's limb, fitted at its own instant (Saturn's rings in the model).

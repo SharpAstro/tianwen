@@ -98,6 +98,40 @@ public sealed class PlanetaryCompositionTests : IDisposable
         turned.ShouldBeLessThan(notTurned * 0.5);
     }
 
+    [Fact(Timeout = 300_000)]
+    public void TheLuminanceStepThroughFilesGivesTheRecipesMasterAndKeepsItsColour()
+    {
+        var ingested = Ingested();
+        var (recipe, derotation, refusal) = PlanetaryComposition.Run(ingested, withLuminance: true);
+        recipe.ShouldNotBeNull(refusal);
+        derotation.ShouldNotBeNull();
+        var (plain, _, _) = PlanetaryComposition.Run(ingested);
+        plain.ShouldNotBeNull();
+        plain.Luminance.ShouldNotBeNull();
+
+        // The step's verb: the join's master and luminance through their files, then the step.
+        var folder = _folders.Create("lrgb").FullName;
+        var (masterPath, luminancePath) = (Path.Combine(folder, "master.fits"), Path.Combine(folder, "luminance.fits"));
+        plain.Master.WriteToFitsFile(masterPath);
+        plain.Luminance.WriteToFitsFile(luminancePath);
+        Image.TryReadFitsFile(masterPath, out var master).ShouldBeTrue();
+        Image.TryReadFitsFile(luminancePath, out var luminance).ShouldBeTrue();
+        var (detailed, scales, stepRefusal) = PlanetaryComposition.WithLuminance(master, luminance);
+        detailed.ShouldNotBeNull(stepRefusal);
+        Differing(recipe.Master, detailed).ShouldBe(0, "the step through files gives the recipe's master to the bit");
+
+        // The rendered IR is the same planet at its own level, so each scale is the disk's level ratio and the colour stays put.
+        var disk = new MetricDisk(derotation.Placement.CenterX, derotation.Placement.CenterY, derotation.Placement.EquatorialRadius);
+        var (ratios, chromaShift, correlations, _, _) = PlanetaryComposition.ReadLuminance(master, luminance, detailed, disk);
+        for (var c = 0; c < 3; c++)
+        {
+            (scales[c] / ratios[c]).ShouldBe(1, 0.1, $"channel {c}'s scale is its disk's level ratio");
+        }
+        chromaShift.ShouldBeLessThan(0.002);
+        correlations[1].ShouldBeGreaterThan(0.9);
+        correlations[2].ShouldBeGreaterThan(0.9);
+    }
+
     [Fact]
     public void AStackWithoutItsLabelsSaysWhichOneIsMissing()
     {

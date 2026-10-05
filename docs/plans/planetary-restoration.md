@@ -4135,8 +4135,16 @@ against the recipe and they agree to the bit.
   - The moves were all under a pixel, blue's 0.6 px the atmosphere's dispersion, since AutoStakkert had centred each stack.
   - North was decided on two blue stacks 7.8 degrees apart: RMS apart 0.0094 as fitted against 0.0306 turned over.
   - The master then takes the colour master's chain unchanged (`planetary-sharpen`, `planetary-look`).
-- **Left on #1278**: the luminance through the deep-sky LRGB step (`LuminanceDetail`), whose scale is measured over the whole frame
-  and needs reading on a planet first.
+- **The luminance, an option** (`planetary-compose --lrgb`, the step verb `lrgb`, `PlanetaryComposition.WithLuminance`): the IR or
+  L stacks' detail carried into each colour plane by the deep-sky LRGB step (`LuminanceDetail`), unchanged. Read on the 2026-09-01
+  Saturn by a rule written first (`ReadLuminance`):
+  - The deep-sky scale, a fit over the whole frame, lies within 10 % of the disk's level ratio for every channel (1.003, 0.973 and
+    0.926 of it), so it serves a planet as is.
+  - The disk's colour moved 0.0000 in chromaticity, and the detail follows the IR at 0.96 or better in bands 1 to 4.
+  - The globe gains a little detail: relative to the disk level, the IR's bands 2 and 3 read 0.0028 and 0.0083 against the colours'
+    own 0.0025 and 0.0078.
+  - The rings come out softer: a thin feature like the Cassini division blurs with the wavelength's diffraction, and 750 nm is 1.4
+    times blue's. So the luminance is never the default; whether IR's detail is wanted is the owner's eye.
 
 ### Contrast-adaptive deconvolution (Kolivas's PlanetaryTools)
 

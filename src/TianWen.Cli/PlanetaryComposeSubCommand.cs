@@ -29,15 +29,17 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
         var stacksArg = new Argument<string[]>("stacks") { Description = "The mono stacks (TIFF or FITS), every filter and every run.", Arity = ArgumentArity.ZeroOrMore };
         var outputOpt = new Option<string?>("--output", "-o") { Description = "The colour master to write (FITS); <planet>_<yyyy-MM-dd-HHmm>_composed.fits in the current folder when not given." };
         var labels = LabelOptions();
+        var lrgbOpt = new Option<bool>("--lrgb") { Description = "Carry the IR or L stacks' detail into the colour planes by the deep-sky LRGB step (the lrgb step); an option, since IR's belt contrast is its own." };
         var command = new Command("planetary-compose", "A colour master from mono planetary stacks (#1278): each moved onto one disk by its limb, de-rotated to one instant, each filter averaged, red, green and blue joined; IR or L beside it as the luminance.")
         {
             Arguments = { stacksArg },
-            Options = { outputOpt, labels.Planet, labels.Utc, labels.Filter },
+            Options = { outputOpt, labels.Planet, labels.Utc, labels.Filter, lrgbOpt },
         };
         command.Subcommands.Add(BuildIngest());
         command.Subcommands.Add(BuildRegister());
         command.Subcommands.Add(BuildDerotate());
         command.Subcommands.Add(BuildJoin());
+        command.Subcommands.Add(BuildLrgb());
 
         command.SetAction(async (parseResult, ct) =>
         {
@@ -45,7 +47,7 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
             {
                 return 1;
             }
-            var (composed, derotation, refusal) = await Task.Run(() => PlanetaryComposition.Run(stacks, Say), ct);
+            var (composed, derotation, refusal) = await Task.Run(() => PlanetaryComposition.Run(stacks, Say, parseResult.GetValue(lrgbOpt)), ct);
             if (composed is null || derotation is null)
             {
                 consoleHost.WriteError(refusal ?? "nothing composed");
@@ -155,6 +157,65 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
             return await WriteComposedAsync(composed, output, ct) ? 0 : 1;
         });
         return command;
+    }
+
+    private Command BuildLrgb()
+    {
+        var masterArg = new Argument<string>("master") { Description = "The colour master join wrote (FITS)." };
+        var luminanceOpt = new Option<string>("--luminance") { Description = "The luminance join wrote beside it (FITS).", Required = true };
+        var outputOpt = new Option<string?>("--output", "-o") { Description = "The detailed master to write (FITS); <master>_lrgb.fits beside the master when not given." };
+        var command = new Command("lrgb", "Step 5, optional: the luminance's detail carried into each colour plane by the deep-sky LRGB step, read on the disk: each scale against the disk's level ratio, the colour's shift and the bands' correlation with the luminance.")
+        {
+            Arguments = { masterArg },
+            Options = { luminanceOpt, outputOpt },
+        };
+        command.SetAction(async (parseResult, ct) =>
+        {
+            var masterPath = parseResult.GetValue(masterArg) ?? "";
+            var luminancePath = parseResult.GetValue(luminanceOpt) ?? "";
+            if (!Image.TryReadFitsFile(masterPath, out var master) || !Image.TryReadFitsFile(luminancePath, out var luminance))
+            {
+                consoleHost.WriteError($"{masterPath} or {luminancePath}: not a readable FITS");
+                return 1;
+            }
+            var (detailed, scales, refusal) = PlanetaryComposition.WithLuminance(master, luminance);
+            if (detailed is null)
+            {
+                consoleHost.WriteError(refusal ?? "nothing detailed");
+                return 1;
+            }
+            var inv = CultureInfo.InvariantCulture;
+            if (PlanetaryCaptureName.Named(master.ImageMeta.ObjectName) is { } planet
+                && PlanetaryBestStack.InstantOf(master, epoch: null) is { } instant
+                && await Task.Run(() => LimbOf(master, planet, instant), ct) is { } disk)
+            {
+                var (ratios, chromaShift, correlations, colourRms, luminanceRms) = PlanetaryComposition.ReadLuminance(master, luminance, detailed, disk);
+                string[] names = ["red", "green", "blue"];
+                for (var c = 0; c < 3; c++)
+                {
+                    consoleHost.WriteScrollable(string.Create(inv,
+                        $"{names[c]}: the scale {scales[c]:0.0000}, the disk's level ratio {ratios[c]:0.0000}, {scales[c] / ratios[c]:0.000} of it"));
+                }
+                consoleHost.WriteScrollable(string.Create(inv,
+                    $"the disk's mean colour moved {chromaShift:0.0000} in chromaticity; the detailed luminance against the luminance, bands 1 to 4: {string.Join(", ", correlations.Select(r => r.ToString("0.000", inv)))}"));
+                consoleHost.WriteScrollable(string.Create(inv,
+                    $"the detail over the disk's level, bands 1 to 4: the colours' own {string.Join(", ", colourRms.Select(r => r.ToString("0.0000", inv)))}; the luminance's {string.Join(", ", luminanceRms.Select(r => r.ToString("0.0000", inv)))}"));
+            }
+            else
+            {
+                consoleHost.WriteScrollable(string.Create(inv, $"the scales red {scales[0]:0.0000}, green {scales[1]:0.0000}, blue {scales[2]:0.0000}; no planet, instant or limb to read them on the disk"));
+            }
+            var output = parseResult.GetValue(outputOpt) ?? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(masterPath)) ?? ".", Path.GetFileNameWithoutExtension(masterPath) + "_lrgb.fits");
+            return await WriteComposedAsync(new PlanetaryComposed(detailed, null), output, ct) ? 0 : 1;
+        });
+        return command;
+    }
+
+    // A master's disk, its limb fitted at its instant (Saturn's rings in the model), or null when it does not fit.
+    private static MetricDisk? LimbOf(Image master, CatalogIndex planet, DateTimeOffset instant)
+    {
+        var options = PlanetaryLimbFit.OptionsFor(TianWen.Lib.Astrometry.PhysicalEphemeris.Compute(planet, instant));
+        return PlanetaryLimbFit.Fit(master, options) is { } fit ? MetricDisk.From(fit, options) : null;
     }
 
     // A line of the run's report.
