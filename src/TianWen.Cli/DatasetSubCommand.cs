@@ -1480,6 +1480,11 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "channel, the fine-scale candidate's raw reading and the finest scale's ratio of the session's own " +
                           "half-pair noise (E16c).",
         };
+        var cellTableOpt = new Option<string>("--cell-table")
+        {
+            Description = "Write every checked cell (tab-separated): session, cell, quiet or bright, the integration, and each " +
+                          "anchor's measured over predicted per channel, so a reading can be set against what the cell holds.",
+        };
         var brightGateOpt = new Option<string>("--bright-gate")
         {
             Description = "How bright cells are gated: absolute (their pooled ratio within --bright-tolerance of 1, D2 as " +
@@ -1491,7 +1496,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
         var command = new Command("noise-check",
             "Check the injected noise's model against the half pairs, per channel, on quiet and bright cells (E16b's D2).")
         {
-            Options = { bakeOpt, sessionFilterOpt, cellsOpt, seedOpt, extraCellsOpt, quietTolOpt, brightTolOpt, anchorOpt, brightGateOpt, tableOpt },
+            Options = { bakeOpt, sessionFilterOpt, cellsOpt, seedOpt, extraCellsOpt, quietTolOpt, brightTolOpt, anchorOpt, brightGateOpt, tableOpt, cellTableOpt },
         };
         command.SetAction(async (parseResult, ct) =>
         {
@@ -1567,6 +1572,11 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                     $"measured / predicted per channel: master-calibration {Join(masterCal)}, sub-calibrations {Join(subCal)}, " +
                     $"half-pairs {Join(pairs)}, sub-mad {Join(subMad)}, blocks {Join(blocks)}, fine-raw {Join(fineRaw)}, stderr {Join(measured)}; {gateText}");
             }
+            if (parseResult.GetValue(cellTableOpt) is { } cellTablePath)
+            {
+                await File.WriteAllLinesAsync(cellTablePath, NoiseCheckCellTable(rows), ct);
+                consoleHost.WriteScrollable($"[noise-check] per-cell table -> {cellTablePath}");
+            }
             if (parseResult.GetValue(tableOpt) is { } tablePath)
             {
                 await File.WriteAllLinesAsync(tablePath, NoiseCheckTable(rows), ct);
@@ -1618,6 +1628,35 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                     {
                         cells.AddRange(Enumerable.Range(0, width).Select(c =>
                             (c < own && q.Count > 0 ? Median(q.Select(r => of(r)[c])) : double.NaN).ToString("F4", CultureInfo.InvariantCulture)));
+                    }
+                    yield return string.Join('\t', cells);
+                }
+            }
+
+            static IEnumerable<string> NoiseCheckCellTable(IReadOnlyList<DatasetDegradationExporter.InjectionCheckRow> all)
+            {
+                (string Name, Func<DatasetDegradationExporter.InjectionCheckRow, double[]> Of)[] readings =
+                [
+                    ("halfPairs", static r => r.HalfPairs), ("masterCalibration", static r => r.MasterCalibration),
+                    ("blocks", static r => r.EstimatedBlocks), ("standardError", static r => r.StandardError),
+                ];
+                var width = all.Max(static r => r.HalfPairs.Length);
+                var header = new List<string> { "session", "x", "y", "bright", "integration", "channels" };
+                foreach (var (name, _) in readings)
+                {
+                    header.AddRange(Enumerable.Range(0, width).Select(c => $"{name}{c}"));
+                }
+                yield return string.Join('\t', header);
+                foreach (var r in all)
+                {
+                    var own = r.HalfPairs.Length;
+                    var cells = new List<string> { r.SessionId, r.X.ToString(CultureInfo.InvariantCulture), r.Y.ToString(CultureInfo.InvariantCulture),
+                        r.Bright ? "1" : "0", r.Integration, own.ToString(CultureInfo.InvariantCulture) };
+                    foreach (var (_, of) in readings)
+                    {
+                        var values = of(r);
+                        cells.AddRange(Enumerable.Range(0, width).Select(c =>
+                            (c < own && c < values.Length ? values[c] : double.NaN).ToString("F4", CultureInfo.InvariantCulture)));
                     }
                     yield return string.Join('\t', cells);
                 }
