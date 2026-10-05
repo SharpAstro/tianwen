@@ -1053,12 +1053,13 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   **A colour master's finest band is kept as stacked** (`PlanetarySharpenOptions.ColourFinestBand`, #1187), the other gains fitted around
   it: it lies above a colour plane's own Nyquist, and its derived gain (12 to 20) lifted the CFA's residue into a lattice. Read a colour
   lattice PER CHANNEL: it cancels in the luminance. **A colour master of Jupiter or Saturn is balanced to that planet's own colour AFTER the
-  sharpening** (`PlanetaryColourBalance`, #1212: one gain a channel to OPAL's reflectance through the eye's response, then saturation 1.4 about
-  that colour, never about grey, which turned the whole disk yellower; the sharpening reads each channel's edge through its own diffraction, and
-  the saturation mixes the channels; the live view's Derive keeps the same balance with its limb and every master it draws takes it last,
-  `PlanetaryLiveLimb.Balance`). **The 1.4 stands in for the camera's crosstalk** (#1279, rule E): the camera's own matrix
-  (`planetary-colour --camera`, `PlanetaryColourBalance.GainsThrough`) lifts the chroma 1.45 to 1.52 times on all five captures, and replacing
-  the 1.4 with it waits on the owner's eye. **A camera matrix from spectral curves is a least-squares FIT onto the CIE functions**
+  sharpening** (`PlanetaryColourBalance`, #1212: one gain a channel to OPAL's reflectance through the eye's response, and a saturation about
+  that colour only when asked, never about grey, which turned the whole disk yellower; the sharpening reads each channel's edge through its own
+  diffraction, and a saturation mixes the channels; the live view's Derive keeps the same balance with its limb and every master it draws takes
+  it last, `PlanetaryLiveLimb.Balance`). **Its saturation is 1 by default and 1.4 an option** (the owner, 2026-10-06; `EyeSaturation`,
+  `--colour-saturation`): shown, 1.4 moved each pixel 0.002 to 0.003 in OKLab, a tenth of what the eye tells, and the camera's own matrix
+  (`planetary-colour --camera`, `PlanetaryColourBalance.GainsThrough`, #1279 rule E) lifts the chroma 1.45 to 1.52 times as invisibly; Jupiter's
+  true colour is that pale, and what is SEEN is the look (#1273, #1277). **A camera matrix from spectral curves is a least-squares FIT onto the CIE functions**
   (`CameraColorMatrix.ComputeCamXyz`, through their Gram inverse), never the curves' projections, which read red as green (a 5D Mark II's red
   row came out 11.99 and -12.07 against dcraw's measured 2.07 and -1.32; pinned against dcraw in `CameraColorMatrixTests`). **Saturn's globe is read where its rings leave it clear** (S6, #1235; `MetricDisk.RingTouched`, the rings
   take the globe's gains), and **an OPAL apparition's I/F factors come from its own readme** (`PlanetaryColour.ReadmeFilters`), never a

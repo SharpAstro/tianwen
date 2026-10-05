@@ -141,7 +141,7 @@ internal sealed class PlanetaryStackSubCommand(
         };
         var colourSaturationOpt = new Option<double>("--colour-saturation")
         {
-            Description = "The saturation a colour master of Jupiter or Saturn is balanced at: its disk's mean colour (Saturn's globe where its rings leave it clear) is taken to the planet's own (OPAL's reflectance through the eye's response, #1212, #1235), one gain a channel, then saturated about each pixel's luminance. Both masters are balanced, the FITS cards CBALGNR, CBALGNB and CBALSAT say by how much. 1 is the balance alone.",
+            Description = "The saturation a colour master of Jupiter or Saturn is balanced at: its disk's mean colour (Saturn's globe where its rings leave it clear) is taken to the planet's own (OPAL's reflectance through the eye's response, #1212, #1235), one gain a channel, then, above 1, saturated about that colour at each pixel's luminance. Both masters are balanced, the FITS cards CBALGNR, CBALGNB and CBALSAT say by how much. 1, the default, is the balance alone; 1.4 was the default until 2026-10-06.",
             DefaultValueFactory = _ => PlanetaryColourBalance.DefaultSaturation,
         };
         var noColourBalanceOpt = new Option<bool>("--no-colour-balance")

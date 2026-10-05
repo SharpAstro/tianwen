@@ -2852,6 +2852,11 @@ nearest are November 2024's. Each map is scaled to I/F by its readme's factor (t
 - **Then a saturation of 1.4 about the target colour**: each pixel's departure from Jupiter's colour at its own luminance is scaled, so the
   luminance is kept and the disk's mean stays on the target. The owner chose 1.4 from previews at 1, 1.4 and 2, and the centre from 1.4
   about grey against 1.4 about Jupiter's colour: about grey also turned the whole disk about 0.009 yellower than the measured colour.
+- **Since 2026-10-06 the saturation is 1 by default and 1.4 an option** (`PlanetaryColourBalance.EyeSaturation`,
+  `planetary-stack --colour-saturation 1.4`). The owner saw no difference between the gains alone, 1.4 and the camera's matrix on the five
+  captures, and measured as shown none was there to see: each pixel moved 0.002 to 0.003 in OKLab at 1.4 and 0.0035 to 0.0045 through the
+  matrix, against the 0.02 an eye can tell, and the disk's mean colour not at all. The boosted look moved them 0.008 to 0.010, 9 to 13 % of
+  the disk past what the eye tells (#1212).
 - **It comes after the sharpening**, which reads each channel's edge through that channel's own diffraction; the saturation mixes the
   channels (at 1.4 red takes about a third of green, negatively).
 - **Both masters say so**: the FITS cards CBALGNR, CBALGNB and CBALSAT. `planetary-stack --colour-saturation` sets the strength,
