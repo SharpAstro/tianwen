@@ -24,7 +24,7 @@ public sealed record ColourBalance(LinearRgb Gains, MetricDisk Disk, double Satu
     {
         ["CBALGNR"] = (Gains.R, "colour balance: red gain over green (#1212)"),
         ["CBALGNB"] = (Gains.B, "colour balance: blue gain over green (#1212)"),
-        ["CBALSAT"] = (Saturation, "colour balance: saturation about luminance (#1212)"),
+        ["CBALSAT"] = (Saturation, "colour balance: saturation about the disk's colour (#1212)"),
     };
 
     /// <summary><paramref name="master"/> balanced: its own sky taken off, these gains, this saturation. A new image.</summary>
@@ -40,9 +40,10 @@ public sealed record ColourBalance(LinearRgb Gains, MetricDisk Disk, double Satu
 
 /// <summary>
 /// A colour planetary master balanced to the planet's own colour (#1212 step 2, docs/plans/planetary-restoration.md, "A planetary
-/// master's colour"): each channel's sky taken off, one gain a channel taking the disk's mean colour to the target's, then a saturation
-/// factor about each pixel's luminance. Both steps are linear (a diagonal gain, and <c>Y + s (c - Y)</c> with linear sRGB's luminance Y,
-/// which it keeps), so the master stays a linear master.
+/// master's colour"): each channel's sky taken off, one gain a channel taking the disk's mean colour to the target's, then, when asked
+/// (<see cref="DefaultSaturation"/> is none), a saturation about the disk's colour at each pixel's luminance. Both steps are linear (a
+/// diagonal gain, and <c>a + s (c - a)</c> with <c>a</c> the disk's colour at the pixel's linear sRGB luminance, which it keeps), so the
+/// master stays a linear master.
 /// </summary>
 public static class PlanetaryColourBalance
 {
@@ -70,12 +71,20 @@ public static class PlanetaryColourBalance
     };
 
     /// <summary>
-    /// The saturation a balance applies by default: the owner's choice on the five colour captures' previews at 1, 1.4 and 2
-    /// (2026-10-03, #1212). Every capture read duller than OPAL's reflectance at its resolution, by 1.1 to 3.1 depending on the blur.
-    /// It stands in for the camera's crosstalk: the camera's own matrix (<see cref="GainsThrough"/>) lifts the chroma 1.45 to 1.52 times
-    /// on the same captures (#1279, rule E), and replacing this with it waits on the owner's eye.
+    /// The saturation a balance applies by default: none, the gains alone (the owner, 2026-10-06, #1212). <see cref="EyeSaturation"/> was
+    /// the default until then, and it is one switch away (<c>planetary-stack --colour-saturation</c>). Shown on the five colour
+    /// captures it moved each pixel 0.002 to 0.003 in OKLab, a tenth of what the eye can tell (0.02), and the disk's mean colour not at
+    /// all; what is SEEN is the look (#1273, #1277). Every capture still reads duller than OPAL's reflectance at its resolution, and the
+    /// camera's own matrix (<see cref="GainsThrough"/>) lifts the chroma 1.45 to 1.52 times from the sensor's curves (#1279, rule E),
+    /// as invisibly; whether it becomes the default is the owner's call.
     /// </summary>
-    public const double DefaultSaturation = 1.4;
+    public const double DefaultSaturation = 1;
+
+    /// <summary>
+    /// The saturation the owner picked by eye on the five colour captures' previews at 1, 1.4 and 2 (2026-10-03, #1212), the default until
+    /// 2026-10-06 and an option since: it brought the masters' chroma spread to about OPAL's.
+    /// </summary>
+    public const double EyeSaturation = 1.4;
 
     /// <summary>
     /// The balance <paramref name="stacked"/>, a master of <paramref name="planet"/>, asks for at <paramref name="saturation"/>, or null

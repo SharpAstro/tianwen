@@ -301,10 +301,10 @@ internal sealed partial class PlanetaryColourSubCommand(IConsoleHost consoleHost
                 }
                 // Today's default saturation about the target, and the camera's matrix at none (#1279, rule E).
                 var aboutColour = targetMean;
-                var saturated = balanced.Select(b => PlanetaryColourBalance.Saturate(b, PlanetaryColourBalance.DefaultSaturation, aboutColour)).ToArray();
+                var saturated = balanced.Select(b => PlanetaryColourBalance.Saturate(b, PlanetaryColourBalance.EyeSaturation, aboutColour)).ToArray();
                 var saturatedSpread = PlanetaryColour.ChromaSpread(saturated, counts);
                 consoleHost.WriteScrollable(string.Create(inv,
-                    $"  the gains at saturation {PlanetaryColourBalance.DefaultSaturation:0.0#}: chroma spread {saturatedSpread:0.0000}, ratios {string.Join(", ", targetSpreads.Select(t => (saturatedSpread / t).ToString("0.00", inv)))} ({string.Join(", ", blurNames)})"));
+                    $"  the gains at saturation {PlanetaryColourBalance.EyeSaturation:0.0#}: chroma spread {saturatedSpread:0.0000}, ratios {string.Join(", ", targetSpreads.Select(t => (saturatedSpread / t).ToString("0.00", inv)))} ({string.Join(", ", blurNames)})"));
                 if (cameraMatrix is { } m)
                 {
                     var through = PlanetaryColourBalance.GainsThrough(mean, targetMean, m);
