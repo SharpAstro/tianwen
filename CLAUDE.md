@@ -1065,8 +1065,9 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   before the sRGB curve, so a master is shown at 1.7 to 2 times the chroma its planes read, and a study read linear against shown was void
   for it. **A colour look is a RENDERING, never a master** (`PlanetaryColourLook`, `tianwen planetary-look`): a curve on each pixel's OKLab
   chroma about GREY, its hue kept (about the planet's mean it pushed every zone and ring past grey to blue); `ColourLook.Boosted` is the
-  owner's S-curve by eye, since no curve fitted a post it was not built from. The linear masters are what is processed further; the viewer's
-  control is #1277.
+  owner's S-curve by eye, a taste four posts share (built from three, it met the fourth within 25 % on three captures of four). The
+  linear masters are what is processed further; the viewer's control is #1277. **Check what a reference IS before reading it**: the
+  12-inch SCT Jupiter's PNG is its raw stack, not a post (scale and band energy said so; the source thread's post #6 confirms it).
   **It needs the planet, the instant and the telescope** (a master carries its capture's span, DATE-OBS to EXPTIME, for the
   instant). Measured on the twins it leaves under a third of legacy's error; the free gain fit oscillates where the edge reads the finest
   band low and still lands near the truth, while the non-negative fit leaves every twin worse than unsharpened. **Floored alone rang
