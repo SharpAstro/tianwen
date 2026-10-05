@@ -4035,6 +4035,63 @@ below one on the 16" Saturn, were a fault.
 `AGainBelowZeroBesideALargeOneIsNoDipInTheFilter` pins the ASI678 Jupiter's set: its filter stays at one or above to Nyquist and peaks
 between 0.1 and 0.2 cycles a pixel. With the owner's answer on the target (the strength above), both of #1251's questions are answered.
 
+### The colour look (#1273)
+
+**Issue:** #1273. The owner, 2026-10-05, on the EdgeHD Saturn beside his own `_post`: ours is sharp, but the post has more colour
+contrast, the ring whiter and the bands redder; is there a formula for a pleasant, balanced and a bit more boosted colour? And then
+Jupiter too, to see what generalises. Rules were written on the issue before each reading; the readings and the amendments are there.
+
+**What shipped** (`PlanetaryColourLook`, `PlanetaryColourReading`, `OkLab`, `tianwen planetary-look`):
+- **A colour reading in OKLab** (`PlanetaryColourReading.Read`): the sky off, every pixel over the interior's mean luminance; the cast (the
+  mean a, b), the spread about it, the rim's colour off the cast's hue pixel by pixel, and the lit interior's chroma about grey, sorted, read
+  at any quantile (`ColourReading.ChromaAt`, `QuantileGrid`). `planetary-judge` prints it for the master and the post.
+- **A look is a curve on each pixel's chroma about grey, its hue and lightness kept**: a pixel's gain is read off the curve at its place
+  among the interior's chroma, full where it is lit (a fifth of the mean luminance up), none below a twentieth, and none from 0.95 of the
+  outline (the limb and any fringe never raised). Out of gamut, a colour is pulled back toward its own. Given a cast, one gain a channel
+  first takes the planet's mean to it, a white balance never faded.
+- **`ColourLook.Boosted` is an S-curve the owner chose by eye**: below one through the 45th percentile (0.68 to 0.97: rings and zones
+  whiter), above it from the 50th (1.04 to 1.68: belts stronger). It is the mean of four posts' chroma over our default master's at every
+  quantile; the fifth post, a green-tinted picture more coloured than ours everywhere, is left out.
+- **A look is a RENDERING, never a master.** `planetary-look` writes the planetary preview with the look; its planes go to a FITS only on
+  `--fits`, marked `CLOOK` and no longer scene-linear. The linear masters stay what is processed further. In the viewer it is a control
+  over the linear master, as the stretch and tone are: [the look in the viewer](#the-look-in-the-viewer).
+
+**What the study found:**
+- **A post is compared with the master AS SHOWN, never with its linear planes.** The planetary preview's mid-tone lift (gamma 0.75 per
+  channel, `ComputePlanetaryStretchUniforms`) is written straight into an sRGB-tagged PNG, so on screen each channel goes as about the
+  1.65th power of its value, and the chroma with it: our default is shown at 1.7 to 2 times the chroma its planes read
+  (`PlanetaryReferenceJudge.ReadShown`, which renders the master as the preview does and reads it as a post is read). Read the study's way,
+  linear against shown, every post looked MORE coloured than ours above its median, and every look built on that leaned orange beside its
+  post. Shown against shown, four of the five posts carry less colour than our default, spread wider:
+
+  | Post over our preview, shown | cast | p10 | p50 | p90 | chroma p90/p10, ours to post |
+  |---|---|---|---|---|---|
+  | Saturn, EdgeHD 11 | 0.71 | 0.40 | 0.62 | 1.10 | 2.0 to 5.6 |
+  | Saturn, Meade 16-inch | 0.51 | 0.40 | 0.54 | 0.74 | 1.7 to 3.1 |
+  | Jupiter, EdgeHD 11 + 678MC | 0.31 | 0.37 | 0.62 | 0.83 | 1.9 to 4.2 |
+  | Jupiter, 12-inch SCT, JPEG | 0.22 | 0.28 | 0.49 | 0.70 | 1.8 to 4.4 |
+  | Jupiter, 12-inch SCT, PNG | 1.69 | 1.91 | 1.70 | 1.53 | 1.8 to 1.4 |
+
+  #1212's saturation 1.4 was judged against OPAL in linear light too; the preview shows it near twice as strong.
+- **No one curve fits a capture it was not built from.** The leave-one-out rule (V5: the curve from the other three posts, within 25 % of
+  the held-out post at the 10th, 50th and 90th percentiles) failed on all four, the green PNG lifting every other capture's curve at the low
+  quantiles. The observers' casts differ eightfold, one observer's two posts of one capture included: a post's colour is its processor's
+  taste. So the preset is the owner's eye, as the sharpening's strength was (#1251).
+- **Found after the readings, so a hypothesis:** shown against shown, the four posts fit one formula, the chroma about its median raised to
+  a power of 2.4 (2.19 to 2.59) with the median at 0.57 of ours. The corpus holds no other Jupiter or Saturn capture with a post to test it.
+- **Two traps in the first look.** Moving each pixel's a, b away from the planet's MEAN colour pushed whatever was less tinted than the mean
+  (zones, rings, the Cassini division, the pole) past grey to blue, though the spread rose as asked; the posts raise chroma about GREY. And
+  a quantile map must place its pixels on the distribution it moves: dark gaps the look leaves as they were, counted in it, slid every lit
+  pixel's quantile (a fit 44 % past its target on the synthetic planet), so only lit pixels are counted.
+
+#### The look in the viewer
+
+**Issue:** #1277. The owner: the look belongs in the viewer, a control over the linear master like the stretch and the tone, so a stack's
+output stays linear and is touched up later (and in a stacking GUI). The look is applied before the stretch, in linear light, so the viewer
+can derive the looked planes on the CPU from `PlanetaryColourLook.Apply` (the disk from the limb fit the Best stack already holds) and show
+them through its stretch, the source kept; or carry the curve to the shader as a stage of its own, which the CPU/GPU mirror rule then asks
+of both paths. Its default is the master as balanced.
+
 ## R9 A learned stage, only if the measurements say so
 
 **Issue:** #1056 (conditional).
