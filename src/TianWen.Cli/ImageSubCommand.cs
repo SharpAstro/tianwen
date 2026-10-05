@@ -167,7 +167,7 @@ internal sealed class ImageSubCommand(
 {
     public Command Build()
     {
-        var image = new Command("image", "Single-image enhancement, render and measurement verbs (autocrop, sharpen, remove-stars, flatten, deblur, denoise, render, stats, sources).")
+        var image = new Command("image", "Single-image enhancement, render and measurement verbs (autocrop, sharpen, remove-stars, flatten, deblur, denoise, render, stats, sources), and the two that combine masters (align, continuum).")
         {
             Subcommands =
             {
@@ -180,9 +180,196 @@ internal sealed class ImageSubCommand(
                 BuildRenderCommand(),
                 BuildStatsCommand(),
                 BuildSourcesCommand(),
+                BuildAlignCommand(),
+                BuildContinuumCommand(),
             },
         };
         return image;
+    }
+
+    // -------- tianwen image align --------------------------------------
+
+    /// <summary>
+    /// Masters of one target, from other nights or through other filters, put on the reference master's grid
+    /// (<see cref="MasterAlignment"/>): what any per-pixel combination needs first, a colour image from mono filters or a
+    /// narrowband line against its continuum (<c>image continuum</c>, #874).
+    /// </summary>
+    private Command BuildAlignCommand()
+    {
+        var referenceArg = new Argument<string>("reference") { Description = "The master whose grid the others are put on; it is not resampled." };
+        var othersArg = new Argument<string[]>("masters")
+        {
+            Description = "The masters to put on the reference's grid. A pair meant to be subtracted (a line and its continuum) "
+                + "is best put on a THIRD master's grid, so both are resampled alike.",
+            Arity = ArgumentArity.OneOrMore,
+        };
+        var outputOpt = new Option<string?>("--output", "-o")
+        {
+            Description = "Directory for the aligned masters, each <name>_aligned.fits. Default: beside each master.",
+        };
+        var cmd = new Command("align", "Put masters of one target on one master's grid, matched by their stars and resampled once (Lanczos-3, clamped); "
+            + "where a master does not reach is absent (NaN).")
+        {
+            Arguments = { referenceArg, othersArg },
+            Options = { outputOpt },
+        };
+        cmd.SetAction(async (parseResult, ct) =>
+        {
+            var referencePath = parseResult.Required(referenceArg);
+            if (!Image.TryReadFitsFile(referencePath, out var reference, out var referenceWcs))
+            {
+                consoleHost.WriteError($"Failed to read FITS file: {referencePath}");
+                return 1;
+            }
+            var outputDir = parseResult.GetValue(outputOpt);
+            if (outputDir is not null)
+            {
+                Directory.CreateDirectory(outputDir);
+            }
+            var referenceStars = await MasterAlignment.FindStarsAsync(reference, ct);
+            consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                $"[align] reference {Path.GetFileName(referencePath)}: {reference.Width}x{reference.Height}, {referenceStars.Count} stars, "
+                + $"median FWHM {MasterAlignment.MedianFwhm(referenceStars):F2} px"));
+            var failed = 0;
+            foreach (var path in parseResult.GetValue(othersArg) ?? [])
+            {
+                if (!Image.TryReadFitsFile(path, out var master, out _))
+                {
+                    consoleHost.WriteError($"Failed to read FITS file: {path}");
+                    failed++;
+                    continue;
+                }
+                var (aligned, reason) = await MasterAlignment.AlignAsync(reference, master, referenceStars, ct);
+                master.Release();
+                if (aligned is null)
+                {
+                    consoleHost.WriteError($"[align] {Path.GetFileName(path)}: not aligned, {reason}");
+                    failed++;
+                    continue;
+                }
+                var dst = Path.Combine(outputDir ?? Path.GetDirectoryName(Path.GetFullPath(path)) ?? ".",
+                    Path.GetFileNameWithoutExtension(path) + "_aligned.fits");
+                aligned.Image.WriteToFitsFile(dst, referenceWcs, SharpenPipeline.SwModifyHeader());
+                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                    $"[align] {Path.GetFileName(path)}: {aligned.Stars} stars, matched on {aligned.QuadStars} at tolerance {aligned.QuadTolerance:F2}, "
+                    + $"rms {aligned.RmsPx:F3} px; scale {aligned.Scale:F5}, rotation {aligned.RotationDeg:F3} deg, "
+                    + $"shift ({aligned.ToReference.M31:F1}, {aligned.ToReference.M32:F1}) px; median FWHM {aligned.MedianFwhm:F2} px -> {dst}"));
+                aligned.Image.Release();
+            }
+            reference.Release();
+            return failed == 0 ? 0 : 1;
+        });
+        return cmd;
+    }
+
+    // -------- tianwen image continuum ----------------------------------
+
+    /// <summary>
+    /// The continuum taken out of a narrowband master against a broadband one on the same grid
+    /// (<see cref="ContinuumSubtractor"/>, docs/plans/narrowband-colour.md phase 0, #874): the scale by the flattest
+    /// residual, the stars' flux ratio beside it as the cross-check, and the line written with its own background.
+    /// </summary>
+    private Command BuildContinuumCommand()
+    {
+        var lineOpt = new Option<string>("--line") { Description = "The narrowband master (Ha, OIII, SII).", Required = true };
+        var continuumOpt = new Option<string>("--continuum")
+        {
+            Description = "The broadband master its continuum is read from (red for Ha and SII, green or blue for OIII), on the same grid "
+                + "(image align).",
+            Required = true,
+        };
+        var outputOpt = new Option<string?>("--output", "-o") { Description = "Output FITS. Default: <line>_pure.fits beside the line." };
+        var scaleOpt = new Option<double?>("--scale") { Description = "Subtract with this scale rather than a measured one." };
+        var methodOpt = new Option<string>("--method")
+        {
+            Description = "Which measured scale to subtract with: flattest (the least-deviation residual over the continuum's "
+                + "signal) or photometric (the stars' median flux ratio). Both are always reported.",
+            DefaultValueFactory = _ => "flattest",
+        };
+        var significanceOpt = new Option<double>("--significance")
+        {
+            Description = "A continuum pixel carries the flattest fit only this many of its noise above its median.",
+            DefaultValueFactory = _ => ContinuumSubtractor.DefaultSignificance,
+        };
+        var dryRunOpt = new Option<bool>("--dry-run") { Description = "Report the scales and write nothing." };
+        var cmd = new Command("continuum", "Subtract a narrowband master's continuum against a broadband master on the same grid: "
+            + "line - k (continuum - median continuum), k measured two ways.")
+        {
+            Options = { lineOpt, continuumOpt, outputOpt, scaleOpt, methodOpt, significanceOpt, dryRunOpt },
+        };
+        cmd.SetAction(async (parseResult, ct) =>
+        {
+            var linePath = parseResult.Required(lineOpt);
+            var continuumPath = parseResult.Required(continuumOpt);
+            var method = parseResult.GetValue(methodOpt) ?? "flattest";
+            if (method is not ("flattest" or "photometric"))
+            {
+                consoleHost.WriteError($"--method must be flattest or photometric, got '{method}'");
+                return 1;
+            }
+            if (!Image.TryReadFitsFile(linePath, out var line, out var lineWcs))
+            {
+                consoleHost.WriteError($"Failed to read FITS file: {linePath}");
+                return 1;
+            }
+            if (!Image.TryReadFitsFile(continuumPath, out var continuum, out _))
+            {
+                consoleHost.WriteError($"Failed to read FITS file: {continuumPath}");
+                line.Release();
+                return 1;
+            }
+            if (line.Width != continuum.Width || line.Height != continuum.Height)
+            {
+                consoleHost.WriteError($"--line is {line.Width}x{line.Height} and --continuum {continuum.Width}x{continuum.Height}: put them on one grid first (tianwen image align).");
+                line.Release();
+                continuum.Release();
+                return 1;
+            }
+
+            var maskedLine = MasterAlignment.MaskAbsent(line);
+            var maskedContinuum = MasterAlignment.MaskAbsent(continuum);
+            var flattest = ContinuumSubtractor.FlattestResidualScale(maskedLine, maskedContinuum,
+                MasterAlignment.StarChannel(maskedLine), MasterAlignment.StarChannel(maskedContinuum), parseResult.GetValue(significanceOpt));
+            var lineStars = await MasterAlignment.FindStarsAsync(maskedLine, ct);
+            var continuumStars = await MasterAlignment.FindStarsAsync(maskedContinuum, ct);
+            var (photometric, matched, spread) = ContinuumSubtractor.PhotometricScale(lineStars, continuumStars);
+            var lineFwhm = MasterAlignment.MedianFwhm(lineStars);
+            var continuumFwhm = MasterAlignment.MedianFwhm(continuumStars);
+            consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                $"[continuum] flattest residual k {flattest.K:G5} over {flattest.Pixels} pixels (residual deviation {flattest.ResidualAad:G4} "
+                + $"against the line's {flattest.LineAad:G4}); photometric k {photometric:G5} over {matched} stars (spread {spread:P1}); "
+                + $"FWHM line {lineFwhm:F2} px, continuum {continuumFwhm:F2} px"));
+            if (double.IsFinite(flattest.K) && double.IsFinite(photometric) && Math.Abs(flattest.K - photometric) > 0.1 * Math.Abs(photometric))
+            {
+                consoleHost.WriteScrollable("[continuum] the two scales differ by more than 10 percent: check the pairing, the grid and the two PSFs before trusting either.");
+            }
+            if (double.IsFinite(lineFwhm) && double.IsFinite(continuumFwhm) && Math.Abs(lineFwhm - continuumFwhm) > 0.15 * Math.Max(lineFwhm, continuumFwhm))
+            {
+                consoleHost.WriteScrollable("[continuum] the two masters' stars differ in width by more than 15 percent: subtracted stars will leave rings, and a fixed-aperture flux ratio reads the wider side low.");
+            }
+
+            var k = parseResult.GetValue(scaleOpt) ?? (method == "photometric" ? photometric : flattest.K);
+            if (!double.IsFinite(k))
+            {
+                consoleHost.WriteError($"[continuum] no {method} scale could be measured; pass --scale.");
+                line.Release();
+                continuum.Release();
+                return 1;
+            }
+            if (!parseResult.GetValue(dryRunOpt))
+            {
+                var dst = parseResult.GetValue(outputOpt)
+                    ?? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(linePath)) ?? ".", Path.GetFileNameWithoutExtension(linePath) + "_pure.fits");
+                var pure = ContinuumSubtractor.Subtract(maskedLine, maskedContinuum, k);
+                pure.WriteToFitsFile(dst, lineWcs, SharpenPipeline.SwModifyHeader());
+                pure.Release();
+                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture, $"[continuum] subtracted with k {k:G5} -> {dst}"));
+            }
+            line.Release();
+            continuum.Release();
+            return 0;
+        });
+        return cmd;
     }
 
     // -------- tianwen image autocrop -----------------------------------

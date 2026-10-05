@@ -164,7 +164,7 @@ why).
 
 | Phase | What | Where | Status |
 |-------|------|-------|--------|
-| **0** | **Continuum subtraction.** Remove the broadband starlight a narrowband filter also passes, via a photometric star-flux fit against a matched broadband frame. Prerequisite for everything below: without it the "line" images are line + continuum. | `TianWen.Lib/Imaging/`, new `ContinuumSubtractor` | NOT STARTED |
+| **0** | **Continuum subtraction.** Remove the broadband starlight a narrowband filter also passes, via a photometric star-flux fit against a matched broadband frame. Prerequisite for everything below: without it the "line" images are line + continuum. #874 | `TianWen.Lib/Imaging/` `ContinuumSubtractor`, `MasterAlignment`; `tianwen image align`, `tianwen image continuum` | BUILT 2026-10-05, first light on LDN 1622 ("Phase 0 as built" below) |
 | 1 | **Robust plane normalization.** Align each weak line plane to the reference plane (usually Ha) by median offset then MAD/percentile gain, about the background. No catalog, no spectra, no new data. Works for any N. | `TianWen.Lib/Imaging/`, new `NarrowbandNormalizer` | NOT STARTED |
 | 2 | **Palette mixer + named presets.** `Ha`/`OIII` to RGB as a per-channel lerp, applied globally. Presets name which effect they apply (H-beta vs hue rotation). | same | NOT STARTED |
 | 3 | **Line unmixing: the OSC on-ramp only.** Recovers mono line planes from one dual/tri-band RGB frame, via DBXtract algebra + per-sensor crosstalk coefficients. **Mono imagers skip this entirely** and start at phase 1. **3a: the three-line Ha/Hb/OIII solve is the high-value variant** (exactly determined, the only source of *measured* blue). Gated on a known sensor. | same, plus a coefficient table asset | NOT STARTED |
@@ -444,6 +444,39 @@ does not model.
 **Cost to the user:** a matched broadband frame. Mono imagers shooting Ha/OIII/SII plus RGB have it
 already. An OSC dual-band user needs a separate broadband session, which is a real ask and the reason
 this cannot be mandatory.
+
+#### Phase 0 as built (2026-10-05, #874)
+
+Two verbs, each over Lib code the next phases reuse:
+
+- **`tianwen image align <reference> <masters...>`** (`MasterAlignment`): masters of one target from other nights or
+  filters, matched by their stars to the reference (the stacker's quad matcher, its star budget widened until one
+  answers, hoisted out of the cross-night exporter so both use one) and resampled once onto its grid. A line and its
+  continuum are best put on a THIRD master's grid, so both carry the same resampling blur.
+- **`tianwen image continuum --line --continuum`** (`ContinuumSubtractor`): both scales reported, the line written as
+  `line - k (continuum - median continuum)`.
+
+**Method 4 as Siril takes it is biased, and the fix is two changes.** Its objective, the mean absolute deviation of the
+residual over every pixel, is an L1 fit through one scale, whose exact minimiser is a weighted median (no sweep, no V fit).
+Solved exactly on a synthetic field whose true scale was 0.08, it read **0.0724**, while the stars read 0.0799. Most
+pixels are background, where both planes are noise and their ratio centres on zero: an errors-in-variables fit,
+attenuated. Two changes were needed:
+- fit only where the continuum stands 5 of its noise above its median, the noise read from neighbouring pixels'
+  differences;
+- give the line an offset of its own rather than assume one. Taken about each plane's median instead, the fit read
+  **0.0669**, because a nebula filling much of the frame lifts the median it is measured from.
+
+So the fit is `min over k and b of sum |line - k continuum - b|`, convex in `k` once `b` is the residual's median, found by
+a bracket and a golden section: **0.0810**, with the stars at 0.0799, the stars subtracted to a 5.7 percent residual and the
+emission kept.
+
+**First light, LDN 1622 (QSI 683ws, mono, four nights).** All three masters aligned onto Green's grid: Red at 0.039 px
+RMS, Ha 0.069 (at the loosest quad tolerance, a narrowband star field being sparse), Blue 0.177, every scale within 0.1
+percent of one. Ha and Red agree on star width (2.06 px each once aligned). The scales agree within 4 percent: flattest
+residual **0.157**, the stars **0.151** over 808 of them with a 9.6 percent spread. That spread is what a single scale
+cannot fix: each star's Ha-to-red ratio is its own colour, so one `k` leaves faint stars as small dark pits and the
+brightest with a ring. A star mask or a starless pass is the usual answer, and it belongs with phase 6 (narrowband star
+colour), not here.
 
 ### F. NarrowbandNormalization (the SHO answer, and what that video was actually about)
 
