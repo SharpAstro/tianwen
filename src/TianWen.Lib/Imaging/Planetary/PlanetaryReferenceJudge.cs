@@ -188,6 +188,97 @@ public static class PlanetaryReferenceJudge
         }
     }
 
+    /// <summary>A picture's luminance as the judge places and matches it: its channels' mean, one plane.</summary>
+    public static float[] Luminance(Image image)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        var result = new float[image.Width * image.Height];
+        for (var c = 0; c < image.ChannelCount; c++)
+        {
+            var plane = image.GetChannelSpan(c);
+            for (var i = 0; i < result.Length; i++)
+            {
+                result[i] += plane[i] / image.ChannelCount;
+            }
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// The colour of <paramref name="master"/> and of <paramref name="reference"/> placed on it at <paramref name="placement"/>, as the eye reads
+    /// each (#1273, <see cref="PlanetaryColourReading"/>): the reference decoded from sRGB, resampled onto the master's grid, its luminance (the
+    /// channels' mean) taken to the master's by rank and its chromaticity kept, then both read in OKLab over the master's planet.
+    /// </summary>
+    public static (ColourReading Master, ColourReading Reference) ReadColours(Image master, in MetricDisk masterDisk, Image reference, in MetricDisk referenceDisk,
+        in ReferencePlacement placement)
+    {
+        ArgumentNullException.ThrowIfNull(master);
+        ArgumentNullException.ThrowIfNull(reference);
+        var (width, height) = (master.Width, master.Height);
+        var (r, g, b, _, _) = PlanetaryColour.LinearFromSrgb(reference);
+        var red = Resample(r, reference.Width, reference.Height, referenceDisk, width, height, masterDisk, placement);
+        var green = Resample(g, reference.Width, reference.Height, referenceDisk, width, height, masterDisk, placement);
+        var blue = Resample(b, reference.Width, reference.Height, referenceDisk, width, height, masterDisk, placement);
+        var (theirs, ours) = (new float[red.Length], new float[red.Length]);
+        var mr = master.GetChannelSpan(0);
+        var mg = master.GetChannelSpan(1);
+        var mb = master.GetChannelSpan(2);
+        for (var i = 0; i < theirs.Length; i++)
+        {
+            theirs[i] = (red[i] + green[i] + blue[i]) / 3;
+            ours[i] = (mr[i] + mg[i] + mb[i]) / 3;
+        }
+        var (tr, tg, tb) = PlanetaryColourReading.WithLuminance(red, green, blue, MatchTone(ours, theirs, width, height, masterDisk));
+        return (
+            PlanetaryColourReading.Read(mr, mg, mb, width, height, masterDisk, PlanetaryColour.SkyOrBlack(mr, mg, mb, width, height, masterDisk)),
+            PlanetaryColourReading.Read(tr, tg, tb, width, height, masterDisk, PlanetaryColour.SkyOrBlack(tr, tg, tb, width, height, masterDisk)));
+    }
+
+    /// <summary>
+    /// <paramref name="master"/> as the planetary preview SHOWS it (#1273): through <see cref="Image.ComputePlanetaryStretchUniforms"/>
+    /// and <see cref="Image.RenderStretchedRgba16"/>, as <see cref="Stacking.MasterPreviewRenderer.RenderPlanetaryAsync"/> writes its PNG,
+    /// three sRGB-encoded planes in [0, 1]. The preview's mid-tone lift bends each channel on its own and the sRGB curve again on
+    /// screen, so a master is SHOWN at 1.7 to 2 times the chroma its linear planes read; a post is a picture as shown, so it is
+    /// compared with this, never with the linear master.
+    /// </summary>
+    public static Image AsShown(Image master)
+    {
+        ArgumentNullException.ThrowIfNull(master);
+        var (width, height) = (master.Width, master.Height);
+        var rgba = new ushort[width * height * 4];
+        master.RenderStretchedRgba16(master.ComputePlanetaryStretchUniforms(), rgba);
+        var planes = new float[3][,];
+        for (var c = 0; c < 3; c++)
+        {
+            var plane = planes[c] = new float[height, width];
+            for (var y = 0; y < height; y++)
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    plane[y, x] = rgba[((((y * width) + x) * 4) + c)] / (float)ushort.MaxValue;
+                }
+            }
+        }
+        return new Image(planes, BitDepth.Float32, 1f, 0f, 0f, new ImageMeta { SensorType = SensorType.Color });
+    }
+
+    /// <summary>
+    /// The colour of <paramref name="master"/> as its preview shows it (<see cref="AsShown"/>), read exactly as a reference is: decoded from
+    /// sRGB, its luminance taken to the master's by rank and its chromaticity kept (<see cref="ReadColours"/> at the identity placement).
+    /// </summary>
+    public static ColourReading ReadShown(Image master, in MetricDisk disk)
+    {
+        var shown = AsShown(master);
+        try
+        {
+            return ReadColours(master, disk, shown, disk, new ReferencePlacement(1, 0, false, 0, 0, 1)).Reference;
+        }
+        finally
+        {
+            shown.Release();
+        }
+    }
+
     // A plane's values replaced by their rank over its own planet, 0 to 1: any monotone curve two pictures differ by is gone.
     private static float[] Equalised(ReadOnlySpan<float> plane, int width, int height, MetricDisk disk)
     {

@@ -196,6 +196,13 @@ public static class PlanetaryColour
         => new LinearRgb(PlanetaryMetrics.SkyLevel(red, width, height, disk) ?? 0, PlanetaryMetrics.SkyLevel(green, width, height, disk) ?? 0,
             PlanetaryMetrics.SkyLevel(blue, width, height, disk) ?? 0);
 
+    /// <summary><see cref="Sky"/>, with any channel the picture reaches no sky in (a reference cropped inside 2.5 radii, a non-finite level) read as its black, zero.</summary>
+    public static LinearRgb SkyOrBlack(ReadOnlySpan<float> red, ReadOnlySpan<float> green, ReadOnlySpan<float> blue, int width, int height, in MetricDisk disk)
+    {
+        var sky = Sky(red, green, blue, width, height, disk);
+        return new LinearRgb(double.IsFinite(sky.R) ? sky.R : 0, double.IsFinite(sky.G) ? sky.G : 0, double.IsFinite(sky.B) ? sky.B : 0);
+    }
+
     /// <summary>
     /// The sky's colour as <paramref name="master"/> RENDERS through <paramref name="stretch"/>: each channel's mean over the sky, in the
     /// rendered [0, 1], the sky being where <see cref="PlanetaryMetrics.SkyLevel"/> reads it (past 2.5 radii, else the farthest tenth past

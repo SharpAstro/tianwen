@@ -84,8 +84,8 @@ internal sealed class PlanetaryJudgeSubCommand(IConsoleHost consoleHost, MasterP
                 var masterDisk = MetricDisk.From(masterFit, options);
                 var referenceDisk = MetricDisk.From(referenceFit, options);
                 var (width, height) = (master.Width, master.Height);
-                var ours = Luminance(master);
-                var theirs = Luminance(reference);
+                var ours = PlanetaryReferenceJudge.Luminance(master);
+                var theirs = PlanetaryReferenceJudge.Luminance(reference);
 
                 var placement = await Task.Run(() => PlanetaryReferenceJudge.Place(ours, width, height, masterDisk, theirs, reference.Width, reference.Height, referenceDisk), ct);
                 var placed = PlanetaryReferenceJudge.Resample(theirs, reference.Width, reference.Height, referenceDisk, width, height, masterDisk, placement);
@@ -106,13 +106,23 @@ internal sealed class PlanetaryJudgeSubCommand(IConsoleHost consoleHost, MasterP
                 {
                     var oursColour = DiskColour(master.GetChannelSpan(0), master.GetChannelSpan(1), master.GetChannelSpan(2), width, height, masterDisk);
                     var (r, g, b, _, _) = PlanetaryColour.LinearFromSrgb(reference);
-                    var theirsColour = DiskColour(
-                        PlanetaryReferenceJudge.Resample(r, reference.Width, reference.Height, referenceDisk, width, height, masterDisk, placement),
-                        PlanetaryReferenceJudge.Resample(g, reference.Width, reference.Height, referenceDisk, width, height, masterDisk, placement),
-                        PlanetaryReferenceJudge.Resample(b, reference.Width, reference.Height, referenceDisk, width, height, masterDisk, placement),
-                        width, height, masterDisk);
+                    var placedRed = PlanetaryReferenceJudge.Resample(r, reference.Width, reference.Height, referenceDisk, width, height, masterDisk, placement);
+                    var placedGreen = PlanetaryReferenceJudge.Resample(g, reference.Width, reference.Height, referenceDisk, width, height, masterDisk, placement);
+                    var placedBlue = PlanetaryReferenceJudge.Resample(b, reference.Width, reference.Height, referenceDisk, width, height, masterDisk, placement);
+                    var theirsColour = DiskColour(placedRed, placedGreen, placedBlue, width, height, masterDisk);
                     consoleHost.WriteScrollable(string.Create(inv,
                         $"the disk's colour: the master R/G {oursColour.R / oursColour.G:0.000}, B/G {oursColour.B / oursColour.G:0.000}; the reference, decoded from sRGB, R/G {theirsColour.R / theirsColour.G:0.000}, B/G {theirsColour.B / theirsColour.G:0.000} (chromaticity {oursColour.ChromaDistance(theirsColour):0.0000} apart)"));
+
+                    // The colour as the eye reads it (#1273): the cast, the spread and the rim, both in OKLab at one luminance. The master
+                    // both as its linear planes hold it and as its preview SHOWS it, which a post is to be compared with: the preview's
+                    // stretch shows it at 1.7 to 2 times the linear chroma.
+                    var (oursReading, theirsReading) = PlanetaryReferenceJudge.ReadColours(master, masterDisk, reference, referenceDisk, placement);
+                    var shownReading = PlanetaryReferenceJudge.ReadShown(master, masterDisk);
+                    ColourLine("the master's colour, linear", oursReading);
+                    ColourLine("the master's colour as its preview shows it", shownReading);
+                    ColourLine("the reference's colour", theirsReading);
+                    Ratios("the reference over the master, linear", theirsReading, oursReading);
+                    Ratios("the reference over the master as shown", theirsReading, shownReading);
                 }
 
                 if (parseResult.GetValue(pictureOpt) is { } picture)
@@ -172,26 +182,26 @@ internal sealed class PlanetaryJudgeSubCommand(IConsoleHost consoleHost, MasterP
         }
     }
 
-    // A picture's luminance, its channels' mean.
-    private static float[] Luminance(Image image)
+    // The reference's cast and spread over the master's, and its chroma over the master's at every quantile of the grid.
+    private void Ratios(string title, in ColourReading theirs, in ColourReading ours)
     {
-        var result = new float[image.Width * image.Height];
-        for (var c = 0; c < image.ChannelCount; c++)
+        var inv = CultureInfo.InvariantCulture;
+        var line = new System.Text.StringBuilder(string.Create(inv,
+            $"{title}: cast x{theirs.Cast.Chroma / ours.Cast.Chroma:0.000}, spread x{theirs.Spread / ours.Spread:0.000}; chroma at each quantile:"));
+        foreach (var q in PlanetaryColourReading.QuantileGrid)
         {
-            var plane = image.GetChannelSpan(c);
-            for (var i = 0; i < result.Length; i++)
-            {
-                result[i] += plane[i] / image.ChannelCount;
-            }
+            line.Append(inv, $" {q:0.00}={theirs.ChromaAt(q) / ours.ChromaAt(q):0.000}");
         }
-        return result;
+        consoleHost.WriteScrollable(line.ToString());
+    }
+
+    private void ColourLine(string title, in ColourReading reading)
+    {
+        consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+            $"{title} (OKLab at one luminance, {reading.InteriorPixels} px inside 0.9 of the outline): cast chroma {reading.Cast.Chroma:0.0000} at hue {reading.Cast.HueDeg:0.0} deg, spread {reading.Spread:0.0000}, chroma p10/p50/p90 {reading.ChromaAt(0.10):0.0000}/{reading.ChromaAt(0.50):0.0000}/{reading.ChromaAt(0.90):0.0000}; the rim ({reading.RimPixels} px, 0.9 to 1.1) chroma {reading.Rim.Chroma:0.0000}, {reading.RimOverCast:0.00} of the cast's, hue {reading.Rim.HueDeg:0.0} deg ({reading.RimHueOffsetDeg:0.0} from the cast's); off the cast's hue, pixel by pixel, chroma {reading.RimOffHue:0.0000} (p90)"));
     }
 
     // A disk's mean colour, its sky taken off; a sky the picture does not reach (a reference cropped inside 2.5 radii) is its black, zero.
     private static LinearRgb DiskColour(ReadOnlySpan<float> red, ReadOnlySpan<float> green, ReadOnlySpan<float> blue, int width, int height, MetricDisk disk)
-    {
-        var sky = PlanetaryColour.Sky(red, green, blue, width, height, disk);
-        sky = new LinearRgb(double.IsFinite(sky.R) ? sky.R : 0, double.IsFinite(sky.G) ? sky.G : 0, double.IsFinite(sky.B) ? sky.B : 0);
-        return PlanetaryColour.DiskMean(red, green, blue, width, height, disk, sky);
-    }
+        => PlanetaryColour.DiskMean(red, green, blue, width, height, disk, PlanetaryColour.SkyOrBlack(red, green, blue, width, height, disk));
 }
