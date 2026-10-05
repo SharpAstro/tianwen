@@ -1,5 +1,6 @@
 ﻿using System;
 using TianWen.Lib.Geometry;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -231,13 +232,33 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
         cache.Set(0, firstCalibrated);
         job.Progress?.Report(new IntegrationProgress(IntegrationPhase.LoadingFrames, 1, n, swStrat.Elapsed));
 
+        // Each frame's drift blocks on the canvas grid, taken as it loads, for the standard error's scatter (FrameDrift),
+        // exactly as DrizzleStrategy takes them in its statistics pass.
+        var clip = DrizzleClip.From(job.Options.Rejector);
+        var bayerPattern = refMeta.SensorType.GetBayerPatternMatrix(refMeta.BayerOffsetX, refMeta.BayerOffsetY);
+        var driftBlocks = new List<float[][]?>(n);
+        float[][]? CanvasDrift(Image calibrated, int f) => clip is null
+            ? null
+            : FrameDrift.ToCanvas(FrameDrift.MeasureCfaBlocks(calibrated, bayerPattern), calibrated.Width, calibrated.Height,
+                sources[f].TransformToCanvas, canvasW, canvasH);
+        driftBlocks.Add(CanvasDrift(firstCalibrated, 0));
+
         for (var f = 1; f < n; f++)
         {
             ct.ThrowIfCancellationRequested();
             var calibrated = LoadCalibrateNormalize(sources[f]);
+            driftBlocks.Add(CanvasDrift(calibrated, f));
             cache.Set(f, calibrated);
             job.Progress?.Report(new IntegrationProgress(IntegrationPhase.LoadingFrames, f + 1, n, swStrat.Elapsed));
         }
+        var drift = FrameDrift.From(driftBlocks, canvasW, canvasH);
+        // Every frame is this integration's, so the drift its kept deposits are measured against is all of theirs.
+        var allFrames = new int[n];
+        for (var f = 0; f < n; f++)
+        {
+            allFrames[f] = f;
+        }
+        var driftMean = drift?.MeanGrid(allFrames);
 
         // Bayer pattern is sensor geometry, not per-frame -- a meridian
         // flip changes the transform, not which physical filter sits over
@@ -245,7 +266,7 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
         // BayerOffsetX/Y, they'd belong to different LightGroupKeys
         // upstream; mixing patterns within a group is a grouping bug, not
         // a runtime hazard. Cache once.
-        var pattern = refMeta.SensorType.GetBayerPatternMatrix(refMeta.BayerOffsetX, refMeta.BayerOffsetY);
+        var pattern = bayerPattern;
         var rawW = firstCalibrated.Width;
         var rawH = firstCalibrated.Height;
 
@@ -275,7 +296,6 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
         // clipped deposit against the rest of each cell), run over one strip's cells at a time. A
         // cell's moments only ever see samples landing in that cell, so strip-local moments are
         // exactly the full-canvas ones and the two drizzle strategies still agree deposit for deposit.
-        var clip = DrizzleClip.From(job.Options.Rejector);
         long rejectedDeposits = 0, totalDeposits = 0;
         // The master's standard error, measured per strip from its own kept deposits and moments (DrizzleScatter), as
         // DrizzleStrategy measures it over the whole canvas; only a rejecting drizzle has the moments it is centred on.
@@ -369,7 +389,7 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
                             stripFlux, stripWeight,
                             xStart: 0, xEnd: canvasW,
                             yStart: stripY0, yEnd: stripY0 + stripH,
-                            sourceRect, badPixelMask, hasBadPixelMask, stripScatter);
+                            sourceRect, badPixelMask, hasBadPixelMask, stripScatter, drift, f);
                         rejectedDeposits += rejected;
                         totalDeposits += total;
                     }
@@ -377,9 +397,7 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
             }
 
             // The strip's standard error, from its kept sums before they are copied (and later divided).
-            var stripStandardError = stripScatter is not null && stripMoments is not null
-                ? stripScatter.StandardError(stripFlux, stripWeight, stripMoments, invMax)
-                : null;
+            var stripStandardError = stripScatter?.StandardError(stripWeight, invMax, drift, driftMean, stripY0);
 
             // Copy strip-local accumulators into the canvas-sized master
             // and coverage planes. Row-wise memcpy via BlockCopy: faster

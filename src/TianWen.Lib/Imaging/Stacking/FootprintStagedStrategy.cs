@@ -198,7 +198,10 @@ public sealed class FootprintStagedStrategy : IIntegrationStrategy
                     warped.MaxValue,
                     warped.Pedestal,
                     stats.PerChannelFloor,
-                    stats.PerChannelMedian));
+                    stats.PerChannelMedian)
+                {
+                    DriftBlocks = FrameDrift.MeasureBlocks(warped),
+                });
 
                 cache.Set(index, warped);
                 index++;

@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using TianWen.Lib.Geometry;
 using System.Numerics;
 using System.Runtime.CompilerServices;
@@ -78,6 +79,10 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
 
     public bool SupportsLiveStacking => false;
 
+    /// <summary>Canvas planes per channel a rejecting drizzle target holds: flux and weight, the statistics pass's three
+    /// moments and its slope, and the standard error's (<see cref="DrizzleScatter.PlanesPerChannel"/>).</summary>
+    internal const int DrizzlePlanesPerChannel = 6 + DrizzleScatter.PlanesPerChannel;
+
     public StrategyFit Evaluate(IntegrationProbe probe, ResourceBudget budget)
     {
         // RAM profile: flux + weight planes are both canvas-sized at 3
@@ -86,9 +91,9 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
         // accumulators -- streaming drizzle holds everything full-canvas.
         // A rejecting drizzle (every run the pipeline hands a rejector, i.e. 5 frames and up, and
         // drizzle needs 60) also holds the statistics pass's three moment planes and the slope plane
-        // derived from them beside the output pair, and the standard error's two (DrizzleScatter), so
-        // eight planes per channel, not two.
-        var fluxWeightBytes = (long)probe.CanvasWidth * probe.CanvasHeight * 3 * sizeof(float) * 8;
+        // derived from them beside the output pair, and the standard error's (DrizzleScatter), so
+        // nine planes per channel, not two (DrizzlePlanesPerChannel).
+        var fluxWeightBytes = (long)probe.CanvasWidth * probe.CanvasHeight * 3 * sizeof(float) * DrizzlePlanesPerChannel;
         var inFlightRam = (long)probe.FrameWidth * probe.FrameHeight * sizeof(float); // 1-channel calibrated bayer
         var ram = fluxWeightBytes + inFlightRam;
 
@@ -255,9 +260,18 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
 
         var anyClip = false;
         var frameIndex = 0;
+        // Each streamed frame's drift blocks on the canvas grid, for the standard error's scatter (FrameDrift). One
+        // reference over every frame streamed serves every target: a shift all of a target's frames share moves none of
+        // its scatter.
+        var driftBlocks = new List<float[][]?>();
+        var anyScatter = Array.Exists(targets, static t => t.Scatter is not null);
         await foreach (var frame in Prefetch(job.RawBayerFrames(ct), Prepare, ct).WithCancellation(ct))
         {
             ct.ThrowIfCancellationRequested();
+            driftBlocks.Add(anyScatter
+                ? FrameDrift.ToCanvas(FrameDrift.MeasureCfaBlocks(frame.Raw, frame.Pattern), frame.Raw.Width, frame.Raw.Height,
+                    frame.Transform, canvasW, canvasH)
+                : null);
             foreach (var target in targets)
             {
                 if (!target.Takes(frameIndex))
@@ -295,12 +309,14 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
             target.EndPass(frameIndex);
         }
 
+        FrameDrift? drift = null;
         if (anyClip)
         {
             foreach (var target in targets)
             {
                 target.Moments?.ComputeSlope();
             }
+            drift = FrameDrift.From(driftBlocks, canvasW, canvasH);
 
             frameIndex = 0;
             await foreach (var frame in Prefetch(job.RawBayerFrames(ct), Prepare, ct).WithCancellation(ct))
@@ -315,7 +331,7 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
 
                     var (rejected, total) = DrizzleKernel.IterateAndDepositClippedParallel(
                         frame.Raw, frame.Transform, frame.Pattern, halfP, moments, clip, target.Flux, target.Weight,
-                        canvasW, canvasH, badPixelMask, hasBadPixelMask, target.Scatter);
+                        canvasW, canvasH, badPixelMask, hasBadPixelMask, target.Scatter, drift, frameIndex);
                     target.RejectedDeposits += rejected;
                     target.TotalDeposits += total;
                 }
@@ -327,7 +343,7 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
         var results = ImmutableArray.CreateBuilder<IntegrationResult>(targets.Length);
         foreach (var target in targets)
         {
-            results.Add(target.Finalise(applyNormalization, canvasW, canvasH));
+            results.Add(target.Finalise(applyNormalization, canvasW, canvasH, drift, frameIndex));
         }
         return results.MoveToImmutable();
 
@@ -511,7 +527,9 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
             _cursor = 0;
         }
 
-        public IntegrationResult Finalise(bool applyNormalization, int canvasW, int canvasH)
+        /// <summary>The target's master; <paramref name="drift"/> is the stream's frame drift (null where none was
+        /// measured), of which this target's frames' mean is what its kept deposits' drift is measured against.</summary>
+        public IntegrationResult Finalise(bool applyNormalization, int canvasW, int canvasH, FrameDrift? drift, int streamLength)
         {
             if (_frameCount == 0 || _refMeta is not { } refMeta)
             {
@@ -530,8 +548,10 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
                 : _sourceMaxValue > 0f ? 1f / _sourceMaxValue : 1f;
             var totalCells = (long)canvasH * canvasW * 3;
             // Before the divide, which turns the kept flux into the master in place: the error needs the kept sums.
-            var standardError = Scatter is { } scatter && Moments is { } moments
-                ? StandardErrorPlane.FromPlanes(scatter.StandardError(Flux, Weight, moments, invMax), refMeta)
+            var standardError = Scatter is { } scatter
+                ? StandardErrorPlane.FromPlanes(
+                    scatter.StandardError(Weight, invMax, drift, drift?.MeanGrid(_frames.IsDefault ? [.. Enumerable.Range(0, streamLength)] : _frames)),
+                    refMeta)
                 : null;
             var coveredCells = DrizzleKernel.FinaliseDivide(Flux, Weight, invMax, canvasH, canvasW);
 

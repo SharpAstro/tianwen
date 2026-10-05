@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.Stacking;
@@ -20,6 +21,9 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// only the scatter its error is read from is taken about each frame's drift (<see cref="StandardErrorPlane"/>).</para>
 /// <para>A block under a quarter covered reads NaN, and a frame's drift there is zero: no correction, rather than one
 /// from the canvas's edge.</para>
+/// <para><b>A drizzle never warps a frame</b>, so its blocks are taken on the raw mosaic per colour, in the frame's own
+/// coordinates (<see cref="MeasureCfaBlocks"/>), and read at the canvas grid's block centres through the frame's
+/// transform (<see cref="ToCanvas"/>); each deposit then takes its frame's drift where it lands (<see cref="At"/>).</para>
 /// </remarks>
 internal sealed class FrameDrift
 {
@@ -83,6 +87,89 @@ internal sealed class FrameDrift
             blocks[c] = grid;
         }
         return blocks;
+    }
+
+    /// <summary>One raw mosaic's block medians per colour of <paramref name="pattern"/> (0 red, 1 green, 2 blue), in its
+    /// own coordinates: <c>[colour][gy * gridWidth + gx]</c>, NaN where a block holds under a quarter of its colour's
+    /// photosites finite.</summary>
+    internal static float[][] MeasureCfaBlocks(Image raw, int[,] pattern)
+    {
+        var width = raw.Width;
+        var height = raw.Height;
+        var (gw, gh) = GridOf(width, height);
+        var plane = raw.GetChannelArray(0);
+        var blocks = new float[3][];
+        var buffer = new float[BlockPx * BlockPx];
+        for (var colour = 0; colour < 3; colour++)
+        {
+            var grid = new float[gw * gh];
+            for (var gy = 0; gy < gh; gy++)
+            {
+                var y0 = gy * BlockPx;
+                var y1 = Math.Min(height, y0 + BlockPx);
+                for (var gx = 0; gx < gw; gx++)
+                {
+                    var x0 = gx * BlockPx;
+                    var x1 = Math.Min(width, x0 + BlockPx);
+                    var n = 0;
+                    var sites = 0;
+                    for (var y = y0; y < y1; y++)
+                    {
+                        for (var x = x0; x < x1; x++)
+                        {
+                            if (pattern[y & 1, x & 1] != colour)
+                            {
+                                continue;
+                            }
+                            sites++;
+                            var v = plane[y, x];
+                            if (!float.IsNaN(v))
+                            {
+                                buffer[n++] = v;
+                            }
+                        }
+                    }
+                    grid[(gy * gw) + gx] = n > 0 && 4 * n >= sites
+                        ? StatisticsHelper.MedianFast(buffer.AsSpan(0, n))
+                        : float.NaN;
+                }
+            }
+            blocks[colour] = grid;
+        }
+        return blocks;
+    }
+
+    /// <summary>
+    /// A frame's own-coordinate blocks (<see cref="MeasureCfaBlocks"/>) read at the canvas grid's block centres: each
+    /// centre taken back through <paramref name="toCanvas"/> and the source grid interpolated there. NaN where the centre
+    /// falls outside the frame or between blocks that read NaN.
+    /// </summary>
+    internal static float[][] ToCanvas(float[][] sourceBlocks, int sourceWidth, int sourceHeight, Matrix3x2 toCanvas, int canvasWidth, int canvasHeight)
+    {
+        if (!Matrix3x2.Invert(toCanvas, out var toSource))
+        {
+            throw new ArgumentException("the frame's transform to the canvas has no inverse", nameof(toCanvas));
+        }
+        var (sgw, sgh) = GridOf(sourceWidth, sourceHeight);
+        var (cgw, cgh) = GridOf(canvasWidth, canvasHeight);
+        var result = new float[sourceBlocks.Length][];
+        for (var c = 0; c < sourceBlocks.Length; c++)
+        {
+            var source = sourceBlocks[c];
+            var grid = new float[cgw * cgh];
+            for (var gy = 0; gy < cgh; gy++)
+            {
+                for (var gx = 0; gx < cgw; gx++)
+                {
+                    var centre = Vector2.Transform(new Vector2((gx + 0.5f) * BlockPx, (gy + 0.5f) * BlockPx), toSource);
+                    grid[(gy * cgw) + gx] = centre.X < 0 || centre.Y < 0 || centre.X >= sourceWidth || centre.Y >= sourceHeight
+                        ? float.NaN
+                        : Bilinear(source, sgw, sgh, centre.X, centre.Y);
+                }
+            }
+            result[c] = grid;
+        }
+        return result;
     }
 
     /// <summary>
@@ -175,6 +262,57 @@ internal sealed class FrameDrift
         }
     }
 
+    /// <summary>Frame <paramref name="frame"/>'s drift at canvas pixel (<paramref name="x"/>, <paramref name="y"/>), for a
+    /// deposit, which lands one pixel at a time and in no row order.</summary>
+    internal float At(int frame, int channel, int x, int y)
+    {
+        var (gy0, gy1, ty) = Lerp(y, _gridHeight);
+        var (gx0, gx1, tx) = Lerp(x, _gridWidth);
+        var grid = _drift[frame][channel];
+        var top = grid[(gy0 * _gridWidth) + gx0] + (tx * (grid[(gy0 * _gridWidth) + gx1] - grid[(gy0 * _gridWidth) + gx0]));
+        var bottom = grid[(gy1 * _gridWidth) + gx0] + (tx * (grid[(gy1 * _gridWidth) + gx1] - grid[(gy1 * _gridWidth) + gx0]));
+        return top + (ty * (bottom - top));
+    }
+
+    /// <summary>The mean of <paramref name="frames"/>' drift grids per channel: the drift a target's frames average, which
+    /// is linear in the grid, so <see cref="AtGrid"/> reads it at a pixel as the mean of the frames' drifts there.</summary>
+    internal float[][] MeanGrid(IReadOnlyList<int> frames)
+    {
+        var channels = _drift[0].Length;
+        var mean = new float[channels][];
+        for (var c = 0; c < channels; c++)
+        {
+            var sum = new double[_gridWidth * _gridHeight];
+            foreach (var f in frames)
+            {
+                var grid = _drift[f][c];
+                for (var i = 0; i < sum.Length; i++)
+                {
+                    sum[i] += grid[i];
+                }
+            }
+            var plane = new float[sum.Length];
+            for (var i = 0; i < sum.Length; i++)
+            {
+                plane[i] = frames.Count > 0 ? (float)(sum[i] / frames.Count) : 0f;
+            }
+            mean[c] = plane;
+        }
+        return mean;
+    }
+
+    /// <summary>A grid on this drift's blocks (<see cref="MeanGrid"/>) read at canvas pixel (<paramref name="x"/>,
+    /// <paramref name="y"/>).</summary>
+    internal float AtGrid(float[][] grid, int channel, int x, int y)
+    {
+        var (gy0, gy1, ty) = Lerp(y, _gridHeight);
+        var (gx0, gx1, tx) = Lerp(x, _gridWidth);
+        var g = grid[channel];
+        var top = g[(gy0 * _gridWidth) + gx0] + (tx * (g[(gy0 * _gridWidth) + gx1] - g[(gy0 * _gridWidth) + gx0]));
+        var bottom = g[(gy1 * _gridWidth) + gx0] + (tx * (g[(gy1 * _gridWidth) + gx1] - g[(gy1 * _gridWidth) + gx0]));
+        return top + (ty * (bottom - top));
+    }
+
     /// <summary>The scatter's samples about each frame's drift at (<paramref name="x"/>, the row's y), NaN kept.</summary>
     internal void Remove(ReadOnlySpan<float> column, ReadOnlySpan<float> row, int x, Span<float> adjusted)
     {
@@ -186,10 +324,23 @@ internal sealed class FrameDrift
         }
     }
 
-    // Block centres sit at (g + 0.5) * BlockPx; outside the first and last centre the drift is held, not extrapolated.
-    private static (int G0, int G1, float T) Lerp(int pixel, int cells)
+    // A grid read at a point in pixels; NaN if any of the four blocks around it is.
+    private static float Bilinear(float[] grid, int gw, int gh, float x, float y)
     {
-        var u = ((pixel + 0.5f) / BlockPx) - 0.5f;
+        var (gx0, gx1, tx) = Lerp(x, gw);
+        var (gy0, gy1, ty) = Lerp(y, gh);
+        var top = grid[(gy0 * gw) + gx0] + (tx * (grid[(gy0 * gw) + gx1] - grid[(gy0 * gw) + gx0]));
+        var bottom = grid[(gy1 * gw) + gx0] + (tx * (grid[(gy1 * gw) + gx1] - grid[(gy1 * gw) + gx0]));
+        return top + (ty * (bottom - top));
+    }
+
+    private static (int G0, int G1, float T) Lerp(int pixel, int cells) => Lerp(pixel + 0.5f, cells);
+
+    // Block centres sit at (g + 0.5) * BlockPx; outside the first and last centre the drift is held, not extrapolated.
+    // The position is in pixel EDGE coordinates (a pixel's centre is at its index plus a half).
+    private static (int G0, int G1, float T) Lerp(float position, int cells)
+    {
+        var u = (position / BlockPx) - 0.5f;
         if (u <= 0f || cells == 1)
         {
             return (0, 0, 0f);

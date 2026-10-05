@@ -2904,7 +2904,7 @@ TianWen did not stack. Phases:
 | S1 | the plane in both per-pixel loops (`Integrator`, `StreamingIntegrator`; so InRamAllFrames, TilePipelined, Float16Staged, FootprintStaged), `IntegrationResult.StandardError`; the sidecar's writer and reader (`.stderr.fits.gz`, ln-coded), carried through `MasterPostProcessor`'s unit scale and crop | DONE 2026-10-05 |
 | S2 | the drizzle strategies (`DrizzleScatter`: the kept deposits' area squared and centred squared deviation, in both layouts) and ChunkedTwoPass (per-channel kept counts and centred squares; its one shared kept count, channel 0's, had divided every channel's sum) | DONE 2026-10-05: drizzle 1.002 to 1.010, two-pass 1.001 to 1.024, RMS over RMS |
 | S3 | the bake: master and half-master planes on `RegisteredSession`, the store's sidecar, MEASURED tile planes (`PlaneMeasured` on the row), recipe version 4; `MasterPostProcessor` scales and crops it with the master; `noise-check --anchor stderr` reads the sidecar | DONE 2026-10-05: at the sky each half's error reads its pair's spread at 0.96 to 1.04, the master's 1.01 to 1.06 |
-| S4 | the validation against the half pairs, pre-registered ("E16c S4" below), on a re-bake of the halved sessions | pre-registered 2026-10-05; a three-session pilot first, the 82 after R2a |
+| S4 | the validation against the half pairs, pre-registered ("E16c S4" below), on a re-bake of the halved sessions | pre-registered 2026-10-05; the pilot found the frames' drift, and the error is now read about it (amendment below); the 82 after R2a |
 | S5 | the runner reads the sidecar beside a master, the estimator its fallback | |
 
 **What the plane is, measured before it was fixed (`StandardErrorPlaneTests`).** The rule is one frame's noise, read
@@ -2987,6 +2987,33 @@ drift is the pilot's suspect.
 **What it cannot settle.** Whether a model trained on the measured plane does better, which is E16c's training step and
 H7's re-run. A foreign master, which keeps the estimator. And a star's core, where the scatter also holds the seeing,
 which the quiet cells leave out.
+
+**Amended after the pilot (2026-10-05), the predictions and the kill untouched.** The pilot found what it was run for,
+so the measurement S4 reads changed before the 82 were baked.
+- **What the pilot read, as built.** The measured error beat the shipped estimator on all three nights and still
+  over-read their pairs:
+  - the Uranus-C Lagoon (drizzled) at 0.88 / 0.90 / 0.95, where the estimator read 0.46;
+  - the ASI294MM Lagoon (mono) at 0.75, against 0.55;
+  - the Prawn (demosaiced) at 0.85 / 0.77 / 0.88, against 0.53.
+- **Why: the frames drift.** Over the night, a sub's sky level spread 0.7 to 2.1 times one sub's noise (the full
+  store's sub rows). A staged integration takes no offset off its frames, so a pixel's scatter over them holds that drift
+  and the drift's turning gradient. A drizzle shifts each frame's whole sky and kept the local remainder. Interleaved
+  halves average the same drift and cancel it.
+- **The fix: the error is read about each frame's drift** (`FrameDrift`). Each frame's 32 px block medians, against
+  their median over the frames, are taken out of the scatter, never out of the master. A staged frame's blocks are
+  taken as it is warped. A drizzle's are taken on the raw mosaic per colour and carried to the canvas through the
+  frame's transform.
+- **And what the composition does to it.** A clip over a drifting column keeps a frame at one pixel and drops it at the
+  next. A Bayer drizzle builds each cell from the frames whose photosites of that colour land there. Either way, the
+  drift a pixel averages varies from pixel to pixel as noise the halves do not share. It is added to the variance:
+  `StandardErrorPlane.OfDrifting`, and `DrizzleScatter`'s kept-drift plane.
+- **Measured on fixtures:** the plane reads a drifting master's noise at 0.98 to 1.03 staged and 0.96 to 0.98
+  drizzled. Read raw it was 0.45 to 0.53 staged, and 1.19 drizzled without the composition term.
+- **On the pilot's two staged nights it reads 1.09 (mono Lagoon) and 1.01 / 1.04 / 1.04 (Prawn).** The pair check
+  scales the master's error by root 2 to a half's. A half's composition noise goes as one over its frame count, so the
+  check under-predicts a pair a little where the clip works hard. Each half's own tiles carry the half's own error.
+- **Since the pilot informed the method, its three nights are reported apart** from the other 79 readings in S4's read,
+  as well as in the total.
 
 ### 2026-10-05: H7, pre-registered
 
