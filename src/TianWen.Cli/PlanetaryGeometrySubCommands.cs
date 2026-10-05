@@ -270,6 +270,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         var outerScaleOpt = new Option<double?>("--outer-scale") { Description = "The turbulence's outer scale, m (von Karman; none for Kolmogorov)." };
         var scatterOpt = new Option<double>("--scatter") { Description = "The share of the light the telescope scatters wide (0 for none).", DefaultValueFactory = _ => 0 };
         var scatterCoreOpt = new Option<double>("--scatter-core") { Description = "The scatter kernel's core, arcsec.", DefaultValueFactory = _ => 5 };
+        var farWingOpt = new Option<bool>("--far-wing") { Description = "Give every frame the pupil's diffraction wing past the PSF grid's 32 px (#1222); the twins' --scatter was calibrated without it." };
         var realStatisticsOpt = new Option<string?>("--real-statistics") { Description = "A file the real capture's statistics are read from when it holds them for this capture, frames and options, and saved to otherwise." };
         var localR0Opt = new Option<double?>("--local-r0") { Description = "A layer of turbulence at the telescope (tube, mirror), its Fried parameter at 500 nm, cm (none by default)." };
         var localOuterScaleOpt = new Option<double>("--local-outer-scale") { Description = "The local layer's outer scale, m.", DefaultValueFactory = _ => 0.25 };
@@ -315,7 +316,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             "A synthetic capture from a global map with a real capture's own seeing, motion and camera (R2): measure the real one, make the synthetic one, measure it the same way, and compare.")
         {
             Arguments = { inputArg },
-            Options = { mapOpt, outputOpt, planetOpt, kOpt, telescopeOpt, wavelengthOpt, r0Opt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, localR0Opt, localOuterScaleOpt, localWindOpt, localRenewOpt, scatterOpt, scatterCoreOpt, realStatisticsOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, replayOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, plainOpt, framesOpt, bayerMapsOpt, bayerWavelengthsOpt, bayerKOpt, truthUpsampleOpt, spanOpt, truthAtOpt, psfTruthOpt, moonsOpt, moonLevelOpt, highR0Opt, highAltitudeOpt, highWindOpt, highWindAngleOpt, highOuterScaleOpt, fieldGridOpt, ringLevelsOpt, noTwinRingsOpt },
+            Options = { mapOpt, outputOpt, planetOpt, kOpt, telescopeOpt, wavelengthOpt, r0Opt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, localR0Opt, localOuterScaleOpt, localWindOpt, localRenewOpt, scatterOpt, scatterCoreOpt, farWingOpt, realStatisticsOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, replayOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, plainOpt, framesOpt, bayerMapsOpt, bayerWavelengthsOpt, bayerKOpt, truthUpsampleOpt, spanOpt, truthAtOpt, psfTruthOpt, moonsOpt, moonLevelOpt, highR0Opt, highAltitudeOpt, highWindOpt, highWindAngleOpt, highOuterScaleOpt, fieldGridOpt, ringLevelsOpt, noTwinRingsOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -441,6 +442,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                 LocalRenewSeconds = parseResult.GetValue(localRenewOpt) / 1000,
                 ScatterFraction = parseResult.GetValue(scatterOpt),
                 ScatterCoreArcsec = parseResult.GetValue(scatterCoreOpt),
+                FarWing = parseResult.GetValue(farWingOpt),
                 MinnaertK = k,
                 WarpRmsPx = parseResult.GetValue(warpRmsOpt),
                 WarpLengthPx = parseResult.GetValue(warpLengthOpt),

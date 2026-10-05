@@ -233,6 +233,8 @@ public sealed class MultiFrameBound
     private readonly int _fine;
     private readonly Complex[] _diffraction;
     private readonly double[] _scatter;
+    private readonly Complex[]? _farWing;
+    private readonly double _farWingShare;
 
     /// <param name="header">What every frame of the capture shares.</param>
     /// <param name="size">The window's side, in detector pixels, a power of two.</param>
@@ -248,6 +250,17 @@ public sealed class MultiFrameBound
             throw new ArgumentOutOfRangeException(nameof(size), $"A window of {size} px is narrower than the PSF grid.");
         }
         _diffraction = TransferOnGrid(header.Diffraction);
+        // The pupil's far wing every frame carries past the PSF grid (#1222), and the perfect telescope's with it: a frame is the truth
+        // through the wing too, and the truth is rendered through the whole diffraction PSF.
+        if (header.Pupil is { } pupil)
+        {
+            var (wing, share) = PlanetaryDegrade.FarWingSpectrum(pupil, header.WavelengthM, header.ArcsecPerPixel, _fine);
+            (_farWing, _farWingShare) = (OnWindowGrid(wing), share);
+            for (var i = 0; i < _diffraction.Length; i++)
+            {
+                _diffraction[i] = ((1 - share) * _diffraction[i]) + _farWing[i];
+            }
+        }
         // The scatter's (1 + (r / a)^2)^(-3/2), unit-sum, has the transfer exp(-2 pi a f).
         var core = header.ScatterCoreArcsec / header.ArcsecPerPixel;
         _scatter = new double[size * size];
@@ -312,6 +325,7 @@ public sealed class MultiFrameBound
 
         var h = TransferOnGrid(psf);
         var s = _header.ScatterFraction;
+        var (cx, cy) = Centroid(psf, _header.PsfGrid);
         var transfer = new Complex[n * n];
         for (var i = 0; i < transfer.Length; i++)
         {
@@ -321,10 +335,13 @@ public sealed class MultiFrameBound
                 continue;
             }
             var (fx, fy) = Frequency(i);
-            var optics = ((1 - s) * h[i]) + (s * _scatter[i]);
+            // The far wing moves with the PSF's own tilt, as the frame was made (#1222).
+            var psfPart = _farWing is null
+                ? h[i]
+                : ((1 - _farWingShare) * h[i]) + (_farWing[i] * Complex.FromPolarCoordinates(1, -2 * Math.PI * ((fx * cx) + (fy * cy)) / _header.Oversample));
+            var optics = ((1 - s) * psfPart) + (s * _scatter[i]);
             transfer[i] = optics * Complex.FromPolarCoordinates(1, -2 * Math.PI * ((fx * shiftX) + (fy * shiftY))) / d;
         }
-        var (cx, cy) = Centroid(psf, _header.PsfGrid);
         return new Frame(field, transfer, noise, shiftX + (cx / _header.Oversample), shiftY + (cy / _header.Oversample));
     }
 
@@ -830,6 +847,13 @@ public sealed class MultiFrameBound
             }
         }
         Fft2D.Forward(field, m, m);
+        return OnWindowGrid(field);
+    }
+
+    // A spectrum on the fine grid (the window's side times the oversampling) at the window's frequencies, k / size cycles a pixel.
+    private Complex[] OnWindowGrid(Complex[] fine)
+    {
+        var (m, n) = (_fine, Size);
         var result = new Complex[n * n];
         for (var ky = 0; ky < n; ky++)
         {
@@ -837,7 +861,7 @@ public sealed class MultiFrameBound
             for (var kx = 0; kx < n; kx++)
             {
                 var mx = ((kx < n / 2 ? kx : kx - n) + m) % m;
-                result[(ky * n) + kx] = field[(my * m) + mx];
+                result[(ky * n) + kx] = fine[(my * m) + mx];
             }
         }
         return result;

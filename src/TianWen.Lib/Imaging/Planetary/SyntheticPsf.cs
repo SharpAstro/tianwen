@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using TianWen.Lib.Imaging.Optics;
 
 namespace TianWen.Lib.Imaging.Planetary;
 
@@ -18,8 +19,10 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// <param name="ReadNoiseAdu">The read noise.</param>
 /// <param name="ElectronsPerAdu">The gain, which sets the shot noise.</param>
 /// <param name="Diffraction">The perfect telescope's PSF on the same grid, unit-sum.</param>
+/// <param name="Pupil">The telescope, whose diffraction wing past the PSF grid every frame carries beside its PSF (<see cref="DegradeOptions.FarWing"/>,
+/// #1222); null when the frames carry none.</param>
 public sealed record SyntheticPsfHeader(int PsfGrid, int Oversample, double ArcsecPerPixel, double WavelengthM, double ScatterFraction, double ScatterCoreArcsec,
-    double OffsetAdu, double ReadNoiseAdu, double ElectronsPerAdu, double[] Diffraction)
+    double OffsetAdu, double ReadNoiseAdu, double ElectronsPerAdu, double[] Diffraction, Pupil? Pupil = null)
 {
     /// <summary>The header of a capture made with <paramref name="options"/> at <paramref name="arcsecPerPixel"/>.</summary>
     public static SyntheticPsfHeader For(DegradeOptions options, double arcsecPerPixel)
@@ -27,17 +30,19 @@ public sealed record SyntheticPsfHeader(int PsfGrid, int Oversample, double Arcs
         ArgumentNullException.ThrowIfNull(options);
         return new SyntheticPsfHeader(PlanetaryDegrade.PsfGrid, PlanetaryDegrade.OversampleFor(arcsecPerPixel, options.Pupil.DiameterM, options.WavelengthM), arcsecPerPixel,
             options.WavelengthM, options.ScatterFraction, options.ScatterCoreArcsec, options.OffsetAdu, options.ReadNoiseAdu, options.ElectronsPerAdu,
-            PlanetaryDegrade.DiffractionPsf(options, arcsecPerPixel));
+            PlanetaryDegrade.DiffractionPsf(options, arcsecPerPixel), options.FarWing ? options.Pupil : null);
     }
 }
 
 /// <summary>
 /// A synthetic capture's PSFs, one per frame, beside it as <c>&lt;capture&gt;.psf</c> (docs/plans/planetary-restoration.md, R8 part 1):
-/// <c>TWPSF01</c>, the header with the diffraction PSF, then each frame's shift, brightness and PSF, little-endian, the PSF as floats.
+/// <c>TWPSF02</c>, the header with the diffraction PSF and, behind a flag, the pupil whose far wing the frames carry (#1222), then each
+/// frame's shift, brightness and PSF, little-endian, the PSF as floats. <c>TWPSF01</c>, written before the flag, reads with no pupil.
 /// </summary>
 public static class SyntheticPsfFile
 {
-    private static ReadOnlySpan<byte> Magic => "TWPSF01\0"u8;
+    private static ReadOnlySpan<byte> Magic => "TWPSF02\0"u8;
+    private static ReadOnlySpan<byte> MagicWithoutPupil => "TWPSF01\0"u8;
 
     /// <summary>The PSF file beside <paramref name="capture"/>.</summary>
     public static string PathFor(string capture) => Path.ChangeExtension(capture, ".psf");
@@ -68,6 +73,15 @@ public static class SyntheticPsfFile
             foreach (var v in header.Diffraction)
             {
                 _writer.Write(v);
+            }
+            _writer.Write(header.Pupil is not null);
+            if (header.Pupil is { } pupil)
+            {
+                _writer.Write(pupil.DiameterM);
+                _writer.Write(pupil.ObstructionRatio);
+                _writer.Write(pupil.Vanes);
+                _writer.Write(pupil.VaneWidthM);
+                _writer.Write(pupil.VaneAngleDeg);
             }
         }
 
@@ -108,7 +122,9 @@ public static class SyntheticPsfFile
             BinaryReader? reader = new BinaryReader(File.OpenRead(path));
             try
             {
-                if (!reader.ReadBytes(Magic.Length).AsSpan().SequenceEqual(Magic))
+                var magic = reader.ReadBytes(Magic.Length).AsSpan();
+                var flagged = magic.SequenceEqual(Magic);
+                if (!flagged && !magic.SequenceEqual(MagicWithoutPupil))
                 {
                     return null;
                 }
@@ -121,7 +137,10 @@ public static class SyntheticPsfFile
                 {
                     diffraction[i] = reader.ReadDouble();
                 }
-                var opened = new Reader(reader, new SyntheticPsfHeader(grid, oversample, scale, wavelength, scatter, core, offset, readNoise, gain, diffraction));
+                Pupil? pupil = flagged && reader.ReadBoolean()
+                    ? new Pupil(reader.ReadDouble(), ObstructionRatio: reader.ReadDouble(), Vanes: reader.ReadInt32(), VaneWidthM: reader.ReadDouble(), VaneAngleDeg: reader.ReadDouble())
+                    : null;
+                var opened = new Reader(reader, new SyntheticPsfHeader(grid, oversample, scale, wavelength, scatter, core, offset, readNoise, gain, diffraction, pupil));
                 reader = null;
                 return opened;
             }

@@ -102,6 +102,14 @@ public sealed record DegradeOptions(Pupil Pupil, double WavelengthM)
     /// <summary>The scatter kernel's core, in arcseconds.</summary>
     public double ScatterCoreArcsec { get; init; } = 5;
 
+    /// <summary>
+    /// Whether each frame carries the pupil's diffraction wing past the PSF grid's square (<see cref="PlanetaryDegrade.FarWingSpectrum(DegradeOptions, double, int)"/>,
+    /// #1222), 1.37 % of a twin frame's light past 32 px. Off by default: the twins' <see cref="ScatterFraction"/> was calibrated to stand
+    /// in for that light, and with the wing in no one fraction at a 5" core fits the real capture's halo in all four rings
+    /// (docs/plans/planetary-restoration.md, "A twin's frames carry a short wing").
+    /// </summary>
+    public bool FarWing { get; init; }
+
     /// <summary>The local warp's RMS per axis, in pixels (zero for none).</summary>
     public double WarpRmsPx { get; init; }
 
@@ -409,6 +417,7 @@ public static partial class PlanetaryDegrade
 
         var warp = new WarpField(windowPx, options.WarpRmsPx, options.WarpLengthPx, options.WarpLag1, options.Seed + 1);
         var scatter = options.ScatterFraction > 0 ? ScatterSpectrum(fine, options.ScatterCoreArcsec / (arcsecPerPixel / os)) : null;
+        var farWing = FarWingFor(options, arcsecPerPixel, fine);
 
         var truths = new SyntheticFrame[n];
         var blockPsfs = new double[Block][];
@@ -461,7 +470,7 @@ public static partial class PlanetaryDegrade
             await Parallel.ForAsync(0, count, new ParallelOptions { CancellationToken = cancellationToken }, (k, _) =>
             {
                 var t = first + k;
-                frames[k] = MakeFrame(spectrum, blockPsfs[k], scatter, blockWarps[k], fine, os, windowX, windowY, shiftX[t] + blockTilts[k].X, shiftY[t] + blockTilts[k].Y, brightness.IsDefaultOrEmpty ? 1 : brightness[t], width, height, options,
+                frames[k] = MakeFrame(spectrum, blockPsfs[k], scatter, farWing, blockWarps[k], fine, os, windowX, windowY, shiftX[t] + blockTilts[k].X, shiftY[t] + blockTilts[k].Y, brightness.IsDefaultOrEmpty ? 1 : brightness[t], width, height, options,
                     new Random(unchecked((options.Seed * 1_000_003) + t)));
                 return ValueTask.CompletedTask;
             }).ConfigureAwait(false);
@@ -626,7 +635,7 @@ public static partial class PlanetaryDegrade
         }
         var scatter = options.ScatterFraction > 0 ? ScatterSpectrum(fine, options.ScatterCoreArcsec / (arcsecPerPixel / os)) : null;
         var objectSpectrum = ObjectSpectrum(map, PhysicalEphemeris.Compute(planet, times[0]), finePlacement, fine, options, options.MoonsAt(planet, times[0]));
-        return LevelGain(objectSpectrum, psfs, scatter, fine, finePlacement, options);
+        return LevelGain(objectSpectrum, psfs, scatter, FarWingFor(options, arcsecPerPixel, fine), fine, finePlacement, options);
     }
 
     // The fine grid a capture's frames are made on: its oversampling, its size (a power of two that holds the planet, its rings and its
@@ -654,7 +663,8 @@ public static partial class PlanetaryDegrade
     }
 
     // The gain ShownLevelGain reads: the object through the mean of `psfs`, without their shifts, against its sharp level.
-    private static double LevelGain(Complex[] objectSpectrum, double[][] psfs, Complex[]? scatter, int fine, in DiskPlacement placement, DegradeOptions options)
+    private static double LevelGain(Complex[] objectSpectrum, double[][] psfs, Complex[]? scatter, (Complex[]? Spectrum, double Share) farWing, int fine,
+        in DiskPlacement placement, DegradeOptions options)
     {
         // Each PSF centred on its own centroid before the mean: a frame's level is read where its disk lies, so its tilt takes no
         // light out of the circle (the tilts left in read a gain 2 % too large).
@@ -694,7 +704,8 @@ public static partial class PlanetaryDegrade
         var kept = scatter is null ? 1 : 1 - options.ScatterFraction;
         for (var i = 0; i < field.Length; i++)
         {
-            var transfer = scatter is null ? field[i] : (kept * field[i]) + (options.ScatterFraction * scatter[i]);
+            var psf = farWing.Spectrum is { } wing ? ((1 - farWing.Share) * field[i]) + wing[i] : field[i];
+            var transfer = scatter is null ? psf : (kept * psf) + (options.ScatterFraction * scatter[i]);
             field[i] = transfer * objectSpectrum[i];
         }
         Fft2D.Inverse(field, fine, fine);
@@ -746,7 +757,8 @@ public static partial class PlanetaryDegrade
 
     // One frame: the object through this frame's PSF, moved by `shiftX`, `shiftY` (the fraction of a pixel in the Fourier
     // domain, the whole pixels in where the window lands), warped, binned, and read out.
-    private static ushort[] MakeFrame(Complex[] objectSpectrum, double[] psf, Complex[]? scatter, SyntheticWarpField warp, int fine, int os, int windowX, int windowY,
+    private static ushort[] MakeFrame(Complex[] objectSpectrum, double[] psf, Complex[]? scatter, (Complex[]? Spectrum, double Share) farWing, SyntheticWarpField warp,
+        int fine, int os, int windowX, int windowY,
         double shiftX, double shiftY, double brightness, int width, int height, DegradeOptions options, Random random)
     {
         var (ix, iy) = ((int)Math.Round(shiftX), (int)Math.Round(shiftY));
@@ -765,8 +777,19 @@ public static partial class PlanetaryDegrade
             }
         }
         Fft2D.Forward(field, fine, fine);
-        // The telescope's wide scatter takes its share of the light from the frame's PSF, both unit-sum.
+        // The telescope's wide scatter takes its share of the light from the frame's PSF, both unit-sum, and the pupil's far wing its
+        // share from the frame's PSF (#1222), moved with the PSF's own tilt as the whole PSF moves.
         var kept = scatter is null ? 1 : 1 - options.ScatterFraction;
+        var (wingX, wingY) = (new Complex[fine], new Complex[fine]);
+        if (farWing.Spectrum is not null)
+        {
+            var (cx, cy) = Centroid(psf);
+            for (var k = 0; k < fine; k++)
+            {
+                var f = (k < fine / 2 ? k : k - fine) / (double)fine;
+                (wingX[k], wingY[k]) = (Complex.FromPolarCoordinates(1, -2 * Math.PI * f * cx), Complex.FromPolarCoordinates(1, -2 * Math.PI * f * cy));
+            }
+        }
         for (var ky = 0; ky < fine; ky++)
         {
             var fy = (ky < fine / 2 ? ky : ky - fine) / (double)fine;
@@ -774,7 +797,8 @@ public static partial class PlanetaryDegrade
             {
                 var fx = (kx < fine / 2 ? kx : kx - fine) / (double)fine;
                 var i = (ky * fine) + kx;
-                var transfer = scatter is null ? field[i] : (kept * field[i]) + (options.ScatterFraction * scatter[i]);
+                var withWing = farWing.Spectrum is { } wing ? ((1 - farWing.Share) * field[i]) + (wing[i] * wingY[ky] * wingX[kx]) : field[i];
+                var transfer = scatter is null ? withWing : (kept * withWing) + (options.ScatterFraction * scatter[i]);
                 field[i] = transfer * objectSpectrum[i] * Complex.FromPolarCoordinates(1, -2 * Math.PI * ((fx * dx) + (fy * dy)));
             }
         }
@@ -896,6 +920,49 @@ public static partial class PlanetaryDegrade
         }
         Fft2D.Forward(kernel, fine, fine);
         return kernel;
+    }
+
+    /// <summary>
+    /// The pupil's diffraction wing beyond the frame PSF's square (#1222), as its spectrum on the fine grid (centred on the origin, as the
+    /// frame's PSF is), and the share of the light it holds. A frame's PSF comes from a <see cref="PsfGrid"/>-sample FFT, which holds the
+    /// light only within half the square (32 px on the twins) and folds the rest back in, while a circular aperture's edge spread falls
+    /// only as one over the distance: 1.37 % of a twin frame's light lies past 32 px. That wing is the pupil's edge, the same for every
+    /// frame, so it is computed once without the air, on a grid twice the fine one (its own fold a fine frame away), cut at the fine
+    /// grid's half, and laid only OUTSIDE the square: inside it the frame's own PSF stands as R2 calibrated it (with it, the light past
+    /// 32 px read 1.365 % against a 512-sample PSF's 1.367 %, each ring past 48 px within 10 %; the full static difference would also
+    /// carry the pupil's coarser sampling into a seeing core, 17 % low). Every frame's PSF then holds one less this share.
+    /// </summary>
+    internal static (Complex[] Spectrum, double Share) FarWingSpectrum(DegradeOptions options, double arcsecPerPixel, int fine)
+        => FarWingSpectrum(options.Pupil, options.WavelengthM, arcsecPerPixel, fine);
+
+    // The far wing a capture of `options` carries: none unless asked for (DegradeOptions.FarWing).
+    private static (Complex[]? Spectrum, double Share) FarWingFor(DegradeOptions options, double arcsecPerPixel, int fine)
+        => options.FarWing ? FarWingSpectrum(options, arcsecPerPixel, fine) : (null, 0);
+
+    /// <summary>The far wing of <paramref name="pupil"/> at <paramref name="wavelengthM"/>: the frames' own, as a capture's PSF file records them.</summary>
+    internal static (Complex[] Spectrum, double Share) FarWingSpectrum(Pupil pupil, double wavelengthM, double arcsecPerPixel, int fine)
+    {
+        var os = OversampleFor(arcsecPerPixel, pupil.DiameterM, wavelengthM);
+        var n = 2 * fine;
+        var psf = new double[n * n];
+        ShortExposurePsf.Compute(pupil.Rasterise(n, ShortExposurePsf.PupilSpacingFor(wavelengthM, arcsecPerPixel / os, n)), ReadOnlySpan<double>.Empty, n, psf);
+        var wing = new Complex[fine * fine];
+        var (half, share) = (PsfGrid / 2, 0.0);
+        for (var dy = -(fine / 2); dy < fine / 2; dy++)
+        {
+            for (var dx = -(fine / 2); dx < fine / 2; dx++)
+            {
+                if (dx >= -half && dx < half && dy >= -half && dy < half)
+                {
+                    continue;
+                }
+                var v = psf[((dy + (n / 2)) * n) + dx + (n / 2)];
+                wing[(((dy + fine) % fine) * fine) + ((dx + fine) % fine)] = v;
+                share += v;
+            }
+        }
+        Fft2D.Forward(wing, fine, fine);
+        return (wing, share);
     }
 
     /// <summary>

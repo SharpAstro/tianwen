@@ -8,6 +8,7 @@ using Shouldly;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging.Optics;
 using TianWen.Lib.Imaging.Planetary;
+using TianWen.Lib.Stat;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
@@ -60,6 +61,83 @@ public class PlanetaryDegradeTests
             TestContext.Current.TestOutputHelper?.WriteLine($"r = {separations[s] * spacing:0.00} m: D = {measured:0.000} rad^2, Kolmogorov {expected:0.000}");
             measured.ShouldBe(expected, expected * 0.15);
         }
+    }
+
+    [Fact]
+    public void ThePupilsFarWingIsTheLightThePsfSquareCannotHold()
+    {
+        // #1222: the twins' Newtonian at 650 nm and 0.497"/px, two fine samples a pixel. The wing lies only outside the frame PSF's
+        // 128-sample square, so a frame's own PSF stands there as calibrated, and it holds the light past 32 px a 128-sample FFT drops.
+        const int fine = 512;
+        var options = new DegradeOptions(new Pupil(0.254, ObstructionRatio: 58.0 / 254, Vanes: 4, VaneWidthM: 0.001), 650e-9);
+        var (spectrum, share) = PlanetaryDegrade.FarWingSpectrum(options, 0.497, fine);
+
+        var wing = (Complex[])spectrum.Clone();
+        Fft2D.Inverse(wing, fine, fine);
+        double inside = 0, outside = 0;
+        for (var y = 0; y < fine; y++)
+        {
+            var dy = y < fine / 2 ? y : y - fine;
+            for (var x = 0; x < fine; x++)
+            {
+                var dx = x < fine / 2 ? x : x - fine;
+                var v = wing[(y * fine) + x].Real;
+                if (dx >= -64 && dx < 64 && dy >= -64 && dy < 64)
+                {
+                    inside += Math.Abs(v);
+                }
+                else
+                {
+                    outside += v;
+                }
+            }
+        }
+        TestContext.Current.TestOutputHelper?.WriteLine($"share {share * 100:0.0000} %, outside the square {outside * 100:0.0000} %, inside {inside:G3}");
+        spectrum[0].Real.ShouldBe(share, 1e-12);
+        outside.ShouldBe(share, 1e-9);
+        inside.ShouldBeLessThan(1e-12);
+        share.ShouldBeInRange(0.008, 0.011);
+    }
+
+    [Fact]
+    public async Task TheFarWingLightsTheSkyPastThePsfGridAndLosesNoLight()
+    {
+        // With the pupil's far wing (#1222) the sky past the PSF grid's 32 px reach is lit with no scatter at all, the frame's light is
+        // the same, and the disk inside 0.8 radii gives up about the wing's share.
+        ImmutableArray<double> none = [0, 0];
+        var without = await MakeAsync(none, none, size: 128, radius: 12, r0M: 10);
+        var with = await MakeAsync(none, none, size: 128, radius: 12, r0M: 10, farWing: true);
+        static (double Total, double Disk, double FarSky) Light(ushort[] frame)
+        {
+            double total = 0, disk = 0, far = 0;
+            var farCount = 0;
+            for (var y = 0; y < 128; y++)
+            {
+                for (var x = 0; x < 128; x++)
+                {
+                    var v = frame[(y * 128) + x] - 100.0;
+                    var r = Math.Sqrt(((x - 63.7) * (x - 63.7)) + ((y - 64.2) * (y - 64.2)));
+                    total += v;
+                    if (r < 0.8 * 12)
+                    {
+                        disk += v;
+                    }
+                    else if (r > 12 + 34 && r < 60)
+                    {
+                        far += v;
+                        farCount++;
+                    }
+                }
+            }
+            return (total, disk, far / farCount);
+        }
+        var (a, b) = (Light(without[0]), Light(with[0]));
+        TestContext.Current.TestOutputHelper?.WriteLine(
+            $"light {b.Total / a.Total:0.0000} of the wingless frame's; disk {b.Disk / a.Disk:0.0000}; sky past the PSF grid's reach {a.FarSky:0.000} ADU without the wing, {b.FarSky:0.000} with");
+        (b.Total / a.Total).ShouldBe(1, 0.005);
+        (b.Disk / a.Disk).ShouldBeInRange(0.98, 1.0);
+        a.FarSky.ShouldBeLessThan(0.5);
+        b.FarSky.ShouldBeGreaterThan(1);
     }
 
     [Fact]
@@ -447,16 +525,19 @@ public class PlanetaryDegradeTests
         none.ShouldBe(0);
     }
 
-    [Fact]
-    public async Task ALayerEveryPointSeesAlikeMakesTheOnePsfFrames()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ALayerEveryPointSeesAlikeMakesTheOnePsfFrames(bool farWing)
     {
         // At no altitude every field point looks through the same air: the points' tilt-removed blurs blended by their tents, and the frame
         // moved by their one tilt, are the one-PSF frame up to the rounding of its samples. The gain is high enough that shot noise is a
         // twentieth of an ADU: a sky sample whose round-off differs draws its Poisson value from the stream in one path and not the other,
         // which puts every later draw out of step, so at the helper's gain the two frames would differ by their noise.
         var none = ImmutableArray.Create(0.0, 0.0, 0.0, 0.0);
-        var one = await MakeAsync(none, none, size: 96, radius: 20, r0M: 0.1, keepTilt: true, localR0M: 0.05, electronsPerAdu: 1e7);
-        var layered = await MakeAsync(none, none, size: 96, radius: 20, r0M: 0.1, keepTilt: true, localR0M: 0.05, highR0M: 1e6, highAltitudeM: 0, electronsPerAdu: 1e7);
+        // With the pupil's far wing (#1222) both paths move it with the frame's tilt.
+        var one = await MakeAsync(none, none, size: 96, radius: 20, r0M: 0.1, keepTilt: true, localR0M: 0.05, electronsPerAdu: 1e7, farWing: farWing);
+        var layered = await MakeAsync(none, none, size: 96, radius: 20, r0M: 0.1, keepTilt: true, localR0M: 0.05, highR0M: 1e6, highAltitudeM: 0, electronsPerAdu: 1e7, farWing: farWing);
         var (differing, largest, total) = (0, 0, 0);
         for (var f = 0; f < one.Length; f++)
         {
@@ -843,7 +924,7 @@ public class PlanetaryDegradeTests
         bool keepTilt = false, Action<ImmutableArray<SyntheticFrame>>? made = null, double warpRms = 0, bool flat = false, double defocusNm = 0,
         Pupil? pupil = null, double localR0M = double.PositiveInfinity, double localOuterScaleM = 0.25, double scatter = 0,
         Action<int, SyntheticWarp>? warps = null, double highR0M = double.PositiveInfinity, double highAltitudeM = 10_000,
-        Action<int, SyntheticFieldFrame>? field = null, double electronsPerAdu = 1000, bool atShownLevel = false)
+        Action<int, SyntheticFieldFrame>? field = null, double electronsPerAdu = 1000, bool atShownLevel = false, bool farWing = false)
     {
         var map = BandedMap(flat);
         var builder = ImmutableArray.CreateBuilder<DateTimeOffset>(shiftX.Length);
@@ -866,6 +947,7 @@ public class PlanetaryDegradeTests
             LocalR0M = localR0M,
             LocalOuterScaleM = localOuterScaleM,
             ScatterFraction = scatter,
+            FarWing = farWing,
             WarpRmsPx = warpRms,
             WarpLengthPx = 10,
             WarpLag1 = 0.5,
