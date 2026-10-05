@@ -742,6 +742,43 @@ three seeds the arm reads:
 All three are apart, H2's direction on every seed. The arm also moves the untouched sky inside (2)'s 0.3, which no field
 seed does.
 
+#### R2a's result: the recipe is KILLED; H2 holds where the wings are, H3 misses (2026-10-05)
+
+Nine models, three arms by three seeds, each scored on every arm's val draws (`C:\temp\e2\r2a_read.py` over
+`C:\temp\e2\r2-eval`). Read as registered: on the random arm's draws, arm means, with a difference counted only past the
+wider of the two arms' seed ranges.
+
+| arm | 5-20 sigma | 20-100 | 100-1000 | saturated | footprint RMS | sky moved |
+|---|---|---|---|---|---|---|
+| random (field) | 55.9 (40.8-67.9) | 64.6 (53.5-76.5) | 72.6 (58.5-85.4) | 60.1 (43.8-77.2) | 4.54 (2.76-7.09) | 0.56 (0.52-0.60) |
+| Gaussian | 63.7 (61.7-66.2) | 56.2 (52.4-60.7) | 25.0 (17.3-38.8) | 21.3 (16.9-28.3) | 18.1 (17.3-18.6) | 0.21 (0.19-0.23) |
+| at-site | 37.7 (28.3-44.2) | 36.2 (31.7-41.2) | 51.1 (39.7-58.3) | 38.4 (32.0-50.7) | 5.82 (2.38-7.79) | 0.42 (0.37-0.47) |
+
+- **The kill fires on both of its conditions.** No arm reaches (1)'s 80 percent at 5-20 sigma, and the field and at-site
+  arms move the untouched sky past (2)'s 0.3 on every seed. Its parenthetical, "the net does not learn removal at all",
+  is not what happened: every arm removes some, the field arm three quarters at 100-1000 sigma, the Gaussian arm 74 to 80
+  percent on its own draws. But the bar was the registered one, so the recipe as run is killed.
+- **(1)** also holds at 20-100 and 100-1000 sigma for the field arm only. The saturated band beats its bound wherever the
+  wings were taught: the bright tail is not the hardest case here.
+- **(3) holds** on every arm.
+- **(4) misses at 20-100 sigma** on the field and at-site arms (2.5 and 1.3 percent of sites against twice a 0.6 null).
+  The Gaussian arm leaves no speckles at 100+ because it leaves those stars in place.
+- **(5) H2 holds where the wings are.** At 100-1000 sigma the Gaussian arm removes 47.6 points less, past the 26.9-point
+  seed range, with four times the footprint residual. At 20-100 sigma its 8.4 points sit inside the 23.1-point seed range,
+  so H2 is not shown there.
+- **(6) H3 misses both halves.** On its own draws the at-site arm removes less than the field arm on its own (50.3 against
+  55.9 at 5-20, 52.8 against 64.6 at 20-100, 61.3 against 72.6 at 100-1000). On the field arm's draws it is 18 to 28 points
+  under, past (6)'s 5 everywhere and past the seed range at 20-100. Injecting at R0's sites teaches less, not more.
+- **The seeds spread 27 points at 5-20 sigma, and the plateau schedule is part of it.** It stopped the nine runs at 21,000
+  to 51,500 of 60,000 steps, and the earliest stop of an arm is that arm's worst seed on its own draws. The at-site arm's s2
+  stopped at 21,000 and reads 38.3 at 5-20 (s1 at 36,000: 55.9; s0 at 44,000: 56.7). The field arm's s1 stopped at 27,500
+  and reads 40.8. A recipe whose length the held-out loss decides this early cannot be judged at 3 seeds.
+
+What it leaves for R2b, the owner's choice (#32): a fixed length, or a plateau patience long enough that no seed stops before
+the cosine's last third; the sky term, which the field arm moves twice as far as the Gaussian one (an L2 that leaves the
+sky to learn early, per (2)'s reasoning, did not); and whether at-site placement goes on at all, now that it reads worse
+on every axis.
+
 Open from it, under #902: R0's saturated fit on a fixed annulus in FWHM units with a 0.1 to 0.3 core cut (#1240); a
 residual table that holds bright stars' near wings (#1241); the Lagoon's and eta Carinae's photometric offsets (1.4 to 1.7,
 a V against luminance colour term is the likely reading, #1242); the mono noise shape (#1243, calibrated 2026-10-04:
