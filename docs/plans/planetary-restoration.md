@@ -4116,6 +4116,28 @@ runs them in order with nothing between them a file would not carry.
   detail, so the agreement is read on what they share. A stack another program wrote is the reference's (its own kernel and keep), so it is
   judged as an input, never against our stack of the same frames.
 
+**Built (2026-10-06): `PlanetaryComposition`, `tianwen planetary-compose`** (the recipe) **with its steps `ingest`, `register`,
+`derotate` and `join`**, each a verb of its own through FITS files on the same routine. `PlanetaryCompositionTests` runs them one by one
+against the recipe and they agree to the bit.
+- **Ingest** labels a stack with its planet, instant and filter, from its header or its WinJUPOS-style name
+  (`PlanetaryCaptureName.Instant`: `2026-09-01-0706_4` is 07:06:24 UTC, the capture's middle). The labels travel in the FITS (`OBJECT`,
+  `DATE-OBS` with `EXPTIME` 0, `FILTER`), and an IR-pass or L stack is the luminance.
+- **Register** fits each stack's limb at its own instant (Saturn's rings in the model) and moves the stack so its disk's centre lands on
+  the reference's, by the stacks' own clamped Lanczos-3 (`PlanetaryChannelAlignment.Moved`). The reference is the green stack nearest the
+  colours' middle. **Register before de-rotating**: `PlanetaryDerotation.Derotate` resamples only inside 0.9 radii and leaves the limb,
+  the rings and the sky where they were, so it can only turn a disk already in place, never move one.
+- **Derotate** carries every stack to the reference's instant on its disk. North is decided by agreement between the two stacks of ONE
+  filter the planet turned most between (`PlanetaryDerotation.AgreementBothWays`, the routine the stacker's own north decision now
+  calls), since stacks of one filter show the same detail.
+- **Join** averages each filter's stacks, makes red, green and blue one colour master, and writes the luminance beside it.
+- **The 2026-09-01 Saturn set** (16 AutoStakkert stacks, four runs of R, G, B and IR over 24 minutes):
+  - Every limb fitted, the radii from 165.6 to 166.4 px.
+  - The moves were all under a pixel, blue's 0.6 px the atmosphere's dispersion, since AutoStakkert had centred each stack.
+  - North was decided on two blue stacks 7.8 degrees apart: RMS apart 0.0094 as fitted against 0.0306 turned over.
+  - The master then takes the colour master's chain unchanged (`planetary-sharpen`, `planetary-look`).
+- **Left on #1278**: the luminance through the deep-sky LRGB step (`LuminanceDetail`), whose scale is measured over the whole frame
+  and needs reading on a planet first.
+
 ### Contrast-adaptive deconvolution (Kolivas's PlanetaryTools)
 
 **Issue:** #1279. The thread our outside captures come from (Cloudy Nights, "The Planetary Imaging Free SER File Thread", saved by the

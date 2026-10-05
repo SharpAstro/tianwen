@@ -251,7 +251,7 @@ public static class PlanetaryChannelAlignment
         => new PlanetaryChannelShift(0.5 * (a.Dx + b.Dx), 0.5 * (a.Dy + b.Dy));
 
     // plane(x + dx, y + dy) at every pixel, by the stack's resampling, row bands in parallel (each writes only its own rows).
-    private static float[,] Moved(float[,] plane, double dx, double dy)
+    internal static float[,] Moved(float[,] plane, double dx, double dy)
     {
         var height = plane.GetLength(0);
         var width = plane.GetLength(1);

@@ -90,6 +90,34 @@ public static class PlanetaryDerotation
     }
 
     /// <summary>
+    /// A turn of the central meridian under this many degrees between two stacks leaves their north as the limb fit has it: either way
+    /// round carries the planet too little to matter, or to tell (<see cref="AgreementBothWays"/>).
+    /// </summary>
+    public const double LeastTurnToTellNorthDeg = 1;
+
+    /// <summary>
+    /// Which way round a planet turns (R6 part 2): <paramref name="earlier"/> carried from <paramref name="from"/>'s instant to
+    /// <paramref name="to"/>'s and set against <paramref name="later"/>, both on <paramref name="placement"/>'s disk, with its north as
+    /// given and turned over. The RMS apart each way over the pixels the carry covers (<see cref="DifferenceRms"/>); the smaller is the
+    /// north. Near opposition a limb fit's north can be its south, and a de-rotation turned the wrong way turns the planet backwards, so
+    /// north comes from this agreement, never the fit alone. A caller checks the turn first (<see cref="LeastTurnToTellNorthDeg"/>).
+    /// </summary>
+    public static (double AsGiven, double TurnedOver) AgreementBothWays(Image earlier, in PlanetAspect from, Image later, in PlanetAspect to,
+        in DiskPlacement placement, double minnaertK)
+    {
+        ArgumentNullException.ThrowIfNull(earlier);
+        ArgumentNullException.ThrowIfNull(later);
+        return (Apart(earlier, from, later, to, placement, minnaertK),
+            Apart(earlier, from, later, to, placement with { NorthAngleDeg = placement.NorthAngleDeg + 180 }, minnaertK));
+
+        static double Apart(Image earlier, in PlanetAspect from, Image later, in PlanetAspect to, in DiskPlacement disk, double k)
+        {
+            var carried = Derotate(earlier, from, to, disk, k);
+            return DifferenceRms(carried.Image, later, disk, carried.Covered).Rms;
+        }
+    }
+
+    /// <summary>
     /// How far apart two images of one planet on one disk are: the RMS of their difference inside
     /// <see cref="SourceRadiusLimit"/> of <paramref name="disk"/> and over the pixels <paramref name="over"/> names (row-major),
     /// each as the mean of its channels on its own disk level (<see cref="PlanetaryMetrics.Normalise"/>), so two captures'
