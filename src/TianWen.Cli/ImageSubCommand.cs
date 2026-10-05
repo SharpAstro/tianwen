@@ -403,13 +403,33 @@ internal sealed class ImageSubCommand(
             Description = "Remove the stars from every master first (the active star remover, RC-Astro StarXTerminator), add the "
                 + "emission to the starless planes, and put the broadband stars back on top.",
         };
+        var matchPsfOpt = new Option<bool>("--match-psf")
+        {
+            Description = "Blur every sharper master to the widest one's star width first (PsfMatch): channels that differ in "
+                + "width colour every star, and the star fluxes the continuum scale and the luminance read fall as a star widens.",
+        };
+        var luminanceOpt = new Option<string?>("--luminance")
+        {
+            Description = "Also write the synthetic luminance here (SyntheticLuminance): the final red, green and blue (red with "
+                + "its H-alpha) on green's photometric scale by their stars, weighted by their noise there.",
+        };
+        var lrgbOpt = new Option<bool>("--lrgb")
+        {
+            Description = "Give every channel its fine detail from the synthetic luminance (LuminanceDetail): its own colour above "
+                + "--colour-sigma, the luminance's lower noise below it.",
+        };
+        var colourSigmaOpt = new Option<float>("--colour-sigma")
+        {
+            Description = "With --lrgb, the blur in pixels the channels keep their own colour above.",
+            DefaultValueFactory = _ => LuminanceDetail.DefaultColourSigma,
+        };
         var outputOpt = new Option<string>("--output", "-o") { Description = "Output FITS (three channels, linear).", Required = true };
         var formatOpt = OutputFormatOption("2D-viewer companion alongside the FITS output; 'png' renders it through the master preview stretch.");
         var (pngPqPeakNitsOpt, pngPqGamutOpt) = HdrCompanionOptions();
         var cmd = new Command("combine", "One colour image from red, green and blue mono masters on one grid (image align), "
             + "optionally with H-alpha's emission added to red, its continuum subtracted.")
         {
-            Options = { redOpt, greenOpt, blueOpt, haOpt, haScaleOpt, haWeightOpt, starlessOpt, outputOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt },
+            Options = { redOpt, greenOpt, blueOpt, haOpt, haScaleOpt, haWeightOpt, starlessOpt, matchPsfOpt, luminanceOpt, lrgbOpt, colourSigmaOpt, outputOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -437,6 +457,18 @@ internal sealed class ImageSubCommand(
                 {
                     consoleHost.WriteError("the masters are not on one grid: put them there first (tianwen image align).");
                     return 1;
+                }
+            }
+
+            if (parseResult.GetValue(matchPsfOpt))
+            {
+                var (matched, report, target) = await PsfMatch.ToWidestAsync(masters, ct);
+                masters = [.. matched];
+                var names = new[] { "red", "green", "blue", "H-alpha" };
+                for (var i = 0; i < report.Length; i++)
+                {
+                    consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                        $"[combine] {names[i]}: FWHM {report[i].FwhmBefore:F2} px, blurred by sigma {report[i].Sigma:F2} to {report[i].FwhmAfter:F2} (target {target:F2})"));
                 }
             }
 
@@ -477,15 +509,58 @@ internal sealed class ImageSubCommand(
             }
             var green = planes[1];
             var blue = planes[2];
-            if (stars is not null)
+            Image[] full = stars is null
+                ? [red, green, blue]
+                : [NarrowbandCombination.WithStars(red, stars[0]), NarrowbandCombination.WithStars(green, stars[1]),
+                    NarrowbandCombination.WithStars(blue, stars[2])];
+
+            var luminancePath = parseResult.GetValue(luminanceOpt);
+            var lrgb = parseResult.GetValue(lrgbOpt);
+            if (luminancePath is not null || lrgb)
             {
-                red = NarrowbandCombination.WithStars(red, stars[0]);
-                green = NarrowbandCombination.WithStars(green, stars[1]);
-                blue = NarrowbandCombination.WithStars(blue, stars[2]);
+                // The parts on the channels WITH their stars, whose fluxes give the scales.
+                var parts = await SyntheticLuminance.MeasureAsync(full, reference: 1, ct);
+                var luminance = SyntheticLuminance.Combine(full, parts, reference: 1);
+                var noise = SyntheticLuminance.Noise(luminance);
+                var names = new[] { "red", "green", "blue" };
+                for (var i = 0; i < parts.Length; i++)
+                {
+                    consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                        $"[combine] luminance {names[i]}: scale {parts[i].Scale:G4} onto green ({parts[i].Stars} stars), noise {parts[i].ScaledNoise:G4} on green's scale, weight {parts[i].Weight:P1}"));
+                }
+                var best = Math.Min(parts[0].ScaledNoise, Math.Min(parts[1].ScaledNoise, parts[2].ScaledNoise));
+                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                    $"[combine] luminance noise {noise:G4} against the best single channel's {best:G4}: {best / noise:F2}x its signal to noise"));
+                if (luminancePath is not null)
+                {
+                    luminance.ScaleFloatValuesToUnit().WriteToFitsFile(luminancePath, wcs, SharpenPipeline.SwModifyHeader());
+                    consoleHost.WriteScrollable($"[combine] wrote {luminancePath}");
+                }
+                if (lrgb)
+                {
+                    var sigma = parseResult.GetValue(colourSigmaOpt);
+                    if (stars is null)
+                    {
+                        consoleHost.WriteScrollable("[combine] --lrgb without --starless: the stars take the detail too and will show coloured rims.");
+                        full = [LuminanceDetail.Apply(full[0], luminance, parts[0].Scale, sigma),
+                            LuminanceDetail.Apply(full[1], luminance, parts[1].Scale, sigma),
+                            LuminanceDetail.Apply(full[2], luminance, parts[2].Scale, sigma)];
+                    }
+                    else
+                    {
+                        // On the starless channels, where the colour noise is; the stars go back with their own colour.
+                        var starlessLuminance = SyntheticLuminance.Combine([red, green, blue], parts, reference: 1);
+                        full = [NarrowbandCombination.WithStars(LuminanceDetail.Apply(red, starlessLuminance, parts[0].Scale, sigma), stars[0]),
+                            NarrowbandCombination.WithStars(LuminanceDetail.Apply(green, starlessLuminance, parts[1].Scale, sigma), stars[1]),
+                            NarrowbandCombination.WithStars(LuminanceDetail.Apply(blue, starlessLuminance, parts[2].Scale, sigma), stars[2])];
+                    }
+                    consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                        $"[combine] every channel's detail below {sigma:G3} px taken from the luminance{(stars is null ? "" : ", the stars kept as they were")}"));
+                }
             }
-            // Written as every master is, on [0, 1] with true labels: one divisor for all three channels, so their ratios
-            // (the colour) stay as measured. The preview renderer reads a master on that scale, and raw ADU labelled at
-            // 74,931 rendered solid green.
+            red = full[0];
+            green = full[1];
+            blue = full[2];
             var rgb = NarrowbandCombination.Rgb(red, green, blue).ScaleFloatValuesToUnit();
             var dst = parseResult.Required(outputOpt);
             rgb.WriteToFitsFile(dst, wcs, SharpenPipeline.SwModifyHeader());

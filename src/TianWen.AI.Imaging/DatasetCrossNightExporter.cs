@@ -489,7 +489,7 @@ namespace TianWen.AI.Imaging
                 // one's width. The two nights' profiles are not exactly Gaussian, which is why the
                 // exported FWHM on both sides is measured again and recorded.
                 blurFwhm = Math.Sqrt((wide * wide) - (sharp * sharp));
-                var sigma = (float)(blurFwhm / 2.354820045);
+                var sigma = PsfMatch.SigmaToWiden(sharp, wide);
                 if (fwhmA < fwhmB)
                 {
                     a = a.GaussianBlur(sigma);

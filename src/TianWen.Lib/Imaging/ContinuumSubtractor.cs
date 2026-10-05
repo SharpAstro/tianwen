@@ -56,8 +56,8 @@ public static class ContinuumSubtractor
         RequireOneGrid(line, continuum);
         var x = line.GetChannelSpan(lineChannel);
         var y = continuum.GetChannelSpan(continuumChannel);
-        var continuumMedian = FiniteMedian(y);
-        var threshold = significance * NeighbourNoise(y, line.Width);
+        var continuumMedian = PixelNoise.FiniteMedian(y);
+        var threshold = significance * PixelNoise.FromNeighbours(y, line.Width);
         if (!double.IsFinite(continuumMedian) || !double.IsFinite(threshold))
         {
             return new Scale(double.NaN, 0, double.NaN, double.NaN);
@@ -82,7 +82,7 @@ public static class ContinuumSubtractor
         var scratch = new float[xs.Length];
 
         // A start from the ratios about the medians, then a bracket grown until the objective rises on both sides.
-        var lineMedian = FiniteMedian(x);
+        var lineMedian = PixelNoise.FiniteMedian(x);
         var ratios = new float[xs.Length];
         var weights = new float[xs.Length];
         for (var i = 0; i < xs.Length; i++)
@@ -256,41 +256,6 @@ public static class ContinuumSubtractor
             planes[c] = plane;
         }
         return new Image(planes, BitDepth.Float32, line.MaxValue, line.MinValue, line.Pedestal, line.ImageMeta);
-    }
-
-    private static double FiniteMedian(ReadOnlySpan<float> values)
-    {
-        var finite = new float[values.Length];
-        var n = 0;
-        foreach (var v in values)
-        {
-            if (float.IsFinite(v))
-            {
-                finite[n++] = v;
-            }
-        }
-        return n > 0 ? StatisticsHelper.MedianFast(finite.AsSpan(0, n)) : double.NaN;
-    }
-
-    // A plane's pixel noise from the differences of horizontal neighbours, which cancel anything smooth: 1.4826 MAD over
-    // root 2.
-    private static double NeighbourNoise(ReadOnlySpan<float> values, int width)
-    {
-        var differences = new float[values.Length];
-        var n = 0;
-        for (var i = 0; i + 1 < values.Length; i++)
-        {
-            if ((i + 1) % width != 0 && float.IsFinite(values[i]) && float.IsFinite(values[i + 1]))
-            {
-                differences[n++] = values[i + 1] - values[i];
-            }
-        }
-        if (n == 0)
-        {
-            return double.NaN;
-        }
-        var (_, mad) = StatisticsHelper.MedianAndMad(differences.AsSpan(0, n));
-        return 1.4826 * mad / Math.Sqrt(2.0);
     }
 
     private static void RequireOneGrid(Image line, Image continuum)
