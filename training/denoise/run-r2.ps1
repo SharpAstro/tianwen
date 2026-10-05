@@ -31,7 +31,12 @@ param(
     [int]$SeedCount = 3,
     [string]$Tag = 'r2',
     # Free space kept on the cache's drive after a cache is written (one arm's cache is about 27 GiB).
-    [int]$ReserveGb = 15
+    [int]$ReserveGb = 15,
+    # The plateau schedule's patience in evaluations (every 500 steps). R2a ran 4, which stopped runs at 21,000 to 51,500
+    # of 60,000 steps; R2b runs 12 (docs/plans/star-remover-training.md, "R2b, pre-registered").
+    [int]$Patience = 4,
+    # A process to wait for before the first training (R2b waits for the E16c S4 bake: the owner's choice, 2026-10-05).
+    [int]$AfterPid = 0
 )
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
@@ -59,7 +64,12 @@ function Export-Ready([string]$arm) {
 Set-Status 'starting'
 
 try {
-    "R2a at $(git -C $PSScriptRoot rev-parse --short HEAD), $(Get-Date -Format o)" | Tee-Object -FilePath $log -Append
+    "$Tag at $(git -C $PSScriptRoot rev-parse --short HEAD), $(Get-Date -Format o), patience $Patience" | Tee-Object -FilePath $log -Append
+    while ($AfterPid -gt 0 -and (Get-Process -Id $AfterPid -ErrorAction SilentlyContinue)) {
+        if (Stop-Requested "waiting for process $AfterPid") { return }
+        Set-Status "waiting for process $AfterPid"
+        Start-Sleep -Seconds 300
+    }
     $draws = Select-String -Path n2n_smoke.py -SimpleMatch 'draws = int(meta.get("draws", SUBS_PER_CELL))' -Quiet
     if (-not $draws) { throw 'this n2n_smoke.py samples all eight sub slots; the 4-draw export needs the draws fix' }
     $snap = Join-Path $LogDir "scripts-$Tag"
@@ -69,7 +79,7 @@ try {
     :seeds foreach ($seed in 0..($SeedCount - 1)) {
         foreach ($arm in $Arms) {
             $cache = Join-Path $Scratch "r2-$arm"
-            $name = "r2_$($arm -replace '-', '')_s$seed"
+            $name = "$($Tag)_$($arm -replace '-', '')_s$seed"
             if (Test-Path (Join-Path $cache "$name.pt")) { "train ${name}: present, skipped" | Tee-Object -FilePath $log -Append; continue }
 
             # The arm's export, waited for.
@@ -97,7 +107,7 @@ try {
             "train $name $(Get-Date -Format o)" | Tee-Object -FilePath $log -Append
             & python n2n_smoke.py --train --cache $cache --synthetic --loss l2 --upsample --cond-map `
                 --band-loss 3 --band-scales "2,4 4,8" --base 32 --schedule plateau --steps 60000 `
-                --val-every 500 --patience 4 --max-decays 4 --min-improve 0.001 --gate-every 0 `
+                --val-every 500 --patience $Patience --max-decays 4 --min-improve 0.001 --gate-every 0 `
                 --seed $seed --out "$name.pt" *>> $log
             if ($LASTEXITCODE -ne 0) { throw "train $name failed (exit $LASTEXITCODE)" }
             "train $name done $(Get-Date -Format o)" | Tee-Object -FilePath $log -Append
