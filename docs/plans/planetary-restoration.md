@@ -4129,6 +4129,34 @@ applied after `PlanetarySharpening`, take a twin closer to its truth, and a capt
 strength option (#1251) alone? Licences: both read for the method only, never copied (ADR-2 of `narrowband-colour.md`); a released
 binary may be run as a reference, as torchmfbd was.
 
+**Measured (2026-10-06), by the rules written on #1279 before each reading** (`PlanetaryFinishing`, `planetary-sharpen --finish`):
+- **B, the contrast-adaptive weighting, is not kept.** At matched noise (the stack's flattest fifth of the interior) it overshoots
+  wherever the contrast is: band 1 at 1.33 to 1.37 of the truth on the mono twins against today's 0.97 to 1.04, the band error over
+  bands 1 to 4 doubled on every twin (0.647 to 1.564 on the calibrated, 1.286 to 2.006 on the Saturn twin's red) and the limb profile
+  error three to four times. The derived gains are already near the truth, and moving their strength to where the contrast is only
+  overshoots there. Kolivas's own step after our sharpening sharpens twice (band 1 at 2.5 to 2.6 of the truth): his tool expects a stack
+  sharpened lightly first, so it is read as a reference only. Both stay as `--finish adaptive` and `--finish kolivas`, measured and not
+  adopted.
+- **A, the low-pass at the pupil's cutoff, ships as an option** (`--finish cutoff`, `PlanetaryFinish.Cutoff`). On the four real
+  captures with a post it raised band 1's correlation with the post (0.492 to 0.550, 0.645 to 0.705, 0.473 to 0.487, 0.549 to 0.606)
+  and left the detail both hold (band 1's shared gain within 2 %) and bands 2 to 4 unchanged. But it changed nothing on any twin, so its
+  rule against the truth is UNREAD, and the default waits on #1281.
+- **Every twin is sampled coarser than its optics resolve; the outside captures are sampled finer.** The cutoff `p / (lambda N)` lies
+  past Nyquist on every twin (0.943 cycles a pixel on the calibrated Jupiter twin, 0.61 to 0.81 on the Saturn twin's colours) and inside
+  it on the four outside captures (0.23 to 0.53) and on two of the owner's five Jupiters (2021-12-16, 2025-01-02). The sharpening now
+  reports each channel's cutoff (`PlanetarySharpenResult.Cutoffs`). Anything that acts near the cutoff is unread on today's twins until
+  one is made at an oversampled capture's scale (#1281).
+- **C, Kolivas's FFT denoise, is not kept** (`--finish wiener`, `PlanetaryFinishing.WienerLowPass`: a smootherstep low-pass fitted to
+  the sharpened window's Wiener target, the noise being the stack's white floor carried through the sharpening's transfer). The derived
+  gains are already fitted to the Wiener deconvolution target, so a second Wiener after them shrinks the same noise twice, as predicted
+  before it ran:
+  - On the twins no band error fell by the 5 % asked: the calibrated twin 0.647 to 0.665, without the still layer 0.280 to 0.350, the
+    Saturn twin's blue 1.457 to 1.484. The warped twin came closest (0.801 to 0.765). The limb profile error grew 8 to 20 % wherever the
+    cut acted.
+  - On the captures with a post the fitted cut starts at 0.08 to 0.14 cycles a pixel, well inside the pupil's cutoff, and three captures
+    of four lost more than 0.02 of a band's correlation with the post (the EdgeHD Saturn's band 1 0.549 to 0.512).
+
+
 ## R9 A learned stage, only if the measurements say so
 
 **Issue:** #1056 (conditional).

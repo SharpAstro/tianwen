@@ -39,13 +39,15 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var ringEdgeOpt = new Option<bool>("--ring-edge") { Description = "Read Saturn's edge off its rings' outer rim as well as its polar limb (#1256)." };
         var edgeReachOpt = new Option<double?>("--edge-reach") { Description = "Take the kernel as the physical one fitted to the limb's edge from 0.02 cycles a pixel to this, carried by its physics to the cutoff, rather than the edge as read at every frequency." };
         var slidersOpt = new Option<bool>("--sliders") { Description = "Also sharpen as a live view's wavelet sliders do once a derivation seeds them (the same gains over the whole master, no denoise, held at its darkest level), then drawn outside the limb by the limb the derivation keeps (#1201), and score both: whether the live view reaches the derived sharpening. Says how far the live drawing lies from this sharpening outside the limb, and what the drawing costs beside the sliders' wavelet pass." };
+        var finishOpt = new Option<string>("--finish") { Description = "A finishing step after the derived sharpening (#1279): none (the default), cutoff (a low-pass at the pupil's diffraction cutoff), adaptive (the change from the stack weighted by the stack's local contrast, at matched noise), kolivas (Kolivas's own damped Richardson-Lucy step, a reference), wiener (Kolivas's FFT denoise: a smooth low-pass fitted to the sharpened window's Wiener target), joined by + (adaptive+cutoff); a comma list sharpens with each, each written and scored.", DefaultValueFactory = _ => "none" };
+        var kolivasAmountOpt = new Option<double>("--kolivas-amount") { Description = "The amount --finish kolivas takes, as his tool's slider (15.6, his PlanetRecon's judging recipe).", DefaultValueFactory = _ => 15.6 };
         var strengthOpt = new Option<string>("--strength") { Description = "How far past the truth bands 2 and 3 are taken (#1251): 1, the default, is the derived sharpening; a comma list sharpens at each (e.g. '1,1.5,2'), each written and scored.", DefaultValueFactory = _ => "1" };
         var pupil = PlanetaryMasterScore.PupilOptions();
 
         var command = new Command("planetary-sharpen", "Sharpen a planetary master again, by gains derived through the limb's edge (R8), the limb kept from ringing.")
         {
             Arguments = { masterArg },
-            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, strengthOpt, edgeReachOpt, ringEdgeOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, stackedPreviewOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope },
+            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, strengthOpt, edgeReachOpt, ringEdgeOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, stackedPreviewOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, finishOpt, kolivasAmountOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -161,13 +163,38 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                     }
                     strengths.Add(strength);
                 }
+                var finishes = new List<(PlanetaryFinish Finish, string Word)>();
+                foreach (var word in (parseResult.GetValue(finishOpt) ?? "none").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    var finish = PlanetaryFinish.None;
+                    foreach (var part in word.ToLowerInvariant().Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    {
+                        PlanetaryFinish? step = part switch
+                        {
+                            "none" => PlanetaryFinish.None,
+                            "cutoff" => PlanetaryFinish.Cutoff,
+                            "adaptive" => PlanetaryFinish.Adaptive,
+                            "kolivas" => PlanetaryFinish.Kolivas,
+                            "wiener" => PlanetaryFinish.Wiener,
+                            _ => null,
+                        };
+                        if (step is not { } known)
+                        {
+                            consoleHost.WriteError($"--finish {word}: none, cutoff, adaptive, kolivas or wiener, joined by + and listed by commas");
+                            return 1;
+                        }
+                        finish |= known;
+                    }
+                    finishes.Add((finish, word.ToLowerInvariant()));
+                }
+                var kolivasAmount = parseResult.GetValue(kolivasAmountOpt);
                 var outputDir = parseResult.GetValue(outputOpt) ?? Path.GetDirectoryName(Path.GetFullPath(path)) ?? ".";
                 var variants = (options.Pupil is null ? [PlanetaryLimbFix.LimbChannel] : fixes)
-                    .SelectMany(f => fits.SelectMany(n => finests.SelectMany(b => strengths.Select(k => (Fix: f, NonNegative: n, Finest: b, Strength: k))))).ToArray();
-                foreach (var (fix, nonNegative, finest, strength) in variants)
+                    .SelectMany(f => fits.SelectMany(n => finests.SelectMany(b => strengths.SelectMany(k => finishes.Select(e => (Fix: f, NonNegative: n, Finest: b, Strength: k, Finish: e)))))).ToArray();
+                foreach (var (fix, nonNegative, finest, strength, (finish, finishWord)) in variants)
                 {
                     ct.ThrowIfCancellationRequested();
-                    if (PlanetarySharpening.Sharpen(master, options with { Fix = fix, NonNegative = nonNegative, ColourFinestBand = finest, Strength = strength, EdgeReach = parseResult.GetValue(edgeReachOpt), RingEdge = parseResult.GetValue(ringEdgeOpt) }) is not { } result)
+                    if (PlanetarySharpening.Sharpen(master, options with { Fix = fix, NonNegative = nonNegative, ColourFinestBand = finest, Strength = strength, EdgeReach = parseResult.GetValue(edgeReachOpt), RingEdge = parseResult.GetValue(ringEdgeOpt), Finish = finish, KolivasAmount = kolivasAmount }) is not { } result)
                     {
                         consoleHost.WriteError($"{path}: the planet's limb could not be fitted");
                         return 1;
@@ -175,16 +202,29 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                     try
                     {
                         var stem = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(path) + "_sharpened"
-                            + (variants.Length > strengths.Count ? "_" + fix.ToString().ToLowerInvariant() + (nonNegative ? "_nonnegative" : "") + (finests.Length > 1 ? "_" + finest.ToString().ToLowerInvariant() : "") : "")
-                            + (strengths.Count > 1 ? string.Create(inv, $"_s{strength:0.##}") : ""));
+                            + (variants.Length > strengths.Count * finishes.Count ? "_" + fix.ToString().ToLowerInvariant() + (nonNegative ? "_nonnegative" : "") + (finests.Length > 1 ? "_" + finest.ToString().ToLowerInvariant() : "") : "")
+                            + (strengths.Count > 1 ? string.Create(inv, $"_s{strength:0.##}") : "")
+                            + (finishes.Count > 1 ? "_f" + finishWord.Replace('+', '-') : ""));
                         var finestWords = finests.Length > 1 ? $", the colour's finest band {finest.ToString().ToLowerInvariant()}" : "";
-                        var strengthWords = strength == 1 ? "" : string.Create(inv, $", strength {strength:0.##}");
+                        var strengthWords = (strength == 1 ? "" : string.Create(inv, $", strength {strength:0.##}"))
+                            + (finish == PlanetaryFinish.None ? "" : $", finished {finishWord}");
                         var what = result.Derived ? $"derived{(nonNegative ? " non-negative" : "")}, {PlanetaryBestStack.Describe(fix)}{finestWords}{strengthWords}" : $"PlanetaryDefault{strengthWords}, the limb kept as stacked";
                         consoleHost.WriteScrollable(string.Create(inv,
                             $"[planetary] {what}: gains {string.Join(", ", result.Gains.Select(g => g.ToString("0.00", inv)))}; the limb's edge at 0.1 and 0.3 cycles a pixel {result.EdgeAtTenth:0.000}, {result.EdgeAtThreeTenths:0.000}"));
                         if (!result.Gains.IsDefaultOrEmpty)
                         {
                             consoleHost.WriteScrollable($"[planetary] {what}: {PlanetaryMasterScore.FilterWords(result.Gains.AsSpan())}");
+                        }
+                        if (!result.Cutoffs.IsDefaultOrEmpty)
+                        {
+                            var sampled = result.Cutoffs.Max() >= 0.5 ? "; at or past 0.5 the master is sampled coarser than the optics resolve, and nothing lies past the cutoff" : "";
+                            consoleHost.WriteScrollable(string.Create(inv,
+                                $"[planetary] the pupil's cutoff, each channel: {string.Join(", ", result.Cutoffs.Select(f => f.ToString("0.000", inv)))} cycles a pixel{sampled}"));
+                        }
+                        if (!result.WienerCuts.IsDefaultOrEmpty)
+                        {
+                            consoleHost.WriteScrollable(string.Create(inv,
+                                $"[planetary] {what}: the fitted Wiener low-pass, each channel, from and to: {string.Join("; ", result.WienerCuts.Select(w => string.Create(inv, $"{w.From:0.00} to {w.To:0.00}")))} cycles a pixel"));
                         }
                         if (truthPath is not null)
                         {

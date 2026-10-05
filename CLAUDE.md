@@ -1066,7 +1066,12 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   for it. **A colour look is a RENDERING, never a master** (`PlanetaryColourLook`, `tianwen planetary-look`): a curve on each pixel's OKLab
   chroma about GREY, its hue kept (about the planet's mean it pushed every zone and ring past grey to blue); `ColourLook.Boosted` is the
   owner's S-curve by eye, a taste four posts share (built from three, it met the fourth within 25 % on three captures of four). The
-  linear masters are what is processed further; the viewer's control is #1277. **Check what a reference IS before reading it**: the
+  linear masters are what is processed further; the viewer's control is #1277. **Every twin is sampled coarser than its optics resolve**
+  (the pupil's cutoff `p / (lambda N)` past Nyquist, 0.61 to 0.94 cycles a pixel; `PlanetarySharpenResult.Cutoffs` reports it), while the
+  outside captures are sampled finer (0.23 to 0.53): anything acting near the cutoff is unread on today's twins (#1279, #1281), and
+  `--finish cutoff` (the low-pass there) is an option until an oversampled twin decides it. **The derived gains are already a Wiener**, so a
+  finish that shrinks the noise again (`--finish wiener`) or moves their strength to where the stack has contrast (`--finish adaptive`) made
+  every twin worse (#1279). **Check what a reference IS before reading it**: the
   12-inch SCT Jupiter's PNG is its raw stack, not a post (scale and band energy said so; the source thread's post #6 confirms it).
   **It needs the planet, the instant and the telescope** (a master carries its capture's span, DATE-OBS to EXPTIME, for the
   instant). Measured on the twins it leaves under a third of legacy's error; the free gain fit oscillates where the edge reads the finest
