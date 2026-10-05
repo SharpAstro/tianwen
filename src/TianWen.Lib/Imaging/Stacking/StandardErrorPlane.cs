@@ -81,6 +81,43 @@ internal static class StandardErrorPlane
     }
 
     /// <summary>
+    /// <see cref="Of"/> for a column whose frames drift (<see cref="FrameDrift"/>): the spread is read from
+    /// <paramref name="aboutDrift"/>, each sample less its frame's drift, and to its square is added the square of what
+    /// the keep mask did to the drift. A clip over a drifting column drops a frame where its noise carries it over the
+    /// threshold and keeps it a pixel away, so the drift the master averages changes from pixel to pixel by the kept
+    /// frames' mean drift less every finite frame's: noise in the master that the halves do not share, which no scatter
+    /// about the drift can see (on a fixture drifting two of a frame's noise under a 3 sigma clip, the plane read the
+    /// master's noise at 1.145 without it).
+    /// </summary>
+    internal static float OfDrifting(ReadOnlySpan<float> column, ReadOnlySpan<float> aboutDrift, ReadOnlySpan<float> keepMask)
+    {
+        var spread = Of(aboutDrift, keepMask);
+        if (float.IsNaN(spread))
+        {
+            return spread;
+        }
+        double keptWeight = 0, keptDrift = 0, allDrift = 0;
+        var finite = 0;
+        for (var i = 0; i < column.Length; i++)
+        {
+            if (float.IsNaN(column[i]))
+            {
+                continue;
+            }
+            var drift = (double)column[i] - aboutDrift[i];
+            finite++;
+            allDrift += drift;
+            if (keepMask[i] > 0f)
+            {
+                keptWeight += keepMask[i];
+                keptDrift += keepMask[i] * drift;
+            }
+        }
+        var composition = (keptDrift / keptWeight) - (allDrift / finite);
+        return (float)Math.Sqrt(((double)spread * spread) + (composition * composition));
+    }
+
+    /// <summary>
     /// The factor that makes <c>1.4826 * MAD</c> of <paramref name="n"/> Gaussian samples unbiased in the mean, for
     /// <see cref="StatisticsHelper.MedianAndMad(Span{float})"/>'s median (the two middle values averaged). Up to 20 from a
     /// simulation of four million columns each (within a percent of Croux and Rousseeuw's table, whose median convention

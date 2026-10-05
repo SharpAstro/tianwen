@@ -153,10 +153,97 @@ public class StandardErrorPlaneTests(ITestOutputHelper output)
             var robust = 1.4826 * sorted[sorted.Length / 2];
             output.WriteLine($"streaming {streaming}, clipped {clipped}, channel {c}: the master's error over the plane, RMS over RMS " +
                              $"{varianceRatio:F3}; per pixel robust {robust:F3}, mean {z.Average():F3}, max |z| {sorted[^1]:F1}");
-            // Measured 2026-10-05: RMS over RMS 0.993 to 1.024 in every case; per pixel 0.97 to 1.07, a MAD of 40 frames
-            // reading one pixel's noise to about 18 percent.
+            // Measured 2026-10-05: RMS over RMS 0.974 to 1.003 in every case (0.993 to 1.024 before the MAD's finite-sample
+            // correction: a plane unbiased in the mean has an RMS a little above the truth); per pixel 0.95 to 1.05, a MAD of
+            // 40 frames reading one pixel's noise to about 18 percent.
             varianceRatio.ShouldBe(1.0, 0.04, $"channel {c}");
             robust.ShouldBe(1.0, 0.10, $"channel {c}");
+        }
+    }
+
+    /// <summary>
+    /// What a real night adds and the plane must not read as noise (E16c S4's pilot): each frame's sky offset, a gradient
+    /// that turns, and a transparency that scales an extended nebula, at the sizes the pilot's nights measured (the sky
+    /// drifting two of one frame's noise). Unnormalised, as the bake integrates. The plane is judged against the master's
+    /// own NOISE, its error less the frames' mean drift, which the fixture knows exactly: read about each frame's drift
+    /// (<see cref="FrameDrift"/>) it predicts it, read raw it over-reads.
+    /// </summary>
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void ThePlaneIsReadAboutEachFramesDrift(bool measureDrift, bool clipped)
+    {
+        const int size = 128;
+        const int frames = 40;
+        const double sigma = 0.01;
+        const double nebula = 0.5;
+        var rng = new Random(41);
+        var meanDrift = new double[size, size];
+        var images = new List<Image>(frames);
+        for (var f = 0; f < frames; f++)
+        {
+            var offset = 2 * sigma * Gaussian(rng);
+            var gradient = sigma * Gaussian(rng);
+            var transparency = 0.03 * Gaussian(rng);
+            var plane = new float[size, size];
+            for (var y = 0; y < size; y++)
+            {
+                for (var x = 0; x < size; x++)
+                {
+                    var dx = x - (size / 2.0);
+                    var dy = y - (size / 2.0);
+                    var blob = nebula * Math.Exp(-((dx * dx) + (dy * dy)) / (2 * 30.0 * 30.0));
+                    var drift = offset + (gradient * ((x / (double)size) - 0.5)) + (blob * transparency);
+                    meanDrift[y, x] += drift / frames;
+                    plane[y, x] = (float)(Truth + blob + drift + (sigma * Gaussian(rng)));
+                }
+            }
+            images.Add(new Image([plane], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta()));
+        }
+
+        var staged = images.Select(i => new StagedAlignedFrame(StreamingFrameReader.InMemoryOnly(i), i.ImageMeta, i.MaxValue, i.Pedestal, null, null)
+        {
+            DriftBlocks = measureDrift ? FrameDrift.MeasureBlocks(i) : null,
+        }).ToList();
+        IntegrationResult result;
+        try
+        {
+            result = StreamingIntegrator.Integrate(staged, new IntegrationOptions(Rejector: clipped ? new SigmaClipRejector() : null, ApplyNormalization: false));
+        }
+        finally
+        {
+            foreach (var f in staged)
+            {
+                f.Dispose();
+            }
+        }
+
+        var standardError = result.StandardError.ShouldNotBeNull();
+        double noiseSquares = 0, planeSquares = 0;
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                var dx = x - (size / 2.0);
+                var dy = y - (size / 2.0);
+                var blob = nebula * Math.Exp(-((dx * dx) + (dy * dy)) / (2 * 30.0 * 30.0));
+                var noise = result.Master[0, y, x] - Truth - blob - meanDrift[y, x];
+                var se = standardError[0, y, x];
+                noiseSquares += noise * noise;
+                planeSquares += se * se;
+            }
+        }
+        var ratio = Math.Sqrt(noiseSquares / planeSquares);
+        output.WriteLine($"drift measured {measureDrift}, clipped {clipped}: the master's noise over the plane, RMS over RMS {ratio:F3}; " +
+                         $"rejection {result.MeanRejectionRate:P2}");
+        if (measureDrift)
+        {
+            ratio.ShouldBe(1.0, 0.05);
+        }
+        else
+        {
+            ratio.ShouldBeLessThan(0.7, "read raw, the scatter holds the drift the halves cancel");
         }
     }
 
