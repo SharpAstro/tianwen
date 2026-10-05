@@ -56,6 +56,34 @@ public class ViewerBestStackTests
     [Theory(Timeout = 180_000)]
     [InlineData(1f)]
     [InlineData(1.5f)]
+    public async Task AStrengthChosenInThePanelTakesTheBestStackPastTheTruth(float dpi)
+    {
+        // #1251: the truth by default, a post's look as an option. The panel's strength reaches the run, and its note says so.
+        using var e2e = ViewerE2E.Start(dpi);
+        var ct = TestContext.Current.CancellationToken;
+        var capture = WriteCapture(Path.Combine(e2e.Folder, "2024-12-15-1256_7-Jupiter.ser"));
+        e2e.Host.HandleDropFile(capture);
+        await e2e.PumpUntilAsync(() => e2e.State.SequencePath == capture, "the capture to open", ct);
+        e2e.State.PlanetaryStrength.ShouldBe(1, "the truth until the panel says otherwise");
+
+        e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "Strength2" }, "the strength 2 button"));
+        e2e.Frame();
+        e2e.State.PlanetaryStrength.ShouldBe(2);
+        e2e.Key(InputKey.K, InputModifier.Shift);
+        // The open of the sharpened master clears the status line, so the note is waited for after it, and held as it is seen: the
+        // pump's last frame may clear it again before the assertion reads it.
+        await e2e.PumpUntilAsync(() => e2e.IsShowing(Path.Combine(e2e.Folder, "master_2024-12-15-1256_7-Jupiter_sharpened.fits")),
+            "the best stack's sharpened master to open", ct);
+        string? note = null;
+        await e2e.PumpUntilAsync(() => (note = e2e.State.StatusMessage)?.StartsWith("Best stack:", StringComparison.Ordinal) == true,
+            "the best stack's note", ct);
+
+        note.ShouldNotBeNull().ShouldContain("strength 2 past the truth");
+    }
+
+    [Theory(Timeout = 180_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
     public async Task ACaptureWhoseNameGivesNoPlanetTakesThePlanetChosenInThePanel(float dpi)
     {
         // A twin named "calibrated" gave the run no planet, so its sharpening was the preset's (reported 2026-10-02).

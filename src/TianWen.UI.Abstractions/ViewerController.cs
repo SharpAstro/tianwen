@@ -1245,7 +1245,7 @@ public sealed class ViewerController(
         _bestStackCts = CancellationTokenSource.CreateLinkedTokenSource(appToken);
         var token = _bestStackCts.Token;
         var options = new PlanetaryBestStackOptions(state.PlanetaryBody ?? PlanetaryCaptureName.Planet(capture),
-            PlanetaryBestStack.PupilFor(state.PlanetaryApertureMm, state.PlanetaryDesign));
+            PlanetaryBestStack.PupilFor(state.PlanetaryApertureMm, state.PlanetaryDesign)) { Strength = state.PlanetaryStrength };
         var filterNm = state.PlanetaryFilterNm ?? PlanetaryCaptureName.WavelengthNm(capture);
         Volatile.Write(ref _bestStackPercent, 0);
         state.BestStackProgress = 0;

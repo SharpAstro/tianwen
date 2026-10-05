@@ -1032,7 +1032,8 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   stacked. **The derived gains are the truth's, and anything past it is the strength OPTION, never the default** (the owner, #1251;
   `PlanetarySharpenOptions.Strength`, `--strength`): the gains fitted to a texture target with bands 2 and 3 at that many times the
   truth (`PlanetaryWaveletGains.Boost`), the disk still to its own model and the finest band at its truth gain; never multiply
-  derived gains (the layers overlap, and it multiplies their oscillation). The posts sit at about 1.5 to 2.5. **Saturn is sharpened
+  derived gains (the layers overlap, and it multiplies their oscillation). The posts sit at about 1.5 to 2.5; the panel's
+  `PlanetaryStrength` is never saved, so a launch starts at the truth. **Saturn is sharpened
   as Jupiter is** (S4, #1184): the sharpening is kept inside the globe and the rings' footprint
   (`ClearRadiiAt` at most 1) and the model is drawn past it; its limb's edge is the polar arcs alone, true to about 0.15 cycles a pixel, and
   the raw edge still beat a physical kernel fitted short of that. **Its globe turns under rings that stay where they lie** (S5, #1234):
