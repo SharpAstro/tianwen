@@ -494,6 +494,26 @@ On LDN 1622 (weight 1, an exposure ratio of 0.5) the Hα glow of Barnard's Loop 
 the stars stay clean. The aligned channels leave a thin coloured border where they do not overlap, which an autocrop
 takes off.
 
+**Two more options, both on the owner's ask (2026-10-05):**
+- **`--match-psf`** (`PsfMatch`): every sharper master blurred to the widest one's star width, in quadrature, NaN kept.
+  Channels of different widths colour every star (LDN 1622's green, the unresampled reference at 1.97 px against blue's
+  2.26, gave green star cores). The star detector's FWHM is too coarse to steer the last few percent: one blur took green
+  to 2.25, while red stopped at 2.17 against a 2.26 target after three passes.
+- **`--luminance` and `--lrgb`** (`SyntheticLuminance`, `LuminanceDetail`): a synthetic luminance adds no photon a real
+  luminance filter would, only the channels' shared brightness at the best signal to noise their sum gives. Each channel
+  goes onto green's scale by its stars' flux ratios, then is weighted by its inverse noise variance there. On LDN 1622 red
+  is the cleanest (56 percent of the weight, green 26, blue 18), and the luminance has 1.27 times the best channel's
+  signal to noise. `--lrgb` gives each channel `blur(channel) + (L - blur(L)) / scale`: LRGB in linear form, with no
+  ratio near the background. The channel keeps its own colour above 1.5 px and takes the luminance's quieter detail
+  below. Two findings:
+  - **It must not touch the stars.** A high-pass rings negative around every peak, and the channels take the detail in
+    the field's typical star colour while their blurred part keeps the star's own. Applied to everything, every star grew
+    a coloured core and a dark rim. It is applied to the starless channels, the scales measured on the full ones, and the
+    stars go back with their own colour.
+  - **What it buys, measured on the output:** colour noise at the pixel scale (the neighbour noise of R-G and B-G) fell
+    4.7 and 6.5 times, and each channel's own noise fell (green 1.44 to 0.81, blue 1.30 to 0.59, x1e-4). Colour blotches
+    broader than the 1.5 px blur are kept, by design.
+
 ### F. NarrowbandNormalization (the SHO answer, and what that video was actually about)
 
 [Video](https://www.youtube.com/watch?v=uLy9TA2Bo2A) -
