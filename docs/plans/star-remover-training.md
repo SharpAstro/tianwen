@@ -775,7 +775,7 @@ wider of the two arms' seed ranges.
   and reads 40.8. A recipe whose length the held-out loss decides this early cannot be judged at 3 seeds.
 
 What it leaves for R2b, the owner's choice (#32): a fixed length, or a plateau patience long enough that no seed stops before
-the cosine's last third; the sky term, which the field arm moves twice as far as the Gaussian one (an L2 that leaves the
+the cosine's last third (the owner leans to the longer patience, 2026-10-05); the sky term, which the field arm moves twice as far as the Gaussian one (an L2 that leaves the
 sky to learn early, per (2)'s reasoning, did not); and whether at-site placement goes on at all, now that it reads worse
 on every axis.
 
