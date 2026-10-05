@@ -538,6 +538,20 @@ public sealed class ViewerState
     /// </summary>
     public double PlanetaryStrength { get; set; } = 1;
 
+    /// <summary>
+    /// The colour look on a balanced master of Jupiter or Saturn (<see cref="TianWen.Lib.Imaging.Planetary.PlanetaryColourLook"/>, #1277),
+    /// or null to show it as balanced, the default. A RENDERING over the linear master, never written into it: the live stacked view draws
+    /// it on each master, a master on show is replaced on screen by its looked copy and given back on "As balanced", and the file stays
+    /// linear. Kept while the viewer runs, not saved, as <see cref="PlanetaryStrength"/> is.
+    /// </summary>
+    public TianWen.Lib.Imaging.Planetary.ColourLook? PlanetaryLook { get; set; }
+
+    /// <summary>Set when <see cref="PlanetaryLook"/> changes, so the host applies it to the master on show; cleared once it has.</summary>
+    public bool PlanetaryLookChanged { get; set; }
+
+    /// <summary>Why the look cannot go on the master on show (no planet, mono, not balanced, no limb), or null; said under the choice.</summary>
+    public string? PlanetaryLookNote { get; set; }
+
     /// <summary>Selectable playback rates (fps) cycled by the transport speed control / Up-Down keys.</summary>
     public static readonly float[] PlaybackRates = [1f, 5f, 10f, 15f, 24f, 30f, 50f, 75f, 100f, 150f, 200f];
 

@@ -1159,6 +1159,142 @@ public sealed class ViewerController(
         state.NeedsRedraw = true;
     }
 
+    // The colour look on a master on show (#1277): the balanced master it goes on, its looked copy and the look that made it, the run
+    // making one and what it is for, and a look that could not be made for that master (not tried again until either changes). A
+    // rendering: the file and the master read from it are never touched, and "As balanced" gives the master back.
+    private AstroImageDocument? _lookBase;
+    private (AstroImageDocument Document, ColourLook Look)? _looked;
+    private Task<(AstroImageDocument? Document, string? Refusal)>? _lookTask;
+    private (AstroImageDocument Base, ColourLook Look)? _lookRunFor;
+    private (AstroImageDocument Base, ColourLook Look)? _lookRefusedFor;
+    private CancellationTokenSource? _lookCts;
+
+    /// <summary>True while a colour look is being made for the master on show.</summary>
+    public bool IsPlanetaryLookPending => _lookTask is { IsCompleted: false };
+
+    /// <summary>
+    /// The colour look on the master on show (#1277, <see cref="ViewerState.PlanetaryLook"/>): the master as balanced, or a copy of it with
+    /// the look, made off the render thread by <see cref="PlanetaryColourLook.OnMaster"/> (the routine <c>planetary-look</c> runs) and kept,
+    /// so "As balanced" and back is a swap, not a run. Only a still whose <c>OBJECT</c> names a planet; the live stacked view draws the look
+    /// on each master itself. A new master on show drops both copies; an enhance result is left as it is. Render thread, between frames;
+    /// true when the document on show changed.
+    /// </summary>
+    public bool TickPlanetaryLook(CancellationToken appToken = default)
+    {
+        // A finished run: its copy kept, or its refusal said and remembered, while it is for the master still on show.
+        if (_lookTask is { IsCompleted: true } done && _lookRunFor is { } runFor)
+        {
+            (_lookTask, _lookRunFor) = (null, null);
+            _lookCts?.Dispose();
+            _lookCts = null;
+            if (ReferenceEquals(runFor.Base, _lookBase))
+            {
+                if (done.IsCompletedSuccessfully && done.Result.Document is { } made)
+                {
+                    _looked = (made, runFor.Look);
+                    state.PlanetaryLookNote = null;
+                }
+                else
+                {
+                    _lookRefusedFor = runFor;
+                    state.PlanetaryLookNote = done.IsCompletedSuccessfully ? done.Result.Refusal : "the look could not be made";
+                    if (done.Exception is { } fault)
+                    {
+                        logger.LogWarning(fault, "Colour look failed on {Path}", runFor.Base.FilePath);
+                    }
+                }
+                state.NeedsRedraw = true;
+            }
+        }
+
+        if (state.ShowStacked || Document is not { } shown)
+        {
+            return false;
+        }
+
+        // A master on show that is neither the base nor its look is a new one (a file opened, a best stack finished): both copies go.
+        if (_lookBase is not { } baseDoc
+            || !(ReferenceEquals(shown, baseDoc) || (_looked is { } kept && ReferenceEquals(shown, kept.Document))))
+        {
+            if (shown.IsEnhanceResult)
+            {
+                return false;
+            }
+            ForgetPlanetaryLook();
+            _lookBase = baseDoc = shown;
+        }
+
+        AstroImageDocument wanted;
+        if (state.PlanetaryLook is not { } look)
+        {
+            wanted = baseDoc;
+        }
+        else if (_looked is { } ready && ready.Look.Equals(look))
+        {
+            wanted = ready.Document;
+        }
+        else
+        {
+            // Shown as it is until the look is made: a run for this master and look, unless one is under way or this one was refused.
+            wanted = shown;
+            var refused = _lookRefusedFor is { } no && ReferenceEquals(no.Base, baseDoc) && no.Look.Equals(look);
+            if (_lookTask is null && !refused)
+            {
+                StartPlanetaryLook(baseDoc, look, appToken);
+            }
+        }
+
+        if (ReferenceEquals(wanted, shown))
+        {
+            return false;
+        }
+        Document = wanted;
+        _rawSource = wanted;
+        state.NotifySourceReplaced();
+        state.NeedsTextureUpdate = true;
+        return true;
+    }
+
+    // A run making the look's copy of a master: its planet from OBJECT and its instant from the header, as `planetary-look` reads them.
+    private void StartPlanetaryLook(AstroImageDocument master, ColourLook look, CancellationToken appToken)
+    {
+        var image = master.UnstretchedImage;
+        if (PlanetaryCaptureName.Named(image.ImageMeta.ObjectName) is not { } planet)
+        {
+            return;
+        }
+        if (PlanetaryBestStack.InstantOf(image, epoch: null) is not { } instant)
+        {
+            _lookRefusedFor = (master, look);
+            state.PlanetaryLookNote = "no time in its header to place the planet at";
+            return;
+        }
+        _lookCts = CancellationTokenSource.CreateLinkedTokenSource(appToken);
+        var token = _lookCts.Token;
+        var (path, wcs) = (master.FilePath, master.Findings.Wcs);
+        _lookRunFor = (master, look);
+        state.PlanetaryLookNote = null;
+        _lookTask = Task.Run(async () =>
+        {
+            var (looked, refusal) = PlanetaryColourLook.OnMaster(image, planet, instant, look);
+            if (looked is null)
+            {
+                return ((AstroImageDocument?)null, refusal);
+            }
+            var document = await AstroImageDocument.AdoptImageAsync(looked, DebayerAlgorithm.None, wcs, path, cancellationToken: token).ConfigureAwait(false);
+            return (document, null);
+        }, token);
+        _ = _lookTask.ContinueWith(_ => state.NeedsRedraw = true, TaskScheduler.Default);
+    }
+
+    // Both copies dropped, and a run under way cancelled: its result is for a master no longer on show.
+    private void ForgetPlanetaryLook()
+    {
+        _lookCts?.Cancel();
+        (_lookBase, _looked, _lookRefusedFor) = (null, null, null);
+        state.PlanetaryLookNote = null;
+    }
+
     /// <summary>
     /// The best stack of the SER on screen (#1159, <see cref="PlanetaryBestStack"/>, the routine <c>planetary-stack</c> runs): started
     /// when asked (<see cref="ViewerState.BestStackRequested"/>), or the running one cancelled; its progress copied into
@@ -1452,7 +1588,7 @@ public sealed class ViewerController(
             _derivation.Tick(state, live, state.SequencePath, timeProvider.GetUtcNow(), logger);
             if (state.WaveletDirty)
             {
-                live.SetSharpen(state.BuildWaveletOptions(), state.WaveletLimb);
+                live.SetSharpen(state.BuildWaveletOptions(), state.WaveletLimb, state.PlanetaryLook);
                 state.WaveletDirty = false;
             }
             masterPublished = live.TryPublishMaster();

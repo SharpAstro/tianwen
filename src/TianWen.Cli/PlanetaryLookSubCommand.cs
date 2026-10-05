@@ -71,28 +71,19 @@ internal sealed class PlanetaryLookSubCommand(IConsoleHost consoleHost, MasterPr
                     consoleHost.WriteError($"{masterPath}: no time in its header; give --utc");
                     return 1;
                 }
-                var options = PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(body, instant));
-                if (await Task.Run(() => PlanetaryLimbFit.Fit(master, options), ct) is not { } masterFit)
+                // The planet's disk, and a master left in the camera's colours balanced first: the one routine the viewer's colour
+                // control makes a master ready with (#1277).
+                var (prepared, refusal) = await Task.Run(() => PlanetaryColourLook.Prepare(master, body, instant), ct);
+                if (prepared is not { } ready)
                 {
-                    consoleHost.WriteError($"{masterPath}: the planet's limb could not be fitted");
+                    consoleHost.WriteError($"{masterPath}: {refusal}");
                     return 1;
                 }
-                var disk = MetricDisk.From(masterFit, options);
-
-                // A look is a rendering of a BALANCED master: on a master left in the camera's colours (`planetary-stack` without its
-                // balance) the camera's own tint is most of every pixel's chroma, and the curve would raise that. So such a master is
-                // balanced to the planet's colour first, as `planetary-stack` balances it.
-                if (!master.ImageMeta.IsColourBalanced)
+                var (disk, options) = (ready.Disk, ready.Options);
+                if (ready.Balanced is { } howBalanced)
                 {
-                    var (balance, howBalanced) = await Task.Run(() => PlanetaryColourBalance.For(master, body, instant), ct);
-                    if (balance is null)
-                    {
-                        consoleHost.WriteError($"{masterPath}: not colour balanced, and it could not be balanced ({howBalanced})");
-                        return 1;
-                    }
-                    var balanced = balance.Apply(master);
                     master.Release();
-                    master = balanced;
+                    master = ready.Master;
                     consoleHost.WriteScrollable($"the master was in the camera's colours; {howBalanced}");
                 }
 

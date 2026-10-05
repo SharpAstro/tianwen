@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Globalization;
+using TianWen.Lib.Astrometry;
+using TianWen.Lib.Astrometry.Catalogs;
 
 namespace TianWen.Lib.Imaging.Planetary;
 
@@ -100,6 +102,13 @@ public sealed record ColourLook
 }
 
 /// <summary>
+/// A master made ready for a colour look (<see cref="PlanetaryColourLook.Prepare"/>, #1277): the image the look goes on, the planet's disk on
+/// it, the limb fit's options (to fit another picture of the planet the same way), and, where the master had to be balanced first, how; then
+/// <see cref="Master"/> is a new image its caller owns.
+/// </summary>
+public readonly record struct PreparedMaster(Image Master, MetricDisk Disk, LimbFitOptions Options, string? Balanced);
+
+/// <summary>
 /// A colour look applied to a balanced planetary master (#1273, docs/plans/planetary-restoration.md). Every pixel is read in OKLab exactly as
 /// <see cref="PlanetaryColourReading"/> reads it (its sky off, over the interior's mean luminance). First, given a cast, one gain a channel over
 /// the whole frame takes the interior's mean to it, a white balance never faded. Then each pixel's chroma about grey goes through the look's
@@ -130,6 +139,82 @@ public static class PlanetaryColourLook
     /// quantiles.
     /// </summary>
     public static (Image Image, ImmutableArray<double> Gains) Apply(Image master, in MetricDisk disk, ColourLook look)
+    {
+        var (image, gains) = Applied(master, disk, look);
+        return image is null
+            ? throw new ArgumentException("The master's planet has no luminance to read its colour at.", nameof(master))
+            : (image, gains);
+    }
+
+    /// <summary>
+    /// <see cref="Apply"/>'s image, or null where the master's planet has no luminance to read its colour at (a live master whose disk is
+    /// dark): the live view's colour look (#1277), which shows such a master as balanced rather than stopping.
+    /// </summary>
+    public static Image? TryApply(Image master, in MetricDisk disk, ColourLook look) => Applied(master, disk, look).Image;
+
+    /// <summary>
+    /// <paramref name="master"/> made ready for a look, ONE routine for the viewer's colour control and <c>planetary-look</c> (#1277): the
+    /// planet's limb fitted at <paramref name="instant"/> for the disk the look reads its colour over, and a master left in the camera's colours
+    /// balanced to the planet's colour first, as <c>planetary-stack</c> balances it, since on the camera's tint the curve would raise the tint,
+    /// most of every pixel's chroma. Where it balanced, <see cref="PreparedMaster.Balanced"/> says how and its image is a new one the caller
+    /// owns; otherwise its image is <paramref name="master"/>. A refusal says why the master could not be made ready.
+    /// </summary>
+    public static (PreparedMaster? Prepared, string? Refusal) Prepare(Image master, CatalogIndex planet, DateTimeOffset instant)
+    {
+        ArgumentNullException.ThrowIfNull(master);
+        if (master.ChannelCount != 3)
+        {
+            return (null, "a colour look needs a three-channel master");
+        }
+        if (!PhysicalEphemeris.Supports(planet))
+        {
+            return (null, $"a colour look is for Jupiter and Saturn, whose colour is measured; not {planet}");
+        }
+        var options = PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(planet, instant));
+        if (PlanetaryLimbFit.Fit(master, options) is not { } fit)
+        {
+            return (null, "the planet's limb could not be fitted");
+        }
+        var disk = MetricDisk.From(fit, options);
+        if (master.ImageMeta.IsColourBalanced)
+        {
+            return (new PreparedMaster(master, disk, options, Balanced: null), null);
+        }
+        var (balance, how) = PlanetaryColourBalance.For(master, planet, instant);
+        return balance is null
+            ? (null, $"not colour balanced, and it could not be balanced ({how})")
+            : (new PreparedMaster(balance.Apply(master), disk, options, how), null);
+    }
+
+    /// <summary>
+    /// <paramref name="master"/> with <paramref name="look"/> on it, made ready by <see cref="Prepare"/>: the viewer's colour control on a
+    /// master it shows (#1277). A new image the caller owns, <paramref name="master"/> untouched; or a refusal.
+    /// </summary>
+    public static (Image? Looked, string? Refusal) OnMaster(Image master, CatalogIndex planet, DateTimeOffset instant, ColourLook look)
+    {
+        ArgumentNullException.ThrowIfNull(look);
+        var (prepared, refusal) = Prepare(master, planet, instant);
+        if (prepared is not { } ready)
+        {
+            return (null, refusal);
+        }
+        try
+        {
+            return TryApply(ready.Master, ready.Disk, look) is { } looked
+                ? (looked, null)
+                : (null, "the planet has no luminance to read its colour at");
+        }
+        finally
+        {
+            if (ready.Balanced is not null)
+            {
+                ready.Master.Release();
+            }
+        }
+    }
+
+    // Apply's work: null where the planet has no luminance to read its colour at.
+    private static (Image? Image, ImmutableArray<double> Gains) Applied(Image master, in MetricDisk disk, ColourLook look)
     {
         ArgumentNullException.ThrowIfNull(master);
         ArgumentNullException.ThrowIfNull(look);
@@ -162,7 +247,7 @@ public static class PlanetaryColourLook
         var luminance = reading.Luminance;
         if (!(luminance > 0) || reading.InteriorChroma.IsDefaultOrEmpty)
         {
-            throw new ArgumentException("The master's planet has no luminance to read its colour at.", nameof(master));
+            return (null, default);
         }
         var grid = PlanetaryColourReading.QuantileGrid;
         var own = new double[grid.Length];

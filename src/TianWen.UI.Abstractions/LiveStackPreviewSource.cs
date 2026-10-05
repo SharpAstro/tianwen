@@ -61,6 +61,7 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
     private WaveletSharpenOptions? _requestedSharpen; // latest wavelet params (null = sharpening off)
     private PlanetaryLiveLimb? _requestedLimb; // the limb last handed to SetSharpen (Derive's fit, #1201)
     private PlanetaryLiveLimb? _limb;          // that limb as the latest master's disk had it (followed), drawn on the next sharpen
+    private ColourLook? _requestedLook;        // the colour look on a balanced master (null = as balanced, #1277)
     private bool _sharpenDirty;         // wavelet params changed -> rebuild the display even if the playhead didn't move
     private CancellationTokenSource? _workCts; // per in-flight task, linked to _cts; cancelled to preempt a stale stack
     private bool _inFlightIsStack;      // the in-flight task is a (slow) window stack, eligible for sharpen-preempt
@@ -88,9 +89,10 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
     // A finished background result. Stacked=false means a sharpen-only re-render (the cached raw master was
     // reused, the playhead did not advance); Stacked=true means the window was re-integrated to Playhead.
     // Limb is the kept limb followed to this master's disk, From the one the task started with (a newer SetSharpen supersedes both), and
-    // Drawn whether the display was drawn outside it, Aligned whether its colours were moved onto green first.
+    // Drawn whether the display was drawn outside it, Aligned whether its colours were moved onto green first, Looked whether a colour
+    // look went on last.
     private readonly record struct Built(AstroImageDocument Doc, Image RawMaster, Image Display, int Playhead, bool Stacked, PlanetaryLiveLimb? Limb, PlanetaryLiveLimb? From,
-        bool Drawn, bool Aligned);
+        bool Drawn, bool Aligned, bool Looked);
 
     /// <summary>
     /// Shows the masters of <paramref name="masters"/>: a stack integrated here (<see cref="StackedMasters"/>, a SER file's
@@ -138,6 +140,9 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
     /// <summary>How many published masters had their colours moved onto green by a derivation's reading (#1202). Render thread only; for tests.</summary>
     internal int MastersAligned { get; private set; }
 
+    /// <summary>How many published masters were given a colour look (#1277). Render thread only; for tests.</summary>
+    internal int MastersLooked { get; private set; }
+
     /// <summary>True while a background stack is running (the stream's reader is in use -- don't dispose).</summary>
     public bool IsBusy => _stackTask is { IsCompleted: false };
 
@@ -172,11 +177,14 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
     /// (<paramref name="limb"/>, #1201), which every sharpened master is then drawn outside of as the batch draws it: no sharpening past
     /// the limb, the planet's model feathered back to the stack. Re-sharpens the cached master off-thread on the next idle slot; a slider
     /// drag does NOT re-run the window integration, only the (cheap) wavelet pass. The same limb handed again keeps where the masters
-    /// have since moved it. Render-thread only; coalesces like <see cref="RequestFollow"/>.
+    /// have since moved it. A <paramref name="look"/> goes on last, a rendering of the master the limb's balance made (#1277): a master
+    /// with no balance (mono, a planet whose colour is not measured, no Derive yet) is shown as it is. Render-thread only; coalesces like
+    /// <see cref="RequestFollow"/>.
     /// </summary>
-    public void SetSharpen(WaveletSharpenOptions? options, PlanetaryLiveLimb? limb = null)
+    public void SetSharpen(WaveletSharpenOptions? options, PlanetaryLiveLimb? limb = null, ColourLook? look = null)
     {
         _requestedSharpen = options;
+        _requestedLook = look;
         if (!ReferenceEquals(limb, _requestedLimb))
         {
             (_requestedLimb, _limb) = (limb, limb);
@@ -223,6 +231,10 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
             if (b.Aligned)
             {
                 MastersAligned++;
+            }
+            if (b.Looked)
+            {
+                MastersLooked++;
             }
             published = true;
         }
@@ -310,6 +322,7 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
         var target = _target;
         var sharpen = _requestedSharpen;
         var limb = _limb;
+        var look = _requestedLook;
         var rawForSharpen = _rawMaster;                       // captured on the render thread; immutable snapshot
         var resultPlayhead = doStack ? target : _builtRaw;     // a sharpen-only result keeps the displayed playhead
         _sharpenDirty = false;
@@ -351,12 +364,21 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
 
             // A sharpened master drawn outside the limb a derivation kept, as the batch draws it (#1201), the limb first followed to
             // where this master's disk is. A master whose disk it cannot find is shown as the dials made it, and the limb kept for the next.
-            var (followed, drawnOutside) = (limb, false);
+            var (followed, drawnOutside, lookedOn) = (limb, false, false);
             if (sharpen is not null && limb?.FollowedTo(source) is { } here)
             {
                 var drawn = here.Draw(source, display);
                 display.Release();
                 (display, followed, drawnOutside) = (drawn, here, true);
+
+                // The colour look last, a rendering of the master the balance made (#1277), on the disk the limb followed: only where Draw
+                // balanced it. A master whose planet has no light to read its colour at is shown as balanced.
+                if (look is not null && here.Balance is not null && drawn.ChannelCount == 3
+                    && PlanetaryColourLook.TryApply(drawn, here.Disk, look) is { } looked)
+                {
+                    drawn.Release();
+                    (display, lookedOn) = (looked, true);
+                }
             }
             moved?.Release();
 
@@ -366,7 +388,7 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
             // `display` is normalised to [0,1] in place by AdoptImageAsync and its arrays are now owned by
             // `doc`; we retain it read-only as the display master (a mini viewer renders it; doc renders the
             // same pixels via IPreviewSource).
-            return new Built(doc, raw, display, resultPlayhead, doStack, followed, limb, drawnOutside, Aligned: moved is not null);
+            return new Built(doc, raw, display, resultPlayhead, doStack, followed, limb, drawnOutside, Aligned: moved is not null, Looked: lookedOn);
         }, token);
     }
 

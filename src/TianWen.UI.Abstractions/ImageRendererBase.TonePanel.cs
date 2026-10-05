@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Immutable;
 using DIR.Lib;
+using TianWen.Lib.Imaging.Planetary;
 
 namespace TianWen.UI.Abstractions;
 
@@ -54,6 +55,9 @@ partial class ImageRendererBase<TSurface>
     private const string BoostNeedsStarsReason = "needs detected stars";
     private const string CurveModeNeedsBoostReason = "no effect at zero boost";
     private const string KneeNeedsAmountReason = "no effect at zero amount";
+    private const string PlanetaryLookHeading = "Colour look: a rendering, the file stays linear";
+    private const string PlanetaryLookNeedsColour = "needs a colour master";
+    private const string PlanetaryLookNeedsDerive = "goes on a derived, sharpened colour Jupiter or Saturn";
 
     /// <summary>The widest label the curve-mode button carries, so it cannot resize under the
     /// pointer. Stated as a <c>widthSample</c> ON the node, which is the engine's own way of saying
@@ -244,6 +248,37 @@ partial class ImageRendererBase<TSurface>
 
         rows.Add(ToneSeparator());
 
+        // The planet's colour look (#1277): as balanced, or the owner's boosted S-curve on the chroma, over the linear master the way the
+        // stretch and the tone are. Only on a planet's frame; where the master on show cannot take it, why, under the choice. The choice
+        // stays pressable there: it is what the next master that can take it (a Derive, the next file) is shown with.
+        var (lookShown, lookReason) = PlanetaryLookReach(state);
+        if (lookShown)
+        {
+            var lookStyle = new Layout.ButtonGroupStyle(TransportTrackFill, ToolbarButtonBg, ViewerTheme.Palette.BodyText,
+                ViewerTheme.Palette.BodyText, GuiTheme.Hover(ToolbarButtonBg));
+            ReadOnlySpan<Layout.ButtonGroupOption<ColourLook?>> looks =
+            [
+                new(null, "As balanced") { Hit = new HitResult.ButtonHit("LookBalanced") },
+                new(ColourLook.Boosted, "Boosted") { Hit = new HitResult.ButtonHit("LookBoosted") },
+            ];
+            rows.Add(Layout.Builder.Text(PlanetaryLookHeading, small, ViewerTheme.Palette.DimText).RowH(rowH));
+            rows.Add(Layout.Builder.ButtonGroup(looks, state.PlanetaryLook,
+                    chosen =>
+                    {
+                        state.PlanetaryLook = chosen;
+                        // The live stacked view takes it with the dials; a master on show, between frames (TickPlanetaryLook).
+                        state.WaveletDirty = true;
+                        state.NeedsRedraw = true;
+                    },
+                    lookStyle, BaseFontSize)
+                .RowH(rowH));
+            if (lookReason is not null)
+            {
+                rows.Add(ToneReasonRow(lookReason, small));
+            }
+            rows.Add(ToneSeparator());
+        }
+
         // The thing this control is NOT, in the one place a user looking for HDR will arrive. The
         // wrapper is clickable and inert: it swallows a press that would otherwise reach the
         // backdrop and close the panel being read.
@@ -266,6 +301,24 @@ partial class ImageRendererBase<TSurface>
             .Pad(1f)
             .Bg(ViewerTheme.Palette.SeparatorStrong)
             .WStar();
+    }
+
+    /// <summary>
+    /// Whether the colour look's choice belongs in the panel (#1277): on a planet's frame, a still whose <c>OBJECT</c> names one or the
+    /// live stacked view; and, where the master on show cannot take the look, why.
+    /// </summary>
+    private (bool Shown, string? Reason) PlanetaryLookReach(ViewerState state)
+    {
+        if (state.ShowStacked)
+        {
+            var drawn = state.WaveletSharpenEnabled && state.WaveletLimb?.Balance is not null;
+            return (true, drawn ? null : PlanetaryLookNeedsDerive);
+        }
+        if (_document?.UnstretchedImage is not { } image || PlanetaryCaptureName.Named(image.ImageMeta.ObjectName) is null)
+        {
+            return (false, null);
+        }
+        return image.ChannelCount == 3 ? (true, state.PlanetaryLookNote) : (true, PlanetaryLookNeedsColour);
     }
 
     private void RenderTonePanel(ViewerState state)
