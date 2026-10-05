@@ -4051,7 +4051,8 @@ Jupiter too, to see what generalises. Rules were written on the issue before eac
   first takes the planet's mean to it, a white balance never faded.
 - **`ColourLook.Boosted` is an S-curve the owner chose by eye**: below one through the 45th percentile (0.68 to 0.97: rings and zones
   whiter), above it from the 50th (1.04 to 1.68: belts stronger). It is the mean of four posts' chroma over our default master's at every
-  quantile; the fifth post, a green-tinted picture more coloured than ours everywhere, is left out.
+  quantile. The 12-inch SCT Jupiter's PNG, first taken for a fifth post, is that capture's RAW STACK (the source thread's post #6: 656x424
+  at our master's own scale against the 120 % resized JPEG post) and is no post at all.
 - **A look is a RENDERING, never a master.** `planetary-look` writes the planetary preview with the look; its planes go to a FITS only on
   `--fits`, marked `CLOOK` and no longer scene-linear. The linear masters stay what is processed further, as the deep-sky chroma editing's
   ADR-4 has it (`narrowband-colour.md`: a render stage that never touches a linear master). In the viewer it is a control
@@ -4071,13 +4072,17 @@ Jupiter too, to see what generalises. Rules were written on the issue before eac
   | Saturn, Meade 16-inch | 0.51 | 0.40 | 0.54 | 0.74 | 1.7 to 3.1 |
   | Jupiter, EdgeHD 11 + 678MC | 0.31 | 0.37 | 0.62 | 0.83 | 1.9 to 4.2 |
   | Jupiter, 12-inch SCT, JPEG | 0.22 | 0.28 | 0.49 | 0.70 | 1.8 to 4.4 |
-  | Jupiter, 12-inch SCT, PNG | 1.69 | 1.91 | 1.70 | 1.53 | 1.8 to 1.4 |
+  | (Jupiter, 12-inch SCT, its raw stack) | 1.69 | 1.91 | 1.70 | 1.53 | 1.8 to 1.4 |
 
   #1212's saturation 1.4 was judged against OPAL in linear light too; the preview shows it near twice as strong.
-- **No one curve fits a capture it was not built from.** The leave-one-out rule (V5: the curve from the other three posts, within 25 % of
-  the held-out post at the 10th, 50th and 90th percentiles) failed on all four, the green PNG lifting every other capture's curve at the low
-  quantiles. The observers' casts differ eightfold, one observer's two posts of one capture included: a post's colour is its processor's
-  taste. So the preset is the owner's eye, as the sharpening's strength was (#1251).
+- **The curve is a taste the posts share, nearly one that generalises.** The leave-one-out rule (V5: the curve from the other three posts,
+  within 25 % of the held-out post at the 10th, 50th and 90th percentiles of the lit chroma) was first read with the SCT Jupiter's raw stack
+  averaged in as a post and failed on all four. Read with the data corrected, it lands within 25 % on three of four captures (EdgeHD
+  Saturn 0.93 / 0.95 / 0.77, Meade Saturn 0.86 / 1.07 / 1.22, 678MC Jupiter 1.09 / 0.87 / 0.93) and misses the SCT Jupiter's 10th
+  percentile at 1.29 (1.14, 1.20 above it): one value of twelve, so the rule fails as written. The casts do differ (0.22 to 0.71 of our
+  default as shown), so the preset leaves the tint as balanced, and the preset is the owner's eye, as the sharpening's strength was (#1251).
+  **Check what a reference IS before reading it** (its scale against the master's, its band energy, its source's own words): an
+  unsharpened one-shot-colour stack read as a post looks like a processor with an odd taste in green.
 - **Found after the readings, so a hypothesis:** shown against shown, the four posts fit one formula, the chroma about its median raised to
   a power of 2.4 (2.19 to 2.59) with the median at 0.57 of ours. The corpus holds no other Jupiter or Saturn capture with a post to test it.
 - **Two traps in the first look.** Moving each pixel's a, b away from the planet's MEAN colour pushed whatever was less tinted than the mean
@@ -4110,6 +4115,19 @@ runs them in order with nothing between them a file would not carry.
 - **What it must not assume.** North comes from agreement, never one limb fit (R6), and stacks of different filters show different
   detail, so the agreement is read on what they share. A stack another program wrote is the reference's (its own kernel and keep), so it is
   judged as an input, never against our stack of the same frames.
+
+### Contrast-adaptive deconvolution (Kolivas's PlanetaryTools)
+
+**Issue:** #1279. The thread our outside captures come from (Cloudy Nights, "The Planetary Imaging Free SER File Thread", saved by the
+owner on 2026-10-05) has a Saturn of 2026-06-14 "processed in The Gimp using my wavelet sharpen & adaptive deconvolution plugins", its
+6-minute SER and its stacks shared. The plugins are Con Kolivas's `PlanetaryTools` (GPL-3.0; GIMP 3 and a standalone app), whose
+suggested order for a stacked image is wavelet sharpen, a plain deconvolution, de-rotation if wanted, wavelet denoise, then the adaptive
+deconvolution: Richardson-Lucy whose strength follows the local contrast (a low-contrast area takes less before its noise shows), on
+OKLab luminance so colour noise is not sharpened (its `AdaptiveSharpen`, unlicensed, is the same method standalone). R7 and R8 measured
+Richardson-Lucy, Wiener and wavelet gains against the twins' truth, so the question is narrow: does a contrast-dependent strength,
+applied after `PlanetarySharpening`, take a twin closer to its truth, and a capture closer to its post, than the derived gains and the
+strength option (#1251) alone? Licences: both read for the method only, never copied (ADR-2 of `narrowband-colour.md`); a released
+binary may be run as a reference, as torchmfbd was.
 
 ## R9 A learned stage, only if the measurements say so
 
