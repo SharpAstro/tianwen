@@ -2904,7 +2904,7 @@ TianWen did not stack. Phases:
 | S1 | the plane in both per-pixel loops (`Integrator`, `StreamingIntegrator`; so InRamAllFrames, TilePipelined, Float16Staged, FootprintStaged), `IntegrationResult.StandardError`; the sidecar's writer and reader (`.stderr.fits.gz`, ln-coded), carried through `MasterPostProcessor`'s unit scale and crop | DONE 2026-10-05 |
 | S2 | the drizzle strategies (`DrizzleScatter`: the kept deposits' area squared and centred squared deviation, in both layouts) and ChunkedTwoPass (per-channel kept counts and centred squares; its one shared kept count, channel 0's, had divided every channel's sum) | DONE 2026-10-05: drizzle 1.002 to 1.010, two-pass 1.001 to 1.024, RMS over RMS |
 | S3 | the bake: master and half-master planes on `RegisteredSession`, the store's sidecar, MEASURED tile planes (`PlaneMeasured` on the row), recipe version 4; `MasterPostProcessor` scales and crops it with the master; `noise-check --anchor stderr` reads the sidecar | DONE 2026-10-05: at the sky each half's error reads its pair's spread at 0.96 to 1.04, the master's 1.01 to 1.06 |
-| S4 | the validation against the half pairs, pre-registered ("E16c S4" below), on a re-bake of the halved sessions | pre-registered 2026-10-05; the pilot found the frames' drift, and the error is now read about it (amendment below); the 82 after R2a |
+| S4 | the validation against the half pairs, pre-registered ("E16c S4" below), on a re-bake of the halved sessions | READ 2026-10-06: not killed (72.6 percent within 10 percent, x1.087); drizzled right, demosaiced 11 percent under the pairs (result below) |
 | S5 | the runner reads the sidecar beside a master, the estimator its fallback | |
 
 **What the plane is, measured before it was fixed (`StandardErrorPlaneTests`).** The rule is one frame's noise, read
@@ -3022,6 +3022,50 @@ so the measurement S4 reads changed before the 82 were baked.
   Over the five pilot nights, 12 of 13 channels are within 10 percent, against the shipped estimator's 3.
 - **Since the pilots informed the method, their five nights are reported apart** from the other 77 readings in S4's
   read, as well as in the total.
+
+#### E16c S4's result: not killed, four predictions of six missed; the demosaiced masters under-predict (2026-10-06)
+
+Read as registered from `noise-check`'s table and text output (`C:\temp\e2\s4-table.tsv`, `s4-noise-check.txt`), the
+standard error against the shipped estimator (`blocks`) on the same masters and cells:
+
+| | measured error | shipped estimator | registered |
+|---|---|---|---|
+| within 10 percent (1) | 164 of 226 (72.6 percent) | 102 of 226 (45.1) | at least 85; the kill under 70 |
+| typical error (2) | x1.087 | x1.231 | at most x1.06; the kill above x1.10 |
+| where `blocks` reads under 0.80 (3) | median 0.968 over 58 | | 0.92 to 1.08 |
+| each kind's median (4) | demosaiced 1.110, drizzled 0.974, mono 1.048 | | 0.95 to 1.05 |
+| the two hard mono nights (5) | 0.968 (ASI1600MM Ha), 1.089 (ASI294MM Lagoon) | 0.31, 0.55 | within 10 percent |
+| bright against quiet (6) | 11 of 18 sessions | | at least 80 percent |
+
+- **The kill is not met, by little on both counts.** (3) and (5) hold; (1), (2), (4) and (6) miss.
+- **The pilot nights apart:** 12 of 13 channels within 10 percent, x1.044. **The other 77 readings:** 152 of 213
+  (71.4 percent), x1.090.
+- **Parity misses on three channels of 226, and neither cause is the bake.**
+  - The ASI585MC's BlueCut Lagoon 2025-05-25 (`blocks` 1.011 and 1.022): its master is bit-identical in the two stores.
+    Its quiet cells moved (98 against 100), and nine other readings' counts moved too, all within 1 percent.
+  - The ASI533MC's Rim Nebula SII night of 2024-07-06 (green 0.959): its master's green IS different, 0.39 ADU lower
+    over 91 percent of the pixels (2.3 percent of its sky) with more pixels rejected. Its red and blue are bit-identical
+    and so are its calibration masters. A single-line filter in front of a colour camera is not a use case (the owner,
+    2026-10-06), so the cause is not chased. Without that reading: 164 of 223 (73.5 percent) within 10 percent, x1.086,
+    the same verdict.
+- **Where it misses, by kind.**
+  - Drizzled (141 channels): 127 within 10 percent, x1.041. The plane is right.
+  - Demosaiced (75): 32 within 10 percent, x1.161, a median of 1.110. The pairs differ about 11 percent more than the
+    plane predicts, on most demosaiced nights alike (Vela 2022-12-03 1.22 to 1.25, Horsehead 1.16 to 1.28, Pleiades
+    1.15 to 1.19, V1045 Ori 1.14 to 1.16, M83 1.13 to 1.17). The pilot's Prawn read 1.01 to 1.04 and is the exception,
+    not the rule.
+  - Mono (10): 5 within 10 percent. The ASI1600MM luminance eta Car 2025-02-20 reads 1.18 to 1.27 on all three pier
+    sides.
+- **Three nights read the other way, the plane two to three times too large:** the QHY178M's Running Chicken
+  2023-03-17 (0.33), the ASI585MC's SMC 2024-10-02 (0.60, 0.42, 0.92) and its BlueCut Lagoon 2025-05-25 (0.43, 0.43,
+  1.26). The shipped estimator read the first two low as well.
+- **(6) misses in both directions**: the BlueCut Lagoon's bright cells at 1.74 and 1.37 of its quiet ones, the ASI1600MM
+  luminance at 1.35 and 1.50 on two of its three sides, the ASI533MC's eta Car 2026-02-20 at 1.16 in red; and the other
+  way the Uranus-C eta Car, the ASI294MC eta Car and the ASI533MC LMC, three drizzled nights at 0.75 to 0.88.
+
+**What it decides.** No plane is cut from a demosaiced master's measured error until its 11 percent is explained; the
+drizzled masters' plane is ready. The training proposal (E16c's step 3) and S5 wait on the owner, as do the two leads:
+why a demosaiced pair differs more than its frames' scatter says, and what the three over-reading nights share.
 
 ### 2026-10-05: H7, pre-registered
 
