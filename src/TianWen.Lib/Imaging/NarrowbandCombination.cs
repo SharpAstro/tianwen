@@ -32,27 +32,91 @@ public static class NarrowbandCombination
     /// absent again after.
     /// </summary>
     public static async Task<Image[]> StarlessAsync(IReadOnlyList<Image> planes, IStarRemover remover, CancellationToken cancellationToken = default)
+        => (await ThroughOneScaleAsync(planes, remover, headroom: 1f, EnhanceOptions.Default, cancellationToken)).Planes;
+
+    /// <summary>How far below the ceiling of <c>[0, 1]</c> a plane's peak is put before a deblurrer sees it: BlurX lifted
+    /// LDN 1622's brightest star to 3.4 times its input peak, and its output stops at 1, so at the peak's own scale 197 pixels
+    /// of green came back clipped at 1 and every bright star lost flux. At 4 none did, and the result agreed with 8's to
+    /// 0.7 percent on star pixels, the sky to a thousandth of its noise.</summary>
+    public const float DefaultDeblurHeadroom = 4f;
+
+    /// <summary>
+    /// Every plane deblurred by <paramref name="deblurrer"/> (RC-Astro BlurXTerminator), each back on its own scale: all
+    /// divided by one divisor, <paramref name="headroom"/> times the largest finite value among them, so a sharpened
+    /// star's peak stays below the deblurrer's ceiling; absent pixels filled for it and absent again after. Also how many
+    /// output pixels reached that ceiling anyway, which should be none.
+    /// </summary>
+    /// <remarks>
+    /// Run each mono channel through it before stars are removed, as BlurX is meant to be used: it brings the channels'
+    /// stars to nearly one width (LDN 1622: 1.97 to 2.24 px before, 1.41 to 1.46 after) where blurring them to the widest
+    /// (<see cref="PsfMatch"/>) gives up the detail the luminance is for.
+    /// </remarks>
+    public static Task<(Image[] Planes, long AtCeiling)> DeblurAsync(
+        IReadOnlyList<Image> planes, IImageDeblurrer deblurrer, float headroom = DefaultDeblurHeadroom, CancellationToken cancellationToken = default)
+        => ThroughOneScaleAsync(planes, deblurrer, headroom, EnhanceOptions.Default, cancellationToken);
+
+    /// <summary>
+    /// Every plane denoised by <paramref name="denoiser"/> (RC-Astro NoiseXTerminator where licensed) under
+    /// <paramref name="options"/> (its strength), each back on its own scale, absent pixels absent. Hand it STARLESS
+    /// planes: a star is never denoised, as the enhance pipeline's split program never does (its denoise runs on the
+    /// starless plate).
+    /// </summary>
+    public static async Task<Image[]> DenoiseAsync(
+        IReadOnlyList<Image> planes, IDenoiseEnhancer denoiser, EnhanceOptions options, CancellationToken cancellationToken = default)
+        => (await ThroughOneScaleAsync(planes, denoiser, headroom: 1f, options, cancellationToken)).Planes;
+
+    /// <summary>
+    /// Three mono planes denoised together as one colour image, so the denoiser sees their colour, and handed back as
+    /// three, each with its own metadata.
+    /// </summary>
+    public static async Task<Image[]> DenoiseColourAsync(
+        Image red, Image green, Image blue, IDenoiseEnhancer denoiser, EnhanceOptions options, CancellationToken cancellationToken = default)
     {
-        var divisor = 0f;
+        var colour = Rgb(red, green, blue);
+        var denoised = (await DenoiseAsync([colour], denoiser, options, cancellationToken))[0];
+        colour.Release();
+        Image[] sources = [red, green, blue];
+        var result = new Image[3];
+        for (var c = 0; c < 3; c++)
+        {
+            var src = denoised.GetChannelSpan(c);
+            var plane = new float[red.Height, red.Width];
+            for (var y = 0; y < red.Height; y++)
+            {
+                for (var x = 0; x < red.Width; x++)
+                {
+                    plane[y, x] = src[(y * red.Width) + x];
+                }
+            }
+            result[c] = new Image([plane], BitDepth.Float32, sources[c].MaxValue, sources[c].MinValue, sources[c].Pedestal, sources[c].ImageMeta);
+        }
+        denoised.Release();
+        return result;
+    }
+
+    // Every plane through one enhancer on ONE scale: a scale measured between two planes then still holds between their
+    // results, which a divisor per plane breaks (1.8 percent on LDN 1622's starless pair).
+    private static async Task<(Image[] Planes, long AtCeiling)> ThroughOneScaleAsync(
+        IReadOnlyList<Image> planes, IImageEnhancer enhancer, float headroom, EnhanceOptions options, CancellationToken cancellationToken)
+    {
+        var peak = 0f;
         foreach (var plane in planes)
         {
             for (var c = 0; c < plane.ChannelCount; c++)
             {
                 foreach (var v in plane.GetChannelSpan(c))
                 {
-                    if (float.IsFinite(v) && v > divisor)
+                    if (float.IsFinite(v) && v > peak)
                     {
-                        divisor = v;
+                        peak = v;
                     }
                 }
             }
         }
-        if (divisor <= 0f)
-        {
-            divisor = 1f;
-        }
+        var divisor = peak > 0f ? peak * headroom : 1f;
 
         var result = new Image[planes.Count];
+        long atCeiling = 0;
         for (var i = 0; i < planes.Count; i++)
         {
             var plane = planes[i];
@@ -73,31 +137,38 @@ public static class NarrowbandCombination
                 }
                 scaled[c] = dst;
             }
-            var input = new Image(scaled, BitDepth.Float32, 1f, 0f, 0f, plane.ImageMeta);
-            var starless = await remover.EnhanceAsync(input, cancellationToken);
+            var input = new Image(scaled, BitDepth.Float32, 1f / headroom, 0f, 0f, plane.ImageMeta);
+            var output = await enhancer.EnhanceAsync(input, options, null, cancellationToken);
             input.Release();
 
             var back = new float[channels][,];
             for (var c = 0; c < channels; c++)
             {
                 var src = plane.GetChannelSpan(c);
-                var removed = starless.GetChannelSpan(c);
+                var enhanced = output.GetChannelSpan(c);
                 var dst = new float[height, width];
                 for (var y = 0; y < height; y++)
                 {
                     for (var x = 0; x < width; x++)
                     {
                         var at = (y * width) + x;
-                        dst[y, x] = float.IsFinite(src[at]) ? removed[at] * divisor : float.NaN;
+                        if (enhanced[at] >= CeilingTolerance)
+                        {
+                            atCeiling++;
+                        }
+                        dst[y, x] = float.IsFinite(src[at]) ? enhanced[at] * divisor : float.NaN;
                     }
                 }
                 back[c] = dst;
             }
-            starless.Release();
+            output.Release();
             result[i] = new Image(back, BitDepth.Float32, plane.MaxValue, plane.MinValue, plane.Pedestal, plane.ImageMeta);
         }
-        return result;
+        return (result, atCeiling);
     }
+
+    // An enhancer's [0, 1] ceiling, less a float's rounding.
+    private const float CeilingTolerance = 0.9999f;
 
     /// <summary>The stars a remover took out: the plane less its starless plate, absent where either is.</summary>
     public static Image Stars(Image plane, Image starless) => Combine(plane, starless, static (a, b) => a - b);

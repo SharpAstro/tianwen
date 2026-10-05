@@ -71,9 +71,21 @@ selector can reference both the RC wrappers and the `Onnx*` fallbacks.
 | `DeferredEnhancer` (+ `DeferredStarRemover`/`DeferredDenoiser`/`DeferredNonStellarDeconvolver`) | Proxy that makes the RC-vs-SAS choice (and its blocking license probe) on the FIRST `EnhanceAsync`, not at DI registration/resolution. So composing/building a service collection -- even resolving `SharpenPipeline` -- spawns no `rc-astro` process; only the first actual enhancement does (cached). |
 | `AddRcAstroAi()` | Calls `AddTianWenAi()` for the SAS baseline, then `Replace`s each RC-servable role with its deferred proxy (RC when present+licensed -> else the concrete `Onnx*` singleton). |
 
-FITS round-trip is in [0, 1] with no rescaling: pipeline plates are Float32
-(`WriteToFitsFile` emits BITPIX=-32); RC normalises internally and returns
-[0, 1] 32F (verified empirically).
+FITS round-trip is in [0, 1]: pipeline plates are Float32 (`WriteToFitsFile` emits BITPIX=-32) and a plate
+already inside the range is written as it is. **A plate outside it is mapped in and back by the wrapper**
+(`RcAstroEnhancerBase.RangeMap`, 2026-10-05): RC-Astro rescales such a plate onto [0, 1] itself and returns its
+output on THAT scale, so an aligned master that rings below zero at its border came back as a starless red with
+its sky at 0.031 where the plate's was 0.009. Pinned by `RcAstroRangeMapTests`.
+
+## BlurX clips a sharpened star at the ceiling
+
+BlurX's output stops at 1, and sharpening lifts a star's peak above its input: on LDN 1622's green master the
+brightest star rose to 3.4 times its input peak, so at the peak's own scale (what `image deblur` hands over) 197
+pixels came back clipped at 1 and the frame lost about 1 percent of its flux, all in bright stars. With the
+brightest star at a quarter of the ceiling none clip, and the result agrees with an eighth's to 0.7 percent on star
+pixels. `image combine --deblur` takes that headroom (`NarrowbandCombination.DeblurAsync`); `image deblur` and the
+enhance pipeline's deblur step do not yet, which is [#1270](https://github.com/SharpAstro/tianwen/issues/1270),
+since a headroom there hands the later steps a plate whose peak is above 1.
 
 ## Parameters
 

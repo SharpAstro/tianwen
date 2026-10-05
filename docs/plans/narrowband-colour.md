@@ -488,24 +488,52 @@ to the starless planes and the broadband stars go back on top, so no star is lef
   would subtract the line it is meant to keep.
 - **Every plane goes through the remover on ONE scale.** Divided each by its own maximum (as `image remove-stars` does),
   Ha's and red's starless plates came back on scales 1.8 percent apart, so a scale measured on the masters no longer held
-  between them. `StarlessAsync` divides every plane by one divisor and multiplies it back.
+  between them. `StarlessAsync` divides every plane by one divisor and multiplies it back. Part of that 1.8 percent was
+  RC-Astro's own: an aligned master rings below zero at its border, and RC-Astro rescales a plate outside `[0, 1]` onto it
+  and returns its output on that scale (a starless red's sky at 0.031 where the plate's was 0.009). The wrapper
+  (`RcAstroEnhancerBase`) now maps such a plate into the range itself and the output back; a plate inside keeps its bytes.
 
 On LDN 1622 (weight 1, an exposure ratio of 0.5) the Hα glow of Barnard's Loop behind the dark cloud comes up in red and
 the stars stay clean. The aligned channels leave a thin coloured border where they do not overlap, which an autocrop
 takes off.
 
-**Two more options, both on the owner's ask (2026-10-05):**
-- **`--match-psf`** (`PsfMatch`): every sharper master blurred to the widest one's star width, in quadrature, NaN kept.
-  Channels of different widths colour every star (LDN 1622's green, the unresampled reference at 1.97 px against blue's
-  2.26, gave green star cores). The star detector's FWHM is too coarse to steer the last few percent: one blur took green
-  to 2.25, while red stopped at 2.17 against a 2.26 target after three passes.
+**Stars at one width, a luminance, and its detail in every channel (the owner's asks, 2026-10-05).** The order is
+PixInsight's mono workflow, and the owner's: linear fit, deblur, stars out, line in, luminance, LRGB, stars back.
+- **`--linear-fit <red|green|blue|none>`** (`LinearFit`, default green): red, green and blue put on one channel's scale
+  first, by `pcl::LinearFit`'s fit (least absolute deviation, now `LeastAbsoluteDeviation`, which `ContinuumSubtractor`
+  shares) over the pixels both hold below 0.92 of their peaks, LinearFit's default reject. H-alpha is never fitted: its sky
+  and emission are not a broadband channel's. Its addition to red follows red's fitted slope instead
+  (`weight x exposure ratio x slope`), and a `--ha-scale` given against red as it was is divided by it. On LDN 1622 red
+  goes onto green as `354 + 0.616 red`, blue as `332 + 0.991 blue`; red's slope agrees with its star scale (0.64).
+- **`--deblur`** (`NarrowbandCombination.DeblurAsync`, RC-Astro BlurXTerminator): every master deblurred before its stars
+  are removed, all on one scale with the brightest star at a quarter of the ceiling. BlurX brings the channels to nearly
+  one width without blurring any: LDN 1622's 1.97 to 2.24 px (green, red, H-alpha, blue) went to 1.41 to 1.46, where
+  the blur match below left them at 2.15 to 2.24 and its luminance at 2.19. A star core's colour against the whole star's
+  (blue against green) moved from -0.082 as stacked to -0.023, the blur match's +0.021. **The headroom is measured:** at
+  the peak's own scale, as `image deblur` hands a master over, BlurX lifted the brightest star to 3.4 times its input
+  peak, stopped at 1, and left 197 of green's pixels clipped there (about 1 percent of the frame's flux, all in bright
+  stars). At a quarter none clip, and the result agrees with an eighth's to 0.7 percent on star pixels, the sky to a
+  thousandth of its noise. The same clip in `image deblur` and the enhance pipeline is
+  [#1270](https://github.com/SharpAstro/tianwen/issues/1270).
+- **`--match-psf`** (`PsfMatch`) is the fallback where no deblurrer serves (and what `--deblur` falls back to): every
+  sharper master blurred in quadrature to the widest one's width, for the colour channels, the continuum scale and the
+  luminance's star scales only. The star detector's FWHM is too coarse to steer the last few percent (red stopped at 2.17
+  against 2.26 after three passes).
 - **`--luminance` and `--lrgb`** (`SyntheticLuminance`, `LuminanceDetail`): a synthetic luminance adds no photon a real
   luminance filter would, only the channels' shared brightness at the best signal to noise their sum gives. Each channel
-  goes onto green's scale by its stars' flux ratios, then is weighted by its inverse noise variance there. On LDN 1622 red
-  is the cleanest (56 percent of the weight, green 26, blue 18), and the luminance has 1.27 times the best channel's
-  signal to noise. `--lrgb` gives each channel `blur(channel) + (L - blur(L)) / scale`: LRGB in linear form, with no
-  ratio near the background. The channel keeps its own colour above 1.5 px and takes the luminance's quieter detail
-  below. Two findings:
+  goes onto green's scale by its stars' flux ratios, then is weighted by its inverse noise variance there. **It is made
+  from planes never blurred**: the deblurred ones, or with the blur match the unmatched ones, composed the same way (their
+  own star split and line addition), while the star scales still come from the matched planes. `--lrgb` gives each
+  channel `blur(channel) + (L - blur(L)) / scale`: LRGB in linear form, with no ratio near the background. The channel
+  keeps its own colour above 1.5 px and takes the luminance's quieter detail below. Three findings:
+  - **The noise is read over 4 px blocks, never pixel to pixel** (`PixelNoise.FromBlocks`). Anything that correlates
+    neighbours lowers a neighbour-difference reading while leaving the noise at the signal's scales alone: a 0.55 px
+    Gaussian read 0.45 of white noise's level and a Lanczos-3 shift 0.73, against 0.85 and 0.97 over blocks. The first
+    weights, read pixel to pixel on blurred planes, were wrong for exactly this: green read 10.8 where unblurred it reads
+    16.0 and took 26 percent of the luminance (red 56, blue 18), with a claimed gain of 1.27 over the best channel. A
+    second pass leaves out blocks holding a star, which otherwise read a starry field 1.2 times its noise. With the
+    linear fit and `--deblur`, LDN 1622's luminance is red 62 percent, green 17, blue 21, at 1.22 times the best
+    channel's signal to noise.
   - **It must not touch the stars.** A high-pass rings negative around every peak, and the channels take the detail in
     the field's typical star colour while their blurred part keeps the star's own. Applied to everything, every star grew
     a coloured core and a dark rim. It is applied to the starless channels, the scales measured on the full ones, and the
@@ -513,6 +541,13 @@ takes off.
   - **What it buys, measured on the output:** colour noise at the pixel scale (the neighbour noise of R-G and B-G) fell
     4.7 and 6.5 times, and each channel's own noise fell (green 1.44 to 0.81, blue 1.30 to 0.59, x1e-4). Colour blotches
     broader than the 1.5 px blur are kept, by design.
+- **`--denoise`** (`NarrowbandCombination.DenoiseAsync` / `DenoiseColourAsync`, NoiseXTerminator where licensed): the
+  STARLESS planes only, as the enhance pipeline's split program does and as the owner runs NoiseX, so it needs
+  `--starless`; the luminance's weights are read before anything is denoised. With `--lrgb` the starless luminance, which
+  carries the detail, is denoised at `--denoise-strength` (default: the denoiser's own, which NoiseX sets from the plate's
+  noise) and the starless colour, as one colour image, at `--colour-denoise-strength` (0.5); without, the colour carries
+  the detail and takes the detail strength. On LDN 1622 the luminance's block noise fell 8.51 to 2.96 and the colour's
+  about halved (red 10.5 to 5.8, green 20.2 to 10.5, blue 12.0 to 6.2).
 
 ### F. NarrowbandNormalization (the SHO answer, and what that video was actually about)
 
