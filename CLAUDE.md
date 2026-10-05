@@ -1056,7 +1056,11 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   sharpening** (`PlanetaryColourBalance`, #1212: one gain a channel to OPAL's reflectance through the eye's response, then saturation 1.4 about
   that colour, never about grey, which turned the whole disk yellower; the sharpening reads each channel's edge through its own diffraction, and
   the saturation mixes the channels; the live view's Derive keeps the same balance with its limb and every master it draws takes it last,
-  `PlanetaryLiveLimb.Balance`). **Saturn's globe is read where its rings leave it clear** (S6, #1235; `MetricDisk.RingTouched`, the rings
+  `PlanetaryLiveLimb.Balance`). **The 1.4 stands in for the camera's crosstalk** (#1279, rule E): the camera's own matrix
+  (`planetary-colour --camera`, `PlanetaryColourBalance.GainsThrough`) lifts the chroma 1.45 to 1.52 times on all five captures, and replacing
+  the 1.4 with it waits on the owner's eye. **A camera matrix from spectral curves is a least-squares FIT onto the CIE functions**
+  (`CameraColorMatrix.ComputeCamXyz`, through their Gram inverse), never the curves' projections, which read red as green (a 5D Mark II's red
+  row came out 11.99 and -12.07 against dcraw's measured 2.07 and -1.32; pinned against dcraw in `CameraColorMatrixTests`). **Saturn's globe is read where its rings leave it clear** (S6, #1235; `MetricDisk.RingTouched`, the rings
   take the globe's gains), and **an OPAL apparition's I/F factors come from its own readme** (`PlanetaryColour.ReadmeFilters`), never a
   constant: Saturn's move 15 % between years. **A balanced master's planetary stretch takes ONE black point** (`ImageMeta.IsColourBalanced`,
   read from CBALSAT and set by `PlanetaryColourBalance.Apply`, #1229): its sky is zero in every channel and only its noise differs, so a

@@ -4155,6 +4155,20 @@ binary may be run as a reference, as torchmfbd was.
     cut acted.
   - On the captures with a post the fitted cut starts at 0.08 to 0.14 cycles a pixel, well inside the pupil's cutoff, and three captures
     of four lost more than 0.02 of a band's correlation with the post (the EdgeHD Saturn's band 1 0.549 to 0.512).
+- **E, the camera's own colour matrix before the balance (Kolivas's per-sensor crosstalk matrices), holds, and its default waits on the
+  owner's eye** (`planetary-colour --camera`, `PlanetaryColourBalance.GainsThrough`, `Through`, `Apply`'s matrix). The balance becomes
+  gains, then the matrix, then the saturation, the gains solved so the disk mean lands on the target through the matrix. On the five
+  colour captures (2022-10-09, likely the IR-pass session, read but not counted) the matrix lifts the chroma spread 1.45 to 1.52 times,
+  almost exactly the owner's 1.4 by eye: that saturation was standing in for the crosstalk, as #1212 guessed. The spread against OPAL
+  through the core and halo is 1.30, 1.06, 0.93 and 1.12 on the four counted captures (three within 0.8 to 1.25; gains alone 0.90, 0.73,
+  0.64, 0.77). A master needs its camera to resolve its matrix by default, and `planetary-stack` does not yet carry the SER's camera into
+  `INSTRUME`.
+- **Found on the way: the spectral camera matrix was not a fit.** `CameraColorMatrix.ComputeCamXyz` took each channel's projection
+  onto the CIE matching functions; the response is the least-squares fit, the projections through the inverse of the functions' Gram
+  matrix. Without it red read nearly as green and every derived matrix came out ill-conditioned (the ASI462MC's red row 10.78 and -10.78,
+  so E's first reading lifted the chroma ten times). Checked against dcraw's measured EOS 5D Mark II matrix, every element now within
+  0.28 (red row 1.94, -1.04, 0.10 against 2.07, -1.32, 0.25). Nothing shipped applied the matrix: the Canon import records it in
+  `ImageMeta.CameraToSrgbMatrix` and nothing reads that.
 
 
 ## R9 A learned stage, only if the measurements say so

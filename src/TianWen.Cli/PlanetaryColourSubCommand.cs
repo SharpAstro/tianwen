@@ -42,11 +42,12 @@ internal sealed partial class PlanetaryColourSubCommand(IConsoleHost consoleHost
         var compositeBinOpt = new Option<int>("--composite-bin") { Description = "Box-average the composite by this on each axis before fitting its limb.", DefaultValueFactory = _ => 4 };
         var previewOpt = new Option<string?>("--preview") { Description = "Write, into this folder, each master's planetary preview as captured and balanced to the planet's colour (PlanetaryColourBalance) at each --saturation: the sharpened master beside it (<name>_sharpened.fits) when there is one, as the Best stack shows it." };
         var saturationOpt = new Option<string>("--saturation") { Description = "The saturation factors the previews are balanced at, a comma list.", DefaultValueFactory = _ => "1,1.4,2" };
+        var cameraOpt = new Option<string?>("--camera") { Description = "The camera every master here was taken with (e.g. ASI462MC, Uranus-C): its colour matrix, from its sensor's QE and the Sony CFA curves, is read after the gains beside the gains alone (#1279, rule E), and the previews add it." };
 
         var command = new Command("planetary-colour", "Planetary colour (#1212): each colour master's disk-mean colour and chroma spread against an sRGB composite and against OPAL's reflectance through the CIE observer, read against the rule set before measuring.")
         {
             Arguments = { mastersArg },
-            Options = { compositeOpt, compositeUtcOpt, opalOpt, planetOpt, compositeBinOpt, previewOpt, saturationOpt },
+            Options = { compositeOpt, compositeUtcOpt, opalOpt, planetOpt, compositeBinOpt, previewOpt, saturationOpt, cameraOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -62,6 +63,20 @@ internal sealed partial class PlanetaryColourSubCommand(IConsoleHost consoleHost
             {
                 consoleHost.WriteError("--planet: jupiter or saturn");
                 return 1;
+            }
+            // The camera's colour matrix (#1279, rule E): camera RGB, white-balanced, to linear sRGB.
+            float[]? cameraMatrix = null;
+            if (parseResult.GetValue(cameraOpt) is { Length: > 0 } camera)
+            {
+                await FilterCurveDatabase.LoadAsync(ct);
+                if (!FilterCurveDatabase.TryComputeCameraToSrgbMatrix(camera, out var matrix))
+                {
+                    consoleHost.WriteError($"--camera {camera}: no sensor curve resolves for it");
+                    return 1;
+                }
+                cameraMatrix = matrix;
+                consoleHost.WriteScrollable(string.Create(inv,
+                    $"{camera}'s colour matrix, camera RGB to linear sRGB, by row: {string.Join("; ", Enumerable.Range(0, 3).Select(row => string.Join(", ", Enumerable.Range(0, 3).Select(col => matrix[(row * 3) + col].ToString("0.000", inv)))))}"));
             }
             var apparitions = ReadApparitions(parseResult.GetValue(opalOpt) ?? "", planet);
             if (apparitions.Length == 0)
@@ -244,8 +259,18 @@ internal sealed partial class PlanetaryColourSubCommand(IConsoleHost consoleHost
                                 await Task.Run(() => PlanetaryColour.RenderedSky(balanced, balanced.ComputePlanetaryStretchUniforms(), disk), ct));
                         }
                     }
+                    if (cameraMatrix is { } matrix)
+                    {
+                        // The camera's matrix after its own gains, about the disk's colour (#1279, rule E).
+                        var (matrixGains, _) = PlanetaryColourBalance.GainsFor(shown, disk, target, matrix);
+                        foreach (var saturation in saturations)
+                        {
+                            var balanced = await Task.Run(() => PlanetaryColourBalance.Apply(shown, matrixGains, shownSky, saturation, target, matrix), ct);
+                            await previewRenderer.RenderPlanetaryAsync(balanced, string.Create(inv, $"{stem}_balanced_matrix_s{saturation:0.0#}.png"), ct: ct);
+                        }
+                    }
                     consoleHost.WriteScrollable(string.Create(inv,
-                        $"  previews of the {(ReferenceEquals(shown, image) ? "stacked" : "sharpened")} master: as captured, and balanced (gains R {gains.R:0.000}, B {gains.B:0.000}) at saturation {string.Join(", ", saturations.Select(s => s.ToString("0.0#", inv)))}, about grey and about the disk's colour"));
+                        $"  previews of the {(ReferenceEquals(shown, image) ? "stacked" : "sharpened")} master: as captured, and balanced (gains R {gains.R:0.000}, B {gains.B:0.000}) at saturation {string.Join(", ", saturations.Select(s => s.ToString("0.0#", inv)))}, about grey and about the disk's colour{(cameraMatrix is null ? "" : ", and through the camera's matrix about the disk's colour")}"));
                 }
             }
             return 0;
@@ -273,6 +298,23 @@ internal sealed partial class PlanetaryColourSubCommand(IConsoleHost consoleHost
                     consoleHost.WriteScrollable(string.Create(inv,
                         $"    the target's through {blurNames[k]}: {targetSpreads[k]:0.0000}, ratio {ratio:0.00} -> " +
                         $"{(ratio is >= SpreadLow and <= SpreadHigh ? "no saturation factor" : $"saturation factor {1 / ratio:0.00}")}"));
+                }
+                // Today's default saturation about the target, and the camera's matrix at none (#1279, rule E).
+                var aboutColour = targetMean;
+                var saturated = balanced.Select(b => PlanetaryColourBalance.Saturate(b, PlanetaryColourBalance.DefaultSaturation, aboutColour)).ToArray();
+                var saturatedSpread = PlanetaryColour.ChromaSpread(saturated, counts);
+                consoleHost.WriteScrollable(string.Create(inv,
+                    $"  the gains at saturation {PlanetaryColourBalance.DefaultSaturation:0.0#}: chroma spread {saturatedSpread:0.0000}, ratios {string.Join(", ", targetSpreads.Select(t => (saturatedSpread / t).ToString("0.00", inv)))} ({string.Join(", ", blurNames)})"));
+                if (cameraMatrix is { } m)
+                {
+                    var through = PlanetaryColourBalance.GainsThrough(mean, targetMean, m);
+                    var matrixed = bands.Select(b => PlanetaryColourBalance.Through(new LinearRgb(b.R * through.R, b.G, b.B * through.B), m)).ToArray();
+                    var matrixSpread = PlanetaryColour.ChromaSpread(matrixed, counts);
+                    var meanAfter = PlanetaryColourBalance.Through(new LinearRgb(mean.R * through.R, mean.G, mean.B * through.B), m);
+                    consoleHost.WriteScrollable(string.Create(inv,
+                        $"  the gains and the camera's matrix at saturation 1: gains R {through.R:0.000}, G 1, B {through.B:0.000}; the disk mean after it {Describe(meanAfter)}, {meanAfter.ChromaDistance(targetMean):0.0000} from the target; chroma spread {matrixSpread:0.0000}, {matrixSpread / spread:0.00} of the gains' alone"));
+                    consoleHost.WriteScrollable(string.Create(inv,
+                        $"    ratios {string.Join(", ", targetSpreads.Select(t => (matrixSpread / t).ToString("0.00", inv)))} ({string.Join(", ", blurNames)})"));
                 }
             }
         });
