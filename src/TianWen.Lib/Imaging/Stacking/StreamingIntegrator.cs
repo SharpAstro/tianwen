@@ -38,6 +38,9 @@ public sealed class StagedAlignedFrame : IDisposable
     public float MaxValue { get; }
     /// <summary>The image's <see cref="Image.Pedestal"/> at warp time.</summary>
     public float Pedestal { get; }
+    /// <summary>The warped frame's block medians (<see cref="FrameDrift.MeasureBlocks"/>), taken while it was in memory, so
+    /// the standard error is read about the frame's drift; null on every frame leaves the scatter as it is.</summary>
+    internal float[][]? DriftBlocks { get; init; }
 
     public StagedAlignedFrame(
         StreamingFrameReader reader,
@@ -148,8 +151,16 @@ public static class StreamingIntegrator
         // that already reads every sample, because the rejection fraction beside it is what every
         // non-drizzle master carried as its only sidecar and the exact crop tier cannot use it.
         using IIntegrationSink coverageSink = new ArraySink(1, width, height);
-        // The standard error of each combined value, from the same column and mask, per channel.
+        // The standard error of each combined value, from the same column and mask, per channel, its scatter taken about
+        // each frame's drift where the staging measured one (FrameDrift), in the units the column is combined in.
         using IIntegrationSink standardErrorSink = new ArraySink(channelCount, width, height);
+        var driftBlocks = new List<float[][]?>(n);
+        for (var f = 0; f < n; f++)
+        {
+            driftBlocks.Add(alignedFrames[f].DriftBlocks);
+        }
+        var drift = FrameDrift.From(driftBlocks, width, height,
+            frameMin is { } mins && frameScale is { } scales ? (f, c, v) => (v - mins[c][f]) * scales[c][f] : null);
 
         long totalRejections = 0;
 
@@ -197,6 +208,8 @@ public static class StreamingIntegrator
                     {
                         Column = ArrayPool<float>.Shared.Rent(n),
                         KeepMask = ArrayPool<float>.Shared.Rent(n),
+                        Adjusted = drift is null ? [] : ArrayPool<float>.Shared.Rent(n),
+                        DriftRow = drift is null ? [] : ArrayPool<float>.Shared.Rent(n * drift.GridWidth),
                         Rejections = 0,
                     },
                     body: (stripeRow, _, state) =>
@@ -211,6 +224,9 @@ public static class StreamingIntegrator
                         var rejectRow = rejectSinkInUse.GetRow(0, globalRow);
                         var coverageRow = coverageSink.GetRow(0, globalRow);
                         var standardErrorRow = standardErrorSink.GetRow(channelIdx, globalRow);
+                        var driftRow = state.DriftRow.AsSpan(0, drift is null ? 0 : n * drift.GridWidth);
+                        drift?.Row(channelIdx, globalRow, driftRow);
+                        var adjusted = state.Adjusted.AsSpan(0, drift is null ? 0 : n);
 
                         for (var col = 0; col < width; col++)
                         {
@@ -243,7 +259,15 @@ public static class StreamingIntegrator
                             }
 
                             masterRow[col] = combiner.Combine(columnSpan, maskSpan);
-                            standardErrorRow[col] = StandardErrorPlane.Of(columnSpan, maskSpan);
+                            if (drift is null)
+                            {
+                                standardErrorRow[col] = StandardErrorPlane.Of(columnSpan, maskSpan);
+                            }
+                            else
+                            {
+                                drift.Remove(columnSpan, driftRow, col, adjusted);
+                                standardErrorRow[col] = StandardErrorPlane.OfDrifting(columnSpan, adjusted, maskSpan);
+                            }
 
                             if (rejector is not null)
                             {
@@ -256,6 +280,11 @@ public static class StreamingIntegrator
                     {
                         ArrayPool<float>.Shared.Return(state.Column);
                         ArrayPool<float>.Shared.Return(state.KeepMask);
+                        if (drift is not null)
+                        {
+                            ArrayPool<float>.Shared.Return(state.Adjusted);
+                            ArrayPool<float>.Shared.Return(state.DriftRow);
+                        }
                         Interlocked.Add(ref totalRejections, state.Rejections);
                     });
             }
@@ -309,6 +338,8 @@ public static class StreamingIntegrator
     {
         public float[] Column;
         public float[] KeepMask;
+        public float[] Adjusted;
+        public float[] DriftRow;
         public long Rejections;
     }
 
