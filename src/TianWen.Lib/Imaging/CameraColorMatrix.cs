@@ -23,8 +23,14 @@ namespace TianWen.Lib.Imaging;
 public static class CameraColorMatrix
 {
     /// <summary>
-    /// Computes the camera-to-XYZ 3x3 matrix by integrating each
-    /// <c>(CFA channel × CIE primary × D65)</c> product over wavelength.
+    /// Computes the camera-to-XYZ 3x3 matrix (dcraw's <c>cam_xyz</c>, a camera channel's response to each CIE
+    /// primary): the least-squares fit of each channel's curve onto the CIE 1931 matching functions, weighted by
+    /// D65 (the Luther approximation). Each channel is projected onto the three functions, <c>A[c, p] =
+    /// integral(CFA_c x D65 x cie_p)</c>, and the projections are multiplied by the inverse of the functions' own
+    /// Gram matrix, <c>G[p, q] = integral(cie_p x cie_q x D65)</c>. The projections alone are not the response:
+    /// x-bar and y-bar overlap so much that, without the Gram inverse, red read nearly as green and the derived
+    /// matrix came out ill-conditioned (11.99 and -12.07 on its red row for the EOS 5D Mark II, against dcraw's
+    /// measured 2.07 and -1.32; #1279, rule E).
     /// <paramref name="cfaR"/> / <paramref name="cfaG"/> / <paramref name="cfaB"/>
     /// are the per-channel CFA transmission curves; QE is treated as a
     /// flat unit response (use the QE-aware overload to incorporate sensor
@@ -40,7 +46,7 @@ public static class CameraColorMatrix
         var cies = new[] { CieReferenceData.X1931, CieReferenceData.Y1931, CieReferenceData.Z1931 };
         var d65 = CieReferenceData.D65;
 
-        var camXyz = new double[9];
+        Span<double> projections = stackalloc double[9];
         for (var c = 0; c < 3; c++)
         {
             // Pre-combine CFA_c x D65 so the inner loop only adds a CIE primary.
@@ -50,7 +56,31 @@ public static class CameraColorMatrix
             for (var p = 0; p < 3; p++)
             {
                 var tsys = FilterCurve.Combine($"cam{c}_xyz{p}", new[] { cfaXd65, cies[p] });
-                camXyz[c * 3 + p] = Integrate(tsys);
+                projections[c * 3 + p] = Integrate(tsys);
+            }
+        }
+
+        // The matching functions' Gram matrix under the same weight, and the fit through its inverse.
+        Span<double> gram = stackalloc double[9];
+        for (var p = 0; p < 3; p++)
+        {
+            for (var q = 0; q < 3; q++)
+            {
+                gram[p * 3 + q] = Integrate(FilterCurve.Combine($"cie{p}_cie{q}_d65", new[] { cies[p], cies[q], d65 }));
+            }
+        }
+        Span<double> gramInverse = stackalloc double[9];
+        Invert3(gram, gramInverse);
+
+        var camXyz = new double[9];
+        for (var c = 0; c < 3; c++)
+        {
+            for (var p = 0; p < 3; p++)
+            {
+                var s = 0.0;
+                for (var q = 0; q < 3; q++)
+                    s += projections[c * 3 + q] * gramInverse[q * 3 + p];
+                camXyz[c * 3 + p] = s;
             }
         }
         return camXyz;
@@ -95,8 +125,8 @@ public static class CameraColorMatrix
     /// <para>This duplicates the math in FC.SDK.Raw's
     /// <c>CanonCameraProfile.ComputeRgbCam</c> on purpose: TianWen.Lib has no
     /// FC.SDK.Raw dependency today, and a 30-line pure-math routine isn't
-    /// worth forcing one. The duplication is guarded by a cross-check test
-    /// in <c>CameraColorMatrixTests.CamXyzToRgbCam_MatchesCanonCameraProfile_ForKnownEntry</c>.</para>
+    /// worth forcing one. The whole spectral derivation is checked against dcraw's measured matrix for one body
+    /// in <c>CameraColorMatrixTests.TryComputeCameraToSrgbMatrix_EosFiveDMarkTwo_AgreesWithDcrawsMeasuredMatrix</c>.</para>
     /// </summary>
     public static float[] CamXyzToRgbCam(ReadOnlySpan<double> camXyz)
     {
@@ -125,32 +155,40 @@ public static class CameraColorMatrix
             for (var j = 0; j < 3; j++) camRgb[i * 3 + j] /= rowSum;
         }
 
-        // 3x3 inverse via cofactor expansion. cam_rgb takes neutral camera
-        // -> neutral sRGB; we want the reverse direction (apply to a
-        // WB-corrected camera-RGB pixel to get sRGB) = matrix inverse.
-        var m00 = camRgb[0]; var m01 = camRgb[1]; var m02 = camRgb[2];
-        var m10 = camRgb[3]; var m11 = camRgb[4]; var m12 = camRgb[5];
-        var m20 = camRgb[6]; var m21 = camRgb[7]; var m22 = camRgb[8];
+        // cam_rgb takes neutral camera -> neutral sRGB; we want the reverse
+        // direction (apply to a WB-corrected camera-RGB pixel to get sRGB) =
+        // matrix inverse.
+        Span<double> rgbCam = stackalloc double[9];
+        Invert3(camRgb, rgbCam);
+        var result = new float[9];
+        for (var i = 0; i < 9; i++)
+            result[i] = (float)rgbCam[i];
+        return result;
+    }
+
+    /// <summary>A row-major 3x3 inverse by cofactor expansion; throws on a singular matrix (degenerate spectral input).</summary>
+    private static void Invert3(ReadOnlySpan<double> m, Span<double> inverse)
+    {
+        var m00 = m[0]; var m01 = m[1]; var m02 = m[2];
+        var m10 = m[3]; var m11 = m[4]; var m12 = m[5];
+        var m20 = m[6]; var m21 = m[7]; var m22 = m[8];
         var det = m00 * (m11 * m22 - m12 * m21)
                 - m01 * (m10 * m22 - m12 * m20)
                 + m02 * (m10 * m21 - m11 * m20);
         if (Math.Abs(det) < 1e-12)
             throw new InvalidOperationException(
-                $"cam_rgb matrix is singular (det={det:E3}); spectral input is degenerate.");
+                $"3x3 matrix is singular (det={det:E3}); spectral input is degenerate.");
 
         var invDet = 1.0 / det;
-        return
-        [
-            (float)((m11 * m22 - m12 * m21) * invDet),
-            (float)((m02 * m21 - m01 * m22) * invDet),
-            (float)((m01 * m12 - m02 * m11) * invDet),
-            (float)((m12 * m20 - m10 * m22) * invDet),
-            (float)((m00 * m22 - m02 * m20) * invDet),
-            (float)((m02 * m10 - m00 * m12) * invDet),
-            (float)((m10 * m21 - m11 * m20) * invDet),
-            (float)((m01 * m20 - m00 * m21) * invDet),
-            (float)((m00 * m11 - m01 * m10) * invDet),
-        ];
+        inverse[0] = (m11 * m22 - m12 * m21) * invDet;
+        inverse[1] = (m02 * m21 - m01 * m22) * invDet;
+        inverse[2] = (m01 * m12 - m02 * m11) * invDet;
+        inverse[3] = (m12 * m20 - m10 * m22) * invDet;
+        inverse[4] = (m00 * m22 - m02 * m20) * invDet;
+        inverse[5] = (m02 * m10 - m00 * m12) * invDet;
+        inverse[6] = (m10 * m21 - m11 * m20) * invDet;
+        inverse[7] = (m01 * m20 - m00 * m21) * invDet;
+        inverse[8] = (m00 * m11 - m01 * m10) * invDet;
     }
 
     /// <summary>Trapezoidal integration of a curve's throughput against its

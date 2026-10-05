@@ -243,6 +243,42 @@ public class PlanetaryColourTests
         (sb - (scale * about.B)).ShouldBe(2 * (b - (scale * about.B)), 1e-6);
     }
 
+    [Fact]
+    public void ThroughTheCamerasMatrixTheMeanLandsOnTheTargetAndEachColourIsItsOwnAgain()
+    {
+        // A camera matrix as FilterCurveDatabase derives one: rows summing to one, negative off the diagonal (#1279, rule E).
+        float[] matrix = [1.62f, -0.48f, -0.14f, -0.21f, 1.53f, -0.32f, 0.03f, -0.41f, 1.38f];
+        var inverse = Invert(matrix);
+        // A belt and a zone in true linear sRGB, and what a camera with its channels overlapping and its own gains records of them.
+        LinearRgb[] truth = [new LinearRgb(0.62, 0.50, 0.36), new LinearRgb(0.55, 0.53, 0.48)];
+        var gainsOfCamera = new LinearRgb(0.7, 1.0, 1.6);
+        var recorded = truth.Select(t => Scale(Mul(inverse, t), gainsOfCamera)).ToArray();
+        var target = new LinearRgb((truth[0].R + truth[1].R) / 2, (truth[0].G + truth[1].G) / 2, (truth[0].B + truth[1].B) / 2);
+        var mean = new LinearRgb((recorded[0].R + recorded[1].R) / 2, (recorded[0].G + recorded[1].G) / 2, (recorded[0].B + recorded[1].B) / 2);
+
+        var gains = PlanetaryColourBalance.GainsThrough(mean, target, matrix);
+        gains.G.ShouldBe(1, "green held at one");
+        PlanetaryColourBalance.Through(Scale(mean, gains), matrix).ChromaDistance(target).ShouldBeLessThan(1e-9, "the disk mean lands on the target through the matrix");
+        for (var i = 0; i < truth.Length; i++)
+        {
+            PlanetaryColourBalance.Through(Scale(recorded[i], gains), matrix).ChromaDistance(truth[i]).ShouldBeLessThan(1e-9, "the crosstalk is undone");
+            // A gain a channel alone puts the mean on the target but leaves each colour's overlap in it.
+            Scale(recorded[i], mean.GainsTo(target)).ChromaDistance(truth[i]).ShouldBeGreaterThan(0.005);
+        }
+
+        static LinearRgb Scale(LinearRgb c, LinearRgb g) => new LinearRgb(c.R * g.R, c.G * g.G, c.B * g.B);
+        static LinearRgb Mul(double[] m, LinearRgb c) => new LinearRgb(
+            (m[0] * c.R) + (m[1] * c.G) + (m[2] * c.B), (m[3] * c.R) + (m[4] * c.G) + (m[5] * c.B), (m[6] * c.R) + (m[7] * c.G) + (m[8] * c.B));
+        static double[] Invert(float[] m)
+        {
+            double a = m[0], b = m[1], c = m[2], d = m[3], e = m[4], f = m[5], g = m[6], h = m[7], k = m[8];
+            var det = (a * ((e * k) - (f * h))) - (b * ((d * k) - (f * g))) + (c * ((d * h) - (e * g)));
+            return [((e * k) - (f * h)) / det, ((c * h) - (b * k)) / det, ((b * f) - (c * e)) / det,
+                ((f * g) - (d * k)) / det, ((a * k) - (c * g)) / det, ((c * d) - (a * f)) / det,
+                ((d * h) - (e * g)) / det, ((b * g) - (a * h)) / det, ((a * e) - (b * d)) / det];
+        }
+    }
+
     [Fact(Timeout = 300_000)]
     public async Task AColourJupiterIsBalancedAtTheOwnersSaturationAndAnythingElseSaysWhyNot()
     {

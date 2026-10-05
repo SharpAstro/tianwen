@@ -43,12 +43,12 @@ public class CameraColorMatrixTests
     }
 
     [Fact]
-    public void ComputeCamXyz_FlatCfa_ProducesNonNegativeMatrix()
+    public void ComputeCamXyz_GaussianCfa_ProducesTheExpectedColourOrdering()
     {
         // Three Gaussian-ish CFA curves (peak at 600 / 540 / 460 nm respectively)
-        // should produce a positive 9-element matrix where the diagonal is the
+        // should produce a 9-element matrix where the diagonal is the
         // dominant cell per channel (R picks up X most, G picks up Y most,
-        // B picks up Z most under D65). Sanity check that the integration
+        // B picks up Z most under D65). Sanity check that the fit
         // produces the expected colour ordering.
         var cfaR = MakeGaussianCfa("cfa_R", peakNm: 600, sigmaNm: 60);
         var cfaG = MakeGaussianCfa("cfa_G", peakNm: 540, sigmaNm: 60);
@@ -56,13 +56,12 @@ public class CameraColorMatrixTests
 
         var camXyz = CameraColorMatrix.ComputeCamXyz(cfaR, cfaG, cfaB);
 
-        // 9 elements, all finite, all non-negative (we integrated all-positive
-        // curves).
+        // 9 elements, all finite. Not all non-negative: the matrix is a least-squares fit onto the overlapping
+        // matching functions, whose weights can be negative though every curve is positive (#1279, rule E).
         camXyz.Length.ShouldBe(9);
         for (var i = 0; i < 9; i++)
         {
             double.IsFinite(camXyz[i]).ShouldBeTrue($"entry {i} not finite");
-            camXyz[i].ShouldBeGreaterThanOrEqualTo(0.0, $"entry {i} negative");
         }
 
         // Cross-chromatic ordering: a CFA centred in the red has near-zero
@@ -75,6 +74,57 @@ public class CameraColorMatrixTests
         // sits squarely under the Y matching function peak.
         camXyz[4].ShouldBeGreaterThan(camXyz[3]); // G-Y > G-X
         camXyz[4].ShouldBeGreaterThan(camXyz[5]); // G-Y > G-Z
+    }
+
+    [Fact]
+    public void ComputeCamXyz_ALutherCamera_IsRecoveredExactly()
+    {
+        // A camera whose channels ARE combinations of the CIE matching functions (the Luther condition): its
+        // cam_xyz is those combinations' weights, which a projection onto the functions alone does not return
+        // (x-bar and y-bar overlap), and the least-squares fit through their Gram inverse does (#1279, rule E).
+        double[] weights =
+        [
+            0.9, 0.3, 0.0,
+            0.2, 1.0, 0.1,
+            0.0, 0.1, 0.8,
+        ];
+        var cies = new[] { CieReferenceData.X1931, CieReferenceData.Y1931, CieReferenceData.Z1931 };
+        var channels = new FilterCurve[3];
+        for (var c = 0; c < 3; c++)
+        {
+            var values = new double[cies[0].Count];
+            for (var i = 0; i < values.Length; i++)
+            {
+                for (var p = 0; p < 3; p++)
+                {
+                    values[i] += weights[c * 3 + p] * cies[p].ThroughputAt(i);
+                }
+            }
+            channels[c] = new FilterCurve($"luther_{c}", "synthetic", cies[0].Wavelengths, ImmutableArray.Create(values));
+        }
+
+        var camXyz = CameraColorMatrix.ComputeCamXyz(channels[0], channels[1], channels[2]);
+
+        for (var i = 0; i < 9; i++)
+        {
+            camXyz[i].ShouldBe(weights[i], 1e-6, $"entry {i}");
+        }
+    }
+
+    [Fact]
+    public async Task TryComputeCameraToSrgbMatrix_EosFiveDMarkTwo_AgreesWithDcrawsMeasuredMatrix()
+    {
+        // The external truth for the spectral derivation: dcraw's measured matrix for the same body (FC.SDK.Raw's
+        // CanonCameraProfile). Without the Gram inverse the spectral red row read 11.99 and -12.07 against dcraw's
+        // 2.07 and -1.32; with it every element is within 0.28.
+        await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
+        FilterCurveDatabase.TryComputeCameraToSrgbMatrix("Canon EOS 5D Mark II", out var spectral).ShouldBeTrue();
+        var dcraw = FC.SDK.Raw.CanonCameraProfiles.ResolveProfile("Canon EOS 5D Mark II")?.ComputeRgbCam();
+        dcraw.ShouldNotBeNull();
+        for (var i = 0; i < 9; i++)
+        {
+            spectral[i].ShouldBe(dcraw[i], 0.35f, $"entry {i}");
+        }
     }
 
     [Fact]

@@ -72,6 +72,8 @@ public static class PlanetaryColourBalance
     /// <summary>
     /// The saturation a balance applies by default: the owner's choice on the five colour captures' previews at 1, 1.4 and 2
     /// (2026-10-03, #1212). Every capture read duller than OPAL's reflectance at its resolution, by 1.1 to 3.1 depending on the blur.
+    /// It stands in for the camera's crosstalk: the camera's own matrix (<see cref="GainsThrough"/>) lifts the chroma 1.45 to 1.52 times
+    /// on the same captures (#1279, rule E), and replacing this with it waits on the owner's eye.
     /// </summary>
     public const double DefaultSaturation = 1.4;
 
@@ -110,8 +112,11 @@ public static class PlanetaryColourBalance
         return (balance, balance.Describe());
     }
 
-    /// <summary>The gains, green held at one, that take <paramref name="master"/>'s disk mean to <paramref name="target"/>, and each channel's sky.</summary>
-    public static (LinearRgb Gains, LinearRgb Sky) GainsFor(Image master, in MetricDisk disk, in LinearRgb target)
+    /// <summary>
+    /// The gains, green held at one, that take <paramref name="master"/>'s disk mean to <paramref name="target"/>, through
+    /// <paramref name="cameraMatrix"/> when one is given (<see cref="GainsThrough"/>), and each channel's sky.
+    /// </summary>
+    public static (LinearRgb Gains, LinearRgb Sky) GainsFor(Image master, in MetricDisk disk, in LinearRgb target, float[]? cameraMatrix = null)
     {
         if (master.ChannelCount != 3)
         {
@@ -122,25 +127,66 @@ public static class PlanetaryColourBalance
         var blue = master.GetChannelSpan(2);
         var sky = PlanetaryColour.Sky(red, green, blue, master.Width, master.Height, disk);
         var mean = PlanetaryColour.DiskMean(red, green, blue, master.Width, master.Height, disk, sky);
-        return (mean.GainsTo(target), sky);
+        return (cameraMatrix is null ? mean.GainsTo(target) : GainsThrough(mean, target, cameraMatrix), sky);
     }
 
     /// <summary>
-    /// <paramref name="master"/> balanced: each channel's <paramref name="sky"/> taken off and its gain applied, then saturated by
-    /// <paramref name="saturation"/> about <paramref name="about"/>, a colour: each pixel's departure from that colour at the pixel's own
+    /// The gains, green held at one, that take <paramref name="mean"/>, a disk's mean in the camera's own colours, to
+    /// <paramref name="target"/>'s chromaticity THROUGH <paramref name="cameraMatrix"/> (camera RGB to linear sRGB, row-major, as
+    /// <see cref="FilterCurveDatabase.TryComputeCameraToSrgbMatrix"/> gives it): <c>M (g mean)</c> has the target's colour. The gains are
+    /// the white balance the matrix expects; the matrix then undoes the overlap of the camera's channels, which no gain a channel can
+    /// (#1279, rule E). NaN where the matrix cannot be inverted.
+    /// </summary>
+    public static LinearRgb GainsThrough(in LinearRgb mean, in LinearRgb target, ReadOnlySpan<float> cameraMatrix)
+    {
+        // The camera colour, white-balanced, that the matrix takes to the target: M^-1 target, by Cramer's rule.
+        var (m00, m01, m02, m10, m11, m12, m20, m21, m22) = ((double)cameraMatrix[0], (double)cameraMatrix[1], (double)cameraMatrix[2],
+            (double)cameraMatrix[3], (double)cameraMatrix[4], (double)cameraMatrix[5], (double)cameraMatrix[6], (double)cameraMatrix[7], (double)cameraMatrix[8]);
+        var det = (m00 * ((m11 * m22) - (m12 * m21))) - (m01 * ((m10 * m22) - (m12 * m20))) + (m02 * ((m10 * m21) - (m11 * m20)));
+        if (Math.Abs(det) < 1e-12)
+        {
+            return new LinearRgb(double.NaN, double.NaN, double.NaN);
+        }
+        var (t0, t1, t2) = (target.R, target.G, target.B);
+        var u0 = ((t0 * ((m11 * m22) - (m12 * m21))) - (m01 * ((t1 * m22) - (m12 * t2))) + (m02 * ((t1 * m21) - (m11 * t2)))) / det;
+        var u1 = ((m00 * ((t1 * m22) - (m12 * t2))) - (t0 * ((m10 * m22) - (m12 * m20))) + (m02 * ((m10 * t2) - (t1 * m20)))) / det;
+        var u2 = ((m00 * ((m11 * t2) - (t1 * m21))) - (m01 * ((m10 * t2) - (t1 * m20))) + (t0 * ((m10 * m21) - (m11 * m20)))) / det;
+        var (gr, gg, gb) = (u0 / mean.R, u1 / mean.G, u2 / mean.B);
+        return new LinearRgb(gr / gg, 1, gb / gg);
+    }
+
+    /// <summary>
+    /// <paramref name="colour"/> saturated by <paramref name="saturation"/> about <paramref name="about"/> (<see cref="Apply"/>'s step):
+    /// <c>c' = a + s (c - a)</c> with <c>a = (Y_c / Y_about) about</c>, linear sRGB's luminance Y kept.
+    /// </summary>
+    public static LinearRgb Saturate(in LinearRgb colour, double saturation, in LinearRgb about)
+    {
+        var y = CameraColorMatrix.SrgbToXyz.Slice(3, 3);
+        var scale = ((y[0] * colour.R) + (y[1] * colour.G) + (y[2] * colour.B)) / ((y[0] * about.R) + (y[1] * about.G) + (y[2] * about.B));
+        var (ar, ag, ab) = (scale * about.R, scale * about.G, scale * about.B);
+        return new LinearRgb(ar + (saturation * (colour.R - ar)), ag + (saturation * (colour.G - ag)), ab + (saturation * (colour.B - ab)));
+    }
+
+    /// <summary><paramref name="colour"/> through <paramref name="cameraMatrix"/> (row-major, camera RGB to linear sRGB).</summary>
+    public static LinearRgb Through(in LinearRgb colour, ReadOnlySpan<float> cameraMatrix) => new LinearRgb(
+        (cameraMatrix[0] * colour.R) + (cameraMatrix[1] * colour.G) + (cameraMatrix[2] * colour.B),
+        (cameraMatrix[3] * colour.R) + (cameraMatrix[4] * colour.G) + (cameraMatrix[5] * colour.B),
+        (cameraMatrix[6] * colour.R) + (cameraMatrix[7] * colour.G) + (cameraMatrix[8] * colour.B));
+
+    /// <summary>
+    /// <paramref name="master"/> balanced: each channel's <paramref name="sky"/> taken off and its gain applied, then, when one is given,
+    /// <paramref name="cameraMatrix"/> (<see cref="GainsThrough"/>, rule E of #1279), then saturated by <paramref name="saturation"/>
+    /// about <paramref name="about"/>, a colour: each pixel's departure from that colour at the pixel's own
     /// luminance is scaled, <c>c' = a + s (c - a)</c> with <c>a = (Y_c / Y_about) about</c>, so the luminance is kept and a pixel of that
     /// colour is left alone. About white, the departure from grey; about the disk's target colour, the belts' and zones' departure
     /// from the disk, which leaves the disk's mean where the gains put it. One leaves the colours as the gains made them. A new image.
     /// </summary>
-    public static Image Apply(Image master, in LinearRgb gains, in LinearRgb sky, double saturation, in LinearRgb about)
+    public static Image Apply(Image master, in LinearRgb gains, in LinearRgb sky, double saturation, in LinearRgb about, float[]? cameraMatrix = null)
     {
         var (width, height) = (master.Width, master.Height);
         var red = master.GetChannelSpan(0);
         var green = master.GetChannelSpan(1);
         var blue = master.GetChannelSpan(2);
-        var y = CameraColorMatrix.SrgbToXyz.Slice(3, 3);
-        var (wr, wg, wb) = (y[0], y[1], y[2]);
-        var aboutLuminance = (wr * about.R) + (wg * about.G) + (wb * about.B);
         var planes = new float[3][,];
         for (var c = 0; c < 3; c++)
         {
@@ -155,9 +201,13 @@ public static class PlanetaryColourBalance
                 var r = (red[i] - sky.R) * gains.R;
                 var g = (green[i] - sky.G) * gains.G;
                 var b = (blue[i] - sky.B) * gains.B;
-                var scale = ((wr * r) + (wg * g) + (wb * b)) / aboutLuminance;
-                var (ar, ag, ab) = (scale * about.R, scale * about.G, scale * about.B);
-                var (outR, outG, outB) = ((float)(ar + (saturation * (r - ar))), (float)(ag + (saturation * (g - ag))), (float)(ab + (saturation * (b - ab))));
+                var balanced = new LinearRgb(r, g, b);
+                if (cameraMatrix is not null)
+                {
+                    balanced = Through(balanced, cameraMatrix);
+                }
+                var saturated = Saturate(balanced, saturation, about);
+                var (outR, outG, outB) = ((float)saturated.R, (float)saturated.G, (float)saturated.B);
                 (planes[0][row, x], planes[1][row, x], planes[2][row, x]) = (outR, outG, outB);
                 min = MathF.Min(min, MathF.Min(outR, MathF.Min(outG, outB)));
                 max = MathF.Max(max, MathF.Max(outR, MathF.Max(outG, outB)));
