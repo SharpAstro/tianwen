@@ -732,6 +732,15 @@ seeds now reads:
 The seed spread is the widest thing measured so far, 27 points at 5-20 sigma. Against it, two readings still stand apart.
 The Gaussian arm's 18.9 to 38.8 at 100-1000 sigma, with a footprint RMS of 17.3 to 18.6, is H2's direction. The at-site
 arm's 35.5 to 41.2 at 20-100 sigma is (6)'s second-half miss.
+`r2_gaussian_s2` (eight of nine) completes the Gaussian arm. On the random arm's draws it removes 61.7 at 5-20, 52.4 at
+20-100, 17.3 at 100-1000 and 18.7 of the saturated, with a footprint RMS of 18.5, and the sky moved 0.19. On its own
+draws it removes 74 to 80 percent from 5 to 1000 sigma and 63.0 of the saturated, with a footprint RMS of 1.00. Over its
+three seeds the arm reads:
+- 100-1000 sigma: 17.3 to 38.8, against the field arm's 58.5 to 85.4;
+- footprint RMS: 17.3 to 18.6, against 2.76 to 7.09;
+- sky moved: 0.19 to 0.23, against 0.52 to 0.60.
+All three are apart, H2's direction on every seed. The arm also moves the untouched sky inside (2)'s 0.3, which no field
+seed does.
 
 Open from it, under #902: R0's saturated fit on a fixed annulus in FWHM units with a 0.1 to 0.3 core cut (#1240); a
 residual table that holds bright stars' near wings (#1241); the Lagoon's and eta Carinae's photometric offsets (1.4 to 1.7,
