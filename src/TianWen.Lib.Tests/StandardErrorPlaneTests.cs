@@ -169,10 +169,12 @@ public class StandardErrorPlaneTests(ITestOutputHelper output)
     /// (<see cref="FrameDrift"/>) it predicts it, read raw it over-reads.
     /// </summary>
     [Theory]
-    [InlineData(true, true)]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    public void ThePlaneIsReadAboutEachFramesDrift(bool measureDrift, bool clipped)
+    [InlineData(true, true, true)]
+    [InlineData(true, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, true, false)]
+    [InlineData(true, false, false)]
+    public void ThePlaneIsReadAboutEachFramesDrift(bool measureDrift, bool clipped, bool streaming)
     {
         const int size = 128;
         const int frames = 40;
@@ -202,14 +204,16 @@ public class StandardErrorPlaneTests(ITestOutputHelper output)
             images.Add(new Image([plane], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta()));
         }
 
+        // The in-memory integrator measures every frame's drift itself; the staged one is handed it at staging, or not.
         var staged = images.Select(i => new StagedAlignedFrame(StreamingFrameReader.InMemoryOnly(i), i.ImageMeta, i.MaxValue, i.Pedestal, null, null)
         {
             DriftBlocks = measureDrift ? FrameDrift.MeasureBlocks(i) : null,
         }).ToList();
+        var options = new IntegrationOptions(Rejector: clipped ? new SigmaClipRejector() : null, ApplyNormalization: false);
         IntegrationResult result;
         try
         {
-            result = StreamingIntegrator.Integrate(staged, new IntegrationOptions(Rejector: clipped ? new SigmaClipRejector() : null, ApplyNormalization: false));
+            result = streaming ? StreamingIntegrator.Integrate(staged, options) : Integrator.Integrate(images, options);
         }
         finally
         {
@@ -235,7 +239,7 @@ public class StandardErrorPlaneTests(ITestOutputHelper output)
             }
         }
         var ratio = Math.Sqrt(noiseSquares / planeSquares);
-        output.WriteLine($"drift measured {measureDrift}, clipped {clipped}: the master's noise over the plane, RMS over RMS {ratio:F3}; " +
+        output.WriteLine($"drift measured {measureDrift}, clipped {clipped}, streaming {streaming}: the master's noise over the plane, RMS over RMS {ratio:F3}; " +
                          $"rejection {result.MeanRejectionRate:P2}");
         if (measureDrift)
         {
@@ -252,26 +256,54 @@ public class StandardErrorPlaneTests(ITestOutputHelper output)
     /// dithered frames, the stack's own rejector and no normalisation, so the master is the sky over the source's full
     /// scale. Each channel's error over the covered interior, RMS over the plane's RMS.
     /// </summary>
-    [Fact]
-    public async System.Threading.Tasks.Task TheDrizzlePlanePredictsTheMastersOwnError()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async System.Threading.Tasks.Task TheDrizzlePlanePredictsTheMastersOwnError(bool drifting)
     {
-        const int frameSize = 64;
+        // A drifting run, as the pilot's nights: each frame's sky offset, a gradient that turns, and a transparency over a
+        // nebula fixed on the SKY, with frames big enough for a few drift blocks. The master's noise is its error less
+        // the frames' mean drift where it lands.
+        var frameSize = drifting ? 128 : 64;
         const int margin = 6;
-        const int canvas = frameSize + (2 * margin);
+        var canvas = frameSize + (2 * margin);
         const int count = 60;
         const float sky = 1000f;
         const float sigma = 8f;
+        double Nebula(double canvasX, double canvasY)
+        {
+            var (ux, uy) = (canvasX - (canvas / 2.0), canvasY - (canvas / 2.0));
+            return 30 * sigma * Math.Exp(-((ux * ux) + (uy * uy)) / (2 * 25.0 * 25.0));
+        }
+        var meanDrift = new double[canvas, canvas];
         var frames = new List<RawBayerFrame>(count);
         for (var f = 0; f < count; f++)
         {
             var rng = new Random(77 + f);
             var (dx, dy) = ((float)((rng.NextDouble() * 6) - 3), (float)((rng.NextDouble() * 6) - 3));
+            var (offset, gradient, transparency) = drifting
+                ? (2 * sigma * Gaussian(rng), sigma * Gaussian(rng), 0.03 * Gaussian(rng))
+                : (0.0, 0.0, 0.0);
+            double Drift(double sourceX, double canvasX, double canvasY)
+                => offset + (gradient * ((sourceX / frameSize) - 0.5)) + (transparency * Nebula(canvasX, canvasY));
             var plane = new float[frameSize, frameSize];
             for (var y = 0; y < frameSize; y++)
             {
                 for (var x = 0; x < frameSize; x++)
                 {
-                    plane[y, x] = sky + (sigma * (float)Gaussian(rng));
+                    var (cx, cy) = (x + dx + margin, y + dy + margin);
+                    var signal = drifting ? Nebula(cx, cy) + Drift(x, cx, cy) : 0.0;
+                    plane[y, x] = sky + (float)signal + (sigma * (float)Gaussian(rng));
+                }
+            }
+            if (drifting)
+            {
+                for (var cy = 0; cy < canvas; cy++)
+                {
+                    for (var cx = 0; cx < canvas; cx++)
+                    {
+                        meanDrift[cy, cx] += Drift(cx - dx - margin, cx, cy) / count;
+                    }
                 }
             }
             var meta = new ImageMeta { Instrument = "synth-drizzle-stderr", SensorType = SensorType.RGGB };
@@ -284,7 +316,6 @@ public class StandardErrorPlaneTests(ITestOutputHelper output)
             DrizzleOutlierRejectionTests.BuildJob(frames, options, canvas, canvas), TestContext.Current.CancellationToken);
 
         var standardError = result.StandardError.ShouldNotBeNull("a rejecting drizzle measures it");
-        const float truth = sky / 65535f;
         for (var c = 0; c < 3; c++)
         {
             double errorSquares = 0, planeSquares = 0;
@@ -299,6 +330,7 @@ public class StandardErrorPlaneTests(ITestOutputHelper output)
                     {
                         continue;
                     }
+                    var truth = (sky + (drifting ? Nebula(x, y) + meanDrift[y, x] : 0.0)) / 65535.0;
                     var error = master - truth;
                     errorSquares += error * error;
                     planeSquares += se * se;
@@ -306,7 +338,7 @@ public class StandardErrorPlaneTests(ITestOutputHelper output)
                 }
             }
             var ratio = Math.Sqrt(errorSquares / planeSquares);
-            output.WriteLine($"drizzle channel {c}: {n} cells, the master's error over the plane, RMS over RMS {ratio:F3}");
+            output.WriteLine($"drizzle, drifting {drifting}, channel {c}: {n} cells, the master's error over the plane, RMS over RMS {ratio:F3}");
             n.ShouldBeGreaterThan(1000);
             ratio.ShouldBe(1.0, 0.05, $"channel {c}");
         }

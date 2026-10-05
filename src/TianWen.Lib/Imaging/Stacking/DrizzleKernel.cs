@@ -167,10 +167,13 @@ internal static class DrizzleKernel
         PixelRect sourceRect,
         BitMatrix badPixelMask,
         bool hasBadPixelMask,
-        DrizzleScatter? scatter = null)
+        DrizzleScatter? scatter = null,
+        FrameDrift? drift = null,
+        int driftFrame = 0)
     {
         var counts = new long[2];
-        Iterate(raw, new AffineMap(transform), pattern, halfP, new ClippedSink(moments, clip, flux, weight, counts, scatter),
+        Iterate(raw, new AffineMap(transform), pattern, halfP,
+            new ClippedSink(moments, clip, flux, weight, counts, scatter, drift, driftFrame, yStart),
             xStart, xEnd, yStart, yEnd, sourceRect, badPixelMask, hasBadPixelMask);
         return (counts[0], counts[1]);
     }
@@ -226,14 +229,15 @@ internal static class DrizzleKernel
     public static (long Rejected, long Total) IterateAndDepositClippedParallel(
         Image raw, Matrix3x2 transform, int[,] pattern, float halfP,
         DrizzleMoments moments, DrizzleClip clip, float[][,] flux, float[][,] weight, int canvasW, int canvasH,
-        BitMatrix badPixelMask, bool hasBadPixelMask, DrizzleScatter? scatter = null)
+        BitMatrix badPixelMask, bool hasBadPixelMask, DrizzleScatter? scatter = null, FrameDrift? drift = null, int driftFrame = 0)
     {
         long rejected = 0, total = 0;
         ForEachStrip(raw, transform, canvasW, canvasH, (y0, y1, source) =>
         {
             // Per strip: a counter shared between workers would be a race, not a count.
             var counts = new long[2];
-            Iterate(raw, new AffineMap(transform), pattern, halfP, new ClippedSink(moments, clip, flux, weight, counts, scatter),
+            Iterate(raw, new AffineMap(transform), pattern, halfP,
+                new ClippedSink(moments, clip, flux, weight, counts, scatter, drift, driftFrame),
                 0, canvasW, 0, canvasH, source, badPixelMask, hasBadPixelMask, y0, y1);
             Interlocked.Add(ref rejected, counts[0]);
             Interlocked.Add(ref total, counts[1]);

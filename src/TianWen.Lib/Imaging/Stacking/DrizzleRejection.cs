@@ -42,8 +42,12 @@ internal readonly struct MomentsSink(DrizzleMoments moments) : IDropSink
 /// <summary>The clipped deposit: deposits a contribution only if <see cref="DrizzleClip.Keeps"/> it.
 /// <paramref name="counts"/> is [rejected, total], a one-element-each array so the struct can count.
 /// <c>localY</c> is relative to the deposit's own rows; the moments may carry halo rows above them
-/// (<see cref="DrizzleMoments.RowOffset"/>).</summary>
-internal readonly struct ClippedSink(DrizzleMoments moments, DrizzleClip clip, float[][,] flux, float[][,] weight, long[] counts, DrizzleScatter? scatter = null) : IDropSink
+/// (<see cref="DrizzleMoments.RowOffset"/>). <paramref name="drift"/> is the frames' drift (<see cref="FrameDrift"/>), read
+/// for frame <paramref name="driftFrame"/> at canvas row <c>localY + driftRowOffset</c>: the standard error's scatter is
+/// taken about it.</summary>
+internal readonly struct ClippedSink(
+    DrizzleMoments moments, DrizzleClip clip, float[][,] flux, float[][,] weight, long[] counts, DrizzleScatter? scatter = null,
+    FrameDrift? drift = null, int driftFrame = 0, int driftRowOffset = 0) : IDropSink
 {
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Add(int channel, int localY, int localX, float value, float area)
@@ -68,9 +72,16 @@ internal readonly struct ClippedSink(DrizzleMoments moments, DrizzleClip clip, f
         if (scatter is not null)
         {
             // Centred on the cell's all-sample mean from the statistics pass, so the square stays small where the
-            // values are ADU-sized and a float does not cancel (DrizzleScatter).
+            // values are ADU-sized and a float does not cancel (DrizzleScatter), and taken about the frame's drift.
             var d = value - (sum / cellWeight);
+            if (drift is not null)
+            {
+                var frameDrift = drift.At(driftFrame, channel, localX, localY + driftRowOffset);
+                d -= frameDrift;
+                scatter.KeptDrift[channel][localY, localX] += area * frameDrift;
+            }
             scatter.AreaSquares[channel][localY, localX] += area * area;
+            scatter.CentredSums[channel][localY, localX] += area * d;
             scatter.CentredSquares[channel][localY, localX] += area * d * d;
         }
     }
@@ -85,8 +96,18 @@ internal readonly struct ClippedSink(DrizzleMoments moments, DrizzleClip clip, f
 /// <remarks>
 /// <para><b>Centred, so a float holds it.</b> A bake deposits ADU-sized values, whose squares are the difference of two
 /// numbers near 1e7 where the variance is near 1e2 (the reason <see cref="DrizzleClip.Keeps"/> works in double).
-/// Deviations from a mean already in hand are small, so their squares accumulate in float without cancelling; the
-/// cross term the formula also needs is the kept flux less the mean times the kept weight, formed in double.</para>
+/// Deviations from a mean already in hand are small, so their squares accumulate in float without cancelling, and so do
+/// the deviations themselves (<see cref="CentredSums"/>), the cross term the formula also needs.</para>
+/// <para><b>Each deposit about its frame's drift</b> (<see cref="FrameDrift"/>), the sky and transparency a night moves
+/// through, which interleaved halves cancel: a drizzle shifts each frame's whole sky (<c>DrizzleSkyReference</c>) and still
+/// over-read the half pairs 5 to 12 percent (E16c S4's pilot) until the local drift was taken out too. The deviations are
+/// their own plane because the kept flux carries the drift.</para>
+/// <para><b>And what the composition does to the drift.</b> A Bayer drizzle builds each cell's colour from the frames whose
+/// photosites of that colour land on it, a different few at every cell, and its clip drops more: so the drift a cell
+/// averages is its kept deposits' (<see cref="KeptDrift"/>), less the mean its target's frames carry there, and that
+/// varies from cell to cell as noise the halves do not share. It is added to the variance, as
+/// <see cref="StandardErrorPlane.OfDrifting"/> adds it for a pixel column (a drifting fixture read the master's noise at
+/// 1.19 without it).</para>
 /// <para><b>The kept deposits' own scatter is safe here, where it was not for a pixel column</b>: the drizzle clip
 /// decides each deposit once, leave-one-out against the statistics pass, so it cannot tighten on a cell until its
 /// survivors cluster, which is what failed the survivors' scatter under an iterated clip.</para>
@@ -95,44 +116,56 @@ internal sealed class DrizzleScatter
 {
     public float[][,] AreaSquares { get; }
 
+    public float[][,] CentredSums { get; }
+
     public float[][,] CentredSquares { get; }
+
+    public float[][,] KeptDrift { get; }
+
+    /// <summary>Canvas planes per channel a scatter adds to a clipped drizzle: area squared, deviation, its square, and the
+    /// kept deposits' drift.</summary>
+    internal const int PlanesPerChannel = 4;
 
     public DrizzleScatter(int channels, int height, int width)
     {
         AreaSquares = new float[channels][,];
+        CentredSums = new float[channels][,];
         CentredSquares = new float[channels][,];
+        KeptDrift = new float[channels][,];
         for (var c = 0; c < channels; c++)
         {
             AreaSquares[c] = new float[height, width];
+            CentredSums[c] = new float[height, width];
             CentredSquares[c] = new float[height, width];
+            KeptDrift[c] = new float[height, width];
         }
     }
 
     /// <summary>
     /// The standard error of each cell's weighted mean, times <paramref name="scale"/> (the master's own unit factor),
-    /// from the KEPT <paramref name="flux"/> and <paramref name="weight"/> (before they are divided into the master) and
-    /// the statistics pass's <paramref name="moments"/> (read past their halo rows, <see cref="DrizzleMoments.RowOffset"/>).
-    /// NaN where a cell kept nothing or under two effective deposits.
+    /// from the KEPT <paramref name="weight"/> (before it is divided into the master) and this scatter's own sums, with the
+    /// composition's drift added where <paramref name="drift"/> was measured: <paramref name="meanDrift"/> is the target's
+    /// frames' mean (<see cref="FrameDrift.MeanGrid"/>), read at canvas row <c>y + <paramref name="rowOffset"/></c>. NaN where
+    /// a cell kept nothing or under two effective deposits.
     /// </summary>
-    public float[][,] StandardError(float[][,] flux, float[][,] weight, DrizzleMoments moments, float scale)
+    public float[][,] StandardError(float[][,] weight, float scale, FrameDrift? drift = null, float[][]? meanDrift = null, int rowOffset = 0)
     {
-        var channels = flux.Length;
+        var channels = weight.Length;
         var result = new float[channels][,];
         for (var c = 0; c < channels; c++)
         {
-            var h = flux[c].GetLength(0);
-            var w = flux[c].GetLength(1);
+            var h = weight[c].GetLength(0);
+            var w = weight[c].GetLength(1);
             var plane = new float[h, w];
-            var (f, wt, aa, dd, sum, mw) = (flux[c], weight[c], AreaSquares[c], CentredSquares[c], moments.Sum[c], moments.Weight[c]);
-            var offset = moments.RowOffset;
+            var (wt, aa, ds, dd, kd) = (weight[c], AreaSquares[c], CentredSums[c], CentredSquares[c], KeptDrift[c]);
+            var channel = c;
             Parallel.For(0, h, y =>
             {
                 for (var x = 0; x < w; x++)
                 {
                     double sw = wt[y, x];
                     double saa = aa[y, x];
-                    double allWeight = mw[y + offset, x];
-                    if (sw <= 0 || saa <= 0 || allWeight <= 0)
+                    if (sw <= 0 || saa <= 0)
                     {
                         plane[y, x] = float.NaN;
                         continue;
@@ -144,10 +177,14 @@ internal sealed class DrizzleScatter
                         plane[y, x] = float.NaN;
                         continue;
                     }
-                    var mean = sum[y + offset, x] / allWeight;
-                    var sd = f[y, x] - (mean * sw);
-                    var variance = Math.Max(0.0, (dd[y, x] - (sd * sd / sw)) / denominator);
-                    plane[y, x] = (float)(Math.Sqrt(variance / effective) * scale);
+                    double sd = ds[y, x];
+                    var variance = Math.Max(0.0, (dd[y, x] - (sd * sd / sw)) / denominator) / effective;
+                    if (drift is not null && meanDrift is not null)
+                    {
+                        var composition = (kd[y, x] / sw) - drift.AtGrid(meanDrift, channel, x, y + rowOffset);
+                        variance += composition * composition;
+                    }
+                    plane[y, x] = (float)(Math.Sqrt(variance) * scale);
                 }
             });
             result[c] = plane;

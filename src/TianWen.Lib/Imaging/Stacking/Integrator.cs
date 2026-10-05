@@ -222,8 +222,16 @@ public static class Integrator
         // path this and left the in-RAM path without it, which is what a re-bake of V1045 Ori at HEAD
         // exposed: it chose InRamAllFrames and wrote no coverage plane at all.
         using IIntegrationSink coverageSinkInUse = new ArraySink(1, width, height);
-        // The standard error of each combined value, from the same column and mask, per channel.
+        // The standard error of each combined value, from the same column and mask, per channel, its scatter taken about
+        // each frame's drift (FrameDrift), in the units the column is combined in.
         using IIntegrationSink standardErrorSink = new ArraySink(channelCount, width, height);
+        var driftBlocks = new List<float[][]?>(n);
+        foreach (var frame in alignedFrames)
+        {
+            driftBlocks.Add(FrameDrift.MeasureBlocks(frame));
+        }
+        var drift = FrameDrift.From(driftBlocks, width, height,
+            frameMin is { } mins && frameScale is { } scales ? (f, c, v) => (v - mins[c][f]) * scales[c][f] : null);
 
         long totalRejections = 0;
 
@@ -240,6 +248,8 @@ public static class Integrator
                 {
                     Column = ArrayPool<float>.Shared.Rent(n),
                     KeepMask = ArrayPool<float>.Shared.Rent(n),
+                    Adjusted = drift is null ? [] : ArrayPool<float>.Shared.Rent(n),
+                    DriftRow = drift is null ? [] : ArrayPool<float>.Shared.Rent(n * drift.GridWidth),
                     Rejections = 0,
                 },
                 body: (row, _, state) =>
@@ -256,6 +266,9 @@ public static class Integrator
                     var rejectRow = rejectSinkInUse.GetRow(0, row);
                     var coverageRow = coverageSinkInUse.GetRow(0, row);
                     var standardErrorRow = standardErrorSink.GetRow(channelIdx, row);
+                    var driftRow = state.DriftRow.AsSpan(0, drift is null ? 0 : n * drift.GridWidth);
+                    drift?.Row(channelIdx, row, driftRow);
+                    var adjusted = state.Adjusted.AsSpan(0, drift is null ? 0 : n);
 
                     for (var col = 0; col < width; col++)
                     {
@@ -289,7 +302,15 @@ public static class Integrator
                         }
 
                         masterRow[col] = combiner.Combine(columnSpan, maskSpan);
-                        standardErrorRow[col] = StandardErrorPlane.Of(columnSpan, maskSpan);
+                        if (drift is null)
+                        {
+                            standardErrorRow[col] = StandardErrorPlane.Of(columnSpan, maskSpan);
+                        }
+                        else
+                        {
+                            drift.Remove(columnSpan, driftRow, col, adjusted);
+                            standardErrorRow[col] = StandardErrorPlane.OfDrifting(columnSpan, adjusted, maskSpan);
+                        }
 
                         // Accumulate per-pixel rejection rate across channels.
                         // Final divide by channelCount happens after the loop.
@@ -304,6 +325,11 @@ public static class Integrator
                 {
                     ArrayPool<float>.Shared.Return(state.Column);
                     ArrayPool<float>.Shared.Return(state.KeepMask);
+                    if (drift is not null)
+                    {
+                        ArrayPool<float>.Shared.Return(state.Adjusted);
+                        ArrayPool<float>.Shared.Return(state.DriftRow);
+                    }
                     Interlocked.Add(ref totalRejections, state.Rejections);
                 });
         }
@@ -360,6 +386,8 @@ public static class Integrator
     {
         public float[] Column;
         public float[] KeepMask;
+        public float[] Adjusted;
+        public float[] DriftRow;
         public long Rejections;
     }
 

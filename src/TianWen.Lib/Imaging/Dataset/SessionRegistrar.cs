@@ -1162,9 +1162,9 @@ public static class SessionRegistrar
         async Task<Dictionary<string, (ImmutableArray<int> Pick, IntegrationResult Result)>> FusedDrizzleAsync(
             List<(string Name, ImmutableArray<int> Pick)> plan)
         {
-            // Eight planes per channel per target: flux and weight, the clip's four statistics planes and the standard
-            // error's two (DrizzleStrategy.Evaluate counts the same).
-            var perTarget = 8L * 3 * canvasW * canvasH * sizeof(float);
+            // DrizzleStrategy.DrizzlePlanesPerChannel per channel per target: flux and weight, the clip's four statistics
+            // planes and the standard error's (DrizzleStrategy.Evaluate counts the same).
+            var perTarget = (long)DrizzleStrategy.DrizzlePlanesPerChannel * 3 * canvasW * canvasH * sizeof(float);
             var budget = Math.Max(perTarget, GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 4);
             var perRun = (int)Math.Max(1, budget / perTarget);
             var results = new Dictionary<string, (ImmutableArray<int> Pick, IntegrationResult Result)>(plan.Count);
