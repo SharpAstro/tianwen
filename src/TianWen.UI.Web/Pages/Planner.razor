@@ -7,6 +7,7 @@
    back/forward). *@
 @using System.Globalization
 @using Microsoft.AspNetCore.Components.Routing
+@using Microsoft.AspNetCore.Components.WebAssembly.Http
 @implements IAsyncDisposable
 @using DIR.Lib
 @using TianWen.Lib.Astrometry.Catalogs
@@ -1378,10 +1379,13 @@
     // HR field untouched - the atlas is a fine showcase either way. On single-threaded WASM the
     // decode + flatten are synchronous stalls, but they run after the atlas has already painted;
     // measuring the AOT wall-time here is what gates the P2 parallel-decode work (web-tycho2.md).
-    // Bump when tyc2.bin.lz content OR the cached buffer format changes, so a stale IndexedDB
-    // snapshot is discarded rather than fed to the DB. v2 = raw decompressed bytes (v1 cached the
-    // flattened float buffer; raw enables clickable stars, which need the DB records + spatial index).
-    const string Tyc2CacheVersion = "tyc2-v2-raw";
+    // Bump when the cached buffer FORMAT changes, and when tyc2.bin.lz content changes for the sake of
+    // the whole-catalog entry, the fallback path's, which nothing but this version marks as stale. A
+    // MEMBER needs no bump: its entry is keyed by the CRC32 the manifest gives it, so a re-bake is a
+    // different key. v2 = raw decompressed bytes (v1 cached the flattened float buffer; raw enables
+    // clickable stars, which need the DB records + spatial index). v3 = members keyed by that CRC, and
+    // the bump the whole-catalog entry missed at the 2026-09-25 re-bake (254 duplicates removed).
+    const string Tyc2CacheVersion = "tyc2-v3-raw";
 
     async Task EnsureTycho2AtlasAsync()
     {
@@ -1481,7 +1485,15 @@
         byte[] manifestBytes;
         try
         {
-            manifestBytes = await Http.GetByteArrayAsync("tyc2/manifest.bin");
+            // Revalidated on every open, never taken from the HTTP cache as it stands: the manifest names
+            // every member's content, so it must be the bake the host serves now. A stale copy would ask
+            // for members by CRCs the files no longer have, and each would be refused as not the member
+            // it names, a hole in the sky until the copy expired.
+            using var request = new HttpRequestMessage(HttpMethod.Get, "tyc2/manifest.bin");
+            request.SetBrowserRequestCache(BrowserRequestCache.NoCache);
+            using var response = await Http.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+            manifestBytes = await response.Content.ReadAsByteArrayAsync();
         }
         catch (Exception ex)
         {
@@ -1504,7 +1516,7 @@
             // The header member carries the offset table, and nothing else can be placed until it
             // has: a member's position in the buffer is only knowable from it.
             var partial = new Tycho2PartialCatalog(manifest);
-            if (!partial.Accept(0, await FetchMemberAsync(0)))
+            if (await FetchMemberAsync(manifest, 0) is not { } header || !partial.Accept(0, header))
             {
                 Console.WriteLine("[tianwen-web] tyc2 header member rejected; using the whole catalog");
                 return false;
@@ -1522,6 +1534,7 @@
             _tyc2Partial = partial;
             _tyc2Selector = selector;
             _tyc2MembersActive = true;
+            _tracker.Run(() => RetainCachedMembersAsync(manifest), "Sweep the Tycho-2 member cache"); // non-fatal
 
             await AtlasPhaseAsync("Loading the sky you are looking at...");
             await FetchVisibleMembersAsync();
@@ -1534,9 +1547,36 @@
         }
     }
 
-    async Task<byte[]> FetchMemberAsync(int member)
-        => SharpAstro.Lzip.LzipDecoder.Decompress(
-            await Http.GetByteArrayAsync($"tyc2/{Tycho2MemberManifest.MemberFileName(member)}"));
+    // A member's URL carries the CRC32 the manifest gives it, so no HTTP cache, the browser's or the
+    // CDN's, can answer with a copy from an earlier bake: a re-baked member is a different URL (the host
+    // serves the file whatever the query says).
+    static string MemberUrl(Tycho2MemberManifest manifest, int member)
+        => $"tyc2/{Tycho2MemberManifest.MemberFileName(member)}?v={MemberTag(manifest, member)}";
+
+    // The member's content identity as the cache keys it and its URL carries it.
+    static string MemberTag(Tycho2MemberManifest manifest, int member)
+        => manifest.MemberCrc(member).ToString("x8", CultureInfo.InvariantCulture);
+
+    // Whether downloaded member bytes are the member the manifest names, by the CRC its own trailer
+    // records. Says so when they are not, rather than placing (or refusing) them without a word.
+    static bool IsTheMemberTheManifestNames(Tycho2MemberManifest manifest, int member, byte[] lz)
+    {
+        var crc = Tycho2MemberManifest.LzipMemberCrc(lz);
+        if (crc == manifest.MemberCrc(member))
+        {
+            return true;
+        }
+
+        Console.WriteLine($"[tianwen-web] tyc2 member {member} is not the one the manifest names "
+            + $"(CRC {crc:x8}, the manifest's {MemberTag(manifest, member)}); skipped");
+        return false;
+    }
+
+    async Task<byte[]?> FetchMemberAsync(Tycho2MemberManifest manifest, int member)
+    {
+        var lz = await Http.GetByteArrayAsync(MemberUrl(manifest, member));
+        return IsTheMemberTheManifestNames(manifest, member, lz) ? SharpAstro.Lzip.LzipDecoder.Decompress(lz) : null;
+    }
 
     // Single-flight with a re-check, so a gesture costs ONE rebuild rather than one per cell it
     // crosses. A drag walks through several quantized view cells, and the first version started a
@@ -1595,8 +1635,10 @@
 
         // Which of these we already decoded on a previous visit. One probe for the whole batch, and
         // a cached member skips BOTH the network and the lzip decode -- the decode being the half
-        // that costs main-thread time. A probe failure just reports nothing cached.
-        var cached = await ProbeCachedMembersAsync(wanted);
+        // that costs main-thread time. A probe failure just reports nothing cached. Asked by each
+        // member's tag, so an entry from an earlier bake of the catalog is not found.
+        var tags = Array.ConvertAll(wanted, member => MemberTag(manifest, member));
+        var cached = await ProbeCachedMembersAsync(wanted, tags);
 
         // Issue every request BEFORE awaiting any of them, and only for the members we do not already
         // have. Awaiting each in turn made a wide view 50 sequential round trips, which spends the
@@ -1605,9 +1647,7 @@
         var downloads = new Task<byte[]>?[wanted.Length];
         for (var i = 0; i < wanted.Length; i++)
         {
-            downloads[i] = cached[i]
-                ? null
-                : Http.GetByteArrayAsync($"tyc2/{Tycho2MemberManifest.MemberFileName(wanted[i])}");
+            downloads[i] = cached[i] ? null : Http.GetByteArrayAsync(MemberUrl(manifest, wanted[i]));
         }
 
         var landed = 0;
@@ -1617,49 +1657,65 @@
             var member = wanted[i];
             try
             {
-                byte[] decoded;
-                if (downloads[i] is { } body)
+                Task<byte[]> body;
+                if (downloads[i] is { } started)
                 {
-                    var lz = await body;
-
-                    // ONE MEMBER PER TASK. Decoding is ~15 ms of straight-line WASM, which is fine;
-                    // what is not fine is a dozen of them back to back. `await body` completes
-                    // SYNCHRONOUSLY once its download has landed -- the normal case here, since every
-                    // request went out up front -- so without this the whole batch decodes inside one
-                    // JS task and the page cannot paint until the last member is in. Measured on the
-                    // deployed build, that batching WAS the residual jank after the chunk-build fix:
-                    // 1183 ms of the 1443 ms still blocked over three pans, in tasks of 132-318 ms,
-                    // every one ending at a "tyc2 members: +N" line. Split up, each decode lands under
-                    // the 50 ms long-task threshold and the browser paints between them.
-                    //
-                    // Task.Delay(1), not Task.Yield(): a yield can be drained inside the current JS
-                    // task by the runtime's own dispatcher, which would not end the frame this needs.
-                    // It is the same load-bearing await AtlasPhaseAsync already relies on.
-                    await Task.Delay(1);
-                    decoded = SharpAstro.Lzip.LzipDecoder.Decompress(lz);
-                    _tracker.Run(() => SaveMemberToCacheAsync(member, decoded), "Persist Tycho-2 member cache"); // non-fatal
+                    body = started;
                 }
                 else
                 {
-                    decoded = await LoadMemberFromCacheAsync(member);
-                    if (decoded.Length == 0)
-                    {
-                        // Evicted between the probe and the read. Fall back to the network rather than
-                        // leaving a hole in the sky.
-                        var lz = await Http.GetByteArrayAsync($"tyc2/{Tycho2MemberManifest.MemberFileName(member)}");
-                        await Task.Delay(1);
-                        decoded = SharpAstro.Lzip.LzipDecoder.Decompress(lz);
-                    }
-                    else
+                    var hit = await LoadMemberFromCacheAsync(member, tags[i]);
+                    if (hit.Length > 0 && partial.Accept(member, hit))
                     {
                         fromCache++;
+                        landed++;
+                        AccumulateMemberStars(member);
+                        continue;
                     }
+
+                    // Evicted between the probe and the read, or holding bytes the offset table has no
+                    // room for: the network either way, rather than a hole in the sky. A refused entry
+                    // was once read again at every view change and never replaced, which is how one
+                    // re-bake left most of the sky empty (2026-10-05).
+                    if (hit.Length > 0)
+                    {
+                        Console.WriteLine($"[tianwen-web] tyc2 member {member} from the cache refused ({hit.Length} bytes); fetching it");
+                    }
+                    body = Http.GetByteArrayAsync(MemberUrl(manifest, member));
                 }
 
+                var lz = await body;
+                if (!IsTheMemberTheManifestNames(manifest, member, lz))
+                {
+                    continue;
+                }
+
+                // ONE MEMBER PER TASK. Decoding is ~15 ms of straight-line WASM, which is fine;
+                // what is not fine is a dozen of them back to back. `await body` completes
+                // SYNCHRONOUSLY once its download has landed -- the normal case here, since every
+                // request went out up front -- so without this the whole batch decodes inside one
+                // JS task and the page cannot paint until the last member is in. Measured on the
+                // deployed build, that batching WAS the residual jank after the chunk-build fix:
+                // 1183 ms of the 1443 ms still blocked over three pans, in tasks of 132-318 ms,
+                // every one ending at a "tyc2 members: +N" line. Split up, each decode lands under
+                // the 50 ms long-task threshold and the browser paints between them.
+                //
+                // Task.Delay(1), not Task.Yield(): a yield can be drained inside the current JS
+                // task by the runtime's own dispatcher, which would not end the frame this needs.
+                // It is the same load-bearing await AtlasPhaseAsync already relies on.
+                await Task.Delay(1);
+                var decoded = SharpAstro.Lzip.LzipDecoder.Decompress(lz);
                 if (partial.Accept(member, decoded))
                 {
                     landed++;
                     AccumulateMemberStars(member);
+                    // Cached once PLACED, under the tag it was checked against, so nothing refused is kept.
+                    var tag = tags[i];
+                    _tracker.Run(() => SaveMemberToCacheAsync(member, tag, decoded), "Persist Tycho-2 member cache"); // non-fatal
+                }
+                else
+                {
+                    Console.WriteLine($"[tianwen-web] tyc2 member {member} refused: {decoded.Length} bytes do not fit the offset table");
                 }
             }
             catch (Exception ex)
@@ -1698,11 +1754,11 @@
         _tyc2AccumulateMs += sw.ElapsedMilliseconds;
     }
 
-    async Task<bool[]> ProbeCachedMembersAsync(int[] members)
+    async Task<bool[]> ProbeCachedMembersAsync(int[] members, string[] tags)
     {
         try
         {
-            return await JS.InvokeAsync<bool[]>("tyc2Cache.hasMembers", Tyc2CacheVersion, members);
+            return await JS.InvokeAsync<bool[]>("tyc2Cache.hasMembers", Tyc2CacheVersion, members, tags);
         }
         catch (Exception ex)
         {
@@ -1711,11 +1767,16 @@
         }
     }
 
-    async Task<byte[]> LoadMemberFromCacheAsync(int member)
+    async Task<byte[]> LoadMemberFromCacheAsync(int member, string tag)
     {
         try
         {
-            var streamRef = await JS.InvokeAsync<IJSStreamReference>("tyc2Cache.loadMember", Tyc2CacheVersion, member);
+            // Disposed, or Blazor's JS side holds the bytes for the life of the page: a stream reference
+            // lives in its object table until .NET disposes it, and closing the stream read from it does
+            // not. Every member read from the cache leaked its bytes that way, and on 2026-10-05, with 151
+            // members refused and read again at every view change, the tab stood at 1.4 GB (558 MB after
+            // a reload).
+            await using var streamRef = await JS.InvokeAsync<IJSStreamReference>("tyc2Cache.loadMember", Tyc2CacheVersion, member, tag);
             await using var s = await streamRef.OpenReadStreamAsync(maxAllowedSize: 8L * 1024 * 1024);
             using var ms = new System.IO.MemoryStream();
             await s.CopyToAsync(ms);
@@ -1727,17 +1788,36 @@
         }
     }
 
-    async Task SaveMemberToCacheAsync(int member, byte[] decoded)
+    async Task SaveMemberToCacheAsync(int member, string tag, byte[] decoded)
     {
         try
         {
             using var ms = new System.IO.MemoryStream(decoded, writable: false);
             using var streamRef = new DotNetStreamReference(ms, leaveOpen: false);
-            await JS.InvokeVoidAsync("tyc2Cache.saveMember", Tyc2CacheVersion, member, streamRef);
+            await JS.InvokeVoidAsync("tyc2Cache.saveMember", Tyc2CacheVersion, member, tag, streamRef);
         }
         catch (Exception ex)
         {
             Console.WriteLine($"[tianwen-web] tyc2 member {member} cache write failed (non-fatal): {ex.Message}");
+        }
+    }
+
+    // Drops every cached member that is not this bake's, so a re-bake does not leave its predecessor's
+    // members on the user's disk, unreachable, for ever. Once per atlas open, off the load's path.
+    async Task RetainCachedMembersAsync(Tycho2MemberManifest manifest)
+    {
+        try
+        {
+            var tags = Enumerable.Range(0, manifest.MemberCount).Select(member => MemberTag(manifest, member)).ToArray();
+            var dropped = await JS.InvokeAsync<int>("tyc2Cache.retainMembers", Tyc2CacheVersion, tags);
+            if (dropped > 0)
+            {
+                Console.WriteLine($"[tianwen-web] tyc2 member cache: dropped {dropped} entries another version or an earlier bake left");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[tianwen-web] tyc2 member cache sweep failed (non-fatal): {ex.Message}");
         }
     }
 
@@ -1898,7 +1978,8 @@
                 return null;
             }
 
-            var streamRef = await JS.InvokeAsync<IJSStreamReference>("tyc2Cache.load", Tyc2CacheVersion);
+            // Disposed, or its ~43 MB stay in Blazor's JS object table for the life of the page.
+            await using var streamRef = await JS.InvokeAsync<IJSStreamReference>("tyc2Cache.load", Tyc2CacheVersion);
             await using var s = await streamRef.OpenReadStreamAsync(maxAllowedSize: 128L * 1024 * 1024);
             using var ms = new System.IO.MemoryStream();
             await s.CopyToAsync(ms);

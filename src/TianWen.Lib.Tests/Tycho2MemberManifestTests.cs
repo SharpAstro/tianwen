@@ -19,7 +19,27 @@ namespace TianWen.Lib.Tests
     {
         /// <summary>Four members over ten regions; member 0 is the header and holds none.</summary>
         private static Tycho2MemberManifest Sample()
-            => Tycho2MemberManifest.Create([0, 0, 3, 7, 10], regionCount: 10, rawLength: 12345);
+            => Tycho2MemberManifest.Create([0, 0, 3, 7, 10], [0x11111111u, 0xCAFEF00Du, 0x0u, 0xFFFFFFFFu],
+                regionCount: 10, rawLength: 12345);
+
+        /// <summary>
+        /// A catalog in the real layout (<c>streamCount</c>, the region offset table, then the regions back
+        /// to back), small enough to bake in a test: <paramref name="regionCount"/> regions of
+        /// <paramref name="regionBytes"/> seeded bytes each.
+        /// </summary>
+        private static byte[] SyntheticCatalog(int regionCount, int regionBytes, int seed)
+        {
+            var headerLength = 4 + (regionCount * 4);
+            var raw = new byte[headerLength + (regionCount * regionBytes)];
+            BinaryPrimitives.WriteInt32LittleEndian(raw, regionCount);
+            for (var region = 0; region < regionCount; region++)
+            {
+                BinaryPrimitives.WriteInt32LittleEndian(raw.AsSpan((region + 1) * 4), headerLength + (region * regionBytes));
+            }
+
+            new Random(seed).NextBytes(raw.AsSpan(headerLength));
+            return raw;
+        }
 
         [Fact]
         public void RoundTripsThroughItsOwnBytes()
@@ -35,6 +55,69 @@ namespace TianWen.Lib.Tests
             {
                 read.RegionBoundary(i).ShouldBe(manifest.RegionBoundary(i));
             }
+            for (var i = 0; i < read.MemberCount; i++)
+            {
+                read.MemberCrc(i).ShouldBe(manifest.MemberCrc(i), $"member {i}");
+            }
+        }
+
+        /// <summary>
+        /// A version 1 manifest names no member's content, so a client reading one could not tell a
+        /// cached member from an earlier bake from the current one, which is the bug version 2 exists for.
+        /// Refused, like any version it was not written for.
+        /// </summary>
+        [Fact]
+        public void AVersionOneManifestIsRefused()
+        {
+            var bytes = Sample().Write();
+            BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(4), 1);
+
+            Should.Throw<InvalidOperationException>(() => Tycho2MemberManifest.Read(bytes));
+        }
+
+        /// <summary>
+        /// The manifest's CRC for a member is the one that member's own file carries, and the file decodes
+        /// to exactly the member's span of the catalog: what a client compares a download with is what the
+        /// bake wrote.
+        /// </summary>
+        [Fact]
+        public void EachMembersCrcIsTheOneItsFileCarriesAndItsFileIsItsSpanOfTheCatalog()
+        {
+            var raw = SyntheticCatalog(regionCount: 12, regionBytes: 1000, seed: 2);
+
+            var (members, manifest) = Tycho2MemberManifest.Bake(raw, targetBytes: 3000);
+
+            members.Length.ShouldBe(manifest.MemberCount);
+            var offset = 0;
+            for (var member = 0; member < members.Length; member++)
+            {
+                Tycho2MemberManifest.LzipMemberCrc(members[member]).ShouldBe(manifest.MemberCrc(member), $"member {member}");
+                var decoded = LzipDecoder.Decompress(members[member]);
+                decoded.ShouldBe(raw.AsSpan(offset, decoded.Length).ToArray(), $"member {member}");
+                offset += decoded.Length;
+            }
+            offset.ShouldBe(raw.Length);
+        }
+
+        /// <summary>
+        /// A re-bake names anew exactly the members whose bytes changed, so a client keeps the rest and
+        /// fetches only those. The change here keeps every length, the case a length check cannot see; the
+        /// 2026-09-25 re-bake changed lengths, and a cache that knew only its key refused 151 members for good.
+        /// </summary>
+        [Fact]
+        public void ARebakeRenamesExactlyTheMembersWhoseBytesChanged()
+        {
+            const int RegionCount = 12, RegionBytes = 1000;
+            var before = SyntheticCatalog(RegionCount, RegionBytes, seed: 1);
+            var after = (byte[])before.Clone();
+            after[4 + (RegionCount * 4) + (7 * RegionBytes) + 10] ^= 0xFF;
+
+            var (_, was) = Tycho2MemberManifest.Bake(before, targetBytes: 3000);
+            var (_, now) = Tycho2MemberManifest.Bake(after, targetBytes: 3000);
+
+            now.MemberCount.ShouldBe(was.MemberCount);
+            var renamed = Enumerable.Range(0, now.MemberCount).Where(m => now.MemberCrc(m) != was.MemberCrc(m)).ToArray();
+            renamed.ShouldBe([now.MemberForRegion(7)]);
         }
 
         /// <summary>
@@ -158,7 +241,8 @@ namespace TianWen.Lib.Tests
 
             var (byteBoundary, regionBoundary) = Tycho2MemberManifest.Pack(
                 header, streamCount, catalog.Length, 256 * 1024);
-            var manifest = Tycho2MemberManifest.Create(regionBoundary, streamCount, catalog.Length);
+            // Framing only, so no member is encoded and none has a CRC to name.
+            var manifest = Tycho2MemberManifest.Create(regionBoundary, new uint[regionBoundary.Length - 1], streamCount, catalog.Length);
 
             for (var region = 0; region < streamCount; region++)
             {

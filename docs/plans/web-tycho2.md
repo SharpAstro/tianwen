@@ -410,6 +410,42 @@ exactly.
   own sub-range -- worth it only if a measurement says that outlier is actually the upload, which
   this one does not.
 
+### The member cache names each member's content (2026-10-05)
+
+**A member's IndexedDB entry is keyed by the CRC32 of its bytes, which manifest version 2 carries for
+every member** (`Tycho2MemberManifest.MemberCrc`, the value the member's own lzip trailer records,
+`LzipMemberCrc`). Before it the key was `tyc2-v2-raw:m<member>`, a version bumped by hand "when the
+content changes", and the 2026-09-25 re-bake ("the Tycho-2 baker skips a Supplement 1 companion that
+reuses its primary's identifier", 254 records removed) did not bump it. Measured by baking both
+catalogs: 151 of 166 members changed length, and the 14 that did not were byte-identical. A returning
+visitor's atlas read those 151 from the cache, `Tycho2PartialCatalog.Accept` refused each one for its
+length without a word, and nothing fetched them again, so the deployed atlas drew the header plus
+exactly those 14 members (`15/166 held`) and an empty sky elsewhere, the HR seed already replaced. Every
+view change re-read the 151, and every read leaked its bytes (below): the tab reached 1.4 GB.
+
+What holds now, all in `Planner.razor` and `tyc2-cache.js`:
+
+- **The manifest is revalidated on every open** (`BrowserRequestCache.NoCache`): it names every member's
+  content, so it must be the bake the host serves now.
+- **A member's URL carries its CRC** (`m0042.lz?v=<crc>`), so no HTTP cache can answer with an earlier
+  bake's copy, and a download whose trailer CRC is not the manifest's is skipped and logged.
+- **Only a member `Accept` placed is cached, under the tag it was checked against.** A cached entry that
+  is refused is logged and fetched from the network; a refusal is never silent and never permanent.
+- **`retainMembers` drops every entry that is not the current bake's** once per atlas open: another
+  version's, an untagged one, one under a stale tag. A re-bake would otherwise leave its predecessor's
+  members on the visitor's disk, unreachable.
+- **A re-bake needs no version bump for members**, and costs a visitor exactly the members it changed
+  (`ARebakeRenamesExactlyTheMembersWhoseBytesChanged`). `Tyc2CacheVersion` still guards the cached
+  FORMAT and the whole-catalog entry, which only the fallback path reads; v3 is the bump the latter
+  missed.
+- **An `IJSStreamReference` is disposed.** Blazor's JS side keeps the object a stream reference names in
+  its object table until .NET disposes the reference (`disposeJSObjectReferenceById`); closing the
+  stream read from it does not. Both readers dropped it, so every member read from the cache, and a
+  whole-catalog read, stayed in the JS heap for the life of the page.
+
+`AtlasMemberCacheTests` (E2E) seeds what a returning visitor holds and checks the sweep, the refetch of
+refused entries and a reload that reads the same view from the cache.
+
 ### The bright-prefix side asset is NOT needed
 
 The plan reserved it for "only if the region path measures badly on the first paint". It does not,
@@ -448,9 +484,10 @@ open proportional to what you are looking at -- each justified by measurement ra
 **What is deliberately NOT here.** The bright-prefix side asset (measured unnecessary, see above);
 wasm threads (`web-multithreading.md` keeps its own case, and this phase made them worth *less*, not
 more, since a wide view now decodes ~13 MB rather than 43.5 MB); and searching individual TYC stars,
-still deferred. The IndexedDB cache (P3) now only serves the whole-catalog fallback -- on the member
-path the browser's own HTTP cache holds the members, which is what it is for, and a partial buffer
-written to IndexedDB would be indistinguishable from a complete one on the next visit.
+still deferred. The IndexedDB cache (P3) holds the whole catalog only for the fallback path; on the
+member path it holds each member's decoded bytes, keyed by that member's content (see "The member cache
+names each member's content"), and never a partial buffer, which would be indistinguishable from a
+complete one on the next visit.
 
 ## P1: lazy-fetch + serial decode (the shippable core)
 
