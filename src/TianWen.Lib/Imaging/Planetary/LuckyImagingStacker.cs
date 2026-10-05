@@ -672,19 +672,15 @@ public sealed class LuckyImagingStacker
         return PlanetaryMaster.NormalizeInPlace(channelAccum, weightAccum, meta);
     }
 
-    // How a turn under this many degrees of the central meridian leaves the north: as the limb fit has it, since either way round
-    // carries the planet too little to matter, or to tell.
-    private const double LeastTurnToTellNorthDeg = 1;
-
-    // Which way round the planet turns in this capture (R6 part 2). Near opposition the limb fit's north can be its south, and a
-    // de-rotation turned the wrong way turns the planet backwards. The best frames of the capture's first and last quarters are
-    // stacked as they are, each on the reference's disk, and the earlier is carried to the later's instant both ways round:
-    // the RMS apart each way, the limb fit's north first. NaN for both when the capture turns the planet too little to tell.
+    // Which way round the planet turns in this capture (R6 part 2, PlanetaryDerotation.AgreementBothWays). The best frames of the
+    // capture's first and last quarters are stacked as they are, each on the reference's disk, and the earlier is carried to the
+    // later's instant both ways round: the RMS apart each way, the limb fit's north first. NaN for both when the capture turns the
+    // planet too little to tell.
     private static async Task<(double AsFitted, double TurnedOver)> AgreementBothWaysAsync(IPlanetaryFrameStream stream, ImmutableArray<FrameGrade> grades,
         FrameDerotator fitted, GlobalAligner aligner, int channels, int width, int height, ImageMeta meta, PlanetaryStackOptions options, CancellationToken cancellationToken)
     {
         var (first, last) = (fitted.AspectOf(0), fitted.AspectOf(stream.FrameCount - 1));
-        if (Math.Abs(Math.IEEERemainder(last.CentralMeridianIII - first.CentralMeridianIII, 360)) < LeastTurnToTellNorthDeg)
+        if (Math.Abs(Math.IEEERemainder(last.CentralMeridianIII - first.CentralMeridianIII, 360)) < PlanetaryDerotation.LeastTurnToTellNorthDeg)
         {
             return (double.NaN, double.NaN);
         }
@@ -696,13 +692,7 @@ public sealed class LuckyImagingStacker
             return (double.NaN, double.NaN);
         }
         var (from, to) = (PhysicalEphemeris.Compute(fitted.Epoch.Planet, a.Time), PhysicalEphemeris.Compute(fitted.Epoch.Planet, b.Time));
-        double Apart(in DiskPlacement disk)
-        {
-            var carried = PlanetaryDerotation.Derotate(a.Stack, from, to, disk, fitted.MinnaertK);
-            return PlanetaryDerotation.DifferenceRms(carried.Image, b.Stack, disk, carried.Covered).Rms;
-        }
-        var placement = fitted.Placement;
-        return (Apart(placement), Apart(placement with { NorthAngleDeg = placement.NorthAngleDeg + 180 }));
+        return PlanetaryDerotation.AgreementBothWays(a.Stack, from, b.Stack, to, fitted.Placement, fitted.MinnaertK);
     }
 
     // The best frames between two instants, stacked as they are onto the reference's disk, and their mean time; null for none. Over

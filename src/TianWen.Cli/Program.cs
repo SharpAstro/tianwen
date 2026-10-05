@@ -149,6 +149,11 @@ var rootCommand = new RootCommand
             new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
                 services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
                 services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>())).Build(),
+        new PlanetaryComposeSubCommand(
+            consoleHost,
+            new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
+                services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
+                services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>())).Build(),
         new PlanetaryLookSubCommand(
             consoleHost,
             new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(

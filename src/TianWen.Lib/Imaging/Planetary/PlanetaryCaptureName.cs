@@ -13,7 +13,7 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// file or its folder after the target (SharpCap's <c>Jupiter/Light/...</c>, FireCapture's <c>..._Jup_...</c>, a user's
 /// <c>Saturn/</c>). The name nearest the file wins, so a Saturn capture filed under a year's <c>Jupiter</c> folder is Saturn.
 /// </summary>
-public static class PlanetaryCaptureName
+public static partial class PlanetaryCaptureName
 {
     /// <summary>
     /// The body <paramref name="path"/> names: its file name first, then each folder outward, each split into words at anything
@@ -52,6 +52,31 @@ public static class PlanetaryCaptureName
         ArgumentNullException.ThrowIfNull(path);
         return FirstWord(Path.GetFileNameWithoutExtension(path), FilterWord);
     }
+
+    /// <summary>
+    /// The instant a WinJUPOS-style FILE name gives, <c>yyyy-MM-dd-HHmm_t</c> in UTC with the minute's tenths after the underscore
+    /// (<c>2026-09-01-0706_4</c> is 07:06:24 UTC), the capture's middle by WinJUPOS' convention, which FireCapture and AutoStakkert follow.
+    /// Null when the file name carries none, or one that is no instant.
+    /// </summary>
+    public static DateTimeOffset? Instant(string path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        if (WinJuposTime().Match(Path.GetFileNameWithoutExtension(path)) is not { Success: true } match)
+        {
+            return null;
+        }
+        var inv = CultureInfo.InvariantCulture;
+        var (year, month, day) = (int.Parse(match.Groups[1].Value, inv), int.Parse(match.Groups[2].Value, inv), int.Parse(match.Groups[3].Value, inv));
+        var (hour, minute, tenth) = (int.Parse(match.Groups[4].Value, inv), int.Parse(match.Groups[5].Value, inv), int.Parse(match.Groups[6].Value, inv));
+        if (month is < 1 or > 12 || day < 1 || day > DateTime.DaysInMonth(year, month) || hour > 23 || minute > 59)
+        {
+            return null;
+        }
+        return new DateTimeOffset(year, month, day, hour, minute, 0, TimeSpan.Zero).AddSeconds(6 * tenth);
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"(?<!\d)(\d{4})-(\d{2})-(\d{2})-(\d{2})(\d{2})_(\d)(?!\d)")]
+    private static partial System.Text.RegularExpressions.Regex WinJuposTime();
 
     /// <summary>The bodies a planetary capture points at: the planets and the Moon.</summary>
     private static readonly CatalogIndex[] Bodies =

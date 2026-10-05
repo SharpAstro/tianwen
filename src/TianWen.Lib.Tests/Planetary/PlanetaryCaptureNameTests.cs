@@ -127,4 +127,19 @@ public class PlanetaryCaptureNameTests
         PlanetaryCaptureName.Telescope("TianWen").ShouldBe(((int?)null, OpticalDesign.Unknown));
         PlanetaryCaptureName.TelescopeField(ota with { Aperture = null }).ShouldBe("SW 250PDS");
     }
+
+    [Theory]
+    [InlineData("2026-09-01-0706_4-MPD-G-Sat_lapl4_ap275.tif", "2026-09-01T07:06:24Z")]
+    [InlineData("D:/Sat/010926/2026-09-01-0728_6-MPD-IR-Sat_lapl4_ap271.tif", "2026-09-01T07:28:36Z")]
+    [InlineData("2022-10-09-1042_0-Jup.ser", "2022-10-09T10:42:00Z")]
+    public void AWinJuposNameGivesItsInstant(string path, string utc)
+        => PlanetaryCaptureName.Instant(path).ShouldBe(DateTimeOffset.Parse(utc, System.Globalization.CultureInfo.InvariantCulture));
+
+    [Theory]
+    [InlineData("Jupiter_R.ser")]
+    [InlineData("2026-13-01-0706_4-Sat.tif")]
+    [InlineData("2026-09-01-2506_4-Sat.tif")]
+    [InlineData("12026-09-01-0706_4-Sat.tif")]
+    public void ANameWithNoWinJuposInstantGivesNone(string path)
+        => PlanetaryCaptureName.Instant(path).ShouldBeNull();
 }

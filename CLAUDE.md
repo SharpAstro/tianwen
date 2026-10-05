@@ -1151,7 +1151,11 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   `PlanetaryProjection`, which the render shares): the limb darkening and the Sun's lighting belong to the viewing geometry, so each
   sample is relit by Minnaert's law (carried as brightness, 46 % of a rendered rotation went, as albedo 99.3 %), and nearer the limb a
   stack is its blurred edge, which a relight blew to 195 times its peak. **North comes from agreement, never the limb fit alone**: two
-  stacks' (`planetary-derotate`), or a run's first and last quarters inside the stacker; turned over, the planet turns backwards.
+  stacks' (`planetary-derotate`), or a run's first and last quarters inside the stacker, or two stacks of ONE filter in a compose, all
+  through `PlanetaryDerotation.AgreementBothWays`; turned over, the planet turns backwards. **A mono camera's stacks are composed by
+  `PlanetaryComposition`** (`planetary-compose` and its step verbs, #1278): each moved onto the reference's disk by its own limb fit
+  FIRST, then de-rotated on that shared disk, since a de-rotation turns only what lies inside 0.9 radii and leaves the limb and the
+  rings where they were.
   **Each frame is carried inside the stacker** (`PlanetaryStackOptions.Derotation`, part 2): its field beneath the registration in the
   mesh, registered against the reference turned to its own instant, the disk fitted on a STACK of the best frames (one 8-bit frame's
   north scattered 8 degrees). **Two stacks of one camera are moved onto each other with ONE north**: each its own turned the image by
