@@ -1046,9 +1046,9 @@ namespace TianWen.UI.Abstractions
                 // never stale against an immutable document.DebayerAlgorithm. Works for SER + Bayer FITS.
                 ToolbarAction.Debayer => _source?.SensorType is SensorType.RGGB
                     && state.DebayerAlgorithm is not DebayerAlgorithm.None,
-                // Lit while EITHER dial is off its default. One button now reports two controls,
-                // so the light is the only thing saying the tone has been touched at all.
-                ToolbarAction.Tone => state.CurvesBoost > 0f || state.HdrAmount > 0f,
+                // Lit while any of its controls is off its default (a dial, or a planet's colour look). One
+                // button reports them all, so the light is the only thing saying the tone has been touched at all.
+                ToolbarAction.Tone => state.CurvesBoost > 0f || state.HdrAmount > 0f || state.PlanetaryLook is not null,
                 // Lit from the RUNG rather than from one layer: the mark below already says which
                 // rung, so the highlight is only answering "is any of this on".
                 ToolbarAction.Overlays => state.OverlayLevel is not ViewerOverlayLevel.None,
@@ -1787,7 +1787,7 @@ namespace TianWen.UI.Abstractions
             ToolbarAction.StretchParams => "Stretch strength preset (+ / -)",
             ToolbarAction.Channel => "Channel view: RGB or one channel (C cycles)",
             ToolbarAction.Debayer => "Demosaic algorithm; the swatch is the sensor's CFA phase (D cycles)",
-            ToolbarAction.Tone => "Boost, highlight soft clip, and what display HDR would need (B / H cycle)",
+            ToolbarAction.Tone => "Boost, highlight soft clip, a planet's colour look, and what display HDR would need (B / H cycle)",
             ToolbarAction.Compare => "Before / after split; right-click re-pins (A / Shift+A)",
             ToolbarAction.AutoCrop => "Show only the area every sub covered, discarding the stack's ragged border (Shift+C)",
             ToolbarAction.ZoomFit => "Fit the image to the window (F / Ctrl+0)",

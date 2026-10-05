@@ -1,5 +1,7 @@
 using System;
 using Shouldly;
+using TianWen.Lib.Astrometry;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
 using Xunit;
@@ -165,6 +167,85 @@ public class PlanetaryColourReadingTests
         shown.ChromaAt(0.50).ShouldBeGreaterThan(linear.ChromaAt(0.50) * 1.3, "the preview shows more chroma than the planes hold");
         OkLab.HueDistanceDeg(linear.Cast.HueDeg, shown.Cast.HueDeg).ShouldBeLessThan(15, "a stronger tint of the same colour, not another");
         master.Release();
+    }
+
+    [Fact]
+    public void AMasterIsMadeReadyForALookByTheRoutineTheViewerAndPlanetaryLookShare()
+    {
+        // #1277: the viewer's colour control and `planetary-look` make a master ready by one routine, the limb fitted for the disk the look
+        // reads and a master in the camera's colours balanced first, and the viewer's look is the verb's to the bit.
+        var at = new DateTimeOffset(2024, 12, 15, 12, 56, 42, TimeSpan.Zero);
+        var balanced = RenderedJupiter(at, balanced: true);
+        var (prepared, refusal) = PlanetaryColourLook.Prepare(balanced, CatalogIndex.Jupiter, at);
+        var ready = prepared.ShouldNotBeNull(refusal);
+        ready.Balanced.ShouldBeNull("a balanced master is taken as it is");
+        ReferenceEquals(ready.Master, balanced).ShouldBeTrue("and is not copied");
+        ready.Disk.Radius.ShouldBe(40, 1, "the limb fit finds the rendered disk");
+
+        var (looked, lookRefusal) = PlanetaryColourLook.OnMaster(balanced, CatalogIndex.Jupiter, at, ColourLook.Boosted);
+        looked.ShouldNotBeNull(lookRefusal);
+        var (applied, _) = PlanetaryColourLook.Apply(balanced, ready.Disk, ColourLook.Boosted);
+        Differing(looked, applied).ShouldBe(0, "the look on a master made ready is the look applied over its fitted disk");
+        Differing(looked, balanced).ShouldBeGreaterThan(0, "and it moves the colour");
+
+        // A master left in the camera's colours is balanced first, into a new image the caller owns.
+        var (fromCamera, cameraRefusal) = PlanetaryColourLook.Prepare(RenderedJupiter(at, balanced: false), CatalogIndex.Jupiter, at);
+        var balancedFirst = fromCamera.ShouldNotBeNull(cameraRefusal);
+        balancedFirst.Balanced.ShouldNotBeNull("it says how it was balanced");
+        balancedFirst.Master.ImageMeta.IsColourBalanced.ShouldBeTrue();
+
+        PlanetaryColourLook.Prepare(Image.FromChannel(new float[16, 16]), CatalogIndex.Jupiter, at).Refusal.ShouldNotBeNull().ShouldContain("three-channel");
+        PlanetaryColourLook.Prepare(balanced, CatalogIndex.Mars, at).Refusal.ShouldNotBeNull().ShouldContain("Jupiter and Saturn");
+    }
+
+    /// <summary>
+    /// A colour master of Jupiter as a planetary stack writes one, rendered at <paramref name="at"/> (its exposure's middle): the spotted map
+    /// through the ephemeris on a 128 px frame, the disk 40 px in radius, tan with its darker places redder (a range of chroma for the look's
+    /// quantiles), on a black sky; its OBJECT the planet, and marked balanced when asked (as <c>CBALSAT</c> marks a written master).
+    /// </summary>
+    internal static Image RenderedJupiter(DateTimeOffset at, bool balanced)
+    {
+        const int size = 128;
+        var duration = TimeSpan.FromSeconds(60);
+        var plane = PlanetaryRender.Render(PlanetaryDerotationTests.SpottedMap(), PhysicalEphemeris.Compute(CatalogIndex.Jupiter, at),
+            new DiskPlacement(63.6, 64.3, 40, 30), size, size, 0.95, supersample: 2);
+        var planes = new float[3][,];
+        for (var c = 0; c < 3; c++)
+        {
+            planes[c] = new float[size, size];
+        }
+        var max = 0f;
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                var v = plane[(y * size) + x];
+                (planes[0][y, x], planes[1][y, x], planes[2][y, x]) = (0.55f * v, 0.47f * v, 0.33f * MathF.Pow(v, 1.4f));
+                max = MathF.Max(max, 0.55f * v);
+            }
+        }
+        var meta = new ImageMeta("test", at - (duration / 2), duration, FrameType.Light, "", 0f, 0f, -1, -1, Filter.None, 1, 1, float.NaN,
+            SensorType.Color, 0, 0, RowOrder.TopDown, float.NaN, float.NaN, ObjectName: "Jupiter") { IsColourBalanced = balanced };
+        return new Image(planes, BitDepth.Float32, max, 0f, 0f, meta);
+    }
+
+    private static int Differing(Image a, Image b)
+    {
+        a.ChannelCount.ShouldBe(b.ChannelCount);
+        var differing = 0;
+        for (var c = 0; c < a.ChannelCount; c++)
+        {
+            var x = a.GetChannelSpan(c);
+            var y = b.GetChannelSpan(c);
+            for (var i = 0; i < x.Length; i++)
+            {
+                if (x[i] != y[i])
+                {
+                    differing++;
+                }
+            }
+        }
+        return differing;
     }
 
     // A balanced master of a belt and a paler zone in bands across the disk, each paler to the left (a quantile map needs a range of chroma,

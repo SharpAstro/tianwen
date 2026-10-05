@@ -273,7 +273,7 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
         _derivation.Tick(_state, live, capturePath: null, _timeProvider.GetUtcNow(), _logger);
         if (_state.WaveletDirty)
         {
-            live.SetSharpen(_state.BuildWaveletOptions(), _state.WaveletLimb);
+            live.SetSharpen(_state.BuildWaveletOptions(), _state.WaveletLimb, _state.PlanetaryLook);
             _state.WaveletDirty = false;
         }
 

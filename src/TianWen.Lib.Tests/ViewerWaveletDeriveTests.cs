@@ -141,7 +141,7 @@ public class ViewerWaveletDeriveTests
     }
 
     // The synthetic Jupiter capture opened and its stacked view on screen with a master in it.
-    private static async Task OpenStackedAsync(ViewerE2E e2e, System.Threading.CancellationToken ct, bool dispersed = false)
+    internal static async Task OpenStackedAsync(ViewerE2E e2e, System.Threading.CancellationToken ct, bool dispersed = false)
     {
         var capture = ViewerBestStackTests.WriteCapture(Path.Combine(e2e.Folder, "2024-12-15-1256_7-Jupiter.ser"), dispersed: dispersed);
         e2e.Host.HandleDropFile(capture);
@@ -152,7 +152,7 @@ public class ViewerWaveletDeriveTests
     }
 
     // The panel's own Derive button, pressed where it is drawn.
-    private static void PressDerive(ViewerE2E e2e)
+    internal static void PressDerive(ViewerE2E e2e)
     {
         e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "WaveletDerive" }, "the Derive button"));
         e2e.Frame();

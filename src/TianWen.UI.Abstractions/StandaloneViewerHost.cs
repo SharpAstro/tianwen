@@ -212,6 +212,9 @@ public sealed class StandaloneViewerHost<TSurface>
         // Start, cancel, report or finish the best stack of the SER on screen; a finished run asks for its sharpened master.
         _controller.TickBestStack(_appToken);
 
+        // Put the colour look on the planet's master on show, or give the master back as balanced (#1277).
+        _controller.TickPlanetaryLook(_appToken);
+
         if (_state.NeedsReprocess)
         {
             ViewerActions.Reprocess(_state);
