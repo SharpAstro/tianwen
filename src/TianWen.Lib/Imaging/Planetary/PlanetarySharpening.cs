@@ -136,6 +136,19 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
     /// twins; a capture's own post sits at about 1.5 to 2 times it there. The limb is still kept from ringing (<see cref="Fix"/>).
     /// </summary>
     public double Strength { get; init; } = 1;
+
+    /// <summary>
+    /// A finishing step after the derived sharpening (#1279, <see cref="PlanetaryFinishing"/>): none by default; the pupil-cutoff low-pass,
+    /// the contrast-adaptive weighting at matched noise, or Kolivas's own damped step as a reference. Only a derived sharpening (a pupil
+    /// given) is finished. Measured: the low-pass raised band 1's correlation with the post on all four real captures and changed nothing on
+    /// the twins, which are all sampled coarser than their cutoff, so it waits on an oversampled twin (#1281); the adaptive weighting doubled
+    /// the band error on every twin and is not adopted, nor is the fitted Wiener low-pass, which shrinks again the noise the derived gains
+    /// already shrank (no twin better by 5 %, three captures of four further from their posts).
+    /// </summary>
+    public PlanetaryFinish Finish { get; init; } = PlanetaryFinish.None;
+
+    /// <summary>The amount <see cref="PlanetaryFinish.Kolivas"/> takes, as his tool's slider (his PlanetRecon judges at 15.6).</summary>
+    public double KolivasAmount { get; init; } = 15.6;
 }
 
 /// <summary>A sharpened master and how it was sharpened: the first channel's derived gains (empty for the preset) and its edge's transfer.</summary>
@@ -146,6 +159,19 @@ public sealed record PlanetarySharpenResult(Image Sharpened, bool Derived, Plane
     /// through the pupil for each channel. Null where the gains were not derived (no pupil).
     /// </summary>
     public PlanetaryLiveLimb? Limb { get; init; }
+
+    /// <summary>
+    /// Each channel's pupil cutoff in cycles a pixel (<see cref="PlanetaryFinishing.CutoffCyclesPerPixel"/>): past it the scene holds nothing.
+    /// One at or past 0.5 is a master sampled coarser than its optics resolve (undersampled), where nothing lies past the cutoff to take
+    /// out. Empty where the gains were not derived (no pupil).
+    /// </summary>
+    public ImmutableArray<double> Cutoffs { get; init; } = [];
+
+    /// <summary>
+    /// Each channel's fitted Wiener low-pass (<see cref="PlanetaryFinish.Wiener"/>, <see cref="PlanetaryFinishing.WienerLowPass"/>): where
+    /// it starts and ends falling, in cycles a pixel, a start of 0.5 no cut. Empty where it was not asked.
+    /// </summary>
+    public ImmutableArray<(double From, double To)> WienerCuts { get; init; } = [];
 }
 
 /// <summary>
@@ -177,6 +203,10 @@ public static class PlanetarySharpening
 
         var planes = Image.CreateChannelData(master.ChannelCount, height, width);
         var (derived, firstGains, edgeAt01, edgeAt03) = (options.Pupil is not null, ImmutableArray<double>.Empty, double.NaN, double.NaN);
+        // The contrast-adaptive finish reads the STACK's luminance: the mean of every channel's window, each normalised on the disk.
+        var contrastFrom = options.Pupil is not null && options.Finish.HasFlag(PlanetaryFinish.Adaptive) ? LuminanceWindow(master, limbWindow, own) : null;
+        var cutoffs = new double[options.Pupil is null ? 0 : master.ChannelCount];
+        var wienerCuts = new (double From, double To)[options.Pupil is not null && options.Finish.HasFlag(PlanetaryFinish.Wiener) ? master.ChannelCount : 0];
         for (var c = 0; c < master.ChannelCount; c++)
         {
             var plane = master.GetChannelSpan(c);
@@ -218,6 +248,14 @@ public static class PlanetarySharpening
                         heldAt: finestHeld ? 1 : gains[0]);
                 }
                 sharpened = Apply(window, size, disk, sharp, f => kernel(f) * diffraction.At(f), diffraction.At, gains.AsSpan(), [], options.Fix, diskTarget, blurredDisk);
+                cutoffs[c] = PlanetaryFinishing.CutoffCyclesPerPixel(pupil, wavelengthNm, limbWindow.ArcsecPerPixel);
+                var sharpening = gains;
+                (sharpened, var wienerCut) = Finished(window, sharpened, contrastFrom ?? window, size, disk, options, cutoffs[c], white,
+                    f => PlanetaryWaveletGains.Transfer(sharpening.AsSpan(), f));
+                if (wienerCuts.Length > 0)
+                {
+                    wienerCuts[c] = wienerCut;
+                }
                 sharpenMoon = w => PlanetaryDering.Sharpen(w, PlanetaryLimbWindow.MoonWindowSize, PlanetaryLimbWindow.MoonWindowSize, gains.AsSpan());
                 if (c == 0)
                 {
@@ -254,7 +292,54 @@ public static class PlanetarySharpening
         return new PlanetarySharpenResult(image, derived, derived ? options.Fix : PlanetaryLimbFix.LimbChannel, firstGains, edgeAt01, edgeAt03)
         {
             Limb = options.Pupil is { } kept ? PlanetaryLiveLimb.Kept(master, fit, limbOptions, aspect, limbWindow, kept, options.WavelengthsNm, [.. models], [.. diffractions]) : null,
+            Cutoffs = [.. cutoffs],
+            WienerCuts = [.. wienerCuts],
         };
+    }
+
+    // The finishing steps the options ask for, on one channel's window: the adaptive weighting first, Kolivas's reference step next, the
+    // fitted Wiener low-pass after them, the low-pass at the cutoff last (it takes out whatever the others raised past the cutoff too).
+    // The Wiener low-pass's fitted start and end come back beside it (NaN where it was not asked).
+    private static (float[] Window, (double From, double To) WienerCut) Finished(float[] stack, float[] sharpened, float[] contrastFrom, int size,
+        in MetricDisk disk, PlanetarySharpenOptions options, double cutoff, double white, Func<double, double> sharpening)
+    {
+        var (finished, wienerCut) = (sharpened, (double.NaN, double.NaN));
+        if (options.Finish.HasFlag(PlanetaryFinish.Adaptive))
+        {
+            finished = PlanetaryFinishing.ContrastWeighted(stack, finished, contrastFrom, size, disk);
+        }
+        if (options.Finish.HasFlag(PlanetaryFinish.Kolivas))
+        {
+            finished = PlanetaryFinishing.KolivasStep(finished, size, options.KolivasAmount);
+        }
+        if (options.Finish.HasFlag(PlanetaryFinish.Wiener))
+        {
+            (finished, var from, var to) = PlanetaryFinishing.WienerLowPass(finished, size, disk, white, sharpening);
+            wienerCut = (from, to);
+        }
+        if (options.Finish.HasFlag(PlanetaryFinish.Cutoff))
+        {
+            finished = PlanetaryFinishing.LowPassAtCutoff(finished, size, cutoff);
+        }
+        return (finished, wienerCut);
+    }
+
+    // Every channel's window, each normalised on the disk, averaged: the stack's luminance as the window sees it.
+    private static float[] LuminanceWindow(Image master, PlanetaryLimbWindow limbWindow, MetricDisk own)
+    {
+        float[]? sum = null;
+        for (var c = 0; c < master.ChannelCount; c++)
+        {
+            var plane = master.GetChannelSpan(c);
+            var (level, scale) = PlanetaryMetrics.NormalisationLevels(plane, master.Width, master.Height, own);
+            var window = limbWindow.Cut(plane, master.Width, master.Height, level, scale);
+            sum ??= new float[window.Length];
+            for (var i = 0; i < window.Length; i++)
+            {
+                sum[i] += window[i] / master.ChannelCount;
+            }
+        }
+        return sum ?? [];
     }
 
     /// <summary>The bands a strength takes past the truth, finest first from 0: bands 2 and 3, where a post holds its extra detail (#1251).</summary>
