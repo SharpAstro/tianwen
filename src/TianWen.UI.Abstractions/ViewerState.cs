@@ -540,8 +540,8 @@ public sealed class ViewerState
 
     /// <summary>
     /// The colour look on a balanced master of Jupiter or Saturn (<see cref="TianWen.Lib.Imaging.Planetary.PlanetaryColourLook"/>, #1277),
-    /// or null to show it as balanced, the default. A RENDERING over the linear master, never written into it: the live stacked view draws
-    /// it on each master, a master on show is replaced on screen by its looked copy and given back on "As balanced", and the file stays
+    /// or null to show it in true colour, as balanced, the default. A RENDERING over the linear master, never written into it: the live stacked view draws
+    /// it on each master, a master on show is replaced on screen by its looked copy and given back on "True colour", and the file stays
     /// linear. Kept while the viewer runs, not saved, as <see cref="PlanetaryStrength"/> is.
     /// </summary>
     public TianWen.Lib.Imaging.Planetary.ColourLook? PlanetaryLook { get; set; }

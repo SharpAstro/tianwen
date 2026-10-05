@@ -4098,11 +4098,11 @@ can derive the looked planes on the CPU from `PlanetaryColourLook.Apply` (the di
 them through its stretch, the source kept; or carry the curve to the shader as a stage of its own, which the CPU/GPU mirror rule then asks
 of both paths. Its default is the master as balanced.
 
-**Built (2026-10-06):** a choice in the viewer's tone popover, "As balanced" or "Boosted" (`ViewerState.PlanetaryLook`), shown on a planet's
+**Built (2026-10-06):** a choice in the viewer's tone popover, "True colour" (the master as balanced, the default) or "Boosted" (`ViewerState.PlanetaryLook`), shown on a planet's
 frame (a still whose `OBJECT` names one, or the live stacked view) and in the GUI's planetary view, whose bar offers the tone too. The look
 is derived on the CPU, so no shader stage and no CPU/GPU mirror:
 - **A master on show** is replaced on screen by a copy with the look, made off the render thread by `PlanetaryColourLook.OnMaster`, and
-  given back by reference on "As balanced" (`ViewerController.TickPlanetaryLook`). The copy is kept, so switching back is a swap, not a
+  given back by reference on "True colour" (`ViewerController.TickPlanetaryLook`). The copy is kept, so switching back is a swap, not a
   run; a new master on show drops both.
 - **One routine with the verb.** `PlanetaryColourLook.Prepare` (the limb fitted for the disk, a master in the camera's colours balanced
   first) is the one `planetary-look` now runs, and the viewer's look equals `Apply` over that disk to the bit.

@@ -61,7 +61,7 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
     private WaveletSharpenOptions? _requestedSharpen; // latest wavelet params (null = sharpening off)
     private PlanetaryLiveLimb? _requestedLimb; // the limb last handed to SetSharpen (Derive's fit, #1201)
     private PlanetaryLiveLimb? _limb;          // that limb as the latest master's disk had it (followed), drawn on the next sharpen
-    private ColourLook? _requestedLook;        // the colour look on a balanced master (null = as balanced, #1277)
+    private ColourLook? _requestedLook;        // the colour look on a balanced master (null = true colour, the master as balanced, #1277)
     private bool _sharpenDirty;         // wavelet params changed -> rebuild the display even if the playhead didn't move
     private CancellationTokenSource? _workCts; // per in-flight task, linked to _cts; cancelled to preempt a stale stack
     private bool _inFlightIsStack;      // the in-flight task is a (slow) window stack, eligible for sharpen-preempt
