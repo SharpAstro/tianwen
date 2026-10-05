@@ -85,6 +85,7 @@ internal sealed class WaveletDerivation : IDisposable
         ImmutableArray<double> wavelengths = filterNm is { } nm && raw.ChannelCount == 1 ? [nm] : [];
         var frameTime = source.HasTimestamps ? source.TimestampOf(source.FrameIndex) : DateTimeOffset.MinValue;
         var epoch = frameTime > DateTimeOffset.MinValue ? frameTime : now;
+        var strength = state.PlanetaryStrength;
 
         state.WaveletDeriving = true;
         state.NeedsRedraw = true;
@@ -94,7 +95,7 @@ internal sealed class WaveletDerivation : IDisposable
             using (lease)
             {
                 token.ThrowIfCancellationRequested();
-                return PlanetaryBestStack.DeriveGains(lease.Image, planet, epoch, pupil, wavelengths);
+                return PlanetaryBestStack.DeriveGains(lease.Image, planet, epoch, pupil, wavelengths, strength: strength);
             }
         }, token);
     }

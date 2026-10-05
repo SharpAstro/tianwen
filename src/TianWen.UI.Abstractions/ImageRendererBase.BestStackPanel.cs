@@ -130,6 +130,26 @@ namespace TianWen.UI.Abstractions
                     style, BaseFontSize)
                 .RowH(BaseFontSize + WaveletGap));
 
+            // How far past the truth the sharpening goes (#1251): the truth by default, a post's look as an option.
+            ReadOnlySpan<Layout.ButtonGroupOption<double>> strengths =
+            [
+                new(1, "Truth") { Hit = new HitResult.ButtonHit("StrengthTruth") },
+                new(1.5, "1.5") { Hit = new HitResult.ButtonHit("Strength15") },
+                new(2, "2") { Hit = new HitResult.ButtonHit("Strength2") },
+                new(2.5, "2.5") { Hit = new HitResult.ButtonHit("Strength25") },
+            ];
+            rows.Add(Caption(state.PlanetaryStrength == 1
+                ? "Sharpening: to the truth"
+                : string.Create(inv, $"Sharpening: {state.PlanetaryStrength:0.#} times the truth in the mid scales")));
+            rows.Add(Layout.Builder.ButtonGroup(strengths, state.PlanetaryStrength,
+                    chosenStrength =>
+                    {
+                        state.PlanetaryStrength = chosenStrength;
+                        state.NeedsRedraw = true;
+                    },
+                    style, BaseFontSize)
+                .RowH(BaseFontSize + WaveletGap));
+
             return Layout.Builder.VStack([.. rows]).WithGap(WaveletGap);
 
             Layout.Node Caption(string text)

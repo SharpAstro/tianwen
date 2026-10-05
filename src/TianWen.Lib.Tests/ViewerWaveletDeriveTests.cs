@@ -103,6 +103,28 @@ public class ViewerWaveletDeriveTests
         await e2e.PumpUntilAsync(() => source.MastersAligned > 0, "a master's colours moved onto green", ct);
     }
 
+    [Theory(Timeout = 180_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task DeriveTakesTheStrengthChosenInThePanel(float dpi)
+    {
+        // #1251: Derive seeds the dials past the truth when the panel asks for it, as the Best stack sharpens.
+        using var e2e = ViewerE2E.Start(dpi);
+        var ct = TestContext.Current.CancellationToken;
+        await OpenStackedAsync(e2e, ct);
+        (e2e.State.PlanetaryApertureMm, e2e.State.PlanetaryDesign) = (254, OpticalDesign.Newtonian);
+        e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "Strength2" }, "the strength 2 button"));
+        e2e.Frame();
+
+        PressDerive(e2e);
+        await e2e.PumpUntilAsync(() => e2e.State.WaveletDeriveNote is not null && !e2e.State.WaveletDeriving, "the derivation's answer", ct, untilTimeout: true);
+
+        var note = e2e.State.WaveletDeriveNote.ShouldNotBeNull();
+        TestContext.Current.TestOutputHelper?.WriteLine(note);
+        note.ShouldContain("strength 2 past the truth");
+        e2e.State.WaveletDerived.ShouldBeTrue();
+    }
+
     [Fact]
     public void ADerivationDisposedTwiceStaysQuietAndTicksNoMore()
     {

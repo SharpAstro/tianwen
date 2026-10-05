@@ -3857,7 +3857,9 @@ linear master from the full-chain run, sharpened again at each strength):
 - **Its cost is the limb**: inside it the profile moves from the truth, 0.005 to 0.02 at 1.5 and 0.04 at 2 on the mono twins (the bar a
   limb fix was judged by was 0.02). Outside it the model is drawn, so it never rings below the sky.
 
-Not done here: a dial for it in the viewer and the GUI (a strength the Best stack and Derive read from the panel), the next change.
+**The dial** (the next change): the planetary panel offers Truth, 1.5, 2 and 2.5 under the telescope's rows (`ViewerState.PlanetaryStrength`),
+which the viewer's Best stack and Derive, in the viewer and the GUI's capture alike, read as they start. It is not saved, so every launch
+starts at the truth.
 
 ## R9 A learned stage, only if the measurements say so
 

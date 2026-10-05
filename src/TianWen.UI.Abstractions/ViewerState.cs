@@ -530,6 +530,14 @@ public sealed class ViewerState
     /// </summary>
     public double? PlanetaryFilterNm { get; set; }
 
+    /// <summary>
+    /// How far past the truth the derived sharpening takes the mid scales, bands 2 and 3
+    /// (<see cref="TianWen.Lib.Imaging.Planetary.PlanetarySharpenOptions.Strength"/>, #1251): 1, the truth, unless the panel's choice
+    /// says otherwise; a capture's own post sits at about 1.5 to 2.5. The Best stack and Derive read it as they start. Kept while the
+    /// viewer runs, not saved, so every launch starts at the truth (the owner's call: the truth by default, more as an option).
+    /// </summary>
+    public double PlanetaryStrength { get; set; } = 1;
+
     /// <summary>Selectable playback rates (fps) cycled by the transport speed control / Up-Down keys.</summary>
     public static readonly float[] PlaybackRates = [1f, 5f, 10f, 15f, 24f, 30f, 50f, 75f, 100f, 150f, 200f];
 
