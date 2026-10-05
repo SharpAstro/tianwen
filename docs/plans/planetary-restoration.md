@@ -2422,7 +2422,73 @@ every frame it is behind by and evicts as many, and rebuilds its window when the
     folded, so nearly every master is a rebuild of the window (12 over 13 masters on Red), a master every 5 s, 4.7 s behind the newest
     frame, holding under half its window. The first reading of the probe counted how far the window's end moved, which a rebuild
     jumps, and so read 92 % of the capture's rate; it counts the folds since. The batch stack's own answer is the fix to try: fold only
-    the frames that grade best.
+    the frames that grade best. Tried, with the reference kept in place, and adopted: "The live stack folds its best quarter", below.
+
+### The live stack folds its best quarter (#1174)
+
+The live stack fell behind a fast capture with every recipe (above). The batch stack's answer, folding only the frames that grade best,
+was pre-registered on 2026-10-05 before it was built (`RollingWindowOptions.KeepFraction`: every frame graded as it arrives and folded
+only while its score is among the window's best share so far; a rebuild folds the window's best share outright), then measured by
+`planetary-live` (the defaults recipe, Release, each replay 90 s or the capture's length) on Red at its 216 frames a second, the
+calibrated twin at its 250 with its truth, and Red replayed at 60. A K is adopted only if it keeps up at 216 and 250 (frames GRADED a
+second at least 95 % of the capture's, at most half the masters after the first rebuilds, the median lag at most 1 s), leaves the
+twin's last master no more band error (bands 1 to 4) than folding every frame, and at 60 holds at least a fifth of its window with its
+masters no more than 20 % further apart than today's. The rebuild clause first read "at most 2 rebuilds"; it was amended, before any
+K < 1 reading was read, once it was seen that no stack can meet it (below).
+
+**What a grade costs was the first thing to fix** (`RollingGradeBenchmarks`, Release, this x64 box, the first 16 frames of Red, 800 by
+600): a frame graded as the rolling stack graded it cost 3.2 to 3.4 ms, of which the disk's bounding box was 1.8 to 2.5 ms and its
+cut test another pass, at 216 frames a second (4.6 ms a frame) most of the budget before any fold. `PlanetaryDisk.BoundingBoxAndCut`
+now reads a mono frame's channel as its luminance instead of copying it and takes the box in the cut test's own scan (the same box as
+`BoundingBox`, `CutFrameTests`), and the fold registers by the grade's box (`FrameGrader.GradeCutAndBox`) instead of scanning the frame
+for it again: 1.6 ms a grade, and a folded frame scanned once.
+
+**Folding a share alone did not keep up** (part 1, the rebuild on an aged reference as before):
+
+| K | Red 216: graded (of the capture's) | lag | Twin 250: graded | Twin's last master, bands 1 to 4 | Red 60: frames a master holds, interval |
+|---|---|---|---|---|---|
+| 1 (today's) | 42 % | 4.7 s | 63 % | 1.643 | 496, 565 ms |
+| 0.5 | 55 % | 3.8 s | 72 % | 1.579 | 255, 389 ms |
+| 0.25 | 82 % | 1.6 s | 93 % | 1.541 | 125, 353 ms |
+
+Every K failed the keep-up rule, while every K < 1 left the twin's master sharper. **The reason was the reference, not the folds**: a
+count of the rebuilds by cause (`RollingWindowStacker.RebuildCauses`, printed by `planetary-live`) put 11 of K = 0.25's 18 at 216 on
+the alignment reference ageing out of the window, and at 60, where the stack does keep up, 8 of 10, each a stall of seconds (the
+master interval's p90 6.9 s against a median of 0.6 s). The window is 500 frames, 2.3 s at 216 frames a second, so a stack that keeps
+up perfectly still folds its whole window again once every 500 frames, which is also why the rule's first rebuild clause could never
+hold.
+
+**A reference that ages out is replaced in place** (part 2, pre-registered before it was built; `RollingWindowOptions.ReReferenceInPlace`,
+`RollingWindowStacker.TryReReferenceAsync`): the window's best FOLDED frame becomes the reference and the sum is kept, each later frame
+registered to it and moved onto the sum's grid by the new reference's own stored registration, since the shifts add. A gap, a backward
+jump, a dropped frame, and a new reference more than a quarter of the aligner's tile from the grid (a drifting planet) still rebuild.
+It was adopted only if it left the twin no more than 0.02 more band error at every K and halved the p90 master interval at 60 and K = 1:
+
+| K, aged reference | Red 216: graded, lag, rebuilds over masters | Twin 250: graded, lag | Twin, bands 1 to 4 | Red 60: p90 interval |
+|---|---|---|---|---|
+| 1, rebuilt | 51 %, 3.6 s, 15 over 16 | 64 %, 1.5 s | 1.645 | 6,489 ms |
+| 1, in place | 52 %, 3.1 s, 15 over 17 | 58 %, 0.9 s | 1.645 | 432 ms |
+| 0.5, rebuilt | 63 %, 2.0 s, 18 over 21 | 87 %, 1.3 s | 1.576 | 1,627 ms |
+| 0.5, in place | 60 %, 3.8 s, 15 over 19 | 80 %, 0.7 s | 1.562 | 377 ms |
+| 0.25, rebuilt | 87 %, 1.5 s, 26 over 30 | 93 %, 0.8 s | 1.541 | 941 ms |
+| **0.25, in place** | **99 %, 0.47 s, 2 over 82** | **96 %, 0.71 s** | **1.537** | **442 ms** |
+
+- **In place is adopted** (default on): it cost no band error at any K (and gave a little back at K < 1), and at 60 and K = 1 it took
+  the p90 interval from 6.5 s to 0.43 s with one rebuild in 90 s against 12.
+- **K = 0.25 is adopted** (default), the one share that keeps up at both rates: 99 % of Red's frames graded at 216, 96 % of the twin's
+  at 250, under 0.75 s behind, one or two rebuilds in a replay; its twin master leaves 1.537 against folding every frame's 1.645; at 60
+  a master holds 124 of its 500 frames, 330 ms apart against today's 398. K = 0.5 and 1 still fall behind at 216 with the reference
+  kept, so the share is what buys the rate and the reference what keeps it.
+- **`RollingWindowOptions.Legacy` folds every frame and rebuilds**, the stack as it was, and `planetary-live --keep` and
+  `--aged-reference` replay any recipe at any share either way.
+- **Lanczos-3 at the new defaults waits on a quiet machine (#1272)**, the issue's third box: its first run was taken while another
+  session's bake held about 13 of the 16 cores, and the control (the defaults' own registration at K = 0.25 in place) graded 80 % and
+  53 % where it had graded 99 % and 96 % an hour before, so neither keep-up reading meant anything. #1272 holds the rule, the
+  commands, the baselines and the check that a run was quiet.
+
+Parts 1 and 2 ran beside that bake too, every arm of a comparison in the same session: load only slows a stack, so a K that kept up
+under it keeps up, and the adoption does not move if a K that failed would pass on a quiet box (K = 0.25 leaves the least band error of
+the three).
 
 ### The best stack in the viewer
 

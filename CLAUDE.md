@@ -994,8 +994,12 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   the frames; `PlanetaryStackOptions.Legacy` and `planetary-stack --legacy` are the recipe before. **The rolling stack (live capture,
   the GUI's playback) takes the gradient and the plain correlation, never Lanczos-3** (`RollingWindowOptions`, `.Legacy` the recipe
   before), measured as it runs by `tianwen planetary-live` through the node's own loop (`LiveStackLoop`): Lanczos-3 folded two fifths
-  as many frames a second. **Judge a live stack by the frames it FOLDS a second, never by how far its window's end moved**, which a
-  rebuild jumps: at 216 frames a second every recipe folds a quarter of them and rebuilds on nearly every master (#1174). Frames are
+  as many frames a second (re-measured at the defaults below on a quiet machine, #1272). **The rolling stack folds its best quarter and
+  keeps its reference in place** (`RollingWindowOptions.KeepFraction` 0.25, `ReReferenceInPlace`, #1174; `.Legacy` folds every frame
+  and rebuilds): it keeps up with 216 and 250 frames a second (99 and 96 % graded, under 0.75 s behind), where folding every frame fell
+  behind with every recipe and folded its whole window again on nearly every master, mostly as its reference aged out of the 500-frame
+  window. **Judge a live stack by the frames it GRADES a second (it must see every one) and its rebuilds by cause (`RebuildCauses`),
+  never by how far its window's end moved**, which a rebuild jumps. Frames are
   many, so no step may grow faster than linearly in them (the user, 2026-10-02). **A test that
   depends on one of these choices pins it** rather than inheriting a default the next measurement may move. **Lanczos-3's clamp
   applies only where every tap is non-negative** (`Image.Lanczos3Finish`): it is PixInsight's rule for non-negative data, and on a
