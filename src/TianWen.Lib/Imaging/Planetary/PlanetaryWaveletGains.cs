@@ -397,6 +397,30 @@ public static class PlanetaryWaveletGains
     }
 
     /// <summary>
+    /// The filter <paramref name="gains"/> make (finest first, the layers past them and the residual at one) at <paramref name="frequency"/>
+    /// cycles a pixel, averaged round the ring: each a trous layer's transfer times its gain, plus the approximation after them. The layers
+    /// overlap in frequency, so a gain below one, or below zero, beside a large one need be no dip in the filter (#1251).
+    /// </summary>
+    public static double Transfer(ReadOnlySpan<double> gains, double frequency)
+    {
+        const int angles = 32;
+        double sum = 0;
+        for (var a = 0; a < angles; a++)
+        {
+            // A quarter turn covers the ring: the transfer is even in each axis.
+            var theta = (a + 0.5) * Math.PI / (2 * angles);
+            var (fx, fy) = (frequency * Math.Cos(theta), frequency * Math.Sin(theta));
+            var value = Scaling(gains.Length, fx, fy);
+            for (var j = 0; j < gains.Length; j++)
+            {
+                value += gains[j] * (Scaling(j, fx, fy) - Scaling(j + 1, fx, fy));
+            }
+            sum += value;
+        }
+        return sum / angles;
+    }
+
+    /// <summary>
     /// The a trous approximation after <paramref name="level"/> smoothings, as a transfer: the B3 spline's cos^4(pi 2^k f) along each
     /// axis for every k below the level (one at level 0). Layer j passes the difference of levels j and j + 1.
     /// </summary>

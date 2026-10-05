@@ -117,6 +117,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                 if (truthPath is not null)
                 {
                     PlanetaryMasterScore.AgainstTruth(consoleHost, master, truthPath, body, "the master as stacked");
+                    PlanetaryMasterScore.TruthGains(consoleHost, master, truthPath, body);
                 }
                 else
                 {
@@ -181,6 +182,10 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                         var what = result.Derived ? $"derived{(nonNegative ? " non-negative" : "")}, {PlanetaryBestStack.Describe(fix)}{finestWords}{strengthWords}" : $"PlanetaryDefault{strengthWords}, the limb kept as stacked";
                         consoleHost.WriteScrollable(string.Create(inv,
                             $"[planetary] {what}: gains {string.Join(", ", result.Gains.Select(g => g.ToString("0.00", inv)))}; the limb's edge at 0.1 and 0.3 cycles a pixel {result.EdgeAtTenth:0.000}, {result.EdgeAtThreeTenths:0.000}"));
+                        if (!result.Gains.IsDefaultOrEmpty)
+                        {
+                            consoleHost.WriteScrollable($"[planetary] {what}: {PlanetaryMasterScore.FilterWords(result.Gains.AsSpan())}");
+                        }
                         if (truthPath is not null)
                         {
                             PlanetaryMasterScore.AgainstTruth(consoleHost, result.Sharpened, truthPath, body, what, master);

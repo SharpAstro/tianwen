@@ -51,6 +51,32 @@ public class PlanetaryWaveletGainsTests
     }
 
     [Fact]
+    public void AGainBelowZeroBesideALargeOneIsNoDipInTheFilter()
+    {
+        // The layers overlap in frequency (#1251): EdgeHD Jupiter's derived gains swing below zero in band 3, and the filter they make
+        // stays at or above one from the mean to Nyquist, peaking where bands 2 and 3 meet.
+        double[] swinging = [1.00, 7.97, -0.65, 1.50];
+        double[] unit = [1, 1, 1, 1];
+        var lowest = double.PositiveInfinity;
+        var (peak, peakAt) = (0.0, 0.0);
+        for (var step = 0; step <= 100; step++)
+        {
+            var f = step * 0.005;
+            PlanetaryWaveletGains.Transfer(unit, f).ShouldBe(1, 1e-12);
+            var t = PlanetaryWaveletGains.Transfer(swinging, f);
+            lowest = Math.Min(lowest, t);
+            if (t > peak)
+            {
+                (peak, peakAt) = (t, f);
+            }
+        }
+        TestContext.Current.TestOutputHelper?.WriteLine($"lowest {lowest:0.000}, peak {peak:0.00} at {peakAt:0.000} cycles a pixel");
+        PlanetaryWaveletGains.Transfer(swinging, 0).ShouldBe(1, 1e-12);
+        lowest.ShouldBeGreaterThanOrEqualTo(1 - 1e-9);
+        peakAt.ShouldBeInRange(0.1, 0.2);
+    }
+
+    [Fact]
     public void HalfTheHalvesDifferenceIsTheStacksNoise()
     {
         const int size = 128;
