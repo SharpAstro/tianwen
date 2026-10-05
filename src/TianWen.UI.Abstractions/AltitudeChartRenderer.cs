@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using System.Runtime.InteropServices;
 using DIR.Lib;
@@ -901,6 +902,30 @@ public static class AltitudeChartRenderer
         }
     }
 
+    private const string MoonGlyph = "\U0001F319";          // 🌙
+    private const string CloudGlyph = "\u2601";             // ☁
+    private const string ThunderGlyph = "\u26C8";           // ⛈
+    private const string SnowGlyph = "\u2744";              // ❄
+    private const string RainGlyph = "\U0001F327";          // 🌧
+    private const string FogGlyph = "\U0001F32B";           // 🌫
+    private const string MostlyCloudyGlyph = "\U0001F325";  // 🌥
+    private const string PartlyCloudyGlyph = "\u26C5";      // ⛅
+    private const string SunGlyph = "\u2600";               // ☀
+
+    /// <summary>
+    /// Every glyph the weather band draws, all of them from the EMOJI face (<see cref="ClassifyWeather"/>).
+    /// </summary>
+    /// <remarks>
+    /// A host that bundles a SUBSET of the emoji face (the browser build) must carry every one of these, which
+    /// <c>WebEmojiSubsetTests</c> holds it to: the web subset once carried only the atlas's camera, so every
+    /// night hour's moon drew nothing, and once the Sky Atlas had set the shared emoji face the sun and the
+    /// clouds went too (reported 2026-10-05). A new glyph in <see cref="ClassifyWeather"/> goes here.
+    /// </remarks>
+    internal static readonly ImmutableArray<string> WeatherGlyphs =
+    [
+        MoonGlyph, CloudGlyph, ThunderGlyph, SnowGlyph, RainGlyph, FogGlyph, MostlyCloudyGlyph, PartlyCloudyGlyph, SunGlyph,
+    ];
+
     /// <summary>
     /// Classifies a weather entry into layered icons and background colour.
     /// Each layer is (icon, xOffsetFraction, fontSizeScale) drawn back-to-front.
@@ -910,37 +935,37 @@ public static class AltitudeChartRenderer
         HourlyWeatherForecast entry, PlannerState state)
     {
         var night = !IsTwilight(entry.Time, state);
-        const string moon = "\U0001F319";  // 🌙
-        const string cloud = "\u2601";     // ☁
+        const string moon = MoonGlyph;
+        const string cloud = CloudGlyph;
 
         // Thunderstorm: WMO codes 95-99
         if (entry.WeatherCode is >= 95 and <= 99)
         {
             return (night
-                ? [(moon, -0.5f, 1f), ("\u26C8", 0.3f, 1f)]
-                : [("\u26C8", 0f, 1f)], WeatherThunderBg);
+                ? [(moon, -0.5f, 1f), (ThunderGlyph, 0.3f, 1f)]
+                : [(ThunderGlyph, 0f, 1f)], WeatherThunderBg);
         }
 
         // Snow: WMO codes 71-77 (snowfall), 85-86 (snow showers)
         if (entry.WeatherCode is (>= 71 and <= 77) or 85 or 86)
         {
             return (night
-                ? [(moon, -0.5f, 1f), ("\u2744", 0.3f, 1f)]
-                : [("\u2744", 0f, 1f)], WeatherSnowBg);
+                ? [(moon, -0.5f, 1f), (SnowGlyph, 0.3f, 1f)]
+                : [(SnowGlyph, 0f, 1f)], WeatherSnowBg);
         }
 
         // Rain/drizzle: precipitation > 0.1mm or WMO codes 51-67, 80-82
         if (entry.Precipitation > 0.1 || entry.WeatherCode is (>= 51 and <= 67) or (>= 80 and <= 82))
         {
             return (night
-                ? [(moon, -0.5f, 1f), ("\U0001F327", 0.3f, 1f)]
-                : [("\U0001F327", 0f, 1f)], WeatherRainBg);
+                ? [(moon, -0.5f, 1f), (RainGlyph, 0.3f, 1f)]
+                : [(RainGlyph, 0f, 1f)], WeatherRainBg);
         }
 
         // Fog: visibility < 1000m or WMO codes 45/48
         if (entry.Visibility < 1000 || entry.WeatherCode is 45 or 48)
         {
-            return ([("\U0001F32B", 0f, 1f)], WeatherFogBg);
+            return ([(FogGlyph, 0f, 1f)], WeatherFogBg);
         }
 
         // Heavy overcast: cloud cover 80-100%, 3 clouds (night: moon barely visible)
@@ -956,7 +981,7 @@ public static class AltitudeChartRenderer
         {
             return (night
                 ? [(moon, -0.5f, 1f), (cloud, 0f, 1f), (cloud, 0.5f, 1f)]
-                : [("\U0001F325", 0f, 1f)], WeatherOvercastBg);                // 🌥
+                : [(MostlyCloudyGlyph, 0f, 1f)], WeatherOvercastBg);
         }
 
         // Partly cloudy: cloud cover 10-50%, 1 cloud
@@ -964,13 +989,13 @@ public static class AltitudeChartRenderer
         {
             return (night
                 ? [(moon, -0.5f, 1f), (cloud, 0.3f, 1f)]
-                : [("\u26C5", 0f, 1f)], WeatherPartlyBg);                     // ⛅
+                : [(PartlyCloudyGlyph, 0f, 1f)], WeatherPartlyBg);
         }
 
         // Clear: cloud cover <= 10%
         return night
             ? ([(moon, 0f, 1f)], WeatherClearBg)
-            : ([("\u2600", 0f, 1f)], WeatherClearBg);                         // ☀
+            : ([(SunGlyph, 0f, 1f)], WeatherClearBg);
     }
 
     /// <summary>

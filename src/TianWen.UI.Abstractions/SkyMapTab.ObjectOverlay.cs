@@ -34,7 +34,7 @@ namespace TianWen.UI.Abstractions
         /// discards. And a mask draws as one <c>FillRect</c> per run, about thirty unbatched draws per mark on
         /// Vulkan, against one bitmap-atlas quad for the glyph.</para>
         /// </summary>
-        protected const string PictureMark = "\U0001F4F7";
+        protected internal const string PictureMark = "\U0001F4F7";
 
         /// <summary>The gap between a label's first line and its picture mark, in the label's pixels.</summary>
         protected static float PictureMarkGap(float labelSize) => labelSize * 0.3f;

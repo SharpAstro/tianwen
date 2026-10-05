@@ -58,6 +58,10 @@
          letter one width, so a label column sized to R holds a G there and nowhere a user looks. -->
     <Content Include="..\TianWen.UI.Gui\Fonts\DejaVuSans.ttf" Link="TestFonts\DejaVuSans.ttf"
              CopyToOutputDirectory="PreserveNewest" />
+    <!-- The browser build's emoji SUBSET, as data, for WebEmojiSubsetTests: it must carry every glyph the
+         web draws from its emoji face, and nothing else notices one it lacks (that glyph draws nothing). -->
+    <Content Include="..\TianWen.UI.Web\wwwroot\Fonts\NotoEmoji-Web.ttf" Link="TestFonts\NotoEmoji-Web.ttf"
+             CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
