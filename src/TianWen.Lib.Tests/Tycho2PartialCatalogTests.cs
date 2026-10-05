@@ -40,7 +40,9 @@ namespace TianWen.Lib.Tests
             var (byteBoundary, regionBoundary) = Tycho2MemberManifest.Pack(
                 header, regionCount, catalog.Length, target);
 
-            return (Tycho2MemberManifest.Create(regionBoundary, regionCount, catalog.Length), byteBoundary, catalog);
+            // Framing only: these tests place decoded bytes, so no member is encoded and none has a CRC to name.
+            return (Tycho2MemberManifest.Create(regionBoundary, new uint[regionBoundary.Length - 1], regionCount, catalog.Length),
+                byteBoundary, catalog);
         }
 
         /// <summary>

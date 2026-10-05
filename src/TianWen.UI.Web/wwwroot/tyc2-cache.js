@@ -12,6 +12,12 @@ window.tyc2Cache = (function () {
     const STORE = "tyc2";
     const KEY = "stars";
 
+    // A member's entry is keyed by its CONTENT as well as its number: `tag` is the CRC32 the manifest
+    // gives it, so an entry decoded from an earlier bake of the catalog is simply never found.
+    function memberKey(version, member, tag) {
+        return version + ":m" + member + ":" + tag;
+    }
+
     function openDb() {
         return new Promise(function (resolve, reject) {
             const req = indexedDB.open(DB_NAME, 1);
@@ -68,12 +74,13 @@ window.tyc2Cache = (function () {
         // visit re-fetched and, more to the point, RE-DECODED every member it had already seen --
         // measured at 1183 ms of blocked main thread over three pans. These store the DECOMPRESSED
         // member bytes, so a hit skips the lzip decode entirely, which is the expensive half.
-        // Keyed `<version>:m<member>` in the same store, so bumping the version drops them too.
+        // Keyed `<version>:m<member>:<tag>` in the same store, the tag being the member's CRC32 from
+        // the manifest; retainMembers drops every entry another version or an earlier bake left.
 
         // Which of `members` are already cached, as a parallel array of booleans. One transaction
         // for the whole set: asking per member is a transaction each, which costs more than the
-        // decode it is trying to avoid.
-        hasMembers: async function (version, members) {
+        // decode it is trying to avoid. `tags` runs parallel to `members`.
+        hasMembers: async function (version, members, tags) {
             const out = new Array(members.length).fill(false);
             try {
                 const db = await openDb();
@@ -83,7 +90,7 @@ window.tyc2Cache = (function () {
                     members.forEach(function (m, i) {
                         // getKey, not get: this must not deserialize ~260 KB per member just to
                         // answer a yes/no, which is the whole reason the probe is separate.
-                        const req = store.getKey(version + ":m" + m);
+                        const req = store.getKey(memberKey(version, m, tags[i]));
                         req.onsuccess = function () { out[i] = req.result !== undefined; };
                     });
                     tx.oncomplete = function () { resolve(); };
@@ -97,11 +104,11 @@ window.tyc2Cache = (function () {
         },
 
         // Decompressed bytes for one member, or an empty array on any miss/failure.
-        loadMember: async function (version, member) {
+        loadMember: async function (version, member, tag) {
             try {
                 const db = await openDb();
                 const rec = await new Promise(function (resolve, reject) {
-                    const req = db.transaction(STORE, "readonly").objectStore(STORE).get(version + ":m" + member);
+                    const req = db.transaction(STORE, "readonly").objectStore(STORE).get(memberKey(version, member, tag));
                     req.onsuccess = function () { resolve(req.result); };
                     req.onerror = function () { reject(req.error); };
                 });
@@ -115,19 +122,53 @@ window.tyc2Cache = (function () {
 
         // Persist one member's DECOMPRESSED bytes. Best-effort and fire-and-forget from C#: a quota
         // failure must leave the atlas working, just uncached.
-        saveMember: async function (version, member, streamRef) {
+        saveMember: async function (version, member, tag, streamRef) {
             try {
                 const buf = await streamRef.arrayBuffer();
                 const db = await openDb();
                 await new Promise(function (resolve, reject) {
                     const tx = db.transaction(STORE, "readwrite");
-                    tx.objectStore(STORE).put(buf, version + ":m" + member);
+                    tx.objectStore(STORE).put(buf, memberKey(version, member, tag));
                     tx.oncomplete = function () { resolve(); };
                     tx.onerror = function () { reject(tx.error); };
                 });
                 db.close();
             } catch (e) {
                 console.warn("[tianwen-web] tyc2 member save failed:", e);
+            }
+        },
+
+        // Deletes every member entry that is not the current bake's: another version's, one keyed before
+        // members carried a tag, or one with a tag the manifest no longer gives (`tags[m]` is member m's).
+        // A re-bake leaves its predecessor's entries unreachable, so without this they would sit on the
+        // user's disk for ever, up to the whole catalog again per re-bake. The whole-catalog entry (KEY)
+        // is the fallback path's and is left alone. Best-effort, like every write here.
+        retainMembers: async function (version, tags) {
+            try {
+                const keep = new Set(tags.map(function (tag, m) { return memberKey(version, m, tag); }));
+                const db = await openDb();
+                let deleted = 0;
+                await new Promise(function (resolve, reject) {
+                    const tx = db.transaction(STORE, "readwrite");
+                    const store = tx.objectStore(STORE);
+                    const req = store.openKeyCursor();
+                    req.onsuccess = function () {
+                        const cursor = req.result;
+                        if (!cursor) return;
+                        if (cursor.key !== KEY && !keep.has(cursor.key)) {
+                            store.delete(cursor.key);
+                            deleted++;
+                        }
+                        cursor.continue();
+                    };
+                    tx.oncomplete = function () { resolve(); };
+                    tx.onerror = function () { reject(tx.error); };
+                });
+                db.close();
+                return deleted;
+            } catch (e) {
+                console.warn("[tianwen-web] tyc2 member cache sweep failed:", e);
+                return 0;
             }
         },
 

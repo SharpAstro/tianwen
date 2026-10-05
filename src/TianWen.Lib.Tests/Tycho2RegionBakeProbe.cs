@@ -73,7 +73,8 @@ namespace TianWen.Lib.Tests
                     header, streamCount, catalog.Length, target);
                 var sizes = CompressMembers(catalog, byteBoundary);
                 var totalCompressed = sizes.Sum(s => (long)s);
-                var manifest = Tycho2MemberManifest.Create(regionBoundary, streamCount, catalog.Length);
+                // Framing only: the probe needs the region-to-member mapping, not the members' CRCs.
+                var manifest = Tycho2MemberManifest.Create(regionBoundary, new uint[regionBoundary.Length - 1], streamCount, catalog.Length);
 
                 var cells = new List<string>();
                 foreach (var (_, ra, dec, fov) in probes)

@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Threading.Tasks;
 using SharpAstro.Lzip;
 using TianWen.Lib.Astrometry.Catalogs;
 
@@ -59,16 +58,11 @@ internal static class Program
             return 1;
         }
 
-        var header = raw.AsSpan(0, 4 + (regionCount * 4));
-        var (byteBoundary, regionBoundary) = Tycho2MemberManifest.Pack(header, regionCount, raw.Length, target);
-        var memberCount = byteBoundary.Length - 1;
+        // The manifest names each member's content (its CRC32), which is what lets a browser keep the
+        // members it decoded across a re-bake of the catalog and drop exactly the ones that changed.
+        var (members, manifest) = Tycho2MemberManifest.Bake(raw, target);
+        var memberCount = members.Length;
         Console.WriteLine($"[bake-tyc2] packed into {memberCount:N0} members at a {target / 1024} KB target");
-
-        var members = new byte[memberCount][];
-        Parallel.For(0, memberCount, i =>
-        {
-            members[i] = LzipEncoder.Compress(raw.AsSpan(byteBoundary[i], byteBoundary[i + 1] - byteBoundary[i]));
-        });
 
         // Verify BEFORE writing: the concatenated members must decode back to the identical bytes.
         // That is the whole safety argument for deriving the web assets from the desktop's -- an
@@ -99,7 +93,6 @@ internal static class Program
             File.WriteAllBytes(Path.Combine(outputDir, Tycho2MemberManifest.MemberFileName(i)), members[i]);
         }
 
-        var manifest = Tycho2MemberManifest.Create(regionBoundary, regionCount, raw.Length);
         File.WriteAllBytes(Path.Combine(outputDir, "manifest.bin"), manifest.Write());
 
         var total = members.Sum(m => (long)m.Length);
