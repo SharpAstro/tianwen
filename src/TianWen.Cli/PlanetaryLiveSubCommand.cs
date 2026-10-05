@@ -41,11 +41,13 @@ internal sealed class PlanetaryLiveSubCommand(IConsoleHost consoleHost, ITimePro
         var rateOpt = new Option<double?>("--rate") { Description = "Frames a second to replay at; the capture's own, from its timestamps, when not given." };
         var truthOpt = new Option<string?>("--truth") { Description = "A synthetic capture's truth (planetary-degrade's .truth.fits): the last master of each recipe scored against it." };
         var planetOpt = new Option<string?>("--planet") { Description = "jupiter or saturn, for the truth's scoring; read off the file's name when not given." };
+        var agedOpt = new Option<string>("--aged-reference") { Description = "What the stack does when its reference ages out of the window (#1174): rebuild, in-place, or a comma list to replay each recipe with each." };
+        var keepOpt = new Option<string>("--keep") { Description = "The share of the window's frames folded (#1174), a comma list to replay each recipe at each (e.g. '1,0.5,0.25'); the recipe's own when not given." };
 
         var command = new Command("planetary-live", "Measure how the live rolling stack keeps up with a capture replayed at its own rate, recipe by recipe.")
         {
             Arguments = { captureArg },
-            Options = { recipeOpt, secondsOpt, rateOpt, truthOpt, planetOpt },
+            Options = { recipeOpt, secondsOpt, rateOpt, truthOpt, planetOpt, keepOpt, agedOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -68,6 +70,40 @@ internal sealed class PlanetaryLiveSubCommand(IConsoleHost consoleHost, ITimePro
             {
                 consoleHost.WriteError($"--recipe {recipeName}: legacy, gradient, plain, pipeline, defaults or all");
                 return 1;
+            }
+            if (parseResult.GetValue(keepOpt) is { } keepList)
+            {
+                var keeps = new List<double>();
+                foreach (var word in keepList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    if (!double.TryParse(word, NumberStyles.Float, inv, out var keep) || keep <= 0 || keep > 1)
+                    {
+                        consoleHost.WriteError($"--keep {word}: a share in (0, 1], or a comma list of them");
+                        return 1;
+                    }
+                    keeps.Add(keep);
+                }
+                recipes = [.. recipes.SelectMany(r => keeps.Select(k => (string.Create(inv, $"{r.Name}, keep {k:0.##}"), r.Options with { KeepFraction = k })))];
+            }
+            if (parseResult.GetValue(agedOpt) is { } agedList)
+            {
+                var ways = new List<bool>();
+                foreach (var word in agedList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    switch (word)
+                    {
+                        case "rebuild":
+                            ways.Add(false);
+                            break;
+                        case "in-place":
+                            ways.Add(true);
+                            break;
+                        default:
+                            consoleHost.WriteError($"--aged-reference {word}: rebuild or in-place, or a comma list of them");
+                            return 1;
+                    }
+                }
+                recipes = [.. recipes.SelectMany(r => ways.Select(inPlace => (inPlace ? r.Name + ", in place" : r.Name + ", rebuilt", r.Options with { ReReferenceInPlace = inPlace })))];
             }
             var truthPath = parseResult.GetValue(truthOpt);
             CatalogIndex planet = parseResult.GetValue(planetOpt)?.ToLowerInvariant() switch
@@ -125,7 +161,7 @@ internal sealed class PlanetaryLiveSubCommand(IConsoleHost consoleHost, ITimePro
 
     // One master as it was published: when, the frame it was stacked to, the newest frame the ring held then, the rebuilds and folds
     // so far, and the frames its sum holds.
-    private readonly record struct Published(TimeSpan At, int Built, int Newest, int Rebuilds, long Folds, int Folded);
+    private readonly record struct Published(TimeSpan At, int Built, int Newest, int Rebuilds, long Folds, int Folded, long Graded, (int Behind, int ReferenceAged, int RingDropped) Causes, int ReReferences);
 
     // Early is a colour run's first master of a full window and the frame it was stacked to: the master on show when a live view's Derive
     // reads the colours (#1202), which every later master is moved by.
@@ -143,7 +179,7 @@ internal sealed class PlanetaryLiveSubCommand(IConsoleHost consoleHost, ITimePro
         var loop = Task.Run(() => LiveStackLoop.RunAsync(() => Volatile.Read(ref replaying) == 1, () => ring, options, timeProvider,
             (master, stacker, built) =>
             {
-                masters.Add(new Published(timeProvider.GetElapsedTime(start), built, ring.LatestIndex, stacker.Rebuilds, stacker.Folds, stacker.FoldedFrameCount));
+                masters.Add(new Published(timeProvider.GetElapsedTime(start), built, ring.LatestIndex, stacker.Rebuilds, stacker.Folds, stacker.FoldedFrameCount, stacker.GradedFrames, stacker.RebuildCauses, stacker.ReReferences));
                 if (early is null && master.ChannelCount == 3 && stacker.FoldedFrameCount >= options.MaxWindowFrames)
                 {
                     early = (master, built);
@@ -246,10 +282,13 @@ internal sealed class PlanetaryLiveSubCommand(IConsoleHost consoleHost, ITimePro
         // Frames folded a second between the first master and the last (rebuilds' folds included), against the frames the
         // replay actually delivered a second, which a starved process falls short of the capture's rate.
         var folded = (final.Folds - first.Folds) / (final.At - first.At).TotalSeconds;
+        // Frames graded a second the same way: what the stack SAW, which must keep up with the capture where a stack that folds a share
+        // of its frames (#1174) folds fewer.
+        var graded = (final.Graded - first.Graded) / (final.At - first.At).TotalSeconds;
         var delivered = run.Pushed / run.Replayed.TotalSeconds;
         var held = masters.Select(m => (double)m.Folded).Order().ToArray();
         consoleHost.WriteScrollable(string.Create(inv,
-            $"[planetary] {name}: {masters.Count} masters from {run.Pushed} frames in {run.Replayed.TotalSeconds:0.0} s ({delivered:0.0} a second delivered of {rate:0.0}); interval median {Median(intervals):0} ms (p90 {Percentile(intervals, 0.9):0}); {folded:0.0} frames folded a second ({folded / rate:P0} of the capture's); behind the newest frame median {Median(lags):0} ms (p90 {Percentile(lags, 0.9):0}); {final.Rebuilds} rebuilds over {masters.Count} masters; a master holds median {Median(held):0} frames (last {final.Folded})"));
+            $"[planetary] {name}: {masters.Count} masters from {run.Pushed} frames in {run.Replayed.TotalSeconds:0.0} s ({delivered:0.0} a second delivered of {rate:0.0}); interval median {Median(intervals):0} ms (p90 {Percentile(intervals, 0.9):0}); {graded:0.0} frames graded a second ({graded / rate:P0} of the capture's), {folded:0.0} folded; behind the newest frame median {Median(lags):0} ms (p90 {Percentile(lags, 0.9):0}); {final.Rebuilds} rebuilds over {masters.Count} masters ({final.Causes.Behind} behind, {final.Causes.ReferenceAged} the reference aged out, {final.Causes.RingDropped} a frame the ring dropped), {final.ReReferences} re-referenced in place; a master holds median {Median(held):0} frames (last {final.Folded})"));
     }
 
     private static double Median(double[] sorted) => Percentile(sorted, 0.5);
