@@ -470,26 +470,28 @@
             await System.IO.File.WriteAllBytesAsync(_fontPath, bytes);
         }
 
-        // The EMOJI face, cut down to the glyphs the web build draws: today only U+1F4F7 CAMERA, the atlas's
-        // mark after the label of an object with a photo. The full Noto COLRv1 face the desktop bundles is
-        // 4.99 MB for that one glyph; the subset is 2.9 KB with its COLRv1 layers intact. Regenerate with
-        //   python -m fontTools.subset src/TianWen.UI.Gui/Fonts/Noto-COLRv1.ttf --unicodes=U+1F4F7
-        //     --output-file=src/TianWen.UI.Web/wwwroot/Fonts/NotoEmoji-Camera.ttf
-        // adding a codepoint to --unicodes when the web build starts drawing another. Best-effort: a
-        // failed fetch leaves no emoji face, which the mark reads as "draw nothing, reserve nothing".
+        // The EMOJI face, cut down to the glyphs the web build draws: U+1F4F7 CAMERA, the atlas's mark after
+        // the label of an object with a photo, and the planner chart's weather band and Moon phase. The full
+        // Noto COLRv1 face the desktop bundles is 4.99 MB; the subset is 17.9 KB with its COLRv1 layers
+        // intact. Both tabs read this one face (they share the window's settings), so a glyph either draws
+        // that the subset lacks draws nothing: it once held the camera alone, and the weather band lost its
+        // moon, then its sun and clouds once the atlas had set the face (2026-10-05). WebEmojiSubsetTests
+        // asks the subset for every glyph their owners list, and names the fontTools command that recuts
+        // it when one is missing. Best-effort: a failed fetch leaves no emoji face, which the mark reads as
+        // "draw nothing, reserve nothing" and the chart as its text face.
         try
         {
-            var emojiPath = System.IO.Path.Combine(dir, "NotoEmoji-Camera.ttf");
+            var emojiPath = System.IO.Path.Combine(dir, "NotoEmoji-Web.ttf");
             if (!System.IO.File.Exists(emojiPath))
             {
-                var bytes = await Http.GetByteArrayAsync("Fonts/NotoEmoji-Camera.ttf");
+                var bytes = await Http.GetByteArrayAsync("Fonts/NotoEmoji-Web.ttf");
                 await System.IO.File.WriteAllBytesAsync(emojiPath, bytes);
             }
             _emojiFontPath = emojiPath;
         }
         catch (HttpRequestException ex)
         {
-            Console.WriteLine($"emoji face unavailable, no photo marks: {ex.Message}");
+            Console.WriteLine($"emoji face unavailable, no photo marks or weather symbols: {ex.Message}");
         }
     }
 
@@ -2113,6 +2115,9 @@
             {
                 _tab.DpiScale = (float)_metrics.DevicePixelRatio;
                 _tab.FontPath = _fontPath;
+                // The chart's weather band and Moon phase are drawn from it. Set here as well as on the atlas,
+                // or the planner would have it only after the atlas had once been shown.
+                _tab.EmojiFontPath = _emojiFontPath;
                 _tab.Render(_state, content, Time, _mouse);
                 skyMs = Since(ref phase);
             }
