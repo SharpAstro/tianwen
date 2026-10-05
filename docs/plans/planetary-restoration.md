@@ -3817,7 +3817,8 @@ Our band 1 holds 1.4 to 1.9 times the references' energy at a correlation of 0.4
 | ASI678MC Jupiter | 239 | 1.00, 7.97, -0.65, 1.50 | 0.45 / 0.65 / 0.78 |
 
 The pictures agree: beside its post, the 16" Saturn's sharpened master looks barely sharpened, and the Jupiter's belts and festoons are soft.
-The derived gains oscillate, with a gain below one in band 4 on the 16" Saturn and a NEGATIVE one in band 3 on the Jupiter. The earlier
+The derived gains oscillate, with a gain below one in band 4 on the 16" Saturn and a NEGATIVE one in band 3 on the Jupiter (the filter
+they make does not, and the truth's own gains swing the same way: "The gains swing; the filter does not", below). The earlier
 judgement that they land near the truth was made on the twins, whose disks are 40 to 60 px. Whether a post's strength is the target or the
 twins' truth-optimal gains are, given a post is denoised and then sharpened further, was the owner's call (#1251): the truth by default, a
 strength past it as an option ("A strength past the truth", below). The posts' colours are
@@ -3893,6 +3894,44 @@ linear master from the full-chain run, sharpened again at each strength):
 **The dial** (the next change): the planetary panel offers Truth, 1.5, 2 and 2.5 under the telescope's rows (`ViewerState.PlanetaryStrength`),
 which the viewer's Best stack and Derive, in the viewer and the GUI's capture alike, read as they start. It is not saved, so every launch
 starts at the truth.
+
+### The gains swing; the filter does not (#1251)
+
+**Measured** (2026-10-05) with `planetary-sharpen`, which now prints each gain set's filter (`PlanetaryWaveletGains.Transfer`, the
+layers' transfers times their gains plus the approximation after them, averaged round the ring) and, against a twin's truth, the truth's
+own gains: one per scored band, fitted jointly to it inside 0.9 radii (`PlanetaryCeilings.PerBandJointOracle`, the coarser layers at one
+as the derived sharpening leaves them). #1251 asked whether the derived gains' swings, a negative band 3 on the ASI678 Jupiter and a band 4
+below one on the 16" Saturn, were a fault.
+
+| Gain set | Gains, bands 1 to 4 | Filter at 0.05, 0.1, 0.15, 0.2, 0.3, 0.5 cycles a pixel | Lowest |
+|---|---|---|---|
+| Calibrated twin, derived | 4.54, 1.94, 1.35, 0.80 | 1.42, 2.20, 2.84, 3.40, 4.20, 4.54 | 1.00 |
+| Calibrated twin, the truth's | 3.76, 1.72, 1.21, 1.05 | 1.37, 1.91, 2.42, 2.87, 3.49, 3.76 | 1.00 |
+| Warped twin, derived | 9.50, -0.63, 2.04, 0.63 | 1.47, 2.15, 3.31, 5.11, 8.16, 9.49 | 0.99 |
+| Warped twin, the truth's | 6.33, 0.99, 1.32, 1.01 | 1.40, 2.07, 2.97, 4.01, 5.62, 6.32 | 1.00 |
+| No still layer, derived | 1.64, 1.00, 1.25, 0.89 | 1.10, 1.20, 1.26, 1.37, 1.56, 1.64 | 0.99 |
+| No still layer, the truth's | 1.54, 1.04, 1.08, 1.01 | 1.07, 1.15, 1.23, 1.32, 1.48, 1.54 | 1.00 |
+| Saturn twin, derived (colour) | 1.00, 6.51, 1.20, 0.58 | 1.90, 3.62, 4.04, 3.36, 1.73, 1.00 | 1.00 |
+| Saturn twin, the truth's, green | 3.72, 9.54, -1.18, 1.26 | 1.73, 4.68, 6.51, 6.18, 4.49, 3.72 | 1.00 |
+| Saturn twin, the truth's, red / blue | 2.38, 7.68, -0.43, 1.15 / 0.72, 13.13, -1.83, 1.42 | peaks 5.06 / 7.32 at 0.15 | 1.00 / 0.72 |
+| EdgeHD 11 Saturn | 1.00, 9.99, -1.46, 1.63 | 1.68, 4.30, 5.74, 4.83, 2.19, 1.00 | 1.00 |
+| 16" Meade Saturn | 1.00, 5.40, 1.65, 0.81 | 1.98, 3.26, 3.47, 2.89, 1.58, 1.00 | 1.00 |
+| ASI678MC Jupiter | 1.00, 7.72, -0.63, 1.58 | 1.63, 3.54, 4.56, 3.87, 1.89, 1.00 | 1.00 |
+| ASI224MC Jupiter | 1.00, 12.55, -1.47, 1.51 | 2.07, 5.48, 7.14, 5.93, 2.52, 1.00 | 1.00 |
+
+- **The gains swing; the filter does not.** Every set, derived or the truth's, on a twin or a real capture, makes a filter that rises from
+  one at the mean to a single peak (or to Nyquist on the mono twins) and falls back. None dips below one but the truth's own blue at
+  Nyquist (0.72, above a colour plane's own Nyquist).
+- **The truth's own gains swing the same way.** On the Saturn twin they put band 3 below zero in every colour (-0.43, -1.18, -1.83), as
+  the EdgeHD Saturn and both Jupiters' derived gains do (-0.63 to -1.47). The layers overlap, so where a filter peaks between bands 2 and 3,
+  a large band 2 gain overshoots band 3's middle and a negative band 3 takes it back. So the swing is not the derivation's fault, and a
+  smoothness penalty on the gains would push them away from the truth's.
+- **Where derived and truth differ is the filter's LEVEL.** On the mono Jupiter twins the derived filter runs 18 to 50 % over the truth's
+  past 0.2 cycles a pixel (the finest band read off the edge, which is noise past about 0.3: #1140). On the Saturn twin it peaks at 4.04
+  against the truth's 6.51, its finest band held as stacked (#1187), and the bands' error is 1.30 against the truth's 1.19 (green).
+
+`AGainBelowZeroBesideALargeOneIsNoDipInTheFilter` pins the ASI678 Jupiter's set: its filter stays at one or above to Nyquist and peaks
+between 0.1 and 0.2 cycles a pixel. With the owner's answer on the target (the strength above), both of #1251's questions are answered.
 
 ## R9 A learned stage, only if the measurements say so
 

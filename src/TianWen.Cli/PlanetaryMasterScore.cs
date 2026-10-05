@@ -108,6 +108,76 @@ internal static class PlanetaryMasterScore
         }
     }
 
+    /// <summary>
+    /// The filter <paramref name="gains"/> make, as one line for <paramref name="what"/>: its transfer at fixed frequencies and its lowest
+    /// point to Nyquist. A gain vector can swing below one and back while the filter it makes does not (#1251).
+    /// </summary>
+    public static string FilterWords(ReadOnlySpan<double> gains)
+    {
+        var inv = CultureInfo.InvariantCulture;
+        double[] at = [0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5];
+        var values = new string[at.Length];
+        for (var i = 0; i < at.Length; i++)
+        {
+            values[i] = PlanetaryWaveletGains.Transfer(gains, at[i]).ToString("0.00", inv);
+        }
+        var (lowest, lowestAt) = (double.PositiveInfinity, 0.0);
+        for (var step = 0; step <= 100; step++)
+        {
+            var f = step * 0.005;
+            if (PlanetaryWaveletGains.Transfer(gains, f) is var t && t < lowest)
+            {
+                (lowest, lowestAt) = (t, f);
+            }
+        }
+        return string.Create(inv, $"their filter at 0.05, 0.1, 0.15, 0.2, 0.3, 0.4 and 0.5 cycles a pixel {string.Join(", ", values)}; lowest {lowest:0.00} at {lowestAt:0.000}");
+    }
+
+    /// <summary>
+    /// The gains the truth itself asks of <paramref name="master"/> (a colour master's channels against their truths): one per scored a
+    /// trous band, fitted JOINTLY to the truth inside 0.9 radii (<see cref="PlanetaryCeilings.PerBandJointOracle"/>, the coarser layers at
+    /// one as the derived sharpening leaves them), their filter, and the band error they leave: what the derived gains are judged against
+    /// (#1251).
+    /// </summary>
+    public static void TruthGains(IConsoleHost consoleHost, Image master, string truthPath, CatalogIndex planet)
+    {
+        var inv = CultureInfo.InvariantCulture;
+        var colour = master.ChannelCount == 3;
+        foreach (var (channel, name) in colour ? new[] { (0, "r"), (1, "g"), (2, "b") } : [(0, "")])
+        {
+            var path = colour ? Path.ChangeExtension(truthPath, $".{name}.fits") : truthPath;
+            if (PlanetaryMeasureSubCommand.ReadTruth(path, consoleHost) is not { } truth || truth.Time is not { } when)
+            {
+                consoleHost.WriteError($"[planetary] {path}: no truth with a time to fit the truth's gains against");
+                return;
+            }
+            var limbOptions = PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(planet, when));
+            var disk = PlanetaryMeasureSubCommand.WithPlanet(truth.Disk, limbOptions);
+            var plane = colour ? master.ChannelImage(channel) : master;
+            try
+            {
+                var label = colour ? $"the truth's own gains, {name}" : "the truth's own gains";
+                if (plane.Width * plane.Height != truth.Plane.Length || PlanetaryMeasureSubCommand.Register(plane, limbOptions, disk) is not { } fitted)
+                {
+                    consoleHost.WriteError($"[planetary] {label}: the master's limb could not be put on the truth's");
+                    continue;
+                }
+                var reference = PlanetaryMetrics.Normalise(truth.Plane, plane.Width, plane.Height, disk);
+                var (oracle, gains) = PlanetaryCeilings.PerBandJointOracle(fitted.Plane, reference, plane.Width, plane.Height, disk, PlanetaryWaveletGains.ScoredBands);
+                var bands = PlanetaryMetrics.Fidelity(oracle, reference, plane.Width, plane.Height, disk);
+                consoleHost.WriteScrollable(string.Create(inv,
+                    $"[planetary] {label}, fitted jointly to it: gains {string.Join(", ", gains.Select(g => g.ToString("0.00", inv)))}; {FilterWords(gains.AsSpan())}; error {string.Join(", ", bands.Select(b => b.Error.ToString("0.000", inv)))} (bands 1 to 4 {bands.Take(4).Sum(b => b.Error):0.000})"));
+            }
+            finally
+            {
+                if (colour)
+                {
+                    plane.Release();
+                }
+            }
+        }
+    }
+
     /// <summary><paramref name="master"/>'s limb undershoot below the sky, each channel on the disk fitted to the whole master, printed as <paramref name="what"/>.</summary>
     public static void Undershoot(IConsoleHost consoleHost, Image master, CatalogIndex planet, DateTimeOffset when, string what, Image? stack = null)
     {
