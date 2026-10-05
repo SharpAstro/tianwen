@@ -389,8 +389,9 @@ internal sealed class ImageSubCommand(
         var haOpt = new Option<string?>("--ha") { Description = "An H-alpha master whose emission goes into red, its continuum taken out against red." };
         var haScaleOpt = new Option<double?>("--ha-scale")
         {
-            Description = "The continuum scale to subtract with. Default: measured on the H-alpha and red masters WITH their stars "
-                + "(the flattest residual), never on starless plates, where the only structure the two share is the line itself.",
+            Description = "The continuum scale to subtract with, against red as given (as image continuum measures it). Default: "
+                + "measured on the H-alpha and red masters WITH their stars (the flattest residual), never on starless plates, "
+                + "where the only structure the two share is the line itself.",
         };
         var haWeightOpt = new Option<double>("--ha-weight")
         {
@@ -403,10 +404,25 @@ internal sealed class ImageSubCommand(
             Description = "Remove the stars from every master first (the active star remover, RC-Astro StarXTerminator), add the "
                 + "emission to the starless planes, and put the broadband stars back on top.",
         };
+        var linearFitOpt = new Option<string>("--linear-fit")
+        {
+            Description = "Put red, green and blue on this channel's scale before anything else (LinearFit, PixInsight's): a "
+                + "least-absolute-deviation line over the pixels both hold below 0.92 of their peaks. H-alpha is never fitted; "
+                + "its addition to red follows red's fitted slope. 'none' leaves the masters as they are.",
+            DefaultValueFactory = _ => "green",
+        };
+        linearFitOpt.AcceptOnlyFromAmong("red", "green", "blue", "none");
+        var deblurOpt = new Option<bool>("--deblur")
+        {
+            Description = "Deblur every master (RC-Astro BlurXTerminator) before its stars are removed, all on one scale with the "
+                + "brightest star at a quarter of the deblurrer's ceiling so no sharpened star clips, and report the star widths "
+                + "after: BlurX brings the channels to nearly one width. Where no deblurrer serves, --match-psf instead.",
+        };
         var matchPsfOpt = new Option<bool>("--match-psf")
         {
-            Description = "Blur every sharper master to the widest one's star width first (PsfMatch): channels that differ in "
-                + "width colour every star, and the star fluxes the continuum scale and the luminance read fall as a star widens.",
+            Description = "The fallback without a deblurrer: blur every sharper master to the widest one's star width (PsfMatch) "
+                + "for the colour channels, the continuum scale and the luminance's star scales. The synthetic luminance itself "
+                + "is always made from the unblurred masters.",
         };
         var luminanceOpt = new Option<string?>("--luminance")
         {
@@ -417,6 +433,24 @@ internal sealed class ImageSubCommand(
         {
             Description = "Give every channel its fine detail from the synthetic luminance (LuminanceDetail): its own colour above "
                 + "--colour-sigma, the luminance's lower noise below it.",
+        };
+        var denoiseOpt = new Option<bool>("--denoise")
+        {
+            Description = "Denoise the STARLESS planes (the active denoiser, RC-Astro NoiseXTerminator where licensed); the stars "
+                + "are never denoised, so it needs --starless. With --lrgb the luminance, which carries the detail, is denoised at "
+                + "--denoise-strength and the colour more lightly at --colour-denoise-strength; without, the colour channels "
+                + "carry the detail and take --denoise-strength. The luminance's weights are measured before anything is denoised.",
+        };
+        var denoiseStrengthOpt = new Option<float?>("--denoise-strength")
+        {
+            Description = "With --denoise, the strength in [0, 1] for the planes that carry the detail. Default: the denoiser's own "
+                + "(NoiseXTerminator's is set from each plate's noise).",
+        };
+        var colourDenoiseStrengthOpt = new Option<float>("--colour-denoise-strength")
+        {
+            Description = "With --denoise and --lrgb, the strength in [0, 1] for the colour, whose detail below --colour-sigma the "
+                + "luminance replaces anyway.",
+            DefaultValueFactory = _ => 0.5f,
         };
         var colourSigmaOpt = new Option<float>("--colour-sigma")
         {
@@ -429,7 +463,7 @@ internal sealed class ImageSubCommand(
         var cmd = new Command("combine", "One colour image from red, green and blue mono masters on one grid (image align), "
             + "optionally with H-alpha's emission added to red, its continuum subtracted.")
         {
-            Options = { redOpt, greenOpt, blueOpt, haOpt, haScaleOpt, haWeightOpt, starlessOpt, matchPsfOpt, luminanceOpt, lrgbOpt, colourSigmaOpt, outputOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt },
+            Options = { redOpt, greenOpt, blueOpt, haOpt, haScaleOpt, haWeightOpt, starlessOpt, linearFitOpt, deblurOpt, matchPsfOpt, luminanceOpt, lrgbOpt, colourSigmaOpt, denoiseOpt, denoiseStrengthOpt, colourDenoiseStrengthOpt, outputOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -460,24 +494,105 @@ internal sealed class ImageSubCommand(
                 }
             }
 
-            if (parseResult.GetValue(matchPsfOpt))
+            var names = new[] { "red", "green", "blue", "H-alpha" };
+            var hasHa = masters.Count == 4;
+            var denoise = parseResult.GetValue(denoiseOpt);
+            if (denoise && !parseResult.GetValue(starlessOpt))
             {
-                var (matched, report, target) = await PsfMatch.ToWidestAsync(masters, ct);
-                masters = [.. matched];
-                var names = new[] { "red", "green", "blue", "H-alpha" };
-                for (var i = 0; i < report.Length; i++)
+                consoleHost.WriteError("[combine] --denoise needs --starless: the stars are never denoised.");
+                return 1;
+            }
+            var detailDenoise = parseResult.GetValue(denoiseStrengthOpt) is { } strength
+                ? new EnhanceOptions(Tuning: new EnhanceTuning(DenoiseStrength: Math.Clamp(strength, 0f, 1f)))
+                : EnhanceOptions.Default;
+            var colourDenoise = new EnhanceOptions(Tuning: new EnhanceTuning(
+                DenoiseStrength: Math.Clamp(parseResult.GetValue(colourDenoiseStrengthOpt), 0f, 1f)));
+
+            // One scale for the broadband channels first (PixInsight's LinearFit). H-alpha is left as it is: its sky and
+            // its emission are not a broadband channel's, and the continuum scale is what relates it to red.
+            var redSlope = 1.0;
+            var fitTo = parseResult.GetValue(linearFitOpt) ?? "green";
+            if (fitTo != "none")
+            {
+                var reference = Array.IndexOf(names, fitTo);
+                for (var i = 0; i < 3; i++)
                 {
+                    if (i == reference)
+                    {
+                        continue;
+                    }
+                    var fit = LinearFit.Measure(masters[i], masters[reference]);
+                    if (!double.IsFinite(fit.Slope) || fit.Slope <= 0)
+                    {
+                        consoleHost.WriteError($"[combine] no linear fit of {names[i]} onto {fitTo} ({fit.Pixels} pixels); pass --linear-fit none.");
+                        return 1;
+                    }
+                    masters[i] = LinearFit.Apply(masters[i], fit);
+                    if (i == 0)
+                    {
+                        redSlope = fit.Slope;
+                    }
                     consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                        $"[combine] {names[i]}: FWHM {report[i].FwhmBefore:F2} px, blurred by sigma {report[i].Sigma:F2} to {report[i].FwhmAfter:F2} (target {target:F2})"));
+                        $"[combine] linear fit {names[i]} onto {fitTo}: {fit.Offset:G5} + {fit.Slope:G5} x {names[i]} ({fit.Pixels} pixels, mean absolute deviation {fit.MeanAbsoluteDeviation:G4})"));
                 }
             }
 
-            // The continuum scale on the masters WITH their stars, which are what define it.
-            var hasHa = masters.Count == 4;
+            // Stars at one width. BlurX does it without giving up detail; the blur match, the fallback, gives it up, so its
+            // planes serve the colour and the measurements while the luminance is made from the unblurred ones.
+            IReadOnlyList<Image> sharp = masters;
+            var colour = sharp;
+            var colourBlurred = false;
+            var matchPsf = parseResult.GetValue(matchPsfOpt);
+            if (parseResult.GetValue(deblurOpt) && IEnhancerAvailability.Serves(deblurrer, 1, EnhanceOptions.Default))
+            {
+                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                    $"[combine] deblurring {masters.Count} masters ({deblurrer.Name}), the brightest star at 1/{NarrowbandCombination.DefaultDeblurHeadroom:G3} of the ceiling"));
+                var before = new double[masters.Count];
+                for (var i = 0; i < masters.Count; i++)
+                {
+                    before[i] = MasterAlignment.MedianFwhm(await MasterAlignment.FindStarsAsync(masters[i], ct));
+                }
+                var (deblurred, atCeiling) = await NarrowbandCombination.DeblurAsync(masters, deblurrer, cancellationToken: ct);
+                sharp = deblurred;
+                colour = sharp;
+                for (var i = 0; i < sharp.Count; i++)
+                {
+                    var after = MasterAlignment.MedianFwhm(await MasterAlignment.FindStarsAsync(sharp[i], ct));
+                    consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                        $"[combine] {names[i]}: FWHM {before[i]:F2} px, deblurred to {after:F2}"));
+                }
+                if (atCeiling > 0)
+                {
+                    consoleHost.WriteScrollable($"[combine] {atCeiling} deblurred pixels reached the deblurrer's ceiling and are clipped.");
+                }
+            }
+            else
+            {
+                if (parseResult.GetValue(deblurOpt))
+                {
+                    consoleHost.WriteScrollable("[combine] --deblur: no deblurrer serves here (RC-Astro BlurXTerminator, installed and licensed); matching the star widths by blurring instead.");
+                    matchPsf = true;
+                }
+                if (matchPsf)
+                {
+                    var (matched, report, target) = await PsfMatch.ToWidestAsync(masters, ct);
+                    colour = matched;
+                    colourBlurred = true;
+                    for (var i = 0; i < report.Length; i++)
+                    {
+                        consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                            $"[combine] {names[i]}: FWHM {report[i].FwhmBefore:F2} px, blurred by sigma {report[i].Sigma:F2} to {report[i].FwhmAfter:F2} (target {target:F2}), for the colour only"));
+                    }
+                }
+            }
+
+            // The continuum scale on the masters WITH their stars, which are what define it, at one width.
             var k = 0.0;
             if (hasHa)
             {
-                k = parseResult.GetValue(haScaleOpt) ?? ContinuumSubtractor.FlattestResidualScale(masters[3], masters[0]).K;
+                k = parseResult.GetValue(haScaleOpt) is { } given
+                    ? given / redSlope
+                    : ContinuumSubtractor.FlattestResidualScale(colour[3], colour[0]).K;
                 if (!double.IsFinite(k))
                 {
                     consoleHost.WriteError("[combine] no continuum scale could be measured between H-alpha and red; pass --ha-scale.");
@@ -485,52 +600,45 @@ internal sealed class ImageSubCommand(
                 }
             }
 
-            var planes = masters;
-            Image[]? stars = null;
-            if (parseResult.GetValue(starlessOpt))
-            {
-                consoleHost.WriteScrollable($"[combine] removing stars from {masters.Count} masters ({starRemover.Name})");
-                var starless = await NarrowbandCombination.StarlessAsync(masters, starRemover, ct);
-                stars = [NarrowbandCombination.Stars(masters[0], starless[0]), NarrowbandCombination.Stars(masters[1], starless[1]),
-                    NarrowbandCombination.Stars(masters[2], starless[2])];
-                planes = [.. starless];
-            }
-
-            var red = planes[0];
-            if (hasHa)
-            {
-                var pure = ContinuumSubtractor.Subtract(planes[3], planes[0], k);
-                var toRed = NarrowbandCombination.LineToBroadband(planes[3].ImageMeta, planes[0].ImageMeta);
-                var weight = parseResult.GetValue(haWeightOpt) * toRed;
-                red = NarrowbandCombination.AddLine(planes[0], pure, weight);
-                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                    $"[combine] H-alpha continuum k {k:G5}; its emission added to red at {weight:G4} (weight {parseResult.GetValue(haWeightOpt):G3} x exposure ratio {toRed:G3})"));
-                pure.Release();
-            }
-            var green = planes[1];
-            var blue = planes[2];
-            Image[] full = stars is null
-                ? [red, green, blue]
-                : [NarrowbandCombination.WithStars(red, stars[0]), NarrowbandCombination.WithStars(green, stars[1]),
-                    NarrowbandCombination.WithStars(blue, stars[2])];
+            var starlessWanted = parseResult.GetValue(starlessOpt);
+            var haWeight = parseResult.GetValue(haWeightOpt);
+            var colourParts = await ComposeAsync(colour, report: true);
 
             var luminancePath = parseResult.GetValue(luminanceOpt);
             var lrgb = parseResult.GetValue(lrgbOpt);
+            var final = colourParts.Full;
             if (luminancePath is not null || lrgb)
             {
-                // The parts on the channels WITH their stars, whose fluxes give the scales.
-                var parts = await SyntheticLuminance.MeasureAsync(full, reference: 1, ct);
-                var luminance = SyntheticLuminance.Combine(full, parts, reference: 1);
-                var noise = SyntheticLuminance.Noise(luminance);
-                var names = new[] { "red", "green", "blue" };
+                // The luminance from planes never blurred, composed as the colour was; its star scales from the colour
+                // planes, whose stars are at one width, and its noise from the unblurred ones, which a blur would flatter.
+                var sharpParts = colourBlurred ? await ComposeAsync(sharp, report: false) : colourParts;
+                var parts = await SyntheticLuminance.MeasureAsync(colourParts.Full, reference: 1,
+                    colourBlurred ? sharpParts.Full : null, ct);
+                var luminance = SyntheticLuminance.Combine(sharpParts.Full, parts, reference: 1);
+                var noise = SyntheticLuminance.BlockNoise(luminance);
                 for (var i = 0; i < parts.Length; i++)
                 {
                     consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                        $"[combine] luminance {names[i]}: scale {parts[i].Scale:G4} onto green ({parts[i].Stars} stars), noise {parts[i].ScaledNoise:G4} on green's scale, weight {parts[i].Weight:P1}"));
+                        $"[combine] luminance {names[i]}: scale {parts[i].Scale:G4} onto green ({parts[i].Stars} stars), noise {parts[i].ScaledNoise:G4} on green's scale over {SyntheticLuminance.NoiseBlockPx} px blocks, weight {parts[i].Weight:P1}"));
                 }
                 var best = Math.Min(parts[0].ScaledNoise, Math.Min(parts[1].ScaledNoise, parts[2].ScaledNoise));
                 consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
                     $"[combine] luminance noise {noise:G4} against the best single channel's {best:G4}: {best / noise:F2}x its signal to noise"));
+                // The starless luminance, denoised with --denoise after the weights above were read; its stars, never.
+                Image? starlessLuminance = null;
+                if (colourParts.Stars is not null)
+                {
+                    starlessLuminance = SyntheticLuminance.Combine(sharpParts.Starless, parts, reference: 1);
+                    if (denoise)
+                    {
+                        var denoisedLuminance = await DenoisedAsync(starlessLuminance, detailDenoise, "luminance");
+                        if (luminancePath is not null)
+                        {
+                            luminance = NarrowbandCombination.WithStars(denoisedLuminance, NarrowbandCombination.Stars(luminance, starlessLuminance));
+                        }
+                        starlessLuminance = denoisedLuminance;
+                    }
+                }
                 if (luminancePath is not null)
                 {
                     luminance.ScaleFloatValuesToUnit().WriteToFitsFile(luminancePath, wcs, SharpenPipeline.SwModifyHeader());
@@ -539,28 +647,35 @@ internal sealed class ImageSubCommand(
                 if (lrgb)
                 {
                     var sigma = parseResult.GetValue(colourSigmaOpt);
-                    if (stars is null)
+                    if (colourParts.Stars is not { } colourStars || starlessLuminance is null)
                     {
                         consoleHost.WriteScrollable("[combine] --lrgb without --starless: the stars take the detail too and will show coloured rims.");
-                        full = [LuminanceDetail.Apply(full[0], luminance, parts[0].Scale, sigma),
-                            LuminanceDetail.Apply(full[1], luminance, parts[1].Scale, sigma),
-                            LuminanceDetail.Apply(full[2], luminance, parts[2].Scale, sigma)];
+                        final = [LuminanceDetail.Apply(colourParts.Full[0], luminance, parts[0].Scale, sigma),
+                            LuminanceDetail.Apply(colourParts.Full[1], luminance, parts[1].Scale, sigma),
+                            LuminanceDetail.Apply(colourParts.Full[2], luminance, parts[2].Scale, sigma)];
                     }
                     else
                     {
                         // On the starless channels, where the colour noise is; the stars go back with their own colour.
-                        var starlessLuminance = SyntheticLuminance.Combine([red, green, blue], parts, reference: 1);
-                        full = [NarrowbandCombination.WithStars(LuminanceDetail.Apply(red, starlessLuminance, parts[0].Scale, sigma), stars[0]),
-                            NarrowbandCombination.WithStars(LuminanceDetail.Apply(green, starlessLuminance, parts[1].Scale, sigma), stars[1]),
-                            NarrowbandCombination.WithStars(LuminanceDetail.Apply(blue, starlessLuminance, parts[2].Scale, sigma), stars[2])];
+                        var colourStarless = denoise ? await DenoisedColourAsync(colourParts.Starless, colourDenoise) : colourParts.Starless;
+                        final = [NarrowbandCombination.WithStars(LuminanceDetail.Apply(colourStarless[0], starlessLuminance, parts[0].Scale, sigma), colourStars[0]),
+                            NarrowbandCombination.WithStars(LuminanceDetail.Apply(colourStarless[1], starlessLuminance, parts[1].Scale, sigma), colourStars[1]),
+                            NarrowbandCombination.WithStars(LuminanceDetail.Apply(colourStarless[2], starlessLuminance, parts[2].Scale, sigma), colourStars[2])];
                     }
                     consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                        $"[combine] every channel's detail below {sigma:G3} px taken from the luminance{(stars is null ? "" : ", the stars kept as they were")}"));
+                        $"[combine] every channel's detail below {sigma:G3} px taken from the luminance{(colourParts.Stars is null ? "" : ", the stars kept as they were")}"));
                 }
             }
-            red = full[0];
-            green = full[1];
-            blue = full[2];
+            if (denoise && !lrgb && colourParts.Stars is { } starsOnly)
+            {
+                // No luminance to carry the detail: the colour channels carry it, at the detail strength.
+                var denoised = await DenoisedColourAsync(colourParts.Starless, detailDenoise);
+                final = [NarrowbandCombination.WithStars(denoised[0], starsOnly[0]), NarrowbandCombination.WithStars(denoised[1], starsOnly[1]),
+                    NarrowbandCombination.WithStars(denoised[2], starsOnly[2])];
+            }
+            var red = final[0];
+            var green = final[1];
+            var blue = final[2];
             var rgb = NarrowbandCombination.Rgb(red, green, blue).ScaleFloatValuesToUnit();
             var dst = parseResult.Required(outputOpt);
             rgb.WriteToFitsFile(dst, wcs, SharpenPipeline.SwModifyHeader());
@@ -570,11 +685,86 @@ internal sealed class ImageSubCommand(
                 peakNits: Math.Clamp(parseResult.GetValue(pngPqPeakNitsOpt), 1f, 10000f),
                 gamutToBt2020: parseResult.GetValue(pngPqGamutOpt) == PngPqGamut.Bt2020, ct: ct);
             return 0;
+
+            // A starless plane denoised, or handed back as it was where no denoiser serves a mono plane (the in-house one is
+            // colour only), said either way with its noise over blocks before and after.
+            async Task<Image> DenoisedAsync(Image starless, EnhanceOptions options, string what)
+            {
+                if (!IEnhancerAvailability.Serves(denoiser, 1, options))
+                {
+                    consoleHost.WriteScrollable($"[combine] --denoise: no denoiser serves a mono plane here; the {what} is left as it is.");
+                    return starless;
+                }
+                var denoised = (await NarrowbandCombination.DenoiseAsync([starless], denoiser, options, ct))[0];
+                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                    $"[combine] denoised the starless {what} ({denoiser.Name}, strength {DescribeStrength(options)}): noise {SyntheticLuminance.BlockNoise(starless):G4} -> {SyntheticLuminance.BlockNoise(denoised):G4} over {SyntheticLuminance.NoiseBlockPx} px blocks"));
+                return denoised;
+            }
+
+            // The starless red, green and blue denoised together as one colour image.
+            async Task<Image[]> DenoisedColourAsync(Image[] starless, EnhanceOptions options)
+            {
+                if (!IEnhancerAvailability.Serves(denoiser, 3, options))
+                {
+                    consoleHost.WriteScrollable("[combine] --denoise: no denoiser serves a colour image here; the colour is left as it is.");
+                    return starless;
+                }
+                var denoised = await NarrowbandCombination.DenoiseColourAsync(starless[0], starless[1], starless[2], denoiser, options, ct);
+                for (var i = 0; i < 3; i++)
+                {
+                    consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                        $"[combine] denoised the starless {names[i]} ({denoiser.Name}, strength {DescribeStrength(options)}): noise {SyntheticLuminance.BlockNoise(starless[i]):G4} -> {SyntheticLuminance.BlockNoise(denoised[i]):G4}"));
+                }
+                return denoised;
+            }
+
+            static string DescribeStrength(EnhanceOptions options)
+                => options.Tuning?.DenoiseStrength is { } s ? s.ToString("G3", CultureInfo.InvariantCulture) : "the denoiser's own";
+
+            // Red (with the H-alpha's emission), green and blue from planes on one grid: with --starless the emission goes
+            // into the starless red and each channel's own stars back on top. Starless is the three channels before the stars
+            // go back (the full ones without --starless); Stars is null without it.
+            async Task<(Image[] Full, Image[] Starless, Image[]? Stars)> ComposeAsync(IReadOnlyList<Image> source, bool report)
+            {
+                IReadOnlyList<Image> planes = source;
+                Image[]? layerStars = null;
+                if (starlessWanted)
+                {
+                    consoleHost.WriteScrollable($"[combine] removing stars from {source.Count} masters ({starRemover.Name})");
+                    var starless = await NarrowbandCombination.StarlessAsync(source, starRemover, ct);
+                    layerStars = [NarrowbandCombination.Stars(source[0], starless[0]), NarrowbandCombination.Stars(source[1], starless[1]),
+                        NarrowbandCombination.Stars(source[2], starless[2])];
+                    planes = starless;
+                }
+
+                var withLine = planes[0];
+                if (hasHa)
+                {
+                    var pure = ContinuumSubtractor.Subtract(planes[3], planes[0], k);
+                    var toRed = NarrowbandCombination.LineToBroadband(planes[3].ImageMeta, planes[0].ImageMeta);
+                    // In red's own units the line is worth the exposure ratio; on red's fitted scale, its slope as well.
+                    var weight = haWeight * toRed * redSlope;
+                    withLine = NarrowbandCombination.AddLine(planes[0], pure, weight);
+                    if (report)
+                    {
+                        consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                            $"[combine] H-alpha continuum k {k:G5}; its emission added to red at {weight:G4} (weight {haWeight:G3} x exposure ratio {toRed:G3} x red's fitted slope {redSlope:G4})"));
+                    }
+                    pure.Release();
+                }
+                Image[] channels = [withLine, planes[1], planes[2]];
+                Image[] full = layerStars is null
+                    ? channels
+                    : [NarrowbandCombination.WithStars(channels[0], layerStars[0]), NarrowbandCombination.WithStars(channels[1], layerStars[1]),
+                        NarrowbandCombination.WithStars(channels[2], layerStars[2])];
+                return (full, channels, layerStars);
+            }
         });
         return cmd;
     }
 
     // -------- tianwen image autocrop -----------------------------------
+
 
     /// <summary>
     /// The auto-crop the viewer performs, as a verb.

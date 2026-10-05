@@ -76,7 +76,16 @@ namespace TianWen.AI.Imaging.RcAstro
                 // transient it makes on the other path is never released here on purpose: it owns no
                 // pooled buffer, and deriving "may I release this?" from a ReferenceEquals is the
                 // ownership antipattern this codebase names explicitly. `input` stays the caller's.
-                input.ScaleFloatValuesToUnit().WriteToFitsFile(inputPath);
+                //
+                // A unit-referred plate can still leave [0, 1]: an aligned master rings below zero at its
+                // border (Lanczos-3, -0.02 of the peak on LDN 1622) and a sharpened one peaks above 1. RC-Astro
+                // then rescales the range it was handed onto [0, 1] and returns its output on THAT scale: a
+                // starless red came back with its sky at 0.031 where the plate's was 0.009. So a plate outside
+                // the range is mapped into it here and the output mapped back; one inside keeps its bytes.
+                var unit = input.ScaleFloatValuesToUnit();
+                var (low, span) = RangeMap(unit);
+                var mapped = span == 1.0 && low == 0.0 ? unit : unit.Affine(1.0 / span, -low / span);
+                mapped.WriteToFitsFile(inputPath);
 
                 var progress = new Progress<RcAstroProgress>(p =>
                 {
@@ -99,13 +108,49 @@ namespace TianWen.AI.Imaging.RcAstro
                 logger?.LogInformation("RC-Astro {Product} completed on {Device} in {Ms}ms ({W}x{H}x{C})",
                     ProductKey, result.Device ?? "?", sw.ElapsedMilliseconds, width, height, channels);
 
-                return enhanced;
+                if (span == 1.0 && low == 0.0)
+                {
+                    return enhanced;
+                }
+                logger?.LogDebug("RC-Astro {Product}: plate outside [0, 1] mapped in from [{Low}, {High}] and back",
+                    ProductKey, low, low + span);
+                var back = enhanced.Affine(span, low);
+                enhanced.Release();
+                return back;
             }
             finally
             {
                 TryDelete(inputPath);
                 TryDelete(outputPath);
             }
+        }
+
+        /// <summary>
+        /// The map taking <paramref name="plate"/> into <c>[0, 1]</c> as <c>(v - Low) / Span</c>: the identity (0, 1) when
+        /// every finite value is already inside, else the range from the lower of 0 and the minimum to the higher of 1
+        /// and the maximum, so a plate is never stretched, only shifted and shrunk.
+        /// </summary>
+        internal static (double Low, double Span) RangeMap(Image plate)
+        {
+            var min = double.PositiveInfinity;
+            var max = double.NegativeInfinity;
+            for (var c = 0; c < plate.ChannelCount; c++)
+            {
+                foreach (var v in plate.GetChannelSpan(c))
+                {
+                    if (float.IsFinite(v))
+                    {
+                        min = Math.Min(min, v);
+                        max = Math.Max(max, v);
+                    }
+                }
+            }
+            if (!double.IsFinite(min) || (min >= 0 && max <= 1))
+            {
+                return (0.0, 1.0);
+            }
+            var low = Math.Min(0.0, min);
+            return (low, Math.Max(1.0, max) - low);
         }
 
         private static void TryDelete(string path)

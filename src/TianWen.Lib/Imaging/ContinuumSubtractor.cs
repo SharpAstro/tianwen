@@ -79,9 +79,8 @@ public static class ContinuumSubtractor
         }
         var xs = lines.ToArray();
         var ys = continua.ToArray();
-        var scratch = new float[xs.Length];
 
-        // A start from the ratios about the medians, then a bracket grown until the objective rises on both sides.
+        // A start from the ratios about the medians; the search itself is the shared least-absolute-deviation line.
         var lineMedian = PixelNoise.FiniteMedian(x);
         var ratios = new float[xs.Length];
         var weights = new float[xs.Length];
@@ -92,52 +91,9 @@ public static class ContinuumSubtractor
             weights[i] = (float)d;
         }
         var start = (double)StatisticsHelper.WeightedMedian(ratios, weights);
-        if (!double.IsFinite(start))
-        {
-            start = 0;
-        }
-        var step = Math.Max(Math.Abs(start), 1e-6) * 0.5;
-        var lo = start - step;
-        var hi = start + step;
-        for (var grow = 0; grow < 60 && Objective(lo) < Objective(start); grow++)
-        {
-            step *= 2;
-            lo = start - step;
-        }
-        step = Math.Max(Math.Abs(start), 1e-6) * 0.5;
-        for (var grow = 0; grow < 60 && Objective(hi) < Objective(start); grow++)
-        {
-            step *= 2;
-            hi = start + step;
-        }
+        var fit = LeastAbsoluteDeviation.Fit(ys, xs, double.IsFinite(start) ? start : 0);
 
-        // Golden section over [lo, hi]: the objective is convex, so it narrows onto the one minimum.
-        var ratio = (Math.Sqrt(5.0) - 1) / 2;
-        var a = hi - (ratio * (hi - lo));
-        var b = lo + (ratio * (hi - lo));
-        var fa = Objective(a);
-        var fb = Objective(b);
-        for (var iteration = 0; iteration < 80 && hi - lo > 1e-9 * Math.Max(1.0, Math.Abs(hi)); iteration++)
-        {
-            if (fa <= fb)
-            {
-                hi = b;
-                b = a;
-                fb = fa;
-                a = hi - (ratio * (hi - lo));
-                fa = Objective(a);
-            }
-            else
-            {
-                lo = a;
-                a = b;
-                fa = fb;
-                b = lo + (ratio * (hi - lo));
-                fb = Objective(b);
-            }
-        }
-        var k = (lo + hi) / 2;
-
+        var scratch = new float[xs.Length];
         for (var i = 0; i < xs.Length; i++)
         {
             scratch[i] = xs[i];
@@ -148,23 +104,7 @@ public static class ContinuumSubtractor
         {
             lineAad += Math.Abs(v - xMedian);
         }
-        return new Scale(k, xs.Length, Objective(k) / xs.Length, lineAad / xs.Length);
-
-        // sum |x - k y - median(x - k y)|: the least absolute deviation at this k with the offset that suits it.
-        double Objective(double kk)
-        {
-            for (var i = 0; i < xs.Length; i++)
-            {
-                scratch[i] = (float)(xs[i] - (kk * ys[i]));
-            }
-            var offset = StatisticsHelper.MedianFast(scratch);
-            double sum = 0;
-            for (var i = 0; i < xs.Length; i++)
-            {
-                sum += Math.Abs(xs[i] - (kk * ys[i]) - offset);
-            }
-            return sum;
-        }
+        return new Scale(fit.Slope, xs.Length, fit.MeanAbsoluteDeviation, lineAad / xs.Length);
     }
 
     /// <summary>

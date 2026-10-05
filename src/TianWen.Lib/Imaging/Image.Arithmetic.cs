@@ -220,6 +220,25 @@ public partial class Image
     }
 
     /// <summary>
+    /// Returns <c>this * scale + offset</c> per pixel, all channels: a straight line through every value, as a linear fit
+    /// (<see cref="LinearFit"/>) or a range map applies one. No clamp; NaN propagates. The peak and the floor go through
+    /// the line, and so does a pedestal, which is a level in the data's own units; none stays none.
+    /// </summary>
+    public Image Affine(double scale, double offset)
+    {
+        var dst = CreateChannelData(ChannelCount, Height, Width);
+        for (var c = 0; c < ChannelCount; c++)
+        {
+            var src = GetChannelSpan(c);
+            var output = MemoryMarshal.CreateSpan(ref dst[c][0, 0], dst[c].Length);
+            TensorPrimitives.Multiply(src, (float)scale, output);
+            TensorPrimitives.Add(output, (float)offset, output);
+        }
+        var newPedestal = pedestal == 0f ? 0f : (float)((pedestal * scale) + offset);
+        return new Image(dst, BitDepth.Float32, (float)((MaxValue * scale) + offset), (float)((MinValue * scale) + offset), newPedestal, imageMeta);
+    }
+
+    /// <summary>
     /// Returns <c>this + other</c> per pixel. NaN-preserving via
     /// <see cref="TensorPrimitives.Add(ReadOnlySpan{float}, ReadOnlySpan{float}, Span{float})"/>.
     /// Used by the <c>SharpenPipeline</c> recombine step
