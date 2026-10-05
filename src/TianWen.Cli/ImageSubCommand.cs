@@ -167,7 +167,7 @@ internal sealed class ImageSubCommand(
 {
     public Command Build()
     {
-        var image = new Command("image", "Single-image enhancement, render and measurement verbs (autocrop, sharpen, remove-stars, flatten, deblur, denoise, render, stats, sources), and the two that combine masters (align, continuum).")
+        var image = new Command("image", "Single-image enhancement, render and measurement verbs (autocrop, sharpen, remove-stars, flatten, deblur, denoise, render, stats, sources), and the three that combine masters (align, continuum, combine).")
         {
             Subcommands =
             {
@@ -182,6 +182,7 @@ internal sealed class ImageSubCommand(
                 BuildSourcesCommand(),
                 BuildAlignCommand(),
                 BuildContinuumCommand(),
+                BuildCombineCommand(),
             },
         };
         return image;
@@ -367,6 +368,132 @@ internal sealed class ImageSubCommand(
             }
             line.Release();
             continuum.Release();
+            return 0;
+        });
+        return cmd;
+    }
+
+    // -------- tianwen image combine ------------------------------------
+
+    /// <summary>
+    /// Three mono broadband masters on one grid made one colour image, with an H-alpha master's emission added to red once
+    /// its continuum is out (<see cref="NarrowbandCombination"/>, docs/plans/narrowband-colour.md phase 2). With
+    /// <c>--starless</c> the emission is added to starless planes and the broadband stars go back on top, so the single
+    /// continuum scale leaves no pit or ring at a star.
+    /// </summary>
+    private Command BuildCombineCommand()
+    {
+        var redOpt = new Option<string>("--red") { Description = "The red master.", Required = true };
+        var greenOpt = new Option<string>("--green") { Description = "The green master.", Required = true };
+        var blueOpt = new Option<string>("--blue") { Description = "The blue master.", Required = true };
+        var haOpt = new Option<string?>("--ha") { Description = "An H-alpha master whose emission goes into red, its continuum taken out against red." };
+        var haScaleOpt = new Option<double?>("--ha-scale")
+        {
+            Description = "The continuum scale to subtract with. Default: measured on the H-alpha and red masters WITH their stars "
+                + "(the flattest residual), never on starless plates, where the only structure the two share is the line itself.",
+        };
+        var haWeightOpt = new Option<double>("--ha-weight")
+        {
+            Description = "How much of the pure H-alpha goes into red, in red's own units (the line scaled by the exposure ratio): "
+                + "1 adds the line once more at the H-alpha master's signal to noise.",
+            DefaultValueFactory = _ => 1.0,
+        };
+        var starlessOpt = new Option<bool>("--starless")
+        {
+            Description = "Remove the stars from every master first (the active star remover, RC-Astro StarXTerminator), add the "
+                + "emission to the starless planes, and put the broadband stars back on top.",
+        };
+        var outputOpt = new Option<string>("--output", "-o") { Description = "Output FITS (three channels, linear).", Required = true };
+        var formatOpt = OutputFormatOption("2D-viewer companion alongside the FITS output; 'png' renders it through the master preview stretch.");
+        var (pngPqPeakNitsOpt, pngPqGamutOpt) = HdrCompanionOptions();
+        var cmd = new Command("combine", "One colour image from red, green and blue mono masters on one grid (image align), "
+            + "optionally with H-alpha's emission added to red, its continuum subtracted.")
+        {
+            Options = { redOpt, greenOpt, blueOpt, haOpt, haScaleOpt, haWeightOpt, starlessOpt, outputOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt },
+        };
+        cmd.SetAction(async (parseResult, ct) =>
+        {
+            var paths = new List<string> { parseResult.Required(redOpt), parseResult.Required(greenOpt), parseResult.Required(blueOpt) };
+            if (parseResult.GetValue(haOpt) is { } haPath)
+            {
+                paths.Add(haPath);
+            }
+            var masters = new List<Image>(paths.Count);
+            WCS? wcs = null;
+            foreach (var path in paths)
+            {
+                if (!Image.TryReadFitsFile(path, out var image, out var imageWcs))
+                {
+                    consoleHost.WriteError($"Failed to read FITS file: {path}");
+                    return 1;
+                }
+                wcs ??= imageWcs;
+                masters.Add(MasterAlignment.MaskAbsent(image));
+                image.Release();
+            }
+            foreach (var m in masters)
+            {
+                if (m.Width != masters[0].Width || m.Height != masters[0].Height)
+                {
+                    consoleHost.WriteError("the masters are not on one grid: put them there first (tianwen image align).");
+                    return 1;
+                }
+            }
+
+            // The continuum scale on the masters WITH their stars, which are what define it.
+            var hasHa = masters.Count == 4;
+            var k = 0.0;
+            if (hasHa)
+            {
+                k = parseResult.GetValue(haScaleOpt) ?? ContinuumSubtractor.FlattestResidualScale(masters[3], masters[0]).K;
+                if (!double.IsFinite(k))
+                {
+                    consoleHost.WriteError("[combine] no continuum scale could be measured between H-alpha and red; pass --ha-scale.");
+                    return 1;
+                }
+            }
+
+            var planes = masters;
+            Image[]? stars = null;
+            if (parseResult.GetValue(starlessOpt))
+            {
+                consoleHost.WriteScrollable($"[combine] removing stars from {masters.Count} masters ({starRemover.Name})");
+                var starless = await NarrowbandCombination.StarlessAsync(masters, starRemover, ct);
+                stars = [NarrowbandCombination.Stars(masters[0], starless[0]), NarrowbandCombination.Stars(masters[1], starless[1]),
+                    NarrowbandCombination.Stars(masters[2], starless[2])];
+                planes = [.. starless];
+            }
+
+            var red = planes[0];
+            if (hasHa)
+            {
+                var pure = ContinuumSubtractor.Subtract(planes[3], planes[0], k);
+                var toRed = NarrowbandCombination.LineToBroadband(planes[3].ImageMeta, planes[0].ImageMeta);
+                var weight = parseResult.GetValue(haWeightOpt) * toRed;
+                red = NarrowbandCombination.AddLine(planes[0], pure, weight);
+                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                    $"[combine] H-alpha continuum k {k:G5}; its emission added to red at {weight:G4} (weight {parseResult.GetValue(haWeightOpt):G3} x exposure ratio {toRed:G3})"));
+                pure.Release();
+            }
+            var green = planes[1];
+            var blue = planes[2];
+            if (stars is not null)
+            {
+                red = NarrowbandCombination.WithStars(red, stars[0]);
+                green = NarrowbandCombination.WithStars(green, stars[1]);
+                blue = NarrowbandCombination.WithStars(blue, stars[2]);
+            }
+            // Written as every master is, on [0, 1] with true labels: one divisor for all three channels, so their ratios
+            // (the colour) stay as measured. The preview renderer reads a master on that scale, and raw ADU labelled at
+            // 74,931 rendered solid green.
+            var rgb = NarrowbandCombination.Rgb(red, green, blue).ScaleFloatValuesToUnit();
+            var dst = parseResult.Required(outputOpt);
+            rgb.WriteToFitsFile(dst, wcs, SharpenPipeline.SwModifyHeader());
+            consoleHost.WriteScrollable($"[combine] wrote {dst}");
+            await WriteCompanionAsync(rgb, dst, parseResult.GetValue(formatOpt), rgb.ImageMeta, wcs, "combine",
+                useStretchedPng: false,
+                peakNits: Math.Clamp(parseResult.GetValue(pngPqPeakNitsOpt), 1f, 10000f),
+                gamutToBt2020: parseResult.GetValue(pngPqGamutOpt) == PngPqGamut.Bt2020, ct: ct);
             return 0;
         });
         return cmd;
