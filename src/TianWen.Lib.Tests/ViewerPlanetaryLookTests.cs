@@ -16,7 +16,7 @@ namespace TianWen.Lib.Tests;
 
 /// <summary>
 /// The planet's colour look as a viewer control (#1277), through the host <c>tianwen-fits</c> runs: the tone popover's choice on a balanced
-/// master on show, made by the routine <c>planetary-look</c> runs and given back on "As balanced" with the file untouched; no choice on a
+/// master on show, made by the routine <c>planetary-look</c> runs and given back on "True colour" with the file untouched; no choice on a
 /// deep-sky frame; and the live stacked view drawing the look on its masters once a Derive has balanced them.
 /// </summary>
 [Collection("Viewer")]
@@ -27,7 +27,7 @@ public class ViewerPlanetaryLookTests
     [Theory(Timeout = 180_000)]
     [InlineData(1f)]
     [InlineData(1.5f)]
-    public async Task TheBoostedLookShowsTheMastersLookedCopyAndAsBalancedGivesTheMasterBack(float dpi)
+    public async Task TheBoostedLookShowsTheMastersLookedCopyAndTrueColourGivesTheMasterBack(float dpi)
     {
         using var e2e = ViewerE2E.Start(dpi);
         var ct = TestContext.Current.CancellationToken;
@@ -54,10 +54,10 @@ public class ViewerPlanetaryLookTests
         Differing(looked.UnstretchedImage, master.UnstretchedImage).ShouldBeGreaterThan(0, "and it moves the colour");
         looked.FilePath.ShouldBe(path, "a Save of what is shown is named for the master");
 
-        // As balanced gives the master back at once, and boosted again is the copy already made.
-        e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "LookBalanced" }, "as balanced"));
+        // True colour gives the master back at once, and boosted again is the copy already made.
+        e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "LookTrueColour" }, "true colour"));
         e2e.Frame();
-        ReferenceEquals(e2e.Controller.Document, master).ShouldBeTrue("as balanced is the master itself");
+        ReferenceEquals(e2e.Controller.Document, master).ShouldBeTrue("true colour is the master itself");
         e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "LookBoosted" }, "the boosted look"));
         e2e.Frame();
         ReferenceEquals(e2e.Controller.Document, looked).ShouldBeTrue("the look is kept, not made again");
@@ -77,7 +77,7 @@ public class ViewerPlanetaryLookTests
 
         e2e.Click(ToolbarAction.Tone);
         e2e.State.TonePopover.IsOpen.ShouldBeTrue();
-        e2e.Viewer.PaintedRegions().Any(r => r.Result is HitResult.ButtonHit { Action: "LookBoosted" or "LookBalanced" })
+        e2e.Viewer.PaintedRegions().Any(r => r.Result is HitResult.ButtonHit { Action: "LookBoosted" or "LookTrueColour" })
             .ShouldBeFalse("a look is the planet's");
     }
 
@@ -108,12 +108,12 @@ public class ViewerPlanetaryLookTests
         e2e.State.WaveletLimb.ShouldNotBeNull(note).Balance.ShouldNotBeNull("a colour Jupiter is balanced by its Derive");
         await e2e.PumpUntilAsync(() => source.MastersLooked > 0, "a master drawn with the look", ct, untilTimeout: true);
 
-        // As balanced: the masters drawn from then on are as the balance made them.
+        // True colour: the masters drawn from then on are as the balance made them.
         e2e.Click(ToolbarAction.Tone);
-        e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "LookBalanced" }, "as balanced"));
+        e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "LookTrueColour" }, "true colour"));
         e2e.Key(InputKey.Escape);
         var (looked, drawn) = (source.MastersLooked, source.MastersDrawnOutsideTheLimb);
-        await e2e.PumpUntilAsync(() => source.MastersDrawnOutsideTheLimb > drawn + 2, "masters drawn as balanced", ct, untilTimeout: true);
+        await e2e.PumpUntilAsync(() => source.MastersDrawnOutsideTheLimb > drawn + 2, "masters drawn in true colour", ct, untilTimeout: true);
         source.MastersLooked.ShouldBeLessThanOrEqualTo(looked + 1, "at most the master already under way when the choice changed");
     }
 

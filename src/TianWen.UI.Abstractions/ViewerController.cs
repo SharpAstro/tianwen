@@ -1161,7 +1161,7 @@ public sealed class ViewerController(
 
     // The colour look on a master on show (#1277): the balanced master it goes on, its looked copy and the look that made it, the run
     // making one and what it is for, and a look that could not be made for that master (not tried again until either changes). A
-    // rendering: the file and the master read from it are never touched, and "As balanced" gives the master back.
+    // rendering: the file and the master read from it are never touched, and "True colour" gives the master back.
     private AstroImageDocument? _lookBase;
     private (AstroImageDocument Document, ColourLook Look)? _looked;
     private Task<(AstroImageDocument? Document, string? Refusal)>? _lookTask;
@@ -1175,7 +1175,7 @@ public sealed class ViewerController(
     /// <summary>
     /// The colour look on the master on show (#1277, <see cref="ViewerState.PlanetaryLook"/>): the master as balanced, or a copy of it with
     /// the look, made off the render thread by <see cref="PlanetaryColourLook.OnMaster"/> (the routine <c>planetary-look</c> runs) and kept,
-    /// so "As balanced" and back is a swap, not a run. Only a still whose <c>OBJECT</c> names a planet; the live stacked view draws the look
+    /// so "True colour" and back is a swap, not a run. Only a still whose <c>OBJECT</c> names a planet; the live stacked view draws the look
     /// on each master itself. A new master on show drops both copies; an enhance result is left as it is. Render thread, between frames;
     /// true when the document on show changed.
     /// </summary>
