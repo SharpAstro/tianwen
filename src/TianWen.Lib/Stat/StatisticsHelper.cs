@@ -39,6 +39,97 @@ public static class StatisticsHelper
     }
 
     /// <summary>
+    /// The weighted median: the smallest value whose weight, with every smaller value's, reaches half the total. It is the
+    /// <c>k</c> minimising <c>sum w |v - k|</c>, which is how an L1 fit through a single scale is solved exactly
+    /// (<see cref="Imaging.ContinuumSubtractor.FlattestResidualScale"/>). A three-way quickselect that carries the weights
+    /// with the values, expected <c>O(n)</c>; both spans are permuted in place. NaN for no values or no positive weight.
+    /// Weights must be finite and non-negative.
+    /// </summary>
+    public static float WeightedMedian(Span<float> values, Span<float> weights)
+    {
+        if (values.Length != weights.Length)
+        {
+            throw new ArgumentException($"{values.Length} values against {weights.Length} weights", nameof(weights));
+        }
+        double total = 0;
+        foreach (var w in weights)
+        {
+            total += w;
+        }
+        if (values.Length == 0 || total <= 0)
+        {
+            return float.NaN;
+        }
+
+        var half = total / 2;
+        double below = 0;
+        int lo = 0, hi = values.Length - 1;
+        while (lo < hi)
+        {
+            var mid = lo + ((hi - lo) / 2);
+            var pivot = MedianOfThree(values[lo], values[mid], values[hi]);
+            // [lo, lt) under the pivot, [lt, gt] equal to it, (gt, hi] over it.
+            int lt = lo, i = lo, gt = hi;
+            while (i <= gt)
+            {
+                if (values[i] < pivot)
+                {
+                    (values[lt], values[i]) = (values[i], values[lt]);
+                    (weights[lt], weights[i]) = (weights[i], weights[lt]);
+                    lt++;
+                    i++;
+                }
+                else if (values[i] > pivot)
+                {
+                    (values[gt], values[i]) = (values[i], values[gt]);
+                    (weights[gt], weights[i]) = (weights[i], weights[gt]);
+                    gt--;
+                }
+                else
+                {
+                    i++;
+                }
+            }
+            double under = 0, equal = 0;
+            for (var k = lo; k < lt; k++)
+            {
+                under += weights[k];
+            }
+            for (var k = lt; k <= gt; k++)
+            {
+                equal += weights[k];
+            }
+            if (below + under >= half && lt > lo)
+            {
+                hi = lt - 1;
+            }
+            else if (below + under + equal >= half)
+            {
+                return pivot;
+            }
+            else
+            {
+                below += under + equal;
+                lo = gt + 1;
+            }
+        }
+        return values[lo];
+
+        static float MedianOfThree(float a, float b, float c)
+        {
+            if (a > b)
+            {
+                (a, b) = (b, a);
+            }
+            if (b > c)
+            {
+                b = c;
+            }
+            return Math.Max(a, b);
+        }
+    }
+
+    /// <summary>
     /// Returns the median without producing a fully-sorted span. Uses
     /// quickselect (nth_element style) with median-of-three pivoting: expected
     /// <c>O(n)</c> vs the <c>O(n log n)</c> of <see cref="MedianSorted(Span{float})"/>.

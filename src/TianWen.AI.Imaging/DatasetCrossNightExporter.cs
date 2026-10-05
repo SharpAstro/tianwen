@@ -838,27 +838,7 @@ namespace TianWen.AI.Imaging
         }
 
         /// <summary>Exact zeros and non-finite pixels become NaN: the retained master's uncovered ring.</summary>
-        internal static Image MaskAbsent(Image source)
-        {
-            var (channels, width, height) = source.Shape;
-            var planes = new float[channels][,];
-            for (var c = 0; c < channels; c++)
-            {
-                var src = source.GetChannelSpan(c);
-                var plane = new float[height, width];
-                for (var y = 0; y < height; y++)
-                {
-                    var row = y * width;
-                    for (var x = 0; x < width; x++)
-                    {
-                        var v = src[row + x];
-                        plane[y, x] = v == 0f || !float.IsFinite(v) ? float.NaN : v;
-                    }
-                }
-                planes[c] = plane;
-            }
-            return new Image(planes, source.BitDepth, source.MaxValue, source.MinValue, source.Pedestal, source.ImageMeta);
-        }
+        internal static Image MaskAbsent(Image source) => MasterAlignment.MaskAbsent(source);
 
         /// <summary>
         /// The similarity whose square is <paramref name="m"/>: half the rotation, the square root of the
@@ -1199,17 +1179,10 @@ namespace TianWen.AI.Imaging
         internal static async Task<(Matrix3x2 Transform, float QuadTolerance, float RmsPx, string Basis)> MatchAsync(
             Options options, StarList starsA, StarList starsB)
         {
-            using var sortedB = new SortedStarList(starsB);
-            using var sortedA = new SortedStarList(starsA);
-            foreach (var budget in QuadBudgets(options, starsA.Count, starsB.Count))
-            {
-                var (solution, tolerance, rms) = await FrameRegistration.TryMatchAsync(sortedB, sortedA, budget);
-                if (solution is not null)
-                {
-                    return (solution.Value, tolerance, rms, string.Create(CultureInfo.InvariantCulture, $"quad{budget}"));
-                }
-            }
-            return (Matrix3x2.Identity, 0f, 0f, "");
+            var (transform, tolerance, rms, budget) = await MasterAlignment.MatchAsync(starsA, starsB, QuadBudgets(options, starsA.Count, starsB.Count));
+            return budget > 0
+                ? (transform, tolerance, rms, string.Create(CultureInfo.InvariantCulture, $"quad{budget}"))
+                : (Matrix3x2.Identity, 0f, 0f, "");
         }
 
         private static double MedianFwhm(StarList stars)
