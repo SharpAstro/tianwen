@@ -127,6 +127,15 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
     /// #1256): the polar arcs alone read the finest bands true only to about 0.15 cycles a pixel. No effect without rings.
     /// </summary>
     public bool RingEdge { get; init; }
+
+    /// <summary>
+    /// How far past the truth the mid scales are taken (#1251, the owner's call: the truth by default, more as an option). Derived, the
+    /// gains are fitted to a texture target with bands 2 and 3 at this many times the truth (<see cref="PlanetaryWaveletGains.Boost"/>), the
+    /// disk still to its own sharp model; on the preset, which has no truth to be past, its gains of bands 2 and 3 are multiplied by it
+    /// (<see cref="PlanetarySharpening.Strengthened"/>). One, the default, is the derived sharpening, at the truth in bands 2 to 4 on both
+    /// twins; a capture's own post sits at about 1.5 to 2 times it there. The limb is still kept from ringing (<see cref="Fix"/>).
+    /// </summary>
+    public double Strength { get; init; } = 1;
 }
 
 /// <summary>A sharpened master and how it was sharpened: the first channel's derived gains (empty for the preset) and its edge's transfer.</summary>
@@ -196,9 +205,18 @@ public static class PlanetarySharpening
                 var noise = ImmutableArray.CreateRange(Enumerable.Repeat(white, power.Length));
                 var wiener = PlanetaryWaveletGains.Wiener(power, noise, kernel);
                 var blurredDisk = PlanetaryInverse.Apply(diskTarget, size, size, kernel);
+                var finestHeld = FinestHeld(master.ChannelCount, c, options.ColourFinestBand);
                 var gains = options.NonNegative
-                    ? PlanetaryWaveletGains.FitNonNegative(power, wiener, diskTarget, blurredDisk, size, size, disk, kernel)
-                    : PlanetaryWaveletGains.Fit(power, wiener, diskTarget, blurredDisk, size, size, disk, held: FinestHeld(master.ChannelCount, c, options.ColourFinestBand) ? 1 : 0);
+                    ? PlanetaryWaveletGains.FitNonNegative(power, wiener, diskTarget, blurredDisk, size, size, disk, kernel, strength: options.Strength)
+                    : PlanetaryWaveletGains.Fit(power, wiener, diskTarget, blurredDisk, size, size, disk, held: finestHeld ? 1 : 0);
+                if (options.Strength != 1 && !options.NonNegative)
+                {
+                    // A strength lifts the mid scales only (#1251): the finest band, mostly noise at 8 bits, keeps the gain the truth gave it
+                    // (as stacked on a colour master), and the rest are fitted around it to the boosted target. Fitted freely, it rose with
+                    // them, 1.04 to 1.36 of the truth on the mono twins at 1.5.
+                    gains = PlanetaryWaveletGains.Fit(power, wiener, diskTarget, blurredDisk, size, size, disk, held: 1, strength: options.Strength,
+                        heldAt: finestHeld ? 1 : gains[0]);
+                }
                 sharpened = Apply(window, size, disk, sharp, f => kernel(f) * diffraction.At(f), diffraction.At, gains.AsSpan(), [], options.Fix, diskTarget, blurredDisk);
                 sharpenMoon = w => PlanetaryDering.Sharpen(w, PlanetaryLimbWindow.MoonWindowSize, PlanetaryLimbWindow.MoonWindowSize, gains.AsSpan());
                 if (c == 0)
@@ -213,11 +231,10 @@ public static class PlanetarySharpening
                 var edge = PlanetaryFinestBand.LimbEdge(window, sharp, size, size, disk, fit, aspect);
                 var blur = Tabulated(f => Math.Clamp(edge.TransferAt(f), 0, 1));
                 var preset = WaveletSharpenOptions.PlanetaryDefault;
-                var gains = new double[preset.Gains.Length];
+                var gains = Strengthened([.. preset.Gains.Select(g => (double)g)], options.Strength).ToArray();
                 var thresholds = new double[preset.Gains.Length];
                 for (var j = 0; j < gains.Length; j++)
                 {
-                    gains[j] = preset.Gains[j];
                     // The preset's thresholds are in a master's [0, 1] units; the window's are the disk's.
                     thresholds[j] = j < preset.DenoiseThresholds.Length ? preset.DenoiseThresholds[j] / scale : 0;
                 }
@@ -238,6 +255,29 @@ public static class PlanetarySharpening
         {
             Limb = options.Pupil is { } kept ? PlanetaryLiveLimb.Kept(master, fit, limbOptions, aspect, limbWindow, kept, options.WavelengthsNm, [.. models], [.. diffractions]) : null,
         };
+    }
+
+    /// <summary>The bands a strength takes past the truth, finest first from 0: bands 2 and 3, where a post holds its extra detail (#1251).</summary>
+    public static readonly Range StrengthBands = 1..3;
+
+    /// <summary>
+    /// <paramref name="gains"/> with bands 2 and 3 (<see cref="StrengthBands"/>) multiplied by <paramref name="strength"/>: a strength on a
+    /// preset, which has no truth to be past (<see cref="PlanetarySharpenOptions.Strength"/>; a derived sharpening is fitted to it instead).
+    /// The gains themselves at a strength of one.
+    /// </summary>
+    public static ImmutableArray<double> Strengthened(ImmutableArray<double> gains, double strength)
+    {
+        if (strength == 1 || gains.IsDefaultOrEmpty)
+        {
+            return gains;
+        }
+        var (offset, length) = StrengthBands.GetOffsetAndLength(int.MaxValue);
+        var builder = gains.ToBuilder();
+        for (var b = offset; b < Math.Min(offset + length, builder.Count); b++)
+        {
+            builder[b] *= strength;
+        }
+        return builder.MoveToImmutable();
     }
 
     // Whether channel `c` of a master of `channels` keeps its finest band as stacked.

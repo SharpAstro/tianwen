@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.CommandLine;
 using System.Diagnostics;
 using System.Globalization;
@@ -38,12 +39,13 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var ringEdgeOpt = new Option<bool>("--ring-edge") { Description = "Read Saturn's edge off its rings' outer rim as well as its polar limb (#1256)." };
         var edgeReachOpt = new Option<double?>("--edge-reach") { Description = "Take the kernel as the physical one fitted to the limb's edge from 0.02 cycles a pixel to this, carried by its physics to the cutoff, rather than the edge as read at every frequency." };
         var slidersOpt = new Option<bool>("--sliders") { Description = "Also sharpen as a live view's wavelet sliders do once a derivation seeds them (the same gains over the whole master, no denoise, held at its darkest level), then drawn outside the limb by the limb the derivation keeps (#1201), and score both: whether the live view reaches the derived sharpening. Says how far the live drawing lies from this sharpening outside the limb, and what the drawing costs beside the sliders' wavelet pass." };
+        var strengthOpt = new Option<string>("--strength") { Description = "How far past the truth bands 2 and 3 are taken (#1251): 1, the default, is the derived sharpening; a comma list sharpens at each (e.g. '1,1.5,2'), each written and scored.", DefaultValueFactory = _ => "1" };
         var pupil = PlanetaryMasterScore.PupilOptions();
 
         var command = new Command("planetary-sharpen", "Sharpen a planetary master again, by gains derived through the limb's edge (R8), the limb kept from ringing.")
         {
             Arguments = { masterArg },
-            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, edgeReachOpt, ringEdgeOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, stackedPreviewOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope },
+            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, strengthOpt, edgeReachOpt, ringEdgeOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, stackedPreviewOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -148,13 +150,23 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                     consoleHost.WriteError($"--colour-finest {finestName}: derived, held, heldbutgreen or all");
                     return 1;
                 }
+                var strengths = new List<double>();
+                foreach (var word in (parseResult.GetValue(strengthOpt) ?? "1").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    if (!double.TryParse(word, NumberStyles.Float, inv, out var strength) || strength <= 0)
+                    {
+                        consoleHost.WriteError($"--strength {word}: a positive number, or a comma list of them");
+                        return 1;
+                    }
+                    strengths.Add(strength);
+                }
                 var outputDir = parseResult.GetValue(outputOpt) ?? Path.GetDirectoryName(Path.GetFullPath(path)) ?? ".";
                 var variants = (options.Pupil is null ? [PlanetaryLimbFix.LimbChannel] : fixes)
-                    .SelectMany(f => fits.SelectMany(n => finests.Select(b => (Fix: f, NonNegative: n, Finest: b)))).ToArray();
-                foreach (var (fix, nonNegative, finest) in variants)
+                    .SelectMany(f => fits.SelectMany(n => finests.SelectMany(b => strengths.Select(k => (Fix: f, NonNegative: n, Finest: b, Strength: k))))).ToArray();
+                foreach (var (fix, nonNegative, finest, strength) in variants)
                 {
                     ct.ThrowIfCancellationRequested();
-                    if (PlanetarySharpening.Sharpen(master, options with { Fix = fix, NonNegative = nonNegative, ColourFinestBand = finest, EdgeReach = parseResult.GetValue(edgeReachOpt), RingEdge = parseResult.GetValue(ringEdgeOpt) }) is not { } result)
+                    if (PlanetarySharpening.Sharpen(master, options with { Fix = fix, NonNegative = nonNegative, ColourFinestBand = finest, Strength = strength, EdgeReach = parseResult.GetValue(edgeReachOpt), RingEdge = parseResult.GetValue(ringEdgeOpt) }) is not { } result)
                     {
                         consoleHost.WriteError($"{path}: the planet's limb could not be fitted");
                         return 1;
@@ -162,9 +174,11 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                     try
                     {
                         var stem = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(path) + "_sharpened"
-                            + (variants.Length > 1 ? "_" + fix.ToString().ToLowerInvariant() + (nonNegative ? "_nonnegative" : "") + (finests.Length > 1 ? "_" + finest.ToString().ToLowerInvariant() : "") : ""));
+                            + (variants.Length > strengths.Count ? "_" + fix.ToString().ToLowerInvariant() + (nonNegative ? "_nonnegative" : "") + (finests.Length > 1 ? "_" + finest.ToString().ToLowerInvariant() : "") : "")
+                            + (strengths.Count > 1 ? string.Create(inv, $"_s{strength:0.##}") : ""));
                         var finestWords = finests.Length > 1 ? $", the colour's finest band {finest.ToString().ToLowerInvariant()}" : "";
-                        var what = result.Derived ? $"derived{(nonNegative ? " non-negative" : "")}, {PlanetaryBestStack.Describe(fix)}{finestWords}" : "PlanetaryDefault, the limb kept as stacked";
+                        var strengthWords = strength == 1 ? "" : string.Create(inv, $", strength {strength:0.##}");
+                        var what = result.Derived ? $"derived{(nonNegative ? " non-negative" : "")}, {PlanetaryBestStack.Describe(fix)}{finestWords}{strengthWords}" : $"PlanetaryDefault{strengthWords}, the limb kept as stacked";
                         consoleHost.WriteScrollable(string.Create(inv,
                             $"[planetary] {what}: gains {string.Join(", ", result.Gains.Select(g => g.ToString("0.00", inv)))}; the limb's edge at 0.1 and 0.3 cycles a pixel {result.EdgeAtTenth:0.000}, {result.EdgeAtThreeTenths:0.000}"));
                         if (truthPath is not null)

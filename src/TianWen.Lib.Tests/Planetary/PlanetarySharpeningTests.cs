@@ -329,6 +329,43 @@ public class PlanetarySharpeningTests
     }
 
     [Fact(Timeout = 300_000)]
+    public async Task AStrengthTakesBandsTwoAndThreePastWhereTheDerivedSharpeningLeavesThem()
+    {
+        // #1251, the owner's call: the derived sharpening stays at the truth by default, and a strength past one takes the mid scales past
+        // it, toward a post's look, the limb still kept from ringing. Derived, the gains are fitted to a texture target with bands 2 and 3
+        // at the strength (PlanetaryWaveletGains.Boost) while the disk is still fitted to its own sharp model, which holds them back, and the
+        // finest band keeps the gain the truth gave it: 1.5 lifted band 2 by 1.29 and band 3 by 1.18 here when it was written, and band 1,
+        // well under the truth, by 1.23 through the layers' overlap alone.
+        var ct = TestContext.Current.CancellationToken;
+        var (truth, stack) = NoisyStack();
+        var options = new PlanetarySharpenOptions(CatalogIndex.Jupiter, Night, Telescope) { WavelengthsNm = [650] };
+
+        var atTruth = (await Task.Run(() => PlanetarySharpening.Sharpen(stack, options), ct)).ShouldNotBeNull();
+        var past = (await Task.Run(() => PlanetarySharpening.Sharpen(stack, options with { Strength = 1.5 }), ct)).ShouldNotBeNull();
+
+        var limbOptions = PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night));
+        var disk = MetricDisk.From(PlanetaryLimbFit.Fit(stack, limbOptions).ShouldNotBeNull(), limbOptions.AxisRatio);
+        var reference = PlanetaryMetrics.Normalise(truth, Size, Size, disk);
+        double[] Transfer(Image sharpened)
+            => [.. PlanetaryMetrics.Fidelity(PlanetaryMetrics.Normalise(sharpened.GetChannelSpan(0), Size, Size, disk), reference, Size, Size, disk).Select(b => b.Transfer)];
+        var (one, more) = (Transfer(atTruth.Sharpened), Transfer(past.Sharpened));
+        var undershoot = PlanetaryMetrics.LimbUndershoot(PlanetaryMetrics.Normalise(past.Sharpened.GetChannelSpan(0), Size, Size, disk), Size, Size, disk);
+        TestContext.Current.TestOutputHelper?.WriteLine($"gains {string.Join(", ", atTruth.Gains.Select(g => g.ToString("0.00")))} -> {string.Join(", ", past.Gains.Select(g => g.ToString("0.00")))}; " +
+            $"transfer against the truth, bands 1 to {one.Length}: {string.Join(", ", one.Select(t => t.ToString("0.000")))} at 1, {string.Join(", ", more.Select(t => t.ToString("0.000")))} at 1.5; undershoot {undershoot:0.0000}");
+
+        // A preset has no truth to be past: its bands 2 and 3 are multiplied (the derived gains are fitted to the strength instead).
+        PlanetarySharpening.Strengthened([1.0, 2.0, 3.0, 4.0], 1.5).ShouldBe([1.0, 3.0, 4.5, 4.0]);
+        PlanetarySharpening.Strengthened(atTruth.Gains, 1).ShouldBe(atTruth.Gains, "a strength of one is the derived sharpening, gain for gain");
+        past.Gains[0].ShouldBe(atTruth.Gains[0], 1e-12, "the finest band, mostly noise, keeps the gain the truth gave it");
+        (more[1] / one[1]).ShouldBeGreaterThan(1.2, "band 2 goes past where the derived sharpening leaves it");
+        (more[2] / one[2]).ShouldBeGreaterThan(1.12, "and band 3");
+        more.Zip(one).ShouldAllBe(pair => pair.First >= pair.Second - 0.005, "no band falls");
+        undershoot.ShouldBeLessThan(0.02, "the limb is still kept from ringing below the sky");
+        atTruth.Sharpened.Release();
+        past.Sharpened.Release();
+    }
+
+    [Fact(Timeout = 300_000)]
     public async Task AColourLiveViewMovesItsColoursOntoGreenAsTheBatchMovesItsMaster()
     {
         // #1202: the atmosphere's dispersion leaves a live master's colours apart (6.4 px red to blue on 2022-10-09), where the batch moves
