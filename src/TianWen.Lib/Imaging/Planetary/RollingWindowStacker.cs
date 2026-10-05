@@ -54,14 +54,36 @@ public sealed record RollingWindowOptions
     public WarpInterpolation Interpolation { get; init; } = WarpInterpolation.Bilinear;
 
     /// <summary>
-    /// The rolling stack's recipe before the enhanced pipeline (#1159): the Laplacian, phase correlation, bilinear. What
-    /// <c>planetary-live</c> measures every other recipe against.
+    /// The share of the window's frames folded into the master (#1174): every frame is graded as it arrives, and folded only when its
+    /// score is among the best this share of the scores graded in the window so far, its own included; a rebuild folds the window's
+    /// best this share outright. One folds every frame. A quarter is the measured default: with <see cref="ReReferenceInPlace"/> it is
+    /// the one share that kept up with 216 and 250 frames a second (99 and 96 % of the frames graded, under 0.75 s behind), and its
+    /// master was the sharpest of the shares tried (the twin's bands 1 to 4: 1.537 against 1.645 folding every frame).
+    /// </summary>
+    public double KeepFraction { get; init; } = 0.25;
+
+    /// <summary>
+    /// How the stack answers its alignment reference ageing out of a window that is still sliding (#1174). False folds the window
+    /// again around the window's best frame, a rebuild, which a window of 500 frames asks for every 2.3 s of a 216 frames a second
+    /// capture, a stall of seconds each. True takes the best frame the window has folded as the new reference and keeps the sum: each
+    /// later frame is registered to the new reference and moved onto the sum's grid by the new reference's own registration (the shifts
+    /// add), so nothing is folded again. A new reference registered more than a quarter of the aligner's tile from the grid rebuilds
+    /// all the same, so the grid follows a drifting planet. On by default (#1174): it cost no band error at any share, and at 60 frames
+    /// a second it took the stack's p90 interval between masters from 6.5 s to 0.43 s.
+    /// </summary>
+    public bool ReReferenceInPlace { get; init; } = true;
+
+    /// <summary>
+    /// The rolling stack's recipe before the enhanced pipeline (#1159): the Laplacian, phase correlation, bilinear, every frame folded
+    /// and the window folded again whenever its reference ages out (#1174). What <c>planetary-live</c> measures every other recipe against.
     /// </summary>
     public static RollingWindowOptions Legacy { get; } = new RollingWindowOptions
     {
         QualityEstimator = new LaplacianEnergyEstimator(),
         WhitenedCorrelation = true,
         Interpolation = WarpInterpolation.Bilinear,
+        KeepFraction = 1,
+        ReReferenceInPlace = false,
     };
 }
 
@@ -100,7 +122,7 @@ public sealed class RollingWindowStacker
     // and the cache kept an entry for every frame ever graded. TrimScoreCache now keeps the window and one
     // window before it, the only frames a rebuild or a short backward scrub can ask for again; a longer
     // scrub re-grades, which costs time and nothing else.
-    private readonly Dictionary<int, float> _scoreCache = new();
+    private readonly Dictionary<int, (float Score, PixelRect Box)> _scoreCache = new();
 
     // The lowest index that may still have a cached score, so a trim walks only the indices it removes.
     private int _scoreCacheFloor = int.MaxValue;
@@ -113,6 +135,12 @@ public sealed class RollingWindowStacker
     // (same shift, negated weight) without re-grading. Weight 0 = graded-but-not-folded (kept so the
     // window membership/contiguity bookkeeping is uniform).
     private readonly Dictionary<int, Contribution> _window = new();
+
+    // The positive scores of the window's graded frames, ascending: what a frame's rank in the window is read against (KeepFraction).
+    private readonly List<float> _windowScores = new();
+
+    // During a rebuild, the score a frame must reach to be folded: the window's best KeepFraction, read once every frame is graded.
+    private float _rebuildThreshold = float.NaN;
 
     private float[][,]? _sum;     // per-channel weighted sum at reference (sub-plane) resolution
     private float[,]? _weight;    // shared per-pixel weight (coverage)
@@ -137,13 +165,22 @@ public sealed class RollingWindowStacker
     private int _windowStart = -1;
     private int _windowEnd = -2;  // < _windowStart so "first call" is always a rebuild
     private int _rebuilds;
+    private int _behindRebuilds;
+    private int _agedRebuilds;
+    private int _droppedRebuilds;
+    private int _reReferences;
+    // Where the current reference lies on the sum's grid: zero after a rebuild, the reference's own registration after a re-reference in
+    // place (ReReferenceInPlace), added to every later frame's registration to the reference.
+    private (double X, double Y) _gridOffset;
     private long _folds;
     private int _channels;
     private int _planeW;
     private int _planeH;
     private ImageMeta _meta;
 
-    private readonly record struct Contribution(float Weight, float Dx, float Dy);
+    // Weight is the score the frame was folded with, zero when it was not folded; Score its grade, kept so an eviction takes it out of
+    // the window's scores (zero for a frame the ring dropped before it was graded, or that graded out).
+    private readonly record struct Contribution(float Weight, float Dx, float Dy, float Score);
 
     public RollingWindowStacker(IPlanetaryFrameStream stream, RollingWindowOptions? options = null)
     {
@@ -167,11 +204,24 @@ public sealed class RollingWindowStacker
     /// <summary>How many times the window has been folded again from its frames: the first stack, a jump, the reference ageing out, or a ring that dropped a frame the sum still held.</summary>
     public int Rebuilds => _rebuilds;
 
+    /// <summary>
+    /// The <see cref="Rebuilds"/> by their cause, for <c>planetary-live</c> (#1174): a window that moved past the last one's end (the
+    /// stack fell behind), an alignment reference that aged out of a window still sliding (which a stack that keeps up does too, once a
+    /// window), and a ring that dropped a frame the sum held. The first stack, a backward jump and a cancelled stack are the rest.
+    /// </summary>
+    public (int Behind, int ReferenceAged, int RingDropped) RebuildCauses => (_behindRebuilds, _agedRebuilds, _droppedRebuilds);
+
+    /// <summary>How many times the reference has aged out and been replaced without a rebuild (<see cref="RollingWindowOptions.ReReferenceInPlace"/>).</summary>
+    public int ReReferences => _reReferences;
+
     /// <summary>How many frames have been registered and folded in so far, rebuilds included: what the stack has done, where its window's end says only how far it has reached.</summary>
     public long Folds => _folds;
 
-    /// <summary>The frames the window's sum holds: its frames less those graded out and those a live ring dropped before they could be folded.</summary>
+    /// <summary>The frames the window's sum holds: its frames less those graded out, those a live ring dropped before they could be folded, and those below the window's best <see cref="RollingWindowOptions.KeepFraction"/>.</summary>
     public int FoldedFrameCount => _window.Values.Count(c => c.Weight > 0f);
+
+    /// <summary>How many frames have been graded so far: what the stack has SEEN, which keeps up with a capture where the folds need not (#1174).</summary>
+    public long GradedFrames => _gradedFrames;
 
     /// <summary>How many frames have a cached score, for the test that holds it bounded.</summary>
     internal int ScoreCacheCount => _scoreCache.Count;
@@ -192,16 +242,28 @@ public sealed class RollingWindowStacker
         var f = Math.Clamp(playheadIndex, 0, count - 1);
         var windowStart = ComputeWindowStart(f);
 
+        var aged = _refIndex >= 0 && _refIndex < windowStart; // alignment reference aged out of the window
         var needRebuild =
             _refIndex < 0                       // first stack
             || f < _windowEnd                   // backward jump (would need to re-add evicted frames)
             || windowStart > _windowEnd + 1     // forward jump leaving a gap -> window no longer contiguous
-            || _refIndex < windowStart;         // alignment reference aged out of the window
+            || (aged && !_options.ReReferenceInPlace);
 
         try
         {
             if (needRebuild)
             {
+                if (_refIndex >= 0 && f >= _windowEnd)
+                {
+                    if (windowStart > _windowEnd + 1)
+                    {
+                        _behindRebuilds++;
+                    }
+                    else
+                    {
+                        _agedRebuilds++;
+                    }
+                }
                 await RebuildAsync(windowStart, f, cancellationToken).ConfigureAwait(false);
             }
             else
@@ -225,11 +287,19 @@ public sealed class RollingWindowStacker
                 {
                     _windowStart = windowStart;
                     _windowEnd = f;
+                    // The slide registered its new frames to the aged reference, which is still a valid one; the frames from here
+                    // on are registered to the window's best folded frame instead, or the window is folded again around it.
+                    if (aged && !await TryReReferenceAsync(cancellationToken).ConfigureAwait(false))
+                    {
+                        _agedRebuilds++;
+                        await RebuildAsync(windowStart, f, cancellationToken).ConfigureAwait(false);
+                    }
                 }
                 else
                 {
                     // A live ring dropped a frame the sum still holds, so the sum can no longer be undone: fold the
                     // window again from the frames the ring does hold.
+                    _droppedRebuilds++;
                     await RebuildAsync(windowStart, f, cancellationToken).ConfigureAwait(false);
                 }
             }
@@ -272,6 +342,9 @@ public sealed class RollingWindowStacker
         _windowStart = -1;
         _windowEnd = -2;
         _window.Clear();
+        _windowScores.Clear();
+        _rebuildThreshold = float.NaN;
+        _gridOffset = default;
     }
 
     // The window's first frame: walk back from f while still within WindowDuration of capture time, else
@@ -298,6 +371,51 @@ public sealed class RollingWindowStacker
         // stack rather than a live one. min(time-bound, frame-cap).
         var maxStart = f - _options.MaxWindowFrames + 1;
         return Math.Max(start, maxStart);
+    }
+
+    // Takes the window's best folded frame (ties to the earliest) as the alignment reference without folding the window again
+    // (ReReferenceInPlace): the sum stays on its grid, and the new reference's own registration onto it, stored as it was folded, is what
+    // every later frame's registration is moved by. False when nothing in the window is folded, when the best frame lies more than a
+    // quarter of the aligner's tile from the grid, or when the ring has dropped it: the caller rebuilds.
+    private async Task<bool> TryReReferenceAsync(CancellationToken cancellationToken)
+    {
+        var (best, bestScore) = (-1, float.NegativeInfinity);
+        for (var i = _windowStart; i <= _windowEnd; i++)
+        {
+            if (_window.TryGetValue(i, out var c) && c.Weight > 0f && c.Score > bestScore)
+            {
+                (best, bestScore) = (i, c.Score);
+            }
+        }
+        if (best < 0)
+        {
+            return false;
+        }
+
+        var placed = _window[best];
+        var (_, _, aligner) = Accumulators;
+        var reach = aligner.TileSize / 4.0;
+        if (Math.Abs(placed.Dx) > reach || Math.Abs(placed.Dy) > reach)
+        {
+            return false;
+        }
+        if (await _stream.TryLoadAsync(best, cancellationToken).ConfigureAwait(false) is not { } reference)
+        {
+            return false;
+        }
+        try
+        {
+            var region = _scoreCache.TryGetValue(best, out var cached) ? cached.Box : PlanetaryDisk.BoundingBox(reference);
+            _aligner = GlobalAligner.FromReference(reference, region, aligner.TileSize, _options.WhitenedCorrelation);
+        }
+        finally
+        {
+            reference.Release();
+        }
+        _refIndex = best;
+        _gridOffset = (placed.Dx, placed.Dy);
+        _reReferences++;
+        return true;
     }
 
     private async Task RebuildAsync(int windowStart, int f, CancellationToken cancellationToken)
@@ -337,6 +455,7 @@ public sealed class RollingWindowStacker
                 : Math.Clamp(NextPowerOfTwo(Math.Max(refRegion.Width, refRegion.Height)), 64, 512);
             _aligner = GlobalAligner.FromReference(reference, refRegion, tileSize, _options.WhitenedCorrelation);
             _refIndex = bestIndex;
+            _gridOffset = default;
             _channels = reference.ChannelCount;
             _planeH = reference.Height;
             _planeW = reference.Width;
@@ -344,6 +463,7 @@ public sealed class RollingWindowStacker
             _sum = Image.CreateChannelData(_channels, _planeH, _planeW);
             _weight = new float[_planeH, _planeW];
             _window.Clear();
+            _windowScores.Clear();
         }
         finally
         {
@@ -356,11 +476,81 @@ public sealed class RollingWindowStacker
         // shutdown, so a prompt abort keeps the (bounded) drain short.
         _windowStart = windowStart;
         _windowEnd = f;
+        _rebuildThreshold = RebuildThreshold(windowStart, f);
+        try
+        {
+            for (var i = windowStart; i <= f; i++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await AddAsync(i, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            _rebuildThreshold = float.NaN;
+        }
+    }
+
+    // The score a rebuilt window's frame must reach to be folded: its window's best KeepFraction of the positive scores graded (every one
+    // is by now, for the reference pick). NaN folds every positive one.
+    private float RebuildThreshold(int windowStart, int f)
+    {
+        if (_options.KeepFraction >= 1)
+        {
+            return float.NaN;
+        }
+        var scores = new List<float>(f - windowStart + 1);
         for (var i = windowStart; i <= f; i++)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            await AddAsync(i, cancellationToken).ConfigureAwait(false);
+            if (_scoreCache.TryGetValue(i, out var s) && s.Score > 0f)
+            {
+                scores.Add(s.Score);
+            }
         }
+        if (scores.Count == 0)
+        {
+            return float.NaN;
+        }
+        scores.Sort();
+        return scores[scores.Count - KeptCount(scores.Count)];
+    }
+
+    // How many of n scores the best KeepFraction is: at least one.
+    private int KeptCount(int n) => Math.Clamp((int)Math.Ceiling(_options.KeepFraction * n), 1, n);
+
+    // Whether a frame scoring `score`, its score already among the window's, is folded: in a rebuild, at or above the window's threshold;
+    // otherwise when fewer than the kept count of the window's scores beat it.
+    private bool Kept(float score)
+    {
+        if (_options.KeepFraction >= 1)
+        {
+            return true;
+        }
+        if (!float.IsNaN(_rebuildThreshold))
+        {
+            return score >= _rebuildThreshold;
+        }
+        var above = _windowScores.Count - UpperBound(_windowScores, score);
+        return above < KeptCount(_windowScores.Count);
+    }
+
+    // The index of the first score in the ascending list greater than `score`.
+    private static int UpperBound(List<float> sorted, float score)
+    {
+        var (lo, hi) = (0, sorted.Count);
+        while (lo < hi)
+        {
+            var mid = (lo + hi) >>> 1;
+            if (sorted[mid] <= score)
+            {
+                lo = mid + 1;
+            }
+            else
+            {
+                hi = mid;
+            }
+        }
+        return lo;
     }
 
     // Folds frame `index` into the running sum (loads once; grade is cache-aware). A non-positive score is
@@ -380,17 +570,26 @@ public sealed class RollingWindowStacker
         }
         try
         {
-            var score = GradeLoaded(index, frame);
+            var (score, box) = GradeLoaded(index, frame);
             if (score <= 0f)
             {
                 _window[index] = default;
                 return;
             }
+            _windowScores.Insert(UpperBound(_windowScores, score), score);
+            if (!Kept(score))
+            {
+                _window[index] = new Contribution(0f, 0f, 0f, score);
+                return;
+            }
 
             var (sum, weight, aligner) = Accumulators;
-            var shift = aligner.Estimate(frame, PlanetaryDisk.BoundingBox(frame));
-            frame.AccumulateTranslatedInto(sum, weight, (float)shift.Dx, (float)shift.Dy, score, _options.Interpolation);
-            _window[index] = new Contribution(score, (float)shift.Dx, (float)shift.Dy);
+            // The grade's own box (FrameGrader.GradeCutAndBox), BoundingBox's at its defaults: a second scan of the frame for it cost
+            // a fold a third of its time on a fast capture (#1174).
+            var shift = aligner.Estimate(frame, box);
+            var (dx, dy) = ((float)(shift.Dx + _gridOffset.X), (float)(shift.Dy + _gridOffset.Y));
+            frame.AccumulateTranslatedInto(sum, weight, dx, dy, score, _options.Interpolation);
+            _window[index] = new Contribution(score, dx, dy, score);
             _folds++;
         }
         finally
@@ -405,7 +604,15 @@ public sealed class RollingWindowStacker
     // and a live ring has dropped it since: then what it added cannot be taken back, and the caller rebuilds.
     private async Task<bool> EvictAsync(int index, CancellationToken cancellationToken)
     {
-        if (!_window.Remove(index, out var c) || c.Weight <= 0f)
+        if (!_window.Remove(index, out var c))
+        {
+            return true;
+        }
+        if (c.Score > 0f && _windowScores.BinarySearch(c.Score) is var at && at >= 0)
+        {
+            _windowScores.RemoveAt(at);
+        }
+        if (c.Weight <= 0f)
         {
             return true;
         }
@@ -433,7 +640,7 @@ public sealed class RollingWindowStacker
     {
         if (_scoreCache.TryGetValue(index, out var cached))
         {
-            return cached;
+            return cached.Score;
         }
 
         if (await _stream.TryLoadAsync(index, cancellationToken).ConfigureAwait(false) is not { } frame)
@@ -442,7 +649,7 @@ public sealed class RollingWindowStacker
         }
         try
         {
-            return GradeLoaded(index, frame);
+            return GradeLoaded(index, frame).Score;
         }
         finally
         {
@@ -450,7 +657,7 @@ public sealed class RollingWindowStacker
         }
     }
 
-    private float GradeLoaded(int index, Image frame)
+    private (float Score, PixelRect Box) GradeLoaded(int index, Image frame)
     {
         if (_scoreCache.TryGetValue(index, out var cached))
         {
@@ -459,18 +666,18 @@ public sealed class RollingWindowStacker
 
         // A frame whose planet the frame's edge cuts, or which holds none, scores zero once the run has held enough whole ones
         // (FrameGrader.DropsCutFrames): a live stack learns the capture as it goes.
-        var (graded, cut) = FrameGrader.GradeAndCut(_options.QualityEstimator, frame);
+        var (graded, cut, box) = FrameGrader.GradeCutAndBox(_options.QualityEstimator, frame);
         _gradedFrames++;
         _wholeFrames += cut ? 0 : 1;
         var score = cut && FrameGrader.DropsCutFrames(_wholeFrames, _gradedFrames) ? 0f : MathF.Max(0f, graded);
-        _scoreCache[index] = score;
+        _scoreCache[index] = (score, box);
         if (index < _scoreCacheFloor)
         {
             // A backward scrub graded below the floor: the next trim must walk from here.
             _scoreCacheFloor = index;
         }
 
-        return score;
+        return (score, box);
     }
 
     // Persistent normalise destination for the split-CFA path, where the normalised sub-planes are

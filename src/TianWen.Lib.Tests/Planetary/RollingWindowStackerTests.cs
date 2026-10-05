@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using TianWen.Lib.Geometry;
 using System.Threading;
 using System.Threading.Tasks;
@@ -154,7 +155,8 @@ public class RollingWindowStackerTests
     public async Task AStackerThatFellBehindALiveRingStacksWhatTheRingStillHolds()
     {
         var ct = TestContext.Current.CancellationToken;
-        var options = new RollingWindowOptions { FallbackWindowFrames = 6, MaxWindowFrames = 6 };
+        // Every frame folded, so the frames the ring drops are frames the sum holds.
+        var options = new RollingWindowOptions { FallbackWindowFrames = 6, MaxWindowFrames = 6, KeepFraction = 1 };
         // Frame 5 is the sharpest, so the stack aligns to it before and after the slide and nothing but the drop can
         // send the stacker back to a rebuild.
         static int FrameFiveSharpest(int i) => i == 5 ? 0 : 2;
@@ -191,13 +193,118 @@ public class RollingWindowStackerTests
         held.Release();
     }
 
+    /// <summary>
+    /// A stack keeping half its frames (#1174) grades every frame and folds one only while it grades among the best half of those its
+    /// window has graded: streamed one at a time, sharp and blurred in turn, it folds every sharp frame and no blurred one, and rebuilt
+    /// in one step it folds the window's best half, the same frames, so its master is the sharp frames' alone.
+    /// </summary>
+    [Fact]
+    public async Task AStackKeepingHalfItsFramesGradesThemAllAndFoldsTheSharpOnes()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var frames = new float[10][,];
+        for (var i = 0; i < frames.Length; i++)
+        {
+            frames[i] = Disk(N, i % 2 == 0 ? 0 : 3);
+        }
+        var options = new RollingWindowOptions { FallbackWindowFrames = 10, MaxWindowFrames = 10, KeepFraction = 0.5 };
+
+        var streamed = new RollingWindowStacker(new InMemoryFrameStream(frames), options);
+        for (var f = 0; f < frames.Length; f++)
+        {
+            (await streamed.StackToAsync(f, ct)).Release();
+        }
+        (streamed.GradedFrames, streamed.FoldedFrameCount, streamed.Folds).ShouldBe((10L, 5, 5L), "every frame graded, the sharp ones folded");
+
+        var rebuilt = new RollingWindowStacker(new InMemoryFrameStream(frames), options);
+        var master = await rebuilt.StackToAsync(9, ct);
+        rebuilt.FoldedFrameCount.ShouldBe(5, "the window's best half");
+
+        var sharp = new RollingWindowStacker(new InMemoryFrameStream([.. frames.Where((_, i) => i % 2 == 0)]), options with { KeepFraction = 1 });
+        var sharpMaster = await sharp.StackToAsync(4, ct);
+        MeanAbsDiff(master, sharpMaster, new PixelRect(6, 6, 28, 28)).ShouldBeLessThan(1e-5, "the sharp frames alone");
+        master.Release();
+        sharpMaster.Release();
+    }
+
+    /// <summary>
+    /// A reference that ages out of a sliding window is replaced in place (#1174, <see cref="RollingWindowOptions.ReReferenceInPlace"/>):
+    /// the window's best folded frame becomes the reference and the sum is kept, so a still disk streamed through a window of six never
+    /// rebuilds after its first stack, and its master is the one a fresh rebuild of the last window gives.
+    /// </summary>
+    [Fact]
+    public async Task AnAgedReferenceIsReplacedInPlaceWithoutFoldingTheWindowAgain()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var frames = new float[20][,];
+        for (var i = 0; i < frames.Length; i++)
+        {
+            frames[i] = Disk(N, i % 3);
+        }
+        var options = new RollingWindowOptions { FallbackWindowFrames = 6, MaxWindowFrames = 6, KeepFraction = 1, ReReferenceInPlace = true };
+
+        var streamed = new RollingWindowStacker(new InMemoryFrameStream(frames), options);
+        Image? last = null;
+        for (var f = 0; f < frames.Length; f++)
+        {
+            last?.Release();
+            last = await streamed.StackToAsync(f, ct);
+        }
+        var fresh = await new RollingWindowStacker(new InMemoryFrameStream(frames), options).StackToAsync(frames.Length - 1, ct);
+
+        (streamed.Rebuilds, streamed.RebuildCauses.ReferenceAged).ShouldBe((1, 0), "only the first stack folds a window");
+        streamed.ReReferences.ShouldBeGreaterThanOrEqualTo(2, "a window of six ages its reference out within six frames");
+        MeanAbsDiff(last.ShouldNotBeNull(), fresh, new PixelRect(6, 6, 28, 28)).ShouldBeLessThan(1e-3, "the same frames on the same grid");
+        last.Release();
+        fresh.Release();
+    }
+
+    /// <summary>
+    /// The grid follows a drifting planet: a new reference registered more than a quarter of the aligner's tile from the sum's grid is
+    /// not taken in place, and the window is folded again around it.
+    /// </summary>
+    [Fact]
+    public async Task ADriftingPlanetsGridIsFoldedAgainOnceItsReferenceLiesAQuarterTileAway()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        const int size = 96;
+        var frames = new float[20][,];
+        for (var i = 0; i < frames.Length; i++)
+        {
+            // A small textured disk moving 2 px a frame across a wide field: 38 px over the run, the aligner's tile 64 px.
+            var frame = new float[size, size];
+            double cx = 28 + (2 * i), cy = size / 2.0;
+            for (var y = 0; y < size; y++)
+            {
+                for (var x = 0; x < size; x++)
+                {
+                    double dx = x - cx, dy = y - cy;
+                    frame[y, x] = (dx * dx) + (dy * dy) < 12 * 12
+                        ? (float)(0.5 + (0.25 * Math.Sin(dx * 0.6) * Math.Cos(dy * 0.55)))
+                        : 0.03f;
+                }
+            }
+            frames[i] = frame;
+        }
+        var stacker = new RollingWindowStacker(new InMemoryFrameStream(frames),
+            new RollingWindowOptions { FallbackWindowFrames = 6, MaxWindowFrames = 6, KeepFraction = 1, ReReferenceInPlace = true });
+        for (var f = 0; f < frames.Length; f++)
+        {
+            (await stacker.StackToAsync(f, ct)).Release();
+        }
+
+        stacker.ReReferences.ShouldBeGreaterThanOrEqualTo(1, "a reference within a quarter tile of the grid is taken in place");
+        stacker.RebuildCauses.ReferenceAged.ShouldBeGreaterThanOrEqualTo(1, "one beyond it folds the window again");
+    }
+
     [Fact]
     public async Task Incremental_slide_matches_a_fresh_rebuild_of_the_same_window()
     {
         // Window of 6 frames (frame-count fallback). Path A slides 5 -> 8 (evict 0,1,2 + add 6,7,8); path B
         // rebuilds [3..8] from scratch. Both end aligned to frame 5 (the sharpest, present in both windows),
         // so the running sum A reconstructs by add+evict must match B's fresh integral to FP rounding.
-        var opts = new RollingWindowOptions { FallbackWindowFrames = 6 };
+        // Every frame folded: a stack keeping a share chooses as frames arrive, which a fresh rebuild of the window does not.
+        var opts = new RollingWindowOptions { FallbackWindowFrames = 6, KeepFraction = 1 };
 
         var streamA = new InMemoryFrameStream(SharpestAtFive());
         var a = new RollingWindowStacker(streamA, opts);

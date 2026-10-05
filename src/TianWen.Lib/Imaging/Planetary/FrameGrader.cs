@@ -134,9 +134,19 @@ public sealed class FrameGrader(IFrameQualityEstimator estimator)
     /// </summary>
     public static (float Score, bool Cut) GradeAndCut(IFrameQualityEstimator estimator, Image frame, PixelRect region = default)
     {
+        var (score, cut, _) = GradeCutAndBox(estimator, frame, region);
+        return (score, cut);
+    }
+
+    /// <summary>
+    /// <see cref="GradeAndCut"/> with the disk's box, <see cref="PlanetaryDisk.BoundingBox"/>'s at its defaults: a stack that registers the
+    /// frame by that box takes it from here rather than scanning the frame for it again (the rolling stack, #1174).
+    /// </summary>
+    internal static (float Score, bool Cut, PixelRect Box) GradeCutAndBox(IFrameQualityEstimator estimator, Image frame, PixelRect region = default)
+    {
         ArgumentNullException.ThrowIfNull(estimator);
         var (box, cut) = PlanetaryDisk.BoundingBoxAndCut(frame);
-        return (IsCorruptReadout(frame) ? 0f : estimator.Score(frame, region.IsEmpty ? box : region), cut);
+        return (IsCorruptReadout(frame) ? 0f : estimator.Score(frame, region.IsEmpty ? box : region), cut, box);
     }
 
     /// <summary>

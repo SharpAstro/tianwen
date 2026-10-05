@@ -66,6 +66,46 @@ public class CutFrameTests
     }
 
     [Fact]
+    public void TheGradesOwnBoxIsTheBoundingBoxOnAMonoFrameAndAColourOne()
+    {
+        // The grade finds the disk's box in its cut test's scan, and the rolling stack registers the frame by that box (#1174): it must
+        // be BoundingBox's, a whole planet's, a cut one's, a corner's, an empty frame's, a moon's at the edge, a filled field's and a
+        // speck's below the pixels a disk needs.
+        var random = new Random(3);
+        var frames = new (float[,] Data, bool? Cut)[]
+        {
+            (Frame(random, 47.3, 36.6), false), (Frame(random, 6.2, 36.6), true), (Frame(random, 93.5, 70.2), true), (Sky(random), true),
+            (Frame(random, 47.3, 36.6, moon: (1.5, 10)), false), (Frame(random, 47.3, 36.6, radius: 60), true), (Frame(random, 30.4, 20.7, radius: 1), null),
+        };
+        foreach (var (data, cut) in frames)
+        {
+            var mono = Image.FromChannel(data, 1f, 0f);
+            var (box, monoCut) = PlanetaryDisk.BoundingBoxAndCut(mono);
+            box.ShouldBe(PlanetaryDisk.BoundingBox(mono));
+            if (cut is { } expected)
+            {
+                monoCut.ShouldBe(expected);
+            }
+
+            var colour = new Image([data, Scaled(data, 0.8f), Scaled(data, 0.5f)], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
+            PlanetaryDisk.BoundingBoxAndCut(colour).Box.ShouldBe(PlanetaryDisk.BoundingBox(colour));
+        }
+
+        static float[,] Scaled(float[,] data, float gain)
+        {
+            var scaled = new float[data.GetLength(0), data.GetLength(1)];
+            for (var y = 0; y < data.GetLength(0); y++)
+            {
+                for (var x = 0; x < data.GetLength(1); x++)
+                {
+                    scaled[y, x] = data[y, x] * gain;
+                }
+            }
+            return scaled;
+        }
+    }
+
+    [Fact]
     public async Task ACaptureWithWholeFramesLeavesItsCutOnesOutButOneOfNoneKeepsThemAll()
     {
         var random = new Random(2);
