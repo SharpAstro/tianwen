@@ -774,10 +774,39 @@ wider of the two arms' seed ranges.
   stopped at 21,000 and reads 38.3 at 5-20 (s1 at 36,000: 55.9; s0 at 44,000: 56.7). The field arm's s1 stopped at 27,500
   and reads 40.8. A recipe whose length the held-out loss decides this early cannot be judged at 3 seeds.
 
-What it leaves for R2b, the owner's choice (#32): a fixed length, or a plateau patience long enough that no seed stops before
-the cosine's last third (the owner leans to the longer patience, 2026-10-05); the sky term, which the field arm moves twice as far as the Gaussian one (an L2 that leaves the
-sky to learn early, per (2)'s reasoning, did not); and whether at-site placement goes on at all, now that it reads worse
-on every axis.
+What it leaves for R2b, the owner's choice (#32): a fixed length, or a plateau patience long enough that no seed stops
+early (the owner chose the longer patience, 2026-10-05); the sky term, which the field arm moves twice as far as the
+Gaussian one (an L2 that leaves the sky to learn early, per (2)'s reasoning, did not); and whether at-site placement goes
+on at all, now that it reads worse on every axis.
+
+#### R2b, pre-registered (2026-10-05)
+
+Written before any R2b model existed.
+
+**One change: the plateau's patience, 4 evaluations to 12.** The schedule halves the rate after `--patience` evaluations
+(every 500 steps) without a 0.1 percent gain and stops at the next stall after four halvings, so R2a allowed at most
+10,000 stalled steps and its runs stopped at 21,000 to 51,500 of 60,000. At 12 the allowance is 30,000. Everything else is
+R2a's: the same exports, split, seeds 0 to 2, 60,000 steps, `--max-decays 4`, loss and scoring (`run-r2.ps1 -Tag r2b
+-Patience 12`, `score-r2.ps1 -Tag r2b`).
+
+**Arms: the field (random) and the Gaussian, three seeds each.** The at-site arm is left out: it read worse than the field
+arm on every axis in R2a, and its export carries R0's dotted sites (#86). Six runs, about 15 hours, started once the E16c
+S4 bake ends (the owner's choice).
+
+**Predictions**, read as R2a's were (the random arm's draws, arm means, a difference counted only past the wider seed
+range):
+1. Every run trains past step 45,000. Moderate confidence.
+2. The field arm's seed range at 5-20 sigma narrows to at most 15 points, from R2a's 27. Moderate. If it does not, the
+   spread is the seeds, not the schedule.
+3. The field arm's mean at 5-20 sigma rises at least 5 points over R2a's 55.9. Low to moderate.
+4. R2a's kill bar is still missed at 5-20 sigma (80 percent) by the field arm. Moderate: longer L2 training without a
+   speckle teacher should not close a 24-point gap.
+5. The field arm still moves untouched sky past 0.3. Moderate: what moves the sky is the loss, not the length.
+6. H2 holds again at 100-1000 sigma and on footprint RMS.
+
+**Kill:** R2a's, unchanged. What it decides: if (2) and (3) hold, R2a's seed spread was the schedule, and the next lever
+is the loss (a sky term, the speckle teacher); if (2) fails, three seeds were never enough to read a difference at 5-20
+sigma, and the next R2 must run more.
 
 Open from it, under #902: R0's saturated fit on a fixed annulus in FWHM units with a 0.1 to 0.3 core cut (#1240); a
 residual table that holds bright stars' near wings (#1241); the Lagoon's and eta Carinae's photometric offsets (1.4 to 1.7,
