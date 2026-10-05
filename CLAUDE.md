@@ -1060,7 +1060,13 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   take the globe's gains), and **an OPAL apparition's I/F factors come from its own readme** (`PlanetaryColour.ReadmeFilters`), never a
   constant: Saturn's move 15 % between years. **A balanced master's planetary stretch takes ONE black point** (`ImageMeta.IsColourBalanced`,
   read from CBALSAT and set by `PlanetaryColourBalance.Apply`, #1229): its sky is zero in every channel and only its noise differs, so a
-  black point a channel rendered it navy; an unbalanced one keeps a black point a channel.
+  black point a channel rendered it navy; an unbalanced one keeps a black point a channel. **A master's colour is compared with a post
+  AS SHOWN, never by its linear planes** (`PlanetaryReferenceJudge.ReadShown`, #1273): the preview's mid-tone lift bends each channel
+  before the sRGB curve, so a master is shown at 1.7 to 2 times the chroma its planes read, and a study read linear against shown was void
+  for it. **A colour look is a RENDERING, never a master** (`PlanetaryColourLook`, `tianwen planetary-look`): a curve on each pixel's OKLab
+  chroma about GREY, its hue kept (about the planet's mean it pushed every zone and ring past grey to blue); `ColourLook.Boosted` is the
+  owner's S-curve by eye, since no curve fitted a post it was not built from. The linear masters are what is processed further; the viewer's
+  control is #1277.
   **It needs the planet, the instant and the telescope** (a master carries its capture's span, DATE-OBS to EXPTIME, for the
   instant). Measured on the twins it leaves under a third of legacy's error; the free gain fit oscillates where the edge reads the finest
   band low and still lands near the truth, while the non-negative fit leaves every twin worse than unsharpened. **Floored alone rang
