@@ -3786,7 +3786,8 @@ Our band 1 holds 1.4 to 1.9 times the references' energy at a correlation of 0.4
 The pictures agree: beside its post, the 16" Saturn's sharpened master looks barely sharpened, and the Jupiter's belts and festoons are soft.
 The derived gains oscillate, with a gain below one in band 4 on the 16" Saturn and a NEGATIVE one in band 3 on the Jupiter. The earlier
 judgement that they land near the truth was made on the twins, whose disks are 40 to 60 px. Whether a post's strength is the target or the
-twins' truth-optimal gains are, given a post is denoised and then sharpened further, is the owner's call (#1251). The posts' colours are
+twins' truth-optimal gains are, given a post is denoised and then sharpened further, was the owner's call (#1251): the truth by default, a
+strength past it as an option ("A strength past the truth", below). The posts' colours are
 their processors' choice (the EdgeHD Saturn post reads R/G 1.46, B/G 0.46 decoded, against OPAL's 1.22, 0.65).
 
 **Bayer drizzle 1.5 on the real captures pays nothing over the demosaic.** Each demosaic master was judged against its own capture's
@@ -3801,6 +3802,62 @@ softens the drizzle a little, so read this as no more than a tie in its favour.
   ASI676 Jupiter 1,218 against 859 s).
 - So #1091's verdict stands on real captures too: drizzle works (its geometry placed at 0.6667 of a pixel, correlation 0.999) and the
   demosaic stays the colour default.
+
+### A strength past the truth, as an option (#1251)
+
+**The owner's call (2026-10-05):** "the ground truth is useful for getting the most out of the stack so we don't invent detail that is not
+there, but yeah the usual post processing can do a bit more sharpening if possible"; asked where the extra goes, an option, the truth staying
+the default. So `PlanetarySharpenOptions.Strength` (default 1) reaches `planetary-stack --strength`, `planetary-sharpen --strength` (a comma
+list sweeps), the viewer's Best stack and the live view's Derive (`PlanetaryBestStack`), through one option.
+
+**What a strength does.** The derived gains are fitted to a texture target with bands 2 and 3 at that many times the truth
+(`PlanetaryWaveletGains.Boost`). The disk term is still fitted to the planet's own sharp model, so the limb is not pushed past its true
+edge, and the finest band keeps the gain the truth gave it (as stacked on a colour master). Fitted freely, the finest band rose with the
+others, 1.04 to 1.36 of the truth on the mono twins at 1.5, and it is mostly noise at 8 bits. Two things that were tried first, and why
+they are not it:
+- **Multiplying the derived gains of bands 2 and 3** lifted band 2's transfer only 1.22 times at 1.5, since the a trous layers overlap: a
+  layer's gain is not its band's transfer, and it multiplied the oscillating gains too (a negative band 3 more negative).
+- **Weighting the target by layers 2 and 3's plain share** asks too little: together they carry at most 0.84 of a frequency and about half
+  at band 2's middle. The membership is twice their share of the scored layers' energy, held at one.
+A preset has no truth to be past, so on it a strength multiplies its gains of bands 2 and 3 (`PlanetarySharpening.Strengthened`).
+
+**Judged** (`i1251/rule.md` in the scratch, written before the sweep):
+- **Strength 1 is today's master, byte for byte**: a real capture's sharpened master (the ASI678 Jupiter) and a twin's (calibrated), made
+  by main's build and by this one, have equal data.
+- **No ring below the sky** at any strength up to 3, on every twin: the undershoot read 0.0000 throughout.
+
+**Against the posts** (`planetary-judge`, the master's gain on what both hold, band 2 / 3 / 4; 1 is the post's level; the capture's own
+linear master from the full-chain run, sharpened again at each strength):
+
+| Capture | 1 | 1.5 | 2 | 2.5 | 3 | Band 2 correlation |
+|---|---|---|---|---|---|---|
+| EdgeHD 11 Saturn, globe | 1.18 / 0.98 / 0.98 | 1.28 / 0.96 / 0.96 | 1.29 / 0.94 / 0.95 | 1.32 / 0.93 / 0.94 | 1.34 / 0.91 / 0.92 | 0.85 falling to 0.61 |
+| 16" Meade Saturn, globe | 0.48 / 0.65 / 0.93 | 0.64 / 0.82 / 0.94 | 0.79 / 0.97 / 0.95 | 0.91 / 1.08 / 0.96 | 1.00 / 1.18 / 0.97 | 0.89 to 0.93 |
+| 16" Meade Saturn, rings | 0.34 / 0.69 / 0.96 | 0.43 / 0.80 / 0.98 | 0.51 / 0.90 / 1.00 | 0.59 / 0.99 / 1.03 | 0.65 / 1.08 / 1.05 | 0.85 to 0.87 |
+| ASI678MC Jupiter | 0.44 / 0.65 / 0.78 | 0.64 / 0.87 / 0.89 | 0.84 / 1.08 / 0.99 | 1.02 / 1.28 / 1.09 | 1.19 / 1.47 / 1.18 | 0.88 |
+| ASI224MC Jupiter | 0.60 / 0.68 / 0.76 | 0.87 / 0.93 / 0.87 | 1.13 / 1.17 / 0.97 | 1.36 / 1.38 / 1.06 | 1.57 / 1.58 / 1.14 | 0.92 |
+
+- **The posts sit at a strength of about 1.5 to 2.5** where a gap was: the 12" Jupiter's bands 2 and 3 come within 15 % of its post at
+  1.5, the ASI678 Jupiter's between 2 and 2.5, the 16" Saturn's globe at 2.5. The EdgeHD Saturn's post is already met at 1.
+- **On those three the detail added is the post's too**: band 2's correlation with the post holds (0.88 to 0.93) as the strength rises.
+  On the EdgeHD Saturn, already at its post, it falls (0.85 to 0.61): there a strength adds what the post does not hold.
+
+**Against the truth** (the twins, `planetary-sharpen --truth`; bands 1 to 5 transfer, the error over bands 1 to 4, the limb profile error):
+
+| Twin | 1 | 1.5 | 2 | 3 |
+|---|---|---|---|---|
+| calibrated (mono) | 1.04, 1.11, 1.02, 0.99, 1.00; 0.65; 0.005 | 1.29, 1.56, 1.23, 1.01, 0.99; 1.70; 0.021 | 1.55, 2.00, 1.43, 1.03, 0.99; 2.87; 0.039 | 2.06, 2.87, 1.83, 1.08, 0.98; 5.20; 0.073 |
+| nostill (mono) | 1.02, 1.03, 1.01, 0.99, 1.00; 0.28; 0.002 | 1.27, 1.44, 1.21, 1.01, 0.99; 1.28; 0.018 | 1.52, 1.85, 1.39, 1.04, 0.99; 2.37; 0.035 | 2.01, 2.64, 1.76, 1.08, 0.98; 4.52; 0.067 |
+| warped (mono) | 0.97, 1.07, 1.02, 0.99, 1.00; 0.80; 0.007 | 1.19, 1.49, 1.22, 1.01, 0.99; 1.70; 0.020 | 1.41, 1.91, 1.42, 1.03, 0.99; 2.74; 0.037 | 1.84, 2.74, 1.80, 1.08, 0.98; 4.90; 0.069 |
+| Saturn (colour, green) | 0.36, 0.87, 1.06, 0.99, 0.99; 1.30; 0.019 | 0.50, 1.18, 1.34, 1.00, 0.99; 1.81; 0.046 | 0.64, 1.49, 1.61, 1.01, 0.98; 2.52; 0.076 | 0.91, 2.09, 2.12, 1.02, 0.96; 4.11; 0.134 |
+
+- **A strength of 1.5 puts band 2 at 1.4 to 1.6 times the truth and band 3 at about 1.2 to 1.3**; 2 at 1.5 to 2.0 and 1.4 to 1.6. So a
+  post at 1.5 to 2.5 lies about 1.5 to 2.5 times past the truth in band 2, as the twins' first reading said.
+- **Band 1 still rises** (1.04 to 1.29 on the calibrated twin at 1.5) through the layers' overlap, its own gain held.
+- **Its cost is the limb**: inside it the profile moves from the truth, 0.005 to 0.02 at 1.5 and 0.04 at 2 on the mono twins (the bar a
+  limb fix was judged by was 0.02). Outside it the model is drawn, so it never rings below the sky.
+
+Not done here: a dial for it in the viewer and the GUI (a strength the Best stack and Derive read from the panel), the next change.
 
 ## R9 A learned stage, only if the measurements say so
 

@@ -33,6 +33,12 @@ public sealed record PlanetaryBestStackOptions(CatalogIndex? Planet, Pupil? Tele
     /// as the camera recorded them.
     /// </summary>
     public double? ColourSaturation { get; init; } = PlanetaryColourBalance.DefaultSaturation;
+
+    /// <summary>
+    /// How far past the truth bands 2 and 3 are sharpened (<see cref="PlanetarySharpenOptions.Strength"/>, #1251): one, the default, is the
+    /// derived sharpening at the truth; a capture's own post sits at about 1.5 to 2.
+    /// </summary>
+    public double Strength { get; init; } = 1;
 }
 
 /// <summary>The best stack of a capture: the stack as integrated (linear) and as sharpened, and how it was sharpened, in words.</summary>
@@ -114,7 +120,7 @@ public static class PlanetaryBestStack
         var handedOn = false;
         try
         {
-            var (sharpened, how) = Sharpen(result.Master, options.Planet, result.Epoch, options.Telescope, options.WavelengthsNm, options.Fix);
+            var (sharpened, how) = Sharpen(result.Master, options.Planet, result.Epoch, options.Telescope, options.WavelengthsNm, options.Fix, options.Strength);
             // The balance comes after the sharpening, which reads each channel's edge through that channel's own diffraction: the
             // saturation mixes the channels.
             var (balance, howBalanced) = options.ColourSaturation is { } saturation
@@ -145,30 +151,45 @@ public static class PlanetaryBestStack
     /// with a rotation model: Jupiter, or Saturn read around its rings since S4, #1184), the instant it shows (<paramref name="epoch"/>,
     /// else its own DATE-OBS and EXPTIME's middle) and the telescope are known and its limb fits; by
     /// <see cref="WaveletSharpenOptions.PlanetaryDefault"/> with the limb kept as stacked when only the telescope is missing; by the preset
-    /// alone when the planet or the time is unknown or the limb does not fit. The words say which, and why. The caller owns the image.
+    /// alone when the planet or the time is unknown or the limb does not fit. The words say which, and why. A <paramref name="strength"/> past
+    /// one takes bands 2 and 3 past the truth (<see cref="PlanetarySharpenOptions.Strength"/>, #1251). The caller owns the image.
     /// </summary>
     public static (Image Sharpened, string How) Sharpen(Image master, CatalogIndex? planet, DateTimeOffset? epoch, Pupil? telescope,
-        ImmutableArray<double> wavelengthsNm = default, PlanetaryLimbFix? fix = null)
+        ImmutableArray<double> wavelengthsNm = default, PlanetaryLimbFix? fix = null, double strength = 1)
     {
         if (SharpenOptionsFor(master, planet, epoch, telescope, wavelengthsNm) is not { } options)
         {
-            return (WaveletSharpen.Sharpen(master, WaveletSharpenOptions.PlanetaryDefault),
-                "PlanetaryDefault: the sharpening is derived only for a named Jupiter or Saturn with frame times");
+            return (WaveletSharpen.Sharpen(master, PresetAt(strength)),
+                $"PlanetaryDefault{StrengthWords(strength)}: the sharpening is derived only for a named Jupiter or Saturn with frame times");
         }
+        options = options with { Strength = strength };
         if (fix is { } chosen)
         {
             options = options with { Fix = chosen };
         }
         if (PlanetarySharpening.Sharpen(master, options) is not { } result)
         {
-            return (WaveletSharpen.Sharpen(master, WaveletSharpenOptions.PlanetaryDefault),
-                "PlanetaryDefault: the planet's limb could not be fitted, so the sharpening cannot be derived");
+            return (WaveletSharpen.Sharpen(master, PresetAt(strength)),
+                $"PlanetaryDefault{StrengthWords(strength)}: the planet's limb could not be fitted, so the sharpening cannot be derived");
         }
         var inv = CultureInfo.InvariantCulture;
         return (result.Sharpened, result.Derived
-            ? string.Create(inv, $"gains {string.Join(", ", result.Gains.Select(g => g.ToString("0.00", inv)))} derived through the limb's edge, {Describe(result.Fix)}")
-            : "PlanetaryDefault with the limb kept as stacked; the telescope's aperture gives the derived sharpening");
+            ? string.Create(inv, $"gains {string.Join(", ", result.Gains.Select(g => g.ToString("0.00", inv)))} derived through the limb's edge{StrengthWords(strength)}, {Describe(result.Fix)}")
+            : $"PlanetaryDefault{StrengthWords(strength)} with the limb kept as stacked; the telescope's aperture gives the derived sharpening");
     }
+
+    // The preset with bands 2 and 3 at a strength, by the one rule (PlanetarySharpening.Strengthened).
+    private static WaveletSharpenOptions PresetAt(double strength)
+    {
+        var preset = WaveletSharpenOptions.PlanetaryDefault;
+        return strength == 1
+            ? preset
+            : preset with { Gains = [.. PlanetarySharpening.Strengthened([.. preset.Gains.Select(g => (double)g)], strength).Select(g => (float)g)] };
+    }
+
+    // A strength in words, where it is not the truth's.
+    private static string StrengthWords(double strength)
+        => strength == 1 ? "" : string.Create(CultureInfo.InvariantCulture, $" at strength {strength:0.##} past the truth (bands 2 and 3)");
 
     /// <summary>
     /// The gains <see cref="Sharpen"/> would derive for <paramref name="master"/>, finest scale first, for a live view's wavelet sliders
@@ -179,10 +200,11 @@ public static class PlanetaryBestStack
     /// the batch moves its master's (<see cref="PlanetaryChannelAlignment"/>), and the gains and the balance read on it so moved: the limb
     /// carries that reading, which every later master is moved by (<see cref="PlanetaryLiveLimb.Channels"/>, #1202). Its gains are its first
     /// channel's, and the limb carries the colour balance the batch would give it at <paramref name="colourSaturation"/>
-    /// (<see cref="PlanetaryLiveLimb.Balance"/>, #1212; null leaves the colours as captured).
+    /// (<see cref="PlanetaryLiveLimb.Balance"/>, #1212; null leaves the colours as captured). A <paramref name="strength"/> past one seeds bands
+    /// 2 and 3 past the truth (<see cref="PlanetarySharpenOptions.Strength"/>, #1251), as the batch sharpens at it.
     /// </summary>
     public static (ImmutableArray<float> Gains, string How, PlanetaryLiveLimb? Limb) DeriveGains(Image master, CatalogIndex? planet, DateTimeOffset? epoch,
-        Pupil? telescope, ImmutableArray<double> wavelengthsNm = default, double? colourSaturation = PlanetaryColourBalance.DefaultSaturation)
+        Pupil? telescope, ImmutableArray<double> wavelengthsNm = default, double? colourSaturation = PlanetaryColourBalance.DefaultSaturation, double strength = 1)
     {
         ArgumentNullException.ThrowIfNull(master);
         if (telescope is not { } pupil)
@@ -201,7 +223,7 @@ public static class PlanetaryBestStack
             : (master, null);
         try
         {
-            if (PlanetarySharpening.Sharpen(aligned, options with { Fix = PlanetaryLimbFix.Floored }) is not { } result)
+            if (PlanetarySharpening.Sharpen(aligned, options with { Fix = PlanetaryLimbFix.Floored, Strength = strength }) is not { } result)
             {
                 return ([], "the planet's limb could not be fitted", null);
             }
@@ -212,7 +234,7 @@ public static class PlanetaryBestStack
                 {
                     return ([], "the gains could not be derived", null);
                 }
-                var how = string.Create(inv, $"derived for {options.Planet} through a {pupil.DiameterM * 1000:0} mm pupil at {options.WavelengthsNm[0]:0} nm");
+                var how = string.Create(inv, $"derived for {options.Planet} through a {pupil.DiameterM * 1000:0} mm pupil at {options.WavelengthsNm[0]:0} nm{StrengthWords(strength)}");
                 // The colour balance the batch gives a master of this planet (#1212), read once here and given to every master drawn.
                 var balance = aligned.ChannelCount == 3 && colourSaturation is { } saturation
                     ? PlanetaryColourBalance.For(aligned, options.Planet, options.When, saturation).Balance

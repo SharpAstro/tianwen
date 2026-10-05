@@ -1029,7 +1029,11 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   band, and let the positive ones through up to the stack's seeing glow, faint arcs, strongest on the lit side (the twins show the same,
   so it is never a capture's misfit). A model swapped in without the feather left a square seam at the window's edge at a deep stretch,
   and anything divided by a model that falls to nothing rang. Without a telescope `PlanetaryDefault` with the limb kept as
-  stacked. **Saturn is sharpened as Jupiter is** (S4, #1184): the sharpening is kept inside the globe and the rings' footprint
+  stacked. **The derived gains are the truth's, and anything past it is the strength OPTION, never the default** (the owner, #1251;
+  `PlanetarySharpenOptions.Strength`, `--strength`): the gains fitted to a texture target with bands 2 and 3 at that many times the
+  truth (`PlanetaryWaveletGains.Boost`), the disk still to its own model and the finest band at its truth gain; never multiply
+  derived gains (the layers overlap, and it multiplies their oscillation). The posts sit at about 1.5 to 2.5. **Saturn is sharpened
+  as Jupiter is** (S4, #1184): the sharpening is kept inside the globe and the rings' footprint
   (`ClearRadiiAt` at most 1) and the model is drawn past it; its limb's edge is the polar arcs alone, true to about 0.15 cycles a pixel, and
   the raw edge still beat a physical kernel fitted short of that. **Its globe turns under rings that stay where they lie** (S5, #1234):
   a de-rotation never moves a `RingTouched` pixel nor reads a source under one, and its colours are read by their ringed limbs, a ringed

@@ -132,17 +132,19 @@ public static class PlanetaryWaveletGains
     /// each weighted by the stack's power inside the disk (<paramref name="stackPower"/>) times the sum of the fitted layers'
     /// transfers squared, the expected error in the bands they make.</item>
     /// </list>
-    /// The <paramref name="held"/> finest layers can be held at 1 too, for a kernel that is not measured there: their bands' error
-    /// still counts, and the other gains are fitted around them.
+    /// The <paramref name="held"/> finest layers can be held too, at <paramref name="heldAt"/> (1, as stacked, for a kernel that is not
+    /// measured there; a strength holds the finest at its truth-fitted gain): their bands' error still counts, and the other gains are
+    /// fitted around them. A <paramref name="strength"/> past one asks the texture for bands 2 and 3 at that many times the truth
+    /// (<see cref="Boost"/>, #1251); the disk is still fitted to its own sharp model.
     /// </summary>
     public static ImmutableArray<double> Fit(ImmutableArray<double> stackPower, ImmutableArray<double> wiener, ReadOnlySpan<float> sharpDisk, ReadOnlySpan<float> blurredDisk,
-        int width, int height, MetricDisk disk, int scales = Scales, int fitted = ScoredBands, int held = 0)
+        int width, int height, MetricDisk disk, int scales = Scales, int fitted = ScoredBands, int held = 0, double strength = 1, double heldAt = 1)
     {
         ArgumentOutOfRangeException.ThrowIfGreaterThan(fitted, scales);
         ArgumentOutOfRangeException.ThrowIfNegative(held);
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(held, fitted);
-        var (a, b) = NormalEquations(stackPower, wiener, sharpDisk, blurredDisk, width, height, disk, fitted);
-        // The held gains are 1: what they put into the others' equations moves to the right-hand side.
+        var (a, b) = NormalEquations(stackPower, wiener, sharpDisk, blurredDisk, width, height, disk, fitted, strength);
+        // What the held gains put into the others' equations moves to the right-hand side.
         var free = fitted - held;
         var (af, bf) = (new double[free, free], new double[free]);
         for (var j = 0; j < free; j++)
@@ -150,7 +152,7 @@ public static class PlanetaryWaveletGains
             bf[j] = b[held + j];
             for (var h = 0; h < held; h++)
             {
-                bf[j] -= a[held + j, h];
+                bf[j] -= a[held + j, h] * heldAt;
             }
             for (var k = 0; k < free; k++)
             {
@@ -161,7 +163,7 @@ public static class PlanetaryWaveletGains
         var gains = ImmutableArray.CreateBuilder<double>(scales);
         for (var j = 0; j < scales; j++)
         {
-            gains.Add(j >= held && j < fitted ? solved[j - held] : 1);
+            gains.Add(j < held ? heldAt : j < fitted ? solved[j - held] : 1);
         }
         return gains.MoveToImmutable();
     }
@@ -174,10 +176,10 @@ public static class PlanetaryWaveletGains
     /// penalty on the violated points, raised until none is violated by more than a millionth of the composite's peak.
     /// </summary>
     public static ImmutableArray<double> FitNonNegative(ImmutableArray<double> stackPower, ImmutableArray<double> wiener, ReadOnlySpan<float> sharpDisk, ReadOnlySpan<float> blurredDisk,
-        int width, int height, MetricDisk disk, Func<double, double> kernel, int reach = 15, int scales = Scales, int fitted = ScoredBands)
+        int width, int height, MetricDisk disk, Func<double, double> kernel, int reach = 15, int scales = Scales, int fitted = ScoredBands, double strength = 1)
     {
         ArgumentOutOfRangeException.ThrowIfGreaterThan(fitted, scales);
-        var (a, b) = NormalEquations(stackPower, wiener, sharpDisk, blurredDisk, width, height, disk, fitted);
+        var (a, b) = NormalEquations(stackPower, wiener, sharpDisk, blurredDisk, width, height, disk, fitted, strength);
         var (rows, offsets) = PlanetaryDering.CompositeRows(kernel, fitted, reach);
         return Gains(SolveNonNegative(a, b, rows, offsets), scales);
     }
@@ -266,9 +268,9 @@ public static class PlanetaryWaveletGains
 
     // Both halves of the fit's least squares, the texture's and the disk's, summed.
     private static (double[,] A, double[] B) NormalEquations(ImmutableArray<double> stackPower, ImmutableArray<double> wiener, ReadOnlySpan<float> sharpDisk, ReadOnlySpan<float> blurredDisk,
-        int width, int height, MetricDisk disk, int fitted)
+        int width, int height, MetricDisk disk, int fitted, double strength)
     {
-        var (a, b) = TextureNormalEquations(stackPower, wiener, fitted);
+        var (a, b) = TextureNormalEquations(stackPower, wiener, fitted, strength);
         var (da, db) = PlanetaryCeilings.JointNormalEquations(blurredDisk, sharpDisk, width, height, disk, fitted);
         for (var j = 0; j < fitted; j++)
         {
@@ -288,11 +290,37 @@ public static class PlanetaryWaveletGains
     public static ImmutableArray<double> FitTexture(ImmutableArray<double> stackPower, ImmutableArray<double> wiener, int scales = Scales, int fitted = ScoredBands)
     {
         ArgumentOutOfRangeException.ThrowIfGreaterThan(fitted, scales);
-        var (a, b) = TextureNormalEquations(stackPower, wiener, fitted);
+        var (a, b) = TextureNormalEquations(stackPower, wiener, fitted, strength: 1);
         return Gains(PlanetaryCeilings.Solve(a, b), scales);
     }
 
     // The fitted gains, then 1 for every coarser layer.
+    /// <summary>
+    /// What a <paramref name="strength"/> asks of the texture at one Fourier coefficient, given the scored layers' transfers there
+    /// (<paramref name="layers"/>, finest first): one plus the strength's excess times how much of the detail there is bands 2 and 3's
+    /// (<see cref="PlanetarySharpening.StrengthBands"/>, #1251). That membership is twice their share of the layers' energy, held at one,
+    /// so a frequency where they carry at least half is asked for the full strength and one they do not carry for the truth. The layers
+    /// overlap, so their plain share (at most 0.84, about half at band 2's middle) would ask a strength of 1.5 for 1.27 in band 2 and 1.35 in
+    /// band 3, a fit reaching it perfectly; this asks for 1.39 to 1.46 and 1.47 to 1.49, band 4 taking 1.28 to 1.34 of the overlap.
+    /// </summary>
+    internal static double Boost(ReadOnlySpan<double> layers, double strength)
+    {
+        if (strength == 1)
+        {
+            return 1;
+        }
+        var (offset, length) = PlanetarySharpening.StrengthBands.GetOffsetAndLength(int.MaxValue);
+        double theirs = 0, all = 0;
+        for (var j = 0; j < layers.Length; j++)
+        {
+            var energy = layers[j] * layers[j];
+            all += energy;
+            theirs += j >= offset && j < offset + length ? energy : 0;
+        }
+        var membership = all > 0 ? Math.Min(1, 2 * theirs / all) : 0;
+        return 1 + ((strength - 1) * membership);
+    }
+
     private static ImmutableArray<double> Gains(double[] solved, int scales)
     {
         var gains = ImmutableArray.CreateBuilder<double>(scales);
@@ -305,7 +333,7 @@ public static class PlanetaryWaveletGains
 
     // The texture's expected error in the fitted bands as x' a x - 2 b' x plus a constant, in the units of a sum over pixels (Parseval's
     // 1 / n^2 on the unnormalised transform).
-    private static (double[,] A, double[] B) TextureNormalEquations(ImmutableArray<double> stackPower, ImmutableArray<double> wiener, int fitted)
+    private static (double[,] A, double[] B) TextureNormalEquations(ImmutableArray<double> stackPower, ImmutableArray<double> wiener, int fitted, double strength)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(fitted);
         var n = stackPower.Length;
@@ -336,8 +364,8 @@ public static class PlanetaryWaveletGains
             }
             var weight = stackPower[ring] * scored * parseval;
             // The coarser layers and the residual pass at 1, together the approximation after the fitted layers, so the gains fit what
-            // the fitted layers must add to it.
-            var target = wiener[ring] - phi[fitted];
+            // the fitted layers must add to it. A strength asks bands 2 and 3 past the truth (Boost).
+            var target = (wiener[ring] * Boost(psi, strength)) - phi[fitted];
             for (var j = 0; j < fitted; j++)
             {
                 b[j] += weight * psi[j] * target;
