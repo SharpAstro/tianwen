@@ -53,6 +53,7 @@ public static partial class PlanetaryDegrade
         var diffractionPeak = seeing.DiffractionPeak;
         var scatter = options.ScatterFraction > 0 ? ScatterSpectrum(fine, options.ScatterCoreArcsec / (arcsecPerPixel / os)) : null;
         var kept = scatter is null ? 1 : 1 - options.ScatterFraction;
+        var farWing = FarWingFor(options, arcsecPerPixel, fine);
         var scratches = new ConcurrentBag<NodeScratch>();
 
         var truths = new SyntheticFrame[n];
@@ -118,7 +119,7 @@ public static partial class PlanetaryDegrade
             var (ix, iy) = ((int)Math.Round(moveX), (int)Math.Round(moveY));
             var (fx0, fy0) = ((moveX - ix) * os, (moveY - iy) * os);
 
-            // The blurred object, with the telescope's scatter beside it, moved by the fraction of its shift.
+            // The blurred object, with the pupil's far wing (#1222) and the telescope's scatter beside it, moved by the fraction of its shift.
             for (var i = 0; i < plane.Length; i++)
             {
                 spectrum[i] = plane[i];
@@ -131,7 +132,8 @@ public static partial class PlanetaryDegrade
                 for (var kx = 0; kx < fine; kx++)
                 {
                     var i = (ky * fine) + kx;
-                    var value = scatter is null ? spectrum[i] : (kept * spectrum[i]) + (options.ScatterFraction * scatter[i] * current.Spectrum[i]);
+                    var withWing = farWing.Spectrum is { } wing ? ((1 - farWing.Share) * spectrum[i]) + (wing[i] * current.Spectrum[i]) : spectrum[i];
+                    var value = scatter is null ? withWing : (kept * withWing) + (options.ScatterFraction * scatter[i] * current.Spectrum[i]);
                     spectrum[i] = value * rampY[ky] * rampX[kx];
                 }
             }

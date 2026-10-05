@@ -31,7 +31,8 @@ public class PlanetaryCeilingsTests
         try
         {
             const int grid = 8;
-            var header = new SyntheticPsfHeader(grid, 2, 0.5, 650e-9, 0.05, 5, 16.8, 0.2, 32, [.. Enumerable.Range(0, grid * grid).Select(i => i / 100.0)]);
+            var pupil = new Pupil(0.254, ObstructionRatio: 0.23, Vanes: 4, VaneWidthM: 0.001, VaneAngleDeg: 12);
+            var header = new SyntheticPsfHeader(grid, 2, 0.5, 650e-9, 0.05, 5, 16.8, 0.2, 32, [.. Enumerable.Range(0, grid * grid).Select(i => i / 100.0)], pupil);
             using (var writer = new SyntheticPsfFile.Writer(path, header))
             {
                 writer.Append(new SyntheticFrameOptics([.. Enumerable.Range(0, grid * grid).Select(i => i / 64.0)], 1.5, -2.25, 0.9));
@@ -41,6 +42,8 @@ public class PlanetaryCeilingsTests
             reader.Header.Oversample.ShouldBe(2);
             reader.Header.ScatterCoreArcsec.ShouldBe(5);
             reader.Header.Diffraction[10].ShouldBe(0.10, 1e-12);
+            // The pupil the frames' far wing comes from (#1222).
+            reader.Header.Pupil.ShouldBe(pupil);
             var psf = new double[grid * grid];
             reader.TryRead(psf, out var x, out var y, out var b).ShouldBeTrue();
             (x, y, b).ShouldBe((1.5, -2.25, 0.9));
@@ -79,8 +82,10 @@ public class PlanetaryCeilingsTests
         }
     }
 
-    [Fact(Timeout = 300_000)]
-    public async Task ATwinsFramesAreTheirTrueTransferTimesTheTruth()
+    [Theory(Timeout = 300_000)]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ATwinsFramesAreTheirTrueTransferTimesTheTruth(bool farWing)
     {
         // A small twin with the still layer and the scatter on, its PSFs taken as it is made, and the truth rendered as
         // planetary-degrade renders it, at the instant the twin's first render is.
@@ -101,6 +106,7 @@ public class PlanetaryCeilingsTests
             DiskLevelAdu = 2000,
             ScreenSamples = 128,
             KeepScreenTilt = true,
+            FarWing = farWing,
         };
         var reference = new DiskPlacement((size / 2) - 0.3, (size / 2) + 0.2, 20, NorthAngleDeg: -80);
         var none = ImmutableArray.CreateRange(Enumerable.Repeat(0.0, times.Length));
@@ -112,7 +118,7 @@ public class PlanetaryCeilingsTests
 
         var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night + TimeSpan.FromSeconds(options.RenderEverySeconds / 2));
         var rendered = PlanetaryRender.RenderDiffracted(map, aspect, reference, size, size, options.MinnaertK, pupil, options.WavelengthM, scale);
-        var truth = ScaledLikeTheTwin(rendered, size, reference, options.DiskLevelAdu);
+        var truth = ScaledLikeTheTwin(rendered, PlanetaryRender.Render(map, aspect, reference, size, size, options.MinnaertK), size, reference, options.DiskLevelAdu);
 
         var bound = new MultiFrameBound(SyntheticPsfHeader.For(options, scale), size, 0, 0);
         var check = bound.NewModelCheck(bound.Window(truth, size, size));
@@ -331,8 +337,11 @@ public class PlanetaryCeilingsTests
         return plane;
     }
 
-    // The render scaled so its disk's mean inside 0.8 radii is the disk level, as planetary-degrade writes its truth.
-    private static float[] ScaledLikeTheTwin(float[] render, int size, DiskPlacement placement, double diskLevel)
+    // The truth through the diffraction on the frames' own scale: a twin made at a raw level sets its SHARP render's disk mean to it, and
+    // the diffraction then carries light out of 0.8 radii (2.6 % on this small disk, its far wing included, #1222), so the gain is read off
+    // `sharp`. planetary-degrade's truth file sets the diffracted render's own disk mean to the level instead, which every metric
+    // normalises away by the disk.
+    private static float[] ScaledLikeTheTwin(float[] render, float[] sharp, int size, DiskPlacement placement, double diskLevel)
     {
         double sum = 0;
         var count = 0;
@@ -343,7 +352,7 @@ public class PlanetaryCeilingsTests
                 var (dx, dy) = (x - placement.CenterX, y - placement.CenterY);
                 if ((dx * dx) + (dy * dy) < 0.64 * placement.EquatorialRadius * placement.EquatorialRadius)
                 {
-                    sum += render[(y * size) + x];
+                    sum += sharp[(y * size) + x];
                     count++;
                 }
             }

@@ -2965,6 +2965,42 @@ sharpening's scores barely see it: the limb profile error reads 0.8 to 1.2 radii
 edge at 0.1 and 0.3 cycles a pixel, far above anything a wing past 32 px carries. A stack's glow as stacked, the per-frame PSFs the oracles
 read, and anything judged past 1.2 radii do see it: #1222.
 
+##### The far wing as an option, measured and not the default
+
+**Measured** (2026-10-05); two rules written first, both failed, so the wing is `DegradeOptions.FarWing` (`planetary-degrade --far-wing`),
+off by default, and every twin is made as before. #1222 stays open.
+
+**The wing is the pupil's edge, the same in every frame.** On five Kolmogorov screens at the twins' seeing (254 mm Newtonian, 650 nm,
+0.497"/px), a frame's 128-sample PSF holds 0.22 % of its light past 32 px and the same phase on a 512-sample grid 1.37 %. The static wing
+laid OUTSIDE the 128 square alone (`PlanetaryDegrade.FarWingSpectrum`: the perfect pupil on a grid twice the fine one, cut at its half),
+the frame's PSF scaled by one less its share, holds 1.365 % there, every ring past 48 px within 10 %. The full static difference would
+also carry the pupil's coarser 128-sample rasterisation into the core: 17 % low under seeing. Inside the square neither grid is the truth
+(a finer grid's bilinear phase drops the screen's finest scales, which R2's calibrated scatter stands for), so the square stays as made.
+The wing moves with the frame's tilt in both frame paths (the layered and the one-PSF frames agree to 1 ADU), the level gain reads
+through it, and a `.psf` file (`TWPSF02`) records the pupil when the frames carry it, so `MultiFrameBound` adds it to each frame's
+transfer and to the diffraction it divides by. Through it a twin's frames are their true transfer times the truth at a scale of 1.007,
+band 4's residual over noise 1.81 against 5.97 without the wing.
+
+**But the twins' scatter was calibrated to stand in for that light.** The calibrated twin, one seed, real capture over twin:
+
+| Halo ring | Without the wing (scatter 5 %) | With it, scatter 5 % | With it, scatter 3.25 % (fitted) |
+|---|---|---|---|
+| 1.15 to 1.3 radii | 1.061 | 1.195 | 1.124 |
+| 1.3 to 1.6 radii | 0.951 | 1.368 | 1.191 |
+| 1.6 to 2.0 radii | 0.540 | 1.021 | 0.863 |
+| 2.0 to 2.5 radii | 0.604 | 1.353 | 1.125 |
+
+- **As written, it failed both of its rules.** The inner rings moved past 10 %. Twelve other statistics moved past 5 %, ten of them
+  toward the real capture: shift RMS 1.650 to 1.391, the aligner's error 1.293 to 1.096, frame-to-frame flux 1.669 to 1.210, every sky
+  noise band. The 8-bit sky's rounding and the aligner both see the halo's level, which the rule had wrongly expected the wing to leave.
+- **The scatter refitted** (an amendment written after that result): the rings, linear in the scatter, ask 0.020, 0.019, 0.048 and 0.021.
+  The 1.6 to 2.0 ring asks twice the others (its real level holds more than any scatter at a 5" core gives; the moons add a sixth of the
+  gap, 0.044 to 0.050 between the 2026-10-01 twins made without and with them). The fraction that minimises the worst ring, 3.25 %, reads it at 1.191, past the 15 % the
+  amendment asked, and moves the limb's fitted blur away from the real (0.928 to 0.848).
+- **What is left**: the scatter's shape, its core refitted with its fraction (at 2 % the linear fit predicts three rings within 1 % and
+  the fourth at 0.72), against the real capture's halo profile at a finer step than four rings. The wing costs nothing: the twin took
+  774 s against 1,022 s, on a box another session's bake was loading.
+
 ### The batch stack on every core
 
 The owner saw the viewer's Best stack hold one core, and it did: 1.00 core over a 3,000-frame stack of the calibrated twin (233 s,
