@@ -720,6 +720,18 @@ sigma it leaves speckles at 13.4 percent of sites against a null of 0.5. The arm
 - 100-1000 sigma: 39.7 to 58.3, against 58.5 to 73.9.
 On its own draws it removes 55.9 at 5-20 and 54.0 at 20-100, within the field arm's own range, and moves that sky 0.65.
 So far the second half of (6) misses at 20-100 sigma on both seeds, and the first half holds.
+`r2_random_s2` (seven of nine) is the field arm's third seed and its best. On its own draws it removes 67.9 at 5-20, 76.5 at
+20-100, 85.4 at 100-1000 and 77.2 of the saturated, with a footprint RMS of 3.79 and the sky moved 0.60. It leaves speckles
+at 0.2, 4.0 and 48.5 percent of sites by band against a null of 0.6. Its plateau stopped it early. The field arm over three
+seeds now reads:
+- 5-20 sigma: 40.8 to 67.9;
+- 20-100 sigma: 53.5 to 76.5;
+- 100-1000 sigma: 58.5 to 85.4;
+- footprint RMS: 2.76 to 7.09;
+- sky moved: 0.52 to 0.60, every seed over (2)'s 0.3.
+The seed spread is the widest thing measured so far, 27 points at 5-20 sigma. Against it, two readings still stand apart.
+The Gaussian arm's 18.9 to 38.8 at 100-1000 sigma, with a footprint RMS of 17.3 to 18.6, is H2's direction. The at-site
+arm's 35.5 to 41.2 at 20-100 sigma is (6)'s second-half miss.
 
 Open from it, under #902: R0's saturated fit on a fixed annulus in FWHM units with a 0.1 to 0.3 core cut (#1240); a
 residual table that holds bright stars' near wings (#1241); the Lagoon's and eta Carinae's photometric offsets (1.4 to 1.7,
