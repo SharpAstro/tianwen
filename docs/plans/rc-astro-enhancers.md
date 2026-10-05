@@ -80,12 +80,13 @@ its sky at 0.031 where the plate's was 0.009. Pinned by `RcAstroRangeMapTests`.
 ## BlurX clips a sharpened star at the ceiling
 
 BlurX's output stops at 1, and sharpening lifts a star's peak above its input: on LDN 1622's green master the
-brightest star rose to 3.4 times its input peak, so at the peak's own scale (what `image deblur` hands over) 197
+brightest star rose to 3.4 times its input peak, so at the peak's own scale (what `image deblur` handed over until then) 197
 pixels came back clipped at 1 and the frame lost about 1 percent of its flux, all in bright stars. With the
 brightest star at a quarter of the ceiling none clip, and the result agrees with an eighth's to 0.7 percent on star
-pixels. `image combine --deblur` takes that headroom (`NarrowbandCombination.DeblurAsync`); `image deblur` and the
-enhance pipeline's deblur step do not yet, which is [#1270](https://github.com/SharpAstro/tianwen/issues/1270),
-since a headroom there hands the later steps a plate whose peak is above 1.
+pixels. `image combine --deblur` and `image deblur` take that headroom (`NarrowbandCombination.DeblurAsync`, each
+result on its input's scale); the enhance pipeline's deblur step does not yet, which is
+[#1270](https://github.com/SharpAstro/tianwen/issues/1270), since a headroom there hands the later steps a plate whose
+peak is above 1.
 
 ## Parameters
 

@@ -1265,7 +1265,31 @@ collection spawns no `rc-astro` process. Design and every measurement: `docs/pla
   cut every star's peak 30 percent with no metric catching it: `docs/plans/denoiser-training.md`.
 - **RC-Astro (BlurX / NoiseX / StarXTerminator)** -- `AddRcAstroAi()`. `.onnx` files are encrypted at
   rest (license forbids extracting weights), so driven through the `rc-astro` CLI's `--json` NDJSON
-  protocol, never loaded into ORT.
+  protocol, never loaded into ORT. **A plate outside `[0, 1]` is mapped in and back by
+  `RcAstroEnhancerBase`**: RC-Astro rescales such a plate itself and answers on THAT scale (an aligned
+  master's negative border ringing put a starless sky at 3.4 times its level). **BlurX stops at 1**, so a
+  deblur hands it the brightest star at a quarter of the ceiling (`NarrowbandCombination.DeblurAsync`;
+  the enhance pipeline does not yet, #1270).
+
+### Mono Colour Composition: PixInsight's Steps, One Verb Each (`ColourComposition`)
+
+Red, green and blue mono masters (and H-alpha) on one grid made one colour image as a PixInsight mono
+workflow makes it: `image align`, `linear-fit`, `deblur`, `remove-stars`, `continuum`, `add-line`,
+`add-stars`, `luminance`, `denoise`, `lrgb`, then `combine` for the channels. **Every step is one verb on
+one routine, and `image combine` with its switches is `ColourComposition.RunAsync`, which calls those
+same routines in order and nothing between them** (the owner: a step-by-step tool, never steps conflated
+into one operation, plus one recipe that does the right thing). `ColourCompositionTests` runs the steps
+through a FITS file each against the recipe; they agree to the bit, on LDN 1622's real masters too. In
+full: `docs/plans/narrowband-colour.md`. What holds them together:
+- **A step writes on its input's scale**, never divided by its own peak, and several masters go through
+  one enhancer on ONE scale. **What a later step needs travels in the file**: a linear fit's slope is
+  `ImageMeta.FluxScale` (FITS `FLUXSCAL`); the LRGB scale is measured from the planes it is applied to;
+  the continuum scale is the one number carried by hand (`image continuum --dry-run`, measured on the
+  masters WITH their stars).
+- **A stars image is read unmasked** (`image add-stars`): it is exact zero where the remover left a
+  pixel, which is also how a master marks its absent ring.
+- **Stars are never denoised**, and the luminance's noise weights are read over 4 px blocks before
+  anything is (`PixelNoise.FromBlocks`): pixel to pixel, a 0.55 px blur read 0.45 of the true noise.
 
 **A vendor's weights are read WHERE THE VENDOR PUT THEM, never only where a dev script copied them.**
 `ModelResolver` also auto-detects GraXpert's own cache for `graxpert_bge.onnx` (no override -- the

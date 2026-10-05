@@ -152,6 +152,12 @@ SHO from an OSC.
 
 ## Status: NOT STARTED (research ongoing 2026-08-02 through 2026-08-28; nothing built yet)
 
+**PARTIAL since 2026-10-05; the heading keeps its words because nine issues link it.** Built (#874): phase 0, continuum
+subtraction ([Phase 0 as built](#phase-0-as-built-2026-10-05-874)), and phase 2's HaRGB case, with a mono colour
+composition around it whose every step is its own `image` verb and whose recipe is `image combine`
+([Every step is a verb of its own](#every-step-is-a-verb-of-its-own-and-image-combine-runs-them-in-order)). Not started:
+phase 1 (robust normalization), the palette mixer beyond HaRGB, phases 3 to 5.
+
 Tracked by #874, #875, #876.
 
 **P1 scope, for a reader arriving from [pixinsight-parity.md](pixinsight-parity.md):** Phases 1+2
@@ -514,7 +520,8 @@ PixInsight's mono workflow, and the owner's: linear fit, deblur, stars out, line
   peak, stopped at 1, and left 197 of green's pixels clipped there (about 1 percent of the frame's flux, all in bright
   stars). At a quarter none clip, and the result agrees with an eighth's to 0.7 percent on star pixels, the sky to a
   thousandth of its noise. The same clip in `image deblur` and the enhance pipeline is
-  [#1270](https://github.com/SharpAstro/tianwen/issues/1270).
+  [#1270](https://github.com/SharpAstro/tianwen/issues/1270) for the enhance pipeline; `image deblur` takes the same
+  headroom since its steps rewrite.
 - **`--match-psf`** (`PsfMatch`) is the fallback where no deblurrer serves (and what `--deblur` falls back to): every
   sharper master blurred in quadrature to the widest one's width, for the colour channels, the continuum scale and the
   luminance's star scales only. The star detector's FWHM is too coarse to steer the last few percent (red stopped at 2.17
@@ -588,6 +595,11 @@ recipe: not one pixel of 76,800 differs):
   channels, so `image remove-stars L.fits` gives what the recipe used.
 - **A stars image is read unmasked.** It is exactly zero wherever the remover left a pixel alone, and a master's absent
   ring is also exact zero, so `image add-stars` reads its stars as written and every other step masks.
+
+**On real data too.** LDN 1622 through the verbs one by one (linear fit, deblur, the continuum scale by hand, stars out,
+the line in, stars back, luminance, its stars out, both denoises, LRGB, stars back, channel combination), then through
+`image combine --ha --deblur --starless --lrgb --denoise`: all 25,166,493 values of the two colour images are identical.
+BlurX, StarX and NoiseX give the same output for the same input, so a vendor step costs the chain nothing.
 
 ### F. NarrowbandNormalization (the SHO answer, and what that video was actually about)
 
