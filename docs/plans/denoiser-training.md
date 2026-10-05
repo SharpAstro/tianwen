@@ -3012,8 +3012,16 @@ so the measurement S4 reads changed before the 82 were baked.
 - **On the pilot's two staged nights it reads 1.09 (mono Lagoon) and 1.01 / 1.04 / 1.04 (Prawn).** The pair check
   scales the master's error by root 2 to a half's. A half's composition noise goes as one over its frame count, so the
   check under-predicts a pair a little where the clip works hard. Each half's own tiles carry the half's own error.
-- **Since the pilot informed the method, its three nights are reported apart** from the other 79 readings in S4's read,
-  as well as in the total.
+- **On the drizzled night it moves nothing:** 0.88 / 0.91 / 0.95. The error moved per pixel by up to 4 percent, but its
+  median moved by 0.1, so once each frame's whole sky is shifted the drizzle's local drift is negligible. Nor is it the
+  unit scale: the master's and the halves' recorded skies agree to 0.05 percent. Within the night every quiet cell
+  reads 0.88 to 0.91, whatever its structure (`noise-check --cell-table`).
+- **Two quieter drizzled nights read 0.99 / 0.99 / 0.99** (ASI533MC Orion 2025-12-17) **and 0.97 / 0.96 / 0.97**
+  (RCW 27 2026-01-23); the shipped estimator read them at 0.96 to 0.99 and 0.92. So the drizzle path is sound, and the
+  Uranus-C Lagoon's over-read belongs to that field, the densest of the five (the shipped estimator read it at 0.46).
+  Over the five pilot nights, 12 of 13 channels are within 10 percent, against the shipped estimator's 3.
+- **Since the pilots informed the method, their five nights are reported apart** from the other 77 readings in S4's
+  read, as well as in the total.
 
 ### 2026-10-05: H7, pre-registered
 
