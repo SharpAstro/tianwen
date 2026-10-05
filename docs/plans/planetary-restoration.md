@@ -2924,6 +2924,39 @@ seeing tried (-0.41 to +0.44 %). So the radius carries no fixed bias: it trades 
 shallow valley, and a broad wing can tip it onto the far branch. That case is skipped with its issue named, not loosened, and R1's
 conclusion against WinJUPOS (the fit's own error a tenth of the residual) is re-opened with it: #1221.
 
+##### The annulus from half the radius: measured, not adopted
+
+**Measured** (2026-10-05), five rules written first; it failed two of them and stays out. #1221 stays open.
+
+**The valley is the limb darkening's.** On T1's synthetic Jupiter at the issue's nine seeings, the radius follows Minnaert's k at about 15 %
+of the radius per unit of k, and from 0.8 radii the annulus sees too little of the darkening to pin k: the halo's freedom lets it wander,
+and the far branch is the k = 1.05 end. Neither the wing's kernel (an exact one changed nothing), its shape (Moffat wings of beta 1.25 to 3)
+nor its width (a cap swung rows to -1.3 %) is the cause. With k held at the render's 0.95 every row read within 0.13 %, at 0.90 or 1.00
+within 0.8 %.
+
+**From half the radius every T1 row passes**: the nine within 0.30 % (k 0.94 to 0.98), the skipped (6 px, beta 2) case +0.23 %, with no
+prior. Saturn keeps 0.8 (its rings cross the globe inside it, and its rows read +0.28 to +0.48 % from 0.5 against +0.09 to +0.41 % from 0.8). Two rules
+failed:
+
+- **Every other test still passes (rule 2).** Three de-rotation tests failed. Their map carries meridian stripes (`SpottedMap`, amplitude 0.25
+  with the square of latitude's cosine), detail the zonal albedo cannot follow. From 0.5 the fit read its axis 3 to 8 degrees off and its
+  radius 3.2 to 3.3 % small on all three frames tried. From 0.8 it was right on two of the three; on the third it read 3 % large, its axis
+  134 degrees off, and the tests pass only on the frame they pick.
+- **WinJUPOS's outlines get no further away (rule 3).**
+
+  | Session | Centre from the outline, 0.8 to 0.5 | \|dR\|, 0.8 to 0.5 |
+  |---|---|---|
+  | 2022-09-03, nine stacks | 0.73 to 0.75 px | 0.48 to 0.41 % |
+  | 2022-09-29, seven stacks | 0.54 to 1.59 px | 0.74 to 1.28 % |
+
+  On 2022-09-29 the lit side turned over on every stack, at a phase of about half a degree.
+
+**The far branch is on real captures too.** From 0.8 the five 2022-09-29 crops, two minutes of one night, split across both branches: a core of
+4.0 and 4.4 px on two, 6.7 to 6.9 px on the other three, and radii from 182.9 to 184.1 px. From 0.5 all five agree (7.6 to 8.2 px, 184.7 to
+184.9 px). Reading the interior settles the branch, but by detail the model does not hold, and the hand-set outlines cannot say which branch
+is right. The cost rule passed (the sixteen fits against WinJUPOS took 1.41 times as long); the twins' rule was not reached. Still to try: a k pinned by something other than the disk's own
+albedo.
+
 #### A twin's frames carry a short wing
 
 `planetary-degrade` still computes each frame's PSF on 128 fine samples, ±32 px at the twins' 650 nm and 0.497"/px, so a frame carries the
