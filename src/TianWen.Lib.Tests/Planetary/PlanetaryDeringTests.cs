@@ -135,7 +135,8 @@ public class PlanetaryDeringTests
         var at = (my * Size) + mx;
         TestContext.Current.TestOutputHelper?.WriteLine($"the moon's peak: stacked {blurred[at]:0.000}, sharpened {plain[at]:0.000}, bounded {bounded[at]:0.000}");
         plain[at].ShouldBeGreaterThan(blurred[at] * 1.5f, "the sharpening lifts the moon");
-        bounded[at].ShouldBe(plain[at], "and the bound leaves it lifted");
+        // Lifted on the surface about it rather than kept whole (#1301): here the bound's surface and the sharpening's agree to 0.1 %.
+        bounded[at].ShouldBe(plain[at], 0.01f * plain[at], "and the bound leaves it lifted");
         PlanetaryMetrics.LimbRebound(bounded, Size, Size, Disk).ShouldBeLessThan(PlanetaryMetrics.LimbRebound(plain, Size, Size, Disk) / 10);
         for (var y = 0; y < Size; y++)
         {
@@ -147,6 +148,91 @@ public class PlanetaryDeringTests
                 }
             }
         }
+    }
+
+    // A disk of one, of radius 40 px, on a 192 px frame with a glow falling as exp(-(r - R) / 10 px) from 0.3 at its limb, cut to the sky's zero
+    // 40 px out, so the sky's noise is nothing and a source need only clear the 0.01 floor. A moon (a Gaussian of 1.2 px, `moonPeak` high) 14
+    // px past the limb to its left, its reach and the ring about it inside 1.5 radii, where the model alone is drawn; to the right, 16 px
+    // out, a pixel raised by `bump` over the glow's slope: a local maximum, as a noise peak is.
+    private const int GlowSize = 192;
+    private static readonly MetricDisk GlowDisk = new MetricDisk(95.5, 95.5, 40);
+
+    private static float[] Glowing(double glowScale, double moonPeak, double bump, out (int X, int Y) moon, out (int X, int Y) notMoon)
+    {
+        moon = ((int)(GlowDisk.X - GlowDisk.Radius - 14), 96);
+        notMoon = ((int)(GlowDisk.X + GlowDisk.Radius + 16), 96);
+        var plane = new float[GlowSize * GlowSize];
+        for (var y = 0; y < GlowSize; y++)
+        {
+            for (var x = 0; x < GlowSize; x++)
+            {
+                var r = GlowDisk.RadiiAt(x, y) * GlowDisk.Radius;
+                var glow = r < GlowDisk.Radius ? 1 : r < GlowDisk.Radius + 40 ? glowScale * 0.3 * Math.Exp(-(r - GlowDisk.Radius) / 10) : 0;
+                var m = moonPeak * Math.Exp(-(((x - moon.X) * (x - moon.X)) + ((y - moon.Y) * (y - moon.Y))) / (2 * 1.2 * 1.2));
+                plane[(y * GlowSize) + x] = (float)(glow + m);
+            }
+        }
+        plane[(notMoon.Y * GlowSize) + notMoon.X] += (float)bump;
+        return plane;
+    }
+
+    [Fact]
+    public void AMaximumOnAGlowsSlopeIsNoMoonAndAMoonOnItIs()
+    {
+        // #1301: beside Saturn's ring tip the blue glow held a noise maximum standing 0.0136 of the disk above its box's median, past the
+        // 0.01 floor, and the sharpening kept it as a moon: a hard-edged disc of the stack's glow. Above the plane its surroundings make it
+        // stands nowhere; a moon does.
+        var plane = Glowing(1, 0.08, 0.0097, out var moon, out var notMoon);
+        var (byMedian, _) = PlanetaryMetrics.SourcePeak(plane, GlowSize, GlowSize, notMoon.X, notMoon.Y);
+        var byPlane = PlanetaryMetrics.PeakAbovePlane(plane, GlowSize, GlowSize, notMoon.X, notMoon.Y);
+        var moonByPlane = PlanetaryMetrics.PeakAbovePlane(plane, GlowSize, GlowSize, moon.X, moon.Y);
+        TestContext.Current.TestOutputHelper?.WriteLine($"the slope's maximum: {byMedian:0.0000} above its box's median, {byPlane:+0.0000;-0.0000} above its plane; the moon {moonByPlane:0.0000} above its plane");
+
+        byMedian.ShouldBeGreaterThan(0.01, "by its box's median it stands as a source would");
+        byPlane.ShouldBeLessThan(0.01);
+        moonByPlane.ShouldBeGreaterThan(0.06);
+        PlanetaryMetrics.CompactSources(plane, GlowSize, GlowSize, GlowDisk, count: PlanetaryDering.MaxMoons).ShouldHaveSingleItem().ShouldBe(moon);
+    }
+
+    [Fact]
+    public void AMoonKeptInTheModelsZoneAddsItsOwnLightAndNoneOfTheGlowItSitsIn()
+    {
+        // #1301: a moon's sharpening was kept whole within its reach, the stack's glow with it, while the planet's model was drawn around it;
+        // where the stack's glow stands above the model's, that is a disc with a hard edge. The moon now stands on the model's surface.
+        var stacked = Glowing(1, 0.08, 0, out var moon, out _);
+        // The sharpening: the moon lifted to 0.2, the glow as stacked. The model through the pupil alone: a quarter of the stack's glow.
+        var sharpened = Glowing(1, 0.2, 0, out _, out _);
+        var model = Glowing(0.25, 0, 0, out _, out _);
+        var drawn = PlanetaryDering.Outside(sharpened, stacked, GlowSize, GlowSize, GlowDisk, PlanetaryDering.OutsideLimb.ModelFeathered, model: model);
+
+        double Ring(float[] plane, double from, double to)
+        {
+            var (sum, n) = (0.0, 0);
+            for (var y = moon.Y - 7; y <= moon.Y + 7; y++)
+            {
+                for (var x = moon.X - 7; x <= moon.X + 7; x++)
+                {
+                    var d = Math.Sqrt(((x - moon.X) * (x - moon.X)) + ((y - moon.Y) * (y - moon.Y)));
+                    if (d > from && d <= to)
+                    {
+                        (sum, n) = (sum + plane[(y * GlowSize) + x], n + 1);
+                    }
+                }
+            }
+            return sum / n;
+        }
+        var step = Ring(drawn, 4, 5) - Ring(drawn, 5, 6);
+        var modelStep = Ring(model, 4, 5) - Ring(model, 5, 6);
+        var at = (moon.Y * GlowSize) + moon.X;
+        var lift = drawn[at] - model[at];
+        TestContext.Current.TestOutputHelper?.WriteLine($"at the reach the drawn plane steps {step:+0.0000;-0.0000} (the model's own slope {modelStep:+0.0000;-0.0000}); the moon stands {lift:0.0000} on the model");
+
+        PlanetaryMetrics.CompactSources(stacked, GlowSize, GlowSize, GlowDisk, count: PlanetaryDering.MaxMoons).ShouldHaveSingleItem().ShouldBe(moon);
+        // Kept whole, the stack's glow stood three quarters above the model's within the reach: a step of 0.035 and the moon at 0.255. A
+        // plane through a glow this curved (0.3 of the disk at the limb, falling over 10 px) lies a little above it, so the moon stands
+        // about 6 % low; on the real captures its peak moved by at most 1 % (#1301).
+        step.ShouldBe(modelStep, 0.005, "no step where the moon meets the model");
+        lift.ShouldBe(0.2f, 0.02f, "the moon keeps its sharpened light, and none of the glow");
     }
 
     [Fact]

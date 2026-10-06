@@ -262,7 +262,8 @@ internal sealed record PlanetaryLimbWindow(int Size, int X0, int Y0, MetricDisk 
     /// The moons beyond this window, sharpened as the moons inside it are (#1211): every compact source
     /// <see cref="PlanetaryMetrics.CompactSources"/> finds on the whole of <paramref name="plane"/> (normalised as the window is), and
     /// within <see cref="PlanetaryDering.MoonReachPx"/> of each, outside this window, <paramref name="into"/> takes the moon's sharpening
-    /// held at the sky, as <see cref="PlanetaryDering.Outside"/> leaves a moon inside. <paramref name="sharpenedAbout"/> gives that sharpening
+    /// held at the sky, laid on what it holds about the moon (<see cref="PlanetaryDering.KeepMoon"/>), as <see cref="PlanetaryDering.Outside"/>
+    /// leaves a moon inside. <paramref name="sharpenedAbout"/> gives that sharpening
     /// as a <see cref="MoonWindowSize"/> square window with its corner at the two coordinates, in the window's units (sky 0, disk 1): the
     /// batch sharpens a window cut about the moon (<see cref="CutAt"/>), the live view cuts its sliders' frame. Everything else is left as
     /// <paramref name="into"/> holds it. Returns how many moons it sharpened.
@@ -284,14 +285,26 @@ internal sealed record PlanetaryLimbWindow(int Size, int X0, int Y0, MetricDisk 
             }
             var (x0, y0) = (mx - (MoonWindowSize / 2), my - (MoonWindowSize / 2));
             var window = sharpenedAbout(x0, y0);
+            // What is drawn about the moon and its sharpening held at the sky, both in the plane's units, laid on each other (KeepMoon).
+            const int half = PlanetaryMetrics.SourceBox / 2;
+            var drawn = new float[PlanetaryMetrics.SourceBox * PlanetaryMetrics.SourceBox];
+            var moon = new float[drawn.Length];
+            for (var dy = -half; dy <= half; dy++)
+            {
+                for (var dx = -half; dx <= half; dx++)
+                {
+                    var (x, y, i) = (mx + dx, my + dy, ((dy + half) * PlanetaryMetrics.SourceBox) + dx + half);
+                    var inFrame = x >= 0 && x < width && y >= 0 && y < height;
+                    drawn[i] = inFrame ? into[y, x] : float.NaN;
+                    moon[i] = inFrame ? (float)(level + (Math.Max(window[((y - y0) * MoonWindowSize) + (x - x0)], 0f) * scale)) : float.NaN;
+                }
+            }
+            PlanetaryDering.KeepMoon(drawn, moon, (dx, dy) => !Holds(mx + dx, my + dy));
             for (var y = Math.Max(0, my - reach); y <= Math.Min(height - 1, my + reach); y++)
             {
                 for (var x = Math.Max(0, mx - reach); x <= Math.Min(width - 1, mx + reach); x++)
                 {
-                    if (((x - mx) * (x - mx)) + ((y - my) * (y - my)) <= reach * reach && !Holds(x, y))
-                    {
-                        into[y, x] = (float)(level + (Math.Max(window[((y - y0) * MoonWindowSize) + (x - x0)], 0f) * scale));
-                    }
+                    into[y, x] = drawn[((y - my + half) * PlanetaryMetrics.SourceBox) + x - mx + half];
                 }
             }
             sharpened++;

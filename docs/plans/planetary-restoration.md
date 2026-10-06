@@ -3778,6 +3778,53 @@ size). The owner asked for it: "the edges can be a bit weird in planetary data a
 | R3, first version (crop read off the folded weight) | EdgeHD held; Meade 16 cropped to 459 x 203, the 678MC to 474 x 498, the 12-inch SCT to 407 x 381, each into its halo by 1 to 4 px | FAILED |
 | R3: on the four outside captures the crop moves no pixel, and keeps the planet's footprint with 8 px to spare | crops of 4 to 16 px a side (EdgeHD 628 x 620 of 640, Meade 16 508 x 316 of 512 x 320, 678MC 636 x 636 of 640, SCT 628 x 412 of 656 x 424), bit for bit, the 2 % footprint 16 to 272 px inside | holds |
 
+### A moon found on a glow, and a moon kept with its glow (#1301)
+
+The owner found a flat, hard-edged disc beside the ring tip of the 2021-08-01 Saturn's sharpened master ("aliens?"). It was in **blue** alone: a
+radius-5 region (`PlanetaryDering.MoonReachPx`) where the sharpening of a "moon" was kept, holding blue's stack glow at 1 to 2 % of the peak
+while the planet's model was drawn around it at 0.3 %.
+- **Why it was taken for a moon:** `CompactSources` measured a candidate above the MEDIAN of its 25 px box. On a steep glow the brightest
+  pixel within 2 px lies on the bright side and the median on the dark side, so a noise maximum there stood 0.0136 of the disk above it,
+  past the 0.01 floor. Against a plane fitted to the same box it sat 0.3 local deviations below: no source. Red's and green's read 0.006
+  and 0.008. The run's report read moons off the first channel only, so it said none.
+- **A source now stands above the plane its surroundings make** (`PlanetaryMetrics.PeakAbovePlane`, `SurroundPlane`: least squares over
+  the box beyond the reach), by the same threshold, as well as above its box's median. `SourcePeak` is unchanged, so every moon's measured
+  peak stays.
+- **A kept moon adds its own light, never the glow it sits in** (`PlanetaryDering.KeepMoon`, ONE routine for `Bounded`, `Outside` and the
+  moons beyond the window): within the reach, its sharpening above the plane its own surroundings make, laid on the plane what is drawn about
+  it makes, feathered from 2 px inside the reach to nothing at it. Kept whole, every real moon also had a dark ring at the reach, where its
+  sharpening (tighter than the stack's halo) was cut off hard and the halo took over.
+- **The report reads every channel's moons**, as many as the sharpening looks for (`PlanetaryDering.MaxMoons`).
+
+**The rule, set before measuring (on #1301), and what was read**, on 11 captures (the three r8m twins, 2022-09-03 Red, 2022-10-09
+Jupiter and Saturn, 2021-08-01, the four outside captures), every channel:
+
+| Rule | Read | |
+|---|---|---|
+| R1: no channel finds a source at the ring tip | none (before, blue at (127, 124), 59 px above half; a real moon here is 3 to 27) | holds |
+| R1: blue within 6 px of (127, 124) within 3 sky deviations of its surroundings' plane | 20.3 (60.0 before); green and red at the same spot, never a disc, read 21.0 and 20.5 | fails as written |
+| R2: every real moon still found | the one source lost, in any channel of any capture, is the false one | holds |
+| R3: each real moon's sharpened peak within 5 % | +0.0 to +1.0 % on all 16 (moon, channel) pairs | holds |
+| R4: the rings 4 to 5 and 5 to 6 px about each moon within 3 sky deviations | fails before (to -47) and after (to +70) | fails as written |
+
+**Both failures are the measure's.** A plane through a 6 to 12 px ring misses the model glow's own curvature by about 20 of a deep
+stack's sky deviations, which is what blue now reads alongside the two channels that never held a disc. The 4 to 5 px ring holds each moon's
+own wing, so R4 reads the moon's profile, not a step. The profiles say what R4 meant to (ring means, sky deviations above the 8 to 9 px
+ring):
+
+| | 3-4 | 4-5 | 5-6 | 6-7 |
+|---|---|---|---|---|
+| 2022-09-03 (630, 462), before | 109 | 13 | 55 | 19 |
+| after | 155 | 118 | 55 | 19 |
+| EdgeHD Saturn (452, 360) green, before | 70 | 9.6 | 23 | 12 |
+| after | 77 | 36 | 23 | 12 |
+| 2021-08-01 (127, 124) blue, before | 51 | 52 | -1.3 | -1.0 |
+| after | -1.7 | -1.6 | -1.3 | -1.0 |
+
+Before, a dark ring at the reach on every real moon and a flat disc with a 53 deviation step on the false one; after, every profile falls
+smoothly. On the unit test's glow (0.3 of the disk at the limb, falling over 10 px), harsher than any capture here, a plane lies a
+little above the glow and the moon stands about 6 % low; on the real captures its peak moved by at most 1 %.
+
 ### S2 The limb fit with the rings in its model
 
 #1232. The fit's forward model gains the rings: each ring's brightness is free, their geometry is the ephemeris', and they are blurred with the globe

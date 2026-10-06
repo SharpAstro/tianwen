@@ -584,7 +584,9 @@ public static class PlanetaryMetrics
     /// <paramref name="apartPx"/> apart: local maxima beyond 1.05 radii whose peak stands above the median of the box about them
     /// (<see cref="SourcePeak"/>) by more than <paramref name="sigmas"/> times the sky's robust noise beyond <see cref="SkyRadii"/>, and by
     /// at least <paramref name="minimumPeak"/> (in the plane's units; the disk is one in a normalised plane), which a stack whose sky is
-    /// all but noiseless still needs (#1181: the bounded limb fix lets these keep their sharpening, and the limb fixes are scored by them).
+    /// all but noiseless still needs (#1181: the bounded limb fix lets these keep their sharpening, and the limb fixes are scored by them);
+    /// and above the plane their surroundings make by as much (<see cref="PeakAbovePlane"/>), since on a planet's steep glow a noise
+    /// maximum stands above its box's median too (#1301).
     /// </summary>
     public static ImmutableArray<(int X, int Y)> CompactSources(ReadOnlySpan<float> plane, int width, int height, MetricDisk disk, int count = 3,
         double sigmas = 20, int apartPx = 12, double minimumPeak = 0.01)
@@ -623,7 +625,8 @@ public static class PlanetaryMetrics
                     continue;
                 }
                 var (peak, _) = SourcePeak(plane, width, height, x, y);
-                if (peak > Math.Max(sigmas * noise, minimumPeak))
+                var threshold = Math.Max(sigmas * noise, minimumPeak);
+                if (peak > threshold && PeakAbovePlane(plane, width, height, x, y) > threshold)
                 {
                     candidates.Add((x, y, peak));
                 }
@@ -689,6 +692,88 @@ public static class PlanetaryMetrics
             }
         }
         return (peak, above);
+    }
+
+    /// <summary>The side of the square about a compact source its surroundings are read in: <see cref="SourcePeak"/>'s 25 px box.</summary>
+    public const int SourceBox = 25;
+
+    /// <summary>
+    /// How far the compact source at (<paramref name="x"/>, <paramref name="y"/>) stands above the plane its surroundings make: the brightest
+    /// pixel within 2 px, as <see cref="SourcePeak"/> takes it, less <see cref="SurroundPlane"/> there. A box's median lies on the dark side of
+    /// a glow, so a noise maximum on its bright side stands above the median as a source does (#1301: blue's beside Saturn's ring tip, 0.0136
+    /// of the disk); above the plane it does not.
+    /// </summary>
+    public static double PeakAbovePlane(ReadOnlySpan<float> plane, int width, int height, int x, int y)
+    {
+        var patch = Patch(plane, width, height, x, y);
+        if (SurroundPlane(patch) is not { } surround)
+        {
+            return double.NaN;
+        }
+        var (top, tx, ty) = (double.NegativeInfinity, 0, 0);
+        for (var dy = -2; dy <= 2; dy++)
+        {
+            for (var dx = -2; dx <= 2; dx++)
+            {
+                var v = patch[((dy + (SourceBox / 2)) * SourceBox) + dx + (SourceBox / 2)];
+                if (v > top)
+                {
+                    (top, tx, ty) = (v, dx, dy);
+                }
+            }
+        }
+        return top - (surround.A + (surround.B * tx) + (surround.C * ty));
+    }
+
+    /// <summary>The <see cref="SourceBox"/> square of <paramref name="plane"/> about (<paramref name="x"/>, <paramref name="y"/>), row by row, NaN off the frame.</summary>
+    public static float[] Patch(ReadOnlySpan<float> plane, int width, int height, int x, int y)
+    {
+        const int half = SourceBox / 2;
+        var patch = new float[SourceBox * SourceBox];
+        for (var dy = -half; dy <= half; dy++)
+        {
+            for (var dx = -half; dx <= half; dx++)
+            {
+                var (sx, sy) = (x + dx, y + dy);
+                patch[((dy + half) * SourceBox) + dx + half] = sx >= 0 && sx < width && sy >= 0 && sy < height ? plane[(sy * width) + sx] : float.NaN;
+            }
+        }
+        return patch;
+    }
+
+    /// <summary>
+    /// The plane z = A + B dx + C dy, (dx, dy) from the middle, fitted by least squares to the pixels of <paramref name="patch"/> (a
+    /// <see cref="SourceBox"/> square, NaN skipped) beyond <see cref="PlanetaryDering.MoonReachPx"/> of its middle: the surface a source's
+    /// surroundings make there. Null with too few to fix one.
+    /// </summary>
+    public static (double A, double B, double C)? SurroundPlane(ReadOnlySpan<float> patch)
+    {
+        const int half = SourceBox / 2;
+        const int reach = PlanetaryDering.MoonReachPx;
+        double n = 0, sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0, sz = 0, sxz = 0, syz = 0;
+        for (var dy = -half; dy <= half; dy++)
+        {
+            for (var dx = -half; dx <= half; dx++)
+            {
+                var z = patch[((dy + half) * SourceBox) + dx + half];
+                if ((dx * dx) + (dy * dy) <= reach * reach || !float.IsFinite(z))
+                {
+                    continue;
+                }
+                (n, sx, sy, sxx, syy, sxy) = (n + 1, sx + dx, sy + dy, sxx + (dx * dx), syy + (dy * dy), sxy + (dx * dy));
+                (sz, sxz, syz) = (sz + z, sxz + (dx * z), syz + (dy * z));
+            }
+        }
+        // The normal equations [n sx sy; sx sxx sxy; sy sxy syy] (A B C) = (sz sxz syz), by Cramer's rule.
+        var det = (n * ((sxx * syy) - (sxy * sxy))) - (sx * ((sx * syy) - (sxy * sy))) + (sy * ((sx * sxy) - (sxx * sy)));
+        if (n < 3 || Math.Abs(det) < 1e-9)
+        {
+            return null;
+        }
+        var a = ((sz * ((sxx * syy) - (sxy * sxy))) - (sx * ((sxz * syy) - (sxy * syz))) + (sy * ((sxz * sxy) - (sxx * syz)))) / det;
+        var b = ((n * ((sxz * syy) - (sxy * syz))) - (sz * ((sx * syy) - (sxy * sy))) + (sy * ((sx * syz) - (sxz * sy)))) / det;
+        var c = ((n * ((sxx * syz) - (sxz * sxy))) - (sx * ((sx * syz) - (sxz * sy))) + (sz * ((sx * sxy) - (sxx * sy)))) / det;
+        return (a, b, c);
     }
 
     private static bool IsLocalMaximum(ReadOnlySpan<float> plane, int width, int x, int y)
