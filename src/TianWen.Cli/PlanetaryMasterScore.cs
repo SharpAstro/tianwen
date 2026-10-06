@@ -326,11 +326,17 @@ internal static class PlanetaryMasterScore
                 PlanetaryMetrics.Normalise(stack.GetChannelSpan(c), master.Width, master.Height, disk), master.Width, master.Height, disk));
             consoleHost.WriteScrollable(string.Create(inv, $"[planetary] {what}: the limb's trough below the stack {string.Join(", ", troughs.Select(u => u.ToString("0.0000", inv)))}"));
         }
-        // The moons this plane shows (#1181): each one's peak and width, the first channel's.
-        foreach (var (x, y) in PlanetaryMetrics.CompactSources(planes[0], master.Width, master.Height, disk))
+        // The moons each plane shows (#1181), as many as the sharpening looks for: each one's peak and width. Every channel's, since a
+        // source one colour's glow alone puts up is one the sharpening keeps in that colour alone (#1301).
+        string[] names = ["red", "green", "blue"];
+        for (var c = 0; c < planes.Length; c++)
         {
-            var (peak, wide) = PlanetaryMetrics.SourcePeak(planes[0], master.Width, master.Height, x, y);
-            consoleHost.WriteScrollable(string.Create(inv, $"[planetary] {what}, the moon at ({x}, {y}): peak {peak:0.0000}, {wide} px above half"));
+            var channel = planes.Length == 1 ? "" : $" in {(c < names.Length ? names[c] : $"channel {c}")}";
+            foreach (var (x, y) in PlanetaryMetrics.CompactSources(planes[c], master.Width, master.Height, disk, count: PlanetaryDering.MaxMoons))
+            {
+                var (peak, wide) = PlanetaryMetrics.SourcePeak(planes[c], master.Width, master.Height, x, y);
+                consoleHost.WriteScrollable(string.Create(inv, $"[planetary] {what}, the moon at ({x}, {y}){channel}: peak {peak:0.0000}, {wide} px above half"));
+            }
         }
     }
 

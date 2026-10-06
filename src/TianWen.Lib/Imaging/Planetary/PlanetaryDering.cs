@@ -27,13 +27,12 @@ public static class PlanetaryDering
     /// <summary>
     /// <paramref name="sharpened"/> held at or above the sky and, outside <paramref name="disk"/>'s outline, at or below
     /// <paramref name="stacked"/>, the plane it was sharpened from: a sharpening only moves light inward past the limb, so light it adds
-    /// there is its ring (#1168). Except about a moon (#1181): within <paramref name="moonReachPx"/> of each compact source
-    /// <see cref="PlanetaryMetrics.CompactSources"/> finds in the stack (a local maximum beyond 1.05 radii standing above its own
-    /// neighbourhood), its sharpening stands. A planet's halo only falls away from the limb, so it holds no such maximum and stays held;
-    /// held too, the moon beside Jupiter on 2022-09-03 was left as stacked (peak 0.024 above the sky against the floored 0.101). The
-    /// planes are the window's (the sky zero, the disk one).
+    /// there is its ring (#1168). Except about a moon (#1181): each compact source <see cref="PlanetaryMetrics.CompactSources"/> finds in the
+    /// stack (a local maximum beyond 1.05 radii standing above its own surroundings) keeps its sharpening (<see cref="KeepMoon"/>). A planet's
+    /// halo only falls away from the limb, so it holds no such maximum and stays held; held too, the moon beside Jupiter on 2022-09-03 was
+    /// left as stacked (peak 0.024 above the sky against the floored 0.101). The planes are the window's (the sky zero, the disk one).
     /// </summary>
-    public static float[] Bounded(ReadOnlySpan<float> sharpened, ReadOnlySpan<float> stacked, int width, int height, MetricDisk disk, int moonReachPx = MoonReachPx)
+    public static float[] Bounded(ReadOnlySpan<float> sharpened, ReadOnlySpan<float> stacked, int width, int height, MetricDisk disk)
     {
         var moons = PlanetaryMetrics.CompactSources(stacked, width, height, disk, count: MaxMoons);
         var result = new float[sharpened.Length];
@@ -43,9 +42,10 @@ public static class PlanetaryDering
             {
                 var i = (y * width) + x;
                 var v = Math.Max(sharpened[i], 0f);
-                result[i] = disk.ClearRadiiAt(x, y) > 1 && !Near(moons, x, y, moonReachPx) ? Math.Min(v, Math.Max(stacked[i], 0f)) : v;
+                result[i] = disk.ClearRadiiAt(x, y) > 1 ? Math.Min(v, Math.Max(stacked[i], 0f)) : v;
             }
         }
+        KeepMoons(result, Floor(sharpened), width, height, disk, moons);
         return result;
     }
 
@@ -76,12 +76,12 @@ public static class PlanetaryDering
 
     /// <summary>
     /// <see cref="Bounded"/>'s three successors measured against its dark trough at the limb (#1171), held at the sky inside the limb and
-    /// free about a moon as it is. Outside the limb: the stack as it is (<see cref="OutsideLimb.Stack"/>); bounded and at or above
-    /// <paramref name="stacked"/> times <paramref name="glowShare"/>, the share of the stack's glow the truth keeps there
+    /// free about a moon as it is (<see cref="KeepMoon"/>). Outside the limb: the stack as it is (<see cref="OutsideLimb.Stack"/>); bounded and
+    /// at or above <paramref name="stacked"/> times <paramref name="glowShare"/>, the share of the stack's glow the truth keeps there
     /// (<see cref="OutsideLimb.ModelFloor"/>); or bounded at the limb and blended to the stack by 1.1 radii (<see cref="OutsideLimb.Blended"/>).
     /// </summary>
     public static float[] Outside(ReadOnlySpan<float> sharpened, ReadOnlySpan<float> stacked, int width, int height, MetricDisk disk, OutsideLimb outside,
-        ReadOnlySpan<float> glowShare = default, int moonReachPx = MoonReachPx, ReadOnlySpan<float> model = default, ReadOnlySpan<float> blurredModel = default)
+        ReadOnlySpan<float> glowShare = default, ReadOnlySpan<float> model = default, ReadOnlySpan<float> blurredModel = default)
     {
         var moons = PlanetaryMetrics.CompactSources(stacked, width, height, disk, count: MaxMoons);
         // Where ModelFeathered hands the model back to the stack: by the plane's inscribed circle, at most 2.5 radii, from 0.5 radii inside it.
@@ -97,7 +97,7 @@ public static class PlanetaryDering
                 var v = Math.Max(sharpened[i], 0f);
                 // The planet is its globe and, for Saturn, its rings: they keep their sharpening as a moon does (S4, #1184).
                 var r = disk.ClearRadiiAt(x, y);
-                if (r <= 1 || Near(moons, x, y, moonReachPx))
+                if (r <= 1)
                 {
                     result[i] = v;
                     continue;
@@ -116,7 +116,64 @@ public static class PlanetaryDering
                 };
             }
         }
+        KeepMoons(result, Floor(sharpened), width, height, disk, moons);
         return result;
+    }
+
+    /// <summary>
+    /// A moon kept in <paramref name="drawn"/>, the <see cref="PlanetaryMetrics.SourceBox"/> square about it of what is drawn there, from
+    /// <paramref name="sharpened"/>, the same square of its sharpening (both <see cref="PlanetaryMetrics.Patch"/>es, in one unit): within
+    /// <see cref="MoonReachPx"/>, the sharpening above the plane its own surroundings make (<see cref="PlanetaryMetrics.SurroundPlane"/>), laid
+    /// on the plane what is drawn about it makes, feathered from 2 px inside the reach to nothing at it. So a moon adds its own light and none
+    /// of the glow it sits in (#1301): kept whole, the blue glow about a ring tip a moon was found on stood five times the model drawn around
+    /// it, a hard-edged disc. A pixel <paramref name="keep"/> refuses (dx, dy from the middle) stays as drawn.
+    /// </summary>
+    public static void KeepMoon(Span<float> drawn, ReadOnlySpan<float> sharpened, Func<int, int, bool> keep)
+    {
+        if (PlanetaryMetrics.SurroundPlane(drawn) is not { } around || PlanetaryMetrics.SurroundPlane(sharpened) is not { } own)
+        {
+            return;
+        }
+        const int half = PlanetaryMetrics.SourceBox / 2;
+        for (var dy = -MoonReachPx; dy <= MoonReachPx; dy++)
+        {
+            for (var dx = -MoonReachPx; dx <= MoonReachPx; dx++)
+            {
+                var d = Math.Sqrt((dx * dx) + (dy * dy));
+                var i = ((dy + half) * PlanetaryMetrics.SourceBox) + dx + half;
+                if (d > MoonReachPx || !float.IsFinite(drawn[i]) || !float.IsFinite(sharpened[i]) || !keep(dx, dy))
+                {
+                    continue;
+                }
+                var s = Math.Clamp((MoonReachPx - d) / 2, 0, 1);
+                var w = s * s * (3 - (2 * s));
+                var moon = sharpened[i] - (own.A + (own.B * dx) + (own.C * dy)) + around.A + (around.B * dx) + (around.C * dy);
+                drawn[i] = (float)((w * moon) + ((1 - w) * drawn[i]));
+            }
+        }
+    }
+
+    // Every moon in `moons` kept in `result` from `sharpened` (KeepMoon), both the window's planes, but on the planet itself, whose globe and
+    // rings keep their sharpening as they are.
+    private static void KeepMoons(float[] result, ReadOnlySpan<float> sharpened, int width, int height, MetricDisk disk, ImmutableArray<(int X, int Y)> moons)
+    {
+        const int half = PlanetaryMetrics.SourceBox / 2;
+        foreach (var (mx, my) in moons)
+        {
+            var drawn = PlanetaryMetrics.Patch(result, width, height, mx, my);
+            KeepMoon(drawn, PlanetaryMetrics.Patch(sharpened, width, height, mx, my), (dx, dy) => disk.ClearRadiiAt(mx + dx, my + dy) > 1);
+            for (var dy = -MoonReachPx; dy <= MoonReachPx; dy++)
+            {
+                for (var dx = -MoonReachPx; dx <= MoonReachPx; dx++)
+                {
+                    var (x, y) = (mx + dx, my + dy);
+                    if (x >= 0 && x < width && y >= 0 && y < height)
+                    {
+                        result[(y * width) + x] = drawn[((dy + half) * PlanetaryMetrics.SourceBox) + dx + half];
+                    }
+                }
+            }
+        }
     }
 
     // The model to `start` radii, the stack from `end`, a smoothstep between.
@@ -155,19 +212,6 @@ public static class PlanetaryDering
 
     /// <summary>How far about a moon, px, its sharpening stands where the planet's is held or handed back to the stack (#1181, #1211).</summary>
     public const int MoonReachPx = 5;
-
-    // Whether (x, y) lies within reach of one of the sources.
-    private static bool Near(ImmutableArray<(int X, int Y)> sources, int x, int y, int reach)
-    {
-        foreach (var (sx, sy) in sources)
-        {
-            if (((x - sx) * (x - sx)) + ((y - sy) * (y - sy)) <= reach * reach)
-            {
-                return true;
-            }
-        }
-        return false;
-    }
 
     /// <summary>
     /// <paramref name="plane"/> sharpened by a trous <paramref name="gains"/> (finest first) and, where given, soft
