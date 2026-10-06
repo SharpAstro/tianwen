@@ -212,6 +212,57 @@ background where it removed a star.
 - **Nebulosity at 4-16 px** held at parity (the remover must not eat knots).
 - **No RC output** anywhere in the loop.
 
+### What the eval could not see, and what it reads since (2026-10-06)
+
+A review of R2's scoring against what the N2N denoiser took to become usable (the owner asked for both on 2026-10-06)
+found `StarRemovalEval`'s arithmetic right and four things it could not see. The measures R2a and R2b were registered
+on are kept to the bit: re-scored, every registered number comes back unchanged (`C:\temp\e2\eval_v2_parity.py` over
+each `starless-eval-v2.json`, written beside the registered report with `--report-name`). The new ones sit beside them:
+- **Removal was one-sided.** A star counts as removed when its 3x3 core is left under a sigma above the plate, so a
+  core dug far below the sky passes. Each band now also reads **Clean** (the core's mean within a sigma of the plate
+  either way, and no pixel within the speckle core 4 sigma off it, both judged against the truth) and **Dug** (the
+  core's mean under minus a sigma, or a pixel 4 sigma under the plate), with the core's signed mean and RMS.
+- **The sky's change was one unsigned number on the luminance.** A level offset, a colour cast and a smoothed noise
+  read alike. It is now taken apart: each channel's signed mean, the draws' level shifts against the texture changed
+  about them (the two add in quadrature to the old number), and the RMS of neighbour differences against the plate's,
+  which reads under 1 where the sky's noise was smoothed.
+- **The footprint residue was pooled.** The draws' percentiles and the share of the pooled squared residue in the worst
+  one percent of draws now say whether a large number is a few tiles or all of them.
+- **Arms were compared at whatever strength each trained to.** Every arm is now also read per session, and the output
+  is blended back toward the input at 0.75, 0.5 and 0.25. The blend turned out to be no matched-strength dial for
+  completeness: a quarter of every star stays, so at 0.75 the field model's 5-20 sigma removal fell from 54 to 1
+  percent. It is one for the sky alone.
+
+**What it showed, over R2a's and R2b's field and Gaussian models** (11 of 12 so far, `r2b_gaussian_s2` still training;
+on the random arm's draws, arm means with the seed range; `C:\temp\e2\eval_v2_table.py`, `eval_v2_core.py`):
+
+| at 100-1000 sigma | removed (registered) | clean | dug | core residual, signed mean / RMS |
+|---|---|---|---|---|
+| R2b field | 64.3 (61.1-67.8) | 16.0 (13.3-18.6) | 51.3 (50.0-52.4) | +0.7 / 5.9 |
+| R2b Gaussian | 9.6 (8.4-10.9) | 6.3 (5.4-7.2) | 1.8 (1.7-1.9) | +14.7 / 44.5 |
+| R2a field | 72.6 (58.5-85.4) | 9.0 (5.1-13.4) | 64.5 (50.9-80.3) | +0.1 / 4.1 |
+| R2a Gaussian | 25.0 (17.3-38.8) | 15.2 (11.6-22.2) | 5.1 (3.3-7.8) | +13.6 / 49.9 |
+
+- **At the bright end the registered "removed" reads the SIGN of the error, not the removal.** The field arm's core
+  residual is unbiased (+0.1 to +0.7 sigma) with an RMS of 4 to 6 sigma, so about half its bright stars fall under the
+  plate and the one-sided test counts them as removed. The Gaussian arm leaves its bright stars, a mean of +14 sigma.
+  H2 holds on the residual's size (an RMS 7 to 12 times the field arm's) and on its sign, not on the registered rate,
+  which overstated the gap: clean removal is 16.0 against 6.3 in R2b and 9.0 against 15.2, reversed, in R2a.
+- **"Dug" at the bright end is that same unbiased scatter's negative half, not a systematic hole.** A pixel 4 sigma
+  under the plate is still a visible dark spot, and the speckle rate (18 to 21 percent of bright sites) agrees.
+- **At 5-20 sigma the arms tie on clean removal** (R2b field 53.5, 48.7-57.1; Gaussian 55.2, 50.5-59.9).
+- **The pooled footprint RMS is a few tiles in every arm.** The median draw reads 0.73 to 1.07 sigma, under or at the
+  gate of 1, and the worst one percent of draws hold 86 to 99.6 percent of the pooled squared residue. `r2b_random_s1`'s
+  16.1 is 13 tiles (its median draw 0.79). Read the footprint by its median and 90th percentile from now on: R2b's
+  field arm 0.75 and 1.37, the Gaussian arm 1.07 and 7.6.
+- **The sky's movement is texture, not smoothing and not level.** The field arm's 0.54 is 0.525 about each tile's level
+  and 0.107 of level, with a noise ratio of 0.97; the Gaussian arm's 0.185 is the same shape. What texture it changes is
+  open. One candidate is the faint stars R0 left in the plates, which a remover taught every star would take as stars;
+  if so, the kill's sky bar partly penalises removing real stars the truth kept.
+- **The clean bar may be strict at the bright end:** the noise plane is low-passed, so at a bright core it can read
+  under the core's own shot noise. An ideal-remover reference (the draw less the injected star's noise-free render,
+  which the export does not write today) would calibrate it.
+
 ## 6. Experiments, in order
 
 | Step | What | Cost | Decides |
