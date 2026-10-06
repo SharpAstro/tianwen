@@ -11,12 +11,11 @@ namespace TianWen.UI.Abstractions
     partial class ImageRendererBase<TSurface>
     {
         // -----------------------------------------------------------------------
-        // Best stack (info panel; a SER only)
+        // Planet and telescope (info panel)
         //
-        // The whole capture stacked as `tianwen planetary-stack` stacks it (PlanetaryBestStack, #1159): the measured best, slow, run in
-        // the background with its progress on the button, both masters written beside the capture and the sharpened one opened. The
-        // planet and telescope section above it (shared with the live view's Derive) gives the derived sharpening its planet and its
-        // diffraction; without them it is the preset's.
+        // What the derived sharpening is made for: the planet and the telescope's pupil, for a SER's Best view (the whole capture stacked
+        // as `tianwen planetary-stack` stacks it, PlanetaryBestStack, #1159, chosen on the transport's view switch since #1314 part 2), the
+        // live view's Derive and a planetary master's. Without them the sharpening is the preset's.
         // -----------------------------------------------------------------------
 
         /// <summary>The designs the panel offers, each with the central obstruction the sharpening assumes for it.</summary>
@@ -39,29 +38,6 @@ namespace TianWen.UI.Abstractions
                 Hit = new HitResult.ButtonHit(stop == 1 ? "StrengthTruth" : "Strength" + stop.ToString("0.#", CultureInfo.InvariantCulture).Replace(".", "")),
             }),
         ];
-
-        /// <summary>The Best stack block as one tree: the action alone, its planet and telescope in the section above it.</summary>
-        private Layout.Node BuildBestStackTree(ViewerState state)
-        {
-            var inv = CultureInfo.InvariantCulture;
-            var running = state.BestStackProgress is not null;
-            var label = state.BestStackProgress is { } fraction
-                ? string.Create(inv, $"Cancel ({fraction * 100:0}%)")
-                : "Best stack";
-            return Layout.Builder.HStack(
-                    PanelButton(label, "BestStack", enabled: true,
-                        onPress: () =>
-                        {
-                            state.BestStackRequested = true;
-                            state.NeedsRedraw = true;
-                        },
-                        widthSample: "Cancel (100%)",
-                        background: running ? TransportTrackFill : ToolbarButtonBg),
-                    Layout.Builder.Spacer().HStar())
-                .WithGap(WaveletGap)
-                .CrossCenter()
-                .RowH(BaseFontSize + WaveletGap);
-        }
 
         /// <summary>
         /// The planet and telescope section as one tree, which the Best stack and the live view's Derive both sharpen for: the planet, the
@@ -216,12 +192,6 @@ namespace TianWen.UI.Abstractions
             PaintTree(BuildTelescopeTree(state, mono), ref y, x, panelWidth);
         }
 
-        /// <summary>The Best stack block, measured and painted through one context as the wavelet block is.</summary>
-        private void RenderBestStackControls(ViewerState state, ref float y, float x, float panelWidth)
-        {
-            DrawSectionHeading(ref y, x, "Best stack", panelWidth);
-            PaintTree(BuildBestStackTree(state), ref y, x, panelWidth);
-        }
 
         // A panel block's tree measured and painted through one context, below y, which moves past it.
         private void PaintTree(Layout.Node tree, ref float y, float x, float panelWidth)

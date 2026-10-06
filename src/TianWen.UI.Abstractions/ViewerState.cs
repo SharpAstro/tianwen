@@ -417,7 +417,41 @@ public sealed class ViewerState
     /// Whether what is on show is the sharpening layer's: the stacked view's masters, or a planetary master's once its sharpening is on
     /// (#1314). A master with its sharpening off is shown as the file holds it.
     /// </summary>
-    public bool SharpenLayerOnShow => ShowStacked || (IsPlanetaryMaster && WaveletSharpenEnabled);
+    public bool SharpenLayerOnShow => ShowStacked || ShowBest || (IsPlanetaryMaster && WaveletSharpenEnabled);
+
+    /// <summary>
+    /// The Best view of a SER (#1314 part 2): the whole capture through the batch stack (<c>PlanetaryBestStack</c>), its master behind the
+    /// same sharpening layer. Asked for, it runs once in the background, the view under it (Frames or Live) staying on show until it
+    /// ends; its result is kept for the capture, so switching back to it is instant.
+    /// </summary>
+    public bool ShowBest { get; set; }
+
+    /// <summary>A SER's view as the transport's switch shows it: the frames, the live rolling stack, or the best stack.</summary>
+    public PlanetaryView PlanetaryView => ShowBest ? PlanetaryView.Best : ShowStacked ? PlanetaryView.Live : PlanetaryView.Frames;
+
+    /// <summary>
+    /// A SER's view chosen (the transport's switch, K, Shift+K): Frames and Live leave a best stack running and keep its result; Best
+    /// asks for one when there is none (<see cref="BestViewRequested"/>).
+    /// </summary>
+    public void ChoosePlanetaryView(PlanetaryView view)
+    {
+        switch (view)
+        {
+            case PlanetaryView.Frames:
+                (ShowStacked, ShowBest) = (false, false);
+                break;
+            case PlanetaryView.Live:
+                (ShowStacked, ShowBest) = (true, false);
+                break;
+            case PlanetaryView.Best:
+                ShowBest = true;
+                BestViewRequested = true;
+                break;
+        }
+        WaveletDirty = true;
+        NeedsTextureUpdate = true;
+        NeedsRedraw = true;
+    }
 
     // --- Wavelet sharpening (the live stacked view and a planetary master) ---
 
@@ -522,8 +556,14 @@ public sealed class ViewerState
     /// <summary>The SER the sequence on screen was opened from; null for any other file. What a best stack stacks.</summary>
     public string? SequencePath { get; set; }
 
-    /// <summary>Set by the Best stack button or Shift+K; the controller starts the run, or cancels the one running, and clears it.</summary>
+    /// <summary>Set by Shift+K; the controller cancels the best stack running, or shows the Best view (asking for one), and clears it.</summary>
     public bool BestStackRequested { get; set; }
+
+    /// <summary>
+    /// Set by choosing the Best view; the controller starts the best stack when the capture has none yet and none runs, and clears it. It
+    /// never cancels one (#1314 part 2).
+    /// </summary>
+    public bool BestViewRequested { get; set; }
 
     /// <summary>The running best stack's progress, 0 to 1, or null when none runs. Written by the controller each tick.</summary>
     public double? BestStackProgress { get; set; }
@@ -868,4 +908,12 @@ public sealed class ViewerState
         NeedsTextureUpdate = false,
         MouseScreenPosition = (-1f, -1f),
     };
+}
+
+/// <summary>A SER's view (#1314 part 2): its frames as recorded, the live rolling stack about the playhead, or the whole capture's best stack.</summary>
+public enum PlanetaryView
+{
+    Frames,
+    Live,
+    Best,
 }

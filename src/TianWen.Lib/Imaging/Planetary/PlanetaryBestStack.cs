@@ -46,6 +46,13 @@ public sealed record PlanetaryBestStackOptions(CatalogIndex? Planet, Pupil? Tele
     /// takes away the teal fringe between Saturn's globe and its inner ring.
     /// </summary>
     public bool LuminanceOnly { get; init; }
+
+    /// <summary>
+    /// The strengths whose gains the run also fits, kept with the master as it was sharpened, before its colour balance
+    /// (<see cref="PlanetaryBestStackResult.Layer"/>, #1314): a viewer shows the run's master at each of them without deriving again.
+    /// Empty, the default, keeps none.
+    /// </summary>
+    public ImmutableArray<double> FitStops { get; init; } = [];
 }
 
 /// <summary>The best stack of a capture: the stack as integrated (linear) and as sharpened, and how it was sharpened, in words.</summary>
@@ -53,6 +60,13 @@ public sealed record PlanetaryBestStackResult(PlanetaryStackResult Stack, Image 
 {
     /// <summary>The colour balance both masters were given (<see cref="PlanetaryColourBalance"/>), null when none was.</summary>
     public ColourBalance? Balance { get; init; }
+
+    /// <summary>
+    /// What a viewer's sharpening layer shows the run through (#1314), when <see cref="PlanetaryBestStackOptions.FitStops"/> asked for it
+    /// and the gains were derived: the master as it was sharpened, before its colour balance, and the derivation the run made of it, its
+    /// gains at every stop and the limb with the balance. Null otherwise. The caller owns its master.
+    /// </summary>
+    public BestStackLayer? Layer { get; init; }
 
     /// <summary>The colour balance in words, or why there was none.</summary>
     public string HowBalanced { get; init; } = "";
@@ -127,12 +141,17 @@ public static class PlanetaryBestStack
         var handedOn = false;
         try
         {
-            var (sharpened, how) = Sharpen(result.Master, options.Planet, result.Epoch, options.Telescope, options.WavelengthsNm, options.Fix, options.Strength, options.LuminanceOnly);
+            var (sharpened, how, derived) = SharpenCore(result.Master, options.Planet, result.Epoch, options.Telescope, options.WavelengthsNm,
+                options.Fix, options.Strength, options.LuminanceOnly, options.FitStops);
             // The balance comes after the sharpening, which reads each channel's edge through that channel's own diffraction: the
             // saturation mixes the channels.
             var (balance, howBalanced) = options.ColourSaturation is { } saturation
                 ? PlanetaryColourBalance.For(result.Master, options.Planet, result.Epoch, saturation)
                 : (null, "colours left as captured");
+            // The layer re-sharpens the master as it was sharpened here, and draws the balance last, as this run gives it (#1314).
+            var layer = derived is var (sharpening, sharpenedWith, pupil) && !options.FitStops.IsDefaultOrEmpty && sharpening.Limb is not null
+                ? new BestStackLayer(result.Master.Clone(), LayerOf(sharpening, sharpenedWith, pupil, balance, channels: null, options.Strength))
+                : null;
             if (balance is not null)
             {
                 var (balancedMaster, balancedSharpened) = (balance.Apply(result.Master), balance.Apply(sharpened));
@@ -142,7 +161,7 @@ public static class PlanetaryBestStack
             }
             handedOn = true;
             progress?.Report(1);
-            return new PlanetaryBestStackResult(result, sharpened, how) { Balance = balance, HowBalanced = howBalanced };
+            return new PlanetaryBestStackResult(result, sharpened, how) { Balance = balance, HowBalanced = howBalanced, Layer = layer };
         }
         finally
         {
@@ -166,12 +185,21 @@ public static class PlanetaryBestStack
     public static (Image Sharpened, string How) Sharpen(Image master, CatalogIndex? planet, DateTimeOffset? epoch, Pupil? telescope,
         ImmutableArray<double> wavelengthsNm = default, PlanetaryLimbFix? fix = null, double strength = 1, bool luminanceOnly = false)
     {
+        var (sharpened, how, _) = SharpenCore(master, planet, epoch, telescope, wavelengthsNm, fix, strength, luminanceOnly, []);
+        return (sharpened, how);
+    }
+
+    // Sharpen, and where the gains were derived the result and the options it was made with, for a viewer's layer (#1314).
+    private static (Image Sharpened, string How, (PlanetarySharpenResult Result, PlanetarySharpenOptions Options, Pupil Pupil)? Derived) SharpenCore(
+        Image master, CatalogIndex? planet, DateTimeOffset? epoch, Pupil? telescope, ImmutableArray<double> wavelengthsNm, PlanetaryLimbFix? fix,
+        double strength, bool luminanceOnly, ImmutableArray<double> fitStops)
+    {
         if (SharpenOptionsFor(master, planet, epoch, telescope, wavelengthsNm) is not { } options)
         {
             return (WaveletSharpen.Sharpen(master, PresetAt(strength)),
-                $"PlanetaryDefault{StrengthWords(strength)}: the sharpening is derived only for a named Jupiter or Saturn with frame times");
+                $"PlanetaryDefault{StrengthWords(strength)}: the sharpening is derived only for a named Jupiter or Saturn with frame times", null);
         }
-        options = options with { Strength = strength, LuminanceOnly = luminanceOnly };
+        options = options with { Strength = strength, LuminanceOnly = luminanceOnly, FitStops = fitStops.IsDefault ? [] : fitStops };
         if (fix is { } chosen)
         {
             options = options with { Fix = chosen };
@@ -179,12 +207,29 @@ public static class PlanetaryBestStack
         if (PlanetarySharpening.Sharpen(master, options) is not { } result)
         {
             return (WaveletSharpen.Sharpen(master, PresetAt(strength)),
-                $"PlanetaryDefault{StrengthWords(strength)}: the planet's limb could not be fitted, so the sharpening cannot be derived");
+                $"PlanetaryDefault{StrengthWords(strength)}: the planet's limb could not be fitted, so the sharpening cannot be derived", null);
         }
         var inv = CultureInfo.InvariantCulture;
         return (result.Sharpened, result.Derived
             ? string.Create(inv, $"gains {string.Join(", ", result.Gains.Select(g => g.ToString("0.00", inv)))} derived through the limb's edge{StrengthWords(strength)}{(luminanceOnly && master.ChannelCount == 3 ? " on the luminance, the stack's colour kept" : "")}, {Describe(result.Fix)}")
-            : $"PlanetaryDefault{StrengthWords(strength)} with the limb kept as stacked; the telescope's aperture gives the derived sharpening");
+            : $"PlanetaryDefault{StrengthWords(strength)} with the limb kept as stacked; the telescope's aperture gives the derived sharpening",
+            result.Derived && options.Pupil is { } pupil ? (result, options, pupil) : null);
+    }
+
+    // What a derived sharpening hands a live view: the first channel's gains at the strength asked, every channel's at each stop, and the
+    // limb with the colour balance and the colours' reading it was made with, worded as a derivation (#1314).
+    private static DerivedGains LayerOf(PlanetarySharpenResult result, PlanetarySharpenOptions options, Pupil pupil, ColourBalance? balance,
+        PlanetaryChannelAlignmentResult? channels, double strength)
+    {
+        var lead = string.Create(CultureInfo.InvariantCulture,
+            $"derived for {options.Planet} through a {pupil.DiameterM * 1000:0} mm pupil at {options.WavelengthsNm[0]:0} nm");
+        var tail = (channels is null ? "" : $"; {channels.Describe()}") + (balance is null ? "" : $"; {balance.Describe()}");
+        return new DerivedGains([.. result.Gains.Select(g => (float)g)], $"{lead}{StrengthWords(strength)}{tail}", result.Limb?.WithColour(balance, channels))
+        {
+            Stops = result.Stops,
+            Lead = lead,
+            Tail = tail,
+        };
     }
 
     // The preset with bands 2 and 3 at a strength, by the one rule (PlanetarySharpening.Strengthened).
@@ -247,19 +292,11 @@ public static class PlanetaryBestStack
                 {
                     return new DerivedGains([], "the gains could not be derived", null);
                 }
-                var lead = string.Create(inv, $"derived for {options.Planet} through a {pupil.DiameterM * 1000:0} mm pupil at {options.WavelengthsNm[0]:0} nm");
                 // The colour balance the batch gives a master of this planet (#1212), read once here and given to every master drawn.
                 var balance = aligned.ChannelCount == 3 && colourSaturation is { } saturation
                     ? PlanetaryColourBalance.For(aligned, options.Planet, options.When, saturation).Balance
                     : null;
-                var tail = (channels is null ? "" : $"; {channels.Describe()}") + (balance is null ? "" : $"; {balance.Describe()}");
-                return new DerivedGains([.. result.Gains.Select(g => (float)g)], $"{lead}{StrengthWords(strength)}{tail}",
-                    result.Limb?.WithColour(balance, channels))
-                {
-                    Stops = result.Stops,
-                    Lead = lead,
-                    Tail = tail,
-                };
+                return LayerOf(result, options, pupil, balance, channels, strength);
             }
             finally
             {
@@ -278,12 +315,14 @@ public static class PlanetaryBestStack
 
     /// <summary>
     /// A live view's wavelet sliders set to derived <paramref name="gains"/>: the same a trous gains as the derived sharpening, no
-    /// denoise (the derivation weighed the noise already), each channel held at its darkest level. Outside the limb a master is then drawn
-    /// by the limb the derivation kept (<see cref="PlanetaryLiveLimb.Draw"/>, #1201), which holds the inside at the sky. One builder, so the
-    /// GUI's sliders and <c>planetary-sharpen --sliders</c>, which measures them, sharpen alike.
+    /// denoise (the derivation weighed the noise already), each channel held at its darkest level and NOT clamped at its peak: the derived
+    /// sharpening keeps what it lifts past the stack's brightest pixel, and a ceiling there cut a Best view at strength 1.5 by 0.27 of the
+    /// disk's level from the batch (#1314; at the truth the lift had stayed under the peak). Outside the limb a master is then drawn by the
+    /// limb the derivation kept (<see cref="PlanetaryLiveLimb.Draw"/>, #1201), which holds the inside at the sky. One builder, so the GUI's
+    /// sliders and <c>planetary-sharpen --sliders</c>, which measures them, sharpen alike.
     /// </summary>
     public static WaveletSharpenOptions SliderOptions(ImmutableArray<float> gains)
-        => new WaveletSharpenOptions { Gains = gains, HoldAtDarkest = true };
+        => new WaveletSharpenOptions { Gains = gains, HoldAtDarkest = true, Clamp = false };
 
     /// <summary>
     /// The instant <paramref name="master"/> shows its planet at: the run's <paramref name="epoch"/> when it was de-rotated to one, else
@@ -421,3 +460,10 @@ public sealed record DerivedGains(ImmutableArray<float> Gains, string How, Plane
         return Lead is null ? How : $"{Lead}{PlanetaryBestStack.StrengthWords(strength)}{Tail}";
     }
 }
+
+/// <summary>
+/// A best stack as a viewer's sharpening layer shows it (#1314): the master as it was sharpened, before its colour balance, which the
+/// caller owns, and the run's own derivation of it (every channel's gains at every stop, and the limb with the balance), so no Derive is
+/// needed to switch its stops.
+/// </summary>
+public sealed record BestStackLayer(Image Master, DerivedGains Derived);

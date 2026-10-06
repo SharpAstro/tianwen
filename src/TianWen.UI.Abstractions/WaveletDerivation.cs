@@ -21,6 +21,9 @@ internal sealed class WaveletDerivation : IDisposable
     private Task<DerivedGains>? _task;
     private int _disposed;
 
+    /// <summary>How many derivations have started; switching views and stops starts none (#1314 rule 7). For tests.</summary>
+    internal int Started { get; private set; }
+
     /// <summary>
     /// Render thread, each tick of a live view: applies a finished derivation to <paramref name="state"/> (its gains to the sliders, or the
     /// reason there are none), then starts one over <paramref name="source"/>'s master when the panel asked and none runs. The planet and a
@@ -93,6 +96,7 @@ internal sealed class WaveletDerivation : IDisposable
 
         state.WaveletDeriving = true;
         state.NeedsRedraw = true;
+        Started++;
         var token = _cts.Token;
         _task = Task.Run(() =>
         {

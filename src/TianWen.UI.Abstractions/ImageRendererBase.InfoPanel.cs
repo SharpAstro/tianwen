@@ -94,18 +94,12 @@ namespace TianWen.UI.Abstractions
 
             // Wavelet-sharpen layer sliders: the live stacked view's, and a planetary master's (#1314). They re-sharpen a master; they have
             // no effect on a raw frame.
-            if (state.ShowStacked || state.IsPlanetaryMaster)
+            if (state.ShowStacked || state.ShowBest || state.IsPlanetaryMaster)
             {
                 y += FontSize;
                 RenderWaveletControls(state, ref y, x, maxTextWidth);
             }
 
-            // The whole capture stacked as planetary-stack stacks it, for a SER (#1159).
-            if (state.SequencePath is not null)
-            {
-                y += FontSize;
-                RenderBestStackControls(state, ref y, x, maxTextWidth);
-            }
 
             // The SELECTION used to have a section here. It now floats over the picture instead
             // (ImageRendererBase.SelectionPanel.cs), with a dedicated info panel shared with the sky

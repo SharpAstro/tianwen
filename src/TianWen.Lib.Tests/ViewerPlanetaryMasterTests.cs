@@ -280,7 +280,7 @@ public class ViewerPlanetaryMasterTests
     }
 
     // Each plane over its own disk's level (the mean inside 0.8 radii), then the largest difference inside the limb and outside it.
-    private static (double Inside, double Outside) Difference(Image a, Image b, double cx, double cy, double r)
+    internal static (double Inside, double Outside) Difference(Image a, Image b, double cx, double cy, double r)
     {
         a.Width.ShouldBe(b.Width);
         a.Height.ShouldBe(b.Height);

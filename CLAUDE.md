@@ -1051,7 +1051,11 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   (`DerivedGains.ChannelGainsAt`, `WaveletSharpenOptions.ChannelGains`) while the dials hold the derivation's: one set for all put a colour
   master's green and blue 3e-3 and 5.5e-3 of the disk from the batch; a new stop goes into that list, never a second one. **A
   planetary master opened as a file gets the stacked view's own layer** (`LiveStackPreviewSource` on a `FixedMaster`, `OBJECT` naming the
-  planet, sharpening off until asked), never a second sharpening path, and **a Save writes what is on show** (`ShownDocument`). **Saturn is sharpened
+  planet, sharpening off until asked), never a second sharpening path, and **a Save writes what is on show** (`ShownDocument`). **A SER's
+  view is one switch, Frames / Live / Best** (`ViewerState.ChoosePlanetaryView`, #1314 part 2): Best runs `PlanetaryBestStack` once and
+  shows its master behind the same layer with the run's own stops (`PlanetaryBestStackResult.Layer`), never opens the sharpened file, and
+  each view keeps its own dials. **The derived dials never clamp at a master's peak** (`SliderOptions`, `Clamp = false`): the batch keeps
+  what it lifts past it, and the ceiling put a Best view 0.27 of the disk from the batch at strength 1.5. **Saturn is sharpened
   as Jupiter is** (S4, #1184): the sharpening is kept inside the globe and the rings' footprint
   (`ClearRadiiAt` at most 1) and the model is drawn past it; its limb's edge is the polar arcs alone, true to about 0.15 cycles a pixel, and
   the raw edge still beat a physical kernel fitted short of that. **Its globe turns under rings that stay where they lie** (S5, #1234):

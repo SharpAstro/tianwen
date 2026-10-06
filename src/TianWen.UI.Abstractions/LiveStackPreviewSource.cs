@@ -149,6 +149,9 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
     /// <summary>How many published masters were given a colour look (#1277). Render thread only; for tests.</summary>
     internal int MastersLooked { get; private set; }
 
+    /// <summary>How many published masters were stacked afresh, not only sharpened again (#1314 rule 7). Render thread only; for tests.</summary>
+    internal int StacksPublished { get; private set; }
+
     /// <summary>True while a background stack is running (the stream's reader is in use -- don't dispose).</summary>
     public bool IsBusy => _stackTask is { IsCompleted: false };
 
@@ -222,6 +225,7 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
             {
                 _rawMaster = b.RawMaster;
                 _builtRaw = b.Playhead;
+                StacksPublished++;
             }
             _doc = b.Doc;
             _displayMaster = b.Display;

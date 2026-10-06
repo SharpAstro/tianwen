@@ -472,7 +472,7 @@ namespace TianWen.UI.Abstractions
                     state.ShowInfoPanel = !state.ShowInfoPanel;
                     return true;
                 case InputKey.K when shift:
-                    // The whole capture stacked as planetary-stack stacks it, or the run going on cancelled (a SER only).
+                    // The Best view: the whole capture stacked as planetary-stack stacks it (once), or the run going on cancelled (a SER only).
                     if (state.SequencePath is not null)
                     {
                         state.BestStackRequested = true;
@@ -480,14 +480,11 @@ namespace TianWen.UI.Abstractions
                     }
                     return true;
                 case InputKey.K:
-                    // Toggle the live rolling-window stack vs the raw frame (sequence-only). The controller
-                    // keeps showing the raw frame until the first master is built.
+                    // The frames or the live rolling stack (sequence-only), from either of them or the Best view (#1314 part 2). The
+                    // controller keeps showing the frames until the live stack's first master is built.
                     if (state.IsSequence)
                     {
-                        state.ShowStacked = !state.ShowStacked;
-                        state.WaveletDirty = true; // push the current sharpen state when (re)entering stacked
-                        state.NeedsTextureUpdate = true;
-                        state.NeedsRedraw = true;
+                        state.ChoosePlanetaryView(state.PlanetaryView is PlanetaryView.Live ? PlanetaryView.Frames : PlanetaryView.Live);
                     }
                     return true;
                 case InputKey.L:
