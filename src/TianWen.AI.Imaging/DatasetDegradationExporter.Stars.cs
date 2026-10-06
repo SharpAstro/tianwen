@@ -117,10 +117,15 @@ public static partial class DatasetDegradationExporter
         double X, double Y, double[] Amplitude, double[] FwhmPx, double[] Beta, double AxisRatio, double PositionAngleDeg,
         bool Saturated, double[]? ClipLevel);
 
-    /// <summary>One draw's injection: what was asked for, what was placed, and every star.</summary>
+    /// <summary>One draw's injection: what was asked for, what was placed, and every star; on a synthetic background
+    /// (R2d's D2), the knots its target keeps, the same in every draw of the cell.</summary>
     public sealed record InjectionRow(
         string Tile, string SessionId, int CellX, int CellY, int Draw, string Placement, string Profile, int Requested, int Placed,
-        bool SaturatedFallback, InjectedStarRow[] Stars);
+        bool SaturatedFallback, InjectedStarRow[] Stars, InjectedKnotRow[]? Knots = null);
+
+    /// <summary>One knot of a synthetic background (<see cref="SyntheticBackground.Knot"/>), in the cell's coordinates: its
+    /// widths in pixels, its major axis's angle in degrees and its peak per channel on the master's unit scale.</summary>
+    public sealed record InjectedKnotRow(double X, double Y, double SigmaMajorPx, double SigmaMinorPx, double AngleDeg, double[] Peak);
 
     /// <summary>What the Stars mode reads once per run: the plates and the PSF store.</summary>
     internal sealed class StarsContext
@@ -281,6 +286,14 @@ public static partial class DatasetDegradationExporter
                     $"{sessionId}: the plate has no field profile ({stars.ProfilePath(sessionId)}); give the store its profiles with tianwen dataset starless-plates --profiles-only");
             }
             var population = InjectionPopulation.Build(catalogue, master, plate, 1.0 / divisor, psf, absent, field);
+            // R2d's D2: in place of the plate, a starless background from its coarse scales up (SyntheticBackground).
+            var synthetic = options.SyntheticBackground
+                ? SyntheticBackground.Build(unitPlate, absent, field?.Luminance.Fwhm ?? psf.Average(static p => p.Fwhm))
+                : null;
+            if (synthetic is not null)
+            {
+                logger?.LogInformation("[degrade] {Session}: synthetic background, the plate's scales from {Kept} px kept", sessionId, 1 << synthetic.FirstKept);
+            }
             var drawnWith = options.Profile == StarProfileFamily.Field && field is { } f
                 ? f.Channels.Select(static p => string.Create(CultureInfo.InvariantCulture, $"{p.Fwhm:F2} px b{p.Beta:F2} + table {p.Table.Length}"))
                 : psf.Select(static p => string.Create(CultureInfo.InvariantCulture, $"{p.Fwhm:F2} px b{p.Beta:F2}"));
@@ -315,18 +328,29 @@ public static partial class DatasetDegradationExporter
                 cancellationToken.ThrowIfCancellationRequested();
                 var origin = new PixelPoint(cell.X, cell.Y);
                 var cleanFile = $"x{cell.X}_y{cell.Y}_{FrameClean}{DatasetTileExporter.TileExtension}";
-                var cleanMad = DatasetTileExporter.WriteTile(plateStretched, origin, cell.TileSize, Path.Combine(tilesDir, cleanFile), sessionId);
+                var calibrations = CellMasterCalibration(cell, channels, stackedFrames)
+                    ?? throw new InvalidOperationException($"{sessionId}: cell x{cell.X} y{cell.Y} has no master row with a recorded calibration");
+                var masterDepth = 1.0 / Math.Sqrt(Math.Max(1, stackedFrames));
+                float[][]? background = null;
+                var knots = ImmutableArray<SyntheticBackground.Knot>.Empty;
+                double cleanMad;
+                if (synthetic is not null)
+                {
+                    (background, knots, cleanMad) = SyntheticCell(sessionOptions, synthetic, unitPlate, absent, cell, calibrations, masterDepth,
+                        stackedFrames, DrawSeed(options.Seed, sessionId, cell.X, cell.Y, -1), origMin, balances,
+                        Path.Combine(tilesDir, cleanFile), Path.Combine(tilesDir, SigmaPathFor(cleanFile)), sessionId);
+                }
+                else
+                {
+                    cleanMad = DatasetTileExporter.WriteTile(plateStretched, origin, cell.TileSize, Path.Combine(tilesDir, cleanFile), sessionId);
+                    WriteMasterSigmaTile(unitPlate, origin, cell.TileSize, origMin, balances, calibrations, masterDepth,
+                        Path.Combine(tilesDir, SigmaPathFor(cleanFile)));
+                }
                 tileRows.Add(new DatasetTileExporter.TileManifestRow(
                     Tile: $"tiles/{slug}/{cleanFile}", SessionId: sessionId, Camera: cell.Camera, Frame: FrameClean,
                     SourceFile: "", CellX: cell.X, CellY: cell.Y, TileSize: cell.TileSize, Channels: channels,
                     Gain: cell.Gain, ExposureSeconds: cell.ExposureSeconds, NoiseMad: cleanMad));
                 cleanTiles++;
-
-                var calibrations = CellMasterCalibration(cell, channels, stackedFrames)
-                    ?? throw new InvalidOperationException($"{sessionId}: cell x{cell.X} y{cell.Y} has no master row with a recorded calibration");
-                var masterDepth = 1.0 / Math.Sqrt(Math.Max(1, stackedFrames));
-                WriteMasterSigmaTile(unitPlate, origin, cell.TileSize, origMin, balances, calibrations, masterDepth,
-                    Path.Combine(tilesDir, SigmaPathFor(cleanFile)));
 
                 var fieldRadius = halfDiagonal > 0
                     ? Math.Sqrt(Math.Pow(cell.X + (cell.TileSize / 2.0) - (master.Width / 2.0), 2) + Math.Pow(cell.Y + (cell.TileSize / 2.0) - (master.Height / 2.0), 2)) / halfDiagonal
@@ -335,7 +359,7 @@ public static partial class DatasetDegradationExporter
                 {
                     var seed = DrawSeed(options.Seed, sessionId, cell.X, cell.Y, draw);
                     var (row, injection) = InjectCell(sessionOptions, unitPlate, absent, population, cell, draw, seed, stackedFrames, fieldRadius,
-                        origMin, balances, calibrations, tilesDir, slug, sessionId, measures);
+                        origMin, balances, calibrations, tilesDir, slug, sessionId, measures, background, knots);
                     degRows.Add(row);
                     injectionRows.Add(injection);
                     tileRows.Add(new DatasetTileExporter.TileManifestRow(
@@ -403,16 +427,19 @@ public static partial class DatasetDegradationExporter
         string tilesDir,
         string slug,
         string sessionId,
-        InjectionMeasures? measures)
+        InjectionMeasures? measures,
+        float[][]? background = null,
+        ImmutableArray<SyntheticBackground.Knot> knots = default)
     {
         var size = cell.TileSize;
         var channels = unitPlate.ChannelCount;
         var plan = population.Plan(cell.X, cell.Y, size, InjectionMarginPx, options.Placement, options.Profile, options.SaturatedFraction, new Random(seed));
 
+        // The plate's cell, or on R2d's synthetic background the cell's own noisy planes (SyntheticCell).
         var basePlanes = new float[channels][];
         for (var c = 0; c < channels; c++)
         {
-            basePlanes[c] = CutClamped(unitPlate, c, cell.X, cell.Y, size, size);
+            basePlanes[c] = background is not null ? background[c] : CutClamped(unitPlate, c, cell.X, cell.Y, size, size);
         }
         BitMatrix? cellAbsent = null;
         if (absent is { } frameAbsent)
@@ -543,8 +570,78 @@ public static partial class DatasetDegradationExporter
                 s.Profiles.Length > 0 ? s.Profiles[0].AxisRatio : 1.0,
                 s.Profiles.Length > 0 ? s.Profiles[0].PositionAngleRad * 180.0 / Math.PI : 0.0,
                 s.Saturated,
-                s.Saturated ? [.. s.ClipLevels] : null))]);
+                s.Saturated ? [.. s.ClipLevels] : null))],
+            Knots: background is null ? null
+                : [.. knots.Select(static k => new InjectedKnotRow(k.X, k.Y, k.SigmaMajorPx, k.SigmaMinorPx, k.AngleRad * 180.0 / Math.PI, k.Peak))]);
         return (row, injection);
+    }
+
+    /// <summary>
+    /// R2d's D2: one cell's synthetic background (<see cref="SyntheticBackground.Cell"/>) with the master's own noise in its
+    /// own shape at the master's depth, written as the clean tile with its conditioning plane (the noise-free level's, as an
+    /// injected draw's is). Returns the noisy linear planes the cell's draws inject into, the knots and the clean tile's MAD.
+    /// A pixel on the canvas ring keeps the plate's own value, so the ring stays what it was.
+    /// </summary>
+    private static (float[][] Planes, ImmutableArray<SyntheticBackground.Knot> Knots, double CleanMad) SyntheticCell(
+        Options options, SyntheticBackground synthetic, Image unitPlate, BitMatrix? absent, CellSpec cell,
+        LinearDegradation.NoiseCalibration[] calibrations, double masterDepth, int stackedFrames, int seed,
+        float[] origMin, double[] balances, string tilePath, string sigmaPath, string sessionId)
+    {
+        var size = cell.TileSize;
+        var channels = unitPlate.ChannelCount;
+        var noiseSigma = calibrations.Select(k => k.SigmaAt(k.BackgroundAdu, masterDepth)).ToArray();
+        var level = synthetic.Cell(cell.X, cell.Y, size, noiseSigma, new Random(seed), out var knots);
+        var (shape, warpSigma) = DrawNoiseShape(options, seed);
+        var noiseRng = new Random(seed ^ 0x5bd1e995);
+        var noisy = new float[channels][];
+        var noisyPlanes = new float[channels][,];
+        var levelPlanes = new float[channels][,];
+        for (var c = 0; c < channels; c++)
+        {
+            var field = NoiseFieldFor(shape, warpSigma, size, stackedFrames, noiseRng);
+            var plate = CutClamped(unitPlate, c, cell.X, cell.Y, size, size);
+            var plane = new float[size * size];
+            var noisyPlane = new float[size, size];
+            var levelPlane = new float[size, size];
+            for (var y = 0; y < size; y++)
+            {
+                for (var x = 0; x < size; x++)
+                {
+                    var i = (y * size) + x;
+                    var fx = cell.X + x;
+                    var fy = cell.Y + y;
+                    var ring = fx < 0 || fy < 0 || fx >= unitPlate.Width || fy >= unitPlate.Height || (absent is { } a && a[fy, fx]);
+                    var l = ring ? plate[i] : level[c][i];
+                    var v = ring ? plate[i] : (float)(l + (calibrations[c].SigmaAt(l, masterDepth) * field[i]));
+                    plane[i] = v;
+                    noisyPlane[y, x] = v;
+                    levelPlane[y, x] = l;
+                }
+            }
+            noisy[c] = plane;
+            noisyPlanes[c] = noisyPlane;
+            levelPlanes[c] = levelPlane;
+        }
+
+        var noisyImage = new Image(noisyPlanes, BitDepth.Float32, 1f, 0f, unitPlate.Pedestal, unitPlate.ImageMeta);
+        var levelImage = new Image(levelPlanes, BitDepth.Float32, 1f, 0f, unitPlate.Pedestal, unitPlate.ImageMeta);
+        Image? noisyStretched = null;
+        Image? levelStretched = null;
+        try
+        {
+            noisyStretched = noisyImage.MtfStretchWith(origMin, balances);
+            var cleanMad = DatasetTileExporter.WriteTile(noisyStretched, PixelPoint.Empty, size, tilePath, sessionId);
+            levelStretched = levelImage.MtfStretchWith(origMin, balances);
+            WriteSigmaTile(levelStretched, origMin, balances, calibrations, masterDepth, sigmaPath);
+            return (noisy, knots, cleanMad);
+        }
+        finally
+        {
+            levelStretched?.Release();
+            noisyStretched?.Release();
+            levelImage.Release();
+            noisyImage.Release();
+        }
     }
 
     /// <summary>
