@@ -4592,6 +4592,38 @@ the three colours, and each colour's limb profile.
 - **No lattice to speak of in any arm**: each plane's power at Nyquist is at most 6e-8 of its whole. Unsharpened, drizzle leaves 2,000 to
   13,000 times the demosaic's in red and blue (0.5 about twice a whole photosite's); sharpened, up to 7.5 times (red, 0.5, seed 2).
 
+### A session of many files, stacked as one run (#1308)
+
+**The owner's idea (2026-10-06):** a long capture saved as many short files can be stacked as one run, every frame carried to one instant.
+The stacker could already join several SER files of one run in time order (`PlanetaryFrameSequence`) and carry every frame to the run's
+middle (R6 part 2). What was missing was a way to find the runs, and a way to name one.
+
+- **Sessions in the survey** (`PlanetaryCorpus.Sessions`, manifest version 2): two or more plain SER captures of one folder, frame size and
+  colour, chained in time order while each starts within `SessionGap` (10 minutes) of the previous one's last frame. A duplicate, a
+  calibration video or a synthetic capture never joins one. Over `D:/SharpCap Captures` and `D:/Astro-Unsorted` it finds eight, among them
+  2022-09-29's 36 PIPP crops (540,651 frames, 46 minutes, one 6-minute break) and 2024-12-15's 17 Uranus-C files (441,558 frames).
+- **`planetary-stack --session NAME --manifest PATH`** stacks one as a run. **`--epoch`** carries it to an instant of the caller's choosing:
+  a UTC time, or a capture whose best frame (`FrameGrader.BestFrameTimeAsync`, graded as the stack grades) gives it. The default stays the
+  run's middle.
+
+**Measured on 2022-09-29** (the rule on #1308, set before the run; unsharpened, `--keep 0.5`; noise and signal per band inside 0.9 radii,
+the noise read off the master's halves, #1313):
+
+| Colour | band 2 noise, session / middle file | band 3 noise | band 2 signal, session / file | band 3 signal |
+|---|---|---|---|---|
+| red | 0.00004 / 0.00025 | 0.00003 / 0.00015 | 1.045 | 1.027 |
+| green | 0.00003 / 0.00018 | 0.00002 / 0.00010 | 1.034 | 1.020 |
+| blue | 0.00005 / 0.00029 | 0.00003 / 0.00016 | 1.037 | 1.018 |
+
+- **A session beats a file (rule 2 holds).** Its noise is 5 to 6 times lower in bands 1 to 3, as 36 times the frames should give. It keeps
+  1.02 to 1.05 of the file's detail in bands 2 and 3: carrying 46 minutes of Jupiter's turn (about 35 px at the disk's middle) to one instant
+  smeared none of it. The whole run stacked in 38 minutes.
+- **What the de-rotation alone buys (rule 1) is not measured yet**: the same session stacked without it was stopped by the session's
+  low-memory guard. It holds little: under 0.1 GB of private memory at 15,000, 30,000 and 60,000 frames. Its working set is the SER
+  files, memory-mapped (602 MB each, 21.7 GB for the session), clean pages the system can drop.
+- **Stacking each file and combining the stacks** is left for later: `planetary-compose` takes mono stacks, so a colour session's stacks
+  would first be split into their channels.
+
 ### The colour look (#1273)
 
 **Issue:** #1273. The owner, 2026-10-05, on the EdgeHD Saturn beside his own `_post`: ours is sharp, but the post has more colour
