@@ -120,8 +120,8 @@ internal sealed class PlanetaryStackSubCommand(
         };
         var drizzlePixfracOpt = new Option<float>("--drizzle-pixfrac")
         {
-            Description = "Drizzle drop size in (0, 1]. 1.0 (default) = full unit drop (robust coverage). Lower (0.6-0.8) is sharper but needs more frames. Ignored unless --drizzle > 0.",
-            DefaultValueFactory = _ => 1.0f,
+            Description = "Drizzle drop size in (0, 1], a fraction of a photosite. 0.5 (default, measured on the sensor grid, #1092); 1 is a whole photosite (the most coverage per frame). Ignored unless --drizzle > 0.",
+            DefaultValueFactory = _ => PlanetaryDrizzleOptions.DefaultPixfrac,
         };
         var drizzleGlobalOpt = new Option<bool>("--drizzle-global")
         {

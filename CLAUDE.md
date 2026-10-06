@@ -1190,10 +1190,13 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   square difference (`PlanetaryPointEstimator.SquareDifference`) reads the shift unshrunk and reaches the bound on a clean rigid shift,
   but scatters a pixel on a twin (#1207), and beats plain only on the dense grid, so it goes with #1195 or not at all.
   **Bayer drizzle to the sensor grid beats the demosaic above a plane's Nyquist, UNSHARPENED; nothing past the sensor grid pays** at a
-  warp of 0.6 px. **Sharpened as the pipeline sharpens, the demosaic stays the colour default** (#1091, judged 2026-10-03): once a
-  colour master's finest band is kept as stacked (#1187), drizzle no longer wins on both of the colour twin's seeds (4.49 against
-  the demosaic's 4.37 on seed 1). Its earlier margin was band 1 alone, the band the derived gain broke in both arms. Drizzle does not
-  remove the CFA lattice either; the gain did, by lifting it.
+  warp of 0.6 px. **Sharpened as the pipeline sharpens, the demosaic stays the colour default until the owner says otherwise** (#1091):
+  on 2026-10-03, once a colour master's finest band was kept as stacked (#1187), drizzle lost seed 1 (4.49 against 4.37); re-read on
+  today's pipeline (#1092) it wins both seeds, at a whole photosite and at the half photosite that is now **drizzle's default drop**
+  (`PlanetaryDrizzleOptions.DefaultPixfrac`, 4.01 and 4.41 against the demosaic's 4.24 and 4.59). Read those margins against the
+  derived gains' own swing: every drop's unsharpened stack is within 0.4 % of a whole photosite's, while the finest-band edge reading
+  the gains are fitted through moves 0.01 to 0.12 between them and one drop's error 17 %. Drizzle does not remove the CFA lattice; the
+  gain did, by lifting it.
 - **A planet is de-rotated through the spheroid, as ALBEDO, and only from sources inside 0.9 radii** (R6, `PlanetaryDerotation`,
   `PlanetaryProjection`, which the render shares): the limb darkening and the Sun's lighting belong to the viewing geometry, so each
   sample is relit by Minnaert's law (carried as brightness, 46 % of a rendered rotation went, as albedo 99.3 %), and nearer the limb a
