@@ -246,6 +246,14 @@ public sealed record PlanetaryStackResult(Image Master, int ReferenceIndex, int 
     public PlanetaryNorthDecision? North { get; init; }
 
     /// <summary>
+    /// A de-rotation was worth doing (<see cref="TurnPx"/> reached <see cref="PlanetaryDerotationOptions.MinimumTurnPx"/>) but the
+    /// capture could not tell the planet's north (its quarters held no frames to compare, or it turned the planet under
+    /// <see cref="PlanetaryDerotation.LeastTurnToTellNorthDeg"/>), so the stack was made as taken (#1292): north comes from agreement,
+    /// never the limb fit alone.
+    /// </summary>
+    public bool NorthUnread { get; init; }
+
+    /// <summary>
     /// How far the planet's turn over the capture moved the middle of its disk, px, when a de-rotation was asked for
     /// (<see cref="PlanetaryDerotationOptions.MinimumTurnPx"/> decides from it whether one was done); NaN for a capture without frame
     /// times, null when none was asked for.

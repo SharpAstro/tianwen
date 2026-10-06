@@ -44,11 +44,13 @@ public sealed class PlanetaryFrameSequence : IPlanetaryFrameStream
             }
         }
 
-        HasTimestamps = given.All(part => part.HasTimestamps && part.TimestampOf(0) is not null && part.TimestampOf(part.FrameCount - 1) is not null);
-        _parts = HasTimestamps ? [.. given.OrderBy(part => part.TimestampOf(0))] : given;
+        // A capture's place in time is its CaptureSpan, read over every frame, since a capture can hold its frames sorted by quality (#1292).
+        var spans = given.Select(part => part.CaptureSpan).ToArray();
+        HasTimestamps = spans.All(span => span is not null);
+        _parts = HasTimestamps ? [.. given.Zip(spans).OrderBy(pair => pair.Second?.Earliest).Select(pair => pair.First)] : given;
         for (var i = 1; HasTimestamps && i < _parts.Length; i++)
         {
-            if (_parts[i].TimestampOf(0) <= _parts[i - 1].TimestampOf(_parts[i - 1].FrameCount - 1))
+            if (_parts[i].CaptureSpan?.Earliest <= _parts[i - 1].CaptureSpan?.Latest)
             {
                 throw new ArgumentException($"Capture {i} of the sequence starts before the one before it ends: the captures overlap in time.", nameof(parts));
             }

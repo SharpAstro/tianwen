@@ -418,7 +418,12 @@ internal sealed class PlanetaryStackSubCommand(
             {
                 consoleHost.WriteScrollable($"[planetary] left out {result.FramesCut} frames whose planet is cut, by the frame's edge or a straight line inside it, or which hold none (it drifted out of the field)");
             }
-            if (result.Epoch is null && result.TurnPx is { } turn)
+            if (result.NorthUnread && result.TurnPx is { } unreadTurn)
+            {
+                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                    $"[planetary] stacked as taken: the planet's turn moves its disk's middle {unreadTurn:0.00} px over the run, but its first and last quarters could not tell the planet's north, which a de-rotation needs"));
+            }
+            else if (result.Epoch is null && result.TurnPx is { } turn)
             {
                 consoleHost.WriteScrollable(double.IsNaN(turn)
                     ? "[planetary] stacked as taken: the frames carry no times to de-rotate by"

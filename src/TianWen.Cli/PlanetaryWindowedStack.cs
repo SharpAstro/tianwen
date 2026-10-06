@@ -94,7 +94,7 @@ internal sealed class PlanetaryWindowedStack : IDisposable
         using var reader = SerReader.Open(input);
         using var whole = new SerFrameStream(reader, ownsReader: false);
         using var stream = new PlanetaryFrameWindow(whole, 0, Math.Min(whole.FrameCount, frames ?? whole.FrameCount));
-        if (stream.MidCapture is not { } when || stream.TimestampOf(0) is not { } start || stream.TimestampOf(stream.FrameCount - 1) is not { } end)
+        if (stream.MidCapture is not { } when || stream.CaptureSpan is not { Earliest: var start, Latest: var end })
         {
             consoleHost.WriteError($"{input}: no timestamps");
             return null;

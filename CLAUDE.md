@@ -1134,7 +1134,9 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   and that PIPP's crop re-centred has its cut away from the frame's edge, and the gradient took that straight edge for the run's
   sharpest (one such frame was the reference of every stack of the owner's 2021-08-19 Saturn, and every stack carried the seam). No blurred
   limb steps from the dark into the planet along a line, so it is read at one deviation above the mean, where a cut through a ring's dim
-  light still shows.
+  light still shows. **A capture's span is its frames' earliest and latest TIMES, never its first and last frames** (#1292,
+  `CaptureSpan`): PIPP writes a capture sorted by quality, whose first frame was taken mid-run, and every epoch, quarter, turn and DATE-OBS
+  reads the span; a de-rotation whose north the run cannot tell is not done (`NorthUnread`).
 - **An alignment point's patch is cut at the EXACT global shift** (`PlanetaryTile.ExtractLumaAt`), and a mesh is built on it: a residual
   is the local warp alone. Cut at the rounded shift, a residual had to carry the fraction, which a patch along the belts cannot place,
   so every mesh locked to the whole pixel: a mesh stack off by up to half a pixel, and a 3x Bayer drizzle with 17 % of red and blue empty.

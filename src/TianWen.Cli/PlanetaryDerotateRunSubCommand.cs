@@ -52,7 +52,7 @@ internal sealed class PlanetaryDerotateRunSubCommand(IConsoleHost consoleHost)
             }
             var inv = CultureInfo.InvariantCulture;
             using var run = PlanetaryFrameSequence.OpenSer(parseResult.GetValue(capturesArg) ?? []);
-            if (run.MidCapture is not { } epoch || run.TimestampOf(0) is not { } start || run.TimestampOf(run.FrameCount - 1) is not { } end)
+            if (run.MidCapture is not { } epoch || run.CaptureSpan is not { Earliest: var start, Latest: var end })
             {
                 consoleHost.WriteError("the captures carry no timestamps");
                 return 1;

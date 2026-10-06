@@ -3623,17 +3623,42 @@ Measured by a probe that mirrors the rule, on frames of ten real captures (every
 | Capture | Before | After |
 |---|---|---|
 | 2021-08-19 21:54:54 | reference #2077 (cut), 4 left out, the seam | reference #4553, 250 left out, no seam |
-| 2021-08-02 21:32:03 | reference #0 (cut), none left out | reference #2240, 72 left out |
+| 2021-08-01 21:32:03 (local) | reference #0 (cut), none left out | reference #2240, 72 left out |
 | 2022-10-09 11:25, raw drift | reference #2175, 676 left out | the same |
 | 2022-10-09 11:19, PIPP crop | reference #3476, none left out | the same |
 
-The 2021-08-02 capture showed a second fault once its reference was whole. Its frames are sorted by quality, so their timestamps are out of
+The 2021-08-01 capture showed a second fault once its reference was whole. Its frames are sorted by quality, so their timestamps are out of
 order, and the span is read from its first and last frames. Its de-rotation therefore took the limb fit's north unverified: #1292.
 
 **What it costs:** grading a real 300 by 300 colour frame (`RollingGradeBenchmarks`, in process, on the x64 desktop while it trained a
 model) went from 0.71 to 0.86 ms. The flood runs only when a pass over every lit pixel finds a line with 8 steps, which a whole planet over
 its sky never has, since the planet's lines are a subset of those. Without that pass the grade took 1.05 ms. A live stack has 4.6 ms a frame
 at 216 frames a second.
+
+### A capture sorted by quality (#1292)
+
+PIPP can write a capture's frames sorted by quality. The owner's 2021-08-01 Saturn (`21_32_03_mono_with_planet_pipp.ser`, 2,329 frames)
+starts at 11:38:40.4 and ends at 11:35:38.3 of a run from 11:32:22.7 to 11:40:22.0, and 1,167 of its steps between frames go back in time.
+Six places took a capture's span from its first and last FRAMES:
+- the epoch a geometry is read at and a de-rotation carries every frame to (`MidCapture`);
+- whether a de-rotation is worth doing (`FrameDerotator.TurnAtCentrePx`);
+- the steady stack the disk is fitted on, and the first and last quarters that decide north;
+- the master's DATE-OBS and EXPTIME (refused outright when the last frame came first);
+- a sequence's order and its overlap check (`PlanetaryFrameSequence`);
+- the capture statistics' clock.
+
+**A capture's span is the earliest and latest of its frames' times** (`CaptureSpan`, read over every frame), and every one of those reads
+it. The capture statistics read the mount's running mean and the quality's lags in capture order, so they refuse a capture whose frames go
+back in time, naming why, rather than read its order as time.
+
+**A de-rotation whose north the run cannot tell is not done** (`PlanetaryStackResult.NorthUnread`): north comes from agreement, never the
+limb fit alone, so a run whose quarters hold no frames to compare, or which turns the planet under a degree, is stacked as taken and says so.
+A de-rotation asked for whatever the turn (`MinimumTurnPx` 0) keeps the limb fit's north, as before.
+
+Restacked (2026-10-06): the epoch is 11:36:22.3, the run's true middle, and north is read from the quarters, 0.146 apart as fitted against
+0.175 turned over, at 127.9 degrees. Before, both readings were NaN and the stack took the limb fit's 121.3. The stack took 67 s against
+43 s for the same capture stacked as taken: the de-rotation turns one reference for a run of time-consecutive frames, and a capture in
+quality order rebuilds it for nearly every frame.
 
 ### S2 The limb fit with the rings in its model
 

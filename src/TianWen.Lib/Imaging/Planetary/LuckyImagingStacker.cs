@@ -38,7 +38,7 @@ public sealed class LuckyImagingStacker
         var (master, alignment) = await FinalizeAsync(stacked, stream.Layout, options, ctx.Derotator?.Epoch.Utc, cancellationToken).ConfigureAwait(false);
         return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length)
         {
-            Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, TurnPx = ctx.TurnPx, ChannelAlignment = alignment, FramesCut = FramesLeftOutAsCut(ctx.Grades),
+            Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, NorthUnread = ctx.NorthUnread, TurnPx = ctx.TurnPx, ChannelAlignment = alignment, FramesCut = FramesLeftOutAsCut(ctx.Grades),
             AlignmentPoints = ctx.Matcher?.AlignmentPoints.Length ?? 0,
             AlignmentPointCandidates = ctx.AlignmentPointCandidates,
         };
@@ -272,7 +272,7 @@ public sealed class LuckyImagingStacker
         var (master, alignment) = await FinalizeAsync(stacked, stream.Layout, options, ctx.Derotator?.Epoch.Utc, cancellationToken).ConfigureAwait(false);
         return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length)
         {
-            Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, TurnPx = ctx.TurnPx, ChannelAlignment = alignment, FramesCut = FramesLeftOutAsCut(ctx.Grades),
+            Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, NorthUnread = ctx.NorthUnread, TurnPx = ctx.TurnPx, ChannelAlignment = alignment, FramesCut = FramesLeftOutAsCut(ctx.Grades),
             AlignmentPoints = ctx.Matcher?.AlignmentPoints.Length ?? 0,
             AlignmentPointCandidates = ctx.AlignmentPointCandidates,
         };
@@ -410,7 +410,7 @@ public sealed class LuckyImagingStacker
 
         return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length)
         {
-            Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, TurnPx = ctx.TurnPx, ChannelAlignment = alignment, FramesCut = FramesLeftOutAsCut(ctx.Grades),
+            Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, NorthUnread = ctx.NorthUnread, TurnPx = ctx.TurnPx, ChannelAlignment = alignment, FramesCut = FramesLeftOutAsCut(ctx.Grades),
             AlignmentPoints = ctx.Matcher?.AlignmentPoints.Length ?? 0,
             AlignmentPointCandidates = ctx.AlignmentPointCandidates,
         };
@@ -499,6 +499,7 @@ public sealed class LuckyImagingStacker
         ImageMeta MasterMeta,
         FrameDerotator? Derotator,
         PlanetaryNorthDecision? North,
+        bool NorthUnread,
         double? TurnPx,
         int AlignmentPointCandidates);
 
@@ -524,6 +525,7 @@ public sealed class LuckyImagingStacker
         var reference = await stream.LoadAsync(referenceIndex, cancellationToken).ConfigureAwait(false);
         FrameDerotator? derotator = null;
         PlanetaryNorthDecision? north = null;
+        var northUnread = false;
         // How far the planet turns over the capture, at its disk's middle: a capture that turns it less than the options ask is
         // stacked as taken (a NaN, no frame times, never reaches a positive least turn).
         double? turnPx = options.Derotation is { } asked ? FrameDerotator.TurnAtCentrePx(stream, asked.Planet, reference) : null;
@@ -531,15 +533,16 @@ public sealed class LuckyImagingStacker
         {
             // Carried to one epoch (R6 part 2), the stack's disk is the best frame's and its reference the best frame at the
             // epoch, or a stack of the best frames each carried there. Its north is the one the capture agrees with. The
-            // derotator keeps the reference it registers against, so that one is never released here.
+            // derotator keeps the reference it registers against, so the frame is released here; a run whose north cannot be read
+            // keeps the frame as its reference.
             try
             {
                 // The disk is fitted on a stack of the capture's best frames as they are, never on one frame: the limb does not
                 // turn with the planet, and one 8-bit frame's fit put north anywhere from 260.5 to 268.2 degrees on 2024-12-15
                 // (a stack of 150, 263.8), which tilts every frame's rotation by the difference.
                 var plain = AlignerFor(reference, PlanetaryDisk.BoundingBox(reference), options.AlignTileSize, options.WhitenedCorrelation);
-                var steady = stream.TimestampOf(0) is { } firstTime && stream.TimestampOf(stream.FrameCount - 1) is { } lastTime
-                    ? await QuarterStackAsync(stream, grades, firstTime, lastTime, plain, reference.ChannelCount, reference.Width, reference.Height, reference.ImageMeta, options, cancellationToken).ConfigureAwait(false)
+                var steady = stream.CaptureSpan is { } span
+                    ? await QuarterStackAsync(stream, grades, span.Earliest, span.Latest, plain, reference.ChannelCount, reference.Width, reference.Height, reference.ImageMeta, options, cancellationToken).ConfigureAwait(false)
                     : null;
                 FrameDerotator fitted;
                 try
@@ -551,21 +554,34 @@ public sealed class LuckyImagingStacker
                     steady?.Stack.Release();
                 }
                 var (asFitted, turned) = await AgreementBothWaysAsync(stream, grades, fitted, plain, reference.ChannelCount, reference.Width, reference.Height, reference.ImageMeta, options, cancellationToken).ConfigureAwait(false);
-                derotator = (turned < asFitted) != derotation.TurnNorthOver ? fitted.TurnedOver() : fitted;
-                north = new PlanetaryNorthDecision(derotator.Placement.NorthAngleDeg, asFitted, turned);
-                derotator.UseTemplate(derotator.ToEpoch(reference, derotator.AspectOf(referenceIndex)));
+                // North comes from agreement, never the limb fit alone (R6): a run whose quarters cannot tell it (no frames in one, or a
+                // turn under PlanetaryDerotation.LeastTurnToTellNorthDeg) is stacked as taken and says so (#1292), but for a de-rotation
+                // asked for whatever the turn (MinimumTurnPx 0), which keeps the limb fit's north.
+                northUnread = (double.IsNaN(asFitted) || double.IsNaN(turned)) && derotation.MinimumTurnPx > 0;
+                if (!northUnread)
+                {
+                    derotator = (turned < asFitted) != derotation.TurnNorthOver ? fitted.TurnedOver() : fitted;
+                    north = new PlanetaryNorthDecision(derotator.Placement.NorthAngleDeg, asFitted, turned);
+                    derotator.UseTemplate(derotator.ToEpoch(reference, derotator.AspectOf(referenceIndex)));
+                }
             }
             finally
             {
-                reference.Release();
+                if (!northUnread)
+                {
+                    reference.Release();
+                }
             }
-            if (options.ReferenceFrames > 1)
+            if (derotator is not null)
             {
-                derotator.UseTemplate(await StackedReferenceAsync(stream, grades, derotator, options, cancellationToken).ConfigureAwait(false));
+                if (options.ReferenceFrames > 1)
+                {
+                    derotator.UseTemplate(await StackedReferenceAsync(stream, grades, derotator, options, cancellationToken).ConfigureAwait(false));
+                }
+                reference = derotator.Template;
             }
-            reference = derotator.Template;
         }
-        else if (options.ReferenceFrames > 1)
+        if (derotator is null && options.ReferenceFrames > 1)
         {
             reference = await StackedReferenceAsync(stream, grades, reference, options, cancellationToken).ConfigureAwait(false);
         }
@@ -602,10 +618,11 @@ public sealed class LuckyImagingStacker
                 }
             }
 
-            // The master is of the whole capture, so it carries the capture's span (DATE-OBS its first frame, EXPTIME to its last), not
-            // the reference frame's: its middle is the instant a planet's aspect is read at when the master is sharpened later.
-            var masterMeta = stream.TimestampOf(0) is { } first && stream.TimestampOf(stream.FrameCount - 1) is { } last && last >= first
-                ? reference.ImageMeta with { ExposureStartTime = first, ExposureDuration = last - first }
+            // The master is of the whole capture, so it carries the capture's span (DATE-OBS its earliest frame, EXPTIME to its latest,
+            // in whatever order the frames come, #1292), not the reference frame's: its middle is the instant a planet's aspect is read
+            // at when the master is sharpened later.
+            var masterMeta = stream.CaptureSpan is { } captured
+                ? reference.ImageMeta with { ExposureStartTime = captured.Earliest, ExposureDuration = captured.Latest - captured.Earliest }
                 : reference.ImageMeta;
             // And names its planet in OBJECT, where a viewer reads that it is a planetary frame (PlanetaryStackOptions.Planet).
             if ((options.Planet ?? options.Derotation?.Planet) is { } planet)
@@ -613,7 +630,7 @@ public sealed class LuckyImagingStacker
                 masterMeta = masterMeta with { ObjectName = planet.ToString() };
             }
             return new StackContext(grades, referenceIndex, selected, scoreByIndex, aligner, matcher, signalConfidence,
-                reference.Width, reference.Height, reference.ChannelCount, masterMeta, derotator, north, turnPx, apCandidates);
+                reference.Width, reference.Height, reference.ChannelCount, masterMeta, derotator, north, northUnread, turnPx, apCandidates);
         }
         finally
         {
@@ -673,13 +690,17 @@ public sealed class LuckyImagingStacker
     }
 
     // Which way round the planet turns in this capture (R6 part 2, PlanetaryDerotation.AgreementBothWays). The best frames of the
-    // capture's first and last quarters are stacked as they are, each on the reference's disk, and the earlier is carried to the
-    // later's instant both ways round: the RMS apart each way, the limb fit's north first. NaN for both when the capture turns the
-    // planet too little to tell.
+    // capture's first and last quarters (by its frames' times, in whatever order they come, #1292) are stacked as they are, each on the
+    // reference's disk, and the earlier is carried to the later's instant both ways round: the RMS apart each way, the limb fit's north
+    // first. NaN for both when the capture turns the planet too little to tell, or a quarter holds no frame to stack.
     private static async Task<(double AsFitted, double TurnedOver)> AgreementBothWaysAsync(IPlanetaryFrameStream stream, ImmutableArray<FrameGrade> grades,
         FrameDerotator fitted, GlobalAligner aligner, int channels, int width, int height, ImageMeta meta, PlanetaryStackOptions options, CancellationToken cancellationToken)
     {
-        var (first, last) = (fitted.AspectOf(0), fitted.AspectOf(stream.FrameCount - 1));
+        if (stream.CaptureSpan is not { } span)
+        {
+            return (double.NaN, double.NaN);
+        }
+        var (first, last) = (PhysicalEphemeris.Compute(fitted.Epoch.Planet, span.Earliest), PhysicalEphemeris.Compute(fitted.Epoch.Planet, span.Latest));
         if (Math.Abs(Math.IEEERemainder(last.CentralMeridianIII - first.CentralMeridianIII, 360)) < PlanetaryDerotation.LeastTurnToTellNorthDeg)
         {
             return (double.NaN, double.NaN);
