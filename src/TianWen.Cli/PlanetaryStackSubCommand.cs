@@ -427,10 +427,18 @@ internal sealed class PlanetaryStackSubCommand(
             {
                 consoleHost.WriteScrollable($"[planetary] left out {result.FramesCut} frames whose planet is cut, by the frame's edge or a straight line inside it, or which hold none (it drifted out of the field)");
             }
+            if (result.FramesCutKept > 0)
+            {
+                consoleHost.WriteScrollable($"[planetary] kept {result.FramesCutKept} frames whose planet reads as cut or missing: fewer than one frame in twenty is whole, too few to stack without them");
+            }
             if (!result.Cropped.IsEmpty)
             {
                 consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
                     $"[planetary] cropped to {result.Cropped.Width}x{result.Cropped.Height} at ({result.Cropped.X}, {result.Cropped.Y}): the edges fewer than {PlanetaryStackOptions.CoverageCropFraction:0%} of the frames reached"));
+            }
+            if (result.FramesDim > 0)
+            {
+                consoleHost.WriteScrollable($"[planetary] left out {result.FramesDim} frames whose planet is dim, under {FrameGrader.DimRatio:0.#} of the run's brightness (cloud, a bump or defocus)");
             }
             if (result.FramesSmeared > 0)
             {

@@ -59,6 +59,20 @@ public class CutFrameTests
         return frame;
     }
 
+    // `frame` as PIPP pads a planet back to the frame's size (#1307): the top `rows` rows at zero, and the first row of data a blend of
+    // itself and the padding, as PIPP's re-centring by a fraction of a pixel leaves it.
+    private static float[,] Padded(float[,] frame, int rows, float blend)
+    {
+        for (var y = 0; y <= rows; y++)
+        {
+            for (var x = 0; x < Width; x++)
+            {
+                frame[y, x] = y < rows ? 0f : frame[y, x] * blend;
+            }
+        }
+        return frame;
+    }
+
     private static float[,] Sky(Random random)
     {
         var frame = new float[Height, Width];
@@ -99,6 +113,97 @@ public class CutFrameTests
     }
 
     [Fact]
+    public void ADiskFillingAQuarterOfTheFrameIsFoundWholeAndHalfOfItIsCut()
+    {
+        // #1307: a disk filling more than a tenth of the frame lifts the frame's mean plus three deviations above itself, so the planet
+        // was found at no level, every frame read as empty, and with none whole the cut test was off: the owner's 2021-08-19 Jupiter was
+        // stacked on half a planet. Found at its own brightness, a large disk is whole and half of one is cut.
+        var random = new Random(5);
+        for (var i = 0; i < 10; i++)
+        {
+            var whole = Image.FromChannel(Frame(random, 47.3 + (0.37 * i), 36.6 - (0.21 * i), radius: 24), 1f, 0f);
+            FrameGrader.IsCutOrEmpty(whole).ShouldBeFalse("a whole disk filling a quarter of the frame");
+            PlanetaryDisk.Elongation(whole).ShouldBeInRange(1f, 1.1f, "a round disk");
+        }
+        FrameGrader.IsCutOrEmpty(Image.FromChannel(CutInside(Frame(random, 47.3, 36.6, radius: 24), row: 30), 1f, 0f)).ShouldBeTrue("its lower part, PIPP's black above");
+    }
+
+    [Fact]
+    public void APlanetCutAgainstPippsBlendedPaddingIsCutAndOneWhoseSkyMeetsItIsNot()
+    {
+        // #1307: PIPP pads a planet the camera cut back to the frame's size and re-centres it by a fraction of a pixel, which blends
+        // the cut into the first row of data at a fraction of the planet's light. Against one deviation above the frame's mean, which a
+        // large disk lifts, that row was no step out of the dark, so on the owner's 2021-08-19 Jupiter the shallower cuts passed as
+        // whole; the planet's own level counts it.
+        var random = new Random(6);
+        FrameGrader.IsCutOrEmpty(Image.FromChannel(Padded(Frame(random, 47.3, 36.6, radius: 24), rows: 20, blend: 0.6f), 1f, 0f))
+            .ShouldBeTrue("its light meets the padding");
+        FrameGrader.IsCutOrEmpty(Image.FromChannel(Padded(Frame(random, 47.3, 44.2, radius: 18), rows: 12, blend: 0.6f), 1f, 0f))
+            .ShouldBeFalse("its sky meets the padding");
+    }
+
+    [Fact]
+    public void ADiskTexturedMoreStronglyThanAnyPlanetIsStillOneBody()
+    {
+        // The level is set from the sky, never the frame's mean: a disk filling two fifths of the frame lifts its mean halfway into its
+        // own light, and at a level set from there a strong texture fell apart into blobs, none of which held half of it (#1307).
+        var frame = new float[Height, Width];
+        for (var y = 0; y < Height; y++)
+        {
+            for (var x = 0; x < Width; x++)
+            {
+                var r = Math.Sqrt(((x - 47.3) * (x - 47.3)) + ((y - 36.6) * (y - 36.6)));
+                frame[y, x] = r < 30
+                    ? (float)(0.5 + (0.25 * Math.Sin(x * 0.6) * Math.Cos(y * 0.55)) + (0.12 * Math.Sin((x - y) * 0.3)))
+                    : 0.03f;
+            }
+        }
+        var (_, cut, elongation, _, _) = PlanetaryDisk.BoundingBoxAndCut(Image.FromChannel(frame, 1f, 0f));
+        cut.ShouldBeFalse("a whole disk");
+        elongation.ShouldBeInRange(1f, 1.15f, "a round disk");
+    }
+
+    [Fact]
+    public void ADimBlurredFrameWhoseBoxFindsNoPlanetIsGradedOverItsPlanetAndBelowASharpOne()
+    {
+        // #1307: the last frames of the owner's 2021-08-19 21:54:54 Saturn are blurred blobs at a third of the run's brightness. Their box
+        // (the mean plus three deviations) finds no planet and so is the whole frame, and a score divided by that near-empty frame's mean
+        // brightness read their noise as the run's sharpest detail: one became the stack's reference.
+        var random = new Random(7);
+        var blurred = new float[Height, Width];
+        for (var y = 0; y < Height; y++)
+        {
+            for (var x = 0; x < Width; x++)
+            {
+                var r2 = ((x - 47.3) * (x - 47.3)) + ((y - 36.6) * (y - 36.6));
+                blurred[y, x] = (float)(0.01 + (0.04 * Math.Exp(-r2 / (2 * 18.0 * 18.0))) + (0.004 * PhaseScreen.Gaussian(random)));
+            }
+        }
+        var dim = Image.FromChannel(blurred, 1f, 0f);
+        var (box, _, _, graded, _) = PlanetaryDisk.BoundingBoxAndCut(dim);
+        box.ShouldBe(new TianWen.Lib.Geometry.PixelRect(0, 0, Width, Height), "the box finds no planet");
+        graded.Width.ShouldBeLessThan(Width, "graded over its planet");
+        graded.Height.ShouldBeLessThan(Height, "graded over its planet");
+
+        var estimator = new GradientEnergyEstimator();
+        var sharp = FrameGrader.Grade(estimator, Image.FromChannel(Frame(random, 47.3, 36.6), 1f, 0f));
+        FrameGrader.Grade(estimator, dim).ShouldBeLessThan(sharp, "a blurred frame never outscores a sharp one");
+    }
+
+    [Fact]
+    public void ACaptureCountsTheCutFramesItLeftOutOrKept()
+    {
+        // A capture leaves every cut frame out while one frame in twenty is whole, and keeps them all otherwise: the count a host reports
+        // either way, since a test that is off for the whole capture lets a cut planet become the reference (#1307).
+        var mostlyWhole = Enumerable.Range(0, 20).Select(i => new FrameGrade(i, 1f, Cut: i >= 17)).ToImmutableArray();
+        FrameGrader.CutFrames(mostlyWhole).ShouldBe((3, 0));
+        var noneWhole = Enumerable.Range(0, 20).Select(i => new FrameGrade(i, 1f, Cut: true)).ToImmutableArray();
+        FrameGrader.CutFrames(noneWhole).ShouldBe((0, 20));
+        var allWhole = Enumerable.Range(0, 20).Select(i => new FrameGrade(i, 1f)).ToImmutableArray();
+        FrameGrader.CutFrames(allWhole).ShouldBe((0, 0));
+    }
+
+    [Fact]
     public void TheGradesOwnBoxIsTheBoundingBoxOnAMonoFrameAndAColourOne()
     {
         // The grade finds the disk's box in its cut test's scan, and the rolling stack registers the frame by that box (#1174): it must
@@ -114,7 +219,7 @@ public class CutFrameTests
         foreach (var (data, cut) in frames)
         {
             var mono = Image.FromChannel(data, 1f, 0f);
-            var (box, monoCut, _) = PlanetaryDisk.BoundingBoxAndCut(mono);
+            var (box, monoCut, _, _, _) = PlanetaryDisk.BoundingBoxAndCut(mono);
             box.ShouldBe(PlanetaryDisk.BoundingBox(mono));
             if (cut is { } expected)
             {

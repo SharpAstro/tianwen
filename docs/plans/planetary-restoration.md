@@ -3742,9 +3742,9 @@ top 5 rows, and its sharpening found three moons on the band's edge. It was file
 - **The measure:** a planet's shape is fixed over a run, so a frame whose planet lies more than 1.5 times as elongated as the run's whole
   frames at their median was taken while the telescope moved. The elongation is the square root of the ratio of the planet's blob's
   largest to smallest positional variance.
-- **Where it is read:** above 0.3 of the way from the frame's mean to its 99.9th percentile, never at the cut test's mean plus three
-  deviations. A large disk lifts the frame's spread so far that that level lies above the disk itself; the 678MC and 12-inch SCT Jupiters
-  held no pixel there.
+- **Where it is read:** above 0.3 of the way from the frame's sky (its 10th percentile; its mean until #1307) to its 99.9th percentile,
+  never at the cut test's mean plus three deviations. A large disk lifts the frame's spread so far that that level lies above the disk
+  itself; the 678MC and 12-inch SCT Jupiters held no pixel there. Since #1307 the cut test reads the same blob.
 - **Who applies it:** the batch stack and the capture statistics against the run's median, the live stack against the median of the last
   512 frames it graded, once it has read 32.
 - **Measured (2026-10-06):** on four captures off tracked mounts (EdgeHD Saturn, Meade 16 Saturn, 678MC Jupiter, 12-inch SCT Jupiter) no
@@ -3824,6 +3824,77 @@ ring):
 Before, a dark ring at the reach on every real moon and a flat disc with a 53 deviation step on the false one; after, every profile falls
 smoothly. On the unit test's glow (0.3 of the disk at the limb, falling over 10 px), harsher than any capture here, a plane lies a
 little above the glow and the moon stands about 6 % low; on the real captures its peak moved by at most 1 %.
+
+### A planet found at its own brightness, and graded over itself (#1307)
+
+The owner's 2021-08-19 21:41:21 Jupiter (300 by 300 PIPP crops, 3,601 frames) stacked into a master whose top half was horizontal stripes.
+Its reference, #2840, is half a planet: PIPP padded a planet that ran off the camera's sensor back to the frame's size, the cut #1291 is
+about, and the cut test never ran. The cause, three times over, is the same: **every level the planet was found at was a statistic of the
+whole frame, and a disk that fills much of the frame drags those statistics into itself.**
+- **The planet was looked for above the mean plus three deviations.** With a fraction f of the frame at brightness B over a dark sky,
+  that level is B (f + 3 sqrt(f (1 - f))), past B once f passes 0.1. Every frame of 21:41:21 and of the three outside Jupiters (both
+  678MC captures, the 12-inch SCT) read as holding NO planet, so with none whole the one-in-twenty rule switched the cut test off for
+  the whole capture, without a word, and the smear test, which reads only whole frames, with it.
+- **The cut test's `lit` was the mean plus one deviation**, which a large disk lifts above the planet's darker light. PIPP also
+  re-centres a cut planet by a fraction of a pixel, which blends the cut into the first row of data, so the planet climbs out of the
+  padding at a fraction of its light. The first fix found the planet but still took #626, cut 54 rows deep, as the reference.
+- **A level measured from the frame's mean**, even 0.3 of the way to the peak, lies halfway into a disk that fills two fifths of the
+  frame. A strongly textured disk then fell apart into blobs at that level (two unit tests' fixture), the largest holding 0.41 of the
+  light above it.
+- **The grader's box was the third use of the mean plus three deviations.** Where it finds no planet it is the whole frame, and the
+  gradient score is divided by the mean brightness squared, so over a near-empty frame a blurred, dim frame's noise read as the run's
+  sharpest detail. Main never met it on 21:54:54 only because its cut test also failed on that frame. Every frame of the four big-disk
+  captures was graded over the whole frame.
+
+**What it is now** (`PlanetaryDisk.PlanetOf`, `BoundingBoxAndCut`, `FrameGrader.CutFrames`):
+- **The planet is the largest blob above 0.3 of the way from the sky to its peak** (the 10th and 99.9th percentiles, `SkyQuantile`,
+  the convention `Footprint` already used, and `SmearLevel`), and the smear test reads the same blob.
+- **It must hold half the light above that level** (`PlanetShare`), or the level lies in the frame's noise: on thirteen real captures the
+  planet's blob held 0.97 to 1 of it, while over an empty sky or a disk that fills the field the largest speck held at most 0.1, though
+  up to 345 pixels.
+- **`CutInside` floods at the lower of the mean plus one deviation and that level**, which counts PIPP's blended row as the step out of
+  the padding it is. Where the lower is the planet's own level (a big disk), its blob is the one `PlanetOf` has just walked, so the steps
+  are counted over that (`StepsCut`) instead of a second flood.
+- **A frame whose box finds no planet is graded over its planet's own blob**, padded as the box is, never the whole frame. The box a
+  stack registers by is unchanged.
+- **A frame whose planet is dim is left out**, as a smeared one is (`FrameGrader.DimRatio`, `IsDim`, `FrameGrade.Dim`): its peak above
+  the sky under half the run's whole frames' median. Grading over the planet's region was not enough on 21:54:54: over its own region
+  #5571's raw gradient energy is 27 times below #4553's, but divided by its region's brightness squared (0.0117 against 0.062) it still
+  edged ahead. Cloud, a bump or defocus all lower a planet's peak; the grader's normalisation, shared by every stack and measured in
+  R4, stays. The batch stack, the live one (its last 512 frames, as the smear test) and the capture statistics read it alike. Surveyed
+  first, no frame of thirteen tracked captures lies under 0.81 of its run.
+- **A stack that keeps the frames it reads as cut says so** (`PlanetaryStackResult.FramesCutKept`): a capture with fewer than one whole
+  frame in twenty keeps them all, as a Moon filling the field must, and that is no longer silent.
+
+**What was tried and dropped**, each surveyed on every frame of 21:41:21 and about 400 frames of sixteen other captures before any code:
+- **Counting a step out of the dark two pixels away** caught PIPP's blended cuts, and called 310 of 402 whole frames of the 2021-12-16
+  11:19 Maksutov Saturn cut: a ring's blurred edge climbs out of the dark over two pixels too.
+- **A planet's light meeting PIPP's padding** (lines at the frame's floor, ending at a line mostly above it) caught the 13 shallow
+  Jupiter cuts and nothing else, but once `lit` comes from the planet's own level it never fired.
+
+**The rule, set before measuring (on #1307), and what was read.** Rules 1 to 5 were set first. Rule 6 was set once version 2 took a
+blurred last frame of 21:54:54 as its reference, and the owner chose to fix that here; rule 7 once version 3 still did. Each was set
+before the code it judges was written:
+
+| Rule | Read (version 4, the code as merged) |
+|---|---|
+| 1. 21:41:21: #2840 graded cut, the reference a whole frame, the stripes gone by eye | Holds. #2840 is cut; the reference is #2846, whole at the planet's level (its glow clipped by two rows, no seam in the master); the stripes are gone. The derived gains came out 7.20, 2.86 and 0.37, where main's half planet derived 42.28 and -12.81. |
+| 2. Where today's cut test is on, the frames left out move by at most 3 % of the capture, each new one showing the planet at the edge or cut | Holds. 2022-10-09 11:25 leaves out 822 against 676, 146 more (2.77 % of 5,271), every one a ring tip at the frame's edge as the planet drifts out; 21:54:54 249 against 250; 23:20:01 (767) and 21:32:03 (72) unchanged. |
+| 3. The three outside Jupiters (test off until now): cut and smear each under 1 % | Holds: no frame left out by either, nor as dim. |
+| 4. A stack that keeps its cut frames says so | Done: `FramesCutKept`, printed by `planetary-stack`, pinned by `ACaptureCountsTheCutFramesItLeftOutOrKept`. |
+| 5. Grading a 300 by 300 colour frame costs at most 10 % more | Failed as first built: 21:41:21 graded at 1.246 times main's cost (quartiles 1.19 to 1.28), where main had never run the cut test. On a disk that large the cut test's level is the planet's own, so its flood walked `PlanetOf`'s blob a second time; it now counts its steps over that blob, kept in the queue (`StepsCut`), with the same answers on 3,000 frames of five captures, the cut ones included. Then it holds: 1.015 on 21:41:21, 0.987 on 21:54:54, 0.975 on 2022-09-03 Red. |
+| 6a. 21:54:54: a sharp whole reference, the master cropped as main's | Failed on version 3 (#5571 still the reference); holds on version 4: #4553, cropped to 296 by 298 at (2, 2), as main's, with no corner artefact. |
+| 6b. The outside Jupiters' detail correlation in bands 2 to 4, judged against each capture's own `_stack` and `_post`, within 0.01 of main's | Holds: the 678MC 2023-11-11 and the 12-inch SCT within 0.001 of main in every band. |
+| 6c. 21:41:21: the stripes stay gone | Holds. |
+| 7a. 21:54:54 leaves #5571 out as dim, and 6a holds | Holds: 6 frames left out as dim, #5571 among them. |
+| 7b. Every frame left out as dim is blurred, clouded or bumped by eye, and no tracked capture loses one | Holds: 21:54:54's 6 and the 2021-12-16 11:17 Maksutov's 7 are all visibly bumped or smeared; no tracked capture left one out. |
+
+**How the cost was measured.** `RollingGradeBenchmarks` run on main's build and then the branch's swung with the machine's load: the
+bounding box, the same code in both, read 0.47 to 0.91 ms from one run to the next while another session trained a model. So main's
+`TianWen.Lib` and the branch's were loaded side by side into one process, each in its own `AssemblyLoadContext` through its own build's
+dependencies, and graded the same 64 frames in alternating batches, 200 times over. The unchanged bounding box, timed the same way, read
+0.995 to 1.007 of main's. (BenchmarkDotNet's out-of-process build also finds the project to build from the working directory, so a run of
+another tree's binary from this checkout builds this checkout's code.)
 
 ### S2 The limb fit with the rings in its model
 

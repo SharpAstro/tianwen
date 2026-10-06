@@ -1134,14 +1134,21 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   Laplacian's sharpest line, so one was every stack's reference and pulled the statistics' disk a quarter radius off. **So does a frame
   whose planet the frame's edge cuts, or which holds none** (#1237, `FrameGrader.IsCutOrEmpty`), while one frame in twenty is whole
   (`DropsCutFrames`): an untracked Dobsonian drifts the planet out of its field, and 2022-10-09's Saturn stacked a second, partial planet
-  from such frames. The planet is its largest blob, so a moon at the edge cuts nothing; `SelectBest` keeps no zero while any frame scores
-  above it. **A straight line INSIDE the frame cuts it too** (#1291, `PlanetaryDisk.CutInside`): a planet that ran off the camera's sensor
+  from such frames. The planet is its largest blob, so a moon at the edge cuts nothing, **found at a level set from the sky and its own
+  peak** (0.3 of the way from the 10th percentile to the 99.9th, `PlanetaryDisk.SkyQuantile`, `SmearLevel`), **never from the frame's
+  mean or spread**, which a disk filling much of the frame lifts: at the mean plus three deviations every frame of the owner's 2021-08-19
+  Jupiter and of the three outside Jupiters read as EMPTY, so with none whole the test was off without a word and half a planet was a
+  stack's reference (#1307); the cut test's `lit` is the lower of the mean plus one deviation and that level. The blob holds half the light
+  above the level (`PlanetShare`) or the level lies in the noise, and a stack that keeps its cut frames says so (`FramesCutKept`).
+  `SelectBest` keeps no zero while any frame scores above it. **A straight line INSIDE the frame cuts it too** (#1291, `PlanetaryDisk.CutInside`): a planet that ran off the camera's sensor
   and that PIPP's crop re-centred has its cut away from the frame's edge, and the gradient took that straight edge for the run's
   sharpest (one such frame was the reference of every stack of the owner's 2021-08-19 Saturn, and every stack carried the seam). No blurred
   limb steps from the dark into the planet along a line, so it is read at one deviation above the mean, where a cut through a ring's dim
   light still shows. **So does a frame the telescope's MOTION smeared** (#1300, `FrameGrader.SmearRatio`, `PlanetaryDisk.Elongation`): its
-  planet more than 1.5 times as elongated as the run's median, read above 0.3 of the way from the frame's mean to its peak, never at the cut
-  test's mean plus three deviations, which a large disk lifts above itself. A frame smeared as the scope moved was 2021-08-01's
+  planet more than 1.5 times as elongated as the run's median, read from the same blob as the cut test. **And so does a frame whose planet
+  is DIM** (#1307, `FrameGrader.DimRatio`): its peak above the sky under half the run's median, from cloud, a bump or defocus. The
+  grader divides by the frame's brightness squared, so a dim frame's noise reads as detail (a blurred last frame was 21:54:54's reference
+  once its planet was found at all); and **a frame whose box finds no planet is graded over its planet's own blob**, never the whole frame. A frame smeared as the scope moved was 2021-08-01's
   reference, and every frame registered against it left the master's edges covered by none; no frame of four tracked captures passes
   1.06. **A batch master is cropped to where 0.95 of the frames' weight reached** (`CropToCoverage`, `--no-crop`; the deep-sky
   `LargestCoveredRectangle(coverage)`), read off a tally of the frames' FOOTPRINTS (`PlanetaryCoverage`), never the weight the stack

@@ -291,10 +291,23 @@ public sealed record PlanetaryStackResult(Image Master, int ReferenceIndex, int 
     public int FramesCut { get; init; }
 
     /// <summary>
+    /// How many frames read as cut or holding no planet were kept all the same, because fewer than one frame in twenty was whole
+    /// (<see cref="FrameGrader.DropsCutFrames"/>), too few to stack without them: a Moon filling the field. A host says so, since a
+    /// cut test that is off leaves a cut planet free to become the reference (#1307).
+    /// </summary>
+    public int FramesCutKept { get; init; }
+
+    /// <summary>
     /// How many frames were left out because the telescope's motion smeared their planet (<see cref="FrameGrader.SmearRatio"/>, #1300): a
     /// scope that moves during a frame (a bump, a nudge, a slew) draws its planet far longer than the run's.
     /// </summary>
     public int FramesSmeared { get; init; }
+
+    /// <summary>
+    /// How many frames were left out because their planet was dim (<see cref="FrameGrader.DimRatio"/>, #1307): cloud, a bump or defocus
+    /// lowers a planet's peak, and the grader read such a frame's noise as detail.
+    /// </summary>
+    public int FramesDim { get; init; }
 
     /// <summary>
     /// The rectangle of the master's uncropped grid it was cropped to (<see cref="PlanetaryStackOptions.CropToCoverage"/>, #1300), empty
