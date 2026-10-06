@@ -136,6 +136,19 @@ public static class StarRemovalEval
         int Sources, long NearPixels, double NearMean, double NearRms, long FarPixels, double FarMean, double FarRms, int Taken,
         double TakenRate, double CoreMean);
 
+    /// <summary>
+    /// Where a candidate's squared error against the plate lives in the TILE's own units, inside the rim: the luminance's
+    /// share of what a plain L2 against the plate (the trainer's pixel term) is made of. Never in sigma, so a bright core
+    /// the stretch compressed weighs here what it weighs in the loss.
+    /// </summary>
+    /// <param name="Total">The squared error summed over the tile's pixels inside the rim, over every draw.</param>
+    /// <param name="Footprints">The share on the injected footprints.</param>
+    /// <param name="BrightCores">The share in the 3x3 cores of the injected stars of 100 sigma and over, saturated ones included
+    /// (a part of <paramref name="Footprints"/>).</param>
+    /// <param name="SkyNearSources">The share on the sky near a source the plate kept.</param>
+    /// <param name="SkyFar">The share on the rest of the sky.</param>
+    public sealed record LossShare(double Total, double Footprints, double BrightCores, double SkyNearSources, double SkyFar);
+
     /// <summary>One output's (or reference's) scores.</summary>
     /// <param name="Name">The model's outputs, a blend of them with the input, or a reference.</param>
     /// <param name="Completeness">Removed stars by significance band (<see cref="CompletenessEdges"/>, a band under the
@@ -148,9 +161,11 @@ public static class StarRemovalEval
     /// <param name="Sky">The sky's change taken apart.</param>
     /// <param name="Footprint">The footprint residue's spread over the draws.</param>
     /// <param name="PlateSources">The sky's change near the sources the plate kept, and away from them.</param>
+    /// <param name="Loss">Where the squared error a plain L2 sees lives.</param>
     public sealed record ArmScores(
         string Name, ImmutableArray<BandRow> Completeness, double FootprintRms, long FootprintPixels, double SkyRms, long SkyPixels,
-        ImmutableArray<SpeckleRow> Speckles, SpeckleRow SpeckleNull, SkyDetail Sky, FootprintDetail Footprint, PlateSourceDetail PlateSources);
+        ImmutableArray<SpeckleRow> Speckles, SpeckleRow SpeckleNull, SkyDetail Sky, FootprintDetail Footprint, PlateSourceDetail PlateSources,
+        LossShare Loss);
 
     /// <summary>One session's scores: every arm over that session's draws alone, so a pooled number can be told from one
     /// night's.</summary>
@@ -249,6 +264,10 @@ public static class StarRemovalEval
         public double FarSum { get; set; }
         public double FarSq { get; set; }
         public long FarPixels { get; set; }
+        public double RawFootprintSq { get; set; }
+        public double RawBrightCoreSq { get; set; }
+        public double RawNearSq { get; set; }
+        public double RawFarSq { get; set; }
         public int[] SpeckleSites { get; } = new int[StarlessSpeckles.BandEdges.Length];
         public int[] Speckled { get; } = new int[StarlessSpeckles.BandEdges.Length];
         public int NullSites { get; set; }
@@ -341,6 +360,25 @@ public static class StarRemovalEval
             }
         }
 
+        // The bright stars' cores (100 sigma and over, saturated ones too), whose share of a plain L2 the loss readout reads.
+        var brightCore = new BitMatrix(size, size);
+        foreach (var (x, y, significance, saturated) in sites)
+        {
+            if (!saturated && CompletenessBand(significance) < CompletenessEdges.IndexOf(100f) + 1)
+            {
+                continue;
+            }
+            var cx = (int)Math.Round(x);
+            var cy = (int)Math.Round(y);
+            for (var yy = cy - 1; yy <= cy + 1; yy++)
+            {
+                for (var xx = cx - 1; xx <= cx + 1; xx++)
+                {
+                    brightCore[yy, xx] = true;
+                }
+            }
+        }
+
         var arms = new ArmAccumulator[ArmNames.Length];
         for (var a = 0; a < arms.Length; a++)
         {
@@ -383,13 +421,27 @@ public static class StarRemovalEval
                     continue;
                 }
                 var z = (candidate[i] - plate[i]) / sigma[i];
+                var raw = (double)(candidate[i] - plate[i]) * (candidate[i] - plate[i]);
                 if (input[i] != plate[i])
                 {
                     acc.FootprintSq += z * z;
                     acc.FootprintPixels++;
+                    acc.RawFootprintSq += raw;
+                    if (brightCore[i / size, i % size])
+                    {
+                        acc.RawBrightCoreSq += raw;
+                    }
                 }
                 else
                 {
+                    if (near[i / size, i % size])
+                    {
+                        acc.RawNearSq += raw;
+                    }
+                    else
+                    {
+                        acc.RawFarSq += raw;
+                    }
                     acc.SkySq += z * z;
                     acc.SkyPixels++;
                     acc.SkySum += z;
@@ -573,6 +625,10 @@ public static class StarRemovalEval
             total.FarSum += d.FarSum;
             total.FarSq += d.FarSq;
             total.FarPixels += d.FarPixels;
+            total.RawFootprintSq += d.RawFootprintSq;
+            total.RawBrightCoreSq += d.RawBrightCoreSq;
+            total.RawNearSq += d.RawNearSq;
+            total.RawFarSq += d.RawFarSq;
             total.NullSites += d.NullSites;
             total.NullSpeckled += d.NullSpeckled;
             if (d.FootprintPixels > 0)
@@ -617,7 +673,16 @@ public static class StarRemovalEval
                 total.NearPixels, PerPixel(total.NearSum, total.NearPixels), Math.Sqrt(PerPixel(total.NearSq, total.NearPixels)),
                 total.FarPixels, PerPixel(total.FarSum, total.FarPixels), Math.Sqrt(PerPixel(total.FarSq, total.FarPixels)),
                 total.PlateSourcesTaken, Rate(total.PlateSourcesTaken, total.PlateSourceCount),
-                total.PlateSourceCount > 0 ? total.PlateSourceCoreSum / total.PlateSourceCount : double.NaN));
+                total.PlateSourceCount > 0 ? total.PlateSourceCoreSum / total.PlateSourceCount : double.NaN),
+            Shares(total));
+    }
+
+    // The squared error's shares by region, in the tile's own units.
+    private static LossShare Shares(ArmAccumulator total)
+    {
+        var sum = total.RawFootprintSq + total.RawNearSq + total.RawFarSq;
+        double Of(double part) => sum > 0 ? part / sum : double.NaN;
+        return new LossShare(sum, Of(total.RawFootprintSq), Of(total.RawBrightCoreSq), Of(total.RawNearSq), Of(total.RawFarSq));
     }
 
     // The footprint residue's spread over the draws: nearest-rank percentiles of the draws' RMS, and the share of the pooled
