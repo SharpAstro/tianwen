@@ -991,10 +991,29 @@ error against the plate in the tile's own units, the pixel term's view.
   and wings), 10.2 percent on the sky near the plate's own sources (the loss penalising it for taking the kept stars),
   and 4.5 percent on the far sky.
 - `r2b_gaussian_s0` keeps 22.7 percent of its error in the bright cores: it leaves them.
-- So a per-star term (the speckle teacher, or a core term scaled per star) is what would keep pushing on bright stars;
-  an L2 has finished with them.
+- So a per-star term (the speckle teacher, or a core term scaled per star) is what would push harder on bright stars.
+  (The convergence run below shows the L2 had not finished with them, only slowed.)
 
-**3. Convergence:** running ("R2c: convergence, pre-registered"), read when it ends.
+**3. Convergence: the cap was what held R2b back.** `r2cconv_random_s0` ended on its own at step 110,000, its
+held-out best at 104,000. On the random arm's draws, against `r2b_random_s0` (the same seed at the 60,000 cap):
+
+| | 60,000 steps | converged | registered |
+|---|---|---|---|
+| removed at 5-20 sigma (registered) | 64.4 | 73.4 | |
+| clean at 5-20 sigma | 57.1 | **65.9** | (2) at most +5: **misses**, +8.8 |
+| clean at 20-100 / 100-1000 sigma | 44.6 / 18.6 | 56.2 / 28.9 | |
+| core residual at 100-1000 sigma, RMS | 4.26 | **2.24** | (3) down a fifth: **holds**, down 47 percent |
+| footprint, median and 90th percentile tile | 0.73 / 1.29 | 0.64 / 1.09 | |
+| sky moved (registered) / about its level | 0.52 / 0.51 | 0.40 / **0.38** | (4) above 0.4: **misses** |
+| sky away from the plate's own sources | 0.32 | **0.22** | under the kill's 0.3 |
+
+- **(1) holds:** it ended on its own, well under the 240,000 cap.
+- **By the registration's own rule, (2) failing means every R2 so far was read early, and the next arms run to
+  convergence.** R2d's arms take this run's schedule.
+- **It corrects check 2.** The bright cores' share of the remaining loss is small at the cap (2.8 percent) and at
+  convergence (2.3), yet their residual halved between the two: the L2 had not finished with them, it was slow.
+- **R2a's kill still fires as registered** (73.4 under 80 at 5-20 sigma; the sky at 0.40 over 0.3). Read away from the
+  plate's own sources, the sky passes.
 
 **4. The physics: real stars change size from the centre to the corner, per channel, and the injector draws one size.**
 `InjectionPopulation.ProfilesAt` gives every injected star its channel's whole-master profile; only the elongation is
