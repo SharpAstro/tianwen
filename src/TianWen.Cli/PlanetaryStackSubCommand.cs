@@ -65,8 +65,20 @@ internal sealed class PlanetaryStackSubCommand(
     {
         var serArg = new Argument<string[]>("ser-files")
         {
-            Description = "The .ser planetary video to stack, or several of one run, joined in time order.",
-            Arity = ArgumentArity.OneOrMore,
+            Description = "The .ser planetary video to stack, or several of one run, joined in time order (or none, with --session).",
+            Arity = ArgumentArity.ZeroOrMore,
+        };
+        var sessionOpt = new Option<string?>("--session")
+        {
+            Description = "Stack a session of the survey's manifest (--manifest) as one run, its captures joined in time order, by its name (planetary-survey prints them; #1308).",
+        };
+        var manifestOpt = new Option<string?>("--manifest")
+        {
+            Description = "The survey's manifest (planetary-survey -o) that --session names a session of.",
+        };
+        var epochOpt = new Option<string?>("--epoch")
+        {
+            Description = "The instant a de-rotated run is carried to: a UTC time (2022-09-29T13:05:00Z), or a capture whose best frame's time it is, such as the run's middle file. The middle of the whole run when not given (#1308).",
         };
         var derotateOpt = new Option<bool>("--derotate")
         {
@@ -256,13 +268,39 @@ internal sealed class PlanetaryStackSubCommand(
                 noPerPointOpt, noSignalGateOpt, noChannelAlignOpt, noCropOpt, colourSaturationOpt, noColourBalanceOpt,
                 noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, wavelengthOpt, fixOpt, strengthOpt, sharpenLuminanceOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, noPngOpt, pngGammaOpt,
                 tileSizeOpt, apSpacingOpt, maxApOpt, placementOpt, patchSizeOpt, meshSpacingOpt, meshInfluenceOpt, estimatorOpt, correlationOpt, interpolationOpt, referenceFramesOpt,
-                derotateOpt, noDerotateOpt, planetOpt, turnNorthOverOpt, legacyOpt, truthOpt, halvesOpt,
+                derotateOpt, noDerotateOpt, planetOpt, turnNorthOverOpt, legacyOpt, truthOpt, halvesOpt, sessionOpt, manifestOpt, epochOpt,
             },
         };
 
         command.SetAction(async (parseResult, ct) =>
         {
-            var serPaths = parseResult.Required(serArg);
+            var serPaths = parseResult.GetValue(serArg) ?? [];
+            if (parseResult.GetValue(sessionOpt) is { } sessionName)
+            {
+                if (serPaths.Length > 0)
+                {
+                    consoleHost.WriteError("Give the run's SER files or a --session, not both.");
+                    return 1;
+                }
+                if (parseResult.GetValue(manifestOpt) is not { } manifestPath || !File.Exists(manifestPath))
+                {
+                    consoleHost.WriteError("--session names a session of the survey's manifest: give it with --manifest (planetary-survey -o).");
+                    return 1;
+                }
+                var manifest = await PlanetaryCorpus.ReadManifestAsync(manifestPath, ct);
+                if (manifest?.Sessions.FirstOrDefault(s => string.Equals(s.Name, sessionName, StringComparison.OrdinalIgnoreCase)) is not { } session)
+                {
+                    consoleHost.WriteError($"No session named '{sessionName}' in {manifestPath}; planetary-survey prints the sessions it found.");
+                    return 1;
+                }
+                serPaths = session.Captures;
+                consoleHost.WriteScrollable($"[planetary] session '{session.Name}': {session.Captures.Length} captures, {session.Frames} frames, {session.FirstUtc} to {session.LastUtc}");
+            }
+            if (serPaths.Length == 0)
+            {
+                consoleHost.WriteError("Give the SER files of one run, or --session NAME --manifest PATH.");
+                return 1;
+            }
             if (serPaths.FirstOrDefault(path => !File.Exists(path)) is { } missing)
             {
                 consoleHost.WriteError($"SER file does not exist: {missing}");
@@ -366,6 +404,34 @@ internal sealed class PlanetaryStackSubCommand(
                     $"[planetary] the telescope from the capture's header: a {fromCapture.DiameterM * 1000:0} mm pupil {fromCapture.ObstructionRatio:P0} obstructed"));
             }
 
+            // The instant a de-rotated run is carried to (#1308): a time, or a capture's best frame, graded as the stack grades.
+            DateTimeOffset? carriedTo = null;
+            if (parseResult.GetValue(epochOpt) is { } epochText)
+            {
+                if (DateTimeOffset.TryParse(epochText, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var at))
+                {
+                    carriedTo = at;
+                }
+                else if (File.Exists(epochText))
+                {
+                    using var epochStream = SerFrameStream.Open(epochText);
+                    var grader = new FrameGrader(metric == QualityMetric.Laplacian ? new LaplacianEnergyEstimator() : baseline.QualityEstimator);
+                    if (await grader.BestFrameTimeAsync(epochStream, ct) is not { } best)
+                    {
+                        consoleHost.WriteError($"--epoch {epochText}: the capture carries no frame times.");
+                        return 1;
+                    }
+                    carriedTo = best;
+                    consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                        $"[planetary] the epoch: {Path.GetFileName(epochText)}'s best frame, {best.UtcDateTime:yyyy-MM-dd HH:mm:ss.fff} UTC"));
+                }
+                else
+                {
+                    consoleHost.WriteError($"--epoch {epochText}: a UTC time (2022-09-29T13:05:00Z) or a capture whose best frame's time it is.");
+                    return 1;
+                }
+            }
+
             // Every choice the options leave open is the baseline's: the pipeline's defaults, or the legacy recipe.
             var options = baseline with
             {
@@ -396,7 +462,7 @@ internal sealed class PlanetaryStackSubCommand(
                 // Asked for, every run is de-rotated; otherwise a run of a planet with a rotation model is, once its turn moves the
                 // disk's middle a pixel (the stacker measures it), and never under --legacy or --no-derotate.
                 Derotation = (derotate || !(legacy || parseResult.GetValue(noDerotateOpt))) && PlanetaryBestStack.DerotationFor(planet, always: derotate) is { } rotation
-                    ? rotation with { TurnNorthOver = parseResult.GetValue(turnNorthOverOpt) }
+                    ? rotation with { TurnNorthOver = parseResult.GetValue(turnNorthOverOpt), Epoch = carriedTo }
                     : null,
                 // The planet into the master's OBJECT, which a viewer opens linear by.
                 Planet = planet,
@@ -406,6 +472,12 @@ internal sealed class PlanetaryStackSubCommand(
                 // The raw integrated master stays linear/unsharpened (downstream-friendly); the sharpen
                 // pass is applied separately below so we can emit both the raw and sharpened masters.
             };
+
+            if (carriedTo is not null && options.Derotation is null)
+            {
+                consoleHost.WriteError("--epoch is the instant a de-rotation carries the run to: this run is not de-rotated (--no-derotate, --legacy, or no planet with a rotation model).");
+                return 1;
+            }
 
             var label = parseResult.GetValue(labelOpt);
             var prefix = string.IsNullOrWhiteSpace(label) ? "" : label.Trim() + "_";
