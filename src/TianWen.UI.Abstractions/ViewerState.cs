@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using TianWen.Lib.Geometry;
 using System.Collections.Immutable;
+using System.Linq;
 using DIR.Lib;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Enhancement;
@@ -446,7 +447,17 @@ public sealed class ViewerState
         // Derived gains sharpen as the derived sharpening does (no denoise, held at the darkest): measured equal to it on every twin.
         if (WaveletSharpenEnabled && WaveletDerived)
         {
-            return TianWen.Lib.Imaging.Planetary.PlanetaryBestStack.SliderOptions(WaveletGains);
+            var options = TianWen.Lib.Imaging.Planetary.PlanetaryBestStack.SliderOptions(WaveletGains);
+            // While the dials hold the derivation's own gains at the stop on show, each channel takes its own, as the batch sharpens it
+            // (#1314): one set for every channel left a colour master's green 3.0e-3 and blue 5.5e-3 of the disk's level from the batch.
+            // Dials moved by hand give every channel what they hold.
+            if (DerivedWaveletGains is { } derived
+                && derived.GainsAt(PlanetaryStrength) is { IsDefaultOrEmpty: false } first && first.SequenceEqual(WaveletGains)
+                && derived.ChannelGainsAt(PlanetaryStrength) is { Length: > 1 } channels)
+            {
+                options = options with { ChannelGains = channels };
+            }
+            return options;
         }
         if (WaveletSharpenEnabled)
         {

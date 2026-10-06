@@ -45,13 +45,15 @@ internal sealed class WaveletDerivation : IDisposable
                 }
                 else
                 {
-                    state.WaveletGains = derived.Gains;
+                    // The stop on show now, which a press during the derivation may have moved (#1314).
+                    var atStop = derived.GainsAt(state.PlanetaryStrength);
+                    state.WaveletGains = atStop.IsDefaultOrEmpty ? derived.Gains : atStop;
                     state.WaveletDerived = true;
                     state.WaveletLimb = derived.Limb;
                     state.DerivedWaveletGains = derived;
                     state.WaveletSharpenEnabled = true;
                     state.WaveletDirty = true;
-                    state.WaveletDeriveNote = $"Gains {derived.How}";
+                    state.WaveletDeriveNote = $"Gains {(atStop.IsDefaultOrEmpty ? derived.How : derived.HowAt(state.PlanetaryStrength))}";
                 }
             }
             else if (done.IsFaulted)

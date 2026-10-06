@@ -38,6 +38,13 @@ public sealed record WaveletSharpenOptions
     /// </summary>
     public bool HoldAtDarkest { get; init; }
 
+    /// <summary>
+    /// Gains for each channel, each as long as <see cref="Gains"/>, which channel <c>c</c> takes in its place where it has a set (a derived
+    /// sharpening's, #1314: a colour master's channels each have gains of their own, through their own diffraction). Empty, the default,
+    /// gives every channel <see cref="Gains"/>.
+    /// </summary>
+    public ImmutableArray<ImmutableArray<float>> ChannelGains { get; init; } = [];
+
     /// <summary>The quantile <see cref="HoldAtDarkest"/> reads the darkest level at: robust to a few dead pixels.</summary>
     public const double DarkestQuantile = 0.001;
 
@@ -119,6 +126,13 @@ public static class WaveletSharpen
 
         int w = source.Width, h = source.Height, channels = source.ChannelCount;
         var gains = options.Gains.AsSpan();
+        foreach (var channelGains in options.ChannelGains)
+        {
+            if (channelGains.Length != gains.Length)
+            {
+                throw new ArgumentException($"A channel's gains are {channelGains.Length} scales where Gains has {gains.Length}", nameof(options));
+            }
+        }
         var thresholds = options.DenoiseThresholds.IsDefaultOrEmpty ? default : options.DenoiseThresholds.AsSpan();
         var max = source.MaxValue;
         var clampMax = float.IsFinite(max) && max > 0f ? max : 1f;
@@ -126,7 +140,7 @@ public static class WaveletSharpen
         // The output is the one plane per channel that outlives the call: the caller owns it (the live stack
         // adopts it into a document).
         var data = Image.CreateChannelData(channels, h, w);
-        if (IsIdentity(gains, thresholds))
+        if (IsIdentity(gains, thresholds) && options.ChannelGains.IsDefaultOrEmpty)
         {
             // The a-trous transform telescopes (c0 = residual + the sum of the details), so identity gains
             // with no denoise reconstruct the input: copy it, clamped as a sharpen clamps. The live stack
@@ -170,8 +184,9 @@ public static class WaveletSharpen
                 {
                     // The darkest level read before the reconstruction overwrites the output plane, which doubles as scratch.
                     var floor = options.Clamp && options.HoldAtDarkest ? MathF.Min(DarkestLevel(source.GetChannelSpan(c)), clampMax) : 0f;
+                    var channelGains = c < options.ChannelGains.Length && !options.ChannelGains[c].IsDefaultOrEmpty ? options.ChannelGains[c].AsSpan() : gains;
                     ATrousWaveletTransform.DecomposeAndReconstructInto(
-                        source.GetChannelSpan(c), w, h, gains, thresholds, data[c], c0, next, details);
+                        source.GetChannelSpan(c), w, h, channelGains, thresholds, data[c], c0, next, details);
                     var dst = MemoryMarshal.CreateSpan(ref data[c][0, 0], data[c].Length);
                     if (options.Clamp)
                     {

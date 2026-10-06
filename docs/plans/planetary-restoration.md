@@ -4403,8 +4403,8 @@ for a SER, its stacked view and a planetary master, never a deep-sky frame; (5) 
 writes what is on show; (7) switching runs no stack and no derivation, counted.
 
 **One derivation, every stop (part 1a).** All of a derivation but the last gain fit is the same at every strength (the limb fit, the edge,
-the stack's power and noise floor), so `PlanetarySharpenOptions.FitStops` fits the gains at each stop from that one reading, for the
-first channel, whose gains the dials take (`PlanetarySharpenResult.Stops`). `PlanetaryBestStack.DeriveGains` hands them on
+the stack's power and noise floor), so `PlanetarySharpenOptions.FitStops` fits the gains at each stop from that one reading, for
+every channel (`PlanetarySharpenResult.Stops`; the dials show the first channel's). `PlanetaryBestStack.DeriveGains` hands them on
 (`DerivedGains.GainsAt`, `HowAt`, the note worded as a derivation at that strength would word it), `WaveletDerivation` asks for
 `PlanetarySharpening.StrengthStops` and the viewer keeps the result (`ViewerState.DerivedWaveletGains`), and a stop pressed after it puts
 its gains on the dials in that frame (`ViewerState.ChooseStrength`). The panel's buttons are built from the same list. Reset, another file
@@ -4416,15 +4416,17 @@ and a capture's start forget it, as they forget the limb; with none a stop is on
   batch's own planes, is part 1b's.
 - **Rule 2 holds**: after one Derive, Strength 2 puts its gains on the dials in the frame it is pressed with no derivation started, and
   the truth's stop puts the derivation's own back (`AStopChosenAfterDeriveSwitchesTheDialsAtOnceAndDerivesNothing`, DPI 1 and 1.5).
-- **Rule 3 holds** (`i1314/stopcost.cs` in the scratch, the arms alternated, median of three after a warm-up, a 254 mm Newtonian):
+- **Rule 3 holds** (`i1314/stopcost.cs` in the scratch, the arms alternated after a warm-up, a 254 mm Newtonian), with every channel's
+  stops fitted (part 1b; the first reading fitted the first channel's only):
 
 | Master | Truth alone | Four stops | Ratio |
 |---|---|---|---|
-| 2022-09-03 Red, 800 x 600 mono | 1.37 s | 1.52 s | 1.111 |
-| ASI224MC Jupiter 2022-09-10, 656 x 424 colour | 34.77 s | 35.16 s | 1.011 |
+| 2022-09-03 Red, 800 x 600 mono, median of 15 | 1.63 s | 1.86 s | 1.142 |
+| ASI224MC Jupiter 2022-09-10, 656 x 424 colour, median of 3 | 35.76 s | 37.69 s | 1.054 |
 
   A colour master's time is its colours' limb fits and balance, which the stops do not repeat; on a mono one the three extra gain fits
-  are a tenth of a derivation that is mostly its limb fit.
+  are a seventh of a derivation that is mostly its limb fit, and that margin is thin: three repeats read it anywhere from 1.11 to 1.19 on
+  a box another session was loading, and fifteen settle it at 1.142.
 
 **A planetary master opened as a file gets the same layer (part 1b).** A still whose `OBJECT` names a planet
 (`PlanetaryCaptureName.Named`, the rule that already opens it in `StretchMode.Planetary`) is given the stacked view's own source over
@@ -4434,9 +4436,17 @@ master already), and is shown through the layer once the sharpening is on (`View
 header (`ViewerState.MasterPlanet`), a mono master's filter from its file's name. **A Save writes what is on show**
 (`ViewerController.ShownDocument`): it always wrote the file under the layer, and in a SER's stacked view nothing at all.
 
-- **Rule 1 holds against the batch's planes**: on a synthetic Jupiter master, at every stop, the planes on show equal
+- **Rule 1 holds against the batch's planes**: on a synthetic mono Jupiter master, at every stop, the planes on show equal
   `PlanetarySharpening.Sharpen` at that strength to 1.2e-6 of the disk's level inside the limb and 5e-10 outside it (the bar was 1e-4),
   the gains equal to the digit (`AMastersStopShowsWhatPlanetarySharpenWritesAtThatStrength`, DPI 1 and 1.5).
+- **On a colour master it first failed, and the cause was the layer's**: it sharpened every channel with the first channel's gains,
+  where the batch derives each channel's own through its own diffraction, and green read 3.0e-3 and blue 5.5e-3 of the disk's level from
+  the batch inside the limb (red 7e-7; outside every channel about 1e-5). So a derivation now keeps every channel's gains at every stop
+  (`GainStop.Channels`, `DerivedGains.ChannelGainsAt`), and while the dials hold the derivation's own gains at the stop on show each
+  channel takes its own (`WaveletSharpenOptions.ChannelGains`, `ViewerState.BuildWaveletOptions`); dials moved by hand give every channel
+  what they hold. Against the batch's order (colours onto green, sharpened per channel, balanced) every channel at every stop then
+  agrees to 2.1e-6 inside the limb and 9e-10 outside (`AColourMastersStopShowsWhatTheBatchWritesInEveryChannel`). The GUI's live capture
+  derives through the same `WaveletDerivation`, so its colours take the same.
 - **Rule 4 holds**: the planet and telescope, the dials, Derive and the stops show for a planetary master and for none of a deep-sky
   frame's, and Best stack stays a capture's (`APlanetaryMasterGetsTheSharpeningSectionsAndADeepSkyFrameDoesNot`).
 - **Rule 6 holds**: a Save with the layer on show writes the sharpened master (its float TIFF up to 0.160 of the display from the file's
