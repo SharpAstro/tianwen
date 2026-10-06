@@ -1108,6 +1108,27 @@ with the interquartile range:
 - **The tails are an upper bound for the nebula alone.** The finder masks sources from 4 sigma, so the fainter stars are
   still in the 1 to 4 px tails.
 
+#### D2 to D4 as built, and the arms started (2026-10-07)
+
+- **D4, the control arm's mask** (`tianwen dataset plate-masks`, `StarRemovalMasks`): beside every draw, 0 on the sky within
+  two PSF widths of a source the plate kept and 1 elsewhere, by the eval's own rule (`StarRemovalEval.PlateSourceZone`), an
+  injected star's footprint still counted. Over the field export's 21,760 draws: 885,645 sources the plates kept, 2.57
+  percent of the pixels inside the rim left out. The trainer packs them beside the existing cache
+  (`n2n_smoke.py --prepare-keep`, `keep.u8`, so the 26 GB cache is not prepared again) and `--loss-mask` takes each draw's
+  own into the pixel and band terms and the plateau's objective (`run-r2.ps1 -LossMask`).
+- **D2 and D3, the background** (`SyntheticBackground`, `tianwen dataset degrade --background synthetic`): per session the
+  plate's starlet scales from 4 PSF widths up are kept; per cell the finer ones are drawn as one log-normal field of index
+  3.1 shared by the channels, each scale held to the plate's own local signal there, and the knots are added; the exporter
+  puts the master's noise on it in its own shape and injects the stars into that. **The amplitude maps' first form left
+  texture where faint stars had been**; read with the sources masked from 3 sigma, over at least 16 px and with a 20
+  percent noise margin, the sources the eval finds the truth keeping fall, on one session's six cells, from the plate's
+  12.4 a draw to 3.1 on a smooth field (the knots are about 2.5) and from 34.6 to 8.3 on eta Carinae's dense nebula, where
+  the rest are the texture's own peaks.
+- **Arm A** (today's plates, the mask, three seeds to convergence: `run-r2.ps1 -Tag r2da -Arms random -SeedCount 3
+  -Patience 12 -Steps 240000 -LossMask`) started 2026-10-07 07:13. **Arm B's export** (`C:\temp\e2\run-r2d-export.ps1`,
+  R1's pool, field arm, seed and noise shape, `--background synthetic`, into `D:\tianwen-scratch\r1-train-synth`) started
+  08:41; its cache and training follow arm A on the GPU.
+
 Open from it, under #902: R0's saturated fit on a fixed annulus in FWHM units with a 0.1 to 0.3 core cut (#1240); a
 residual table that holds bright stars' near wings (#1241); the Lagoon's and eta Carinae's photometric offsets (1.4 to 1.7,
 a V against luminance colour term is the likely reading, #1242); the mono noise shape (#1243, calibrated 2026-10-04:
