@@ -142,6 +142,31 @@ public class PlanetarySharpeningTests
     }
 
     [Fact(Timeout = 300_000)]
+    public async Task OneDerivationCarriesEveryStopsGainsAsADerivationAtThatStrengthGivesThem()
+    {
+        // #1314: Derive fits every strength stop at once, so the panel's stops switch the dials without deriving again. A stop's gains
+        // and words must be exactly a derivation's at that strength, or a stop switched to would be a different picture from the same
+        // stop chosen before Derive (and from planetary-sharpen --strength, which sharpens with that derivation's gains).
+        var ct = TestContext.Current.CancellationToken;
+        var (_, stack) = NoisyStack();
+
+        var all = await Task.Run(() => PlanetaryBestStack.DeriveGains(stack, CatalogIndex.Jupiter, Night, Telescope, [650],
+            stops: PlanetarySharpening.StrengthStops), ct);
+        var two = await Task.Run(() => PlanetaryBestStack.DeriveGains(stack, CatalogIndex.Jupiter, Night, Telescope, [650], strength: 2), ct);
+        TestContext.Current.TestOutputHelper?.WriteLine(string.Join("; ", all.Stops.Select(s => $"{s.Strength}: {string.Join(", ", s.Gains.Select(g => g.ToString("0.00")))}")));
+
+        all.Gains.IsDefaultOrEmpty.ShouldBeFalse(all.How);
+        all.Stops.Select(s => s.Strength).ShouldBe(PlanetarySharpening.StrengthStops);
+        all.GainsAt(1).ToArray().ShouldBe(all.Gains.ToArray(), "the truth's stop is the derivation's own gains");
+        all.HowAt(1).ShouldBe(all.How);
+        all.GainsAt(2).ToArray().ShouldBe(two.Gains.ToArray());
+        all.HowAt(2).ShouldBe(two.How);
+        all.GainsAt(2).ToArray().ShouldNotBe(all.Gains.ToArray(), "a stop past the truth sharpens past it");
+        all.GainsAt(3).ShouldBeEmpty("no stop is at 3");
+        two.Stops.ShouldBeEmpty("a derivation asked for no stops fits none");
+    }
+
+    [Fact(Timeout = 300_000)]
     public async Task TheLiveDialsAreDrawnOutsideTheLimbAsTheBatchDrawsIt()
     {
         // #1201: Derive keeps the limb it fitted, and every later master, sharpened by the dials, is drawn outside the limb as the batch's

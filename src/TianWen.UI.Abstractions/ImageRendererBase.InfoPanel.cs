@@ -216,6 +216,7 @@ namespace TianWen.UI.Abstractions
                         {
                             state.WaveletGains = WaveletSharpenOptions.PlanetaryDefault.Gains;
                             state.WaveletDerived = false;
+                            state.DerivedWaveletGains = null;
                             state.WaveletDeriveNote = null;
                             state.WaveletDirty = true;
                             state.NeedsRedraw = true;

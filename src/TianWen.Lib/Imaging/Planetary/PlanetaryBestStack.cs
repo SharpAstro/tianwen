@@ -197,7 +197,7 @@ public static class PlanetaryBestStack
     }
 
     // A strength in words, where it is not the truth's.
-    private static string StrengthWords(double strength)
+    internal static string StrengthWords(double strength)
         => strength == 1 ? "" : string.Create(CultureInfo.InvariantCulture, $" at strength {strength:0.##} past the truth (bands 2 and 3)");
 
     /// <summary>
@@ -210,20 +210,23 @@ public static class PlanetaryBestStack
     /// carries that reading, which every later master is moved by (<see cref="PlanetaryLiveLimb.Channels"/>, #1202). Its gains are its first
     /// channel's, and the limb carries the colour balance the batch would give it at <paramref name="colourSaturation"/>
     /// (<see cref="PlanetaryLiveLimb.Balance"/>, #1212; null leaves the colours as captured). A <paramref name="strength"/> past one seeds bands
-    /// 2 and 3 past the truth (<see cref="PlanetarySharpenOptions.Strength"/>, #1251), as the batch sharpens at it.
+    /// 2 and 3 past the truth (<see cref="PlanetarySharpenOptions.Strength"/>, #1251), as the batch sharpens at it. The gains at every one of
+    /// <paramref name="stops"/> are fitted in the same derivation (<see cref="DerivedGains.Stops"/>, #1314), so a viewer switches between them
+    /// without deriving again.
     /// </summary>
-    public static (ImmutableArray<float> Gains, string How, PlanetaryLiveLimb? Limb) DeriveGains(Image master, CatalogIndex? planet, DateTimeOffset? epoch,
-        Pupil? telescope, ImmutableArray<double> wavelengthsNm = default, double? colourSaturation = PlanetaryColourBalance.DefaultSaturation, double strength = 1)
+    public static DerivedGains DeriveGains(Image master, CatalogIndex? planet, DateTimeOffset? epoch, Pupil? telescope,
+        ImmutableArray<double> wavelengthsNm = default, double? colourSaturation = PlanetaryColourBalance.DefaultSaturation, double strength = 1,
+        ImmutableArray<double> stops = default)
     {
         ArgumentNullException.ThrowIfNull(master);
         if (telescope is not { } pupil)
         {
-            return ([], "the gains are derived only for a telescope: give its aperture", null);
+            return new DerivedGains([], "the gains are derived only for a telescope: give its aperture", null);
         }
         // The gains and the limb do not depend on the limb fix, which only the batch sharpening applies; floored is the cheapest to make.
         if (SharpenOptionsFor(master, planet, epoch, telescope, wavelengthsNm) is not { } options)
         {
-            return ([], "the gains are derived only for a named Jupiter or Saturn with frame times", null);
+            return new DerivedGains([], "the gains are derived only for a named Jupiter or Saturn with frame times", null);
         }
         // A live master's colours lie where the atmosphere's dispersion put them, 6.4 px red to blue on 2022-10-09 (#1202): moved onto
         // green here as the batch moves its master's, read once and given to every later master.
@@ -232,25 +235,31 @@ public static class PlanetaryBestStack
             : (master, null);
         try
         {
-            if (PlanetarySharpening.Sharpen(aligned, options with { Fix = PlanetaryLimbFix.Floored, Strength = strength }) is not { } result)
+            if (PlanetarySharpening.Sharpen(aligned, options with { Fix = PlanetaryLimbFix.Floored, Strength = strength, FitStops = stops.IsDefault ? [] : stops })
+                is not { } result)
             {
-                return ([], "the planet's limb could not be fitted", null);
+                return new DerivedGains([], "the planet's limb could not be fitted", null);
             }
             try
             {
                 var inv = CultureInfo.InvariantCulture;
                 if (!result.Derived || result.Gains.IsDefaultOrEmpty)
                 {
-                    return ([], "the gains could not be derived", null);
+                    return new DerivedGains([], "the gains could not be derived", null);
                 }
-                var how = string.Create(inv, $"derived for {options.Planet} through a {pupil.DiameterM * 1000:0} mm pupil at {options.WavelengthsNm[0]:0} nm{StrengthWords(strength)}");
+                var lead = string.Create(inv, $"derived for {options.Planet} through a {pupil.DiameterM * 1000:0} mm pupil at {options.WavelengthsNm[0]:0} nm");
                 // The colour balance the batch gives a master of this planet (#1212), read once here and given to every master drawn.
                 var balance = aligned.ChannelCount == 3 && colourSaturation is { } saturation
                     ? PlanetaryColourBalance.For(aligned, options.Planet, options.When, saturation).Balance
                     : null;
-                how = channels is null ? how : $"{how}; {channels.Describe()}";
-                return ([.. result.Gains.Select(g => (float)g)], balance is null ? how : $"{how}; {balance.Describe()}",
-                    result.Limb?.WithColour(balance, channels));
+                var tail = (channels is null ? "" : $"; {channels.Describe()}") + (balance is null ? "" : $"; {balance.Describe()}");
+                return new DerivedGains([.. result.Gains.Select(g => (float)g)], $"{lead}{StrengthWords(strength)}{tail}",
+                    result.Limb?.WithColour(balance, channels))
+                {
+                    Stops = result.Stops,
+                    Lead = lead,
+                    Tail = tail,
+                };
             }
             finally
             {
@@ -360,5 +369,39 @@ public static class PlanetaryBestStack
         public void Dispose()
         {
         }
+    }
+}
+
+/// <summary>
+/// What <see cref="PlanetaryBestStack.DeriveGains"/> derived for a master: the first channel's gains at the strength asked, finest first, how
+/// they were derived in words (or why none were), and the limb a live view draws every later master's outside of; and the gains at each
+/// stop fitted in the same derivation (#1314).
+/// </summary>
+public sealed record DerivedGains(ImmutableArray<float> Gains, string How, PlanetaryLiveLimb? Limb)
+{
+    /// <summary>The gains at each stop asked (<see cref="PlanetarySharpenOptions.FitStops"/>), in its order; empty where none were.</summary>
+    public ImmutableArray<GainStop> Stops { get; init; } = [];
+
+    // How, split about the strength's words, so it can be said at another stop.
+    internal string? Lead { get; init; }
+    internal string Tail { get; init; } = "";
+
+    /// <summary>The gains at the stop <paramref name="strength"/>, as the dials take them; empty where it is not one of <see cref="Stops"/>.</summary>
+    public ImmutableArray<float> GainsAt(double strength)
+    {
+        foreach (var stop in Stops)
+        {
+            if (stop.Strength == strength)
+            {
+                return [.. stop.Gains.Select(g => (float)g)];
+            }
+        }
+        return [];
+    }
+
+    /// <summary><see cref="How"/>, but at the stop <paramref name="strength"/>.</summary>
+    public string HowAt(double strength)
+    {
+        return Lead is null ? How : $"{Lead}{PlanetaryBestStack.StrengthWords(strength)}{Tail}";
     }
 }

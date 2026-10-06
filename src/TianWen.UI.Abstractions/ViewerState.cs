@@ -454,6 +454,30 @@ public sealed class ViewerState
     /// </summary>
     public TianWen.Lib.Imaging.Planetary.PlanetaryLiveLimb? WaveletLimb { get; set; }
 
+    /// <summary>
+    /// The last derivation, with every stop's gains in it (<see cref="TianWen.Lib.Imaging.Planetary.PlanetarySharpening.StrengthStops"/>,
+    /// #1314): a stop chosen after it switches the dials to that stop's gains at once (<see cref="ChooseStrength"/>), no derivation run.
+    /// Cleared with <see cref="WaveletDerived"/> by Reset, and with <see cref="WaveletLimb"/> by another file or capture.
+    /// </summary>
+    public TianWen.Lib.Imaging.Planetary.DerivedGains? DerivedWaveletGains { get; set; }
+
+    /// <summary>
+    /// The panel's strength stop (<see cref="PlanetaryStrength"/>): the next Best stack and Derive take it, and where a derivation's gains
+    /// are on the dials they switch to that stop's at once (#1314).
+    /// </summary>
+    public void ChooseStrength(double strength)
+    {
+        PlanetaryStrength = strength;
+        if (WaveletDerived && DerivedWaveletGains is { } derived && derived.GainsAt(strength) is { IsDefaultOrEmpty: false } gains)
+        {
+            WaveletGains = gains;
+            WaveletSharpenEnabled = true;
+            WaveletDeriveNote = $"Gains {derived.HowAt(strength)}";
+            WaveletDirty = true;
+        }
+        NeedsRedraw = true;
+    }
+
     /// <summary>Set by the Derive button; the controller starts a derivation over the master on show, or ignores it while one runs, and clears it.</summary>
     public bool WaveletDeriveRequested { get; set; }
 

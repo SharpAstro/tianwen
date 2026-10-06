@@ -4351,7 +4351,7 @@ linear master from the full-chain run, sharpened again at each strength):
 
 **The dial** (the next change): the planetary panel offers Truth, 1.5, 2 and 2.5 under the telescope's rows (`ViewerState.PlanetaryStrength`),
 which the viewer's Best stack and Derive, in the viewer and the GUI's capture alike, read as they start. It is not saved, so every launch
-starts at the truth.
+starts at the truth. Once a Derive has run, a stop switches the dials at once (below, #1314).
 
 ### The gains swing; the filter does not (#1251)
 
@@ -4390,6 +4390,44 @@ below one on the 16" Saturn, were a fault.
 
 `AGainBelowZeroBesideALargeOneIsNoDipInTheFilter` pins the ASI678 Jupiter's set: its filter stays at one or above to Nyquist and peaks
 between 0.1 and 0.2 cycles a pixel. With the owner's answer on the target (the strength above), both of #1251's questions are answered.
+
+### The strength stops in the viewer (#1314)
+
+**The owner's ask (2026-10-06)**, looking at the 12-inch SCT Jupiter at the truth, at 2 and beside its post: the extra sharpening belongs in
+the viewer's panel, the four stops kept. Before this a stop only fed the NEXT Best stack (minutes) or Derive (about 35 s on a colour
+master), so a press changed nothing on screen. Agreed with the owner, in two parts: **sharpening is a layer** over whatever master is on
+show (the stacked view, the GUI's live capture, Best's result, a planetary master opened as a file), and **a SER's view is one switch,
+Frames / Live / Best** (part 2). Rules, set before any of it was written (on #1314): (1) a stop shows what `planetary-sharpen --strength`
+does at it; (2) after one Derive a stop runs no derivation; (3) fitting four stops costs at most 15 % more than one; (4) the section shows
+for a SER, its stacked view and a planetary master, never a deep-sky frame; (5) Best's view at a stop is the batch's master at it; (6) Save
+writes what is on show; (7) switching runs no stack and no derivation, counted.
+
+**One derivation, every stop (part 1a).** All of a derivation but the last gain fit is the same at every strength (the limb fit, the edge,
+the stack's power and noise floor), so `PlanetarySharpenOptions.FitStops` fits the gains at each stop from that one reading, for the
+first channel, whose gains the dials take (`PlanetarySharpenResult.Stops`). `PlanetaryBestStack.DeriveGains` hands them on
+(`DerivedGains.GainsAt`, `HowAt`, the note worded as a derivation at that strength would word it), `WaveletDerivation` asks for
+`PlanetarySharpening.StrengthStops` and the viewer keeps the result (`ViewerState.DerivedWaveletGains`), and a stop pressed after it puts
+its gains on the dials in that frame (`ViewerState.ChooseStrength`). The panel's buttons are built from the same list. Reset, another file
+and a capture's start forget it, as they forget the limb; with none a stop is only what the next Derive and Best stack take.
+
+- **Rule 1, as part 1a can read it: a stop's gains ARE the derivation's at that strength, bit for bit**, and its note word for word
+  (`OneDerivationCarriesEveryStopsGainsAsADerivationAtThatStrengthGivesThem`). The dials at those gains were measured against the batch
+  in #1201 (equal outside the limb to 1e-4, within a hundredth of band error inside); the master opened as a file, read against the
+  batch's own planes, is part 1b's.
+- **Rule 2 holds**: after one Derive, Strength 2 puts its gains on the dials in the frame it is pressed with no derivation started, and
+  the truth's stop puts the derivation's own back (`AStopChosenAfterDeriveSwitchesTheDialsAtOnceAndDerivesNothing`, DPI 1 and 1.5).
+- **Rule 3 holds** (`i1314/stopcost.cs` in the scratch, the arms alternated, median of three after a warm-up, a 254 mm Newtonian):
+
+| Master | Truth alone | Four stops | Ratio |
+|---|---|---|---|
+| 2022-09-03 Red, 800 x 600 mono | 1.37 s | 1.52 s | 1.111 |
+| ASI224MC Jupiter 2022-09-10, 656 x 424 colour | 34.77 s | 35.16 s | 1.011 |
+
+  A colour master's time is its colours' limb fits and balance, which the stops do not repeat; on a mono one the three extra gain fits
+  are a tenth of a derivation that is mostly its limb fit.
+
+**Still to come**: part 1b, a planetary master opened as a file gets the layer and Save writes what is on show (rules 1 against the
+batch's planes, 4 and 6); part 2, the Frames / Live / Best switch (rules 5 and 7).
 
 ### The colour look (#1273)
 
