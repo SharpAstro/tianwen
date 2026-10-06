@@ -692,17 +692,22 @@ public static class PlanetaryCaptureStatistics
         return Median([.. widths]);
     }
 
-    // Each frame's time in seconds from the first: its timestamp, else its index over the stated rate.
-    private static double[] Seconds(IPlanetaryFrameStream stream, int n, double? framesPerSecond)
+    // Each frame's time in seconds from the capture's earliest (its CaptureSpan, #1292): its timestamp, else its index over the stated
+    // rate. Every statistic here is read in capture order (the mount's running mean, the quality's lags), so a capture whose frames
+    // are out of time order, as PIPP writes one sorted by quality, is refused rather than read as if its order were time.
+    internal static double[] Seconds(IPlanetaryFrameStream stream, int n, double? framesPerSecond)
     {
         var seconds = new double[n];
-        var first = stream.HasTimestamps ? stream.TimestampOf(0) : null;
-        var last = stream.HasTimestamps ? stream.TimestampOf(n - 1) : null;
-        if (first is { } t0 && last is { } t1 && t1 > t0)
+        if (stream.CaptureSpan is { Earliest: var t0, Latest: var t1 } && t1 > t0)
         {
             for (var i = 0; i < n; i++)
             {
                 seconds[i] = stream.TimestampOf(i) is { } t ? (t - t0).TotalSeconds : double.NaN;
+                if (i > 0 && seconds[i] < seconds[i - 1])
+                {
+                    throw new InvalidOperationException(
+                        $"The capture's frames are out of time order (frame {i} was taken before frame {i - 1}, as in a capture sorted by quality): its statistics are read in capture order.");
+                }
             }
             // A frame without a time takes its neighbours' spacing.
             for (var i = 1; i < n; i++)

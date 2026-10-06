@@ -112,19 +112,19 @@ internal sealed class FrameDerotator
 
     /// <summary>
     /// How far <paramref name="planet"/>'s turn over <paramref name="stream"/> moves the middle of its disk, px on
-    /// <paramref name="frame"/>'s grid: the central meridian's change from the first frame to the last, in radians, times the disk's
+    /// <paramref name="frame"/>'s grid: the central meridian's change from the capture's earliest frame to its latest
+    /// (<c>CaptureSpan</c>, whatever order the frames come in, #1292), in radians, times the disk's
     /// equatorial radius (<see cref="PlanetaryLimbFit.Start"/>; Saturn's globe from its rings' reach, <see cref="PlanetaryLimbFit.StartRinged"/>,
     /// which the bright area would put 2.3 times too large) and the cosine of the latitude it is seen from. NaN when the capture has no frame
     /// times, the planet no rotation model, or the frame no disk.
     /// </summary>
     internal static double TurnAtCentrePx(IPlanetaryFrameStream stream, CatalogIndex planet, Image frame)
     {
-        if (!PhysicalEphemeris.Supports(planet) || !stream.HasTimestamps || stream.FrameCount < 2
-            || stream.TimestampOf(0) is not { } first || stream.TimestampOf(stream.FrameCount - 1) is not { } last)
+        if (!PhysicalEphemeris.Supports(planet) || stream.FrameCount < 2 || stream.CaptureSpan is not { } span)
         {
             return double.NaN;
         }
-        var (from, to) = (PhysicalEphemeris.Compute(planet, first), PhysicalEphemeris.Compute(planet, last));
+        var (from, to) = (PhysicalEphemeris.Compute(planet, span.Earliest), PhysicalEphemeris.Compute(planet, span.Latest));
         var turnDeg = Math.Abs(Math.IEEERemainder(to.CentralMeridianIII - from.CentralMeridianIII, 360));
         var options = PlanetaryLimbFit.OptionsFor(from);
         var start = options.Rings is { } rings
