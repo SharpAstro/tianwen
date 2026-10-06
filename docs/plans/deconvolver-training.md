@@ -283,6 +283,9 @@ radius bin) profile, cells tagged with their field radius by the exporter.
 *Prediction:* on held-out SH61 corners the varying arm reduces FWHM by at least 0.1 px more than
 stationary; on Samyang frames the arms tie.
 *Kill:* a tie everywhere. Then stationary ships and the radial bins stay a report.
+*The varying arm's kernel (2026-10-06):* drawn from a physical model of each train's aberrations over the field, fitted
+from its own stars, rather than from the radius bins' medians: [physical-psf-model.md](physical-psf-model.md), P3
+(#1298), after its fit (#1296) and validation (#1297).
 
 **H8. Band loss on the 1-2 px band HELPS here** (the opposite of the denoiser finding), because the
 target is clean: the reason to drop that band in N2N was a noisy target whose 1-2 px band was

@@ -364,7 +364,10 @@ result look good.
   **position-varying**: P0 measures the archive's FWHM/ellipticity/PA distribution **binned by
   field radius** (`FindStarsAsync` centroids give star positions; fast-lens corners genuinely
   differ from center), and per-tile degradation samples aberrations from the measured
-  field-position distribution instead of one stationary kernel.
+  field-position distribution instead of one stationary kernel. **Neither the coma term nor the
+  position-varying draw was built** (as of 2026-10-06 the exporter draws an elongation of 1 to 1.25
+  at a random angle and only records the field radius); both are now
+  [physical-psf-model.md](physical-psf-model.md) (#1296 to #1298).
   **The beta and FWHM ranges are now MEASURED, not assumed** -- see "The measured PSF profile"
   below, which supersedes the beta 2.5-4.5 / FWHM [1, 8] px this line used to specify. Three
   results change the sweep: beta runs ~2-12 and sits per train (7.95 Samyang, 2.05-2.70 ZS61);

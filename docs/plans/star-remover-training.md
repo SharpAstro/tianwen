@@ -856,6 +856,9 @@ Tracked by #902.
   or the injector models them (orientation measured off those masters against the sensor, length grown
   with flux) and R0 subtracts them. The first is the recommendation: three masters cannot teach a spike
   model that generalises to other vanes, and a spike left whole is honest where a half-removed one is not.
+  A third way since 2026-10-06: a physical PSF draws spikes from the pupil's vanes with no spike model of its
+  own, so they generalise to any vane count and width a profile gives ([physical-psf-model.md](physical-psf-model.md),
+  P3, #1298).
 - **The bright saturated tail** is the acknowledged hard case; whether v1 should refuse it (leave stars
   above a flux threshold in place, documented) or attempt it is a product decision for R2's spot
   checks.
