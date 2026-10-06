@@ -154,6 +154,66 @@ public class PlanetaryColourReadingTests
     }
 
     [Fact]
+    public void ThePostedLookMovesEachPixelAboutThePlanetsOwnColourAndKeepsItsLightness()
+    {
+        // C2 (#1305): every pixel's saturation, OKLab (a, b) over L, taken to q m + p (s - m) about the interior's mean m, lightness kept. So the
+        // planet's colour goes to q of itself and every pixel's departure from it grows p times, along its hue and across it.
+        const int size = 128;
+        var disk = new MetricDisk(63.5, 63.5, 50);
+        var (master, red, green, blue) = BandedPlanet(size, disk);
+        var luminance = PlanetaryColourReading.Read(red, green, blue, size, size, disk, default).Luminance;
+        var look = new ColourLook { AboutPlanet = (2, 0.5) };
+
+        var (looked, gains) = PlanetaryColourLook.Apply(master, disk, look);
+        gains.ShouldAllBe(g => g == 1, "no chroma curve");
+        var (lr, lg, lb) = (looked.GetChannelSpan(0).ToArray(), looked.GetChannelSpan(1).ToArray(), looked.GetChannelSpan(2).ToArray());
+        var (meanA, meanB) = MeanSaturation(red, green, blue);
+        var (afterA, afterB) = MeanSaturation(lr, lg, lb);
+        afterA.ShouldBe(0.5 * meanA, 0.02 * Math.Abs(meanA), "the planet's colour, half of itself");
+        afterB.ShouldBe(0.5 * meanB, 0.02 * Math.Abs(meanB));
+        foreach (var (y, what) in (ReadOnlySpan<(int, string)>)[(8 * 6 + 4, "the belt"), (8 * 7 + 4, "the zone")])
+        {
+            var i = (y * size) + 63;
+            var (was, now) = (OkLab.FromLinearSrgb(red[i] / luminance, green[i] / luminance, blue[i] / luminance),
+                OkLab.FromLinearSrgb(lr[i] / luminance, lg[i] / luminance, lb[i] / luminance));
+            ((now.A / now.L) - afterA).ShouldBe(2 * ((was.A / was.L) - meanA), 0.002, $"{what}'s departure along a, doubled");
+            ((now.B / now.L) - afterB).ShouldBe(2 * ((was.B / was.L) - meanB), 0.002, $"{what}'s departure along b, doubled");
+            now.L.ShouldBe(was.L, 1e-4, $"{what}'s lightness kept");
+        }
+        for (var i = 0; i < red.Length; i++)
+        {
+            if (disk.ClearRadiiAt(i % size, i / size) >= PlanetaryColourLook.NoneFrom)
+            {
+                (lr[i], lg[i], lb[i]).ShouldBe((red[i], green[i], blue[i]), "past the fade, the master as it was");
+            }
+        }
+        look.HeaderCards()["CLOOK"].Value.ShouldBe("posted");
+
+        // Posted is each planet's own fit; any other look is the same on every planet.
+        ColourLook.Posted.For(CatalogIndex.Saturn).AboutPlanet.ShouldBe((2.80, 0.65));
+        ColourLook.Posted.For(CatalogIndex.Jupiter).AboutPlanet.ShouldBe((2.95, 0.30));
+        ColourLook.Boosted.For(CatalogIndex.Saturn).ShouldBeSameAs(ColourLook.Boosted);
+        master.Release();
+        looked.Release();
+
+        // The mean saturation over the interior the look takes in full, on the master's own normalisation.
+        (double A, double B) MeanSaturation(float[] r, float[] g, float[] b)
+        {
+            var (sumA, sumB, n) = (0.0, 0.0, 0);
+            for (var i = 0; i < r.Length; i++)
+            {
+                var lab = OkLab.FromLinearSrgb(r[i] / luminance, g[i] / luminance, b[i] / luminance);
+                if (disk.ClearRadiiAt(i % size, i / size) <= PlanetaryColourLook.FullInside && lab.L > 0
+                    && ((0.2126 * r[i]) + (0.7152 * g[i]) + (0.0722 * b[i])) / luminance >= PlanetaryColourLook.LitFrom)
+                {
+                    (sumA, sumB, n) = (sumA + (lab.A / lab.L), sumB + (lab.B / lab.L), n + 1);
+                }
+            }
+            return (sumA / n, sumB / n);
+        }
+    }
+
+    [Fact]
     public void APlanetsPreviewShowsMoreChromaThanItsLinearPlanesHold()
     {
         // The planetary preview's mid-tone lift bends each channel on its own and the sRGB curve again on screen, so what a post is compared

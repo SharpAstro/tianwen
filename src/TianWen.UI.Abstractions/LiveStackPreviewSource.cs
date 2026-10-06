@@ -374,7 +374,7 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
                 // The colour look last, a rendering of the master the balance made (#1277), on the disk the limb followed: only where Draw
                 // balanced it. A master whose planet has no light to read its colour at is shown as balanced.
                 if (look is not null && here.Balance is not null && drawn.ChannelCount == 3
-                    && PlanetaryColourLook.TryApply(drawn, here.Disk, look) is { } looked)
+                    && PlanetaryColourLook.TryApply(drawn, here.Disk, look.For(here.Planet)) is { } looked)
                 {
                     drawn.Release();
                     (display, lookedOn) = (looked, true);

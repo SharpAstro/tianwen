@@ -248,9 +248,10 @@ partial class ImageRendererBase<TSurface>
 
         rows.Add(ToneSeparator());
 
-        // The planet's colour look (#1277): true colour (the master as balanced), or the owner's boosted S-curve on the chroma, over the linear master the way the
-        // stretch and the tone are. Only on a planet's frame; where the master on show cannot take it, why, under the choice. The choice
-        // stays pressable there: it is what the next master that can take it (a Derive, the next file) is shown with.
+        // The planet's colour look (#1277): true colour (the master as balanced), the owner's boosted S-curve on the chroma, or the posts' colour
+        // about the planet's own (#1305), over the linear master the way the stretch and the tone are. Only on a planet's frame; where the master
+        // on show cannot take it, why, under the choice. The choice stays pressable there: it is what the next master that can take it (a
+        // Derive, the next file) is shown with.
         var (lookShown, lookReason) = PlanetaryLookReach(state);
         if (lookShown)
         {
@@ -260,6 +261,7 @@ partial class ImageRendererBase<TSurface>
             [
                 new(null, "True colour") { Hit = new HitResult.ButtonHit("LookTrueColour") },
                 new(ColourLook.Boosted, "Boosted") { Hit = new HitResult.ButtonHit("LookBoosted") },
+                new(ColourLook.Posted, "Posted") { Hit = new HitResult.ButtonHit("LookPosted") },
             ];
             rows.Add(Layout.Builder.Text(PlanetaryLookHeading, small, ViewerTheme.Palette.DimText).RowH(rowH));
             rows.Add(Layout.Builder.ButtonGroup(looks, state.PlanetaryLook,
