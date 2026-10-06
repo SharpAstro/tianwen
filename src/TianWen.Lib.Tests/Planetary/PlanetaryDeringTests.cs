@@ -228,7 +228,7 @@ public class PlanetaryDeringTests
         TestContext.Current.TestOutputHelper?.WriteLine($"at the reach the drawn plane steps {step:+0.0000;-0.0000} (the model's own slope {modelStep:+0.0000;-0.0000}); the moon stands {lift:0.0000} on the model");
 
         PlanetaryMetrics.CompactSources(stacked, GlowSize, GlowSize, GlowDisk, count: PlanetaryDering.MaxMoons).ShouldHaveSingleItem().ShouldBe(moon);
-        // Kept whole, the stack's glow stood three quarters above the model's within the reach: a step of 0.035 and the moon at 0.255. A
+        // Kept whole, the stack's glow stood three quarters above the model's within the reach: a step of 0.055 and the moon at 0.253. A
         // plane through a glow this curved (0.3 of the disk at the limb, falling over 10 px) lies a little above it, so the moon stands
         // about 6 % low; on the real captures its peak moved by at most 1 % (#1301).
         step.ShouldBe(modelStep, 0.005, "no step where the moon meets the model");
