@@ -998,7 +998,10 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   keeps its reference in place** (`RollingWindowOptions.KeepFraction` 0.25, `ReReferenceInPlace`, #1174; `.Legacy` folds every frame
   and rebuilds): it keeps up with 216 and 250 frames a second (99 and 96 % graded, under 0.75 s behind), where folding every frame fell
   behind with every recipe and folded its whole window again on nearly every master, mostly as its reference aged out of the 500-frame
-  window. **Judge a live stack by the frames it GRADES a second (it must see every one) and its rebuilds by cause (`RebuildCauses`),
+  window. **A pixel no folded frame reaches reads 0** (`RollingWindowStacker.UncoveredWeight`, #1319): kept in place, the window is never
+  folded again from nothing, so an eviction leaves rounding in the weight and the sum, and where no frame now reaches (an edge the
+  planet drifted from) their ratio was garbage, -3.17 to 1.16 on the twin, which threw the scorer's limb fit (1.6 to 7.1 for one
+  recipe). A covered pixel holds a frame's whole score, so half the least folded score separates the two. **Judge a live stack by the frames it GRADES a second (it must see every one) and its rebuilds by cause (`RebuildCauses`),
   never by how far its window's end moved**, which a rebuild jumps. Frames are
   many, so no step may grow faster than linearly in them (the user, 2026-10-02). **A test that
   depends on one of these choices pins it** rather than inheriting a default the next measurement may move. **Lanczos-3's clamp

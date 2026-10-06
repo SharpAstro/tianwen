@@ -719,6 +719,24 @@ public sealed class RollingWindowStacker
         return (score, box);
     }
 
+    // The weight a pixel's sum must pass to count as covered (#1319): half the least score the sum holds. A covered pixel holds at
+    // least one folded frame's whole score (AccumulateTranslatedInto adds a frame's weight whole or not at all), while one that no
+    // folded frame reaches holds only what rounding left as frames were evicted from it: at most 1.1e-5 against scores of about 0.1 on
+    // the twin, whose ratio read -3.17 to 1.16 on frames between 0.07 and 0.3. A window that is never folded again from nothing (the
+    // reference re-taken in place, #1174) keeps that residue for good.
+    private float UncoveredWeight()
+    {
+        var least = float.PositiveInfinity;
+        foreach (var contribution in _window.Values)
+        {
+            if (contribution.Weight > 0f && contribution.Weight < least)
+            {
+                least = contribution.Weight;
+            }
+        }
+        return float.IsFinite(least) ? 0.5f * least : 0f;
+    }
+
     // Persistent normalise destination for the split-CFA path, where the normalised sub-planes are
     // transient scratch (merged + demosaiced into a fresh master below, never escaping this class) --
     // reused across rebuilds so a live master publish stops re-allocating 4 full sub-planes each time.
@@ -751,7 +769,7 @@ public sealed class RollingWindowStacker
         }
 
         var (sum, weight, _) = Accumulators;
-        var stacked = PlanetaryMaster.NormalizeInto(sum, weight, dst, _meta);
+        var stacked = PlanetaryMaster.NormalizeInto(sum, weight, dst, _meta, UncoveredWeight());
         return await PlanetaryMaster.MergeAndDemosaicAsync(stacked, _stream.Layout, cancellationToken).ConfigureAwait(false);
     }
 

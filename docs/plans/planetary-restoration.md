@@ -2485,9 +2485,19 @@ It was adopted only if it left the twin no more than 0.02 more band error at eve
   session's bake held about 13 of the 16 cores, and the control (the defaults' own registration at K = 0.25 in place) graded 80 % and
   53 % where it had graded 99 % and 96 % an hour before, so neither keep-up reading meant anything. #1272 holds the rule, the
   commands, the baselines and the check that a run was quiet.
-- **The twin's last master swings between replays at 60 frames a second (#1319).** Three replays of the defaults left last masters at
-  3.04, 5.42 and 7.09 (bands 1 to 4) against the truth, where 250 read 1.537 above. All three graded every frame in full, one recipe
-  run three times. Until the cause is found, a band error read at 60 is no measure of a change.
+- **A pixel no folded frame reaches reads 0 (#1319).** At 60 frames a second, the twin's last master swung from 1.61 to 7.09 (bands 1
+  to 4) between replays of one recipe; with the reference rebuilt it read 1.536 every time.
+  - Kept in place, the window is never folded again from nothing, so each eviction leaves float rounding in the weight and the sum.
+  - Where no folded frame still reaches (the frame's edges, as the planet drifts 14 px over the twin), those two are that residue
+    alone: at most 1.1e-5, under 8e-7 of the largest weight.
+  - Their ratio put 221 to 246 edge pixels at -3.17 to 1.16, against frames between 0.07 and 0.3, and that threw the scorer's limb fit.
+    The disks were the same in every run.
+  - A covered pixel holds at least one folded frame's whole score (`AccumulateTranslatedInto` adds a frame's weight whole or not at
+    all), so the live master counts a pixel as covered only past half the least score its sum holds
+    (`RollingWindowStacker.UncoveredWeight`). The batch stack never evicts and keeps its rule.
+  - Measured to the rule registered on #1319: four in-place replays read 1.540, 1.540, 1.539 and 1.540, with no pixel below zero or
+    above the interior's brightest.
+  - K = 0.25 in place keeps its adoption above: its 1.537 at 250 frames a second is the clean masters' figure here.
 
 Parts 1 and 2 ran beside that bake too, every arm of a comparison in the same session: load only slows a stack, so a K that kept up
 under it keeps up, and the adoption does not move if a K that failed would pass on a quiet box (K = 0.25 leaves the least band error of

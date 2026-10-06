@@ -32,8 +32,11 @@ internal static class PlanetaryMaster
     /// the fused clone+normalise for a live stacker: the accumulators keep their integral state (one read
     /// pass, one write pass -- no separate <c>Clone()</c>), and the returned image wraps <paramref name="dst"/>,
     /// so the caller owns its lifetime. <see cref="NormalizeInPlace"/> is the <c>dst == channelAccum</c> case.
+    /// A pixel whose weight is at most <paramref name="minWeight"/> counts as uncovered: a stack that takes frames
+    /// back out (the rolling window) leaves what rounding made of an evicted frame's weight and sum where no frame
+    /// now reaches, and their ratio is no measurement (#1319). Zero, the default, is a stack that only adds.
     /// </summary>
-    internal static Image NormalizeInto(float[][,] channelAccum, float[,] weightAccum, float[][,] dst, ImageMeta meta)
+    internal static Image NormalizeInto(float[][,] channelAccum, float[,] weightAccum, float[][,] dst, ImageMeta meta, float minWeight = 0f)
     {
         var channels = channelAccum.Length;
         var height = weightAccum.GetLength(0);
@@ -48,7 +51,7 @@ internal static class PlanetaryMaster
                 for (var x = 0; x < width; x++)
                 {
                     var wv = weightAccum[y, x];
-                    dstPlane[y, x] = wv > 0f ? src[y, x] / wv : 0f;
+                    dstPlane[y, x] = wv > minWeight ? src[y, x] / wv : 0f;
                 }
             }
         }

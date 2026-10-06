@@ -297,6 +297,144 @@ public class RollingWindowStackerTests
         stacker.RebuildCauses.ReferenceAged.ShouldBeGreaterThanOrEqualTo(1, "one beyond it folds the window again");
     }
 
+    /// <summary>
+    /// A planet drifting slowly across the field, its reference re-taken in place again and again (#1319): every frame is moved onto the
+    /// FIRST reference's grid, so the master's disk stays where that reference had it, however far the planet has drifted since.
+    /// </summary>
+    [Fact]
+    public async Task ADriftingPlanetStacksOnTheFirstReferencesGridAcrossReReferences()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        const int size = 96;
+        var frames = new float[40][,];
+        var centres = new double[frames.Length];
+        for (var i = 0; i < frames.Length; i++)
+        {
+            // 0.4 px a frame, 15.6 px over the run, within a quarter of the 64 px tile; frame 0 the sharpest, so it is the first reference.
+            var frame = new float[size, size];
+            double cx = 32 + (0.4 * i), cy = size / 2.0;
+            centres[i] = cx;
+            for (var y = 0; y < size; y++)
+            {
+                for (var x = 0; x < size; x++)
+                {
+                    double dx = x - cx, dy = y - cy;
+                    frame[y, x] = (dx * dx) + (dy * dy) < 12 * 12
+                        ? (float)(0.5 + (0.25 * Math.Sin(dx * 0.6) * Math.Cos(dy * 0.55)))
+                        : 0.03f;
+                }
+            }
+            frames[i] = BoxBlur(frame, i == 0 ? 0 : 1);
+        }
+        var stacker = new RollingWindowStacker(new InMemoryFrameStream(frames),
+            new RollingWindowOptions { FallbackWindowFrames = 6, MaxWindowFrames = 6, KeepFraction = 1, ReReferenceInPlace = true });
+        Image? master = null;
+        for (var f = 0; f < frames.Length; f++)
+        {
+            master?.Release();
+            master = await stacker.StackToAsync(f, ct);
+        }
+
+        stacker.ReReferences.ShouldBeGreaterThanOrEqualTo(3, "the reference is re-taken in place as the window slides");
+        stacker.RebuildCauses.ReferenceAged.ShouldBe(0, "the drift stays within a quarter tile");
+        var (masterX, _) = Centroid(master.ShouldNotBeNull());
+        TestContext.Current.TestOutputHelper?.WriteLine($"master's disk at x {masterX:0.00}; the first reference's at {centres[0]:0.00}, the last frame's at {centres[^1]:0.00}");
+        masterX.ShouldBe(centres[0], 0.5, "every frame moved onto the first reference's grid");
+        // The columns only the earliest frames reached are uncovered once those frames are evicted: what rounding leaves of their weight
+        // and sum is no measurement, so the master holds nothing there outside the frames' own range (#1319: -3.17 and 1.16 on the twin).
+        var (low, high) = (float.MaxValue, float.MinValue);
+        for (var y = 0; y < master.Height; y++)
+        {
+            for (var x = 0; x < master.Width; x++)
+            {
+                (low, high) = (MathF.Min(low, master[0, y, x]), MathF.Max(high, master[0, y, x]));
+            }
+        }
+        TestContext.Current.TestOutputHelper?.WriteLine($"master's range {low:G4} to {high:G4}");
+        low.ShouldBeGreaterThanOrEqualTo(0f, "no pixel below the frames' darkest");
+        high.ShouldBeLessThanOrEqualTo(0.76f, "no pixel above the frames' brightest");
+        master.Release();
+    }
+
+    /// <summary>
+    /// The edge columns only the earliest frames reached (#1319): a planet drifting slowly, its best quarter folded and its reference
+    /// re-taken in place, so the window is never folded again from nothing. Once those frames are evicted, what rounding leaves of the
+    /// columns' weight and sum is no measurement, and the master holds nothing there outside the frames' own range. On the twin it held
+    /// -3.17 and 1.16 against frames between 0.07 and 0.3.
+    /// </summary>
+    [Fact]
+    public async Task AnEdgeOnlyEvictedFramesReachedHoldsNothingOutsideTheFramesRange()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        const int size = 96;
+        var random = new Random(1319);
+        var frames = new float[300][,];
+        var (low, high) = (float.MaxValue, float.MinValue);
+        for (var i = 0; i < frames.Length; i++)
+        {
+            // 0.06 px a frame, 18 px over the run; seeded noise, so the frames' weights and values differ as a real capture's do.
+            var frame = new float[size, size];
+            double cx = 30 + (0.06 * i), cy = size / 2.0;
+            for (var y = 0; y < size; y++)
+            {
+                for (var x = 0; x < size; x++)
+                {
+                    double dx = x - cx, dy = y - cy;
+                    var signal = (dx * dx) + (dy * dy) < 12 * 12 ? 0.5 + (0.25 * Math.Sin(dx * 0.6) * Math.Cos(dy * 0.55)) : 0.03;
+                    frame[y, x] = (float)(signal + (0.01 * (random.NextDouble() - 0.5)));
+                }
+            }
+            frames[i] = BoxBlur(frame, random.Next(0, 3));
+            foreach (var v in frames[i])
+            {
+                (low, high) = (MathF.Min(low, v), MathF.Max(high, v));
+            }
+        }
+        var stacker = new RollingWindowStacker(new InMemoryFrameStream(frames),
+            new RollingWindowOptions { FallbackWindowFrames = 80, MaxWindowFrames = 80, KeepFraction = 0.25, ReReferenceInPlace = true });
+        var (masterLow, masterHigh) = (float.MaxValue, float.MinValue);
+        for (var f = 9; f < frames.Length; f += 10)
+        {
+            var master = await stacker.StackToAsync(f, ct);
+            for (var y = 0; y < master.Height; y++)
+            {
+                for (var x = 0; x < master.Width; x++)
+                {
+                    // An uncovered pixel reads 0, the master's own mark for no coverage.
+                    if (master[0, y, x] is var v && v != 0f)
+                    {
+                        (masterLow, masterHigh) = (MathF.Min(masterLow, v), MathF.Max(masterHigh, v));
+                    }
+                }
+            }
+            master.Release();
+        }
+
+        TestContext.Current.TestOutputHelper?.WriteLine($"frames {low:G4} to {high:G4}; masters {masterLow:G4} to {masterHigh:G4}; {stacker.ReReferences} re-references, {stacker.Rebuilds} rebuilds");
+        stacker.ReReferences.ShouldBeGreaterThanOrEqualTo(2, "the reference is re-taken in place");
+        masterLow.ShouldBeGreaterThanOrEqualTo(low, "no master pixel below the frames' darkest");
+        masterHigh.ShouldBeLessThanOrEqualTo(high, "no master pixel above the frames' brightest");
+    }
+
+    // The centroid of a mono image's pixels above half its peak.
+    private static (double X, double Y) Centroid(Image image)
+    {
+        var (sx, sy, sw) = (0.0, 0.0, 0.0);
+        var peak = image.MaxValue;
+        for (var y = 0; y < image.Height; y++)
+        {
+            for (var x = 0; x < image.Width; x++)
+            {
+                var v = image[0, y, x];
+                if (v > 0.5f * peak)
+                {
+                    (sx, sy, sw) = (sx + (x * v), sy + (y * v), sw + v);
+                }
+            }
+        }
+        return (sx / sw, sy / sw);
+    }
+
     [Fact]
     public async Task Incremental_slide_matches_a_fresh_rebuild_of_the_same_window()
     {
