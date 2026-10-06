@@ -1134,7 +1134,15 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   and that PIPP's crop re-centred has its cut away from the frame's edge, and the gradient took that straight edge for the run's
   sharpest (one such frame was the reference of every stack of the owner's 2021-08-19 Saturn, and every stack carried the seam). No blurred
   limb steps from the dark into the planet along a line, so it is read at one deviation above the mean, where a cut through a ring's dim
-  light still shows. **A capture's span is its frames' earliest and latest TIMES, never its first and last frames** (#1292,
+  light still shows. **So does a frame the telescope's MOTION smeared** (#1300, `FrameGrader.SmearRatio`, `PlanetaryDisk.Elongation`): its
+  planet more than 1.5 times as elongated as the run's median, read above 0.3 of the way from the frame's mean to its peak, never at the cut
+  test's mean plus three deviations, which a large disk lifts above itself. A frame smeared as the scope moved was 2021-08-01's
+  reference, and every frame registered against it left the master's edges covered by none; no frame of four tracked captures passes
+  1.06. **A batch master is cropped to where 0.95 of the frames' weight reached** (`CropToCoverage`, `--no-crop`; the deep-sky
+  `LargestCoveredRectangle(coverage)`), read off a tally of the frames' FOOTPRINTS (`PlanetaryCoverage`), never the weight the stack
+  folds, which per-point quality weighting makes lower on the sky (read off it, the crop cut down to the planet); after the demosaic
+  and never into the planet's `Footprint`, so one night's mono stacks differ in size and `PlanetaryComposition.Register` moves each
+  onto the reference's grid. **A capture's span is its frames' earliest and latest TIMES, never its first and last frames** (#1292,
   `CaptureSpan`): PIPP writes a capture sorted by quality, whose first frame was taken mid-run, and every epoch, quarter, turn and DATE-OBS
   reads the span; a de-rotation whose north the run cannot tell is not done (`NorthUnread`).
 - **A colour master is sharpened per channel, and that UNMIXES colour, it does not add it** (#1295): on the twins it moved the globe, the

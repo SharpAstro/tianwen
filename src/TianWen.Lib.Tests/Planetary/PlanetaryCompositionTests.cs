@@ -133,6 +133,40 @@ public sealed class PlanetaryCompositionTests : IDisposable
     }
 
     [Fact]
+    public void StacksCroppedToWhereTheirFramesReachedAreMovedOntoTheReferencesGrid()
+    {
+        // Each stack is cropped to where its own frames reached (#1300), so one night's stacks differ in size: a stack cut five columns
+        // and three rows from its corner registers as the whole one does, onto the reference's grid.
+        var ingested = Ingested();
+        var reference = PlanetaryComposition.ReferenceIndex(ingested);
+        var other = reference == 0 ? 1 : 0;
+        var cropped = new List<PlanetaryMonoStack>(ingested);
+        cropped[other] = ingested[other] with { Image = ingested[other].Image.Crop(Geometry.PixelRect.FromLTRB(5, 3, Size, Size - 2)) };
+
+        var (whole, wholeRefusal) = PlanetaryComposition.Register(ingested);
+        var (cut, cutRefusal) = PlanetaryComposition.Register(cropped);
+        whole.ShouldNotBeNull(wholeRefusal);
+        cut.ShouldNotBeNull(cutRefusal);
+
+        cut.Stacks.ShouldAllBe(s => s.Image.Width == Size && s.Image.Height == Size, "every stack on the reference's grid");
+        var disk = DiskOf(Set[reference]);
+        var a = whole.Stacks[other].Image.GetChannelSpan(0);
+        var b = cut.Stacks[other].Image.GetChannelSpan(0);
+        var worst = 0.0;
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                if (Math.Sqrt(((x - disk.CenterX) * (x - disk.CenterX)) + ((y - disk.CenterY) * (y - disk.CenterY))) < 0.8 * Radius)
+                {
+                    worst = Math.Max(worst, Math.Abs(a[(y * Size) + x] - b[(y * Size) + x]));
+                }
+            }
+        }
+        worst.ShouldBeLessThan(0.01, "the cropped stack lands where the whole one does");
+    }
+
+    [Fact]
     public void AStackWithoutItsLabelsSaysWhichOneIsMissing()
     {
         var plane = new float[8, 8];

@@ -114,7 +114,7 @@ public class CutFrameTests
         foreach (var (data, cut) in frames)
         {
             var mono = Image.FromChannel(data, 1f, 0f);
-            var (box, monoCut) = PlanetaryDisk.BoundingBoxAndCut(mono);
+            var (box, monoCut, _) = PlanetaryDisk.BoundingBoxAndCut(mono);
             box.ShouldBe(PlanetaryDisk.BoundingBox(mono));
             if (cut is { } expected)
             {

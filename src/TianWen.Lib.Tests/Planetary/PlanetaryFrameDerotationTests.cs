@@ -100,7 +100,7 @@ public class PlanetaryFrameDerotationTests
         using var stream = new InMemoryFrameStream(capture.Frames, capture.Times);
         // Against the best frame alone: a stacked reference carries every frame to the epoch once more, which the drizzle test below
         // covers, and doubles this one's Debug time.
-        var options = new PlanetaryStackOptions { KeepFraction = 1, WhitenedCorrelation = false, Interpolation = WarpInterpolation.Lanczos3, ReferenceFrames = 0 };
+        var options = new PlanetaryStackOptions { CropToCoverage = false, KeepFraction = 1, WhitenedCorrelation = false, Interpolation = WarpInterpolation.Lanczos3, ReferenceFrames = 0 };
         var stacker = new LuckyImagingStacker();
         var ct = TestContext.Current.CancellationToken;
 
@@ -130,7 +130,7 @@ public class PlanetaryFrameDerotationTests
     {
         using var stream = new InMemoryFrameStream([new float[8, 8]], [Night]);
         await Should.ThrowAsync<InvalidOperationException>(() => new LuckyImagingStacker().StackAsync(stream,
-            new PlanetaryStackOptions { Derotation = new PlanetaryDerotationOptions(CatalogIndex.Jupiter), WarpPoolFrames = 2 }, TestContext.Current.CancellationToken));
+            new PlanetaryStackOptions { CropToCoverage = false, Derotation = new PlanetaryDerotationOptions(CatalogIndex.Jupiter), WarpPoolFrames = 2 }, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -141,7 +141,7 @@ public class PlanetaryFrameDerotationTests
         var capture = FrameDerotationCaptures.Capture(frames: 3, minutes: 16, seed: 2);
         using var stream = new InMemoryFrameStream(capture.Frames, capture.Times);
         var result = await new LuckyImagingStacker().StackGlobalAsync(stream,
-            new PlanetaryStackOptions { KeepFraction = 1, Derotation = new PlanetaryDerotationOptions(CatalogIndex.Jupiter) { MinimumTurnPx = 5 } },
+            new PlanetaryStackOptions { CropToCoverage = false, KeepFraction = 1, Derotation = new PlanetaryDerotationOptions(CatalogIndex.Jupiter) { MinimumTurnPx = 5 } },
             TestContext.Current.CancellationToken);
 
         result.Epoch.ShouldBeNull();
@@ -157,7 +157,7 @@ public class PlanetaryFrameDerotationTests
         var capture = FrameDerotationCaptures.Capture(frames: 3, minutes: 1, seed: 1);
         using var stream = new InMemoryFrameStream(capture.Frames);
         var result = await new LuckyImagingStacker().StackGlobalAsync(stream,
-            new PlanetaryStackOptions { KeepFraction = 1, Derotation = new PlanetaryDerotationOptions(CatalogIndex.Jupiter) { MinimumTurnPx = 1 } },
+            new PlanetaryStackOptions { CropToCoverage = false, KeepFraction = 1, Derotation = new PlanetaryDerotationOptions(CatalogIndex.Jupiter) { MinimumTurnPx = 1 } },
             TestContext.Current.CancellationToken);
 
         result.Epoch.ShouldBeNull();
@@ -170,7 +170,7 @@ public class PlanetaryFrameDerotationTests
         var capture = FrameDerotationCaptures.Capture(frames: 3, minutes: 1, seed: 1);
         using var stream = new InMemoryFrameStream(capture.Frames);
         await Should.ThrowAsync<InvalidOperationException>(() => new LuckyImagingStacker().StackGlobalAsync(stream,
-            new PlanetaryStackOptions { Derotation = new PlanetaryDerotationOptions(CatalogIndex.Jupiter) }, TestContext.Current.CancellationToken));
+            new PlanetaryStackOptions { CropToCoverage = false, Derotation = new PlanetaryDerotationOptions(CatalogIndex.Jupiter) }, TestContext.Current.CancellationToken));
     }
 
     private static ushort[] Filled(ushort value)
@@ -201,6 +201,7 @@ public class PlanetaryFrameDerotationPointsTests
         using var stream = new InMemoryFrameStream(capture.Frames, capture.Times);
         var options = new PlanetaryStackOptions
         {
+            CropToCoverage = false,
             KeepFraction = 1,
             WhitenedCorrelation = false,
             Interpolation = WarpInterpolation.Lanczos3,
@@ -263,6 +264,7 @@ public class PlanetaryFrameDerotationDrizzleTests
             using var stream = SerFrameStream.Open(path);
             var options = new PlanetaryStackOptions
             {
+                CropToCoverage = false,
                 KeepFraction = 1,
                 WhitenedCorrelation = false,
                 Drizzle = new PlanetaryDrizzleOptions(Scale: 1f, Pixfrac: 1f, AlignmentPointMesh: false),

@@ -1,5 +1,7 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Geometry;
 
 namespace TianWen.Lib.Imaging.Planetary;
 
@@ -52,6 +54,37 @@ internal static class PlanetaryMaster
         }
 
         return new Image(dst, BitDepth.Float32, 1f, 0f, 0f, meta);
+    }
+
+    /// <summary>
+    /// The largest rectangle of a stack's output grid every block of which (2 x 2 pixels) at least
+    /// <see cref="PlanetaryStackOptions.CoverageCropFraction"/> of the frames' weight reached, read off its <see cref="PlanetaryCoverage"/>:
+    /// the deep-sky master's rule (<see cref="Image.LargestCoveredRectangle(Image, double, int)"/>), so under-coverage counts only where it
+    /// reaches the border. Never off the weight the stack folds, which per-point quality weighting makes lower on the sky than on the planet.
+    /// </summary>
+    internal static PixelRect CoveredRectangle(float[,] coverage)
+    {
+        var plane = new Image([coverage], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
+        return plane.LargestCoveredRectangle(plane, PlanetaryStackOptions.CoverageCropFraction, blockSize: 2);
+    }
+
+    /// <summary>
+    /// <paramref name="master"/> cropped to <paramref name="covered"/> (<see cref="CoveredRectangle"/>, on a grid <paramref name="scale"/>
+    /// master pixels a cell) grown to hold its <see cref="PlanetaryDisk.Footprint"/>, so the planet, its rings and its moons are never cut;
+    /// the master itself, and an empty rectangle, when that keeps all of it. The caller owns the image returned.
+    /// </summary>
+    internal static (Image Master, PixelRect Kept) CropToCovered(Image master, PixelRect covered, int scale)
+    {
+        var full = new PixelRect(0, 0, master.Width, master.Height);
+        if (covered.IsEmpty)
+        {
+            return (master, PixelRect.Empty);
+        }
+        var kept = new PixelRect(covered.X * scale, covered.Y * scale, covered.Width * scale, covered.Height * scale);
+        var light = PlanetaryDisk.Footprint(master);
+        kept = PixelRect.FromLTRB(Math.Min(kept.Left, light.Left), Math.Min(kept.Top, light.Top), Math.Max(kept.Right, light.Right), Math.Max(kept.Bottom, light.Bottom));
+        kept = PixelRect.Intersect(kept, full);
+        return kept == full || kept.IsEmpty ? (master, PixelRect.Empty) : (master.Crop(kept), kept);
     }
 
     /// <summary>

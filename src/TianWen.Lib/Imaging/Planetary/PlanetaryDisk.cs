@@ -42,8 +42,9 @@ public static class PlanetaryDisk
     }
 
     /// <summary>
-    /// <see cref="BoundingBox"/> at its defaults, and whether the frame's planet is cut, by the frame's edge or by a straight line inside
-    /// it, or missing from it (<see cref="FrameGrader.IsCutOrEmpty"/>), from the frame's luminance: the grader asks both of every frame.
+    /// <see cref="BoundingBox"/> at its defaults, whether the frame's planet is cut, by the frame's edge or by a straight line inside
+    /// it, or missing from it (<see cref="FrameGrader.IsCutOrEmpty"/>), and how elongated its light lies (<see cref="Elongation"/>,
+    /// NaN with no planet), from the frame's luminance: the grader asks all three of every frame.
     /// </summary>
     /// <remarks>
     /// Every frame of every stack is graded through this, and a live stack must grade each frame a fast capture sends (#1174), so it
@@ -51,13 +52,13 @@ public static class PlanetaryDisk
     /// test's own scan: the same box as <see cref="BoundingBox"/> and the same answer, in two scans of a mono frame where the separate
     /// passes took a copy and four.
     /// </remarks>
-    internal static (PixelRect Box, bool CutOrEmpty) BoundingBoxAndCut(Image frame)
+    internal static (PixelRect Box, bool CutOrEmpty, float Elongation) BoundingBoxAndCut(Image frame)
     {
         int w = frame.Width, h = frame.Height;
         var n = w * h;
         if (n == 0)
         {
-            return (new PixelRect(0, 0, w, h), true);
+            return (new PixelRect(0, 0, w, h), true, float.NaN);
         }
         if (frame.ChannelCount == 1)
         {
@@ -74,8 +75,8 @@ public static class PlanetaryDisk
     // luminance: the extent is taken of every pixel the scan passes above the level, and each one not yet in a blob starts a walk.
     // The planet is the largest blob above the level, its pixels joined by their edges; the frame's edge cuts it when the blob
     // reaches the edge, and a blob under PlanetPixels is no planet. A whole one is still cut when a straight line inside the frame cuts
-    // it (CutInside).
-    private static (PixelRect Box, bool CutOrEmpty) BoxAndCut(ReadOnlySpan<float> luma, int width, int height)
+    // it (CutInside). The planet's elongation is read last, from the same buffers (Elongation).
+    private static (PixelRect Box, bool CutOrEmpty, float Elongation) BoxAndCut(ReadOnlySpan<float> luma, int width, int height)
     {
         var (mean, deviation) = MeanAndDeviation(luma);
         var level = (float)(mean + (3.0 * deviation));
@@ -142,11 +143,181 @@ public static class PlanetaryDisk
             }
         }
         var cut = largest < PlanetPixels || largestTouches || CutInside(luma, width, height, (float)mean, (float)(mean + deviation), seen, queue);
+        var elongation = ElongationOf(luma, width, height, mean, seen, queue);
         if (bright < minPixels || maxX < minX || maxY < minY)
         {
-            return (new PixelRect(0, 0, width, height), cut);
+            return (new PixelRect(0, 0, width, height), cut, elongation);
         }
-        return (PixelRect.FromLTRB(Math.Max(0, minX - pad), Math.Max(0, minY - pad), Math.Min(width - 1, maxX + pad) + 1, Math.Min(height - 1, maxY + pad) + 1), cut);
+        return (PixelRect.FromLTRB(Math.Max(0, minX - pad), Math.Max(0, minY - pad), Math.Min(width - 1, maxX + pad) + 1, Math.Min(height - 1, maxY + pad) + 1), cut, elongation);
+    }
+
+    /// <summary>
+    /// How much longer than wide <paramref name="frame"/>'s planet lies: the square root of the ratio of the largest to the smallest
+    /// variance of its pixels' positions, over its largest blob above <see cref="SmearLevel"/> of the way from the frame's mean to its
+    /// <see cref="SmearPeakQuantile"/> brightness (pixels joined by their edges); NaN when the blob holds fewer than
+    /// <see cref="PlanetPixels"/>. A planet's shape is fixed over a run, so a frame far longer than the run's typical one was taken
+    /// while the telescope MOVED (#1300, <see cref="FrameGrader.SmearRatio"/>).
+    /// </summary>
+    /// <remarks>
+    /// Read at a level set from the planet's own brightness, never at the mean plus deviations the cut test floods at: a large disk
+    /// raises the frame's spread so far that three deviations above its mean lie above the disk itself (the 678MC and 12-inch SCT
+    /// Jupiters held no pixel there). Measured over five captures (2026-10-06): the four on tracked mounts keep every frame within
+    /// 1.06 of their median elongation (1.13 for Jupiter's disk, 2.27 to 2.63 for Saturn's rings); the owner's untracked Dobsonian of
+    /// 2021-08-01 holds 25 frames past 1.5 times, up to 2.63, the frames taken as the scope moved.
+    /// </remarks>
+    public static float Elongation(Image frame)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+        return BoundingBoxAndCut(frame).Elongation;
+    }
+
+    /// <summary>The share of the way from a frame's mean to its <see cref="SmearPeakQuantile"/> brightness its planet's
+    /// <see cref="Elongation"/> is read above.</summary>
+    public const double SmearLevel = 0.3;
+
+    /// <summary>The quantile of a frame's luminance taken as its planet's peak for <see cref="Elongation"/>: past a hot pixel or two.</summary>
+    public const double SmearPeakQuantile = 0.999;
+
+    // Elongation from the frame's own buffers: the largest blob above the level, its pixels' position moments gathered as it is walked.
+    private static float ElongationOf(ReadOnlySpan<float> luma, int width, int height, double mean, Span<bool> seen, Span<int> queue)
+    {
+        var peak = Quantile(luma, SmearPeakQuantile);
+        if (!(peak > mean))
+        {
+            return float.NaN;
+        }
+        var level = (float)(mean + (SmearLevel * (peak - mean)));
+        seen.Clear();
+        var n = width * height;
+        var (largest, sx, sy, sxx, syy, sxy) = (0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        for (var start = 0; start < n; start++)
+        {
+            if (seen[start] || !(luma[start] > level))
+            {
+                continue;
+            }
+            var (head, tail) = (0, 0);
+            var (bx, by, bxx, byy, bxy) = (0.0, 0.0, 0.0, 0.0, 0.0);
+            seen[start] = true;
+            queue[tail++] = start;
+            while (head < tail)
+            {
+                var index = queue[head++];
+                var (x, y) = (index % width, index / width);
+                bx += x;
+                by += y;
+                bxx += (double)x * x;
+                byy += (double)y * y;
+                bxy += (double)x * y;
+                if (x > 0 && !seen[index - 1] && luma[index - 1] > level)
+                {
+                    seen[index - 1] = true;
+                    queue[tail++] = index - 1;
+                }
+                if (x < width - 1 && !seen[index + 1] && luma[index + 1] > level)
+                {
+                    seen[index + 1] = true;
+                    queue[tail++] = index + 1;
+                }
+                if (y > 0 && !seen[index - width] && luma[index - width] > level)
+                {
+                    seen[index - width] = true;
+                    queue[tail++] = index - width;
+                }
+                if (y < height - 1 && !seen[index + width] && luma[index + width] > level)
+                {
+                    seen[index + width] = true;
+                    queue[tail++] = index + width;
+                }
+            }
+            if (tail > largest)
+            {
+                (largest, sx, sy, sxx, syy, sxy) = (tail, bx, by, bxx, byy, bxy);
+            }
+        }
+        if (largest < PlanetPixels)
+        {
+            return float.NaN;
+        }
+        var (mx, my) = (sx / largest, sy / largest);
+        var (cxx, cyy, cxy) = ((sxx / largest) - (mx * mx), (syy / largest) - (my * my), (sxy / largest) - (mx * my));
+        var half = (cxx + cyy) / 2;
+        var spread = Math.Sqrt(Math.Max((half * half) - ((cxx * cyy) - (cxy * cxy)), 0));
+        var (major, minor) = (half + spread, half - spread);
+        return minor > 0 ? (float)Math.Sqrt(major / minor) : float.PositiveInfinity;
+    }
+
+    /// <summary>
+    /// Where a planetary master holds light: the bounding box of every pixel at least <see cref="FootprintLevel"/> of the way from its
+    /// sky (its luminance's tenth percentile) to its peak (<see cref="SmearPeakQuantile"/>) with four such neighbours of eight, the
+    /// planet, its rings, its moons and its halo, padded by <see cref="FootprintPad"/> and clamped to the frame; the whole frame when its
+    /// light cannot be told from the sky, so a crop then keeps all of it. A crop to where the frames reached never cuts it
+    /// (<see cref="PlanetaryMaster.CropToCovered"/>, #1300).
+    /// </summary>
+    public static PixelRect Footprint(Image master)
+    {
+        ArgumentNullException.ThrowIfNull(master);
+        int w = master.Width, h = master.Height;
+        var n = w * h;
+        if (n == 0)
+        {
+            return PixelRect.Empty;
+        }
+        using var rented = ArrayPoolHelper.Rent<float>(n);
+        var luma = rented.AsSpan(0, n);
+        LumaProxy.Fill(master, new PixelRect(0, 0, w, h), luma);
+        var (sky, peak) = (Quantile(luma, 0.1), Quantile(luma, SmearPeakQuantile));
+        return peak > sky
+            ? BoxOf(luma, w, h, (float)(sky + (FootprintLevel * (peak - sky))), FootprintPad, minNeighbours: 4, PlanetPixels)
+            : new PixelRect(0, 0, w, h);
+    }
+
+    /// <summary>The share of the way from a master's sky to its peak that <see cref="Footprint"/> counts as light.</summary>
+    public const double FootprintLevel = 0.02;
+
+    /// <summary>The pixels <see cref="Footprint"/> keeps around the light it finds.</summary>
+    public const int FootprintPad = 8;
+
+    // The value below which `quantile` of the luminance lies, to a 1,024th of its range: a histogram, two passes, no sort.
+    private static double Quantile(ReadOnlySpan<float> luma, double quantile)
+    {
+        var (min, max, count) = (float.PositiveInfinity, float.NegativeInfinity, 0);
+        foreach (var v in luma)
+        {
+            if (float.IsNaN(v))
+            {
+                continue;
+            }
+            min = Math.Min(min, v);
+            max = Math.Max(max, v);
+            count++;
+        }
+        if (!(max > min))
+        {
+            return max;
+        }
+        const int bins = 1024;
+        Span<int> counts = stackalloc int[bins];
+        counts.Clear();
+        var scale = (bins - 1) / (double)(max - min);
+        foreach (var v in luma)
+        {
+            if (!float.IsNaN(v))
+            {
+                counts[(int)((v - min) * scale)]++;
+            }
+        }
+        var above = (long)Math.Floor((1 - quantile) * count);
+        long seenAbove = 0;
+        for (var bin = bins - 1; bin > 0; bin--)
+        {
+            seenAbove += counts[bin];
+            if (seenAbove > above)
+            {
+                return min + (bin / scale);
+            }
+        }
+        return min;
     }
 
     // A planet the CAMERA cut, which PIPP's crop then moved away from the frame's edge (#1291): the cut lies inside the frame, a straight

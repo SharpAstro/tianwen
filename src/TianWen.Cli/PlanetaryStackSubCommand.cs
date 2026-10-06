@@ -139,6 +139,10 @@ internal sealed class PlanetaryStackSubCommand(
         {
             Description = "Leave a colour master's planes where the stack put them. By default red and blue are moved onto green before the demosaic, as AutoStakkert's RGB align does: the atmosphere's dispersion leaves the colours apart (#1202). Each colour is read by its own limb fit when the planet and the capture's time are known, else by correlation. Off under --legacy.",
         };
+        var noCropOpt = new Option<bool>("--no-crop")
+        {
+            Description = "Keep the master at the frames' full size. By default it is cropped to the largest rectangle 95 % of the frames' weight reached (#1300): the frames are moved onto the reference, so the edges are reached by fewer of them, or by none, hold no part of the planet and ring under the sharpening. The planet, its rings and its moons are never cut.",
+        };
         var colourSaturationOpt = new Option<double>("--colour-saturation")
         {
             Description = "The saturation a colour master of Jupiter or Saturn is balanced at: its disk's mean colour (Saturn's globe where its rings leave it clear) is taken to the planet's own (OPAL's reflectance through the eye's response, #1212, #1235), one gain a channel, then, above 1, saturated about that colour at each pixel's luminance. Both masters are balanced, the FITS cards CBALGNR, CBALGNB and CBALSAT say by how much. 1, the default, is the balance alone; 1.4 was the default until 2026-10-06.",
@@ -244,7 +248,7 @@ internal sealed class PlanetaryStackSubCommand(
             Options =
             {
                 outputOpt, labelOpt, keepOpt, qualityOpt, globalOpt, drizzleOpt, drizzlePixfracOpt, drizzleGlobalOpt,
-                noPerPointOpt, noSignalGateOpt, noChannelAlignOpt, colourSaturationOpt, noColourBalanceOpt,
+                noPerPointOpt, noSignalGateOpt, noChannelAlignOpt, noCropOpt, colourSaturationOpt, noColourBalanceOpt,
                 noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, wavelengthOpt, fixOpt, strengthOpt, sharpenLuminanceOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, noPngOpt, pngGammaOpt,
                 tileSizeOpt, apSpacingOpt, maxApOpt, placementOpt, patchSizeOpt, meshSpacingOpt, meshInfluenceOpt, estimatorOpt, correlationOpt, interpolationOpt, referenceFramesOpt,
                 derotateOpt, noDerotateOpt, planetOpt, turnNorthOverOpt, legacyOpt, truthOpt,
@@ -386,6 +390,7 @@ internal sealed class PlanetaryStackSubCommand(
                 // The planet into the master's OBJECT, which a viewer opens linear by.
                 Planet = planet,
                 AlignChannels = baseline.AlignChannels && !parseResult.GetValue(noChannelAlignOpt),
+                CropToCoverage = baseline.CropToCoverage && !parseResult.GetValue(noCropOpt),
                 // The raw integrated master stays linear/unsharpened (downstream-friendly); the sharpen
                 // pass is applied separately below so we can emit both the raw and sharpened masters.
             };
@@ -421,6 +426,15 @@ internal sealed class PlanetaryStackSubCommand(
             if (result.FramesCut > 0)
             {
                 consoleHost.WriteScrollable($"[planetary] left out {result.FramesCut} frames whose planet is cut, by the frame's edge or a straight line inside it, or which hold none (it drifted out of the field)");
+            }
+            if (!result.Cropped.IsEmpty)
+            {
+                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                    $"[planetary] cropped to {result.Cropped.Width}x{result.Cropped.Height} at ({result.Cropped.X}, {result.Cropped.Y}): the edges fewer than {PlanetaryStackOptions.CoverageCropFraction:0%} of the frames reached"));
+            }
+            if (result.FramesSmeared > 0)
+            {
+                consoleHost.WriteScrollable($"[planetary] left out {result.FramesSmeared} frames whose planet is smeared, taken as the telescope moved (more than {FrameGrader.SmearRatio} times as elongated as the run's)");
             }
             if (result.NorthUnread && result.TurnPx is { } unreadTurn)
             {
