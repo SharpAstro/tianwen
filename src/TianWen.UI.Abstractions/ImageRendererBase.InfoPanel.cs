@@ -84,16 +84,17 @@ namespace TianWen.UI.Abstractions
             // statistics, and the button can say from across the bar what the section could not,
             // that a white balance is in force.
 
-            // The planet and telescope both the Best stack and the live view's Derive sharpen for (#1159), once, above both.
-            if (state.ShowStacked || state.SequencePath is not null)
+            // The planet and telescope both the Best stack and the live view's Derive sharpen for (#1159), once, above both; a planetary
+            // master's Derive too (#1314).
+            if (state.ShowStacked || state.SequencePath is not null || state.IsPlanetaryMaster)
             {
                 y += FontSize;
                 RenderTelescopeControls(state, source.SensorType is SensorType.Monochrome, ref y, x, maxTextWidth);
             }
 
-            // Wavelet-sharpen layer sliders -- only for the live stacked view (they re-sharpen the stacked
-            // master; they have no effect on a raw frame).
-            if (state.ShowStacked)
+            // Wavelet-sharpen layer sliders: the live stacked view's, and a planetary master's (#1314). They re-sharpen a master; they have
+            // no effect on a raw frame.
+            if (state.ShowStacked || state.IsPlanetaryMaster)
             {
                 y += FontSize;
                 RenderWaveletControls(state, ref y, x, maxTextWidth);

@@ -129,6 +129,12 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
     public Image? DisplayMaster => _displayMaster;
 
     /// <summary>
+    /// The document the latest published master is shown through, or null before the first: what a Save of the view writes, since it
+    /// is what is on show (#1314). Render thread only.
+    /// </summary>
+    internal AstroImageDocument? Document => _doc;
+
+    /// <summary>
     /// The latest UN-sharpened stacker output, in the stack's own linear scale, or null before the first: what a derivation of the
     /// wavelet gains reads (<see cref="WaveletDerivation"/>), which takes a lease on it for its run. Render thread only.
     /// </summary>

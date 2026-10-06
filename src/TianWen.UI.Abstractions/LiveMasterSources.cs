@@ -9,9 +9,10 @@ namespace TianWen.UI.Abstractions;
 
 /// <summary>
 /// Where a <see cref="LiveStackPreviewSource"/>'s masters come from: a rolling-window stack of a frame stream integrated
-/// here (<see cref="StackedMasters"/>, a SER file's playback), or a stack integrated elsewhere whose masters arrive whole
-/// (<see cref="NodeMasters"/>, the node's planetary run, P6 of docs/plans/hardware-in-the-server.md, #936). The source's
-/// publishing, its wavelet sharpen and its stretch are the same for both.
+/// here (<see cref="StackedMasters"/>, a SER file's playback), a stack integrated elsewhere whose masters arrive whole
+/// (<see cref="NodeMasters"/>, the node's planetary run, P6 of docs/plans/hardware-in-the-server.md, #936), or one master
+/// opened as a file (<see cref="FixedMaster"/>, #1314). The source's publishing, its wavelet sharpen and its stretch are the
+/// same for all three.
 /// </summary>
 public interface ILiveMasterSource : IDisposable
 {
@@ -121,4 +122,51 @@ public sealed class NodeMasters : ILiveMasterSource
             : (1, 1, 1, SensorType.Monochrome);
 
     public void Dispose() => Interlocked.Exchange(ref _latest, null)?.Release();
+}
+
+/// <summary>
+/// A planetary master opened as a file, as the one master a <see cref="LiveStackPreviewSource"/> shows (#1314): the sharpening
+/// layer works over it exactly as over the stacked view's masters, so the dials, Derive, its stops and the colour look have one
+/// path. Its one "frame" is stamped with the master's own instant (<see cref="PlanetaryBestStack.InstantOf"/>, the middle of its
+/// capture's span), which a derivation takes as its epoch.
+/// </summary>
+public sealed class FixedMaster : ILiveMasterSource
+{
+    private Image? _master;
+    private readonly DateTimeOffset? _instant;
+
+    /// <summary>Takes <paramref name="master"/>, and CONSUMES it: it is released with this.</summary>
+    public FixedMaster(Image master)
+    {
+        ArgumentNullException.ThrowIfNull(master);
+        _master = master;
+        _instant = PlanetaryBestStack.InstantOf(master, epoch: null);
+    }
+
+    public int FrameCount => 1;
+
+    public bool HasTimestamps => _instant is not null;
+
+    public DateTimeOffset? TimestampOf(int index)
+    {
+        return _instant;
+    }
+
+    public Task<Image> MasterAtAsync(int playhead, CancellationToken cancellationToken)
+    {
+        // A copy each time, as every master a source is handed is the caller's: the source keeps it to sharpen again, and releases it.
+        return Volatile.Read(ref _master) is { } master
+            ? Task.FromResult(master.Clone())
+            : Task.FromException<Image>(new ObjectDisposedException(nameof(FixedMaster)));
+    }
+
+    public (int Width, int Height, int Channels, SensorType Sensor) ExpectedGeometry =>
+        Volatile.Read(ref _master) is { } master
+            ? (master.Width, master.Height, master.ChannelCount, master.ChannelCount == 1 ? SensorType.Monochrome : SensorType.Color)
+            : (1, 1, 1, SensorType.Monochrome);
+
+    public void Dispose()
+    {
+        Interlocked.Exchange(ref _master, null)?.Release();
+    }
 }
