@@ -99,6 +99,12 @@ internal sealed class PlanetaryCorpusSubCommands(IConsoleHost consoleHost, ILogg
             {
                 consoleHost.WriteScrollable($"  flagged {flag.Key}: {flag.Count()}");
             }
+            foreach (var session in manifest.Sessions)
+            {
+                // A session is a run of several files (#1308): planetary-stack --session joins them as one.
+                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                    $"  session '{session.Name}': {session.Captures.Length} captures, {session.Frames} frames, {session.Width}x{session.Height} {session.ColorId}, {session.FirstUtc} to {session.LastUtc}"));
+            }
             var problems = manifest.Captures.Count(c => c.Problem is not null);
             if (problems > 0)
             {

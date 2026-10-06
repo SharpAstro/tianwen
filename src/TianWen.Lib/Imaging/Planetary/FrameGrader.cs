@@ -372,6 +372,17 @@ public sealed class FrameGrader(IFrameQualityEstimator estimator)
         return picks.MoveToImmutable();
     }
 
+    /// <summary>
+    /// The time of <paramref name="stream"/>'s best frame, graded as a stack grades it (#1308): the instant a run of several captures can
+    /// be de-rotated to, such as the best frame of its middle file. Null for a capture without frame times.
+    /// </summary>
+    public async Task<DateTimeOffset?> BestFrameTimeAsync(IPlanetaryFrameStream stream, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        var best = Reference(await GradeAllAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false));
+        return best >= 0 && stream.HasTimestamps ? stream.TimestampOf(best) : null;
+    }
+
     /// <summary>The index of the single highest-scoring frame (the reference bootstrap), or <c>-1</c> when empty.</summary>
     public static int Reference(ImmutableArray<FrameGrade> grades)
     {

@@ -116,7 +116,20 @@ public sealed record CaptureRecord
 }
 
 /// <summary>A survey's result: what it looked at and what it found, in a stable order.</summary>
-public sealed record CorpusManifest(int Version, string[] Roots, CaptureRecord[] Captures);
+public sealed record CorpusManifest(int Version, string[] Roots, CaptureRecord[] Captures)
+{
+    /// <summary>Back-to-back captures of one folder and frame size, each a run of several files (<see cref="PlanetaryCorpus.Sessions"/>, #1308).</summary>
+    public SessionRecord[] Sessions { get; init; } = [];
+}
+
+/// <summary>
+/// One session of the corpus (#1308): two or more captures of one folder, frame size and colour, each starting within
+/// <see cref="PlanetaryCorpus.SessionGap"/> of the one before ending, which a stack joins in time order as one run.
+/// </summary>
+/// <param name="Name">The folder's name and the first frame's UTC time, which <c>planetary-stack --session</c> asks for.</param>
+/// <param name="Captures">The captures' paths, in time order.</param>
+public sealed record SessionRecord(string Name, string Folder, int Width, int Height, string ColorId, int Frames, string FirstUtc, string LastUtc,
+    string[] Captures);
 
 /// <summary>How a survey reads the corpus.</summary>
 /// <param name="SevenZip">The 7-Zip that lists and streams archives; archives are recorded unread without one.</param>
@@ -136,8 +149,14 @@ public sealed record CorpusSurveyOptions(SevenZipTool? SevenZip = null, int MinF
 /// </summary>
 public static class PlanetaryCorpus
 {
-    /// <summary>The manifest's format version.</summary>
-    public const int ManifestVersion = 1;
+    /// <summary>The manifest's format version: 2 adds <see cref="CorpusManifest.Sessions"/> (#1308).</summary>
+    public const int ManifestVersion = 2;
+
+    /// <summary>
+    /// The longest pause between one capture's last frame and the next one's first that still joins them into one session: a capture
+    /// program saving a file every few minutes leaves seconds between them, a refocus or a filter change a few minutes.
+    /// </summary>
+    public static readonly TimeSpan SessionGap = TimeSpan.FromMinutes(10);
 
     private static readonly string[] Extensions = [".ser", ".avi", ".7z"];
     private static readonly string[] FitsExtensions = [".fits", ".fit", ".fts"];
@@ -274,7 +293,63 @@ public static class PlanetaryCorpus
             }
         }
 
-        return new CorpusManifest(ManifestVersion, [.. roots.Select(Normalise)], [.. records]);
+        return new CorpusManifest(ManifestVersion, [.. roots.Select(Normalise)], [.. records]) { Sessions = [.. Sessions(records)] };
+    }
+
+    /// <summary>
+    /// The sessions among <paramref name="captures"/> (#1308): plain SER files, not a duplicate, a calibration or a synthetic capture,
+    /// with their frames' times, grouped by folder, frame size and colour and chained in time order while each starts within
+    /// <see cref="SessionGap"/> of the previous one's last frame. A chain of one capture is no session.
+    /// </summary>
+    public static IEnumerable<SessionRecord> Sessions(IEnumerable<CaptureRecord> captures)
+    {
+        static bool Joins(CaptureRecord c) =>
+            c.Kind == CaptureKind.Ser && c.Problem is null && c.Header is not null && c.FirstUtc is not null && c.LastUtc is not null
+            && !c.Flags.Any(f => f is "duplicate" or "calibration" or "synthetic");
+
+        var groups = captures.Where(Joins).GroupBy(c => (
+            Folder: System.IO.Path.GetDirectoryName(c.Path)?.Replace('\\', '/') ?? "",
+            c.Header?.Width, c.Header?.Height, c.Header?.ColorId));
+        var sessions = new List<SessionRecord>();
+        foreach (var group in groups)
+        {
+            var chain = new List<CaptureRecord>();
+            foreach (var capture in group.OrderBy(c => Utc(c.FirstUtc)))
+            {
+                if (chain.Count > 0 && Utc(capture.FirstUtc) - Utc(chain[^1].LastUtc) > SessionGap)
+                {
+                    AddIfSession(chain);
+                    chain.Clear();
+                }
+                chain.Add(capture);
+            }
+            AddIfSession(chain);
+
+            void AddIfSession(List<CaptureRecord> run)
+            {
+                if (run.Count < 2)
+                {
+                    return;
+                }
+                var first = run[0];
+                var folder = group.Key.Folder;
+                var name = $"{System.IO.Path.GetFileName(folder)} {Utc(first.FirstUtc).ToString("yyyy-MM-dd HHmm", CultureInfo.InvariantCulture)}";
+                sessions.Add(new SessionRecord(name, folder, group.Key.Width ?? 0, group.Key.Height ?? 0, group.Key.ColorId ?? "",
+                    run.Sum(c => c.Header?.FrameCount ?? 0), first.FirstUtc ?? "", run.Max(c => c.LastUtc) ?? "", [.. run.Select(c => c.Path)]));
+            }
+        }
+        sessions.Sort(static (a, b) => string.Compare(a.FirstUtc, b.FirstUtc, StringComparison.Ordinal) is var byTime and not 0
+            ? byTime : string.Compare(a.Folder, b.Folder, StringComparison.OrdinalIgnoreCase));
+        return sessions;
+
+        static DateTimeOffset Utc(string? iso) => DateTimeOffset.Parse(iso ?? "", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
+    }
+
+    /// <summary>A manifest the survey wrote, read back; null when the file holds none.</summary>
+    public static async Task<CorpusManifest?> ReadManifestAsync(string path, CancellationToken cancellationToken)
+    {
+        await using var stream = File.OpenRead(path);
+        return await JsonSerializer.DeserializeAsync(stream, PlanetaryCorpusJsonContext.Default.CorpusManifest, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>The manifest's bytes: indented UTF-8 JSON with a final newline, the same bytes for the same manifest.</summary>

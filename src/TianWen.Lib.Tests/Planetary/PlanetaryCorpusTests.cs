@@ -400,4 +400,76 @@ public class PlanetaryCorpusTests : IDisposable
         cramped.Refusal.ShouldNotBeNull().ShouldContain("kept free");
         Directory.GetFiles(output).ShouldBeEmpty("a refusal writes nothing");
     }
+    [Fact]
+    public void ASessionIsBackToBackCapturesOfOneFolderAndFrameSizeAndAGapEndsIt()
+    {
+        // #1308: a capture program saves a long run as many files seconds apart. They join in time order while each starts within ten
+        // minutes of the last one's end; a longer pause, another folder, another frame size, a copy or a calibration video does not join.
+        static CaptureRecord Ser(string path, DateTimeOffset first, double minutes, int width = 640, int frames = 1000, params string[] flags) => new CaptureRecord
+        {
+            Id = path,
+            Kind = CaptureKind.Ser,
+            Path = path,
+            LengthBytes = 1,
+            Header = new SerHeaderRecord(0, nameof(SerColorId.BayerRGGB), 0, width, 480, 8, frames, "", "", "", 0, 0),
+            Timestamps = "trailer",
+            FirstUtc = first.UtcDateTime.ToString("O"),
+            LastUtc = first.AddMinutes(minutes).UtcDateTime.ToString("O"),
+            Flags = flags,
+        };
+        var t = new DateTimeOffset(2022, 9, 29, 12, 0, 0, TimeSpan.Zero);
+        CaptureRecord[] captures =
+        [
+            Ser("D:/Jupiter 4ms/b.ser", t.AddMinutes(1.5), 1),     // listed out of order: the session sorts by time
+            Ser("D:/Jupiter 4ms/a.ser", t, 1),
+            Ser("D:/Jupiter 4ms/c.ser", t.AddMinutes(12), 1),      // 9.5 minutes after b ends: still the session
+            Ser("D:/Jupiter 4ms/d.ser", t.AddMinutes(30), 1),      // 17 minutes after c ends: a new chain, alone, so no session
+            Ser("D:/Jupiter 4ms/e.ser", t.AddMinutes(2), 1, width: 320), // another frame size
+            Ser("D:/Jupiter 4ms/copy.ser", t.AddMinutes(3), 1, flags: "duplicate"),
+            Ser("D:/Jupiter 4ms/dark.ser", t.AddMinutes(4), 1, flags: "calibration"),
+            Ser("D:/Saturn/s1.ser", t, 1),                          // another folder, alone
+        ];
+
+        var sessions = PlanetaryCorpus.Sessions(captures).ToArray();
+
+        var session = sessions.ShouldHaveSingleItem();
+        session.Captures.ShouldBe(["D:/Jupiter 4ms/a.ser", "D:/Jupiter 4ms/b.ser", "D:/Jupiter 4ms/c.ser"]);
+        session.Name.ShouldBe("Jupiter 4ms 2022-09-29 1200");
+        (session.Folder, session.Width, session.Height, session.Frames).ShouldBe(("D:/Jupiter 4ms", 640, 480, 3000));
+        session.FirstUtc.ShouldBe(captures[1].FirstUtc);
+        session.LastUtc.ShouldBe(captures[2].LastUtc);
+
+        // The manifest carries its sessions and reads them back.
+        var manifest = new CorpusManifest(PlanetaryCorpus.ManifestVersion, ["D:/"], captures) { Sessions = sessions };
+        var back = JsonSerializer.Deserialize(PlanetaryCorpus.ManifestBytes(manifest), PlanetaryCorpusJsonContext.Default.CorpusManifest).ShouldNotBeNull();
+        back.Sessions.ShouldHaveSingleItem().Captures.ShouldBe(session.Captures);
+    }
+
+    [Fact]
+    public async Task TheBestFramesTimeIsTheTimeOfTheFrameAStackWouldTakeForItsReference()
+    {
+        // #1308's --epoch: a run is carried to its middle file's best frame, graded as the stack grades. The sharp frame is the third.
+        var t = new DateTimeOffset(2022, 9, 29, 12, 0, 0, TimeSpan.Zero);
+        var frames = new float[5][,];
+        for (var i = 0; i < frames.Length; i++)
+        {
+            frames[i] = new float[64, 64];
+            for (var y = 0; y < 64; y++)
+            {
+                for (var x = 0; x < 64; x++)
+                {
+                    var r = Math.Sqrt(((x - 32) * (x - 32)) + ((y - 32) * (y - 32)));
+                    var detail = i == 2 ? 0.2 * Math.Sin(x * 1.3) * Math.Cos(y * 1.1) : 0;
+                    frames[i][y, x] = r < 20 ? (float)(0.6 + detail) : 0.02f;
+                }
+            }
+        }
+        var stream = new InMemoryFrameStream(frames, [.. Enumerable.Range(0, frames.Length).Select(i => t.AddSeconds(i))]);
+
+        var best = await new FrameGrader(new GradientEnergyEstimator()).BestFrameTimeAsync(stream, TestContext.Current.CancellationToken);
+
+        best.ShouldBe(t.AddSeconds(2));
+        (await new FrameGrader(new GradientEnergyEstimator()).BestFrameTimeAsync(new InMemoryFrameStream(frames), TestContext.Current.CancellationToken))
+            .ShouldBeNull("a capture without frame times has no instant to give");
+    }
 }
