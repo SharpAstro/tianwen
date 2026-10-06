@@ -416,7 +416,7 @@ internal sealed class PlanetaryStackSubCommand(
                 $"(reference #{result.ReferenceIndex}{(result.AlignmentPoints > 0 ? $", {result.AlignmentPoints} alignment points{(result.AlignmentPointCandidates > result.AlignmentPoints ? $" of {result.AlignmentPointCandidates}, capped" : "")}" : "")}) in {sw.Elapsed.TotalSeconds:F1}s");
             if (result.FramesCut > 0)
             {
-                consoleHost.WriteScrollable($"[planetary] left out {result.FramesCut} frames whose planet the frame's edge cuts or which hold none (it drifted out of the field)");
+                consoleHost.WriteScrollable($"[planetary] left out {result.FramesCut} frames whose planet is cut, by the frame's edge or a straight line inside it, or which hold none (it drifted out of the field)");
             }
             if (result.Epoch is null && result.TurnPx is { } turn)
             {

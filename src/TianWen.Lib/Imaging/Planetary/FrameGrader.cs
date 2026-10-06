@@ -107,7 +107,9 @@ public sealed class FrameGrader(IFrameQualityEstimator estimator)
     /// <see cref="PlanetaryDisk.PlanetPixels"/>. A planet drifting out of an untracked Dobsonian's field did both on 2022-10-09's Saturn: the
     /// last sixth of the capture holds it half out of the frame and then not at all, the stacker kept those frames among the best half,
     /// and the ones it registered wrong summed into a second, partial Saturn beside the first, its edge the frame's own. The planet's own
-    /// blob is read, never every bright pixel, so a moon at the frame's edge cuts nothing.
+    /// blob is read, never every bright pixel, so a moon at the frame's edge cuts nothing. A planet the camera cut and PIPP's crop then
+    /// moved away from the frame's edge is cut too (#1291): a straight row or column of its light with the dark beyond it, inside the
+    /// frame, which no blurred limb makes (<see cref="PlanetaryDisk.InteriorCutPixels"/>, <see cref="PlanetaryDisk.InteriorCutFraction"/>).
     /// </summary>
     public static bool IsCutOrEmpty(Image frame)
     {
