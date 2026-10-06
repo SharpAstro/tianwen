@@ -38,13 +38,18 @@ public class ExternalPlateSolverProcessTests
     public async Task ACancelledSolveKillsTheToolAndRethrows()
     {
         var solver = new StandInToolSolver(hang: true);
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
-        cts.CancelAfter(StandInToolSolver.Timeout);
+        var ct = TestContext.Current.CancellationToken;
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var fits = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".fits");
 
-        await Should.ThrowAsync<OperationCanceledException>(
-            () => solver.SolveFileAsync(fits, cancellationToken: cts.Token));
+        // Cancelled once the tool has started its inner process and printed its id (#1315), never after a fixed time, which a cold
+        // pwsh on a loaded machine could outlast: the cancel then killed the tool before the id came, and the test read none. A tool
+        // that never prints fails at the test's timeout.
+        var solve = solver.SolveFileAsync(fits, cancellationToken: cts.Token);
+        await solver.InnerPidPrinted.WaitAsync(ct);
+        await cts.CancelAsync();
 
+        await Should.ThrowAsync<OperationCanceledException>(() => solve);
         await ShouldAllExitAsync(solver);
     }
 
@@ -63,7 +68,9 @@ public class ExternalPlateSolverProcessTests
     private static async Task ShouldAllExitAsync(StandInToolSolver solver)
     {
         var outer = solver.StartedPid.ShouldNotBeNull();
-        var inner = solver.InnerPid.ShouldNotBeNull();
+        // Awaited, not read: the line is raised on the output reader's thread, so it can still be in flight when the call that killed
+        // the tool returns (#1315).
+        var inner = await solver.InnerPidPrinted.WaitAsync(TestContext.Current.CancellationToken);
 
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
         while ((IsRunning(outer) || IsRunning(inner)) && DateTime.UtcNow < deadline)
@@ -94,14 +101,17 @@ public class ExternalPlateSolverProcessTests
     /// </summary>
     private sealed class StandInToolSolver(bool hang) : ExternalProcessPlateSolverBase
     {
-        // Long enough for the hanging stand-in to print its inner process's id before the probe or the cancel kills it: pwsh's cold
-        // start alone passed 5 s under a loaded full suite, and a 5 s bound then killed the tool before the id arrived, failing
-        // ShouldAllExitAsync on a null InnerPid (2026-10-03). Still well inside the tests' 60 s, so a tool left running fails them.
+        // The probe's bound on the hanging stand-in: long enough for it to print its inner process's id first, since pwsh's cold start
+        // alone passed 5 s under a loaded full suite (2026-10-03). Still well inside the tests' 60 s, so a tool left running fails them.
+        // The cancel test waits for the id itself rather than for a time (#1315).
         public static readonly TimeSpan Timeout = TimeSpan.FromSeconds(20);
+
+        private readonly TaskCompletionSource<int> _innerPid = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public int? StartedPid { get; private set; }
 
-        public int? InnerPid { get; private set; }
+        /// <summary>The id of the process the tool started, once the tool has printed it.</summary>
+        public Task<int> InnerPidPrinted => _innerPid.Task;
 
         public override string Name => "stand-in tool";
 
@@ -153,9 +163,9 @@ public class ExternalPlateSolverProcessTests
                 // Subscribed before the base calls BeginOutputReadLine, so the first line is not missed.
                 process.OutputDataReceived += (_, e) =>
                 {
-                    if (InnerPid is null && int.TryParse(e.Data?.Trim(), out var pid))
+                    if (int.TryParse(e.Data?.Trim(), out var pid))
                     {
-                        InnerPid = pid;
+                        _innerPid.TrySetResult(pid);
                     }
                 };
             }
