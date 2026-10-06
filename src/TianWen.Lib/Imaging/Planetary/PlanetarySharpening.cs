@@ -169,6 +169,14 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
     /// </summary>
     public bool LuminanceOnly { get; init; }
 
+    /// <summary>
+    /// The master's two halves (<see cref="PlanetaryStackOptions.Halves"/>), when given: each channel's window is shrunk band by band
+    /// against the noise of half their difference (<see cref="PlanetaryBandShrink"/>, #1313) before anything is read off it, so the gains
+    /// are derived on the shrunk master and fitted against its own white noise floor. Both on the master's grid, with its channels, in its
+    /// units. Null, the default, shrinks nothing.
+    /// </summary>
+    public PlanetaryStackHalves? ShrinkHalves { get; init; }
+
     // The master being sharpened is a colour master's luminance (LuminanceOnly): its finest band holds the colour filter's residue as the
     // colour planes do, so it follows ColourFinestBand as they would (#1187).
     internal bool OfColour { get; init; }
@@ -207,6 +215,12 @@ public sealed record PlanetarySharpenResult(Image Sharpened, bool Derived, Plane
     /// colour master's channels each derive their own, through their own diffraction (#1314).
     /// </summary>
     public ImmutableArray<ImmutableArray<double>> ChannelGains { get; init; } = [];
+
+    /// <summary>
+    /// Each channel's band readings where it was shrunk (<see cref="PlanetarySharpenOptions.ShrinkHalves"/>, #1313), finest first, in the
+    /// window's units (the disk 1 above its sky); empty where nothing was.
+    /// </summary>
+    public ImmutableArray<ImmutableArray<BandShrinkReading>> Shrinks { get; init; } = [];
 }
 
 /// <summary>
@@ -234,6 +248,10 @@ public static class PlanetarySharpening
     {
         ArgumentNullException.ThrowIfNull(master);
         ArgumentNullException.ThrowIfNull(options);
+        if (options.ShrinkHalves is { } given && (!OnGridOf(given.A, master) || !OnGridOf(given.B, master)))
+        {
+            throw new ArgumentException("The halves must lie on the master's grid, with its channels.", nameof(options));
+        }
         if (options.LuminanceOnly && master.ChannelCount == 3)
         {
             return SharpenLuminance(master, options);
@@ -259,11 +277,19 @@ public static class PlanetarySharpening
         var contrastFrom = options.Pupil is not null && options.Finish.HasFlag(PlanetaryFinish.Adaptive) ? LuminanceWindow(master, limbWindow, own) : null;
         var cutoffs = new double[options.Pupil is null ? 0 : master.ChannelCount];
         var wienerCuts = new (double From, double To)[options.Pupil is not null && options.Finish.HasFlag(PlanetaryFinish.Wiener) ? master.ChannelCount : 0];
+        var shrinks = new ImmutableArray<BandShrinkReading>[options.ShrinkHalves is null ? 0 : master.ChannelCount];
         for (var c = 0; c < master.ChannelCount; c++)
         {
             var plane = master.GetChannelSpan(c);
             var (level, scale) = PlanetaryMetrics.NormalisationLevels(plane, width, height, own);
             var window = limbWindow.Cut(plane, width, height, level, scale);
+            if (options.ShrinkHalves is { } halves)
+            {
+                // The halves cut as the master is, so their difference is the master's noise in the window's own units (#1313).
+                var shrink = PlanetaryBandShrink.Shrink(window, limbWindow.Cut(halves.A.GetChannelSpan(c), width, height, level, scale),
+                    limbWindow.Cut(halves.B.GetChannelSpan(c), width, height, level, scale), size, size, disk);
+                (window, shrinks[c]) = (shrink.Shrunk, shrink.Bands);
+            }
             float[] sharpened;
             // A moon beyond the window takes the same gains, in a window of its own (#1211).
             Func<float[], float[]> sharpenMoon;
@@ -364,8 +390,12 @@ public static class PlanetarySharpening
             Cutoffs = [.. cutoffs],
             WienerCuts = [.. wienerCuts],
             Stops = stops,
+            Shrinks = [.. shrinks],
         };
     }
+
+    private static bool OnGridOf(Image half, Image master) =>
+        half.Width == master.Width && half.Height == master.Height && half.ChannelCount == master.ChannelCount;
 
     /// <summary>
     /// The strengths a viewer offers and switches between once derived (#1314, the owner's four stops): the truth, then the posts' range
@@ -379,29 +409,21 @@ public static class PlanetarySharpening
     private static PlanetarySharpenResult? SharpenLuminance(Image master, PlanetarySharpenOptions options)
     {
         var (width, height) = (master.Width, master.Height);
-        var mean = new float[height, width];
-        for (var c = 0; c < 3; c++)
-        {
-            var plane = master.GetChannelSpan(c);
-            for (var y = 0; y < height; y++)
-            {
-                for (var x = 0; x < width; x++)
-                {
-                    mean[y, x] += plane[(y * width) + x] / 3;
-                }
-            }
-        }
-        var luminance = new Image([mean], BitDepth.Float32, master.MaxValue, master.MinValue, master.Pedestal, master.ImageMeta);
+        var luminance = MeanOfPlanes(master);
+        // Halves to shrink by are the luminance's too (#1313).
+        var halves = options.ShrinkHalves is { } given ? new PlanetaryStackHalves(MeanOfPlanes(given.A), MeanOfPlanes(given.B)) : null;
         var wavelengthNm = (options.WavelengthsNm[0] + options.WavelengthsNm[Math.Min(1, options.WavelengthsNm.Length - 1)]
             + options.WavelengthsNm[Math.Min(2, options.WavelengthsNm.Length - 1)]) / 3;
         PlanetarySharpenResult? sharpened;
         try
         {
-            sharpened = Sharpen(luminance, options with { LuminanceOnly = false, OfColour = true, WavelengthsNm = [wavelengthNm] });
+            sharpened = Sharpen(luminance, options with { LuminanceOnly = false, OfColour = true, WavelengthsNm = [wavelengthNm], ShrinkHalves = halves });
         }
         finally
         {
             luminance.Release();
+            halves?.A.Release();
+            halves?.B.Release();
         }
         if (sharpened is null)
         {
@@ -420,6 +442,25 @@ public static class PlanetarySharpening
         {
             sharpened.Sharpened.Release();
         }
+    }
+
+    // The mean of a colour image's three planes, a one-channel image on its grid.
+    private static Image MeanOfPlanes(Image image)
+    {
+        var (width, height) = (image.Width, image.Height);
+        var mean = new float[height, width];
+        for (var c = 0; c < 3; c++)
+        {
+            var plane = image.GetChannelSpan(c);
+            for (var y = 0; y < height; y++)
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    mean[y, x] += plane[(y * width) + x] / 3;
+                }
+            }
+        }
+        return new Image([mean], BitDepth.Float32, image.MaxValue, image.MinValue, image.Pedestal, image.ImageMeta);
     }
 
     // Every plane of `stack` rebuilt from `luminance`, a sharpened mean of its planes: each pixel above its plane's sky is the luminance above

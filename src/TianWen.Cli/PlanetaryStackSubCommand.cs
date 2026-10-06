@@ -242,6 +242,11 @@ internal sealed class PlanetaryStackSubCommand(
             Description = "Advanced: how each point's shift is read: correlation (windowed, the default), weighted (the correlation by its maximum-likelihood weight) or sdf (square difference, #1082).",
         };
 
+        var halvesOpt = new Option<bool>("--halves")
+        {
+            Description = "Also fold the frames into two halves, alternately by rank, and write them beside the master on its grid (master_*_halfA.fits, _halfB.fits): half their difference is the master's noise, which planetary-sharpen --shrink reads (#1313). The alignment-point stack only.",
+        };
+
         var command = new Command("planetary-stack", "Stack a planetary SER video into a sharpened lucky-imaging master.")
         {
             Arguments = { serArg },
@@ -251,7 +256,7 @@ internal sealed class PlanetaryStackSubCommand(
                 noPerPointOpt, noSignalGateOpt, noChannelAlignOpt, noCropOpt, colourSaturationOpt, noColourBalanceOpt,
                 noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, wavelengthOpt, fixOpt, strengthOpt, sharpenLuminanceOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, noPngOpt, pngGammaOpt,
                 tileSizeOpt, apSpacingOpt, maxApOpt, placementOpt, patchSizeOpt, meshSpacingOpt, meshInfluenceOpt, estimatorOpt, correlationOpt, interpolationOpt, referenceFramesOpt,
-                derotateOpt, noDerotateOpt, planetOpt, turnNorthOverOpt, legacyOpt, truthOpt,
+                derotateOpt, noDerotateOpt, planetOpt, turnNorthOverOpt, legacyOpt, truthOpt, halvesOpt,
             },
         };
 
@@ -308,6 +313,12 @@ internal sealed class PlanetaryStackSubCommand(
             var useGlobal = parseResult.GetValue(globalOpt);
             var drizzleScale = parseResult.GetValue(drizzleOpt);
             var useDrizzle = drizzleScale > 0f;
+            var halves = parseResult.GetValue(halvesOpt);
+            if (halves && (useDrizzle || useGlobal))
+            {
+                consoleHost.WriteError("--halves folds its halves beside the alignment-point stack, not a drizzle or a global one.");
+                return 1;
+            }
 
             // Parse the optional wavelet gains override before doing any heavy work so a typo fails fast. A fixed profile (a preset, the
             // gains given, or --legacy) sharpens as every master before the enhanced pipeline; otherwise the sharpening is derived.
@@ -391,6 +402,7 @@ internal sealed class PlanetaryStackSubCommand(
                 Planet = planet,
                 AlignChannels = baseline.AlignChannels && !parseResult.GetValue(noChannelAlignOpt),
                 CropToCoverage = baseline.CropToCoverage && !parseResult.GetValue(noCropOpt),
+                Halves = halves,
                 // The raw integrated master stays linear/unsharpened (downstream-friendly); the sharpen
                 // pass is applied separately below so we can emit both the raw and sharpened masters.
             };
@@ -474,6 +486,19 @@ internal sealed class PlanetaryStackSubCommand(
             var (masterFits, sharpenedFits) = PlanetaryBestStack.OutputPaths(outputDir, baseName, prefix);
             written.WriteToFitsFile(masterFits, null, balance?.HeaderCards());
             consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(masterFits)} (linear master, {master.ChannelCount}ch {master.Width}x{master.Height})");
+            if (result.Halves is { } halfStacks)
+            {
+                // Balanced as the master is, so half their difference is the written master's noise.
+                foreach (var (half, name) in new[] { (halfStacks.A, "A"), (halfStacks.B, "B") })
+                {
+                    var halfFits = Path.ChangeExtension(masterFits, null) + $"_half{name}.fits";
+                    var balancedHalf = balance?.Apply(half);
+                    (balancedHalf ?? half).WriteToFitsFile(halfFits, null, balance?.HeaderCards());
+                    balancedHalf?.Release();
+                    half.Release();
+                    consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(halfFits)} (half {name} of the frames, on the master's grid)");
+                }
+            }
             if (master.ChannelCount == 3)
             {
                 consoleHost.WriteScrollable($"[planetary] {howBalanced}");
