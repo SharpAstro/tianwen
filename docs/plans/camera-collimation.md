@@ -107,7 +107,7 @@ what an offset between the stack's centre of light and its peak would do.
 
 | Phase | Scope | Needs |
 |---|---|---|
-| C0 | Field analysis (step 5): collimation centre and tilt plane from a sub and from the AutoFocus rungs | nothing new; offline-capable |
+| C0 | Field analysis (step 5): collimation centre and tilt plane from a sub and from the AutoFocus rungs | nothing new; offline-capable; the field fit is shared with [physical-psf-model.md](physical-psf-model.md) P1 (#1296) |
 | C1 | Aligned stack + radial profile + harmonics (steps 1-2) on the short-exposure loop | the shared stack from video-guiding |
 | C2 | Live collimation mode: guider re-centring (3) + screw calibration (4) | C1, a UI mode |
 | C3 | Native-video rates | Phase D ([planetary-native-video.md](planetary-native-video.md)) |
