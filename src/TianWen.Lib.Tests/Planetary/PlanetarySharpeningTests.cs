@@ -20,7 +20,7 @@ namespace TianWen.Lib.Tests;
 public class PlanetarySharpeningTests
 {
     private const int Size = 192;
-    private static readonly DateTimeOffset Night = new(2024, 12, 15, 12, 56, 44, TimeSpan.Zero);
+    internal static readonly DateTimeOffset Night = new(2024, 12, 15, 12, 56, 44, TimeSpan.Zero);
     private static readonly DiskPlacement Placement = new(95.4, 96.8, 40, 30);
     private static readonly Pupil Telescope = new(0.254, ObstructionRatio: 0.23);
     private const double Wavelength = 650e-9;
@@ -281,7 +281,8 @@ public class PlanetarySharpeningTests
 
     // The fixture's truth and its stack: the truth blurred by the seeing, on a sky at 0.05, with a large stack's noise. The planet where
     // `placement` puts it, at the fixture's plate scale (the fixture's own placement when none).
-    private static (float[] Truth, Image Stack) NoisyStack(DiskPlacement? placement = null)
+    // Also the viewer's planetary master (ViewerPlanetaryMasterTests), written with a header that names the planet and the instant.
+    internal static (float[] Truth, Image Stack) NoisyStack(DiskPlacement? placement = null, ImageMeta? meta = null)
     {
         var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night);
         var scale = aspect.AngularDiameterArcsec / 2 / Placement.EquatorialRadius;
@@ -293,7 +294,7 @@ public class PlanetarySharpeningTests
         {
             plane[i / Size, i % Size] = (float)(0.05 + (0.5 * blurred[i]) + (0.002 * PhaseScreen.Gaussian(random)));
         }
-        return (truth, new Image([plane], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta()));
+        return (truth, new Image([plane], BitDepth.Float32, 1f, 0f, 0f, meta ?? new ImageMeta()));
     }
 
     [Fact(Timeout = 600_000)]

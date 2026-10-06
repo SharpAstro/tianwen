@@ -4426,8 +4426,26 @@ and a capture's start forget it, as they forget the limb; with none a stop is on
   A colour master's time is its colours' limb fits and balance, which the stops do not repeat; on a mono one the three extra gain fits
   are a tenth of a derivation that is mostly its limb fit.
 
-**Still to come**: part 1b, a planetary master opened as a file gets the layer and Save writes what is on show (rules 1 against the
-batch's planes, 4 and 6); part 2, the Frames / Live / Best switch (rules 5 and 7).
+**A planetary master opened as a file gets the same layer (part 1b).** A still whose `OBJECT` names a planet
+(`PlanetaryCaptureName.Named`, the rule that already opens it in `StretchMode.Planetary`) is given the stacked view's own source over
+its one master (`LiveStackPreviewSource` on a `FixedMaster`, whose one frame carries the master's instant), so the dials, Derive, its
+stops and the colour look have one path, not a second. It opens with its sharpening off, as the file holds it (it may be a sharpened
+master already), and is shown through the layer once the sharpening is on (`ViewerState.SharpenLayerOnShow`). Its planet comes from the
+header (`ViewerState.MasterPlanet`), a mono master's filter from its file's name. **A Save writes what is on show**
+(`ViewerController.ShownDocument`): it always wrote the file under the layer, and in a SER's stacked view nothing at all.
+
+- **Rule 1 holds against the batch's planes**: on a synthetic Jupiter master, at every stop, the planes on show equal
+  `PlanetarySharpening.Sharpen` at that strength to 1.2e-6 of the disk's level inside the limb and 5e-10 outside it (the bar was 1e-4),
+  the gains equal to the digit (`AMastersStopShowsWhatPlanetarySharpenWritesAtThatStrength`, DPI 1 and 1.5).
+- **Rule 4 holds**: the planet and telescope, the dials, Derive and the stops show for a planetary master and for none of a deep-sky
+  frame's, and Best stack stays a capture's (`APlanetaryMasterGetsTheSharpeningSectionsAndADeepSkyFrameDoesNot`).
+- **Rule 6 holds**: a Save with the layer on show writes the sharpened master (its float TIFF up to 0.160 of the display from the file's
+  at strength 2), and once the sharpening is off writes the file as it is, the same pixels to the bit as before the layer was used
+  (`ASaveWritesWhatIsOnShow`). A sharpen Derive started can still be in flight when a stop is pressed, so the tests wait for the layer to
+  be idle, not for the next master, which may be the derivation's.
+
+**Still to come**: part 2, the Frames / Live / Best switch (rules 5 and 7). Best still opens its `_sharpened.fits`, which the layer
+shows as the file holds it.
 
 ### The colour look (#1273)
 

@@ -399,7 +399,26 @@ public sealed class ViewerState
     /// </summary>
     public bool ShowStacked { get; set; }
 
-    // --- Wavelet sharpening (live stacked view only) ---
+    /// <summary>
+    /// The planet a still on show names in its <c>OBJECT</c> (<see cref="TianWen.Lib.Imaging.Planetary.PlanetaryCaptureName.Named"/>),
+    /// a planetary master opened as a file, or null for any other frame and for a SER (#1314). Such a master gets the sharpening layer
+    /// the stacked view has: the planet and telescope, the dials, Derive and its stops.
+    /// </summary>
+    public TianWen.Lib.Astrometry.Catalogs.CatalogIndex? MasterPlanet { get; set; }
+
+    /// <summary>The planetary master's file (<see cref="MasterPlanet"/>), whose name may give a mono master's filter; null with it.</summary>
+    public string? MasterPath { get; set; }
+
+    /// <summary>Whether the still on show is a planetary master (<see cref="MasterPlanet"/>), which the sharpening layer works over.</summary>
+    public bool IsPlanetaryMaster => MasterPlanet is not null;
+
+    /// <summary>
+    /// Whether what is on show is the sharpening layer's: the stacked view's masters, or a planetary master's once its sharpening is on
+    /// (#1314). A master with its sharpening off is shown as the file holds it.
+    /// </summary>
+    public bool SharpenLayerOnShow => ShowStacked || (IsPlanetaryMaster && WaveletSharpenEnabled);
+
+    // --- Wavelet sharpening (the live stacked view and a planetary master) ---
 
     /// <summary>Whether multi-scale wavelet sharpening is applied to the live stacked master. Off = the
     /// stacked view is the pure quality-weighted mean (denoised, not sharpened).</summary>

@@ -1047,7 +1047,9 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   truth's own joint gains swing so too (#1251). The posts sit at about 1.5 to 2.5; the panel's
   `PlanetaryStrength` is never saved, so a launch starts at the truth. **One Derive fits every stop**
   (`PlanetarySharpening.StrengthStops`, `DerivedGains.GainsAt`, #1314), each bit for bit a derivation's at that strength, so a stop
-  chosen after it switches the dials at once (`ViewerState.ChooseStrength`); a new stop goes into that list, never a second one. **Saturn is sharpened
+  chosen after it switches the dials at once (`ViewerState.ChooseStrength`); a new stop goes into that list, never a second one. **A
+  planetary master opened as a file gets the stacked view's own layer** (`LiveStackPreviewSource` on a `FixedMaster`, `OBJECT` naming the
+  planet, sharpening off until asked), never a second sharpening path, and **a Save writes what is on show** (`ShownDocument`). **Saturn is sharpened
   as Jupiter is** (S4, #1184): the sharpening is kept inside the globe and the rings' footprint
   (`ClearRadiiAt` at most 1) and the model is drawn past it; its limb's edge is the polar arcs alone, true to about 0.15 cycles a pixel, and
   the raw edge still beat a physical kernel fitted short of that. **Its globe turns under rings that stay where they lie** (S5, #1234):

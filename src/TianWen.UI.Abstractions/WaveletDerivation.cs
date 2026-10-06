@@ -79,7 +79,8 @@ internal sealed class WaveletDerivation : IDisposable
             return;
         }
 
-        var planet = state.PlanetaryBody ?? (capturePath is null ? null : PlanetaryCaptureName.Planet(capturePath));
+        // A planetary master's planet is its OBJECT's (#1314), a capture's its name's.
+        var planet = state.PlanetaryBody ?? state.MasterPlanet ?? (capturePath is null ? null : PlanetaryCaptureName.Planet(capturePath));
         var pupil = PlanetaryBestStack.PupilFor(state.PlanetaryApertureMm, state.PlanetaryDesign);
         var filterNm = state.PlanetaryFilterNm ?? (capturePath is null ? null : PlanetaryCaptureName.WavelengthNm(capturePath));
         // A filter is one wavelength for every channel, so only a mono master takes it; a colour one is derived per channel.

@@ -311,7 +311,9 @@ partial class ImageRendererBase<TSurface>
     /// </summary>
     private (bool Shown, string? Reason) PlanetaryLookReach(ViewerState state)
     {
-        if (state.ShowStacked)
+        // The sharpening layer puts the look on its masters once a derivation has read their balance: the stacked view's, and a planetary
+        // master's while its sharpening is on (#1314).
+        if (state.SharpenLayerOnShow)
         {
             var drawn = state.WaveletSharpenEnabled && state.WaveletLimb?.Balance is not null;
             return (true, drawn ? null : PlanetaryLookNeedsDerive);

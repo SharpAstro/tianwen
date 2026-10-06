@@ -160,12 +160,18 @@ public sealed class ViewerController(
     private LiveStackPreviewSource? _liveSource;
 
     /// <summary>
-    /// The source the renderer previews. The raw frame normally; the live rolling-window stack when
-    /// <see cref="ViewerState.ShowStacked"/> is set AND that stack has a master to show (otherwise the raw
-    /// frame keeps showing while the first stack computes). For a still image this is the same object as
-    /// <see cref="Document"/>; for a SER the raw source is a sequence source and <see cref="Document"/> is null.
+    /// The source the renderer previews. The raw frame normally; the sharpening layer's master when it is on show
+    /// (<see cref="ViewerState.SharpenLayerOnShow"/>: the live rolling-window stack, or a planetary master's layer with its sharpening
+    /// on, #1314) AND it has a master to show (otherwise the raw frame keeps showing while the first is built). For a still image this
+    /// is the same object as <see cref="Document"/>; for a SER the raw source is a sequence source and <see cref="Document"/> is null.
     /// </summary>
-    public IPreviewSource? Source => state.ShowStacked && _liveSource is { HasMaster: true } ? _liveSource : _rawSource;
+    public IPreviewSource? Source => state.SharpenLayerOnShow && _liveSource is { HasMaster: true } ? _liveSource : _rawSource;
+
+    /// <summary>
+    /// The document on show, which a Save writes (#1314): the sharpening layer's master while it is on show, else the still opened.
+    /// Null for a SER's raw playback, which is no document.
+    /// </summary>
+    internal AstroImageDocument? ShownDocument => Source is LiveStackPreviewSource { Document: { } shown } ? shown : Document;
 
     /// <summary>
     /// Fires with the loaded filename after a document is successfully opened.
@@ -272,6 +278,7 @@ public sealed class ViewerController(
                     _rawSource = serSource;
                     _liveSource = liveSource;
                     state.SequencePath = requestedPath;
+                    (state.MasterPlanet, state.MasterPath) = (null, null);
                     // The limb a derivation fitted belongs to the capture it was fitted on (#1201).
                     state.WaveletLimb = null;
                     state.DerivedWaveletGains = null;
@@ -362,11 +369,39 @@ public sealed class ViewerController(
 
             if (newDoc is not null)
             {
+                // A planetary master opened as a file gets the sharpening layer the stacked view has (#1314): the same source, over its one
+                // master, so the dials, Derive, its stops and the colour look have one path. It opens with its sharpening off, as the
+                // file holds it (it may be a sharpened master already).
+                var masterPlanet = PlanetaryCaptureName.Named(newDoc.UnstretchedImage.ImageMeta.ObjectName);
+                LiveStackPreviewSource? masterLayer = null;
+                if (masterPlanet is not null)
+                {
+                    try
+                    {
+                        masterLayer = new LiveStackPreviewSource(new FixedMaster(newDoc.UnstretchedImage.Clone()), requestedPath, timeProvider, logger);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "Failed to give the planetary master {FilePath} its sharpening layer", requestedPath);
+                    }
+                }
+
                 Document = newDoc;
                 LogStretchBasis("opened", newDoc);
                 _rawSource = newDoc;
-                _liveSource = null;
+                _liveSource = masterLayer;
                 state.SequencePath = null;
+                (state.MasterPlanet, state.MasterPath) = masterLayer is null ? (null, null) : (masterPlanet, requestedPath);
+                if (masterLayer is not null)
+                {
+                    // The limb and the stops a derivation read belong to the master they were read on (#1201, #1314).
+                    state.WaveletLimb = null;
+                    state.DerivedWaveletGains = null;
+                    state.WaveletDerived = false;
+                    state.WaveletDeriveNote = null;
+                    state.WaveletSharpenEnabled = false;
+                    state.WaveletDirty = true;
+                }
 
                 // A crop is a property of the FRAME it was scanned against, not of the viewer, so a
                 // new document starts uncropped -- neither field carried a document identity to check
@@ -489,7 +524,8 @@ public sealed class ViewerController(
     public void SaveImage(bool withOverlays, PngDepth pngDepth, CancellationToken appToken,
         Overlays.WcsAnnotation annotation = default)
     {
-        if (Document is not { } saveDoc)
+        // What is on show (#1314): the sharpening layer's master while it is, never the file under it.
+        if (ShownDocument is not { } saveDoc)
         {
             state.StatusMessage = "Nothing to save";
             return;
@@ -988,7 +1024,7 @@ public sealed class ViewerController(
             Document = retained;
             LogStretchBasis("reverted", retained);
             _rawSource = retained;
-            _liveSource = null;
+            DropMasterLayer();
             state.IsSequence = false;
             // The full frame is back, so the crop that was taken off when the enhance baked it in goes
             // back on: reverting means returning to the view the enhance was launched from, and the
@@ -1208,7 +1244,9 @@ public sealed class ViewerController(
             }
         }
 
-        if (state.ShowStacked || Document is not { } shown)
+        // The sharpening layer puts the look on its own masters (LiveStackPreviewSource.SetSharpen), the stacked view's and a planetary
+        // master's alike (#1314).
+        if (state.SharpenLayerOnShow || Document is not { } shown)
         {
             return false;
         }
@@ -1463,7 +1501,7 @@ public sealed class ViewerController(
             // The "after" half of the pair P30 needs: same file, same panel, one enhance apart.
             LogStretchBasis("enhanced", enhancedDoc);
             _rawSource = enhancedDoc;
-            _liveSource = null;
+            DropMasterLayer();
             state.IsSequence = false;
             state.NotifySourceReplaced();
             // Keep the pre-enhance pixels for the before/after split. Requested rather than done
@@ -1570,6 +1608,11 @@ public sealed class ViewerController(
             _playerBoundSource = raw;
         }
 
+        if (!state.IsSequence && state.IsPlanetaryMaster && _liveSource is { } layer)
+        {
+            return TickMasterLayer(layer);
+        }
+
         if (raw is not ISequencePlaybackSource seq || !state.IsSequence)
         {
             return false;
@@ -1616,6 +1659,44 @@ public sealed class ViewerController(
         // so this briefly spins for the ~task duration, then the loop idles again.
         return rawPublished || masterPublished || _player.SeekPending
             || (state.ShowStacked && _liveSource is { IsBusy: true });
+    }
+
+    // An enhance result or its revert is shown as it is: a planetary master's sharpening layer goes, disposed once nothing renders it
+    // (#1314). The live source is only ever a master's layer here, as an enhance runs on a still.
+    private void DropMasterLayer()
+    {
+        var layer = _liveSource;
+        _liveSource = null;
+        StashForDispose(layer);
+        (state.MasterPlanet, state.MasterPath) = (null, null);
+    }
+
+    // Whether the planetary master's layer was on show at the last tick, so a switch between it and the file as it is re-uploads.
+    private bool _masterLayerWasOnShow;
+
+    /// <summary>
+    /// A planetary master's sharpening layer, one tick (#1314): the stacked view's own steps over the one master. A finished or asked
+    /// for derivation, the dials pushed when they change, the master built and re-sharpened off the render thread. Kept warm while
+    /// its sharpening is off, so turning it on shows a master at once.
+    /// </summary>
+    private bool TickMasterLayer(LiveStackPreviewSource layer)
+    {
+        _derivation.Tick(state, layer, state.MasterPath, timeProvider.GetUtcNow(), logger);
+        if (state.WaveletDirty)
+        {
+            layer.SetSharpen(state.BuildWaveletOptions(), state.WaveletLimb, state.PlanetaryLook);
+            state.WaveletDirty = false;
+        }
+        var published = layer.TryPublishMaster();
+        layer.RequestFollow(0);
+
+        var onShow = state.SharpenLayerOnShow && layer.HasMaster;
+        if ((published && onShow) || onShow != _masterLayerWasOnShow)
+        {
+            state.NeedsTextureUpdate = true;
+        }
+        _masterLayerWasOnShow = onShow;
+        return published || layer.IsBusy;
     }
 
     /// <summary>

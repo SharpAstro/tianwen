@@ -48,7 +48,8 @@ internal sealed class ViewerE2E : IDisposable
         Bus.Subscribe<RequestExitSignal>(_ => _exitRequests++);
         State = new ViewerState();
         Tracker = new BackgroundTaskTracker();
-        Controller = new ViewerController(State, new DocumentCache(), Substitute.For<IFileDialogHelper>(),
+        FileDialog = Substitute.For<IFileDialogHelper>();
+        Controller = new ViewerController(State, new DocumentCache(), FileDialog,
             Substitute.For<IPlateSolverFactory>(), new FakeTimeProviderWrapper(), Tracker,
             NullLogger<ViewerController>.Instance);
         Viewer = new Surface(_renderer, Bus) { DpiScale = dpiScale };
@@ -70,6 +71,9 @@ internal sealed class ViewerE2E : IDisposable
     internal ViewerState State { get; }
 
     internal ViewerController Controller { get; }
+
+    /// <summary>The substitute file dialog, which a test answers (a Save's path) through NSubstitute.</summary>
+    internal IFileDialogHelper FileDialog { get; }
 
     internal BackgroundTaskTracker Tracker { get; }
 

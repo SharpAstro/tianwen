@@ -75,7 +75,8 @@ namespace TianWen.UI.Abstractions
             var style = new Layout.ButtonGroupStyle(TransportTrackFill, ToolbarButtonBg, ViewerTheme.Palette.BodyText, ViewerTheme.Palette.BodyText,
                 GuiTheme.Hover(ToolbarButtonBg));
 
-            var capture = state.SequencePath;
+            // A capture's name, or a planetary master's file's (#1314), whose OBJECT names the planet first.
+            var capture = state.SequencePath ?? state.MasterPath;
             ReadOnlySpan<Layout.ButtonGroupOption<CatalogIndex?>> planets =
             [
                 new(null, "Auto") { Hit = new HitResult.ButtonHit("PlanetAuto") },
@@ -164,6 +165,10 @@ namespace TianWen.UI.Abstractions
                 if (state.PlanetaryBody is { } chosenBody)
                 {
                     return $"Planet: {chosenBody}";
+                }
+                if (state.MasterPlanet is { } fromHeader)
+                {
+                    return $"Planet: {fromHeader}, from the header";
                 }
                 if (capture is null)
                 {
