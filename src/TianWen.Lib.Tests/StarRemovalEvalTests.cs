@@ -193,6 +193,36 @@ public sealed class StarRemovalEvalTests : IDisposable
     }
 
     [Fact]
+    public async Task TheLossMaskLeavesOutTheSkyNearAStarThePlateKeptAndNothingElse()
+    {
+        var root = _folders.Create("starless-masks-").FullName;
+        var export = Path.Combine(root, "export");
+        var channelSigma = Sigma * MathF.Sqrt(Channels);
+        var rng = new Random(6);
+        var noise = Enumerable.Range(0, Channels).Select(_ => Enumerable.Range(0, Size * Size)
+            .Select(_ => channelSigma * (float)(Math.Sqrt(-2 * Math.Log(1 - rng.NextDouble())) * Math.Cos(2 * Math.PI * rng.NextDouble()))).ToArray()).ToArray();
+        var kept = Star(60, 60, 15 * Sigma, 3.0);
+        var injected = Star(128, 128, 1.0, 3.0);
+        var manifest = new List<string>();
+        var tile = WriteDraw(export, "S", 0, (c, i) => Sky + noise[c][i] + kept[i], (c, i) => Sky + noise[c][i] + kept[i] + injected[i],
+            [InjectedAt(128, 128)], manifest);
+        await File.WriteAllLinesAsync(Path.Combine(export, DatasetDegradationExporter.InjectionManifestFileName), manifest,
+            TestContext.Current.CancellationToken);
+
+        var result = await StarRemovalMasks.RunAsync(export, cancellationToken: TestContext.Current.CancellationToken);
+
+        result.Draws.ShouldBe(1);
+        var bytes = await File.ReadAllBytesAsync(Path.Combine(export, StarRemovalMasks.KeepPathFor(tile).Replace('/', Path.DirectorySeparatorChar)),
+            TestContext.Current.CancellationToken);
+        float At(int x, int y) => (float)BitConverter.ToHalf(bytes, ((y * Size) + x) * 2);
+        At(60, 60).ShouldBe(0f, "the plate's own star is left out of the loss");
+        At(64, 60).ShouldBe(0f, "and the sky round it, within two PSF widths");
+        At(128, 128).ShouldBe(1f, "an injected star still counts, so the net is still asked to remove it");
+        At(200, 200).ShouldBe(1f, "and so does the sky far from any source");
+        (await StarRemovalMasks.RunAsync(export, cancellationToken: TestContext.Current.CancellationToken)).Skipped.ShouldBe(1, "a draw that has its mask is skipped");
+    }
+
+    [Fact]
     public async Task TheSkysChangeIsTakenApartPerSessionIntoLevelColourAndNoise()
     {
         var root = _folders.Create("starless-eval-").FullName;
