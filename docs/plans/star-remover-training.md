@@ -965,6 +965,51 @@ clean 57.1 at 5-20 sigma and 18.6 at 100-1000, the core residual's RMS 4.26 at 1
 **What it decides.** If (2) holds, length is not R2c's lever and the cap was not what held R2b back. If (2) fails,
 every R2 so far was read early, and the next arms run to convergence.
 
+#### R2c's four checks (2026-10-06)
+
+The owner asked for all four levers to be checked, the truth first. Each read is on R2b's models and the random arm's
+draws, with the fixed eval.
+
+**1. The truth: the plates keep faint stars, and most of the field arm's "sky moved" is on them.** `PlateSources` finds
+the plate's own point sources as the builder does, at 4 sigma (its leftover threshold; its detection threshold is 5).
+- The plates hold **36,765 of them on their sky over the 1,280 draws, about 29 a tile**: the stars under the builder's
+  detection threshold. Their surroundings (two PSF widths) are 4.0 percent of the sky.
+- **The field arm moves that 4 percent at an RMS of 2.10 sigma**, lowering it on average (-0.26), and takes 14 percent of
+  the plate's sources outright. That is about 62 percent of its sky's whole squared change. The Gaussian arm reads 0.81
+  there and takes 10 percent.
+- **Away from them the field arm moves the sky 0.34 sigma** (the Gaussian arm 0.08), just over the kill's 0.3. Stars
+  fainter than 4 sigma, which the finder cannot see, are the likely rest.
+- So the kill's sky bar mostly penalised the field arm for removing real stars the truth kept. The truth also teaches
+  against itself: an injected faint star must go and a kept one of the same kind must stay.
+
+**2. The loss: it rewards the bright cores first, then stops seeing them.** `LossShare` reads a candidate's squared
+error against the plate in the tile's own units, the pixel term's view.
+- For the input (an untrained identity), the bright stars' 3x3 cores (100 sigma and over, saturated ones included) hold
+  **42.7 percent** of the squared error: the L2 is not blind to bright stars at the start.
+- For `r2b_random_s0` they hold **2.8 percent** of what is left. Its unbiased scatter of about 6 sigma there costs the
+  loss almost nothing, so nothing pushes it down. The rest is 82.5 percent on the other footprint pixels (fainter stars
+  and wings), 10.2 percent on the sky near the plate's own sources (the loss penalising it for taking the kept stars),
+  and 4.5 percent on the far sky.
+- `r2b_gaussian_s0` keeps 22.7 percent of its error in the bright cores: it leaves them.
+- So a per-star term (the speckle teacher, or a core term scaled per star) is what would keep pushing on bright stars;
+  an L2 has finished with them.
+
+**3. Convergence:** running ("R2c: convergence, pre-registered"), read when it ends.
+
+**4. The physics: real stars change size from the centre to the corner, per channel, and the injector draws one size.**
+`InjectionPopulation.ProfilesAt` gives every injected star its channel's whole-master profile; only the elongation is
+local. The bake's own field-radius profile (`C:\temp\e2\field_profile_summary.py` over the 2026-10-05 store's report, 25
+colour trains, flip halves left out) says real stars change by 10 to 58 percent from the centre to the corner, and the
+three channels disagree about the corner by a median of 0.144 (at most 0.93) in their corner-over-centre ratio. The
+Samyang 135 with the L-Ultimate (3,191 corner stars): red 0.905, green 1.352, blue 1.358. The SH61 with the L-Quad: red
+0.845, green 1.172, blue 1.097. That is a focal surface curved and chromatic (the archive's red inversion), and the
+physical model's P1 to P3 (#1296 to #1298) are where it would enter.
+
+**Which R2c.** The truth is the first lever: it moves the kill's sky bar and it teaches against the injected faint
+stars. Either plates that keep no faint stars (the builder subtracting deeper), or a loss and an eval that do not count
+the sky near a source the plate kept. The loss is the second: a per-star term for the bright end. Both need no new
+export of the injector; the physics does.
+
 Open from it, under #902: R0's saturated fit on a fixed annulus in FWHM units with a 0.1 to 0.3 core cut (#1240); a
 residual table that holds bright stars' near wings (#1241); the Lagoon's and eta Carinae's photometric offsets (1.4 to 1.7,
 a V against luminance colour term is the likely reading, #1242); the mono noise shape (#1243, calibrated 2026-10-04:
