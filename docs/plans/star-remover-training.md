@@ -890,6 +890,57 @@ arm's draws it removes 61.7 at 5-20 sigma, 69.8 at 20-100, 63.9 at 100-1000 and 
 RMS of 9.02, and the sky moved 0.60. The field arm over its three seeds reads 54.4 to 64.4 at 5-20 sigma, a mean of
 60.2: (2) holds at 10 points against R2a's 27, (3) misses its 60.9 by 0.7, (4) and (5) hold, and H2 holds at 100-1000
 sigma (54.6 points against a 6.7-point range) but not on the footprint, whose field range is 13.0.
+`r2b_gaussian_s2` (six of six) ran to the cap with its loss still at its best (best at 60,000, two halvings). On the
+random arm's draws it removes 63.8 at 5-20 sigma, 49.0 at 20-100 and 12.5 at 100-1000.
+
+#### R2b's result: the seeds' spread was the schedule; the kill still fires; read with the fixed eval, H2 holds smaller (2026-10-06)
+
+Six models, two arms by three seeds, each scored on every arm's val draws (`C:\temp\e2\r2b_read.py`), then re-scored on
+the random arm's draws with the fixed eval ("What the eval could not see", section 5; every registered number came back
+to the bit over all 15 of R2a's and R2b's models).
+
+**As registered** (the random arm's draws, arm means and seed ranges):
+
+| arm | 5-20 sigma | 20-100 | 100-1000 | saturated | footprint RMS | sky moved |
+|---|---|---|---|---|---|---|
+| field | 60.2 (54.4-64.4) | 63.9 (59.0-69.8) | 64.3 (61.1-67.8) | 53.1 (48.4-60.3) | 9.44 (3.15-16.15) | 0.54 (0.49-0.60) |
+| Gaussian | 60.1 (53.3-63.8) | 45.4 (37.8-49.3) | 10.6 (8.4-12.5) | 16.4 (11.9-20.1) | 18.18 (17.73-18.71) | 0.18 (0.17-0.19) |
+
+- **(1) holds:** every run trained to the 60,000-step cap, and every one stopped there with its held-out loss still
+  improving, so the cap, not convergence, ended them all.
+- **(2) holds:** the field arm's seeds span 10 points at 5-20 sigma, against R2a's 27. R2a's spread was the schedule.
+- **(3) misses:** the field arm's mean rose 4.3 points (55.9 to 60.2), under the 5 registered.
+- **(4) and (5) hold:** 60.2 is far under 80, and every field seed moves the sky past 0.3.
+- **(6) holds at 100-1000 sigma** (53.7 points against a 6.7-point range), **not on the footprint** (8.7 against the
+  field arm's 13.0 range, which `r2b_random_s1`'s few bad tiles set).
+- **The kill fires on both conditions**, as predicted.
+
+**Read with the fixed eval** (same draws):
+
+| arm | clean 5-20 | clean 100-1000 | dug 100-1000 | core residual 100-1000, mean / RMS | footprint p50 / p90 | sky: level / about level / noise ratio |
+|---|---|---|---|---|---|---|
+| field | 53.5 (48.7-57.1) | 16.0 (13.3-18.6) | 51.3 (50.0-52.4) | +0.7 / 5.9 | 0.75 / 1.37 | 0.107 / 0.525 / 0.970 |
+| Gaussian | 57.0 (50.5-60.6) | 7.1 (5.4-8.7) | 1.9 (1.7-2.2) | +17.1 / 52.7 | 1.06 / 8.78 | 0.018 / 0.181 / 0.990 |
+
+- **H2 holds, smaller than registered.** At 100-1000 sigma the field profile teaches an unbiased removal with an RMS
+  of 6 sigma where the Gaussian one leaves +17; clean removal is 16.0 against 7.1, apart by more than either range,
+  where the registered rate read 64.3 against 10.6. At 5-20 sigma the arms tie on clean removal.
+- **Neither arm removes a bright star cleanly:** 16 percent at best. Its unbiased scatter, not a bias, is what the
+  field arm has left to lose.
+- **The footprint gate of 1 is met by both arms' median tile** (0.75 and 1.06); the pooled RMS is the worst tiles'.
+- **The field arm's sky movement is texture** (0.525 of its 0.536), not level and not smoothing.
+
+**What it decides.** Length and seeds are settled: three seeds now read a 10-point range at 5-20 sigma, and longer
+training did not lift removal past the bar. What is left to move the recipe is not more of the same:
+- **the truth:** whether the sky "movement" is the faint stars R0 left in its plates, which would make the kill's sky bar
+  penalise correct removal (a check on the existing outputs, no GPU);
+- **the loss:** nothing in an L2 against the plate asks for a bright star's scatter to shrink; the speckle teacher and a
+  per-star term are the candidates the plan already names;
+- **convergence:** every run was still improving at the cap, so a single seed run to convergence would say what more
+  steps buy;
+- **the physics:** the injector's stars are the master's symmetric profile, never the train's own field aberrations
+  ([physical-psf-model.md](physical-psf-model.md), #1298).
+The owner chooses which of these R2c is.
 
 Open from it, under #902: R0's saturated fit on a fixed annulus in FWHM units with a 0.1 to 0.3 core cut (#1240); a
 residual table that holds bright stars' near wings (#1241); the Lagoon's and eta Carinae's photometric offsets (1.4 to 1.7,
