@@ -1062,6 +1062,33 @@ the fixed eval and D4's mask.
 **Kill:** B under A on A's draws at 5-20 sigma, by more than either arm's seed range. Then the generator's gap
 dominates, and the truth is fixed by D4 and a deeper plate builder instead.
 
+#### D1's read: the real sky is noise where it is smooth, and turbulent where it is not (2026-10-06)
+
+`tianwen dataset sky-texture` over all 190 plates of the 2026-09-29 store (169 colour, 21 mono, none failed;
+`C:\temp\e2\sky-texture\sky-texture.jsonl`, summarised by `C:\temp\e2\sky_texture_summary.py`). Medians across the plates,
+with the interquartile range:
+- **What is read:** 84 percent of a frame (80 to 88), off the canvas ring, the frame's edge and the sources the plate kept,
+  of which there are 1,430 a megapixel at 4 sigma (950 to 2,390).
+- **The smooth class is 99.6 percent of the read sky.** Its scales' robust RMS over the 1 px scale's: 0.387 at 2 px, 0.222
+  at 4, 0.144 at 8, 0.115 at 16, 0.113 at 32. The fine end is the master's correlated noise (a starlet's second scale
+  reads 0.225 of its first on white noise, more on a demosaiced or drizzled master), and the flattening from 16 px up is
+  the large-scale sky. Its index is 1.29 (0.99 to 1.59), between noise and turbulence because both are in it, and its
+  tail past 5 sigma is 0.05 to 0.6 percent from 1 to 8 px.
+- **The textured class** (106 plates hold 20,000 pixels or more of it) **reads an index of 3.04** (2.62 to 3.33), its
+  energy rising with scale, with tails of 0.4 to 1.4 percent.
+- **The strongly textured class** (57 plates) **reads 3.34** (3.17 to 3.72), with tails of 2.6 to 3.4 percent at every
+  scale: a nebula's knots and edges.
+- Both textured indices sit where turbulent emission and dust are found (Kolmogorov's 11/3 is 3.67), as the physics says.
+
+**What it sets for D2.**
+- **Smooth sky, almost all of it:** below about 4 PSF widths its scales are the master's noise, so the synthetic fine
+  scales there are the master's noise shape alone, with no texture at all. That is the simplest generator and truly
+  starless.
+- **Textured sky:** fine scales drawn as a field of index 3.0 to 3.3 for its class, with tails matched per scale (sparse
+  knots, D3).
+- **The tails are an upper bound for the nebula alone.** The finder masks sources from 4 sigma, so the fainter stars are
+  still in the 1 to 4 px tails.
+
 Open from it, under #902: R0's saturated fit on a fixed annulus in FWHM units with a 0.1 to 0.3 core cut (#1240); a
 residual table that holds bright stars' near wings (#1241); the Lagoon's and eta Carinae's photometric offsets (1.4 to 1.7,
 a V against luminance colour term is the likely reading, #1242); the mono noise shape (#1243, calibrated 2026-10-04:
