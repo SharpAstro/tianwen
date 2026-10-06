@@ -2485,6 +2485,9 @@ It was adopted only if it left the twin no more than 0.02 more band error at eve
   session's bake held about 13 of the 16 cores, and the control (the defaults' own registration at K = 0.25 in place) graded 80 % and
   53 % where it had graded 99 % and 96 % an hour before, so neither keep-up reading meant anything. #1272 holds the rule, the
   commands, the baselines and the check that a run was quiet.
+- **The twin's last master swings between replays at 60 frames a second (#1319).** Three replays of the defaults left last masters at
+  3.04, 5.42 and 7.09 (bands 1 to 4) against the truth, where 250 read 1.537 above. All three graded every frame in full, one recipe
+  run three times. Until the cause is found, a band error read at 60 is no measure of a change.
 
 Parts 1 and 2 ran beside that bake too, every arm of a comparison in the same session: load only slows a stack, so a K that kept up
 under it keeps up, and the adoption does not move if a K that failed would pass on a quiet box (K = 0.25 leaves the least band error of
@@ -2524,6 +2527,18 @@ passes, and #1174's grade had one: the mean and spread alone cost about 0.9 ms o
 which part 2 measures: **the owner's pre-filter for the live view** (#1310's comment), a cheap score first, and the whole-frame tests only
 for the frames that could reach the window's best quarter, which are all the live stack folds. It changes which frames the live
 statistics see, so it is judged on #1272's replays, not by `AB_SAME`.
+
+#### Part 2, the pre-filter: not adopted
+
+Measured as registered on 2026-10-07 (#1310), on a branch never merged. **Rule 1 failed: the pre-filter never ranks a Jupiter frame.**
+- Over 500 consecutive frames of Red and the twin, the gradient score lies within a few percent of the best quarter's boundary. The
+  tenth percentile is 0.946 and 0.961 of it and the lowest frame about 0.92, so none falls under the registered 0.8.
+- Every frame then pays the cheap score (0.35 ms, 0.20 of #1174's grade) on top of the full grade. Timed side by side, that is 2.29 and
+  2.37 of #1174's grade against the 1.1 asked (control 1.04 and 0.99).
+- On the two Saturn captures it ranked 18 and 23 % of the frames, and folded none that the full grade scored zero (rule 3).
+- Only a margin near 1.0 ranks the share that would pay, about 0.57 on Red: the cheap score would then be the rank of every frame under
+  the boundary. That is a change of design, and the owner's to choose.
+- Rule 2's band-error clause could not be read at 60 frames a second (#1319).
 
 ### The best stack in the viewer
 
