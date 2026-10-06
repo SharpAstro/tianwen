@@ -149,6 +149,21 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
 
     /// <summary>The amount <see cref="PlanetaryFinish.Kolivas"/> takes, as his tool's slider (his PlanetRecon judges at 15.6).</summary>
     public double KolivasAmount { get; init; } = 15.6;
+
+    /// <summary>
+    /// Sharpen a colour master's detail once, on its luminance (the mean of its planes, through the mean of the channels' wavelengths), and
+    /// give every plane the stack's own colour at each pixel, rather than sharpen each channel through its own diffraction (#1295). Per
+    /// channel, thin detail changed colour on real Saturn captures: the rings' chroma as a share of the globe's rose from 0.38 to 0.57 and the
+    /// gap between the globe and the inner ring turned teal. Opt-in: on the colour twins sharpening each channel moved the globe, the rings and
+    /// the gap TOWARD the truth (it unmixes the colours the blur mixed), which one luminance cannot; and without an ADC each colour carries a
+    /// smear of its own within its band (blue's the most), which the stack's limb alignment of the colours (#1202) moves but cannot undo and
+    /// only a channel's own sharpening treats. No effect on a mono master.
+    /// </summary>
+    public bool LuminanceOnly { get; init; }
+
+    // The master being sharpened is a colour master's luminance (LuminanceOnly): its finest band holds the colour filter's residue as the
+    // colour planes do, so it follows ColourFinestBand as they would (#1187).
+    internal bool OfColour { get; init; }
 }
 
 /// <summary>A sharpened master and how it was sharpened: the first channel's derived gains (empty for the preset) and its edge's transfer.</summary>
@@ -189,6 +204,10 @@ public static class PlanetarySharpening
     {
         ArgumentNullException.ThrowIfNull(master);
         ArgumentNullException.ThrowIfNull(options);
+        if (options.LuminanceOnly && master.ChannelCount == 3)
+        {
+            return SharpenLuminance(master, options);
+        }
         var aspect = PhysicalEphemeris.Compute(options.Planet, options.When);
         var limbOptions = PlanetaryLimbFit.OptionsFor(aspect);
         if (PlanetaryLimbFit.Fit(master, limbOptions) is not { } fit)
@@ -235,7 +254,7 @@ public static class PlanetarySharpening
                 var noise = ImmutableArray.CreateRange(Enumerable.Repeat(white, power.Length));
                 var wiener = PlanetaryWaveletGains.Wiener(power, noise, kernel);
                 var blurredDisk = PlanetaryInverse.Apply(diskTarget, size, size, kernel);
-                var finestHeld = FinestHeld(master.ChannelCount, c, options.ColourFinestBand);
+                var finestHeld = FinestHeld(options.OfColour ? 3 : master.ChannelCount, options.OfColour ? 1 : c, options.ColourFinestBand);
                 var gains = options.NonNegative
                     ? PlanetaryWaveletGains.FitNonNegative(power, wiener, diskTarget, blurredDisk, size, size, disk, kernel, strength: options.Strength)
                     : PlanetaryWaveletGains.Fit(power, wiener, diskTarget, blurredDisk, size, size, disk, held: finestHeld ? 1 : 0);
@@ -295,6 +314,107 @@ public static class PlanetarySharpening
             Cutoffs = [.. cutoffs],
             WienerCuts = [.. wienerCuts],
         };
+    }
+
+    // A colour master sharpened on its luminance alone (PlanetarySharpenOptions.LuminanceOnly, #1295): the mean of its planes sharpened as a
+    // mono master is, at the mean of the channels' wavelengths, then every plane rebuilt from it with the stack's own colour. The limb kept
+    // for a live view is the luminance's, one channel, so none is kept here.
+    private static PlanetarySharpenResult? SharpenLuminance(Image master, PlanetarySharpenOptions options)
+    {
+        var (width, height) = (master.Width, master.Height);
+        var mean = new float[height, width];
+        for (var c = 0; c < 3; c++)
+        {
+            var plane = master.GetChannelSpan(c);
+            for (var y = 0; y < height; y++)
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    mean[y, x] += plane[(y * width) + x] / 3;
+                }
+            }
+        }
+        var luminance = new Image([mean], BitDepth.Float32, master.MaxValue, master.MinValue, master.Pedestal, master.ImageMeta);
+        var wavelengthNm = (options.WavelengthsNm[0] + options.WavelengthsNm[Math.Min(1, options.WavelengthsNm.Length - 1)]
+            + options.WavelengthsNm[Math.Min(2, options.WavelengthsNm.Length - 1)]) / 3;
+        PlanetarySharpenResult? sharpened;
+        try
+        {
+            sharpened = Sharpen(luminance, options with { LuminanceOnly = false, OfColour = true, WavelengthsNm = [wavelengthNm] });
+        }
+        finally
+        {
+            luminance.Release();
+        }
+        if (sharpened is null)
+        {
+            return null;
+        }
+        try
+        {
+            // The disk the luminance was sharpened on, Saturn's rings in it, so each plane's sky lies past them; a plain start without a pupil.
+            var disk = sharpened.Limb?.Disk
+                ?? (PlanetaryLimbFit.Start(sharpened.Sharpened.GetChannelSpan(0), width, height, 1) is { } start
+                    ? new MetricDisk(start.X, start.Y, start.Radius)
+                    : new MetricDisk(width / 2.0, height / 2.0, Math.Min(width, height) / 4.0));
+            return sharpened with { Sharpened = WithStackColour(master, sharpened.Sharpened, disk), Limb = null };
+        }
+        finally
+        {
+            sharpened.Sharpened.Release();
+        }
+    }
+
+    // Every plane of `stack` rebuilt from `luminance`, a sharpened mean of its planes: each pixel above its plane's sky is the luminance above
+    // the mean's sky times that plane's share of the stack's mean there, so the stack's colour (the ratios of its planes) is kept at every
+    // pixel and every scale of the detail is the luminance's. The shares are taken over the sky plus a floor of a fiftieth of the disk, so
+    // where the planet gives no light (the sky, a gap) they fall to the planes' mean share and no noise is divided by nothing.
+    internal static Image WithStackColour(Image stack, Image luminance, in MetricDisk disk)
+    {
+        var (width, height) = (stack.Width, stack.Height);
+        var y = luminance.GetChannelSpan(0);
+        // Each plane's sky and disk levels, as the sharpening normalises it.
+        var levels = new (double Sky, double Disk)[3];
+        double meanSky = 0, meanDisk = 0;
+        for (var c = 0; c < 3; c++)
+        {
+            var (level, scale) = PlanetaryMetrics.NormalisationLevels(stack.GetChannelSpan(c), width, height, disk);
+            levels[c] = (level, scale);
+            (meanSky, meanDisk) = (meanSky + (level / 3), meanDisk + (scale / 3));
+        }
+        var floor = meanDisk / 50;
+        var planes = new float[3][,];
+        var r = stack.GetChannelSpan(0);
+        var g = stack.GetChannelSpan(1);
+        var b = stack.GetChannelSpan(2);
+        for (var c = 0; c < 3; c++)
+        {
+            planes[c] = new float[height, width];
+        }
+        for (var row = 0; row < height; row++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var i = (row * width) + x;
+                var (ar, ag, ab) = (r[i] - levels[0].Sky, g[i] - levels[1].Sky, b[i] - levels[2].Sky);
+                // The mean share of each plane on the disk, which the floor pulls a dark pixel's shares toward.
+                var (fr, fg, fb) = (floor * levels[0].Disk / meanDisk, floor * levels[1].Disk / meanDisk, floor * levels[2].Disk / meanDisk);
+                var total = ((ar + fr) + (ag + fg) + (ab + fb)) / 3;
+                var above = y[i] - meanSky;
+                planes[0][row, x] = (float)(levels[0].Sky + (above * (ar + fr) / total));
+                planes[1][row, x] = (float)(levels[1].Sky + (above * (ag + fg) / total));
+                planes[2][row, x] = (float)(levels[2].Sky + (above * (ab + fb) / total));
+            }
+        }
+        var (max, min) = (float.MinValue, float.MaxValue);
+        foreach (var plane in planes)
+        {
+            foreach (var v in plane)
+            {
+                (max, min) = (Math.Max(max, v), Math.Min(min, v));
+            }
+        }
+        return new Image(planes, BitDepth.Float32, max, min, stack.Pedestal, stack.ImageMeta);
     }
 
     // The finishing steps the options ask for, on one channel's window: the adaptive weighting first, Kolivas's reference step next, the

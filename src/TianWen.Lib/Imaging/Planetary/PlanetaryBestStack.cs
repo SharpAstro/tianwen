@@ -39,6 +39,13 @@ public sealed record PlanetaryBestStackOptions(CatalogIndex? Planet, Pupil? Tele
     /// derived sharpening at the truth; a capture's own post sits at about 1.5 to 2.
     /// </summary>
     public double Strength { get; init; } = 1;
+
+    /// <summary>
+    /// Sharpen a colour master's luminance once and keep the stack's own colour (<see cref="PlanetarySharpenOptions.LuminanceOnly"/>, #1295):
+    /// an option, since on the colour twins it left the colour further from the truth than sharpening each channel, while on a real capture it
+    /// takes away the teal fringe between Saturn's globe and its inner ring.
+    /// </summary>
+    public bool LuminanceOnly { get; init; }
 }
 
 /// <summary>The best stack of a capture: the stack as integrated (linear) and as sharpened, and how it was sharpened, in words.</summary>
@@ -120,7 +127,7 @@ public static class PlanetaryBestStack
         var handedOn = false;
         try
         {
-            var (sharpened, how) = Sharpen(result.Master, options.Planet, result.Epoch, options.Telescope, options.WavelengthsNm, options.Fix, options.Strength);
+            var (sharpened, how) = Sharpen(result.Master, options.Planet, result.Epoch, options.Telescope, options.WavelengthsNm, options.Fix, options.Strength, options.LuminanceOnly);
             // The balance comes after the sharpening, which reads each channel's edge through that channel's own diffraction: the
             // saturation mixes the channels.
             var (balance, howBalanced) = options.ColourSaturation is { } saturation
@@ -152,17 +159,19 @@ public static class PlanetaryBestStack
     /// else its own DATE-OBS and EXPTIME's middle) and the telescope are known and its limb fits; by
     /// <see cref="WaveletSharpenOptions.PlanetaryDefault"/> with the limb kept as stacked when only the telescope is missing; by the preset
     /// alone when the planet or the time is unknown or the limb does not fit. The words say which, and why. A <paramref name="strength"/> past
-    /// one takes bands 2 and 3 past the truth (<see cref="PlanetarySharpenOptions.Strength"/>, #1251). The caller owns the image.
+    /// one takes bands 2 and 3 past the truth (<see cref="PlanetarySharpenOptions.Strength"/>, #1251), and <paramref name="luminanceOnly"/>
+    /// sharpens a colour master's luminance once, keeping the stack's colour (<see cref="PlanetarySharpenOptions.LuminanceOnly"/>, #1295).
+    /// The caller owns the image.
     /// </summary>
     public static (Image Sharpened, string How) Sharpen(Image master, CatalogIndex? planet, DateTimeOffset? epoch, Pupil? telescope,
-        ImmutableArray<double> wavelengthsNm = default, PlanetaryLimbFix? fix = null, double strength = 1)
+        ImmutableArray<double> wavelengthsNm = default, PlanetaryLimbFix? fix = null, double strength = 1, bool luminanceOnly = false)
     {
         if (SharpenOptionsFor(master, planet, epoch, telescope, wavelengthsNm) is not { } options)
         {
             return (WaveletSharpen.Sharpen(master, PresetAt(strength)),
                 $"PlanetaryDefault{StrengthWords(strength)}: the sharpening is derived only for a named Jupiter or Saturn with frame times");
         }
-        options = options with { Strength = strength };
+        options = options with { Strength = strength, LuminanceOnly = luminanceOnly };
         if (fix is { } chosen)
         {
             options = options with { Fix = chosen };
@@ -174,7 +183,7 @@ public static class PlanetaryBestStack
         }
         var inv = CultureInfo.InvariantCulture;
         return (result.Sharpened, result.Derived
-            ? string.Create(inv, $"gains {string.Join(", ", result.Gains.Select(g => g.ToString("0.00", inv)))} derived through the limb's edge{StrengthWords(strength)}, {Describe(result.Fix)}")
+            ? string.Create(inv, $"gains {string.Join(", ", result.Gains.Select(g => g.ToString("0.00", inv)))} derived through the limb's edge{StrengthWords(strength)}{(luminanceOnly && master.ChannelCount == 3 ? " on the luminance, the stack's colour kept" : "")}, {Describe(result.Fix)}")
             : $"PlanetaryDefault{StrengthWords(strength)} with the limb kept as stacked; the telescope's aperture gives the derived sharpening");
     }
 

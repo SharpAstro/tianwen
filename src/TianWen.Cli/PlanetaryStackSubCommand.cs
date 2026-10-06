@@ -169,6 +169,10 @@ internal sealed class PlanetaryStackSubCommand(
             Description = "How far past the truth the derived sharpening takes bands 2 and 3 (#1251): 1, the default, is the truth on the twins; a capture's own post sits at about 1.5 to 2.",
             DefaultValueFactory = _ => 1,
         };
+        var sharpenLuminanceOpt = new Option<bool>("--sharpen-luminance")
+        {
+            Description = "Sharpen a colour master's luminance once and keep the stack's own colour, rather than each channel through its own diffraction (#1295): an option, since the colour twins kept the per-channel default nearer their truth, while on a real Saturn it takes away the teal fringe between the globe and the inner ring.",
+        };
         var pupil = PlanetaryMasterScore.PupilOptions();
         var sharpenGainsOpt = new Option<string?>("--sharpen-gains")
         {
@@ -241,7 +245,7 @@ internal sealed class PlanetaryStackSubCommand(
             {
                 outputOpt, labelOpt, keepOpt, qualityOpt, globalOpt, drizzleOpt, drizzlePixfracOpt, drizzleGlobalOpt,
                 noPerPointOpt, noSignalGateOpt, noChannelAlignOpt, colourSaturationOpt, noColourBalanceOpt,
-                noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, wavelengthOpt, fixOpt, strengthOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, noPngOpt, pngGammaOpt,
+                noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, wavelengthOpt, fixOpt, strengthOpt, sharpenLuminanceOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, noPngOpt, pngGammaOpt,
                 tileSizeOpt, apSpacingOpt, maxApOpt, placementOpt, patchSizeOpt, meshSpacingOpt, meshInfluenceOpt, estimatorOpt, correlationOpt, interpolationOpt, referenceFramesOpt,
                 derotateOpt, noDerotateOpt, planetOpt, turnNorthOverOpt, legacyOpt, truthOpt,
             },
@@ -463,7 +467,7 @@ internal sealed class PlanetaryStackSubCommand(
             if (sharpen)
             {
                 var (sharpened, how) = Sharpened(master, sharpenOptions, planet, result.Epoch, wavelengthText, PlanetaryCaptureName.WavelengthNm(serPath), telescope,
-                    parseResult.GetValue(fixOpt), parseResult.GetValue(strengthOpt));
+                    parseResult.GetValue(fixOpt), parseResult.GetValue(strengthOpt), parseResult.GetValue(sharpenLuminanceOpt));
                 display = balance?.Apply(sharpened) ?? sharpened;
                 display.WriteToFitsFile(sharpenedFits, null, balance?.HeaderCards());
                 consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(sharpenedFits)} ({how})");
@@ -518,7 +522,7 @@ internal sealed class PlanetaryStackSubCommand(
     // (PlanetaryBestStack.Sharpen, the one routine the GUI's best stack runs too).
     // The filter word in a mono capture's name stands in for --wavelength, as the viewer's best stack takes it (#1179).
     private (Image Sharpened, string How) Sharpened(Image master, WaveletSharpenOptions? fixedProfile, CatalogIndex? planet, DateTimeOffset? epoch,
-        string? wavelengthText, double? nameWavelengthNm, Pupil? telescope, PlanetaryLimbFix? fix, double strength)
+        string? wavelengthText, double? nameWavelengthNm, Pupil? telescope, PlanetaryLimbFix? fix, double strength, bool luminanceOnly)
     {
         if (fixedProfile is { } profile)
         {
@@ -533,7 +537,7 @@ internal sealed class PlanetaryStackSubCommand(
         {
             wavelengths = [nm];
         }
-        return PlanetaryBestStack.Sharpen(master, planet, epoch, telescope, wavelengths, fix, strength);
+        return PlanetaryBestStack.Sharpen(master, planet, epoch, telescope, wavelengths, fix, strength, luminanceOnly);
     }
 
     // The pupil a SER capture's header names, or null (a file that is not one, or names none).

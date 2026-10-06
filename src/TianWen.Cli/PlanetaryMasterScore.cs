@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.CommandLine;
 using System.Globalization;
 using System.IO;
@@ -106,6 +107,130 @@ internal static class PlanetaryMasterScore
                 }
             }
         }
+        if (colour)
+        {
+            ColourAgainstTruth(consoleHost, master, truthPath, planet, what);
+        }
+    }
+
+    /// <summary>
+    /// A colour master's colour against its truths (#1295): each channel's limb fitted and moved onto the truth's disk as
+    /// <see cref="AgainstTruth"/> does, both normalised on the disk, then both carried onto the truth's own colour of the globe's core
+    /// (inside 0.7 radii, clear of the rings), so a region's colour is its colour against the globe's, the truth's and the master's on one
+    /// footing. For the globe's core, and on Saturn the ring ansae (the B and A rings off the globe) and the gap between the globe and the
+    /// inner ring: the mean colour's OKLab chroma and hue against the truth's, the mean per-pixel OKLab distance from the truth, and the rings'
+    /// chroma as a share of the globe's. The camera's planes are read as linear sRGB, the same for the master and the truth.
+    /// </summary>
+    public static void ColourAgainstTruth(IConsoleHost consoleHost, Image master, string truthPath, CatalogIndex planet, string what)
+    {
+        var inv = CultureInfo.InvariantCulture;
+        var (width, height) = (master.Width, master.Height);
+        var fitted = new float[3][];
+        var normalised = new float[3][];
+        var raw = new float[3][];
+        MetricDisk disk = default;
+        string[] names = ["r", "g", "b"];
+        for (var c = 0; c < 3; c++)
+        {
+            var path = Path.ChangeExtension(truthPath, $".{names[c]}.fits");
+            if (PlanetaryMeasureSubCommand.ReadTruth(path, consoleHost) is not { } truth || truth.Time is not { } when || truth.Plane.Length != width * height)
+            {
+                consoleHost.WriteError($"[planetary] {path}: no truth on {what}'s grid to read its colour against");
+                return;
+            }
+            var limbOptions = PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(planet, when));
+            disk = PlanetaryMeasureSubCommand.WithPlanet(truth.Disk, limbOptions);
+            var plane = master.ChannelImage(c);
+            try
+            {
+                if (PlanetaryMeasureSubCommand.Register(plane, limbOptions, disk) is not { } registered)
+                {
+                    consoleHost.WriteError($"[planetary] {what}, {names[c]}: its limb could not be fitted to read its colour");
+                    return;
+                }
+                fitted[c] = registered.Plane;
+            }
+            finally
+            {
+                plane.Release();
+            }
+            normalised[c] = PlanetaryMetrics.Normalise(truth.Plane, width, height, disk);
+            raw[c] = truth.Plane;
+        }
+
+        // The regions, on the truth's disk.
+        var (globe, rings, gap) = (new List<int>(), new List<int>(), new List<int>());
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var r = disk.RadiiAt(x, y);
+                var rho = disk.RingPlaneRadiiAt(x, y);
+                if (r < 0.7 && !disk.RingTouched(x, y))
+                {
+                    globe.Add((y * width) + x);
+                }
+                else if (disk.Rings is { } ringSet && r > 1.1)
+                {
+                    if (rho >= 1.55 && rho <= ringSet.OuterRadii - 0.05)
+                    {
+                        rings.Add((y * width) + x);
+                    }
+                    else if (rho < 1.45)
+                    {
+                        gap.Add((y * width) + x);
+                    }
+                }
+            }
+        }
+        if (globe.Count == 0)
+        {
+            return;
+        }
+        // Each channel carried from its disk-normalised units onto the truth's own units, by the truth's globe: the same factor for both.
+        var scale = new double[3];
+        for (var c = 0; c < 3; c++)
+        {
+            double rawSum = 0, normalisedSum = 0;
+            foreach (var i in globe)
+            {
+                (rawSum, normalisedSum) = (rawSum + raw[c][i], normalisedSum + normalised[c][i]);
+            }
+            scale[c] = normalisedSum != 0 ? rawSum / normalisedSum : 1;
+        }
+        var parts = new List<string>();
+        double? globeChroma = null, truthGlobeChroma = null;
+        foreach (var (name, region) in new[] { ("globe", globe), ("rings", rings), ("gap", gap) })
+        {
+            if (region.Count == 0)
+            {
+                continue;
+            }
+            var (mean, truthMean) = (new double[3], new double[3]);
+            double distance = 0;
+            foreach (var i in region)
+            {
+                var (mr, mg, mb) = (fitted[0][i] * scale[0], fitted[1][i] * scale[1], fitted[2][i] * scale[2]);
+                var (tr, tg, tb) = (normalised[0][i] * scale[0], normalised[1][i] * scale[1], normalised[2][i] * scale[2]);
+                (mean[0], mean[1], mean[2]) = (mean[0] + mr, mean[1] + mg, mean[2] + mb);
+                (truthMean[0], truthMean[1], truthMean[2]) = (truthMean[0] + tr, truthMean[1] + tg, truthMean[2] + tb);
+                var (m, t) = (OkLab.FromLinearSrgb(Math.Max(mr, 0), Math.Max(mg, 0), Math.Max(mb, 0)), OkLab.FromLinearSrgb(Math.Max(tr, 0), Math.Max(tg, 0), Math.Max(tb, 0)));
+                distance += Math.Sqrt(((m.L - t.L) * (m.L - t.L)) + ((m.A - t.A) * (m.A - t.A)) + ((m.B - t.B) * (m.B - t.B)));
+            }
+            var (ours, theirs) = (OkLab.FromLinearSrgb(mean[0] / region.Count, mean[1] / region.Count, mean[2] / region.Count),
+                OkLab.FromLinearSrgb(truthMean[0] / region.Count, truthMean[1] / region.Count, truthMean[2] / region.Count));
+            var (chroma, truthChroma) = (Math.Sqrt((ours.A * ours.A) + (ours.B * ours.B)), Math.Sqrt((theirs.A * theirs.A) + (theirs.B * theirs.B)));
+            if (name == "globe")
+            {
+                (globeChroma, truthGlobeChroma) = (chroma, truthChroma);
+            }
+            var share = name == "rings" && globeChroma is { } ourGlobe && truthGlobeChroma is { } truthGlobe && ourGlobe > 0 && truthGlobe > 0
+                ? string.Create(inv, $", as a share of the globe's {chroma / ourGlobe:0.00} against the truth's {truthChroma / truthGlobe:0.00}")
+                : "";
+            parts.Add(string.Create(inv,
+                $"{name} chroma {chroma:0.0000} at {Math.Atan2(ours.B, ours.A) * 180 / Math.PI:0.0} deg against the truth's {truthChroma:0.0000} at {Math.Atan2(theirs.B, theirs.A) * 180 / Math.PI:0.0}{share}, {distance / region.Count:0.0000} from it pixel by pixel"));
+        }
+        consoleHost.WriteScrollable($"[planetary] {what}, its colour against the truth's: {string.Join("; ", parts)}");
     }
 
     /// <summary>

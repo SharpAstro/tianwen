@@ -1137,6 +1137,11 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   light still shows. **A capture's span is its frames' earliest and latest TIMES, never its first and last frames** (#1292,
   `CaptureSpan`): PIPP writes a capture sorted by quality, whose first frame was taken mid-run, and every epoch, quarter, turn and DATE-OBS
   reads the span; a de-rotation whose north the run cannot tell is not done (`NorthUnread`).
+- **A colour master is sharpened per channel, and that UNMIXES colour, it does not add it** (#1295): on the twins it moved the globe, the
+  rings and the gap toward the truth, where sharpening the luminance alone and keeping the stack's colour (`LuminanceOnly`,
+  `--sharpen-luminance`, an option) left them as mixed as the blur made them. Read a colour change against a truth
+  (`ColourAgainstTruth`, printed by `--truth`), never by eye on one capture: a real Saturn's teal gap fringe, which the option removes,
+  appears on no twin.
 - **An alignment point's patch is cut at the EXACT global shift** (`PlanetaryTile.ExtractLumaAt`), and a mesh is built on it: a residual
   is the local warp alone. Cut at the rounded shift, a residual had to carry the fraction, which a patch along the belts cannot place,
   so every mesh locked to the whole pixel: a mesh stack off by up to half a pixel, and a 3x Bayer drizzle with 17 % of red and blue empty.
