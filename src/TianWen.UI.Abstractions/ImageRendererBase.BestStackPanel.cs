@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Linq;
 using DIR.Lib;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Devices;
@@ -24,6 +25,19 @@ namespace TianWen.UI.Abstractions
             (OpticalDesign.Newtonian, "Newton"),
             (OpticalDesign.SCT, "SCT / Mak"),
             (OpticalDesign.Refractor, "Refractor"),
+        ];
+
+        /// <summary>
+        /// The strength stops the panel offers (<see cref="PlanetarySharpening.StrengthStops"/>), the truth first: one Derive fits them all
+        /// (#1314). A stop's hit is its value without the point, <c>Strength25</c> for 2.5.
+        /// </summary>
+        private static readonly Layout.ButtonGroupOption<double>[] StrengthOptions =
+        [
+            .. PlanetarySharpening.StrengthStops.Select(stop => new Layout.ButtonGroupOption<double>(stop,
+                stop == 1 ? "Truth" : stop.ToString("0.#", CultureInfo.InvariantCulture))
+            {
+                Hit = new HitResult.ButtonHit(stop == 1 ? "StrengthTruth" : "Strength" + stop.ToString("0.#", CultureInfo.InvariantCulture).Replace(".", "")),
+            }),
         ];
 
         /// <summary>The Best stack block as one tree: the action alone, its planet and telescope in the section above it.</summary>
@@ -130,23 +144,12 @@ namespace TianWen.UI.Abstractions
                     style, BaseFontSize)
                 .RowH(BaseFontSize + WaveletGap));
 
-            // How far past the truth the sharpening goes (#1251): the truth by default, a post's look as an option.
-            ReadOnlySpan<Layout.ButtonGroupOption<double>> strengths =
-            [
-                new(1, "Truth") { Hit = new HitResult.ButtonHit("StrengthTruth") },
-                new(1.5, "1.5") { Hit = new HitResult.ButtonHit("Strength15") },
-                new(2, "2") { Hit = new HitResult.ButtonHit("Strength2") },
-                new(2.5, "2.5") { Hit = new HitResult.ButtonHit("Strength25") },
-            ];
+            // How far past the truth the sharpening goes (#1251): the truth by default, a post's look as an option. Once derived, a stop
+            // switches the dials to its own gains at once (#1314); before, it is what the next Derive and Best stack take.
             rows.Add(Caption(state.PlanetaryStrength == 1
                 ? "Sharpening: to the truth"
                 : string.Create(inv, $"Sharpening: {state.PlanetaryStrength:0.#} times the truth in the mid scales")));
-            rows.Add(Layout.Builder.ButtonGroup(strengths, state.PlanetaryStrength,
-                    chosenStrength =>
-                    {
-                        state.PlanetaryStrength = chosenStrength;
-                        state.NeedsRedraw = true;
-                    },
+            rows.Add(Layout.Builder.ButtonGroup(StrengthOptions, state.PlanetaryStrength, state.ChooseStrength,
                     style, BaseFontSize)
                 .RowH(BaseFontSize + WaveletGap));
 

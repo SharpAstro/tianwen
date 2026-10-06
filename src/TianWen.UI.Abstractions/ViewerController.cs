@@ -274,6 +274,7 @@ public sealed class ViewerController(
                     state.SequencePath = requestedPath;
                     // The limb a derivation fitted belongs to the capture it was fitted on (#1201).
                     state.WaveletLimb = null;
+                    state.DerivedWaveletGains = null;
                     state.WaveletDirty = true;
                     // Stamped at ADOPTION, never at request: a superseded or failed load must not
                     // invalidate a comparison that is still valid for what is on screen.

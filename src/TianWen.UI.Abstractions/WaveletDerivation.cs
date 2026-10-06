@@ -18,7 +18,7 @@ namespace TianWen.UI.Abstractions;
 internal sealed class WaveletDerivation : IDisposable
 {
     private readonly CancellationTokenSource _cts = new CancellationTokenSource();
-    private Task<(ImmutableArray<float> Gains, string How, PlanetaryLiveLimb? Limb)>? _task;
+    private Task<DerivedGains>? _task;
     private int _disposed;
 
     /// <summary>
@@ -37,20 +37,21 @@ internal sealed class WaveletDerivation : IDisposable
         {
             _task = null;
             state.WaveletDeriving = false;
-            if (done.IsCompletedSuccessfully && done.Result is var (gains, how, limb))
+            if (done.IsCompletedSuccessfully && done.Result is { } derived)
             {
-                if (gains.IsDefaultOrEmpty)
+                if (derived.Gains.IsDefaultOrEmpty)
                 {
-                    state.WaveletDeriveNote = $"Not derived: {how}";
+                    state.WaveletDeriveNote = $"Not derived: {derived.How}";
                 }
                 else
                 {
-                    state.WaveletGains = gains;
+                    state.WaveletGains = derived.Gains;
                     state.WaveletDerived = true;
-                    state.WaveletLimb = limb;
+                    state.WaveletLimb = derived.Limb;
+                    state.DerivedWaveletGains = derived;
                     state.WaveletSharpenEnabled = true;
                     state.WaveletDirty = true;
-                    state.WaveletDeriveNote = $"Gains {how}";
+                    state.WaveletDeriveNote = $"Gains {derived.How}";
                 }
             }
             else if (done.IsFaulted)
@@ -95,7 +96,9 @@ internal sealed class WaveletDerivation : IDisposable
             using (lease)
             {
                 token.ThrowIfCancellationRequested();
-                return PlanetaryBestStack.DeriveGains(lease.Image, planet, epoch, pupil, wavelengths, strength: strength);
+                // Every stop's gains in the one derivation, so a stop chosen after it switches the dials at once (#1314).
+                return PlanetaryBestStack.DeriveGains(lease.Image, planet, epoch, pupil, wavelengths, strength: strength,
+                    stops: PlanetarySharpening.StrengthStops);
             }
         }, token);
     }

@@ -138,6 +138,14 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
     public double Strength { get; init; } = 1;
 
     /// <summary>
+    /// Strengths the first channel's derived gains are also fitted at (<see cref="PlanetarySharpenResult.Stops"/>), the sharpening itself
+    /// applied at <see cref="Strength"/>'s: a live view derives once and switches between them at the cost of a wavelet pass (#1314). Each
+    /// is one more gain fit, after the limb fit, the edge and the stack's power, which every strength shares. Empty, the default, fits none;
+    /// ignored on the preset and by the non-negative fit.
+    /// </summary>
+    public ImmutableArray<double> FitStops { get; init; } = [];
+
+    /// <summary>
     /// A finishing step after the derived sharpening (#1279, <see cref="PlanetaryFinishing"/>): none by default; the pupil-cutoff low-pass,
     /// the contrast-adaptive weighting at matched noise, or Kolivas's own damped step as a reference. Only a derived sharpening (a pupil
     /// given) is finished. Measured: the low-pass raised band 1's correlation with the post on all four real captures and changed nothing on
@@ -187,7 +195,16 @@ public sealed record PlanetarySharpenResult(Image Sharpened, bool Derived, Plane
     /// it starts and ends falling, in cycles a pixel, a start of 0.5 no cut. Empty where it was not asked.
     /// </summary>
     public ImmutableArray<(double From, double To)> WienerCuts { get; init; } = [];
+
+    /// <summary>
+    /// The first channel's derived gains at each of <see cref="PlanetarySharpenOptions.FitStops"/>, in its order: each exactly the gains a
+    /// sharpening at that <see cref="PlanetarySharpenOptions.Strength"/> derives. Empty where none were asked or nothing was derived.
+    /// </summary>
+    public ImmutableArray<GainStop> Stops { get; init; } = [];
 }
+
+/// <summary>A strength of the derived sharpening (<see cref="PlanetarySharpenOptions.Strength"/>) and the a trous gains it derives, finest first.</summary>
+public readonly record struct GainStop(double Strength, ImmutableArray<double> Gains);
 
 /// <summary>
 /// The planetary master's sharpening (the enhanced pipeline, #1159): a trous gains derived from the stack's own power, its white noise floor,
@@ -222,6 +239,7 @@ public static class PlanetarySharpening
 
         var planes = Image.CreateChannelData(master.ChannelCount, height, width);
         var (derived, firstGains, edgeAt01, edgeAt03) = (options.Pupil is not null, ImmutableArray<double>.Empty, double.NaN, double.NaN);
+        var stops = ImmutableArray<GainStop>.Empty;
         // The contrast-adaptive finish reads the STACK's luminance: the mean of every channel's window, each normalised on the disk.
         var contrastFrom = options.Pupil is not null && options.Finish.HasFlag(PlanetaryFinish.Adaptive) ? LuminanceWindow(master, limbWindow, own) : null;
         var cutoffs = new double[options.Pupil is null ? 0 : master.ChannelCount];
@@ -255,16 +273,24 @@ public static class PlanetarySharpening
                 var wiener = PlanetaryWaveletGains.Wiener(power, noise, kernel);
                 var blurredDisk = PlanetaryInverse.Apply(diskTarget, size, size, kernel);
                 var finestHeld = FinestHeld(options.OfColour ? 3 : master.ChannelCount, options.OfColour ? 1 : c, options.ColourFinestBand);
-                var gains = options.NonNegative
+                var truth = options.NonNegative
                     ? PlanetaryWaveletGains.FitNonNegative(power, wiener, diskTarget, blurredDisk, size, size, disk, kernel, strength: options.Strength)
                     : PlanetaryWaveletGains.Fit(power, wiener, diskTarget, blurredDisk, size, size, disk, held: finestHeld ? 1 : 0);
-                if (options.Strength != 1 && !options.NonNegative)
+                // A strength lifts the mid scales only (#1251): the finest band, mostly noise at 8 bits, keeps the gain the truth gave it (as
+                // stacked on a colour master), and the rest are fitted around it to the boosted target. Fitted freely, it rose with them, 1.04
+                // to 1.36 of the truth on the mono twins at 1.5.
+                ImmutableArray<double> AtStrength(double strength)
                 {
-                    // A strength lifts the mid scales only (#1251): the finest band, mostly noise at 8 bits, keeps the gain the truth gave it
-                    // (as stacked on a colour master), and the rest are fitted around it to the boosted target. Fitted freely, it rose with
-                    // them, 1.04 to 1.36 of the truth on the mono twins at 1.5.
-                    gains = PlanetaryWaveletGains.Fit(power, wiener, diskTarget, blurredDisk, size, size, disk, held: 1, strength: options.Strength,
-                        heldAt: finestHeld ? 1 : gains[0]);
+                    return strength == 1 || options.NonNegative
+                        ? truth
+                        : PlanetaryWaveletGains.Fit(power, wiener, diskTarget, blurredDisk, size, size, disk, held: 1, strength: strength,
+                            heldAt: finestHeld ? 1 : truth[0]);
+                }
+                var gains = AtStrength(options.Strength);
+                if (c == 0 && !options.NonNegative)
+                {
+                    // The stops a live view switches between (#1314), each the gains a sharpening at that strength derives.
+                    stops = [.. options.FitStops.Select(s => new GainStop(s, s == options.Strength ? gains : AtStrength(s)))];
                 }
                 sharpened = Apply(window, size, disk, sharp, f => kernel(f) * diffraction.At(f), diffraction.At, gains.AsSpan(), [], options.Fix, diskTarget, blurredDisk);
                 cutoffs[c] = PlanetaryFinishing.CutoffCyclesPerPixel(pupil, wavelengthNm, limbWindow.ArcsecPerPixel);
@@ -313,8 +339,15 @@ public static class PlanetarySharpening
             Limb = options.Pupil is { } kept ? PlanetaryLiveLimb.Kept(master, fit, limbOptions, aspect, limbWindow, kept, options.WavelengthsNm, [.. models], [.. diffractions]) : null,
             Cutoffs = [.. cutoffs],
             WienerCuts = [.. wienerCuts],
+            Stops = stops,
         };
     }
+
+    /// <summary>
+    /// The strengths a viewer offers and switches between once derived (#1314, the owner's four stops): the truth, then the posts' range
+    /// past it (#1251, the posts sat at about 1.5 to 2.5 of the truth in bands 2 and 3).
+    /// </summary>
+    public static readonly ImmutableArray<double> StrengthStops = [1, 1.5, 2, 2.5];
 
     // A colour master sharpened on its luminance alone (PlanetarySharpenOptions.LuminanceOnly, #1295): the mean of its planes sharpened as a
     // mono master is, at the mean of the channels' wavelengths, then every plane rebuilt from it with the stack's own colour. The limb kept

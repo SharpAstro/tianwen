@@ -1,11 +1,13 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using DIR.Lib;
 using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Planetary;
 using TianWen.UI.Abstractions;
 using Xunit;
 
@@ -123,6 +125,49 @@ public class ViewerWaveletDeriveTests
         TestContext.Current.TestOutputHelper?.WriteLine(note);
         note.ShouldContain("strength 2 past the truth");
         e2e.State.WaveletDerived.ShouldBeTrue();
+    }
+
+    [Theory(Timeout = 180_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task AStopChosenAfterDeriveSwitchesTheDialsAtOnceAndDerivesNothing(float dpi)
+    {
+        // #1314: one Derive fits every strength stop, so a stop chosen after it puts that stop's gains on the dials in the frame it is
+        // pressed, with no derivation run, and the truth's stop puts the derivation's own back.
+        using var e2e = ViewerE2E.Start(dpi);
+        var ct = TestContext.Current.CancellationToken;
+        await OpenStackedAsync(e2e, ct);
+        (e2e.State.PlanetaryApertureMm, e2e.State.PlanetaryDesign) = (254, OpticalDesign.Newtonian);
+
+        PressDerive(e2e);
+        await e2e.PumpUntilAsync(() => e2e.State.WaveletDeriveNote is not null && !e2e.State.WaveletDeriving, "the derivation's answer", ct, untilTimeout: true);
+        var derived = e2e.State.DerivedWaveletGains.ShouldNotBeNull(e2e.State.WaveletDeriveNote);
+        var (truth, truthNote) = (e2e.State.WaveletGains, e2e.State.WaveletDeriveNote);
+        derived.Stops.Length.ShouldBe(PlanetarySharpening.StrengthStops.Length);
+
+        e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "Strength2" }, "the strength 2 button"));
+        e2e.Frame();
+        e2e.State.WaveletDeriving.ShouldBeFalse("a stop after Derive runs no derivation");
+        e2e.State.PlanetaryStrength.ShouldBe(2);
+        e2e.State.WaveletGains.ToArray().ShouldBe(derived.GainsAt(2).ToArray());
+        e2e.State.WaveletGains.ToArray().ShouldNotBe(truth.ToArray());
+        e2e.State.WaveletDeriveNote.ShouldNotBeNull().ShouldContain("strength 2 past the truth");
+        e2e.State.WaveletSharpenEnabled.ShouldBeTrue();
+
+        e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "StrengthTruth" }, "the truth's button"));
+        e2e.Frame();
+        e2e.State.WaveletDeriving.ShouldBeFalse();
+        e2e.State.WaveletGains.ToArray().ShouldBe(truth.ToArray());
+        e2e.State.WaveletDeriveNote.ShouldBe(truthNote);
+
+        // Reset forgets the derivation, so a stop chosen then leaves the preset's dials and is only what the next Derive takes.
+        e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "WaveletReset" }, "the Reset button"));
+        e2e.State.DerivedWaveletGains.ShouldBeNull();
+        e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "Strength25" }, "the strength 2.5 button"));
+        e2e.Frame();
+        e2e.State.PlanetaryStrength.ShouldBe(2.5);
+        e2e.State.WaveletGains.ShouldBe(WaveletSharpenOptions.PlanetaryDefault.Gains);
+        e2e.State.WaveletDeriveNote.ShouldBeNull();
     }
 
     [Fact]
