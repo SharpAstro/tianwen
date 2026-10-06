@@ -196,18 +196,31 @@ public sealed class LuckyImagingStacker
             : null;
         var points = new AlignmentPointShift[matcher.AlignmentPoints.Length];
 
-        // A frame folded through its mesh, best-of weighted by its own sharpness map when one was made.
-        void Fold(Image frame, DisplacementMesh mesh, float[,]? quality, float weight)
+        // The master's two halves (#1313), folded beside it when asked for.
+        var halves = options.Halves ? new HalfStacks(ctx) : null;
+
+        // A frame folded through its mesh, best-of weighted by its own sharpness map when one was made, into the master and into its half.
+        void Fold(Image frame, int index, DisplacementMesh mesh, float[,]? quality, float weight)
         {
-            if (quality is not null)
+            FoldInto(channelAccum, weightAccum);
+            if (halves is not null)
             {
-                frame.AccumulateByMeshWeightedInto(channelAccum, weightAccum, mesh, quality, weight, ctx.SignalConfidence, options.Interpolation);
-            }
-            else
-            {
-                frame.AccumulateByMeshInto(channelAccum, weightAccum, mesh, weight, options.Interpolation);
+                var (channels, weights) = halves.For(index);
+                FoldInto(channels, weights);
             }
             coverage?.Add(mesh, frame.Width, frame.Height, weight);
+
+            void FoldInto(float[][,] channels, float[,] weights)
+            {
+                if (quality is not null)
+                {
+                    frame.AccumulateByMeshWeightedInto(channels, weights, mesh, quality, weight, ctx.SignalConfidence, options.Interpolation);
+                }
+                else
+                {
+                    frame.AccumulateByMeshInto(channels, weights, mesh, weight, options.Interpolation);
+                }
+            }
         }
 
         // The walk a de-rotated or a pooled stack keeps, a frame at a time in its own order: the de-rotator turns its reference
@@ -227,7 +240,7 @@ public sealed class LuckyImagingStacker
                 var frame = await stream.LoadAsync(index, cancellationToken).ConfigureAwait(false);
                 try
                 {
-                    Fold(frame, meshOf(frame, index), options.PerPointQualityWeighting ? FrameSharpnessMap.Build(frame) : null, weight);
+                    Fold(frame, index, meshOf(frame, index), options.PerPointQualityWeighting ? FrameSharpnessMap.Build(frame) : null, weight);
                     walked++;
                 }
                 finally
@@ -272,7 +285,7 @@ public sealed class LuckyImagingStacker
                     var mesh = (matchers[slot] ??= matcher.Twin()).BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, options.MeshNodeSpacing, options.MeshInfluence, options.MeshGain);
                     return (Mesh: mesh, Quality: options.PerPointQualityWeighting ? FrameSharpnessMap.Build(frame) : null);
                 },
-                (frame, index, prepared) => Fold(frame, prepared.Mesh, prepared.Quality, ctx.ScoreByIndex[index]),
+                (frame, index, prepared) => Fold(frame, index, prepared.Mesh, prepared.Quality, ctx.ScoreByIndex[index]),
                 cancellationToken).ConfigureAwait(false);
             used = weighted.Length;
         }
@@ -280,8 +293,10 @@ public sealed class LuckyImagingStacker
         var stacked = Normalize(channelAccum, weightAccum, ctx);
         var covered = coverage is { } reached ? PlanetaryMaster.CoveredRectangle(reached.Plane()) : PixelRect.Empty;
         var (master, alignment, cropped) = await FinalizeAsync(stacked, stream.Layout, options, ctx.Derotator?.Epoch.Utc, covered, cancellationToken).ConfigureAwait(false);
+        var finishedHalves = halves is null ? null : await halves.FinishAsync(ctx, stream.Layout, alignment, cropped, cancellationToken).ConfigureAwait(false);
         return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length)
         {
+            Halves = finishedHalves,
             Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, NorthUnread = ctx.NorthUnread, TurnPx = ctx.TurnPx, ChannelAlignment = alignment, FramesCut = FramesLeftOutAsCut(ctx.Grades), FramesCutKept = FramesKeptThoughCut(ctx.Grades), FramesSmeared = FramesLeftOutAsSmeared(ctx.Grades), FramesDim = FramesLeftOutAsDim(ctx.Grades), Cropped = cropped,
             AlignmentPoints = ctx.Matcher?.AlignmentPoints.Length ?? 0,
             AlignmentPointCandidates = ctx.AlignmentPointCandidates,
@@ -829,6 +844,50 @@ public sealed class LuckyImagingStacker
 
     private static Image Normalize(float[][,] channelAccum, float[,] weightAccum, StackContext ctx)
         => PlanetaryMaster.NormalizeInPlace(channelAccum, weightAccum, ctx.MasterMeta);
+
+    // A master's two halves (#1313): each selected frame folded a second time, into the half its rank in the selection names, so both
+    // halves span the same quality; each is finished as the master was, by the master's own channel shifts and crop.
+    private sealed class HalfStacks
+    {
+        private readonly int[] _halfOf;
+        private readonly (float[][,] Channels, float[,] Weights)[] _halves;
+
+        public HalfStacks(StackContext ctx)
+        {
+            _halfOf = new int[ctx.ScoreByIndex.Length];
+            for (var rank = 0; rank < ctx.Selected.Length; rank++)
+            {
+                _halfOf[ctx.Selected[rank]] = rank & 1;
+            }
+            _halves =
+            [
+                (Image.CreateChannelData(ctx.Channels, ctx.Height, ctx.Width), new float[ctx.Height, ctx.Width]),
+                (Image.CreateChannelData(ctx.Channels, ctx.Height, ctx.Width), new float[ctx.Height, ctx.Width]),
+            ];
+        }
+
+        public (float[][,] Channels, float[,] Weights) For(int index) => _halves[_halfOf[index]];
+
+        public async Task<PlanetaryStackHalves> FinishAsync(StackContext ctx, PlanetaryFrameLayout layout, PlanetaryChannelAlignmentResult? alignment,
+            PixelRect cropped, CancellationToken cancellationToken)
+        {
+            var a = await FinishAsync(_halves[0], ctx, layout, alignment, cropped, cancellationToken).ConfigureAwait(false);
+            var b = await FinishAsync(_halves[1], ctx, layout, alignment, cropped, cancellationToken).ConfigureAwait(false);
+            return new PlanetaryStackHalves(a, b);
+        }
+
+        private static async Task<Image> FinishAsync((float[][,] Channels, float[,] Weights) half, StackContext ctx, PlanetaryFrameLayout layout,
+            PlanetaryChannelAlignmentResult? alignment, PixelRect cropped, CancellationToken cancellationToken)
+        {
+            var stacked = Normalize(half.Channels, half.Weights, ctx);
+            if (alignment is { Applied: true } moved)
+            {
+                stacked = PlanetaryChannelAlignment.Apply(stacked, layout, moved.Red, moved.Blue);
+            }
+            var finished = await PlanetaryMaster.MergeAndDemosaicAsync(stacked, layout, cancellationToken).ConfigureAwait(false);
+            return cropped.IsEmpty ? finished : finished.Crop(cropped);
+        }
+    }
 
     /// <summary>
     /// For a split-CFA stack the integrated master is four CFA sub-planes; merge them into a full-resolution

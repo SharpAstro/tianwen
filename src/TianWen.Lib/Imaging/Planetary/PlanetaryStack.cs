@@ -237,6 +237,15 @@ public sealed record PlanetaryStackOptions
     /// thirty thousand times). The de-rotation's planet when null. Nothing in the stack itself depends on it.
     /// </summary>
     public CatalogIndex? Planet { get; init; }
+
+    /// <summary>
+    /// Also fold the frames into two halves (<see cref="PlanetaryStackResult.Halves"/>, #1313): each frame the master folds goes, with its
+    /// own mesh, quality map and weight, into half A or B by its rank in the selection, so both halves span the same quality and sum,
+    /// weighted, to the master. Their difference is the master's noise and nothing else, which a sharpening reads band by band
+    /// (<see cref="PlanetarySharpenOptions.ShrinkHalves"/>). The alignment-point stack only; off by default, since it is a second
+    /// accumulation per frame.
+    /// </summary>
+    public bool Halves { get; init; }
 }
 
 /// <summary>
@@ -323,4 +332,16 @@ public sealed record PlanetaryStackResult(Image Master, int ReferenceIndex, int 
 
     /// <summary>How many cells qualified for a point before <see cref="PlanetaryStackOptions.MaxAlignmentPoints"/> capped them; 0 for a global stack.</summary>
     public int AlignmentPointCandidates { get; init; }
+
+    /// <summary>
+    /// The master's two halves on its own grid (<see cref="PlanetaryStackOptions.Halves"/>), each finished as the master is: its colours
+    /// moved by the master's shifts, demosaiced and cropped to <see cref="Cropped"/>, never sharpened. Null when none was asked for.
+    /// </summary>
+    public PlanetaryStackHalves? Halves { get; init; }
 }
+
+/// <summary>
+/// A planetary master's two halves (<see cref="PlanetaryStackOptions.Halves"/>, #1313): the selected frames folded alternately by rank,
+/// each on the master's grid and finished as the master is, so <c>(A - B) / 2</c> is the master's noise.
+/// </summary>
+public sealed record PlanetaryStackHalves(Image A, Image B);
