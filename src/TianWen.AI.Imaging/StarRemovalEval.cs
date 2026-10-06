@@ -325,40 +325,7 @@ public static class StarRemovalEval
         }
         var sources = stars.Select(static s => ((float)s.X, (float)s.Y)).ToArray();
 
-        // The sources the truth itself kept: the plate's own, found as its builder finds them at the injected stars' width,
-        // on its sky (off every injected footprint) with a 3x3 core inside the rim; and the sky near any of them.
-        var fwhm = PlateFwhm(stars);
-        var plateSources = new List<(int X, int Y)>();
-        foreach (var (sx, sy, _) in PlateSources.Find(plate, size, size, absent, fwhm))
-        {
-            var cx = (int)Math.Round(sx);
-            var cy = (int)Math.Round(sy);
-            if (cx - 1 < rim || cy - 1 < rim || cx + 1 >= size - rim || cy + 1 >= size - rim)
-            {
-                continue;
-            }
-            var i = (cy * size) + cx;
-            if (input[i] == plate[i] && sigma[i] > 0)
-            {
-                plateSources.Add((cx, cy));
-            }
-        }
-        var near = new BitMatrix(size, size);
-        var reach = (int)Math.Ceiling(NearSourceFwhm * fwhm);
-        var reach2 = NearSourceFwhm * fwhm * NearSourceFwhm * fwhm;
-        foreach (var (cx, cy) in plateSources)
-        {
-            for (var y = Math.Max(0, cy - reach); y <= Math.Min(size - 1, cy + reach); y++)
-            {
-                for (var x = Math.Max(0, cx - reach); x <= Math.Min(size - 1, cx + reach); x++)
-                {
-                    if (((x - cx) * (x - cx)) + ((y - cy) * (y - cy)) <= reach2)
-                    {
-                        near[y, x] = true;
-                    }
-                }
-            }
-        }
+        var (plateSources, near) = PlateSourceZone(plate, input, sigma, absent, size, rim, PlateFwhm(stars));
 
         // The bright stars' cores (100 sigma and over, saturated ones too), whose share of a plain L2 the loss readout reads.
         var brightCore = new BitMatrix(size, size);
@@ -497,9 +464,52 @@ public static class StarRemovalEval
         return new DrawScores(injection.SessionId, sites.Count, arms);
     }
 
+    /// <summary>
+    /// The sources the truth itself kept and the sky near them, ONE rule for this eval and for the loss mask a trainer
+    /// leaves them out of (<see cref="StarRemovalMasks"/>): the plate's own sources, found as its builder finds them at
+    /// <paramref name="fwhm"/>, on its sky (off every injected footprint, where <paramref name="input"/> is the plate) with a
+    /// 3x3 core inside <paramref name="rim"/>; and every pixel within <see cref="NearSourceFwhm"/> PSF widths of one.
+    /// </summary>
+    internal static (List<(int X, int Y)> Sources, BitMatrix Near) PlateSourceZone(
+        float[] plate, float[] input, float[] sigma, BitMatrix absent, int size, int rim, double fwhm)
+    {
+        var plateSources = new List<(int X, int Y)>();
+        foreach (var (sx, sy, _) in PlateSources.Find(plate, size, size, absent, fwhm))
+        {
+            var cx = (int)Math.Round(sx);
+            var cy = (int)Math.Round(sy);
+            if (cx - 1 < rim || cy - 1 < rim || cx + 1 >= size - rim || cy + 1 >= size - rim)
+            {
+                continue;
+            }
+            var i = (cy * size) + cx;
+            if (input[i] == plate[i] && sigma[i] > 0)
+            {
+                plateSources.Add((cx, cy));
+            }
+        }
+        var near = new BitMatrix(size, size);
+        var reach = (int)Math.Ceiling(NearSourceFwhm * fwhm);
+        var reach2 = NearSourceFwhm * fwhm * NearSourceFwhm * fwhm;
+        foreach (var (cx, cy) in plateSources)
+        {
+            for (var y = Math.Max(0, cy - reach); y <= Math.Min(size - 1, cy + reach); y++)
+            {
+                for (var x = Math.Max(0, cx - reach); x <= Math.Min(size - 1, cx + reach); x++)
+                {
+                    if (((x - cx) * (x - cx)) + ((y - cy) * (y - cy)) <= reach2)
+                    {
+                        near[y, x] = true;
+                    }
+                }
+            }
+        }
+        return (plateSources, near);
+    }
+
     // The PSF width the plate's own sources are found with: the injected stars' median, each the mean of its channels'
     // (the stars take the master's own profile), or the fallback for a draw with none.
-    private static double PlateFwhm(IReadOnlyList<DatasetDegradationExporter.InjectedStarRow> stars)
+    internal static double PlateFwhm(IReadOnlyList<DatasetDegradationExporter.InjectedStarRow> stars)
     {
         var widths = stars
             .Where(static s => s.FwhmPx.Length > 0)
@@ -700,10 +710,10 @@ public static class StarRemovalEval
         return new FootprintDetail(At(0.5), At(0.9), At(0.99), rms[^1], pooledSq > 0 ? worstSq / pooledSq : double.NaN);
     }
 
-    private static string Native(string relative) => relative.Replace('/', Path.DirectorySeparatorChar);
+    internal static string Native(string relative) => relative.Replace('/', Path.DirectorySeparatorChar);
 
     // A tile's planes, CHW fp16 as every exporter writes them; its side from the file's size.
-    private static float[][] ReadPlanes(string path, int channels, out int size)
+    internal static float[][] ReadPlanes(string path, int channels, out int size)
     {
         var bytes = File.ReadAllBytes(path);
         size = (int)Math.Round(Math.Sqrt(bytes.Length / (2.0 * channels)));
@@ -727,7 +737,7 @@ public static class StarRemovalEval
     }
 
     // The channels' mean, the luminance the noise plane and the speckle measure read.
-    private static float[] Luminance(float[][] planes)
+    internal static float[] Luminance(float[][] planes)
     {
         var lum = new float[planes[0].Length];
         foreach (var plane in planes)

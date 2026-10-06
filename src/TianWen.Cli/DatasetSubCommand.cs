@@ -497,6 +497,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 BuildDegradeCommand(),
                 BuildStarlessEvalCommand(),
                 BuildSkyTextureCommand(),
+                BuildPlateMasksCommand(),
                 BuildBrightCellsCommand(),
                 BuildNoiseCheckCommand(),
                 BuildNoisePlanesCommand(),
@@ -1120,6 +1121,35 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 $"[sky-texture] {(result.Stopped ? $"STOPPED by {SkyTextureReport.StopFileName}: " : "")}measured {result.Measured}, " +
                 $"skipped {result.Skipped}, failed {result.Failed}; report: {result.OutPath}");
             return result.Failed > 0 && result.Measured == 0 ? 2 : 0;
+        });
+        return command;
+    }
+
+    /// <summary>
+    /// <c>tianwen dataset plate-masks</c>: R2d's D4 (docs/plans/star-remover-training.md). Beside every draw of a Stars-mode
+    /// export, the loss mask that leaves out the sky near the sources the plate itself kept (<see cref="StarRemovalMasks"/>).
+    /// </summary>
+    private Command BuildPlateMasksCommand()
+    {
+        var exportOpt = new Option<string>("--export")
+        {
+            Description = "A Stars-mode export (its injections.jsonl, tiles and noise planes); a draw that has its mask is skipped.",
+            Required = true,
+        };
+        var command = new Command("plate-masks",
+            "Write <tile>.keep.f16 beside every draw of a Stars-mode export: 0 on the sky within two PSF widths of a source the " +
+            "plate kept, 1 elsewhere, by starless-eval's own rule, for a trainer's --loss-mask.")
+        {
+            Options = { exportOpt },
+        };
+        command.SetAction(async (parseResult, ct) =>
+        {
+            var export = parseResult.Required(exportOpt);
+            var result = await StarRemovalMasks.RunAsync(export, new Progress<string>(line => consoleHost.WriteScrollable(line)), ct);
+            consoleHost.WriteScrollable(
+                $"[plate-masks] {result.Draws} masks written, {result.Skipped} present; {result.Sources} plate sources; " +
+                $"{result.MaskedFraction:P2} of the pixels inside the rim left out");
+            return 0;
         });
         return command;
     }
