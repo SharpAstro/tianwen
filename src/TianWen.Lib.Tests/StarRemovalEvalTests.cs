@@ -160,6 +160,36 @@ public sealed class StarRemovalEvalTests : IDisposable
     }
 
     [Fact]
+    public async Task AStarThePlateKeptAndTheOutputTookMovesTheSkyNearItAndNotFarFromIt()
+    {
+        var root = _folders.Create("starless-eval-").FullName;
+        var export = Path.Combine(root, "export");
+        var outputs = Path.Combine(root, "outputs");
+        var channelSigma = Sigma * MathF.Sqrt(Channels);
+        var rng = new Random(3);
+        var noise = Enumerable.Range(0, Channels).Select(_ => Enumerable.Range(0, Size * Size)
+            .Select(_ => channelSigma * (float)(Math.Sqrt(-2 * Math.Log(1 - rng.NextDouble())) * Math.Cos(2 * Math.PI * rng.NextDouble()))).ToArray()).ToArray();
+        // The plate keeps a faint star of its own at (60, 60), 15 sigma at its peak; the draw injects one at (128, 128).
+        var kept = Star(60, 60, 15 * Sigma, 3.0);
+        var injected = Star(128, 128, 1.0, 3.0);
+        var manifest = new List<string>();
+        var tile = WriteDraw(export, "S", 0, (c, i) => Sky + noise[c][i] + kept[i], (c, i) => Sky + noise[c][i] + kept[i] + injected[i],
+            [InjectedAt(128, 128)], manifest);
+        // An output that removes the injected star and the one the plate kept: a remover taught that every star goes.
+        WriteTile(Path.Combine(outputs, "out0.f16"), (c, i) => Sky + noise[c][i], Channels);
+
+        var report = await ScoreAsync(export, outputs, manifest, [(tile, "out0.f16")]);
+
+        var output = Arm(report, "output").PlateSources;
+        output.Sources.ShouldBeGreaterThanOrEqualTo(1, "the plate's own star is found");
+        output.Taken.ShouldBe(1, "the output took the plate's star and left every noise peak the finder also read");
+        output.NearMean.ShouldBeLessThan(-0.1, "taking the star lowers the sky round it");
+        output.FarMean.ShouldBe(0, 0.02, "and nothing away from it");
+        var input = Arm(report, "input (removes nothing)").PlateSources;
+        (input.Taken, input.NearMean).ShouldBe((0, 0.0));
+    }
+
+    [Fact]
     public async Task TheSkysChangeIsTakenApartPerSessionIntoLevelColourAndNoise()
     {
         var root = _folders.Create("starless-eval-").FullName;

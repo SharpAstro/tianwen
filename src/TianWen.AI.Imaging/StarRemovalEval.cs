@@ -65,6 +65,13 @@ public static class StarRemovalEval
     /// <summary>The worst share of draws <see cref="FootprintDetail.WorstShare"/> reads (at least one draw).</summary>
     public const double WorstDrawFraction = 0.01;
 
+    /// <summary>How far round a source the plate kept, in the draw's PSF widths, its sky counts as near it
+    /// (<see cref="PlateSourceDetail"/>).</summary>
+    public const double NearSourceFwhm = 2.0;
+
+    /// <summary>The PSF width the plate's own sources are found with when a draw injected no star to take it from.</summary>
+    public const double FallbackFwhmPx = 2.5;
+
     /// <summary>The completeness bands' lower edges in the injected core's significance; a star under the first is counted
     /// but not rated, its core being under the noise in the input already.</summary>
     public static readonly ImmutableArray<float> CompletenessEdges = [1f, 5f, 20f, 100f, 1000f];
@@ -109,6 +116,26 @@ public static class StarRemovalEval
     /// draws: near 1, a few draws ARE the pooled number.</param>
     public sealed record FootprintDetail(double P50, double P90, double P99, double Max, double WorstShare);
 
+    /// <summary>
+    /// The sky's change split by what the truth itself still holds: the point sources the plate kept
+    /// (<see cref="PlateSources"/>, the faint stars its builder left, found on the plate's sky, off every injected footprint),
+    /// the sky within <see cref="NearSourceFwhm"/> PSF widths of one, and the rest. A remover that takes the stars the plate
+    /// kept moves the near sky down, and the far sky not at all.
+    /// </summary>
+    /// <param name="Sources">The plate's sources read.</param>
+    /// <param name="NearPixels">Sky pixels near one.</param>
+    /// <param name="NearMean">Their change, signed, in sigma.</param>
+    /// <param name="NearRms">The same, RMS.</param>
+    /// <param name="FarPixels">The rest of the sky.</param>
+    /// <param name="FarMean">Its change, signed.</param>
+    /// <param name="FarRms">The same, RMS.</param>
+    /// <param name="Taken">Sources whose 3x3 core the candidate lowered by more than <see cref="RemovedSigma"/>.</param>
+    /// <param name="TakenRate"><paramref name="Taken"/> over <paramref name="Sources"/>.</param>
+    /// <param name="CoreMean">The sources' core change, signed, averaged.</param>
+    public sealed record PlateSourceDetail(
+        int Sources, long NearPixels, double NearMean, double NearRms, long FarPixels, double FarMean, double FarRms, int Taken,
+        double TakenRate, double CoreMean);
+
     /// <summary>One output's (or reference's) scores.</summary>
     /// <param name="Name">The model's outputs, a blend of them with the input, or a reference.</param>
     /// <param name="Completeness">Removed stars by significance band (<see cref="CompletenessEdges"/>, a band under the
@@ -120,9 +147,10 @@ public static class StarRemovalEval
     /// <param name="Speckles">Dark speckles at the injected sites by band, and the null at star-free places of the output.</param>
     /// <param name="Sky">The sky's change taken apart.</param>
     /// <param name="Footprint">The footprint residue's spread over the draws.</param>
+    /// <param name="PlateSources">The sky's change near the sources the plate kept, and away from them.</param>
     public sealed record ArmScores(
         string Name, ImmutableArray<BandRow> Completeness, double FootprintRms, long FootprintPixels, double SkyRms, long SkyPixels,
-        ImmutableArray<SpeckleRow> Speckles, SpeckleRow SpeckleNull, SkyDetail Sky, FootprintDetail Footprint);
+        ImmutableArray<SpeckleRow> Speckles, SpeckleRow SpeckleNull, SkyDetail Sky, FootprintDetail Footprint, PlateSourceDetail PlateSources);
 
     /// <summary>One session's scores: every arm over that session's draws alone, so a pooled number can be told from one
     /// night's.</summary>
@@ -212,6 +240,15 @@ public static class StarRemovalEval
         public double SkyLevelSq { get; set; }
         public double SkyDiffSq { get; set; }
         public double PlateDiffSq { get; set; }
+        public int PlateSourceCount { get; set; }
+        public int PlateSourcesTaken { get; set; }
+        public double PlateSourceCoreSum { get; set; }
+        public double NearSum { get; set; }
+        public double NearSq { get; set; }
+        public long NearPixels { get; set; }
+        public double FarSum { get; set; }
+        public double FarSq { get; set; }
+        public long FarPixels { get; set; }
         public int[] SpeckleSites { get; } = new int[StarlessSpeckles.BandEdges.Length];
         public int[] Speckled { get; } = new int[StarlessSpeckles.BandEdges.Length];
         public int NullSites { get; set; }
@@ -269,6 +306,41 @@ public static class StarRemovalEval
         }
         var sources = stars.Select(static s => ((float)s.X, (float)s.Y)).ToArray();
 
+        // The sources the truth itself kept: the plate's own, found as its builder finds them at the injected stars' width,
+        // on its sky (off every injected footprint) with a 3x3 core inside the rim; and the sky near any of them.
+        var fwhm = PlateFwhm(stars);
+        var plateSources = new List<(int X, int Y)>();
+        foreach (var (sx, sy, _) in PlateSources.Find(plate, size, size, absent, fwhm))
+        {
+            var cx = (int)Math.Round(sx);
+            var cy = (int)Math.Round(sy);
+            if (cx - 1 < rim || cy - 1 < rim || cx + 1 >= size - rim || cy + 1 >= size - rim)
+            {
+                continue;
+            }
+            var i = (cy * size) + cx;
+            if (input[i] == plate[i] && sigma[i] > 0)
+            {
+                plateSources.Add((cx, cy));
+            }
+        }
+        var near = new BitMatrix(size, size);
+        var reach = (int)Math.Ceiling(NearSourceFwhm * fwhm);
+        var reach2 = NearSourceFwhm * fwhm * NearSourceFwhm * fwhm;
+        foreach (var (cx, cy) in plateSources)
+        {
+            for (var y = Math.Max(0, cy - reach); y <= Math.Min(size - 1, cy + reach); y++)
+            {
+                for (var x = Math.Max(0, cx - reach); x <= Math.Min(size - 1, cx + reach); x++)
+                {
+                    if (((x - cx) * (x - cx)) + ((y - cy) * (y - cy)) <= reach2)
+                    {
+                        near[y, x] = true;
+                    }
+                }
+            }
+        }
+
         var arms = new ArmAccumulator[ArmNames.Length];
         for (var a = 0; a < arms.Length; a++)
         {
@@ -321,6 +393,18 @@ public static class StarRemovalEval
                     acc.SkySq += z * z;
                     acc.SkyPixels++;
                     acc.SkySum += z;
+                    if (near[i / size, i % size])
+                    {
+                        acc.NearSum += z;
+                        acc.NearSq += z * z;
+                        acc.NearPixels++;
+                    }
+                    else
+                    {
+                        acc.FarSum += z;
+                        acc.FarSq += z * z;
+                        acc.FarPixels++;
+                    }
                     for (var c = 0; c < channels; c++)
                     {
                         acc.SkyChannelSum[c] += (candidatePlanes[c][i] - platePlanes[c][i]) / sigma[i];
@@ -337,6 +421,16 @@ public static class StarRemovalEval
                 }
             }
             acc.SkyLevelSq = acc.SkyPixels > 0 ? acc.SkySum * acc.SkySum / acc.SkyPixels : 0;
+            foreach (var (cx, cy) in plateSources)
+            {
+                var z = Core(candidate, plate, size, cx, cy) / sigma[(cy * size) + cx];
+                acc.PlateSourceCount++;
+                acc.PlateSourceCoreSum += z;
+                if (z < -RemovedSigma)
+                {
+                    acc.PlateSourcesTaken++;
+                }
+            }
             var speckles = StarlessSpeckles.Measure(candidate, size, size, absent,
                 [.. sites.Select(static s => (s.X, s.Y, s.Significance))], sources);
             for (var b = 0; b < speckles.Bands.Length; b++)
@@ -349,6 +443,19 @@ public static class StarRemovalEval
             arms[a] = acc;
         }
         return new DrawScores(injection.SessionId, sites.Count, arms);
+    }
+
+    // The PSF width the plate's own sources are found with: the injected stars' median, each the mean of its channels'
+    // (the stars take the master's own profile), or the fallback for a draw with none.
+    private static double PlateFwhm(IReadOnlyList<DatasetDegradationExporter.InjectedStarRow> stars)
+    {
+        var widths = stars
+            .Where(static s => s.FwhmPx.Length > 0)
+            .Select(static s => s.FwhmPx.Average())
+            .Where(static w => w > 0 && double.IsFinite(w))
+            .Order()
+            .ToArray();
+        return widths.Length > 0 ? widths[widths.Length / 2] : FallbackFwhmPx;
     }
 
     // The input taken toward the output by weight w, per channel, and its luminance.
@@ -457,6 +564,15 @@ public static class StarRemovalEval
             }
             total.SkyDiffSq += d.SkyDiffSq;
             total.PlateDiffSq += d.PlateDiffSq;
+            total.PlateSourceCount += d.PlateSourceCount;
+            total.PlateSourcesTaken += d.PlateSourcesTaken;
+            total.PlateSourceCoreSum += d.PlateSourceCoreSum;
+            total.NearSum += d.NearSum;
+            total.NearSq += d.NearSq;
+            total.NearPixels += d.NearPixels;
+            total.FarSum += d.FarSum;
+            total.FarSq += d.FarSq;
+            total.FarPixels += d.FarPixels;
             total.NullSites += d.NullSites;
             total.NullSpeckled += d.NullSpeckled;
             if (d.FootprintPixels > 0)
@@ -495,7 +611,13 @@ public static class StarRemovalEval
                 new SpeckleRow(SpeckleBandNames[b], total.SpeckleSites[b], total.Speckled[b], Rate(total.Speckled[b], total.SpeckleSites[b])))],
             new SpeckleRow("null", total.NullSites, total.NullSpeckled, Rate(total.NullSpeckled, total.NullSites)),
             sky,
-            Spread(footprintDraws, total.FootprintSq));
+            Spread(footprintDraws, total.FootprintSq),
+            new PlateSourceDetail(
+                total.PlateSourceCount,
+                total.NearPixels, PerPixel(total.NearSum, total.NearPixels), Math.Sqrt(PerPixel(total.NearSq, total.NearPixels)),
+                total.FarPixels, PerPixel(total.FarSum, total.FarPixels), Math.Sqrt(PerPixel(total.FarSq, total.FarPixels)),
+                total.PlateSourcesTaken, Rate(total.PlateSourcesTaken, total.PlateSourceCount),
+                total.PlateSourceCount > 0 ? total.PlateSourceCoreSum / total.PlateSourceCount : double.NaN));
     }
 
     // The footprint residue's spread over the draws: nearest-rank percentiles of the draws' RMS, and the share of the pooled

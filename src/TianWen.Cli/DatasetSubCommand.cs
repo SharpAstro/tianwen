@@ -1068,7 +1068,10 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                     $"; sky mean {arm.Sky.Mean:F3} (" + string.Join("/", arm.Sky.ChannelMean.Select(static m => m.ToString("F3", CultureInfo.InvariantCulture))) +
                     $"), level rms {arm.Sky.LevelRms:F3}, about-level rms {arm.Sky.AboutLevelRms:F3}, noise ratio {arm.Sky.NoiseRatio:F3}; " +
                     $"footprint per draw p50 {arm.Footprint.P50:F2} p90 {arm.Footprint.P90:F2} max {arm.Footprint.Max:F2}, " +
-                    $"worst draws' share {arm.Footprint.WorstShare:P1}");
+                    $"worst draws' share {arm.Footprint.WorstShare:P1}; the plate's own {arm.PlateSources.Sources} sources: " +
+                    $"{arm.PlateSources.TakenRate:P1} taken (core {arm.PlateSources.CoreMean:F2}), sky near them " +
+                    $"{arm.PlateSources.NearMean:F3} mean {arm.PlateSources.NearRms:F3} rms over {arm.PlateSources.NearPixels}, far " +
+                    $"{arm.PlateSources.FarMean:F3} mean {arm.PlateSources.FarRms:F3} rms over {arm.PlateSources.FarPixels}");
             }
             return 0;
         });
