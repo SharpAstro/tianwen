@@ -1,6 +1,7 @@
 using System;
 using TianWen.Lib.Geometry;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -130,12 +131,35 @@ public sealed class ViewerController(
     // The stacked view's Derive: the derived sharpening's gains for the master on show, seeded into the wavelet sliders (#1159).
     private readonly WaveletDerivation _derivation = new WaveletDerivation();
 
-    // What a finished best stack says (where it was written and how it was sharpened), held until the master it opened is on screen:
-    // the open and its texture upload each clear the status line, so set at completion it would never be read. A later file drops it.
+    // What a finished best stack says (where it was written and how it was sharpened), held until its Best view is on screen: the view's
+    // texture upload clears the status line, so set at completion it would never be read. Keyed by the capture it stacked.
     private (string Path, string Message)? _bestStackNote;
 
-    // Where a finished best stack's sharpened master was written, how it was sharpened, and the capture it stacked.
-    private sealed record BestStackOutcome(string SharpenedPath, string How, string CapturePath);
+    // Where a finished best stack's sharpened master was written, how it was sharpened, the capture it stacked, and what the Best view
+    // shows it through (#1314 part 2): the run's layer when its gains were derived, else its sharpened master as written. The render
+    // thread takes both images, or releases them.
+    private sealed record BestStackOutcome(string SharpenedPath, string How, string CapturePath, BestStackLayer? Layer, Image? Sharpened);
+
+    // The Best view of the SER on show (#1314 part 2): the run's master behind the same sharpening layer, the capture it belongs to, and
+    // each view's dials, swapped as the Best view comes on and off show. Render thread only: dropped there once its capture is not the
+    // one on show, never from a load.
+    private LiveStackPreviewSource? _bestLayer;
+    private string? _bestCapture;
+    private ViewDials? _liveDials;
+    private ViewDials? _bestDials;
+    private bool _bestWasOnShow;
+
+    // What a view's sharpening dials hold, kept while the other view is on show.
+    private sealed record ViewDials(ImmutableArray<float> Gains, bool Derived, PlanetaryLiveLimb? Limb, DerivedGains? DerivedGains, bool Enabled, string? Note);
+
+    /// <summary>How many best stacks this controller has started; the switch between views starts none (#1314 rule 7). For tests.</summary>
+    internal int BestStacksStarted { get; private set; }
+
+    /// <summary>How many derivations the sharpening layer has started (#1314 rule 7). For tests.</summary>
+    internal int DerivationsStarted => _derivation.Started;
+
+    /// <summary>The live view's rolling stack and the Best view's layer, for tests (#1314 part 2).</summary>
+    internal (LiveStackPreviewSource? Live, LiveStackPreviewSource? Best) ViewLayers => (_liveSource, _bestLayer);
 
     /// <summary>True while a best stack is running.</summary>
     public bool IsBestStackPending => _bestStackTask is { IsCompleted: false };
@@ -146,6 +170,7 @@ public sealed class ViewerController(
     /// </summary>
     public bool BestStackWantsFrame
         => state.BestStackRequested
+            || state.BestViewRequested
             || _bestStackNote is not null
             || _bestStackTask is { IsCompleted: true }
             || (_bestStackTask is not null && Volatile.Read(ref _bestStackPercent) / 100.0 != state.BestStackProgress);
@@ -165,7 +190,11 @@ public sealed class ViewerController(
     /// on, #1314) AND it has a master to show (otherwise the raw frame keeps showing while the first is built). For a still image this
     /// is the same object as <see cref="Document"/>; for a SER the raw source is a sequence source and <see cref="Document"/> is null.
     /// </summary>
-    public IPreviewSource? Source => state.SharpenLayerOnShow && _liveSource is { HasMaster: true } ? _liveSource : _rawSource;
+    public IPreviewSource? Source => BestOnShow ? _bestLayer : state.SharpenLayerOnShow && _liveSource is { HasMaster: true } ? _liveSource : _rawSource;
+
+    // The Best view is on show once it is chosen and its master is built (#1314 part 2); until then the view under it stays.
+    [System.Diagnostics.CodeAnalysis.MemberNotNullWhen(true, nameof(_bestLayer))]
+    private bool BestOnShow => state.ShowBest && state.IsSequence && _bestLayer is { HasMaster: true };
 
     /// <summary>
     /// The document on show, which a Save writes (#1314): the sharpening layer's master while it is on show, else the still opened.
@@ -287,6 +316,7 @@ public sealed class ViewerController(
                     // invalidate a comparison that is still valid for what is on screen.
                     state.NotifySourceReplaced();
                     state.ShowStacked = false; // a fresh file starts on the raw view (its stack has no master yet)
+                    state.ShowBest = false; // and its best stack, if it gets one, is its own (the render thread drops another capture's)
                     state.IsSequence = true;
                     // A capture that says which telescope took it (a TianWen recording's header, #1179) gives the Best stack its
                     // telescope; one that says none leaves the panel's own.
@@ -428,6 +458,7 @@ public sealed class ViewerController(
 
                 state.NotifySourceReplaced();
                 state.ShowStacked = false; // stacking is a sequence-only mode
+                state.ShowBest = false;
                 state.IsSequence = false;
                 state.IsPlaying = false;
                 state.FrameCount = 1;
@@ -1344,12 +1375,18 @@ public sealed class ViewerController(
     public bool TickBestStack(CancellationToken appToken = default)
     {
         var changed = false;
-        // Said once the master it opened is the document on screen and uploaded: the open and the upload each clear the status line.
-        if (_bestStackNote is { } note && !IsLoadPending && state.RequestedFilePath is null && !state.NeedsTextureUpdate
-            && Document is { } shown && string.Equals(shown.FilePath, note.Path, StringComparison.OrdinalIgnoreCase))
+        // Said once its Best view is on screen and uploaded (#1314 part 2): the upload clears the status line.
+        if (_bestStackNote is { } note && !state.NeedsTextureUpdate && BestOnShow
+            && string.Equals(_bestCapture, note.Path, StringComparison.OrdinalIgnoreCase))
         {
             _bestStackNote = null;
             state.StatusMessage = note.Message;
+            changed = true;
+        }
+        // Another capture's best stack is not this one's (#1314 part 2).
+        if (_bestCapture is not null && !string.Equals(_bestCapture, state.SequencePath, StringComparison.OrdinalIgnoreCase))
+        {
+            DropBestStack();
             changed = true;
         }
         if (state.BestStackRequested)
@@ -1360,13 +1397,23 @@ public sealed class ViewerController(
             {
                 _bestStackCts?.Cancel();
             }
-            else if (state.SequencePath is { } capture)
+            else if (state.SequencePath is null)
             {
-                StartBestStack(capture, appToken);
+                state.StatusMessage = "Best stack: open a SER capture first";
             }
             else
             {
-                state.StatusMessage = "Best stack: open a SER capture first";
+                state.ChoosePlanetaryView(PlanetaryView.Best);
+            }
+        }
+        if (state.BestViewRequested)
+        {
+            state.BestViewRequested = false;
+            changed = true;
+            // Shown at once where the capture has one; started where it has none and none runs (#1314 rule 7: a switch stacks nothing).
+            if (_bestLayer is null && _bestStackTask is not { IsCompleted: false } && state.SequencePath is { } capture)
+            {
+                StartBestStack(capture, appToken);
             }
         }
 
@@ -1396,8 +1443,15 @@ public sealed class ViewerController(
             state.StatusMessage = message;
             if (string.Equals(state.SequencePath, outcome.CapturePath, StringComparison.OrdinalIgnoreCase))
             {
-                state.RequestedFilePath = outcome.SharpenedPath;
-                _bestStackNote = (outcome.SharpenedPath, message);
+                // Shown behind the layer as the Best view (#1314 part 2), never opened as a file: the capture stays on screen. Said
+                // again once the view is on screen, whose upload clears the line.
+                AdoptBestStack(outcome);
+                _bestStackNote = (outcome.CapturePath, message);
+            }
+            else
+            {
+                outcome.Layer?.Master.Release();
+                outcome.Sharpened?.Release();
             }
         }
         else if (task.IsCanceled)
@@ -1419,8 +1473,14 @@ public sealed class ViewerController(
     {
         _bestStackCts = CancellationTokenSource.CreateLinkedTokenSource(appToken);
         var token = _bestStackCts.Token;
+        BestStacksStarted++;
         var options = new PlanetaryBestStackOptions(state.PlanetaryBody ?? PlanetaryCaptureName.Planet(capture),
-            PlanetaryBestStack.PupilFor(state.PlanetaryApertureMm, state.PlanetaryDesign)) { Strength = state.PlanetaryStrength };
+            PlanetaryBestStack.PupilFor(state.PlanetaryApertureMm, state.PlanetaryDesign))
+        {
+            Strength = state.PlanetaryStrength,
+            // Every stop the panel offers, fitted in the run, so the Best view switches them with no Derive (#1314 part 2).
+            FitStops = PlanetarySharpening.StrengthStops,
+        };
         var filterNm = state.PlanetaryFilterNm ?? PlanetaryCaptureName.WavelengthNm(capture);
         Volatile.Write(ref _bestStackPercent, 0);
         state.BestStackProgress = 0;
@@ -1440,18 +1500,29 @@ public sealed class ViewerController(
             // A filter is one wavelength for every channel, so only a mono capture takes it; a colour one is sharpened per channel.
             var runOptions = filterNm is { } nm && stream.Layout == PlanetaryFrameLayout.Mono ? options with { WavelengthsNm = [nm] } : options;
             var result = await PlanetaryBestStack.RunAsync(stream, runOptions, progress, token);
+            // The layer's master and, where there is no layer, the sharpened master are handed on to the render thread with the outcome.
+            var handedOn = false;
             try
             {
                 var (masterPath, sharpenedPath) = PlanetaryBestStack.OutputPaths(Path.GetDirectoryName(Path.GetFullPath(capture)) ?? ".",
                     Path.GetFileNameWithoutExtension(capture));
                 result.Stack.Master.WriteToFitsFile(masterPath, null, result.Balance?.HeaderCards());
                 result.Sharpened.WriteToFitsFile(sharpenedPath, null, result.Balance?.HeaderCards());
-                return new BestStackOutcome(sharpenedPath, result.Balance is null ? result.HowSharpened : $"{result.HowSharpened}; {result.HowBalanced}", capture);
+                handedOn = true;
+                return new BestStackOutcome(sharpenedPath, result.Balance is null ? result.HowSharpened : $"{result.HowSharpened}; {result.HowBalanced}", capture,
+                    result.Layer, result.Layer is null ? result.Sharpened : null);
             }
             finally
             {
                 result.Stack.Master.Release();
-                result.Sharpened.Release();
+                if (!handedOn || result.Layer is not null)
+                {
+                    result.Sharpened.Release();
+                }
+                if (!handedOn)
+                {
+                    result.Layer?.Master.Release();
+                }
             }
         }, token);
     }
@@ -1620,28 +1691,47 @@ public sealed class ViewerController(
 
         var rawPublished = _player.Tick(seq, state, _playbackClock.Elapsed.TotalSeconds);
 
+        // The Best view's layer builds and re-sharpens its one master (#1314 part 2); once it is on show the dials are its own, swapped
+        // with the live view's as it comes and goes, and the live stack stops following.
+        var masterPublished = false;
+        if (_bestLayer is { } best && state.ShowBest)
+        {
+            masterPublished = best.TryPublishMaster();
+            best.RequestFollow(0);
+        }
+        var bestOnShow = BestOnShow;
+        if (bestOnShow != _bestWasOnShow)
+        {
+            SwapDials(bestOnShow);
+            _bestWasOnShow = bestOnShow;
+            state.NeedsTextureUpdate = true;
+        }
+
         // Live rolling-window stack: consume any finished master first (so the just-completed result is
         // published before we kick the next one), then follow the current playhead. Only runs while the
         // stacked view is requested -- no CPU spent stacking when showing the raw frame.
-        var masterPublished = false;
-        if (_liveSource is { } live && state.ShowStacked)
+        LiveStackPreviewSource? sharpening = bestOnShow ? _bestLayer : state.ShowStacked ? _liveSource : null;
+        if (sharpening is not null)
         {
             // Push changed wavelet-sharpen params (null = off); the source re-sharpens the cached master
             // off-thread without re-stacking. Cheap no-op compare via the dirty flag, so this runs per tick.
             // A finished derivation seeds the sliders before their params are pushed; a Derive asked for starts one.
-            _derivation.Tick(state, live, state.SequencePath, timeProvider.GetUtcNow(), logger);
+            _derivation.Tick(state, sharpening, state.SequencePath, timeProvider.GetUtcNow(), logger);
             if (state.WaveletDirty)
             {
-                live.SetSharpen(state.BuildWaveletOptions(), state.WaveletLimb, state.PlanetaryLook);
+                sharpening.SetSharpen(state.BuildWaveletOptions(), state.WaveletLimb, state.PlanetaryLook);
                 state.WaveletDirty = false;
             }
-            masterPublished = live.TryPublishMaster();
-            live.RequestFollow(state.FrameIndex);
+            if (!bestOnShow)
+            {
+                masterPublished |= sharpening.TryPublishMaster();
+                sharpening.RequestFollow(state.FrameIndex);
+            }
         }
 
         // Upload whichever source is actually on screen. A raw frame advance only re-uploads when the raw
         // frame is shown; a new master always becomes the displayed image (it only publishes while stacked).
-        var showingStacked = state.ShowStacked && _liveSource is { HasMaster: true };
+        var showingStacked = bestOnShow || (state.ShowStacked && _liveSource is { HasMaster: true });
         if (rawPublished && !showingStacked)
         {
             state.NeedsTextureUpdate = true;
@@ -1658,7 +1748,72 @@ public sealed class ViewerController(
         // next mouse event (the "doesn't live adjust while paused" symptom). IsBusy self-clears on publish,
         // so this briefly spins for the ~task duration, then the loop idles again.
         return rawPublished || masterPublished || _player.SeekPending
-            || (state.ShowStacked && _liveSource is { IsBusy: true });
+            || (state.ShowStacked && _liveSource is { IsBusy: true }) || (state.ShowBest && _bestLayer is { IsBusy: true });
+    }
+
+    // The dials follow the view on show (#1314 part 2): the one leaving keeps what it had, the one coming takes what it kept, the Best
+    // view first the run's own derivation, and a derivation's dials take the stop the panel is on.
+    private void SwapDials(bool toBest)
+    {
+        var leaving = new ViewDials(state.WaveletGains, state.WaveletDerived, state.WaveletLimb, state.DerivedWaveletGains,
+            state.WaveletSharpenEnabled, state.WaveletDeriveNote);
+        if (toBest)
+        {
+            _liveDials = leaving;
+        }
+        else
+        {
+            _bestDials = leaving;
+        }
+        if ((toBest ? _bestDials : _liveDials) is { } coming)
+        {
+            (state.WaveletGains, state.WaveletDerived, state.WaveletLimb, state.DerivedWaveletGains, state.WaveletSharpenEnabled, state.WaveletDeriveNote) =
+                (coming.Gains, coming.Derived, coming.Limb, coming.DerivedGains, coming.Enabled, coming.Note);
+            if (coming.Derived)
+            {
+                state.ChooseStrength(state.PlanetaryStrength);
+            }
+        }
+        state.WaveletDirty = true;
+    }
+
+    // A best stack's master shown behind the layer, and the dials it opens with: the run's own derivation where its gains were derived
+    // (no Derive needed), else its sharpened master as written with the sharpening off (#1314 part 2).
+    private void AdoptBestStack(BestStackOutcome outcome)
+    {
+        DropBestStack();
+        var (master, derived) = outcome.Layer is { } layer ? (layer.Master, layer.Derived) : (outcome.Sharpened, null);
+        if (master is null)
+        {
+            return;
+        }
+        // A best stack names its planet (OBJECT), so it is shown in the planetary stretch, as opening it as a file did (StretchMode.ForFrame).
+        if (StretchMode.ForFrame(master.ImageMeta, StretchMode.None) is StretchMode.Planetary)
+        {
+            state.StretchMode = StretchMode.Planetary;
+        }
+        _bestLayer = new LiveStackPreviewSource(new FixedMaster(master), outcome.CapturePath, timeProvider, logger);
+        _bestCapture = outcome.CapturePath;
+        _bestDials = derived is { } d
+            ? new ViewDials(d.Gains, true, d.Limb, d, true, $"Gains {d.How}")
+            : new ViewDials(state.WaveletGains, false, null, null, false, null);
+    }
+
+    // The Best view's layer goes, disposed once nothing renders it, and with it its dials (another capture, or a new run).
+    private void DropBestStack()
+    {
+        if (_bestLayer is { } layer)
+        {
+            _bestLayer = null;
+            StashForDispose(layer);
+        }
+        if (_bestWasOnShow)
+        {
+            // Its dials leave with it: the live view's come back.
+            SwapDials(toBest: false);
+            _bestWasOnShow = false;
+        }
+        (_bestCapture, _bestDials) = (null, null);
     }
 
     // An enhance result or its revert is shown as it is: a planetary master's sharpening layer goes, disposed once nothing renders it
@@ -1790,6 +1945,10 @@ public sealed class ViewerController(
         if (_liveSource is { } live)
         {
             await live.DisposeAsync();
+        }
+        if (_bestLayer is { } best)
+        {
+            await best.DisposeAsync();
         }
     }
 }

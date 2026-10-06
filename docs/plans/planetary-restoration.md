@@ -4454,8 +4454,24 @@ header (`ViewerState.MasterPlanet`), a mono master's filter from its file's name
   (`ASaveWritesWhatIsOnShow`). A sharpen Derive started can still be in flight when a stop is pressed, so the tests wait for the layer to
   be idle, not for the next master, which may be the derivation's.
 
-**Still to come**: part 2, the Frames / Live / Best switch (rules 5 and 7). Best still opens its `_sharpened.fits`, which the layer
-shows as the file holds it.
+**A SER's view is one switch, Frames / Live / Best (part 2).** The transport's RAW / STACK toggle and the panel's Best stack button are
+one `ButtonGroup` (`ViewerState.ChoosePlanetaryView`, K between Frames and Live, Shift+K for Best and again to cancel a run). Best runs the
+whole capture through `PlanetaryBestStack` once, its progress on its own segment and the view under it on show until it ends, writes both
+masters beside the capture as before, and shows its master behind the same layer, the capture staying open. The run fits every stop
+(`PlanetaryBestStackOptions.FitStops`) and hands back the master as it sharpened it, before its colour balance, with its derivation
+(`PlanetaryBestStackResult.Layer`, `BestStackLayer`), so Best needs no Derive. Each view keeps its own dials, swapped as Best comes on and
+off show (`ViewerController.SwapDials`), and Best's result is kept for the capture, so switching back is instant. A live capture (the GUI's
+planetary tab) has no recording to stack whole, so its switch is Frames and Live.
+
+- **Rule 5 first failed, and the cause was the dials' ceiling**: at the truth Best matched the batch to 5e-7, at stop 1.5 it was 0.27 of the
+  disk's level off inside the limb, and a colour master was off even at the truth. The derived dials (`PlanetaryBestStack.SliderOptions`)
+  clamped every master at its own peak, where the derived sharpening keeps what it lifts past it (the batch reached 1.13 at 1.5 against a
+  ceiling of 1, and a colour master's 1.15 at the truth). They now hold the floor and drop the ceiling. Every stop then equals what
+  `planetary-stack --strength` writes, every channel, to 2.8e-6 of the disk's level inside the limb and 2.6e-8 outside
+  (`TheBestViewAtEachStopIsWhatPlanetaryStackWritesAtThatStrength`: mono at DPI 1 and 1.5, colour at DPI 1).
+- **Rule 7 holds, counted**: Live to Best and back twice, a stop each way, starts no best stack (one, the first), publishes no live stack
+  afresh and starts no derivation (`SwitchingViewsAndStopsStacksAndDerivesNothing`, DPI 1 and 1.5; the capture held at one frame, since a
+  capture opens playing and a live stack following a moving playhead is stacked again by right).
 
 ### The colour look (#1273)
 

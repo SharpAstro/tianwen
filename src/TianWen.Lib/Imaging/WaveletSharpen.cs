@@ -30,8 +30,8 @@ public sealed record WaveletSharpenOptions
     public bool Clamp { get; init; } = true;
 
     /// <summary>
-    /// Hold each channel's output at or above the source's darkest level, its <see cref="DarkestQuantile"/> (with
-    /// <see cref="Clamp"/>). A sharpening's undershoot below anything the stack recorded is ringing: the dark ring a planetary
+    /// Hold each channel's output at or above the source's darkest level, its <see cref="DarkestQuantile"/>, with or without
+    /// <see cref="Clamp"/>'s ceiling. A sharpening's undershoot below anything the stack recorded is ringing: the dark ring a planetary
     /// preset dug below the sky at the limb, which a floor at the sky stopped in every measured case (docs/plans/
     /// planetary-restoration.md, R8 follow-up 1). The darkest level rather than a sky estimate, so a disk that fills the
     /// frame (the Moon) loses nothing it recorded.
@@ -183,7 +183,7 @@ public static class WaveletSharpen
                 for (var c = 0; c < channels; c++)
                 {
                     // The darkest level read before the reconstruction overwrites the output plane, which doubles as scratch.
-                    var floor = options.Clamp && options.HoldAtDarkest ? MathF.Min(DarkestLevel(source.GetChannelSpan(c)), clampMax) : 0f;
+                    var floor = options.HoldAtDarkest ? MathF.Min(DarkestLevel(source.GetChannelSpan(c)), clampMax) : 0f;
                     var channelGains = c < options.ChannelGains.Length && !options.ChannelGains[c].IsDefaultOrEmpty ? options.ChannelGains[c].AsSpan() : gains;
                     ATrousWaveletTransform.DecomposeAndReconstructInto(
                         source.GetChannelSpan(c), w, h, channelGains, thresholds, data[c], c0, next, details);
@@ -193,6 +193,14 @@ public static class WaveletSharpen
                         for (var i = 0; i < dst.Length; i++)
                         {
                             dst[i] = Math.Clamp(dst[i], floor, clampMax);
+                        }
+                    }
+                    else if (options.HoldAtDarkest)
+                    {
+                        // The floor alone: a derived sharpening keeps what it lifts past the source's peak, as the batch does (#1314).
+                        for (var i = 0; i < dst.Length; i++)
+                        {
+                            dst[i] = MathF.Max(dst[i], floor);
                         }
                     }
                 }
